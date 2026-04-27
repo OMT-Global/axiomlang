@@ -2443,8 +2443,11 @@ print strlen("hello")
             "import \"std/time.ax\"\nlet start: Instant = now()\nlet pause: Duration = duration_ms(0)\nprint start.ms > 0\nprint now_ms() > 0\nprint sleep(pause) == 0\nlet elapsed: int = elapsed_ms(start)\nprint elapsed == elapsed\n",
         )
         .expect("write test");
-        fs::write(project.join("src/main_test.stdout"), "true\ntrue\ntrue\ntrue\n")
-            .expect("write golden");
+        fs::write(
+            project.join("src/main_test.stdout"),
+            "true\ntrue\ntrue\ntrue\n",
+        )
+        .expect("write golden");
 
         let built = build_project(&project).expect("build project");
         let output = compiled_binary_command(&built.binary)
@@ -3279,6 +3282,135 @@ print strlen("hello")
         fs::write(
             project.join("src/main.ax"),
             "import \"std/http.ax\"\nmatch get(\"http://127.0.0.1:1/\") {\nSome(_b) {\nprint true\n}\nNone {\nprint false\n}\n}\n",
+        )
+        .expect("write source");
+
+        let err = check_project(&project).expect_err("expected capability denial");
+        assert!(
+            err.message.contains("requires [capabilities].net = true"),
+            "unexpected diagnostic: {err:?}",
+        );
+    }
+
+    fn find_free_loopback_port() -> u16 {
+        std::net::TcpListener::bind("127.0.0.1:0")
+            .expect("bind loopback probe")
+            .local_addr()
+            .expect("probe local addr")
+            .port()
+    }
+
+    #[test]
+    fn stage1_stdlib_http_service_serves_one_request() {
+        use std::io::{Read, Write};
+        use std::net::TcpStream;
+        use std::thread;
+        use std::time::{Duration, Instant};
+
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("stdlib-http-service");
+        create_project(&project, Some("stdlib-http-service")).expect("create project");
+        fs::write(
+            project.join("axiom.toml"),
+            render_manifest_with_capabilities(
+                "stdlib-http-service",
+                false,
+                true,
+                false,
+                false,
+                false,
+                false,
+            ),
+        )
+        .expect("write manifest");
+        let manifest = load_manifest(&project).expect("load manifest");
+        fs::write(
+            project.join("axiom.lock"),
+            render_lockfile_for_project(&project, &manifest).expect("lockfile"),
+        )
+        .expect("write lockfile");
+        let port = find_free_loopback_port();
+        fs::write(
+            project.join("src/main.ax"),
+            format!(
+                r#"import "std/http.ax"
+print serve_once("127.0.0.1:{port}", "hello from axiom")
+"#
+            ),
+        )
+        .expect("write source");
+
+        let built = build_project(&project).expect("build project");
+        let child = compiled_binary_command(&built.binary)
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .expect("spawn compiled binary");
+
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let mut stream = loop {
+            match TcpStream::connect(("127.0.0.1", port)) {
+                Ok(stream) => break stream,
+                Err(err) if Instant::now() < deadline => {
+                    let _ = err;
+                    thread::sleep(Duration::from_millis(25));
+                }
+                Err(err) => panic!("server never became ready: {err}"),
+            }
+        };
+        stream
+            .write_all(b"GET / HTTP/1.0\r\nHost: 127.0.0.1\r\n\r\n")
+            .expect("write request");
+        let mut response = String::new();
+        stream.read_to_string(&mut response).expect("read response");
+        assert!(
+            response.starts_with("HTTP/1.0 200 OK\r\n"),
+            "unexpected response: {response:?}"
+        );
+        assert!(
+            response.contains("Content-Length: 16\r\n"),
+            "unexpected response headers: {response:?}"
+        );
+        assert!(
+            response.ends_with("hello from axiom"),
+            "unexpected response body: {response:?}"
+        );
+
+        let output = child.wait_with_output().expect("wait for server exit");
+        assert!(output.status.success(), "server process failed: {output:?}");
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "true\n");
+        assert_eq!(String::from_utf8_lossy(&output.stderr), "");
+    }
+
+    #[test]
+    fn stage1_project_rejects_stdlib_http_service_without_net_capability() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("stdlib-http-service-denied");
+        create_project(&project, Some("stdlib-http-service-denied")).expect("create project");
+        fs::write(
+            project.join("axiom.toml"),
+            render_manifest_with_capabilities(
+                "stdlib-http-service-denied",
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+            ),
+        )
+        .expect("write manifest");
+        let manifest = load_manifest(&project).expect("load manifest");
+        fs::write(
+            project.join("axiom.lock"),
+            render_lockfile_for_project(&project, &manifest).expect("lockfile"),
+        )
+        .expect("write lockfile");
+        fs::write(
+            project.join("src/main.ax"),
+            r#"import "std/http.ax"
+print serve_once("127.0.0.1:18080", "hello")
+"#,
         )
         .expect("write source");
 

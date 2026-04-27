@@ -40,6 +40,7 @@ pub fn render_rust_for_package_with_capabilities(
 ) -> String {
     let type_context = TypeContext::new(program);
     let uses_http_get = program_uses_call(program, "http_get");
+    let uses_http_serve_once = program_uses_call(program, "http_serve_once");
     let uses_ffi = program.functions.iter().any(|function| function.is_extern);
     let uses_ffi_cstring = program
         .functions
@@ -428,7 +429,7 @@ pub fn render_rust_for_package_with_capabilities(
     out.push_str("        .next()\n");
     out.push_str("        .map(|addr| addr.ip().to_string())\n");
     out.push_str("}\n\n");
-    if uses_http_get {
+    if uses_http_get || uses_http_serve_once {
         out.push_str(
             r#"#[allow(dead_code)]
 fn axiom_http_strip_crlf(value: &str) -> String {
@@ -833,6 +834,78 @@ fn axiom_http_get(url: String) -> Option<String> {
     axiom_http_read_response(&mut stream)
 }
 
+#[allow(dead_code)]
+fn axiom_http_read_request<R: std::io::Read>(reader: &mut R) -> Option<()> {
+    const MAX_HEADER_BYTES: usize = 64 * 1024;
+    let mut raw = Vec::new();
+    let mut buf = [0u8; 4096];
+    loop {
+        let n = reader.read(&mut buf).ok()?;
+        if n == 0 {
+            return None;
+        }
+        raw.extend_from_slice(&buf[..n]);
+        if raw.windows(4).any(|w| w == b"\r\n\r\n") {
+            return Some(());
+        }
+        if raw.len() > MAX_HEADER_BYTES {
+            return None;
+        }
+    }
+}
+
+#[allow(dead_code)]
+fn axiom_http_response(body: &str) -> Vec<u8> {
+    let body_bytes = body.as_bytes();
+    let headers = format!(
+        "HTTP/1.0 200 OK\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+        body_bytes.len()
+    );
+    let mut response = headers.into_bytes();
+    response.extend_from_slice(body_bytes);
+    response
+}
+
+#[allow(dead_code)]
+fn axiom_http_serve_once(bind: String, body: String) -> bool {
+    use std::io::Write;
+    use std::net::TcpListener;
+    use std::time::Duration;
+
+    let listener = match TcpListener::bind(bind.as_str()) {
+        Ok(listener) => listener,
+        Err(err) => {
+            axiom_runtime_report("net", &format!("http server bind failed: {err}"));
+            return false;
+        }
+    };
+    let (mut stream, _) = match listener.accept() {
+        Ok(pair) => pair,
+        Err(err) => {
+            axiom_runtime_report("net", &format!("http server accept failed: {err}"));
+            return false;
+        }
+    };
+    if stream.set_read_timeout(Some(Duration::from_secs(5))).is_err() {
+        axiom_runtime_report("net", "http server read timeout setup failed");
+        return false;
+    }
+    if stream.set_write_timeout(Some(Duration::from_secs(5))).is_err() {
+        axiom_runtime_report("net", "http server write timeout setup failed");
+        return false;
+    }
+    if axiom_http_read_request(&mut stream).is_none() {
+        axiom_runtime_report("net", "http server request read failed");
+        return false;
+    }
+    let response = axiom_http_response(body.as_str());
+    if stream.write_all(&response).is_err() {
+        axiom_runtime_report("net", "http server response write failed");
+        return false;
+    }
+    true
+}
+
 "#,
         );
     }
@@ -867,7 +940,9 @@ fn axiom_http_get(url: String) -> Option<String> {
     out.push_str("    if milliseconds < 0 {\n");
     out.push_str("        return -1;\n");
     out.push_str("    }\n");
-    out.push_str("    std::thread::sleep(std::time::Duration::from_millis(milliseconds as u64));\n");
+    out.push_str(
+        "    std::thread::sleep(std::time::Duration::from_millis(milliseconds as u64));\n",
+    );
     out.push_str("    0\n");
     out.push_str("}\n\n");
     out.push_str("#[allow(dead_code)]\n");
@@ -1799,6 +1874,13 @@ fn render_expr(expr: &Expr) -> String {
         }
         Expr::Call { name, args, .. } if name == "http_get" => {
             format!("axiom_http_get({})", render_expr(&args[0]))
+        }
+        Expr::Call { name, args, .. } if name == "http_serve_once" => {
+            format!(
+                "axiom_http_serve_once({}, {})",
+                render_expr(&args[0]),
+                render_expr(&args[1])
+            )
         }
         Expr::Call { name, args, .. } if name == "net_resolve" => {
             format!("axiom_net_resolve({})", render_expr(&args[0]))
