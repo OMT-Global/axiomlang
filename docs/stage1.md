@@ -71,6 +71,7 @@ cargo run --manifest-path stage1/Cargo.toml -p axiomc -- lsp
 contract, including generated Markdown/HTML paths, documented symbols, comments,
 signatures, simple example notes, declaration kind/visibility, and package
 capability descriptors when the input path is a package root.
+
 `axiomc new` defaults to the `cli` starter and also accepts `--template worker`
 and `--template service`. Each starter writes `axiom.toml`, `axiom.lock`,
 `src/main.ax`, `src/main_test.ax`, and `src/main_test.stdout`; the generated
