@@ -52,9 +52,13 @@ mod tests {
         clock: bool,
         crypto: bool,
     ) -> String {
-        format!(
+        let mut manifest = format!(
             "[package]\nname = {name:?}\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = {fs}\n\"fs:write\" = {fs}\nnet = {net}\nprocess = {process}\nenv = {env}\nclock = {clock}\ncrypto = {crypto}\nasync = false\n"
-        )
+        );
+        if env {
+            manifest.push_str("unsafe_rationale = \"test fixture uses legacy unrestricted env\"\n");
+        }
+        manifest
     }
 
     fn write_process_fixture(dir: &Path) -> String {
@@ -3107,6 +3111,55 @@ crypto = false
             .expect("env capability payload");
         assert!(env_payload["allowed"].is_null());
         assert_eq!(env_payload["unsafe_unrestricted"], true);
+    }
+
+    #[test]
+    fn unrestricted_env_requires_unsafe_rationale() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("caps-env-unrestricted");
+        create_project(&project, Some("caps-env-unrestricted-app")).expect("create project");
+        fs::write(
+            project.join("axiom.toml"),
+            "[package]\nname = \"caps-env-unrestricted-app\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nenv_unrestricted = true\n",
+        )
+        .expect("write manifest");
+
+        let error = load_manifest(&project).expect_err("unsafe rationale should be required");
+        assert_eq!(error.kind, "manifest");
+        assert!(
+            error
+                .message
+                .contains("capabilities.unsafe_rationale is required")
+        );
+    }
+
+    #[test]
+    fn unrestricted_env_rationale_is_reported_in_caps() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("caps-env-rationale");
+        create_project(&project, Some("caps-env-rationale-app")).expect("create project");
+        fs::write(
+            project.join("axiom.toml"),
+            "[package]\nname = \"caps-env-rationale-app\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nenv_unrestricted = true\nunsafe_rationale = \"migration reads audited CI variables\"\n",
+        )
+        .expect("write manifest");
+
+        let manifest = load_manifest(&project).expect("load manifest");
+        assert_eq!(
+            manifest.capabilities.unsafe_rationale.as_deref(),
+            Some("migration reads audited CI variables")
+        );
+        let caps = project_capabilities(&project).expect("project capabilities");
+        let env = caps
+            .iter()
+            .find(|cap| cap.name == "env")
+            .expect("env capability");
+        assert!(env.enabled);
+        assert!(env.unsafe_unrestricted);
+        assert_eq!(
+            env.unsafe_rationale.as_deref(),
+            Some("migration reads audited CI variables")
+        );
     }
 
     #[test]
