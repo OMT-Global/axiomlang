@@ -3077,6 +3077,34 @@ crypto = false
     }
 
     #[test]
+    fn capability_view_reports_unsafe_env_grants() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("caps-env-unrestricted");
+        create_project(&project, Some("caps-env-unrestricted-app")).expect("create project");
+        fs::write(
+            project.join("axiom.toml"),
+            "[package]\nname = \"caps-env-unrestricted-app\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nenv_unrestricted = true\n",
+        )
+        .expect("write manifest");
+
+        let manifest = load_manifest(&project).expect("load manifest");
+        assert_eq!(manifest.capabilities.warnings().len(), 1);
+        let caps = project_capabilities(&project).expect("project capabilities");
+        let env = caps
+            .iter()
+            .find(|cap| cap.name == "env")
+            .expect("env capability");
+        assert!(env.enabled);
+        assert!(env.allowed.is_empty());
+        assert!(env.unsafe_unrestricted);
+
+        let payload = json_contract::caps_success(&project, &caps);
+        assert_eq!(payload["capabilities"][3]["name"], "env");
+        assert!(payload["capabilities"][3]["allowed"].is_null());
+        assert_eq!(payload["capabilities"][3]["unsafe_unrestricted"], true);
+    }
+
+    #[test]
     fn check_project_rejects_extern_function_without_ffi_capability() {
         let dir = tempdir().expect("tempdir");
         let project = dir.path().join("ffi-denied");
@@ -3180,8 +3208,33 @@ print strlen("hello")
         assert!(
             error
                 .message
-                .contains("requires [capabilities].env = [\"NAME\"]")
+                .contains("requires [capabilities].env = [\"PATH\"]")
         );
+    }
+
+    #[test]
+    fn env_denial_diagnostic_names_allowlist_entry_without_env_value() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("env-denied-secret-safe");
+        create_project(&project, Some("env-denied-secret-safe-app")).expect("create project");
+        fs::write(
+            project.join("src/main.ax"),
+            "let value: Option<string> = env_get(\"AWS_SECRET_ACCESS_KEY\")\nprint \"never\"\n",
+        )
+        .expect("write source");
+
+        let error = check_project(&project).expect_err("env capability should be required");
+        let payload = json_contract::error("check", &error);
+        let payload = json_contract::to_pretty_string(&payload).expect("serialize error payload");
+        assert_eq!(error.kind, "capability");
+        assert!(
+            error
+                .message
+                .contains("requires [capabilities].env = [\"AWS_SECRET_ACCESS_KEY\"]")
+        );
+        assert!(payload.contains("AWS_SECRET_ACCESS_KEY"));
+        assert!(!error.message.contains("blocked-secret-value"));
+        assert!(!payload.contains("blocked-secret-value"));
     }
 
     #[test]
