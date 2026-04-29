@@ -2807,6 +2807,40 @@ crypto = false
     }
 
     #[test]
+    fn capability_view_includes_effective_fs_root_scope() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("caps-fs");
+        create_project(&project, Some("caps-fs-app")).expect("create project");
+        fs::create_dir_all(project.join("data")).expect("create fs root");
+        fs::write(
+            project.join("axiom.toml"),
+            "[package]\nname = \"caps-fs-app\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = true\nfs_root = \"data\"\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\nffi = false\n",
+        )
+        .expect("write manifest");
+
+        let caps = project_capabilities(&project).expect("project capabilities");
+        let fs_capability = caps
+            .iter()
+            .find(|cap| cap.name == "fs")
+            .expect("fs capability");
+        assert!(fs_capability.enabled);
+        assert_eq!(fs_capability.configured_root.as_deref(), Some("data"));
+        let canonical_data = fs::canonicalize(project.join("data"))
+            .expect("canonical fs root")
+            .to_string_lossy()
+            .into_owned();
+        assert_eq!(
+            fs_capability.effective_root.as_deref(),
+            Some(canonical_data.as_str())
+        );
+
+        let payload = json_contract::caps_success(&project, &caps);
+        assert_eq!(payload["capabilities"][0]["name"], "fs");
+        assert_eq!(payload["capabilities"][0]["configured_root"], "data");
+        assert_eq!(payload["capabilities"][0]["effective_root"], canonical_data);
+    }
+
+    #[test]
     fn check_project_rejects_extern_function_without_ffi_capability() {
         let dir = tempdir().expect("tempdir");
         let project = dir.path().join("ffi-denied");
