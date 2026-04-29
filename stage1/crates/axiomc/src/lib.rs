@@ -2804,6 +2804,40 @@ crypto = false
     }
 
     #[test]
+    fn publish_manifest_contract_validates_registry_metadata() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("publish-contract");
+        create_project(&project, Some("publish-contract-app")).expect("create project");
+        fs::write(
+            project.join("axiom.toml"),
+            format!(
+                "{}\n[publish]\nregistry = \"https://registry.example.test/index\"\nchecksum = \"sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\"\ninclude = [\"src\", \"axiom.toml\"]\n",
+                render_manifest("publish-contract-app")
+            ),
+        )
+        .expect("write publish manifest");
+
+        let manifest = load_manifest(&project).expect("load publish manifest");
+        assert_eq!(
+            manifest.publish.registry.as_deref(),
+            Some("https://registry.example.test/index")
+        );
+        assert_eq!(manifest.publish.include, vec!["src", "axiom.toml"]);
+
+        fs::write(
+            project.join("axiom.toml"),
+            format!(
+                "{}\n[publish]\nregistry = \"http://registry.example.test/index\"\nchecksum = \"sha256:not-a-real-checksum\"\n",
+                render_manifest("publish-contract-app")
+            ),
+        )
+        .expect("write invalid publish manifest");
+        let error = load_manifest(&project).expect_err("invalid registry should fail");
+        assert_eq!(error.kind, "manifest");
+        assert!(error.message.contains("publish.registry"));
+    }
+
+    #[test]
     fn dependency_package_must_enable_its_own_capabilities() {
         let dir = tempdir().expect("tempdir");
         let project = dir.path().join("dep-cap-root");

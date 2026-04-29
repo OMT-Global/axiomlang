@@ -2,7 +2,7 @@ use crate::diagnostics::Diagnostic;
 use crate::lockfile::render_lockfile;
 use crate::manifest::{
     BuildSection, CapabilityConfig, LOCK_FILENAME, MANIFEST_FILENAME, Manifest, PackageSection,
-    render_manifest,
+    PublishSection, render_manifest,
 };
 use std::collections::BTreeMap;
 use std::fs;
@@ -91,6 +91,7 @@ pub fn create_project_with_template(
         },
         tests: Vec::new(),
         capabilities: CapabilityConfig::default(),
+        publish: PublishSection::default(),
     };
     let lock_text = render_lockfile(&manifest)?;
     fs::write(path.join(LOCK_FILENAME), lock_text).map_err(|err| {

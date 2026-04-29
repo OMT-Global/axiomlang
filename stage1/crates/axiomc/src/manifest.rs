@@ -26,6 +26,7 @@ pub struct Manifest {
     pub build: BuildSection,
     pub tests: Vec<TestTarget>,
     pub capabilities: CapabilityConfig,
+    pub publish: PublishSection,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -91,6 +92,16 @@ pub enum TestKind {
     Property,
     Snapshot,
     Benchmark,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq, Default)]
+pub struct PublishSection {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub registry: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub checksum: Option<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub include: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq, Default)]
@@ -167,14 +178,6 @@ struct RawManifest {
 }
 
 #[derive(Debug, Deserialize)]
-struct RawPublishSection {
-    registry: Option<String>,
-    checksum: Option<String>,
-    include: Option<Vec<String>>,
-    exclude: Option<Vec<String>>,
-}
-
-#[derive(Debug, Deserialize)]
 struct RawPackageSection {
     name: Option<String>,
     version: Option<String>,
@@ -220,6 +223,13 @@ struct RawTestTarget {
     expected_error: Option<ExpectedDiagnostic>,
     capabilities: Option<Vec<CapabilityKind>>,
     package: Option<String>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct RawPublishSection {
+    registry: Option<String>,
+    checksum: Option<String>,
+    include: Option<Vec<String>>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -440,6 +450,7 @@ fn normalize_manifest(raw: RawManifest, path: &Path) -> Result<Manifest, Diagnos
     validate_relative_path(path, "build.out_dir", &out_dir)?;
     let dependencies = normalize_dependencies(raw.dependencies.unwrap_or_default(), path)?;
     let tests = normalize_tests(raw.tests.unwrap_or_default(), path)?;
+    let publish = normalize_publish(raw.publish.unwrap_or_default(), path)?;
     let capabilities = raw.capabilities.unwrap_or_default();
     let fs_root =
         normalize_optional_relative_path(path, "capabilities.fs_root", capabilities.fs_root)?;
@@ -489,6 +500,7 @@ fn normalize_manifest(raw: RawManifest, path: &Path) -> Result<Manifest, Diagnos
             owners,
             rationale,
         },
+        publish,
     })
 }
 
@@ -975,6 +987,78 @@ fn normalize_test_kind(
         )
         .with_path(path.display().to_string())),
     }
+
+fn normalize_publish(raw: RawPublishSection, path: &Path) -> Result<PublishSection, Diagnostic> {
+    let registry = match raw.registry {
+        Some(registry) => {
+            let registry = required_field(Some(registry), path, "publish.registry")?;
+            validate_registry_source(path, &registry)?;
+            Some(registry)
+        }
+        None => None,
+    };
+    let checksum = match raw.checksum {
+        Some(checksum) => {
+            let checksum = required_field(Some(checksum), path, "publish.checksum")?;
+            validate_sha256_checksum(path, &checksum)?;
+            Some(checksum)
+        }
+        None => None,
+    };
+    let mut include = Vec::new();
+    let mut seen = std::collections::BTreeSet::new();
+    for (index, value) in raw.include.unwrap_or_default().into_iter().enumerate() {
+        let field_name = format!("publish.include[{index}]");
+        let value = required_field(Some(value), path, &field_name)?;
+        validate_relative_path(path, &field_name, &value)?;
+        if !seen.insert(value.clone()) {
+            return Err(Diagnostic::new(
+                "manifest",
+                format!("duplicate publish include path {value:?}"),
+            )
+            .with_path(path.display().to_string()));
+        }
+        include.push(value);
+    }
+    Ok(PublishSection {
+        registry,
+        checksum,
+        include,
+    })
+}
+
+fn validate_registry_source(path: &Path, registry: &str) -> Result<(), Diagnostic> {
+    if registry.starts_with("https://") || registry.starts_with("file:") {
+        return Ok(());
+    }
+    Err(Diagnostic::new(
+        "manifest",
+        "publish.registry must be an https:// or file: registry source",
+    )
+    .with_path(path.display().to_string()))
+}
+
+fn validate_sha256_checksum(path: &Path, checksum: &str) -> Result<(), Diagnostic> {
+    let Some(hex) = checksum.strip_prefix("sha256:") else {
+        return Err(Diagnostic::new(
+            "manifest",
+            "publish.checksum must use sha256:<64 lowercase hex characters>",
+        )
+        .with_path(path.display().to_string()));
+    };
+    if hex.len() == 64
+        && hex
+            .chars()
+            .all(|ch| ch.is_ascii_digit() || ('a'..='f').contains(&ch))
+    {
+        return Ok(());
+    }
+    Err(Diagnostic::new(
+        "manifest",
+        "publish.checksum must use sha256:<64 lowercase hex characters>",
+    )
+    .with_path(path.display().to_string()))
+
 }
 
 fn normalize_optional_relative_path(
