@@ -137,6 +137,7 @@ status for the incremental generated-Rust cache.
 Parser diagnostics now preserve additional recovered top-level parse errors in
 the error payload's `related` array when possible, so editor tooling can show
 more than the first syntax error without waiting for full checker recovery.
+<<<<<<< HEAD
 `axiomc doctor --json` reports local `rustc` and `cargo` availability, the host
 target triple, lockfile status, package/workspace graph summary, manifest
 capabilities, and known unsupported feature buckets for agent preflight checks.
@@ -152,6 +153,8 @@ stage1 checker.
 Checked-in `check --json` contract fixtures live under
 `stage1/json-fixtures/check/` and cover success, parse, type, ownership, and
 capability-denial payloads.
+=======
+>>>>>>> 92610a2 (Publish build test caps JSON fixtures)
 Checked-in `build`, `test`, and `caps` JSON contract fixtures live under
 `stage1/json-fixtures/` and cover build target triples, build failures, test
 filters, duration fields, failing cases, and unsafe capability state.
