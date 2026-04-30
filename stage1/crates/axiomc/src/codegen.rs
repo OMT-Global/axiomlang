@@ -2750,6 +2750,12 @@ fn render_match_arm(
             } else {
                 format!("{}::{}(..)", arm.enum_name, arm.variant)
             }
+        } else if arm.enum_name == "Option" && arm.variant == "Some" {
+            String::from("Option::Some(_)")
+        } else if arm.enum_name == "Result" && arm.variant == "Ok" {
+            String::from("Result::Ok(_)")
+        } else if arm.enum_name == "Result" && arm.variant == "Err" {
+            String::from("Result::Err(_)")
         } else {
             format!("{}::{}", arm.enum_name, arm.variant)
         };

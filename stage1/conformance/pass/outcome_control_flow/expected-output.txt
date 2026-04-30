@@ -6,3 +6,6 @@ queued
 none
 built
 error
+picked
+fallback
+fallback

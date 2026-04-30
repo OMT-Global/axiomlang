@@ -60,3 +60,22 @@ print describe_iflet(maybe_job(true))
 print describe_iflet(maybe_job(false))
 print render_iflet(load_job(true))
 print render_iflet(load_job(false))
+
+enum IfLetFallbackConflict {
+Picked(int)
+Ignored { render_conflicting_iflet_fallback: int, label: string }
+Other(int)
+}
+
+fn render_conflicting_iflet_fallback(item: IfLetFallbackConflict): string {
+let __if_let_ignored_0: int = 42
+if let Picked(_value) = item {
+return "picked"
+} else {
+return "fallback"
+}
+}
+
+print render_conflicting_iflet_fallback(Picked(1))
+print render_conflicting_iflet_fallback(Ignored { render_conflicting_iflet_fallback: 2, label: "ignored" })
+print render_conflicting_iflet_fallback(Other(3))
