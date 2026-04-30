@@ -1084,6 +1084,32 @@ print fail()
     }
 
     #[test]
+    fn parser_lowers_numeric_tower_literals_and_casts() {
+        let source = "fn widen(value: u8): u32 {\nreturn value as u32\n}\n\nlet byte: u8 = 255u8\nlet word: u32 = widen(byte) + 1u32\nlet signed: i16 = -1i16\nlet big: i64 = signed as i64\nlet ratio: f64 = 3.5f64\nlet half: f32 = 0.5f32\nprint word as int\nprint big\n";
+        let parsed = parse_program(source, Path::new("main.ax")).expect("parse");
+        let hir = hir::lower(&parsed).expect("lower");
+        let mir = mir::lower(&hir);
+        let rendered = render_rust(&mir);
+        assert!(rendered.contains("fn widen(value: u8) -> u32 {"));
+        assert!(rendered.contains("return (value) as u32;"));
+        assert!(rendered.contains("let byte: u8 = 255u8;"));
+        assert!(rendered.contains("let word: u32 = widen(byte) + 1u32;"));
+        assert!(rendered.contains("let signed: i16 = -1i16;"));
+        assert!(rendered.contains("let big: i64 = (signed) as i64;"));
+        assert!(rendered.contains("let ratio: f64 = 3.5f64;"));
+        assert!(rendered.contains("let half: f32 = 0.5f32;"));
+        assert!(rendered.contains("println!(\"{}\", (word) as i64);"));
+    }
+
+    #[test]
+    fn checker_rejects_mixed_numeric_width_arithmetic_without_cast() {
+        let source = "let byte: u8 = 1u8\nlet word: u32 = 2u32\nlet bad: u32 = byte + word\n";
+        let parsed = parse_program(source, Path::new("main.ax")).expect("parse");
+        let error = hir::lower(&parsed).expect_err("mixed-width arithmetic should fail");
+        assert!(error.message.contains("matching numeric or string operands"));
+    }
+
+    #[test]
     fn parser_lowers_arrays_and_indexing() {
         let source = "fn answer(values: [int]): int {\nreturn values[1]\n}\n\nlet values: [int] = [40, 42]\nprint answer(values)\n";
         let parsed = parse_program(source, Path::new("main.ax")).expect("parse");

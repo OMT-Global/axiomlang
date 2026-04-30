@@ -2140,6 +2140,7 @@ fn expr_uses_call(expr: &Expr, name: &str) -> bool {
         Expr::BinaryAdd { lhs, rhs, .. } | Expr::BinaryCompare { lhs, rhs, .. } => {
             expr_uses_call(lhs, name) || expr_uses_call(rhs, name)
         }
+        Expr::Cast { expr, .. } => expr_uses_call(expr, name),
         Expr::Try { expr, .. }
         | Expr::Await { expr, .. }
         | Expr::FieldAccess { base: expr, .. } => expr_uses_call(expr, name),
@@ -2176,6 +2177,13 @@ struct TypeContext<'a> {
 }
 
 impl<'a> TypeContext<'a> {
+    fn empty() -> Self {
+        Self {
+            structs: HashMap::new(),
+            enums: HashMap::new(),
+        }
+    }
+
     fn new(program: &'a Program) -> Self {
         Self {
             structs: program
@@ -2210,7 +2218,12 @@ impl<'a> TypeContext<'a> {
         visiting_enums: &mut HashSet<String>,
     ) -> bool {
         match ty {
-            Type::Int | Type::Bool | Type::String | Type::Ptr(_) | Type::MutPtr(_) => false,
+            Type::Int
+            | Type::Numeric(_)
+            | Type::Bool
+            | Type::String
+            | Type::Ptr(_)
+            | Type::MutPtr(_) => false,
             Type::Slice(_) | Type::MutSlice(_) => true,
             Type::Struct(name) => {
                 if !visiting_structs.insert(name.clone()) {
@@ -2782,6 +2795,7 @@ fn render_source_marker(
 fn render_expr(expr: &Expr) -> String {
     match expr {
         Expr::Literal(LiteralValue::Int(value)) => value.to_string(),
+        Expr::Literal(LiteralValue::Numeric { raw, ty }) => format!("{raw}{}", ty.as_str()),
         Expr::Literal(LiteralValue::Bool(value)) => value.to_string(),
         Expr::Literal(LiteralValue::String(value)) => format!("String::from({value:?})"),
         Expr::VarRef { name, .. } if name == "self" => String::from("self_"),
@@ -3105,7 +3119,7 @@ fn render_expr(expr: &Expr) -> String {
             format!("{name}({rendered_args})")
         }
         Expr::BinaryAdd { lhs, rhs, ty } => match ty {
-            Type::Int => format!("{} + {}", render_expr(lhs), render_expr(rhs)),
+            Type::Int | Type::Numeric(_) => format!("{} + {}", render_expr(lhs), render_expr(rhs)),
             Type::String => format!(
                 "format!(\"{{}}{{}}\", {}, {})",
                 render_expr(lhs),
@@ -3130,6 +3144,11 @@ fn render_expr(expr: &Expr) -> String {
         Expr::BinaryCompare { op, lhs, rhs, .. } => {
             format!("{} {} {}", render_expr(lhs), op.lexeme(), render_expr(rhs))
         }
+        Expr::Cast { expr, ty } => format!(
+            "({}) as {}",
+            render_expr(expr),
+            rust_type(ty, &TypeContext::empty())
+        ),
         Expr::Try { expr, .. } => format!("({})?", render_expr(expr)),
         Expr::Await { expr, .. } => format!("axiom_await({})", render_expr(expr)),
         Expr::StructLiteral { name, fields, .. } => {
@@ -3309,6 +3328,7 @@ fn rust_type_in_signature(
 fn rust_type_inner(ty: &Type, lifetime: Option<&str>, type_context: &TypeContext<'_>) -> String {
     match ty {
         Type::Int => String::from("i64"),
+        Type::Numeric(numeric) => numeric.as_str().to_string(),
         Type::Bool => String::from("bool"),
         Type::String => String::from("String"),
         Type::Struct(name) => {

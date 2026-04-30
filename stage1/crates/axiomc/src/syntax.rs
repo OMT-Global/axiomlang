@@ -184,9 +184,67 @@ pub struct MatchArm {
     pub column: usize,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq, Hash)]
+pub enum NumericType {
+    I8,
+    I16,
+    I32,
+    I64,
+    Isize,
+    U8,
+    U16,
+    U32,
+    U64,
+    Usize,
+    F32,
+    F64,
+}
+
+impl NumericType {
+    pub fn parse(raw: &str) -> Option<Self> {
+        match raw {
+            "i8" => Some(Self::I8),
+            "i16" => Some(Self::I16),
+            "i32" => Some(Self::I32),
+            "i64" => Some(Self::I64),
+            "isize" => Some(Self::Isize),
+            "u8" => Some(Self::U8),
+            "u16" => Some(Self::U16),
+            "u32" => Some(Self::U32),
+            "u64" => Some(Self::U64),
+            "usize" => Some(Self::Usize),
+            "f32" => Some(Self::F32),
+            "f64" => Some(Self::F64),
+            _ => None,
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::I8 => "i8",
+            Self::I16 => "i16",
+            Self::I32 => "i32",
+            Self::I64 => "i64",
+            Self::Isize => "isize",
+            Self::U8 => "u8",
+            Self::U16 => "u16",
+            Self::U32 => "u32",
+            Self::U64 => "u64",
+            Self::Usize => "usize",
+            Self::F32 => "f32",
+            Self::F64 => "f64",
+        }
+    }
+
+    pub fn is_float(self) -> bool {
+        matches!(self, Self::F32 | Self::F64)
+    }
+}
+
 #[derive(Debug, Clone, Serialize, PartialEq, Eq, Hash)]
 pub enum TypeName {
     Int,
+    Numeric(NumericType),
     Bool,
     String,
     Named(String, Vec<TypeName>),
@@ -234,6 +292,12 @@ pub enum Expr {
         op: CompareOp,
         lhs: Box<Expr>,
         rhs: Box<Expr>,
+        line: usize,
+        column: usize,
+    },
+    Cast {
+        expr: Box<Expr>,
+        ty: TypeName,
         line: usize,
         column: usize,
     },
@@ -314,6 +378,7 @@ pub struct MapEntry {
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub enum Literal {
     Int(i64),
+    Numeric { raw: String, ty: NumericType },
     Bool(bool),
     String(String),
 }
@@ -2153,7 +2218,10 @@ fn parse_type_name(
         "int" => Ok(TypeName::Int),
         "bool" => Ok(TypeName::Bool),
         "string" => Ok(TypeName::String),
-        _ => {
+        name => {
+            if let Some(numeric) = NumericType::parse(name) {
+                return Ok(TypeName::Numeric(numeric));
+            }
             validate_ident(raw, path, line_no, column)?;
             Ok(TypeName::Named(raw.to_string(), Vec::new()))
         }
@@ -2162,6 +2230,23 @@ fn parse_type_name(
 
 fn parse_expr(raw: &str, path: &Path, line_no: usize, column: usize) -> Result<Expr, Diagnostic> {
     let raw = raw.trim();
+    if let Some(split_index) = find_top_level_as(raw) {
+        let lhs_raw = raw[..split_index].trim();
+        let ty_raw = raw[split_index + 4..].trim();
+        if lhs_raw.is_empty() || ty_raw.is_empty() {
+            return Err(
+                Diagnostic::new("parse", "cast expression must use `expr as Type` syntax")
+                    .with_path(path.display().to_string())
+                    .with_span(line_no, column),
+            );
+        }
+        return Ok(Expr::Cast {
+            expr: Box::new(parse_expr(lhs_raw, path, line_no, column)?),
+            ty: parse_type_name(ty_raw, path, line_no, column + split_index + 5)?,
+            line: line_no,
+            column,
+        });
+    }
     if let Some((op, split_index)) = find_compare_operator(raw) {
         let lhs_raw = raw[..split_index].trim();
         let rhs_offset = split_index + op.lexeme().len();
@@ -2207,6 +2292,10 @@ fn parse_term(raw: &str, path: &Path, line_no: usize, column: usize) -> Result<E
         return Err(Diagnostic::new("parse", "expression is empty")
             .with_path(path.display().to_string())
             .with_span(line_no, column));
+    }
+
+    if let Some(literal) = parse_numeric_literal(raw) {
+        return Ok(Expr::Literal(literal));
     }
     if raw.ends_with('?') {
         let inner = raw[..raw.len() - 1].trim_end();
@@ -2436,6 +2525,61 @@ fn parse_term(raw: &str, path: &Path, line_no: usize, column: usize) -> Result<E
         line: line_no,
         column,
     })
+}
+
+fn parse_numeric_literal(raw: &str) -> Option<Literal> {
+    for suffix in [
+        "isize", "usize", "i8", "i16", "i32", "i64", "u8", "u16", "u32", "u64", "f32", "f64",
+    ] {
+        let Some(number) = raw.strip_suffix(suffix) else {
+            continue;
+        };
+        if number.is_empty() || number == "." {
+            return None;
+        }
+        let ty = NumericType::parse(suffix)?;
+        let valid = if ty.is_float() {
+            number.parse::<f64>().is_ok()
+        } else {
+            number.parse::<u128>().is_ok()
+                || (number.starts_with('-') && number[1..].parse::<u128>().is_ok())
+        };
+        if valid {
+            return Some(Literal::Numeric {
+                raw: number.to_string(),
+                ty,
+            });
+        }
+    }
+    None
+}
+
+fn find_top_level_as(raw: &str) -> Option<usize> {
+    let mut paren = 0usize;
+    let mut square = 0usize;
+    let mut brace = 0usize;
+    let mut angle = 0usize;
+    let bytes = raw.as_bytes();
+    let mut index = 0usize;
+    while index + 4 <= bytes.len() {
+        match bytes[index] as char {
+            '(' => paren += 1,
+            ')' => paren = paren.saturating_sub(1),
+            '[' => square += 1,
+            ']' => square = square.saturating_sub(1),
+            '{' => brace += 1,
+            '}' => brace = brace.saturating_sub(1),
+            '<' => angle += 1,
+            '>' => angle = angle.saturating_sub(1),
+            _ => {}
+        }
+        if paren == 0 && square == 0 && brace == 0 && angle == 0 && raw[index..].starts_with(" as ")
+        {
+            return Some(index);
+        }
+        index += 1;
+    }
+    None
 }
 
 fn parse_function_name<'a>(

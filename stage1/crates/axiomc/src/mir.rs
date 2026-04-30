@@ -1,4 +1,4 @@
-use crate::hir;
+use crate::{hir, syntax};
 use serde::Serialize;
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -143,6 +143,10 @@ pub enum Expr {
         rhs: Box<Expr>,
         ty: Type,
     },
+    Cast {
+        expr: Box<Expr>,
+        ty: Type,
+    },
     Try {
         expr: Box<Expr>,
         ty: Type,
@@ -201,6 +205,10 @@ pub enum Expr {
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub enum LiteralValue {
     Int(i64),
+    Numeric {
+        raw: String,
+        ty: syntax::NumericType,
+    },
     Bool(bool),
     String(String),
 }
@@ -218,6 +226,7 @@ pub enum CompareOp {
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub enum Type {
     Int,
+    Numeric(syntax::NumericType),
     Bool,
     String,
     Struct(String),
@@ -240,7 +249,12 @@ pub enum Type {
 impl Type {
     pub fn is_copy(&self) -> bool {
         match self {
-            Type::Int | Type::Bool | Type::Ptr(_) | Type::MutPtr(_) | Type::Slice(_) => true,
+            Type::Int
+            | Type::Numeric(_)
+            | Type::Bool
+            | Type::Ptr(_)
+            | Type::MutPtr(_)
+            | Type::Slice(_) => true,
             Type::MutSlice(_) => false,
             Type::Option(inner) => inner.is_copy(),
             Type::Result(ok, err) => ok.is_copy() && err.is_copy(),
@@ -288,12 +302,14 @@ impl Expr {
     pub fn ty(&self) -> Type {
         match self {
             Expr::Literal(LiteralValue::Int(_)) => Type::Int,
+            Expr::Literal(LiteralValue::Numeric { ty, .. }) => Type::Numeric(*ty),
             Expr::Literal(LiteralValue::Bool(_)) => Type::Bool,
             Expr::Literal(LiteralValue::String(_)) => Type::String,
             Expr::VarRef { ty, .. } => ty.clone(),
             Expr::Call { ty, .. } => ty.clone(),
             Expr::BinaryAdd { ty, .. } => ty.clone(),
             Expr::BinaryCompare { ty, .. } => ty.clone(),
+            Expr::Cast { ty, .. } => ty.clone(),
             Expr::Try { ty, .. } => ty.clone(),
             Expr::Await { ty, .. } => ty.clone(),
             Expr::StructLiteral { ty, .. } => ty.clone(),
@@ -465,6 +481,10 @@ fn lower_expr(expr: &hir::Expr) -> Expr {
     match expr {
         hir::Expr::Literal { value, .. } => Expr::Literal(match value {
             hir::LiteralValue::Int(value) => LiteralValue::Int(*value),
+            hir::LiteralValue::Numeric { raw, ty } => LiteralValue::Numeric {
+                raw: raw.clone(),
+                ty: *ty,
+            },
             hir::LiteralValue::Bool(value) => LiteralValue::Bool(*value),
             hir::LiteralValue::String(value) => LiteralValue::String(value.clone()),
         }),
@@ -486,6 +506,10 @@ fn lower_expr(expr: &hir::Expr) -> Expr {
             op: lower_compare_op(*op),
             lhs: Box::new(lower_expr(lhs)),
             rhs: Box::new(lower_expr(rhs)),
+            ty: lower_type(ty),
+        },
+        hir::Expr::Cast { expr, ty } => Expr::Cast {
+            expr: Box::new(lower_expr(expr)),
             ty: lower_type(ty),
         },
         hir::Expr::Try { expr, ty } => Expr::Try {
@@ -571,6 +595,7 @@ fn lower_type(ty: &hir::Type) -> Type {
     match ty {
         hir::Type::Error => unreachable!("type-error sentinel must not reach MIR lowering"),
         hir::Type::Int => Type::Int,
+        hir::Type::Numeric(numeric) => Type::Numeric(*numeric),
         hir::Type::Bool => Type::Bool,
         hir::Type::String => Type::String,
         hir::Type::Struct(name) => Type::Struct(name.clone()),
