@@ -520,6 +520,22 @@ fn collect_stmt_calls(stmt: &syntax::Stmt, calls: &mut VecDeque<String>) {
                 }
             }
         }
+        syntax::Stmt::IfLet {
+            expr,
+            then_block,
+            else_block,
+            ..
+        } => {
+            collect_expr_calls(expr, calls);
+            for stmt in then_block {
+                collect_stmt_calls(stmt, calls);
+            }
+            if let Some(else_block) = else_block {
+                for stmt in else_block {
+                    collect_stmt_calls(stmt, calls);
+                }
+            }
+        }
         syntax::Stmt::While { cond, body, .. } => {
             collect_expr_calls(cond, calls);
             for stmt in body {
@@ -2493,6 +2509,58 @@ fn rewrite_stmt_aggregate_types(
             line: *line,
             column: *column,
         },
+        syntax::Stmt::IfLet {
+            variant,
+            bindings,
+            is_named,
+            expr,
+            then_block,
+            else_block,
+            line,
+            column,
+        } => syntax::Stmt::IfLet {
+            variant: variant.clone(),
+            bindings: bindings.clone(),
+            is_named: *is_named,
+            expr: rewrite_expr_aggregate_types(
+                expr,
+                generic_structs,
+                generic_enums,
+                queue,
+                queued,
+            )?,
+            then_block: then_block
+                .iter()
+                .map(|stmt| {
+                    rewrite_stmt_aggregate_types(
+                        stmt,
+                        generic_structs,
+                        generic_enums,
+                        queue,
+                        queued,
+                    )
+                })
+                .collect::<Result<Vec<_>, _>>()?,
+            else_block: else_block
+                .as_ref()
+                .map(|block| {
+                    block
+                        .iter()
+                        .map(|stmt| {
+                            rewrite_stmt_aggregate_types(
+                                stmt,
+                                generic_structs,
+                                generic_enums,
+                                queue,
+                                queued,
+                            )
+                        })
+                        .collect::<Result<Vec<_>, _>>()
+                })
+                .transpose()?,
+            line: *line,
+            column: *column,
+        },
         syntax::Stmt::While {
             cond,
             body,
@@ -3024,6 +3092,58 @@ fn rewrite_stmt_generic_calls(
         } => syntax::Stmt::If {
             cond: rewrite_expr_generic_calls(
                 cond,
+                type_bindings,
+                generic_functions,
+                queue,
+                queued,
+            )?,
+            then_block: then_block
+                .iter()
+                .map(|stmt| {
+                    rewrite_stmt_generic_calls(
+                        stmt,
+                        type_bindings,
+                        generic_functions,
+                        queue,
+                        queued,
+                    )
+                })
+                .collect::<Result<Vec<_>, _>>()?,
+            else_block: else_block
+                .as_ref()
+                .map(|block| {
+                    block
+                        .iter()
+                        .map(|stmt| {
+                            rewrite_stmt_generic_calls(
+                                stmt,
+                                type_bindings,
+                                generic_functions,
+                                queue,
+                                queued,
+                            )
+                        })
+                        .collect::<Result<Vec<_>, _>>()
+                })
+                .transpose()?,
+            line: *line,
+            column: *column,
+        },
+        syntax::Stmt::IfLet {
+            variant,
+            bindings,
+            is_named,
+            expr,
+            then_block,
+            else_block,
+            line,
+            column,
+        } => syntax::Stmt::IfLet {
+            variant: variant.clone(),
+            bindings: bindings.clone(),
+            is_named: *is_named,
+            expr: rewrite_expr_generic_calls(
+                expr,
                 type_bindings,
                 generic_functions,
                 queue,
@@ -4623,6 +4743,119 @@ fn lower_stmt(
                     column: *column,
                 },
             })
+        }
+        syntax::Stmt::IfLet {
+            variant,
+            bindings,
+            is_named,
+            expr,
+            then_block,
+            else_block,
+            line,
+            column,
+        } => {
+            let mut probe_env = env.clone();
+            let lowered_expr = lower_expr(expr, &mut probe_env, ctx)?;
+            let (_, variant_defs) = match_variants(lowered_expr.ty(), ctx).ok_or_else(|| {
+                Diagnostic::new(
+                    "type",
+                    format!(
+                        "if let expects an enum-like value, got {}",
+                        lowered_expr.ty()
+                    ),
+                )
+                .with_span(*line, *column)
+            })?;
+            let variant_def = variant_defs
+                .iter()
+                .find(|candidate| candidate.name == *variant)
+                .ok_or_else(|| {
+                    Diagnostic::new(
+                        "type",
+                        message_with_suggestion(
+                            format!("if let pattern has no variant {:?}", variant),
+                            variant,
+                            variant_defs.iter().map(|candidate| candidate.name.as_str()),
+                        ),
+                    )
+                    .with_span(*line, *column)
+                })?;
+            if *is_named && variant_def.payload_names.is_empty() {
+                return Err(Diagnostic::new(
+                    "type",
+                    format!(
+                        "if let pattern {:?} uses named bindings, but variant {:?} is positional",
+                        variant, variant
+                    ),
+                )
+                .with_span(*line, *column));
+            }
+            if !*is_named && !variant_def.payload_names.is_empty() {
+                return Err(Diagnostic::new(
+                    "type",
+                    format!(
+                        "if let pattern {:?} must use named bindings for variant {:?}",
+                        variant, variant
+                    ),
+                )
+                .with_span(*line, *column));
+            }
+            let expected_bindings = if *is_named {
+                variant_def.payload_names.len()
+            } else {
+                variant_def.payload_tys.len()
+            };
+            if bindings.len() != expected_bindings {
+                return Err(Diagnostic::new(
+                    "type",
+                    format!(
+                        "if let pattern {:?} expects {} bindings, got {}",
+                        variant,
+                        expected_bindings,
+                        bindings.len()
+                    ),
+                )
+                .with_span(*line, *column));
+            }
+            let mut arms = Vec::new();
+            arms.push(syntax::MatchArm {
+                variant: variant.clone(),
+                bindings: bindings.clone(),
+                is_named: *is_named,
+                body: then_block.clone(),
+                line: *line,
+                column: *column,
+            });
+            let fallback_body = else_block.clone().unwrap_or_default();
+            for candidate in variant_defs {
+                if candidate.name != *variant {
+                    let (bindings, is_named) = if candidate.payload_names.is_empty() {
+                        (
+                            (0..candidate.payload_tys.len())
+                                .map(|index| format!("__if_let_ignored_{index}"))
+                                .collect(),
+                            false,
+                        )
+                    } else {
+                        (candidate.payload_names.clone(), true)
+                    };
+                    arms.push(syntax::MatchArm {
+                        variant: candidate.name.clone(),
+                        bindings,
+                        is_named,
+                        body: fallback_body.clone(),
+                        line: *line,
+                        column: *column,
+                    });
+                }
+            }
+            let synthetic = syntax::Stmt::Match {
+                expr: expr.clone(),
+                arms,
+                line: *line,
+                column: *column,
+            };
+            lower_stmt(&synthetic, env, ctx)
         }
         syntax::Stmt::Match {
             expr,
@@ -9152,6 +9385,7 @@ impl syntax::Stmt {
             | syntax::Stmt::Panic { line, .. }
             | syntax::Stmt::Defer { line, .. }
             | syntax::Stmt::If { line, .. }
+            | syntax::Stmt::IfLet { line, .. }
             | syntax::Stmt::While { line, .. }
             | syntax::Stmt::Match { line, .. }
             | syntax::Stmt::Return { line, .. } => *line,
@@ -9165,6 +9399,7 @@ impl syntax::Stmt {
             | syntax::Stmt::Panic { column, .. }
             | syntax::Stmt::Defer { column, .. }
             | syntax::Stmt::If { column, .. }
+            | syntax::Stmt::IfLet { column, .. }
             | syntax::Stmt::While { column, .. }
             | syntax::Stmt::Match { column, .. }
             | syntax::Stmt::Return { column, .. } => *column,

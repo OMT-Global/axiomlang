@@ -2,3 +2,7 @@ queued
 none
 built
 boom
+queued
+none
+built
+error

@@ -40,3 +40,23 @@ print describe(maybe_job(true))
 print describe(maybe_job(false))
 print render(load_job(true))
 print render(load_job(false))
+
+fn describe_iflet(job: Option<Job>): string {
+if let Some(info) = job {
+return info.label
+}
+return "none"
+}
+
+fn render_iflet(result: Result<Job, string>): string {
+if let Ok(info) = result {
+return info.label
+} else {
+return "error"
+}
+}
+
+print describe_iflet(maybe_job(true))
+print describe_iflet(maybe_job(false))
+print render_iflet(load_job(true))
+print render_iflet(load_job(false))

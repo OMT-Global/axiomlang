@@ -155,6 +155,16 @@ pub enum Stmt {
         line: usize,
         column: usize,
     },
+    IfLet {
+        variant: String,
+        bindings: Vec<String>,
+        is_named: bool,
+        expr: Expr,
+        then_block: Vec<Stmt>,
+        else_block: Option<Vec<Stmt>>,
+        line: usize,
+        column: usize,
+    },
     While {
         cond: Expr,
         body: Vec<Stmt>,
@@ -1703,6 +1713,9 @@ fn parse_if_stmt(lines: &[&str], index: &mut usize, path: &Path) -> Result<Stmt,
                 .with_path(path.display().to_string())
                 .with_span(line_no, 1)
         })?;
+    if let Some(pattern_raw) = cond_raw.strip_prefix("let ") {
+        return parse_if_let_stmt(lines, index, path, line_no, pattern_raw);
+    }
     let cond = parse_expr(cond_raw, path, line_no, 4)?;
     *index += 1;
     let then_block = parse_stmt_list(lines, index, path)?;
@@ -1729,6 +1742,137 @@ fn parse_if_stmt(lines: &[&str], index: &mut usize, path: &Path) -> Result<Stmt,
         line: line_no,
         column: 1,
     })
+}
+
+fn parse_if_let_stmt(
+    lines: &[&str],
+    index: &mut usize,
+    path: &Path,
+    line_no: usize,
+    pattern_raw: &str,
+) -> Result<Stmt, Diagnostic> {
+    let equals = find_top_level_char(pattern_raw, '=').ok_or_else(|| {
+        Diagnostic::new(
+            "parse",
+            "if let statement must use `if let <Variant>(...) = <expr> {` syntax",
+        )
+        .with_path(path.display().to_string())
+        .with_span(line_no, 4)
+    })?;
+    let pattern = pattern_raw[..equals].trim();
+    let expr_raw = pattern_raw[equals + 1..].trim();
+    if pattern.is_empty() || expr_raw.is_empty() {
+        return Err(Diagnostic::new(
+            "parse",
+            "if let statement must include both a pattern and an expression",
+        )
+        .with_path(path.display().to_string())
+        .with_span(line_no, 4));
+    }
+    let (variant, bindings, is_named) = parse_match_pattern(pattern, path, line_no)?;
+    let expr = parse_expr(expr_raw, path, line_no, 4 + equals + 1)?;
+    *index += 1;
+    let then_block = parse_stmt_list(lines, index, path)?;
+    skip_blank_lines(lines, index);
+    let else_block = if *index < lines.len() {
+        match lines[*index].trim() {
+            "} else {" => {
+                *index += 1;
+                Some(parse_stmt_list(lines, index, path)?)
+            }
+            "else {" => {
+                *index += 1;
+                Some(parse_stmt_list(lines, index, path)?)
+            }
+            _ => None,
+        }
+    } else {
+        None
+    };
+    Ok(Stmt::IfLet {
+        variant,
+        bindings,
+        is_named,
+        expr,
+        then_block,
+        else_block,
+        line: line_no,
+        column: 1,
+    })
+}
+
+fn parse_match_pattern(
+    pattern: &str,
+    path: &Path,
+    line_no: usize,
+) -> Result<(String, Vec<String>, bool), Diagnostic> {
+    if pattern.starts_with('(') {
+        return Err(
+            Diagnostic::new("parse", "nested match patterns are not supported yet")
+                .with_path(path.display().to_string())
+                .with_span(line_no, 1),
+        );
+    }
+    if pattern.ends_with('}')
+        && let Some(open_brace) = find_top_level_char(pattern, '{')
+        && matches!(find_matching_brace(pattern, open_brace), Some(close) if close == pattern.len() - 1)
+    {
+        let name = pattern[..open_brace].trim();
+        validate_ident(name, path, line_no, 1)?;
+        let bindings_raw = &pattern[open_brace + 1..pattern.len() - 1];
+        let bindings = parse_match_bindings(bindings_raw, open_brace, path, line_no)?;
+        Ok((name.to_string(), bindings, true))
+    } else if pattern.ends_with(')')
+        && let Some(open_paren) = find_top_level_char(pattern, '(')
+        && matches!(find_matching_paren(pattern, open_paren), Some(close) if close == pattern.len() - 1)
+    {
+        let name = pattern[..open_paren].trim();
+        validate_ident(name, path, line_no, 1)?;
+        let bindings_raw = &pattern[open_paren + 1..pattern.len() - 1];
+        let bindings = parse_match_bindings(bindings_raw, open_paren, path, line_no)?;
+        Ok((name.to_string(), bindings, false))
+    } else {
+        validate_ident(pattern, path, line_no, 1)?;
+        Ok((pattern.to_string(), Vec::new(), false))
+    }
+}
+
+fn parse_match_bindings(
+    bindings_raw: &str,
+    open_delim: usize,
+    path: &Path,
+    line_no: usize,
+) -> Result<Vec<String>, Diagnostic> {
+    if bindings_raw.trim().is_empty() {
+        return Err(Diagnostic::new("parse", "match arm binding is empty")
+            .with_path(path.display().to_string())
+            .with_span(line_no, open_delim + 2));
+    }
+    split_top_level_with_offsets(bindings_raw, ',')
+        .into_iter()
+        .map(|(binding_offset, raw_binding)| {
+            let binding = raw_binding.trim();
+            let leading_ws = raw_binding
+                .len()
+                .saturating_sub(raw_binding.trim_start().len());
+            let binding_column = open_delim + 2 + binding_offset + leading_ws;
+            if binding.is_empty() {
+                return Err(Diagnostic::new("parse", "match arm binding is empty")
+                    .with_path(path.display().to_string())
+                    .with_span(line_no, binding_column));
+            }
+            if let Some(nested_offset) = find_nested_match_pattern_offset(binding) {
+                return Err(Diagnostic::new(
+                    "parse",
+                    "nested match patterns are not supported yet",
+                )
+                .with_path(path.display().to_string())
+                .with_span(line_no, binding_column + nested_offset));
+            }
+            validate_ident(binding, path, line_no, binding_column)?;
+            Ok(binding.to_string())
+        })
+        .collect()
 }
 
 fn parse_while_stmt(lines: &[&str], index: &mut usize, path: &Path) -> Result<Stmt, Diagnostic> {

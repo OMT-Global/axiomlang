@@ -1992,6 +1992,22 @@ fn validate_stmt_capabilities(
                 }
             }
         }
+        syntax::Stmt::IfLet {
+            expr,
+            then_block,
+            else_block,
+            ..
+        } => {
+            validate_expr_capabilities(module_path, expr, capabilities)?;
+            for stmt in then_block {
+                validate_stmt_capabilities(module_path, stmt, capabilities)?;
+            }
+            if let Some(else_block) = else_block {
+                for stmt in else_block {
+                    validate_stmt_capabilities(module_path, stmt, capabilities)?;
+                }
+            }
+        }
         syntax::Stmt::While { cond, body, .. } => {
             validate_expr_capabilities(module_path, cond, capabilities)?;
             for stmt in body {
@@ -3107,6 +3123,70 @@ fn rewrite_stmt(
         } => syntax::Stmt::If {
             cond: rewrite_expr(
                 cond,
+                visible_functions,
+                visible_consts,
+                visible_structs,
+                visible_types,
+                private_imported,
+                private_imported_consts,
+                private_imported_types,
+                module_path,
+            )?,
+            then_block: then_block
+                .iter()
+                .map(|stmt| {
+                    rewrite_stmt(
+                        stmt,
+                        visible_functions,
+                        visible_consts,
+                        visible_structs,
+                        visible_types,
+                        private_imported,
+                        private_imported_consts,
+                        private_imported_types,
+                        module_path,
+                    )
+                })
+                .collect::<Result<Vec<_>, _>>()?,
+            else_block: else_block
+                .as_ref()
+                .map(|block| {
+                    block
+                        .iter()
+                        .map(|stmt| {
+                            rewrite_stmt(
+                                stmt,
+                                visible_functions,
+                                visible_consts,
+                                visible_structs,
+                                visible_types,
+                                private_imported,
+                                private_imported_consts,
+                                private_imported_types,
+                                module_path,
+                            )
+                        })
+                        .collect::<Result<Vec<_>, _>>()
+                })
+                .transpose()?,
+            line: *line,
+            column: *column,
+        },
+        syntax::Stmt::IfLet {
+            variant,
+            bindings,
+            is_named,
+            expr,
+            then_block,
+            else_block,
+            line,
+            column,
+        } => syntax::Stmt::IfLet {
+            variant: variant.clone(),
+            bindings: bindings.clone(),
+            is_named: *is_named,
+            expr: rewrite_expr(
+                expr,
                 visible_functions,
                 visible_consts,
                 visible_structs,
@@ -4450,6 +4530,7 @@ fn stmt_line(stmt: &syntax::Stmt) -> usize {
         | syntax::Stmt::Panic { line, .. }
         | syntax::Stmt::Defer { line, .. }
         | syntax::Stmt::If { line, .. }
+        | syntax::Stmt::IfLet { line, .. }
         | syntax::Stmt::While { line, .. }
         | syntax::Stmt::Match { line, .. }
         | syntax::Stmt::Return { line, .. } => *line,
@@ -4463,6 +4544,7 @@ fn stmt_column(stmt: &syntax::Stmt) -> usize {
         | syntax::Stmt::Panic { column, .. }
         | syntax::Stmt::Defer { column, .. }
         | syntax::Stmt::If { column, .. }
+        | syntax::Stmt::IfLet { column, .. }
         | syntax::Stmt::While { column, .. }
         | syntax::Stmt::Match { column, .. }
         | syntax::Stmt::Return { column, .. } => *column,
