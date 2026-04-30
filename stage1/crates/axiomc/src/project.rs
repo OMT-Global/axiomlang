@@ -42,6 +42,7 @@ pub struct CheckOutput {
     pub entry: String,
     pub statement_count: usize,
     pub capabilities: Vec<CapabilityDescriptor>,
+    pub exports: Vec<ApiExport>,
     pub warnings: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub exports: Vec<ApiExport>,
@@ -266,6 +267,7 @@ pub fn check_project_with_options(
         entry: root.entry,
         statement_count: root.statement_count,
         capabilities: root.capabilities,
+        exports: Vec::new(),
         warnings: root.warnings,
         exports: root.exports,
         packages,
