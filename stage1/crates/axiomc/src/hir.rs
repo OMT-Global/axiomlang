@@ -1958,6 +1958,8 @@ fn collect_type_params(ty: &syntax::TypeName, type_params: &[String], found: &mu
         | syntax::TypeName::MutPtr(inner)
         | syntax::TypeName::Slice(inner)
         | syntax::TypeName::MutSlice(inner)
+        | syntax::TypeName::LifetimeSlice(_, inner)
+        | syntax::TypeName::LifetimeMutSlice(_, inner)
         | syntax::TypeName::Option(inner)
         | syntax::TypeName::Array(inner) => collect_type_params(inner, type_params, found),
         syntax::TypeName::Result(ok, err) | syntax::TypeName::Map(ok, err) => {
@@ -2277,6 +2279,30 @@ fn rewrite_aggregate_type_name(
                 column,
             )?))
         }
+        syntax::TypeName::LifetimeSlice(lifetime, inner) => syntax::TypeName::LifetimeSlice(
+            lifetime.clone(),
+            Box::new(rewrite_aggregate_type_name(
+                inner,
+                generic_structs,
+                generic_enums,
+                queue,
+                queued,
+                line,
+                column,
+            )?),
+        ),
+        syntax::TypeName::LifetimeMutSlice(lifetime, inner) => syntax::TypeName::LifetimeMutSlice(
+            lifetime.clone(),
+            Box::new(rewrite_aggregate_type_name(
+                inner,
+                generic_structs,
+                generic_enums,
+                queue,
+                queued,
+                line,
+                column,
+            )?),
+        ),
         syntax::TypeName::Option(inner) => {
             syntax::TypeName::Option(Box::new(rewrite_aggregate_type_name(
                 inner,
@@ -3540,6 +3566,14 @@ fn substitute_type_name(
         syntax::TypeName::MutSlice(inner) => {
             syntax::TypeName::MutSlice(Box::new(substitute_type_name(inner, type_bindings)))
         }
+        syntax::TypeName::LifetimeSlice(lifetime, inner) => syntax::TypeName::LifetimeSlice(
+            lifetime.clone(),
+            Box::new(substitute_type_name(inner, type_bindings)),
+        ),
+        syntax::TypeName::LifetimeMutSlice(lifetime, inner) => syntax::TypeName::LifetimeMutSlice(
+            lifetime.clone(),
+            Box::new(substitute_type_name(inner, type_bindings)),
+        ),
         syntax::TypeName::Option(inner) => {
             syntax::TypeName::Option(Box::new(substitute_type_name(inner, type_bindings)))
         }
@@ -3619,8 +3653,10 @@ fn type_name_monomorph_suffix(ty: &syntax::TypeName) -> String {
         syntax::TypeName::MutPtr(inner) => {
             format!("mutptr_{}", type_name_monomorph_suffix(inner))
         }
-        syntax::TypeName::Slice(inner) => format!("slice_{}", type_name_monomorph_suffix(inner)),
-        syntax::TypeName::MutSlice(inner) => {
+        syntax::TypeName::Slice(inner) | syntax::TypeName::LifetimeSlice(_, inner) => {
+            format!("slice_{}", type_name_monomorph_suffix(inner))
+        }
+        syntax::TypeName::MutSlice(inner) | syntax::TypeName::LifetimeMutSlice(_, inner) => {
             format!("mutslice_{}", type_name_monomorph_suffix(inner))
         }
         syntax::TypeName::Option(inner) => {
@@ -3983,14 +4019,26 @@ fn collect_function_signatures(
         } else {
             return_ty.clone()
         };
-        let borrow_return_params = classify_borrow_return(
-            &params,
-            &signature_return_ty,
-            structs,
-            enums,
-            function.line,
-            function.column,
-        )?;
+        let borrow_return_params =
+            if let Some(explicit_params) = explicit_borrow_return_params(function) {
+                if explicit_params.is_empty() {
+                    return Err(Diagnostic::new(
+                        "type",
+                        "explicit borrowed return lifetime does not match any borrowed parameter",
+                    )
+                    .with_span(function.line, function.column));
+                }
+                explicit_params
+            } else {
+                classify_borrow_return(
+                    &params,
+                    &signature_return_ty,
+                    structs,
+                    enums,
+                    function.line,
+                    function.column,
+                )?
+            };
         if signatures
             .insert(
                 function_symbol_name(function),
@@ -8682,6 +8730,63 @@ fn contains_mut_borrowed_slice_type_inner(
     }
 }
 
+fn explicit_return_lifetime(ty: &syntax::TypeName) -> Option<&str> {
+    match ty {
+        syntax::TypeName::LifetimeSlice(name, _) | syntax::TypeName::LifetimeMutSlice(name, _) => {
+            Some(name.as_str())
+        }
+        syntax::TypeName::Option(inner) | syntax::TypeName::Array(inner) => {
+            explicit_return_lifetime(inner)
+        }
+        syntax::TypeName::Result(ok, err) | syntax::TypeName::Map(ok, err) => {
+            explicit_return_lifetime(ok).or_else(|| explicit_return_lifetime(err))
+        }
+        syntax::TypeName::Tuple(elements) => elements.iter().find_map(explicit_return_lifetime),
+        syntax::TypeName::Named(_, args) => args.iter().find_map(explicit_return_lifetime),
+        syntax::TypeName::Slice(_)
+        | syntax::TypeName::MutSlice(_)
+        | syntax::TypeName::Ptr(_)
+        | syntax::TypeName::MutPtr(_)
+        | syntax::TypeName::Int
+        | syntax::TypeName::Bool
+        | syntax::TypeName::String => None,
+    }
+}
+
+fn type_has_lifetime(ty: &syntax::TypeName, lifetime: &str) -> bool {
+    match ty {
+        syntax::TypeName::LifetimeSlice(name, _) | syntax::TypeName::LifetimeMutSlice(name, _) => {
+            name == lifetime
+        }
+        syntax::TypeName::Option(inner)
+        | syntax::TypeName::Array(inner)
+        | syntax::TypeName::Ptr(inner)
+        | syntax::TypeName::MutPtr(inner)
+        | syntax::TypeName::Slice(inner)
+        | syntax::TypeName::MutSlice(inner) => type_has_lifetime(inner, lifetime),
+        syntax::TypeName::Result(ok, err) | syntax::TypeName::Map(ok, err) => {
+            type_has_lifetime(ok, lifetime) || type_has_lifetime(err, lifetime)
+        }
+        syntax::TypeName::Tuple(elements) => elements
+            .iter()
+            .any(|element| type_has_lifetime(element, lifetime)),
+        syntax::TypeName::Named(_, args) => args.iter().any(|arg| type_has_lifetime(arg, lifetime)),
+        syntax::TypeName::Int | syntax::TypeName::Bool | syntax::TypeName::String => false,
+    }
+}
+
+fn explicit_borrow_return_params(function: &syntax::Function) -> Option<Vec<usize>> {
+    let lifetime = explicit_return_lifetime(&function.return_ty)?;
+    Some(
+        function
+            .params
+            .iter()
+            .enumerate()
+            .filter_map(|(index, param)| type_has_lifetime(&param.ty, lifetime).then_some(index))
+            .collect(),
+    )
+}
+
 fn classify_borrow_return(
     params: &[Type],
     return_ty: &Type,
@@ -8974,12 +9079,16 @@ fn lower_type_inner<T, U>(
         syntax::TypeName::MutPtr(inner) => Ok(Type::MutPtr(Box::new(lower_type_inner(
             inner, structs, enums, aliases, resolving, line, column,
         )?))),
-        syntax::TypeName::Slice(inner) => Ok(Type::Slice(Box::new(lower_type_inner(
-            inner, structs, enums, aliases, resolving, line, column,
-        )?))),
-        syntax::TypeName::MutSlice(inner) => Ok(Type::MutSlice(Box::new(lower_type_inner(
-            inner, structs, enums, aliases, resolving, line, column,
-        )?))),
+        syntax::TypeName::Slice(inner) | syntax::TypeName::LifetimeSlice(_, inner) => {
+            Ok(Type::Slice(Box::new(lower_type_inner(
+                inner, structs, enums, aliases, resolving, line, column,
+            )?)))
+        }
+        syntax::TypeName::MutSlice(inner) | syntax::TypeName::LifetimeMutSlice(_, inner) => {
+            Ok(Type::MutSlice(Box::new(lower_type_inner(
+                inner, structs, enums, aliases, resolving, line, column,
+            )?)))
+        }
         syntax::TypeName::Option(inner) => Ok(Type::Option(Box::new(lower_type_inner(
             inner, structs, enums, aliases, resolving, line, column,
         )?))),

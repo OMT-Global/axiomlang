@@ -194,6 +194,8 @@ pub enum TypeName {
     MutPtr(Box<TypeName>),
     Slice(Box<TypeName>),
     MutSlice(Box<TypeName>),
+    LifetimeSlice(String, Box<TypeName>),
+    LifetimeMutSlice(String, Box<TypeName>),
     Option(Box<TypeName>),
     Result(Box<TypeName>, Box<TypeName>),
     Tuple(Vec<TypeName>),
@@ -1942,6 +1944,64 @@ fn parse_type_name(
     line_no: usize,
     column: usize,
 ) -> Result<TypeName, Diagnostic> {
+    if let Some(rest) = raw.strip_prefix("&'") {
+        let lifetime_len = rest
+            .find(|ch: char| !(ch.is_ascii_alphanumeric() || ch == '_'))
+            .unwrap_or(rest.len());
+        let lifetime = &rest[..lifetime_len];
+        if lifetime.is_empty() {
+            return Err(
+                Diagnostic::new("parse", "borrow lifetime annotation is missing a name")
+                    .with_path(path.display().to_string())
+                    .with_span(line_no, column + 1),
+            );
+        }
+        validate_ident(lifetime, path, line_no, column + 2)?;
+        let after_lifetime = rest[lifetime_len..].trim_start();
+        let skipped_ws = rest[lifetime_len..].len() - after_lifetime.len();
+        let inner_column = column + 2 + lifetime_len + skipped_ws;
+        if after_lifetime.starts_with("mut [")
+            && after_lifetime.ends_with(']')
+            && matches!(find_matching_square(after_lifetime, 4), Some(close) if close == after_lifetime.len() - 1)
+        {
+            let inner = after_lifetime[5..after_lifetime.len() - 1].trim();
+            if inner.is_empty() {
+                return Err(Diagnostic::new(
+                    "parse",
+                    "mutable slice type is missing an inner type",
+                )
+                .with_path(path.display().to_string())
+                .with_span(line_no, inner_column + 5));
+            }
+            return Ok(TypeName::LifetimeMutSlice(
+                lifetime.to_string(),
+                Box::new(parse_type_name(inner, path, line_no, inner_column + 5)?),
+            ));
+        }
+        if after_lifetime.starts_with('[')
+            && after_lifetime.ends_with(']')
+            && matches!(find_matching_square(after_lifetime, 0), Some(close) if close == after_lifetime.len() - 1)
+        {
+            let inner = after_lifetime[1..after_lifetime.len() - 1].trim();
+            if inner.is_empty() {
+                return Err(
+                    Diagnostic::new("parse", "slice type is missing an inner type")
+                        .with_path(path.display().to_string())
+                        .with_span(line_no, inner_column + 1),
+                );
+            }
+            return Ok(TypeName::LifetimeSlice(
+                lifetime.to_string(),
+                Box::new(parse_type_name(inner, path, line_no, inner_column + 1)?),
+            ));
+        }
+        return Err(Diagnostic::new(
+            "parse",
+            "borrow lifetime annotations must use `&'a [T]` or `&'a mut [T]` syntax",
+        )
+        .with_path(path.display().to_string())
+        .with_span(line_no, column));
+    }
     if raw.starts_with("&mut [")
         && raw.ends_with(']')
         && matches!(find_matching_square(raw, 5), Some(close) if close == raw.len() - 1)
@@ -2479,7 +2539,23 @@ fn parse_decl_name<'a>(
         let mut params = Vec::new();
         for param in split_top_level_type(params_raw, ',') {
             let param = param.trim();
-            validate_ident(param, path, line_no, column + open_angle + 1)?;
+            let type_param = if let Some(lifetime) = param.strip_prefix("'") {
+                if lifetime.is_empty() {
+                    return Err(
+                        Diagnostic::new("parse", "lifetime parameter is missing a name")
+                            .with_path(path.display().to_string())
+                            .with_span(line_no, column + open_angle + 1),
+                    );
+                }
+                validate_ident(lifetime, path, line_no, column + open_angle + 2)?;
+                None
+            } else {
+                validate_ident(param, path, line_no, column + open_angle + 1)?;
+                Some(param)
+            };
+            let Some(param) = type_param else {
+                continue;
+            };
             if params.iter().any(|existing| existing == param) {
                 return Err(Diagnostic::new(
                     "parse",

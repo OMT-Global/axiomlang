@@ -1130,6 +1130,25 @@ print fail()
     }
 
     #[test]
+    fn parser_lowers_explicit_lifetime_slice_signatures() {
+        let source = "fn tail<'a>(values: &'a [int]): &'a [int] {\nreturn values[1:]\n}\n\nfn mut_tail<'a>(values: &'a mut [int]): &'a mut [int] {\nreturn values[1:]\n}\n\nprint 0\n";
+        let parsed = parse_program(source, Path::new("main.ax")).expect("parse");
+        assert!(matches!(
+            parsed.functions[0].return_ty,
+            crate::syntax::TypeName::LifetimeSlice(ref name, _) if name == "a"
+        ));
+        assert!(matches!(
+            parsed.functions[1].return_ty,
+            crate::syntax::TypeName::LifetimeMutSlice(ref name, _) if name == "a"
+        ));
+        let hir = hir::lower(&parsed).expect("lower");
+        let mir = mir::lower(&hir);
+        let rendered = render_rust(&mir);
+        assert!(rendered.contains("fn tail<'a>(values: &'a [i64]) -> &'a [i64] {"));
+        assert!(rendered.contains("fn mut_tail<'a>(values: &'a mut [i64]) -> &'a mut [i64] {"));
+    }
+
+    #[test]
     fn parser_lowers_mutable_slice_signatures() {
         let source = "fn passthrough(values: &mut [int]): &mut [int] {\nreturn values\n}\n\nfn count(values: &mut [string]): int {\nreturn len(values)\n}\n\nprint 0\n";
         let parsed = parse_program(source, Path::new("main.ax")).expect("parse");
@@ -6558,6 +6577,24 @@ print serve_once("127.0.0.1:18080", "hello")
                 .contains("borrowed return functions must take at least one borrowed parameter")
         );
         assert_eq!(error.kind, "type");
+    }
+
+    #[test]
+    fn check_project_rejects_explicit_lifetime_return_from_wrong_parameter() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("explicit-lifetime-mismatch");
+        create_project(&project, Some("explicit-lifetime-mismatch-app")).expect("create project");
+        fs::write(
+            project.join("src/main.ax"),
+            "fn choose<'a, 'b>(left: &'a [int], right: &'b [int]): &'a [int] {\nreturn right\n}\n\nprint 0\n",
+        )
+        .expect("write source");
+        let error =
+            check_project(&project).expect_err("wrong explicit lifetime origin should fail");
+        assert!(error.message.contains(
+            "returning borrowed values requires data derived from one of the borrowed parameters"
+        ));
+        assert_eq!(error.kind, "ownership");
     }
 
     #[test]
