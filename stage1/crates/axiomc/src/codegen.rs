@@ -2554,8 +2554,10 @@ fn render_function(
         params,
         rust_type_in_signature(&function.return_ty, uses_slice_lifetime, type_context)
     ));
+let mutable_locals = collect_mutably_borrowed_locals(&function.body);
     if function.is_async {
-        out.push_str("    axiom_task_deferred(move || {\n");
+        out.push_str("    axiom_task_deferred(move || {
+");
         render_stmt_block(
             &function.body,
             type_context,
@@ -2567,7 +2569,8 @@ fn render_function(
             &[],
             &mutable_locals,
         );
-        out.push_str("    })\n");
+        out.push_str("    })
+");
     } else {
         render_stmt_block(
             &function.body,
