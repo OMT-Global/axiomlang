@@ -402,7 +402,7 @@ mod tests {
         );
         assert_eq!(
             diagnostics[1]["message"],
-            json!("let binding \"answer\" expects int, got string")
+            json!("let binding \"answer\" expects int, got &str")
         );
         assert_eq!(
             diagnostics[2]["range"]["start"],

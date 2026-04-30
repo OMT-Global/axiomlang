@@ -189,6 +189,7 @@ pub enum TypeName {
     Int,
     Bool,
     String,
+    Str,
     Named(String, Vec<TypeName>),
     Ptr(Box<TypeName>),
     MutPtr(Box<TypeName>),
@@ -2152,7 +2153,8 @@ fn parse_type_name(
     match raw {
         "int" => Ok(TypeName::Int),
         "bool" => Ok(TypeName::Bool),
-        "string" => Ok(TypeName::String),
+        "string" | "String" => Ok(TypeName::String),
+        "&str" => Ok(TypeName::Str),
         _ => {
             validate_ident(raw, path, line_no, column)?;
             Ok(TypeName::Named(raw.to_string(), Vec::new()))

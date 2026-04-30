@@ -227,6 +227,73 @@ mod tests {
     }
 
     #[test]
+    fn parser_distinguishes_owned_string_from_borrowed_str() {
+        let source = r#"fn read(label: &str): int {
+print label
+return 1
+}
+
+let literal: &str = "borrowed"
+let owned: String = "owned"
+print read(literal)
+print read(owned)
+"#;
+        let parsed = parse_program(source, Path::new("main.ax")).expect("parse");
+        let hir = hir::lower(&parsed).expect("lower");
+        let mir = mir::lower(&hir);
+        let rendered = render_rust(&mir);
+        assert!(rendered.contains("fn read<'a>(label: &'a str) -> i64 {"));
+        assert!(rendered.contains(r#"let literal: &str = "borrowed";"#));
+        assert!(rendered.contains(r#"let owned: String = String::from("owned");"#));
+        assert!(rendered.contains(r#"println!("{}", read(literal));"#));
+        assert!(rendered.contains(r#"println!("{}", read(owned.as_str()));"#));
+    }
+
+    #[test]
+    fn parser_rejects_borrowed_str_from_temporary_string() {
+        let source = r#"fn make(): String {
+return "owned"
+}
+
+let borrowed: &str = make()
+print borrowed
+"#;
+        let parsed = parse_program(source, Path::new("main.ax")).expect("parse");
+        let err = hir::lower(&parsed).expect_err("lower should reject borrowed temporary String");
+        assert!(err.message.contains("cannot borrow a temporary String as &str"));
+    }
+
+    #[test]
+    fn parser_rejects_borrowed_str_from_temporary_concat() {
+        let source = r#"let borrowed: &str = "own" + "ed"
+print borrowed
+"#;
+        let parsed = parse_program(source, Path::new("main.ax")).expect("parse");
+        let err = hir::lower(&parsed).expect_err("lower should reject borrowed temporary concat");
+        assert!(err.message.contains("cannot borrow a temporary String as &str"));
+    }
+
+    #[test]
+    fn parser_allows_borrowed_str_call_arg_from_temporary_string() {
+        let source = r#"fn read(label: &str): int {
+print label
+return 1
+}
+
+fn make(): String {
+return "owned"
+}
+
+print read(make())
+"#;
+        let parsed = parse_program(source, Path::new("main.ax")).expect("parse");
+        let hir = hir::lower(&parsed).expect("lower");
+        let mir = mir::lower(&hir);
+        let rendered = render_rust(&mir);
+        assert!(rendered.contains(r#"println!("{}", read(make().as_str()));"#));
+    }
+
+    #[test]
     fn parser_expands_declarative_statement_macros_before_lowering() {
         let source = r#"macro_rules! answer {
 ($value:expr) => {

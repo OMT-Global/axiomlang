@@ -3787,6 +3787,7 @@ fn rewrite_type_name(
         syntax::TypeName::Int => Ok(syntax::TypeName::Int),
         syntax::TypeName::Bool => Ok(syntax::TypeName::Bool),
         syntax::TypeName::String => Ok(syntax::TypeName::String),
+        syntax::TypeName::Str => Ok(syntax::TypeName::Str),
         syntax::TypeName::Named(name, args) => {
             if !visible_types.contains_key(name) && private_imported_types.contains(name) {
                 return Err(Diagnostic::new(

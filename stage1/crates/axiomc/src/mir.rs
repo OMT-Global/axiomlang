@@ -196,6 +196,10 @@ pub enum Expr {
         index: Box<Expr>,
         ty: Type,
     },
+    StringBorrow {
+        expr: Box<Expr>,
+        ty: Type,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -203,6 +207,7 @@ pub enum LiteralValue {
     Int(i64),
     Bool(bool),
     String(String),
+    Str(String),
 }
 
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
@@ -220,6 +225,7 @@ pub enum Type {
     Int,
     Bool,
     String,
+    Str,
     Struct(String),
     Enum(String),
     Ptr(Box<Type>),
@@ -240,7 +246,12 @@ pub enum Type {
 impl Type {
     pub fn is_copy(&self) -> bool {
         match self {
-            Type::Int | Type::Bool | Type::Ptr(_) | Type::MutPtr(_) | Type::Slice(_) => true,
+            Type::Int
+            | Type::Bool
+            | Type::Str
+            | Type::Ptr(_)
+            | Type::MutPtr(_)
+            | Type::Slice(_) => true,
             Type::MutSlice(_) => false,
             Type::Option(inner) => inner.is_copy(),
             Type::Result(ok, err) => ok.is_copy() && err.is_copy(),
@@ -290,6 +301,7 @@ impl Expr {
             Expr::Literal(LiteralValue::Int(_)) => Type::Int,
             Expr::Literal(LiteralValue::Bool(_)) => Type::Bool,
             Expr::Literal(LiteralValue::String(_)) => Type::String,
+            Expr::Literal(LiteralValue::Str(_)) => Type::Str,
             Expr::VarRef { ty, .. } => ty.clone(),
             Expr::Call { ty, .. } => ty.clone(),
             Expr::BinaryAdd { ty, .. } => ty.clone(),
@@ -305,6 +317,7 @@ impl Expr {
             Expr::ArrayLiteral { ty, .. } => ty.clone(),
             Expr::Slice { ty, .. } => ty.clone(),
             Expr::Index { ty, .. } => ty.clone(),
+            Expr::StringBorrow { ty, .. } => ty.clone(),
         }
     }
 }
@@ -463,10 +476,16 @@ fn lower_source_span(span: &hir::SourceSpan) -> SourceSpan {
 
 fn lower_expr(expr: &hir::Expr) -> Expr {
     match expr {
-        hir::Expr::Literal { value, .. } => Expr::Literal(match value {
+        hir::Expr::Literal { ty, value } => Expr::Literal(match value {
             hir::LiteralValue::Int(value) => LiteralValue::Int(*value),
             hir::LiteralValue::Bool(value) => LiteralValue::Bool(*value),
-            hir::LiteralValue::String(value) => LiteralValue::String(value.clone()),
+            hir::LiteralValue::String(value) => {
+                if matches!(ty, hir::Type::Str) {
+                    LiteralValue::Str(value.clone())
+                } else {
+                    LiteralValue::String(value.clone())
+                }
+            }
         }),
         hir::Expr::VarRef { name, ty } => Expr::VarRef {
             name: name.clone(),
@@ -564,6 +583,10 @@ fn lower_expr(expr: &hir::Expr) -> Expr {
             index: Box::new(lower_expr(index)),
             ty: lower_type(ty),
         },
+        hir::Expr::StringBorrow { expr, ty } => Expr::StringBorrow {
+            expr: Box::new(lower_expr(expr)),
+            ty: lower_type(ty),
+        },
     }
 }
 
@@ -573,6 +596,7 @@ fn lower_type(ty: &hir::Type) -> Type {
         hir::Type::Int => Type::Int,
         hir::Type::Bool => Type::Bool,
         hir::Type::String => Type::String,
+        hir::Type::Str => Type::Str,
         hir::Type::Struct(name) => Type::Struct(name.clone()),
         hir::Type::Enum(name) => Type::Enum(name.clone()),
         hir::Type::Ptr(inner) => Type::Ptr(Box::new(lower_type(inner))),
