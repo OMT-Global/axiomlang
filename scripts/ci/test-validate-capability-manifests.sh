@@ -15,8 +15,10 @@ version = "0.1.0"
 [capabilities]
 fs = true
 "fs:write" = true
-fs_root = "data"
-env = ["LOG_LEVEL"]
+fs_root = 'data'
+env = [
+  "LOG_LEVEL",
+]
 net = false
 process = false
 clock = false
