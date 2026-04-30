@@ -1,3 +1,4 @@
+pub mod borrowck;
 pub mod codegen;
 pub mod dap;
 pub mod diagnostics;
