@@ -2838,6 +2838,28 @@ crypto = false
     }
 
     #[test]
+    fn publish_manifest_rejects_malformed_registry_sources() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("publish-registry-invalid");
+        create_project(&project, Some("publish-registry-invalid-app")).expect("create project");
+
+        for registry in ["https://", "https://not a host", "file:"] {
+            fs::write(
+                project.join("axiom.toml"),
+                format!(
+                    "{}\n[publish]\nregistry = \"{registry}\"\n",
+                    render_manifest("publish-registry-invalid-app")
+                ),
+            )
+            .expect("write invalid publish manifest");
+
+            let error = load_manifest(&project).expect_err("malformed registry should fail");
+            assert_eq!(error.kind, "manifest");
+            assert!(error.message.contains("publish.registry"));
+        }
+    }
+
+    #[test]
     fn dependency_package_must_enable_its_own_capabilities() {
         let dir = tempdir().expect("tempdir");
         let project = dir.path().join("dep-cap-root");

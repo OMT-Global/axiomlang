@@ -1028,12 +1028,19 @@ fn normalize_publish(raw: RawPublishSection, path: &Path) -> Result<PublishSecti
 }
 
 fn validate_registry_source(path: &Path, registry: &str) -> Result<(), Diagnostic> {
-    if registry.starts_with("https://") || registry.starts_with("file:") {
-        return Ok(());
+    if let Some(rest) = registry.strip_prefix("https://") {
+        let host = rest.split('/').next().unwrap_or_default();
+        if !host.is_empty() && !host.chars().any(char::is_whitespace) {
+            return Ok(());
+        }
+    } else if let Some(rest) = registry.strip_prefix("file:") {
+        if !rest.is_empty() && !rest.chars().any(char::is_whitespace) {
+            return Ok(());
+        }
     }
     Err(Diagnostic::new(
         "manifest",
-        "publish.registry must be an https:// or file: registry source",
+        "publish.registry must be a valid https:// or file: registry source",
     )
     .with_path(path.display().to_string()))
 }
