@@ -1,5 +1,6 @@
 [workspace]
 members = [
+  "fail/closure_move_captured_non_copy",
   "fail/comparison_owned_resource_move",
   "fail/comparison_predictable_diagnostic",
   "fail/comparison_strict_type_mismatch",

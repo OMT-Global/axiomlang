@@ -323,6 +323,7 @@ struct VariantInfo {
     payload_names: Vec<String>,
 }
 
+const OWNERSHIP_CLOSURE_MOVE_CAPTURED_NON_COPY: &str = "closure_move_captured_non_copy";
 const OWNERSHIP_LOOP_MOVE_OUTER_NON_COPY: &str = "loop_move_outer_non_copy";
 const OWNERSHIP_BORROW_RETURN_REQUIRES_PARAM_ORIGIN: &str = "borrow_return_requires_param_origin";
 const OWNERSHIP_MOVE_WHILE_BORROWED: &str = "move_while_borrowed";
@@ -7731,6 +7732,13 @@ fn lower_expr_with_expected(
                     },
                 );
             }
+            let mut referenced = HashSet::new();
+            collect_var_refs(body, &mut referenced);
+            for param in params {
+                referenced.remove(&param.name);
+            }
+            let captured_names = referenced.clone();
+
             let lowered_body =
                 lower_expr_with_expected(body, Some(expected_return), &mut closure_env, ctx)?;
             if lowered_body.ty() != expected_return.as_ref() {
@@ -7743,11 +7751,46 @@ fn lower_expr_with_expected(
                 )
                 .with_span(body.line(), body.column()));
             }
-            let mut referenced = HashSet::new();
-            collect_var_refs(body, &mut referenced);
-            for param in params {
-                referenced.remove(&param.name);
+
+            if let Some((name, _)) = ownership_projection(&lowered_body)
+                && captured_names.contains(name)
+                && !lowered_body.ty().is_copy()
+            {
+                return Err(ownership_error(
+                    OWNERSHIP_CLOSURE_MOVE_CAPTURED_NON_COPY,
+                    format!(
+                        "closure cannot move captured non-copy value `{}` because fn closures must be callable more than once",
+                        name
+                    ),
+                )
+                .with_span(*line, *column));
             }
+
+            for name in &captured_names {
+                let Some(pre_binding) = env.get(name) else {
+                    continue;
+                };
+                if pre_binding.ty.is_copy() {
+                    continue;
+                }
+                if let Some(post_binding) = closure_env.get(name) {
+                    let moved_projection_in_body = post_binding
+                        .moved_projections
+                        .iter()
+                        .any(|projection| !pre_binding.moved_projections.contains(projection));
+                    if post_binding.moved || moved_projection_in_body {
+                        return Err(ownership_error(
+                            OWNERSHIP_CLOSURE_MOVE_CAPTURED_NON_COPY,
+                            format!(
+                                "closure cannot move captured non-copy value `{}` because fn closures must be callable more than once",
+                                name
+                            ),
+                        )
+                        .with_span(*line, *column));
+                    }
+                }
+            }
+
             for name in referenced {
                 if let Some(binding) = env.get_mut(&name)
                     && !binding.ty.is_copy()

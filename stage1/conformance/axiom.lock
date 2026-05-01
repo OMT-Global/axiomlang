@@ -1,6 +1,11 @@
 version = 1
 
 [[package]]
+name = "conformance-closure-move-captured-non-copy"
+version = "0.1.0"
+source = "path:fail/closure_move_captured_non_copy"
+
+[[package]]
 name = "conformance-comparison-owned-resource-move"
 version = "0.1.0"
 source = "path:fail/comparison_owned_resource_move"
