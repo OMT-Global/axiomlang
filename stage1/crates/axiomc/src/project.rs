@@ -2097,6 +2097,9 @@ fn validate_expr_capabilities(
             validate_expr_capabilities(module_path, base, capabilities)?;
             validate_expr_capabilities(module_path, index, capabilities)
         }
+        syntax::Expr::Closure { body, .. } => {
+            validate_expr_capabilities(module_path, body, capabilities)
+        }
     }
 }
 
@@ -3772,6 +3775,44 @@ fn rewrite_expr(
             line: *line,
             column: *column,
         },
+        syntax::Expr::Closure {
+            params,
+            body,
+            line,
+            column,
+        } => syntax::Expr::Closure {
+            params: params
+                .iter()
+                .map(|param| {
+                    Ok(syntax::Param {
+                        name: param.name.clone(),
+                        ty: rewrite_type_name(
+                            &param.ty,
+                            visible_types,
+                            private_imported_types,
+                            module_path,
+                            param.line,
+                            param.column,
+                        )?,
+                        line: param.line,
+                        column: param.column,
+                    })
+                })
+                .collect::<Result<Vec<_>, Diagnostic>>()?,
+            body: Box::new(rewrite_expr(
+                body,
+                visible_functions,
+                visible_consts,
+                visible_structs,
+                visible_types,
+                private_imported,
+                private_imported_consts,
+                private_imported_types,
+                module_path,
+            )?),
+            line: *line,
+            column: *column,
+        },
     })
 }
 
@@ -3920,6 +3961,29 @@ fn rewrite_type_name(
             line,
             column,
         )?))),
+        syntax::TypeName::Fn(params, return_ty) => Ok(syntax::TypeName::Fn(
+            params
+                .iter()
+                .map(|param| {
+                    rewrite_type_name(
+                        param,
+                        visible_types,
+                        private_imported_types,
+                        module_path,
+                        line,
+                        column,
+                    )
+                })
+                .collect::<Result<Vec<_>, _>>()?,
+            Box::new(rewrite_type_name(
+                return_ty,
+                visible_types,
+                private_imported_types,
+                module_path,
+                line,
+                column,
+            )?),
+        )),
     }
 }
 

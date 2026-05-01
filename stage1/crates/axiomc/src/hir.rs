@@ -191,6 +191,11 @@ pub enum Expr {
         elements: Vec<Expr>,
         ty: Type,
     },
+    Closure {
+        params: Vec<Param>,
+        body: Box<Expr>,
+        ty: Type,
+    },
     Slice {
         base: Box<Expr>,
         start: Option<Box<Expr>>,
@@ -225,6 +230,7 @@ pub enum Type {
     JoinHandle(Box<Type>),
     AsyncChannel(Box<Type>),
     SelectResult(Box<Type>),
+    Fn(Vec<Type>, Box<Type>),
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -718,7 +724,9 @@ fn type_has_unboxed_recursive_path(
             visiting.remove(&current);
             result
         }
-        Type::Slice(_) | Type::MutSlice(_) | Type::Map(_, _) | Type::Array(_) => false,
+        Type::Slice(_) | Type::MutSlice(_) | Type::Map(_, _) | Type::Array(_) | Type::Fn(_, _) => {
+            false
+        }
         Type::Option(inner)
         | Type::Task(inner)
         | Type::JoinHandle(inner)
@@ -1964,6 +1972,12 @@ fn collect_type_params(ty: &syntax::TypeName, type_params: &[String], found: &mu
             collect_type_params(ok, type_params, found);
             collect_type_params(err, type_params, found);
         }
+        syntax::TypeName::Fn(params, return_ty) => {
+            for param in params {
+                collect_type_params(param, type_params, found);
+            }
+            collect_type_params(return_ty, type_params, found);
+        }
         syntax::TypeName::Tuple(elements) => {
             for element in elements {
                 collect_type_params(element, type_params, found);
@@ -2355,6 +2369,31 @@ fn rewrite_aggregate_type_name(
                 column,
             )?))
         }
+        syntax::TypeName::Fn(params, return_ty) => syntax::TypeName::Fn(
+            params
+                .iter()
+                .map(|param| {
+                    rewrite_aggregate_type_name(
+                        param,
+                        generic_structs,
+                        generic_enums,
+                        queue,
+                        queued,
+                        line,
+                        column,
+                    )
+                })
+                .collect::<Result<Vec<_>, _>>()?,
+            Box::new(rewrite_aggregate_type_name(
+                return_ty,
+                generic_structs,
+                generic_enums,
+                queue,
+                queued,
+                line,
+                column,
+            )?),
+        ),
         syntax::TypeName::Int => syntax::TypeName::Int,
         syntax::TypeName::Bool => syntax::TypeName::Bool,
         syntax::TypeName::String => syntax::TypeName::String,
@@ -2915,6 +2954,41 @@ fn rewrite_expr_aggregate_types(
             )?),
             index: Box::new(rewrite_expr_aggregate_types(
                 index,
+                generic_structs,
+                generic_enums,
+                queue,
+                queued,
+            )?),
+            line: *line,
+            column: *column,
+        },
+        syntax::Expr::Closure {
+            params,
+            body,
+            line,
+            column,
+        } => syntax::Expr::Closure {
+            params: params
+                .iter()
+                .map(|param| {
+                    Ok(syntax::Param {
+                        name: param.name.clone(),
+                        ty: rewrite_aggregate_type_name(
+                            &param.ty,
+                            generic_structs,
+                            generic_enums,
+                            queue,
+                            queued,
+                            param.line,
+                            param.column,
+                        )?,
+                        line: param.line,
+                        column: param.column,
+                    })
+                })
+                .collect::<Result<Vec<_>, Diagnostic>>()?,
+            body: Box::new(rewrite_expr_aggregate_types(
+                body,
                 generic_structs,
                 generic_enums,
                 queue,
@@ -3510,6 +3584,31 @@ fn rewrite_expr_generic_calls(
             line: *line,
             column: *column,
         },
+        syntax::Expr::Closure {
+            params,
+            body,
+            line,
+            column,
+        } => syntax::Expr::Closure {
+            params: params
+                .iter()
+                .map(|param| syntax::Param {
+                    name: param.name.clone(),
+                    ty: substitute_type_name(&param.ty, type_bindings),
+                    line: param.line,
+                    column: param.column,
+                })
+                .collect(),
+            body: Box::new(rewrite_expr_generic_calls(
+                body,
+                type_bindings,
+                generic_functions,
+                queue,
+                queued,
+            )?),
+            line: *line,
+            column: *column,
+        },
     })
 }
 
@@ -3560,6 +3659,13 @@ fn substitute_type_name(
         syntax::TypeName::Array(inner) => {
             syntax::TypeName::Array(Box::new(substitute_type_name(inner, type_bindings)))
         }
+        syntax::TypeName::Fn(params, return_ty) => syntax::TypeName::Fn(
+            params
+                .iter()
+                .map(|param| substitute_type_name(param, type_bindings))
+                .collect(),
+            Box::new(substitute_type_name(return_ty, type_bindings)),
+        ),
         syntax::TypeName::Int => syntax::TypeName::Int,
         syntax::TypeName::Bool => syntax::TypeName::Bool,
         syntax::TypeName::String => syntax::TypeName::String,
@@ -3645,6 +3751,15 @@ fn type_name_monomorph_suffix(ty: &syntax::TypeName) -> String {
             type_name_monomorph_suffix(value)
         ),
         syntax::TypeName::Array(inner) => format!("array_{}", type_name_monomorph_suffix(inner)),
+        syntax::TypeName::Fn(params, return_ty) => format!(
+            "fn_{}_{}",
+            params
+                .iter()
+                .map(type_name_monomorph_suffix)
+                .collect::<Vec<_>>()
+                .join("_"),
+            type_name_monomorph_suffix(return_ty)
+        ),
     }
 }
 
@@ -3677,7 +3792,8 @@ impl Type {
             | Type::Task(_)
             | Type::JoinHandle(_)
             | Type::AsyncChannel(_)
-            | Type::SelectResult(_) => false,
+            | Type::SelectResult(_)
+            | Type::Fn(_, _) => false,
         }
     }
 
@@ -3699,7 +3815,8 @@ impl Type {
             | Type::Task(_)
             | Type::JoinHandle(_)
             | Type::AsyncChannel(_)
-            | Type::SelectResult(_) => false,
+            | Type::SelectResult(_)
+            | Type::Fn(_, _) => false,
         }
     }
 }
@@ -6501,6 +6618,44 @@ fn lower_expr_with_expected(
                     ty: element_ty,
                 });
             }
+            if let Some(binding) = env.get(name) {
+                if let Type::Fn(param_tys, return_ty) = binding.ty.clone() {
+                    if args.len() != param_tys.len() {
+                        return Err(Diagnostic::new(
+                            "type",
+                            format!(
+                                "function value {name:?} expects {} arguments, got {}",
+                                param_tys.len(),
+                                args.len()
+                            ),
+                        )
+                        .with_span(*line, *column));
+                    }
+                    let mut lowered_args = Vec::new();
+                    for (arg, expected) in args.iter().zip(param_tys.iter()) {
+                        let lowered = lower_expr_with_expected(arg, Some(expected), env, ctx)?;
+                        if lowered.ty() != expected {
+                            return Err(Diagnostic::new(
+                                "type",
+                                format!(
+                                    "function value {name:?} expects argument type {expected}, got {}",
+                                    lowered.ty()
+                                ),
+                            )
+                            .with_span(arg.line(), arg.column()));
+                        }
+                        if !expected.is_copy() {
+                            move_lowered_value(&lowered, env)?;
+                        }
+                        lowered_args.push(lowered);
+                    }
+                    return Ok(Expr::Call {
+                        name: name.clone(),
+                        args: lowered_args,
+                        ty: (*return_ty).clone(),
+                    });
+                }
+            }
             if let Some(signature) = ctx.functions.get(name) {
                 if signature.is_extern {
                     require_capability(
@@ -7509,6 +7664,170 @@ fn lower_expr_with_expected(
                 ty: result_ty,
             })
         }
+        syntax::Expr::Closure {
+            params,
+            body,
+            line,
+            column,
+        } => {
+            let Some(Type::Fn(expected_params, expected_return)) = expected else {
+                return Err(Diagnostic::new(
+                    "type",
+                    "closure requires an expected fn type from an annotation or function parameter",
+                )
+                .with_span(*line, *column));
+            };
+            if params.len() != expected_params.len() {
+                return Err(Diagnostic::new(
+                    "type",
+                    format!(
+                        "closure expects {} parameters from context, got {}",
+                        expected_params.len(),
+                        params.len()
+                    ),
+                )
+                .with_span(*line, *column));
+            }
+            let mut closure_env = env.clone();
+            let mut param_names = HashSet::new();
+            for ((param, expected_ty), index) in params.iter().zip(expected_params.iter()).zip(0..)
+            {
+                let param_ty = lower_type(
+                    &param.ty,
+                    ctx.structs,
+                    ctx.enums,
+                    ctx.aliases,
+                    param.line,
+                    param.column,
+                )?;
+                if &param_ty != expected_ty {
+                    return Err(Diagnostic::new(
+                        "type",
+                        format!(
+                            "closure parameter {} expects type {expected_ty}, got {param_ty}",
+                            index + 1
+                        ),
+                    )
+                    .with_span(param.line, param.column));
+                }
+                if !param_names.insert(param.name.clone()) {
+                    return Err(Diagnostic::new(
+                        "type",
+                        format!("duplicate closure parameter {:?}", param.name),
+                    )
+                    .with_span(param.line, param.column));
+                }
+                closure_env.insert(
+                    param.name.clone(),
+                    Binding {
+                        ty: param_ty,
+                        moved: false,
+                        moved_projections: HashSet::new(),
+                        borrow_kind: None,
+                        borrow_origin: Some(BorrowOrigin::Local),
+                        borrowed_owners: HashSet::new(),
+                        active_borrow_count: 0,
+                        active_mut_borrow_count: 0,
+                    },
+                );
+            }
+            let lowered_body =
+                lower_expr_with_expected(body, Some(expected_return), &mut closure_env, ctx)?;
+            if lowered_body.ty() != expected_return.as_ref() {
+                return Err(Diagnostic::new(
+                    "type",
+                    format!(
+                        "closure body expects type {expected_return}, got {}",
+                        lowered_body.ty()
+                    ),
+                )
+                .with_span(body.line(), body.column()));
+            }
+            let mut referenced = HashSet::new();
+            collect_var_refs(body, &mut referenced);
+            for param in params {
+                referenced.remove(&param.name);
+            }
+            for name in referenced {
+                if let Some(binding) = env.get_mut(&name)
+                    && !binding.ty.is_copy()
+                {
+                    binding.moved = true;
+                }
+            }
+            Ok(Expr::Closure {
+                params: params
+                    .iter()
+                    .zip(expected_params.iter())
+                    .map(|(param, ty)| Param {
+                        name: param.name.clone(),
+                        ty: ty.clone(),
+                    })
+                    .collect(),
+                body: Box::new(lowered_body),
+                ty: Type::Fn(expected_params.clone(), expected_return.clone()),
+            })
+        }
+    }
+}
+
+fn collect_var_refs(expr: &syntax::Expr, refs: &mut HashSet<String>) {
+    match expr {
+        syntax::Expr::VarRef { name, .. } => {
+            refs.insert(name.clone());
+        }
+        syntax::Expr::Call { args, .. }
+        | syntax::Expr::TupleLiteral { elements: args, .. }
+        | syntax::Expr::ArrayLiteral { elements: args, .. } => {
+            for arg in args {
+                collect_var_refs(arg, refs);
+            }
+        }
+        syntax::Expr::BinaryAdd { lhs, rhs, .. }
+        | syntax::Expr::BinaryCompare { lhs, rhs, .. }
+        | syntax::Expr::Index {
+            base: lhs,
+            index: rhs,
+            ..
+        } => {
+            collect_var_refs(lhs, refs);
+            collect_var_refs(rhs, refs);
+        }
+        syntax::Expr::Try { expr, .. } | syntax::Expr::Await { expr, .. } => {
+            collect_var_refs(expr, refs)
+        }
+        syntax::Expr::StructLiteral { fields, .. } => {
+            for field in fields {
+                collect_var_refs(&field.expr, refs);
+            }
+        }
+        syntax::Expr::FieldAccess { base, .. } | syntax::Expr::TupleIndex { base, .. } => {
+            collect_var_refs(base, refs)
+        }
+        syntax::Expr::MapLiteral { entries, .. } => {
+            for entry in entries {
+                collect_var_refs(&entry.key, refs);
+                collect_var_refs(&entry.value, refs);
+            }
+        }
+        syntax::Expr::Slice {
+            base, start, end, ..
+        } => {
+            collect_var_refs(base, refs);
+            if let Some(start) = start {
+                collect_var_refs(start, refs);
+            }
+            if let Some(end) = end {
+                collect_var_refs(end, refs);
+            }
+        }
+        syntax::Expr::Closure { params, body, .. } => {
+            collect_var_refs(body, refs);
+            for param in params {
+                refs.remove(&param.name);
+            }
+        }
+        syntax::Expr::Literal(_) => {}
     }
 }
 
@@ -8275,6 +8594,7 @@ fn expr_borrow_origin(
                 .map(|field| expr_borrow_origin(&field.expr, env, ctx)),
         ),
         Expr::Index { base, .. } => expr_borrow_origin(base, env, ctx),
+        Expr::Closure { .. } => None,
         Expr::Literal { .. } | Expr::BinaryAdd { .. } | Expr::BinaryCompare { .. } => None,
     }
 }
@@ -8405,6 +8725,7 @@ fn expr_borrowed_owners(
         Expr::EnumVariant { payloads, .. } => collect_expr_borrowed_owners(payloads, env, ctx),
         Expr::FieldAccess { base, .. } => expr_borrowed_owners(base, env, ctx),
         Expr::Index { base, .. } => expr_borrowed_owners(base, env, ctx),
+        Expr::Closure { .. } => HashSet::new(),
         Expr::Literal { .. } | Expr::BinaryAdd { .. } | Expr::BinaryCompare { .. } => {
             HashSet::new()
         }
@@ -8524,6 +8845,23 @@ fn contains_borrowed_slice_type_inner(
             visiting_structs,
             visiting_enums,
         ),
+        Type::Fn(params, return_ty) => {
+            params.iter().any(|param| {
+                contains_borrowed_slice_type_inner(
+                    param,
+                    structs,
+                    enums,
+                    visiting_structs,
+                    visiting_enums,
+                )
+            }) || contains_borrowed_slice_type_inner(
+                return_ty,
+                structs,
+                enums,
+                visiting_structs,
+                visiting_enums,
+            )
+        }
         Type::Struct(name) => {
             if !visiting_structs.insert(name.clone()) {
                 return false;
@@ -8641,6 +8979,23 @@ fn contains_mut_borrowed_slice_type_inner(
             visiting_structs,
             visiting_enums,
         ),
+        Type::Fn(params, return_ty) => {
+            params.iter().any(|param| {
+                contains_mut_borrowed_slice_type_inner(
+                    param,
+                    structs,
+                    enums,
+                    visiting_structs,
+                    visiting_enums,
+                )
+            }) || contains_mut_borrowed_slice_type_inner(
+                return_ty,
+                structs,
+                enums,
+                visiting_structs,
+                visiting_enums,
+            )
+        }
         Type::Struct(name) => {
             if !visiting_structs.insert(name.clone()) {
                 return false;
@@ -9018,6 +9373,17 @@ fn lower_type_inner<T, U>(
         syntax::TypeName::Array(inner) => Ok(Type::Array(Box::new(lower_type_inner(
             inner, structs, enums, aliases, resolving, line, column,
         )?))),
+        syntax::TypeName::Fn(params, return_ty) => Ok(Type::Fn(
+            params
+                .iter()
+                .map(|param| {
+                    lower_type_inner(param, structs, enums, aliases, resolving, line, column)
+                })
+                .collect::<Result<Vec<_>, _>>()?,
+            Box::new(lower_type_inner(
+                return_ty, structs, enums, aliases, resolving, line, column,
+            )?),
+        )),
     }
 }
 
@@ -9104,6 +9470,7 @@ impl Expr {
             Expr::MapLiteral { ty, .. } => ty,
             Expr::EnumVariant { ty, .. } => ty,
             Expr::ArrayLiteral { ty, .. } => ty,
+            Expr::Closure { ty, .. } => ty,
             Expr::Slice { ty, .. } => ty,
             Expr::Index { ty, .. } => ty,
         }
@@ -9190,7 +9557,8 @@ impl syntax::Expr {
             | syntax::Expr::MapLiteral { line, .. }
             | syntax::Expr::ArrayLiteral { line, .. }
             | syntax::Expr::Slice { line, .. }
-            | syntax::Expr::Index { line, .. } => *line,
+            | syntax::Expr::Index { line, .. }
+            | syntax::Expr::Closure { line, .. } => *line,
         }
     }
 
@@ -9211,7 +9579,8 @@ impl syntax::Expr {
             | syntax::Expr::MapLiteral { column, .. }
             | syntax::Expr::ArrayLiteral { column, .. }
             | syntax::Expr::Slice { column, .. }
-            | syntax::Expr::Index { column, .. } => *column,
+            | syntax::Expr::Index { column, .. }
+            | syntax::Expr::Closure { column, .. } => *column,
         }
     }
 }
@@ -9259,6 +9628,15 @@ impl std::fmt::Display for Type {
             Type::JoinHandle(inner) => write!(f, "JoinHandle<{inner}>"),
             Type::AsyncChannel(inner) => write!(f, "AsyncChannel<{inner}>"),
             Type::SelectResult(inner) => write!(f, "SelectResult<{inner}>"),
+            Type::Fn(params, return_ty) => write!(
+                f,
+                "fn({}): {return_ty}",
+                params
+                    .iter()
+                    .map(std::string::ToString::to_string)
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
         }
     }
 }

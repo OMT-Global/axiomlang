@@ -111,6 +111,11 @@ version = "0.1.0"
 source = "path:fail/stdlib_clock_without_capability"
 
 [[package]]
+name = "conformance-closures"
+version = "0.1.0"
+source = "path:pass/closures"
+
+[[package]]
 name = "conformance-collection-operations"
 version = "0.1.0"
 source = "path:pass/collection_operations"
