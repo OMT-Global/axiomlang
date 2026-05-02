@@ -1,8 +1,9 @@
 //! Borrow-check support for stage1 lowering.
 //!
 //! HIR lowering still performs the syntax-to-HIR walk, but ownership-specific
-//! type classification and diagnostic codes live here so the borrow checker can
-//! grow into a standalone pass without being coupled to MIR lowering.
+//! type classification and diagnostic codes live here as a preparatory boundary.
+//! This is not yet the dedicated borrow-check pass requested by issue #226;
+//! lowering still drives the current stage1 ownership walk until that pass lands.
 
 use crate::diagnostics::Diagnostic;
 use crate::hir::{EnumDef, StructDef, Type};
@@ -254,7 +255,9 @@ fn contains_borrowed_slice_type_inner(
             visiting_enums.remove(name);
             contains
         }
-        Type::Int | Type::Bool | Type::String | Type::Ptr(_) | Type::MutPtr(_) => false,
+        Type::Error | Type::Int | Type::Bool | Type::String | Type::Ptr(_) | Type::MutPtr(_) => {
+            false
+        }
     }
 }
 
@@ -267,9 +270,13 @@ fn contains_mut_borrowed_slice_type_inner(
 ) -> bool {
     match ty {
         Type::MutSlice(_) => true,
-        Type::Slice(_) | Type::Int | Type::Bool | Type::String | Type::Ptr(_) | Type::MutPtr(_) => {
-            false
-        }
+        Type::Slice(_)
+        | Type::Error
+        | Type::Int
+        | Type::Bool
+        | Type::String
+        | Type::Ptr(_)
+        | Type::MutPtr(_) => false,
         Type::Option(inner) => contains_mut_borrowed_slice_type_inner(
             inner,
             structs,
