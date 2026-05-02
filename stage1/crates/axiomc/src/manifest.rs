@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 
 pub const MANIFEST_FILENAME: &str = "axiom.toml";
 pub const LOCK_FILENAME: &str = "axiom.lock";
-pub const KNOWN_CAPABILITIES: [CapabilityKind; 8] = [
+pub const KNOWN_CAPABILITIES: [CapabilityKind; 9] = [
     CapabilityKind::Fs,
     CapabilityKind::FsWrite,
     CapabilityKind::Net,

@@ -289,14 +289,20 @@ fn axiom_async_timeout<T: Send + 'static>(task: AxiomTask<T>, timeout_ms: i64) -
     }
     if axiom_async_host_enabled() {
         let (tx, rx) = std::sync::mpsc::sync_channel(1);
-        std::thread::spawn(move || {
+        let worker = std::thread::spawn(move || {
             let value = axiom_await(task);
-            let _ = tx.send(value);
+            let _ = tx.send(());
+            value
         });
         match rx.recv_timeout(std::time::Duration::from_millis(timeout_ms.max(0) as u64)) {
-            Ok(value) => axiom_task_ready(Some(value)),
+            Ok(()) => axiom_task_ready(Some(
+                worker
+                    .join()
+                    .unwrap_or_else(|_| axiom_runtime_error("async", "host async timeout worker panicked")),
+            )),
             Err(std::sync::mpsc::RecvTimeoutError::Timeout) => axiom_task_ready(None),
             Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                let _ = worker.join();
                 axiom_runtime_error("async", "host async timeout worker panicked")
             }
         }

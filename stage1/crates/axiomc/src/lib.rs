@@ -1938,8 +1938,7 @@ print fail()
         if dependency_source.contains("async fn") || main_source.contains("std/async.ax") {
             fs::write(
                 dependency.join("axiom.toml"),
-                render_manifest("package-visible-core")
-                    .replace("async = false", "async = true"),
+                render_manifest("package-visible-core").replace("async = false", "async = true"),
             )
             .expect("write async-enabled dependency manifest");
         }
@@ -4186,8 +4185,15 @@ true
         let built = build_project(&project).expect("build project");
         let generated = fs::read_to_string(&built.generated_rust).expect("read generated rust");
         assert!(generated.contains("axiom_task_deferred(move ||"));
-        assert!(generated.contains("std::thread::spawn(move || axiom_task_ready(axiom_await(task)))"));
+        assert!(
+            generated.contains("std::thread::spawn(move || axiom_task_ready(axiom_await(task)))")
+        );
         assert!(generated.contains("recv_timeout(std::time::Duration::from_millis"));
+        assert!(generated.contains("let worker = std::thread::spawn(move ||"));
+        assert!(generated.contains(
+            "worker
+                    .join()"
+        ));
         assert!(!generated.contains("return axiom_task_ready(value + 1);"));
         let output = compiled_binary_command(&built.binary)
             .output()
