@@ -548,7 +548,7 @@ fn inspect_graph(project: &Path) -> Result<InspectGraphReport, Diagnostic> {
         })
         .collect::<Vec<_>>();
     let packages = package_nodes(project, &manifest);
-    let (modules, import_errors) = module_nodes(project)?;
+    let (modules, import_errors) = module_nodes(project, &manifest)?;
     let cycles = module_cycles(&modules);
 
     Ok(InspectGraphReport {
@@ -613,12 +613,20 @@ fn package_nodes(project: &Path, manifest: &axiomc::manifest::Manifest) -> Vec<P
     }]
 }
 
-fn module_nodes(project: &Path) -> Result<(Vec<ModuleNode>, Vec<ImportErrorReport>), Diagnostic> {
+fn module_nodes(
+    project: &Path,
+    manifest: &axiomc::manifest::Manifest,
+) -> Result<(Vec<ModuleNode>, Vec<ImportErrorReport>), Diagnostic> {
     let files = axiom_files(project)?;
     let known = files
         .iter()
         .map(|path| normalize_for_graph(path))
         .collect::<BTreeSet<_>>();
+    let dependencies = manifest
+        .dependencies
+        .iter()
+        .map(|(name, spec)| (name.as_str(), project.join(&spec.path).join("src")))
+        .collect::<HashMap<_, _>>();
     let stdlib = stdlib_module_set();
     let mut modules = Vec::new();
     let mut errors = Vec::new();
@@ -649,10 +657,13 @@ fn module_nodes(project: &Path) -> Result<(Vec<ModuleNode>, Vec<ImportErrorRepor
                 });
                 continue;
             }
-            let candidate = file
-                .parent()
-                .map(|parent| parent.join(&import.path))
-                .unwrap_or_else(|| PathBuf::from(&import.path));
+            let candidate = dependency_import_candidate(&dependencies, &import.path).unwrap_or_else(
+                || {
+                    file.parent()
+                        .map(|parent| parent.join(&import.path))
+                        .unwrap_or_else(|| PathBuf::from(&import.path))
+                },
+            );
             let resolved = normalize_for_graph(&candidate);
             if !known.contains(&resolved) {
                 errors.push(ImportErrorReport {
@@ -674,6 +685,14 @@ fn module_nodes(project: &Path) -> Result<(Vec<ModuleNode>, Vec<ImportErrorRepor
     }
     modules.sort_by(|left, right| left.path.cmp(&right.path));
     Ok((modules, errors))
+}
+
+fn dependency_import_candidate(
+    dependencies: &HashMap<&str, PathBuf>,
+    import: &str,
+) -> Option<PathBuf> {
+    let (dependency, rest) = import.split_once('/')?;
+    dependencies.get(dependency).map(|source_root| source_root.join(rest))
 }
 
 fn stdlib_module_set() -> BTreeSet<&'static str> {
@@ -1255,10 +1274,17 @@ mod tests {
     fn inspect_graph_reports_modules_lockfile_and_import_errors() {
         let dir = tempfile::tempdir().expect("tempdir");
         let project = dir.path().join("graph");
+        let dependency = project.join("deps/core");
         create_project(&project, Some("graph-app")).expect("create project");
+        create_project(&dependency, Some("graph-core")).expect("create dependency");
+        fs::write(
+            project.join("axiom.toml"),
+            "[package]\nname = \"graph-app\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[dependencies]\ncore = { path = \"deps/core\" }\n",
+        )
+        .expect("write manifest");
         fs::write(
             project.join("src/main.ax"),
-            "import \"math.ax\"\nimport \"missing.ax\"\n\nprint value()\n",
+            "import \"math.ax\"\nimport \"core/math.ax\"\nimport \"missing.ax\"\n\nprint value()\n",
         )
         .expect("write main source");
         fs::write(
@@ -1266,17 +1292,57 @@ mod tests {
             "import \"std/time.ax\"\n\npub fn value(): int {\nreturn 7\n}\n",
         )
         .expect("write math source");
+        fs::write(
+            dependency.join("src/math.ax"),
+            "pub fn dep_value(): int {\nreturn 11\n}\n",
+        )
+        .expect("write dependency source");
+        let dependency_manifest = load_manifest(&dependency).expect("load dependency manifest");
+        fs::write(
+            dependency.join("axiom.lock"),
+            axiomc::lockfile::render_lockfile_for_project(&dependency, &dependency_manifest)
+                .expect("dependency lockfile"),
+        )
+        .expect("write dependency lockfile");
+        let manifest = load_manifest(&project).expect("load root manifest");
+        fs::write(
+            project.join("axiom.lock"),
+            axiomc::lockfile::render_lockfile_for_project(&project, &manifest)
+                .expect("root lockfile"),
+        )
+        .expect("write root lockfile");
 
         let report = inspect_graph(&project).expect("inspect graph");
 
         assert_eq!(report.command, "inspect graph");
         assert_eq!(report.lockfile_status, "valid");
-        assert_eq!(report.lockfile_packages.len(), 1);
+        assert_eq!(report.lockfile_packages.len(), 2);
         assert_eq!(report.packages.len(), 1);
-        assert_eq!(report.modules.len(), 3);
+        assert!(report.modules.len() >= 4);
         assert!(report.stdlib_modules.contains(&"std/time.ax"));
         assert_eq!(report.import_errors.len(), 1);
         assert!(report.import_errors[0].message.contains("missing import"));
+        let main = report
+            .modules
+            .iter()
+            .find(|module| {
+                module
+                    .imports
+                    .iter()
+                    .any(|import| import.path == "core/math.ax")
+            })
+            .expect("main module");
+        let dependency_import = main
+            .imports
+            .iter()
+            .find(|import| import.path == "core/math.ax")
+            .expect("dependency import");
+        assert!(
+            dependency_import
+                .resolved
+                .as_deref()
+                .is_some_and(|path| path.ends_with("deps/core/src/math.ax"))
+        );
     }
 
     #[test]
