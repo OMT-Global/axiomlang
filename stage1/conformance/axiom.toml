@@ -1,12 +1,17 @@
 [workspace]
 members = [
-
+  "fail/borrow_escape_enum_payload",
+  "fail/borrow_escape_option_payload",
+  "fail/borrow_escape_result_payload",
+  "fail/borrow_escape_struct_field",
+  "fail/borrow_escape_tuple_element",
   "fail/closure_captures_function_callee",
   "fail/closure_borrowed_slice_return",
   "fail/closure_move_captured_non_copy",
   "fail/comparison_owned_resource_move",
   "fail/comparison_predictable_diagnostic",
   "fail/comparison_strict_type_mismatch",
+  "fail/double_mutable_borrow",
   "fail/for_loop_requires_iteration_protocol",
   "fail/import_cycle",
   "fail/import_duplicate_export",
@@ -15,7 +20,9 @@ members = [
   "fail/import_reserved_namespace",
   "fail/import_unsupported_alias",
   "fail/match_guard_not_supported",
+  "fail/move_while_mutably_borrowed",
   "fail/mutable_borrow_while_shared_live",
+  "fail/shared_borrow_while_mutable_live",
   "fail/named_nested_match_pattern_not_supported",
   "fail/nested_match_pattern_not_supported",
   "fail/ownership_use_after_move",

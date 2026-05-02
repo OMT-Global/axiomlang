@@ -1,0 +1,7 @@
+fn wrap_tuple(input: &[int]): (&[int], int) {
+let local: [int] = [10, 11, 12]
+return (local[:], 3)
+}
+
+let values: [int] = [1, 2, 3]
+let pair: (&[int], int) = wrap_tuple(values[:])
