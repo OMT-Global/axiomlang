@@ -733,7 +733,7 @@ fn load_package_expected_output(project_root: &Path) -> Result<Option<String>, D
 pub fn project_capabilities(project_root: &Path) -> Result<Vec<CapabilityDescriptor>, Diagnostic> {
     let manifest = load_manifest(project_root)?;
     let mut capabilities = capability_descriptors(&manifest.capabilities);
-    if manifest.capabilities.fs {
+    if manifest.capabilities.fs || manifest.capabilities.fs_write {
         let configured_root = manifest
             .capabilities
             .fs_root
@@ -747,13 +747,14 @@ pub fn project_capabilities(project_root: &Path) -> Result<Vec<CapabilityDescrip
             .with_path(project_root.display().to_string())
         })?;
         let effective_root = fs_root_path_for_package(project_root, &manifest)?;
-        if let Some(fs) = capabilities
-            .iter_mut()
-            .find(|capability| capability.name == CapabilityKind::Fs.name())
-        {
-            fs.configured_root = Some(configured_root);
-            fs.effective_root = Some(effective_root.display().to_string());
-            fs.package_root = Some(package_root.display().to_string());
+        for capability in capabilities.iter_mut().filter(|capability| {
+            capability.enabled
+                && (capability.name == CapabilityKind::Fs.name()
+                    || capability.name == CapabilityKind::FsWrite.name())
+        }) {
+            capability.configured_root = Some(configured_root.clone());
+            capability.effective_root = Some(effective_root.display().to_string());
+            capability.package_root = Some(package_root.display().to_string());
         }
     }
     Ok(capabilities)
