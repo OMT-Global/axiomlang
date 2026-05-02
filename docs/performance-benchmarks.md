@@ -18,29 +18,19 @@ collecting timing data:
 cargo run --manifest-path stage1/Cargo.toml -p axiomc -- test stage1/examples/stdlib_testing --include-benchmarks --json
 ```
 
-## Advisory Go/Rust/Axiom comparison gate
+This closes the local benchmark-suite foundation. Extended validation also runs
+`make stage1-bench-gate`, which measures three representative stage1 build
+workloads (`hello`, `capabilities`, and `stdlib_async`) against checked-in
+Go/Rust reference programs.
 
-The stage1 comparison report is intentionally non-blocking at first. It builds
-and runs equivalent Axiom, Go, and Rust workloads, then emits machine-readable
-JSON covering:
+The existing benchmark gate still owns hard failures for obvious cold-build and
+warm-cache regressions against the checked-in native reference builds. The newer
+committed calibration-baseline comparison is deliberately non-blocking: it
+compares current `axiomc build` medians to
+`stage1/benchmarks/stage1-build-baseline.json` with a 35% tolerance and prints
+`PASS`/`WARN` diagnostics, but WARN results exit successfully so CI can collect
+calibration data without blocking unrelated PRs.
 
-- cold and warm Axiom build time versus Go/Rust reference build medians
-- run time medians for each produced executable
-- binary size for Axiom, Go, and Rust outputs
-- JSON diagnostic quality from a failing conformance fixture
-- capability manifest coverage from `axiomc caps --json`
-- advisory regression warnings against the committed calibration baseline
-
-```bash
-python3 scripts/ci/check-stage1-benchmarks.py --json-out stage1/target/stage1-comparison-report.json
-```
-
-The default policy is `advisory-nonblocking`; advisory limit findings are
-reported but do not fail PRs. Maintainers can opt into blocking behavior later
-with `--enforce` once representative workloads and thresholds are stable.
-
-The extended validation gate also compares the current stage1 build medians
-against the committed calibration baseline at
-`stage1/benchmarks/baselines/stage1-build-median.json`. That comparison is
-reported as a non-blocking warning with a documented tolerance while runner
-variance is being measured.
+Refresh the committed calibration baseline only after maintainers agree the
+runner, workload set, and observed medians are stable enough to ratchet. Keep
+baseline changes in review so tolerance movement is visible.

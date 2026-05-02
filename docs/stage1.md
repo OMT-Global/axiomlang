@@ -149,7 +149,7 @@ still far from the stated 1.0 target for service and agent workloads.
   full package-graph analysis remain open. See [Stage1 LSP analyzer](stage1-lsp.md).
   Publisher, full LSP, and debugger surfaces remain open.
 - Diagnostics are still intentionally minimal: useful JSON now includes stable ownership codes and top-level parser recovery, but checker recovery, span quality, and note richness are still limited.
-- Extended validation now carries a small performance regression gate: stage1 `axiomc build` is benchmarked across representative compute (`hello`), I/O/capability (`capabilities`), and concurrency (`stdlib_async`) workloads against checked-in Go and Rust reference builds, with separate cold-build and warm-cache budget multipliers to catch obvious compiler-path regressions without making PR fast CI noisy.
+- Extended validation now carries a small non-blocking performance regression comparison: stage1 `axiomc build` is benchmarked across representative compute (`hello`), I/O/capability (`capabilities`), and concurrency (`stdlib_async`) workloads against checked-in Go and Rust reference builds, then current medians are compared to `stage1/benchmarks/stage1-build-baseline.json` with a documented 35% warning tolerance. Regression warnings are calibration signals and do not fail CI yet; harness/tool failures still fail normally.
 
 ## Execution plan
 
