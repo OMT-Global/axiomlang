@@ -43,4 +43,37 @@ The extended validation gate also compares the current stage1 build medians
 against the committed calibration baseline at
 `stage1/benchmarks/baselines/stage1-build-median.json`. That comparison is
 reported as a non-blocking warning with a documented tolerance while runner
-variance is being measured.
+variance is being measured; the existing benchmark gate still owns hard failures
+for obvious cold-build and warm-cache regressions against the checked-in Go and
+Rust reference builds.
+
+## Stage1 baseline harness
+
+`make stage1-bench` records parser, check, build, and run wall-clock timings for
+fixed checked-in example packages and writes a generated JSON report to
+`stage1/benchmarks/generated/stage1-bench.json`. The generated path is ignored so
+normal smoke/validation runs do not mutate the checked-in timing baseline.
+
+```bash
+make stage1-bench
+```
+
+The report uses schema `axiom.stage1.benchmark_harness.v1` and includes per-step
+samples and medians for each workload. The default fixed examples are `hello`,
+`capabilities`, and `modules`; callers can invoke the underlying script directly
+to change the round count, workload list, or output path:
+
+```bash
+python3 scripts/ci/run-stage1-bench.py --rounds 5 hello modules
+```
+
+To intentionally refresh the tracked baseline at
+`stage1/benchmarks/stage1-baseline.json`, use the explicit update target:
+
+```bash
+make stage1-bench-update-baseline
+```
+
+The parser timing is backed by `axiomc parse`, a parse-only command that validates
+the primary package entrypoint and emits the same machine-readable stage1 JSON
+contract shape as the other compiler commands.

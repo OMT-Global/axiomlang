@@ -3,6 +3,7 @@ use axiomc::dap;
 use axiomc::diagnostics::Diagnostic;
 use axiomc::json_contract;
 use axiomc::lsp;
+use axiomc::manifest::{entry_path, load_manifest};
 use axiomc::new_project::create_project;
 use axiomc::project::{
     BuildOptions, BuildOutput, CheckOptions, RunOptions, TestOptions, build_project_with_options,
@@ -35,6 +36,12 @@ enum Command {
         path: PathBuf,
         #[arg(long)]
         name: Option<String>,
+    },
+    /// Parse the primary stage1 package entrypoint without typechecking.
+    Parse {
+        path: PathBuf,
+        #[arg(long)]
+        json: bool,
     },
     /// Check a stage1 package or workspace member without building an artifact.
     Check {
@@ -169,6 +176,28 @@ fn main() {
                 0
             }
             Err(error) => print_error("new", error, false),
+        },
+        Command::Parse { path, json } => match parse_project_entry(&path) {
+            Ok(output) => {
+                if json {
+                    println!(
+                        "{}",
+                        serde_json::json!({
+                            "schema_version": json_contract::JSON_SCHEMA_VERSION,
+                            "ok": true,
+                            "command": "parse",
+                            "project": path.display().to_string(),
+                            "manifest": output.manifest,
+                            "entry": output.entry,
+                            "statement_count": output.statement_count,
+                        })
+                    );
+                } else {
+                    eprintln!("OK statements={}", output.statement_count);
+                }
+                0
+            }
+            Err(error) => print_error("parse", error, json),
         },
         Command::Check {
             path,
@@ -462,6 +491,30 @@ fn main() {
         },
     };
     std::process::exit(code);
+}
+
+#[derive(Debug)]
+struct ParseOutput {
+    manifest: String,
+    entry: String,
+    statement_count: usize,
+}
+
+fn parse_project_entry(path: &Path) -> Result<ParseOutput, Diagnostic> {
+    let manifest = load_manifest(path)?;
+    let entry = entry_path(path, &manifest);
+    let source = fs::read_to_string(&entry).map_err(|err| {
+        Diagnostic::new(
+            "parse",
+            format!("failed to read {}: {err}", entry.display()),
+        )
+    })?;
+    let program = parse_program(&source, &entry)?;
+    Ok(ParseOutput {
+        manifest: path.join("axiom.toml").display().to_string(),
+        entry: entry.display().to_string(),
+        statement_count: program.stmts.len(),
+    })
 }
 
 fn build_summary_lines(output: &BuildOutput, timings: bool) -> Vec<String> {
