@@ -7455,6 +7455,31 @@ print serve_once("127.0.0.1:18080", "hello")
         assert_eq!(map["mappings"][0]["column"], 1);
         assert!(map["mappings"][0]["generated_line"].is_u64());
 
+        if let Ok(readelf) = which::which("readelf") {
+            let output = Command::new(readelf)
+                .args(["--debug-dump=decodedline", &debug.binary])
+                .output()
+                .expect("run readelf on debug binary");
+            assert!(
+                output.status.success(),
+                "readelf --debug-dump=decodedline failed"
+            );
+            let dwarf_lines = String::from_utf8_lossy(&output.stdout);
+            let generated_file = PathBuf::from(&debug.generated_rust)
+                .file_name()
+                .expect("generated rust file name")
+                .to_string_lossy()
+                .into_owned();
+            assert!(
+                dwarf_lines.contains(&generated_file),
+                "rustc DWARF line table should point at generated Rust; debug map carries Axiom spans"
+            );
+            assert!(
+                !dwarf_lines.contains("main.ax"),
+                "generated-rust debug builds must not pretend rustc remapped DWARF rows to Axiom source lines"
+            );
+        }
+
         fs::remove_file(&debug_map).expect("remove debug map");
         let cached_debug = build_project_with_options(
             &project,

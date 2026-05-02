@@ -7,8 +7,7 @@ use crate::mir::{
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::fmt;
-use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::Command;
 use std::str::FromStr;
 
@@ -67,32 +66,10 @@ mod tests {
     fn rejects_unsupported_backend_value() {
         let error = NativeBackendKind::from_str("direct-native")
             .expect_err("unsupported backend values should be rejected");
-        assert!(error
-            .contains("only generated-rust is implemented in this preparatory backend plumbing"));
-    }
-
-    #[test]
-    fn collects_axiom_debug_sources_from_markers() {
-        let generated = "    // axiom-source: /tmp/project/src/main.ax:7:1\n    println!(\"{}\", answer);\n    // axiom-source: /tmp/project/src/math.ax:2:5\n";
-        let paths = super::debug_source_paths(generated)
-            .into_iter()
-            .map(|path| path.display().to_string())
-            .collect::<Vec<_>>();
-
-        assert_eq!(
-            paths,
-            vec![
-                String::from("/tmp/project/src/main.ax"),
-                String::from("/tmp/project/src/math.ax")
-            ]
-        );
-    }
-
-    #[test]
-    fn parses_debug_source_markers_with_colons_in_source_path() {
-        assert_eq!(
-            super::parse_axiom_source_marker("/tmp/project/src/main:debug.ax:12:3"),
-            Some((String::from("/tmp/project/src/main:debug.ax"), 12, 3))
+        assert!(
+            error.contains(
+                "only generated-rust is implemented in this preparatory backend plumbing"
+            )
         );
     }
 }
@@ -3477,36 +3454,6 @@ pub fn compile_native(
     }
 }
 
-fn primary_axiom_debug_source(generated_rust: &Path) -> Option<PathBuf> {
-    let generated_source = fs::read_to_string(generated_rust).ok()?;
-    debug_source_paths(&generated_source).into_iter().next()
-}
-
-fn debug_source_paths(generated_source: &str) -> Vec<PathBuf> {
-    let mut seen = HashSet::new();
-    let mut paths = Vec::new();
-    for line in generated_source.lines() {
-        let Some(marker) = line.trim_start().strip_prefix("// axiom-source: ") else {
-            continue;
-        };
-        let Some((source, _line, _column)) = parse_axiom_source_marker(marker) else {
-            continue;
-        };
-        if seen.insert(source.clone()) {
-            paths.push(PathBuf::from(source));
-        }
-    }
-    paths
-}
-
-fn parse_axiom_source_marker(marker: &str) -> Option<(String, usize, usize)> {
-    let mut parts = marker.rsplitn(3, ':');
-    let column = parts.next()?.parse().ok()?;
-    let line = parts.next()?.parse().ok()?;
-    let source = parts.next()?.to_string();
-    Some((source, line, column))
-}
-
 fn compile_generated_rust(
     generated_rust: &Path,
     binary_path: &Path,
@@ -3519,21 +3466,16 @@ fn compile_generated_rust(
         .arg("axiom_stage1_bootstrap")
         .arg("--edition=2024");
     if debug {
+        // The generated-rust backend asks rustc for native debuginfo for the
+        // Rust shim it compiles. Axiom source spans are emitted separately in
+        // the sidecar debug map; rustc path remapping is intentionally not used
+        // here because it cannot remap DWARF line-table rows to Axiom line
+        // numbers or represent multiple Axiom source files correctly.
         command
             .arg("-C")
             .arg("debuginfo=2")
             .arg("-C")
             .arg("opt-level=0");
-        if let Some(primary_source) = primary_axiom_debug_source(generated_rust) {
-            // Rustc still compiles the generated Rust shim, but remapping the
-            // compilation-unit path gives native debuggers an Axiom source file
-            // in DWARF while the sidecar debug map keeps per-statement spans.
-            command.arg("--remap-path-prefix").arg(format!(
-                "{}={}",
-                generated_rust.display(),
-                primary_source.display()
-            ));
-        }
     } else {
         command.arg("-O");
     }
