@@ -4189,9 +4189,9 @@ true
             generated.contains("std::thread::spawn(move || axiom_task_ready(axiom_await(task)))")
         );
         assert!(generated.contains("recv_timeout(std::time::Duration::from_millis"));
-        assert!(generated.contains("drop(worker);"));
         assert!(generated.contains("clock_sleep_ms(milliseconds)"));
         assert!(generated.contains("net_tcp_dial(host, port, message, timeout_ms)"));
+        assert!(generated.contains("std::net::TcpStream::connect_timeout"));
         assert!(generated.contains("let worker = std::thread::spawn(move ||"));
         assert!(generated.contains(
             "worker
