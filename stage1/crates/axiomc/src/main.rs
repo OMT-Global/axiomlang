@@ -738,10 +738,19 @@ fn collect_expr_capabilities(expr: &axiomc::syntax::Expr, capabilities: &mut Vec
                 collect_expr_capabilities(&field.expr, capabilities);
             }
         }
-        Expr::FieldAccess { base, .. }
-        | Expr::TupleIndex { base, .. }
-        | Expr::Slice { base, .. } => {
+        Expr::FieldAccess { base, .. } | Expr::TupleIndex { base, .. } => {
             collect_expr_capabilities(base, capabilities);
+        }
+        Expr::Slice {
+            base, start, end, ..
+        } => {
+            collect_expr_capabilities(base, capabilities);
+            if let Some(start) = start {
+                collect_expr_capabilities(start, capabilities);
+            }
+            if let Some(end) = end {
+                collect_expr_capabilities(end, capabilities);
+            }
         }
         Expr::TupleLiteral { elements, .. } | Expr::ArrayLiteral { elements, .. } => {
             for element in elements {
@@ -769,9 +778,13 @@ fn capability_for_call(name: &str) -> Option<&'static str> {
         "fs_read" => Some("fs"),
         "net_resolve"
         | "http_get"
+        | "net_tcp_listen_loopback_once"
         | "tcp_listen_loopback_once"
+        | "net_tcp_dial"
         | "tcp_dial"
+        | "net_udp_bind_loopback_once"
         | "udp_bind_loopback_once"
+        | "net_udp_send_recv"
         | "udp_send_recv" => Some("net"),
         "process_status" => Some("process"),
         "crypto_sha256" => Some("crypto"),
@@ -1274,7 +1287,7 @@ mod tests {
         fs::create_dir_all(&source_dir).expect("create source dir");
         fs::write(
             source_dir.join("main.ax"),
-            "import \"time.ax\"\n\npub const LIMIT: int = 3\n\npub struct Job {\nname: string\n}\n\npub fn now(): int {\nreturn clock_now_ms()\n}\n\nfn private_helper(): int {\nreturn 1\n}\n",
+            "import \"time.ax\"\n\npub const LIMIT: int = 3\n\npub struct Job {\nname: string\n}\n\npub fn now(): int {\nreturn clock_now_ms()\n}\n\npub fn dial(): int {\nreturn net_tcp_dial(\"127.0.0.1\", 80)\n}\n\npub fn slice_time(values: [int]): [int] {\nreturn values[0:clock_now_ms()]\n}\n\nfn private_helper(): int {\nreturn 1\n}\n",
         )
         .expect("write main source");
         fs::write(
@@ -1286,7 +1299,7 @@ mod tests {
         let report = inspect_symbols(dir.path()).expect("inspect symbols");
 
         assert_eq!(report.command, "inspect symbols");
-        assert_eq!(report.symbols.len(), 4);
+        assert_eq!(report.symbols.len(), 6);
         let now = report
             .symbols
             .iter()
@@ -1296,6 +1309,18 @@ mod tests {
         assert!(now.signature.contains("pub fn now(): int"));
         assert_eq!(now.imports, vec![String::from("time.ax")]);
         assert_eq!(now.capabilities, vec!["clock"]);
+        let dial = report
+            .symbols
+            .iter()
+            .find(|symbol| symbol.name == "dial")
+            .expect("dial symbol");
+        assert_eq!(dial.capabilities, vec!["net"]);
+        let slice_time = report
+            .symbols
+            .iter()
+            .find(|symbol| symbol.name == "slice_time")
+            .expect("slice_time symbol");
+        assert_eq!(slice_time.capabilities, vec!["clock"]);
         assert!(
             report
                 .symbols
