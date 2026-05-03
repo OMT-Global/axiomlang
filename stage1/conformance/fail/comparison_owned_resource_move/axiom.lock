@@ -1,0 +1,6 @@
+version = 1
+
+[[package]]
+name = "conformance-comparison-owned-resource-move"
+version = "0.1.0"
+source = "path"
