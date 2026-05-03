@@ -687,6 +687,9 @@ fn collect_expr_calls(expr: &syntax::Expr, calls: &mut VecDeque<String>) {
             collect_expr_calls(base, calls);
             collect_expr_calls(index, calls);
         }
+        syntax::Expr::Closure { body, .. } => {
+            collect_expr_calls(body, calls);
+        }
     }
 }
 
@@ -1348,6 +1351,22 @@ fn infer_generic_calls_in_expr(
             line: *line,
             column: *column,
         },
+        syntax::Expr::Closure {
+            params,
+            body,
+            line,
+            column,
+        } => syntax::Expr::Closure {
+            params: params.clone(),
+            body: Box::new(infer_generic_calls_in_expr(
+                body,
+                expected,
+                env,
+                generic_functions,
+            )?),
+            line: *line,
+            column: *column,
+        },
         syntax::Expr::Literal(_) | syntax::Expr::VarRef { .. } => expr.clone(),
     })
 }
@@ -1530,6 +1549,12 @@ fn contains_generic_type_param(ty: &syntax::TypeName, type_params: &HashSet<Stri
         syntax::TypeName::Tuple(elements) => elements
             .iter()
             .any(|element| contains_generic_type_param(element, type_params)),
+        syntax::TypeName::Fn(params, return_ty) => {
+            params
+                .iter()
+                .any(|param| contains_generic_type_param(param, type_params))
+                || contains_generic_type_param(return_ty, type_params)
+        }
         syntax::TypeName::Int | syntax::TypeName::Bool | syntax::TypeName::String => false,
     }
 }
@@ -1653,6 +1678,23 @@ fn unify_generic_type_name(
         syntax::TypeName::Array(lhs, _) => {
             if let syntax::TypeName::Array(rhs, _) = actual {
                 unify_generic_type_name(lhs, rhs, type_params, bindings, line, column)
+            } else if contains_generic_type_param(pattern, type_params) {
+                Err(generic_constraint_mismatch(pattern, actual, line, column))
+            } else {
+                Ok(())
+            }
+        }
+        syntax::TypeName::Fn(lhs_params, lhs_return) => {
+            if let syntax::TypeName::Fn(rhs_params, rhs_return) = actual {
+                if lhs_params.len() != rhs_params.len()
+                    && contains_generic_type_param(pattern, type_params)
+                {
+                    return Err(generic_constraint_mismatch(pattern, actual, line, column));
+                }
+                for (lhs, rhs) in lhs_params.iter().zip(rhs_params) {
+                    unify_generic_type_name(lhs, rhs, type_params, bindings, line, column)?;
+                }
+                unify_generic_type_name(lhs_return, rhs_return, type_params, bindings, line, column)
             } else if contains_generic_type_param(pattern, type_params) {
                 Err(generic_constraint_mismatch(pattern, actual, line, column))
             } else {
@@ -8129,6 +8171,12 @@ fn collect_var_refs(expr: &syntax::Expr, refs: &mut HashSet<String>) {
         syntax::Expr::Call { args, .. }
         | syntax::Expr::TupleLiteral { elements: args, .. }
         | syntax::Expr::ArrayLiteral { elements: args, .. } => {
+            for arg in args {
+                collect_var_refs(arg, refs);
+            }
+        }
+        syntax::Expr::MethodCall { base, args, .. } => {
+            collect_var_refs(base, refs);
             for arg in args {
                 collect_var_refs(arg, refs);
             }
