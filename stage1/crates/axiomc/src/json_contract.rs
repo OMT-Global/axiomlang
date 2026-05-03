@@ -29,6 +29,8 @@ pub fn build_success(project: &Path, output: &BuildOutput) -> Value {
         "command": "build",
         "project": project.display().to_string(),
         "backend": output.backend,
+        "locked": output.locked,
+        "offline": output.offline,
         "manifest": output.manifest,
         "entry": output.entry,
         "binary": output.binary,
