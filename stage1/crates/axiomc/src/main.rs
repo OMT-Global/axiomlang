@@ -875,12 +875,48 @@ fn stable_hash(input: &str) -> u64 {
     })
 }
 
-fn infer_function_from_file_and_line(file: &str, _line: Option<u64>) -> String {
+fn infer_function_from_file_and_line(file: &str, line: Option<u64>) -> String {
+    if let Some(line) = line {
+        if let Ok(source) = fs::read_to_string(file) {
+            let mut current_function = None;
+            for (index, source_line) in source.lines().enumerate() {
+                let source_line_number = u64::try_from(index).unwrap_or(u64::MAX) + 1;
+                if source_line_number > line {
+                    break;
+                }
+                if let Some(function) = function_name_from_source_line(source_line) {
+                    current_function = Some(function);
+                }
+            }
+            if let Some(function) = current_function {
+                return function;
+            }
+        }
+    }
+
     Path::new(file)
         .file_stem()
         .and_then(|s| s.to_str())
         .unwrap_or("module")
         .to_string()
+}
+
+fn function_name_from_source_line(line: &str) -> Option<String> {
+    let trimmed = line.trim_start();
+    let without_visibility = trimmed.strip_prefix("pub ").unwrap_or(trimmed);
+    let without_async = without_visibility
+        .strip_prefix("async ")
+        .unwrap_or(without_visibility);
+    let signature = without_async.strip_prefix("fn ")?;
+    let name: String = signature
+        .chars()
+        .take_while(|c| c.is_ascii_alphanumeric() || *c == '_')
+        .collect();
+    if name.is_empty() {
+        None
+    } else {
+        Some(name)
+    }
 }
 
 fn recommended_fixture_name(file: &str, function: &str) -> String {
@@ -1257,6 +1293,31 @@ mod tests {
         assert_eq!(report.groups[1].file, "src/main.ax");
         assert_eq!(report.groups[1].survivors.len(), 2);
         assert_eq!(report.groups[1].survivors[0].id, "m1");
+    }
+
+    #[test]
+    fn mutation_report_infers_function_from_source_line() {
+        let dir = tempdir().expect("tempdir");
+        let source_path = dir.path().join("main.ax");
+        fs::write(
+            &source_path,
+            "fn first(): int {\nreturn 1\n}\n\npub fn second(value: int): int {\nreturn value + 1\n}\n",
+        )
+        .expect("write source");
+        let json = format!(
+            r#"[
+                {{"id":"m1","status":"survived","file":"{}","line":2}},
+                {{"id":"m2","status":"survived","file":"{}","line":6}}
+            ]"#,
+            source_path.display(),
+            source_path.display()
+        );
+
+        let report = mutation_report_from_json_str(&json).expect("mutation report");
+
+        assert_eq!(report.groups.len(), 2);
+        assert_eq!(report.groups[0].function, "first");
+        assert_eq!(report.groups[1].function, "second");
     }
 
     #[test]
