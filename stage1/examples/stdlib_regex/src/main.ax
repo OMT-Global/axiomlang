@@ -1,0 +1,17 @@
+import "std/regex.ax"
+
+print is_match("^h.llo$", "hello")
+print is_match("^[a-z]+$", "agent")
+print is_match("^[^0-9]+$", "agent7")
+
+match find("[0-9]+", "issue-238-ready") {
+Some(value) {
+print value
+}
+None {
+print "none"
+}
+}
+
+print replace_all("[0-9]+", "issue-238-ready", "#")
+print is_match("a*a", "aaaaaaaaaaaaaaaa")

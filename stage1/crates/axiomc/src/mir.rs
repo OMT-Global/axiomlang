@@ -569,6 +569,7 @@ fn lower_expr(expr: &hir::Expr) -> Expr {
 
 fn lower_type(ty: &hir::Type) -> Type {
     match ty {
+        hir::Type::Error => unreachable!("type-error sentinel must not reach MIR lowering"),
         hir::Type::Int => Type::Int,
         hir::Type::Bool => Type::Bool,
         hir::Type::String => Type::String,

@@ -223,6 +223,44 @@ BODY
 BODY
 )
       ;;
+    structured_refs_issue)
+      body=$(cat <<'BODY'
+## Summary
+- Tighten PR validation.
+
+## Governing Issue
+- Refs #262
+
+## Validation
+- [x] bash scripts/ci/test-validate-pr-description.sh
+
+## Bootstrap Governance
+- No bootstrap changes.
+
+## Notes
+- None.
+BODY
+)
+      ;;
+    structured_part_of_issue)
+      body=$(cat <<'BODY'
+## Summary
+- Tighten PR validation.
+
+## Governing Issue
+- Part of #262
+
+## Validation
+- [x] bash scripts/ci/test-validate-pr-description.sh
+
+## Bootstrap Governance
+- No bootstrap changes.
+
+## Notes
+- None.
+BODY
+)
+      ;;
     structured_lowercase_no_link_reason)
       body=$(cat <<'BODY'
 ## Summary
@@ -352,6 +390,8 @@ run_case structured_fixes_issue_url success
 run_case structured_fixes_issue success
 run_case structured_qualified_fixes_issue success
 run_case structured_resolves_issue success
+run_case structured_refs_issue success
+run_case structured_part_of_issue success
 run_case structured_lowercase_no_link_reason success
 run_case structured_no_link_reason success
 run_case legacy_valid success

@@ -27,7 +27,7 @@ done
 
 issue_ref_regex='([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)?#[0-9]+'
 issue_url_regex='https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/issues/[0-9]+'
-issue_link_regex="(^|[[:space:]-])((close[sd]?|fix(e[sd])?|resolve[sd]?)[[:space:]]+(${issue_ref_regex}|${issue_url_regex})|${issue_ref_regex}|${issue_url_regex}|no issue is linked|no linked issue|without a linked issue|no governing issue)"
+issue_link_regex="(^|[[:space:]-])(((close[sd]?|fix(e[sd])?|resolve[sd]?|refs?)|part[[:space:]]+of)[[:space:]]+(${issue_ref_regex}|${issue_url_regex})|${issue_ref_regex}|${issue_url_regex}|no issue is linked|no linked issue|without a linked issue|no governing issue)"
 validation_regex='(^|[[:space:]-])(\[[xX]\]|not run|not applicable|n/a)'
 
 if (( has_structured_sections )); then

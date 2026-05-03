@@ -10,6 +10,14 @@ cargo run --manifest-path stage1/Cargo.toml -p axiomc -- bench stage1/examples/b
 
 The checked-in fixture package lives at `stage1/examples/benchmarks`.
 
+`axiomc bench` remains the measurement path. For PR and smoke validation, the
+test harness can also compile and execute benchmark entrypoints once without
+collecting timing data:
+
+```bash
+cargo run --manifest-path stage1/Cargo.toml -p axiomc -- test stage1/examples/stdlib_testing --include-benchmarks --json
+```
+
 This closes the local benchmark-suite foundation. Go and Rust reference
 comparisons should be layered on top of this harness in CI once representative
 workloads are stable enough to treat as performance policy.

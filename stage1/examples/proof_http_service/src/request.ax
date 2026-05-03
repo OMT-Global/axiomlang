@@ -1,0 +1,21 @@
+pub fn request_method(raw: Option<string>): string {
+match raw {
+Some(value) {
+return value
+}
+None {
+return "GET"
+}
+}
+}
+
+pub fn request_path(raw: Option<string>): string {
+match raw {
+Some(value) {
+return value
+}
+None {
+return "/health"
+}
+}
+}

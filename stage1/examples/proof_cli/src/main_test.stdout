@@ -1,2 +1,3 @@
-proof-cli status 3
-proof-cli run 7
+axiom cli
+mode=status plan=inspect queue
+true

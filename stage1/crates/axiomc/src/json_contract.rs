@@ -28,6 +28,9 @@ pub fn build_success(project: &Path, output: &BuildOutput) -> Value {
         "ok": true,
         "command": "build",
         "project": project.display().to_string(),
+        "backend": output.backend,
+        "locked": output.locked,
+        "offline": output.offline,
         "manifest": output.manifest,
         "entry": output.entry,
         "binary": output.binary,
@@ -55,6 +58,7 @@ pub fn test_success(project: &Path, filter: Option<&str>, output: &TestOutput) -
         "passed": output.passed,
         "failed": output.failed,
         "skipped": output.skipped,
+        "kinds": output.kinds,
         "duration_ms": output.duration_ms,
         "cases": output.cases,
     })

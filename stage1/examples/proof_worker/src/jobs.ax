@@ -1,0 +1,14 @@
+pub fn worker_name(raw: Option<string>): string {
+match raw {
+Some(value) {
+return value
+}
+None {
+return "worker"
+}
+}
+}
+
+pub fn handle(job: string): string {
+return "handled " + job
+}

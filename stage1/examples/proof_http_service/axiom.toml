@@ -1,0 +1,15 @@
+[package]
+name = "proof-http-service"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+fs = false
+net = false
+process = false
+env = ["REQUEST_METHOD", "REQUEST_PATH"]
+clock = true
+crypto = false

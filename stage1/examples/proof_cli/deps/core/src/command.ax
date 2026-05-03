@@ -1,0 +1,17 @@
+pub fn requested_mode(raw: Option<string>): string {
+match raw {
+Some(value) {
+return value
+}
+None {
+return "status"
+}
+}
+}
+
+pub fn plan(mode: string): string {
+if mode == "status" {
+return "inspect queue"
+}
+return "run " + mode
+}

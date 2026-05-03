@@ -7,13 +7,18 @@ currently supported source shape.
 ```ebnf
 program        := item* EOF ;
 
-item           := import_item
+item           := macro_item
+               | import_item
                | const_item
                | type_item
                | struct_item
                | enum_item
                | fn_item ;
 
+macro_item     := "macro_rules!" IDENT "{" macro_arm "}" ;
+macro_arm      := "(" macro_param_list? ")" "=>" "{" source_text "}" ;
+macro_param_list := macro_param ("," macro_param)* ;
+macro_param    := "$" IDENT (":" IDENT)? ;
 import_item    := "import" STRING ;
 const_item     := visibility? "const" IDENT ":" type "=" expr ;
 type_item      := visibility? "type" IDENT generic_params? "=" type ;
@@ -68,3 +73,8 @@ Comments start with `#` and run to end-of-line. See
 [stage1.md](stage1.md) for the current implementation scope and known gaps.
 Pattern guards and nested destructuring patterns are not supported in the
 current stage1 parser.
+
+Declarative `macro_rules!` support is intentionally small in stage1: one arm per
+macro, explicit `$name` captures, textual expansion before type-check, and a
+bounded recursive expansion depth. Multi-line expansions must be invoked as a
+whole statement; single-line expansions can appear inside expressions.

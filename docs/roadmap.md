@@ -14,7 +14,7 @@ implementation surfaces; see
 ## Completed Foundations
 
 - Package manifests with `axiom.toml` and `axiom.lock`.
-- Syntax, HIR, MIR, and generated-Rust native build pipeline.
+- Syntax, HIR, MIR, and a backend-driven native build pipeline with preparatory seam work for later native-backend expansion, as part of #105 rather than completion of it.
 - Package-local modules, local path dependencies, and workspace member
   selection.
 - Native `check`, `build`, `run`, `test`, and `caps` commands.

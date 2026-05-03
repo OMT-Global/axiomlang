@@ -8,6 +8,7 @@ out_dir = "dist"
 
 [capabilities]
 fs = true
+"fs:write" = true
 net = false
 process = false
 env = false

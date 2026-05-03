@@ -1,4 +1,8 @@
-import "core/render.ax"
+import "std/env.ax"
+import "std/time.ax"
+import "core/command.ax"
+import "ui/render.ax"
 
-print render_command("status", "3")
-print render_command("run", "7")
+print headline("axiom")
+print describe(requested_mode(get_env("AXIOM_STAGE1_CLI_MODE")), plan(requested_mode(get_env("AXIOM_STAGE1_CLI_MODE"))))
+print now_ms() > 0

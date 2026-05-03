@@ -1,0 +1,7 @@
+pub fn headline(name: string): string {
+return name + " cli"
+}
+
+pub fn describe(mode: string, plan: string): string {
+return "mode=" + mode + " plan=" + plan
+}

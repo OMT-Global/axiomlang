@@ -1,0 +1,31 @@
+import "std/json.ax"
+
+match parse_int(stringify_int(0)) {
+Some(value) {
+let zero_ok: int = assert_eq(value, 0)
+print zero_ok
+}
+None {
+print "missing zero"
+}
+}
+
+match parse_bool(stringify_bool(true)) {
+Some(value) {
+let bool_ok: int = assert_true(value)
+print bool_ok
+}
+None {
+print "missing bool"
+}
+}
+
+match parse_string(stringify_string("agent")) {
+Some(value) {
+let string_ok: int = assert_eq(value, "agent")
+print string_ok
+}
+None {
+print "missing string"
+}
+}

@@ -1,0 +1,4 @@
+import "std/json.ax"
+
+let encoded: string = stringify_string("benchmark")
+print encoded

@@ -77,6 +77,39 @@ for pattern in "${required_parity_patterns[@]}"; do
   fi
 done
 
+quickstart_doc="README.md"
+
+if [[ ! -f "$quickstart_doc" ]]; then
+  echo "missing $quickstart_doc" >&2
+  exit 1
+fi
+
+quickstart_block="$(awk '
+  /^## Quickstart$/ { in_quickstart = 1; next }
+  /^## / && in_quickstart { in_quickstart = 0 }
+  in_quickstart { print }
+' "$quickstart_doc")"
+
+if [[ -z "$quickstart_block" ]]; then
+  echo "README quickstart is missing" >&2
+  exit 1
+fi
+
+if ! grep -Fq "cargo run --manifest-path stage1/Cargo.toml -p axiomc -- check stage1/examples/hello --json" <<< "$quickstart_block"; then
+  echo "README quickstart must use the Rust axiomc check workflow" >&2
+  exit 1
+fi
+
+if ! grep -Fq "cargo run --manifest-path stage1/Cargo.toml -p axiomc -- run stage1/examples/hello" <<< "$quickstart_block"; then
+  echo "README quickstart must use the Rust axiomc run workflow" >&2
+  exit 1
+fi
+
+if grep -Eiq '(^|[^[:alpha:]])(python|stage0)([^[:alpha:]]|$)' <<< "$quickstart_block"; then
+  echo "README quickstart must not route users to Python stage0" >&2
+  exit 1
+fi
+
 if awk -F '|' '
   /^## Command And Runtime Matrix/ { in_matrix = 1; next }
   /^## / && in_matrix { in_matrix = 0 }
