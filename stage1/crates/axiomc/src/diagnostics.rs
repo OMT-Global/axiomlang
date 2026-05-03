@@ -6,6 +6,8 @@ pub struct Diagnostic {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub code: Option<String>,
     pub message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub help: Option<String>,
     pub path: Option<String>,
     pub line: Option<usize>,
     pub column: Option<usize>,
@@ -19,11 +21,17 @@ impl Diagnostic {
             kind: kind.into(),
             code: None,
             message: message.into(),
+            help: None,
             path: None,
             line: None,
             column: None,
             related: Vec::new(),
         }
+    }
+
+    pub fn with_help(mut self, help: impl Into<String>) -> Self {
+        self.help = Some(help.into());
+        self
     }
 
     pub fn with_code(mut self, code: impl Into<String>) -> Self {
