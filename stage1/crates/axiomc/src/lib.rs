@@ -2214,6 +2214,7 @@ print fail()
             .expect_err("workspace-only run should require package selection");
         assert_eq!(error.kind, "run");
         assert!(error.message.contains("require -p/--package"));
+        assert!(error.message.contains("valid packages: workspace-runner"));
     }
 
     #[test]
@@ -5920,6 +5921,49 @@ print serve_once("127.0.0.1:18080", "hello")
         let error = check_project(&project).expect_err("qualified calls should fail");
         assert_eq!(error.kind, "type");
         assert!(error.message.contains("undefined variable \"math\""));
+    }
+
+    #[test]
+    fn check_project_rejects_local_public_export_symbol_collision() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("local-export-collision");
+        create_project(&project, Some("local-export-collision-app")).expect("create project");
+        fs::write(
+            project.join("src/main.ax"),
+            "pub struct Answer {\nvalue: int\n}\n\npub fn Answer(): int {\nreturn 42\n}\n\nprint 0\n",
+        )
+        .expect("write source");
+
+        let error = check_project(&project).expect_err("public export collision should fail");
+        assert_eq!(error.kind, "type");
+        assert!(error.message.contains("duplicate symbol \"Answer\""));
+        assert_eq!(error.line, Some(5));
+    }
+
+    #[test]
+    fn check_project_rejects_imported_public_export_symbol_collision() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("import-export-collision");
+        create_project(&project, Some("import-export-collision-app")).expect("create project");
+        fs::write(
+            project.join("src/main.ax"),
+            "import \"math.ax\"\n\ntype answer = int\nprint 0\n",
+        )
+        .expect("write main");
+        fs::write(
+            project.join("src/math.ax"),
+            "pub fn answer(): int {\nreturn 42\n}\n",
+        )
+        .expect("write module");
+
+        let error = check_project(&project).expect_err("imported export collision should fail");
+        assert_eq!(error.kind, "import");
+        assert!(
+            error
+                .message
+                .contains("imported function \"answer\" collides with existing type alias")
+        );
+        assert_eq!(error.line, Some(1));
     }
 
     #[test]
