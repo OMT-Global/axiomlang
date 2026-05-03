@@ -1421,6 +1421,8 @@ fn contains_generic_type_param(ty: &syntax::TypeName, type_params: &HashSet<Stri
         | syntax::TypeName::MutPtr(inner)
         | syntax::TypeName::Slice(inner)
         | syntax::TypeName::MutSlice(inner)
+        | syntax::TypeName::LifetimeSlice(_, inner)
+        | syntax::TypeName::LifetimeMutSlice(_, inner)
         | syntax::TypeName::Option(inner)
         | syntax::TypeName::Array(inner) => contains_generic_type_param(inner, type_params),
         syntax::TypeName::Result(ok, err) | syntax::TypeName::Map(ok, err) => {
@@ -1499,6 +1501,24 @@ fn unify_generic_type_name(
         }
         syntax::TypeName::MutSlice(lhs) => {
             if let syntax::TypeName::MutSlice(rhs) = actual {
+                unify_generic_type_name(lhs, rhs, type_params, bindings, line, column)
+            } else if contains_generic_type_param(pattern, type_params) {
+                Err(generic_constraint_mismatch(pattern, actual, line, column))
+            } else {
+                Ok(())
+            }
+        }
+        syntax::TypeName::LifetimeSlice(_, lhs) => {
+            if let syntax::TypeName::LifetimeSlice(_, rhs) | syntax::TypeName::Slice(rhs) = actual {
+                unify_generic_type_name(lhs, rhs, type_params, bindings, line, column)
+            } else if contains_generic_type_param(pattern, type_params) {
+                Err(generic_constraint_mismatch(pattern, actual, line, column))
+            } else {
+                Ok(())
+            }
+        }
+        syntax::TypeName::LifetimeMutSlice(_, lhs) => {
+            if let syntax::TypeName::LifetimeMutSlice(_, rhs) | syntax::TypeName::MutSlice(rhs) = actual {
                 unify_generic_type_name(lhs, rhs, type_params, bindings, line, column)
             } else if contains_generic_type_param(pattern, type_params) {
                 Err(generic_constraint_mismatch(pattern, actual, line, column))

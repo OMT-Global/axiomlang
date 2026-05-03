@@ -6580,6 +6580,48 @@ print serve_once("127.0.0.1:18080", "hello")
     }
 
     #[test]
+    fn parser_rejects_multiple_explicit_lifetimes_until_codegen_can_preserve_them() {
+        let source = "fn pick<'a, 'b>(left: &'a [int], right: &'b [int]): &'a [int] {
+return left
+}
+
+print 0
+";
+        let error = parse_program(source, Path::new("main.ax"))
+            .expect_err("multiple lifetimes should be rejected");
+        assert!(error.message.contains("multiple explicit lifetimes"));
+        assert_eq!(error.kind, "parse");
+    }
+
+    #[test]
+    fn parser_rejects_undeclared_explicit_lifetime_uses() {
+        let source = "fn tail(values: &'a [int]): &'a [int] {
+return values
+}
+
+print 0
+";
+        let error = parse_program(source, Path::new("main.ax"))
+            .expect_err("undeclared lifetime should be rejected");
+        assert!(error.message.contains("undeclared lifetime parameter"));
+        assert_eq!(error.kind, "parse");
+    }
+
+    #[test]
+    fn parser_rejects_duplicate_lifetime_parameters() {
+        let source = "fn tail<'a, 'a>(values: &'a [int]): &'a [int] {
+return values
+}
+
+print 0
+";
+        let error = parse_program(source, Path::new("main.ax"))
+            .expect_err("duplicate lifetime should be rejected");
+        assert!(error.message.contains("duplicate lifetime parameter"));
+        assert_eq!(error.kind, "parse");
+    }
+
+    #[test]
     fn check_project_rejects_explicit_lifetime_return_from_wrong_parameter() {
         let dir = tempdir().expect("tempdir");
         let project = dir.path().join("explicit-lifetime-mismatch");
@@ -6590,11 +6632,9 @@ print serve_once("127.0.0.1:18080", "hello")
         )
         .expect("write source");
         let error =
-            check_project(&project).expect_err("wrong explicit lifetime origin should fail");
-        assert!(error.message.contains(
-            "returning borrowed values requires data derived from one of the borrowed parameters"
-        ));
-        assert_eq!(error.kind, "ownership");
+            check_project(&project).expect_err("unsupported multi-lifetime signature should fail");
+        assert!(error.message.contains("multiple explicit lifetimes"));
+        assert_eq!(error.kind, "parse");
     }
 
     #[test]
