@@ -38,6 +38,7 @@ members = [
   "fail/recursive_struct_without_indirection",
   "fail/result_ok_without_context",
   "fail/shared_borrow_while_mutable_live",
+  "fail/slice_type_alias_cycle",
   "fail/stdlib_clock_without_capability",
   "pass/closures",
   "pass/collection_operations",
@@ -50,6 +51,8 @@ members = [
   "pass/ownership_borrowing",
   "pass/package_local_modules",
   "pass/package_visibility",
+  "pass/slice_type_alias_in_signature",
+  "pass/slice_type_alias_in_struct",
   "pass/struct_field_access",
   "pass/type_system_aggregates",
 ]

@@ -1,0 +1,18 @@
+type Names = &[string]
+type Counts = &[int]
+
+fn first_name(names: Names): string {
+return first(names)
+}
+
+fn total(counts: Counts): int {
+return first(counts)
+}
+
+let labels: [string] = ["build", "test", "ship"]
+let result: string = first_name(labels[:])
+print result
+
+let numbers: [int] = [1, 2, 3]
+let n: int = total(numbers[:])
+print n

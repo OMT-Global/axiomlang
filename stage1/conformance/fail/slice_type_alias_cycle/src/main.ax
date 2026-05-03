@@ -1,0 +1,5 @@
+type Names = &[string]
+type Names = &[int]
+
+let words: [string] = ["hello"]
+print first(words[:])

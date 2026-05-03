@@ -1,0 +1,7 @@
+{
+  "kind": "type",
+  "message": "duplicate type alias \"Names\"",
+  "path": "src/main.ax",
+  "line": 2,
+  "column": 1
+}
