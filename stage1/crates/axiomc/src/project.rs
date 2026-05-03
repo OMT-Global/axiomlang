@@ -63,6 +63,8 @@ pub struct BuiltPackage {
 #[derive(Debug, Clone, Serialize)]
 pub struct BuildOutput {
     pub backend: NativeBackendKind,
+    pub locked: bool,
+    pub offline: bool,
     pub manifest: String,
     pub entry: String,
     pub binary: String,
@@ -137,6 +139,10 @@ pub struct BuildOptions {
     pub target: Option<String>,
     pub package: Option<String>,
     pub debug: bool,
+    /// Require the checked-in axiom.lock graph to match the local manifest graph.
+    pub locked: bool,
+    /// Resolve the build graph without network access. Stage1 currently supports local path graphs only.
+    pub offline: bool,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -267,6 +273,8 @@ pub fn build_project_with_options(
     let cache_misses = packages.len().saturating_sub(cache_hits);
     Ok(BuildOutput {
         backend: options.backend,
+        locked: options.locked,
+        offline: options.offline,
         manifest: root.manifest,
         entry: root.entry,
         binary: root.binary,
@@ -306,6 +314,8 @@ pub fn run_project_with_options(
             target: None,
             package: options.package.clone(),
             debug: false,
+            locked: true,
+            offline: true,
         },
     )?;
     let build_output_dir = Path::new(&built.generated_rust).parent().ok_or_else(|| {
@@ -2015,6 +2025,8 @@ fn intrinsic_capability(name: &str) -> Option<CapabilityKind> {
         "net_udp_bind_loopback_once" => Some(CapabilityKind::Net),
         "net_udp_send_recv" => Some(CapabilityKind::Net),
         "http_get" => Some(CapabilityKind::Net),
+        "http_serve_once" => Some(CapabilityKind::Net),
+        "http_serve_route" => Some(CapabilityKind::Net),
         "process_status" => Some(CapabilityKind::Process),
         "clock_now_ms" => Some(CapabilityKind::Clock),
         "clock_elapsed_ms" => Some(CapabilityKind::Clock),
