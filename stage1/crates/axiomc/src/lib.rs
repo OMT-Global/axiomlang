@@ -4081,6 +4081,47 @@ true
     }
 
     #[test]
+    fn closure_rejects_moving_captured_non_copy_fn_value() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("closure-captured-non-copy");
+        create_project(&project, Some("closure-captured-non-copy")).expect("create project");
+        fs::write(
+            project.join("axiom.toml"),
+            render_manifest_with_capabilities(
+                "closure-captured-non-copy",
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+            ),
+        )
+        .expect("write manifest");
+        let manifest = load_manifest(&project).expect("load manifest");
+        fs::write(
+            project.join("axiom.lock"),
+            render_lockfile_for_project(&project, &manifest).expect("lockfile"),
+        )
+        .expect("write lockfile");
+        fs::write(
+            project.join("src/main.ax"),
+            "let s: string = \"hello\"\nlet take: fn(): string = || s\nprint take()\n",
+        )
+        .expect("write source");
+
+        let err = check_project(&project)
+            .expect_err("fn closures must reject moving captured non-copy values");
+        assert_eq!(err.kind, "ownership");
+        assert_eq!(err.code.as_deref(), Some("closure_move_captured_non_copy"));
+        assert!(
+            err.message
+                .contains("closure cannot move captured non-copy value `s`"),
+            "unexpected diagnostic: {err:?}",
+        );
+    }
+
+    #[test]
     fn stage1_project_imports_synthetic_stdlib_sync_module() {
         // `std/sync.ax` is ungated in stage1 because it is implemented in
         // Axiom using ownership tokens rather than host threads or blocking
