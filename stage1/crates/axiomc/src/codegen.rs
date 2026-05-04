@@ -3466,6 +3466,11 @@ fn compile_generated_rust(
         .arg("axiom_stage1_bootstrap")
         .arg("--edition=2024");
     if debug {
+        // The generated-rust backend asks rustc for native debuginfo for the
+        // Rust shim it compiles. Axiom source spans are emitted separately in
+        // the sidecar debug map; rustc path remapping is intentionally not used
+        // here because it cannot remap DWARF line-table rows to Axiom line
+        // numbers or represent multiple Axiom source files correctly.
         command
             .arg("-C")
             .arg("debuginfo=2")
