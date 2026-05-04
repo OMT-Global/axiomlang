@@ -53,7 +53,7 @@ jobs:
           fi
 
       - name: Run Claude Code
-        uses: anthropics/claude-code-action@567fe954a4527e81f132d87d1bdbcc94f7737434 # v1 pinned 2026-04-19
+        uses: anthropics/claude-code-action@fefa07e9c665b7320f08c3b525980457f22f58aa # v1 pinned 2026-04-19
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           track_progress: true

@@ -82,6 +82,10 @@ pub struct CapabilityConfig {
     pub clock: bool,
     pub crypto: bool,
     pub ffi: bool,
+    pub deny_by_default: bool,
+    pub unsafe_opt_ins: Vec<String>,
+    pub owners: BTreeMap<String, String>,
+    pub rationale: BTreeMap<String, String>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
@@ -102,10 +106,18 @@ pub struct CapabilityDescriptor {
     pub name: String,
     pub enabled: bool,
     pub description: &'static str,
+    #[serde(skip_serializing_if = "is_false")]
+    pub deny_by_default: bool,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub allowed: Vec<String>,
     #[serde(skip_serializing_if = "is_false")]
     pub unsafe_unrestricted: bool,
+    #[serde(skip_serializing_if = "is_false")]
+    pub unsafe_opt_in: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub owner: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rationale: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -168,6 +180,10 @@ struct RawCapabilityConfig {
     clock: Option<bool>,
     crypto: Option<bool>,
     ffi: Option<bool>,
+    deny_by_default: Option<bool>,
+    unsafe_opt_ins: Option<Vec<String>>,
+    owners: Option<BTreeMap<String, String>>,
+    rationale: Option<BTreeMap<String, String>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -249,12 +265,16 @@ pub fn capability_descriptors(config: &CapabilityConfig) -> Vec<CapabilityDescri
             name: kind.name().to_string(),
             enabled: config.enabled(*kind),
             description: kind.description(),
+            deny_by_default: config.deny_by_default,
             allowed: if *kind == CapabilityKind::Env {
                 config.env_vars.clone()
             } else {
                 Vec::new()
             },
             unsafe_unrestricted: *kind == CapabilityKind::Env && config.env_unrestricted,
+            unsafe_opt_in: config.unsafe_opt_ins.iter().any(|name| name == kind.name()),
+            owner: config.owners.get(kind.name()).cloned(),
+            rationale: config.rationale.get(kind.name()).cloned(),
         })
         .collect()
 }
@@ -301,6 +321,13 @@ impl Manifest {
 }
 
 impl CapabilityKind {
+    pub fn from_name(name: &str) -> Option<Self> {
+        KNOWN_CAPABILITIES
+            .iter()
+            .copied()
+            .find(|kind| kind.name() == name)
+    }
+
     pub fn name(self) -> &'static str {
         match self {
             CapabilityKind::Fs => "fs",
@@ -356,6 +383,21 @@ fn normalize_manifest(raw: RawManifest, path: &Path) -> Result<Manifest, Diagnos
         capabilities.env,
         capabilities.env_unrestricted.unwrap_or(false),
     )?;
+    let unsafe_opt_ins = normalize_capability_name_list(
+        path,
+        "capabilities.unsafe_opt_ins",
+        capabilities.unsafe_opt_ins.unwrap_or_default(),
+    )?;
+    let owners = normalize_capability_string_map(
+        path,
+        "capabilities.owners",
+        capabilities.owners.unwrap_or_default(),
+    )?;
+    let rationale = normalize_capability_string_map(
+        path,
+        "capabilities.rationale",
+        capabilities.rationale.unwrap_or_default(),
+    )?;
     Ok(Manifest {
         package,
         dependencies,
@@ -375,8 +417,70 @@ fn normalize_manifest(raw: RawManifest, path: &Path) -> Result<Manifest, Diagnos
             clock: capabilities.clock.unwrap_or(false),
             crypto: capabilities.crypto.unwrap_or(false),
             ffi: capabilities.ffi.unwrap_or(false),
+            deny_by_default: capabilities.deny_by_default.unwrap_or(false),
+            unsafe_opt_ins,
+            owners,
+            rationale,
         },
     })
+}
+
+fn normalize_capability_name_list(
+    path: &Path,
+    field_name: &str,
+    values: Vec<String>,
+) -> Result<Vec<String>, Diagnostic> {
+    let mut names = Vec::new();
+    let mut seen = std::collections::BTreeSet::new();
+    for (index, value) in values.into_iter().enumerate() {
+        let item_field = format!("{field_name}[{index}]");
+        let name = normalize_capability_name(path, &item_field, value)?;
+        if !seen.insert(name.clone()) {
+            return Err(Diagnostic::new(
+                "manifest",
+                format!("duplicate capability metadata entry {name:?}"),
+            )
+            .with_path(path.display().to_string()));
+        }
+        names.push(name);
+    }
+    Ok(names)
+}
+
+fn normalize_capability_string_map(
+    path: &Path,
+    field_name: &str,
+    values: BTreeMap<String, String>,
+) -> Result<BTreeMap<String, String>, Diagnostic> {
+    let mut normalized = BTreeMap::new();
+    for (name, value) in values {
+        let field = format!("{field_name}.{name}");
+        let name = normalize_capability_name(path, &field, name)?;
+        if value.trim().is_empty() {
+            return Err(
+                Diagnostic::new("manifest", format!("{field} must not be empty"))
+                    .with_path(path.display().to_string()),
+            );
+        }
+        normalized.insert(name, value);
+    }
+    Ok(normalized)
+}
+
+fn normalize_capability_name(
+    path: &Path,
+    field_name: &str,
+    value: String,
+) -> Result<String, Diagnostic> {
+    let name = required_field(Some(value), path, field_name)?;
+    if CapabilityKind::from_name(&name).is_none() {
+        return Err(Diagnostic::new(
+            "manifest",
+            format!("{field_name} references unknown capability {name:?}"),
+        )
+        .with_path(path.display().to_string()));
+    }
+    Ok(name)
 }
 
 fn normalize_env_capability(

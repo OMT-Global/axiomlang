@@ -33,11 +33,15 @@
 //! wrapper, demonstrating that the `std.*` surface is not limited to one
 //! wrapper per capability:
 //!
-//! * `std/http.ax` — `get(url)` on top of the new `http_get` intrinsic. HTTP
-//!   shares the `net` capability surface because any code that can open a
-//!   raw TCP socket could implement HTTP itself, so a separate `http`
-//!   manifest flag would not add meaningful isolation in stage1. The
-//!   stage1 client supports both http:// and https:// URLs.
+//! * `std/http.ax` — `get(url)`, `serve_once(bind, body)`, and the route-shaped
+//!   `serve(bind, route(path, body), max_requests)` helper on top of the new
+//!   `http_get`, `http_serve_once`, and `http_serve_route` intrinsics. HTTP
+//!   shares the `net` capability surface because any code that can open a raw
+//!   TCP socket could implement HTTP itself, so a separate `http` manifest flag
+//!   would not add meaningful isolation in stage1. The stage1 client supports
+//!   both http:// and https:// URLs; the server helpers bind loopback-only
+//!   sockets and serve blocking HTTP/1.0 responses.
+
 //!
 //! The eighth through fourteenth modules are stdlib surfaces not tied to a
 //! capability flag, matching the ambient status of the `print` statement:
@@ -257,7 +261,12 @@ pub fn snapshot(name: string, actual: string, expected: string): int {\nreturn a
     ),
     (
         "http.ax",
-        "pub fn get(url: string): Option<string> {\nreturn http_get(url)\n}\n",
+        "pub struct HttpRoute {\npath: string\nbody: string\n}\n\
+pub fn get(url: string): Option<string> {\nreturn http_get(url)\n}\n\
+pub fn route(path: string, body: string): HttpRoute {\nreturn HttpRoute { path: path, body: body }\n}\n\
+pub fn respond(body: string): HttpRoute {\nreturn route(\"/\", body)\n}\n\
+pub fn serve(bind: string, selected_route: HttpRoute, max_requests: int): bool {\nreturn http_serve_route(bind, selected_route.path, selected_route.body, max_requests)\n}\n\
+pub fn serve_once(bind: string, body: string): bool {\nreturn http_serve_once(bind, body)\n}\n",
     ),
     (
         "regex.ax",
