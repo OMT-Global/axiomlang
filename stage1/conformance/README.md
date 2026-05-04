@@ -45,6 +45,8 @@ Current compile-fail fixtures cover:
 
 - `closure_move_captured_non_copy`: ownership diagnostics for `fn` closures
   whose body consumes a captured non-copy value.
+- `closure_captures_function_callee`: ownership diagnostics for closures
+  that capture a function-valued callee and move it into a later closure.
 - `mutable_borrow_while_shared_live`: ownership diagnostics for conflicting
   mutable and shared borrows.
 - `comparison_owned_resource_move`: Axiom-owned Go/Rust-style comparison

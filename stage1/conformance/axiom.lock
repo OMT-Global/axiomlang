@@ -1,6 +1,11 @@
 version = 1
 
 [[package]]
+name = "conformance-closure-captures-function-callee"
+version = "0.1.0"
+source = "path:fail/closure_captures_function_callee"
+
+[[package]]
 name = "conformance-closure-borrowed-slice-return"
 version = "0.1.0"
 source = "path:fail/closure_borrowed_slice_return"
