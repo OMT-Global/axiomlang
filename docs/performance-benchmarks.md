@@ -18,6 +18,11 @@ collecting timing data:
 cargo run --manifest-path stage1/Cargo.toml -p axiomc -- test stage1/examples/stdlib_testing --include-benchmarks --json
 ```
 
-This closes the local benchmark-suite foundation. Go and Rust reference
-comparisons should be layered on top of this harness in CI once representative
-workloads are stable enough to treat as performance policy.
+This closes the local benchmark-suite foundation. The extended validation
+benchmark gate also compares the current stage1 build medians against the
+committed calibration baseline at
+`stage1/benchmarks/baselines/stage1-build-median.json`. That comparison is
+reported as a non-blocking warning with a documented tolerance while runner
+variance is being measured; the existing benchmark gate still owns hard failures
+for obvious cold-build and warm-cache regressions against the checked-in Go and
+Rust reference builds.

@@ -7455,6 +7455,92 @@ print serve_once("127.0.0.1:18080", "hello")
         assert_eq!(map["mappings"][0]["column"], 1);
         assert!(map["mappings"][0]["generated_line"].is_u64());
 
+        if let Ok(readelf) = which::which("readelf") {
+            let output = Command::new(readelf)
+                .args(["--debug-dump=decodedline", &debug.binary])
+                .output()
+                .expect("run readelf on debug binary");
+            assert!(
+                output.status.success(),
+                "readelf --debug-dump=decodedline failed"
+            );
+            let dwarf_lines = String::from_utf8_lossy(&output.stdout);
+            let generated_file = PathBuf::from(&debug.generated_rust)
+                .file_name()
+                .expect("generated rust file name")
+                .to_string_lossy()
+                .into_owned();
+            assert!(
+                dwarf_lines.contains(&generated_file),
+                "rustc DWARF line table should point at generated Rust; debug map carries Axiom spans"
+            );
+            assert!(
+                !dwarf_lines.contains("main.ax"),
+                "generated-rust debug builds must not pretend rustc remapped DWARF rows to Axiom source lines"
+            );
+        }
+
+        let mappings = map["mappings"].as_array().expect("debug mappings array");
+        assert!(
+            mappings.iter().any(|mapping| mapping["source"] == source
+                && mapping["line"] == 1
+                && mapping["column"] == 1),
+            "debug map should preserve the primary Axiom source span"
+        );
+
+        fs::write(
+            project.join("src/helper.ax"),
+            "pub fn helper(): int {\n    return 7\n}\n",
+        )
+        .expect("write helper source");
+        fs::write(
+            project.join("src/main.ax"),
+            "import \"helper.ax\"\nlet answer: int = helper()\nprint answer\n",
+        )
+        .expect("write imported source program");
+        let imported_debug = build_project_with_options(
+            &project,
+            &BuildOptions {
+                backend: NativeBackendKind::GeneratedRust,
+                target: None,
+                package: None,
+                debug: true,
+                ..BuildOptions::default()
+            },
+        )
+        .expect("debug build with import");
+        let imported_map: serde_json::Value = serde_json::from_str(
+            &fs::read_to_string(
+                imported_debug
+                    .debug_map
+                    .as_ref()
+                    .expect("imported debug map path"),
+            )
+            .expect("read imported debug map"),
+        )
+        .expect("parse imported debug map");
+        let helper_source = project
+            .join("src/helper.ax")
+            .canonicalize()
+            .expect("canonical helper source path")
+            .display()
+            .to_string();
+        let imported_mappings = imported_map["mappings"]
+            .as_array()
+            .expect("imported debug mappings array");
+        assert!(
+            imported_mappings.iter().any(|mapping| mapping["source"] == source
+                && mapping["line"] == 2
+                && mapping["column"] == 1),
+            "debug map should retain primary source spans after imports"
+        );
+        assert!(
+            imported_mappings.iter().any(|mapping| mapping["source"] == helper_source
+                && mapping["line"] == 2
+                && mapping["column"] == 1),
+            "debug map should retain imported module source spans instead of collapsing to the primary file"
+        );
+
         fs::remove_file(&debug_map).expect("remove debug map");
         let cached_debug = build_project_with_options(
             &project,
@@ -7869,5 +7955,61 @@ print next.value
         assert_eq!(error.kind, "type");
         assert!(error.message.contains("must be called as"));
         assert!(error.message.contains(".new()"));
+    }
+
+    #[test]
+    fn hir_recovery_collects_independent_type_errors_in_source_order() {
+        // Three functions each reference an undefined variable; recovery must
+        // accumulate all three errors rather than short-circuit after the first.
+        let source = "\
+fn alpha(): int {
+return missing_a
+}
+fn beta(): int {
+return missing_b
+}
+fn gamma(): int {
+return missing_c
+}
+";
+        let parsed =
+            parse_program(source, Path::new("src/main.ax")).expect("source must parse cleanly");
+        let capabilities = CapabilityConfig::default();
+        let diagnostics = hir::lower_with_capabilities_recovery(&parsed, &capabilities)
+            .expect_err("three undefined variables should yield three type errors");
+
+        assert!(
+            diagnostics.len() >= 3,
+            "expected at least 3 diagnostics, got {}: {diagnostics:?}",
+            diagnostics.len()
+        );
+        assert!(
+            diagnostics.iter().all(|d| d.kind == "type"),
+            "all diagnostics should have kind \"type\""
+        );
+        let messages: Vec<&str> = diagnostics.iter().map(|d| d.message.as_str()).collect();
+        assert!(
+            messages.iter().any(|m| m.contains("missing_a")),
+            "expected error for missing_a"
+        );
+        assert!(
+            messages.iter().any(|m| m.contains("missing_b")),
+            "expected error for missing_b"
+        );
+        assert!(
+            messages.iter().any(|m| m.contains("missing_c")),
+            "expected error for missing_c"
+        );
+        // Verify source order: line numbers must be non-decreasing.
+        let lines: Vec<usize> = diagnostics
+            .iter()
+            .filter_map(|d| d.line)
+            .collect();
+        let sorted = {
+            let mut s = lines.clone();
+            s.sort_unstable();
+            s
+        };
+        assert_eq!(lines, sorted, "diagnostics must be in source order");
     }
 }
