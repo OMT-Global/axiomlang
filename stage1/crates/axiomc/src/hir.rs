@@ -1,4 +1,4 @@
-use crate::borrowck::{self, BorrowKind};
+use crate::borrowck::{self, BorrowKind, BorrowState, SourceSpan as BorrowSourceSpan};
 use crate::diagnostics::{Diagnostic, message_with_suggestion};
 use crate::manifest::{CapabilityConfig, CapabilityKind};
 use crate::syntax;
@@ -259,8 +259,7 @@ struct Binding {
     borrow_kind: Option<BorrowKind>,
     borrow_origin: Option<BorrowOrigin>,
     borrowed_owners: HashSet<String>,
-    active_borrow_count: usize,
-    active_mut_borrow_count: usize,
+    borrow_state: BorrowState,
 }
 
 type ProjectionPath = Vec<ProjectionSegment>;
@@ -4137,8 +4136,7 @@ fn lower_function(
                 borrow_kind: borrowck::borrow_kind_for_type(&ty, structs, enums),
                 borrow_origin: binding_borrow_origin(&ty, Some("self"), structs, enums),
                 borrowed_owners: HashSet::new(),
-                active_borrow_count: 0,
-                active_mut_borrow_count: 0,
+                borrow_state: BorrowState::default(),
             },
         );
         params.push(Param {
@@ -4173,8 +4171,7 @@ fn lower_function(
                 borrow_kind: borrowck::borrow_kind_for_type(&ty, structs, enums),
                 borrow_origin: binding_borrow_origin(&ty, Some(&param.name), structs, enums),
                 borrowed_owners: HashSet::new(),
-                active_borrow_count: 0,
-                active_mut_borrow_count: 0,
+                borrow_state: BorrowState::default(),
             },
         );
         params.push(Param {
@@ -4311,8 +4308,7 @@ fn insert_type_error_binding_for_failed_stmt(
             borrow_kind: None,
             borrow_origin: None,
             borrowed_owners: HashSet::new(),
-            active_borrow_count: 0,
-            active_mut_borrow_count: 0,
+            borrow_state: BorrowState::default(),
         });
     }
 }
@@ -4378,8 +4374,7 @@ fn lower_stmt(
                         ctx,
                     ),
                     borrowed_owners,
-                    active_borrow_count: 0,
-                    active_mut_borrow_count: 0,
+                    borrow_state: BorrowState::default(),
                 },
             );
             Ok(Stmt::Let {
@@ -4793,8 +4788,7 @@ fn lower_stmt(
                                 &before,
                                 ctx,
                             ),
-                            active_borrow_count: 0,
-                            active_mut_borrow_count: 0,
+                            borrow_state: BorrowState::default(),
                         },
                     );
                 }
@@ -4937,25 +4931,26 @@ fn merge_branch_state(
                 borrow_kind: binding.borrow_kind,
                 borrow_origin: binding.borrow_origin.clone(),
                 borrowed_owners: binding.borrowed_owners.clone(),
-                active_borrow_count: merge_borrow_count(
-                    binding.active_borrow_count,
-                    then_returns,
-                    then_after.get(name).map(|entry| entry.active_borrow_count),
-                    else_returns,
-                    else_after
-                        .and_then(|branch| branch.get(name).map(|entry| entry.active_borrow_count)),
-                ),
-                active_mut_borrow_count: merge_borrow_count(
-                    binding.active_mut_borrow_count,
-                    then_returns,
-                    then_after
-                        .get(name)
-                        .map(|entry| entry.active_mut_borrow_count),
-                    else_returns,
-                    else_after.and_then(|branch| {
-                        branch.get(name).map(|entry| entry.active_mut_borrow_count)
-                    }),
-                ),
+                borrow_state: BorrowState {
+                    active_shared_or_mutable: merge_borrow_count(
+                        binding.borrow_state.active_shared_or_mutable,
+                        then_returns,
+                        then_after.get(name).map(|entry| entry.borrow_state.active_shared_or_mutable),
+                        else_returns,
+                        else_after.and_then(|branch| {
+                            branch.get(name).map(|entry| entry.borrow_state.active_shared_or_mutable)
+                        }),
+                    ),
+                    active_mutable: merge_borrow_count(
+                        binding.borrow_state.active_mutable,
+                        then_returns,
+                        then_after.get(name).map(|entry| entry.borrow_state.active_mutable),
+                        else_returns,
+                        else_after.and_then(|branch| {
+                            branch.get(name).map(|entry| entry.borrow_state.active_mutable)
+                        }),
+                    ),
+                },
             },
         );
     }
@@ -5005,23 +5000,25 @@ fn merge_loop_state(
                 borrow_kind: binding.borrow_kind,
                 borrow_origin: binding.borrow_origin.clone(),
                 borrowed_owners: binding.borrowed_owners.clone(),
-                active_borrow_count: if body_returns {
-                    binding.active_borrow_count
-                } else {
-                    let body_count = body_after
-                        .get(name)
-                        .map(|entry| entry.active_borrow_count)
-                        .unwrap_or(binding.active_borrow_count);
-                    binding.active_borrow_count.max(body_count)
-                },
-                active_mut_borrow_count: if body_returns {
-                    binding.active_mut_borrow_count
-                } else {
-                    let body_count = body_after
-                        .get(name)
-                        .map(|entry| entry.active_mut_borrow_count)
-                        .unwrap_or(binding.active_mut_borrow_count);
-                    binding.active_mut_borrow_count.max(body_count)
+                borrow_state: BorrowState {
+                    active_shared_or_mutable: if body_returns {
+                        binding.borrow_state.active_shared_or_mutable
+                    } else {
+                        let body_count = body_after
+                            .get(name)
+                            .map(|entry| entry.borrow_state.active_shared_or_mutable)
+                            .unwrap_or(binding.borrow_state.active_shared_or_mutable);
+                        binding.borrow_state.active_shared_or_mutable.max(body_count)
+                    },
+                    active_mutable: if body_returns {
+                        binding.borrow_state.active_mutable
+                    } else {
+                        let body_count = body_after
+                            .get(name)
+                            .map(|entry| entry.borrow_state.active_mutable)
+                            .unwrap_or(binding.borrow_state.active_mutable);
+                        binding.borrow_state.active_mutable.max(body_count)
+                    },
                 },
             },
         );
@@ -5054,28 +5051,30 @@ fn merge_match_state(
                 borrow_kind: binding.borrow_kind,
                 borrow_origin: binding.borrow_origin.clone(),
                 borrowed_owners: binding.borrowed_owners.clone(),
-                active_borrow_count: arm_states
-                    .iter()
-                    .filter_map(|(after, returns)| {
-                        if *returns {
-                            Some(binding.active_borrow_count)
-                        } else {
-                            after.get(name).map(|entry| entry.active_borrow_count)
-                        }
-                    })
-                    .max()
-                    .unwrap_or(binding.active_borrow_count),
-                active_mut_borrow_count: arm_states
-                    .iter()
-                    .filter_map(|(after, returns)| {
-                        if *returns {
-                            Some(binding.active_mut_borrow_count)
-                        } else {
-                            after.get(name).map(|entry| entry.active_mut_borrow_count)
-                        }
-                    })
-                    .max()
-                    .unwrap_or(binding.active_mut_borrow_count),
+                borrow_state: BorrowState {
+                    active_shared_or_mutable: arm_states
+                        .iter()
+                        .filter_map(|(after, returns)| {
+                            if *returns {
+                                Some(binding.borrow_state.active_shared_or_mutable)
+                            } else {
+                                after.get(name).map(|entry| entry.borrow_state.active_shared_or_mutable)
+                            }
+                        })
+                        .max()
+                        .unwrap_or(binding.borrow_state.active_shared_or_mutable),
+                    active_mutable: arm_states
+                        .iter()
+                        .filter_map(|(after, returns)| {
+                            if *returns {
+                                Some(binding.borrow_state.active_mutable)
+                            } else {
+                                after.get(name).map(|entry| entry.borrow_state.active_mutable)
+                            }
+                        })
+                        .max()
+                        .unwrap_or(binding.borrow_state.active_mutable),
+                },
             },
         );
     }
@@ -8046,7 +8045,7 @@ fn mark_projection_moved(
             format!("internal error: missing binding for moved value {name:?}"),
         )
     })?;
-    if binding.active_borrow_count > 0 {
+    if binding.borrow_state.active_shared_or_mutable > 0 {
         return Err(borrowck::ownership_error(
             borrowck::MOVE_WHILE_BORROWED,
             format!("cannot move value {name:?} while borrowed slices are still live"),
@@ -8445,20 +8444,9 @@ fn increment_active_borrows(
                 format!("internal error: missing borrow owner {owner_name:?}"),
             )
         })?;
-        if let Some(diagnostic) = borrowck::borrow_conflict_error(
-            owner_name,
-            borrow_kind,
-            binding.active_borrow_count,
-            binding.active_mut_borrow_count,
-            line,
-            column,
-        ) {
-            return Err(diagnostic);
-        }
-        binding.active_borrow_count += 1;
-        if matches!(borrow_kind, BorrowKind::Mutable) {
-            binding.active_mut_borrow_count += 1;
-        }
+        binding
+            .borrow_state
+            .begin_borrow(owner_name, borrow_kind, BorrowSourceSpan::new(line, column))?;
     }
     Ok(())
 }
@@ -8506,10 +8494,7 @@ fn decrement_active_borrow(
     let Some(binding) = env.get_mut(owner_name) else {
         return;
     };
-    binding.active_borrow_count = binding.active_borrow_count.saturating_sub(1);
-    if matches!(borrow_kind, BorrowKind::Mutable) {
-        binding.active_mut_borrow_count = binding.active_mut_borrow_count.saturating_sub(1);
-    }
+    binding.borrow_state.end_borrow(borrow_kind);
 }
 
 fn release_scope_borrows(env: &mut HashMap<String, Binding>, scope_names: &HashSet<String>) {

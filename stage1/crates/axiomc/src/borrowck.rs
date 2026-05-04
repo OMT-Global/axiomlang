@@ -1,9 +1,9 @@
 //! Borrow-check support for stage1 lowering.
 //!
 //! HIR lowering still performs the syntax-to-HIR walk, but ownership-specific
-//! type classification and diagnostic codes live here as a preparatory boundary.
-//! This is not yet the dedicated borrow-check pass requested by issue #226;
-//! lowering still drives the current stage1 ownership walk until that pass lands.
+//! borrow state transitions, lifetime/origin classification, and diagnostics live
+//! behind this module boundary so the current lowering-time checks use the same
+//! API that a later standalone pass can consume.
 
 use crate::diagnostics::Diagnostic;
 use crate::hir::{EnumDef, StructDef, Type};
@@ -55,6 +55,56 @@ impl<'a> BorrowIr<'a> {
     }
 }
 
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct SourceSpan {
+    pub(crate) line: usize,
+    pub(crate) column: usize,
+}
+
+impl SourceSpan {
+    pub(crate) const fn new(line: usize, column: usize) -> Self {
+        Self { line, column }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct BorrowState {
+    pub(crate) active_shared_or_mutable: usize,
+    pub(crate) active_mutable: usize,
+}
+
+impl BorrowState {
+    pub(crate) fn begin_borrow(
+        &mut self,
+        owner_name: &str,
+        requested: BorrowKind,
+        span: SourceSpan,
+    ) -> Result<(), Diagnostic> {
+        if let Some(diagnostic) = borrow_conflict_error(
+            owner_name,
+            requested,
+            self.active_shared_or_mutable,
+            self.active_mutable,
+            span,
+        ) {
+            return Err(diagnostic);
+        }
+        self.active_shared_or_mutable += 1;
+        if matches!(requested, BorrowKind::Mutable) {
+            self.active_mutable += 1;
+        }
+        Ok(())
+    }
+
+    pub(crate) fn end_borrow(&mut self, kind: BorrowKind) {
+        self.active_shared_or_mutable = self.active_shared_or_mutable.saturating_sub(1);
+        if matches!(kind, BorrowKind::Mutable) {
+            self.active_mutable = self.active_mutable.saturating_sub(1);
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum BorrowKind {
     Shared,
@@ -70,8 +120,7 @@ pub(crate) fn borrow_conflict_error(
     requested: BorrowKind,
     active_shared: usize,
     active_mutable: usize,
-    line: usize,
-    column: usize,
+    span: SourceSpan,
 ) -> Option<Diagnostic> {
     match requested {
         BorrowKind::Shared if active_mutable > 0 => Some(
@@ -81,7 +130,7 @@ pub(crate) fn borrow_conflict_error(
                     "cannot create shared borrow of value {owner_name:?} while a mutable borrow is still live"
                 ),
             )
-            .with_span(line, column),
+            .with_span(span.line, span.column),
         ),
         BorrowKind::Mutable if active_mutable > 0 => Some(
             ownership_error(
@@ -90,7 +139,7 @@ pub(crate) fn borrow_conflict_error(
                     "cannot create mutable borrow of value {owner_name:?} while another mutable borrow is still live"
                 ),
             )
-            .with_span(line, column),
+            .with_span(span.line, span.column),
         ),
         BorrowKind::Mutable if active_shared > 0 => Some(
             ownership_error(
@@ -100,7 +149,7 @@ pub(crate) fn borrow_conflict_error(
                 ),
             )
             .with_help("drop the shared borrow before creating a mutable borrow")
-            .with_span(line, column),
+            .with_span(span.line, span.column),
         ),
         _ => None,
     }
