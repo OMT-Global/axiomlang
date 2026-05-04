@@ -1,0 +1,4 @@
+let payload: string = "owned"
+let moved: string = payload
+print moved
+print payload
