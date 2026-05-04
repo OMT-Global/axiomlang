@@ -2,7 +2,7 @@ use crate::diagnostics::Diagnostic;
 use crate::manifest::CapabilityDescriptor;
 use crate::project::{BuildOutput, CheckOutput, TestOutput};
 use serde::Serialize;
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use std::path::Path;
 
 pub const JSON_SCHEMA_VERSION: &str = "axiom.stage1.v1";
@@ -75,6 +75,7 @@ pub fn caps_success(project: &Path, capabilities: &[CapabilityDescriptor]) -> Va
 }
 
 pub fn error(command: &str, error: &Diagnostic) -> Value {
+    let error = error.normalized_for_json();
     json!({
         "schema_version": JSON_SCHEMA_VERSION,
         "ok": false,
