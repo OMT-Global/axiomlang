@@ -6803,6 +6803,25 @@ print serve_once("127.0.0.1:18080", "hello")
     }
 
     #[test]
+    fn build_project_accepts_mutable_slice_borrow_from_field_root() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("mut-field-slice-borrow");
+        create_project(&project, Some("mut-field-slice-borrow-app")).expect("create project");
+        fs::write(
+            project.join("src/main.ax"),
+            "struct Box {\nvalues: [int]\n}\nlet holder: Box = Box { values: [1, 2, 3] }\nlet slice: &mut [int] = (holder.values)[:]\nprint len(slice)\n",
+        )
+        .expect("write source");
+
+        let built = build_project(&project).expect("build project");
+        let output = compiled_binary_command(&built.binary)
+            .output()
+            .expect("run compiled binary");
+        assert!(output.status.success());
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "3\n");
+    }
+
+    #[test]
     fn check_project_rejects_moving_owned_array_while_mutable_slice_borrow_is_live() {
         let dir = tempdir().expect("tempdir");
         let project = dir.path().join("live-mut-borrow-move");

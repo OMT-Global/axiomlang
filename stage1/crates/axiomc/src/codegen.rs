@@ -2573,6 +2573,17 @@ fn collect_stmt_mutable_borrows(stmt: &Stmt, locals: &mut HashSet<String>) {
     }
 }
 
+fn mutable_borrow_root_name(expr: &Expr) -> Option<&str> {
+    match expr {
+        Expr::VarRef { name, .. } => Some(name),
+        Expr::FieldAccess { base, .. } | Expr::TupleIndex { base, .. } => {
+            mutable_borrow_root_name(base)
+        }
+        Expr::Index { base, .. } => mutable_borrow_root_name(base),
+        _ => None,
+    }
+}
+
 fn collect_expr_mutable_borrows(expr: &Expr, locals: &mut HashSet<String>) {
     match expr {
         Expr::Slice {
@@ -2582,8 +2593,8 @@ fn collect_expr_mutable_borrows(expr: &Expr, locals: &mut HashSet<String>) {
             ty,
         } => {
             if matches!(ty, Type::MutSlice(_)) {
-                if let Expr::VarRef { name, .. } = base.as_ref() {
-                    locals.insert(name.clone());
+                if let Some(name) = mutable_borrow_root_name(base) {
+                    locals.insert(name.to_string());
                 }
             }
             collect_expr_mutable_borrows(base, locals);
