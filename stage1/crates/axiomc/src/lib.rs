@@ -7068,6 +7068,20 @@ print 0
     }
 
     #[test]
+    fn parser_rejects_explicit_lifetime_return_mixed_with_unannotated_borrowed_param() {
+        let source = "fn pick<'a>(left: &'a [int], right: &[int]): &'a [int] {
+return left
+}
+
+print 0
+";
+        let error = parse_program(source, Path::new("main.ax"))
+            .expect_err("explicit return lifetime mixed with unannotated borrowed param should fail");
+        assert!(error.message.contains("unannotated borrowed parameters"));
+        assert_eq!(error.kind, "parse");
+    }
+
+    #[test]
     fn check_project_rejects_explicit_lifetime_return_from_wrong_parameter() {
         let dir = tempdir().expect("tempdir");
         let project = dir.path().join("explicit-lifetime-mismatch");

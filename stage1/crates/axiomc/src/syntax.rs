@@ -2869,7 +2869,83 @@ fn validate_function_lifetime_uses(
         .with_path(path.display().to_string())
         .with_span(line_no, 1));
     }
+    if let Some(return_lifetime) = explicit_return_lifetime(return_ty) {
+        for param in params {
+            if type_contains_borrowed_slice(&param.ty)
+                && !type_uses_lifetime(&param.ty, return_lifetime)
+            {
+                return Err(Diagnostic::new(
+                    "parse",
+                    "explicit borrowed return lifetimes cannot be mixed with unannotated borrowed parameters yet",
+                )
+                .with_path(path.display().to_string())
+                .with_span(line_no, 1));
+            }
+        }
+    }
     Ok(())
+}
+
+fn explicit_return_lifetime(ty: &TypeName) -> Option<&str> {
+    match ty {
+        TypeName::LifetimeSlice(lifetime, _) | TypeName::LifetimeMutSlice(lifetime, _) => {
+            Some(lifetime.as_str())
+        }
+        TypeName::Option(inner) | TypeName::Array(inner) => explicit_return_lifetime(inner),
+        TypeName::Result(ok, err) | TypeName::Map(ok, err) => {
+            explicit_return_lifetime(ok).or_else(|| explicit_return_lifetime(err))
+        }
+        TypeName::Tuple(elements) => elements.iter().find_map(explicit_return_lifetime),
+        TypeName::Named(_, args) => args.iter().find_map(explicit_return_lifetime),
+        TypeName::Ptr(_)
+        | TypeName::MutPtr(_)
+        | TypeName::Slice(_)
+        | TypeName::MutSlice(_)
+        | TypeName::Int
+        | TypeName::Bool
+        | TypeName::String => None,
+    }
+}
+
+fn type_uses_lifetime(ty: &TypeName, lifetime: &str) -> bool {
+    match ty {
+        TypeName::LifetimeSlice(name, inner) | TypeName::LifetimeMutSlice(name, inner) => {
+            name == lifetime || type_uses_lifetime(inner, lifetime)
+        }
+        TypeName::Named(_, args) | TypeName::Tuple(args) => {
+            args.iter().any(|arg| type_uses_lifetime(arg, lifetime))
+        }
+        TypeName::Ptr(inner)
+        | TypeName::MutPtr(inner)
+        | TypeName::Slice(inner)
+        | TypeName::MutSlice(inner)
+        | TypeName::Option(inner)
+        | TypeName::Array(inner) => type_uses_lifetime(inner, lifetime),
+        TypeName::Result(ok, err) | TypeName::Map(ok, err) => {
+            type_uses_lifetime(ok, lifetime) || type_uses_lifetime(err, lifetime)
+        }
+        TypeName::Int | TypeName::Bool | TypeName::String => false,
+    }
+}
+
+fn type_contains_borrowed_slice(ty: &TypeName) -> bool {
+    match ty {
+        TypeName::Slice(_)
+        | TypeName::MutSlice(_)
+        | TypeName::LifetimeSlice(_, _)
+        | TypeName::LifetimeMutSlice(_, _) => true,
+        TypeName::Named(_, args) | TypeName::Tuple(args) => {
+            args.iter().any(type_contains_borrowed_slice)
+        }
+        TypeName::Ptr(inner)
+        | TypeName::MutPtr(inner)
+        | TypeName::Option(inner)
+        | TypeName::Array(inner) => type_contains_borrowed_slice(inner),
+        TypeName::Result(ok, err) | TypeName::Map(ok, err) => {
+            type_contains_borrowed_slice(ok) || type_contains_borrowed_slice(err)
+        }
+        TypeName::Int | TypeName::Bool | TypeName::String => false,
+    }
 }
 
 fn collect_lifetime_uses(ty: &TypeName, found: &mut Vec<String>) {
