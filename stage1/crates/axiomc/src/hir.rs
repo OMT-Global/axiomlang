@@ -462,6 +462,29 @@ fn is_addable_numeric(ty: &Type) -> bool {
     matches!(ty, Type::Int | Type::Numeric(_))
 }
 
+fn numeric_method_return_ty(receiver: &Type, method: &str) -> Option<Type> {
+    let is_integer = match receiver {
+        Type::Int => true,
+        Type::Numeric(numeric) => !matches!(
+            numeric,
+            syntax::NumericType::F32 | syntax::NumericType::F64
+        ),
+        _ => false,
+    };
+    if !is_integer {
+        return None;
+    }
+    match method {
+        "wrapping_add" | "wrapping_sub" | "wrapping_mul" | "wrapping_div" | "wrapping_rem" => {
+            Some(receiver.clone())
+        }
+        "checked_add" | "checked_sub" | "checked_mul" | "checked_div" | "checked_rem" => {
+            Some(Type::Option(Box::new(receiver.clone())))
+        }
+        _ => None,
+    }
+}
+
 fn method_owner_name(ty: &Type) -> Option<&str> {
     match ty {
         Type::Struct(name) | Type::Enum(name) => Some(name.as_str()),
@@ -7822,6 +7845,35 @@ fn lower_expr_with_expected(
                 });
             }
             let lowered_base = lower_expr(base, env, ctx)?;
+            if let Some(return_ty) = numeric_method_return_ty(lowered_base.ty(), method) {
+                if args.len() != 1 {
+                    return Err(Diagnostic::new(
+                        "type",
+                        format!(
+                            "numeric method {method:?} expects 1 argument, got {}",
+                            args.len()
+                        ),
+                    )
+                    .with_span(*line, *column));
+                }
+                let receiver_ty = lowered_base.ty().clone();
+                let lowered_arg = lower_expr_with_expected(&args[0], Some(&receiver_ty), env, ctx)?;
+                if lowered_arg.ty() != &receiver_ty {
+                    return Err(Diagnostic::new(
+                        "type",
+                        format!(
+                            "numeric method {method:?} expects argument type {receiver_ty}, got {}",
+                            lowered_arg.ty()
+                        ),
+                    )
+                    .with_span(args[0].line(), args[0].column()));
+                }
+                return Ok(Expr::Call {
+                    name: format!("__axiom_numeric_{method}"),
+                    args: vec![lowered_base, lowered_arg],
+                    ty: return_ty,
+                });
+            }
             let Some(owner_name) = method_owner_name(lowered_base.ty()) else {
                 return Err(Diagnostic::new(
                     "type",

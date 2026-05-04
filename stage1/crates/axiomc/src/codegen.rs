@@ -3499,6 +3499,10 @@ fn render_expr(expr: &Expr) -> String {
         Expr::Call { name, args, ty } if name == "last" => {
             render_collection_edge(&args[0], ty, true)
         }
+        Expr::Call { name, args, .. } if name.starts_with("__axiom_numeric_") => {
+            let method = name.trim_start_matches("__axiom_numeric_");
+            format!("({}).{}({})", render_expr(&args[0]), method, render_expr(&args[1]))
+        }
         Expr::Call { name, args, .. } => {
             let rendered_args = args.iter().map(render_expr).collect::<Vec<_>>().join(", ");
             format!("{name}({rendered_args})")
