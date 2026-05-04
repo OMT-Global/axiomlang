@@ -29,6 +29,10 @@ Current executable fixtures cover:
   successfully.
 - `package_visibility`: `pub(pkg)` items imported across sibling modules within
   the same package.
+- `comparison_strict_typing`: Axiom-owned comparison fixture for explicit
+  scalar typing and bool-only control flow.
+- `comparison_package_imports`: Axiom-owned comparison fixture for package-local
+  imports and typed function boundaries.
 
 Packages under `fail/` are compile-fail fixtures. Each package is a complete
 stage1 project with `axiom.toml`, `axiom.lock`, source, and
@@ -70,3 +74,7 @@ Current compile-fail fixtures cover:
   unsupported nested destructuring inside named match patterns.
 - `nested_match_pattern_not_supported`: parse diagnostics for unsupported
   nested destructuring inside match patterns.
+- `comparison_owned_resource_move`: Axiom-owned comparison fixture for
+  predictable ownership diagnostics when a non-copy value is used after move.
+- `comparison_predictable_diagnostic`: Axiom-owned comparison fixture for a
+  stable type diagnostic with exact source location.

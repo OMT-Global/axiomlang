@@ -1,6 +1,8 @@
 [workspace]
 members = [
   "fail/for_loop_requires_iteration_protocol",
+  "fail/comparison_owned_resource_move",
+  "fail/comparison_predictable_diagnostic",
   "fail/match_guard_not_supported",
   "fail/mutable_borrow_while_shared_live",
   "fail/named_nested_match_pattern_not_supported",
@@ -19,6 +21,8 @@ members = [
   "fail/result_ok_without_context",
   "fail/stdlib_clock_without_capability",
   "pass/collection_operations",
+  "pass/comparison_package_imports",
+  "pass/comparison_strict_typing",
   "pass/functions_across_modules",
   "pass/legacy_core_programs",
   "pass/outcome_control_flow",

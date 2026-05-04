@@ -59,6 +59,12 @@ enum Command {
         target: Option<String>,
         #[arg(short = 'p', long = "package")]
         package: Option<String>,
+        /// Require axiom.lock to exactly match the local manifest/workspace/dependency graph.
+        #[arg(long)]
+        locked: bool,
+        /// Resolve the build using only local path graph data and no network access.
+        #[arg(long)]
+        offline: bool,
     },
     /// Build and run a stage1 package through the current generated-Rust backend path.
     Run {
@@ -178,6 +184,8 @@ fn main() {
             timings,
             target,
             package,
+            locked,
+            offline,
         } => {
             match build_project_with_options(
                 &path,
@@ -186,6 +194,8 @@ fn main() {
                     target,
                     package: package.clone(),
                     debug,
+                    locked,
+                    offline,
                 },
             ) {
                 Ok(output) => {
@@ -855,6 +865,8 @@ mod tests {
         assert!(build_help.contains(
             "Build a stage1 package through the current generated-Rust backend path into a native or WASM artifact"
         ));
+        assert!(build_help.contains("--locked"));
+        assert!(build_help.contains("--offline"));
         assert!(!build_help.contains("direct-native"));
         assert!(help.contains("Discover, build, and run package test entrypoints"));
         assert!(help.contains("Inspect manifest capability requirements"));
@@ -865,6 +877,20 @@ mod tests {
         assert!(help.contains("Pack, sign, and publish a stage1 package"));
         assert!(help.contains("Build a static package-registry index"));
         assert!(help.contains("Validate a static package-registry index JSON file"));
+    }
+
+    #[test]
+    fn build_accepts_locked_offline_flags() {
+        let cli = Cli::parse_from(["axiomc", "build", ".", "--locked", "--offline"]);
+        match cli.command {
+            Command::Build {
+                locked, offline, ..
+            } => {
+                assert!(locked);
+                assert!(offline);
+            }
+            other => panic!("expected build command, got {other:?}"),
+        }
     }
 
     #[test]
@@ -885,6 +911,8 @@ mod tests {
     fn build_output(debug_map: Option<String>) -> BuildOutput {
         BuildOutput {
             backend: NativeBackendKind::GeneratedRust,
+            locked: false,
+            offline: false,
             manifest: String::from("axiom.toml"),
             entry: String::from("src/main.ax"),
             binary: String::from("dist/app"),
@@ -893,11 +921,43 @@ mod tests {
             statement_count: 1,
             target: None,
             debug: true,
+            metadata: axiomc::project::BuildMetadata {
+                target: None,
+                debug: true,
+                lockfile: String::from("axiom.lock"),
+                lockfile_hash: String::from("lock-hash"),
+                source_hash: String::from("source-hash"),
+            },
             cache_hits: 0,
             cache_misses: 1,
             duration_ms: 1,
             packages: Vec::new(),
         }
+    }
+
+    #[test]
+    fn build_json_includes_target_debug_and_cache_key_metadata() {
+        let payload = json_contract::build_success(
+            Path::new("stage1/examples/hello"),
+            &build_output(Some(String::from("target/main.debug-map.json"))),
+        );
+
+        assert_eq!(payload["target"], serde_json::json!(null));
+        assert_eq!(payload["debug"], serde_json::json!(true));
+        assert_eq!(payload["metadata"]["target"], serde_json::json!(null));
+        assert_eq!(payload["metadata"]["debug"], serde_json::json!(true));
+        assert_eq!(
+            payload["metadata"]["lockfile"],
+            serde_json::json!("axiom.lock")
+        );
+        assert_eq!(
+            payload["metadata"]["lockfile_hash"],
+            serde_json::json!("lock-hash")
+        );
+        assert_eq!(
+            payload["metadata"]["source_hash"],
+            serde_json::json!("source-hash")
+        );
     }
 
     #[test]

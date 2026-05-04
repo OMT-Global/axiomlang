@@ -45,6 +45,15 @@ pub struct CheckOutput {
 }
 
 #[derive(Debug, Clone, Serialize)]
+pub struct BuildMetadata {
+    pub target: Option<String>,
+    pub debug: bool,
+    pub lockfile: String,
+    pub lockfile_hash: String,
+    pub source_hash: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
 pub struct BuiltPackage {
     pub backend: NativeBackendKind,
     pub package_root: String,
@@ -56,6 +65,7 @@ pub struct BuiltPackage {
     pub statement_count: usize,
     pub target: Option<String>,
     pub debug: bool,
+    pub metadata: BuildMetadata,
     pub cache_status: BuildCacheStatus,
     pub compile_ms: u64,
 }
@@ -63,6 +73,8 @@ pub struct BuiltPackage {
 #[derive(Debug, Clone, Serialize)]
 pub struct BuildOutput {
     pub backend: NativeBackendKind,
+    pub locked: bool,
+    pub offline: bool,
     pub manifest: String,
     pub entry: String,
     pub binary: String,
@@ -71,6 +83,7 @@ pub struct BuildOutput {
     pub statement_count: usize,
     pub target: Option<String>,
     pub debug: bool,
+    pub metadata: BuildMetadata,
     pub cache_hits: usize,
     pub cache_misses: usize,
     pub duration_ms: u64,
@@ -137,6 +150,10 @@ pub struct BuildOptions {
     pub target: Option<String>,
     pub package: Option<String>,
     pub debug: bool,
+    /// Require the checked-in axiom.lock graph to match the local manifest graph.
+    pub locked: bool,
+    /// Resolve the build graph without network access. Stage1 currently supports local path graphs only.
+    pub offline: bool,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -247,6 +264,7 @@ pub fn build_project_with_options(
             statement_count: analyzed.mir.statement_count(),
             target: resolved_target.clone(),
             debug: options.debug,
+            metadata: report.metadata,
             cache_status: report.cache_status,
             compile_ms: report.compile_ms,
         });
@@ -267,6 +285,8 @@ pub fn build_project_with_options(
     let cache_misses = packages.len().saturating_sub(cache_hits);
     Ok(BuildOutput {
         backend: options.backend,
+        locked: options.locked,
+        offline: options.offline,
         manifest: root.manifest,
         entry: root.entry,
         binary: root.binary,
@@ -275,6 +295,7 @@ pub fn build_project_with_options(
         statement_count: root.statement_count,
         target: root.target,
         debug: root.debug,
+        metadata: root.metadata,
         cache_hits,
         cache_misses,
         duration_ms: started.elapsed().as_millis() as u64,
@@ -293,9 +314,13 @@ pub fn run_project_with_options(
     let project_root = canonicalize_existing_path(&normalize_path(project_root), "project root")?;
     let graph = load_package_graph(&project_root)?;
     if options.package.is_none() && graph.context(&project_root)?.manifest.is_workspace_only() {
+        let packages = workspace_package_names(&graph, &project_root)?;
         return Err(Diagnostic::new(
             "run",
-            "workspace-only manifests require -p/--package for `axiomc run`",
+            format!(
+                "workspace-only manifests require -p/--package for `axiomc run`; valid packages: {}",
+                packages.join(", ")
+            ),
         )
         .with_path(manifest_path(&project_root).display().to_string()));
     }
@@ -306,6 +331,8 @@ pub fn run_project_with_options(
             target: None,
             package: options.package.clone(),
             debug: false,
+            locked: true,
+            offline: true,
         },
     )?;
     let build_output_dir = Path::new(&built.generated_rust).parent().ok_or_else(|| {
@@ -628,6 +655,27 @@ struct ModuleSymbols {
     private_enums: HashSet<String>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SymbolNamespace {
+    Function,
+    Const,
+    TypeAlias,
+    Struct,
+    Enum,
+}
+
+impl SymbolNamespace {
+    fn label(self) -> &'static str {
+        match self {
+            SymbolNamespace::Function => "function",
+            SymbolNamespace::Const => "const",
+            SymbolNamespace::TypeAlias => "type alias",
+            SymbolNamespace::Struct => "struct",
+            SymbolNamespace::Enum => "enum",
+        }
+    }
+}
+
 fn analyze_package(
     graph: &PackageGraph,
     package_root: &Path,
@@ -733,6 +781,10 @@ fn register_stdlib_package(graph: &mut PackageGraph) {
             clock: true,
             crypto: true,
             ffi: false,
+            deny_by_default: false,
+            unsafe_opt_ins: Vec::new(),
+            owners: BTreeMap::new(),
+            rationale: BTreeMap::new(),
         },
     };
     graph.packages.insert(
@@ -904,6 +956,7 @@ fn resolve_workspace_members(
 
 #[derive(Debug, Clone)]
 struct BuildArtifactReport {
+    metadata: BuildMetadata,
     cache_status: BuildCacheStatus,
     compile_ms: u64,
 }
@@ -982,6 +1035,7 @@ fn build_artifacts(
             write_debug_source_map(generated_rust, &debug_source_map_path(generated_rust))?;
         }
         return Ok(BuildArtifactReport {
+            metadata: build_metadata(package_root, &cache),
             cache_status: BuildCacheStatus::Hit,
             compile_ms: 0,
         });
@@ -1008,9 +1062,33 @@ fn build_artifacts(
     cache.binary_hash = Some(hash_file_bytes(binary)?);
     write_build_cache(&cache_path, &cache)?;
     Ok(BuildArtifactReport {
+        metadata: build_metadata(package_root, &cache),
         cache_status: BuildCacheStatus::Miss,
         compile_ms,
     })
+}
+
+fn build_metadata(package_root: &Path, cache: &BuildCacheFile) -> BuildMetadata {
+    BuildMetadata {
+        target: cache.target.clone(),
+        debug: cache.debug,
+        lockfile: crate::manifest::lockfile_path(package_root)
+            .display()
+            .to_string(),
+        lockfile_hash: cache.lockfile_hash.clone(),
+        source_hash: source_hash_for_cache(cache),
+    }
+}
+
+fn source_hash_for_cache(cache: &BuildCacheFile) -> String {
+    let mut content = String::new();
+    for module in &cache.modules {
+        content.push_str(&module.path);
+        content.push('\0');
+        content.push_str(&module.source_hash);
+        content.push('\n');
+    }
+    hash_text(&content)
 }
 
 fn build_cache_path(generated_rust: &Path) -> PathBuf {
@@ -1631,6 +1709,24 @@ fn workspace_package_roots(
     Ok(roots)
 }
 
+fn workspace_package_names(
+    graph: &PackageGraph,
+    project_root: &Path,
+) -> Result<Vec<String>, Diagnostic> {
+    let mut names = workspace_package_roots(graph, project_root, None)?
+        .into_iter()
+        .filter_map(|root| {
+            graph
+                .context(&root)
+                .ok()
+                .and_then(|package| package.manifest.package.as_ref())
+                .map(|package| package.name.clone())
+        })
+        .collect::<Vec<_>>();
+    names.sort();
+    Ok(names)
+}
+
 fn collect_workspace_package_roots(
     graph: &PackageGraph,
     package_root: &Path,
@@ -2015,6 +2111,8 @@ fn intrinsic_capability(name: &str) -> Option<CapabilityKind> {
         "net_udp_bind_loopback_once" => Some(CapabilityKind::Net),
         "net_udp_send_recv" => Some(CapabilityKind::Net),
         "http_get" => Some(CapabilityKind::Net),
+        "http_serve_once" => Some(CapabilityKind::Net),
+        "http_serve_route" => Some(CapabilityKind::Net),
         "process_status" => Some(CapabilityKind::Process),
         "clock_now_ms" => Some(CapabilityKind::Clock),
         "clock_elapsed_ms" => Some(CapabilityKind::Clock),
@@ -2070,6 +2168,17 @@ fn flatten_modules(
                 private_imported_consts.insert(name.clone());
             }
             for (export_name, internal_name) in &imported_symbols.public_functions {
+                ensure_imported_symbol_available(
+                    export_name,
+                    SymbolNamespace::Function,
+                    &visible_functions,
+                    &visible_consts,
+                    &visible_aliases,
+                    &visible_structs,
+                    &visible_enums,
+                    &module.path,
+                    import,
+                )?;
                 if let Some(existing) = visible_functions.get(export_name)
                     && existing != internal_name
                 {
@@ -2084,6 +2193,17 @@ fn flatten_modules(
             }
             if same_package {
                 for (export_name, internal_name) in &imported_symbols.package_functions {
+                    ensure_imported_symbol_available(
+                        export_name,
+                        SymbolNamespace::Function,
+                        &visible_functions,
+                        &visible_consts,
+                        &visible_aliases,
+                        &visible_structs,
+                        &visible_enums,
+                        &module.path,
+                        import,
+                    )?;
                     if let Some(existing) = visible_functions.get(export_name)
                         && existing != internal_name
                     {
@@ -2104,6 +2224,17 @@ fn flatten_modules(
                 }
             }
             for (export_name, const_decl) in &imported_symbols.public_consts {
+                ensure_imported_symbol_available(
+                    export_name,
+                    SymbolNamespace::Const,
+                    &visible_functions,
+                    &visible_consts,
+                    &visible_aliases,
+                    &visible_structs,
+                    &visible_enums,
+                    &module.path,
+                    import,
+                )?;
                 if visible_consts.contains_key(export_name) {
                     return Err(Diagnostic::new(
                         "import",
@@ -2116,6 +2247,17 @@ fn flatten_modules(
             }
             if same_package {
                 for (export_name, const_decl) in &imported_symbols.package_consts {
+                    ensure_imported_symbol_available(
+                        export_name,
+                        SymbolNamespace::Const,
+                        &visible_functions,
+                        &visible_consts,
+                        &visible_aliases,
+                        &visible_structs,
+                        &visible_enums,
+                        &module.path,
+                        import,
+                    )?;
                     if visible_consts.contains_key(export_name) {
                         return Err(Diagnostic::new(
                             "import",
@@ -2143,6 +2285,17 @@ fn flatten_modules(
                 private_imported_types.insert(name.clone());
             }
             for (export_name, internal_name) in &imported_symbols.public_aliases {
+                ensure_imported_symbol_available(
+                    export_name,
+                    SymbolNamespace::TypeAlias,
+                    &visible_functions,
+                    &visible_consts,
+                    &visible_aliases,
+                    &visible_structs,
+                    &visible_enums,
+                    &module.path,
+                    import,
+                )?;
                 if let Some(existing) = visible_aliases.get(export_name)
                     && existing != internal_name
                 {
@@ -2159,6 +2312,17 @@ fn flatten_modules(
             }
             if same_package {
                 for (export_name, internal_name) in &imported_symbols.package_aliases {
+                    ensure_imported_symbol_available(
+                        export_name,
+                        SymbolNamespace::TypeAlias,
+                        &visible_functions,
+                        &visible_consts,
+                        &visible_aliases,
+                        &visible_structs,
+                        &visible_enums,
+                        &module.path,
+                        import,
+                    )?;
                     if let Some(existing) = visible_aliases.get(export_name)
                         && existing != internal_name
                     {
@@ -2179,6 +2343,17 @@ fn flatten_modules(
                 }
             }
             for (export_name, internal_name) in &imported_symbols.public_structs {
+                ensure_imported_symbol_available(
+                    export_name,
+                    SymbolNamespace::Struct,
+                    &visible_functions,
+                    &visible_consts,
+                    &visible_aliases,
+                    &visible_structs,
+                    &visible_enums,
+                    &module.path,
+                    import,
+                )?;
                 if let Some(existing) = visible_structs.get(export_name)
                     && existing != internal_name
                 {
@@ -2193,6 +2368,17 @@ fn flatten_modules(
             }
             if same_package {
                 for (export_name, internal_name) in &imported_symbols.package_structs {
+                    ensure_imported_symbol_available(
+                        export_name,
+                        SymbolNamespace::Struct,
+                        &visible_functions,
+                        &visible_consts,
+                        &visible_aliases,
+                        &visible_structs,
+                        &visible_enums,
+                        &module.path,
+                        import,
+                    )?;
                     if let Some(existing) = visible_structs.get(export_name)
                         && existing != internal_name
                     {
@@ -2213,6 +2399,17 @@ fn flatten_modules(
                 }
             }
             for (export_name, internal_name) in &imported_symbols.public_enums {
+                ensure_imported_symbol_available(
+                    export_name,
+                    SymbolNamespace::Enum,
+                    &visible_functions,
+                    &visible_consts,
+                    &visible_aliases,
+                    &visible_structs,
+                    &visible_enums,
+                    &module.path,
+                    import,
+                )?;
                 if let Some(existing) = visible_enums.get(export_name)
                     && existing != internal_name
                 {
@@ -2227,6 +2424,17 @@ fn flatten_modules(
             }
             if same_package {
                 for (export_name, internal_name) in &imported_symbols.package_enums {
+                    ensure_imported_symbol_available(
+                        export_name,
+                        SymbolNamespace::Enum,
+                        &visible_functions,
+                        &visible_consts,
+                        &visible_aliases,
+                        &visible_structs,
+                        &visible_enums,
+                        &module.path,
+                        import,
+                    )?;
                     if let Some(existing) = visible_enums.get(export_name)
                         && existing != internal_name
                     {
@@ -2422,6 +2630,13 @@ fn build_module_symbols(module: &LoadedModule) -> Result<ModuleSymbols, Diagnost
         }
     }
     for function in &module.program.functions {
+        if structs.contains_key(&function.name) || enums.contains_key(&function.name) {
+            return Err(
+                Diagnostic::new("type", format!("duplicate symbol {:?}", function.name))
+                    .with_path(module.path.display().to_string())
+                    .with_span(function.line, function.column),
+            );
+        }
         let internal_name = format!("{module_id}_{}", function.name);
         if functions
             .insert(function.name.clone(), internal_name.clone())
@@ -2487,6 +2702,13 @@ fn build_module_symbols(module: &LoadedModule) -> Result<ModuleSymbols, Diagnost
             .with_path(module.path.display().to_string())
             .with_span(type_alias.line, type_alias.column));
         }
+        if functions.contains_key(&type_alias.name) || consts.contains_key(&type_alias.name) {
+            return Err(
+                Diagnostic::new("type", format!("duplicate symbol {:?}", type_alias.name))
+                    .with_path(module.path.display().to_string())
+                    .with_span(type_alias.line, type_alias.column),
+            );
+        }
         let internal_name = format!("{module_id}_{}", type_alias.name);
         if aliases
             .insert(type_alias.name.clone(), internal_name.clone())
@@ -2534,6 +2756,67 @@ fn build_module_symbols(module: &LoadedModule) -> Result<ModuleSymbols, Diagnost
         package_enums,
         private_enums,
     })
+}
+
+fn ensure_imported_symbol_available(
+    name: &str,
+    incoming: SymbolNamespace,
+    visible_functions: &HashMap<String, String>,
+    visible_consts: &HashMap<String, syntax::ConstDecl>,
+    visible_aliases: &HashMap<String, String>,
+    visible_structs: &HashMap<String, String>,
+    visible_enums: &HashMap<String, String>,
+    module_path: &Path,
+    import: &syntax::Import,
+) -> Result<(), Diagnostic> {
+    if let Some(existing) = visible_namespace_collision(
+        name,
+        incoming,
+        visible_functions,
+        visible_consts,
+        visible_aliases,
+        visible_structs,
+        visible_enums,
+    ) {
+        return Err(Diagnostic::new(
+            "import",
+            format!(
+                "imported {} {name:?} collides with existing {}",
+                incoming.label(),
+                existing.label()
+            ),
+        )
+        .with_path(module_path.display().to_string())
+        .with_span(import.line, import.column));
+    }
+    Ok(())
+}
+
+fn visible_namespace_collision(
+    name: &str,
+    incoming: SymbolNamespace,
+    visible_functions: &HashMap<String, String>,
+    visible_consts: &HashMap<String, syntax::ConstDecl>,
+    visible_aliases: &HashMap<String, String>,
+    visible_structs: &HashMap<String, String>,
+    visible_enums: &HashMap<String, String>,
+) -> Option<SymbolNamespace> {
+    if incoming != SymbolNamespace::Function && visible_functions.contains_key(name) {
+        return Some(SymbolNamespace::Function);
+    }
+    if incoming != SymbolNamespace::Const && visible_consts.contains_key(name) {
+        return Some(SymbolNamespace::Const);
+    }
+    if incoming != SymbolNamespace::TypeAlias && visible_aliases.contains_key(name) {
+        return Some(SymbolNamespace::TypeAlias);
+    }
+    if incoming != SymbolNamespace::Struct && visible_structs.contains_key(name) {
+        return Some(SymbolNamespace::Struct);
+    }
+    if incoming != SymbolNamespace::Enum && visible_enums.contains_key(name) {
+        return Some(SymbolNamespace::Enum);
+    }
+    None
 }
 
 fn rewrite_type_alias(
