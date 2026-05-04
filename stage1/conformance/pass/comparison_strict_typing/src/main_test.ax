@@ -1,0 +1,14 @@
+fn status(ready: bool): string {
+if ready {
+return "ready"
+}
+return "blocked"
+}
+
+let count: int = 40 + 2
+let ready: bool = count == 42
+print count
+print status(ready)
+if ready {
+print "strict"
+}
