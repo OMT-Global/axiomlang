@@ -1,0 +1,10 @@
+pub fn weighted_score(base: int): int {
+return base + 8
+}
+
+pub fn label(ok: bool): string {
+if ok {
+return "imported"
+}
+return "missing"
+}

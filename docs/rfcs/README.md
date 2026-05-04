@@ -50,7 +50,7 @@ An RFC is ready to accept when it:
 
 The first RFCs should cover the largest unresolved language and runtime choices:
 
-- traits and bounded generics, tracked by issue #216;
+- traits and bounded generics, drafted in `0001-traits-bounded-generics.md` and tracked by issue #216;
 - explicit lifetime and scope syntax, tracked by issue #219;
 - type-level effect and capability modeling, tracked by issue #252;
 - the async runtime and host scheduler model, tracked by issue #231.

@@ -35,7 +35,7 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v4 pinned 2026-04-19
       - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable pinned 2026-04-19
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4 pinned 2026-04-27
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v4 pinned 2026-04-27
         with:
           node-version: 20
 
@@ -47,7 +47,7 @@ jobs:
           SBOM_OUTPUT_DIR: stage1/target/sbom
         run: bash scripts/ci/run-toolchain-supply-chain.sh
       - name: Upload stage1 SBOM
-        uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808 # v4 pinned 2026-04-19
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v4 pinned 2026-04-19
         with:
           name: stage1-sbom
           path: stage1/target/sbom/stage1.spdx.json
