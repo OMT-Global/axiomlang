@@ -4891,6 +4891,7 @@ fn lower_stmt(
                                 "returning borrowed values requires data derived from one of the borrowed parameters in stage1"
                             ),
                         )
+                        .with_help("the returned borrow must derive from a borrowed parameter, not from a locally-allocated value")
                         .with_span(*line, *column));
                     }
                 }
@@ -5170,6 +5171,7 @@ fn lower_expr_with_expected(
                         OWNERSHIP_USE_AFTER_MOVE,
                         format!("use of moved value {name:?}"),
                     )
+                    .with_help("consider restructuring to avoid the move, or ensure the value is only used once")
                     .with_span(*line, *column));
                 }
                 if !binding.moved_projections.is_empty() {
@@ -5177,6 +5179,7 @@ fn lower_expr_with_expected(
                         OWNERSHIP_USE_AFTER_MOVE,
                         format!("use of partially moved value {name:?}"),
                     )
+                    .with_help("consider restructuring to avoid the move, or ensure the value is only used once")
                     .with_span(*line, *column));
                 }
                 return Ok(Expr::VarRef {
@@ -8759,6 +8762,7 @@ fn increment_active_borrows(
                         "cannot create mutable borrow of value {owner_name:?} while a shared borrow is still live"
                     ),
                 )
+                .with_help("drop the shared borrow before creating a mutable borrow")
                 .with_span(line, column));
             }
             _ => {}
