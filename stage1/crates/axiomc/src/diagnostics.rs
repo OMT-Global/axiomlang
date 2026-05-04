@@ -1,6 +1,15 @@
 use serde::Serialize;
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct DiagnosticRepair {
+    pub action: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub edit: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub command: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct Diagnostic {
     pub kind: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -11,6 +20,8 @@ pub struct Diagnostic {
     pub column: Option<usize>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub related: Vec<Diagnostic>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub repair: Option<DiagnosticRepair>,
 }
 
 impl Diagnostic {
@@ -23,6 +34,7 @@ impl Diagnostic {
             line: None,
             column: None,
             related: Vec::new(),
+            repair: None,
         }
     }
 
@@ -46,6 +58,110 @@ impl Diagnostic {
         self.related = related;
         self
     }
+
+    pub fn with_repair(
+        mut self,
+        action: impl Into<String>,
+        edit: Option<impl Into<String>>,
+        command: Option<impl Into<String>>,
+    ) -> Self {
+        self.repair = Some(DiagnosticRepair {
+            action: action.into(),
+            edit: edit.map(Into::into),
+            command: command.map(Into::into),
+        });
+        self
+    }
+
+    pub fn normalized_for_json(&self) -> Self {
+        let mut normalized = self.clone();
+        if normalized.code.is_none() {
+            normalized.code = stable_diagnostic_code(&normalized.kind, &normalized.message);
+        }
+        if normalized.repair.is_none() {
+            normalized.repair = repair_hint(&normalized.kind, &normalized.message);
+        }
+        normalized.related = normalized
+            .related
+            .iter()
+            .map(Diagnostic::normalized_for_json)
+            .collect();
+        normalized
+    }
+}
+
+fn stable_diagnostic_code(kind: &str, message: &str) -> Option<String> {
+    let code = match kind {
+        "parse" if message.contains("missing closing brace") => "parse.missing_closing_brace",
+        "parse" if message.contains("unexpected closing brace") => "parse.unexpected_closing_brace",
+        "parse" if message.contains("not supported") => "parse.unsupported_syntax",
+        "parse" if message.contains("missing") => "parse.missing_token",
+        "parse" => "parse.invalid_syntax",
+        "manifest" if message.contains("capability") => "manifest.invalid_capability",
+        "manifest" => "manifest.invalid",
+        "import" if message.contains("not found") || message.contains("failed to read") => {
+            "import.unresolved"
+        }
+        "import" => "import.invalid",
+        "capability" if message.contains("requires") || message.contains("not enabled") => {
+            "capability.denied"
+        }
+        "capability" => "capability.invalid",
+        "type" if message.contains("undefined") || message.contains("unknown") => {
+            "type.undefined_symbol"
+        }
+        "type" if message.contains("expected") || message.contains("mismatch") => "type.mismatch",
+        "type" => "type.invalid",
+        "ownership" => "ownership.invalid",
+        "codegen" | "build" => "build.failed",
+        "runtime" => "runtime.failed",
+        "fmt" => "fmt.failed",
+        "source" => "source.invalid",
+        "json" => "json.serialization_failed",
+        _ => return None,
+    };
+    Some(code.to_string())
+}
+
+fn repair_hint(kind: &str, _message: &str) -> Option<DiagnosticRepair> {
+    let (action, edit, command) = match kind {
+        "parse" | "type" | "ownership" => (
+            "edit_source",
+            Some("Update the source at the reported span and rerun `axiomc check --json`."),
+            None,
+        ),
+        "manifest" | "capability" => (
+            "edit_manifest",
+            Some("Update axiom.toml with the narrowest required package, dependency, or capability change."),
+            None,
+        ),
+        "import" => (
+            "edit_import",
+            Some("Fix the quoted relative import path or add the missing imported source file."),
+            None,
+        ),
+        "fmt" => (
+            "run_command",
+            None,
+            Some("axiomc fmt <path>"),
+        ),
+        "source" => (
+            "check_path",
+            Some("Use an existing .ax source path or package directory."),
+            None,
+        ),
+        "build" | "codegen" | "runtime" => (
+            "rerun_command",
+            Some("Review the compiler message and rerun the failed command after source changes."),
+            None,
+        ),
+        _ => return None,
+    };
+    Some(DiagnosticRepair {
+        action: action.to_string(),
+        edit: edit.map(str::to_string),
+        command: command.map(str::to_string),
+    })
 }
 
 pub fn message_with_suggestion(

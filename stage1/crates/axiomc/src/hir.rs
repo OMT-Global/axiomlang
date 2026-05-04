@@ -6083,6 +6083,112 @@ fn lower_expr_with_expected(
                     ty: Type::Option(Box::new(Type::String)),
                 });
             }
+            if name == "http_serve_once" {
+                // HTTP server support shares the existing `net` capability: the
+                // same manifest approval that allows socket clients also gates
+                // loop-local service binds in stage1.
+                require_capability(ctx.capabilities, CapabilityKind::Net, name, *line, *column)?;
+                if args.len() != 2 {
+                    return Err(Diagnostic::new(
+                        "type",
+                        format!("http_serve_once expects 2 arguments, got {}", args.len()),
+                    )
+                    .with_span(*line, *column));
+                }
+                let bind = lower_expr_with_expected(&args[0], Some(&Type::String), env, ctx)?;
+                if bind.ty() != &Type::String {
+                    return Err(Diagnostic::new(
+                        "type",
+                        format!(
+                            "http_serve_once expects a string bind argument, got {}",
+                            bind.ty()
+                        ),
+                    )
+                    .with_span(args[0].line(), args[0].column()));
+                }
+                let body = lower_expr_with_expected(&args[1], Some(&Type::String), env, ctx)?;
+                if body.ty() != &Type::String {
+                    return Err(Diagnostic::new(
+                        "type",
+                        format!(
+                            "http_serve_once expects a string body argument, got {}",
+                            body.ty()
+                        ),
+                    )
+                    .with_span(args[1].line(), args[1].column()));
+                }
+                move_lowered_value(&bind, env)?;
+                move_lowered_value(&body, env)?;
+                return Ok(Expr::Call {
+                    name: name.clone(),
+                    args: vec![bind, body],
+                    ty: Type::Bool,
+                });
+            }
+            if name == "http_serve_route" {
+                // Route-based HTTP service support shares the existing `net`
+                // capability with the lower-level socket and HTTP helpers.
+                require_capability(ctx.capabilities, CapabilityKind::Net, name, *line, *column)?;
+                if args.len() != 4 {
+                    return Err(Diagnostic::new(
+                        "type",
+                        format!("http_serve_route expects 4 arguments, got {}", args.len()),
+                    )
+                    .with_span(*line, *column));
+                }
+                let bind = lower_expr_with_expected(&args[0], Some(&Type::String), env, ctx)?;
+                if bind.ty() != &Type::String {
+                    return Err(Diagnostic::new(
+                        "type",
+                        format!(
+                            "http_serve_route expects a string bind argument, got {}",
+                            bind.ty()
+                        ),
+                    )
+                    .with_span(args[0].line(), args[0].column()));
+                }
+                let route_path = lower_expr_with_expected(&args[1], Some(&Type::String), env, ctx)?;
+                if route_path.ty() != &Type::String {
+                    return Err(Diagnostic::new(
+                        "type",
+                        format!(
+                            "http_serve_route expects a string route path argument, got {}",
+                            route_path.ty()
+                        ),
+                    )
+                    .with_span(args[1].line(), args[1].column()));
+                }
+                let body = lower_expr_with_expected(&args[2], Some(&Type::String), env, ctx)?;
+                if body.ty() != &Type::String {
+                    return Err(Diagnostic::new(
+                        "type",
+                        format!(
+                            "http_serve_route expects a string body argument, got {}",
+                            body.ty()
+                        ),
+                    )
+                    .with_span(args[2].line(), args[2].column()));
+                }
+                let max_requests = lower_expr_with_expected(&args[3], Some(&Type::Int), env, ctx)?;
+                if max_requests.ty() != &Type::Int {
+                    return Err(Diagnostic::new(
+                        "type",
+                        format!(
+                            "http_serve_route expects an int max_requests argument, got {}",
+                            max_requests.ty()
+                        ),
+                    )
+                    .with_span(args[3].line(), args[3].column()));
+                }
+                move_lowered_value(&bind, env)?;
+                move_lowered_value(&route_path, env)?;
+                move_lowered_value(&body, env)?;
+                return Ok(Expr::Call {
+                    name: name.clone(),
+                    args: vec![bind, route_path, body, max_requests],
+                    ty: Type::Bool,
+                });
+            }
             if name == "process_status" {
                 require_capability(
                     ctx.capabilities,
