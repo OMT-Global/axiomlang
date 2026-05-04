@@ -6971,6 +6971,20 @@ fn lower_expr_with_expected(
             }
             if let Some(binding) = env.get(name) {
                 if let Type::Fn(param_tys, return_ty) = binding.ty.clone() {
+                    if binding.moved {
+                        return Err(ownership_error(
+                            OWNERSHIP_USE_AFTER_MOVE,
+                            format!("use of moved value {name:?}"),
+                        )
+                        .with_span(*line, *column));
+                    }
+                    if !binding.moved_projections.is_empty() {
+                        return Err(ownership_error(
+                            OWNERSHIP_USE_AFTER_MOVE,
+                            format!("use of partially moved value {name:?}"),
+                        )
+                        .with_span(*line, *column));
+                    }
                     if args.len() != param_tys.len() {
                         return Err(Diagnostic::new(
                             "type",
@@ -8177,8 +8191,13 @@ fn collect_var_refs(expr: &syntax::Expr, refs: &mut HashSet<String>) {
         syntax::Expr::VarRef { name, .. } => {
             refs.insert(name.clone());
         }
-        syntax::Expr::Call { args, .. }
-        | syntax::Expr::TupleLiteral { elements: args, .. }
+        syntax::Expr::Call { name, args, .. } => {
+            refs.insert(name.clone());
+            for arg in args {
+                collect_var_refs(arg, refs);
+            }
+        }
+        syntax::Expr::TupleLiteral { elements: args, .. }
         | syntax::Expr::ArrayLiteral { elements: args, .. } => {
             for arg in args {
                 collect_var_refs(arg, refs);

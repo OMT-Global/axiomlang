@@ -4163,6 +4163,47 @@ true
     }
 
     #[test]
+    fn closure_captures_function_value_callee_name() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("closure-captures-function-callee");
+        create_project(&project, Some("closure-captures-function-callee")).expect("create project");
+        fs::write(
+            project.join("axiom.toml"),
+            render_manifest_with_capabilities(
+                "closure-captures-function-callee",
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+            ),
+        )
+        .expect("write manifest");
+        let manifest = load_manifest(&project).expect("load manifest");
+        fs::write(
+            project.join("axiom.lock"),
+            render_lockfile_for_project(&project, &manifest).expect("lockfile"),
+        )
+        .expect("write lockfile");
+        fs::write(
+            project.join("src/main.ax"),
+            "let inner: fn(int): int = |x: int| x + 1\nlet outer: fn(int): int = |n: int| inner(n)\nprint inner(2)\n",
+        )
+        .expect("write source");
+
+        let err = check_project(&project)
+            .expect_err("closure bodies must capture function-valued callees by name");
+        assert_eq!(err.kind, "ownership");
+        assert!(
+            err.message.contains("use of moved value `inner`")
+                || err.message.contains("use of moved value \"inner\"")
+                || err.message.contains("cannot use moved value `inner`"),
+            "unexpected diagnostic: {err:?}",
+        );
+    }
+
+    #[test]
     fn stage1_project_imports_synthetic_stdlib_sync_module() {
         // `std/sync.ax` is ungated in stage1 because it is implemented in
         // Axiom using ownership tokens rather than host threads or blocking
