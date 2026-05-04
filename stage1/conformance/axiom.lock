@@ -1,6 +1,11 @@
 version = 1
 
 [[package]]
+name = "conformance-closure-borrowed-slice-return"
+version = "0.1.0"
+source = "path:fail/closure_borrowed_slice_return"
+
+[[package]]
 name = "conformance-closure-move-captured-non-copy"
 version = "0.1.0"
 source = "path:fail/closure_move_captured_non_copy"

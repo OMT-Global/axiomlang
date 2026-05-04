@@ -324,6 +324,7 @@ struct VariantInfo {
 }
 
 const OWNERSHIP_CLOSURE_MOVE_CAPTURED_NON_COPY: &str = "closure_move_captured_non_copy";
+const OWNERSHIP_CLOSURE_BORROWED_SLICE_RETURN: &str = "closure_borrowed_slice_return";
 const OWNERSHIP_LOOP_MOVE_OUTER_NON_COPY: &str = "loop_move_outer_non_copy";
 const OWNERSHIP_BORROW_RETURN_REQUIRES_PARAM_ORIGIN: &str = "borrow_return_requires_param_origin";
 const OWNERSHIP_MOVE_WHILE_BORROWED: &str = "move_while_borrowed";
@@ -7780,6 +7781,14 @@ fn lower_expr_with_expected(
                 referenced.remove(&param.name);
             }
             let captured_names = referenced.clone();
+
+            if contains_borrowed_slice_type(expected_return, ctx.structs, ctx.enums) {
+                return Err(ownership_error(
+                    OWNERSHIP_CLOSURE_BORROWED_SLICE_RETURN,
+                    "closure fn values cannot return borrowed slice types in stage1 because codegen cannot express the returned reference lifetime",
+                )
+                .with_span(*line, *column));
+            }
 
             let lowered_body =
                 lower_expr_with_expected(body, Some(expected_return), &mut closure_env, ctx)?;

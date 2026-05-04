@@ -1,0 +1,8 @@
+{
+  "kind": "ownership",
+  "code": "closure_borrowed_slice_return",
+  "message": "closure fn values cannot return borrowed slice types in stage1 because codegen cannot express the returned reference lifetime",
+  "path": "src/main.ax",
+  "line": 2,
+  "column": 27
+}
