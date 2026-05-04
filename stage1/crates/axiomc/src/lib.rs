@@ -979,6 +979,30 @@ print fail()
     }
 
     #[test]
+    fn render_rust_restricts_http_server_binds_to_loopback() {
+        let source = "print http_serve_once(\"127.0.0.1:0\", \"ok\")\nprint http_serve_route(\"127.0.0.1:0\", \"/\", \"ok\", 1)\n";
+        let parsed = parse_program(source, Path::new("main.ax")).expect("parse");
+        let hir = hir::lower_with_capabilities(
+            &parsed,
+            &CapabilityConfig {
+                net: true,
+                ..CapabilityConfig::default()
+            },
+        )
+        .expect("lower");
+        let mir = mir::lower(&hir);
+        let rendered = render_rust(&mir);
+        assert!(rendered.contains("fn axiom_http_loopback_bind_addr("));
+        assert!(rendered.contains("addr.ip().is_loopback()"));
+        assert_eq!(
+            rendered
+                .matches("axiom_http_loopback_bind_addr(bind.as_str())")
+                .count(),
+            2
+        );
+    }
+
+    #[test]
     fn render_rust_keeps_http_response_size_guards() {
         let source = "match http_get(\"http://example.com/\") {\nSome(_body) {\nprint true\n}\nNone {\nprint false\n}\n}\n";
         let parsed = parse_program(source, Path::new("main.ax")).expect("parse");
@@ -2134,6 +2158,7 @@ print fail()
                 target: None,
                 package: Some(String::from("workspace-app")),
                 debug: false,
+                ..BuildOptions::default()
             },
         )
         .expect("build selected workspace package");
@@ -2189,6 +2214,112 @@ print fail()
             .expect_err("workspace-only run should require package selection");
         assert_eq!(error.kind, "run");
         assert!(error.message.contains("require -p/--package"));
+        assert!(error.message.contains("valid packages: workspace-runner"));
+    }
+
+    #[test]
+    fn build_locked_offline_accepts_local_path_graph() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("offline-root");
+        let dependency = dir.path().join("offline-dep");
+        create_project(&project, Some("offline-root")).expect("create root project");
+        create_project(&dependency, Some("offline-dep")).expect("create dependency project");
+
+        fs::write(
+            project.join("axiom.toml"),
+            r#"[package]
+name = "offline-root"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[dependencies]
+dep = { path = "../offline-dep" }
+
+[capabilities]
+fs = false
+"fs:write" = false
+net = false
+process = false
+env = false
+clock = false
+crypto = false
+"#,
+        )
+        .expect("write root manifest");
+        let manifest = load_manifest(&project).expect("load root manifest");
+        fs::write(
+            project.join("axiom.lock"),
+            render_lockfile_for_project(&project, &manifest).expect("root lockfile"),
+        )
+        .expect("write root lockfile");
+
+        let output = build_project_with_options(
+            &project,
+            &BuildOptions {
+                locked: true,
+                offline: true,
+                ..BuildOptions::default()
+            },
+        )
+        .expect("locked offline build should accept local path graph");
+        assert!(output.locked);
+        assert!(output.offline);
+        assert!(Path::new(&output.binary).exists());
+    }
+
+    #[test]
+    fn build_locked_offline_missing_lockfile_fails_without_outputs() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("missing-lock");
+        create_project(&project, Some("missing-lock")).expect("create project");
+        fs::remove_file(project.join("axiom.lock")).expect("remove lockfile");
+
+        let error = build_project_with_options(
+            &project,
+            &BuildOptions {
+                locked: true,
+                offline: true,
+                ..BuildOptions::default()
+            },
+        )
+        .expect_err("missing lockfile should fail locked offline build");
+        assert_eq!(error.kind, "lockfile");
+        assert!(!project.join("axiom.lock").exists());
+        assert!(!project.join("dist").exists());
+    }
+
+    #[test]
+    fn build_locked_offline_stale_lockfile_fails_without_outputs() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("stale-lock");
+        create_project(&project, Some("stale-lock")).expect("create project");
+        let lockfile_path = project.join("axiom.lock");
+        let original_lockfile = fs::read_to_string(&lockfile_path).expect("read lockfile");
+        let manifest = fs::read_to_string(project.join("axiom.toml")).expect("read manifest");
+        fs::write(
+            project.join("axiom.toml"),
+            manifest.replace("version = \"0.1.0\"", "version = \"0.2.0\""),
+        )
+        .expect("stale manifest");
+
+        let error = build_project_with_options(
+            &project,
+            &BuildOptions {
+                locked: true,
+                offline: true,
+                ..BuildOptions::default()
+            },
+        )
+        .expect_err("stale lockfile should fail locked offline build");
+        assert_eq!(error.kind, "lockfile");
+        assert_eq!(
+            fs::read_to_string(&lockfile_path).expect("read unchanged lockfile"),
+            original_lockfile
+        );
+        assert!(!project.join("dist").exists());
     }
 
     #[test]
@@ -4166,6 +4297,338 @@ print is_match(\"[a-z]+\", true)
         );
     }
 
+    fn find_free_loopback_port() -> u16 {
+        std::net::TcpListener::bind("127.0.0.1:0")
+            .expect("bind loopback probe")
+            .local_addr()
+            .expect("probe local addr")
+            .port()
+    }
+
+    #[test]
+    fn stage1_stdlib_http_service_serves_one_request() {
+        use std::io::{Read, Write};
+        use std::net::TcpStream;
+        use std::thread;
+        use std::time::{Duration, Instant};
+
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("stdlib-http-service");
+        create_project(&project, Some("stdlib-http-service")).expect("create project");
+        fs::write(
+            project.join("axiom.toml"),
+            render_manifest_with_capabilities(
+                "stdlib-http-service",
+                false,
+                true,
+                false,
+                false,
+                false,
+                false,
+            ),
+        )
+        .expect("write manifest");
+        let manifest = load_manifest(&project).expect("load manifest");
+        fs::write(
+            project.join("axiom.lock"),
+            render_lockfile_for_project(&project, &manifest).expect("lockfile"),
+        )
+        .expect("write lockfile");
+        let port = find_free_loopback_port();
+        fs::write(
+            project.join("src/main.ax"),
+            format!(
+                r#"import "std/http.ax"
+print serve_once("127.0.0.1:{port}", "hello from axiom")
+"#
+            ),
+        )
+        .expect("write source");
+
+        let built = build_project(&project).expect("build project");
+        let child = compiled_binary_command(&built.binary)
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .expect("spawn compiled binary");
+
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let mut stream = loop {
+            match TcpStream::connect(("127.0.0.1", port)) {
+                Ok(stream) => break stream,
+                Err(err) if Instant::now() < deadline => {
+                    let _ = err;
+                    thread::sleep(Duration::from_millis(25));
+                }
+                Err(err) => panic!("server never became ready: {err}"),
+            }
+        };
+        stream
+            .write_all(b"GET / HTTP/1.0\r\nHost: 127.0.0.1\r\n\r\n")
+            .expect("write request");
+        let mut response = String::new();
+        stream.read_to_string(&mut response).expect("read response");
+        assert!(
+            response.starts_with("HTTP/1.0 200 OK\r\n"),
+            "unexpected response: {response:?}"
+        );
+        assert!(
+            response.contains("Content-Length: 16\r\n"),
+            "unexpected response headers: {response:?}"
+        );
+        assert!(
+            response.ends_with("hello from axiom"),
+            "unexpected response body: {response:?}"
+        );
+
+        let output = child.wait_with_output().expect("wait for server exit");
+        assert!(output.status.success(), "server process failed: {output:?}");
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "true\n");
+        assert_eq!(String::from_utf8_lossy(&output.stderr), "");
+    }
+
+    #[test]
+    fn stage1_stdlib_http_service_rejects_non_loopback_bind() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("stdlib-http-service-non-loopback-denied");
+        create_project(&project, Some("stdlib-http-service-non-loopback-denied"))
+            .expect("create project");
+        fs::write(
+            project.join("axiom.toml"),
+            render_manifest_with_capabilities(
+                "stdlib-http-service-non-loopback-denied",
+                false,
+                true,
+                false,
+                false,
+                false,
+                false,
+            ),
+        )
+        .expect("write manifest");
+        let manifest = load_manifest(&project).expect("load manifest");
+        fs::write(
+            project.join("axiom.lock"),
+            render_lockfile_for_project(&project, &manifest).expect("lockfile"),
+        )
+        .expect("write lockfile");
+        fs::write(
+            project.join("src/main.ax"),
+            r#"import "std/http.ax"
+print serve_once("0.0.0.0:18080", "hello")
+"#,
+        )
+        .expect("write source");
+
+        let built = build_project(&project).expect("build project");
+        let output = compiled_binary_command(&built.binary)
+            .output()
+            .expect("run compiled binary");
+        assert!(
+            output.status.success(),
+            "service process failed: {output:?}"
+        );
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "false\n");
+        assert!(
+            String::from_utf8_lossy(&output.stderr)
+                .contains("http server bind address must resolve only to loopback"),
+            "unexpected stderr: {:?}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    #[test]
+    fn stage1_stdlib_http_routed_service_rejects_non_loopback_bind() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir
+            .path()
+            .join("stdlib-http-routed-service-non-loopback-denied");
+        create_project(
+            &project,
+            Some("stdlib-http-routed-service-non-loopback-denied"),
+        )
+        .expect("create project");
+        fs::write(
+            project.join("axiom.toml"),
+            render_manifest_with_capabilities(
+                "stdlib-http-routed-service-non-loopback-denied",
+                false,
+                true,
+                false,
+                false,
+                false,
+                false,
+            ),
+        )
+        .expect("write manifest");
+        let manifest = load_manifest(&project).expect("load manifest");
+        fs::write(
+            project.join("axiom.lock"),
+            render_lockfile_for_project(&project, &manifest).expect("lockfile"),
+        )
+        .expect("write lockfile");
+        fs::write(
+            project.join("src/main.ax"),
+            r#"import "std/http.ax"
+let selected_route: HttpRoute = route("/ready", "hello")
+print serve("0.0.0.0:18080", selected_route, 1)
+"#,
+        )
+        .expect("write source");
+
+        let built = build_project(&project).expect("build project");
+        let output = compiled_binary_command(&built.binary)
+            .output()
+            .expect("run compiled binary");
+        assert!(
+            output.status.success(),
+            "service process failed: {output:?}"
+        );
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "false\n");
+        assert!(
+            String::from_utf8_lossy(&output.stderr)
+                .contains("http server bind address must resolve only to loopback"),
+            "unexpected stderr: {:?}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    #[test]
+    fn stage1_stdlib_http_service_routes_multiple_requests() {
+        use std::io::{Read, Write};
+        use std::net::TcpStream;
+        use std::thread;
+        use std::time::{Duration, Instant};
+
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("stdlib-http-routed-service");
+        create_project(&project, Some("stdlib-http-routed-service")).expect("create project");
+        fs::write(
+            project.join("axiom.toml"),
+            render_manifest_with_capabilities(
+                "stdlib-http-routed-service",
+                false,
+                true,
+                false,
+                false,
+                false,
+                false,
+            ),
+        )
+        .expect("write manifest");
+        let manifest = load_manifest(&project).expect("load manifest");
+        fs::write(
+            project.join("axiom.lock"),
+            render_lockfile_for_project(&project, &manifest).expect("lockfile"),
+        )
+        .expect("write lockfile");
+        let port = find_free_loopback_port();
+        fs::write(
+            project.join("src/main.ax"),
+            format!(
+                r#"import "std/http.ax"
+
+let selected_route: HttpRoute = route("/ready", "routed response")
+print serve("127.0.0.1:{port}", selected_route, 2)
+"#
+            ),
+        )
+        .expect("write source");
+
+        let built = build_project(&project).expect("build project");
+        let child = compiled_binary_command(&built.binary)
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .expect("spawn compiled binary");
+
+        let connect = || {
+            let deadline = Instant::now() + Duration::from_secs(5);
+            loop {
+                match TcpStream::connect(("127.0.0.1", port)) {
+                    Ok(stream) => break stream,
+                    Err(err) if Instant::now() < deadline => {
+                        let _ = err;
+                        thread::sleep(Duration::from_millis(25));
+                    }
+                    Err(err) => panic!("server never became ready: {err}"),
+                }
+            }
+        };
+        let mut first = connect();
+        let mut second = connect();
+        first
+            .write_all(b"GET /ready HTTP/1.0\r\nHost: 127.0.0.1\r\n\r\n")
+            .expect("write first request");
+        second
+            .write_all(b"GET /missing HTTP/1.0\r\nHost: 127.0.0.1\r\n\r\n")
+            .expect("write second request");
+        let mut first_response = String::new();
+        let mut second_response = String::new();
+        first
+            .read_to_string(&mut first_response)
+            .expect("read first response");
+        second
+            .read_to_string(&mut second_response)
+            .expect("read second response");
+        assert!(
+            first_response.starts_with("HTTP/1.0 200 OK\r\n"),
+            "unexpected first response: {first_response:?}"
+        );
+        assert!(
+            first_response.ends_with("routed response"),
+            "unexpected first body: {first_response:?}"
+        );
+        assert!(
+            second_response.starts_with("HTTP/1.0 404 Not Found\r\n"),
+            "unexpected second response: {second_response:?}"
+        );
+
+        let output = child.wait_with_output().expect("wait for server exit");
+        assert!(output.status.success(), "server process failed: {output:?}");
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "true\n");
+        assert_eq!(String::from_utf8_lossy(&output.stderr), "");
+    }
+
+    #[test]
+    fn stage1_project_rejects_stdlib_http_service_without_net_capability() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("stdlib-http-service-denied");
+        create_project(&project, Some("stdlib-http-service-denied")).expect("create project");
+        fs::write(
+            project.join("axiom.toml"),
+            render_manifest_with_capabilities(
+                "stdlib-http-service-denied",
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+            ),
+        )
+        .expect("write manifest");
+        let manifest = load_manifest(&project).expect("load manifest");
+        fs::write(
+            project.join("axiom.lock"),
+            render_lockfile_for_project(&project, &manifest).expect("lockfile"),
+        )
+        .expect("write lockfile");
+        fs::write(
+            project.join("src/main.ax"),
+            r#"import "std/http.ax"
+print serve_once("127.0.0.1:18080", "hello")
+"#,
+        )
+        .expect("write source");
+
+        let err = check_project(&project).expect_err("expected capability denial");
+        assert!(
+            err.message.contains("requires [capabilities].net = true"),
+            "unexpected diagnostic: {err:?}",
+        );
+    }
+
     #[test]
     fn stage1_runtime_reports_structured_error_for_index_errors() {
         let dir = tempdir().expect("tempdir");
@@ -4765,8 +5228,8 @@ print is_match(\"[a-z]+\", true)
     fn conformance_corpus_reports_stable_results() {
         let output =
             run_project_tests(&conformance_fixture()).expect("run stage1 conformance corpus");
-        assert_eq!(output.cases.len(), 25);
-        assert_eq!(output.passed, 25);
+        assert_eq!(output.cases.len(), 29);
+        assert_eq!(output.passed, 29);
         assert_eq!(output.failed, 0);
         assert!(
             output
@@ -4774,7 +5237,7 @@ print is_match(\"[a-z]+\", true)
                 .iter()
                 .filter(|case| case.expected_error.is_some())
                 .count()
-                == 18
+                == 20
         );
         assert_eq!(
             output
@@ -4782,7 +5245,7 @@ print is_match(\"[a-z]+\", true)
                 .iter()
                 .filter(|case| case.expected_stdout.is_some())
                 .count(),
-            7
+            9
         );
     }
 
@@ -5458,6 +5921,49 @@ print is_match(\"[a-z]+\", true)
         let error = check_project(&project).expect_err("qualified calls should fail");
         assert_eq!(error.kind, "type");
         assert!(error.message.contains("undefined variable \"math\""));
+    }
+
+    #[test]
+    fn check_project_rejects_local_public_export_symbol_collision() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("local-export-collision");
+        create_project(&project, Some("local-export-collision-app")).expect("create project");
+        fs::write(
+            project.join("src/main.ax"),
+            "pub struct Answer {\nvalue: int\n}\n\npub fn Answer(): int {\nreturn 42\n}\n\nprint 0\n",
+        )
+        .expect("write source");
+
+        let error = check_project(&project).expect_err("public export collision should fail");
+        assert_eq!(error.kind, "type");
+        assert!(error.message.contains("duplicate symbol \"Answer\""));
+        assert_eq!(error.line, Some(5));
+    }
+
+    #[test]
+    fn check_project_rejects_imported_public_export_symbol_collision() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("import-export-collision");
+        create_project(&project, Some("import-export-collision-app")).expect("create project");
+        fs::write(
+            project.join("src/main.ax"),
+            "import \"math.ax\"\n\ntype answer = int\nprint 0\n",
+        )
+        .expect("write main");
+        fs::write(
+            project.join("src/math.ax"),
+            "pub fn answer(): int {\nreturn 42\n}\n",
+        )
+        .expect("write module");
+
+        let error = check_project(&project).expect_err("imported export collision should fail");
+        assert_eq!(error.kind, "import");
+        assert!(
+            error
+                .message
+                .contains("imported function \"answer\" collides with existing type alias")
+        );
+        assert_eq!(error.line, Some(1));
     }
 
     #[test]
@@ -6857,6 +7363,7 @@ print is_match(\"[a-z]+\", true)
                 target: Some(target.clone()),
                 package: None,
                 debug: false,
+                ..BuildOptions::default()
             },
         )
         .expect("build project with explicit target");
@@ -6883,6 +7390,7 @@ print is_match(\"[a-z]+\", true)
                 target: Some(String::from("wasm32")),
                 package: None,
                 debug: false,
+                ..BuildOptions::default()
             },
         )
         .expect("build project with wasm alias");
@@ -6917,6 +7425,7 @@ print is_match(\"[a-z]+\", true)
                 target: None,
                 package: None,
                 debug: true,
+                ..BuildOptions::default()
             },
         )
         .expect("debug build");
@@ -6954,6 +7463,7 @@ print is_match(\"[a-z]+\", true)
                 target: None,
                 package: None,
                 debug: true,
+                ..BuildOptions::default()
             },
         )
         .expect("cached debug build");
@@ -7091,6 +7601,9 @@ print is_match(\"[a-z]+\", true)
                 target: Some(rust_host_target()),
                 package: None,
                 debug: true,
+                locked: true,
+                offline: true,
+                ..BuildOptions::default()
             },
         )
         .expect("build project");
@@ -7102,6 +7615,8 @@ print is_match(\"[a-z]+\", true)
         );
         assert_eq!(payload["command"], "build");
         assert_eq!(payload["backend"], "generated-rust");
+        assert_eq!(payload["locked"], true);
+        assert_eq!(payload["offline"], true);
         assert!(payload["target"].is_string());
         assert_eq!(payload["debug"], true);
         assert!(payload["debug_map"].is_string());
@@ -7166,6 +7681,49 @@ print is_match(\"[a-z]+\", true)
         assert_eq!(error_payload["error"]["kind"], "ownership");
         assert_eq!(error_payload["error"]["code"], "use_after_move");
         assert_eq!(error_payload["error"]["message"], "boom");
+    }
+
+    #[test]
+    fn json_contract_adds_stable_codes_for_common_diagnostic_kinds() {
+        let cases = [
+            ("parse", "missing closing brace for block", "parse.missing_closing_brace"),
+            ("manifest", "invalid axiom.toml", "manifest.invalid"),
+            ("import", "import not found: ./missing.ax", "import.unresolved"),
+            ("capability", "fs requires capability fs", "capability.denied"),
+            ("type", "undefined variable \"answer\"", "type.undefined_symbol"),
+            ("build", "failed to invoke rustc", "build.failed"),
+            ("runtime", "process exited with status 1", "runtime.failed"),
+        ];
+
+        for (kind, message, code) in cases {
+            let error = crate::diagnostics::Diagnostic::new(kind, message).with_span(2, 4);
+            let payload = json_contract::error("check", &error);
+
+            assert_eq!(payload["error"]["kind"], kind);
+            assert_eq!(payload["error"]["code"], code);
+            assert_eq!(payload["error"]["line"], 2);
+            assert_eq!(payload["error"]["column"], 4);
+        }
+    }
+
+    #[test]
+    fn json_contract_adds_machine_readable_repair_hints() {
+        let source_error =
+            crate::diagnostics::Diagnostic::new("parse", "let binding is missing '='")
+                .with_span(3, 8);
+        let source_payload = json_contract::error("check", &source_error);
+
+        assert_eq!(source_payload["error"]["repair"]["action"], "edit_source");
+        assert!(source_payload["error"]["repair"]["edit"]
+            .as_str()
+            .expect("repair edit")
+            .contains("reported span"));
+
+        let fmt_error = crate::diagnostics::Diagnostic::new("fmt", "1 file(s) need formatting");
+        let fmt_payload = json_contract::error("fmt", &fmt_error);
+
+        assert_eq!(fmt_payload["error"]["repair"]["action"], "run_command");
+        assert_eq!(fmt_payload["error"]["repair"]["command"], "axiomc fmt <path>");
     }
 
     #[test]

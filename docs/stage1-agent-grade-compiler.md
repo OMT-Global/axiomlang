@@ -197,8 +197,12 @@ adds ungated scalar/string JSON helpers, `std/collections.ax` adds generic
 borrowed-slice helpers on top of AG2 generic functions, `std/sync.ax` provides
 ownership-shaped synchronization values, and `std/async.ax` exposes the
 deterministic AG4.2 task/channel runtime. AG4.4 capability-aware integration
-for the currently landed stdlib/runtime surface is now complete; AG4.3 HTTP
-*server* support remains open.
+for the currently landed stdlib/runtime surface is now complete. AG4.3 remains
+open: `std/http.ax::serve_once` and `std/http.ax::serve` are intermediate
+loopback-only blocking service primitives that provide smoke coverage for
+bind/accept/route/respond and bounded lifecycle behavior, but they are not the
+full async-runtime listen/accept/respond service surface required by #97.
+
 
 Work packages:
 
@@ -274,19 +278,37 @@ Work packages:
     for deterministic object encoding. Covered by `stage1/examples/stdlib_json`
     and two Rust tests (`stage1_project_imports_synthetic_stdlib_json_module`,
     `stage1_project_rejects_stdlib_json_with_wrong_argument_type`).
-  - `std.http` — **landed (client only)** as `std/http.ax` exposing
-    `get(url: string): Option<string>` on top of a new `http_get` intrinsic
-    that implements a blocking HTTP/1.0 client for `http://` and `https://`
-    URLs in the generated Rust runtime. TLS failures return `None` and emit a
-    structured `net` diagnostic. AG4.3 HTTP *server* support stays as follow-on
-    work. `http_get` shares the existing `net` capability because any code that
-    can open a raw TCP socket could implement HTTP itself, so a separate `http`
-    manifest flag would not add meaningful isolation in stage1. Covered by
-    `stage1/examples/stdlib_http` and Rust tests
-    (`stage1_project_imports_synthetic_stdlib_http_module`,
+  - `std.http` — **partially landed** as `std/http.ax` exposing
+    `get(url: string): Option<string>`, the intermediate loopback-only
+    `serve_once(bind: string, body: string): bool` smoke primitive, and the
+    route-shaped helpers `route(path: string, body: string): HttpRoute`,
+    `respond(body: string): HttpRoute`, and
+    `serve(bind: string, selected_route: HttpRoute, max_requests: int): bool`
+    on top of the `http_get`, `http_serve_once`, and loopback-only
+    `http_serve_route` intrinsics. The client path implements a blocking
+    HTTP/1.0 fetch for `http://` and `https://` URLs in the generated Rust
+    runtime; TLS failures return `None` and emit a structured `net`
+    diagnostic. The server path is intentionally narrow: it accepts only
+    loopback bind addresses, serves plain-text HTTP/1.0 responses, and exits
+    after one request for `serve_once` or after the bounded `max_requests`
+    count for `serve`. Both intrinsics share the existing `net` capability
+    because any code that can open a raw TCP socket could implement HTTP
+    itself, so a separate `http` manifest flag would not add meaningful
+    isolation in stage1. Covered by `stage1/examples/stdlib_http` and Rust
+    tests (`stage1_project_imports_synthetic_stdlib_http_module`,
     `stage1_stdlib_http_get_supports_https_urls`,
-    `stage1_stdlib_http_reports_tls_diagnostics`, and
-    `stage1_project_rejects_stdlib_http_without_net_capability`).
+    `stage1_stdlib_http_reports_tls_diagnostics`,
+    `stage1_stdlib_http_service_serves_one_request`,
+    `stage1_stdlib_http_service_rejects_non_loopback_bind`,
+    `stage1_stdlib_http_routed_service_rejects_non_loopback_bind`,
+    `stage1_stdlib_http_service_routes_multiple_requests`,
+    `stage1_project_rejects_stdlib_http_without_net_capability`, and
+    `stage1_project_rejects_stdlib_http_service_without_net_capability`).
+    This remains an intermediate #97 slice: it covers simple request routing,
+    response helpers, bounded lifecycle behavior, loopback bind enforcement,
+    and native threaded request fan-out, but the final async-runtime
+    listen/accept/respond API remains AG4.3 work.
+
   - `std.collections` — **landed** as `std/collections.ax` exposing generic
     borrowed-slice helpers (`count`, `is_empty`, `has_items`, `skip`, `take`,
     and `window`) on top of AG2 generic functions plus existing collection
@@ -314,8 +336,8 @@ Work packages:
   does not provide host-thread scheduling, blocking wakeups, or real timers.
   Covered by `stage1/examples/stdlib_async` and one Rust integration test
   (`stage1_project_supports_async_runtime_surface`).
-- `AG4.3`: HTTP service support
-  - HTTP server support is required at this milestone, not just client support.
+- `AG4.3`: HTTP service support — **partial / intermediate** via the loopback-only blocking `std/http.ax::serve_once(bind, body)` smoke primitive and bounded `std/http.ax::serve(bind, route, max_requests)` helper. This does **not** close #97; full service support still needs the async-runtime listen/accept/respond API shape, richer lifecycle controls, and acceptance coverage.
+
 - `AG4.4`: capability-aware integration
   - **landed for the current stdlib/runtime surface**: compiler-known
     intrinsics enforce all six manifest flags, stdlib wrappers preserve that

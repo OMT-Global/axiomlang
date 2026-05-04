@@ -6,6 +6,16 @@ version = "0.1.0"
 source = "path:fail/for_loop_requires_iteration_protocol"
 
 [[package]]
+name = "conformance-comparison-owned-resource-move"
+version = "0.1.0"
+source = "path:fail/comparison_owned_resource_move"
+
+[[package]]
+name = "conformance-comparison-predictable-diagnostic"
+version = "0.1.0"
+source = "path:fail/comparison_predictable_diagnostic"
+
+[[package]]
 name = "conformance-match-guard-not-supported"
 version = "0.1.0"
 source = "path:fail/match_guard_not_supported"
@@ -99,6 +109,16 @@ source = "path:fail/stdlib_clock_without_capability"
 name = "conformance-collection-operations"
 version = "0.1.0"
 source = "path:pass/collection_operations"
+
+[[package]]
+name = "conformance-comparison-package-imports"
+version = "0.1.0"
+source = "path:pass/comparison_package_imports"
+
+[[package]]
+name = "conformance-comparison-strict-typing"
+version = "0.1.0"
+source = "path:pass/comparison_strict_typing"
 
 [[package]]
 name = "conformance-functions-across-modules"

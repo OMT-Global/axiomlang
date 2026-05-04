@@ -1,0 +1,5 @@
+import "score.ax"
+
+let base: int = 5
+print weighted_score(base)
+print label(true)
