@@ -5266,31 +5266,40 @@ print serve_once("127.0.0.1:18080", "hello")
 
     #[test]
     fn checked_in_proof_workload_examples_build_run_and_test() {
-        for example in ["proof_cli", "proof_worker", "proof_http_service"] {
-            let project = checked_in_example_fixture(example);
-            check_project(&project).expect("check checked-in proof workload example");
+        std::thread::Builder::new()
+            .name("proof-workload-examples".into())
+            .stack_size(8 * 1024 * 1024)
+            .spawn(|| {
+                for example in ["proof_cli", "proof_worker", "proof_http_service"] {
+                    let project = checked_in_example_fixture(example);
+                    check_project(&project).expect("check checked-in proof workload example");
 
-            let built = build_project(&project).expect("build checked-in proof workload example");
-            let output = compiled_binary_command(&built.binary)
-                .output()
-                .expect("run checked-in proof workload example");
-            let expected = fs::read_to_string(project.join("src/main_test.stdout"))
-                .expect("read expected stdout");
-            assert_eq!(
-                String::from_utf8_lossy(&output.stdout),
-                expected,
-                "example {example}"
-            );
+                    let built =
+                        build_project(&project).expect("build checked-in proof workload example");
+                    let output = compiled_binary_command(&built.binary)
+                        .output()
+                        .expect("run checked-in proof workload example");
+                    let expected = fs::read_to_string(project.join("src/main_test.stdout"))
+                        .expect("read expected stdout");
+                    assert_eq!(
+                        String::from_utf8_lossy(&output.stdout),
+                        expected,
+                        "example {example}"
+                    );
 
-            let tests =
-                run_project_tests(&project).expect("test checked-in proof workload example");
-            let expected_passed = match example {
-                "proof_cli" => 2,
-                _ => 1,
-            };
-            assert_eq!(tests.passed, expected_passed, "example {example}");
-            assert_eq!(tests.failed, 0, "example {example}");
-        }
+                    let tests =
+                        run_project_tests(&project).expect("test checked-in proof workload example");
+                    let expected_passed = match example {
+                        "proof_cli" => 2,
+                        _ => 1,
+                    };
+                    assert_eq!(tests.passed, expected_passed, "example {example}");
+                    assert_eq!(tests.failed, 0, "example {example}");
+                }
+            })
+            .expect("spawn proof workload example test thread")
+            .join()
+            .expect("proof workload example test thread should not panic");
     }
 
     #[test]

@@ -4550,6 +4550,10 @@ fn lower_match_stmt(
     let mut seen = HashMap::new();
     let mut lowered_arms = Vec::new();
     let mut arm_states = Vec::new();
+    let mut ignored_body_cache: HashMap<
+        String,
+        (Vec<Stmt>, HashMap<String, Binding>, bool),
+    > = HashMap::new();
     for arm in arms {
         let variant_def = variant_defs
             .iter()
@@ -4711,7 +4715,18 @@ fn lower_match_stmt(
                 },
             );
         }
-        let (body, after, returns) = lower_block(&arm.body, &mut arm_env, ctx)?;
+        let (body, after, returns) = if arm.ignore_payloads && arm.bindings.is_empty() {
+            let cache_key = format!("{:?}", arm.body);
+            if let Some((body, after, returns)) = ignored_body_cache.get(&cache_key) {
+                (body.clone(), after.clone(), *returns)
+            } else {
+                let lowered = lower_block(&arm.body, &mut arm_env, ctx)?;
+                ignored_body_cache.insert(cache_key, lowered.clone());
+                lowered
+            }
+        } else {
+            lower_block(&arm.body, &mut arm_env, ctx)?
+        };
         lowered_arms.push(MatchArm {
             enum_name: enum_name.clone(),
             variant: arm.variant.clone(),
