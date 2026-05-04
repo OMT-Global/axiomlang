@@ -7753,6 +7753,49 @@ print serve_once("127.0.0.1:18080", "hello")
     }
 
     #[test]
+    fn json_contract_adds_stable_codes_for_common_diagnostic_kinds() {
+        let cases = [
+            ("parse", "missing closing brace for block", "parse.missing_closing_brace"),
+            ("manifest", "invalid axiom.toml", "manifest.invalid"),
+            ("import", "import not found: ./missing.ax", "import.unresolved"),
+            ("capability", "fs requires capability fs", "capability.denied"),
+            ("type", "undefined variable \"answer\"", "type.undefined_symbol"),
+            ("build", "failed to invoke rustc", "build.failed"),
+            ("runtime", "process exited with status 1", "runtime.failed"),
+        ];
+
+        for (kind, message, code) in cases {
+            let error = crate::diagnostics::Diagnostic::new(kind, message).with_span(2, 4);
+            let payload = json_contract::error("check", &error);
+
+            assert_eq!(payload["error"]["kind"], kind);
+            assert_eq!(payload["error"]["code"], code);
+            assert_eq!(payload["error"]["line"], 2);
+            assert_eq!(payload["error"]["column"], 4);
+        }
+    }
+
+    #[test]
+    fn json_contract_adds_machine_readable_repair_hints() {
+        let source_error =
+            crate::diagnostics::Diagnostic::new("parse", "let binding is missing '='")
+                .with_span(3, 8);
+        let source_payload = json_contract::error("check", &source_error);
+
+        assert_eq!(source_payload["error"]["repair"]["action"], "edit_source");
+        assert!(source_payload["error"]["repair"]["edit"]
+            .as_str()
+            .expect("repair edit")
+            .contains("reported span"));
+
+        let fmt_error = crate::diagnostics::Diagnostic::new("fmt", "1 file(s) need formatting");
+        let fmt_payload = json_contract::error("fmt", &fmt_error);
+
+        assert_eq!(fmt_payload["error"]["repair"]["action"], "run_command");
+        assert_eq!(fmt_payload["error"]["repair"]["command"], "axiomc fmt <path>");
+    }
+
+    #[test]
     fn json_contract_pretty_serializer_failure_is_diagnostic() {
         struct FailingPayload;
 
