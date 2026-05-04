@@ -82,7 +82,9 @@ Successful payloads always include `ok`, `command`, and `project`, while
 `duration_ms` plus `passed` / `failed` / `skipped`. Build payloads report the
 requested Rust target triple when `--target <triple>` is used and report
 `debug: true` when `axiomc build --debug` requests an unoptimized debuginfo build
-with generated source-position markers. Debug builds also report `debug_map`,
+with generated source-position markers. Build JSON also carries `metadata` for
+cache-key inspection: requested/resolved `target`, `debug`, package `lockfile`,
+`lockfile_hash`, and aggregate `source_hash`. Debug builds also report `debug_map`,
 a JSON sidecar that maps generated Rust statement lines back to Axiom
 file/line/column positions. `axiomc build --timings` prints total build time,
 cache hit/miss counts, and per-package compile timing/cache status for the
