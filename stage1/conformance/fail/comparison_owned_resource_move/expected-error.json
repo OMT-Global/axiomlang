@@ -1,8 +1,8 @@
 {
   "kind": "ownership",
   "code": "use_after_move",
-  "message": "use of moved value \"payload\"",
+  "message": "use of moved value \"handle\"",
   "path": "src/main.ax",
-  "line": 4,
+  "line": 12,
   "column": 7
 }

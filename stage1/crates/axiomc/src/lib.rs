@@ -5297,8 +5297,8 @@ print serve_once("127.0.0.1:18080", "hello")
     fn conformance_corpus_reports_stable_results() {
         let output =
             run_project_tests(&conformance_fixture()).expect("run stage1 conformance corpus");
-        assert_eq!(output.cases.len(), 29);
-        assert_eq!(output.passed, 29);
+        assert_eq!(output.cases.len(), 31);
+        assert_eq!(output.passed, 31);
         assert_eq!(output.failed, 0);
         assert!(
             output
@@ -5306,7 +5306,7 @@ print serve_once("127.0.0.1:18080", "hello")
                 .iter()
                 .filter(|case| case.expected_error.is_some())
                 .count()
-                == 20
+                == 21
         );
         assert_eq!(
             output
@@ -5314,7 +5314,7 @@ print serve_once("127.0.0.1:18080", "hello")
                 .iter()
                 .filter(|case| case.expected_stdout.is_some())
                 .count(),
-            9
+            10
         );
     }
 
