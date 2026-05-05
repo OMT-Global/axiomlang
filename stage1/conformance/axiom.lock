@@ -46,9 +46,14 @@ version = "0.1.0"
 source = "path:fail/ownership_use_after_move"
 
 [[package]]
-name = "conformance-panic-rejects-unreachable-statement"
+name = "conformance-package-visibility-dependency-boundary"
 version = "0.1.0"
-source = "path:fail/panic_rejects_unreachable_statement"
+source = "path:fail/package_visibility_dependency_boundary"
+
+[[package]]
+name = "core"
+version = "0.1.0"
+source = "path:fail/package_visibility_dependency_boundary/deps/core"
 
 [[package]]
 name = "conformance-panic-rejects-multiple-arguments"
@@ -61,6 +66,11 @@ version = "0.1.0"
 source = "path:fail/panic_rejects_type_arguments"
 
 [[package]]
+name = "conformance-panic-rejects-unreachable-statement"
+version = "0.1.0"
+source = "path:fail/panic_rejects_unreachable_statement"
+
+[[package]]
 name = "conformance-panic-requires-single-argument"
 version = "0.1.0"
 source = "path:fail/panic_requires_single_argument"
@@ -69,16 +79,6 @@ source = "path:fail/panic_requires_single_argument"
 name = "conformance-panic-requires-string-argument"
 version = "0.1.0"
 source = "path:fail/panic_requires_string_argument"
-
-[[package]]
-name = "conformance-package-visibility-dependency-boundary"
-version = "0.1.0"
-source = "path:fail/package_visibility_dependency_boundary"
-
-[[package]]
-name = "core"
-version = "0.1.0"
-source = "path:fail/package_visibility_dependency_boundary/deps/core"
 
 [[package]]
 name = "conformance-recursive-enum-without-indirection"
@@ -159,3 +159,4 @@ source = "path:pass/package_visibility"
 name = "conformance-struct-field-access"
 version = "0.1.0"
 source = "path:pass/struct_field_access"
+
