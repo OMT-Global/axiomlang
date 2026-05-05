@@ -5212,7 +5212,7 @@ fn coerce_expr_to_expected(
 }
 
 fn is_stable_string_borrow_owner(expr: &Expr) -> bool {
-    matches!(expr, Expr::VarRef { .. } | Expr::FieldAccess { .. } | Expr::Index { .. })
+    matches!(expr, Expr::VarRef { .. } | Expr::FieldAccess { .. })
 }
 
 fn lower_expr_with_expected(
@@ -8796,12 +8796,9 @@ fn contains_borrowed_slice_type_inner(
             visiting_enums.remove(name);
             contains
         }
-        Type::Error
-        | Type::Int
-        | Type::Bool
-        | Type::String
-        | Type::Ptr(_)
-        | Type::MutPtr(_) => false,
+        Type::Error | Type::Int | Type::Bool | Type::String | Type::Ptr(_) | Type::MutPtr(_) => {
+            false
+        }
     }
 }
 

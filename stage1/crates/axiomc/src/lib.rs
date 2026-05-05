@@ -260,7 +260,10 @@ print borrowed
 "#;
         let parsed = parse_program(source, Path::new("main.ax")).expect("parse");
         let err = hir::lower(&parsed).expect_err("lower should reject borrowed temporary String");
-        assert!(err.message.contains("cannot borrow a temporary String as &str"));
+        assert!(
+            err.message
+                .contains("cannot borrow a temporary String as &str")
+        );
     }
 
     #[test]
@@ -270,7 +273,24 @@ print borrowed
 "#;
         let parsed = parse_program(source, Path::new("main.ax")).expect("parse");
         let err = hir::lower(&parsed).expect_err("lower should reject borrowed temporary concat");
-        assert!(err.message.contains("cannot borrow a temporary String as &str"));
+        assert!(
+            err.message
+                .contains("cannot borrow a temporary String as &str")
+        );
+    }
+
+    #[test]
+    fn parser_rejects_borrowed_str_from_indexed_string() {
+        let source = r#"let values: [string] = ["hello"]
+let borrowed: &str = values[0]
+print borrowed
+"#;
+        let parsed = parse_program(source, Path::new("main.ax")).expect("parse");
+        let err = hir::lower(&parsed).expect_err("lower should reject indexed String borrow");
+        assert!(
+            err.message
+                .contains("cannot borrow a temporary String as &str")
+        );
     }
 
     #[test]
@@ -7671,15 +7691,19 @@ print serve_once("127.0.0.1:18080", "hello")
             .as_array()
             .expect("imported debug mappings array");
         assert!(
-            imported_mappings.iter().any(|mapping| mapping["source"] == source
-                && mapping["line"] == 2
-                && mapping["column"] == 1),
+            imported_mappings
+                .iter()
+                .any(|mapping| mapping["source"] == source
+                    && mapping["line"] == 2
+                    && mapping["column"] == 1),
             "debug map should retain primary source spans after imports"
         );
         assert!(
-            imported_mappings.iter().any(|mapping| mapping["source"] == helper_source
-                && mapping["line"] == 2
-                && mapping["column"] == 1),
+            imported_mappings
+                .iter()
+                .any(|mapping| mapping["source"] == helper_source
+                    && mapping["line"] == 2
+                    && mapping["column"] == 1),
             "debug map should retain imported module source spans instead of collapsing to the primary file"
         );
 
@@ -8003,11 +8027,27 @@ print serve_once("127.0.0.1:18080", "hello")
     #[test]
     fn json_contract_adds_stable_codes_for_common_diagnostic_kinds() {
         let cases = [
-            ("parse", "missing closing brace for block", "parse.missing_closing_brace"),
+            (
+                "parse",
+                "missing closing brace for block",
+                "parse.missing_closing_brace",
+            ),
             ("manifest", "invalid axiom.toml", "manifest.invalid"),
-            ("import", "import not found: ./missing.ax", "import.unresolved"),
-            ("capability", "fs requires capability fs", "capability.denied"),
-            ("type", "undefined variable \"answer\"", "type.undefined_symbol"),
+            (
+                "import",
+                "import not found: ./missing.ax",
+                "import.unresolved",
+            ),
+            (
+                "capability",
+                "fs requires capability fs",
+                "capability.denied",
+            ),
+            (
+                "type",
+                "undefined variable \"answer\"",
+                "type.undefined_symbol",
+            ),
             ("build", "failed to invoke rustc", "build.failed"),
             ("runtime", "process exited with status 1", "runtime.failed"),
         ];
@@ -8031,16 +8071,21 @@ print serve_once("127.0.0.1:18080", "hello")
         let source_payload = json_contract::error("check", &source_error);
 
         assert_eq!(source_payload["error"]["repair"]["action"], "edit_source");
-        assert!(source_payload["error"]["repair"]["edit"]
-            .as_str()
-            .expect("repair edit")
-            .contains("reported span"));
+        assert!(
+            source_payload["error"]["repair"]["edit"]
+                .as_str()
+                .expect("repair edit")
+                .contains("reported span")
+        );
 
         let fmt_error = crate::diagnostics::Diagnostic::new("fmt", "1 file(s) need formatting");
         let fmt_payload = json_contract::error("fmt", &fmt_error);
 
         assert_eq!(fmt_payload["error"]["repair"]["action"], "run_command");
-        assert_eq!(fmt_payload["error"]["repair"]["command"], "axiomc fmt <path>");
+        assert_eq!(
+            fmt_payload["error"]["repair"]["command"],
+            "axiomc fmt <path>"
+        );
     }
 
     #[test]
@@ -8264,7 +8309,10 @@ print c
         let hir = hir::lower(&parsed).expect("lower");
         let mir = mir::lower(&hir);
         let rendered = render_rust(&mir);
-        assert!(rendered.contains("fn wrap__int("), "wrap<int> must produce 'wrap__int'");
+        assert!(
+            rendered.contains("fn wrap__int("),
+            "wrap<int> must produce 'wrap__int'"
+        );
         assert!(
             rendered.contains("fn identity__int("),
             "identity<int> must produce 'identity__int'"
@@ -8342,10 +8390,7 @@ return missing_c
             "expected error for missing_c"
         );
         // Verify source order: line numbers must be non-decreasing.
-        let lines: Vec<usize> = diagnostics
-            .iter()
-            .filter_map(|d| d.line)
-            .collect();
+        let lines: Vec<usize> = diagnostics.iter().filter_map(|d| d.line).collect();
         let sorted = {
             let mut s = lines.clone();
             s.sort_unstable();
