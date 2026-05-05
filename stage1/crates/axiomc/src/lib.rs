@@ -8026,6 +8026,116 @@ print next.value
         assert!(error.message.contains(".new()"));
     }
 
+    // AG2: deterministic monomorphized symbol naming (#337)
+    // These snapshot tests lock the exact symbol names produced for nested generics,
+    // Result/Option type arguments, and multi-site convergence.
+
+    #[test]
+    fn monomorphized_names_are_deterministic_for_option_type_arg() {
+        let source = "\
+fn first<T>(value: T): T {
+return value
+}
+let a: Option<int> = Some(1)
+let b: Option<int> = first<Option<int>>(a)
+match b {
+Some(v) {
+print v
+}
+None {
+print 0
+}
+}
+";
+        let parsed = parse_program(source, Path::new("main.ax")).expect("parse");
+        let hir = hir::lower(&parsed).expect("lower");
+        let mir = mir::lower(&hir);
+        let rendered = render_rust(&mir);
+        assert!(
+            rendered.contains("fn first__option_int("),
+            "Option<int> arg must produce symbol suffix 'option_int'; got:\n{rendered}"
+        );
+    }
+
+    #[test]
+    fn monomorphized_names_are_deterministic_for_result_type_arg() {
+        let source = "\
+fn first<T>(value: T): T {
+return value
+}
+let a: Result<int, string> = Ok(42)
+let b: Result<int, string> = first<Result<int, string>>(a)
+match b {
+Ok(v) {
+print v
+}
+Err(e) {
+print e
+}
+}
+";
+        let parsed = parse_program(source, Path::new("main.ax")).expect("parse");
+        let hir = hir::lower(&parsed).expect("lower");
+        let mir = mir::lower(&hir);
+        let rendered = render_rust(&mir);
+        assert!(
+            rendered.contains("fn first__result_int_string("),
+            "Result<int,string> arg must produce symbol suffix 'result_int_string'; got:\n{rendered}"
+        );
+    }
+
+    #[test]
+    fn monomorphized_names_are_deterministic_for_deeply_nested_generics() {
+        let source = "\
+fn wrap<T>(value: T): T {
+return value
+}
+fn identity<T>(value: T): T {
+return value
+}
+let a: int = 1
+let b: int = wrap<int>(a)
+let c: int = identity<int>(b)
+print c
+";
+        let parsed = parse_program(source, Path::new("main.ax")).expect("parse");
+        let hir = hir::lower(&parsed).expect("lower");
+        let mir = mir::lower(&hir);
+        let rendered = render_rust(&mir);
+        assert!(rendered.contains("fn wrap__int("), "wrap<int> must produce 'wrap__int'");
+        assert!(
+            rendered.contains("fn identity__int("),
+            "identity<int> must produce 'identity__int'"
+        );
+    }
+
+    #[test]
+    fn monomorphized_names_converge_across_multiple_call_sites() {
+        // Calling the same generic instantiation from many sites must emit exactly one
+        // monomorphized copy, not one per call site.
+        let source = "\
+fn echo<T>(value: T): T {
+return value
+}
+let a: int = echo<int>(1)
+let b: int = echo<int>(2)
+let c: int = echo<int>(3)
+print a
+print b
+print c
+";
+        let parsed = parse_program(source, Path::new("main.ax")).expect("parse");
+        let hir = hir::lower(&parsed).expect("lower");
+        let mir = mir::lower(&hir);
+        let rendered = render_rust(&mir);
+        // Exactly one definition, not three.
+        let count = rendered.matches("fn echo__int(").count();
+        assert_eq!(
+            count, 1,
+            "echo<int> must be emitted exactly once regardless of call-site count"
+        );
+    }
+
     #[test]
     fn hir_recovery_collects_independent_type_errors_in_source_order() {
         // Three functions each reference an undefined variable; recovery must
