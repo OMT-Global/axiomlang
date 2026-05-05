@@ -1,0 +1,35 @@
+{
+  "schema_version": "axiom.stage1.benchmark-baseline.v1",
+  "updated": "2026-04-29",
+  "tolerance_pct": 0.35,
+  "notes": "Initial non-blocking calibration baseline for stage1 build medians. Values are intentionally conservative until repeated extended-validation runs establish stable runner-local medians.",
+  "workloads": {
+    "hello": {
+      "kind": "compute",
+      "medians_ms": {
+        "axiom_cold_build": 1200.0,
+        "axiom_warm_build": 500.0,
+        "go_build": 350.0,
+        "rust_build": 450.0
+      }
+    },
+    "capabilities": {
+      "kind": "io",
+      "medians_ms": {
+        "axiom_cold_build": 1400.0,
+        "axiom_warm_build": 650.0,
+        "go_build": 400.0,
+        "rust_build": 500.0
+      }
+    },
+    "stdlib_async": {
+      "kind": "concurrency",
+      "medians_ms": {
+        "axiom_cold_build": 1600.0,
+        "axiom_warm_build": 750.0,
+        "go_build": 450.0,
+        "rust_build": 550.0
+      }
+    }
+  }
+}

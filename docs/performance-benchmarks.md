@@ -24,3 +24,12 @@ workloads under `stage1/benchmarks/reference`. That report captures build time,
 run time, binary size, diagnostics JSON shape, and capability manifest coverage
 so performance policy can be calibrated before the comparison becomes a required
 PR gate.
+
+The extended validation
+benchmark gate also compares the current stage1 build medians against the
+committed calibration baseline at
+`stage1/benchmarks/baselines/stage1-build-median.json`. That comparison is
+reported as a non-blocking warning with a documented tolerance while runner
+variance is being measured; the existing benchmark gate still owns hard failures
+for obvious cold-build and warm-cache regressions against the checked-in Go and
+Rust reference builds.

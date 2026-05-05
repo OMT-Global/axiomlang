@@ -82,7 +82,9 @@ Successful payloads always include `ok`, `command`, and `project`, while
 `duration_ms` plus `passed` / `failed` / `skipped`. Build payloads report the
 requested Rust target triple when `--target <triple>` is used and report
 `debug: true` when `axiomc build --debug` requests an unoptimized debuginfo build
-with generated source-position markers. Debug builds also report `debug_map`,
+with generated source-position markers. Build JSON also carries `metadata` for
+cache-key inspection: requested/resolved `target`, `debug`, package `lockfile`,
+`lockfile_hash`, and aggregate `source_hash`. Debug builds also report `debug_map`,
 a JSON sidecar that maps generated Rust statement lines back to Axiom
 file/line/column positions. `axiomc build --timings` prints total build time,
 cache hit/miss counts, and per-package compile timing/cache status for the
@@ -134,10 +136,12 @@ still far from the stated 1.0 target for service and agent workloads.
   module source hashes, and dependency imports. Cache hits skip `rustc`, cache
   misses repair stale generated Rust or binary artifacts, and `--timings`
   exposes the hit/miss counts plus per-package compile time.
-- `axiomc build --debug` now asks `rustc` for debuginfo, disables optimization,
-  emits generated Rust source markers, and writes a JSON source-map sidecar for
-  Axiom file/line/column positions; full Axiom-native debugger stepping remains
-  a direct-backend follow-on.
+- `axiomc build --debug` now asks `rustc` for debuginfo on the generated Rust
+  shim, disables optimization, emits generated Rust source markers, and writes a
+  JSON source-map sidecar for Axiom file/line/column positions. Native DWARF line
+  tables intentionally remain generated-Rust locations because rustc path
+  remapping cannot represent Axiom span rows or multiple imported source files;
+  full Axiom-native debugger stepping remains a direct-backend follow-on.
 - `axiomc fmt`, `axiomc bench`, `axiomc doc`, the stage1 scratch `repl`, and a
   bounded `axiomc lsp` analyzer now exist as bootstrap-grade toolchain
   commands. The LSP endpoint currently serves compiler-backed diagnostics over
