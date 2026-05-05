@@ -1107,7 +1107,11 @@ print fail()
         let source = "let byte: u8 = 1u8\nlet word: u32 = 2u32\nlet bad: u32 = byte + word\n";
         let parsed = parse_program(source, Path::new("main.ax")).expect("parse");
         let error = hir::lower(&parsed).expect_err("mixed-width arithmetic should fail");
-        assert!(error.message.contains("matching numeric or string operands"));
+        assert!(
+            error
+                .message
+                .contains("matching numeric or string operands")
+        );
     }
 
     #[test]
@@ -1115,7 +1119,7 @@ print fail()
         let source = "let bad: u8 = -1u8\n";
         let error = parse_program(source, Path::new("main.ax"))
             .expect_err("unsigned negative numeric literal should fail during parsing");
-        assert!(error.message.contains("invalid identifier"));
+        assert!(error.message.contains("invalid numeric literal"));
     }
 
     #[test]
@@ -1123,7 +1127,20 @@ print fail()
         let source = "let bad: u8 = 300u8\n";
         let error = parse_program(source, Path::new("main.ax"))
             .expect_err("out-of-range numeric literal should fail during parsing");
-        assert!(error.message.contains("invalid identifier"));
+        assert!(error.message.contains("invalid numeric literal"));
+    }
+
+    #[test]
+    fn parser_rejects_non_rust_suffixed_float_literals() {
+        for source in [
+            "let bad: f64 = NaNf64\n",
+            "let bad: f32 = inff32\n",
+            "let bad: f32 = 1e39f32\n",
+        ] {
+            let error = parse_program(source, Path::new("main.ax"))
+                .expect_err("non-rust float literal should fail during parsing");
+            assert!(error.message.contains("invalid numeric literal"));
+        }
     }
 
     #[test]
