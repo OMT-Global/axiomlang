@@ -64,7 +64,15 @@ def measure(example: str, rounds: int) -> dict[str, Any]:
 def main() -> int:
     parser = argparse.ArgumentParser(description="Record stage1 parser/check/build/run benchmark timings as JSON.")
     parser.add_argument("--rounds", type=int, default=3)
-    parser.add_argument("--output", type=Path, default=Path("stage1/benchmarks/generated/stage1-bench.json"))
+    parser.add_argument(
+        "--output",
+        type=Path,
+        default=Path("stage1/benchmarks/generated/stage1-bench.json"),
+        help=(
+            "Path to write the benchmark report. Defaults to an ignored generated file; "
+            "use make stage1-bench-update-baseline to refresh the tracked baseline."
+        ),
+    )
     parser.add_argument("examples", nargs="*", default=DEFAULT_EXAMPLES)
     args = parser.parse_args()
     if args.rounds < 1:
