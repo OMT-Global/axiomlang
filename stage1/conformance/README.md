@@ -25,15 +25,17 @@ Current executable fixtures cover:
   control flow.
 - `collection_operations`: standard collection helpers over arrays and
   borrowed slices.
+- `comparison_package_imports`: Axiom-owned Go/Rust-style comparison fixture
+  for explicit package imports and cross-module function calls.
+- `comparison_package_resources`: Axiom-owned Go/Rust-style comparison fixture
+  for explicit package imports, strict struct typing, owned resource transfer,
+  borrowed slices, and machine-checkable result output.
+- `comparison_strict_typing`: Axiom-owned Go/Rust-style comparison fixture
+  proving strict struct field typing in passing programs.
 - `package_local_modules`: nested package-local module imports that execute
   successfully.
 - `package_visibility`: `pub(pkg)` items imported across sibling modules within
   the same package.
-- `comparison_strict_typing`: Axiom-owned comparison fixture for explicit
-  scalar typing and bool-only control flow.
-- `comparison_package_imports`: Axiom-owned comparison fixture for package-local
-  imports and typed function boundaries.
-
 Packages under `fail/` are compile-fail fixtures. Each package is a complete
 stage1 project with `axiom.toml`, `axiom.lock`, source, and
 `expected-error.json`. The conformance runner checks the diagnostic kind, code,
@@ -43,6 +45,12 @@ Current compile-fail fixtures cover:
 
 - `mutable_borrow_while_shared_live`: ownership diagnostics for conflicting
   mutable and shared borrows.
+- `comparison_owned_resource_move`: Axiom-owned Go/Rust-style comparison
+  diagnostic for an owned resource consumed by a function and then reused.
+- `comparison_predictable_diagnostic`: Axiom-owned Go/Rust-style comparison
+  diagnostic for predictable error message shape.
+- `comparison_strict_type_mismatch`: Axiom-owned Go/Rust-style comparison
+  diagnostic for strict struct field typing.
 - `ownership_use_after_move`: ownership diagnostics for reading a moved value.
 - `panic_rejects_unreachable_statement`: control diagnostics for statements
   that appear after `panic(...)` in the same block.
