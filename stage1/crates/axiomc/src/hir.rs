@@ -356,10 +356,9 @@ fn is_addable_numeric(ty: &Type) -> bool {
 fn numeric_method_return_ty(receiver: &Type, method: &str) -> Option<Type> {
     let is_integer = match receiver {
         Type::Int => true,
-        Type::Numeric(numeric) => !matches!(
-            numeric,
-            syntax::NumericType::F32 | syntax::NumericType::F64
-        ),
+        Type::Numeric(numeric) => {
+            !matches!(numeric, syntax::NumericType::F32 | syntax::NumericType::F64)
+        }
         _ => false,
     };
     if !is_integer {

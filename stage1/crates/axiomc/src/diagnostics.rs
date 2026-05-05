@@ -140,7 +140,9 @@ fn repair_hint(kind: &str, _message: &str) -> Option<DiagnosticRepair> {
         ),
         "manifest" | "capability" => (
             "edit_manifest",
-            Some("Update axiom.toml with the narrowest required package, dependency, or capability change."),
+            Some(
+                "Update axiom.toml with the narrowest required package, dependency, or capability change.",
+            ),
             None,
         ),
         "import" => (
@@ -148,11 +150,7 @@ fn repair_hint(kind: &str, _message: &str) -> Option<DiagnosticRepair> {
             Some("Fix the quoted relative import path or add the missing imported source file."),
             None,
         ),
-        "fmt" => (
-            "run_command",
-            None,
-            Some("axiomc fmt <path>"),
-        ),
+        "fmt" => ("run_command", None, Some("axiomc fmt <path>")),
         "source" => (
             "check_path",
             Some("Use an existing .ax source path or package directory."),

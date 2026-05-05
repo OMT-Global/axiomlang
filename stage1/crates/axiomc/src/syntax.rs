@@ -2297,6 +2297,13 @@ fn parse_term(raw: &str, path: &Path, line_no: usize, column: usize) -> Result<E
     if let Some(literal) = parse_numeric_literal(raw) {
         return Ok(Expr::Literal(literal));
     }
+    if looks_like_invalid_numeric_literal(raw) {
+        return Err(
+            Diagnostic::new("parse", format!("invalid numeric literal {raw:?}"))
+                .with_path(path.display().to_string())
+                .with_span(line_no, column),
+        );
+    }
     if raw.ends_with('?') {
         let inner = raw[..raw.len() - 1].trim_end();
         if inner.is_empty() {
@@ -2527,11 +2534,13 @@ fn parse_term(raw: &str, path: &Path, line_no: usize, column: usize) -> Result<E
     })
 }
 
+const NUMERIC_LITERAL_SUFFIXES: &[&str] = &[
+    "isize", "usize", "i8", "i16", "i32", "i64", "u8", "u16", "u32", "u64", "f32", "f64",
+];
+
 fn parse_numeric_literal(raw: &str) -> Option<Literal> {
-    for suffix in [
-        "isize", "usize", "i8", "i16", "i32", "i64", "u8", "u16", "u32", "u64", "f32", "f64",
-    ] {
-        let Some(number) = raw.strip_suffix(suffix) else {
+    for suffix in NUMERIC_LITERAL_SUFFIXES {
+        let Some(number) = raw.strip_suffix(*suffix) else {
             continue;
         };
         if number.is_empty() || number == "." {
@@ -2548,9 +2557,24 @@ fn parse_numeric_literal(raw: &str) -> Option<Literal> {
     None
 }
 
+fn looks_like_invalid_numeric_literal(raw: &str) -> bool {
+    NUMERIC_LITERAL_SUFFIXES.iter().any(|suffix| {
+        let Some(number) = raw.strip_suffix(suffix) else {
+            return false;
+        };
+        !number.is_empty()
+            && (number.parse::<f64>().is_ok()
+                || number
+                    .chars()
+                    .next()
+                    .is_some_and(|ch| ch.is_ascii_digit() || ch == '-' || ch == '.'))
+    })
+}
+
 fn numeric_literal_fits(number: &str, ty: NumericType) -> bool {
     match ty {
-        NumericType::F32 | NumericType::F64 => number.parse::<f64>().is_ok(),
+        NumericType::F32 => float_literal_fits_f32(number),
+        NumericType::F64 => float_literal_fits_f64(number),
         NumericType::I8 => integer_literal_in_range(number, i8::MIN as i128, i8::MAX as i128),
         NumericType::I16 => integer_literal_in_range(number, i16::MIN as i128, i16::MAX as i128),
         NumericType::I32 => integer_literal_in_range(number, i32::MIN as i128, i32::MAX as i128),
@@ -2564,6 +2588,34 @@ fn numeric_literal_fits(number: &str, ty: NumericType) -> bool {
             unsigned_integer_literal_in_range(number, u64::MAX as u128)
         }
     }
+}
+
+fn float_literal_has_rust_number_shape(number: &str) -> bool {
+    let unsigned = number.strip_prefix('-').unwrap_or(number);
+    let Some(first) = unsigned.chars().next() else {
+        return false;
+    };
+    if !first.is_ascii_digit() {
+        return false;
+    }
+    if !unsigned.chars().any(|ch| ch.is_ascii_digit()) {
+        return false;
+    }
+    if unsigned
+        .chars()
+        .any(|ch| !(ch.is_ascii_digit() || matches!(ch, '_' | '.' | 'e' | 'E' | '+' | '-')))
+    {
+        return false;
+    }
+    true
+}
+
+fn float_literal_fits_f32(number: &str) -> bool {
+    float_literal_has_rust_number_shape(number) && number.parse::<f32>().is_ok_and(f32::is_finite)
+}
+
+fn float_literal_fits_f64(number: &str) -> bool {
+    float_literal_has_rust_number_shape(number) && number.parse::<f64>().is_ok_and(f64::is_finite)
 }
 
 fn integer_literal_in_range(number: &str, min: i128, max: i128) -> bool {
