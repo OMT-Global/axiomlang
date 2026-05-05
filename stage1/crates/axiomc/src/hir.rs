@@ -4935,19 +4935,27 @@ fn merge_branch_state(
                     active_shared_or_mutable: merge_borrow_count(
                         binding.borrow_state.active_shared_or_mutable,
                         then_returns,
-                        then_after.get(name).map(|entry| entry.borrow_state.active_shared_or_mutable),
+                        then_after
+                            .get(name)
+                            .map(|entry| entry.borrow_state.active_shared_or_mutable),
                         else_returns,
                         else_after.and_then(|branch| {
-                            branch.get(name).map(|entry| entry.borrow_state.active_shared_or_mutable)
+                            branch
+                                .get(name)
+                                .map(|entry| entry.borrow_state.active_shared_or_mutable)
                         }),
                     ),
                     active_mutable: merge_borrow_count(
                         binding.borrow_state.active_mutable,
                         then_returns,
-                        then_after.get(name).map(|entry| entry.borrow_state.active_mutable),
+                        then_after
+                            .get(name)
+                            .map(|entry| entry.borrow_state.active_mutable),
                         else_returns,
                         else_after.and_then(|branch| {
-                            branch.get(name).map(|entry| entry.borrow_state.active_mutable)
+                            branch
+                                .get(name)
+                                .map(|entry| entry.borrow_state.active_mutable)
                         }),
                     ),
                 },
@@ -5008,7 +5016,10 @@ fn merge_loop_state(
                             .get(name)
                             .map(|entry| entry.borrow_state.active_shared_or_mutable)
                             .unwrap_or(binding.borrow_state.active_shared_or_mutable);
-                        binding.borrow_state.active_shared_or_mutable.max(body_count)
+                        binding
+                            .borrow_state
+                            .active_shared_or_mutable
+                            .max(body_count)
                     },
                     active_mutable: if body_returns {
                         binding.borrow_state.active_mutable
@@ -5058,7 +5069,9 @@ fn merge_match_state(
                             if *returns {
                                 Some(binding.borrow_state.active_shared_or_mutable)
                             } else {
-                                after.get(name).map(|entry| entry.borrow_state.active_shared_or_mutable)
+                                after
+                                    .get(name)
+                                    .map(|entry| entry.borrow_state.active_shared_or_mutable)
                             }
                         })
                         .max()
@@ -5069,7 +5082,9 @@ fn merge_match_state(
                             if *returns {
                                 Some(binding.borrow_state.active_mutable)
                             } else {
-                                after.get(name).map(|entry| entry.borrow_state.active_mutable)
+                                after
+                                    .get(name)
+                                    .map(|entry| entry.borrow_state.active_mutable)
                             }
                         })
                         .max()
@@ -8444,9 +8459,11 @@ fn increment_active_borrows(
                 format!("internal error: missing borrow owner {owner_name:?}"),
             )
         })?;
-        binding
-            .borrow_state
-            .begin_borrow(owner_name, borrow_kind, BorrowSourceSpan::new(line, column))?;
+        binding.borrow_state.begin_borrow(
+            owner_name,
+            borrow_kind,
+            BorrowSourceSpan::new(line, column),
+        )?;
     }
     Ok(())
 }

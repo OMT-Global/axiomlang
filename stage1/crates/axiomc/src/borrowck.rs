@@ -55,7 +55,6 @@ impl<'a> BorrowIr<'a> {
     }
 }
 
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct SourceSpan {
     pub(crate) line: usize,
