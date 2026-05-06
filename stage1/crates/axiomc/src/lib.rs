@@ -1,3 +1,4 @@
+pub mod borrowck;
 pub mod codegen;
 pub mod dap;
 pub mod diagnostics;
@@ -1127,6 +1128,25 @@ print fail()
                     "println!(\"{}\", { let values = words; let index = 0; axiom_array_take(values, index) });"
                 )
         );
+    }
+
+    #[test]
+    fn parser_lowers_explicit_lifetime_slice_signatures() {
+        let source = "fn tail<'a>(values: &'a [int]): &'a [int] {\nreturn values[1:]\n}\n\nfn mut_tail<'a>(values: &'a mut [int]): &'a mut [int] {\nreturn values[1:]\n}\n\nprint 0\n";
+        let parsed = parse_program(source, Path::new("main.ax")).expect("parse");
+        assert!(matches!(
+            parsed.functions[0].return_ty,
+            crate::syntax::TypeName::LifetimeSlice(ref name, _) if name == "a"
+        ));
+        assert!(matches!(
+            parsed.functions[1].return_ty,
+            crate::syntax::TypeName::LifetimeMutSlice(ref name, _) if name == "a"
+        ));
+        let hir = hir::lower(&parsed).expect("lower");
+        let mir = mir::lower(&hir);
+        let rendered = render_rust(&mir);
+        assert!(rendered.contains("fn tail<'a>(values: &'a [i64]) -> &'a [i64] {"));
+        assert!(rendered.contains("fn mut_tail<'a>(values: &'a mut [i64]) -> &'a mut [i64] {"));
     }
 
     #[test]
@@ -7004,6 +7024,79 @@ print takes_two(three)
                 .contains("borrowed return functions must take at least one borrowed parameter")
         );
         assert_eq!(error.kind, "type");
+    }
+
+    #[test]
+    fn parser_rejects_multiple_explicit_lifetimes_until_codegen_can_preserve_them() {
+        let source = "fn pick<'a, 'b>(left: &'a [int], right: &'b [int]): &'a [int] {
+return left
+}
+
+print 0
+";
+        let error = parse_program(source, Path::new("main.ax"))
+            .expect_err("multiple lifetimes should be rejected");
+        assert!(error.message.contains("multiple explicit lifetimes"));
+        assert_eq!(error.kind, "parse");
+    }
+
+    #[test]
+    fn parser_rejects_undeclared_explicit_lifetime_uses() {
+        let source = "fn tail(values: &'a [int]): &'a [int] {
+return values
+}
+
+print 0
+";
+        let error = parse_program(source, Path::new("main.ax"))
+            .expect_err("undeclared lifetime should be rejected");
+        assert!(error.message.contains("undeclared lifetime parameter"));
+        assert_eq!(error.kind, "parse");
+    }
+
+    #[test]
+    fn parser_rejects_duplicate_lifetime_parameters() {
+        let source = "fn tail<'a, 'a>(values: &'a [int]): &'a [int] {
+return values
+}
+
+print 0
+";
+        let error = parse_program(source, Path::new("main.ax"))
+            .expect_err("duplicate lifetime should be rejected");
+        assert!(error.message.contains("duplicate lifetime parameter"));
+        assert_eq!(error.kind, "parse");
+    }
+
+    #[test]
+    fn parser_rejects_explicit_lifetime_return_mixed_with_unannotated_borrowed_param() {
+        let source = "fn pick<'a>(left: &'a [int], right: &[int]): &'a [int] {
+return left
+}
+
+print 0
+";
+        let error = parse_program(source, Path::new("main.ax")).expect_err(
+            "explicit return lifetime mixed with unannotated borrowed param should fail",
+        );
+        assert!(error.message.contains("unannotated borrowed parameters"));
+        assert_eq!(error.kind, "parse");
+    }
+
+    #[test]
+    fn check_project_rejects_explicit_lifetime_return_from_wrong_parameter() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("explicit-lifetime-mismatch");
+        create_project(&project, Some("explicit-lifetime-mismatch-app")).expect("create project");
+        fs::write(
+            project.join("src/main.ax"),
+            "fn choose<'a, 'b>(left: &'a [int], right: &'b [int]): &'a [int] {\nreturn right\n}\n\nprint 0\n",
+        )
+        .expect("write source");
+        let error =
+            check_project(&project).expect_err("unsupported multi-lifetime signature should fail");
+        assert!(error.message.contains("multiple explicit lifetimes"));
+        assert_eq!(error.kind, "parse");
     }
 
     #[test]

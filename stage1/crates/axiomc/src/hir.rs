@@ -1,3 +1,4 @@
+use crate::borrowck::{self, BorrowKind, BorrowState, SourceSpan as BorrowSourceSpan};
 use crate::diagnostics::{Diagnostic, message_with_suggestion};
 use crate::manifest::{CapabilityConfig, CapabilityKind};
 use crate::syntax;
@@ -370,8 +371,7 @@ struct Binding {
     borrow_kind: Option<BorrowKind>,
     borrow_origin: Option<BorrowOrigin>,
     borrowed_owners: HashSet<String>,
-    active_borrow_count: usize,
-    active_mut_borrow_count: usize,
+    borrow_state: BorrowState,
 }
 
 type ProjectionPath = Vec<ProjectionSegment>;
@@ -402,12 +402,6 @@ struct MethodSig {
 enum BorrowOrigin {
     Param(String),
     Local,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum BorrowKind {
-    Shared,
-    Mutable,
 }
 
 struct LowerContext<'a> {
@@ -1632,6 +1626,8 @@ fn contains_generic_type_param(ty: &syntax::TypeName, type_params: &HashSet<Stri
         | syntax::TypeName::MutPtr(inner)
         | syntax::TypeName::Slice(inner)
         | syntax::TypeName::MutSlice(inner)
+        | syntax::TypeName::LifetimeSlice(_, inner)
+        | syntax::TypeName::LifetimeMutSlice(_, inner)
         | syntax::TypeName::Option(inner)
         | syntax::TypeName::Array(inner, _) => contains_generic_type_param(inner, type_params),
         syntax::TypeName::Result(ok, err) | syntax::TypeName::Map(ok, err) => {
@@ -1716,6 +1712,26 @@ fn unify_generic_type_name(
         }
         syntax::TypeName::MutSlice(lhs) => {
             if let syntax::TypeName::MutSlice(rhs) = actual {
+                unify_generic_type_name(lhs, rhs, type_params, bindings, line, column)
+            } else if contains_generic_type_param(pattern, type_params) {
+                Err(generic_constraint_mismatch(pattern, actual, line, column))
+            } else {
+                Ok(())
+            }
+        }
+        syntax::TypeName::LifetimeSlice(_, lhs) => {
+            if let syntax::TypeName::LifetimeSlice(_, rhs) | syntax::TypeName::Slice(rhs) = actual {
+                unify_generic_type_name(lhs, rhs, type_params, bindings, line, column)
+            } else if contains_generic_type_param(pattern, type_params) {
+                Err(generic_constraint_mismatch(pattern, actual, line, column))
+            } else {
+                Ok(())
+            }
+        }
+        syntax::TypeName::LifetimeMutSlice(_, lhs) => {
+            if let syntax::TypeName::LifetimeMutSlice(_, rhs) | syntax::TypeName::MutSlice(rhs) =
+                actual
+            {
                 unify_generic_type_name(lhs, rhs, type_params, bindings, line, column)
             } else if contains_generic_type_param(pattern, type_params) {
                 Err(generic_constraint_mismatch(pattern, actual, line, column))
@@ -2192,6 +2208,8 @@ fn collect_type_params(ty: &syntax::TypeName, type_params: &[String], found: &mu
         | syntax::TypeName::MutPtr(inner)
         | syntax::TypeName::Slice(inner)
         | syntax::TypeName::MutSlice(inner)
+        | syntax::TypeName::LifetimeSlice(_, inner)
+        | syntax::TypeName::LifetimeMutSlice(_, inner)
         | syntax::TypeName::Option(inner)
         | syntax::TypeName::Array(inner, _) => collect_type_params(inner, type_params, found),
         syntax::TypeName::Result(ok, err) | syntax::TypeName::Map(ok, err) => {
@@ -2517,6 +2535,30 @@ fn rewrite_aggregate_type_name(
                 column,
             )?))
         }
+        syntax::TypeName::LifetimeSlice(lifetime, inner) => syntax::TypeName::LifetimeSlice(
+            lifetime.clone(),
+            Box::new(rewrite_aggregate_type_name(
+                inner,
+                generic_structs,
+                generic_enums,
+                queue,
+                queued,
+                line,
+                column,
+            )?),
+        ),
+        syntax::TypeName::LifetimeMutSlice(lifetime, inner) => syntax::TypeName::LifetimeMutSlice(
+            lifetime.clone(),
+            Box::new(rewrite_aggregate_type_name(
+                inner,
+                generic_structs,
+                generic_enums,
+                queue,
+                queued,
+                line,
+                column,
+            )?),
+        ),
         syntax::TypeName::Option(inner) => {
             syntax::TypeName::Option(Box::new(rewrite_aggregate_type_name(
                 inner,
@@ -3970,6 +4012,14 @@ fn substitute_type_name(
         syntax::TypeName::MutSlice(inner) => {
             syntax::TypeName::MutSlice(Box::new(substitute_type_name(inner, type_bindings)))
         }
+        syntax::TypeName::LifetimeSlice(lifetime, inner) => syntax::TypeName::LifetimeSlice(
+            lifetime.clone(),
+            Box::new(substitute_type_name(inner, type_bindings)),
+        ),
+        syntax::TypeName::LifetimeMutSlice(lifetime, inner) => syntax::TypeName::LifetimeMutSlice(
+            lifetime.clone(),
+            Box::new(substitute_type_name(inner, type_bindings)),
+        ),
         syntax::TypeName::Option(inner) => {
             syntax::TypeName::Option(Box::new(substitute_type_name(inner, type_bindings)))
         }
@@ -4057,8 +4107,10 @@ fn type_name_monomorph_suffix(ty: &syntax::TypeName) -> String {
         syntax::TypeName::MutPtr(inner) => {
             format!("mutptr_{}", type_name_monomorph_suffix(inner))
         }
-        syntax::TypeName::Slice(inner) => format!("slice_{}", type_name_monomorph_suffix(inner)),
-        syntax::TypeName::MutSlice(inner) => {
+        syntax::TypeName::Slice(inner) | syntax::TypeName::LifetimeSlice(_, inner) => {
+            format!("slice_{}", type_name_monomorph_suffix(inner))
+        }
+        syntax::TypeName::MutSlice(inner) | syntax::TypeName::LifetimeMutSlice(_, inner) => {
             format!("mutslice_{}", type_name_monomorph_suffix(inner))
         }
         syntax::TypeName::Option(inner) => {
@@ -4461,14 +4513,26 @@ fn collect_function_signatures(
         } else {
             return_ty.clone()
         };
-        let borrow_return_params = classify_borrow_return(
-            &params,
-            &signature_return_ty,
-            structs,
-            enums,
-            function.line,
-            function.column,
-        )?;
+        let borrow_return_params =
+            if let Some(explicit_params) = explicit_borrow_return_params(function) {
+                if explicit_params.is_empty() {
+                    return Err(Diagnostic::new(
+                        "type",
+                        "explicit borrowed return lifetime does not match any borrowed parameter",
+                    )
+                    .with_span(function.line, function.column));
+                }
+                explicit_params
+            } else {
+                borrowck::classify_borrow_return(
+                    &params,
+                    &signature_return_ty,
+                    structs,
+                    enums,
+                    function.line,
+                    function.column,
+                )?
+            };
         if signatures
             .insert(
                 function_symbol_name(function),
@@ -4645,11 +4709,10 @@ fn lower_function(
                 ty: ty.clone(),
                 moved: false,
                 moved_projections: HashSet::new(),
-                borrow_kind: borrow_kind_for_type(&ty, structs, enums),
+                borrow_kind: borrowck::borrow_kind_for_type(&ty, structs, enums),
                 borrow_origin: binding_borrow_origin(&ty, Some("self"), structs, enums),
                 borrowed_owners: HashSet::new(),
-                active_borrow_count: 0,
-                active_mut_borrow_count: 0,
+                borrow_state: BorrowState::default(),
             },
         );
         params.push(Param {
@@ -4689,11 +4752,10 @@ fn lower_function(
                 ty: ty.clone(),
                 moved: false,
                 moved_projections: HashSet::new(),
-                borrow_kind: borrow_kind_for_type(&ty, structs, enums),
+                borrow_kind: borrowck::borrow_kind_for_type(&ty, structs, enums),
                 borrow_origin: binding_borrow_origin(&ty, Some(&param.name), structs, enums),
                 borrowed_owners: HashSet::new(),
-                active_borrow_count: 0,
-                active_mut_borrow_count: 0,
+                borrow_state: BorrowState::default(),
             },
         );
         params.push(Param {
@@ -4831,8 +4893,7 @@ fn insert_type_error_binding_for_failed_stmt(
             borrow_kind: None,
             borrow_origin: None,
             borrowed_owners: HashSet::new(),
-            active_borrow_count: 0,
-            active_mut_borrow_count: 0,
+            borrow_state: BorrowState::default(),
         });
     }
 }
@@ -4992,7 +5053,8 @@ fn lower_match_stmt(
 ) -> Result<Stmt, Diagnostic> {
     let lowered_expr = lower_expr(expr, env, ctx)?;
     let match_borrowed_owners = expr_borrowed_owners(&lowered_expr, env, ctx);
-    let match_borrow_kind = borrow_kind_for_type(lowered_expr.ty(), ctx.structs, ctx.enums);
+    let match_borrow_kind =
+        borrowck::borrow_kind_for_type(lowered_expr.ty(), ctx.structs, ctx.enums);
     let reuse_existing_match_binding =
         matches!(lowered_expr, Expr::VarRef { .. }) && !match_borrowed_owners.is_empty();
     if let Some(borrow_kind) = match_borrow_kind
@@ -5158,7 +5220,7 @@ fn lower_match_stmt(
                     ty: payload_ty.clone(),
                     moved: false,
                     moved_projections: HashSet::new(),
-                    borrow_kind: borrow_kind_for_type(payload_ty, ctx.structs, ctx.enums),
+                    borrow_kind: borrowck::borrow_kind_for_type(payload_ty, ctx.structs, ctx.enums),
                     borrow_origin: match_binding_borrow_origin(
                         &lowered_expr,
                         &arm.variant,
@@ -5177,8 +5239,7 @@ fn lower_match_stmt(
                         &before,
                         ctx,
                     ),
-                    active_borrow_count: 0,
-                    active_mut_borrow_count: 0,
+                    borrow_state: BorrowState::default(),
                 },
             );
         }
@@ -5295,7 +5356,9 @@ fn lower_stmt(
             }
             let borrowed_owners =
                 binding_borrowed_owners_from_expr(&expected, &lowered_expr, env, ctx);
-            if let Some(borrow_kind) = borrow_kind_for_type(&expected, ctx.structs, ctx.enums) {
+            if let Some(borrow_kind) =
+                borrowck::borrow_kind_for_type(&expected, ctx.structs, ctx.enums)
+            {
                 increment_active_borrows(&borrowed_owners, env, borrow_kind, *line, *column)?;
             }
             if !actual.is_copy() {
@@ -5307,7 +5370,7 @@ fn lower_stmt(
                     ty: expected.clone(),
                     moved: false,
                     moved_projections: HashSet::new(),
-                    borrow_kind: borrow_kind_for_type(&expected, ctx.structs, ctx.enums),
+                    borrow_kind: borrowck::borrow_kind_for_type(&expected, ctx.structs, ctx.enums),
                     borrow_origin: binding_borrow_origin_from_expr(
                         &expected,
                         &lowered_expr,
@@ -5315,8 +5378,7 @@ fn lower_stmt(
                         ctx,
                     ),
                     borrowed_owners,
-                    active_borrow_count: 0,
-                    active_mut_borrow_count: 0,
+                    borrow_state: BorrowState::default(),
                 },
             );
             Ok(Stmt::Let {
@@ -5523,8 +5585,8 @@ fn lower_stmt(
                             .iter()
                             .any(|projection| !pre_binding.moved_projections.contains(projection));
                         if post_binding.moved || moved_projection_in_body {
-                            return Err(ownership_error(
-                                OWNERSHIP_LOOP_MOVE_OUTER_NON_COPY,
+                            return Err(borrowck::ownership_error(
+                                borrowck::LOOP_MOVE_OUTER_NON_COPY,
                                 format!(
                                     "cannot move non-copy value `{}` inside loop body — \
                                      value would not be available on subsequent iterations",
@@ -5682,7 +5744,7 @@ fn lower_stmt(
                 )
                 .with_span(*line, *column));
             }
-            if contains_borrowed_slice_type(expected, ctx.structs, ctx.enums)
+            if borrowck::contains_borrowed_slice_type(expected, ctx.structs, ctx.enums)
                 && !ctx.current_borrow_return_params.is_empty()
             {
                 match expr_borrow_origin(&lowered_expr, env, ctx) {
@@ -5690,8 +5752,8 @@ fn lower_stmt(
                     Some(BorrowOrigin::Param(origin))
                         if ctx.current_borrow_return_params.contains(&origin) => {}
                     _ => {
-                        return Err(ownership_error(
-                            OWNERSHIP_BORROW_RETURN_REQUIRES_PARAM_ORIGIN,
+                        return Err(borrowck::ownership_error(
+                            borrowck::BORROW_RETURN_REQUIRES_PARAM_ORIGIN,
                             format!(
                                 "returning borrowed values requires data derived from one of the borrowed parameters in stage1"
                             ),
@@ -5752,25 +5814,34 @@ fn merge_branch_state(
                 borrow_kind: binding.borrow_kind,
                 borrow_origin: binding.borrow_origin.clone(),
                 borrowed_owners: binding.borrowed_owners.clone(),
-                active_borrow_count: merge_borrow_count(
-                    binding.active_borrow_count,
-                    then_returns,
-                    then_after.get(name).map(|entry| entry.active_borrow_count),
-                    else_returns,
-                    else_after
-                        .and_then(|branch| branch.get(name).map(|entry| entry.active_borrow_count)),
-                ),
-                active_mut_borrow_count: merge_borrow_count(
-                    binding.active_mut_borrow_count,
-                    then_returns,
-                    then_after
-                        .get(name)
-                        .map(|entry| entry.active_mut_borrow_count),
-                    else_returns,
-                    else_after.and_then(|branch| {
-                        branch.get(name).map(|entry| entry.active_mut_borrow_count)
-                    }),
-                ),
+                borrow_state: BorrowState {
+                    active_shared_or_mutable: merge_borrow_count(
+                        binding.borrow_state.active_shared_or_mutable,
+                        then_returns,
+                        then_after
+                            .get(name)
+                            .map(|entry| entry.borrow_state.active_shared_or_mutable),
+                        else_returns,
+                        else_after.and_then(|branch| {
+                            branch
+                                .get(name)
+                                .map(|entry| entry.borrow_state.active_shared_or_mutable)
+                        }),
+                    ),
+                    active_mutable: merge_borrow_count(
+                        binding.borrow_state.active_mutable,
+                        then_returns,
+                        then_after
+                            .get(name)
+                            .map(|entry| entry.borrow_state.active_mutable),
+                        else_returns,
+                        else_after.and_then(|branch| {
+                            branch
+                                .get(name)
+                                .map(|entry| entry.borrow_state.active_mutable)
+                        }),
+                    ),
+                },
             },
         );
     }
@@ -5820,23 +5891,28 @@ fn merge_loop_state(
                 borrow_kind: binding.borrow_kind,
                 borrow_origin: binding.borrow_origin.clone(),
                 borrowed_owners: binding.borrowed_owners.clone(),
-                active_borrow_count: if body_returns {
-                    binding.active_borrow_count
-                } else {
-                    let body_count = body_after
-                        .get(name)
-                        .map(|entry| entry.active_borrow_count)
-                        .unwrap_or(binding.active_borrow_count);
-                    binding.active_borrow_count.max(body_count)
-                },
-                active_mut_borrow_count: if body_returns {
-                    binding.active_mut_borrow_count
-                } else {
-                    let body_count = body_after
-                        .get(name)
-                        .map(|entry| entry.active_mut_borrow_count)
-                        .unwrap_or(binding.active_mut_borrow_count);
-                    binding.active_mut_borrow_count.max(body_count)
+                borrow_state: BorrowState {
+                    active_shared_or_mutable: if body_returns {
+                        binding.borrow_state.active_shared_or_mutable
+                    } else {
+                        let body_count = body_after
+                            .get(name)
+                            .map(|entry| entry.borrow_state.active_shared_or_mutable)
+                            .unwrap_or(binding.borrow_state.active_shared_or_mutable);
+                        binding
+                            .borrow_state
+                            .active_shared_or_mutable
+                            .max(body_count)
+                    },
+                    active_mutable: if body_returns {
+                        binding.borrow_state.active_mutable
+                    } else {
+                        let body_count = body_after
+                            .get(name)
+                            .map(|entry| entry.borrow_state.active_mutable)
+                            .unwrap_or(binding.borrow_state.active_mutable);
+                        binding.borrow_state.active_mutable.max(body_count)
+                    },
                 },
             },
         );
@@ -5869,28 +5945,34 @@ fn merge_match_state(
                 borrow_kind: binding.borrow_kind,
                 borrow_origin: binding.borrow_origin.clone(),
                 borrowed_owners: binding.borrowed_owners.clone(),
-                active_borrow_count: arm_states
-                    .iter()
-                    .filter_map(|(after, returns)| {
-                        if *returns {
-                            Some(binding.active_borrow_count)
-                        } else {
-                            after.get(name).map(|entry| entry.active_borrow_count)
-                        }
-                    })
-                    .max()
-                    .unwrap_or(binding.active_borrow_count),
-                active_mut_borrow_count: arm_states
-                    .iter()
-                    .filter_map(|(after, returns)| {
-                        if *returns {
-                            Some(binding.active_mut_borrow_count)
-                        } else {
-                            after.get(name).map(|entry| entry.active_mut_borrow_count)
-                        }
-                    })
-                    .max()
-                    .unwrap_or(binding.active_mut_borrow_count),
+                borrow_state: BorrowState {
+                    active_shared_or_mutable: arm_states
+                        .iter()
+                        .filter_map(|(after, returns)| {
+                            if *returns {
+                                Some(binding.borrow_state.active_shared_or_mutable)
+                            } else {
+                                after
+                                    .get(name)
+                                    .map(|entry| entry.borrow_state.active_shared_or_mutable)
+                            }
+                        })
+                        .max()
+                        .unwrap_or(binding.borrow_state.active_shared_or_mutable),
+                    active_mutable: arm_states
+                        .iter()
+                        .filter_map(|(after, returns)| {
+                            if *returns {
+                                Some(binding.borrow_state.active_mutable)
+                            } else {
+                                after
+                                    .get(name)
+                                    .map(|entry| entry.borrow_state.active_mutable)
+                            }
+                        })
+                        .max()
+                        .unwrap_or(binding.borrow_state.active_mutable),
+                },
             },
         );
     }
@@ -5972,16 +6054,16 @@ fn lower_expr_with_expected(
         syntax::Expr::VarRef { name, line, column } => {
             if let Some(binding) = env.get(name) {
                 if binding.moved {
-                    return Err(ownership_error(
-                        OWNERSHIP_USE_AFTER_MOVE,
+                    return Err(borrowck::ownership_error(
+                        borrowck::USE_AFTER_MOVE,
                         format!("use of moved value {name:?}"),
                     )
                     .with_help("consider restructuring to avoid the move, or ensure the value is only used once")
                     .with_span(*line, *column));
                 }
                 if !binding.moved_projections.is_empty() {
-                    return Err(ownership_error(
-                        OWNERSHIP_USE_AFTER_MOVE,
+                    return Err(borrowck::ownership_error(
+                        borrowck::USE_AFTER_MOVE,
                         format!("use of partially moved value {name:?}"),
                     )
                     .with_help("consider restructuring to avoid the move, or ensure the value is only used once")
@@ -7309,14 +7391,14 @@ fn lower_expr_with_expected(
             if let Some(binding) = env.get(name) {
                 if let Type::Fn(param_tys, return_ty) = binding.ty.clone() {
                     if binding.moved {
-                        return Err(ownership_error(
+                        return Err(borrowck::ownership_error(
                             OWNERSHIP_USE_AFTER_MOVE,
                             format!("use of moved value {name:?}"),
                         )
                         .with_span(*line, *column));
                     }
                     if !binding.moved_projections.is_empty() {
-                        return Err(ownership_error(
+                        return Err(borrowck::ownership_error(
                             OWNERSHIP_USE_AFTER_MOVE,
                             format!("use of partially moved value {name:?}"),
                         )
@@ -8436,8 +8518,7 @@ fn lower_expr_with_expected(
                         borrow_kind: None,
                         borrow_origin: Some(BorrowOrigin::Local),
                         borrowed_owners: HashSet::new(),
-                        active_borrow_count: 0,
-                        active_mut_borrow_count: 0,
+                        borrow_state: BorrowState::default(),
                     },
                 );
             }
@@ -8448,8 +8529,8 @@ fn lower_expr_with_expected(
             }
             let captured_names = referenced.clone();
 
-            if contains_borrowed_slice_type(expected_return, ctx.structs, ctx.enums) {
-                return Err(ownership_error(
+            if borrowck::contains_borrowed_slice_type(expected_return, ctx.structs, ctx.enums) {
+                return Err(borrowck::ownership_error(
                     OWNERSHIP_CLOSURE_BORROWED_SLICE_RETURN,
                     "closure fn values cannot return borrowed slice types in stage1 because codegen cannot express the returned reference lifetime",
                 )
@@ -8473,7 +8554,7 @@ fn lower_expr_with_expected(
                 && captured_names.contains(name)
                 && !lowered_body.ty().is_copy()
             {
-                return Err(ownership_error(
+                return Err(borrowck::ownership_error(
                     OWNERSHIP_CLOSURE_MOVE_CAPTURED_NON_COPY,
                     format!(
                         "closure cannot move captured non-copy value `{}` because fn closures must be callable more than once",
@@ -8496,7 +8577,7 @@ fn lower_expr_with_expected(
                         .iter()
                         .any(|projection| !pre_binding.moved_projections.contains(projection));
                     if post_binding.moved || moved_projection_in_body {
-                        return Err(ownership_error(
+                        return Err(borrowck::ownership_error(
                             OWNERSHIP_CLOSURE_MOVE_CAPTURED_NON_COPY,
                             format!(
                                 "closure cannot move captured non-copy value `{}` because fn closures must be callable more than once",
@@ -8799,8 +8880,8 @@ fn lower_projection_base_expr(
                 return lower_expr(expr, env, ctx);
             };
             if binding.moved {
-                return Err(ownership_error(
-                    OWNERSHIP_USE_AFTER_MOVE,
+                return Err(borrowck::ownership_error(
+                    borrowck::USE_AFTER_MOVE,
                     format!("use of moved value {name:?}"),
                 )
                 .with_span(*line, *column));
@@ -9148,15 +9229,15 @@ fn mark_projection_moved(
             format!("internal error: missing binding for moved value {name:?}"),
         )
     })?;
-    if binding.active_borrow_count > 0 {
-        return Err(ownership_error(
-            OWNERSHIP_MOVE_WHILE_BORROWED,
+    if binding.borrow_state.active_shared_or_mutable > 0 {
+        return Err(borrowck::ownership_error(
+            borrowck::MOVE_WHILE_BORROWED,
             format!("cannot move value {name:?} while borrowed slices are still live"),
         ));
     }
     if projection_is_unavailable(binding, &projection) {
-        return Err(ownership_error(
-            OWNERSHIP_USE_AFTER_MOVE,
+        return Err(borrowck::ownership_error(
+            borrowck::USE_AFTER_MOVE,
             format!(
                 "use of moved value {:?}",
                 format_projected_name(name, &projection)
@@ -9182,8 +9263,8 @@ fn ensure_lowered_projection_traversable(
         return Ok(());
     };
     if projection_has_moved_ancestor(binding, &projection) {
-        return Err(ownership_error(
-            OWNERSHIP_USE_AFTER_MOVE,
+        return Err(borrowck::ownership_error(
+            borrowck::USE_AFTER_MOVE,
             format!(
                 "use of moved value {:?}",
                 format_projected_name(name, &projection)
@@ -9273,7 +9354,7 @@ fn binding_borrow_origin(
     structs: &HashMap<String, StructDef>,
     enums: &HashMap<String, EnumDef>,
 ) -> Option<BorrowOrigin> {
-    if !contains_borrowed_slice_type(ty, structs, enums) {
+    if !borrowck::contains_borrowed_slice_type(ty, structs, enums) {
         return None;
     }
     Some(match param_name {
@@ -9288,7 +9369,7 @@ fn binding_borrow_origin_from_expr(
     env: &HashMap<String, Binding>,
     ctx: &LowerContext<'_>,
 ) -> Option<BorrowOrigin> {
-    if !contains_borrowed_slice_type(ty, ctx.structs, ctx.enums) {
+    if !borrowck::contains_borrowed_slice_type(ty, ctx.structs, ctx.enums) {
         return None;
     }
     expr_borrow_origin(expr, env, ctx)
@@ -9300,7 +9381,7 @@ fn binding_borrowed_owners_from_expr(
     env: &HashMap<String, Binding>,
     ctx: &LowerContext<'_>,
 ) -> HashSet<String> {
-    if !contains_borrowed_slice_type(ty, ctx.structs, ctx.enums) {
+    if !borrowck::contains_borrowed_slice_type(ty, ctx.structs, ctx.enums) {
         return HashSet::new();
     }
     expr_borrowed_owners(expr, env, ctx)
@@ -9311,7 +9392,7 @@ fn expr_borrow_origin(
     env: &HashMap<String, Binding>,
     ctx: &LowerContext<'_>,
 ) -> Option<BorrowOrigin> {
-    if !contains_borrowed_slice_type(expr.ty(), ctx.structs, ctx.enums) {
+    if !borrowck::contains_borrowed_slice_type(expr.ty(), ctx.structs, ctx.enums) {
         return None;
     }
     match expr {
@@ -9423,7 +9504,7 @@ fn match_binding_borrow_origin(
     env: &HashMap<String, Binding>,
     ctx: &LowerContext<'_>,
 ) -> Option<BorrowOrigin> {
-    if !contains_borrowed_slice_type(payload_ty, ctx.structs, ctx.enums) {
+    if !borrowck::contains_borrowed_slice_type(payload_ty, ctx.structs, ctx.enums) {
         return None;
     }
     if let Some(payload_expr) =
@@ -9443,7 +9524,7 @@ fn match_binding_borrowed_owners(
     env: &HashMap<String, Binding>,
     ctx: &LowerContext<'_>,
 ) -> HashSet<String> {
-    if !contains_borrowed_slice_type(payload_ty, ctx.structs, ctx.enums) {
+    if !borrowck::contains_borrowed_slice_type(payload_ty, ctx.structs, ctx.enums) {
         return HashSet::new();
     }
     if let Some(payload_expr) =
@@ -9459,7 +9540,7 @@ fn expr_borrowed_owners(
     env: &HashMap<String, Binding>,
     ctx: &LowerContext<'_>,
 ) -> HashSet<String> {
-    if !contains_borrowed_slice_type(expr.ty(), ctx.structs, ctx.enums) {
+    if !borrowck::contains_borrowed_slice_type(expr.ty(), ctx.structs, ctx.enums) {
         return HashSet::new();
     }
     match expr {
@@ -9535,319 +9616,69 @@ fn owned_borrow_root(expr: &Expr) -> Option<String> {
     }
 }
 
-fn contains_borrowed_slice_type(
-    ty: &Type,
-    structs: &HashMap<String, StructDef>,
-    enums: &HashMap<String, EnumDef>,
-) -> bool {
-    contains_borrowed_slice_type_inner(ty, structs, enums, &mut HashSet::new(), &mut HashSet::new())
+fn explicit_return_lifetime(ty: &syntax::TypeName) -> Option<&str> {
+    match ty {
+        syntax::TypeName::LifetimeSlice(name, _) | syntax::TypeName::LifetimeMutSlice(name, _) => {
+            Some(name.as_str())
+        }
+        syntax::TypeName::Option(inner) | syntax::TypeName::Array(inner, _) => {
+            explicit_return_lifetime(inner)
+        }
+        syntax::TypeName::Result(ok, err) | syntax::TypeName::Map(ok, err) => {
+            explicit_return_lifetime(ok).or_else(|| explicit_return_lifetime(err))
+        }
+        syntax::TypeName::Tuple(elements) => elements.iter().find_map(explicit_return_lifetime),
+        syntax::TypeName::Named(_, args) => args.iter().find_map(explicit_return_lifetime),
+        syntax::TypeName::Fn(params, return_ty) => params
+            .iter()
+            .find_map(explicit_return_lifetime)
+            .or_else(|| explicit_return_lifetime(return_ty)),
+        syntax::TypeName::Slice(_)
+        | syntax::TypeName::MutSlice(_)
+        | syntax::TypeName::Ptr(_)
+        | syntax::TypeName::MutPtr(_)
+        | syntax::TypeName::Int
+        | syntax::TypeName::Bool
+        | syntax::TypeName::String => None,
+    }
 }
 
-fn contains_mut_borrowed_slice_type(
-    ty: &Type,
-    structs: &HashMap<String, StructDef>,
-    enums: &HashMap<String, EnumDef>,
-) -> bool {
-    contains_mut_borrowed_slice_type_inner(
-        ty,
-        structs,
-        enums,
-        &mut HashSet::new(),
-        &mut HashSet::new(),
+fn type_has_lifetime(ty: &syntax::TypeName, lifetime: &str) -> bool {
+    match ty {
+        syntax::TypeName::LifetimeSlice(name, _) | syntax::TypeName::LifetimeMutSlice(name, _) => {
+            name == lifetime
+        }
+        syntax::TypeName::Option(inner)
+        | syntax::TypeName::Array(inner, _)
+        | syntax::TypeName::Ptr(inner)
+        | syntax::TypeName::MutPtr(inner)
+        | syntax::TypeName::Slice(inner)
+        | syntax::TypeName::MutSlice(inner) => type_has_lifetime(inner, lifetime),
+        syntax::TypeName::Result(ok, err) | syntax::TypeName::Map(ok, err) => {
+            type_has_lifetime(ok, lifetime) || type_has_lifetime(err, lifetime)
+        }
+        syntax::TypeName::Tuple(elements) => elements
+            .iter()
+            .any(|element| type_has_lifetime(element, lifetime)),
+        syntax::TypeName::Named(_, args) => args.iter().any(|arg| type_has_lifetime(arg, lifetime)),
+        syntax::TypeName::Fn(params, return_ty) => {
+            params.iter().any(|arg| type_has_lifetime(arg, lifetime))
+                || type_has_lifetime(return_ty, lifetime)
+        }
+        syntax::TypeName::Int | syntax::TypeName::Bool | syntax::TypeName::String => false,
+    }
+}
+
+fn explicit_borrow_return_params(function: &syntax::Function) -> Option<Vec<usize>> {
+    let lifetime = explicit_return_lifetime(&function.return_ty)?;
+    Some(
+        function
+            .params
+            .iter()
+            .enumerate()
+            .filter_map(|(index, param)| type_has_lifetime(&param.ty, lifetime).then_some(index))
+            .collect(),
     )
-}
-
-fn contains_borrowed_slice_type_inner(
-    ty: &Type,
-    structs: &HashMap<String, StructDef>,
-    enums: &HashMap<String, EnumDef>,
-    visiting_structs: &mut HashSet<String>,
-    visiting_enums: &mut HashSet<String>,
-) -> bool {
-    match ty {
-        Type::Slice(_) | Type::MutSlice(_) => true,
-        Type::Option(inner) => contains_borrowed_slice_type_inner(
-            inner,
-            structs,
-            enums,
-            visiting_structs,
-            visiting_enums,
-        ),
-        Type::Result(ok, err) => {
-            contains_borrowed_slice_type_inner(ok, structs, enums, visiting_structs, visiting_enums)
-                || contains_borrowed_slice_type_inner(
-                    err,
-                    structs,
-                    enums,
-                    visiting_structs,
-                    visiting_enums,
-                )
-        }
-        Type::Tuple(elements) => elements.iter().any(|element| {
-            contains_borrowed_slice_type_inner(
-                element,
-                structs,
-                enums,
-                visiting_structs,
-                visiting_enums,
-            )
-        }),
-        Type::Map(key, value) => {
-            contains_borrowed_slice_type_inner(
-                key,
-                structs,
-                enums,
-                visiting_structs,
-                visiting_enums,
-            ) || contains_borrowed_slice_type_inner(
-                value,
-                structs,
-                enums,
-                visiting_structs,
-                visiting_enums,
-            )
-        }
-        Type::Array(inner, _)
-        | Type::Task(inner)
-        | Type::JoinHandle(inner)
-        | Type::AsyncChannel(inner)
-        | Type::SelectResult(inner) => contains_borrowed_slice_type_inner(
-            inner,
-            structs,
-            enums,
-            visiting_structs,
-            visiting_enums,
-        ),
-        Type::Fn(params, return_ty) => {
-            params.iter().any(|param| {
-                contains_borrowed_slice_type_inner(
-                    param,
-                    structs,
-                    enums,
-                    visiting_structs,
-                    visiting_enums,
-                )
-            }) || contains_borrowed_slice_type_inner(
-                return_ty,
-                structs,
-                enums,
-                visiting_structs,
-                visiting_enums,
-            )
-        }
-        Type::Struct(name) => {
-            if !visiting_structs.insert(name.clone()) {
-                return false;
-            }
-            let contains = structs.get(name).is_some_and(|struct_def| {
-                struct_def.fields.iter().any(|field| {
-                    contains_borrowed_slice_type_inner(
-                        &field.ty,
-                        structs,
-                        enums,
-                        visiting_structs,
-                        visiting_enums,
-                    )
-                })
-            });
-            visiting_structs.remove(name);
-            contains
-        }
-        Type::Enum(name) => {
-            if !visiting_enums.insert(name.clone()) {
-                return false;
-            }
-            let contains = enums.get(name).is_some_and(|enum_def| {
-                enum_def.variants.iter().any(|variant| {
-                    variant.payload_tys.iter().any(|payload_ty| {
-                        contains_borrowed_slice_type_inner(
-                            payload_ty,
-                            structs,
-                            enums,
-                            visiting_structs,
-                            visiting_enums,
-                        )
-                    })
-                })
-            });
-            visiting_enums.remove(name);
-            contains
-        }
-        Type::Error | Type::Int | Type::Bool | Type::String | Type::Ptr(_) | Type::MutPtr(_) => {
-            false
-        }
-    }
-}
-
-fn contains_mut_borrowed_slice_type_inner(
-    ty: &Type,
-    structs: &HashMap<String, StructDef>,
-    enums: &HashMap<String, EnumDef>,
-    visiting_structs: &mut HashSet<String>,
-    visiting_enums: &mut HashSet<String>,
-) -> bool {
-    match ty {
-        Type::MutSlice(_) => true,
-        Type::Error
-        | Type::Slice(_)
-        | Type::Int
-        | Type::Bool
-        | Type::String
-        | Type::Ptr(_)
-        | Type::MutPtr(_) => false,
-        Type::Option(inner) => contains_mut_borrowed_slice_type_inner(
-            inner,
-            structs,
-            enums,
-            visiting_structs,
-            visiting_enums,
-        ),
-        Type::Result(ok, err) => {
-            contains_mut_borrowed_slice_type_inner(
-                ok,
-                structs,
-                enums,
-                visiting_structs,
-                visiting_enums,
-            ) || contains_mut_borrowed_slice_type_inner(
-                err,
-                structs,
-                enums,
-                visiting_structs,
-                visiting_enums,
-            )
-        }
-        Type::Tuple(elements) => elements.iter().any(|element| {
-            contains_mut_borrowed_slice_type_inner(
-                element,
-                structs,
-                enums,
-                visiting_structs,
-                visiting_enums,
-            )
-        }),
-        Type::Map(key, value) => {
-            contains_mut_borrowed_slice_type_inner(
-                key,
-                structs,
-                enums,
-                visiting_structs,
-                visiting_enums,
-            ) || contains_mut_borrowed_slice_type_inner(
-                value,
-                structs,
-                enums,
-                visiting_structs,
-                visiting_enums,
-            )
-        }
-        Type::Array(inner, _)
-        | Type::Task(inner)
-        | Type::JoinHandle(inner)
-        | Type::AsyncChannel(inner)
-        | Type::SelectResult(inner) => contains_mut_borrowed_slice_type_inner(
-            inner,
-            structs,
-            enums,
-            visiting_structs,
-            visiting_enums,
-        ),
-        Type::Fn(params, return_ty) => {
-            params.iter().any(|param| {
-                contains_mut_borrowed_slice_type_inner(
-                    param,
-                    structs,
-                    enums,
-                    visiting_structs,
-                    visiting_enums,
-                )
-            }) || contains_mut_borrowed_slice_type_inner(
-                return_ty,
-                structs,
-                enums,
-                visiting_structs,
-                visiting_enums,
-            )
-        }
-        Type::Struct(name) => {
-            if !visiting_structs.insert(name.clone()) {
-                return false;
-            }
-            let contains = structs.get(name).is_some_and(|struct_def| {
-                struct_def.fields.iter().any(|field| {
-                    contains_mut_borrowed_slice_type_inner(
-                        &field.ty,
-                        structs,
-                        enums,
-                        visiting_structs,
-                        visiting_enums,
-                    )
-                })
-            });
-            visiting_structs.remove(name);
-            contains
-        }
-        Type::Enum(name) => {
-            if !visiting_enums.insert(name.clone()) {
-                return false;
-            }
-            let contains = enums.get(name).is_some_and(|enum_def| {
-                enum_def.variants.iter().any(|variant| {
-                    variant.payload_tys.iter().any(|payload_ty| {
-                        contains_mut_borrowed_slice_type_inner(
-                            payload_ty,
-                            structs,
-                            enums,
-                            visiting_structs,
-                            visiting_enums,
-                        )
-                    })
-                })
-            });
-            visiting_enums.remove(name);
-            contains
-        }
-    }
-}
-
-fn classify_borrow_return(
-    params: &[Type],
-    return_ty: &Type,
-    structs: &HashMap<String, StructDef>,
-    enums: &HashMap<String, EnumDef>,
-    line: usize,
-    column: usize,
-) -> Result<Vec<usize>, Diagnostic> {
-    if !contains_borrowed_slice_type(return_ty, structs, enums) {
-        return Ok(Vec::new());
-    }
-    let matches = params
-        .iter()
-        .enumerate()
-        .filter_map(|(index, ty)| contains_borrowed_slice_type(ty, structs, enums).then_some(index))
-        .collect::<Vec<_>>();
-    if matches.is_empty() {
-        return Err(Diagnostic::new(
-            "type",
-            "borrowed return functions must take at least one borrowed parameter in stage1",
-        )
-        .with_span(line, column));
-    }
-    Ok(matches)
-}
-
-fn borrow_kind_for_type(
-    ty: &Type,
-    structs: &HashMap<String, StructDef>,
-    enums: &HashMap<String, EnumDef>,
-) -> Option<BorrowKind> {
-    if contains_mut_borrowed_slice_type(ty, structs, enums) {
-        Some(BorrowKind::Mutable)
-    } else if contains_borrowed_slice_type(ty, structs, enums) {
-        Some(BorrowKind::Shared)
-    } else {
-        None
-    }
 }
 
 fn increment_active_borrows(
@@ -9864,41 +9695,11 @@ fn increment_active_borrows(
                 format!("internal error: missing borrow owner {owner_name:?}"),
             )
         })?;
-        match borrow_kind {
-            BorrowKind::Shared if binding.active_mut_borrow_count > 0 => {
-                return Err(ownership_error(
-                    OWNERSHIP_SHARED_BORROW_WHILE_MUTABLE_LIVE,
-                    format!(
-                        "cannot create shared borrow of value {owner_name:?} while a mutable borrow is still live"
-                    ),
-                )
-                .with_span(line, column));
-            }
-            BorrowKind::Mutable if binding.active_mut_borrow_count > 0 => {
-                return Err(ownership_error(
-                    OWNERSHIP_MUTABLE_BORROW_WHILE_MUTABLE_LIVE,
-                    format!(
-                        "cannot create mutable borrow of value {owner_name:?} while another mutable borrow is still live"
-                    ),
-                )
-                .with_span(line, column));
-            }
-            BorrowKind::Mutable if binding.active_borrow_count > 0 => {
-                return Err(ownership_error(
-                    OWNERSHIP_MUTABLE_BORROW_WHILE_SHARED_LIVE,
-                    format!(
-                        "cannot create mutable borrow of value {owner_name:?} while a shared borrow is still live"
-                    ),
-                )
-                .with_help("drop the shared borrow before creating a mutable borrow")
-                .with_span(line, column));
-            }
-            _ => {}
-        }
-        binding.active_borrow_count += 1;
-        if matches!(borrow_kind, BorrowKind::Mutable) {
-            binding.active_mut_borrow_count += 1;
-        }
+        binding.borrow_state.begin_borrow(
+            owner_name,
+            borrow_kind,
+            BorrowSourceSpan::new(line, column),
+        )?;
     }
     Ok(())
 }
@@ -9910,7 +9711,8 @@ fn record_temporary_borrows(
     temporary_borrows: &mut Vec<(HashSet<String>, BorrowKind)>,
 ) -> Result<(), Diagnostic> {
     let owners = expr_borrowed_owners(expr, env, ctx);
-    let Some(borrow_kind) = borrow_kind_for_type(expr.ty(), ctx.structs, ctx.enums) else {
+    let Some(borrow_kind) = borrowck::borrow_kind_for_type(expr.ty(), ctx.structs, ctx.enums)
+    else {
         return Ok(());
     };
     increment_active_borrows(&owners, env, borrow_kind, 0, 0)?;
@@ -9945,10 +9747,7 @@ fn decrement_active_borrow(
     let Some(binding) = env.get_mut(owner_name) else {
         return;
     };
-    binding.active_borrow_count = binding.active_borrow_count.saturating_sub(1);
-    if matches!(borrow_kind, BorrowKind::Mutable) {
-        binding.active_mut_borrow_count = binding.active_mut_borrow_count.saturating_sub(1);
-    }
+    binding.borrow_state.end_borrow(borrow_kind);
 }
 
 fn release_scope_borrows(env: &mut HashMap<String, Binding>, scope_names: &HashSet<String>) {
@@ -10114,12 +9913,16 @@ fn lower_type_inner<T, U>(
         syntax::TypeName::MutPtr(inner) => Ok(Type::MutPtr(Box::new(lower_type_inner(
             inner, structs, enums, aliases, consts, resolving, line, column,
         )?))),
-        syntax::TypeName::Slice(inner) => Ok(Type::Slice(Box::new(lower_type_inner(
-            inner, structs, enums, aliases, consts, resolving, line, column,
-        )?))),
-        syntax::TypeName::MutSlice(inner) => Ok(Type::MutSlice(Box::new(lower_type_inner(
-            inner, structs, enums, aliases, consts, resolving, line, column,
-        )?))),
+        syntax::TypeName::Slice(inner) | syntax::TypeName::LifetimeSlice(_, inner) => {
+            Ok(Type::Slice(Box::new(lower_type_inner(
+                inner, structs, enums, aliases, consts, resolving, line, column,
+            )?)))
+        }
+        syntax::TypeName::MutSlice(inner) | syntax::TypeName::LifetimeMutSlice(_, inner) => {
+            Ok(Type::MutSlice(Box::new(lower_type_inner(
+                inner, structs, enums, aliases, consts, resolving, line, column,
+            )?)))
+        }
         syntax::TypeName::Option(inner) => Ok(Type::Option(Box::new(lower_type_inner(
             inner, structs, enums, aliases, consts, resolving, line, column,
         )?))),

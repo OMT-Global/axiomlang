@@ -3985,6 +3985,30 @@ fn rewrite_type_name(
                 column,
             )?)))
         }
+        syntax::TypeName::LifetimeSlice(lifetime, inner) => Ok(syntax::TypeName::LifetimeSlice(
+            lifetime.clone(),
+            Box::new(rewrite_type_name(
+                inner,
+                visible_types,
+                private_imported_types,
+                module_path,
+                line,
+                column,
+            )?),
+        )),
+        syntax::TypeName::LifetimeMutSlice(lifetime, inner) => {
+            Ok(syntax::TypeName::LifetimeMutSlice(
+                lifetime.clone(),
+                Box::new(rewrite_type_name(
+                    inner,
+                    visible_types,
+                    private_imported_types,
+                    module_path,
+                    line,
+                    column,
+                )?),
+            ))
+        }
         syntax::TypeName::Result(ok, err) => Ok(syntax::TypeName::Result(
             Box::new(rewrite_type_name(
                 ok,

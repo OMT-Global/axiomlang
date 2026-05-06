@@ -204,6 +204,8 @@ pub enum TypeName {
     MutPtr(Box<TypeName>),
     Slice(Box<TypeName>),
     MutSlice(Box<TypeName>),
+    LifetimeSlice(String, Box<TypeName>),
+    LifetimeMutSlice(String, Box<TypeName>),
     Option(Box<TypeName>),
     Result(Box<TypeName>, Box<TypeName>),
     Tuple(Vec<TypeName>),
@@ -1225,6 +1227,7 @@ fn parse_function_in_context(
             .with_span(line_no, 1)
     })?;
     let name_text = header[..open_paren].trim();
+    let lifetime_params = parse_function_lifetime_params(name_text, path, line_no, fn_column + 3)?;
     let (name, type_params) = parse_function_name(name_text, path, line_no, fn_column + 3)?;
     let (receiver, params) = parse_params(
         &header[open_paren + 1..close_paren],
@@ -1248,6 +1251,7 @@ fn parse_function_in_context(
             .with_span(line_no, 1)
         })?;
         let return_ty = parse_type_name(return_text.trim(), path, line_no, 1)?;
+        validate_function_lifetime_uses(&lifetime_params, &params, &return_ty, path, line_no)?;
         let extern_library =
             serde_json::from_str::<String>(extern_library.trim()).map_err(|_| {
                 Diagnostic::new("parse", "extern function library must be a quoted string")
@@ -1286,6 +1290,7 @@ fn parse_function_in_context(
             .with_span(line_no, 1)
         })?;
     let return_ty = parse_type_name(return_text, path, line_no, 1)?;
+    validate_function_lifetime_uses(&lifetime_params, &params, &return_ty, path, line_no)?;
     *index += 1;
     let body = parse_stmt_list(lines, index, path)?;
     Ok(Function {
@@ -2126,6 +2131,64 @@ fn parse_type_name(
         let return_ty = parse_type_name(return_raw.trim(), path, line_no, column + close + 2)?;
         return Ok(TypeName::Fn(params, Box::new(return_ty)));
     }
+    if let Some(rest) = raw.strip_prefix("&'") {
+        let lifetime_len = rest
+            .find(|ch: char| !(ch.is_ascii_alphanumeric() || ch == '_'))
+            .unwrap_or(rest.len());
+        let lifetime = &rest[..lifetime_len];
+        if lifetime.is_empty() {
+            return Err(
+                Diagnostic::new("parse", "borrow lifetime annotation is missing a name")
+                    .with_path(path.display().to_string())
+                    .with_span(line_no, column + 1),
+            );
+        }
+        validate_ident(lifetime, path, line_no, column + 2)?;
+        let after_lifetime = rest[lifetime_len..].trim_start();
+        let skipped_ws = rest[lifetime_len..].len() - after_lifetime.len();
+        let inner_column = column + 2 + lifetime_len + skipped_ws;
+        if after_lifetime.starts_with("mut [")
+            && after_lifetime.ends_with(']')
+            && matches!(find_matching_square(after_lifetime, 4), Some(close) if close == after_lifetime.len() - 1)
+        {
+            let inner = after_lifetime[5..after_lifetime.len() - 1].trim();
+            if inner.is_empty() {
+                return Err(Diagnostic::new(
+                    "parse",
+                    "mutable slice type is missing an inner type",
+                )
+                .with_path(path.display().to_string())
+                .with_span(line_no, inner_column + 5));
+            }
+            return Ok(TypeName::LifetimeMutSlice(
+                lifetime.to_string(),
+                Box::new(parse_type_name(inner, path, line_no, inner_column + 5)?),
+            ));
+        }
+        if after_lifetime.starts_with('[')
+            && after_lifetime.ends_with(']')
+            && matches!(find_matching_square(after_lifetime, 0), Some(close) if close == after_lifetime.len() - 1)
+        {
+            let inner = after_lifetime[1..after_lifetime.len() - 1].trim();
+            if inner.is_empty() {
+                return Err(
+                    Diagnostic::new("parse", "slice type is missing an inner type")
+                        .with_path(path.display().to_string())
+                        .with_span(line_no, inner_column + 1),
+                );
+            }
+            return Ok(TypeName::LifetimeSlice(
+                lifetime.to_string(),
+                Box::new(parse_type_name(inner, path, line_no, inner_column + 1)?),
+            ));
+        }
+        return Err(Diagnostic::new(
+            "parse",
+            "borrow lifetime annotations must use `&'a [T]` or `&'a mut [T]` syntax",
+        )
+        .with_path(path.display().to_string())
+        .with_span(line_no, column));
+    }
     if raw.starts_with("&mut [")
         && raw.ends_with(']')
         && matches!(find_matching_square(raw, 5), Some(close) if close == raw.len() - 1)
@@ -2737,6 +2800,202 @@ fn find_closure_param_bar(raw: &str) -> Option<usize> {
     None
 }
 
+fn parse_function_lifetime_params(
+    raw: &str,
+    path: &Path,
+    line_no: usize,
+    column: usize,
+) -> Result<Vec<String>, Diagnostic> {
+    let Some(open_angle) = find_top_level_char(raw, '<') else {
+        return Ok(Vec::new());
+    };
+    if !raw.ends_with('>')
+        || !matches!(find_matching_angle(raw, open_angle), Some(close) if close == raw.len() - 1)
+    {
+        return Ok(Vec::new());
+    }
+    let params_raw = raw[open_angle + 1..raw.len() - 1].trim();
+    let mut lifetimes = Vec::new();
+    for param in split_top_level_type(params_raw, ',') {
+        let param = param.trim();
+        if let Some(lifetime) = param.strip_prefix("'") {
+            if lifetime.is_empty() {
+                return Err(
+                    Diagnostic::new("parse", "lifetime parameter is missing a name")
+                        .with_path(path.display().to_string())
+                        .with_span(line_no, column + open_angle + 1),
+                );
+            }
+            validate_ident(lifetime, path, line_no, column + open_angle + 2)?;
+            if lifetimes.iter().any(|existing| existing == lifetime) {
+                return Err(Diagnostic::new(
+                    "parse",
+                    format!("duplicate lifetime parameter {lifetime:?}"),
+                )
+                .with_path(path.display().to_string())
+                .with_span(line_no, column + open_angle + 1));
+            }
+            lifetimes.push(lifetime.to_string());
+        }
+    }
+    Ok(lifetimes)
+}
+
+fn validate_function_lifetime_uses(
+    lifetime_params: &[String],
+    params: &[Param],
+    return_ty: &TypeName,
+    path: &Path,
+    line_no: usize,
+) -> Result<(), Diagnostic> {
+    let mut used = Vec::new();
+    for param in params {
+        collect_lifetime_uses(&param.ty, &mut used);
+    }
+    collect_lifetime_uses(return_ty, &mut used);
+    for lifetime in &used {
+        if !lifetime_params.iter().any(|declared| declared == lifetime) {
+            return Err(Diagnostic::new(
+                "parse",
+                format!("undeclared lifetime parameter {lifetime:?}"),
+            )
+            .with_path(path.display().to_string())
+            .with_span(line_no, 1));
+        }
+    }
+    let distinct = used.into_iter().collect::<std::collections::HashSet<_>>();
+    if distinct.len() > 1 {
+        return Err(Diagnostic::new(
+            "parse",
+            "multiple explicit lifetimes in one function signature are not supported yet",
+        )
+        .with_path(path.display().to_string())
+        .with_span(line_no, 1));
+    }
+    if let Some(return_lifetime) = explicit_return_lifetime(return_ty) {
+        for param in params {
+            if type_contains_borrowed_slice(&param.ty)
+                && !type_uses_lifetime(&param.ty, return_lifetime)
+            {
+                return Err(Diagnostic::new(
+                    "parse",
+                    "explicit borrowed return lifetimes cannot be mixed with unannotated borrowed parameters yet",
+                )
+                .with_path(path.display().to_string())
+                .with_span(line_no, 1));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn explicit_return_lifetime(ty: &TypeName) -> Option<&str> {
+    match ty {
+        TypeName::LifetimeSlice(lifetime, _) | TypeName::LifetimeMutSlice(lifetime, _) => {
+            Some(lifetime.as_str())
+        }
+        TypeName::Option(inner) | TypeName::Array(inner, _) => explicit_return_lifetime(inner),
+        TypeName::Result(ok, err) | TypeName::Map(ok, err) => {
+            explicit_return_lifetime(ok).or_else(|| explicit_return_lifetime(err))
+        }
+        TypeName::Tuple(elements) => elements.iter().find_map(explicit_return_lifetime),
+        TypeName::Named(_, args) => args.iter().find_map(explicit_return_lifetime),
+        TypeName::Fn(params, return_ty) => params
+            .iter()
+            .find_map(explicit_return_lifetime)
+            .or_else(|| explicit_return_lifetime(return_ty)),
+        TypeName::Ptr(_)
+        | TypeName::MutPtr(_)
+        | TypeName::Slice(_)
+        | TypeName::MutSlice(_)
+        | TypeName::Int
+        | TypeName::Bool
+        | TypeName::String => None,
+    }
+}
+
+fn type_uses_lifetime(ty: &TypeName, lifetime: &str) -> bool {
+    match ty {
+        TypeName::LifetimeSlice(name, inner) | TypeName::LifetimeMutSlice(name, inner) => {
+            name == lifetime || type_uses_lifetime(inner, lifetime)
+        }
+        TypeName::Named(_, args) | TypeName::Tuple(args) => {
+            args.iter().any(|arg| type_uses_lifetime(arg, lifetime))
+        }
+        TypeName::Fn(params, return_ty) => {
+            params.iter().any(|arg| type_uses_lifetime(arg, lifetime))
+                || type_uses_lifetime(return_ty, lifetime)
+        }
+        TypeName::Ptr(inner)
+        | TypeName::MutPtr(inner)
+        | TypeName::Slice(inner)
+        | TypeName::MutSlice(inner)
+        | TypeName::Option(inner)
+        | TypeName::Array(inner, _) => type_uses_lifetime(inner, lifetime),
+        TypeName::Result(ok, err) | TypeName::Map(ok, err) => {
+            type_uses_lifetime(ok, lifetime) || type_uses_lifetime(err, lifetime)
+        }
+        TypeName::Int | TypeName::Bool | TypeName::String => false,
+    }
+}
+
+fn type_contains_borrowed_slice(ty: &TypeName) -> bool {
+    match ty {
+        TypeName::Slice(_)
+        | TypeName::MutSlice(_)
+        | TypeName::LifetimeSlice(_, _)
+        | TypeName::LifetimeMutSlice(_, _) => true,
+        TypeName::Named(_, args) | TypeName::Tuple(args) => {
+            args.iter().any(type_contains_borrowed_slice)
+        }
+        TypeName::Fn(params, return_ty) => {
+            params.iter().any(type_contains_borrowed_slice)
+                || type_contains_borrowed_slice(return_ty)
+        }
+        TypeName::Ptr(inner)
+        | TypeName::MutPtr(inner)
+        | TypeName::Option(inner)
+        | TypeName::Array(inner, _) => type_contains_borrowed_slice(inner),
+        TypeName::Result(ok, err) | TypeName::Map(ok, err) => {
+            type_contains_borrowed_slice(ok) || type_contains_borrowed_slice(err)
+        }
+        TypeName::Int | TypeName::Bool | TypeName::String => false,
+    }
+}
+
+fn collect_lifetime_uses(ty: &TypeName, found: &mut Vec<String>) {
+    match ty {
+        TypeName::LifetimeSlice(lifetime, inner) | TypeName::LifetimeMutSlice(lifetime, inner) => {
+            if !found.iter().any(|existing| existing == lifetime) {
+                found.push(lifetime.clone());
+            }
+            collect_lifetime_uses(inner, found);
+        }
+        TypeName::Named(_, args) | TypeName::Tuple(args) => {
+            for arg in args {
+                collect_lifetime_uses(arg, found);
+            }
+        }
+        TypeName::Ptr(inner)
+        | TypeName::MutPtr(inner)
+        | TypeName::Slice(inner)
+        | TypeName::MutSlice(inner)
+        | TypeName::Option(inner)
+        | TypeName::Array(inner, _) => collect_lifetime_uses(inner, found),
+        TypeName::Result(ok, err) | TypeName::Map(ok, err) => {
+            collect_lifetime_uses(ok, found);
+            collect_lifetime_uses(err, found);
+        }
+        TypeName::Fn(params, return_ty) => {
+            for param in params {
+                collect_lifetime_uses(param, found);
+            }
+            collect_lifetime_uses(return_ty, found);
+        }
+        TypeName::Int | TypeName::Bool | TypeName::String => {}
+    }
+}
+
 fn parse_function_name<'a>(
     raw: &'a str,
     path: &Path,
@@ -2778,7 +3037,23 @@ fn parse_decl_name<'a>(
         let mut params = Vec::new();
         for param in split_top_level_type(params_raw, ',') {
             let param = param.trim();
-            validate_ident(param, path, line_no, column + open_angle + 1)?;
+            let type_param = if let Some(lifetime) = param.strip_prefix("'") {
+                if lifetime.is_empty() {
+                    return Err(
+                        Diagnostic::new("parse", "lifetime parameter is missing a name")
+                            .with_path(path.display().to_string())
+                            .with_span(line_no, column + open_angle + 1),
+                    );
+                }
+                validate_ident(lifetime, path, line_no, column + open_angle + 2)?;
+                None
+            } else {
+                validate_ident(param, path, line_no, column + open_angle + 1)?;
+                Some(param)
+            };
+            let Some(param) = type_param else {
+                continue;
+            };
             if params.iter().any(|existing| existing == param) {
                 return Err(Diagnostic::new(
                     "parse",
