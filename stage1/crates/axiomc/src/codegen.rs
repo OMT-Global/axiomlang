@@ -2064,6 +2064,7 @@ fn axiom_crypto_constant_time_eq(left: String, right: String) -> bool {
     out.push_str("fn main() -> std::process::ExitCode {\n");
     out.push_str("    axiom_install_panic_hook();\n");
     out.push_str("    let result = panic::catch_unwind(|| {\n");
+    let main_mutable_locals = collect_mutably_borrowed_locals(&program.stmts);
     render_stmt_block(
         &program.stmts,
         &type_context,
@@ -2073,6 +2074,7 @@ fn axiom_crypto_constant_time_eq(left: String, right: String) -> bool {
         false,
         debug,
         &[],
+        &main_mutable_locals,
     );
     out.push_str("    });\n");
     out.push_str("    match result {\n");
@@ -2360,10 +2362,11 @@ fn render_function(
         return;
     }
     let uses_slice_lifetime = function_signature_uses_borrowed_slice(function, type_context);
+    let mutable_locals = collect_mutably_borrowed_locals(&function.body);
     let params = function
         .params
         .iter()
-        .map(|param| render_param(param, uses_slice_lifetime, type_context))
+        .map(|param| render_param(param, uses_slice_lifetime, type_context, &mutable_locals))
         .collect::<Vec<_>>()
         .join(", ");
     let lifetime = if uses_slice_lifetime { "<'a>" } else { "" };
@@ -2384,6 +2387,7 @@ fn render_function(
         function.is_async,
         debug,
         &[],
+        &mutable_locals,
     );
     out.push_str("}\n");
 }
@@ -2507,12 +2511,137 @@ fn render_param(
     param: &Param,
     uses_slice_lifetime: bool,
     type_context: &TypeContext<'_>,
+    mutable_locals: &HashSet<String>,
 ) -> String {
+    let mutability = mutable_locals
+        .contains(&param.name)
+        .then_some("mut ")
+        .unwrap_or("");
     format!(
-        "{}: {}",
+        "{}{}: {}",
+        mutability,
         param.name,
         rust_type_in_signature(&param.ty, uses_slice_lifetime, type_context)
     )
+}
+
+fn collect_mutably_borrowed_locals(stmts: &[Stmt]) -> HashSet<String> {
+    let mut locals = HashSet::new();
+    for stmt in stmts {
+        collect_stmt_mutable_borrows(stmt, &mut locals);
+    }
+    locals
+}
+
+fn collect_stmt_mutable_borrows(stmt: &Stmt, locals: &mut HashSet<String>) {
+    match stmt {
+        Stmt::Let { expr, .. }
+        | Stmt::Print { expr, .. }
+        | Stmt::Defer { expr, .. }
+        | Stmt::Return { expr, .. } => collect_expr_mutable_borrows(expr, locals),
+        Stmt::Panic { message, .. } => collect_expr_mutable_borrows(message, locals),
+        Stmt::If {
+            cond,
+            then_block,
+            else_block,
+            ..
+        } => {
+            collect_expr_mutable_borrows(cond, locals);
+            for stmt in then_block {
+                collect_stmt_mutable_borrows(stmt, locals);
+            }
+            if let Some(else_block) = else_block {
+                for stmt in else_block {
+                    collect_stmt_mutable_borrows(stmt, locals);
+                }
+            }
+        }
+        Stmt::While { cond, body, .. } => {
+            collect_expr_mutable_borrows(cond, locals);
+            for stmt in body {
+                collect_stmt_mutable_borrows(stmt, locals);
+            }
+        }
+        Stmt::Match { expr, arms, .. } => {
+            collect_expr_mutable_borrows(expr, locals);
+            for arm in arms {
+                for stmt in &arm.body {
+                    collect_stmt_mutable_borrows(stmt, locals);
+                }
+            }
+        }
+    }
+}
+
+fn mutable_borrow_root_name(expr: &Expr) -> Option<&str> {
+    match expr {
+        Expr::VarRef { name, .. } => Some(name),
+        Expr::FieldAccess { base, .. } | Expr::TupleIndex { base, .. } => {
+            mutable_borrow_root_name(base)
+        }
+        Expr::Index { base, .. } => mutable_borrow_root_name(base),
+        _ => None,
+    }
+}
+
+fn collect_expr_mutable_borrows(expr: &Expr, locals: &mut HashSet<String>) {
+    match expr {
+        Expr::Slice {
+            base,
+            start,
+            end,
+            ty,
+        } => {
+            if matches!(ty, Type::MutSlice(_)) {
+                if let Some(name) = mutable_borrow_root_name(base) {
+                    locals.insert(name.to_string());
+                }
+            }
+            collect_expr_mutable_borrows(base, locals);
+            if let Some(start) = start {
+                collect_expr_mutable_borrows(start, locals);
+            }
+            if let Some(end) = end {
+                collect_expr_mutable_borrows(end, locals);
+            }
+        }
+        Expr::Call { args, .. }
+        | Expr::TupleLiteral { elements: args, .. }
+        | Expr::ArrayLiteral { elements: args, .. } => {
+            for arg in args {
+                collect_expr_mutable_borrows(arg, locals);
+            }
+        }
+        Expr::BinaryAdd { lhs, rhs, .. } | Expr::BinaryCompare { lhs, rhs, .. } => {
+            collect_expr_mutable_borrows(lhs, locals);
+            collect_expr_mutable_borrows(rhs, locals);
+        }
+        Expr::Try { expr, .. }
+        | Expr::Await { expr, .. }
+        | Expr::FieldAccess { base: expr, .. }
+        | Expr::TupleIndex { base: expr, .. } => collect_expr_mutable_borrows(expr, locals),
+        Expr::StructLiteral { fields, .. } => {
+            for field in fields {
+                collect_expr_mutable_borrows(&field.expr, locals);
+            }
+        }
+        Expr::MapLiteral { entries, .. } => {
+            for entry in entries {
+                collect_expr_mutable_borrows(&entry.key, locals);
+                collect_expr_mutable_borrows(&entry.value, locals);
+            }
+        }
+        Expr::EnumVariant { payloads, .. } => {
+            for payload in payloads {
+                collect_expr_mutable_borrows(payload, locals);
+            }
+        }
+        Expr::Index { base, index, .. } => {
+            collect_expr_mutable_borrows(base, locals);
+            collect_expr_mutable_borrows(index, locals);
+        }
+        Expr::Literal(_) | Expr::VarRef { .. } => {}
+    }
 }
 
 fn render_stmt_block(
@@ -2524,6 +2653,7 @@ fn render_stmt_block(
     in_async_function: bool,
     debug: bool,
     active_defers: &[(String, SourceSpan)],
+    mutable_locals: &HashSet<String>,
 ) {
     let mut local_defers: Vec<(String, SourceSpan)> = Vec::new();
     for stmt in stmts {
@@ -2536,6 +2666,7 @@ fn render_stmt_block(
             in_async_function,
             debug,
             active_defers,
+            mutable_locals,
             &mut local_defers,
         );
     }
@@ -2561,6 +2692,7 @@ fn render_stmt(
     in_async_function: bool,
     debug: bool,
     active_defers: &[(String, SourceSpan)],
+    mutable_locals: &HashSet<String>,
     local_defers: &mut Vec<(String, SourceSpan)>,
 ) {
     let pad = "    ".repeat(indent);
@@ -2572,8 +2704,12 @@ fn render_stmt(
             span,
         } => {
             render_source_marker(source_path, *span, out, indent, debug);
+            let mutability = mutable_locals
+                .contains(name)
+                .then_some("mut ")
+                .unwrap_or("");
             out.push_str(&format!(
-                "{pad}let {name}: {} = {};
+                "{pad}let {mutability}{name}: {} = {};
 ",
                 rust_type(ty, type_context),
                 render_expr(expr)
@@ -2623,6 +2759,7 @@ fn render_stmt(
                 in_async_function,
                 debug,
                 &scoped_defers,
+                mutable_locals,
             );
             if let Some(else_block) = else_block {
                 out.push_str(&format!(
@@ -2638,6 +2775,7 @@ fn render_stmt(
                     in_async_function,
                     debug,
                     &scoped_defers,
+                    mutable_locals,
                 );
                 out.push_str(&format!(
                     "{pad}}}
@@ -2668,6 +2806,7 @@ fn render_stmt(
                 in_async_function,
                 debug,
                 &scoped_defers,
+                mutable_locals,
             );
             out.push_str(&format!(
                 "{pad}}}
@@ -2693,6 +2832,7 @@ fn render_stmt(
                     in_async_function,
                     debug,
                     &scoped_defers,
+                    mutable_locals,
                 );
             }
             out.push_str(&format!(
@@ -2721,6 +2861,21 @@ fn render_stmt(
     }
 }
 
+fn render_match_binding(binding: &str, mutable_locals: &HashSet<String>) -> String {
+    mutable_locals
+        .contains(binding)
+        .then(|| format!("mut {binding}"))
+        .unwrap_or_else(|| binding.to_string())
+}
+
+fn render_match_bindings(bindings: &[String], mutable_locals: &HashSet<String>) -> String {
+    bindings
+        .iter()
+        .map(|binding| render_match_binding(binding, mutable_locals))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
 fn render_match_arm(
     arm: &MatchArm,
     type_context: &TypeContext<'_>,
@@ -2730,6 +2885,7 @@ fn render_match_arm(
     in_async_function: bool,
     debug: bool,
     active_defers: &[(String, SourceSpan)],
+    mutable_locals: &HashSet<String>,
 ) {
     let pad = "    ".repeat(indent);
     if arm.bindings.is_empty() {
@@ -2739,14 +2895,14 @@ fn render_match_arm(
             "{pad}{}::{} {{ {} }} => {{\n",
             arm.enum_name,
             arm.variant,
-            arm.bindings.join(", ")
+            render_match_bindings(&arm.bindings, mutable_locals)
         ));
     } else {
         out.push_str(&format!(
             "{pad}{}::{}({}) => {{\n",
             arm.enum_name,
             arm.variant,
-            arm.bindings.join(", ")
+            render_match_bindings(&arm.bindings, mutable_locals)
         ));
     }
     render_stmt_block(
@@ -2758,6 +2914,7 @@ fn render_match_arm(
         in_async_function,
         debug,
         active_defers,
+        mutable_locals,
     );
     out.push_str(&format!("{pad}}},\n"));
 }
