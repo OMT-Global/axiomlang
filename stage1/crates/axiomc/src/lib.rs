@@ -5,6 +5,7 @@ pub mod diagnostic_catalog;
 >>>>>>> origin/codex/issue-406-collection-lookup
 >>>>>>> origin/codex/issue-383-new-templates
 >>>>>>> origin/codex/agent-g-regex
+>>>>>>> origin/codex/agent-f-fs
 pub mod diagnostics;
 pub mod hir;
 pub mod json_contract;
@@ -60,14 +61,16 @@ mod tests {
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
             "[package]\nname = {name:?}\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = {fs}\n\"fs:write\" = {fs}\nnet = {net}\nprocess = {process}\nenv = {env}\nclock = {clock}\ncrypto = {crypto}\nasync = false\n"
->>>>>>> origin/codex/issue-378-inspect-graph
 =======
 >>>>>>> origin/codex/issue-406-collection-lookup
 =======
 >>>>>>> origin/codex/issue-383-new-templates
 =======
 >>>>>>> origin/codex/agent-g-regex
+=======
+>>>>>>> origin/codex/agent-f-fs
             "[package]\nname = {name:?}\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = {fs}\n\"fs:write\" = {fs}\nnet = {net}\nprocess = {process}\nenv = {env}\nclock = {clock}\ncrypto = {crypto}\n"
         )
     }
@@ -392,6 +395,7 @@ print borrowed
 >>>>>>> origin/codex/issue-406-collection-lookup
 >>>>>>> origin/codex/issue-383-new-templates
 >>>>>>> origin/codex/agent-g-regex
+>>>>>>> origin/codex/agent-f-fs
     fn parser_expands_declarative_statement_macros_before_lowering() {
         let source = r#"macro_rules! answer {
 ($value:expr) => {
@@ -2787,11 +2791,13 @@ crypto = false
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
         assert_eq!(caps.len(), 9);
         assert!(caps.iter().all(|cap| !cap.enabled));
         assert!(caps.iter().any(|cap| cap.name == "async"));
         let project_caps = project_capabilities(&project).expect("project capabilities");
         assert_eq!(project_caps.len(), 9);
+=======
 =======
 =======
 =======
@@ -2899,6 +2905,7 @@ crypto = false
 >>>>>>> origin/codex/issue-406-collection-lookup
 >>>>>>> origin/codex/issue-383-new-templates
 >>>>>>> origin/codex/agent-g-regex
+>>>>>>> origin/codex/agent-f-fs
     }
 
     #[test]
@@ -5427,7 +5434,9 @@ print serve_once("127.0.0.1:18080", "hello")
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
                 stderr: None,
+=======
 =======
 =======
 =======
@@ -5937,6 +5946,8 @@ print serve_once("127.0.0.1:18080", "hello")
         assert_eq!(output.passed, 36);
         assert_eq!(output.cases.len(), 29);
         assert_eq!(output.passed, 29);
+        assert_eq!(output.cases.len(), 31);
+        assert_eq!(output.passed, 31);
         assert_eq!(output.failed, 0);
         assert!(
             output
@@ -5946,6 +5957,7 @@ print serve_once("127.0.0.1:18080", "hello")
                 .count()
                 == 24
                 == 20
+                == 21
         );
         assert_eq!(
             output
@@ -5956,6 +5968,7 @@ print serve_once("127.0.0.1:18080", "hello")
             12
 >>>>>>> origin/codex/issue-383-new-templates
             9
+            10
         );
     }
 
@@ -8825,15 +8838,15 @@ print 0
         );
         assert_eq!(payload["command"], "build");
         assert_eq!(payload["backend"], "generated-rust");
-<<<<<<< HEAD
         assert_eq!(payload["locked"], true);
         assert_eq!(payload["offline"], true);
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
 =======
 =======
->>>>>>> origin/codex/agent-g-regex
+>>>>>>> origin/codex/agent-f-fs
         assert!(payload["target"].is_string());
         assert_eq!(payload["debug"], true);
         assert!(payload["debug_map"].is_string());
@@ -9123,6 +9136,9 @@ print next.value
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+>>>>>>> origin/codex/agent-f-fs
 
     // AG2: deterministic monomorphized symbol naming (#337)
     // These snapshot tests lock the exact symbol names produced for nested generics,

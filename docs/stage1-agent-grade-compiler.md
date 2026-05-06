@@ -155,7 +155,7 @@ Status: complete for the current stage1 bootstrap contract.
 
 - `AG3.1` local path dependency graphs, package-root workspace members, and root lockfile validation are landed.
 - `AG3.2` now rejects import aliases, re-exports, and namespace-qualified calls with explicit parser diagnostics.
-- `AG3.3` now denies capability-gated compiler-known intrinsics across all six manifest flags: `fs_read(...)`, `net_resolve(...)`, `process_status(...)`, `env_get(...)`, `clock_now_ms()`, `clock_elapsed_ms(...)`, `clock_sleep_ms(...)`, and `crypto_sha256(...)`.
+- `AG3.3` now denies capability-gated compiler-known intrinsics across manifest flags: `fs_read(...)`, `fs_create_file(...)`, `fs_write_file(...)`, `fs_append_file(...)`, `fs_mkdir(...)`, `fs_mkdir_all(...)`, `fs_remove_file(...)`, `fs_remove_dir(...)`, `fs_replace_file(...)`, `net_resolve(...)`, `process_status(...)`, `env_get(...)`, `clock_now_ms()`, `clock_elapsed_ms(...)`, `clock_sleep_ms(...)`, and `crypto_sha256(...)`.
 - Workspace-only manifests are now accepted at the root, and `axiomc check/build/run/test -p <package>` can target a concrete workspace member when the root has no `[package]` section.
 
 Work packages:
@@ -233,14 +233,22 @@ Work packages:
     `stage1_project_rejects_stdlib_env_without_env_capability`).
   - `std.fs` — **landed** as `std/fs.ax` exposing
     `read_file(path: string): Option<string>` on top of the existing `fs_read`
-    intrinsic. The generated helper treats relative paths as package-relative,
-    restricts access to the package root by default or `[capabilities]
-    fs_root = "<relative package path>"`, canonicalizes requested files to deny
-    traversal and symlink escapes, and rejects reads larger than 64 MiB. Covered
-    by `stage1/examples/stdlib_fs` and Rust tests
+    intrinsic. `std/fs_write.ax` exposes write-side helpers `create_file`,
+    `write_file`, `append_file`, `mkdir`, `mkdir_all`, `remove_file`,
+    `remove_dir`, and `replace_file`. Reads require `[capabilities].fs = true`;
+    write helpers require `[capabilities].fs_write = true` and are reported as
+    `fs:write` by `axiomc caps`. The generated helpers treat relative paths as
+    package-relative, restrict access to the package root by default or
+    `[capabilities] fs_root = "<relative package path>"`, canonicalize requested
+    files or their existing ancestors to deny traversal and symlink escapes, and
+    reject reads or writes larger than 64 MiB. Covered by
+    `stage1/examples/stdlib_fs`, `stage1/examples/stdlib_fs_write`, and Rust tests
     (`stage1_project_imports_synthetic_stdlib_fs_module`,
     `stage1_project_rejects_stdlib_fs_without_fs_capability`,
-    `build_project_scopes_fs_read_to_manifest_root`).
+    `stage1_project_imports_synthetic_stdlib_fs_write_side`,
+    `stage1_project_rejects_stdlib_fs_write_without_fs_write_capability`,
+    `build_project_scopes_fs_read_to_manifest_root`, and
+    `build_project_scopes_fs_write_to_manifest_root`).
   - `std.net` — **landed** (extension beyond the original AG4.1 list to close
     the capability/wrapper symmetry) as `std/net.ax` exposing
     `resolve(host: string): Option<string>` on top of the existing
@@ -353,7 +361,7 @@ Work packages:
 
 - `AG4.4`: capability-aware integration
   - **landed for the current stdlib/runtime surface**: compiler-known
-    intrinsics enforce all six manifest flags, stdlib wrappers preserve that
+    intrinsics enforce all manifest flags, stdlib wrappers preserve that
     enforcement against the importing package's manifest, capability-denied
     programs fail before native execution, and the Rust suite covers both
     per-wrapper denial paths and cross-package capability interactions

@@ -1,0 +1,17 @@
+[package]
+name = "stdlib-fs-write"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+fs = true
+fs_write = true
+net = false
+process = false
+env = false
+clock = false
+crypto = false
+ffi = false

@@ -27,6 +27,7 @@ Current executable fixtures cover:
   borrowed slices.
 - `ownership_borrowing`: borrow-safe parameter, aggregate, borrowed-return,
   projection move, and dependency-boundary execution.
+>>>>>>> origin/codex/agent-f-fs
 - `comparison_package_imports`: Axiom-owned Go/Rust-style comparison fixture
   for explicit package imports and cross-module function calls.
 - `comparison_package_resources`: Axiom-owned Go/Rust-style comparison fixture
@@ -39,13 +40,14 @@ Current executable fixtures cover:
 - `package_visibility`: `pub(pkg)` items imported across sibling modules within
   the same package.
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
 - `comparison_strict_typing`: Axiom-owned comparison fixture for explicit
   scalar typing and bool-only control flow.
 - `comparison_package_imports`: Axiom-owned comparison fixture for package-local
   imports and typed function boundaries.
-
->>>>>>> origin/codex/worker-a-issue-379-fmt-json
+=======
+>>>>>>> origin/codex/agent-f-fs
 Packages under `fail/` are compile-fail fixtures. Each package is a complete
 stage1 project with `axiom.toml`, `axiom.lock`, source, and
 `expected-error.json`. The conformance runner checks the diagnostic kind, code,

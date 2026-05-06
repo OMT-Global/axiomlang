@@ -11,6 +11,7 @@ use axiomc::lockfile::{expected_lockfile_for_project, validate_lockfile};
 use axiomc::manifest::{load_manifest, manifest_path};
 >>>>>>> origin/codex/issue-406-collection-lookup
 >>>>>>> origin/codex/agent-g-regex
+>>>>>>> origin/codex/agent-f-fs
 use axiomc::new_project::create_project;
 use axiomc::diagnostics::Diagnostic;
 use axiomc::json_contract;
@@ -26,6 +27,7 @@ use axiomc::registry::{
 };
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 use axiomc::diagnostics::Diagnostic;
 use axiomc::json_contract;
 use axiomc::lsp;
@@ -38,9 +40,10 @@ use axiomc::project::{
 use axiomc::registry::{load_registry_index, render_registry_index};
 =======
 =======
->>>>>>> origin/codex/issue-383-new-templates
 =======
 >>>>>>> origin/codex/agent-g-regex
+=======
+>>>>>>> origin/codex/agent-f-fs
 use axiomc::syntax::parse_program;
 use clap::{Parser, Subcommand};
 use serde::{Deserialize, Serialize};
@@ -196,6 +199,7 @@ enum Command {
 >>>>>>> origin/codex/issue-406-collection-lookup
 >>>>>>> origin/codex/issue-383-new-templates
 >>>>>>> origin/codex/agent-g-regex
+>>>>>>> origin/codex/agent-f-fs
     /// Pack, sign, and publish a stage1 package into a local registry tree.
     Publish {
         path: PathBuf,
@@ -224,6 +228,7 @@ enum Command {
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 }
 
 <<<<<<< HEAD
@@ -247,9 +252,10 @@ enum InspectCommand {
 =======
 =======
 =======
->>>>>>> origin/codex/issue-383-new-templates
 =======
 >>>>>>> origin/codex/agent-g-regex
+=======
+>>>>>>> origin/codex/agent-f-fs
 }
 
 fn main() {
@@ -2586,7 +2592,7 @@ mod tests {
 =======
 =======
 =======
->>>>>>> origin/codex/agent-g-regex
+>>>>>>> origin/codex/agent-f-fs
     }
 
     fn build_output(debug_map: Option<String>) -> BuildOutput {
@@ -2599,6 +2605,7 @@ mod tests {
 >>>>>>> origin/codex/issue-406-collection-lookup
 >>>>>>> origin/codex/issue-383-new-templates
 >>>>>>> origin/codex/agent-g-regex
+>>>>>>> origin/codex/agent-f-fs
             manifest: String::from("axiom.toml"),
             entry: String::from("src/main.ax"),
             binary: String::from("dist/app"),
@@ -2607,6 +2614,7 @@ mod tests {
             statement_count: 1,
             target: None,
             debug: true,
+<<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
@@ -2620,6 +2628,7 @@ mod tests {
                 generated_rust_hash: String::from("rust-hash"),
                 sources: Vec::new(),
             },
+=======
 =======
 =======
 =======

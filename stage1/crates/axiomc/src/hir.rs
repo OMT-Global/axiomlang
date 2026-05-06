@@ -553,6 +553,7 @@ fn lower_with_capabilities_impl(
 >>>>>>> origin/codex/issue-406-collection-lookup
 >>>>>>> origin/codex/issue-383-new-templates
 >>>>>>> origin/codex/agent-g-regex
+>>>>>>> origin/codex/agent-f-fs
     )
     .map_err(single_diagnostic)?;
     let functions =
@@ -881,6 +882,7 @@ fn type_has_unboxed_recursive_path(
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
         Type::Error
         | Type::Int
         | Type::Numeric(_)
@@ -889,6 +891,7 @@ fn type_has_unboxed_recursive_path(
         | Type::Str
         | Type::Ptr(_)
         | Type::MutPtr(_) => false,
+=======
 =======
 =======
 =======
@@ -5461,6 +5464,7 @@ fn lower_match_stmt(
 >>>>>>> origin/codex/issue-406-collection-lookup
 >>>>>>> origin/codex/issue-383-new-templates
 >>>>>>> origin/codex/agent-g-regex
+>>>>>>> origin/codex/agent-f-fs
 fn lower_stmt(
     stmt: &syntax::Stmt,
     env: &mut HashMap<String, Binding>,
@@ -5506,6 +5510,7 @@ fn lower_stmt(
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
             if let Some(expected_len) = expected_array_len {
                 if let syntax::Expr::ArrayLiteral { elements, .. } = expr {
                     if elements.len() != expected_len {
@@ -5522,6 +5527,7 @@ fn lower_stmt(
             }
             if !type_assignable_to(&actual, &expected) && !actual.is_error() && !expected.is_error()
             {
+=======
 =======
 =======
 =======
@@ -10211,7 +10217,6 @@ fn explicit_borrow_return_params(function: &syntax::Function) -> Option<Vec<usiz
     )
 }
 
-<<<<<<< HEAD
 =======
 fn contains_borrowed_slice_type_inner(
     ty: &Type,
@@ -10485,11 +10490,47 @@ fn increment_active_borrows(
                 format!("internal error: missing borrow owner {owner_name:?}"),
             )
         })?;
+<<<<<<< HEAD
         binding.borrow_state.begin_borrow(
             owner_name,
             borrow_kind,
             BorrowSourceSpan::new(line, column),
         )?;
+        match borrow_kind {
+            BorrowKind::Shared if binding.active_mut_borrow_count > 0 => {
+                return Err(ownership_error(
+                    OWNERSHIP_SHARED_BORROW_WHILE_MUTABLE_LIVE,
+                    format!(
+                        "cannot create shared borrow of value {owner_name:?} while a mutable borrow is still live"
+                    ),
+                )
+                .with_span(line, column));
+            }
+            BorrowKind::Mutable if binding.active_mut_borrow_count > 0 => {
+                return Err(ownership_error(
+                    OWNERSHIP_MUTABLE_BORROW_WHILE_MUTABLE_LIVE,
+                    format!(
+                        "cannot create mutable borrow of value {owner_name:?} while another mutable borrow is still live"
+                    ),
+                )
+                .with_span(line, column));
+            }
+            BorrowKind::Mutable if binding.active_borrow_count > 0 => {
+                return Err(ownership_error(
+                    OWNERSHIP_MUTABLE_BORROW_WHILE_SHARED_LIVE,
+                    format!(
+                        "cannot create mutable borrow of value {owner_name:?} while a shared borrow is still live"
+                    ),
+                )
+                .with_help("drop the shared borrow before creating a mutable borrow")
+                .with_span(line, column));
+            }
+            _ => {}
+        }
+        binding.active_borrow_count += 1;
+        if matches!(borrow_kind, BorrowKind::Mutable) {
+            binding.active_mut_borrow_count += 1;
+        }
     }
     Ok(())
 }

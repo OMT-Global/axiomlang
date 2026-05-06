@@ -14,6 +14,7 @@
 >>>>>>> origin/codex/issue-406-collection-lookup
 >>>>>>> origin/codex/issue-383-new-templates
 >>>>>>> origin/codex/agent-g-regex
+>>>>>>> origin/codex/agent-f-fs
 //! single-intrinsic capability-gated surfaces, one per capability class:
 //!
 //! * `std/time.ax` — `Duration`, `Instant`, `now_ms()`, `now()`,
@@ -74,6 +75,8 @@
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
 =======
 =======
 //! * `std/regex.ax` — linear-time regular-expression helpers (`is_match`,
@@ -292,8 +295,8 @@ pub async fn udp_send_recv(host: string, port: int, message: string, timeout_ms:
     (
 >>>>>>> origin/codex/worker-a-issue-379-fmt-json
 >>>>>>> origin/codex/issue-383-new-templates
-=======
 >>>>>>> origin/codex/agent-g-regex
+=======
         "testing.ax",
         "pub fn table_int(name: string, actual: int, expected: int): int {\nreturn assert_case_eq(name, actual, expected)\n}\n\
 pub fn table_bool(name: string, actual: bool, expected: bool): int {\nreturn assert_case_eq(name, actual, expected)\n}\n\
@@ -332,13 +335,13 @@ pub fn option_unwrap_or<T>(value: Option<T>, fallback: T): T {\nmatch value {\nS
 pub fn result_is_ok<T, E>(value: Result<T, E>): bool {\nmatch value {\nOk(_inner) {\nreturn true\n}\nErr(_error) {\nreturn false\n}\n}\n}\n\
 pub fn result_is_err<T, E>(value: Result<T, E>): bool {\nmatch value {\nOk(_inner) {\nreturn false\n}\nErr(_error) {\nreturn true\n}\n}\n}\n\
 pub fn result_unwrap_or<T, E>(value: Result<T, E>, fallback: T): T {\nmatch value {\nOk(inner) {\nreturn inner\n}\nErr(_error) {\nreturn fallback\n}\n}\n}\n",
-=======
     ),
     (
         "encoding.ax",
         "pub fn url_component_encode(value: string): string {\nreturn encoding_url_component_encode(value)\n}\n\
 pub fn url_component_decode(value: string): Option<string> {\nreturn encoding_url_component_decode(value)\n}\n\
 pub fn path_segment_encode(value: string): string {\nreturn encoding_path_segment_encode(value)\n}\n",
+=======
 =======
     ),
 ];

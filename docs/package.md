@@ -15,6 +15,7 @@ cargo run --manifest-path stage1/Cargo.toml -p axiomc -- caps stage1/examples/he
 >>>>>>> origin/codex/issue-406-collection-lookup
 >>>>>>> origin/codex/issue-383-new-templates
 >>>>>>> origin/codex/agent-g-regex
+>>>>>>> origin/codex/agent-f-fs
 cargo run --manifest-path stage1/Cargo.toml -p axiomc -- publish stage1/examples/hello --registry-dir ./registry/packages --signing-key dev-key
 =======
 cargo run --manifest-path stage1/Cargo.toml -p axiomc -- registry-index ./registry/packages --base-url https://packages.example.test --out ./registry/index.json
@@ -50,6 +51,8 @@ The generated index records per-release capability manifests, archive/signature 
 and yanked status so a simple static host can serve lockfile-friendly package metadata. This is publish and registry-index groundwork for a future hosted registry service, not the hosted service itself.
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 and yanked status so a simple static host can serve lockfile-friendly package metadata. This is registry-index groundwork for a future hosted registry service, not the hosted service itself.
+=======
 =======
 =======

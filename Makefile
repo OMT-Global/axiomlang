@@ -8,8 +8,9 @@
 >>>>>>> origin/codex/issue-408-cli-args
 .PHONY: test smoke supply-chain docs-python-exit docs-python-exit-test stage1-test stage1-proof-test stage1-conformance stage1-smoke stage1-bench-gate stage1-run
 .PHONY: test smoke supply-chain docs-python-exit docs-python-exit-test stage1-test stage1-proof-test stage1-conformance stage1-smoke stage1-bench-gate stage1-crap-proposal stage1-run
-=======
 .PHONY: test smoke supply-chain docs-python-exit docs-python-exit-test stage1-test stage1-proof-test stage1-conformance stage1-smoke stage1-bench-gate stage1-run
+=======
+.PHONY: test smoke supply-chain docs-python-exit docs-python-exit-test stage1-test stage1-proof-test stage1-conformance stage1-smoke stage1-bench-gate stage1-crap-proposal stage1-run
 
 test: docs-python-exit stage1-test
 
@@ -127,11 +128,11 @@ stage1-smoke:
 	cargo run --manifest-path stage1/Cargo.toml -p axiomc -- build stage1/examples/stdlib_json --json
 	cargo run --manifest-path stage1/Cargo.toml -p axiomc -- run stage1/examples/stdlib_json
 <<<<<<< HEAD
-=======
 	cargo run --manifest-path stage1/Cargo.toml -p axiomc -- check stage1/examples/stdlib_regex --json
 	cargo run --manifest-path stage1/Cargo.toml -p axiomc -- build stage1/examples/stdlib_regex --json
 	cargo run --manifest-path stage1/Cargo.toml -p axiomc -- run stage1/examples/stdlib_regex
 	cargo run --manifest-path stage1/Cargo.toml -p axiomc -- test stage1/examples/stdlib_regex --json
+=======
 	cargo run --manifest-path stage1/Cargo.toml -p axiomc -- check stage1/examples/stdlib_testing --json
 	cargo run --manifest-path stage1/Cargo.toml -p axiomc -- build stage1/examples/stdlib_testing --json
 	cargo run --manifest-path stage1/Cargo.toml -p axiomc -- run stage1/examples/stdlib_testing

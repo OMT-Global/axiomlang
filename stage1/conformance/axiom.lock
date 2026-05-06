@@ -16,6 +16,7 @@ version = "0.1.0"
 source = "path:fail/closure_move_captured_non_copy"
 
 [[package]]
+>>>>>>> origin/codex/agent-f-fs
 name = "conformance-comparison-owned-resource-move"
 version = "0.1.0"
 source = "path:fail/comparison_owned_resource_move"
@@ -37,7 +38,6 @@ version = "0.1.0"
 source = "path:fail/for_loop_requires_iteration_protocol"
 
 [[package]]
->>>>>>> origin/codex/worker-a-issue-379-fmt-json
 =======
 name = "conformance-match-guard-not-supported"
 version = "0.1.0"
@@ -192,3 +192,7 @@ source = "path:pass/package_visibility"
 name = "conformance-struct-field-access"
 version = "0.1.0"
 source = "path:pass/struct_field_access"
+<<<<<<< HEAD
+=======
+
+>>>>>>> origin/codex/agent-f-fs

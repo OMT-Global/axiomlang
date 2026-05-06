@@ -9,6 +9,7 @@ use serde_json::{Value, json};
 >>>>>>> origin/codex/issue-378-inspect-graph
 >>>>>>> origin/codex/issue-406-collection-lookup
 >>>>>>> origin/codex/issue-383-new-templates
+>>>>>>> origin/codex/agent-f-fs
 use serde_json::{json, Value};
 use std::path::Path;
 
@@ -41,11 +42,13 @@ pub fn build_success(project: &Path, output: &BuildOutput) -> Value {
         "offline": output.offline,
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
 =======
->>>>>>> origin/codex/issue-383-new-templates
 =======
 >>>>>>> origin/codex/agent-g-regex
+=======
+>>>>>>> origin/codex/agent-f-fs
         "manifest": output.manifest,
         "entry": output.entry,
         "binary": output.binary,
