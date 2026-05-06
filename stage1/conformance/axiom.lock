@@ -1,6 +1,21 @@
 version = 1
 
 [[package]]
+name = "conformance-closure-captures-function-callee"
+version = "0.1.0"
+source = "path:fail/closure_captures_function_callee"
+
+[[package]]
+name = "conformance-closure-borrowed-slice-return"
+version = "0.1.0"
+source = "path:fail/closure_borrowed_slice_return"
+
+[[package]]
+name = "conformance-closure-move-captured-non-copy"
+version = "0.1.0"
+source = "path:fail/closure_move_captured_non_copy"
+
+[[package]]
 name = "conformance-comparison-owned-resource-move"
 version = "0.1.0"
 source = "path:fail/comparison_owned_resource_move"
@@ -111,6 +126,11 @@ version = "0.1.0"
 source = "path:fail/stdlib_clock_without_capability"
 
 [[package]]
+name = "conformance-closures"
+version = "0.1.0"
+source = "path:pass/closures"
+
+[[package]]
 name = "conformance-collection-operations"
 version = "0.1.0"
 source = "path:pass/collection_operations"
@@ -146,6 +166,16 @@ version = "0.1.0"
 source = "path:pass/outcome_control_flow"
 
 [[package]]
+name = "conformance-ownership-borrowing"
+version = "0.1.0"
+source = "path:pass/ownership_borrowing"
+
+[[package]]
+name = "borrow-core"
+version = "0.1.0"
+source = "path:pass/ownership_borrowing/deps/core"
+
+[[package]]
 name = "conformance-package-local-modules"
 version = "0.1.0"
 source = "path:pass/package_local_modules"
@@ -159,4 +189,3 @@ source = "path:pass/package_visibility"
 name = "conformance-struct-field-access"
 version = "0.1.0"
 source = "path:pass/struct_field_access"
-

@@ -13,3 +13,4 @@ process = false
 env = false
 clock = false
 crypto = false
+async = true
