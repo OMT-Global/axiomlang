@@ -9822,7 +9822,8 @@ fn expr_borrow_origin(
         Expr::Index { base, .. } => expr_borrow_origin(base, env, ctx),
         Expr::Closure { .. } => None,
         Expr::Literal { .. } | Expr::BinaryAdd { .. } | Expr::BinaryCompare { .. } => None,
-        Expr::StringBorrow { expr, .. } => expr_borrow_origin(expr, env, ctx),
+        Expr::StringBorrow { expr, .. } => expr_borrow_origin(expr, env, ctx)
+            .or_else(|| owned_borrow_root(expr).map(|_| BorrowOrigin::Local)),
     }
 }
 

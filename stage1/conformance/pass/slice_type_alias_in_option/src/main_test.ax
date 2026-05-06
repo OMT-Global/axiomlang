@@ -1,0 +1,12 @@
+type IntView = &[int]
+
+fn maybe(values: IntView): Option<IntView> {
+return Some(values)
+}
+
+let values: [int] = [2, 4, 6]
+let view: Option<IntView> = maybe(values[:])
+match view {
+  Some(slice) => print slice[1]
+  None => print 0
+}

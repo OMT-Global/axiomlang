@@ -1,5 +1,4 @@
-type Names = &[string]
-type Names = &[int]
+type Names = &[Names]
 
-let words: [string] = ["hello"]
-print first(words[:])
+let values: [int] = [1]
+print values[0]
