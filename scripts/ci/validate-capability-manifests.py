@@ -22,6 +22,7 @@ BOOL_KEYS = {
     "clock",
     "crypto",
     "ffi",
+    "async",
 }
 KNOWN_KEYS = BOOL_KEYS | {"fs_root", "env"}
 
@@ -30,7 +31,9 @@ def iter_manifests(root: Path) -> list[Path]:
     return sorted(
         path
         for path in root.rglob("axiom.toml")
-        if ".axiom-build" not in path.parts and ".git" not in path.parts
+        if ".axiom-build" not in path.parts
+        and ".git" not in path.parts
+        and ".worktrees" not in path.parts
     )
 
 

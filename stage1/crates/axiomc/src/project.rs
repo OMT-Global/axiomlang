@@ -1890,17 +1890,20 @@ fn load_module_recursive(
     visiting: &mut Vec<PathBuf>,
 ) -> Result<(), Diagnostic> {
     let module_path = normalize_path(module_path);
+    let package = graph.context(package_root)?;
     if visiting.contains(&module_path) {
         return Err(Diagnostic::new(
             "import",
-            format!("circular import detected at {}", module_path.display()),
+            format!(
+                "circular import detected at {}",
+                import_diagnostic_path(&package.root, &module_path)
+            ),
         )
         .with_path(module_path.display().to_string()));
     }
     if loaded.contains_key(&module_path) {
         return Ok(());
     }
-    let package = graph.context(package_root)?;
 
     let source = if stdlib::is_stdlib_path(&module_path) {
         stdlib::stdlib_source_for(&module_path)
@@ -4531,7 +4534,10 @@ fn resolve_import_path(
             if !candidate.exists() {
                 return Err(Diagnostic::new(
                     "import",
-                    format!("missing import {}", candidate.display()),
+                    format!(
+                        "missing import {}",
+                        import_diagnostic_path(&dependency.root, &candidate)
+                    ),
                 )
                 .with_path(module_path.display().to_string())
                 .with_span(import.line, import.column));
@@ -4559,9 +4565,15 @@ fn resolve_import_path(
     }
     if !candidate.exists() {
         return Err(
-            Diagnostic::new("import", format!("missing import {}", candidate.display()))
-                .with_path(module_path.display().to_string())
-                .with_span(import.line, import.column),
+            Diagnostic::new(
+                "import",
+                format!(
+                    "missing import {}",
+                    import_diagnostic_path(&package.root, &candidate)
+                ),
+            )
+            .with_path(module_path.display().to_string())
+            .with_span(import.line, import.column),
         );
     }
     let candidate = canonicalize_existing_path(&candidate, "import path")?;
@@ -4573,6 +4585,13 @@ fn resolve_import_path(
         );
     }
     Ok((package.root.clone(), candidate))
+}
+
+fn import_diagnostic_path(package_root: &Path, path: &Path) -> String {
+    normalize_path(path)
+        .strip_prefix(package_root)
+        .map(|relative| relative.display().to_string())
+        .unwrap_or_else(|_| path.display().to_string())
 }
 
 fn canonicalize_existing_path(path: &Path, label: &str) -> Result<PathBuf, Diagnostic> {

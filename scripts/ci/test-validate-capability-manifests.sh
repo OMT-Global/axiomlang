@@ -24,6 +24,7 @@ process = false
 clock = false
 crypto = false
 ffi = false
+async = false
 TOML
 
 python3 "$repo_root/scripts/ci/validate-capability-manifests.py" --root "$tmpdir"
