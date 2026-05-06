@@ -921,11 +921,43 @@ mod tests {
             statement_count: 1,
             target: None,
             debug: true,
+            metadata: axiomc::project::BuildMetadata {
+                target: None,
+                debug: true,
+                lockfile: String::from("axiom.lock"),
+                lockfile_hash: String::from("lock-hash"),
+                source_hash: String::from("source-hash"),
+            },
             cache_hits: 0,
             cache_misses: 1,
             duration_ms: 1,
             packages: Vec::new(),
         }
+    }
+
+    #[test]
+    fn build_json_includes_target_debug_and_cache_key_metadata() {
+        let payload = json_contract::build_success(
+            Path::new("stage1/examples/hello"),
+            &build_output(Some(String::from("target/main.debug-map.json"))),
+        );
+
+        assert_eq!(payload["target"], serde_json::json!(null));
+        assert_eq!(payload["debug"], serde_json::json!(true));
+        assert_eq!(payload["metadata"]["target"], serde_json::json!(null));
+        assert_eq!(payload["metadata"]["debug"], serde_json::json!(true));
+        assert_eq!(
+            payload["metadata"]["lockfile"],
+            serde_json::json!("axiom.lock")
+        );
+        assert_eq!(
+            payload["metadata"]["lockfile_hash"],
+            serde_json::json!("lock-hash")
+        );
+        assert_eq!(
+            payload["metadata"]["source_hash"],
+            serde_json::json!("source-hash")
+        );
     }
 
     #[test]

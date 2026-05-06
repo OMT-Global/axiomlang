@@ -1,11 +1,6 @@
 version = 1
 
 [[package]]
-name = "conformance-for-loop-requires-iteration-protocol"
-version = "0.1.0"
-source = "path:fail/for_loop_requires_iteration_protocol"
-
-[[package]]
 name = "conformance-comparison-owned-resource-move"
 version = "0.1.0"
 source = "path:fail/comparison_owned_resource_move"
@@ -14,6 +9,16 @@ source = "path:fail/comparison_owned_resource_move"
 name = "conformance-comparison-predictable-diagnostic"
 version = "0.1.0"
 source = "path:fail/comparison_predictable_diagnostic"
+
+[[package]]
+name = "conformance-comparison-strict-type-mismatch"
+version = "0.1.0"
+source = "path:fail/comparison_strict_type_mismatch"
+
+[[package]]
+name = "conformance-for-loop-requires-iteration-protocol"
+version = "0.1.0"
+source = "path:fail/for_loop_requires_iteration_protocol"
 
 [[package]]
 name = "conformance-match-guard-not-supported"
@@ -116,6 +121,11 @@ version = "0.1.0"
 source = "path:pass/comparison_package_imports"
 
 [[package]]
+name = "conformance-comparison-package-resources"
+version = "0.1.0"
+source = "path:pass/comparison_package_resources"
+
+[[package]]
 name = "conformance-comparison-strict-typing"
 version = "0.1.0"
 source = "path:pass/comparison_strict_typing"
@@ -149,3 +159,4 @@ source = "path:pass/package_visibility"
 name = "conformance-struct-field-access"
 version = "0.1.0"
 source = "path:pass/struct_field_access"
+

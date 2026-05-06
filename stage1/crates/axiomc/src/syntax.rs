@@ -198,7 +198,7 @@ pub enum TypeName {
     Result(Box<TypeName>, Box<TypeName>),
     Tuple(Vec<TypeName>),
     Map(Box<TypeName>, Box<TypeName>),
-    Array(Box<TypeName>),
+    Array(Box<TypeName>, Option<String>),
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -437,6 +437,9 @@ pub fn parse_program_with_recovery(source: &str, path: &Path) -> Result<Program,
         if trimmed.starts_with("const ")
             || trimmed.starts_with("pub const ")
             || trimmed.starts_with("pub(pkg) const ")
+            || trimmed.starts_with("static ")
+            || trimmed.starts_with("pub static ")
+            || trimmed.starts_with("pub(pkg) static ")
         {
             match parse_const_decl(trimmed, path, line_no) {
                 Ok(const_decl) => consts.push(const_decl),
@@ -1331,31 +1334,30 @@ fn parse_type_alias(
 
 fn parse_const_decl(trimmed: &str, path: &Path, line_no: usize) -> Result<ConstDecl, Diagnostic> {
     let (visibility, rest, visibility_column) = parse_visibility_prefix(trimmed);
-    let header = if let Some(rest) = rest.strip_prefix("const ") {
-        rest
+    let (keyword, header) = if let Some(rest) = rest.strip_prefix("const ") {
+        ("const", rest)
+    } else if let Some(rest) = rest.strip_prefix("static ") {
+        ("static", rest)
     } else {
-        let _ = rest.strip_prefix("const ").ok_or_else(|| {
-            Diagnostic::new("parse", "invalid const declaration")
-                .with_path(path.display().to_string())
-                .with_span(line_no, 1)
-        })?;
-        unreachable!()
+        return Err(Diagnostic::new("parse", "invalid const/static declaration")
+            .with_path(path.display().to_string())
+            .with_span(line_no, 1));
     };
-    let column = visibility_column + 6;
+    let column = visibility_column + keyword.len() + 1;
     let colon = find_top_level_char(header, ':').ok_or_else(|| {
-        Diagnostic::new("parse", "const declaration is missing ':'")
+        Diagnostic::new("parse", "const/static declaration is missing ':'")
             .with_path(path.display().to_string())
             .with_span(line_no, column)
     })?;
     let equals = find_top_level_char(header, '=').ok_or_else(|| {
-        Diagnostic::new("parse", "const declaration is missing '='")
+        Diagnostic::new("parse", "const/static declaration is missing '='")
             .with_path(path.display().to_string())
             .with_span(line_no, column)
     })?;
     if equals <= colon {
         return Err(Diagnostic::new(
             "parse",
-            "const declaration must use `const NAME: Type = expr` syntax",
+            "const/static declaration must use `const NAME: Type = expr` or `static NAME: Type = expr` syntax",
         )
         .with_path(path.display().to_string())
         .with_span(line_no, column));
@@ -1365,18 +1367,19 @@ fn parse_const_decl(trimmed: &str, path: &Path, line_no: usize) -> Result<ConstD
     let ty_text = header[colon + 1..equals].trim();
     if ty_text.is_empty() {
         return Err(
-            Diagnostic::new("parse", "const declaration is missing a type")
+            Diagnostic::new("parse", "const/static declaration is missing a type")
                 .with_path(path.display().to_string())
                 .with_span(line_no, column + colon + 1),
         );
     }
     let expr_text = header[equals + 1..].trim();
     if expr_text.is_empty() {
-        return Err(
-            Diagnostic::new("parse", "const declaration is missing an initializer")
-                .with_path(path.display().to_string())
-                .with_span(line_no, column + equals + 1),
-        );
+        return Err(Diagnostic::new(
+            "parse",
+            "const/static declaration is missing an initializer",
+        )
+        .with_path(path.display().to_string())
+        .with_span(line_no, column + equals + 1));
     }
     Ok(ConstDecl {
         name: name.to_string(),
@@ -2090,12 +2093,32 @@ fn parse_type_name(
                     .with_span(line_no, column),
             );
         }
-        return Ok(TypeName::Array(Box::new(parse_type_name(
-            inner,
-            path,
-            line_no,
-            column + 1,
-        )?)));
+        let (element_raw, len_raw) = if let Some(semi) = find_top_level_char(inner, ';') {
+            let element_raw = inner[..semi].trim();
+            let len_raw = inner[semi + 1..].trim();
+            if element_raw.is_empty() {
+                return Err(
+                    Diagnostic::new("parse", "array type is missing an element type")
+                        .with_path(path.display().to_string())
+                        .with_span(line_no, column + 1),
+                );
+            }
+            if len_raw.is_empty() {
+                return Err(
+                    Diagnostic::new("parse", "array type is missing a length expression")
+                        .with_path(path.display().to_string())
+                        .with_span(line_no, column + semi + 2),
+                );
+            }
+            parse_expr(len_raw, path, line_no, column + semi + 2)?;
+            (element_raw, Some(len_raw.to_string()))
+        } else {
+            (inner, None)
+        };
+        return Ok(TypeName::Array(
+            Box::new(parse_type_name(element_raw, path, line_no, column + 1)?),
+            len_raw,
+        ));
     }
     if let Some(open_angle) = find_top_level_char(raw, '<') {
         if !raw.ends_with('>')

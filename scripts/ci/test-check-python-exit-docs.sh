@@ -64,6 +64,7 @@ setup_case_repo() {
   cp "$repo_root/README.md" "$case_dir/README.md"
   cp "$repo_root/docs/python-exit-vm-disposition.md" "$case_dir/docs/python-exit-vm-disposition.md"
   cp "$repo_root/docs/python-exit-parity-gate.md" "$case_dir/docs/python-exit-parity-gate.md"
+  cp "$repo_root/docs/python-exit-deletion-readiness.json" "$case_dir/docs/python-exit-deletion-readiness.json"
   : > "$case_dir/Makefile"
   : > "$case_dir/project.bootstrap.yaml"
 
@@ -164,6 +165,8 @@ README
       ' "$case_dir/docs/python-exit-parity-gate.md" > "$case_dir/docs/python-exit-parity-gate.md.tmp"
       mv "$case_dir/docs/python-exit-parity-gate.md.tmp" "$case_dir/docs/python-exit-parity-gate.md"
       ;;
+    rejects_open_deletion_readiness_issue)
+      ;;
     rejects_python_unittest_gate)
       mkdir -p "$case_dir/.github/workflows"
       printf '%s\n' "$python_unittest" > "$case_dir/.github/workflows/pr-fast-ci.yml"
@@ -225,7 +228,7 @@ README
     cd "$case_dir"
     git add .
     set +e
-    bash scripts/ci/check-python-exit-docs.sh >"$output_path" 2>&1
+    AXIOM_PYTHON_EXIT_ISSUE_STATES_JSON=${AXIOM_PYTHON_EXIT_ISSUE_STATES_JSON:-'{"266":"closed","267":"closed","268":"closed","269":"closed","270":"closed","271":"closed"}'} bash scripts/ci/check-python-exit-docs.sh >"$output_path" 2>&1
     status=$?
     set -e
     echo "$status" > "$tmpdir/$case_name.status"
@@ -254,6 +257,7 @@ run_case rejects_missing_readme_quickstart failure "README quickstart is missing
 run_case rejects_python_readme_quickstart failure "README quickstart must use the Rust axiomc check workflow"
 run_case rejects_incomplete_rust_readme_quickstart failure "README quickstart must use the Rust axiomc run workflow"
 run_case rejects_blocked_parity_rows failure "Python exit parity matrix has blocked rows"
+AXIOM_PYTHON_EXIT_ISSUE_STATES_JSON='{"266":"closed","267":"open","268":"closed","269":"closed","270":"closed","271":"closed"}' run_case rejects_open_deletion_readiness_issue failure "Python deletion blocked by open readiness issues" "#267"
 run_case rejects_python_unittest_gate failure "CI still uses Python unittest as a language/runtime correctness gate"
 run_case rejects_python_unittest_gate_in_makefile failure "CI still uses Python unittest as a language/runtime correctness gate"
 run_case rejects_python_unittest_gate_in_bootstrap_config failure "CI still uses Python unittest as a language/runtime correctness gate"

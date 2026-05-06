@@ -1,0 +1,15 @@
+pub struct OwnedBuffer {
+name: string
+items: [int]
+}
+
+pub fn claim(name: string, items: [int]): OwnedBuffer {
+return OwnedBuffer { name: name, items: items }
+}
+
+pub fn describe(view: &[int]): Result<int, string> {
+if len(view) > 0 {
+return Ok(first(view))
+}
+return Err("empty")
+}

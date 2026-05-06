@@ -3454,6 +3454,8 @@ pub fn compile_native(
     }
 }
 
+const BUILD_GENERATED_RUST_COMPILATION_FAILED: &str = "generated_rust_compilation_failed";
+
 fn compile_generated_rust(
     generated_rust: &Path,
     binary_path: &Path,
@@ -3466,6 +3468,11 @@ fn compile_generated_rust(
         .arg("axiom_stage1_bootstrap")
         .arg("--edition=2024");
     if debug {
+        // The generated-rust backend asks rustc for native debuginfo for the
+        // Rust shim it compiles. Axiom source spans are emitted separately in
+        // the sidecar debug map; rustc path remapping is intentionally not used
+        // here because it cannot remap DWARF line-table rows to Axiom line
+        // numbers or represent multiple Axiom source files correctly.
         command
             .arg("-C")
             .arg("debuginfo=2")
@@ -3477,21 +3484,28 @@ fn compile_generated_rust(
     if let Some(target) = target {
         command.arg("--target").arg(target);
     }
-    let status = command
+    let output = command
         .arg(generated_rust)
         .arg("-o")
         .arg(binary_path)
-        .status()
+        .output()
         .map_err(|err| {
             Diagnostic::new("build", format!("failed to invoke rustc: {err}"))
                 .with_path(generated_rust.display().to_string())
         })?;
-    if !status.success() {
-        return Err(Diagnostic::new(
-            "build",
-            "rustc failed to produce the requested build artifact",
-        )
-        .with_path(generated_rust.display().to_string()));
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let message = if stderr.trim().is_empty() {
+            "rustc failed to produce the requested build artifact".to_string()
+        } else {
+            format!(
+                "rustc failed to produce the requested build artifact: {}",
+                stderr.trim()
+            )
+        };
+        return Err(Diagnostic::new("build", message)
+            .with_code(BUILD_GENERATED_RUST_COMPILATION_FAILED)
+            .with_path(generated_rust.display().to_string()));
     }
     Ok(())
 }

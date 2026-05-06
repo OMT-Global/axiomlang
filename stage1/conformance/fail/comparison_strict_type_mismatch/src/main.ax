@@ -1,0 +1,7 @@
+struct Task {
+id: int
+label: string
+}
+
+let task: Task = Task { id: "365", label: "typed" }
+print task.id

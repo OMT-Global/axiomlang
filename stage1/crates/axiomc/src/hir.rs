@@ -204,7 +204,7 @@ pub enum Expr {
     },
 }
 
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Eq)]
 pub enum Type {
     Error,
     Int,
@@ -220,11 +220,80 @@ pub enum Type {
     Result(Box<Type>, Box<Type>),
     Tuple(Vec<Type>),
     Map(Box<Type>, Box<Type>),
-    Array(Box<Type>),
+    Array(Box<Type>, Option<usize>),
     Task(Box<Type>),
     JoinHandle(Box<Type>),
     AsyncChannel(Box<Type>),
     SelectResult(Box<Type>),
+}
+
+impl PartialEq for Type {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Type::Error, Type::Error)
+            | (Type::Int, Type::Int)
+            | (Type::Bool, Type::Bool)
+            | (Type::String, Type::String) => true,
+            (Type::Struct(lhs), Type::Struct(rhs)) | (Type::Enum(lhs), Type::Enum(rhs)) => {
+                lhs == rhs
+            }
+            (Type::Ptr(lhs), Type::Ptr(rhs))
+            | (Type::MutPtr(lhs), Type::MutPtr(rhs))
+            | (Type::Slice(lhs), Type::Slice(rhs))
+            | (Type::MutSlice(lhs), Type::MutSlice(rhs))
+            | (Type::Option(lhs), Type::Option(rhs))
+            | (Type::Task(lhs), Type::Task(rhs))
+            | (Type::JoinHandle(lhs), Type::JoinHandle(rhs))
+            | (Type::AsyncChannel(lhs), Type::AsyncChannel(rhs))
+            | (Type::SelectResult(lhs), Type::SelectResult(rhs)) => lhs == rhs,
+            (Type::Result(lhs_ok, lhs_err), Type::Result(rhs_ok, rhs_err))
+            | (Type::Map(lhs_ok, lhs_err), Type::Map(rhs_ok, rhs_err)) => {
+                lhs_ok == rhs_ok && lhs_err == rhs_err
+            }
+            (Type::Tuple(lhs), Type::Tuple(rhs)) => lhs == rhs,
+            (Type::Array(lhs_inner, lhs_len), Type::Array(rhs_inner, rhs_len)) => {
+                lhs_inner == rhs_inner && lhs_len == rhs_len
+            }
+            _ => false,
+        }
+    }
+}
+
+fn type_assignable_to(actual: &Type, expected: &Type) -> bool {
+    match (actual, expected) {
+        (_, Type::Error) | (Type::Error, _) => true,
+        (Type::Array(actual_inner, actual_len), Type::Array(expected_inner, expected_len)) => {
+            type_assignable_to(actual_inner, expected_inner)
+                && match expected_len {
+                    Some(len) => actual_len == &Some(*len),
+                    None => true,
+                }
+        }
+        (Type::Ptr(actual_inner), Type::Ptr(expected_inner))
+        | (Type::MutPtr(actual_inner), Type::MutPtr(expected_inner))
+        | (Type::Slice(actual_inner), Type::Slice(expected_inner))
+        | (Type::MutSlice(actual_inner), Type::MutSlice(expected_inner))
+        | (Type::Option(actual_inner), Type::Option(expected_inner))
+        | (Type::Task(actual_inner), Type::Task(expected_inner))
+        | (Type::JoinHandle(actual_inner), Type::JoinHandle(expected_inner))
+        | (Type::AsyncChannel(actual_inner), Type::AsyncChannel(expected_inner))
+        | (Type::SelectResult(actual_inner), Type::SelectResult(expected_inner)) => {
+            type_assignable_to(actual_inner, expected_inner)
+        }
+        (Type::Result(actual_ok, actual_err), Type::Result(expected_ok, expected_err))
+        | (Type::Map(actual_ok, actual_err), Type::Map(expected_ok, expected_err)) => {
+            type_assignable_to(actual_ok, expected_ok)
+                && type_assignable_to(actual_err, expected_err)
+        }
+        (Type::Tuple(actual), Type::Tuple(expected)) => {
+            actual.len() == expected.len()
+                && actual
+                    .iter()
+                    .zip(expected.iter())
+                    .all(|(actual, expected)| type_assignable_to(actual, expected))
+        }
+        _ => actual == expected,
+    }
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -299,6 +368,7 @@ enum BorrowKind {
 }
 
 struct LowerContext<'a> {
+    consts: &'a HashMap<String, syntax::ConstDecl>,
     structs: &'a HashMap<String, StructDef>,
     enums: &'a HashMap<String, EnumDef>,
     aliases: &'a HashMap<String, syntax::TypeAliasDecl>,
@@ -364,13 +434,24 @@ fn lower_with_capabilities_impl(
     recover: bool,
 ) -> Result<Program, Vec<Diagnostic>> {
     let program = monomorphize_program(program).map_err(single_diagnostic)?;
+    let consts = program
+        .consts
+        .iter()
+        .map(|constant| (constant.name.clone(), constant.clone()))
+        .collect::<HashMap<_, _>>();
+    validate_const_array_lengths_in_program(&program, &consts).map_err(single_diagnostic)?;
     let (struct_names, enum_names, aliases) =
         collect_type_names(&program.structs, &program.enums, &program.type_aliases)
             .map_err(single_diagnostic)?;
-    let (enums, variants) =
-        collect_enum_definitions(&program.enums, &struct_names, &enum_names, &aliases)
-            .map_err(single_diagnostic)?;
-    let structs = collect_struct_definitions(&program.structs, &enum_names, &aliases)
+    let (enums, variants) = collect_enum_definitions(
+        &program.enums,
+        &struct_names,
+        &enum_names,
+        &aliases,
+        &consts,
+    )
+    .map_err(single_diagnostic)?;
+    let structs = collect_struct_definitions(&program.structs, &enum_names, &aliases, &consts)
         .map_err(single_diagnostic)?;
     validate_recursive_type_cycles(
         &program,
@@ -379,12 +460,15 @@ fn lower_with_capabilities_impl(
         &struct_names,
         &enum_names,
         &aliases,
+        &consts,
     )
     .map_err(single_diagnostic)?;
-    let functions = collect_function_signatures(&program.functions, &structs, &enums, &aliases)
-        .map_err(single_diagnostic)?;
-    let methods = collect_method_signatures(&program.functions, &structs, &enums, &aliases)
-        .map_err(single_diagnostic)?;
+    let functions =
+        collect_function_signatures(&program.functions, &structs, &enums, &aliases, &consts)
+            .map_err(single_diagnostic)?;
+    let methods =
+        collect_method_signatures(&program.functions, &structs, &enums, &aliases, &consts)
+            .map_err(single_diagnostic)?;
     let mut diagnostics = Vec::new();
     let mut lowered_structs = structs.values().cloned().collect::<Vec<_>>();
     lowered_structs.sort_by(|lhs, rhs| lhs.name.cmp(&rhs.name));
@@ -401,6 +485,7 @@ fn lower_with_capabilities_impl(
             &structs,
             &enums,
             &aliases,
+            &consts,
             &variants,
             &functions,
             &methods,
@@ -412,6 +497,7 @@ fn lower_with_capabilities_impl(
         }
     }
     let ctx = LowerContext {
+        consts: &consts,
         structs: &structs,
         enums: &enums,
         aliases: &aliases,
@@ -610,6 +696,7 @@ fn validate_recursive_type_cycles(
     syntax_structs: &HashMap<String, syntax::StructDecl>,
     syntax_enums: &HashMap<String, ()>,
     aliases: &HashMap<String, syntax::TypeAliasDecl>,
+    consts: &HashMap<String, syntax::ConstDecl>,
 ) -> Result<(), Diagnostic> {
     for struct_decl in &program.structs {
         let owner = AggregateRef::Struct(struct_decl.name.clone());
@@ -619,6 +706,7 @@ fn validate_recursive_type_cycles(
                 syntax_structs,
                 syntax_enums,
                 aliases,
+                consts,
                 field.line,
                 field.column,
             )?;
@@ -644,6 +732,7 @@ fn validate_recursive_type_cycles(
                     syntax_structs,
                     syntax_enums,
                     aliases,
+                    consts,
                     variant.line,
                     variant.column,
                 )?;
@@ -718,7 +807,7 @@ fn type_has_unboxed_recursive_path(
             visiting.remove(&current);
             result
         }
-        Type::Slice(_) | Type::MutSlice(_) | Type::Map(_, _) | Type::Array(_) => false,
+        Type::Slice(_) | Type::MutSlice(_) | Type::Map(_, _) | Type::Array(_, _) => false,
         Type::Option(inner)
         | Type::Task(inner)
         | Type::JoinHandle(inner)
@@ -1366,10 +1455,10 @@ fn infer_expr_type_name(
         syntax::Expr::ArrayLiteral { elements, .. } => elements
             .first()
             .and_then(|element| infer_expr_type_name(element, None, env, generic_functions))
-            .map(|inner| syntax::TypeName::Array(Box::new(inner))),
+            .map(|inner| syntax::TypeName::Array(Box::new(inner), None)),
         syntax::Expr::Slice { base, .. } => {
             match infer_expr_type_name(base, None, env, generic_functions)? {
-                syntax::TypeName::Array(inner)
+                syntax::TypeName::Array(inner, _)
                 | syntax::TypeName::Slice(inner)
                 | syntax::TypeName::MutSlice(inner) => Some(syntax::TypeName::Slice(inner)),
                 other => Some(other),
@@ -1377,7 +1466,7 @@ fn infer_expr_type_name(
         }
         syntax::Expr::Index { base, .. } => {
             match infer_expr_type_name(base, None, env, generic_functions)? {
-                syntax::TypeName::Array(inner)
+                syntax::TypeName::Array(inner, _)
                 | syntax::TypeName::Slice(inner)
                 | syntax::TypeName::MutSlice(inner) => Some(*inner),
                 syntax::TypeName::Map(_, value) => Some(*value),
@@ -1422,7 +1511,7 @@ fn contains_generic_type_param(ty: &syntax::TypeName, type_params: &HashSet<Stri
         | syntax::TypeName::Slice(inner)
         | syntax::TypeName::MutSlice(inner)
         | syntax::TypeName::Option(inner)
-        | syntax::TypeName::Array(inner) => contains_generic_type_param(inner, type_params),
+        | syntax::TypeName::Array(inner, _) => contains_generic_type_param(inner, type_params),
         syntax::TypeName::Result(ok, err) | syntax::TypeName::Map(ok, err) => {
             contains_generic_type_param(ok, type_params)
                 || contains_generic_type_param(err, type_params)
@@ -1550,8 +1639,8 @@ fn unify_generic_type_name(
                 Ok(())
             }
         }
-        syntax::TypeName::Array(lhs) => {
-            if let syntax::TypeName::Array(rhs) = actual {
+        syntax::TypeName::Array(lhs, _) => {
+            if let syntax::TypeName::Array(rhs, _) = actual {
                 unify_generic_type_name(lhs, rhs, type_params, bindings, line, column)
             } else if contains_generic_type_param(pattern, type_params) {
                 Err(generic_constraint_mismatch(pattern, actual, line, column))
@@ -1959,7 +2048,7 @@ fn collect_type_params(ty: &syntax::TypeName, type_params: &[String], found: &mu
         | syntax::TypeName::Slice(inner)
         | syntax::TypeName::MutSlice(inner)
         | syntax::TypeName::Option(inner)
-        | syntax::TypeName::Array(inner) => collect_type_params(inner, type_params, found),
+        | syntax::TypeName::Array(inner, _) => collect_type_params(inner, type_params, found),
         syntax::TypeName::Result(ok, err) | syntax::TypeName::Map(ok, err) => {
             collect_type_params(ok, type_params, found);
             collect_type_params(err, type_params, found);
@@ -2344,8 +2433,8 @@ fn rewrite_aggregate_type_name(
                 column,
             )?),
         ),
-        syntax::TypeName::Array(inner) => {
-            syntax::TypeName::Array(Box::new(rewrite_aggregate_type_name(
+        syntax::TypeName::Array(inner, len) => syntax::TypeName::Array(
+            Box::new(rewrite_aggregate_type_name(
                 inner,
                 generic_structs,
                 generic_enums,
@@ -2353,8 +2442,9 @@ fn rewrite_aggregate_type_name(
                 queued,
                 line,
                 column,
-            )?))
-        }
+            )?),
+            len.clone(),
+        ),
         syntax::TypeName::Int => syntax::TypeName::Int,
         syntax::TypeName::Bool => syntax::TypeName::Bool,
         syntax::TypeName::String => syntax::TypeName::String,
@@ -3557,9 +3647,10 @@ fn substitute_type_name(
             Box::new(substitute_type_name(key, type_bindings)),
             Box::new(substitute_type_name(value, type_bindings)),
         ),
-        syntax::TypeName::Array(inner) => {
-            syntax::TypeName::Array(Box::new(substitute_type_name(inner, type_bindings)))
-        }
+        syntax::TypeName::Array(inner, len) => syntax::TypeName::Array(
+            Box::new(substitute_type_name(inner, type_bindings)),
+            len.clone(),
+        ),
         syntax::TypeName::Int => syntax::TypeName::Int,
         syntax::TypeName::Bool => syntax::TypeName::Bool,
         syntax::TypeName::String => syntax::TypeName::String,
@@ -3644,8 +3735,21 @@ fn type_name_monomorph_suffix(ty: &syntax::TypeName) -> String {
             type_name_monomorph_suffix(key),
             type_name_monomorph_suffix(value)
         ),
-        syntax::TypeName::Array(inner) => format!("array_{}", type_name_monomorph_suffix(inner)),
+        syntax::TypeName::Array(inner, len) => match len {
+            Some(len) => format!(
+                "array_{}_{}",
+                type_name_monomorph_suffix(inner),
+                sanitize_symbol_suffix(len)
+            ),
+            None => format!("array_{}", type_name_monomorph_suffix(inner)),
+        },
     }
+}
+
+fn sanitize_symbol_suffix(raw: &str) -> String {
+    raw.chars()
+        .map(|ch| if ch.is_ascii_alphanumeric() { ch } else { '_' })
+        .collect()
 }
 
 fn ownership_error(code: &'static str, message: impl Into<String>) -> Diagnostic {
@@ -3673,7 +3777,7 @@ impl Type {
             | Type::Struct(_)
             | Type::Enum(_)
             | Type::Map(_, _)
-            | Type::Array(_)
+            | Type::Array(_, _)
             | Type::Task(_)
             | Type::JoinHandle(_)
             | Type::AsyncChannel(_)
@@ -3695,7 +3799,7 @@ impl Type {
             | Type::Option(_)
             | Type::Result(_, _)
             | Type::Map(_, _)
-            | Type::Array(_)
+            | Type::Array(_, _)
             | Type::Task(_)
             | Type::JoinHandle(_)
             | Type::AsyncChannel(_)
@@ -3708,6 +3812,7 @@ fn collect_struct_definitions(
     structs: &[syntax::StructDecl],
     enums: &HashMap<String, ()>,
     aliases: &HashMap<String, syntax::TypeAliasDecl>,
+    consts: &HashMap<String, syntax::ConstDecl>,
 ) -> Result<HashMap<String, StructDef>, Diagnostic> {
     let mut names = HashMap::new();
     for struct_decl in structs {
@@ -3745,7 +3850,15 @@ fn collect_struct_definitions(
                 )
                 .with_span(field.line, field.column));
             }
-            let ty = lower_type(&field.ty, &names, enums, aliases, field.line, field.column)?;
+            let ty = lower_type(
+                &field.ty,
+                &names,
+                enums,
+                aliases,
+                consts,
+                field.line,
+                field.column,
+            )?;
             fields.push(StructField {
                 name: field.name.clone(),
                 ty,
@@ -3832,6 +3945,7 @@ fn collect_enum_definitions(
     structs: &HashMap<String, syntax::StructDecl>,
     enum_names: &HashMap<String, ()>,
     aliases: &HashMap<String, syntax::TypeAliasDecl>,
+    consts: &HashMap<String, syntax::ConstDecl>,
 ) -> Result<(HashMap<String, EnumDef>, HashMap<String, Vec<VariantInfo>>), Diagnostic> {
     let mut lowered = HashMap::new();
     let mut variants = HashMap::new();
@@ -3873,6 +3987,7 @@ fn collect_enum_definitions(
                                 structs,
                                 enum_names,
                                 aliases,
+                                consts,
                                 variant.line,
                                 variant.column,
                             )
@@ -3889,6 +4004,7 @@ fn collect_enum_definitions(
                         structs,
                         enum_names,
                         aliases,
+                        consts,
                         variant.line,
                         variant.column,
                     )
@@ -3943,6 +4059,7 @@ fn collect_function_signatures(
     structs: &HashMap<String, StructDef>,
     enums: &HashMap<String, EnumDef>,
     aliases: &HashMap<String, syntax::TypeAliasDecl>,
+    consts: &HashMap<String, syntax::ConstDecl>,
 ) -> Result<HashMap<String, FunctionSig>, Diagnostic> {
     let mut signatures = HashMap::new();
     for function in functions {
@@ -3951,6 +4068,7 @@ fn collect_function_signatures(
             structs,
             enums,
             aliases,
+            consts,
             function.line,
             function.column,
         )?;
@@ -3961,6 +4079,7 @@ fn collect_function_signatures(
                 structs,
                 enums,
                 aliases,
+                consts,
                 function.line,
                 function.column,
             )?;
@@ -3974,6 +4093,7 @@ fn collect_function_signatures(
                 structs,
                 enums,
                 aliases,
+                consts,
                 param.line,
                 param.column,
             )?);
@@ -4017,6 +4137,7 @@ fn collect_method_signatures(
     structs: &HashMap<String, StructDef>,
     enums: &HashMap<String, EnumDef>,
     aliases: &HashMap<String, syntax::TypeAliasDecl>,
+    consts: &HashMap<String, syntax::ConstDecl>,
 ) -> Result<HashMap<String, HashMap<String, MethodSig>>, Diagnostic> {
     let mut methods: HashMap<String, HashMap<String, MethodSig>> = HashMap::new();
     for function in functions {
@@ -4035,6 +4156,7 @@ fn collect_method_signatures(
             structs,
             enums,
             aliases,
+            consts,
             function.line,
             function.column,
         )?;
@@ -4050,6 +4172,7 @@ fn collect_method_signatures(
             structs,
             enums,
             aliases,
+            consts,
             function.line,
             function.column,
         )?;
@@ -4063,6 +4186,7 @@ fn collect_method_signatures(
                 structs,
                 enums,
                 aliases,
+                consts,
                 param.line,
                 param.column,
             )?);
@@ -4098,6 +4222,7 @@ fn lower_function(
     structs: &HashMap<String, StructDef>,
     enums: &HashMap<String, EnumDef>,
     aliases: &HashMap<String, syntax::TypeAliasDecl>,
+    consts: &HashMap<String, syntax::ConstDecl>,
     variants: &HashMap<String, Vec<VariantInfo>>,
     functions: &HashMap<String, FunctionSig>,
     methods: &HashMap<String, HashMap<String, MethodSig>>,
@@ -4108,6 +4233,7 @@ fn lower_function(
         structs,
         enums,
         aliases,
+        consts,
         function.line,
         function.column,
     )?;
@@ -4142,6 +4268,7 @@ fn lower_function(
             structs,
             enums,
             aliases,
+            consts,
             function.line,
             function.column,
         )?;
@@ -4180,7 +4307,15 @@ fn lower_function(
                     .with_span(param.line, param.column),
             );
         }
-        let ty = lower_type(&param.ty, structs, enums, aliases, param.line, param.column)?;
+        let ty = lower_type(
+            &param.ty,
+            structs,
+            enums,
+            aliases,
+            consts,
+            param.line,
+            param.column,
+        )?;
         env.insert(
             param.name.clone(),
             Binding {
@@ -4200,6 +4335,7 @@ fn lower_function(
         });
     }
     let ctx = LowerContext {
+        consts,
         structs,
         enums,
         aliases,
@@ -4334,6 +4470,151 @@ fn insert_type_error_binding_for_failed_stmt(
     }
 }
 
+fn declared_array_len(
+    ty: &syntax::TypeName,
+    ctx: &LowerContext<'_>,
+    line: usize,
+    column: usize,
+) -> Result<Option<usize>, Diagnostic> {
+    match ty {
+        syntax::TypeName::Array(_, Some(raw)) => {
+            let value = resolve_const_array_len(raw.trim(), ctx.consts, line, column)?;
+            if value < 0 {
+                return Err(Diagnostic::new("type", "array length must be non-negative")
+                    .with_span(line, column));
+            }
+            Ok(Some(value as usize))
+        }
+        _ => Ok(None),
+    }
+}
+
+fn resolve_const_array_len(
+    raw: &str,
+    consts: &HashMap<String, syntax::ConstDecl>,
+    line: usize,
+    column: usize,
+) -> Result<i64, Diagnostic> {
+    if let Ok(value) = raw.parse::<i64>() {
+        return Ok(value);
+    }
+    let Some(const_decl) = consts.get(raw) else {
+        return Err(Diagnostic::new(
+            "type",
+            format!("array length {raw:?} must be a known int const/static expression"),
+        )
+        .with_span(line, column));
+    };
+    eval_const_int_expr(&const_decl.expr).ok_or_else(|| {
+        Diagnostic::new(
+            "type",
+            format!(
+                "array length const {:?} must evaluate to int",
+                const_decl.name
+            ),
+        )
+        .with_span(const_decl.line, const_decl.column)
+    })
+}
+
+fn eval_const_int_expr(expr: &syntax::Expr) -> Option<i64> {
+    match expr {
+        syntax::Expr::Literal(syntax::Literal::Int(value)) => Some(*value),
+        syntax::Expr::BinaryAdd { lhs, rhs, .. } => {
+            Some(eval_const_int_expr(lhs)? + eval_const_int_expr(rhs)?)
+        }
+        _ => None,
+    }
+}
+
+fn validate_const_array_lengths_in_program(
+    program: &syntax::Program,
+    consts: &HashMap<String, syntax::ConstDecl>,
+) -> Result<(), Diagnostic> {
+    for struct_decl in &program.structs {
+        for field in &struct_decl.fields {
+            validate_const_array_lengths_in_type(&field.ty, consts, field.line, field.column)?;
+        }
+    }
+    for enum_decl in &program.enums {
+        for variant in &enum_decl.variants {
+            for payload_ty in &variant.payload_tys {
+                validate_const_array_lengths_in_type(
+                    payload_ty,
+                    consts,
+                    variant.line,
+                    variant.column,
+                )?;
+            }
+        }
+    }
+    for alias in &program.type_aliases {
+        validate_const_array_lengths_in_type(&alias.ty, consts, alias.line, alias.column)?;
+    }
+    for function in &program.functions {
+        validate_const_array_lengths_in_type(
+            &function.return_ty,
+            consts,
+            function.line,
+            function.column,
+        )?;
+        for param in &function.params {
+            validate_const_array_lengths_in_type(&param.ty, consts, param.line, param.column)?;
+        }
+    }
+    for stmt in &program.stmts {
+        if let syntax::Stmt::Let {
+            ty, line, column, ..
+        } = stmt
+        {
+            validate_const_array_lengths_in_type(ty, consts, *line, *column)?;
+        }
+    }
+    Ok(())
+}
+
+fn validate_const_array_lengths_in_type(
+    ty: &syntax::TypeName,
+    consts: &HashMap<String, syntax::ConstDecl>,
+    line: usize,
+    column: usize,
+) -> Result<(), Diagnostic> {
+    match ty {
+        syntax::TypeName::Array(inner, len) => {
+            if let Some(raw) = len {
+                let value = resolve_const_array_len(raw.trim(), consts, line, column)?;
+                if value < 0 {
+                    return Err(Diagnostic::new("type", "array length must be non-negative")
+                        .with_span(line, column));
+                }
+            }
+            validate_const_array_lengths_in_type(inner, consts, line, column)
+        }
+        syntax::TypeName::Slice(inner)
+        | syntax::TypeName::MutSlice(inner)
+        | syntax::TypeName::Option(inner) => {
+            validate_const_array_lengths_in_type(inner, consts, line, column)
+        }
+        syntax::TypeName::Result(ok, err) | syntax::TypeName::Map(ok, err) => {
+            validate_const_array_lengths_in_type(ok, consts, line, column)?;
+            validate_const_array_lengths_in_type(err, consts, line, column)
+        }
+        syntax::TypeName::Tuple(elements) => {
+            for element in elements {
+                validate_const_array_lengths_in_type(element, consts, line, column)?;
+            }
+            Ok(())
+        }
+        syntax::TypeName::Named(_, args) => {
+            for arg in args {
+                validate_const_array_lengths_in_type(arg, consts, line, column)?;
+            }
+            Ok(())
+        }
+        _ => Ok(()),
+    }
+}
+
 fn lower_stmt(
     stmt: &syntax::Stmt,
     env: &mut HashMap<String, Binding>,
@@ -4361,10 +4642,34 @@ fn lower_stmt(
                 )
                 .with_span(*line, *column));
             }
-            let expected = lower_type(ty, ctx.structs, ctx.enums, ctx.aliases, *line, *column)?;
+            let expected = lower_type(
+                ty,
+                ctx.structs,
+                ctx.enums,
+                ctx.aliases,
+                ctx.consts,
+                *line,
+                *column,
+            )?;
+            let expected_array_len = declared_array_len(ty, ctx, *line, *column)?;
             let lowered_expr = lower_expr_with_expected(expr, Some(&expected), env, ctx)?;
             let actual = lowered_expr.ty().clone();
-            if actual != expected && !actual.is_error() && !expected.is_error() {
+            if let Some(expected_len) = expected_array_len {
+                if let syntax::Expr::ArrayLiteral { elements, .. } = expr {
+                    if elements.len() != expected_len {
+                        return Err(Diagnostic::new(
+                            "type",
+                            format!(
+                                "array literal length mismatch: declared {expected_len}, got {}",
+                                elements.len()
+                            ),
+                        )
+                        .with_span(*line, *column));
+                    }
+                }
+            }
+            if !type_assignable_to(&actual, &expected) && !actual.is_error() && !expected.is_error()
+            {
                 return Err(Diagnostic::new(
                     "type",
                     format!("let binding {name:?} expects {expected}, got {actual}"),
@@ -4870,7 +5175,7 @@ fn lower_stmt(
                 );
             };
             let lowered_expr = lower_expr_with_expected(expr, Some(expected), env, ctx)?;
-            if lowered_expr.ty() != expected {
+            if !type_assignable_to(lowered_expr.ty(), expected) {
                 return Err(Diagnostic::new(
                     "type",
                     format!("return expects {expected}, got {}", lowered_expr.ty()),
@@ -4891,6 +5196,7 @@ fn lower_stmt(
                                 "returning borrowed values requires data derived from one of the borrowed parameters in stage1"
                             ),
                         )
+                        .with_help("the returned borrow must derive from a borrowed parameter, not from a locally-allocated value")
                         .with_span(*line, *column));
                     }
                 }
@@ -5170,6 +5476,7 @@ fn lower_expr_with_expected(
                         OWNERSHIP_USE_AFTER_MOVE,
                         format!("use of moved value {name:?}"),
                     )
+                    .with_help("consider restructuring to avoid the move, or ensure the value is only used once")
                     .with_span(*line, *column));
                 }
                 if !binding.moved_projections.is_empty() {
@@ -5177,6 +5484,7 @@ fn lower_expr_with_expected(
                         OWNERSHIP_USE_AFTER_MOVE,
                         format!("use of partially moved value {name:?}"),
                     )
+                    .with_help("consider restructuring to avoid the move, or ensure the value is only used once")
                     .with_span(*line, *column));
                 }
                 return Ok(Expr::VarRef {
@@ -5441,7 +5749,7 @@ fn lower_expr_with_expected(
                 let lowered = lower_expr(&args[0], env, ctx)?;
                 if !matches!(
                     lowered.ty(),
-                    Type::Array(_) | Type::Slice(_) | Type::MutSlice(_)
+                    Type::Array(_, _) | Type::Slice(_) | Type::MutSlice(_)
                 ) {
                     return Err(Diagnostic::new(
                         "type",
@@ -6464,7 +6772,7 @@ fn lower_expr_with_expected(
                 }
                 let lowered = lower_expr(&args[0], env, ctx)?;
                 let element_ty = match lowered.ty() {
-                    Type::Array(element_ty)
+                    Type::Array(element_ty, _)
                     | Type::Slice(element_ty)
                     | Type::MutSlice(element_ty) => (*element_ty.clone()).clone(),
                     _ => {
@@ -6489,7 +6797,7 @@ fn lower_expr_with_expected(
                     )
                     .with_span(args[0].line(), args[0].column()));
                 }
-                if matches!(lowered.ty(), Type::Array(_)) && !element_ty.is_copy() {
+                if matches!(lowered.ty(), Type::Array(_, _)) && !element_ty.is_copy() {
                     move_lowered_owner_value(&lowered, env)?;
                 }
                 return Ok(Expr::Call {
@@ -6523,7 +6831,7 @@ fn lower_expr_with_expected(
                 let mut temporary_borrows = Vec::new();
                 for (arg, expected) in args.iter().zip(signature.params.iter()) {
                     let lowered = lower_expr_with_expected(arg, Some(expected), env, ctx)?;
-                    if lowered.ty() != expected {
+                    if !type_assignable_to(lowered.ty(), expected) {
                         return Err(Diagnostic::new(
                             "type",
                             format!(
@@ -7056,7 +7364,7 @@ fn lower_expr_with_expected(
                     .with_span(field.line, field.column));
                 }
                 let lowered = lower_expr_with_expected(&field.expr, Some(expected), env, ctx)?;
-                if lowered.ty() != expected {
+                if !type_assignable_to(lowered.ty(), expected) {
                     return Err(Diagnostic::new(
                         "type",
                         format!(
@@ -7355,7 +7663,7 @@ fn lower_expr_with_expected(
             let element_ty = element_ty.expect("non-empty array literal must have an element type");
             Ok(Expr::ArrayLiteral {
                 elements: lowered_elements,
-                ty: Type::Array(Box::new(element_ty)),
+                ty: Type::Array(Box::new(element_ty), Some(elements.len())),
             })
         }
         syntax::Expr::Slice {
@@ -7367,9 +7675,9 @@ fn lower_expr_with_expected(
         } => {
             let lowered_base = lower_projection_base_expr(base, env, ctx)?;
             let element_ty = match lowered_base.ty() {
-                Type::Array(element_ty) | Type::Slice(element_ty) | Type::MutSlice(element_ty) => {
-                    (*element_ty.clone()).clone()
-                }
+                Type::Array(element_ty, _)
+                | Type::Slice(element_ty)
+                | Type::MutSlice(element_ty) => (*element_ty.clone()).clone(),
                 _ => {
                     return Err(Diagnostic::new(
                         "type",
@@ -7415,7 +7723,7 @@ fn lower_expr_with_expected(
                 None
             };
             let ty = match (expected, lowered_base.ty()) {
-                (Some(Type::MutSlice(_)), Type::Array(_) | Type::MutSlice(_)) => {
+                (Some(Type::MutSlice(_)), Type::Array(_, _) | Type::MutSlice(_)) => {
                     Type::MutSlice(Box::new(element_ty))
                 }
                 (_, Type::MutSlice(_)) => Type::MutSlice(Box::new(element_ty)),
@@ -7437,7 +7745,7 @@ fn lower_expr_with_expected(
             let lowered_base = lower_projection_base_expr(base, env, ctx)?;
             let lowered_index = lower_expr(index, env, ctx)?;
             let result_ty = match lowered_base.ty() {
-                Type::Array(element_ty) => {
+                Type::Array(element_ty, _) => {
                     if lowered_index.ty() != &Type::Int {
                         return Err(Diagnostic::new(
                             "type",
@@ -7533,6 +7841,7 @@ fn lower_async_runtime_intrinsic(
         ctx.structs,
         ctx.enums,
         ctx.aliases,
+        ctx.consts,
         line,
         column,
     )?;
@@ -8225,7 +8534,7 @@ fn expr_borrow_origin(
             .and_then(|binding| binding.borrow_origin.clone()),
         Expr::Slice { base, .. } => match base.ty() {
             Type::Slice(_) | Type::MutSlice(_) => expr_borrow_origin(base, env, ctx),
-            Type::Array(_) => Some(BorrowOrigin::Local),
+            Type::Array(_, _) => Some(BorrowOrigin::Local),
             _ => Some(BorrowOrigin::Local),
         },
         Expr::Call { name, args, .. } => ctx
@@ -8373,7 +8682,7 @@ fn expr_borrowed_owners(
             .unwrap_or_default(),
         Expr::Slice { base, .. } => match base.ty() {
             Type::Slice(_) | Type::MutSlice(_) => expr_borrowed_owners(base, env, ctx),
-            Type::Array(_) => owned_borrow_root(base).into_iter().collect(),
+            Type::Array(_, _) => owned_borrow_root(base).into_iter().collect(),
             _ => HashSet::new(),
         },
         Expr::Call { name, args, .. } => ctx
@@ -8510,7 +8819,7 @@ fn contains_borrowed_slice_type_inner(
                 visiting_enums,
             )
         }
-        Type::Array(inner)
+        Type::Array(inner, _)
         | Type::Task(inner)
         | Type::JoinHandle(inner)
         | Type::AsyncChannel(inner)
@@ -8627,7 +8936,7 @@ fn contains_mut_borrowed_slice_type_inner(
                 visiting_enums,
             )
         }
-        Type::Array(inner)
+        Type::Array(inner, _)
         | Type::Task(inner)
         | Type::JoinHandle(inner)
         | Type::AsyncChannel(inner)
@@ -8759,6 +9068,7 @@ fn increment_active_borrows(
                         "cannot create mutable borrow of value {owner_name:?} while a shared borrow is still live"
                     ),
                 )
+                .with_help("drop the shared borrow before creating a mutable borrow")
                 .with_span(line, column));
             }
             _ => {}
@@ -8889,11 +9199,21 @@ fn lower_type<T, U>(
     structs: &HashMap<String, T>,
     enums: &HashMap<String, U>,
     aliases: &HashMap<String, syntax::TypeAliasDecl>,
+    consts: &HashMap<String, syntax::ConstDecl>,
     line: usize,
     column: usize,
 ) -> Result<Type, Diagnostic> {
     let mut resolving = HashSet::new();
-    lower_type_inner(ty, structs, enums, aliases, &mut resolving, line, column)
+    lower_type_inner(
+        ty,
+        structs,
+        enums,
+        aliases,
+        consts,
+        &mut resolving,
+        line,
+        column,
+    )
 }
 
 fn lower_type_inner<T, U>(
@@ -8901,6 +9221,7 @@ fn lower_type_inner<T, U>(
     structs: &HashMap<String, T>,
     enums: &HashMap<String, U>,
     aliases: &HashMap<String, syntax::TypeAliasDecl>,
+    consts: &HashMap<String, syntax::ConstDecl>,
     resolving: &mut HashSet<String>,
     line: usize,
     column: usize,
@@ -8919,7 +9240,7 @@ fn lower_type_inner<T, U>(
                     .with_span(line, column));
                 }
                 let inner = Box::new(lower_type_inner(
-                    &args[0], structs, enums, aliases, resolving, line, column,
+                    &args[0], structs, enums, aliases, consts, resolving, line, column,
                 )?);
                 return Ok(match name.as_str() {
                     "Task" => Type::Task(inner),
@@ -8955,6 +9276,7 @@ fn lower_type_inner<T, U>(
                     structs,
                     enums,
                     aliases,
+                    consts,
                     resolving,
                     type_alias.line,
                     type_alias.column,
@@ -8965,38 +9287,42 @@ fn lower_type_inner<T, U>(
             Err(Diagnostic::new("type", format!("unknown type {name:?}")).with_span(line, column))
         }
         syntax::TypeName::Ptr(inner) => Ok(Type::Ptr(Box::new(lower_type_inner(
-            inner, structs, enums, aliases, resolving, line, column,
+            inner, structs, enums, aliases, consts, resolving, line, column,
         )?))),
         syntax::TypeName::MutPtr(inner) => Ok(Type::MutPtr(Box::new(lower_type_inner(
-            inner, structs, enums, aliases, resolving, line, column,
+            inner, structs, enums, aliases, consts, resolving, line, column,
         )?))),
         syntax::TypeName::Slice(inner) => Ok(Type::Slice(Box::new(lower_type_inner(
-            inner, structs, enums, aliases, resolving, line, column,
+            inner, structs, enums, aliases, consts, resolving, line, column,
         )?))),
         syntax::TypeName::MutSlice(inner) => Ok(Type::MutSlice(Box::new(lower_type_inner(
-            inner, structs, enums, aliases, resolving, line, column,
+            inner, structs, enums, aliases, consts, resolving, line, column,
         )?))),
         syntax::TypeName::Option(inner) => Ok(Type::Option(Box::new(lower_type_inner(
-            inner, structs, enums, aliases, resolving, line, column,
+            inner, structs, enums, aliases, consts, resolving, line, column,
         )?))),
         syntax::TypeName::Result(ok, err) => Ok(Type::Result(
             Box::new(lower_type_inner(
-                ok, structs, enums, aliases, resolving, line, column,
+                ok, structs, enums, aliases, consts, resolving, line, column,
             )?),
             Box::new(lower_type_inner(
-                err, structs, enums, aliases, resolving, line, column,
+                err, structs, enums, aliases, consts, resolving, line, column,
             )?),
         )),
         syntax::TypeName::Tuple(elements) => Ok(Type::Tuple(
             elements
                 .iter()
                 .map(|element| {
-                    lower_type_inner(element, structs, enums, aliases, resolving, line, column)
+                    lower_type_inner(
+                        element, structs, enums, aliases, consts, resolving, line, column,
+                    )
                 })
                 .collect::<Result<Vec<_>, _>>()?,
         )),
         syntax::TypeName::Map(key, value) => {
-            let key = lower_type_inner(key, structs, enums, aliases, resolving, line, column)?;
+            let key = lower_type_inner(
+                key, structs, enums, aliases, consts, resolving, line, column,
+            )?;
             if !key.supports_map_key() {
                 return Err(Diagnostic::new(
                     "type",
@@ -9007,13 +9333,23 @@ fn lower_type_inner<T, U>(
             Ok(Type::Map(
                 Box::new(key),
                 Box::new(lower_type_inner(
-                    value, structs, enums, aliases, resolving, line, column,
+                    value, structs, enums, aliases, consts, resolving, line, column,
                 )?),
             ))
         }
-        syntax::TypeName::Array(inner) => Ok(Type::Array(Box::new(lower_type_inner(
-            inner, structs, enums, aliases, resolving, line, column,
-        )?))),
+        syntax::TypeName::Array(inner, len) => {
+            let len = len
+                .as_ref()
+                .map(|raw| resolve_const_array_len(raw.trim(), consts, line, column))
+                .transpose()?
+                .map(|value| value as usize);
+            Ok(Type::Array(
+                Box::new(lower_type_inner(
+                    inner, structs, enums, aliases, consts, resolving, line, column,
+                )?),
+                len,
+            ))
+        }
     }
 }
 
@@ -9250,7 +9586,8 @@ impl std::fmt::Display for Type {
                     .join(", ")
             ),
             Type::Map(key, value) => write!(f, "{{{key}: {value}}}"),
-            Type::Array(inner) => write!(f, "[{inner}]"),
+            Type::Array(inner, Some(len)) => write!(f, "[{inner}; {len}]"),
+            Type::Array(inner, None) => write!(f, "[{inner}]"),
             Type::Task(inner) => write!(f, "Task<{inner}>"),
             Type::JoinHandle(inner) => write!(f, "JoinHandle<{inner}>"),
             Type::AsyncChannel(inner) => write!(f, "AsyncChannel<{inner}>"),
