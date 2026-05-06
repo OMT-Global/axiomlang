@@ -1,5 +1,8 @@
 [workspace]
 members = [
+  "fail/closure_captures_function_callee",
+  "fail/closure_borrowed_slice_return",
+  "fail/closure_move_captured_non_copy",
   "fail/comparison_owned_resource_move",
   "fail/comparison_predictable_diagnostic",
   "fail/comparison_strict_type_mismatch",
@@ -21,6 +24,7 @@ members = [
   "fail/recursive_struct_without_indirection",
   "fail/result_ok_without_context",
   "fail/stdlib_clock_without_capability",
+  "pass/closures",
   "pass/collection_operations",
   "pass/comparison_package_imports",
   "pass/comparison_package_resources",

@@ -4081,6 +4081,129 @@ true
     }
 
     #[test]
+    fn closure_rejects_borrowed_slice_return_fn_value() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("closure-borrowed-slice-return");
+        create_project(&project, Some("closure-borrowed-slice-return")).expect("create project");
+        fs::write(
+            project.join("axiom.toml"),
+            render_manifest_with_capabilities(
+                "closure-borrowed-slice-return",
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+            ),
+        )
+        .expect("write manifest");
+        let manifest = load_manifest(&project).expect("load manifest");
+        fs::write(
+            project.join("axiom.lock"),
+            render_lockfile_for_project(&project, &manifest).expect("lockfile"),
+        )
+        .expect("write lockfile");
+        fs::write(
+            project.join("src/main.ax"),
+            "let xs: [int] = [1, 2, 3]\nlet head: fn(&[int]): &[int] = |ys: &[int]| ys\nprint len(head(xs[:]))\n",
+        )
+        .expect("write source");
+
+        let err = check_project(&project)
+            .expect_err("fn closures must reject borrowed slice return values");
+        assert_eq!(err.kind, "ownership");
+        assert_eq!(err.code.as_deref(), Some("closure_borrowed_slice_return"));
+        assert!(
+            err.message
+                .contains("closure fn values cannot return borrowed slice types"),
+            "unexpected diagnostic: {err:?}",
+        );
+    }
+
+    #[test]
+    fn closure_rejects_moving_captured_non_copy_fn_value() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("closure-captured-non-copy");
+        create_project(&project, Some("closure-captured-non-copy")).expect("create project");
+        fs::write(
+            project.join("axiom.toml"),
+            render_manifest_with_capabilities(
+                "closure-captured-non-copy",
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+            ),
+        )
+        .expect("write manifest");
+        let manifest = load_manifest(&project).expect("load manifest");
+        fs::write(
+            project.join("axiom.lock"),
+            render_lockfile_for_project(&project, &manifest).expect("lockfile"),
+        )
+        .expect("write lockfile");
+        fs::write(
+            project.join("src/main.ax"),
+            "let s: string = \"hello\"\nlet take: fn(): string = || s\nprint take()\n",
+        )
+        .expect("write source");
+
+        let err = check_project(&project)
+            .expect_err("fn closures must reject moving captured non-copy values");
+        assert_eq!(err.kind, "ownership");
+        assert_eq!(err.code.as_deref(), Some("closure_move_captured_non_copy"));
+        assert!(
+            err.message
+                .contains("closure cannot move captured non-copy value `s`"),
+            "unexpected diagnostic: {err:?}",
+        );
+    }
+
+    #[test]
+    fn closure_captures_function_value_callee_name() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("closure-captures-function-callee");
+        create_project(&project, Some("closure-captures-function-callee")).expect("create project");
+        fs::write(
+            project.join("axiom.toml"),
+            render_manifest_with_capabilities(
+                "closure-captures-function-callee",
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+            ),
+        )
+        .expect("write manifest");
+        let manifest = load_manifest(&project).expect("load manifest");
+        fs::write(
+            project.join("axiom.lock"),
+            render_lockfile_for_project(&project, &manifest).expect("lockfile"),
+        )
+        .expect("write lockfile");
+        fs::write(
+            project.join("src/main.ax"),
+            "let inner: fn(int): int = |x: int| x + 1\nlet outer: fn(int): int = |n: int| inner(n)\nprint inner(2)\n",
+        )
+        .expect("write source");
+
+        let err = check_project(&project)
+            .expect_err("closure bodies must capture function-valued callees by name");
+        assert_eq!(err.kind, "ownership");
+        assert!(
+            err.message.contains("use of moved value `inner`")
+                || err.message.contains("use of moved value \"inner\"")
+                || err.message.contains("cannot use moved value `inner`"),
+            "unexpected diagnostic: {err:?}",
+        );
+    }
+
+    #[test]
     fn stage1_project_imports_synthetic_stdlib_sync_module() {
         // `std/sync.ax` is ungated in stage1 because it is implemented in
         // Axiom using ownership tokens rather than host threads or blocking
@@ -5297,8 +5420,8 @@ print serve_once("127.0.0.1:18080", "hello")
     fn conformance_corpus_reports_stable_results() {
         let output =
             run_project_tests(&conformance_fixture()).expect("run stage1 conformance corpus");
-        assert_eq!(output.cases.len(), 31);
-        assert_eq!(output.passed, 31);
+        assert_eq!(output.cases.len(), 35);
+        assert_eq!(output.passed, 35);
         assert_eq!(output.failed, 0);
         assert!(
             output
@@ -5306,7 +5429,7 @@ print serve_once("127.0.0.1:18080", "hello")
                 .iter()
                 .filter(|case| case.expected_error.is_some())
                 .count()
-                == 21
+                == 24
         );
         assert_eq!(
             output
@@ -5314,7 +5437,7 @@ print serve_once("127.0.0.1:18080", "hello")
                 .iter()
                 .filter(|case| case.expected_stdout.is_some())
                 .count(),
-            10
+            11
         );
     }
 

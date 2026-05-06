@@ -2166,6 +2166,7 @@ fn expr_uses_call(expr: &Expr, name: &str) -> bool {
         Expr::Index { base, index, .. } => {
             expr_uses_call(base, name) || expr_uses_call(index, name)
         }
+        Expr::Closure { body, .. } => expr_uses_call(body, name),
         Expr::Literal(_) | Expr::VarRef { .. } => false,
     }
 }
@@ -2274,6 +2275,15 @@ impl<'a> TypeContext<'a> {
             | Type::AsyncChannel(inner)
             | Type::SelectResult(inner) => {
                 self.type_contains_borrowed_slice_inner(inner, visiting_structs, visiting_enums)
+            }
+            Type::Fn(params, return_ty) => {
+                params.iter().any(|param| {
+                    self.type_contains_borrowed_slice_inner(param, visiting_structs, visiting_enums)
+                }) || self.type_contains_borrowed_slice_inner(
+                    return_ty,
+                    visiting_structs,
+                    visiting_enums,
+                )
             }
         }
     }
@@ -3126,6 +3136,7 @@ fn render_expr(expr: &Expr) -> String {
             Type::JoinHandle(_) => unreachable!("type checker rejects join handle addition"),
             Type::AsyncChannel(_) => unreachable!("type checker rejects async channel addition"),
             Type::SelectResult(_) => unreachable!("type checker rejects select result addition"),
+            Type::Fn(_, _) => unreachable!("type checker rejects function addition"),
         },
         Expr::BinaryCompare { op, lhs, rhs, .. } => {
             format!("{} {} {}", render_expr(lhs), op.lexeme(), render_expr(rhs))
@@ -3197,6 +3208,17 @@ fn render_expr(expr: &Expr) -> String {
                 .collect::<Vec<_>>()
                 .join(", ");
             format!("vec![{rendered}]")
+        }
+        Expr::Closure { params, body, .. } => {
+            let rendered_params = params
+                .iter()
+                .map(|param| param.name.clone())
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!(
+                "Box::new(move |{rendered_params}| {{ {} }})",
+                render_expr(body)
+            )
         }
         Expr::Slice {
             base, start, end, ..
@@ -3389,6 +3411,15 @@ fn rust_type_inner(ty: &Type, lifetime: Option<&str>, type_context: &TypeContext
                 rust_type_inner(inner, lifetime, type_context)
             )
         }
+        Type::Fn(params, return_ty) => format!(
+            "Box<dyn Fn({}) -> {}>",
+            params
+                .iter()
+                .map(|param| rust_type_inner(param, lifetime, type_context))
+                .collect::<Vec<_>>()
+                .join(", "),
+            rust_type_inner(return_ty, lifetime, type_context)
+        ),
     }
 }
 

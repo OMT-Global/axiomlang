@@ -191,6 +191,11 @@ pub enum Expr {
         elements: Vec<Expr>,
         ty: Type,
     },
+    Closure {
+        params: Vec<Param>,
+        body: Box<Expr>,
+        ty: Type,
+    },
     Slice {
         base: Box<Expr>,
         start: Option<Box<Expr>>,
@@ -225,6 +230,7 @@ pub enum Type {
     JoinHandle(Box<Type>),
     AsyncChannel(Box<Type>),
     SelectResult(Box<Type>),
+    Fn(Vec<Type>, Box<Type>),
 }
 
 impl PartialEq for Type {
@@ -253,6 +259,9 @@ impl PartialEq for Type {
             (Type::Tuple(lhs), Type::Tuple(rhs)) => lhs == rhs,
             (Type::Array(lhs_inner, lhs_len), Type::Array(rhs_inner, rhs_len)) => {
                 lhs_inner == rhs_inner && lhs_len == rhs_len
+            }
+            (Type::Fn(lhs_params, lhs_return), Type::Fn(rhs_params, rhs_return)) => {
+                lhs_params == rhs_params && lhs_return == rhs_return
             }
             _ => false,
         }
@@ -291,6 +300,14 @@ fn type_assignable_to(actual: &Type, expected: &Type) -> bool {
                     .iter()
                     .zip(expected.iter())
                     .all(|(actual, expected)| type_assignable_to(actual, expected))
+        }
+        (Type::Fn(actual_params, actual_return), Type::Fn(expected_params, expected_return)) => {
+            actual_params.len() == expected_params.len()
+                && actual_params
+                    .iter()
+                    .zip(expected_params.iter())
+                    .all(|(actual, expected)| type_assignable_to(actual, expected))
+                && type_assignable_to(actual_return, expected_return)
         }
         _ => actual == expected,
     }
@@ -387,6 +404,8 @@ struct VariantInfo {
     payload_names: Vec<String>,
 }
 
+const OWNERSHIP_CLOSURE_MOVE_CAPTURED_NON_COPY: &str = "closure_move_captured_non_copy";
+const OWNERSHIP_CLOSURE_BORROWED_SLICE_RETURN: &str = "closure_borrowed_slice_return";
 const OWNERSHIP_LOOP_MOVE_OUTER_NON_COPY: &str = "loop_move_outer_non_copy";
 const OWNERSHIP_BORROW_RETURN_REQUIRES_PARAM_ORIGIN: &str = "borrow_return_requires_param_origin";
 const OWNERSHIP_MOVE_WHILE_BORROWED: &str = "move_while_borrowed";
@@ -680,6 +699,9 @@ fn collect_expr_calls(expr: &syntax::Expr, calls: &mut VecDeque<String>) {
             collect_expr_calls(base, calls);
             collect_expr_calls(index, calls);
         }
+        syntax::Expr::Closure { body, .. } => {
+            collect_expr_calls(body, calls);
+        }
     }
 }
 
@@ -807,7 +829,11 @@ fn type_has_unboxed_recursive_path(
             visiting.remove(&current);
             result
         }
-        Type::Slice(_) | Type::MutSlice(_) | Type::Map(_, _) | Type::Array(_, _) => false,
+        Type::Slice(_)
+        | Type::MutSlice(_)
+        | Type::Map(_, _)
+        | Type::Array(_, _)
+        | Type::Fn(_, _) => false,
         Type::Option(inner)
         | Type::Task(inner)
         | Type::JoinHandle(inner)
@@ -1337,6 +1363,22 @@ fn infer_generic_calls_in_expr(
             line: *line,
             column: *column,
         },
+        syntax::Expr::Closure {
+            params,
+            body,
+            line,
+            column,
+        } => syntax::Expr::Closure {
+            params: params.clone(),
+            body: Box::new(infer_generic_calls_in_expr(
+                body,
+                expected,
+                env,
+                generic_functions,
+            )?),
+            line: *line,
+            column: *column,
+        },
         syntax::Expr::Literal(_) | syntax::Expr::VarRef { .. } => expr.clone(),
     })
 }
@@ -1519,6 +1561,12 @@ fn contains_generic_type_param(ty: &syntax::TypeName, type_params: &HashSet<Stri
         syntax::TypeName::Tuple(elements) => elements
             .iter()
             .any(|element| contains_generic_type_param(element, type_params)),
+        syntax::TypeName::Fn(params, return_ty) => {
+            params
+                .iter()
+                .any(|param| contains_generic_type_param(param, type_params))
+                || contains_generic_type_param(return_ty, type_params)
+        }
         syntax::TypeName::Int | syntax::TypeName::Bool | syntax::TypeName::String => false,
     }
 }
@@ -1642,6 +1690,23 @@ fn unify_generic_type_name(
         syntax::TypeName::Array(lhs, _) => {
             if let syntax::TypeName::Array(rhs, _) = actual {
                 unify_generic_type_name(lhs, rhs, type_params, bindings, line, column)
+            } else if contains_generic_type_param(pattern, type_params) {
+                Err(generic_constraint_mismatch(pattern, actual, line, column))
+            } else {
+                Ok(())
+            }
+        }
+        syntax::TypeName::Fn(lhs_params, lhs_return) => {
+            if let syntax::TypeName::Fn(rhs_params, rhs_return) = actual {
+                if lhs_params.len() != rhs_params.len()
+                    && contains_generic_type_param(pattern, type_params)
+                {
+                    return Err(generic_constraint_mismatch(pattern, actual, line, column));
+                }
+                for (lhs, rhs) in lhs_params.iter().zip(rhs_params) {
+                    unify_generic_type_name(lhs, rhs, type_params, bindings, line, column)?;
+                }
+                unify_generic_type_name(lhs_return, rhs_return, type_params, bindings, line, column)
             } else if contains_generic_type_param(pattern, type_params) {
                 Err(generic_constraint_mismatch(pattern, actual, line, column))
             } else {
@@ -2053,6 +2118,12 @@ fn collect_type_params(ty: &syntax::TypeName, type_params: &[String], found: &mu
             collect_type_params(ok, type_params, found);
             collect_type_params(err, type_params, found);
         }
+        syntax::TypeName::Fn(params, return_ty) => {
+            for param in params {
+                collect_type_params(param, type_params, found);
+            }
+            collect_type_params(return_ty, type_params, found);
+        }
         syntax::TypeName::Tuple(elements) => {
             for element in elements {
                 collect_type_params(element, type_params, found);
@@ -2444,6 +2515,31 @@ fn rewrite_aggregate_type_name(
                 column,
             )?),
             len.clone(),
+        ),
+        syntax::TypeName::Fn(params, return_ty) => syntax::TypeName::Fn(
+            params
+                .iter()
+                .map(|param| {
+                    rewrite_aggregate_type_name(
+                        param,
+                        generic_structs,
+                        generic_enums,
+                        queue,
+                        queued,
+                        line,
+                        column,
+                    )
+                })
+                .collect::<Result<Vec<_>, _>>()?,
+            Box::new(rewrite_aggregate_type_name(
+                return_ty,
+                generic_structs,
+                generic_enums,
+                queue,
+                queued,
+                line,
+                column,
+            )?),
         ),
         syntax::TypeName::Int => syntax::TypeName::Int,
         syntax::TypeName::Bool => syntax::TypeName::Bool,
@@ -3005,6 +3101,41 @@ fn rewrite_expr_aggregate_types(
             )?),
             index: Box::new(rewrite_expr_aggregate_types(
                 index,
+                generic_structs,
+                generic_enums,
+                queue,
+                queued,
+            )?),
+            line: *line,
+            column: *column,
+        },
+        syntax::Expr::Closure {
+            params,
+            body,
+            line,
+            column,
+        } => syntax::Expr::Closure {
+            params: params
+                .iter()
+                .map(|param| {
+                    Ok(syntax::Param {
+                        name: param.name.clone(),
+                        ty: rewrite_aggregate_type_name(
+                            &param.ty,
+                            generic_structs,
+                            generic_enums,
+                            queue,
+                            queued,
+                            param.line,
+                            param.column,
+                        )?,
+                        line: param.line,
+                        column: param.column,
+                    })
+                })
+                .collect::<Result<Vec<_>, Diagnostic>>()?,
+            body: Box::new(rewrite_expr_aggregate_types(
+                body,
                 generic_structs,
                 generic_enums,
                 queue,
@@ -3600,6 +3731,31 @@ fn rewrite_expr_generic_calls(
             line: *line,
             column: *column,
         },
+        syntax::Expr::Closure {
+            params,
+            body,
+            line,
+            column,
+        } => syntax::Expr::Closure {
+            params: params
+                .iter()
+                .map(|param| syntax::Param {
+                    name: param.name.clone(),
+                    ty: substitute_type_name(&param.ty, type_bindings),
+                    line: param.line,
+                    column: param.column,
+                })
+                .collect(),
+            body: Box::new(rewrite_expr_generic_calls(
+                body,
+                type_bindings,
+                generic_functions,
+                queue,
+                queued,
+            )?),
+            line: *line,
+            column: *column,
+        },
     })
 }
 
@@ -3650,6 +3806,13 @@ fn substitute_type_name(
         syntax::TypeName::Array(inner, len) => syntax::TypeName::Array(
             Box::new(substitute_type_name(inner, type_bindings)),
             len.clone(),
+        ),
+        syntax::TypeName::Fn(params, return_ty) => syntax::TypeName::Fn(
+            params
+                .iter()
+                .map(|param| substitute_type_name(param, type_bindings))
+                .collect(),
+            Box::new(substitute_type_name(return_ty, type_bindings)),
         ),
         syntax::TypeName::Int => syntax::TypeName::Int,
         syntax::TypeName::Bool => syntax::TypeName::Bool,
@@ -3743,6 +3906,15 @@ fn type_name_monomorph_suffix(ty: &syntax::TypeName) -> String {
             ),
             None => format!("array_{}", type_name_monomorph_suffix(inner)),
         },
+        syntax::TypeName::Fn(params, return_ty) => format!(
+            "fn_{}_{}",
+            params
+                .iter()
+                .map(type_name_monomorph_suffix)
+                .collect::<Vec<_>>()
+                .join("_"),
+            type_name_monomorph_suffix(return_ty)
+        ),
     }
 }
 
@@ -3781,7 +3953,8 @@ impl Type {
             | Type::Task(_)
             | Type::JoinHandle(_)
             | Type::AsyncChannel(_)
-            | Type::SelectResult(_) => false,
+            | Type::SelectResult(_)
+            | Type::Fn(_, _) => false,
         }
     }
 
@@ -3803,7 +3976,8 @@ impl Type {
             | Type::Task(_)
             | Type::JoinHandle(_)
             | Type::AsyncChannel(_)
-            | Type::SelectResult(_) => false,
+            | Type::SelectResult(_)
+            | Type::Fn(_, _) => false,
         }
     }
 }
@@ -6806,6 +6980,58 @@ fn lower_expr_with_expected(
                     ty: element_ty,
                 });
             }
+            if let Some(binding) = env.get(name) {
+                if let Type::Fn(param_tys, return_ty) = binding.ty.clone() {
+                    if binding.moved {
+                        return Err(ownership_error(
+                            OWNERSHIP_USE_AFTER_MOVE,
+                            format!("use of moved value {name:?}"),
+                        )
+                        .with_span(*line, *column));
+                    }
+                    if !binding.moved_projections.is_empty() {
+                        return Err(ownership_error(
+                            OWNERSHIP_USE_AFTER_MOVE,
+                            format!("use of partially moved value {name:?}"),
+                        )
+                        .with_span(*line, *column));
+                    }
+                    if args.len() != param_tys.len() {
+                        return Err(Diagnostic::new(
+                            "type",
+                            format!(
+                                "function value {name:?} expects {} arguments, got {}",
+                                param_tys.len(),
+                                args.len()
+                            ),
+                        )
+                        .with_span(*line, *column));
+                    }
+                    let mut lowered_args = Vec::new();
+                    for (arg, expected) in args.iter().zip(param_tys.iter()) {
+                        let lowered = lower_expr_with_expected(arg, Some(expected), env, ctx)?;
+                        if lowered.ty() != expected {
+                            return Err(Diagnostic::new(
+                                "type",
+                                format!(
+                                    "function value {name:?} expects argument type {expected}, got {}",
+                                    lowered.ty()
+                                ),
+                            )
+                            .with_span(arg.line(), arg.column()));
+                        }
+                        if !expected.is_copy() {
+                            move_lowered_value(&lowered, env)?;
+                        }
+                        lowered_args.push(lowered);
+                    }
+                    return Ok(Expr::Call {
+                        name: name.clone(),
+                        args: lowered_args,
+                        ty: (*return_ty).clone(),
+                    });
+                }
+            }
             if let Some(signature) = ctx.functions.get(name) {
                 if signature.is_extern {
                     require_capability(
@@ -7814,6 +8040,231 @@ fn lower_expr_with_expected(
                 ty: result_ty,
             })
         }
+        syntax::Expr::Closure {
+            params,
+            body,
+            line,
+            column,
+        } => {
+            let Some(Type::Fn(expected_params, expected_return)) = expected else {
+                return Err(Diagnostic::new(
+                    "type",
+                    "closure requires an expected fn type from an annotation or function parameter",
+                )
+                .with_span(*line, *column));
+            };
+            if params.len() != expected_params.len() {
+                return Err(Diagnostic::new(
+                    "type",
+                    format!(
+                        "closure expects {} parameters from context, got {}",
+                        expected_params.len(),
+                        params.len()
+                    ),
+                )
+                .with_span(*line, *column));
+            }
+            let mut closure_env = env.clone();
+            let mut param_names = HashSet::new();
+            for ((param, expected_ty), index) in params.iter().zip(expected_params.iter()).zip(0..)
+            {
+                let param_ty = lower_type(
+                    &param.ty,
+                    ctx.structs,
+                    ctx.enums,
+                    ctx.aliases,
+                    param.line,
+                    param.column,
+                )?;
+                if &param_ty != expected_ty {
+                    return Err(Diagnostic::new(
+                        "type",
+                        format!(
+                            "closure parameter {} expects type {expected_ty}, got {param_ty}",
+                            index + 1
+                        ),
+                    )
+                    .with_span(param.line, param.column));
+                }
+                if !param_names.insert(param.name.clone()) {
+                    return Err(Diagnostic::new(
+                        "type",
+                        format!("duplicate closure parameter {:?}", param.name),
+                    )
+                    .with_span(param.line, param.column));
+                }
+                closure_env.insert(
+                    param.name.clone(),
+                    Binding {
+                        ty: param_ty,
+                        moved: false,
+                        moved_projections: HashSet::new(),
+                        borrow_kind: None,
+                        borrow_origin: Some(BorrowOrigin::Local),
+                        borrowed_owners: HashSet::new(),
+                        active_borrow_count: 0,
+                        active_mut_borrow_count: 0,
+                    },
+                );
+            }
+            let mut referenced = HashSet::new();
+            collect_var_refs(body, &mut referenced);
+            for param in params {
+                referenced.remove(&param.name);
+            }
+            let captured_names = referenced.clone();
+
+            if contains_borrowed_slice_type(expected_return, ctx.structs, ctx.enums) {
+                return Err(ownership_error(
+                    OWNERSHIP_CLOSURE_BORROWED_SLICE_RETURN,
+                    "closure fn values cannot return borrowed slice types in stage1 because codegen cannot express the returned reference lifetime",
+                )
+                .with_span(*line, *column));
+            }
+
+            let lowered_body =
+                lower_expr_with_expected(body, Some(expected_return), &mut closure_env, ctx)?;
+            if lowered_body.ty() != expected_return.as_ref() {
+                return Err(Diagnostic::new(
+                    "type",
+                    format!(
+                        "closure body expects type {expected_return}, got {}",
+                        lowered_body.ty()
+                    ),
+                )
+                .with_span(body.line(), body.column()));
+            }
+
+            if let Some((name, _)) = ownership_projection(&lowered_body)
+                && captured_names.contains(name)
+                && !lowered_body.ty().is_copy()
+            {
+                return Err(ownership_error(
+                    OWNERSHIP_CLOSURE_MOVE_CAPTURED_NON_COPY,
+                    format!(
+                        "closure cannot move captured non-copy value `{}` because fn closures must be callable more than once",
+                        name
+                    ),
+                )
+                .with_span(*line, *column));
+            }
+
+            for name in &captured_names {
+                let Some(pre_binding) = env.get(name) else {
+                    continue;
+                };
+                if pre_binding.ty.is_copy() {
+                    continue;
+                }
+                if let Some(post_binding) = closure_env.get(name) {
+                    let moved_projection_in_body = post_binding
+                        .moved_projections
+                        .iter()
+                        .any(|projection| !pre_binding.moved_projections.contains(projection));
+                    if post_binding.moved || moved_projection_in_body {
+                        return Err(ownership_error(
+                            OWNERSHIP_CLOSURE_MOVE_CAPTURED_NON_COPY,
+                            format!(
+                                "closure cannot move captured non-copy value `{}` because fn closures must be callable more than once",
+                                name
+                            ),
+                        )
+                        .with_span(*line, *column));
+                    }
+                }
+            }
+
+            for name in referenced {
+                if let Some(binding) = env.get_mut(&name)
+                    && !binding.ty.is_copy()
+                {
+                    binding.moved = true;
+                }
+            }
+            Ok(Expr::Closure {
+                params: params
+                    .iter()
+                    .zip(expected_params.iter())
+                    .map(|(param, ty)| Param {
+                        name: param.name.clone(),
+                        ty: ty.clone(),
+                    })
+                    .collect(),
+                body: Box::new(lowered_body),
+                ty: Type::Fn(expected_params.clone(), expected_return.clone()),
+            })
+        }
+    }
+}
+
+fn collect_var_refs(expr: &syntax::Expr, refs: &mut HashSet<String>) {
+    match expr {
+        syntax::Expr::VarRef { name, .. } => {
+            refs.insert(name.clone());
+        }
+        syntax::Expr::Call { name, args, .. } => {
+            refs.insert(name.clone());
+            for arg in args {
+                collect_var_refs(arg, refs);
+            }
+        }
+        syntax::Expr::TupleLiteral { elements: args, .. }
+        | syntax::Expr::ArrayLiteral { elements: args, .. } => {
+            for arg in args {
+                collect_var_refs(arg, refs);
+            }
+        }
+        syntax::Expr::MethodCall { base, args, .. } => {
+            collect_var_refs(base, refs);
+            for arg in args {
+                collect_var_refs(arg, refs);
+            }
+        }
+        syntax::Expr::BinaryAdd { lhs, rhs, .. }
+        | syntax::Expr::BinaryCompare { lhs, rhs, .. }
+        | syntax::Expr::Index {
+            base: lhs,
+            index: rhs,
+            ..
+        } => {
+            collect_var_refs(lhs, refs);
+            collect_var_refs(rhs, refs);
+        }
+        syntax::Expr::Try { expr, .. } | syntax::Expr::Await { expr, .. } => {
+            collect_var_refs(expr, refs)
+        }
+        syntax::Expr::StructLiteral { fields, .. } => {
+            for field in fields {
+                collect_var_refs(&field.expr, refs);
+            }
+        }
+        syntax::Expr::FieldAccess { base, .. } | syntax::Expr::TupleIndex { base, .. } => {
+            collect_var_refs(base, refs)
+        }
+        syntax::Expr::MapLiteral { entries, .. } => {
+            for entry in entries {
+                collect_var_refs(&entry.key, refs);
+                collect_var_refs(&entry.value, refs);
+            }
+        }
+        syntax::Expr::Slice {
+            base, start, end, ..
+        } => {
+            collect_var_refs(base, refs);
+            if let Some(start) = start {
+                collect_var_refs(start, refs);
+            }
+            if let Some(end) = end {
+                collect_var_refs(end, refs);
+            }
+        }
+        syntax::Expr::Closure { params, body, .. } => {
+            collect_var_refs(body, refs);
+            for param in params {
+                refs.remove(&param.name);
+            }
+        }
+        syntax::Expr::Literal(_) => {}
     }
 }
 
@@ -8581,6 +9032,7 @@ fn expr_borrow_origin(
                 .map(|field| expr_borrow_origin(&field.expr, env, ctx)),
         ),
         Expr::Index { base, .. } => expr_borrow_origin(base, env, ctx),
+        Expr::Closure { .. } => None,
         Expr::Literal { .. } | Expr::BinaryAdd { .. } | Expr::BinaryCompare { .. } => None,
     }
 }
@@ -8711,6 +9163,7 @@ fn expr_borrowed_owners(
         Expr::EnumVariant { payloads, .. } => collect_expr_borrowed_owners(payloads, env, ctx),
         Expr::FieldAccess { base, .. } => expr_borrowed_owners(base, env, ctx),
         Expr::Index { base, .. } => expr_borrowed_owners(base, env, ctx),
+        Expr::Closure { .. } => HashSet::new(),
         Expr::Literal { .. } | Expr::BinaryAdd { .. } | Expr::BinaryCompare { .. } => {
             HashSet::new()
         }
@@ -8830,6 +9283,23 @@ fn contains_borrowed_slice_type_inner(
             visiting_structs,
             visiting_enums,
         ),
+        Type::Fn(params, return_ty) => {
+            params.iter().any(|param| {
+                contains_borrowed_slice_type_inner(
+                    param,
+                    structs,
+                    enums,
+                    visiting_structs,
+                    visiting_enums,
+                )
+            }) || contains_borrowed_slice_type_inner(
+                return_ty,
+                structs,
+                enums,
+                visiting_structs,
+                visiting_enums,
+            )
+        }
         Type::Struct(name) => {
             if !visiting_structs.insert(name.clone()) {
                 return false;
@@ -8947,6 +9417,23 @@ fn contains_mut_borrowed_slice_type_inner(
             visiting_structs,
             visiting_enums,
         ),
+        Type::Fn(params, return_ty) => {
+            params.iter().any(|param| {
+                contains_mut_borrowed_slice_type_inner(
+                    param,
+                    structs,
+                    enums,
+                    visiting_structs,
+                    visiting_enums,
+                )
+            }) || contains_mut_borrowed_slice_type_inner(
+                return_ty,
+                structs,
+                enums,
+                visiting_structs,
+                visiting_enums,
+            )
+        }
         Type::Struct(name) => {
             if !visiting_structs.insert(name.clone()) {
                 return false;
@@ -9350,6 +9837,19 @@ fn lower_type_inner<T, U>(
                 len,
             ))
         }
+        syntax::TypeName::Fn(params, return_ty) => Ok(Type::Fn(
+            params
+                .iter()
+                .map(|param| {
+                    lower_type_inner(
+                        param, structs, enums, aliases, consts, resolving, line, column,
+                    )
+                })
+                .collect::<Result<Vec<_>, _>>()?,
+            Box::new(lower_type_inner(
+                return_ty, structs, enums, aliases, consts, resolving, line, column,
+            )?),
+        )),
     }
 }
 
@@ -9436,6 +9936,7 @@ impl Expr {
             Expr::MapLiteral { ty, .. } => ty,
             Expr::EnumVariant { ty, .. } => ty,
             Expr::ArrayLiteral { ty, .. } => ty,
+            Expr::Closure { ty, .. } => ty,
             Expr::Slice { ty, .. } => ty,
             Expr::Index { ty, .. } => ty,
         }
@@ -9522,7 +10023,8 @@ impl syntax::Expr {
             | syntax::Expr::MapLiteral { line, .. }
             | syntax::Expr::ArrayLiteral { line, .. }
             | syntax::Expr::Slice { line, .. }
-            | syntax::Expr::Index { line, .. } => *line,
+            | syntax::Expr::Index { line, .. }
+            | syntax::Expr::Closure { line, .. } => *line,
         }
     }
 
@@ -9543,7 +10045,8 @@ impl syntax::Expr {
             | syntax::Expr::MapLiteral { column, .. }
             | syntax::Expr::ArrayLiteral { column, .. }
             | syntax::Expr::Slice { column, .. }
-            | syntax::Expr::Index { column, .. } => *column,
+            | syntax::Expr::Index { column, .. }
+            | syntax::Expr::Closure { column, .. } => *column,
         }
     }
 }
@@ -9592,6 +10095,15 @@ impl std::fmt::Display for Type {
             Type::JoinHandle(inner) => write!(f, "JoinHandle<{inner}>"),
             Type::AsyncChannel(inner) => write!(f, "AsyncChannel<{inner}>"),
             Type::SelectResult(inner) => write!(f, "SelectResult<{inner}>"),
+            Type::Fn(params, return_ty) => write!(
+                f,
+                "fn({}): {return_ty}",
+                params
+                    .iter()
+                    .map(std::string::ToString::to_string)
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
         }
     }
 }
