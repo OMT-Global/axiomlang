@@ -1,10 +1,10 @@
 [workspace]
 members = [
 <<<<<<< HEAD
+>>>>>>> origin/codex/issue-422-comparison-gate
   "fail/closure_captures_function_callee",
   "fail/closure_borrowed_slice_return",
   "fail/closure_move_captured_non_copy",
->>>>>>> origin/codex/agent-f-fs
 >>>>>>> origin/codex/issue-387-capability-validation
   "fail/comparison_owned_resource_move",
   "fail/comparison_predictable_diagnostic",

@@ -58,9 +58,9 @@ pub fn build_success(project: &Path, output: &BuildOutput) -> Value {
 =======
 =======
 =======
->>>>>>> origin/codex/issue-370-command-fixtures
-=======
 >>>>>>> origin/codex/issue-418-schema-metadata
+=======
+>>>>>>> origin/codex/issue-422-comparison-gate
         "manifest": output.manifest,
         "entry": output.entry,
         "binary": output.binary,
@@ -74,6 +74,9 @@ pub fn build_success(project: &Path, output: &BuildOutput) -> Value {
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+>>>>>>> origin/codex/issue-422-comparison-gate
         "cache_key": output.cache_key,
 =======
 =======

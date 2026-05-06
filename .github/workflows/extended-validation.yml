@@ -122,8 +122,8 @@ jobs:
         uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6 pinned 2026-04-19
         with:
           go-version: '1.24.2'
-=======
 >>>>>>> origin/codex/issue-387-capability-validation
+=======
       - name: Run stage1 benchmark gate
         run: make stage1-bench-gate
 

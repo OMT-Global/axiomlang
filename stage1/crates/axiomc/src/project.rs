@@ -18,6 +18,7 @@ use crate::manifest::{
 >>>>>>> origin/codex/issue-369-check-fixtures
 >>>>>>> origin/codex/issue-370-command-fixtures
 >>>>>>> origin/codex/issue-418-schema-metadata
+>>>>>>> origin/codex/issue-422-comparison-gate
 };
 use crate::mir;
 use crate::stdlib;
@@ -78,6 +79,8 @@ pub struct BuiltPackage {
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
     pub cache_key: BuildCacheMetadata,
 >>>>>>> origin/codex/issue-406-collection-lookup
 >>>>>>> origin/codex/issue-383-new-templates
@@ -341,8 +344,8 @@ pub fn build_project_with_options(
             debug: options.debug,
 <<<<<<< HEAD
 <<<<<<< HEAD
+>>>>>>> origin/codex/issue-422-comparison-gate
             cache_key: report.cache_key,
->>>>>>> origin/codex/issue-369-check-fixtures
 =======
 >>>>>>> origin/codex/issue-370-command-fixtures
 =======
@@ -726,12 +729,12 @@ fn collect_discovered_tests(
             stderr,
 =======
 =======
-=======
             kind,
 =======
             expected_error: None,
             capabilities: Vec::new(),
             package: None,
+=======
 =======
 =======
 =======
@@ -1381,6 +1384,7 @@ fn build_artifacts(
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
+>>>>>>> origin/codex/issue-422-comparison-gate
 fn build_cache_metadata(cache: &BuildCacheFile) -> BuildCacheMetadata {
     BuildCacheMetadata {
         version: cache.version,
@@ -2574,6 +2578,7 @@ fn validate_expr_capabilities(
         syntax::Expr::Closure { body, .. } => {
             validate_expr_capabilities(module_path, body, capabilities)
         }
+<<<<<<< HEAD
     }
 }
 
@@ -2583,6 +2588,7 @@ fn env_capability_requirement(args: &[syntax::Expr]) -> String {
             format!("[capabilities].env = [{name:?}] or env_unrestricted = true")
         }
         _ => String::from("[capabilities].env = [\"NAME\"] or env_unrestricted = true"),
+=======
     }
 }
 
@@ -4581,7 +4587,6 @@ fn rewrite_type_name(
             )?),
             len.clone(),
         )),
-<<<<<<< HEAD
         syntax::TypeName::Fn(params, return_ty) => Ok(syntax::TypeName::Fn(
             params
                 .iter()
@@ -4605,6 +4610,7 @@ fn rewrite_type_name(
                 column,
             )?),
         )),
+<<<<<<< HEAD
 =======
     }
 }

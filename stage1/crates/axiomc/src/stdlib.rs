@@ -24,6 +24,7 @@
 >>>>>>> origin/codex/issue-369-check-fixtures
 >>>>>>> origin/codex/issue-370-command-fixtures
 >>>>>>> origin/codex/issue-418-schema-metadata
+>>>>>>> origin/codex/issue-422-comparison-gate
 //! single-intrinsic capability-gated surfaces, one per capability class:
 //!
 //! * `std/time.ax` — `Duration`, `Instant`, `now_ms()`, `now()`,
@@ -110,11 +111,13 @@
 //!   `find`, `replace_all`) over a stage1-safe NFA engine.
 //! * `std/testing.ax` — table-case, property, and snapshot assertion helpers
 //!   layered over the bootstrap test intrinsics.
+<<<<<<< HEAD
 //! * `std/cli.ax` — access to process arguments forwarded by `axiomc run`.
 //! * `std/outcome.ax` — generic `Option<T>` / `Result<T, E>` predicates and
 //!   fallback unwrap helpers implemented in Axiom.
 //! * `std/encoding.ax` — URL component and path segment percent-encoding
 //!   helpers.
+=======
 =======
 =======
 
@@ -308,6 +311,7 @@ pub fn selected_value<T>(result: SelectResult<T>): Option<T> {\nreturn async_sel
     ),
     (
 <<<<<<< HEAD
+>>>>>>> origin/codex/issue-422-comparison-gate
         "async_time.ax",
         "pub async fn sleep_ms(milliseconds: int): int {\nreturn clock_sleep_ms(milliseconds)\n}\n\
 pub async fn sleep_duration_ms(milliseconds: int): int {\nreturn clock_sleep_ms(milliseconds)\n}\n",
@@ -320,7 +324,6 @@ pub async fn udp_bind_loopback_once(response: string, timeout_ms: int): Option<i
 pub async fn udp_send_recv(host: string, port: int, message: string, timeout_ms: int): Option<string> {\nreturn net_udp_send_recv(host, port, message, timeout_ms)\n}\n",
     ),
     (
->>>>>>> origin/codex/worker-a-issue-379-fmt-json
 >>>>>>> origin/codex/issue-383-new-templates
 >>>>>>> origin/codex/agent-g-regex
 =======

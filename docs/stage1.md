@@ -133,6 +133,7 @@ member package with `-p/--package`.
 >>>>>>> origin/codex/issue-369-check-fixtures
 >>>>>>> origin/codex/issue-370-command-fixtures
 >>>>>>> origin/codex/issue-418-schema-metadata
+>>>>>>> origin/codex/issue-422-comparison-gate
 
 ## JSON contract
 
@@ -152,6 +153,8 @@ requested Rust target triple when `--target <triple>` is used and report
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
 with generated source-position markers. Build JSON carries both `cache_key`
 metadata with the cache schema version, compiler key, target, debug mode,
 manifest hash, lockfile hash, generated Rust hash, and per-source hashes used
@@ -167,7 +170,6 @@ generated-Rust cache.
 =======
 =======
 =======
-=======
 with generated source-position markers. Build JSON also carries `metadata` for
 cache-key inspection: requested/resolved `target`, `debug`, package `lockfile`,
 `lockfile_hash`, and aggregate `source_hash`. Debug builds also report `debug_map`,
@@ -175,6 +177,7 @@ a JSON sidecar that maps generated Rust statement lines back to Axiom
 file/line/column positions. `axiomc build --timings` prints total build time,
 cache hit/miss counts, and per-package compile timing/cache status for the
 incremental generated-Rust cache.
+=======
 Parser diagnostics now preserve additional recovered top-level parse errors in
 the error payload's `related` array when possible, so editor tooling can show
 more than the first syntax error without waiting for full checker recovery.

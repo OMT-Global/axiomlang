@@ -26,6 +26,7 @@ REF_ROOT = REPO_ROOT / "stage1/benchmarks/reference"
 BASELINE_PATH = REPO_ROOT / "stage1/benchmarks/baselines/stage1-build-median.json"
 DIAGNOSTIC_FIXTURE = REPO_ROOT / "stage1/conformance/fail/ownership_use_after_move"
 CAPABILITY_NAMES = ["fs", "fs:write", "net", "process", "env", "clock", "crypto", "ffi"]
+<<<<<<< HEAD
 >>>>>>> origin/codex/worker-a-issue-379-fmt-json
 >>>>>>> origin/codex/issue-380-doc-json
 >>>>>>> origin/codex/issue-376-doctor-json
@@ -39,6 +40,8 @@ CAPABILITY_NAMES = ["fs", "fs:write", "net", "process", "env", "clock", "crypto"
 >>>>>>> origin/codex/issue-369-check-fixtures
 >>>>>>> origin/codex/issue-370-command-fixtures
 >>>>>>> origin/codex/issue-418-schema-metadata
+=======
+>>>>>>> origin/codex/issue-422-comparison-gate
 
 
 @dataclass(frozen=True)

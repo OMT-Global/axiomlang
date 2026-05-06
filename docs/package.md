@@ -24,6 +24,7 @@ cargo run --manifest-path stage1/Cargo.toml -p axiomc -- caps stage1/examples/he
 >>>>>>> origin/codex/issue-369-check-fixtures
 >>>>>>> origin/codex/issue-370-command-fixtures
 >>>>>>> origin/codex/issue-418-schema-metadata
+>>>>>>> origin/codex/issue-422-comparison-gate
 cargo run --manifest-path stage1/Cargo.toml -p axiomc -- publish stage1/examples/hello --registry-dir ./registry/packages --signing-key dev-key
 cargo run --manifest-path stage1/Cargo.toml -p axiomc -- registry-index ./registry/packages --base-url https://packages.example.test --out ./registry/index.json
 cargo run --manifest-path stage1/Cargo.toml -p axiomc -- registry-validate ./registry/index.json
@@ -80,6 +81,7 @@ registry.
 See [stage1.md](stage1.md) for the current compiler, package, and capability
 contract.
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
 
 ## Editor Schemas
@@ -96,6 +98,7 @@ These schemas are intentionally metadata for editor completion, validation, and
 agent contract discovery. The compiler remains the source of truth for semantic
 checks such as dependency graph validity, capability enforcement, and source
 analysis.
+=======
 
 ## Publish and Static Registry Groundwork
 
@@ -121,7 +124,6 @@ and yanked status so a simple static host can serve lockfile-friendly package me
 <<<<<<< HEAD
 <<<<<<< HEAD
 and yanked status so a simple static host can serve lockfile-friendly package metadata. This is registry-index groundwork for a future hosted registry service, not the hosted service itself.
-=======
 =======
 =======
 =======
@@ -160,6 +162,7 @@ resolution exist, manifests must not contain `[registry]`, `[publish]`,
 `package.checksum`, `package.registry`, `package.source`, or dependency
 `version`/`checksum`/`registry`/`source` fields. The parser rejects them instead
 of silently treating a registry package as a local package.
+=======
 =======
 =======
 =======

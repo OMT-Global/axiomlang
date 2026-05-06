@@ -21,6 +21,7 @@ use axiomc::manifest::{load_manifest, manifest_path};
 >>>>>>> origin/codex/issue-369-check-fixtures
 >>>>>>> origin/codex/issue-370-command-fixtures
 >>>>>>> origin/codex/issue-418-schema-metadata
+>>>>>>> origin/codex/issue-422-comparison-gate
 use axiomc::new_project::create_project;
 use axiomc::diagnostics::Diagnostic;
 use axiomc::json_contract;
@@ -68,7 +69,6 @@ use axiomc::registry::{load_registry_index, render_registry_index};
 =======
 =======
 =======
->>>>>>> origin/codex/issue-370-command-fixtures
 =======
 >>>>>>> origin/codex/issue-418-schema-metadata
 use axiomc::syntax::parse_program;
@@ -77,6 +77,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use serde::Serialize;
 use std::collections::{BTreeSet, HashMap};
+>>>>>>> origin/codex/issue-422-comparison-gate
 use std::fs;
 use std::io::{self, BufRead, Write};
 use std::path::{Path, PathBuf};
@@ -160,6 +161,7 @@ enum Command {
         json: bool,
         #[command(subcommand)]
         command: Option<CapsCommand>,
+<<<<<<< HEAD
     },
     /// Report local stage1 project and toolchain health.
     Doctor {
@@ -182,6 +184,7 @@ enum Command {
         code: String,
         #[arg(long)]
         json: bool,
+=======
     },
     /// Format .ax source files with the canonical stage1 style.
     Fmt {
@@ -236,6 +239,7 @@ enum Command {
 >>>>>>> origin/codex/issue-369-check-fixtures
 >>>>>>> origin/codex/issue-370-command-fixtures
 >>>>>>> origin/codex/issue-418-schema-metadata
+>>>>>>> origin/codex/issue-422-comparison-gate
     /// Pack, sign, and publish a stage1 package into a local registry tree.
     Publish {
         path: PathBuf,
@@ -282,6 +286,7 @@ enum Command {
 enum CapsCommand {
     /// Diff two caps JSON payloads and fail on capability escalation.
     Diff { old: PathBuf, new: PathBuf },
+<<<<<<< HEAD
 }
 
 #[derive(Debug, Subcommand)]
@@ -307,9 +312,10 @@ enum InspectCommand {
 =======
 =======
 =======
->>>>>>> origin/codex/issue-370-command-fixtures
 =======
 >>>>>>> origin/codex/issue-418-schema-metadata
+=======
+>>>>>>> origin/codex/issue-422-comparison-gate
 }
 
 fn main() {
@@ -614,6 +620,7 @@ fn main() {
                 json,
             ),
         },
+>>>>>>> origin/codex/issue-422-comparison-gate
         Command::Fmt { path, check } => match format_axiom_sources(&path, check) {
         }
         Command::Fmt { path, check, json } => match format_axiom_sources(&path, check) {
@@ -748,7 +755,6 @@ fn main() {
             }
             Err(error) => print_error("publish", error, false),
         },
->>>>>>> origin/codex/issue-408-cli-args
         Command::RegistryIndex {
             packages_dir,
             base_url,
@@ -2597,7 +2603,6 @@ mod tests {
             )
         );
 <<<<<<< HEAD
-<<<<<<< HEAD
     }
 
     #[test]
@@ -2641,12 +2646,13 @@ mod tests {
             }
             other => panic!("expected caps diff command with path, got {other:?}"),
         }
+<<<<<<< HEAD
         assert!(rendered.contains("only generated-rust is implemented in this preparatory backend plumbing"));
 <<<<<<< HEAD
 =======
 =======
 =======
->>>>>>> origin/codex/issue-418-schema-metadata
+>>>>>>> origin/codex/issue-422-comparison-gate
     }
 
     fn build_output(debug_map: Option<String>) -> BuildOutput {
@@ -2669,6 +2675,7 @@ mod tests {
 >>>>>>> origin/codex/issue-369-check-fixtures
 >>>>>>> origin/codex/issue-370-command-fixtures
 >>>>>>> origin/codex/issue-418-schema-metadata
+>>>>>>> origin/codex/issue-422-comparison-gate
             manifest: String::from("axiom.toml"),
             entry: String::from("src/main.ax"),
             binary: String::from("dist/app"),
@@ -2686,6 +2693,8 @@ mod tests {
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
             cache_key: axiomc::project::BuildCacheMetadata {
                 version: 1,
                 compiler: String::from("stage1"),
@@ -2771,7 +2780,6 @@ mod tests {
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
-=======
 =======
 =======
 =======
@@ -2935,6 +2943,7 @@ mod tests {
         assert_eq!(
             parse_rustc_host_target(version).as_deref(),
             Some("aarch64-apple-darwin")
+=======
         );
     }
 
