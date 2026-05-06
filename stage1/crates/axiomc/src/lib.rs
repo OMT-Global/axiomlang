@@ -4,6 +4,7 @@ pub mod dap;
 pub mod diagnostic_catalog;
 >>>>>>> origin/codex/issue-406-collection-lookup
 >>>>>>> origin/codex/issue-383-new-templates
+>>>>>>> origin/codex/agent-g-regex
 pub mod diagnostics;
 pub mod hir;
 pub mod json_contract;
@@ -58,13 +59,15 @@ mod tests {
         format!(
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
             "[package]\nname = {name:?}\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = {fs}\n\"fs:write\" = {fs}\nnet = {net}\nprocess = {process}\nenv = {env}\nclock = {clock}\ncrypto = {crypto}\nasync = false\n"
->>>>>>> origin/codex/issue-377-inspect-symbols
 >>>>>>> origin/codex/issue-378-inspect-graph
 =======
 >>>>>>> origin/codex/issue-406-collection-lookup
 =======
 >>>>>>> origin/codex/issue-383-new-templates
+=======
+>>>>>>> origin/codex/agent-g-regex
             "[package]\nname = {name:?}\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = {fs}\n\"fs:write\" = {fs}\nnet = {net}\nprocess = {process}\nenv = {env}\nclock = {clock}\ncrypto = {crypto}\n"
         )
     }
@@ -388,6 +391,7 @@ print borrowed
     #[test]
 >>>>>>> origin/codex/issue-406-collection-lookup
 >>>>>>> origin/codex/issue-383-new-templates
+>>>>>>> origin/codex/agent-g-regex
     fn parser_expands_declarative_statement_macros_before_lowering() {
         let source = r#"macro_rules! answer {
 ($value:expr) => {
@@ -2782,11 +2786,13 @@ crypto = false
         let caps = capability_descriptors(&manifest.capabilities);
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
         assert_eq!(caps.len(), 9);
         assert!(caps.iter().all(|cap| !cap.enabled));
         assert!(caps.iter().any(|cap| cap.name == "async"));
         let project_caps = project_capabilities(&project).expect("project capabilities");
         assert_eq!(project_caps.len(), 9);
+=======
 =======
 =======
         assert_eq!(caps.len(), 8);
@@ -2892,6 +2898,7 @@ crypto = false
 >>>>>>> origin/codex/issue-378-inspect-graph
 >>>>>>> origin/codex/issue-406-collection-lookup
 >>>>>>> origin/codex/issue-383-new-templates
+>>>>>>> origin/codex/agent-g-regex
     }
 
     #[test]
@@ -5419,7 +5426,9 @@ print serve_once("127.0.0.1:18080", "hello")
                 kind: TestKind::Unit,
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
                 stderr: None,
+=======
 =======
 =======
             }]
@@ -5935,9 +5944,7 @@ print serve_once("127.0.0.1:18080", "hello")
                 .iter()
                 .filter(|case| case.expected_error.is_some())
                 .count()
-<<<<<<< HEAD
                 == 24
-=======
                 == 20
         );
         assert_eq!(
@@ -5947,7 +5954,6 @@ print serve_once("127.0.0.1:18080", "hello")
                 .filter(|case| case.expected_stdout.is_some())
                 .count(),
             12
->>>>>>> origin/codex/issue-406-collection-lookup
 >>>>>>> origin/codex/issue-383-new-templates
             9
         );
@@ -8827,7 +8833,7 @@ print 0
 =======
 =======
 =======
->>>>>>> origin/codex/issue-383-new-templates
+>>>>>>> origin/codex/agent-g-regex
         assert!(payload["target"].is_string());
         assert_eq!(payload["debug"], true);
         assert!(payload["debug_map"].is_string());

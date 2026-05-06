@@ -85,10 +85,10 @@ pub struct BuildOutput {
     pub offline: bool,
 <<<<<<< HEAD
 <<<<<<< HEAD
-=======
 >>>>>>> origin/codex/issue-406-collection-lookup
 =======
->>>>>>> origin/codex/issue-383-new-templates
+=======
+>>>>>>> origin/codex/agent-g-regex
     pub manifest: String,
     pub entry: String,
     pub binary: String,
@@ -100,9 +100,7 @@ pub struct BuildOutput {
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
-<<<<<<< HEAD
     pub cache_key: BuildCacheMetadata,
-=======
 =======
 =======
 =======
@@ -327,7 +325,6 @@ pub fn build_project_with_options(
             target: resolved_target.clone(),
             debug: options.debug,
             cache_key: report.cache_key,
->>>>>>> origin/codex/issue-377-inspect-symbols
 >>>>>>> origin/codex/issue-378-inspect-graph
 >>>>>>> origin/codex/issue-406-collection-lookup
 >>>>>>> origin/codex/issue-383-new-templates
@@ -356,10 +353,10 @@ pub fn build_project_with_options(
         offline: options.offline,
 <<<<<<< HEAD
 <<<<<<< HEAD
-=======
 >>>>>>> origin/codex/issue-406-collection-lookup
 =======
->>>>>>> origin/codex/issue-383-new-templates
+=======
+>>>>>>> origin/codex/agent-g-regex
         manifest: root.manifest,
         entry: root.entry,
         binary: root.binary,
@@ -371,9 +368,7 @@ pub fn build_project_with_options(
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
-<<<<<<< HEAD
         cache_key: root.cache_key,
-=======
 =======
 =======
 =======
@@ -703,8 +698,10 @@ fn collect_discovered_tests(
             entry: relative.display().to_string(),
             stdout,
 <<<<<<< HEAD
+<<<<<<< HEAD
             kind,
             stderr,
+=======
 =======
             kind,
         });

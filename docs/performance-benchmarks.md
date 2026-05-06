@@ -47,3 +47,6 @@ variance is being measured.
 variance is being measured; the existing benchmark gate still owns hard failures
 for obvious cold-build and warm-cache regressions against the checked-in Go and
 Rust reference builds.
+This closes the local benchmark-suite foundation. Go and Rust reference
+comparisons should be layered on top of this harness in CI once representative
+workloads are stable enough to treat as performance policy.

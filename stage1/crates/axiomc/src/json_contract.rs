@@ -43,9 +43,9 @@ pub fn build_success(project: &Path, output: &BuildOutput) -> Value {
 <<<<<<< HEAD
 =======
 =======
->>>>>>> origin/codex/issue-406-collection-lookup
-=======
 >>>>>>> origin/codex/issue-383-new-templates
+=======
+>>>>>>> origin/codex/agent-g-regex
         "manifest": output.manifest,
         "entry": output.entry,
         "binary": output.binary,

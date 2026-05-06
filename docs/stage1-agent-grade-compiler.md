@@ -202,7 +202,11 @@ open: `std/http.ax::serve_once` and `std/http.ax::serve` are intermediate
 loopback-only blocking service primitives that provide smoke coverage for
 bind/accept/route/respond and bounded lifecycle behavior, but they are not the
 full async-runtime listen/accept/respond service surface required by #97.
-
+deterministic AG4.2 task/channel runtime. `std/regex.ax` adds an ungated
+generated-runtime regex floor for deterministic matching, finding, and
+replacement. AG4.4 capability-aware integration
+for the currently landed stdlib/runtime surface is now complete; AG4.3 HTTP
+*server* support remains open.
 
 Work packages:
 
@@ -325,6 +329,15 @@ Work packages:
     It deliberately does not add host log sinks, runtime filtering, or replay
     buffers. Covered by `stage1/examples/stdlib_log` and one Rust test
     (`stage1_project_imports_synthetic_stdlib_log_module`).
+  - `std.regex` — **landed as a floor** as `std/regex.ax` exposing
+    `is_match(pattern, text): bool`, `find(pattern, text): Option<string>`,
+    and `replace_all(pattern, text, replacement): string` on top of ungated
+    generated-runtime intrinsics. The matcher supports literals, escapes, `.`,
+    anchors, `*`, `+`, `?`, and character classes with bounded
+    dynamic-programming evaluation rather than recursive backtracking. Covered
+    by `stage1/examples/stdlib_regex` and Rust tests
+    (`stage1_project_imports_synthetic_stdlib_regex_module`,
+    `stage1_project_rejects_stdlib_regex_with_wrong_argument_type`).
   - `std.sync` — **landed** as `std/sync.ax` exposing ownership-shaped
     primitives (`Mutex`, `MutexGuard`, `Once`, and `Channel`) implemented in
     Axiom without host-thread capabilities. The stage1 channel is single-slot

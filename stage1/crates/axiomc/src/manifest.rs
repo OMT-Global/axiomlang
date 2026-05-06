@@ -12,6 +12,7 @@ pub const KNOWN_CAPABILITIES: [CapabilityKind; 9] = [
 >>>>>>> origin/codex/issue-378-inspect-graph
 >>>>>>> origin/codex/issue-406-collection-lookup
 >>>>>>> origin/codex/issue-383-new-templates
+>>>>>>> origin/codex/agent-g-regex
 pub const KNOWN_CAPABILITIES: [CapabilityKind; 8] = [
     CapabilityKind::Fs,
     CapabilityKind::FsWrite,
@@ -75,7 +76,9 @@ pub enum TestKind {
     Benchmark,
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
     pub stderr: Option<String>,
+=======
 =======
 =======
 }
@@ -95,9 +98,7 @@ pub struct CapabilityConfig {
     pub clock: bool,
     pub crypto: bool,
     pub ffi: bool,
-<<<<<<< HEAD
     pub async_runtime: bool,
-=======
     pub deny_by_default: bool,
     pub unsafe_opt_ins: Vec<String>,
     pub owners: BTreeMap<String, String>,
@@ -183,8 +184,10 @@ struct RawTestTarget {
     stdout: Option<String>,
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
     kind: Option<String>,
     stderr: Option<String>,
+=======
 =======
 =======
     kind: Option<String>,
@@ -689,7 +692,7 @@ fn normalize_tests(
             stderr: raw_test.stderr,
 =======
 =======
->>>>>>> origin/codex/issue-383-new-templates
+>>>>>>> origin/codex/agent-g-regex
         });
     }
     Ok(tests)
