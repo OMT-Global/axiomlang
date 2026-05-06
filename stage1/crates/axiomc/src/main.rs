@@ -14,7 +14,7 @@ use axiomc::registry::{
 };
 use axiomc::syntax::parse_program;
 use clap::{Parser, Subcommand};
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use std::fs;
 use std::io::{self, BufRead, Write};
 use std::path::{Path, PathBuf};
@@ -730,14 +730,14 @@ fn run_benchmarks(
     })
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 struct MutationIssueReport {
     schema_version: &'static str,
     survivor_count: usize,
     groups: Vec<MutationSurvivorGroup>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 struct MutationSurvivorGroup {
     file: String,
     function: String,
@@ -745,7 +745,7 @@ struct MutationSurvivorGroup {
     survivors: Vec<MutationSurvivor>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 struct MutationSurvivor {
     id: String,
     mutator: String,
