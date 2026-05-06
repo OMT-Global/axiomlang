@@ -23,10 +23,11 @@
 .PHONY: test smoke supply-chain docs-python-exit docs-python-exit-test stage1-test stage1-proof-test stage1-conformance stage1-smoke stage1-bench-gate stage1-crap-proposal mutation-rust-smoke mutation-survivor-report stage1-run
 .PHONY: test smoke supply-chain docs-python-exit docs-python-exit-test stage1-test stage1-proof-test stage1-conformance stage1-smoke stage1-bench-gate stage1-crap-proposal stage1-run
 .PHONY: test smoke supply-chain docs-python-exit docs-python-exit-test stage1-test stage1-proof-test stage1-conformance stage1-smoke stage1-bench-gate stage1-run
-=======
 .PHONY: test smoke supply-chain docs-python-exit docs-python-exit-test stage1-test stage1-proof-test stage1-conformance stage1-smoke stage1-bench stage1-bench-update-baseline stage1-bench-gate stage1-crap-proposal mutation-rust-smoke stage1-run
+=======
+.PHONY: test smoke supply-chain docs-python-exit docs-python-exit-test python-exit-readiness python-exit-readiness-github stage1-test stage1-proof-test stage1-conformance stage1-smoke stage1-bench-gate stage1-crap-proposal mutation-rust-smoke stage1-run
 
-test: docs-python-exit stage1-test
+test: docs-python-exit python-exit-readiness stage1-test
 
 smoke: stage1-smoke
 
@@ -36,9 +37,16 @@ supply-chain:
 docs-python-exit:
 	bash scripts/ci/check-python-exit-docs.sh
 	bash scripts/ci/test-check-python-exit-docs.sh
+	bash scripts/ci/test-check-python-exit-readiness.sh
 
 docs-python-exit-test:
 	bash scripts/ci/test-check-python-exit-docs.sh
+
+python-exit-readiness:
+	bash scripts/ci/check-python-exit-readiness.sh --json
+
+python-exit-readiness-github:
+	bash scripts/ci/check-python-exit-readiness.sh --json --require-issue-states
 
 stage1-test:
 	RUST_MIN_STACK=8388608 cargo test --manifest-path stage1/Cargo.toml
@@ -69,12 +77,12 @@ mutation-survivor-report:
 		--output .axiom-build/reports/mutation-survivors.md
 
 >>>>>>> origin/codex/issue-424-survivor-report
+>>>>>>> origin/codex/issue-427-python-exit-readiness
 stage1-crap-proposal:
 	python3 scripts/ci/propose-stage1-crap-thresholds.py --output stage1/quality/crap-threshold-proposal.json
 
 mutation-rust-smoke:
 	bash scripts/ci/run-mutation-rust-smoke.sh
->>>>>>> origin/codex/worker-j-issue-363
 >>>>>>> origin/codex/issue-369-check-fixtures
 >>>>>>> origin/codex/issue-370-command-fixtures
 >>>>>>> origin/codex/issue-418-schema-metadata
@@ -95,6 +103,7 @@ stage1-crap-proposal:
 	python3 scripts/ci/propose-stage1-crap-thresholds.py --output stage1/quality/crap-threshold-proposal.json
 stage1-crap-proposal:
 	python3 scripts/ci/propose-stage1-crap-thresholds.py --output stage1/quality/crap-threshold-proposal.json
+>>>>>>> origin/codex/issue-427-python-exit-readiness
 stage1-smoke:
 	cargo run --manifest-path stage1/Cargo.toml -p axiomc -- check stage1/examples/hello --json
 	cargo run --manifest-path stage1/Cargo.toml -p axiomc -- build stage1/examples/hello --json
@@ -181,10 +190,12 @@ stage1-smoke:
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 	cargo run --manifest-path stage1/Cargo.toml -p axiomc -- check stage1/examples/stdlib_regex --json
 	cargo run --manifest-path stage1/Cargo.toml -p axiomc -- build stage1/examples/stdlib_regex --json
 	cargo run --manifest-path stage1/Cargo.toml -p axiomc -- run stage1/examples/stdlib_regex
 	cargo run --manifest-path stage1/Cargo.toml -p axiomc -- test stage1/examples/stdlib_regex --json
+=======
 =======
 =======
 =======

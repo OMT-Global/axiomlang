@@ -35,6 +35,7 @@
 >>>>>>> origin/codex/worker-c-issue-361
 //! Today this provides fifteen stdlib modules. Six are thin wrappers over
 >>>>>>> origin/codex/agent-o-debug-info
+>>>>>>> origin/codex/issue-427-python-exit-readiness
 //! single-intrinsic capability-gated surfaces, one per capability class:
 //!
 //! * `std/time.ax` — `Duration`, `Instant`, `now_ms()`, `now()`,
@@ -135,11 +136,13 @@
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 //! * `std/cli.ax` — access to process arguments forwarded by `axiomc run`.
 //! * `std/outcome.ax` — generic `Option<T>` / `Result<T, E>` predicates and
 //!   fallback unwrap helpers implemented in Axiom.
 //! * `std/encoding.ax` — URL component and path segment percent-encoding
 //!   helpers.
+=======
 =======
 =======
 =======
@@ -340,6 +343,7 @@ pub fn selected_value<T>(result: SelectResult<T>): Option<T> {\nreturn async_sel
 >>>>>>> origin/codex/issue-423-mutation-smoke
 >>>>>>> origin/codex/issue-424-survivor-report
 >>>>>>> origin/codex/worker-f-issue-341
+>>>>>>> origin/codex/issue-427-python-exit-readiness
         "async_time.ax",
         "pub async fn sleep_ms(milliseconds: int): int {\nreturn clock_sleep_ms(milliseconds)\n}\n\
 pub async fn sleep_duration_ms(milliseconds: int): int {\nreturn clock_sleep_ms(milliseconds)\n}\n",
@@ -377,6 +381,7 @@ pub fn replace_all(pattern: string, text: string, replacement: string): string {
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
     ),
     (
         "cli.ax",
@@ -398,6 +403,7 @@ pub fn result_unwrap_or<T, E>(value: Result<T, E>, fallback: T): T {\nmatch valu
         "pub fn url_component_encode(value: string): string {\nreturn encoding_url_component_encode(value)\n}\n\
 pub fn url_component_decode(value: string): Option<string> {\nreturn encoding_url_component_decode(value)\n}\n\
 pub fn path_segment_encode(value: string): string {\nreturn encoding_path_segment_encode(value)\n}\n",
+=======
 =======
 =======
 =======

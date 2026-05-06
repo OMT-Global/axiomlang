@@ -51,8 +51,8 @@ The extended validation gate also compares the current stage1 build medians
 against the committed calibration baseline at
 `stage1/benchmarks/baselines/stage1-build-median.json`. That comparison is
 reported as a non-blocking warning with a documented tolerance while runner
-<<<<<<< HEAD
 variance is being measured.
+<<<<<<< HEAD
 variance is being measured; the existing benchmark gate still owns hard failures
 for obvious cold-build and warm-cache regressions against the checked-in Go and
 Rust reference builds.
@@ -93,7 +93,6 @@ workloads are stable enough to treat as performance policy.
 =======
 =======
 =======
-=======
 Refresh the committed calibration baseline only after maintainers agree the
 runner, workload set, and observed medians are stable enough to ratchet. Keep
 baseline changes in review so tolerance movement is visible.
@@ -117,3 +116,4 @@ make stage1-bench-update-baseline
 The parser timing is backed by `axiomc parse`, a parse-only command that validates
 the primary package entrypoint and emits the same machine-readable stage1 JSON
 contract shape as the other compiler commands.
+=======

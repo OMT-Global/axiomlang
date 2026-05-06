@@ -68,9 +68,9 @@ pub fn build_success(project: &Path, output: &BuildOutput) -> Value {
 =======
 =======
 =======
->>>>>>> origin/codex/worker-h-issue-414
-=======
 >>>>>>> origin/codex/agent-o-debug-info
+=======
+>>>>>>> origin/codex/issue-427-python-exit-readiness
         "manifest": output.manifest,
         "entry": output.entry,
         "binary": output.binary,
@@ -86,7 +86,10 @@ pub fn build_success(project: &Path, output: &BuildOutput) -> Value {
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 >>>>>>> origin/codex/issue-422-comparison-gate
+=======
+>>>>>>> origin/codex/issue-427-python-exit-readiness
         "cache_key": output.cache_key,
 =======
 =======

@@ -32,6 +32,7 @@ use axiomc::manifest::{load_manifest, manifest_path};
 >>>>>>> origin/codex/worker-c-issue-361
 >>>>>>> origin/codex/agent-o-debug-info
 use axiomc::manifest::{entry_path, load_manifest};
+>>>>>>> origin/codex/issue-427-python-exit-readiness
 use axiomc::new_project::create_project;
 use axiomc::diagnostics::Diagnostic;
 use axiomc::json_contract;
@@ -95,9 +96,11 @@ use axiomc::syntax::parse_program;
 use clap::{Parser, Subcommand};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
+<<<<<<< HEAD
 use serde::Serialize;
 use std::collections::{BTreeSet, HashMap};
->>>>>>> origin/codex/worker-f-issue-341
+=======
+>>>>>>> origin/codex/issue-427-python-exit-readiness
 use std::fs;
 use std::io::{self, BufRead, Write};
 use std::path::{Path, PathBuf};
@@ -220,6 +223,7 @@ enum Command {
     Pkg {
         #[command(subcommand)]
         command: PkgCommand,
+>>>>>>> origin/codex/issue-427-python-exit-readiness
     },
     /// Format .ax source files with the canonical stage1 style.
     Fmt {
@@ -264,7 +268,7 @@ enum Command {
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
->>>>>>> origin/codex/agent-i-language-slice
+<<<<<<< HEAD
 >>>>>>> origin/codex/issue-387-capability-validation
 >>>>>>> origin/codex/issue-395-effective-fs-roots
 >>>>>>> origin/codex/worker-h-issue-413
@@ -278,6 +282,8 @@ enum Command {
 =======
 =======
 >>>>>>> origin/codex/agent-o-debug-info
+=======
+>>>>>>> origin/codex/issue-427-python-exit-readiness
     /// Pack, sign, and publish a stage1 package into a local registry tree.
     Publish {
         path: PathBuf,
@@ -312,7 +318,6 @@ enum Command {
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
-<<<<<<< HEAD
 }
 
 <<<<<<< HEAD
@@ -322,6 +327,7 @@ enum Command {
 enum CapsCommand {
     /// Diff two caps JSON payloads and fail on capability escalation.
     Diff { old: PathBuf, new: PathBuf },
+<<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
@@ -357,7 +363,7 @@ enum PkgCommand {
 =======
 =======
 =======
->>>>>>> origin/codex/agent-o-debug-info
+>>>>>>> origin/codex/issue-427-python-exit-readiness
 }
 
 fn main() {
@@ -433,6 +439,9 @@ fn main() {
             debug,
             timings,
             target,
+            locked,
+            offline,
+            package,
             locked,
             offline,
             package,
@@ -718,6 +727,11 @@ fn main() {
                             }
                             Err(error) => print_error("pkg graph", error, false),
                         }
+        Command::Fmt { path, check } => match format_axiom_sources(&path, check) {
+            Ok(report) => {
+                for file in &report.files {
+                    if file.changed {
+                        eprintln!("formatted {}", file.path);
                     }
                 }
                 Err(error) => print_error("pkg graph", error, json),
@@ -835,6 +849,7 @@ fn main() {
             Err(error) => print_error("repl", error, json),
         },
 >>>>>>> origin/codex/agent-o-debug-info
+>>>>>>> origin/codex/issue-427-python-exit-readiness
         Command::Publish {
             path,
             registry_dir,
@@ -909,6 +924,8 @@ fn main() {
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
 =======
 =======
 =======
@@ -2821,6 +2838,7 @@ mod tests {
 >>>>>>> origin/codex/worker-c-issue-361
 >>>>>>> origin/codex/worker-h-issue-414
 >>>>>>> origin/codex/agent-o-debug-info
+>>>>>>> origin/codex/issue-427-python-exit-readiness
             manifest: String::from("axiom.toml"),
             entry: String::from("src/main.ax"),
             binary: String::from("dist/app"),
@@ -2846,6 +2864,8 @@ mod tests {
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
 =======
 =======
 =======
@@ -2888,6 +2908,7 @@ mod tests {
 
     #[test]
 <<<<<<< HEAD
+>>>>>>> origin/codex/issue-427-python-exit-readiness
     fn build_json_includes_target_debug_and_cache_key_metadata() {
         let payload = json_contract::build_success(
             Path::new("stage1/examples/hello"),
@@ -2937,6 +2958,7 @@ mod tests {
         assert_eq!(
             build_summary_lines(&build_output(None), false),
             vec![String::from("wrote dist/app (backend=generated-rust)")]
+<<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
@@ -3113,6 +3135,7 @@ mod tests {
         assert_eq!(
             parse_rustc_host_target(version).as_deref(),
             Some("aarch64-apple-darwin")
+=======
 =======
 =======
 =======

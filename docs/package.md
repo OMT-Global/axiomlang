@@ -34,6 +34,7 @@ cargo run --manifest-path stage1/Cargo.toml -p axiomc -- caps stage1/examples/he
 >>>>>>> origin/codex/worker-f-issue-343
 >>>>>>> origin/codex/worker-c-issue-361
 >>>>>>> origin/codex/agent-o-debug-info
+>>>>>>> origin/codex/issue-427-python-exit-readiness
 cargo run --manifest-path stage1/Cargo.toml -p axiomc -- publish stage1/examples/hello --registry-dir ./registry/packages --signing-key dev-key
 cargo run --manifest-path stage1/Cargo.toml -p axiomc -- pkg graph stage1/examples/workspace_only --json
 cargo run --manifest-path stage1/Cargo.toml -p axiomc -- registry-index ./registry/packages --base-url https://packages.example.test --out ./registry/index.json
@@ -100,6 +101,7 @@ contract.
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
 =======
 `axiomc pkg graph <path> --json` prints the resolved local package graph without
@@ -124,6 +126,7 @@ These schemas are intentionally metadata for editor completion, validation, and
 agent contract discovery. The compiler remains the source of truth for semantic
 checks such as dependency graph validity, capability enforcement, and source
 analysis.
+=======
 =======
 =======
 =======

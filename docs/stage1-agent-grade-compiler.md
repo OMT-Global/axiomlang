@@ -13,11 +13,11 @@ AG0 is the current entry floor and must remain intact before any downstream work
 - The backend is still generated Rust plus `rustc`. That is acceptable for the
   agent-grade milestone as long as the public workflow is fully `axiomc`-driven.
 <<<<<<< HEAD
-=======
   Debug builds now produce a generated-Rust source map and debug manifest that
   correlate the native binary, generated Rust, and `.ax` source hashes, but they
   do not yet provide native `.ax` DWARF line tables.
->>>>>>> origin/codex/agent-o-debug-info
+=======
+>>>>>>> origin/codex/issue-427-python-exit-readiness
 - The new backend-selection seam is preparatory plumbing only; it does not yet
   satisfy or close #105 on its own.
 - The current language floor includes multi-file modules, structs, enums,

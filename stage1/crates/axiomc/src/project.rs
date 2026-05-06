@@ -28,6 +28,7 @@ use crate::manifest::{
 >>>>>>> origin/codex/worker-f-issue-343
 >>>>>>> origin/codex/worker-c-issue-361
 >>>>>>> origin/codex/agent-o-debug-info
+>>>>>>> origin/codex/issue-427-python-exit-readiness
 };
 use crate::mir;
 use crate::stdlib;
@@ -108,6 +109,8 @@ pub struct BuiltPackage {
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
 =======
 =======
     pub cache_key: BuildCacheMetadata,
@@ -432,6 +435,7 @@ pub fn build_project_with_options(
             debug: options.debug,
 <<<<<<< HEAD
 <<<<<<< HEAD
+>>>>>>> origin/codex/issue-427-python-exit-readiness
             cache_key: report.cache_key,
 =======
 =======
@@ -463,6 +467,8 @@ pub fn build_project_with_options(
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
 =======
 =======
 =======
@@ -534,6 +540,7 @@ pub fn run_project_with_options(
             locked: true,
             offline: true,
             ..BuildOptions::default()
+>>>>>>> origin/codex/issue-427-python-exit-readiness
         },
     )?;
     let build_output_dir = Path::new(&built.generated_rust).parent().ok_or_else(|| {
@@ -831,12 +838,14 @@ fn collect_discovered_tests(
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
             kind,
             stderr,
             kind,
             expected_error: None,
             capabilities: Vec::new(),
             package: None,
+=======
 =======
 =======
 =======
@@ -1585,6 +1594,7 @@ fn build_artifacts(
 >>>>>>> origin/codex/issue-422-comparison-gate
 >>>>>>> origin/codex/issue-423-mutation-smoke
 >>>>>>> origin/codex/issue-424-survivor-report
+>>>>>>> origin/codex/issue-427-python-exit-readiness
 fn build_cache_metadata(cache: &BuildCacheFile) -> BuildCacheMetadata {
     BuildCacheMetadata {
         version: cache.version,
@@ -2915,6 +2925,7 @@ fn validate_expr_capabilities(
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
     }
 }
 
@@ -2924,6 +2935,7 @@ fn env_capability_requirement(args: &[syntax::Expr]) -> String {
             format!("[capabilities].env = [{name:?}] or env_unrestricted = true")
         }
         _ => String::from("[capabilities].env = [\"NAME\"] or env_unrestricted = true"),
+=======
 =======
 =======
 =======

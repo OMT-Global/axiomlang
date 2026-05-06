@@ -3,10 +3,13 @@ members = [
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 >>>>>>> origin/codex/issue-422-comparison-gate
 >>>>>>> origin/codex/issue-423-mutation-smoke
 >>>>>>> origin/codex/issue-424-survivor-report
 >>>>>>> origin/codex/worker-f-issue-341
+=======
+>>>>>>> origin/codex/issue-427-python-exit-readiness
   "fail/closure_captures_function_callee",
   "fail/closure_borrowed_slice_return",
   "fail/closure_move_captured_non_copy",

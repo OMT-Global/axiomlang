@@ -25,6 +25,7 @@ pub mod diagnostic_catalog;
 >>>>>>> origin/codex/worker-f-issue-343
 >>>>>>> origin/codex/worker-c-issue-361
 >>>>>>> origin/codex/agent-o-debug-info
+>>>>>>> origin/codex/issue-427-python-exit-readiness
 pub mod diagnostics;
 pub mod hir;
 pub mod json_contract;
@@ -59,6 +60,7 @@ mod tests {
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
         CapabilityConfig, CapabilityKind, ExpectedDiagnostic, TestTarget, capability_descriptors,
         load_manifest, render_manifest,
 =======
@@ -73,6 +75,7 @@ mod tests {
 =======
 =======
         lockfile_path, render_manifest,
+=======
 =======
     };
     use crate::mir;
@@ -118,7 +121,6 @@ mod tests {
             "[package]\nname = {name:?}\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = {fs}\n\"fs:write\" = {fs}\nnet = {net}\nprocess = {process}\nenv = {env}\nclock = {clock}\ncrypto = {crypto}\n"
             "[package]\nname = {name:?}\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = {fs}\n\"fs:write\" = {fs}\nnet = {net}\nprocess = {process}\nenv = {env}\nclock = {clock}\ncrypto = {crypto}\nasync = false\n"
 =======
-=======
             "[package]\nname = {name:?}\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = {fs}\n\"fs:write\" = {fs}\nnet = {net}\nprocess = {process}\nenv = {env}\nclock = {clock}\ncrypto = {crypto}\n"
 =======
             "[package]\nname = {name:?}\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = {fs}\n\"fs:write\" = {fs}\nnet = {net}\nprocess = {process}\nenv = {env}\nclock = {clock}\ncrypto = {crypto}\nasync = false\n"
@@ -126,6 +128,8 @@ mod tests {
 =======
 =======
             "[package]\nname = {name:?}\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = {fs}\n\"fs:write\" = {fs}\nnet = {net}\nprocess = {process}\nenv = {env}\nclock = {clock}\ncrypto = {crypto}\n"
+=======
+            "[package]\nname = {name:?}\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = {fs}\n\"fs:write\" = {fs}\nnet = {net}\nprocess = {process}\nenv = {env}\nclock = {clock}\ncrypto = {crypto}\nasync = false\n"
         )
 =======
         let mut manifest = format!(
@@ -477,6 +481,7 @@ print borrowed
 >>>>>>> origin/codex/worker-f-issue-343
 >>>>>>> origin/codex/worker-c-issue-361
 >>>>>>> origin/codex/agent-o-debug-info
+>>>>>>> origin/codex/issue-427-python-exit-readiness
     fn parser_expands_declarative_statement_macros_before_lowering() {
         let source = r#"macro_rules! answer {
 ($value:expr) => {
@@ -3105,6 +3110,8 @@ crypto = false
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
 =======
 =======
 =======
@@ -3123,11 +3130,11 @@ crypto = false
 =======
 =======
 =======
-=======
         assert_eq!(caps.len(), 8);
         assert!(caps.iter().all(|cap| !cap.enabled));
         let project_caps = project_capabilities(&project).expect("project capabilities");
         assert_eq!(project_caps.len(), 8);
+=======
 =======
     }
 
@@ -3420,6 +3427,7 @@ crypto = false
 >>>>>>> origin/codex/issue-422-comparison-gate
 >>>>>>> origin/codex/issue-425-crap-thresholds
 >>>>>>> origin/codex/agent-o-debug-info
+>>>>>>> origin/codex/issue-427-python-exit-readiness
     }
 
     #[test]
@@ -6007,10 +6015,12 @@ print serve_once("127.0.0.1:18080", "hello")
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
                 stderr: None,
                 expected_error: None,
                 capabilities: Vec::new(),
                 package: None,
+=======
 =======
 =======
 =======
@@ -6042,6 +6052,7 @@ print serve_once("127.0.0.1:18080", "hello")
 >>>>>>> origin/codex/worker-f-issue-343
 >>>>>>> origin/codex/worker-c-issue-361
 >>>>>>> origin/codex/agent-o-debug-info
+>>>>>>> origin/codex/issue-427-python-exit-readiness
     fn manifest_parses_richer_test_kinds() {
         let dir = tempdir().expect("tempdir");
         let project = dir.path().join("typed-tests");
@@ -6149,6 +6160,7 @@ print serve_once("127.0.0.1:18080", "hello")
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
     fn run_project_tests_reports_manifest_metadata_in_json() {
         let dir = tempdir().expect("tempdir");
         let project = dir.path().join("runner-metadata");
@@ -6185,6 +6197,7 @@ print serve_once("127.0.0.1:18080", "hello")
     }
 
     #[test]
+=======
 =======
 =======
 =======
@@ -6694,6 +6707,7 @@ print serve_once("127.0.0.1:18080", "hello")
         assert_eq!(output.cases.len(), 35);
         assert_eq!(output.passed, 35);
 >>>>>>> origin/codex/worker-f-issue-343
+>>>>>>> origin/codex/issue-427-python-exit-readiness
         assert_eq!(output.failed, 0);
         assert!(
             output
@@ -6701,6 +6715,7 @@ print serve_once("127.0.0.1:18080", "hello")
                 .iter()
                 .filter(|case| case.expected_error.is_some())
                 .count()
+<<<<<<< HEAD
 <<<<<<< HEAD
                 == 24
 <<<<<<< HEAD
@@ -6714,6 +6729,8 @@ print serve_once("127.0.0.1:18080", "hello")
                 == 24
 =======
                 == 20
+=======
+                == 24
         );
         assert_eq!(
             output
@@ -6731,6 +6748,7 @@ print serve_once("127.0.0.1:18080", "hello")
             9
             11
             9
+>>>>>>> origin/codex/issue-427-python-exit-readiness
         );
     }
 
@@ -9984,11 +10002,13 @@ print 0
             payload["packages"][0]["cache_key"]["lockfile_hash"],
             payload["cache_key"]["lockfile_hash"]
         );
+<<<<<<< HEAD
 =======
         assert!(payload["target"].is_string());
         assert_eq!(payload["debug"], true);
         assert!(payload["debug_map"].is_string());
         assert!(payload["debug_manifest"].is_string());
+=======
         assert!(payload["cache_hits"].is_u64());
         assert!(payload["cache_misses"].is_u64());
         assert!(payload["duration_ms"].is_u64());
@@ -10268,6 +10288,9 @@ print next.value
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+>>>>>>> origin/codex/issue-427-python-exit-readiness
 
     // AG2: deterministic monomorphized symbol naming (#337)
     // These snapshot tests lock the exact symbol names produced for nested generics,

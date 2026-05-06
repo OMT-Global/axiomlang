@@ -277,6 +277,7 @@ pub enum TypeName {
 >>>>>>> origin/codex/issue-423-mutation-smoke
 >>>>>>> origin/codex/issue-424-survivor-report
 >>>>>>> origin/codex/worker-f-issue-341
+>>>>>>> origin/codex/issue-427-python-exit-readiness
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -1459,9 +1460,11 @@ fn parse_const_or_static_decl(
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
     let column = visibility_column + keyword_len;
     let colon = find_top_level_char(header, ':').ok_or_else(|| {
         Diagnostic::new("parse", format!("{keyword} declaration is missing ':'"))
+=======
 =======
 =======
 =======
@@ -1478,6 +1481,7 @@ fn parse_const_or_static_decl(
 >>>>>>> origin/codex/issue-423-mutation-smoke
 >>>>>>> origin/codex/issue-424-survivor-report
 >>>>>>> origin/codex/worker-f-issue-341
+>>>>>>> origin/codex/issue-427-python-exit-readiness
             .with_path(path.display().to_string())
             .with_span(line_no, column)
     })?;
@@ -1490,7 +1494,9 @@ fn parse_const_or_static_decl(
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
             format!("{keyword} declaration must use `{keyword} NAME: Type = expr` syntax"),
+=======
 =======
 =======
 =======
@@ -2312,6 +2318,7 @@ fn parse_type_name(
         .with_span(line_no, column));
     }
 >>>>>>> origin/codex/worker-f-issue-341
+>>>>>>> origin/codex/issue-427-python-exit-readiness
     if raw.starts_with("&mut [")
         && raw.ends_with(']')
         && matches!(find_matching_square(raw, 5), Some(close) if close == raw.len() - 1)
@@ -2560,6 +2567,7 @@ fn parse_expr(raw: &str, path: &Path, line_no: usize, column: usize) -> Result<E
         return parse_term(raw, path, line_no, column);
     }
 <<<<<<< HEAD
+<<<<<<< HEAD
     if let Some(split_index) = find_top_level_as(raw) {
         let lhs_raw = raw[..split_index].trim();
         let ty_raw = raw[split_index + 4..].trim();
@@ -2577,10 +2585,11 @@ fn parse_expr(raw: &str, path: &Path, line_no: usize, column: usize) -> Result<E
             column,
         });
     }
->>>>>>> origin/codex/issue-423-mutation-smoke
 >>>>>>> origin/codex/issue-424-survivor-report
 =======
 >>>>>>> origin/codex/worker-f-issue-341
+=======
+>>>>>>> origin/codex/issue-427-python-exit-readiness
     if let Some((op, split_index)) = find_compare_operator(raw) {
         let lhs_raw = raw[..split_index].trim();
         let rhs_offset = split_index + op.lexeme().len();
@@ -3090,7 +3099,6 @@ fn find_closure_param_bar(raw: &str) -> Option<usize> {
     None
 }
 
-<<<<<<< HEAD
 fn parse_function_lifetime_params(
     raw: &str,
     path: &Path,
@@ -3295,8 +3303,9 @@ fn collect_lifetime_uses(ty: &TypeName, found: &mut Vec<String>) {
     }
 }
 
-=======
+<<<<<<< HEAD
 >>>>>>> origin/codex/worker-f-issue-341
+=======
 fn parse_function_name<'a>(
     raw: &'a str,
     path: &Path,
