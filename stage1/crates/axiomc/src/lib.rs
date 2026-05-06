@@ -68,14 +68,11 @@ mod tests {
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
-<<<<<<< HEAD
             "[package]\nname = {name:?}\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = {fs}\n\"fs:write\" = {fs}\nnet = {net}\nprocess = {process}\nenv = {env}\nclock = {clock}\ncrypto = {crypto}\nasync = false\n"
 =======
 =======
 =======
 =======
-=======
->>>>>>> origin/codex/issue-395-effective-fs-roots
 =======
 >>>>>>> origin/codex/worker-h-issue-413
             "[package]\nname = {name:?}\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = {fs}\n\"fs:write\" = {fs}\nnet = {net}\nprocess = {process}\nenv = {env}\nclock = {clock}\ncrypto = {crypto}\n"
@@ -2963,13 +2960,11 @@ crypto = false
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
-<<<<<<< HEAD
         assert_eq!(caps.len(), 9);
         assert!(caps.iter().all(|cap| !cap.enabled));
         assert!(caps.iter().any(|cap| cap.name == "async"));
         let project_caps = project_capabilities(&project).expect("project capabilities");
         assert_eq!(project_caps.len(), 9);
-=======
 =======
 =======
 =======
@@ -3083,7 +3078,6 @@ crypto = false
                 .message
                 .contains("capabilities.unsafe_opt_ins[0] references unknown capability")
         );
->>>>>>> origin/codex/issue-383-new-templates
 >>>>>>> origin/codex/agent-g-regex
 >>>>>>> origin/codex/agent-f-fs
 >>>>>>> origin/codex/agent-i-language-slice
@@ -5845,9 +5839,7 @@ print serve_once("127.0.0.1:18080", "hello")
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
-<<<<<<< HEAD
                 stderr: None,
-=======
 =======
 =======
 =======
@@ -5857,6 +5849,7 @@ print serve_once("127.0.0.1:18080", "hello")
     }
 
     #[test]
+<<<<<<< HEAD
     fn manifest_parses_richer_test_kinds() {
         let dir = tempdir().expect("tempdir");
         let project = dir.path().join("typed-tests");
@@ -5872,6 +5865,49 @@ print serve_once("127.0.0.1:18080", "hello")
 
         let manifest = load_manifest(&project).expect("load manifest");
         assert_eq!(manifest.tests[0].kind, TestKind::Table);
+=======
+    fn manifest_rejects_reserved_registry_publish_fields() {
+        let dir = tempdir().expect("tempdir");
+
+        let root_registry = dir.path().join("root-registry");
+        create_project(&root_registry, Some("root-registry-app")).expect("create project");
+        fs::write(
+            root_registry.join("axiom.toml"),
+            format!(
+                "{}\n[registry]\nsource = \"https://registry.example\"\n",
+                render_manifest("root-registry-app")
+            ),
+        )
+        .expect("write manifest");
+        let err = load_manifest(&root_registry).expect_err("reserved registry should fail");
+        assert!(err.message.contains("[registry] is reserved"));
+
+        let package_checksum = dir.path().join("package-checksum");
+        create_project(&package_checksum, Some("package-checksum-app")).expect("create project");
+        fs::write(
+            package_checksum.join("axiom.toml"),
+            "[package]\nname = \"package-checksum-app\"\nversion = \"0.1.0\"\nchecksum = \"sha256:abc\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n",
+        )
+        .expect("write manifest");
+        let err = load_manifest(&package_checksum).expect_err("reserved checksum should fail");
+        assert!(err.message.contains("package.checksum is reserved"));
+
+        let dependency_version = dir.path().join("dependency-version");
+        create_project(&dependency_version, Some("dependency-version-app"))
+            .expect("create project");
+        fs::write(
+            dependency_version.join("axiom.toml"),
+            format!(
+                "{}\n[dependencies]\ncore = {{ version = \"1.0.0\", registry = \"default\" }}\n",
+                render_manifest("dependency-version-app")
+            ),
+        )
+        .expect("write manifest");
+        let err = load_manifest(&dependency_version).expect_err("reserved dependency should fail");
+        assert!(
+            err.message
+                .contains("dependencies.core.version is reserved")
+        );
     }
 
     #[test]

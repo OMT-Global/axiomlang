@@ -37,12 +37,10 @@ The current stage1 examples document the supported manifest surface:
 - `stage1/examples/capabilities`: manifest-gated runtime capabilities.
 
 <<<<<<< HEAD
-<<<<<<< HEAD
 `axiomc caps <package> --json` reports the declared capability surface. When
 filesystem access is enabled, the `fs` capability includes the manifest-relative
 `configured_root` and canonical `effective_root` so operators can inspect the
 actual package-local filesystem boundary before build or run.
-=======
 Local path dependencies may declare a bounded version constraint:
 
 ```toml
@@ -77,6 +75,7 @@ registry.
 See [stage1.md](stage1.md) for the current compiler, package, and capability
 contract.
 
+<<<<<<< HEAD
 ## Publish and Static Registry Groundwork
 
 `axiomc publish` packs a checked stage1 package into a deterministic `package.axp`, writes an `axiom-signature-v1` sidecar, and copies `axiom.toml` plus `axiom.lock` into a local registry tree at `<packages>/<name>/<version>/`. The command validates the lockfile first and refuses to replace an existing release unless `--allow-overwrite` is passed.
@@ -102,3 +101,37 @@ and yanked status so a simple static host can serve lockfile-friendly package me
 =======
 =======
 =======
+=======
+## Registry And Publish Contract
+
+The local manifest contract reserves the package-registry surface without
+implementing remote publishing yet. Today, `axiomc` accepts local path
+dependencies only:
+
+```toml
+[dependencies]
+core = { path = "deps/core" }
+```
+
+Package identity is the pair in `[package]`:
+
+```toml
+[package]
+name = "agent-worker"
+version = "0.1.0"
+```
+
+Future registry packages will need stable source and integrity metadata:
+
+- Package identity: `package.name` plus `package.version`.
+- Registry source: a named registry or URL source for non-local packages.
+- Checksums: content-addressed package archives, expected to use a tagged form
+  such as `sha256:<hex>`.
+- Publish metadata: include/exclude rules, target registry, archive checksum,
+  and provenance or signature references.
+
+Those fields are intentionally reserved. Until `axiomc publish` and registry
+resolution exist, manifests must not contain `[registry]`, `[publish]`,
+`package.checksum`, `package.registry`, `package.source`, or dependency
+`version`/`checksum`/`registry`/`source` fields. The parser rejects them instead
+of silently treating a registry package as a local package.

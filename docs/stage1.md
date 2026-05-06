@@ -140,7 +140,6 @@ requested Rust target triple when `--target <triple>` is used and report
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
-<<<<<<< HEAD
 with generated source-position markers. Build JSON carries both `cache_key`
 metadata with the cache schema version, compiler key, target, debug mode,
 manifest hash, lockfile hash, generated Rust hash, and per-source hashes used
@@ -151,7 +150,6 @@ sidecar that maps generated Rust statement lines back to Axiom file/line/column
 positions. `axiomc build --timings` prints total build time, cache hit/miss
 counts, and per-package compile timing/cache status for the incremental
 generated-Rust cache.
-=======
 =======
 =======
 =======
@@ -203,18 +201,19 @@ still far from the stated 1.0 target for service and agent workloads.
 
 - `axiom.toml` and `axiom.lock` now support deterministic local path dependency graphs, package-root workspace members, workspace-only roots, and `-p/--package` selection for member-targeted build/run/test flows.
 - The current import model is still intentionally small: package-local relative path imports plus dependency-prefixed imports like `core/math.ax`, direct `pub struct` / `pub enum` / `pub fn` exports only, and explicit parser diagnostics for unsupported aliases, re-exports, and namespace-qualified calls.
+<<<<<<< HEAD
 - `axiomc publish` now validates the lockfile and stages a deterministic signed archive into a local static-registry tree for `axiomc registry-index`; there is still no hosted registry service, version resolution, trust-root management, or offline package verification beyond this bootstrap shape.
+=======
+- There is no package registry flow, no version resolution, and no offline lockfile validation beyond the bootstrap lockfile shape. Registry and publish manifest fields are reserved and rejected until `axiomc publish` and remote package resolution are implemented.
 
 ### Runtime and standard library gaps
 
 - The stdlib surface now covers every stage1 capability-gated intrinsic with a thin wrapper module (`std/time.ax`, `std/env.ax`, `std/fs.ax`, `std/net.ax`, `std/process.ax`, `std/crypto_hash.ax`, `std/crypto_mac.ax`), plus `std/http.ax` (capability-gated HTTP client helper `http_get`, intermediate loopback-only blocking single-request server helper `http_serve_once`, and bounded route-based helper `http_serve_route` sharing the existing `net` surface), `std/io.ax` (first ungated stdlib module, `eprintln` on top of the new `io_eprintln` intrinsic), `std/json.ax` (ungated scalar/string JSON helpers plus manual object/field builders), `std/collections.ax` (generic borrowed-slice helpers built on AG2 generic functions), `std/string_builder.ax` (owned string accumulator), `std/log.ax` (deterministic JSON-line logging over stderr), `std/sync.ax` (ownership-shaped mutex guards, one-shot cells, and single-slot nonblocking channels), `std/async.ax` (deterministic task, join, channel, cancellation, timeout, and select wrappers), and `std/regex.ax` (linear-time matching helpers for common regex constructs). The `net` socket floor is intentionally loopback-only in stage1: the one-shot TCP and UDP listen helpers bind `127.0.0.1:0`, dial/send helpers reject non-loopback targets, HTTP service helpers reject non-loopback bind addresses, payloads are bounded to 64 KiB, and timeouts are clamped to 1-30000 ms. The `fs` capability is scoped: `fs_read` resolves relative paths from the package root, bounds them to the package root by default or `[capabilities] fs_root = "<relative package path>"`, canonicalizes targets to reject traversal and symlink escapes, and refuses files larger than 64 MiB.
 
-<<<<<<< HEAD
 - The stdlib surface now covers every stage1 capability-gated intrinsic with a thin wrapper module (`std/time.ax`, `std/env.ax`, `std/fs.ax`, `std/net.ax`, `std/process.ax`, `std/crypto_hash.ax`, `std/crypto_mac.ax`), plus `std/http.ax` (first stdlib module with a brand-new capability-gated intrinsic `http_get` sharing the existing `net` surface), `std/io.ax` (first ungated stdlib module, `eprintln` on top of the new `io_eprintln` intrinsic), `std/json.ax` (ungated scalar/string JSON helpers plus manual object/field builders), `std/collections.ax` (generic borrowed-slice helpers built on AG2 generic functions), `std/string_builder.ax` (owned string accumulator), `std/log.ax` (deterministic JSON-line logging over stderr), `std/sync.ax` (ownership-shaped mutex guards, one-shot cells, and single-slot nonblocking channels), and `std/async.ax` (deterministic task, join, channel, cancellation, timeout, and select wrappers). The `net` socket floor is intentionally loopback-only in stage1: the one-shot TCP and UDP listen helpers bind `127.0.0.1:0`, dial/send helpers reject non-loopback targets, payloads are bounded to 64 KiB, and timeouts are clamped to 1-30000 ms. The `fs` capability is scoped: `fs_read` resolves relative paths from the package root, bounds them to the package root by default or `[capabilities] fs_root = "<relative package path>"`, canonicalizes targets to reject traversal and symlink escapes, and refuses files larger than 64 MiB.
 - The stdlib surface now covers every stage1 capability-gated intrinsic with a thin wrapper module (`std/time.ax`, `std/env.ax`, `std/fs.ax`, `std/net.ax`, `std/process.ax`, `std/crypto_hash.ax`, `std/crypto_mac.ax`), plus `std/http.ax` (first stdlib module with a brand-new capability-gated intrinsic `http_get` sharing the existing `net` surface), `std/io.ax` (first ungated stdlib module, `eprintln` on top of the new `io_eprintln` intrinsic), `std/json.ax` (ungated scalar/string JSON helpers plus manual object/field builders), `std/collections.ax` (generic borrowed-slice helpers built on AG2 generic functions), `std/string_builder.ax` (owned string accumulator), `std/log.ax` (deterministic JSON-line logging over stderr), `std/sync.ax` (ownership-shaped mutex guards, one-shot cells, and single-slot nonblocking channels), `std/async.ax` (deterministic task, join, channel, cancellation, timeout, and select wrappers), and `std/regex.ax` (linear-time matching helpers for common regex constructs). The `net` socket floor is intentionally loopback-only in stage1: the one-shot TCP and UDP listen helpers bind `127.0.0.1:0`, dial/send helpers reject non-loopback targets, payloads are bounded to 64 KiB, and timeouts are clamped to 1-30000 ms. The `fs` capability is scoped: `fs_read` resolves relative paths from the package root, bounds them to the package root by default or `[capabilities] fs_root = "<relative package path>"`, canonicalizes targets to reject traversal and symlink escapes, and refuses files larger than 64 MiB.
 <<<<<<< HEAD
 <<<<<<< HEAD
-=======
 =======
 =======
 - Capability-aware integration is now in place for the current stage1 runtime surface: compiler-known intrinsics enforce all six manifest flags, stdlib wrappers preserve that enforcement against the importing package's manifest, capability-denied programs fail before native execution, and the Rust suite covers cross-package capability interactions (`dependency_package_must_enable_its_own_capabilities`) plus per-wrapper denial paths.
@@ -239,7 +238,6 @@ still far from the stated 1.0 target for service and agent workloads.
   emits generated Rust source markers, and writes a JSON source-map sidecar for
   Axiom file/line/column positions; full Axiom-native debugger stepping remains
   a direct-backend follow-on.
->>>>>>> origin/codex/agent-g-regex
 >>>>>>> origin/codex/agent-i-language-slice
 >>>>>>> origin/codex/issue-395-effective-fs-roots
 - `axiomc fmt`, `axiomc bench`, `axiomc doc`, the stage1 scratch `repl`, and a

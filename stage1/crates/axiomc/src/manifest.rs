@@ -87,9 +87,7 @@ pub enum TestKind {
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
-<<<<<<< HEAD
     pub stderr: Option<String>,
-=======
 =======
 =======
 =======
@@ -125,7 +123,6 @@ pub struct CapabilityConfig {
     pub crypto: bool,
     pub ffi: bool,
     pub async_runtime: bool,
->>>>>>> origin/codex/worker-h-issue-413
     pub deny_by_default: bool,
     pub unsafe_opt_ins: Vec<String>,
     pub owners: BTreeMap<String, String>,
@@ -182,12 +179,17 @@ struct RawManifest {
     tests: Option<Vec<RawTestTarget>>,
     capabilities: Option<RawCapabilityConfig>,
     publish: Option<RawPublishSection>,
+    registry: Option<toml::Value>,
+    publish: Option<toml::Value>,
 }
 
 #[derive(Debug, Deserialize)]
 struct RawPackageSection {
     name: Option<String>,
     version: Option<String>,
+    checksum: Option<toml::Value>,
+    registry: Option<toml::Value>,
+    source: Option<toml::Value>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -212,6 +214,10 @@ enum RawDependencySpec {
 struct RawDependencyDetail {
     path: Option<String>,
     version: Option<String>,
+    version: Option<toml::Value>,
+    checksum: Option<toml::Value>,
+    registry: Option<toml::Value>,
+    source: Option<toml::Value>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -222,10 +228,8 @@ struct RawTestTarget {
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
-<<<<<<< HEAD
     kind: Option<String>,
     stderr: Option<String>,
-=======
 =======
 =======
 =======
@@ -255,7 +259,6 @@ struct RawCapabilityConfig {
     ffi: Option<bool>,
     #[serde(rename = "async")]
     async_runtime: Option<bool>,
->>>>>>> origin/codex/issue-378-inspect-graph
 >>>>>>> origin/codex/issue-406-collection-lookup
 >>>>>>> origin/codex/agent-f-fs
 >>>>>>> origin/codex/issue-387-capability-validation
@@ -371,9 +374,7 @@ pub fn render_manifest(name: &str) -> String {
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
-<<<<<<< HEAD
         "[package]\nname = {name:?}\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\n\"fs:write\" = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\nffi = false\nasync = false\n"
-=======
 =======
 =======
 =======
@@ -456,6 +457,7 @@ impl CapabilityKind {
 }
 
 fn normalize_manifest(raw: RawManifest, path: &Path) -> Result<Manifest, Diagnostic> {
+    validate_reserved_root_publish_fields(&raw, path)?;
     let workspace = normalize_workspace(raw.workspace, path)?;
     let package = normalize_package(raw.package, workspace.is_some(), path)?;
     let raw_build = raw.build;
@@ -526,7 +528,6 @@ fn normalize_manifest(raw: RawManifest, path: &Path) -> Result<Manifest, Diagnos
             crypto: capabilities.crypto.unwrap_or(false),
             ffi: capabilities.ffi.unwrap_or(false),
             async_runtime: capabilities.async_runtime.unwrap_or(false),
->>>>>>> origin/codex/worker-h-issue-413
             deny_by_default: capabilities.deny_by_default.unwrap_or(false),
             unsafe_opt_ins,
             owners,
@@ -592,6 +593,22 @@ fn normalize_capability_name(
         .with_path(path.display().to_string()));
     }
     Ok(name)
+fn validate_reserved_root_publish_fields(raw: &RawManifest, path: &Path) -> Result<(), Diagnostic> {
+    if raw.registry.is_some() {
+        return Err(reserved_manifest_field(path, "[registry]"));
+    }
+    if raw.publish.is_some() {
+        return Err(reserved_manifest_field(path, "[publish]"));
+    }
+    Ok(())
+}
+
+fn reserved_manifest_field(path: &Path, field_name: &str) -> Diagnostic {
+    Diagnostic::new(
+        "manifest",
+        format!("{field_name} is reserved for future registry publishing"),
+    )
+    .with_path(path.display().to_string())
 }
 
 fn normalize_env_capability(
@@ -675,6 +692,15 @@ fn normalize_package(
         return Err(Diagnostic::new("manifest", "missing [package] section")
             .with_path(path.display().to_string()));
     };
+    if package.checksum.is_some() {
+        return Err(reserved_manifest_field(path, "package.checksum"));
+    }
+    if package.registry.is_some() {
+        return Err(reserved_manifest_field(path, "package.registry"));
+    }
+    if package.source.is_some() {
+        return Err(reserved_manifest_field(path, "package.source"));
+    }
     let package_name = required_field(package.name, path, "package.name")?;
     let package_version = required_field(package.version, path, "package.version")?;
     Ok(Some(PackageSection {
@@ -767,6 +793,31 @@ fn normalize_dependencies(
                         version,
                     },
                 );
+                if detail.version.is_some() {
+                    return Err(reserved_manifest_field(
+                        path,
+                        &format!("dependencies.{name}.version"),
+                    ));
+                }
+                if detail.checksum.is_some() {
+                    return Err(reserved_manifest_field(
+                        path,
+                        &format!("dependencies.{name}.checksum"),
+                    ));
+                }
+                if detail.registry.is_some() {
+                    return Err(reserved_manifest_field(
+                        path,
+                        &format!("dependencies.{name}.registry"),
+                    ));
+                }
+                if detail.source.is_some() {
+                    return Err(reserved_manifest_field(
+                        path,
+                        &format!("dependencies.{name}.source"),
+                    ));
+                }
+                required_field(detail.path, path, &format!("dependencies.{name}.path"))?
             }
         };
     }
