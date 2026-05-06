@@ -22,8 +22,9 @@
 .PHONY: test smoke supply-chain docs-python-exit docs-python-exit-test stage1-test stage1-proof-test stage1-conformance stage1-smoke stage1-bench-gate stage1-crap-proposal mutation-rust-smoke stage1-run
 .PHONY: test smoke supply-chain docs-python-exit docs-python-exit-test stage1-test stage1-proof-test stage1-conformance stage1-smoke stage1-bench-gate stage1-crap-proposal mutation-rust-smoke mutation-survivor-report stage1-run
 .PHONY: test smoke supply-chain docs-python-exit docs-python-exit-test stage1-test stage1-proof-test stage1-conformance stage1-smoke stage1-bench-gate stage1-crap-proposal stage1-run
-=======
 .PHONY: test smoke supply-chain docs-python-exit docs-python-exit-test stage1-test stage1-proof-test stage1-conformance stage1-smoke stage1-bench-gate stage1-run
+=======
+.PHONY: test smoke supply-chain docs-python-exit docs-python-exit-test stage1-test stage1-proof-test stage1-conformance stage1-smoke stage1-bench stage1-bench-update-baseline stage1-bench-gate stage1-crap-proposal mutation-rust-smoke stage1-run
 
 test: docs-python-exit stage1-test
 
@@ -50,6 +51,12 @@ stage1-proof-test:
 
 stage1-conformance:
 	cargo run --manifest-path stage1/Cargo.toml -p axiomc -- test stage1/conformance --json
+
+stage1-bench:
+	python3 scripts/ci/run-stage1-bench.py --output stage1/benchmarks/generated/stage1-bench.json
+
+stage1-bench-update-baseline:
+	python3 scripts/ci/run-stage1-bench.py --output stage1/benchmarks/stage1-baseline.json
 
 stage1-bench-gate:
 	python3 scripts/ci/check-stage1-benchmarks.py

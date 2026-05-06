@@ -31,6 +31,7 @@ use axiomc::manifest::{load_manifest, manifest_path};
 >>>>>>> origin/codex/worker-f-issue-343
 >>>>>>> origin/codex/worker-c-issue-361
 >>>>>>> origin/codex/agent-o-debug-info
+use axiomc::manifest::{entry_path, load_manifest};
 use axiomc::new_project::create_project;
 use axiomc::diagnostics::Diagnostic;
 use axiomc::json_contract;
@@ -44,7 +45,6 @@ use axiomc::project::{
 use axiomc::registry::{
     PublishOptions, load_registry_index, publish_package, render_registry_index,
 };
-<<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
@@ -91,14 +91,12 @@ use axiomc::registry::{load_registry_index, render_registry_index};
 =======
 =======
 =======
-=======
 use axiomc::syntax::parse_program;
 use clap::{Parser, Subcommand};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use serde::Serialize;
 use std::collections::{BTreeSet, HashMap};
->>>>>>> origin/codex/issue-424-survivor-report
 >>>>>>> origin/codex/worker-f-issue-341
 use std::fs;
 use std::io::{self, BufRead, Write};
@@ -122,6 +120,12 @@ enum Command {
         name: Option<String>,
         #[arg(long, default_value = "cli")]
         template: String,
+    },
+    /// Parse the primary stage1 package entrypoint without typechecking.
+    Parse {
+        path: PathBuf,
+        #[arg(long)]
+        json: bool,
     },
     /// Check a stage1 package or workspace member without building an artifact.
     Check {
@@ -260,7 +264,6 @@ enum Command {
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
-<<<<<<< HEAD
 >>>>>>> origin/codex/agent-i-language-slice
 >>>>>>> origin/codex/issue-387-capability-validation
 >>>>>>> origin/codex/issue-395-effective-fs-roots
@@ -273,8 +276,6 @@ enum Command {
 >>>>>>> origin/codex/issue-422-comparison-gate
 >>>>>>> origin/codex/issue-425-crap-thresholds
 =======
-=======
->>>>>>> origin/codex/worker-c-issue-361
 =======
 >>>>>>> origin/codex/agent-o-debug-info
     /// Pack, sign, and publish a stage1 package into a local registry tree.
@@ -304,7 +305,6 @@ enum Command {
     Lsp,
     /// Start the bounded axiom-debug Debug Adapter Protocol endpoint.
     Dap,
-<<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
@@ -357,8 +357,6 @@ enum PkgCommand {
 =======
 =======
 =======
->>>>>>> origin/codex/worker-h-issue-414
-=======
 >>>>>>> origin/codex/agent-o-debug-info
 }
 
@@ -380,6 +378,28 @@ fn main() {
                 0
             }
             Err(error) => print_error("new", error, false),
+        },
+        Command::Parse { path, json } => match parse_project_entry(&path) {
+            Ok(output) => {
+                if json {
+                    println!(
+                        "{}",
+                        serde_json::json!({
+                            "schema_version": json_contract::JSON_SCHEMA_VERSION,
+                            "ok": true,
+                            "command": "parse",
+                            "project": path.display().to_string(),
+                            "manifest": output.manifest,
+                            "entry": output.entry,
+                            "statement_count": output.statement_count,
+                        })
+                    );
+                } else {
+                    eprintln!("OK statements={}", output.statement_count);
+                }
+                0
+            }
+            Err(error) => print_error("parse", error, json),
         },
         Command::Check {
             path,
@@ -814,7 +834,6 @@ fn main() {
             Ok(()) => 0,
             Err(error) => print_error("repl", error, json),
         },
-<<<<<<< HEAD
 >>>>>>> origin/codex/agent-o-debug-info
         Command::Publish {
             path,
@@ -840,7 +859,6 @@ fn main() {
             }
             Err(error) => print_error("publish", error, false),
         },
-=======
         Command::RegistryIndex {
             packages_dir,
             base_url,
@@ -899,6 +917,30 @@ fn main() {
 =======
     };
     std::process::exit(code);
+}
+
+#[derive(Debug)]
+struct ParseOutput {
+    manifest: String,
+    entry: String,
+    statement_count: usize,
+}
+
+fn parse_project_entry(path: &Path) -> Result<ParseOutput, Diagnostic> {
+    let manifest = load_manifest(path)?;
+    let entry = entry_path(path, &manifest);
+    let source = fs::read_to_string(&entry).map_err(|err| {
+        Diagnostic::new(
+            "parse",
+            format!("failed to read {}: {err}", entry.display()),
+        )
+    })?;
+    let program = parse_program(&source, &entry)?;
+    Ok(ParseOutput {
+        manifest: path.join("axiom.toml").display().to_string(),
+        entry: entry.display().to_string(),
+        statement_count: program.stmts.len(),
+    })
 }
 
 fn build_summary_lines(output: &BuildOutput, timings: bool) -> Vec<String> {
@@ -2663,7 +2705,6 @@ mod tests {
         assert!(help.contains("Run discovered *_bench.ax entrypoints"));
         assert!(help.contains("Start a small stage1 scratch REPL"));
         assert!(help.contains("Pack, sign, and publish a stage1 package"));
->>>>>>> origin/codex/issue-381-test-list
 >>>>>>> origin/codex/issue-408-cli-args
 >>>>>>> origin/codex/worker-h-issue-414
         assert!(help.contains("Build a static package-registry index"));
@@ -2741,15 +2782,12 @@ mod tests {
             other => panic!("expected caps diff command with path, got {other:?}"),
         }
 <<<<<<< HEAD
-<<<<<<< HEAD
         assert!(rendered.contains("only generated-rust is implemented in this preparatory backend plumbing"));
 <<<<<<< HEAD
 <<<<<<< HEAD
 =======
 =======
 =======
-=======
->>>>>>> origin/codex/agent-o-debug-info
     }
 
     fn build_output(debug_map: Option<String>, debug_manifest: Option<String>) -> BuildOutput {
