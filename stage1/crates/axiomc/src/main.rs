@@ -11,6 +11,10 @@ use axiomc::lockfile::{expected_lockfile_for_project, validate_lockfile};
 use axiomc::manifest::{load_manifest, manifest_path};
 >>>>>>> origin/codex/issue-406-collection-lookup
 use axiomc::new_project::create_project;
+use axiomc::diagnostics::Diagnostic;
+use axiomc::json_contract;
+use axiomc::lsp;
+use axiomc::new_project::{WorkloadTemplate, create_project_with_template};
 use axiomc::project::{
     BuildOptions, BuildOutput, CheckOptions, RunOptions, TestOptions, build_project_with_options,
     check_project_with_options, project_capabilities, run_project_tests_with_options,
@@ -20,7 +24,6 @@ use axiomc::registry::{
     PublishOptions, load_registry_index, publish_package, render_registry_index,
 };
 <<<<<<< HEAD
-=======
 use axiomc::diagnostics::Diagnostic;
 use axiomc::json_contract;
 use axiomc::lsp;
@@ -31,9 +34,10 @@ use axiomc::project::{
     BuildOutput, CheckOptions, RunOptions, TestOptions,
 };
 use axiomc::registry::{load_registry_index, render_registry_index};
->>>>>>> origin/codex/issue-408-cli-args
 =======
 >>>>>>> origin/codex/issue-406-collection-lookup
+=======
+>>>>>>> origin/codex/issue-383-new-templates
 use axiomc::syntax::parse_program;
 use clap::{Parser, Subcommand};
 use serde::{Deserialize, Serialize};
@@ -60,6 +64,8 @@ enum Command {
         path: PathBuf,
         #[arg(long)]
         name: Option<String>,
+        #[arg(long, default_value = "cli")]
+        template: String,
     },
     /// Check a stage1 package or workspace member without building an artifact.
     Check {
@@ -185,6 +191,7 @@ enum Command {
     },
 <<<<<<< HEAD
 >>>>>>> origin/codex/issue-406-collection-lookup
+>>>>>>> origin/codex/issue-383-new-templates
     /// Pack, sign, and publish a stage1 package into a local registry tree.
     Publish {
         path: PathBuf,
@@ -211,6 +218,7 @@ enum Command {
     /// Start the bounded axiom-debug Debug Adapter Protocol endpoint.
     Dap,
 <<<<<<< HEAD
+<<<<<<< HEAD
 }
 
 <<<<<<< HEAD
@@ -231,18 +239,28 @@ enum InspectCommand {
         #[arg(long)]
         json: bool,
     },
->>>>>>> origin/codex/issue-381-test-list
 =======
 =======
 >>>>>>> origin/codex/issue-406-collection-lookup
+=======
+>>>>>>> origin/codex/issue-383-new-templates
 }
 
 fn main() {
     let cli = Cli::parse();
     let code = match cli.command {
-        Command::New { path, name } => match create_project(&path, name.as_deref()) {
+        Command::New {
+            path,
+            name,
+            template,
+        } => match WorkloadTemplate::parse(&template)
+            .and_then(|template| create_project_with_template(&path, name.as_deref(), template))
+        {
             Ok(()) => {
-                println!("initialized stage1 project in {}", path.display());
+                println!(
+                    "initialized stage1 {template} project in {}",
+                    path.display()
+                );
                 0
             }
             Err(error) => print_error("new", error, false),
@@ -706,11 +724,14 @@ fn main() {
             Err(error) => print_error("lsp", error, false),
         },
 <<<<<<< HEAD
+>>>>>>> origin/codex/issue-383-new-templates
         Command::Dap => match dap::run_stdio(io::stdin().lock(), io::stdout()) {
             Ok(()) => 0,
             Err(error) => print_error("dap", error, false),
         },
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
 =======
 =======
     };
@@ -2554,12 +2575,12 @@ mod tests {
             }
             other => panic!("expected caps diff command with path, got {other:?}"),
         }
-=======
         assert!(rendered.contains("only generated-rust is implemented in this preparatory backend plumbing"));
 <<<<<<< HEAD
 =======
 =======
->>>>>>> origin/codex/issue-406-collection-lookup
+=======
+>>>>>>> origin/codex/issue-383-new-templates
     }
 
     fn build_output(debug_map: Option<String>) -> BuildOutput {
@@ -2570,6 +2591,7 @@ mod tests {
 >>>>>>> origin/codex/issue-381-test-list
 >>>>>>> origin/codex/issue-408-cli-args
 >>>>>>> origin/codex/issue-406-collection-lookup
+>>>>>>> origin/codex/issue-383-new-templates
             manifest: String::from("axiom.toml"),
             entry: String::from("src/main.ax"),
             binary: String::from("dist/app"),
@@ -2578,6 +2600,7 @@ mod tests {
             statement_count: 1,
             target: None,
             debug: true,
+<<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
             cache_key: axiomc::project::BuildCacheMetadata {
@@ -2590,6 +2613,7 @@ mod tests {
                 generated_rust_hash: String::from("rust-hash"),
                 sources: Vec::new(),
             },
+=======
 =======
 =======
             metadata: axiomc::project::BuildMetadata {

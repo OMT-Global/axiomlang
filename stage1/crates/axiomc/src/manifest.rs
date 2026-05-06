@@ -11,6 +11,7 @@ pub const KNOWN_CAPABILITIES: [CapabilityKind; 9] = [
 >>>>>>> origin/codex/issue-377-inspect-symbols
 >>>>>>> origin/codex/issue-378-inspect-graph
 >>>>>>> origin/codex/issue-406-collection-lookup
+>>>>>>> origin/codex/issue-383-new-templates
 pub const KNOWN_CAPABILITIES: [CapabilityKind; 8] = [
     CapabilityKind::Fs,
     CapabilityKind::FsWrite,
@@ -73,7 +74,9 @@ pub enum TestKind {
     Snapshot,
     Benchmark,
 <<<<<<< HEAD
+<<<<<<< HEAD
     pub stderr: Option<String>,
+=======
 =======
 }
 
@@ -93,9 +96,7 @@ pub struct CapabilityConfig {
     pub crypto: bool,
     pub ffi: bool,
 <<<<<<< HEAD
-<<<<<<< HEAD
     pub async_runtime: bool,
-=======
 =======
     pub deny_by_default: bool,
     pub unsafe_opt_ins: Vec<String>,
@@ -181,8 +182,10 @@ struct RawTestTarget {
     entry: Option<String>,
     stdout: Option<String>,
 <<<<<<< HEAD
+<<<<<<< HEAD
     kind: Option<String>,
     stderr: Option<String>,
+=======
 =======
     kind: Option<String>,
 }
@@ -455,9 +458,7 @@ fn normalize_manifest(raw: RawManifest, path: &Path) -> Result<Manifest, Diagnos
             clock: capabilities.clock.unwrap_or(false),
             crypto: capabilities.crypto.unwrap_or(false),
             ffi: capabilities.ffi.unwrap_or(false),
-<<<<<<< HEAD
             async_runtime: capabilities.async_runtime.unwrap_or(false),
-=======
             deny_by_default: capabilities.deny_by_default.unwrap_or(false),
             unsafe_opt_ins,
             owners,
@@ -684,9 +685,11 @@ fn normalize_tests(
             stdout: raw_test.stdout,
             kind: normalize_test_kind(raw_test.kind, path, &format!("{field_prefix}.kind"))?,
 <<<<<<< HEAD
+<<<<<<< HEAD
             stderr: raw_test.stderr,
 =======
->>>>>>> origin/codex/issue-406-collection-lookup
+=======
+>>>>>>> origin/codex/issue-383-new-templates
         });
     }
     Ok(tests)

@@ -13,9 +13,9 @@ cargo run --manifest-path stage1/Cargo.toml -p axiomc -- test stage1/examples/mo
 cargo run --manifest-path stage1/Cargo.toml -p axiomc -- caps stage1/examples/hello --json
 <<<<<<< HEAD
 >>>>>>> origin/codex/issue-406-collection-lookup
+>>>>>>> origin/codex/issue-383-new-templates
 cargo run --manifest-path stage1/Cargo.toml -p axiomc -- publish stage1/examples/hello --registry-dir ./registry/packages --signing-key dev-key
 =======
->>>>>>> origin/codex/issue-408-cli-args
 cargo run --manifest-path stage1/Cargo.toml -p axiomc -- registry-index ./registry/packages --base-url https://packages.example.test --out ./registry/index.json
 cargo run --manifest-path stage1/Cargo.toml -p axiomc -- registry-validate ./registry/index.json
 ```

@@ -3,6 +3,7 @@ pub mod codegen;
 pub mod dap;
 pub mod diagnostic_catalog;
 >>>>>>> origin/codex/issue-406-collection-lookup
+>>>>>>> origin/codex/issue-383-new-templates
 pub mod diagnostics;
 pub mod hir;
 pub mod json_contract;
@@ -27,7 +28,7 @@ mod tests {
         render_manifest,
     };
     use crate::mir;
-    use crate::new_project::create_project;
+    use crate::new_project::{WorkloadTemplate, create_project, create_project_with_template};
     use crate::project::{
         BuildCacheStatus, BuildOptions, CheckOptions, RunOptions, TestOptions, build_project,
         build_project_with_options, check_project, check_project_with_options,
@@ -56,12 +57,14 @@ mod tests {
     ) -> String {
         format!(
 <<<<<<< HEAD
+<<<<<<< HEAD
             "[package]\nname = {name:?}\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = {fs}\n\"fs:write\" = {fs}\nnet = {net}\nprocess = {process}\nenv = {env}\nclock = {clock}\ncrypto = {crypto}\nasync = false\n"
->>>>>>> origin/codex/issue-376-doctor-json
 >>>>>>> origin/codex/issue-377-inspect-symbols
 >>>>>>> origin/codex/issue-378-inspect-graph
 =======
 >>>>>>> origin/codex/issue-406-collection-lookup
+=======
+>>>>>>> origin/codex/issue-383-new-templates
             "[package]\nname = {name:?}\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = {fs}\n\"fs:write\" = {fs}\nnet = {net}\nprocess = {process}\nenv = {env}\nclock = {clock}\ncrypto = {crypto}\n"
         )
     }
@@ -218,6 +221,24 @@ mod tests {
     }
 
     #[test]
+    fn new_project_templates_build_and_test_without_edits() {
+        let dir = tempdir().expect("tempdir");
+        for template in [
+            WorkloadTemplate::Cli,
+            WorkloadTemplate::Worker,
+            WorkloadTemplate::Service,
+        ] {
+            let project = dir.path().join(format!("{}-app", template.name()));
+            create_project_with_template(&project, None, template).expect("create project");
+
+            check_project(&project).expect("check generated project");
+            let tests = run_project_tests(&project).expect("test generated project");
+            assert_eq!(tests.failed, 0);
+            assert_eq!(tests.passed, 1);
+        }
+    }
+
+    #[test]
     fn parser_lowers_functions_calls_and_while() {
         let source = "fn banner(name: string): string {\nreturn \"hello \" + name\n}\n\nfn lucky(base: int): int {\nreturn base + 2\n}\n\nfn is_ready(value: int): bool {\nreturn value == 42\n}\n\nlet answer: int = lucky(40)\nlet ready: bool = is_ready(answer)\nwhile false {\nprint \"never\"\n}\nif ready {\nprint banner(\"from stage1\")\n} else {\nprint \"bad\"\n}\nprint answer\nprint ready\n";
         let parsed = parse_program(source, Path::new("main.ax")).expect("parse");
@@ -366,6 +387,7 @@ print borrowed
 
     #[test]
 >>>>>>> origin/codex/issue-406-collection-lookup
+>>>>>>> origin/codex/issue-383-new-templates
     fn parser_expands_declarative_statement_macros_before_lowering() {
         let source = r#"macro_rules! answer {
 ($value:expr) => {
@@ -2759,11 +2781,13 @@ crypto = false
         let manifest = load_manifest(&project).expect("load manifest");
         let caps = capability_descriptors(&manifest.capabilities);
 <<<<<<< HEAD
+<<<<<<< HEAD
         assert_eq!(caps.len(), 9);
         assert!(caps.iter().all(|cap| !cap.enabled));
         assert!(caps.iter().any(|cap| cap.name == "async"));
         let project_caps = project_capabilities(&project).expect("project capabilities");
         assert_eq!(project_caps.len(), 9);
+=======
 =======
         assert_eq!(caps.len(), 8);
         assert!(caps.iter().all(|cap| !cap.enabled));
@@ -2867,6 +2891,7 @@ crypto = false
         );
 >>>>>>> origin/codex/issue-378-inspect-graph
 >>>>>>> origin/codex/issue-406-collection-lookup
+>>>>>>> origin/codex/issue-383-new-templates
     }
 
     #[test]
@@ -5393,7 +5418,9 @@ print serve_once("127.0.0.1:18080", "hello")
                 stdout: Some(String::from("42\n")),
                 kind: TestKind::Unit,
 <<<<<<< HEAD
+<<<<<<< HEAD
                 stderr: None,
+=======
 =======
             }]
         );
@@ -5921,6 +5948,7 @@ print serve_once("127.0.0.1:18080", "hello")
                 .count(),
             12
 >>>>>>> origin/codex/issue-406-collection-lookup
+>>>>>>> origin/codex/issue-383-new-templates
             9
         );
     }
@@ -8795,9 +8823,11 @@ print 0
         assert_eq!(payload["locked"], true);
         assert_eq!(payload["offline"], true);
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
 =======
->>>>>>> origin/codex/issue-406-collection-lookup
+=======
+>>>>>>> origin/codex/issue-383-new-templates
         assert!(payload["target"].is_string());
         assert_eq!(payload["debug"], true);
         assert!(payload["debug_map"].is_string());

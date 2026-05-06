@@ -12,6 +12,7 @@
 >>>>>>> origin/codex/issue-407-outcome-helpers
 //! Today this provides fifteen stdlib modules. Six are thin wrappers over
 >>>>>>> origin/codex/issue-406-collection-lookup
+>>>>>>> origin/codex/issue-383-new-templates
 //! single-intrinsic capability-gated surfaces, one per capability class:
 //!
 //! * `std/time.ax` — `Duration`, `Instant`, `now_ms()`, `now()`,
@@ -70,6 +71,8 @@
 //!   cancellation, and select wrappers over the stage1 async runtime values.
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
 //! * `std/regex.ax` — linear-time regular-expression helpers (`is_match`,
 //!   `find`, `replace_all`) over a stage1-safe NFA engine.
 //! * `std/testing.ax` — table-case, property, and snapshot assertion helpers
@@ -78,9 +81,9 @@
 //! * `std/outcome.ax` — generic `Option<T>` / `Result<T, E>` predicates and
 //!   fallback unwrap helpers implemented in Axiom.
 =======
-=======
 //! * `std/encoding.ax` — URL component and path segment percent-encoding
 //!   helpers.
+=======
 
 use std::path::{Path, PathBuf};
 
@@ -284,6 +287,7 @@ pub async fn udp_send_recv(host: string, port: int, message: string, timeout_ms:
     ),
     (
 >>>>>>> origin/codex/worker-a-issue-379-fmt-json
+>>>>>>> origin/codex/issue-383-new-templates
         "testing.ax",
         "pub fn table_int(name: string, actual: int, expected: int): int {\nreturn assert_case_eq(name, actual, expected)\n}\n\
 pub fn table_bool(name: string, actual: bool, expected: bool): int {\nreturn assert_case_eq(name, actual, expected)\n}\n\
@@ -305,6 +309,7 @@ pub fn serve_once(bind: string, body: string): bool {\nreturn http_serve_once(bi
         "pub fn is_match(pattern: string, text: string): bool {\nreturn regex_is_match(pattern, text)\n}\n\
 pub fn find(pattern: string, text: string): Option<string> {\nreturn regex_find(pattern, text)\n}\n\
 pub fn replace_all(pattern: string, text: string, replacement: string): string {\nreturn regex_replace_all(pattern, text, replacement)\n}\n",
+<<<<<<< HEAD
 <<<<<<< HEAD
     ),
     (
@@ -328,6 +333,7 @@ pub fn result_unwrap_or<T, E>(value: Result<T, E>, fallback: T): T {\nmatch valu
         "pub fn url_component_encode(value: string): string {\nreturn encoding_url_component_encode(value)\n}\n\
 pub fn url_component_decode(value: string): Option<string> {\nreturn encoding_url_component_decode(value)\n}\n\
 pub fn path_segment_encode(value: string): string {\nreturn encoding_path_segment_encode(value)\n}\n",
+=======
     ),
 ];
 

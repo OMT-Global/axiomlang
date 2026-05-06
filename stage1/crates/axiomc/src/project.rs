@@ -72,6 +72,7 @@ pub struct BuiltPackage {
 >>>>>>> origin/codex/issue-377-inspect-symbols
 >>>>>>> origin/codex/issue-378-inspect-graph
 >>>>>>> origin/codex/issue-406-collection-lookup
+>>>>>>> origin/codex/issue-383-new-templates
     pub metadata: BuildMetadata,
     pub cache_status: BuildCacheStatus,
     pub compile_ms: u64,
@@ -83,9 +84,11 @@ pub struct BuildOutput {
     pub locked: bool,
     pub offline: bool,
 <<<<<<< HEAD
->>>>>>> origin/codex/issue-408-cli-args
+<<<<<<< HEAD
 =======
 >>>>>>> origin/codex/issue-406-collection-lookup
+=======
+>>>>>>> origin/codex/issue-383-new-templates
     pub manifest: String,
     pub entry: String,
     pub binary: String,
@@ -327,6 +330,7 @@ pub fn build_project_with_options(
 >>>>>>> origin/codex/issue-377-inspect-symbols
 >>>>>>> origin/codex/issue-378-inspect-graph
 >>>>>>> origin/codex/issue-406-collection-lookup
+>>>>>>> origin/codex/issue-383-new-templates
             metadata: report.metadata,
             cache_status: report.cache_status,
             compile_ms: report.compile_ms,
@@ -351,9 +355,11 @@ pub fn build_project_with_options(
         locked: options.locked,
         offline: options.offline,
 <<<<<<< HEAD
->>>>>>> origin/codex/issue-408-cli-args
+<<<<<<< HEAD
 =======
 >>>>>>> origin/codex/issue-406-collection-lookup
+=======
+>>>>>>> origin/codex/issue-383-new-templates
         manifest: root.manifest,
         entry: root.entry,
         binary: root.binary,

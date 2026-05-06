@@ -26,6 +26,9 @@ carry the 1.0 package model.
 ## Commands
 
 ```bash
+cargo run --manifest-path stage1/Cargo.toml -p axiomc -- new /tmp/axiom-cli --template cli
+cargo run --manifest-path stage1/Cargo.toml -p axiomc -- new /tmp/axiom-worker --template worker
+cargo run --manifest-path stage1/Cargo.toml -p axiomc -- new /tmp/axiom-service --template service
 cargo run --manifest-path stage1/Cargo.toml -p axiomc -- check stage1/examples/hello --json
 cargo run --manifest-path stage1/Cargo.toml -p axiomc -- build stage1/examples/hello --json
 cargo run --manifest-path stage1/Cargo.toml -p axiomc -- build stage1/examples/hello --timings
@@ -59,6 +62,11 @@ cargo run --manifest-path stage1/Cargo.toml -p axiomc -- lsp
 contract, including generated Markdown/HTML paths, documented symbols, comments,
 signatures, simple example notes, declaration kind/visibility, and package
 capability descriptors when the input path is a package root.
+`axiomc new` defaults to the `cli` starter and also accepts `--template worker`
+and `--template service`. Each starter writes `axiom.toml`, `axiom.lock`,
+`src/main.ax`, `src/main_test.ax`, and `src/main_test.stdout`; the generated
+project is expected to pass `axiomc check`, `axiomc build`, and `axiomc test`
+without manual edits.
 
 `axiomc test` discovers `src/**/*_test.ax` entrypoints by default, builds each test
 as a native artifact, executes it, and compares stdout against a sibling
@@ -109,6 +117,7 @@ membership plus golden-output and compile-fail markers for automation. Workspace
 only roots are now supported as long as build/run commands select a concrete
 member package with `-p/--package`.
 >>>>>>> origin/codex/issue-406-collection-lookup
+>>>>>>> origin/codex/issue-383-new-templates
 
 ## JSON contract
 
@@ -119,6 +128,7 @@ Successful payloads always include `ok`, `command`, and `project`, while
 `duration_ms` plus `passed` / `failed` / `skipped`. Build payloads report the
 requested Rust target triple when `--target <triple>` is used and report
 `debug: true` when `axiomc build --debug` requests an unoptimized debuginfo build
+<<<<<<< HEAD
 <<<<<<< HEAD
 with generated source-position markers. Build JSON carries both `cache_key`
 metadata with the cache schema version, compiler key, target, debug mode,
@@ -131,7 +141,8 @@ positions. `axiomc build --timings` prints total build time, cache hit/miss
 counts, and per-package compile timing/cache status for the incremental
 generated-Rust cache.
 =======
->>>>>>> origin/codex/issue-406-collection-lookup
+=======
+>>>>>>> origin/codex/issue-383-new-templates
 with generated source-position markers. Build JSON also carries `metadata` for
 cache-key inspection: requested/resolved `target`, `debug`, package `lockfile`,
 `lockfile_hash`, and aggregate `source_hash`. Debug builds also report `debug_map`,
@@ -211,6 +222,7 @@ still far from the stated 1.0 target for service and agent workloads.
   emits generated Rust source markers, and writes a JSON source-map sidecar for
   Axiom file/line/column positions; full Axiom-native debugger stepping remains
   a direct-backend follow-on.
+>>>>>>> origin/codex/issue-383-new-templates
 - `axiomc fmt`, `axiomc bench`, `axiomc doc`, the stage1 scratch `repl`, and a
   bounded `axiomc lsp` analyzer now exist as bootstrap-grade toolchain
   commands. The LSP endpoint currently serves compiler-backed diagnostics over
@@ -254,10 +266,12 @@ Current proof points:
 - `stage1/examples/proof_cli` closes the first AG5.3 proof workload with a multi-package CLI fixture that pulls command and render helpers from separate local packages while staying fully inside the `axiomc` workflow and exercising capability-gated `std/env.ax` and `std/time.ax`.
 - `stage1/examples/proof_worker` closes the queue-style AG5.3 proof workload with a deterministic worker fixture built on `std/async.ax`, `std/env.ax`, and `std/time.ax`.
 - `stage1/examples/proof_http_service` is a checked-in HTTP-shaped response fixture that routes request metadata from `std/env.ax`, stamps liveness with `std/time.ax`, and renders the response body through `std/json.ax`; it remains a fixture for the small-service AG5.3 workload while AG4.3/#97 continues toward a fuller async-runtime listen/accept/respond server API.
+<<<<<<< HEAD
 - `stage1/examples/stdlib_http` extends AG4.1 with `import "std/http.ax"`, bringing `get(url)` into scope on top of a new blocking HTTP/1.0 client for `http://` and `https://` URLs; it shares the importing package's `[capabilities] net` flag with `std/net.ax` and keeps its smoke deterministic by pointing at a closed local port so the `None` branch always fires.
 - `stage1/examples/proof_cli` closes the first AG5.3 proof workload with a multi-package CLI fixture that pulls command and render helpers from separate local packages while staying fully inside the `axiomc` workflow and exercising capability-gated `std/env.ax` and `std/time.ax`.
 - `stage1/examples/proof_worker` closes the queue-style AG5.3 proof workload with a deterministic worker fixture built on `std/async.ax`, `std/env.ax`, and `std/time.ax`.
 - `stage1/examples/proof_http_service` closes the small-service AG5.3 proof workload with a checked-in HTTP response fixture that routes request metadata from `std/env.ax`, stamps liveness with `std/time.ax`, and renders the response body through `std/json.ax`.
+=======
 - `stage1/examples/arrays`, `stage1/examples/maps`, `stage1/examples/tuples`,
   and `stage1/examples/structs` cover the current structured-data floor.
 - `stage1/examples/slices`, `stage1/examples/borrowed_shapes`, `stage1/examples/enums`,
