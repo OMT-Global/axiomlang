@@ -5230,9 +5230,11 @@ fn lower_call_arg_with_expected(
     expected: Option<&Type>,
     env: &mut HashMap<String, Binding>,
     ctx: &LowerContext<'_>,
+    allow_temporary_string_borrow: bool,
 ) -> Result<Expr, Diagnostic> {
-    lower_expr_with_expected_inner(expr, expected, env, ctx)
-        .and_then(|lowered| coerce_expr_to_expected(lowered, expected, true))
+    lower_expr_with_expected_inner(expr, expected, env, ctx).and_then(|lowered| {
+        coerce_expr_to_expected(lowered, expected, allow_temporary_string_borrow)
+    })
 }
 
 fn lower_expr_with_expected_inner(
@@ -6638,8 +6640,17 @@ fn lower_expr_with_expected_inner(
                 }
                 let mut lowered_args = Vec::new();
                 let mut temporary_borrows = Vec::new();
-                for (arg, expected) in args.iter().zip(signature.params.iter()) {
-                    let lowered = lower_call_arg_with_expected(arg, Some(expected), env, ctx)?;
+                for (index, (arg, expected)) in args.iter().zip(signature.params.iter()).enumerate()
+                {
+                    let allow_temporary_string_borrow =
+                        !signature.borrow_return_params.contains(&index);
+                    let lowered = lower_call_arg_with_expected(
+                        arg,
+                        Some(expected),
+                        env,
+                        ctx,
+                        allow_temporary_string_borrow,
+                    )?;
                     if lowered.ty() != expected {
                         return Err(Diagnostic::new(
                             "type",
@@ -6833,8 +6844,17 @@ fn lower_expr_with_expected_inner(
                     )
                     .with_span(*line, *column));
                 }
-                for (arg, expected) in args.iter().zip(signature.params.iter()) {
-                    let lowered = lower_call_arg_with_expected(arg, Some(expected), env, ctx)?;
+                for (index, (arg, expected)) in args.iter().zip(signature.params.iter()).enumerate()
+                {
+                    let allow_temporary_string_borrow =
+                        !signature.borrow_return_params.contains(&index);
+                    let lowered = lower_call_arg_with_expected(
+                        arg,
+                        Some(expected),
+                        env,
+                        ctx,
+                        allow_temporary_string_borrow,
+                    )?;
                     if lowered.ty() != expected {
                         return Err(Diagnostic::new(
                             "type",
