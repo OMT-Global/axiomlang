@@ -210,44 +210,6 @@ def compare_limit(actual_ms: float, limit_ms: float) -> str:
     return "pass" if actual_ms <= limit_ms else "advisory-fail"
 
 
-def load_regression_baseline() -> dict | None:
-    if not BASELINE_PATH.exists():
-        print(f"WARN benchmark regression baseline is missing: {BASELINE_PATH}")
-        return None
-    with BASELINE_PATH.open(encoding="utf-8") as handle:
-        return json.load(handle)
-
-
-def compare_regression_baseline(report: dict, baseline: dict | None) -> list[str]:
-    if baseline is None:
-        return ["missing committed benchmark baseline"]
-
-    tolerance_pct = float(baseline.get("tolerance_pct", 0.35))
-    warnings: list[str] = []
-    baseline_workloads = baseline.get("workloads", {})
-    report_workloads = report.get("workloads", {})
-
-    for workload_name, workload_report in report_workloads.items():
-        workload_baseline = baseline_workloads.get(workload_name)
-        if workload_baseline is None:
-            warnings.append(f"{workload_name}: missing baseline workload")
-            continue
-        baseline_medians = workload_baseline.get("medians_ms", {})
-        actual_medians = workload_report.get("medians_ms", {})
-        for metric_name, actual_value in actual_medians.items():
-            baseline_value = baseline_medians.get(metric_name)
-            if baseline_value is None:
-                warnings.append(f"{workload_name}.{metric_name}: missing baseline metric")
-                continue
-            limit = float(baseline_value) * (1.0 + tolerance_pct)
-            if float(actual_value) > limit:
-                warnings.append(
-                    f"{workload_name}.{metric_name}: {actual_value:.1f} ms exceeds "
-                    f"baseline {float(baseline_value):.1f} ms + {tolerance_pct:.0%}"
-                )
-    return warnings
-
-
 def benchmark_workload(workload: Workload, temp_dir: Path) -> dict[str, Any]:
     print(f"warming comparison commands for {workload.name} ({workload.kind})...", file=sys.stderr)
     axiom_warm_build = axiom_build(workload, cold=True)

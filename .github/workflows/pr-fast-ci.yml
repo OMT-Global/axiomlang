@@ -137,7 +137,7 @@ jobs:
           for entry in $RESULTS; do
             job="${entry%%=*}"
             status="${entry##*=}"
-            if [["$status" == "success" || "$status" == "skipped"]]; then
+            if [[ "$status" == "success" || "$status" == "skipped" ]]; then
               echo "OK   $job => $status"
             else
               echo "FAIL $job => $status"
