@@ -5404,7 +5404,9 @@ fn lower_stmt(
             if env.contains_key(name) {
                 let existing = &env[name];
                 let message = if !existing.ty.is_copy() {
-                    format!("rebinding name {name:?} is not supported; the existing binding holds an owned value")
+                    format!(
+                        "rebinding name {name:?} is not supported; the existing binding holds an owned value"
+                    )
                 } else {
                     format!("rebinding name {name:?} is not supported in stage1")
                 };
