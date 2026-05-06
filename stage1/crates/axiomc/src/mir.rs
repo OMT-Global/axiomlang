@@ -111,6 +111,7 @@ pub struct MatchArm {
     pub variant: String,
     pub bindings: Vec<String>,
     pub is_named: bool,
+    pub ignore_payloads: bool,
     pub body: Vec<Stmt>,
 }
 
@@ -442,6 +443,7 @@ fn lower_stmt(stmt: &hir::Stmt) -> Stmt {
                     variant: arm.variant.clone(),
                     bindings: arm.bindings.clone(),
                     is_named: arm.is_named,
+                    ignore_payloads: arm.ignore_payloads,
                     body: arm.body.iter().map(lower_stmt).collect(),
                 })
                 .collect(),
