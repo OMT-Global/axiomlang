@@ -2347,7 +2347,7 @@ impl<'a> TypeContext<'a> {
                         visiting_enums,
                     )
             }
-            Type::Array(inner)
+            Type::Array(inner, _)
             | Type::Task(inner)
             | Type::JoinHandle(inner)
             | Type::AsyncChannel(inner)
@@ -3402,7 +3402,7 @@ fn render_expr(expr: &Expr) -> String {
             Type::Result(_, _) => unreachable!("type checker rejects result addition"),
             Type::Tuple(_) => unreachable!("type checker rejects tuple addition"),
             Type::Map(_, _) => unreachable!("type checker rejects map addition"),
-            Type::Array(_) => unreachable!("type checker rejects array addition"),
+            Type::Array(_, _) => unreachable!("type checker rejects array addition"),
             Type::Task(_) => unreachable!("type checker rejects task addition"),
             Type::JoinHandle(_) => unreachable!("type checker rejects join handle addition"),
             Type::AsyncChannel(_) => unreachable!("type checker rejects async channel addition"),
@@ -3508,7 +3508,7 @@ fn render_expr(expr: &Expr) -> String {
                 .map(|expr| format!("Some({})", render_expr(expr)))
                 .unwrap_or_else(|| String::from("None"));
             match base.ty() {
-                Type::Array(_) => {
+                Type::Array(_, _) => {
                     if matches!(expr.ty(), Type::MutSlice(_)) {
                         format!(
                             "axiom_slice_view_mut(&mut {}, {}, {})",
@@ -3546,7 +3546,7 @@ fn render_expr(expr: &Expr) -> String {
             }
         }
         Expr::Index { base, index, ty } => match base.ty() {
-            Type::Array(_) => {
+            Type::Array(_, _) => {
                 if ty.is_copy() {
                     format!(
                         "axiom_array_get(&{}, {})",
@@ -3669,7 +3669,7 @@ fn rust_type_inner(ty: &Type, lifetime: Option<&str>, type_context: &TypeContext
             rust_type_inner(key, lifetime, type_context),
             rust_type_inner(value, lifetime, type_context)
         ),
-        Type::Array(inner) => format!("Vec<{}>", rust_type_inner(inner, lifetime, type_context)),
+        Type::Array(inner, _) => format!("Vec<{}>", rust_type_inner(inner, lifetime, type_context)),
         Type::Task(inner) => format!(
             "AxiomTask<{}>",
             rust_type_inner(inner, lifetime, type_context)
@@ -3723,7 +3723,7 @@ fn render_collection_edge(collection: &Expr, result_ty: &Type, from_end: bool) -
         String::from("0")
     };
     match collection.ty() {
-        Type::Array(_) => {
+        Type::Array(_, _) => {
             if result_ty.is_copy() {
                 format!("{{ let values = {rendered}; axiom_array_get(&values, {index}) }}")
             } else {

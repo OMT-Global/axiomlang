@@ -611,7 +611,7 @@ fn lower_type(ty: &hir::Type) -> Type {
         hir::Type::Map(key, value) => {
             Type::Map(Box::new(lower_type(key)), Box::new(lower_type(value)))
         }
-        hir::Type::Array(inner) => Type::Array(Box::new(lower_type(inner))),
+        hir::Type::Array(inner, _) => Type::Array(Box::new(lower_type(inner))),
         hir::Type::Task(inner) => Type::Task(Box::new(lower_type(inner))),
         hir::Type::JoinHandle(inner) => Type::JoinHandle(Box::new(lower_type(inner))),
         hir::Type::AsyncChannel(inner) => Type::AsyncChannel(Box::new(lower_type(inner))),
