@@ -40,8 +40,8 @@ CAPABILITY_NAMES = ["fs", "fs:write", "net", "process", "env", "clock", "crypto"
 >>>>>>> origin/codex/issue-369-check-fixtures
 >>>>>>> origin/codex/issue-370-command-fixtures
 >>>>>>> origin/codex/issue-418-schema-metadata
-=======
 >>>>>>> origin/codex/issue-422-comparison-gate
+=======
 
 
 @dataclass(frozen=True)

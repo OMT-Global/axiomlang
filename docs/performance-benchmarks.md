@@ -18,7 +18,6 @@ collecting timing data:
 cargo run --manifest-path stage1/Cargo.toml -p axiomc -- test stage1/examples/stdlib_testing --include-benchmarks --json
 ```
 
-<<<<<<< HEAD
 ## Advisory Go/Rust/Axiom comparison gate
 
 The stage1 comparison report is intentionally non-blocking at first. It builds
@@ -45,6 +44,7 @@ against the committed calibration baseline at
 `stage1/benchmarks/baselines/stage1-build-median.json`. That comparison is
 reported as a non-blocking warning with a documented tolerance while runner
 variance is being measured.
+<<<<<<< HEAD
 variance is being measured; the existing benchmark gate still owns hard failures
 for obvious cold-build and warm-cache regressions against the checked-in Go and
 Rust reference builds.
@@ -55,7 +55,6 @@ Rust reference builds.
 >>>>>>> origin/codex/issue-395-effective-fs-roots
 >>>>>>> origin/codex/worker-j-issue-362
 >>>>>>> origin/codex/issue-425-crap-thresholds
-=======
 The stage1 baseline harness wraps fixed checked-in examples and records parser,
 checker, build, and run timings as JSON:
 
@@ -71,6 +70,7 @@ non-blocking comparison gate against Go/Rust reference workloads.
 This closes the local benchmark-suite foundation. Go and Rust reference
 comparisons should be layered on top of this harness in CI once representative
 workloads are stable enough to treat as performance policy.
+=======
 =======
 =======
 =======

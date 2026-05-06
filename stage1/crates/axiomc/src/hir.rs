@@ -452,10 +452,10 @@ struct VariantInfo {
 const OWNERSHIP_CLOSURE_MOVE_CAPTURED_NON_COPY: &str = "closure_move_captured_non_copy";
 const OWNERSHIP_CLOSURE_BORROWED_SLICE_RETURN: &str = "closure_borrowed_slice_return";
 =======
+>>>>>>> origin/codex/issue-423-mutation-smoke
 const OWNERSHIP_LOOP_MOVE_OUTER_NON_COPY: &str = "loop_move_outer_non_copy";
 const OWNERSHIP_BORROW_RETURN_REQUIRES_PARAM_ORIGIN: &str = "borrow_return_requires_param_origin";
 const OWNERSHIP_MOVE_WHILE_BORROWED: &str = "move_while_borrowed";
->>>>>>> origin/codex/issue-422-comparison-gate
 const OWNERSHIP_USE_AFTER_MOVE: &str = "use_after_move";
 
 fn function_symbol_name(function: &syntax::Function) -> String {
@@ -1000,6 +1000,7 @@ fn type_has_unboxed_recursive_path(
         | Type::Fn(_, _) => false,
         Type::Slice(_) | Type::MutSlice(_) | Type::Map(_, _) | Type::Array(_, _) => false,
 >>>>>>> origin/codex/issue-422-comparison-gate
+>>>>>>> origin/codex/issue-423-mutation-smoke
         Type::Option(inner)
         | Type::Task(inner)
         | Type::JoinHandle(inner)
@@ -2822,8 +2823,10 @@ fn rewrite_aggregate_type_name(
                 column,
             )?),
         ),
+<<<<<<< HEAD
 =======
->>>>>>> origin/codex/issue-422-comparison-gate
+=======
+>>>>>>> origin/codex/issue-423-mutation-smoke
         syntax::TypeName::Int => syntax::TypeName::Int,
         syntax::TypeName::Numeric(numeric) => syntax::TypeName::Numeric(*numeric),
         syntax::TypeName::Bool => syntax::TypeName::Bool,
@@ -5175,7 +5178,6 @@ fn insert_type_error_binding_for_failed_stmt(
     }
 }
 
-<<<<<<< HEAD
 fn declared_array_len(
     ty: &syntax::TypeName,
     ctx: &LowerContext<'_>,
@@ -5573,6 +5575,7 @@ fn lower_match_stmt(
     })
 }
 <<<<<<< HEAD
+<<<<<<< HEAD
 >>>>>>> origin/codex/issue-378-inspect-graph
 >>>>>>> origin/codex/issue-406-collection-lookup
 >>>>>>> origin/codex/issue-383-new-templates
@@ -5587,10 +5590,10 @@ fn lower_match_stmt(
 >>>>>>> origin/codex/issue-369-check-fixtures
 >>>>>>> origin/codex/issue-370-command-fixtures
 >>>>>>> origin/codex/issue-418-schema-metadata
-=======
 >>>>>>> origin/codex/issue-422-comparison-gate
 =======
->>>>>>> origin/codex/issue-425-crap-thresholds
+=======
+>>>>>>> origin/codex/issue-423-mutation-smoke
 fn lower_stmt(
     stmt: &syntax::Stmt,
     env: &mut HashMap<String, Binding>,
@@ -5643,7 +5646,6 @@ fn lower_stmt(
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
-<<<<<<< HEAD
             if let Some(expected_len) = expected_array_len {
                 if let syntax::Expr::ArrayLiteral { elements, .. } = expr {
                     if elements.len() != expected_len {
@@ -5662,6 +5664,15 @@ fn lower_stmt(
             {
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+=======
+=======
+=======
+=======
+            if actual != expected && !actual.is_error() && !expected.is_error() {
+=======
+=======
 =======
 =======
 =======
@@ -5671,16 +5682,8 @@ fn lower_stmt(
             if actual != expected && !actual.is_error() && !expected.is_error() {
 =======
 =======
-=======
-=======
-=======
-=======
-=======
-=======
             if actual != expected && !actual.is_error() && !expected.is_error() {
 =======
-=======
-            if actual != expected && !actual.is_error() && !expected.is_error() {
                 return Err(Diagnostic::new(
                     "type",
                     format!("let binding {name:?} expects {expected}, got {actual}"),
@@ -10320,6 +10323,7 @@ fn explicit_return_lifetime(ty: &syntax::TypeName) -> Option<&str> {
         | syntax::TypeName::Bool
         | syntax::TypeName::String
         | syntax::TypeName::Str => None,
+>>>>>>> origin/codex/issue-423-mutation-smoke
         | syntax::TypeName::Bool
         | syntax::TypeName::String => None,
     }
@@ -10347,11 +10351,13 @@ fn type_has_lifetime(ty: &syntax::TypeName, lifetime: &str) -> bool {
             params.iter().any(|arg| type_has_lifetime(arg, lifetime))
                 || type_has_lifetime(return_ty, lifetime)
         }
+<<<<<<< HEAD
         syntax::TypeName::Int
         | syntax::TypeName::Numeric(_)
         | syntax::TypeName::Bool
         | syntax::TypeName::String
         | syntax::TypeName::Str => false,
+=======
         syntax::TypeName::Int | syntax::TypeName::Bool | syntax::TypeName::String => false,
     }
 }
@@ -10630,6 +10636,7 @@ fn borrow_kind_for_type(
     }
 }
 >>>>>>> origin/codex/issue-422-comparison-gate
+>>>>>>> origin/codex/issue-423-mutation-smoke
 fn increment_active_borrows(
     owner_names: &HashSet<String>,
     env: &mut HashMap<String, Binding>,
@@ -10645,6 +10652,8 @@ fn increment_active_borrows(
             )
         })?;
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
         binding.borrow_state.begin_borrow(
             owner_name,
             borrow_kind,
@@ -10685,6 +10694,7 @@ fn increment_active_borrows(
         if matches!(borrow_kind, BorrowKind::Mutable) {
             binding.active_mut_borrow_count += 1;
         }
+>>>>>>> origin/codex/issue-423-mutation-smoke
     }
     Ok(())
 }
@@ -10987,6 +10997,8 @@ fn lower_type_inner<T, U>(
             )?),
         )),
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
 =======
     }
 }

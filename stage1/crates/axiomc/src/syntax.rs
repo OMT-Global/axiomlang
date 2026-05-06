@@ -274,6 +274,7 @@ pub enum TypeName {
     Fn(Vec<TypeName>, Box<TypeName>),
 >>>>>>> origin/codex/issue-387-capability-validation
 >>>>>>> origin/codex/issue-422-comparison-gate
+>>>>>>> origin/codex/issue-423-mutation-smoke
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -1453,9 +1454,11 @@ fn parse_const_or_static_decl(
         Diagnostic::new("parse", "const/static declaration is missing ':'")
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
     let column = visibility_column + keyword_len;
     let colon = find_top_level_char(header, ':').ok_or_else(|| {
         Diagnostic::new("parse", format!("{keyword} declaration is missing ':'"))
+=======
 =======
 =======
             .with_path(path.display().to_string())
@@ -1466,6 +1469,7 @@ fn parse_const_or_static_decl(
         Diagnostic::new("parse", format!("{keyword} declaration is missing '='"))
 >>>>>>> origin/codex/issue-387-capability-validation
 >>>>>>> origin/codex/issue-422-comparison-gate
+>>>>>>> origin/codex/issue-423-mutation-smoke
             .with_path(path.display().to_string())
             .with_span(line_no, column)
     })?;
@@ -1475,7 +1479,9 @@ fn parse_const_or_static_decl(
             "const/static declaration must use `const NAME: Type = expr` or `static NAME: Type = expr` syntax",
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
             format!("{keyword} declaration must use `{keyword} NAME: Type = expr` syntax"),
+=======
 =======
 =======
         )
@@ -2558,6 +2564,7 @@ fn parse_expr(raw: &str, path: &Path, line_no: usize, column: usize) -> Result<E
         });
     }
 >>>>>>> origin/codex/issue-422-comparison-gate
+>>>>>>> origin/codex/issue-423-mutation-smoke
     if let Some((op, split_index)) = find_compare_operator(raw) {
         let lhs_raw = raw[..split_index].trim();
         let rhs_offset = split_index + op.lexeme().len();
@@ -2849,6 +2856,7 @@ fn parse_term(raw: &str, path: &Path, line_no: usize, column: usize) -> Result<E
 }
 
 <<<<<<< HEAD
+<<<<<<< HEAD
 const NUMERIC_LITERAL_SUFFIXES: &[&str] = &[
     "isize", "usize", "i8", "i16", "i32", "i64", "u8", "u16", "u32", "u64", "f32", "f64",
 ];
@@ -2974,6 +2982,7 @@ fn find_top_level_as(raw: &str) -> Option<usize> {
     None
 }
 
+=======
 =======
 fn parse_closure_expr(
     raw: &str,

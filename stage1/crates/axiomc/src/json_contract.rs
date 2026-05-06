@@ -58,9 +58,9 @@ pub fn build_success(project: &Path, output: &BuildOutput) -> Value {
 =======
 =======
 =======
->>>>>>> origin/codex/issue-422-comparison-gate
-=======
 >>>>>>> origin/codex/issue-425-crap-thresholds
+=======
+>>>>>>> origin/codex/issue-423-mutation-smoke
         "manifest": output.manifest,
         "entry": output.entry,
         "binary": output.binary,
@@ -75,8 +75,8 @@ pub fn build_success(project: &Path, output: &BuildOutput) -> Value {
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
-=======
 >>>>>>> origin/codex/issue-422-comparison-gate
+=======
         "cache_key": output.cache_key,
 =======
 =======
