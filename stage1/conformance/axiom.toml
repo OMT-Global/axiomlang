@@ -45,4 +45,5 @@ members = [
   "pass/package_local_modules",
   "pass/package_visibility",
   "pass/struct_field_access",
+  "pass/type_system_aggregates",
 ]

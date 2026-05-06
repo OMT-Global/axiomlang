@@ -10,6 +10,7 @@ use crate::manifest::{
     load_manifest, manifest_path, out_dir_path,
     PublishSection, binary_path_for_target, capability_descriptors, entry_path,
     generated_rust_path, load_manifest, manifest_path, out_dir_path,
+>>>>>>> origin/codex/worker-j-issue-362
 };
 use crate::mir;
 use crate::stdlib;
@@ -68,7 +69,6 @@ pub struct BuiltPackage {
     pub target: Option<String>,
     pub debug: bool,
     pub cache_key: BuildCacheMetadata,
->>>>>>> origin/codex/worker-a-issue-379-fmt-json
 >>>>>>> origin/codex/issue-380-doc-json
 >>>>>>> origin/codex/issue-376-doctor-json
 >>>>>>> origin/codex/issue-377-inspect-symbols
@@ -96,7 +96,7 @@ pub struct BuildOutput {
 =======
 =======
 =======
->>>>>>> origin/codex/worker-h-issue-413
+>>>>>>> origin/codex/worker-j-issue-362
     pub manifest: String,
     pub entry: String,
     pub binary: String,
@@ -361,7 +361,7 @@ pub fn build_project_with_options(
 =======
 =======
 =======
->>>>>>> origin/codex/worker-h-issue-413
+>>>>>>> origin/codex/worker-j-issue-362
         manifest: root.manifest,
         entry: root.entry,
         binary: root.binary,

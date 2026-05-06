@@ -49,9 +49,9 @@ pub fn build_success(project: &Path, output: &BuildOutput) -> Value {
 =======
 =======
 =======
->>>>>>> origin/codex/issue-395-effective-fs-roots
-=======
 >>>>>>> origin/codex/worker-h-issue-413
+=======
+>>>>>>> origin/codex/worker-j-issue-362
         "manifest": output.manifest,
         "entry": output.entry,
         "binary": output.binary,

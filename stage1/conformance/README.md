@@ -43,14 +43,17 @@ Current executable fixtures cover:
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
-=======
 - `comparison_strict_typing`: Axiom-owned comparison fixture for explicit
   scalar typing and bool-only control flow.
 - `comparison_package_imports`: Axiom-owned comparison fixture for package-local
   imports and typed function boundaries.
 =======
->>>>>>> origin/codex/issue-387-capability-validation
 =======
+=======
+- `type_system_aggregates`: typed aggregate coverage for generic wrappers,
+  structs, enums, tuples, arrays, maps, `Option`, and `Result`.
+
+>>>>>>> origin/codex/worker-j-issue-362
 Packages under `fail/` are compile-fail fixtures. Each package is a complete
 stage1 project with `axiom.toml`, `axiom.lock`, source, and
 `expected-error.json`. The conformance runner checks the diagnostic kind, code,

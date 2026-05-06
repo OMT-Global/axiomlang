@@ -30,7 +30,6 @@ source = "path:fail/comparison_predictable_diagnostic"
 
 [[package]]
 <<<<<<< HEAD
-<<<<<<< HEAD
 name = "conformance-comparison-strict-type-mismatch"
 version = "0.1.0"
 source = "path:fail/comparison_strict_type_mismatch"
@@ -41,7 +40,6 @@ version = "0.1.0"
 source = "path:fail/for_loop_requires_iteration_protocol"
 
 [[package]]
-=======
 =======
 name = "conformance-match-guard-not-supported"
 version = "0.1.0"
@@ -197,4 +195,11 @@ name = "conformance-struct-field-access"
 version = "0.1.0"
 source = "path:pass/struct_field_access"
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
+=======
+
+[[package]]
+name = "conformance-type-system-aggregates"
+version = "0.1.0"
+source = "path:pass/type_system_aggregates"
