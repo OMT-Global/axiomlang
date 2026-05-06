@@ -33,6 +33,7 @@
 >>>>>>> origin/codex/worker-f-issue-341
 >>>>>>> origin/codex/worker-f-issue-343
 >>>>>>> origin/codex/worker-c-issue-361
+//! Today this provides fifteen stdlib modules. Six are thin wrappers over
 //! single-intrinsic capability-gated surfaces, one per capability class:
 //!
 //! * `std/time.ax` — `Duration`, `Instant`, `now_ms()`, `now()`,
@@ -107,8 +108,6 @@
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
-<<<<<<< HEAD
-=======
 =======
 =======
 =======
@@ -335,7 +334,6 @@ pub fn selected_value<T>(result: SelectResult<T>): Option<T> {\nreturn async_sel
     ),
     (
 <<<<<<< HEAD
->>>>>>> origin/codex/issue-422-comparison-gate
 >>>>>>> origin/codex/issue-423-mutation-smoke
 >>>>>>> origin/codex/issue-424-survivor-report
 >>>>>>> origin/codex/worker-f-issue-341

@@ -60,12 +60,16 @@ use axiomc::registry::{
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
+>>>>>>> origin/codex/worker-h-issue-414
 use axiomc::diagnostics::Diagnostic;
 use axiomc::json_contract;
 use axiomc::lsp;
 use axiomc::new_project::create_project;
 use axiomc::project::{
+<<<<<<< HEAD
     build_project_with_options, check_project_with_options, list_project_tests_with_options,
+=======
+    build_project_with_options, check_project_with_options, package_graph_metadata,
     project_capabilities, run_project_tests_with_options, run_project_with_options, BuildOptions,
     BuildOutput, CheckOptions, RunOptions, TestOptions,
 };
@@ -208,6 +212,11 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    /// Inspect package metadata and resolved local package graph.
+    Pkg {
+        #[command(subcommand)]
+        command: PkgCommand,
+    },
     /// Format .ax source files with the canonical stage1 style.
     Fmt {
         path: PathBuf,
@@ -265,8 +274,6 @@ enum Command {
 >>>>>>> origin/codex/issue-425-crap-thresholds
 =======
 =======
->>>>>>> origin/codex/worker-f-issue-341
-=======
 >>>>>>> origin/codex/worker-f-issue-343
 =======
 >>>>>>> origin/codex/worker-c-issue-361
@@ -281,6 +288,8 @@ enum Command {
         allow_overwrite: bool,
     },
 =======
+=======
+>>>>>>> origin/codex/worker-h-issue-414
     /// Build a static package-registry index from package release folders.
     RegistryIndex {
         packages_dir: PathBuf,
@@ -304,9 +313,9 @@ enum Command {
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
-<<<<<<< HEAD
 }
 
+<<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
 #[derive(Debug, Subcommand)]
@@ -324,6 +333,11 @@ enum InspectCommand {
     /// Emit exported functions, types, consts, imports, and capability use.
     Symbols {
     /// Emit package and module dependency graph details.
+}
+
+#[derive(Debug, Subcommand)]
+enum PkgCommand {
+    /// Print resolved packages, members, dependencies, entrypoints, capabilities, and lockfile status.
     Graph {
         path: PathBuf,
         #[arg(long)]
@@ -343,9 +357,9 @@ enum InspectCommand {
 =======
 =======
 =======
->>>>>>> origin/codex/worker-f-issue-343
-=======
 >>>>>>> origin/codex/worker-c-issue-361
+=======
+>>>>>>> origin/codex/worker-h-issue-414
 }
 
 fn main() {
@@ -492,6 +506,7 @@ fn main() {
                     Err(error) => print_error("test", error, json),
                 }
                 if ok { 0 } else { 1 }
+>>>>>>> origin/codex/worker-h-issue-414
                 if ok {
                     0
                 } else {
@@ -603,6 +618,7 @@ fn main() {
                 if report.ok { 0 } else { 1 }
             }
         }
+<<<<<<< HEAD
         Command::Inspect { command } => match command {
             InspectCommand::Symbols { path, json } => match inspect_symbols(&path) {
             InspectCommand::Graph { path, json } => match inspect_graph(&path) {
@@ -654,10 +670,42 @@ fn main() {
                 json,
             ),
         },
->>>>>>> origin/codex/issue-422-comparison-gate
 >>>>>>> origin/codex/issue-423-mutation-smoke
 >>>>>>> origin/codex/issue-424-survivor-report
 >>>>>>> origin/codex/worker-f-issue-341
+=======
+        Command::Pkg { command } => match command {
+            PkgCommand::Graph { path, json } => match package_graph_metadata(&path) {
+                Ok(output) => {
+                    if json {
+                        match serde_json::to_string(&output) {
+                            Ok(output) => {
+                                println!("{output}");
+                                0
+                            }
+                            Err(error) => print_error(
+                                "pkg graph",
+                                Diagnostic::new(
+                                    "json",
+                                    format!("failed to serialize package graph JSON: {error}"),
+                                ),
+                                false,
+                            ),
+                        }
+                    } else {
+                        match json_contract::to_pretty_string(&output) {
+                            Ok(output) => {
+                                println!("{output}");
+                                0
+                            }
+                            Err(error) => print_error("pkg graph", error, false),
+                        }
+                    }
+                }
+                Err(error) => print_error("pkg graph", error, json),
+            },
+        },
+>>>>>>> origin/codex/worker-h-issue-414
         Command::Fmt { path, check } => match format_axiom_sources(&path, check) {
         }
         Command::Fmt { path, check, json } => match format_axiom_sources(&path, check) {
@@ -741,6 +789,7 @@ fn main() {
                     }
                 }
                 if report.failed == 0 { 0 } else { 1 }
+>>>>>>> origin/codex/worker-h-issue-414
                 if report.failed == 0 {
                     0
                 } else {
@@ -768,6 +817,7 @@ fn main() {
             Ok(()) => 0,
             Err(error) => print_error("repl", error, json),
         },
+<<<<<<< HEAD
         Command::Publish {
             path,
             registry_dir,
@@ -792,6 +842,7 @@ fn main() {
             }
             Err(error) => print_error("publish", error, false),
         },
+=======
         Command::RegistryIndex {
             packages_dir,
             base_url,
@@ -2611,6 +2662,7 @@ mod tests {
         assert!(help.contains("Pack, sign, and publish a stage1 package"));
 >>>>>>> origin/codex/issue-381-test-list
 >>>>>>> origin/codex/issue-408-cli-args
+>>>>>>> origin/codex/worker-h-issue-414
         assert!(help.contains("Build a static package-registry index"));
         assert!(help.contains("Validate a static package-registry index JSON file"));
     }
@@ -2689,10 +2741,12 @@ mod tests {
 <<<<<<< HEAD
         assert!(rendered.contains("only generated-rust is implemented in this preparatory backend plumbing"));
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
 =======
 =======
->>>>>>> origin/codex/worker-c-issue-361
+=======
+>>>>>>> origin/codex/worker-h-issue-414
     }
 
     fn build_output(debug_map: Option<String>) -> BuildOutput {
@@ -2724,6 +2778,7 @@ mod tests {
 >>>>>>> origin/codex/worker-f-issue-341
 >>>>>>> origin/codex/worker-f-issue-343
 >>>>>>> origin/codex/worker-c-issue-361
+>>>>>>> origin/codex/worker-h-issue-414
             manifest: String::from("axiom.toml"),
             entry: String::from("src/main.ax"),
             binary: String::from("dist/app"),
@@ -2842,6 +2897,8 @@ mod tests {
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
 =======
 =======
 =======

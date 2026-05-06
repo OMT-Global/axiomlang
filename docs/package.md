@@ -34,6 +34,7 @@ cargo run --manifest-path stage1/Cargo.toml -p axiomc -- caps stage1/examples/he
 >>>>>>> origin/codex/worker-f-issue-343
 >>>>>>> origin/codex/worker-c-issue-361
 cargo run --manifest-path stage1/Cargo.toml -p axiomc -- publish stage1/examples/hello --registry-dir ./registry/packages --signing-key dev-key
+cargo run --manifest-path stage1/Cargo.toml -p axiomc -- pkg graph stage1/examples/workspace_only --json
 cargo run --manifest-path stage1/Cargo.toml -p axiomc -- registry-index ./registry/packages --base-url https://packages.example.test --out ./registry/index.json
 cargo run --manifest-path stage1/Cargo.toml -p axiomc -- registry-validate ./registry/index.json
 ```
@@ -66,7 +67,6 @@ Stage1 currently accepts `*`, exact `MAJOR.MINOR.PATCH`, and caret
 `^MAJOR.MINOR.PATCH` constraints. The compiler validates the constraint against
 the dependency package's `[package].version` while loading the local package
 graph and fails deterministically when the versions are incompatible.
-=======
 ## Publish Contract
 
 Remote publishing is not implemented in stage1, but manifests can now declare
@@ -99,6 +99,14 @@ contract.
 <<<<<<< HEAD
 <<<<<<< HEAD
 =======
+=======
+`axiomc pkg graph <path> --json` prints the resolved local package graph without
+mutating manifests or lockfiles. The JSON lists each package root, package
+identity, workspace members, local dependencies, build entrypoint, capabilities,
+and whether that package's `axiom.lock` is current or stale.
+
+See [stage1.md](stage1.md) for the current compiler, package, and capability
+contract.
 
 ## Editor Schemas
 
@@ -146,8 +154,8 @@ and yanked status so a simple static host can serve lockfile-friendly package me
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
-<<<<<<< HEAD
 and yanked status so a simple static host can serve lockfile-friendly package metadata. This is registry-index groundwork for a future hosted registry service, not the hosted service itself.
+<<<<<<< HEAD
 ## Registry And Publish Contract
 
 The local manifest contract reserves the package-registry surface without

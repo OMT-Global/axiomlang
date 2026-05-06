@@ -45,7 +45,6 @@ mod tests {
     use crate::lockfile::{render_lockfile, render_lockfile_for_project};
     use crate::manifest::{
         CapabilityConfig, TestKind, TestTarget, capability_descriptors, load_manifest,
-<<<<<<< HEAD
         render_manifest,
 <<<<<<< HEAD
 <<<<<<< HEAD
@@ -71,7 +70,6 @@ mod tests {
 =======
 =======
 =======
-=======
         lockfile_path, render_manifest,
     };
     use crate::mir;
@@ -79,7 +77,10 @@ mod tests {
     use crate::project::{
         BuildCacheStatus, BuildOptions, CheckOptions, RunOptions, TestOptions, build_project,
         build_project_with_options, check_project, check_project_with_options,
+<<<<<<< HEAD
         command_for_build_output, command_for_executable, list_project_tests_with_options,
+=======
+        command_for_build_output, command_for_executable, package_graph_metadata,
         project_capabilities, run_project_tests, run_project_tests_with_options,
         run_project_with_options,
     };
@@ -109,12 +110,10 @@ mod tests {
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
-<<<<<<< HEAD
             "[package]\nname = {name:?}\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = {fs}\n\"fs:write\" = {fs}\nnet = {net}\nprocess = {process}\nenv = {env}\nclock = {clock}\ncrypto = {crypto}\nasync = false\n"
             "[package]\nname = {name:?}\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = {fs}\n\"fs:write\" = {fs}\nnet = {net}\nprocess = {process}\nenv = {env}\nclock = {clock}\ncrypto = {crypto}\n"
             "[package]\nname = {name:?}\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = {fs}\n\"fs:write\" = {fs}\nnet = {net}\nprocess = {process}\nenv = {env}\nclock = {clock}\ncrypto = {crypto}\nasync = false\n"
             "[package]\nname = {name:?}\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = {fs}\n\"fs:write\" = {fs}\nnet = {net}\nprocess = {process}\nenv = {env}\nclock = {clock}\ncrypto = {crypto}\n"
-=======
             "[package]\nname = {name:?}\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = {fs}\n\"fs:write\" = {fs}\nnet = {net}\nprocess = {process}\nenv = {env}\nclock = {clock}\ncrypto = {crypto}\nasync = false\n"
 =======
 =======
@@ -133,7 +132,6 @@ mod tests {
             manifest.push_str("unsafe_rationale = \"test fixture uses legacy unrestricted env\"\n");
         }
         manifest
->>>>>>> origin/codex/issue-389-unsafe-rationale
     }
 
     fn write_process_fixture(dir: &Path) -> String {
@@ -2604,6 +2602,73 @@ print first(values)\n",
         )
         .expect("run project with forwarded args");
         assert_eq!(exit, 0);
+    fn package_graph_metadata_lists_workspace_packages() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("workspace-graph-root");
+        let app = project.join("members/app");
+        let core = project.join("members/core");
+        fs::create_dir_all(project.join("members")).expect("create workspace members dir");
+        create_project(&app, Some("workspace-graph-app")).expect("create app member");
+        create_project(&core, Some("workspace-graph-core")).expect("create core member");
+
+        fs::write(
+            app.join("axiom.toml"),
+            format!(
+                "{}\n[dependencies]\ncore = {{ path = \"../core\" }}\n",
+                render_manifest("workspace-graph-app")
+            ),
+        )
+        .expect("write app manifest");
+        let app_manifest = load_manifest(&app).expect("load app manifest");
+        fs::write(
+            app.join("axiom.lock"),
+            render_lockfile_for_project(&app, &app_manifest).expect("app lockfile"),
+        )
+        .expect("write app lockfile");
+        let core_manifest = load_manifest(&core).expect("load core manifest");
+        fs::write(
+            core.join("axiom.lock"),
+            render_lockfile_for_project(&core, &core_manifest).expect("core lockfile"),
+        )
+        .expect("write core lockfile");
+        fs::write(
+            project.join("axiom.toml"),
+            "[workspace]\nmembers = [\"members/app\", \"members/core\"]\n",
+        )
+        .expect("write workspace-only manifest");
+        let root_manifest = load_manifest(&project).expect("load root manifest");
+        fs::write(
+            project.join("axiom.lock"),
+            render_lockfile_for_project(&project, &root_manifest).expect("root lockfile"),
+        )
+        .expect("write root lockfile");
+
+        let graph = package_graph_metadata(&project).expect("load package graph metadata");
+        assert_eq!(graph.packages.len(), 3);
+        let root = graph
+            .packages
+            .iter()
+            .find(|package| package.workspace_only)
+            .expect("workspace-only package");
+        assert_eq!(root.members.len(), 2);
+        assert_eq!(root.lockfile.status, "current");
+        let app = graph
+            .packages
+            .iter()
+            .find(|package| package.name.as_deref() == Some("workspace-graph-app"))
+            .expect("app package");
+        assert_eq!(app.dependencies.len(), 1);
+        assert_eq!(app.dependencies[0].name, "core");
+        assert_eq!(
+            app.dependencies[0].package.as_deref(),
+            Some("workspace-graph-core")
+        );
+        assert!(
+            app.entrypoint
+                .as_deref()
+                .unwrap_or("")
+                .ends_with("src/main.ax")
+        );
     }
 
     #[test]
@@ -3035,8 +3100,6 @@ crypto = false
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
-<<<<<<< HEAD
-=======
 =======
 =======
 =======
@@ -3060,7 +3123,6 @@ crypto = false
         let project_caps = project_capabilities(&project).expect("project capabilities");
         assert_eq!(project_caps.len(), 8);
 =======
->>>>>>> origin/codex/worker-f-issue-343
 =======
     }
 
@@ -3166,7 +3228,6 @@ crypto = false
                 .message
                 .contains("capabilities.unsafe_opt_ins[0] references unknown capability")
         );
-<<<<<<< HEAD
 >>>>>>> origin/codex/agent-i-language-slice
 >>>>>>> origin/codex/issue-387-capability-validation
     }
@@ -3353,7 +3414,6 @@ crypto = false
 >>>>>>> origin/codex/issue-418-schema-metadata
 >>>>>>> origin/codex/issue-422-comparison-gate
 >>>>>>> origin/codex/issue-425-crap-thresholds
-=======
     }
 
     #[test]
@@ -5960,7 +6020,6 @@ print serve_once("127.0.0.1:18080", "hello")
 
     #[test]
 <<<<<<< HEAD
->>>>>>> origin/codex/worker-j-issue-362
 >>>>>>> origin/codex/worker-j-issue-363
 >>>>>>> origin/codex/issue-369-check-fixtures
 >>>>>>> origin/codex/issue-370-command-fixtures
@@ -6080,8 +6139,6 @@ print serve_once("127.0.0.1:18080", "hello")
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
-<<<<<<< HEAD
-=======
     fn run_project_tests_reports_manifest_metadata_in_json() {
         let dir = tempdir().expect("tempdir");
         let project = dir.path().join("runner-metadata");
@@ -6130,7 +6187,6 @@ print serve_once("127.0.0.1:18080", "hello")
 =======
 =======
 =======
->>>>>>> origin/codex/worker-c-issue-361
     fn run_project_tests_executes_manifest_cases() {
         let dir = tempdir().expect("tempdir");
         let project = dir.path().join("runner");
@@ -6636,20 +6692,17 @@ print serve_once("127.0.0.1:18080", "hello")
                 .count()
 <<<<<<< HEAD
 <<<<<<< HEAD
-<<<<<<< HEAD
                 == 24
 <<<<<<< HEAD
 <<<<<<< HEAD
                 == 20
                 == 21
                 == 20
-=======
                 == 20
 =======
                 == 20
 =======
                 == 24
->>>>>>> origin/codex/worker-f-issue-341
 =======
                 == 20
 >>>>>>> origin/codex/worker-f-issue-343
@@ -6661,7 +6714,6 @@ print serve_once("127.0.0.1:18080", "hello")
                 .filter(|case| case.expected_stdout.is_some())
                 .count(),
 <<<<<<< HEAD
-<<<<<<< HEAD
             12
             9
             10
@@ -6670,7 +6722,6 @@ print serve_once("127.0.0.1:18080", "hello")
             9
             12
             9
-=======
             11
 =======
             9
@@ -9884,9 +9935,11 @@ print 0
         );
         assert_eq!(payload["command"], "build");
         assert_eq!(payload["backend"], "generated-rust");
+<<<<<<< HEAD
         assert_eq!(payload["locked"], true);
         assert_eq!(payload["offline"], true);
 <<<<<<< HEAD
+=======
 =======
         assert!(payload["target"].is_string());
         assert_eq!(payload["debug"], true);
