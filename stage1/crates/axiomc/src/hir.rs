@@ -9621,7 +9621,7 @@ fn explicit_return_lifetime(ty: &syntax::TypeName) -> Option<&str> {
         syntax::TypeName::LifetimeSlice(name, _) | syntax::TypeName::LifetimeMutSlice(name, _) => {
             Some(name.as_str())
         }
-        syntax::TypeName::Option(inner) | syntax::TypeName::Array(inner) => {
+        syntax::TypeName::Option(inner) | syntax::TypeName::Array(inner, _) => {
             explicit_return_lifetime(inner)
         }
         syntax::TypeName::Result(ok, err) | syntax::TypeName::Map(ok, err) => {
@@ -9629,6 +9629,10 @@ fn explicit_return_lifetime(ty: &syntax::TypeName) -> Option<&str> {
         }
         syntax::TypeName::Tuple(elements) => elements.iter().find_map(explicit_return_lifetime),
         syntax::TypeName::Named(_, args) => args.iter().find_map(explicit_return_lifetime),
+        syntax::TypeName::Fn(params, return_ty) => params
+            .iter()
+            .find_map(explicit_return_lifetime)
+            .or_else(|| explicit_return_lifetime(return_ty)),
         syntax::TypeName::Slice(_)
         | syntax::TypeName::MutSlice(_)
         | syntax::TypeName::Ptr(_)
@@ -9645,7 +9649,7 @@ fn type_has_lifetime(ty: &syntax::TypeName, lifetime: &str) -> bool {
             name == lifetime
         }
         syntax::TypeName::Option(inner)
-        | syntax::TypeName::Array(inner)
+        | syntax::TypeName::Array(inner, _)
         | syntax::TypeName::Ptr(inner)
         | syntax::TypeName::MutPtr(inner)
         | syntax::TypeName::Slice(inner)
@@ -9657,6 +9661,10 @@ fn type_has_lifetime(ty: &syntax::TypeName, lifetime: &str) -> bool {
             .iter()
             .any(|element| type_has_lifetime(element, lifetime)),
         syntax::TypeName::Named(_, args) => args.iter().any(|arg| type_has_lifetime(arg, lifetime)),
+        syntax::TypeName::Fn(params, return_ty) => {
+            params.iter().any(|arg| type_has_lifetime(arg, lifetime))
+                || type_has_lifetime(return_ty, lifetime)
+        }
         syntax::TypeName::Int | syntax::TypeName::Bool | syntax::TypeName::String => false,
     }
 }
