@@ -1,0 +1,12 @@
+struct Handle {
+name: string
+}
+
+fn consume(handle: Handle): string {
+return handle.name
+}
+
+let handle: Handle = Handle { name: "owned" }
+let label: string = consume(handle)
+print label
+print handle.name

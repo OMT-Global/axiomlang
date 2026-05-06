@@ -26,6 +26,7 @@ struct_item    := visibility? "struct" IDENT generic_params? "{" fields? "}" ;
 enum_item      := visibility? "enum" IDENT generic_params? "{" variants? "}" ;
 fn_item        := visibility? "fn" IDENT generic_params? "(" params? ")" ":" type block ;
 visibility     := "pub" | "pub(pkg)" ;
+lifetime       := "'" IDENT ;
 
 stmt           := let_stmt
                | print_stmt
@@ -48,7 +49,8 @@ block          := "{" stmt* "}" ;
 
 type           := IDENT type_args?
                | "[" type "]"
-               | "&" "[" type "]"
+               | "&" lifetime? "[" type "]"
+               | "&" lifetime? "mut" "[" type "]"
                | "map" "[" type "," type "]"
                | "(" type ("," type)+ ")" ;
 

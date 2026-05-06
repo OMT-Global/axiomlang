@@ -22,16 +22,22 @@ Current executable fixtures cover:
 - `struct_field_access`: struct construction, field access, and passing a
   struct through a function.
 - `outcome_control_flow`: `Option` and `Result` construction plus `match`
-  control flow.
+  and `if let` control flow, including ignored fallback payloads.
 - `collection_operations`: standard collection helpers over arrays and
   borrowed slices.
 - `ownership_borrowing`: borrow-safe parameter, aggregate, borrowed-return,
   projection move, and dependency-boundary execution.
+- `comparison_package_imports`: Axiom-owned Go/Rust-style comparison fixture
+  for explicit package imports and cross-module function calls.
+- `comparison_package_resources`: Axiom-owned Go/Rust-style comparison fixture
+  for explicit package imports, strict struct typing, owned resource transfer,
+  borrowed slices, and machine-checkable result output.
+- `comparison_strict_typing`: Axiom-owned Go/Rust-style comparison fixture
+  proving strict struct field typing in passing programs.
 - `package_local_modules`: nested package-local module imports that execute
   successfully.
 - `package_visibility`: `pub(pkg)` items imported across sibling modules within
   the same package.
-
 Packages under `fail/` are compile-fail fixtures. Each package is a complete
 stage1 project with `axiom.toml`, `axiom.lock`, source, and
 `expected-error.json`. The conformance runner checks the diagnostic kind, code,
@@ -39,8 +45,18 @@ message, relative path, line, and column.
 
 Current compile-fail fixtures cover:
 
+- `closure_move_captured_non_copy`: ownership diagnostics for `fn` closures
+  whose body consumes a captured non-copy value.
+- `closure_captures_function_callee`: ownership diagnostics for closures
+  that capture a function-valued callee and move it into a later closure.
 - `mutable_borrow_while_shared_live`: ownership diagnostics for conflicting
   mutable and shared borrows.
+- `comparison_owned_resource_move`: Axiom-owned Go/Rust-style comparison
+  diagnostic for an owned resource consumed by a function and then reused.
+- `comparison_predictable_diagnostic`: Axiom-owned Go/Rust-style comparison
+  diagnostic for predictable error message shape.
+- `comparison_strict_type_mismatch`: Axiom-owned Go/Rust-style comparison
+  diagnostic for strict struct field typing.
 - `ownership_use_after_move`: ownership diagnostics for reading a moved value.
 - `panic_rejects_unreachable_statement`: control diagnostics for statements
   that appear after `panic(...)` in the same block.
@@ -72,3 +88,7 @@ Current compile-fail fixtures cover:
   unsupported nested destructuring inside named match patterns.
 - `nested_match_pattern_not_supported`: parse diagnostics for unsupported
   nested destructuring inside match patterns.
+- `comparison_owned_resource_move`: Axiom-owned comparison fixture for
+  predictable ownership diagnostics when a non-copy value is used after move.
+- `comparison_predictable_diagnostic`: Axiom-owned comparison fixture for a
+  stable type diagnostic with exact source location.

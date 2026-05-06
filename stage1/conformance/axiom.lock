@@ -1,6 +1,36 @@
 version = 1
 
 [[package]]
+name = "conformance-closure-captures-function-callee"
+version = "0.1.0"
+source = "path:fail/closure_captures_function_callee"
+
+[[package]]
+name = "conformance-closure-borrowed-slice-return"
+version = "0.1.0"
+source = "path:fail/closure_borrowed_slice_return"
+
+[[package]]
+name = "conformance-closure-move-captured-non-copy"
+version = "0.1.0"
+source = "path:fail/closure_move_captured_non_copy"
+
+[[package]]
+name = "conformance-comparison-owned-resource-move"
+version = "0.1.0"
+source = "path:fail/comparison_owned_resource_move"
+
+[[package]]
+name = "conformance-comparison-predictable-diagnostic"
+version = "0.1.0"
+source = "path:fail/comparison_predictable_diagnostic"
+
+[[package]]
+name = "conformance-comparison-strict-type-mismatch"
+version = "0.1.0"
+source = "path:fail/comparison_strict_type_mismatch"
+
+[[package]]
 name = "conformance-for-loop-requires-iteration-protocol"
 version = "0.1.0"
 source = "path:fail/for_loop_requires_iteration_protocol"
@@ -96,9 +126,29 @@ version = "0.1.0"
 source = "path:fail/stdlib_clock_without_capability"
 
 [[package]]
+name = "conformance-closures"
+version = "0.1.0"
+source = "path:pass/closures"
+
+[[package]]
 name = "conformance-collection-operations"
 version = "0.1.0"
 source = "path:pass/collection_operations"
+
+[[package]]
+name = "conformance-comparison-package-imports"
+version = "0.1.0"
+source = "path:pass/comparison_package_imports"
+
+[[package]]
+name = "conformance-comparison-package-resources"
+version = "0.1.0"
+source = "path:pass/comparison_package_resources"
+
+[[package]]
+name = "conformance-comparison-strict-typing"
+version = "0.1.0"
+source = "path:pass/comparison_strict_typing"
 
 [[package]]
 name = "conformance-functions-across-modules"

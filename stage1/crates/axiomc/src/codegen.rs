@@ -106,6 +106,8 @@ pub fn render_rust_for_package_with_capabilities(
 ) -> String {
     let type_context = TypeContext::new(program);
     let uses_http_get = program_uses_call(program, "http_get");
+    let uses_http_serve_once = program_uses_call(program, "http_serve_once");
+    let uses_http_serve_route = program_uses_call(program, "http_serve_route");
     let uses_ffi = program.functions.iter().any(|function| function.is_extern);
     let uses_ffi_cstring = program
         .functions
@@ -165,6 +167,10 @@ pub fn render_rust_for_package_with_capabilities(
         "const AXIOM_ENV_UNRESTRICTED: bool = {};\n",
         capabilities.env_unrestricted
     ));
+    out.push_str(&format!(
+        "const AXIOM_ASYNC_CAPABILITY: bool = {};\n",
+        capabilities.async_runtime
+    ));
     out.push_str("const AXIOM_ENV_ALLOWLIST: &[&str] = &[\n");
     for name in &capabilities.env_vars {
         out.push_str(&format!("    {name:?},\n"));
@@ -174,15 +180,15 @@ pub fn render_rust_for_package_with_capabilities(
     out.push_str("const AXIOM_MAX_FS_WRITE_BYTES: usize = 64 * 1024 * 1024;\n\n");
     out.push_str("struct AxiomRuntimeAbort;\n\n");
     out.push_str("#[allow(dead_code)]\n");
-    out.push_str("#[derive(Debug, PartialEq)]\n");
     out.push_str("struct AxiomTask<T> {\n");
-    out.push_str("    value: T,\n");
+    out.push_str("    value: Option<T>,\n");
+    out.push_str("    thunk: Option<Box<dyn FnOnce() -> T + Send>>,\n");
     out.push_str("    canceled: bool,\n");
     out.push_str("}\n\n");
     out.push_str("#[allow(dead_code)]\n");
-    out.push_str("#[derive(Debug, PartialEq)]\n");
     out.push_str("struct AxiomJoinHandle<T> {\n");
-    out.push_str("    task: AxiomTask<T>,\n");
+    out.push_str("    task: Option<AxiomTask<T>>,\n");
+    out.push_str("    worker: Option<std::thread::JoinHandle<AxiomTask<T>>>,\n");
     out.push_str("}\n\n");
     out.push_str("#[allow(dead_code)]\n");
     out.push_str("#[derive(Debug, PartialEq)]\n");
@@ -219,15 +225,101 @@ pub fn render_rust_for_package_with_capabilities(
     out.push_str("}\n\n");
     out.push_str("#[allow(dead_code)]\n");
     out.push_str("fn axiom_task_ready<T>(value: T) -> AxiomTask<T> {\n");
-    out.push_str("    AxiomTask { value, canceled: false }\n");
+    out.push_str("    AxiomTask { value: Some(value), thunk: None, canceled: false }\n");
     out.push_str("}\n\n");
     out.push_str("#[allow(dead_code)]\n");
-    out.push_str("fn axiom_await<T>(task: AxiomTask<T>) -> T {\n");
+    out.push_str("fn axiom_task_deferred<T: Send + 'static>(thunk: impl FnOnce() -> T + Send + 'static) -> AxiomTask<T> {\n");
+    out.push_str("    AxiomTask { value: None, thunk: Some(Box::new(thunk)), canceled: false }\n");
+    out.push_str("}\n\n");
+    out.push_str("#[allow(dead_code)]\n");
+    out.push_str("fn axiom_await<T>(mut task: AxiomTask<T>) -> T {\n");
     out.push_str("    if task.canceled {\n");
     out.push_str("        axiom_runtime_error(\"async\", \"awaited task was canceled\");\n");
     out.push_str("    }\n");
-    out.push_str("    task.value\n");
+    out.push_str("    if let Some(value) = task.value.take() { return value; }\n");
+    out.push_str("    match task.thunk.take() {\n");
+    out.push_str("        Some(thunk) => thunk(),\n");
+    out.push_str("        None => axiom_runtime_error(\"async\", \"task had no value or scheduled body\"),\n");
+    out.push_str("    }\n");
     out.push_str("}\n\n");
+    out.push_str(r#"#[allow(dead_code)]
+fn axiom_async_host_enabled() -> bool {
+    AXIOM_ASYNC_CAPABILITY
+        && std::env::var("AXIOM_ASYNC_EXECUTOR")
+            .map(|value| value.eq_ignore_ascii_case("host"))
+            .unwrap_or(false)
+}
+
+#[allow(dead_code)]
+fn axiom_async_spawn<T: Send + 'static>(task: AxiomTask<T>) -> AxiomJoinHandle<T> {
+    if axiom_async_host_enabled() {
+        AxiomJoinHandle {
+            task: None,
+            worker: Some(std::thread::spawn(move || axiom_task_ready(axiom_await(task)))),
+        }
+    } else {
+        AxiomJoinHandle {
+            task: Some(task),
+            worker: None,
+        }
+    }
+}
+
+#[allow(dead_code)]
+fn axiom_async_join<T: Send + 'static>(handle: AxiomJoinHandle<T>) -> AxiomTask<T> {
+    match (handle.task, handle.worker) {
+        (Some(task), None) => task,
+        (None, Some(worker)) => worker
+            .join()
+            .unwrap_or_else(|_| axiom_runtime_error("async", "host async worker panicked")),
+        _ => axiom_runtime_error("async", "invalid join handle state"),
+    }
+}
+
+#[allow(dead_code)]
+fn axiom_async_cancel<T>(mut task: AxiomTask<T>) -> AxiomTask<T> {
+    task.canceled = true;
+    task
+}
+
+#[allow(dead_code)]
+fn axiom_async_timeout<T: Send + 'static>(task: AxiomTask<T>, timeout_ms: i64) -> AxiomTask<Option<T>> {
+    if task.canceled {
+        return axiom_task_ready(None);
+    }
+    if axiom_async_host_enabled() {
+        let (tx, rx) = std::sync::mpsc::sync_channel(1);
+        let worker = std::thread::spawn(move || {
+            let value = axiom_await(task);
+            let _ = tx.send(());
+            value
+        });
+        match rx.recv_timeout(std::time::Duration::from_millis(timeout_ms.max(0) as u64)) {
+            Ok(()) => axiom_task_ready(Some(
+                worker
+                    .join()
+                    .unwrap_or_else(|_| axiom_runtime_error("async", "host async timeout worker panicked")),
+            )),
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                // Rust cannot forcibly cancel a running thread safely. The host
+                // executor therefore refuses to detach timed-out work: wait for
+                // completion to keep side effects inside the task lifecycle, then
+                // report that this task could not be safely timed out.
+                let _ = worker.join();
+                axiom_runtime_error("async", "host async timeout cannot cancel running task")
+            }
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                let _ = worker.join();
+                axiom_runtime_error("async", "host async timeout worker panicked")
+            }
+        }
+    } else {
+        let _timeout_ms = timeout_ms;
+        axiom_task_ready(Some(axiom_await(task)))
+    }
+}
+
+"#);
     out.push_str("#[allow(dead_code)]\n");
     out.push_str("fn axiom_array_get<T: Copy>(values: &[T], index: i64) -> T {\n");
     out.push_str("    if index < 0 {\n");
@@ -1175,7 +1267,7 @@ fn axiom_net_udp_send_recv(host: String, port: i64, message: String, timeout_ms:
 
 "#,
     );
-    if uses_http_get {
+    if uses_http_get || uses_http_serve_once || uses_http_serve_route {
         out.push_str(
             r#"#[allow(dead_code)]
 fn axiom_http_strip_crlf(value: &str) -> String {
@@ -1578,6 +1670,163 @@ fn axiom_http_get(url: String) -> Option<String> {
     stream.set_write_timeout(Some(Duration::from_secs(5))).ok()?;
     stream.write_all(request.as_bytes()).ok()?;
     axiom_http_read_response(&mut stream)
+}
+
+#[allow(dead_code)]
+fn axiom_http_read_request<R: std::io::Read>(reader: &mut R) -> Option<String> {
+    const MAX_HEADER_BYTES: usize = 64 * 1024;
+    let mut raw = Vec::new();
+    let mut buf = [0u8; 4096];
+    loop {
+        let n = reader.read(&mut buf).ok()?;
+        if n == 0 {
+            return None;
+        }
+        raw.extend_from_slice(&buf[..n]);
+        if raw.windows(4).any(|w| w == b"\r\n\r\n") {
+            let request = String::from_utf8_lossy(&raw);
+            let request_line = request.lines().next()?;
+            let mut parts = request_line.split_whitespace();
+            let method = parts.next()?;
+            let path = parts.next()?;
+            if method != "GET" && method != "HEAD" {
+                return Some(String::from(""));
+            }
+            return Some(axiom_http_strip_crlf(path));
+        }
+        if raw.len() > MAX_HEADER_BYTES {
+            return None;
+        }
+    }
+}
+
+#[allow(dead_code)]
+fn axiom_http_response_with_status(status: &str, body: &str) -> Vec<u8> {
+    let body_bytes = body.as_bytes();
+    let headers = format!(
+        "HTTP/1.0 {status}\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+        body_bytes.len()
+    );
+    let mut response = headers.into_bytes();
+    response.extend_from_slice(body_bytes);
+    response
+}
+
+#[allow(dead_code)]
+fn axiom_http_response(body: &str) -> Vec<u8> {
+    axiom_http_response_with_status("200 OK", body)
+}
+
+#[allow(dead_code)]
+fn axiom_http_loopback_bind_addr(bind: &str) -> Option<std::net::SocketAddr> {
+    use std::net::ToSocketAddrs;
+    let addrs: Vec<std::net::SocketAddr> = bind.to_socket_addrs().ok()?.collect();
+    if addrs.is_empty() || addrs.iter().any(|addr| !addr.ip().is_loopback()) {
+        return None;
+    }
+    addrs.into_iter().next()
+}
+
+#[allow(dead_code)]
+fn axiom_http_serve_route(bind: String, route_path: String, body: String, max_requests: i64) -> bool {
+    use std::io::Write;
+    use std::net::TcpListener;
+    use std::time::Duration;
+
+    if max_requests <= 0 || max_requests > 1024 {
+        axiom_runtime_report("net", "http server max_requests must be between 1 and 1024");
+        return false;
+    }
+    let Some(addr) = axiom_http_loopback_bind_addr(bind.as_str()) else {
+        axiom_runtime_report("net", "http server bind address must resolve only to loopback");
+        return false;
+    };
+    let listener = match TcpListener::bind(addr) {
+        Ok(listener) => listener,
+        Err(err) => {
+            axiom_runtime_report("net", &format!("http server bind failed: {err}"));
+            return false;
+        }
+    };
+    let mut handles = Vec::new();
+    for _ in 0..max_requests {
+        let (mut stream, _) = match listener.accept() {
+            Ok(pair) => pair,
+            Err(err) => {
+                axiom_runtime_report("net", &format!("http server accept failed: {err}"));
+                return false;
+            }
+        };
+        let route_path = route_path.clone();
+        let body = body.clone();
+        handles.push(std::thread::spawn(move || -> bool {
+            if stream.set_read_timeout(Some(Duration::from_secs(5))).is_err() {
+                return false;
+            }
+            if stream.set_write_timeout(Some(Duration::from_secs(5))).is_err() {
+                return false;
+            }
+            let request_path = match axiom_http_read_request(&mut stream) {
+                Some(path) => path,
+                None => return false,
+            };
+            let response = if request_path == route_path {
+                axiom_http_response(body.as_str())
+            } else {
+                axiom_http_response_with_status("404 Not Found", "not found")
+            };
+            stream.write_all(&response).is_ok()
+        }));
+    }
+    let mut ok = true;
+    for handle in handles {
+        ok = handle.join().unwrap_or(false) && ok;
+    }
+    ok
+}
+
+#[allow(dead_code)]
+fn axiom_http_serve_once(bind: String, body: String) -> bool {
+    use std::io::Write;
+    use std::net::TcpListener;
+    use std::time::Duration;
+
+    let Some(addr) = axiom_http_loopback_bind_addr(bind.as_str()) else {
+        axiom_runtime_report("net", "http server bind address must resolve only to loopback");
+        return false;
+    };
+    let listener = match TcpListener::bind(addr) {
+        Ok(listener) => listener,
+        Err(err) => {
+            axiom_runtime_report("net", &format!("http server bind failed: {err}"));
+            return false;
+        }
+    };
+    let (mut stream, _) = match listener.accept() {
+        Ok(pair) => pair,
+        Err(err) => {
+            axiom_runtime_report("net", &format!("http server accept failed: {err}"));
+            return false;
+        }
+    };
+    if stream.set_read_timeout(Some(Duration::from_secs(5))).is_err() {
+        axiom_runtime_report("net", "http server read timeout setup failed");
+        return false;
+    }
+    if stream.set_write_timeout(Some(Duration::from_secs(5))).is_err() {
+        axiom_runtime_report("net", "http server write timeout setup failed");
+        return false;
+    }
+    if axiom_http_read_request(&mut stream).is_none() {
+        axiom_runtime_report("net", "http server request read failed");
+        return false;
+    }
+    let response = axiom_http_response(body.as_str());
+    if stream.write_all(&response).is_err() {
+        axiom_runtime_report("net", "http server response write failed");
+        return false;
+    }
+    true
 }
 
 "#,
@@ -2007,6 +2256,7 @@ fn expr_uses_call(expr: &Expr, name: &str) -> bool {
         Expr::Index { base, index, .. } => {
             expr_uses_call(base, name) || expr_uses_call(index, name)
         }
+        Expr::Closure { body, .. } => expr_uses_call(body, name),
         Expr::Literal(_) | Expr::VarRef { .. } => false,
     }
 }
@@ -2116,6 +2366,15 @@ impl<'a> TypeContext<'a> {
             | Type::SelectResult(inner) => {
                 self.type_contains_borrowed_slice_inner(inner, visiting_structs, visiting_enums)
             }
+            Type::Fn(params, return_ty) => {
+                params.iter().any(|param| {
+                    self.type_contains_borrowed_slice_inner(param, visiting_structs, visiting_enums)
+                }) || self.type_contains_borrowed_slice_inner(
+                    return_ty,
+                    visiting_structs,
+                    visiting_enums,
+                )
+            }
         }
     }
 }
@@ -2216,16 +2475,31 @@ fn render_function(
         params,
         rust_type_in_signature(&function.return_ty, uses_slice_lifetime, type_context)
     ));
-    render_stmt_block(
-        &function.body,
-        type_context,
-        out,
-        1,
-        &function.path,
-        function.is_async,
-        debug,
-        &[],
-    );
+    if function.is_async {
+        out.push_str("    axiom_task_deferred(move || {\n");
+        render_stmt_block(
+            &function.body,
+            type_context,
+            out,
+            2,
+            &function.path,
+            false,
+            debug,
+            &[],
+        );
+        out.push_str("    })\n");
+    } else {
+        render_stmt_block(
+            &function.body,
+            type_context,
+            out,
+            1,
+            &function.path,
+            false,
+            debug,
+            &[],
+        );
+    }
     out.push_str("}\n");
 }
 
@@ -2574,7 +2848,35 @@ fn render_match_arm(
 ) {
     let pad = "    ".repeat(indent);
     if arm.bindings.is_empty() {
-        out.push_str(&format!("{pad}{}::{} => {{\n", arm.enum_name, arm.variant));
+        let variant = type_context
+            .enums
+            .get(arm.enum_name.as_str())
+            .and_then(|enum_def| {
+                enum_def
+                    .variants
+                    .iter()
+                    .find(|variant| variant.name == arm.variant)
+            });
+        let pattern = if let Some(variant) = variant {
+            if variant.payload_tys.is_empty() {
+                format!("{}::{}", arm.enum_name, arm.variant)
+            } else if arm.ignore_payloads && !variant.payload_names.is_empty() {
+                format!("{}::{} {{ .. }}", arm.enum_name, arm.variant)
+            } else if arm.ignore_payloads {
+                format!("{}::{}(..)", arm.enum_name, arm.variant)
+            } else {
+                format!("{}::{}", arm.enum_name, arm.variant)
+            }
+        } else if arm.enum_name == "Option" && arm.variant == "Some" {
+            String::from("Option::Some(_)")
+        } else if arm.enum_name == "Result" && arm.variant == "Ok" {
+            String::from("Result::Ok(_)")
+        } else if arm.enum_name == "Result" && arm.variant == "Err" {
+            String::from("Result::Err(_)")
+        } else {
+            format!("{}::{}", arm.enum_name, arm.variant)
+        };
+        out.push_str(&format!("{pad}{pattern} => {{\n"));
     } else if arm.is_named {
         out.push_str(&format!(
             "{pad}{}::{} {{ {} }} => {{\n",
@@ -2800,6 +3102,22 @@ fn render_expr(expr: &Expr) -> String {
         Expr::Call { name, args, .. } if name == "http_get" => {
             format!("axiom_http_get({})", render_expr(&args[0]))
         }
+        Expr::Call { name, args, .. } if name == "http_serve_once" => {
+            format!(
+                "axiom_http_serve_once({}, {})",
+                render_expr(&args[0]),
+                render_expr(&args[1])
+            )
+        }
+        Expr::Call { name, args, .. } if name == "http_serve_route" => {
+            format!(
+                "axiom_http_serve_route({}, {}, {}, {})",
+                render_expr(&args[0]),
+                render_expr(&args[1]),
+                render_expr(&args[2]),
+                render_expr(&args[3])
+            )
+        }
         Expr::Call { name, args, .. } if name == "net_resolve" => {
             format!("axiom_net_resolve({})", render_expr(&args[0]))
         }
@@ -2869,23 +3187,20 @@ fn render_expr(expr: &Expr) -> String {
             format!("axiom_task_ready({})", render_expr(&args[0]))
         }
         Expr::Call { name, args, .. } if name == "async_spawn" => {
-            format!("AxiomJoinHandle {{ task: {} }}", render_expr(&args[0]))
+            format!("axiom_async_spawn({})", render_expr(&args[0]))
         }
         Expr::Call { name, args, .. } if name == "async_join" => {
-            format!("({}).task", render_expr(&args[0]))
+            format!("axiom_async_join({})", render_expr(&args[0]))
         }
         Expr::Call { name, args, .. } if name == "async_cancel" => {
-            format!(
-                "{{ let task = {}; AxiomTask {{ value: task.value, canceled: true }} }}",
-                render_expr(&args[0])
-            )
+            format!("axiom_async_cancel({})", render_expr(&args[0]))
         }
         Expr::Call { name, args, .. } if name == "async_is_canceled" => {
             format!("({}).canceled", render_expr(&args[0]))
         }
         Expr::Call { name, args, .. } if name == "async_timeout" => {
             format!(
-                "{{ let task = {}; let _timeout_ms = {}; AxiomTask {{ value: if task.canceled {{ None }} else {{ Some(task.value) }}, canceled: false }} }}",
+                "axiom_async_timeout({}, {})",
                 render_expr(&args[0]),
                 render_expr(&args[1])
             )
@@ -2951,6 +3266,7 @@ fn render_expr(expr: &Expr) -> String {
             Type::JoinHandle(_) => unreachable!("type checker rejects join handle addition"),
             Type::AsyncChannel(_) => unreachable!("type checker rejects async channel addition"),
             Type::SelectResult(_) => unreachable!("type checker rejects select result addition"),
+            Type::Fn(_, _) => unreachable!("type checker rejects function addition"),
         },
         Expr::BinaryCompare { op, lhs, rhs, .. } => {
             format!("{} {} {}", render_expr(lhs), op.lexeme(), render_expr(rhs))
@@ -3022,6 +3338,17 @@ fn render_expr(expr: &Expr) -> String {
                 .collect::<Vec<_>>()
                 .join(", ");
             format!("vec![{rendered}]")
+        }
+        Expr::Closure { params, body, .. } => {
+            let rendered_params = params
+                .iter()
+                .map(|param| param.name.clone())
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!(
+                "Box::new(move |{rendered_params}| {{ {} }})",
+                render_expr(body)
+            )
         }
         Expr::Slice {
             base, start, end, ..
@@ -3214,6 +3541,15 @@ fn rust_type_inner(ty: &Type, lifetime: Option<&str>, type_context: &TypeContext
                 rust_type_inner(inner, lifetime, type_context)
             )
         }
+        Type::Fn(params, return_ty) => format!(
+            "Box<dyn Fn({}) -> {}>",
+            params
+                .iter()
+                .map(|param| rust_type_inner(param, lifetime, type_context))
+                .collect::<Vec<_>>()
+                .join(", "),
+            rust_type_inner(return_ty, lifetime, type_context)
+        ),
     }
 }
 
@@ -3279,6 +3615,8 @@ pub fn compile_native(
     }
 }
 
+const BUILD_GENERATED_RUST_COMPILATION_FAILED: &str = "generated_rust_compilation_failed";
+
 fn compile_generated_rust(
     generated_rust: &Path,
     binary_path: &Path,
@@ -3291,6 +3629,11 @@ fn compile_generated_rust(
         .arg("axiom_stage1_bootstrap")
         .arg("--edition=2024");
     if debug {
+        // The generated-rust backend asks rustc for native debuginfo for the
+        // Rust shim it compiles. Axiom source spans are emitted separately in
+        // the sidecar debug map; rustc path remapping is intentionally not used
+        // here because it cannot remap DWARF line-table rows to Axiom line
+        // numbers or represent multiple Axiom source files correctly.
         command
             .arg("-C")
             .arg("debuginfo=2")
@@ -3302,21 +3645,28 @@ fn compile_generated_rust(
     if let Some(target) = target {
         command.arg("--target").arg(target);
     }
-    let status = command
+    let output = command
         .arg(generated_rust)
         .arg("-o")
         .arg(binary_path)
-        .status()
+        .output()
         .map_err(|err| {
             Diagnostic::new("build", format!("failed to invoke rustc: {err}"))
                 .with_path(generated_rust.display().to_string())
         })?;
-    if !status.success() {
-        return Err(Diagnostic::new(
-            "build",
-            "rustc failed to produce the requested build artifact",
-        )
-        .with_path(generated_rust.display().to_string()));
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let message = if stderr.trim().is_empty() {
+            "rustc failed to produce the requested build artifact".to_string()
+        } else {
+            format!(
+                "rustc failed to produce the requested build artifact: {}",
+                stderr.trim()
+            )
+        };
+        return Err(Diagnostic::new("build", message)
+            .with_code(BUILD_GENERATED_RUST_COMPILATION_FAILED)
+            .with_path(generated_rust.display().to_string()));
     }
     Ok(())
 }
