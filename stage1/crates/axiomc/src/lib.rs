@@ -70,8 +70,6 @@ mod tests {
 =======
 =======
 =======
->>>>>>> origin/codex/agent-g-regex
-=======
 >>>>>>> origin/codex/agent-f-fs
 =======
 >>>>>>> origin/codex/agent-i-language-slice
@@ -79,6 +77,15 @@ mod tests {
 >>>>>>> origin/codex/issue-387-capability-validation
             "[package]\nname = {name:?}\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = {fs}\n\"fs:write\" = {fs}\nnet = {net}\nprocess = {process}\nenv = {env}\nclock = {clock}\ncrypto = {crypto}\n"
         )
+=======
+        let mut manifest = format!(
+            "[package]\nname = {name:?}\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = {fs}\nnet = {net}\nprocess = {process}\nenv = {env}\nclock = {clock}\ncrypto = {crypto}\n"
+        );
+        if env {
+            manifest.push_str("unsafe_rationale = \"test fixture uses legacy unrestricted env\"\n");
+        }
+        manifest
+>>>>>>> origin/codex/issue-389-unsafe-rationale
     }
 
     fn write_process_fixture(dir: &Path) -> String {
@@ -2801,13 +2808,11 @@ crypto = false
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
-<<<<<<< HEAD
         assert_eq!(caps.len(), 9);
         assert!(caps.iter().all(|cap| !cap.enabled));
         assert!(caps.iter().any(|cap| cap.name == "async"));
         let project_caps = project_capabilities(&project).expect("project capabilities");
         assert_eq!(project_caps.len(), 9);
-=======
 =======
 =======
 =======
@@ -2913,13 +2918,82 @@ crypto = false
                 .message
                 .contains("capabilities.unsafe_opt_ins[0] references unknown capability")
         );
->>>>>>> origin/codex/issue-378-inspect-graph
 >>>>>>> origin/codex/issue-406-collection-lookup
 >>>>>>> origin/codex/issue-383-new-templates
 >>>>>>> origin/codex/agent-g-regex
 >>>>>>> origin/codex/agent-f-fs
 >>>>>>> origin/codex/agent-i-language-slice
 >>>>>>> origin/codex/issue-387-capability-validation
+    }
+
+    #[test]
+    fn unrestricted_env_requires_unsafe_rationale() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("caps-env-unrestricted");
+        create_project(&project, Some("caps-env-unrestricted-app")).expect("create project");
+        fs::write(
+            project.join("axiom.toml"),
+            "[package]\nname = \"caps-env-unrestricted-app\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nenv_unrestricted = true\n",
+        )
+        .expect("write manifest");
+
+        let error = load_manifest(&project).expect_err("unsafe rationale should be required");
+        assert_eq!(error.kind, "manifest");
+        assert!(
+            error
+                .message
+                .contains("capabilities.unsafe_rationale is required")
+        );
+    }
+
+    #[test]
+    fn explicit_unrestricted_env_requires_rationale_with_legacy_env_bool() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("caps-env-explicit-and-legacy");
+        create_project(&project, Some("caps-env-explicit-and-legacy-app")).expect("create project");
+        fs::write(
+            project.join("axiom.toml"),
+            "[package]\nname = \"caps-env-explicit-and-legacy-app\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nenv = true\nenv_unrestricted = true\n",
+        )
+        .expect("write manifest");
+
+        let error = load_manifest(&project)
+            .expect_err("explicit env_unrestricted should require unsafe rationale");
+        assert_eq!(error.kind, "manifest");
+        assert!(
+            error
+                .message
+                .contains("capabilities.unsafe_rationale is required")
+        );
+    }
+
+    #[test]
+    fn unrestricted_env_rationale_is_reported_in_caps() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("caps-env-rationale");
+        create_project(&project, Some("caps-env-rationale-app")).expect("create project");
+        fs::write(
+            project.join("axiom.toml"),
+            "[package]\nname = \"caps-env-rationale-app\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nenv_unrestricted = true\nunsafe_rationale = \"migration reads audited CI variables\"\n",
+        )
+        .expect("write manifest");
+
+        let manifest = load_manifest(&project).expect("load manifest");
+        assert_eq!(
+            manifest.capabilities.unsafe_rationale.as_deref(),
+            Some("migration reads audited CI variables")
+        );
+        let caps = project_capabilities(&project).expect("project capabilities");
+        let env = caps
+            .iter()
+            .find(|cap| cap.name == "env")
+            .expect("env capability");
+        assert!(env.enabled);
+        assert!(env.unsafe_unrestricted);
+        assert_eq!(
+            env.unsafe_rationale.as_deref(),
+            Some("migration reads audited CI variables")
+        );
     }
 
     #[test]
@@ -5450,9 +5524,7 @@ print serve_once("127.0.0.1:18080", "hello")
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
-<<<<<<< HEAD
                 stderr: None,
-=======
 =======
 =======
 =======
@@ -5975,7 +6047,6 @@ print serve_once("127.0.0.1:18080", "hello")
                 .count()
                 == 24
                 == 20
->>>>>>> origin/codex/issue-387-capability-validation
                 == 21
         );
         assert_eq!(
@@ -5984,10 +6055,8 @@ print serve_once("127.0.0.1:18080", "hello")
                 .iter()
                 .filter(|case| case.expected_stdout.is_some())
                 .count(),
-<<<<<<< HEAD
             12
             9
-=======
 >>>>>>> origin/codex/issue-387-capability-validation
             10
         );
@@ -8986,7 +9055,6 @@ print 0
 =======
 =======
 =======
->>>>>>> origin/codex/issue-387-capability-validation
         assert!(payload["target"].is_string());
         assert_eq!(payload["debug"], true);
         assert!(payload["debug_map"].is_string());

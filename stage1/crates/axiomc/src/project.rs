@@ -945,6 +945,7 @@ fn register_stdlib_package(graph: &mut PackageGraph) {
             env: true,
             env_vars: Vec::new(),
             env_unrestricted: true,
+            unsafe_rationale: Some(String::from("synthetic stdlib host shims")),
             env_legacy_unrestricted: false,
             clock: true,
             crypto: true,

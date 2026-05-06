@@ -82,9 +82,7 @@ pub enum TestKind {
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
-<<<<<<< HEAD
     pub stderr: Option<String>,
-=======
 =======
 =======
 =======
@@ -102,13 +100,14 @@ pub struct CapabilityConfig {
     pub env: bool,
     pub env_vars: Vec<String>,
     pub env_unrestricted: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub unsafe_rationale: Option<String>,
     #[serde(skip_serializing)]
     pub env_legacy_unrestricted: bool,
     pub clock: bool,
     pub crypto: bool,
     pub ffi: bool,
     pub async_runtime: bool,
->>>>>>> origin/codex/agent-f-fs
 >>>>>>> origin/codex/issue-387-capability-validation
     pub deny_by_default: bool,
     pub unsafe_opt_ins: Vec<String>,
@@ -147,6 +146,8 @@ pub struct CapabilityDescriptor {
     pub owner: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rationale: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub unsafe_rationale: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -197,10 +198,8 @@ struct RawTestTarget {
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
-<<<<<<< HEAD
     kind: Option<String>,
     stderr: Option<String>,
-=======
 =======
 =======
 =======
@@ -218,12 +217,12 @@ struct RawCapabilityConfig {
     process: Option<bool>,
     env: Option<RawEnvCapability>,
     env_unrestricted: Option<bool>,
+    unsafe_rationale: Option<String>,
     clock: Option<bool>,
     crypto: Option<bool>,
     ffi: Option<bool>,
     #[serde(rename = "async")]
     async_runtime: Option<bool>,
->>>>>>> origin/codex/issue-376-doctor-json
 >>>>>>> origin/codex/issue-377-inspect-symbols
 >>>>>>> origin/codex/issue-378-inspect-graph
 >>>>>>> origin/codex/issue-406-collection-lookup
@@ -324,6 +323,9 @@ pub fn capability_descriptors(config: &CapabilityConfig) -> Vec<CapabilityDescri
             unsafe_opt_in: config.unsafe_opt_ins.iter().any(|name| name == kind.name()),
             owner: config.owners.get(kind.name()).cloned(),
             rationale: config.rationale.get(kind.name()).cloned(),
+            unsafe_rationale: (*kind == CapabilityKind::Env && config.env_unrestricted)
+                .then(|| config.unsafe_rationale.clone())
+                .flatten(),
         })
         .collect()
 }
@@ -335,9 +337,7 @@ pub fn render_manifest(name: &str) -> String {
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
-<<<<<<< HEAD
         "[package]\nname = {name:?}\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\n\"fs:write\" = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\nffi = false\nasync = false\n"
-=======
 =======
 =======
 =======
@@ -443,10 +443,16 @@ fn normalize_manifest(raw: RawManifest, path: &Path) -> Result<Manifest, Diagnos
     let capabilities = raw.capabilities.unwrap_or_default();
     let fs_root =
         normalize_optional_relative_path(path, "capabilities.fs_root", capabilities.fs_root)?;
+    let explicit_env_unrestricted = capabilities.env_unrestricted.unwrap_or(false);
     let (env, env_vars, env_unrestricted, env_legacy_unrestricted) = normalize_env_capability(
         path,
         capabilities.env,
-        capabilities.env_unrestricted.unwrap_or(false),
+        explicit_env_unrestricted,
+    )?;
+    let unsafe_rationale = normalize_unsafe_rationale(
+        path,
+        capabilities.unsafe_rationale,
+        explicit_env_unrestricted,
     )?;
     let unsafe_opt_ins = normalize_capability_name_list(
         path,
@@ -478,12 +484,12 @@ fn normalize_manifest(raw: RawManifest, path: &Path) -> Result<Manifest, Diagnos
             env,
             env_vars,
             env_unrestricted,
+            unsafe_rationale,
             env_legacy_unrestricted,
             clock: capabilities.clock.unwrap_or(false),
             crypto: capabilities.crypto.unwrap_or(false),
             ffi: capabilities.ffi.unwrap_or(false),
             async_runtime: capabilities.async_runtime.unwrap_or(false),
->>>>>>> origin/codex/agent-f-fs
 >>>>>>> origin/codex/issue-387-capability-validation
             deny_by_default: capabilities.deny_by_default.unwrap_or(false),
             unsafe_opt_ins,
@@ -568,6 +574,26 @@ fn normalize_env_capability(
             Ok((true, vars, env_unrestricted, false))
         }
         None => Ok((env_unrestricted, Vec::new(), env_unrestricted, false)),
+    }
+}
+
+fn normalize_unsafe_rationale(
+    path: &Path,
+    rationale: Option<String>,
+    env_unrestricted: bool,
+) -> Result<Option<String>, Diagnostic> {
+    let rationale = rationale.map(|value| value.trim().to_string());
+    if env_unrestricted {
+        match rationale {
+            Some(value) if !value.is_empty() => Ok(Some(value)),
+            _ => Err(Diagnostic::new(
+                "manifest",
+                "capabilities.unsafe_rationale is required when unrestricted environment access is enabled",
+            )
+            .with_path(path.display().to_string())),
+        }
+    } else {
+        Ok(rationale.filter(|value| !value.is_empty()))
     }
 }
 
@@ -713,13 +739,10 @@ fn normalize_tests(
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
-<<<<<<< HEAD
             stderr: raw_test.stderr,
 =======
 =======
 =======
-=======
->>>>>>> origin/codex/issue-387-capability-validation
         });
     }
     Ok(tests)
