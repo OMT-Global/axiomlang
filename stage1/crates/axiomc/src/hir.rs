@@ -8879,9 +8879,9 @@ fn collect_var_refs(expr: &syntax::Expr, refs: &mut HashSet<String>) {
             collect_var_refs(lhs, refs);
             collect_var_refs(rhs, refs);
         }
-        syntax::Expr::Try { expr, .. } | syntax::Expr::Await { expr, .. } => {
-            collect_var_refs(expr, refs)
-        }
+        syntax::Expr::Try { expr, .. }
+        | syntax::Expr::Await { expr, .. }
+        | syntax::Expr::Cast { expr, .. } => collect_var_refs(expr, refs),
         syntax::Expr::StructLiteral { fields, .. } => {
             for field in fields {
                 collect_var_refs(&field.expr, refs);

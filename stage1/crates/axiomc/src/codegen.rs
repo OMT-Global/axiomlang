@@ -2773,6 +2773,7 @@ fn collect_expr_mutable_borrows(expr: &Expr, locals: &mut HashSet<String>) {
             collect_expr_mutable_borrows(base, locals);
             collect_expr_mutable_borrows(index, locals);
         }
+        Expr::Closure { body, .. } => collect_expr_mutable_borrows(body, locals),
         Expr::Literal(_) | Expr::VarRef { .. } => {}
     }
 }
