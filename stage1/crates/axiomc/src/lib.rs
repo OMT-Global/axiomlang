@@ -7076,8 +7076,9 @@ return left
 
 print 0
 ";
-        let error = parse_program(source, Path::new("main.ax"))
-            .expect_err("explicit return lifetime mixed with unannotated borrowed param should fail");
+        let error = parse_program(source, Path::new("main.ax")).expect_err(
+            "explicit return lifetime mixed with unannotated borrowed param should fail",
+        );
         assert!(error.message.contains("unannotated borrowed parameters"));
         assert_eq!(error.kind, "parse");
     }

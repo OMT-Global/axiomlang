@@ -1729,7 +1729,9 @@ fn unify_generic_type_name(
             }
         }
         syntax::TypeName::LifetimeMutSlice(_, lhs) => {
-            if let syntax::TypeName::LifetimeMutSlice(_, rhs) | syntax::TypeName::MutSlice(rhs) = actual {
+            if let syntax::TypeName::LifetimeMutSlice(_, rhs) | syntax::TypeName::MutSlice(rhs) =
+                actual
+            {
                 unify_generic_type_name(lhs, rhs, type_params, bindings, line, column)
             } else if contains_generic_type_param(pattern, type_params) {
                 Err(generic_constraint_mismatch(pattern, actual, line, column))
@@ -5236,8 +5238,7 @@ fn lower_match_stmt(
                         &before,
                         ctx,
                     ),
-                    active_borrow_count: 0,
-                    active_mut_borrow_count: 0,
+                    borrow_state: BorrowState::default(),
                 },
             );
         }
@@ -7389,14 +7390,14 @@ fn lower_expr_with_expected(
             if let Some(binding) = env.get(name) {
                 if let Type::Fn(param_tys, return_ty) = binding.ty.clone() {
                     if binding.moved {
-                        return Err(ownership_error(
+                        return Err(borrowck::ownership_error(
                             OWNERSHIP_USE_AFTER_MOVE,
                             format!("use of moved value {name:?}"),
                         )
                         .with_span(*line, *column));
                     }
                     if !binding.moved_projections.is_empty() {
-                        return Err(ownership_error(
+                        return Err(borrowck::ownership_error(
                             OWNERSHIP_USE_AFTER_MOVE,
                             format!("use of partially moved value {name:?}"),
                         )
@@ -8516,8 +8517,7 @@ fn lower_expr_with_expected(
                         borrow_kind: None,
                         borrow_origin: Some(BorrowOrigin::Local),
                         borrowed_owners: HashSet::new(),
-                        active_borrow_count: 0,
-                        active_mut_borrow_count: 0,
+                        borrow_state: BorrowState::default(),
                     },
                 );
             }
@@ -8528,8 +8528,8 @@ fn lower_expr_with_expected(
             }
             let captured_names = referenced.clone();
 
-            if contains_borrowed_slice_type(expected_return, ctx.structs, ctx.enums) {
-                return Err(ownership_error(
+            if borrowck::contains_borrowed_slice_type(expected_return, ctx.structs, ctx.enums) {
+                return Err(borrowck::ownership_error(
                     OWNERSHIP_CLOSURE_BORROWED_SLICE_RETURN,
                     "closure fn values cannot return borrowed slice types in stage1 because codegen cannot express the returned reference lifetime",
                 )
@@ -8553,7 +8553,7 @@ fn lower_expr_with_expected(
                 && captured_names.contains(name)
                 && !lowered_body.ty().is_copy()
             {
-                return Err(ownership_error(
+                return Err(borrowck::ownership_error(
                     OWNERSHIP_CLOSURE_MOVE_CAPTURED_NON_COPY,
                     format!(
                         "closure cannot move captured non-copy value `{}` because fn closures must be callable more than once",
@@ -8576,7 +8576,7 @@ fn lower_expr_with_expected(
                         .iter()
                         .any(|projection| !pre_binding.moved_projections.contains(projection));
                     if post_binding.moved || moved_projection_in_body {
-                        return Err(ownership_error(
+                        return Err(borrowck::ownership_error(
                             OWNERSHIP_CLOSURE_MOVE_CAPTURED_NON_COPY,
                             format!(
                                 "closure cannot move captured non-copy value `{}` because fn closures must be callable more than once",

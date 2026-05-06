@@ -2130,6 +2130,7 @@ fn parse_type_name(
         }
         let return_ty = parse_type_name(return_raw.trim(), path, line_no, column + close + 2)?;
         return Ok(TypeName::Fn(params, Box::new(return_ty)));
+    }
     if let Some(rest) = raw.strip_prefix("&'") {
         let lifetime_len = rest
             .find(|ch: char| !(ch.is_ascii_alphanumeric() || ch == '_'))
@@ -2819,9 +2820,11 @@ fn parse_function_lifetime_params(
         let param = param.trim();
         if let Some(lifetime) = param.strip_prefix("'") {
             if lifetime.is_empty() {
-                return Err(Diagnostic::new("parse", "lifetime parameter is missing a name")
-                    .with_path(path.display().to_string())
-                    .with_span(line_no, column + open_angle + 1));
+                return Err(
+                    Diagnostic::new("parse", "lifetime parameter is missing a name")
+                        .with_path(path.display().to_string())
+                        .with_span(line_no, column + open_angle + 1),
+                );
             }
             validate_ident(lifetime, path, line_no, column + open_angle + 2)?;
             if lifetimes.iter().any(|existing| existing == lifetime) {

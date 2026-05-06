@@ -265,6 +265,23 @@ fn contains_borrowed_slice_type_inner(
             visiting_structs,
             visiting_enums,
         ),
+        Type::Fn(params, return_ty) => {
+            params.iter().any(|param| {
+                contains_borrowed_slice_type_inner(
+                    param,
+                    structs,
+                    enums,
+                    visiting_structs,
+                    visiting_enums,
+                )
+            }) || contains_borrowed_slice_type_inner(
+                return_ty,
+                structs,
+                enums,
+                visiting_structs,
+                visiting_enums,
+            )
+        }
         Type::Struct(name) => {
             if !visiting_structs.insert(name.clone()) {
                 return false;
@@ -382,6 +399,23 @@ fn contains_mut_borrowed_slice_type_inner(
             visiting_structs,
             visiting_enums,
         ),
+        Type::Fn(params, return_ty) => {
+            params.iter().any(|param| {
+                contains_mut_borrowed_slice_type_inner(
+                    param,
+                    structs,
+                    enums,
+                    visiting_structs,
+                    visiting_enums,
+                )
+            }) || contains_mut_borrowed_slice_type_inner(
+                return_ty,
+                structs,
+                enums,
+                visiting_structs,
+                visiting_enums,
+            )
+        }
         Type::Struct(name) => {
             if !visiting_structs.insert(name.clone()) {
                 return false;
