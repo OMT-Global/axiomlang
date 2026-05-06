@@ -85,3 +85,6 @@ binary.
 Docs may describe the Python interpreter and VM only as retired, historical, or
 to-be-deleted surfaces. They must not present the Python interpreter, bytecode
 VM, bytecode format, or disassembler as supported user-facing execution paths.
+The README quickstart is the canonical user-facing start path and must remain
+Rust-owned through `cargo run --manifest-path stage1/Cargo.toml -p axiomc -- ...`
+or an installed `axiomc`, not Python `stage0`.

@@ -5,14 +5,16 @@ use std::path::{Path, PathBuf};
 
 pub const MANIFEST_FILENAME: &str = "axiom.toml";
 pub const LOCK_FILENAME: &str = "axiom.lock";
-pub const KNOWN_CAPABILITIES: [CapabilityKind; 7] = [
+pub const KNOWN_CAPABILITIES: [CapabilityKind; 9] = [
     CapabilityKind::Fs,
+    CapabilityKind::FsWrite,
     CapabilityKind::Net,
     CapabilityKind::Process,
     CapabilityKind::Env,
     CapabilityKind::Clock,
     CapabilityKind::Crypto,
     CapabilityKind::Ffi,
+    CapabilityKind::Async,
 ];
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -52,11 +54,24 @@ pub struct TestTarget {
     pub name: String,
     pub entry: String,
     pub stdout: Option<String>,
+    pub kind: TestKind,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq, PartialOrd, Ord, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum TestKind {
+    #[default]
+    Unit,
+    Table,
+    Property,
+    Snapshot,
+    Benchmark,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq, Default)]
 pub struct CapabilityConfig {
     pub fs: bool,
+    pub fs_write: bool,
     pub fs_root: Option<String>,
     pub net: bool,
     pub process: bool,
@@ -68,18 +83,25 @@ pub struct CapabilityConfig {
     pub clock: bool,
     pub crypto: bool,
     pub ffi: bool,
+    pub async_runtime: bool,
+    pub deny_by_default: bool,
+    pub unsafe_opt_ins: Vec<String>,
+    pub owners: BTreeMap<String, String>,
+    pub rationale: BTreeMap<String, String>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum CapabilityKind {
     Fs,
+    FsWrite,
     Net,
     Process,
     Env,
     Clock,
     Crypto,
     Ffi,
+    Async,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -87,10 +109,18 @@ pub struct CapabilityDescriptor {
     pub name: String,
     pub enabled: bool,
     pub description: &'static str,
+    #[serde(skip_serializing_if = "is_false")]
+    pub deny_by_default: bool,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub allowed: Vec<String>,
     #[serde(skip_serializing_if = "is_false")]
     pub unsafe_unrestricted: bool,
+    #[serde(skip_serializing_if = "is_false")]
+    pub unsafe_opt_in: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub owner: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rationale: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -137,11 +167,14 @@ struct RawTestTarget {
     name: Option<String>,
     entry: Option<String>,
     stdout: Option<String>,
+    kind: Option<String>,
 }
 
 #[derive(Debug, Default, Deserialize)]
 struct RawCapabilityConfig {
     fs: Option<bool>,
+    #[serde(rename = "fs:write")]
+    fs_write: Option<bool>,
     fs_root: Option<String>,
     net: Option<bool>,
     process: Option<bool>,
@@ -150,6 +183,12 @@ struct RawCapabilityConfig {
     clock: Option<bool>,
     crypto: Option<bool>,
     ffi: Option<bool>,
+    #[serde(rename = "async")]
+    async_runtime: Option<bool>,
+    deny_by_default: Option<bool>,
+    unsafe_opt_ins: Option<Vec<String>>,
+    owners: Option<BTreeMap<String, String>>,
+    rationale: Option<BTreeMap<String, String>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -231,19 +270,23 @@ pub fn capability_descriptors(config: &CapabilityConfig) -> Vec<CapabilityDescri
             name: kind.name().to_string(),
             enabled: config.enabled(*kind),
             description: kind.description(),
+            deny_by_default: config.deny_by_default,
             allowed: if *kind == CapabilityKind::Env {
                 config.env_vars.clone()
             } else {
                 Vec::new()
             },
             unsafe_unrestricted: *kind == CapabilityKind::Env && config.env_unrestricted,
+            unsafe_opt_in: config.unsafe_opt_ins.iter().any(|name| name == kind.name()),
+            owner: config.owners.get(kind.name()).cloned(),
+            rationale: config.rationale.get(kind.name()).cloned(),
         })
         .collect()
 }
 
 pub fn render_manifest(name: &str) -> String {
     format!(
-        "[package]\nname = {name:?}\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\nffi = false\n"
+        "[package]\nname = {name:?}\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\n\"fs:write\" = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\nffi = false\nasync = false\n"
     )
 }
 
@@ -251,12 +294,14 @@ impl CapabilityConfig {
     pub fn enabled(&self, kind: CapabilityKind) -> bool {
         match kind {
             CapabilityKind::Fs => self.fs,
+            CapabilityKind::FsWrite => self.fs_write,
             CapabilityKind::Net => self.net,
             CapabilityKind::Process => self.process,
             CapabilityKind::Env => self.env,
             CapabilityKind::Clock => self.clock,
             CapabilityKind::Crypto => self.crypto,
             CapabilityKind::Ffi => self.ffi,
+            CapabilityKind::Async => self.async_runtime,
         }
     }
 
@@ -282,27 +327,38 @@ impl Manifest {
 }
 
 impl CapabilityKind {
+    pub fn from_name(name: &str) -> Option<Self> {
+        KNOWN_CAPABILITIES
+            .iter()
+            .copied()
+            .find(|kind| kind.name() == name)
+    }
+
     pub fn name(self) -> &'static str {
         match self {
             CapabilityKind::Fs => "fs",
+            CapabilityKind::FsWrite => "fs:write",
             CapabilityKind::Net => "net",
             CapabilityKind::Process => "process",
             CapabilityKind::Env => "env",
             CapabilityKind::Clock => "clock",
             CapabilityKind::Crypto => "crypto",
             CapabilityKind::Ffi => "ffi",
+            CapabilityKind::Async => "async",
         }
     }
 
     pub fn description(self) -> &'static str {
         match self {
-            CapabilityKind::Fs => "filesystem access",
+            CapabilityKind::Fs => "filesystem read access",
+            CapabilityKind::FsWrite => "filesystem write access",
             CapabilityKind::Net => "network access",
             CapabilityKind::Process => "child process execution",
             CapabilityKind::Env => "environment variable access",
             CapabilityKind::Clock => "wall-clock time access",
             CapabilityKind::Crypto => "hashing and cryptography primitives",
             CapabilityKind::Ffi => "foreign function interface access",
+            CapabilityKind::Async => "host async runtime access",
         }
     }
 }
@@ -335,6 +391,21 @@ fn normalize_manifest(raw: RawManifest, path: &Path) -> Result<Manifest, Diagnos
         capabilities.env,
         capabilities.env_unrestricted.unwrap_or(false),
     )?;
+    let unsafe_opt_ins = normalize_capability_name_list(
+        path,
+        "capabilities.unsafe_opt_ins",
+        capabilities.unsafe_opt_ins.unwrap_or_default(),
+    )?;
+    let owners = normalize_capability_string_map(
+        path,
+        "capabilities.owners",
+        capabilities.owners.unwrap_or_default(),
+    )?;
+    let rationale = normalize_capability_string_map(
+        path,
+        "capabilities.rationale",
+        capabilities.rationale.unwrap_or_default(),
+    )?;
     Ok(Manifest {
         package,
         dependencies,
@@ -343,6 +414,7 @@ fn normalize_manifest(raw: RawManifest, path: &Path) -> Result<Manifest, Diagnos
         tests,
         capabilities: CapabilityConfig {
             fs: capabilities.fs.unwrap_or(false),
+            fs_write: capabilities.fs_write.unwrap_or(false),
             fs_root,
             net: capabilities.net.unwrap_or(false),
             process: capabilities.process.unwrap_or(false),
@@ -353,8 +425,71 @@ fn normalize_manifest(raw: RawManifest, path: &Path) -> Result<Manifest, Diagnos
             clock: capabilities.clock.unwrap_or(false),
             crypto: capabilities.crypto.unwrap_or(false),
             ffi: capabilities.ffi.unwrap_or(false),
+            async_runtime: capabilities.async_runtime.unwrap_or(false),
+            deny_by_default: capabilities.deny_by_default.unwrap_or(false),
+            unsafe_opt_ins,
+            owners,
+            rationale,
         },
     })
+}
+
+fn normalize_capability_name_list(
+    path: &Path,
+    field_name: &str,
+    values: Vec<String>,
+) -> Result<Vec<String>, Diagnostic> {
+    let mut names = Vec::new();
+    let mut seen = std::collections::BTreeSet::new();
+    for (index, value) in values.into_iter().enumerate() {
+        let item_field = format!("{field_name}[{index}]");
+        let name = normalize_capability_name(path, &item_field, value)?;
+        if !seen.insert(name.clone()) {
+            return Err(Diagnostic::new(
+                "manifest",
+                format!("duplicate capability metadata entry {name:?}"),
+            )
+            .with_path(path.display().to_string()));
+        }
+        names.push(name);
+    }
+    Ok(names)
+}
+
+fn normalize_capability_string_map(
+    path: &Path,
+    field_name: &str,
+    values: BTreeMap<String, String>,
+) -> Result<BTreeMap<String, String>, Diagnostic> {
+    let mut normalized = BTreeMap::new();
+    for (name, value) in values {
+        let field = format!("{field_name}.{name}");
+        let name = normalize_capability_name(path, &field, name)?;
+        if value.trim().is_empty() {
+            return Err(
+                Diagnostic::new("manifest", format!("{field} must not be empty"))
+                    .with_path(path.display().to_string()),
+            );
+        }
+        normalized.insert(name, value);
+    }
+    Ok(normalized)
+}
+
+fn normalize_capability_name(
+    path: &Path,
+    field_name: &str,
+    value: String,
+) -> Result<String, Diagnostic> {
+    let name = required_field(Some(value), path, field_name)?;
+    if CapabilityKind::from_name(&name).is_none() {
+        return Err(Diagnostic::new(
+            "manifest",
+            format!("{field_name} references unknown capability {name:?}"),
+        )
+        .with_path(path.display().to_string()));
+    }
+    Ok(name)
 }
 
 fn normalize_env_capability(
@@ -515,9 +650,31 @@ fn normalize_tests(
             name,
             entry,
             stdout: raw_test.stdout,
+            kind: normalize_test_kind(raw_test.kind, path, &format!("{field_prefix}.kind"))?,
         });
     }
     Ok(tests)
+}
+
+fn normalize_test_kind(
+    value: Option<String>,
+    path: &Path,
+    field_name: &str,
+) -> Result<TestKind, Diagnostic> {
+    match value.as_deref().unwrap_or("unit") {
+        "unit" => Ok(TestKind::Unit),
+        "table" => Ok(TestKind::Table),
+        "property" => Ok(TestKind::Property),
+        "snapshot" => Ok(TestKind::Snapshot),
+        "benchmark" => Ok(TestKind::Benchmark),
+        other => Err(Diagnostic::new(
+            "manifest",
+            format!(
+                "{field_name} must be one of unit, table, property, snapshot, or benchmark; got {other:?}"
+            ),
+        )
+        .with_path(path.display().to_string())),
+    }
 }
 
 fn normalize_optional_relative_path(

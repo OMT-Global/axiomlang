@@ -1,0 +1,10 @@
+import "std/env.ax"
+import "std/time.ax"
+import "request.ax"
+import "response.ax"
+
+let started: bool = now_ms() > 0
+
+print status_line(request_method(get_env("REQUEST_METHOD")), request_path(get_env("REQUEST_PATH")))
+print "content-type: application/json"
+print body(request_path(get_env("REQUEST_PATH")), started)

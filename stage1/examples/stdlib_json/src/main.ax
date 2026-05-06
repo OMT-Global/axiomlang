@@ -23,6 +23,35 @@ print stringify_int(7)
 print stringify_string("agent")
 print object3(field_string("name", "agent"), field_int("retries", 3), field_bool("ready", true))
 
+let payload_name: string = object3(field_string("name", "agent"), field_int("retries", 3), field_bool("ready", true))
+match parse_field_string(payload_name, "name") {
+Some(value) {
+print value
+}
+None {
+print "missing"
+}
+}
+let payload_retries: string = object3(field_string("name", "agent"), field_int("retries", 3), field_bool("ready", true))
+match parse_field_int(payload_retries, "retries") {
+Some(value) {
+print value
+}
+None {
+print 0
+}
+}
+let payload_ready: string = object3(field_string("name", "agent"), field_int("retries", 3), field_bool("ready", true))
+match parse_field_bool(payload_ready, "ready") {
+Some(value) {
+print value
+}
+None {
+print false
+}
+}
+print schema_object3(schema_field_string("name"), schema_field_int("retries"), schema_field_bool("ready"))
+
 match parse_bool("123") {
 Some(_value) {
 print "bad"

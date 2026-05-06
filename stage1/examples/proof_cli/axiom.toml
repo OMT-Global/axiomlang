@@ -3,10 +3,11 @@ name = "proof-cli"
 version = "0.1.0"
 
 [workspace]
-members = ["deps/core"]
+members = ["deps/core", "deps/ui"]
 
 [dependencies]
 core = { path = "deps/core" }
+ui = { path = "deps/ui" }
 
 [build]
 entry = "src/main.ax"
@@ -16,7 +17,7 @@ out_dir = "dist"
 fs = false
 net = false
 process = false
-env = false
-clock = false
+env = ["AXIOM_STAGE1_CLI_MODE"]
+clock = true
 crypto = false
 ffi = false

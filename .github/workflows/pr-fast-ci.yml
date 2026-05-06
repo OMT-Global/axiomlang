@@ -73,9 +73,21 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha }}
       - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable pinned 2026-04-19
+      - uses: actions/setup-go@44694675825211faa026b3c33043df3e48a5fa00 # v6 pinned 2026-04-19
 
       - name: Run fast checks
         run: bash scripts/ci/run-fast-checks.sh
+      - name: Run advisory Go/Rust/Axiom comparison report
+        continue-on-error: true
+        run: python3 scripts/ci/check-stage1-benchmarks.py --json-out stage1/target/stage1-comparison-report.json
+
+      - name: Upload advisory comparison report
+        if: always()
+        uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808 # v4 pinned 2026-04-19
+        with:
+          name: stage1-comparison-report
+          path: stage1/target/stage1-comparison-report.json
+          if-no-files-found: ignore
 
   validate-secrets:
     name: Validate Secrets

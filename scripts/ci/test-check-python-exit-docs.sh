@@ -61,8 +61,10 @@ setup_case_repo() {
 
   mkdir -p "$case_dir/docs" "$case_dir/scripts/ci"
   cp "$source_script" "$case_dir/scripts/ci/check-python-exit-docs.sh"
+  cp "$repo_root/README.md" "$case_dir/README.md"
   cp "$repo_root/docs/python-exit-vm-disposition.md" "$case_dir/docs/python-exit-vm-disposition.md"
   cp "$repo_root/docs/python-exit-parity-gate.md" "$case_dir/docs/python-exit-parity-gate.md"
+  cp "$repo_root/docs/python-exit-deletion-readiness.json" "$case_dir/docs/python-exit-deletion-readiness.json"
   : > "$case_dir/Makefile"
   : > "$case_dir/project.bootstrap.yaml"
 
@@ -71,6 +73,7 @@ setup_case_repo() {
     git init -q
     git config user.name "Ares"
     git config user.email "ares@example.com"
+    git config commit.gpgsign false
     git add docs scripts
     git commit -q -m "fixture"
   )
@@ -99,13 +102,55 @@ run_case() {
       printf '%s\n' "$legacy_invocation" >> "$case_dir/docs/python-exit-parity-gate.md"
       ;;
     rejects_legacy_invocation_in_user_docs)
-      printf '%s\n' "$legacy_invocation" > "$case_dir/README.md"
+      printf '\n%s\n' "$legacy_invocation" >> "$case_dir/README.md"
       ;;
     rejects_legacy_invocation_in_docs_tree)
       printf '%s\n' "$legacy_invocation" > "$case_dir/docs/getting-started.md"
       ;;
     rejects_legacy_invocation_in_scripts_tree)
       printf '%s\n' "$legacy_invocation" > "$case_dir/scripts/ci/legacy-run.sh"
+      ;;
+    rejects_missing_readme_quickstart)
+      awk '
+        /^## Quickstart$/ { skip = 1; next }
+        /^## / && skip { skip = 0 }
+        !skip { print }
+      ' "$case_dir/README.md" > "$case_dir/README.md.tmp"
+      mv "$case_dir/README.md.tmp" "$case_dir/README.md"
+      ;;
+    rejects_python_readme_quickstart)
+      cat > "$case_dir/README.md" <<README
+# Axiom
+
+## Quickstart
+
+\`\`\`bash
+$legacy_invocation check examples/hello.ax
+\`\`\`
+
+## Useful Commands
+
+\`\`\`bash
+make stage1-test
+\`\`\`
+README
+      ;;
+    rejects_incomplete_rust_readme_quickstart)
+      cat > "$case_dir/README.md" <<'README'
+# Axiom
+
+## Quickstart
+
+```bash
+cargo run --manifest-path stage1/Cargo.toml -p axiomc -- check stage1/examples/hello --json
+```
+
+## Useful Commands
+
+```bash
+make stage1-test
+```
+README
       ;;
     rejects_blocked_parity_rows)
       awk '
@@ -119,6 +164,8 @@ run_case() {
         }
       ' "$case_dir/docs/python-exit-parity-gate.md" > "$case_dir/docs/python-exit-parity-gate.md.tmp"
       mv "$case_dir/docs/python-exit-parity-gate.md.tmp" "$case_dir/docs/python-exit-parity-gate.md"
+      ;;
+    rejects_open_deletion_readiness_issue)
       ;;
     rejects_python_unittest_gate)
       mkdir -p "$case_dir/.github/workflows"
@@ -181,7 +228,7 @@ run_case() {
     cd "$case_dir"
     git add .
     set +e
-    bash scripts/ci/check-python-exit-docs.sh >"$output_path" 2>&1
+    AXIOM_PYTHON_EXIT_ISSUE_STATES_JSON=${AXIOM_PYTHON_EXIT_ISSUE_STATES_JSON:-'{"266":"closed","267":"closed","268":"closed","269":"closed","270":"closed","271":"closed"}'} bash scripts/ci/check-python-exit-docs.sh >"$output_path" 2>&1
     status=$?
     set -e
     echo "$status" > "$tmpdir/$case_name.status"
@@ -206,7 +253,11 @@ run_case excluded_docs_allow_legacy_strings success
 run_case rejects_legacy_invocation_in_user_docs failure "user-facing docs still instruct users to run $legacy_invocation"
 run_case rejects_legacy_invocation_in_docs_tree failure "user-facing docs still instruct users to run $legacy_invocation"
 run_case rejects_legacy_invocation_in_scripts_tree failure "user-facing docs still instruct users to run $legacy_invocation"
+run_case rejects_missing_readme_quickstart failure "README quickstart is missing"
+run_case rejects_python_readme_quickstart failure "README quickstart must use the Rust axiomc check workflow"
+run_case rejects_incomplete_rust_readme_quickstart failure "README quickstart must use the Rust axiomc run workflow"
 run_case rejects_blocked_parity_rows failure "Python exit parity matrix has blocked rows"
+AXIOM_PYTHON_EXIT_ISSUE_STATES_JSON='{"266":"closed","267":"open","268":"closed","269":"closed","270":"closed","271":"closed"}' run_case rejects_open_deletion_readiness_issue failure "Python deletion blocked by open readiness issues" "#267"
 run_case rejects_python_unittest_gate failure "CI still uses Python unittest as a language/runtime correctness gate"
 run_case rejects_python_unittest_gate_in_makefile failure "CI still uses Python unittest as a language/runtime correctness gate"
 run_case rejects_python_unittest_gate_in_bootstrap_config failure "CI still uses Python unittest as a language/runtime correctness gate"

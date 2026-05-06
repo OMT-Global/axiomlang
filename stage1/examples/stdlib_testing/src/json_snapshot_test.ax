@@ -1,0 +1,4 @@
+import "std/json.ax"
+
+print stringify_string("snapshot")
+print stringify_bool(true)

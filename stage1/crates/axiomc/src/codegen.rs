@@ -4,9 +4,75 @@ use crate::mir::{
     EnumDef, Expr, Function, LiteralValue, MatchArm, Param, Program, SourceSpan, Stmt, StructDef,
     StructField, Type,
 };
+use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
+use std::fmt;
 use std::path::Path;
 use std::process::Command;
+use std::str::FromStr;
+
+/// Preparatory selector for native-build backend plumbing.
+///
+/// Stage1 currently implements only the generated-Rust path; additional
+/// native backends remain follow-on work under #105.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "kebab-case")]
+pub enum NativeBackendKind {
+    #[default]
+    GeneratedRust,
+}
+
+impl NativeBackendKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::GeneratedRust => "generated-rust",
+        }
+    }
+}
+
+impl fmt::Display for NativeBackendKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl FromStr for NativeBackendKind {
+    type Err = String;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value {
+            "generated-rust" => Ok(Self::GeneratedRust),
+            other => Err(format!(
+                "unsupported backend {other:?}; only generated-rust is implemented in this preparatory backend plumbing"
+            )),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::NativeBackendKind;
+    use std::str::FromStr;
+
+    #[test]
+    fn parses_generated_rust_backend() {
+        assert_eq!(
+            NativeBackendKind::from_str("generated-rust").expect("parse generated-rust"),
+            NativeBackendKind::GeneratedRust
+        );
+    }
+
+    #[test]
+    fn rejects_unsupported_backend_value() {
+        let error = NativeBackendKind::from_str("direct-native")
+            .expect_err("unsupported backend values should be rejected");
+        assert!(
+            error.contains(
+                "only generated-rust is implemented in this preparatory backend plumbing"
+            )
+        );
+    }
+}
 
 pub fn render_rust(program: &Program) -> String {
     render_rust_with_debug(program, false)
@@ -40,6 +106,8 @@ pub fn render_rust_for_package_with_capabilities(
 ) -> String {
     let type_context = TypeContext::new(program);
     let uses_http_get = program_uses_call(program, "http_get");
+    let uses_http_serve_once = program_uses_call(program, "http_serve_once");
+    let uses_http_serve_route = program_uses_call(program, "http_serve_route");
     let uses_ffi = program.functions.iter().any(|function| function.is_extern);
     let uses_ffi_cstring = program
         .functions
@@ -99,23 +167,28 @@ pub fn render_rust_for_package_with_capabilities(
         "const AXIOM_ENV_UNRESTRICTED: bool = {};\n",
         capabilities.env_unrestricted
     ));
+    out.push_str(&format!(
+        "const AXIOM_ASYNC_CAPABILITY: bool = {};\n",
+        capabilities.async_runtime
+    ));
     out.push_str("const AXIOM_ENV_ALLOWLIST: &[&str] = &[\n");
     for name in &capabilities.env_vars {
         out.push_str(&format!("    {name:?},\n"));
     }
     out.push_str("];\n");
-    out.push_str("const AXIOM_MAX_FS_READ_BYTES: u64 = 64 * 1024 * 1024;\n\n");
+    out.push_str("const AXIOM_MAX_FS_READ_BYTES: u64 = 64 * 1024 * 1024;\n");
+    out.push_str("const AXIOM_MAX_FS_WRITE_BYTES: usize = 64 * 1024 * 1024;\n\n");
     out.push_str("struct AxiomRuntimeAbort;\n\n");
     out.push_str("#[allow(dead_code)]\n");
-    out.push_str("#[derive(Debug, PartialEq)]\n");
     out.push_str("struct AxiomTask<T> {\n");
-    out.push_str("    value: T,\n");
+    out.push_str("    value: Option<T>,\n");
+    out.push_str("    thunk: Option<Box<dyn FnOnce() -> T + Send>>,\n");
     out.push_str("    canceled: bool,\n");
     out.push_str("}\n\n");
     out.push_str("#[allow(dead_code)]\n");
-    out.push_str("#[derive(Debug, PartialEq)]\n");
     out.push_str("struct AxiomJoinHandle<T> {\n");
-    out.push_str("    task: AxiomTask<T>,\n");
+    out.push_str("    task: Option<AxiomTask<T>>,\n");
+    out.push_str("    worker: Option<std::thread::JoinHandle<AxiomTask<T>>>,\n");
     out.push_str("}\n\n");
     out.push_str("#[allow(dead_code)]\n");
     out.push_str("#[derive(Debug, PartialEq)]\n");
@@ -152,15 +225,101 @@ pub fn render_rust_for_package_with_capabilities(
     out.push_str("}\n\n");
     out.push_str("#[allow(dead_code)]\n");
     out.push_str("fn axiom_task_ready<T>(value: T) -> AxiomTask<T> {\n");
-    out.push_str("    AxiomTask { value, canceled: false }\n");
+    out.push_str("    AxiomTask { value: Some(value), thunk: None, canceled: false }\n");
     out.push_str("}\n\n");
     out.push_str("#[allow(dead_code)]\n");
-    out.push_str("fn axiom_await<T>(task: AxiomTask<T>) -> T {\n");
+    out.push_str("fn axiom_task_deferred<T: Send + 'static>(thunk: impl FnOnce() -> T + Send + 'static) -> AxiomTask<T> {\n");
+    out.push_str("    AxiomTask { value: None, thunk: Some(Box::new(thunk)), canceled: false }\n");
+    out.push_str("}\n\n");
+    out.push_str("#[allow(dead_code)]\n");
+    out.push_str("fn axiom_await<T>(mut task: AxiomTask<T>) -> T {\n");
     out.push_str("    if task.canceled {\n");
     out.push_str("        axiom_runtime_error(\"async\", \"awaited task was canceled\");\n");
     out.push_str("    }\n");
-    out.push_str("    task.value\n");
+    out.push_str("    if let Some(value) = task.value.take() { return value; }\n");
+    out.push_str("    match task.thunk.take() {\n");
+    out.push_str("        Some(thunk) => thunk(),\n");
+    out.push_str("        None => axiom_runtime_error(\"async\", \"task had no value or scheduled body\"),\n");
+    out.push_str("    }\n");
     out.push_str("}\n\n");
+    out.push_str(r#"#[allow(dead_code)]
+fn axiom_async_host_enabled() -> bool {
+    AXIOM_ASYNC_CAPABILITY
+        && std::env::var("AXIOM_ASYNC_EXECUTOR")
+            .map(|value| value.eq_ignore_ascii_case("host"))
+            .unwrap_or(false)
+}
+
+#[allow(dead_code)]
+fn axiom_async_spawn<T: Send + 'static>(task: AxiomTask<T>) -> AxiomJoinHandle<T> {
+    if axiom_async_host_enabled() {
+        AxiomJoinHandle {
+            task: None,
+            worker: Some(std::thread::spawn(move || axiom_task_ready(axiom_await(task)))),
+        }
+    } else {
+        AxiomJoinHandle {
+            task: Some(task),
+            worker: None,
+        }
+    }
+}
+
+#[allow(dead_code)]
+fn axiom_async_join<T: Send + 'static>(handle: AxiomJoinHandle<T>) -> AxiomTask<T> {
+    match (handle.task, handle.worker) {
+        (Some(task), None) => task,
+        (None, Some(worker)) => worker
+            .join()
+            .unwrap_or_else(|_| axiom_runtime_error("async", "host async worker panicked")),
+        _ => axiom_runtime_error("async", "invalid join handle state"),
+    }
+}
+
+#[allow(dead_code)]
+fn axiom_async_cancel<T>(mut task: AxiomTask<T>) -> AxiomTask<T> {
+    task.canceled = true;
+    task
+}
+
+#[allow(dead_code)]
+fn axiom_async_timeout<T: Send + 'static>(task: AxiomTask<T>, timeout_ms: i64) -> AxiomTask<Option<T>> {
+    if task.canceled {
+        return axiom_task_ready(None);
+    }
+    if axiom_async_host_enabled() {
+        let (tx, rx) = std::sync::mpsc::sync_channel(1);
+        let worker = std::thread::spawn(move || {
+            let value = axiom_await(task);
+            let _ = tx.send(());
+            value
+        });
+        match rx.recv_timeout(std::time::Duration::from_millis(timeout_ms.max(0) as u64)) {
+            Ok(()) => axiom_task_ready(Some(
+                worker
+                    .join()
+                    .unwrap_or_else(|_| axiom_runtime_error("async", "host async timeout worker panicked")),
+            )),
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                // Rust cannot forcibly cancel a running thread safely. The host
+                // executor therefore refuses to detach timed-out work: wait for
+                // completion to keep side effects inside the task lifecycle, then
+                // report that this task could not be safely timed out.
+                let _ = worker.join();
+                axiom_runtime_error("async", "host async timeout cannot cancel running task")
+            }
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                let _ = worker.join();
+                axiom_runtime_error("async", "host async timeout worker panicked")
+            }
+        }
+    } else {
+        let _timeout_ms = timeout_ms;
+        axiom_task_ready(Some(axiom_await(task)))
+    }
+}
+
+"#);
     out.push_str("#[allow(dead_code)]\n");
     out.push_str("fn axiom_array_get<T: Copy>(values: &[T], index: i64) -> T {\n");
     out.push_str("    if index < 0 {\n");
@@ -306,6 +465,101 @@ pub fn render_rust_for_package_with_capabilities(
     out.push_str("    }\n");
     out.push_str("    Some(out)\n");
     out.push_str("}\n\n");
+
+    out.push_str("#[allow(dead_code)]\n");
+    out.push_str("fn axiom_json_skip_ws(text: &str, mut index: usize) -> usize {\n");
+    out.push_str("    let bytes = text.as_bytes();\n");
+    out.push_str("    while index < bytes.len() && bytes[index].is_ascii_whitespace() {\n");
+    out.push_str("        index += 1;\n");
+    out.push_str("    }\n");
+    out.push_str("    index\n");
+    out.push_str("}\n\n");
+    out.push_str("#[allow(dead_code)]\n");
+    out.push_str("fn axiom_json_scan_string_end(text: &str, start: usize) -> Option<usize> {\n");
+    out.push_str("    let bytes = text.as_bytes();\n");
+    out.push_str("    if bytes.get(start).copied()? != b'\\\"' {\n");
+    out.push_str("        return None;\n");
+    out.push_str("    }\n");
+    out.push_str("    let mut index = start + 1;\n");
+    out.push_str("    while index < bytes.len() {\n");
+    out.push_str("        match bytes[index] {\n");
+    out.push_str("            b'\\\\' => index += 2,\n");
+    out.push_str("            b'\\\"' => return Some(index + 1),\n");
+    out.push_str("            _ => index += 1,\n");
+    out.push_str("        }\n");
+    out.push_str("    }\n");
+    out.push_str("    None\n");
+    out.push_str("}\n\n");
+    out.push_str("#[allow(dead_code)]\n");
+    out.push_str("fn axiom_json_scan_value_end(text: &str, start: usize) -> Option<usize> {\n");
+    out.push_str("    let bytes = text.as_bytes();\n");
+    out.push_str("    if start >= bytes.len() {\n");
+    out.push_str("        return None;\n");
+    out.push_str("    }\n");
+    out.push_str("    if bytes[start] == b'\\\"' {\n");
+    out.push_str("        return axiom_json_scan_string_end(text, start);\n");
+    out.push_str("    }\n");
+    out.push_str("    let mut index = start;\n");
+    out.push_str("    let mut depth = 0i64;\n");
+    out.push_str("    while index < bytes.len() {\n");
+    out.push_str("        match bytes[index] {\n");
+    out.push_str("            b'\\\"' => index = axiom_json_scan_string_end(text, index)?,\n");
+    out.push_str("            b'{' | b'[' => { depth += 1; index += 1; }\n");
+    out.push_str("            b'}' | b']' if depth > 0 => { depth -= 1; index += 1; }\n");
+    out.push_str("            b',' | b'}' if depth == 0 => return Some(index),\n");
+    out.push_str("            _ => index += 1,\n");
+    out.push_str("        }\n");
+    out.push_str("    }\n");
+    out.push_str("    Some(index)\n");
+    out.push_str("}\n\n");
+    out.push_str("#[allow(dead_code)]\n");
+    out.push_str("fn axiom_json_object_field(text: String, key: String) -> Option<String> {\n");
+    out.push_str("    let text = text.trim();\n");
+    out.push_str("    let bytes = text.as_bytes();\n");
+    out.push_str("    if bytes.first().copied()? != b'{' || bytes.last().copied()? != b'}' {\n");
+    out.push_str("        return None;\n");
+    out.push_str("    }\n");
+    out.push_str("    let mut index = 1usize;\n");
+    out.push_str("    loop {\n");
+    out.push_str("        index = axiom_json_skip_ws(text, index);\n");
+    out.push_str("        if index >= bytes.len() || bytes[index] == b'}' {\n");
+    out.push_str("            return None;\n");
+    out.push_str("        }\n");
+    out.push_str("        let key_end = axiom_json_scan_string_end(text, index)?;\n");
+    out.push_str(
+        "        let found_key = axiom_json_parse_string(text[index..key_end].to_string())?;\n",
+    );
+    out.push_str("        index = axiom_json_skip_ws(text, key_end);\n");
+    out.push_str("        if bytes.get(index).copied()? != b':' {\n");
+    out.push_str("            return None;\n");
+    out.push_str("        }\n");
+    out.push_str("        let value_start = axiom_json_skip_ws(text, index + 1);\n");
+    out.push_str("        let value_end = axiom_json_scan_value_end(text, value_start)?;\n");
+    out.push_str("        if found_key == key {\n");
+    out.push_str("            return Some(text[value_start..value_end].trim().to_string());\n");
+    out.push_str("        }\n");
+    out.push_str("        index = axiom_json_skip_ws(text, value_end);\n");
+    out.push_str("        match bytes.get(index).copied()? {\n");
+    out.push_str("            b',' => index += 1,\n");
+    out.push_str("            b'}' => return None,\n");
+    out.push_str("            _ => return None,\n");
+    out.push_str("        }\n");
+    out.push_str("    }\n");
+    out.push_str("}\n\n");
+    out.push_str("#[allow(dead_code)]\n");
+    out.push_str("fn axiom_json_parse_field_int(text: String, key: String) -> Option<i64> {\n");
+    out.push_str("    axiom_json_parse_int(axiom_json_object_field(text, key)?)\n");
+    out.push_str("}\n\n");
+    out.push_str("#[allow(dead_code)]\n");
+    out.push_str("fn axiom_json_parse_field_bool(text: String, key: String) -> Option<bool> {\n");
+    out.push_str("    axiom_json_parse_bool(axiom_json_object_field(text, key)?)\n");
+    out.push_str("}\n\n");
+    out.push_str("#[allow(dead_code)]\n");
+    out.push_str(
+        "fn axiom_json_parse_field_string(text: String, key: String) -> Option<String> {\n",
+    );
+    out.push_str("    axiom_json_parse_string(axiom_json_object_field(text, key)?)\n");
+    out.push_str("}\n\n");
     out.push_str("#[allow(dead_code)]\n");
     out.push_str("fn axiom_json_escape_string(value: &str) -> String {\n");
     out.push_str("    let mut out = String::from(\"\\\"\");\n");
@@ -337,6 +591,287 @@ pub fn render_rust_for_package_with_capabilities(
     out.push_str("fn axiom_json_stringify_string(value: String) -> String {\n");
     out.push_str("    axiom_json_escape_string(&value)\n");
     out.push_str("}\n\n");
+    out.push_str(r#"#[derive(Clone, Debug, PartialEq, Eq)]
+enum AxiomRegexAtom {
+    Literal(char),
+    Any,
+    Class { ranges: Vec<(char, char)>, negated: bool },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum AxiomRegexQuantifier {
+    One,
+    ZeroOrOne,
+    ZeroOrMore,
+    OneOrMore,
+}
+
+#[derive(Clone, Debug)]
+struct AxiomRegexToken {
+    atom: AxiomRegexAtom,
+    quantifier: AxiomRegexQuantifier,
+}
+
+#[derive(Clone, Debug)]
+struct AxiomRegexProgram {
+    tokens: Vec<AxiomRegexToken>,
+    start_anchor: bool,
+    end_anchor: bool,
+}
+
+fn axiom_regex_escape_char(ch: char) -> char {
+    match ch {
+        'n' => '\n',
+        'r' => '\r',
+        't' => '\t',
+        other => other,
+    }
+}
+
+fn axiom_regex_parse_atom(chars: &[char], pos: &mut usize) -> Option<AxiomRegexAtom> {
+    if *pos >= chars.len() {
+        return None;
+    }
+    let ch = chars[*pos];
+    *pos += 1;
+    match ch {
+        '.' => Some(AxiomRegexAtom::Any),
+        '\\' => {
+            if *pos >= chars.len() {
+                Some(AxiomRegexAtom::Literal('\\'))
+            } else {
+                let escaped = axiom_regex_escape_char(chars[*pos]);
+                *pos += 1;
+                Some(AxiomRegexAtom::Literal(escaped))
+            }
+        }
+        '[' => {
+            let mut negated = false;
+            if *pos < chars.len() && chars[*pos] == '^' {
+                negated = true;
+                *pos += 1;
+            }
+            let mut ranges = Vec::new();
+            let mut first = true;
+            while *pos < chars.len() {
+                if chars[*pos] == ']' && !first {
+                    *pos += 1;
+                    return Some(AxiomRegexAtom::Class { ranges, negated });
+                }
+                first = false;
+                let start = if chars[*pos] == '\\' {
+                    *pos += 1;
+                    if *pos >= chars.len() { return None; }
+                    let escaped = axiom_regex_escape_char(chars[*pos]);
+                    *pos += 1;
+                    escaped
+                } else {
+                    let value = chars[*pos];
+                    *pos += 1;
+                    value
+                };
+                if *pos + 1 < chars.len() && chars[*pos] == '-' && chars[*pos + 1] != ']' {
+                    *pos += 1;
+                    let end = if chars[*pos] == '\\' {
+                        *pos += 1;
+                        if *pos >= chars.len() { return None; }
+                        let escaped = axiom_regex_escape_char(chars[*pos]);
+                        *pos += 1;
+                        escaped
+                    } else {
+                        let value = chars[*pos];
+                        *pos += 1;
+                        value
+                    };
+                    if start <= end {
+                        ranges.push((start, end));
+                    } else {
+                        ranges.push((end, start));
+                    }
+                } else {
+                    ranges.push((start, start));
+                }
+            }
+            None
+        }
+        '(' | ')' | '|' => None,
+        other => Some(AxiomRegexAtom::Literal(other)),
+    }
+}
+
+fn axiom_regex_parse(pattern: &str) -> Option<AxiomRegexProgram> {
+    let chars: Vec<char> = pattern.chars().collect();
+    let mut pos = 0usize;
+    let mut start_anchor = false;
+    let mut end_anchor = false;
+    if pos < chars.len() && chars[pos] == '^' {
+        start_anchor = true;
+        pos += 1;
+    }
+    let mut parse_end = chars.len();
+    if parse_end > pos && chars[parse_end - 1] == '$' {
+        let escaped = parse_end >= 2 && chars[parse_end - 2] == '\\';
+        if !escaped {
+            end_anchor = true;
+            parse_end -= 1;
+        }
+    }
+    let mut tokens = Vec::new();
+    while pos < parse_end {
+        let mut atom_pos = pos;
+        let atom = axiom_regex_parse_atom(&chars[..parse_end], &mut atom_pos)?;
+        pos = atom_pos;
+        let quantifier = if pos < parse_end {
+            match chars[pos] {
+                '?' => { pos += 1; AxiomRegexQuantifier::ZeroOrOne }
+                '*' => { pos += 1; AxiomRegexQuantifier::ZeroOrMore }
+                '+' => { pos += 1; AxiomRegexQuantifier::OneOrMore }
+                _ => AxiomRegexQuantifier::One,
+            }
+        } else {
+            AxiomRegexQuantifier::One
+        };
+        tokens.push(AxiomRegexToken { atom, quantifier });
+    }
+    Some(AxiomRegexProgram { tokens, start_anchor, end_anchor })
+}
+
+fn axiom_regex_atom_matches(atom: &AxiomRegexAtom, ch: char) -> bool {
+    match atom {
+        AxiomRegexAtom::Literal(expected) => *expected == ch,
+        AxiomRegexAtom::Any => true,
+        AxiomRegexAtom::Class { ranges, negated } => {
+            let found = ranges.iter().any(|(start, end)| *start <= ch && ch <= *end);
+            if *negated { !found } else { found }
+        }
+    }
+}
+
+fn axiom_regex_add_state(program: &AxiomRegexProgram, states: &mut Vec<usize>, state: usize) {
+    if states.contains(&state) {
+        return;
+    }
+    states.push(state);
+    if state >= program.tokens.len() {
+        return;
+    }
+    match program.tokens[state].quantifier {
+        AxiomRegexQuantifier::ZeroOrOne | AxiomRegexQuantifier::ZeroOrMore => {
+            axiom_regex_add_state(program, states, state + 1);
+        }
+        AxiomRegexQuantifier::One | AxiomRegexQuantifier::OneOrMore => {}
+    }
+}
+
+fn axiom_regex_accepts(program: &AxiomRegexProgram, states: &[usize], at_text_end: bool) -> bool {
+    states.iter().any(|state| {
+        *state == program.tokens.len() && (!program.end_anchor || at_text_end)
+    })
+}
+
+fn axiom_regex_match_from(program: &AxiomRegexProgram, text: &[char], start: usize) -> Option<usize> {
+    let mut states = Vec::new();
+    axiom_regex_add_state(program, &mut states, 0);
+    let mut last_accept = if axiom_regex_accepts(program, &states, start == text.len()) {
+        Some(start)
+    } else {
+        None
+    };
+    let mut pos = start;
+    while pos < text.len() {
+        let ch = text[pos];
+        let mut next = Vec::new();
+        for state in states.iter().copied() {
+            if state >= program.tokens.len() {
+                continue;
+            }
+            let token = &program.tokens[state];
+            if !axiom_regex_atom_matches(&token.atom, ch) {
+                continue;
+            }
+            match token.quantifier {
+                AxiomRegexQuantifier::One | AxiomRegexQuantifier::ZeroOrOne => {
+                    axiom_regex_add_state(program, &mut next, state + 1);
+                }
+                AxiomRegexQuantifier::ZeroOrMore => {
+                    axiom_regex_add_state(program, &mut next, state);
+                    axiom_regex_add_state(program, &mut next, state + 1);
+                }
+                AxiomRegexQuantifier::OneOrMore => {
+                    axiom_regex_add_state(program, &mut next, state);
+                    axiom_regex_add_state(program, &mut next, state + 1);
+                }
+            }
+        }
+        pos += 1;
+        if axiom_regex_accepts(program, &next, pos == text.len()) {
+            last_accept = Some(pos);
+        }
+        states = next;
+        if states.is_empty() {
+            return last_accept;
+        }
+    }
+    last_accept
+}
+
+fn axiom_regex_find_span(pattern: &str, text: &str) -> Option<(usize, usize)> {
+    let program = axiom_regex_parse(pattern)?;
+    let chars: Vec<char> = text.chars().collect();
+    let byte_offsets: Vec<usize> = text.char_indices().map(|(idx, _)| idx).chain(std::iter::once(text.len())).collect();
+    let starts: Box<dyn Iterator<Item = usize>> = if program.start_anchor {
+        Box::new(std::iter::once(0))
+    } else {
+        Box::new(0..=chars.len())
+    };
+    for start in starts {
+        if let Some(end) = axiom_regex_match_from(&program, &chars, start) {
+            return Some((byte_offsets[start], byte_offsets[end]));
+        }
+    }
+    None
+}
+
+#[allow(dead_code)]
+fn axiom_regex_is_match(pattern: String, text: String) -> bool {
+    axiom_regex_find_span(&pattern, &text).is_some()
+}
+
+#[allow(dead_code)]
+fn axiom_regex_find(pattern: String, text: String) -> Option<String> {
+    let (start, end) = axiom_regex_find_span(&pattern, &text)?;
+    Some(text[start..end].to_string())
+}
+
+#[allow(dead_code)]
+fn axiom_regex_replace_all(pattern: String, text: String, replacement: String) -> String {
+    if axiom_regex_parse(&pattern).is_none() {
+        return text;
+    }
+    let mut remaining = text.as_str();
+    let mut out = String::new();
+    loop {
+        let Some((start, end)) = axiom_regex_find_span(&pattern, remaining) else {
+            out.push_str(remaining);
+            break;
+        };
+        out.push_str(&remaining[..start]);
+        out.push_str(&replacement);
+        if end == 0 {
+            if let Some(ch) = remaining.chars().next() {
+                out.push(ch);
+                remaining = &remaining[ch.len_utf8()..];
+            } else {
+                break;
+            }
+        } else {
+            remaining = &remaining[end..];
+        }
+    }
+    out
+}
+
+"#);
     out.push_str("#[allow(dead_code)]\n");
     out.push_str("fn axiom_fs_read(path: String) -> Option<String> {\n");
     out.push_str("    use std::io::Read;\n");
@@ -370,6 +905,190 @@ pub fn render_rust_for_package_with_capabilities(
     out.push_str("    }\n");
     out.push_str("    Some(content)\n");
     out.push_str("}\n\n");
+    out.push_str(
+        r#"#[allow(dead_code)]
+fn axiom_fs_candidate(path: &str, allow_missing_ancestors: bool) -> Option<std::path::PathBuf> {
+    let canonical_package_root = std::fs::canonicalize(AXIOM_PACKAGE_ROOT).ok()?;
+    let canonical_fs_root = std::fs::canonicalize(AXIOM_FS_ROOT).ok()?;
+    if !canonical_fs_root.starts_with(&canonical_package_root) {
+        return None;
+    }
+    let requested = std::path::Path::new(path);
+    if requested.as_os_str().is_empty() {
+        return None;
+    }
+    if requested
+        .components()
+        .any(|component| matches!(component, std::path::Component::ParentDir))
+    {
+        return None;
+    }
+    let candidate = if requested.is_absolute() {
+        requested.to_path_buf()
+    } else {
+        canonical_package_root.join(requested)
+    };
+    if let Ok(canonical_candidate) = std::fs::canonicalize(&candidate) {
+        if canonical_candidate.starts_with(&canonical_fs_root) {
+            return Some(canonical_candidate);
+        }
+        return None;
+    }
+    let parent = candidate.parent()?;
+    if !allow_missing_ancestors {
+        let canonical_parent = std::fs::canonicalize(parent).ok()?;
+        if !canonical_parent.starts_with(&canonical_fs_root) {
+            return None;
+        }
+        let file_name = candidate.file_name()?;
+        return Some(canonical_parent.join(file_name));
+    }
+    let mut ancestor = parent;
+    while !ancestor.exists() {
+        ancestor = ancestor.parent()?;
+    }
+    let canonical_ancestor = std::fs::canonicalize(ancestor).ok()?;
+    if !canonical_ancestor.starts_with(&canonical_fs_root) {
+        return None;
+    }
+    Some(candidate)
+}
+
+#[allow(dead_code)]
+fn axiom_fs_write(path: String, content: String) -> i64 {
+    if content.len() > AXIOM_MAX_FS_WRITE_BYTES {
+        return -1;
+    }
+    match axiom_fs_candidate(&path, false) {
+        Some(candidate) => match std::fs::write(candidate, content) {
+            Ok(()) => 0,
+            Err(_) => -1,
+        },
+        None => -1,
+    }
+}
+
+#[allow(dead_code)]
+fn axiom_fs_create(path: String) -> i64 {
+    match axiom_fs_candidate(&path, false) {
+        Some(candidate) => match std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(candidate)
+        {
+            Ok(_) => 0,
+            Err(_) => -1,
+        },
+        None => -1,
+    }
+}
+
+#[allow(dead_code)]
+fn axiom_fs_append(path: String, content: String) -> i64 {
+    if content.len() > AXIOM_MAX_FS_WRITE_BYTES {
+        return -1;
+    }
+    match axiom_fs_candidate(&path, false) {
+        Some(candidate) => match std::fs::OpenOptions::new()
+            .append(true)
+            .create(true)
+            .open(candidate)
+        {
+            Ok(mut file) => {
+                use std::io::Write;
+                match file.write_all(content.as_bytes()) {
+                    Ok(()) => 0,
+                    Err(_) => -1,
+                }
+            }
+            Err(_) => -1,
+        },
+        None => -1,
+    }
+}
+
+#[allow(dead_code)]
+fn axiom_fs_mkdir(path: String) -> i64 {
+    match axiom_fs_candidate(&path, false) {
+        Some(candidate) => match std::fs::create_dir(candidate) {
+            Ok(()) => 0,
+            Err(_) => -1,
+        },
+        None => -1,
+    }
+}
+
+#[allow(dead_code)]
+fn axiom_fs_mkdir_all(path: String) -> i64 {
+    match axiom_fs_candidate(&path, true) {
+        Some(candidate) => match std::fs::create_dir_all(candidate) {
+            Ok(()) => 0,
+            Err(_) => -1,
+        },
+        None => -1,
+    }
+}
+
+#[allow(dead_code)]
+fn axiom_fs_remove_file(path: String) -> i64 {
+    match axiom_fs_candidate(&path, false) {
+        Some(candidate) => match std::fs::metadata(&candidate) {
+            Ok(metadata) if metadata.is_file() => match std::fs::remove_file(candidate) {
+                Ok(()) => 0,
+                Err(_) => -1,
+            },
+            _ => -1,
+        },
+        None => -1,
+    }
+}
+
+#[allow(dead_code)]
+fn axiom_fs_remove_dir(path: String) -> i64 {
+    match axiom_fs_candidate(&path, false) {
+        Some(candidate) => match std::fs::metadata(&candidate) {
+            Ok(metadata) if metadata.is_dir() => match std::fs::remove_dir(candidate) {
+                Ok(()) => 0,
+                Err(_) => -1,
+            },
+            _ => -1,
+        },
+        None => -1,
+    }
+}
+
+#[allow(dead_code)]
+fn axiom_fs_replace(path: String, content: String) -> i64 {
+    if content.len() > AXIOM_MAX_FS_WRITE_BYTES {
+        return -1;
+    }
+    match axiom_fs_candidate(&path, false) {
+        Some(candidate) => {
+            let Some(parent) = candidate.parent() else {
+                return -1;
+            };
+            let stamp = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|duration| duration.as_nanos())
+                .unwrap_or(0);
+            let temp = parent.join(format!(".axiom-replace-{}-{stamp}.tmp", std::process::id()));
+            match std::fs::write(&temp, content) {
+                Ok(()) => match std::fs::rename(&temp, &candidate) {
+                    Ok(()) => 0,
+                    Err(_) => {
+                        let _ = std::fs::remove_file(&temp);
+                        -1
+                    }
+                },
+                Err(_) => -1,
+            }
+        }
+        None => -1,
+    }
+}
+
+"#,
+    );
     out.push_str("#[allow(dead_code)]\n");
     out.push_str("fn axiom_is_blocked_network_ip(ip: std::net::IpAddr) -> bool {\n");
     out.push_str("    match ip {\n");
@@ -548,7 +1267,7 @@ fn axiom_net_udp_send_recv(host: String, port: i64, message: String, timeout_ms:
 
 "#,
     );
-    if uses_http_get {
+    if uses_http_get || uses_http_serve_once || uses_http_serve_route {
         out.push_str(
             r#"#[allow(dead_code)]
 fn axiom_http_strip_crlf(value: &str) -> String {
@@ -953,6 +1672,163 @@ fn axiom_http_get(url: String) -> Option<String> {
     axiom_http_read_response(&mut stream)
 }
 
+#[allow(dead_code)]
+fn axiom_http_read_request<R: std::io::Read>(reader: &mut R) -> Option<String> {
+    const MAX_HEADER_BYTES: usize = 64 * 1024;
+    let mut raw = Vec::new();
+    let mut buf = [0u8; 4096];
+    loop {
+        let n = reader.read(&mut buf).ok()?;
+        if n == 0 {
+            return None;
+        }
+        raw.extend_from_slice(&buf[..n]);
+        if raw.windows(4).any(|w| w == b"\r\n\r\n") {
+            let request = String::from_utf8_lossy(&raw);
+            let request_line = request.lines().next()?;
+            let mut parts = request_line.split_whitespace();
+            let method = parts.next()?;
+            let path = parts.next()?;
+            if method != "GET" && method != "HEAD" {
+                return Some(String::from(""));
+            }
+            return Some(axiom_http_strip_crlf(path));
+        }
+        if raw.len() > MAX_HEADER_BYTES {
+            return None;
+        }
+    }
+}
+
+#[allow(dead_code)]
+fn axiom_http_response_with_status(status: &str, body: &str) -> Vec<u8> {
+    let body_bytes = body.as_bytes();
+    let headers = format!(
+        "HTTP/1.0 {status}\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+        body_bytes.len()
+    );
+    let mut response = headers.into_bytes();
+    response.extend_from_slice(body_bytes);
+    response
+}
+
+#[allow(dead_code)]
+fn axiom_http_response(body: &str) -> Vec<u8> {
+    axiom_http_response_with_status("200 OK", body)
+}
+
+#[allow(dead_code)]
+fn axiom_http_loopback_bind_addr(bind: &str) -> Option<std::net::SocketAddr> {
+    use std::net::ToSocketAddrs;
+    let addrs: Vec<std::net::SocketAddr> = bind.to_socket_addrs().ok()?.collect();
+    if addrs.is_empty() || addrs.iter().any(|addr| !addr.ip().is_loopback()) {
+        return None;
+    }
+    addrs.into_iter().next()
+}
+
+#[allow(dead_code)]
+fn axiom_http_serve_route(bind: String, route_path: String, body: String, max_requests: i64) -> bool {
+    use std::io::Write;
+    use std::net::TcpListener;
+    use std::time::Duration;
+
+    if max_requests <= 0 || max_requests > 1024 {
+        axiom_runtime_report("net", "http server max_requests must be between 1 and 1024");
+        return false;
+    }
+    let Some(addr) = axiom_http_loopback_bind_addr(bind.as_str()) else {
+        axiom_runtime_report("net", "http server bind address must resolve only to loopback");
+        return false;
+    };
+    let listener = match TcpListener::bind(addr) {
+        Ok(listener) => listener,
+        Err(err) => {
+            axiom_runtime_report("net", &format!("http server bind failed: {err}"));
+            return false;
+        }
+    };
+    let mut handles = Vec::new();
+    for _ in 0..max_requests {
+        let (mut stream, _) = match listener.accept() {
+            Ok(pair) => pair,
+            Err(err) => {
+                axiom_runtime_report("net", &format!("http server accept failed: {err}"));
+                return false;
+            }
+        };
+        let route_path = route_path.clone();
+        let body = body.clone();
+        handles.push(std::thread::spawn(move || -> bool {
+            if stream.set_read_timeout(Some(Duration::from_secs(5))).is_err() {
+                return false;
+            }
+            if stream.set_write_timeout(Some(Duration::from_secs(5))).is_err() {
+                return false;
+            }
+            let request_path = match axiom_http_read_request(&mut stream) {
+                Some(path) => path,
+                None => return false,
+            };
+            let response = if request_path == route_path {
+                axiom_http_response(body.as_str())
+            } else {
+                axiom_http_response_with_status("404 Not Found", "not found")
+            };
+            stream.write_all(&response).is_ok()
+        }));
+    }
+    let mut ok = true;
+    for handle in handles {
+        ok = handle.join().unwrap_or(false) && ok;
+    }
+    ok
+}
+
+#[allow(dead_code)]
+fn axiom_http_serve_once(bind: String, body: String) -> bool {
+    use std::io::Write;
+    use std::net::TcpListener;
+    use std::time::Duration;
+
+    let Some(addr) = axiom_http_loopback_bind_addr(bind.as_str()) else {
+        axiom_runtime_report("net", "http server bind address must resolve only to loopback");
+        return false;
+    };
+    let listener = match TcpListener::bind(addr) {
+        Ok(listener) => listener,
+        Err(err) => {
+            axiom_runtime_report("net", &format!("http server bind failed: {err}"));
+            return false;
+        }
+    };
+    let (mut stream, _) = match listener.accept() {
+        Ok(pair) => pair,
+        Err(err) => {
+            axiom_runtime_report("net", &format!("http server accept failed: {err}"));
+            return false;
+        }
+    };
+    if stream.set_read_timeout(Some(Duration::from_secs(5))).is_err() {
+        axiom_runtime_report("net", "http server read timeout setup failed");
+        return false;
+    }
+    if stream.set_write_timeout(Some(Duration::from_secs(5))).is_err() {
+        axiom_runtime_report("net", "http server write timeout setup failed");
+        return false;
+    }
+    if axiom_http_read_request(&mut stream).is_none() {
+        axiom_runtime_report("net", "http server request read failed");
+        return false;
+    }
+    let response = axiom_http_response(body.as_str());
+    if stream.write_all(&response).is_err() {
+        axiom_runtime_report("net", "http server response write failed");
+        return false;
+    }
+    true
+}
+
 "#,
         );
     }
@@ -1102,6 +1978,149 @@ fn axiom_http_get(url: String) -> Option<String> {
     out.push_str("    }\n");
     out.push_str("    output\n");
     out.push_str("}\n\n");
+    out.push_str(
+        r#"#[allow(dead_code)]
+fn axiom_crypto_sha256_bytes(input: &[u8]) -> [u8; 32] {
+    const K: [u32; 64] = [
+        0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5,
+        0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
+        0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3,
+        0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
+        0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc,
+        0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
+        0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7,
+        0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
+        0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13,
+        0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
+        0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3,
+        0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
+        0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5,
+        0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+        0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208,
+        0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2,
+    ];
+    let mut state: [u32; 8] = [
+        0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a,
+        0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19,
+    ];
+    let mut data = input.to_vec();
+    let bit_len = (data.len() as u64) * 8;
+    data.push(0x80);
+    while data.len() % 64 != 56 {
+        data.push(0);
+    }
+    data.extend_from_slice(&bit_len.to_be_bytes());
+    for chunk in data.chunks(64) {
+        let mut schedule = [0u32; 64];
+        for (index, word) in schedule.iter_mut().take(16).enumerate() {
+            let start = index * 4;
+            *word = u32::from_be_bytes([
+                chunk[start],
+                chunk[start + 1],
+                chunk[start + 2],
+                chunk[start + 3],
+            ]);
+        }
+        for index in 16..64 {
+            let s0 = schedule[index - 15].rotate_right(7)
+                ^ schedule[index - 15].rotate_right(18)
+                ^ (schedule[index - 15] >> 3);
+            let s1 = schedule[index - 2].rotate_right(17)
+                ^ schedule[index - 2].rotate_right(19)
+                ^ (schedule[index - 2] >> 10);
+            schedule[index] = schedule[index - 16]
+                .wrapping_add(s0)
+                .wrapping_add(schedule[index - 7])
+                .wrapping_add(s1);
+        }
+        let mut a = state[0];
+        let mut b = state[1];
+        let mut c = state[2];
+        let mut d = state[3];
+        let mut e = state[4];
+        let mut f = state[5];
+        let mut g = state[6];
+        let mut h = state[7];
+        for index in 0..64 {
+            let sigma1 = e.rotate_right(6) ^ e.rotate_right(11) ^ e.rotate_right(25);
+            let choice = (e & f) ^ ((!e) & g);
+            let temp1 = h
+                .wrapping_add(sigma1)
+                .wrapping_add(choice)
+                .wrapping_add(K[index])
+                .wrapping_add(schedule[index]);
+            let sigma0 = a.rotate_right(2) ^ a.rotate_right(13) ^ a.rotate_right(22);
+            let majority = (a & b) ^ (a & c) ^ (b & c);
+            let temp2 = sigma0.wrapping_add(majority);
+            h = g;
+            g = f;
+            f = e;
+            e = d.wrapping_add(temp1);
+            d = c;
+            c = b;
+            b = a;
+            a = temp1.wrapping_add(temp2);
+        }
+        state[0] = state[0].wrapping_add(a);
+        state[1] = state[1].wrapping_add(b);
+        state[2] = state[2].wrapping_add(c);
+        state[3] = state[3].wrapping_add(d);
+        state[4] = state[4].wrapping_add(e);
+        state[5] = state[5].wrapping_add(f);
+        state[6] = state[6].wrapping_add(g);
+        state[7] = state[7].wrapping_add(h);
+    }
+    let mut output = [0u8; 32];
+    for (index, value) in state.iter().enumerate() {
+        output[index * 4..index * 4 + 4].copy_from_slice(&value.to_be_bytes());
+    }
+    output
+}
+
+#[allow(dead_code)]
+fn axiom_crypto_hex_lower(bytes: &[u8]) -> String {
+    let mut output = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        output.push_str(&format!("{byte:02x}"));
+    }
+    output
+}
+
+#[allow(dead_code)]
+fn axiom_crypto_hmac_sha256(key: String, message: String) -> String {
+    let mut key_bytes = key.into_bytes();
+    if key_bytes.len() > 64 {
+        key_bytes = axiom_crypto_sha256_bytes(&key_bytes).to_vec();
+    }
+    key_bytes.resize(64, 0);
+    let mut inner = Vec::with_capacity(64 + message.len());
+    let mut outer = Vec::with_capacity(64 + 32);
+    for byte in key_bytes {
+        inner.push(byte ^ 0x36);
+        outer.push(byte ^ 0x5c);
+    }
+    inner.extend_from_slice(message.as_bytes());
+    let inner_digest = axiom_crypto_sha256_bytes(&inner);
+    outer.extend_from_slice(&inner_digest);
+    axiom_crypto_hex_lower(&axiom_crypto_sha256_bytes(&outer))
+}
+
+#[allow(dead_code)]
+fn axiom_crypto_constant_time_eq(left: String, right: String) -> bool {
+    let left = left.as_bytes();
+    let right = right.as_bytes();
+    if left.len() != right.len() {
+        return false;
+    }
+    let mut diff = 0u8;
+    for (&left_byte, &right_byte) in left.iter().zip(right.iter()) {
+        diff |= left_byte ^ right_byte;
+    }
+    diff == 0
+}
+
+"#,
+    );
     out.push_str("#[allow(dead_code)]\n");
     out.push_str(
         "fn axiom_map_get<K: Eq + std::hash::Hash, V: Copy>(values: &HashMap<K, V>, key: &K) -> V {\n",
@@ -1237,6 +2256,7 @@ fn expr_uses_call(expr: &Expr, name: &str) -> bool {
         Expr::Index { base, index, .. } => {
             expr_uses_call(base, name) || expr_uses_call(index, name)
         }
+        Expr::Closure { body, .. } => expr_uses_call(body, name),
         Expr::Literal(_) | Expr::VarRef { .. } => false,
     }
 }
@@ -1346,6 +2366,15 @@ impl<'a> TypeContext<'a> {
             | Type::SelectResult(inner) => {
                 self.type_contains_borrowed_slice_inner(inner, visiting_structs, visiting_enums)
             }
+            Type::Fn(params, return_ty) => {
+                params.iter().any(|param| {
+                    self.type_contains_borrowed_slice_inner(param, visiting_structs, visiting_enums)
+                }) || self.type_contains_borrowed_slice_inner(
+                    return_ty,
+                    visiting_structs,
+                    visiting_enums,
+                )
+            }
         }
     }
 }
@@ -1446,16 +2475,31 @@ fn render_function(
         params,
         rust_type_in_signature(&function.return_ty, uses_slice_lifetime, type_context)
     ));
-    render_stmt_block(
-        &function.body,
-        type_context,
-        out,
-        1,
-        &function.path,
-        function.is_async,
-        debug,
-        &[],
-    );
+    if function.is_async {
+        out.push_str("    axiom_task_deferred(move || {\n");
+        render_stmt_block(
+            &function.body,
+            type_context,
+            out,
+            2,
+            &function.path,
+            false,
+            debug,
+            &[],
+        );
+        out.push_str("    })\n");
+    } else {
+        render_stmt_block(
+            &function.body,
+            type_context,
+            out,
+            1,
+            &function.path,
+            false,
+            debug,
+            &[],
+        );
+    }
     out.push_str("}\n");
 }
 
@@ -1804,7 +2848,35 @@ fn render_match_arm(
 ) {
     let pad = "    ".repeat(indent);
     if arm.bindings.is_empty() {
-        out.push_str(&format!("{pad}{}::{} => {{\n", arm.enum_name, arm.variant));
+        let variant = type_context
+            .enums
+            .get(arm.enum_name.as_str())
+            .and_then(|enum_def| {
+                enum_def
+                    .variants
+                    .iter()
+                    .find(|variant| variant.name == arm.variant)
+            });
+        let pattern = if let Some(variant) = variant {
+            if variant.payload_tys.is_empty() {
+                format!("{}::{}", arm.enum_name, arm.variant)
+            } else if arm.ignore_payloads && !variant.payload_names.is_empty() {
+                format!("{}::{} {{ .. }}", arm.enum_name, arm.variant)
+            } else if arm.ignore_payloads {
+                format!("{}::{}(..)", arm.enum_name, arm.variant)
+            } else {
+                format!("{}::{}", arm.enum_name, arm.variant)
+            }
+        } else if arm.enum_name == "Option" && arm.variant == "Some" {
+            String::from("Option::Some(_)")
+        } else if arm.enum_name == "Result" && arm.variant == "Ok" {
+            String::from("Result::Ok(_)")
+        } else if arm.enum_name == "Result" && arm.variant == "Err" {
+            String::from("Result::Err(_)")
+        } else {
+            format!("{}::{}", arm.enum_name, arm.variant)
+        };
+        out.push_str(&format!("{pad}{pattern} => {{\n"));
     } else if arm.is_named {
         out.push_str(&format!(
             "{pad}{}::{} {{ {} }} => {{\n",
@@ -1865,6 +2937,25 @@ fn render_expr(expr: &Expr) -> String {
                 render_expr(&args[2])
             )
         }
+        Expr::Call { name, args, .. } if name == "assert_property" => {
+            format!(
+                "{{ let name = {}; let holds = {}; if holds {{ 0i64 }} else {{ axiom_assert_fail(format!(\"property {{:?}} failed\", name), {}, {}) }} }}",
+                render_expr(&args[0]),
+                render_expr(&args[1]),
+                render_expr(&args[2]),
+                render_expr(&args[3])
+            )
+        }
+        Expr::Call { name, args, .. } if name == "assert_snapshot" => {
+            format!(
+                "{{ let name = {}; let actual = {}; let expected = {}; if actual == expected {{ 0i64 }} else {{ axiom_assert_fail(format!(\"snapshot {{:?}} mismatch: expected {{:?}}, got {{:?}}\", name, expected, actual), {}, {}) }} }}",
+                render_expr(&args[0]),
+                render_expr(&args[1]),
+                render_expr(&args[2]),
+                render_expr(&args[3]),
+                render_expr(&args[4])
+            )
+        }
         Expr::Call { name, args, .. } if name == "assert_contains" => {
             format!(
                 "{{ let haystack = {}; let needle = {}; if haystack.contains(&needle) {{ 0i64 }} else {{ axiom_assert_fail(format!(\"expected {{:?}} to contain {{:?}}\", haystack, needle), {}, {}) }} }}",
@@ -1881,6 +2972,16 @@ fn render_expr(expr: &Expr) -> String {
                 render_expr(&args[1]),
                 render_expr(&args[2]),
                 render_expr(&args[3])
+            )
+        }
+        Expr::Call { name, args, .. } if name == "assert_case_eq" => {
+            format!(
+                "{{ let name = {}; let left = {}; let right = {}; if left == right {{ 0i64 }} else {{ axiom_assert_fail(format!(\"table case {{:?}} failed: expected {{:?}}, got {{:?}}\", name, right, left), {}, {}) }} }}",
+                render_expr(&args[0]),
+                render_expr(&args[1]),
+                render_expr(&args[2]),
+                render_expr(&args[3]),
+                render_expr(&args[4])
             )
         }
         Expr::Call { name, args, .. } if name == "assert_ne" => {
@@ -1907,6 +3008,27 @@ fn render_expr(expr: &Expr) -> String {
         Expr::Call { name, args, .. } if name == "json_parse_string" => {
             format!("axiom_json_parse_string({})", render_expr(&args[0]))
         }
+        Expr::Call { name, args, .. } if name == "json_parse_field_int" => {
+            format!(
+                "axiom_json_parse_field_int({}, {})",
+                render_expr(&args[0]),
+                render_expr(&args[1])
+            )
+        }
+        Expr::Call { name, args, .. } if name == "json_parse_field_bool" => {
+            format!(
+                "axiom_json_parse_field_bool({}, {})",
+                render_expr(&args[0]),
+                render_expr(&args[1])
+            )
+        }
+        Expr::Call { name, args, .. } if name == "json_parse_field_string" => {
+            format!(
+                "axiom_json_parse_field_string({}, {})",
+                render_expr(&args[0]),
+                render_expr(&args[1])
+            )
+        }
         Expr::Call { name, args, .. } if name == "json_stringify_int" => {
             format!("axiom_json_stringify_int({})", render_expr(&args[0]))
         }
@@ -1916,11 +3038,85 @@ fn render_expr(expr: &Expr) -> String {
         Expr::Call { name, args, .. } if name == "json_stringify_string" => {
             format!("axiom_json_stringify_string({})", render_expr(&args[0]))
         }
+        Expr::Call { name, args, .. } if name == "regex_is_match" => {
+            format!(
+                "axiom_regex_is_match({}, {})",
+                render_expr(&args[0]),
+                render_expr(&args[1])
+            )
+        }
+        Expr::Call { name, args, .. } if name == "regex_find" => {
+            format!(
+                "axiom_regex_find({}, {})",
+                render_expr(&args[0]),
+                render_expr(&args[1])
+            )
+        }
+        Expr::Call { name, args, .. } if name == "regex_replace_all" => {
+            format!(
+                "axiom_regex_replace_all({}, {}, {})",
+                render_expr(&args[0]),
+                render_expr(&args[1]),
+                render_expr(&args[2])
+            )
+        }
         Expr::Call { name, args, .. } if name == "fs_read" => {
             format!("axiom_fs_read({})", render_expr(&args[0]))
         }
+        Expr::Call { name, args, .. } if name == "fs_write" => {
+            format!(
+                "axiom_fs_write({}, {})",
+                render_expr(&args[0]),
+                render_expr(&args[1])
+            )
+        }
+        Expr::Call { name, args, .. } if name == "fs_create" => {
+            format!("axiom_fs_create({})", render_expr(&args[0]))
+        }
+        Expr::Call { name, args, .. } if name == "fs_append" => {
+            format!(
+                "axiom_fs_append({}, {})",
+                render_expr(&args[0]),
+                render_expr(&args[1])
+            )
+        }
+        Expr::Call { name, args, .. } if name == "fs_mkdir" => {
+            format!("axiom_fs_mkdir({})", render_expr(&args[0]))
+        }
+        Expr::Call { name, args, .. } if name == "fs_mkdir_all" => {
+            format!("axiom_fs_mkdir_all({})", render_expr(&args[0]))
+        }
+        Expr::Call { name, args, .. } if name == "fs_remove_file" => {
+            format!("axiom_fs_remove_file({})", render_expr(&args[0]))
+        }
+        Expr::Call { name, args, .. } if name == "fs_remove_dir" => {
+            format!("axiom_fs_remove_dir({})", render_expr(&args[0]))
+        }
+        Expr::Call { name, args, .. } if name == "fs_replace" => {
+            format!(
+                "axiom_fs_replace({}, {})",
+                render_expr(&args[0]),
+                render_expr(&args[1])
+            )
+        }
         Expr::Call { name, args, .. } if name == "http_get" => {
             format!("axiom_http_get({})", render_expr(&args[0]))
+        }
+        Expr::Call { name, args, .. } if name == "http_serve_once" => {
+            format!(
+                "axiom_http_serve_once({}, {})",
+                render_expr(&args[0]),
+                render_expr(&args[1])
+            )
+        }
+        Expr::Call { name, args, .. } if name == "http_serve_route" => {
+            format!(
+                "axiom_http_serve_route({}, {}, {}, {})",
+                render_expr(&args[0]),
+                render_expr(&args[1]),
+                render_expr(&args[2]),
+                render_expr(&args[3])
+            )
         }
         Expr::Call { name, args, .. } if name == "net_resolve" => {
             format!("axiom_net_resolve({})", render_expr(&args[0]))
@@ -1973,27 +3169,38 @@ fn render_expr(expr: &Expr) -> String {
         Expr::Call { name, args, .. } if name == "crypto_sha256" => {
             format!("axiom_crypto_sha256({})", render_expr(&args[0]))
         }
+        Expr::Call { name, args, .. } if name == "crypto_hmac_sha256" => {
+            format!(
+                "axiom_crypto_hmac_sha256({}, {})",
+                render_expr(&args[0]),
+                render_expr(&args[1])
+            )
+        }
+        Expr::Call { name, args, .. } if name == "crypto_constant_time_eq" => {
+            format!(
+                "axiom_crypto_constant_time_eq({}, {})",
+                render_expr(&args[0]),
+                render_expr(&args[1])
+            )
+        }
         Expr::Call { name, args, .. } if name == "async_ready" => {
             format!("axiom_task_ready({})", render_expr(&args[0]))
         }
         Expr::Call { name, args, .. } if name == "async_spawn" => {
-            format!("AxiomJoinHandle {{ task: {} }}", render_expr(&args[0]))
+            format!("axiom_async_spawn({})", render_expr(&args[0]))
         }
         Expr::Call { name, args, .. } if name == "async_join" => {
-            format!("({}).task", render_expr(&args[0]))
+            format!("axiom_async_join({})", render_expr(&args[0]))
         }
         Expr::Call { name, args, .. } if name == "async_cancel" => {
-            format!(
-                "{{ let task = {}; AxiomTask {{ value: task.value, canceled: true }} }}",
-                render_expr(&args[0])
-            )
+            format!("axiom_async_cancel({})", render_expr(&args[0]))
         }
         Expr::Call { name, args, .. } if name == "async_is_canceled" => {
             format!("({}).canceled", render_expr(&args[0]))
         }
         Expr::Call { name, args, .. } if name == "async_timeout" => {
             format!(
-                "{{ let task = {}; let _timeout_ms = {}; AxiomTask {{ value: if task.canceled {{ None }} else {{ Some(task.value) }}, canceled: false }} }}",
+                "axiom_async_timeout({}, {})",
                 render_expr(&args[0]),
                 render_expr(&args[1])
             )
@@ -2059,6 +3266,7 @@ fn render_expr(expr: &Expr) -> String {
             Type::JoinHandle(_) => unreachable!("type checker rejects join handle addition"),
             Type::AsyncChannel(_) => unreachable!("type checker rejects async channel addition"),
             Type::SelectResult(_) => unreachable!("type checker rejects select result addition"),
+            Type::Fn(_, _) => unreachable!("type checker rejects function addition"),
         },
         Expr::BinaryCompare { op, lhs, rhs, .. } => {
             format!("{} {} {}", render_expr(lhs), op.lexeme(), render_expr(rhs))
@@ -2130,6 +3338,17 @@ fn render_expr(expr: &Expr) -> String {
                 .collect::<Vec<_>>()
                 .join(", ");
             format!("vec![{rendered}]")
+        }
+        Expr::Closure { params, body, .. } => {
+            let rendered_params = params
+                .iter()
+                .map(|param| param.name.clone())
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!(
+                "Box::new(move |{rendered_params}| {{ {} }})",
+                render_expr(body)
+            )
         }
         Expr::Slice {
             base, start, end, ..
@@ -2322,6 +3541,15 @@ fn rust_type_inner(ty: &Type, lifetime: Option<&str>, type_context: &TypeContext
                 rust_type_inner(inner, lifetime, type_context)
             )
         }
+        Type::Fn(params, return_ty) => format!(
+            "Box<dyn Fn({}) -> {}>",
+            params
+                .iter()
+                .map(|param| rust_type_inner(param, lifetime, type_context))
+                .collect::<Vec<_>>()
+                .join(", "),
+            rust_type_inner(return_ty, lifetime, type_context)
+        ),
     }
 }
 
@@ -2374,6 +3602,22 @@ impl crate::mir::CompareOp {
 }
 
 pub fn compile_native(
+    backend: NativeBackendKind,
+    generated_rust: &Path,
+    binary_path: &Path,
+    target: Option<&str>,
+    debug: bool,
+) -> Result<(), Diagnostic> {
+    match backend {
+        NativeBackendKind::GeneratedRust => {
+            compile_generated_rust(generated_rust, binary_path, target, debug)
+        }
+    }
+}
+
+const BUILD_GENERATED_RUST_COMPILATION_FAILED: &str = "generated_rust_compilation_failed";
+
+fn compile_generated_rust(
     generated_rust: &Path,
     binary_path: &Path,
     target: Option<&str>,
@@ -2385,6 +3629,11 @@ pub fn compile_native(
         .arg("axiom_stage1_bootstrap")
         .arg("--edition=2024");
     if debug {
+        // The generated-rust backend asks rustc for native debuginfo for the
+        // Rust shim it compiles. Axiom source spans are emitted separately in
+        // the sidecar debug map; rustc path remapping is intentionally not used
+        // here because it cannot remap DWARF line-table rows to Axiom line
+        // numbers or represent multiple Axiom source files correctly.
         command
             .arg("-C")
             .arg("debuginfo=2")
@@ -2396,21 +3645,28 @@ pub fn compile_native(
     if let Some(target) = target {
         command.arg("--target").arg(target);
     }
-    let status = command
+    let output = command
         .arg(generated_rust)
         .arg("-o")
         .arg(binary_path)
-        .status()
+        .output()
         .map_err(|err| {
             Diagnostic::new("build", format!("failed to invoke rustc: {err}"))
                 .with_path(generated_rust.display().to_string())
         })?;
-    if !status.success() {
-        return Err(Diagnostic::new(
-            "build",
-            "rustc failed to produce the requested build artifact",
-        )
-        .with_path(generated_rust.display().to_string()));
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let message = if stderr.trim().is_empty() {
+            "rustc failed to produce the requested build artifact".to_string()
+        } else {
+            format!(
+                "rustc failed to produce the requested build artifact: {}",
+                stderr.trim()
+            )
+        };
+        return Err(Diagnostic::new("build", message)
+            .with_code(BUILD_GENERATED_RUST_COMPILATION_FAILED)
+            .with_path(generated_rust.display().to_string()));
     }
     Ok(())
 }

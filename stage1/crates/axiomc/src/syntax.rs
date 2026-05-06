@@ -155,6 +155,16 @@ pub enum Stmt {
         line: usize,
         column: usize,
     },
+    IfLet {
+        variant: String,
+        bindings: Vec<String>,
+        is_named: bool,
+        expr: Expr,
+        then_block: Vec<Stmt>,
+        else_block: Option<Vec<Stmt>>,
+        line: usize,
+        column: usize,
+    },
     While {
         cond: Expr,
         body: Vec<Stmt>,
@@ -194,11 +204,14 @@ pub enum TypeName {
     MutPtr(Box<TypeName>),
     Slice(Box<TypeName>),
     MutSlice(Box<TypeName>),
+    LifetimeSlice(String, Box<TypeName>),
+    LifetimeMutSlice(String, Box<TypeName>),
     Option(Box<TypeName>),
     Result(Box<TypeName>, Box<TypeName>),
     Tuple(Vec<TypeName>),
     Map(Box<TypeName>, Box<TypeName>),
-    Array(Box<TypeName>),
+    Array(Box<TypeName>, Option<String>),
+    Fn(Vec<TypeName>, Box<TypeName>),
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -293,6 +306,12 @@ pub enum Expr {
         line: usize,
         column: usize,
     },
+    Closure {
+        params: Vec<Param>,
+        body: Box<Expr>,
+        line: usize,
+        column: usize,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -328,6 +347,13 @@ pub enum CompareOp {
     Ge,
 }
 
+#[derive(Debug, Clone)]
+struct MacroRule {
+    name: String,
+    params: Vec<String>,
+    template: String,
+}
+
 pub fn parse_program(source: &str, path: &Path) -> Result<Program, Diagnostic> {
     parse_program_with_recovery(source, path).map_err(|mut diagnostics| {
         let mut first = diagnostics.remove(0);
@@ -337,6 +363,7 @@ pub fn parse_program(source: &str, path: &Path) -> Result<Program, Diagnostic> {
 }
 
 pub fn parse_program_with_recovery(source: &str, path: &Path) -> Result<Program, Vec<Diagnostic>> {
+    let source = expand_declarative_macros(source, path)?;
     let lines: Vec<&str> = source.lines().collect();
     let mut index = 0;
     let mut imports = Vec::new();
@@ -429,6 +456,9 @@ pub fn parse_program_with_recovery(source: &str, path: &Path) -> Result<Program,
         if trimmed.starts_with("const ")
             || trimmed.starts_with("pub const ")
             || trimmed.starts_with("pub(pkg) const ")
+            || trimmed.starts_with("static ")
+            || trimmed.starts_with("pub static ")
+            || trimmed.starts_with("pub(pkg) static ")
         {
             match parse_const_decl(trimmed, path, line_no) {
                 Ok(const_decl) => consts.push(const_decl),
@@ -515,6 +545,403 @@ pub fn parse_program_with_recovery(source: &str, path: &Path) -> Result<Program,
     })
 }
 
+fn expand_declarative_macros(source: &str, path: &Path) -> Result<String, Vec<Diagnostic>> {
+    let (macros, mut expanded) = collect_macro_rules(source, path)?;
+    if macros.is_empty() {
+        return Ok(expanded);
+    }
+    const MAX_MACRO_EXPANSION_DEPTH: usize = 32;
+    for _ in 0..MAX_MACRO_EXPANSION_DEPTH {
+        let (next, changed) = expand_macro_invocations_once(&expanded, &macros, path)?;
+        expanded = next;
+        if !changed {
+            return Ok(expanded);
+        }
+    }
+    Err(vec![Diagnostic::new(
+        "parse",
+        format!(
+            "declarative macro expansion exceeded bounded depth of {MAX_MACRO_EXPANSION_DEPTH}; check for recursive macro invocation"
+        ),
+    )
+    .with_path(path.display().to_string())
+    .with_span(1, 1)])
+}
+
+fn collect_macro_rules(
+    source: &str,
+    path: &Path,
+) -> Result<(std::collections::HashMap<String, MacroRule>, String), Vec<Diagnostic>> {
+    let lines: Vec<&str> = source.lines().collect();
+    let mut macros = std::collections::HashMap::new();
+    let mut kept = Vec::new();
+    let mut index = 0usize;
+    let mut top_level_depth = 0i32;
+    while index < lines.len() {
+        let trimmed = lines[index].trim_start();
+        if !trimmed.starts_with("macro_rules! ") {
+            kept.push(lines[index].to_string());
+            top_level_depth += brace_delta(lines[index]);
+            index += 1;
+            continue;
+        }
+        let start_line = index + 1;
+        if top_level_depth != 0 {
+            return Err(vec![
+                Diagnostic::new(
+                    "parse",
+                    "macro_rules! definitions are only supported at top level",
+                )
+                .with_path(path.display().to_string())
+                .with_span(start_line, 1),
+            ]);
+        }
+        let mut definition = String::new();
+        let mut depth = 0i32;
+        loop {
+            let line = lines.get(index).ok_or_else(|| {
+                vec![
+                    Diagnostic::new("parse", "unterminated macro_rules! definition")
+                        .with_path(path.display().to_string())
+                        .with_span(start_line, 1),
+                ]
+            })?;
+            if !definition.is_empty() {
+                definition.push('\n');
+            }
+            definition.push_str(line);
+            depth += brace_delta(line);
+            index += 1;
+            if depth == 0 && definition.contains('{') {
+                break;
+            }
+        }
+        let rule = parse_macro_rule(&definition, path, start_line)?;
+        if macros.insert(rule.name.clone(), rule).is_some() {
+            return Err(vec![
+                Diagnostic::new("parse", "duplicate macro_rules! definition")
+                    .with_path(path.display().to_string())
+                    .with_span(start_line, 1),
+            ]);
+        }
+    }
+    Ok((macros, kept.join("\n")))
+}
+
+fn parse_macro_rule(
+    definition: &str,
+    path: &Path,
+    line_no: usize,
+) -> Result<MacroRule, Vec<Diagnostic>> {
+    let trimmed = definition.trim();
+    let Some(rest) = trimmed.strip_prefix("macro_rules! ") else {
+        return Err(vec![
+            Diagnostic::new("parse", "invalid macro_rules! definition")
+                .with_path(path.display().to_string())
+                .with_span(line_no, 1),
+        ]);
+    };
+    let Some(open_brace) = find_top_level_char(rest, '{') else {
+        return Err(vec![
+            Diagnostic::new("parse", "macro_rules! definition is missing '{'")
+                .with_path(path.display().to_string())
+                .with_span(line_no, 1),
+        ]);
+    };
+    let name = rest[..open_brace].trim();
+    validate_ident(name, path, line_no, 14).map_err(|error| vec![error])?;
+    let Some(close_brace) = find_matching_brace(rest, open_brace) else {
+        return Err(vec![
+            Diagnostic::new("parse", "macro_rules! definition is missing closing '}'")
+                .with_path(path.display().to_string())
+                .with_span(line_no, 1),
+        ]);
+    };
+    if !rest[close_brace + 1..].trim().is_empty() {
+        return Err(vec![
+            Diagnostic::new("parse", "unexpected tokens after macro_rules! definition")
+                .with_path(path.display().to_string())
+                .with_span(line_no, close_brace + 1),
+        ]);
+    }
+    let body = rest[open_brace + 1..close_brace].trim();
+    let Some(arrow) = body.find("=>") else {
+        return Err(vec![
+            Diagnostic::new(
+                "parse",
+                "macro_rules! definition must contain a single `=>` arm",
+            )
+            .with_path(path.display().to_string())
+            .with_span(line_no, 1),
+        ]);
+    };
+    let pattern = body[..arrow].trim().trim_end_matches(';').trim();
+    let template = body[arrow + 2..].trim().trim_end_matches(';').trim();
+    if !pattern.starts_with('(')
+        || !pattern.ends_with(')')
+        || find_matching_paren(pattern, 0) != Some(pattern.len() - 1)
+    {
+        return Err(vec![
+            Diagnostic::new(
+                "parse",
+                "macro_rules! pattern must use `($name:fragment, ...)` syntax",
+            )
+            .with_path(path.display().to_string())
+            .with_span(line_no, 1),
+        ]);
+    }
+    if !template.starts_with('{')
+        || !template.ends_with('}')
+        || find_matching_brace(template, 0) != Some(template.len() - 1)
+    {
+        return Err(vec![
+            Diagnostic::new("parse", "macro_rules! expansion must be enclosed in braces")
+                .with_path(path.display().to_string())
+                .with_span(line_no, 1),
+        ]);
+    }
+    let mut params = Vec::new();
+    let params_raw = pattern[1..pattern.len() - 1].trim();
+    if !params_raw.is_empty() {
+        for part in split_top_level(params_raw, ',') {
+            let part = part.trim();
+            let Some(part) = part.strip_prefix('$') else {
+                return Err(vec![
+                    Diagnostic::new("parse", "macro parameter must start with `$`")
+                        .with_path(path.display().to_string())
+                        .with_span(line_no, 1),
+                ]);
+            };
+            let name = part
+                .split_once(':')
+                .map(|(name, _)| name)
+                .unwrap_or(part)
+                .trim();
+            validate_ident(name, path, line_no, 1).map_err(|error| vec![error])?;
+            if params.iter().any(|existing| existing == name) {
+                return Err(vec![
+                    Diagnostic::new("parse", format!("duplicate macro parameter {name:?}"))
+                        .with_path(path.display().to_string())
+                        .with_span(line_no, 1),
+                ]);
+            }
+            params.push(name.to_string());
+        }
+    }
+    Ok(MacroRule {
+        name: name.to_string(),
+        params,
+        template: template[1..template.len() - 1]
+            .trim_matches('\n')
+            .to_string(),
+    })
+}
+
+fn expand_macro_invocations_once(
+    source: &str,
+    macros: &std::collections::HashMap<String, MacroRule>,
+    path: &Path,
+) -> Result<(String, bool), Vec<Diagnostic>> {
+    let mut changed = false;
+    let mut output = Vec::new();
+    for (line_index, line) in source.lines().enumerate() {
+        let (expanded, line_changed) = expand_macro_line_once(line, macros, path, line_index + 1)?;
+        changed |= line_changed;
+        output.extend(expanded);
+    }
+    Ok((output.join("\n"), changed))
+}
+
+fn expand_macro_line_once(
+    line: &str,
+    macros: &std::collections::HashMap<String, MacroRule>,
+    path: &Path,
+    line_no: usize,
+) -> Result<(Vec<String>, bool), Vec<Diagnostic>> {
+    let mut first_match: Option<(usize, usize, &MacroRule)> = None;
+    for rule in macros.values() {
+        let needle = format!("{}!(", rule.name);
+        if let Some(start) = find_macro_invocation(line, &needle) {
+            let open = start + rule.name.len() + 1;
+            if let Some(close) = find_matching_paren(line, open) {
+                if first_match.is_none_or(|(existing, _, _)| start < existing) {
+                    first_match = Some((start, close, rule));
+                }
+            } else {
+                return Err(vec![
+                    Diagnostic::new("parse", "macro invocation is missing closing ')'")
+                        .with_path(path.display().to_string())
+                        .with_span(line_no, start + 1),
+                ]);
+            }
+        }
+    }
+    let Some((start, close, rule)) = first_match else {
+        return Ok((vec![line.to_string()], false));
+    };
+    let args_raw = &line[start + rule.name.len() + 2..close];
+    let args: Vec<&str> = if args_raw.trim().is_empty() {
+        Vec::new()
+    } else {
+        split_top_level(args_raw, ',')
+            .into_iter()
+            .map(str::trim)
+            .collect()
+    };
+    if args.len() != rule.params.len() {
+        return Err(vec![
+            Diagnostic::new(
+                "parse",
+                format!(
+                    "macro {}! expects {} argument(s), got {}",
+                    rule.name,
+                    rule.params.len(),
+                    args.len()
+                ),
+            )
+            .with_path(path.display().to_string())
+            .with_span(line_no, start + 1),
+        ]);
+    }
+    let expansion = render_macro_expansion(&rule.template, &rule.params, &args);
+    let before = &line[..start];
+    let after = &line[close + 1..];
+    let invocation_is_statement = before.trim().is_empty() && after.trim().is_empty();
+    if invocation_is_statement {
+        let indent = before;
+        let lines = expansion
+            .lines()
+            .map(|expanded_line| {
+                if expanded_line.trim().is_empty() {
+                    String::new()
+                } else {
+                    format!("{indent}{}", expanded_line.trim())
+                }
+            })
+            .collect();
+        return Ok((lines, true));
+    }
+    if expansion.lines().count() > 1 {
+        return Err(vec![
+            Diagnostic::new(
+                "parse",
+                format!(
+                    "multi-line macro {}! can only be invoked as a full statement",
+                    rule.name
+                ),
+            )
+            .with_path(path.display().to_string())
+            .with_span(line_no, start + 1),
+        ]);
+    }
+    Ok((
+        vec![format!("{}{}{}", before, expansion.trim(), after)],
+        true,
+    ))
+}
+
+fn find_macro_invocation(line: &str, needle: &str) -> Option<usize> {
+    let mut in_string = false;
+    let mut escaped = false;
+    for (index, ch) in line.char_indices() {
+        if in_string {
+            if escaped {
+                escaped = false;
+                continue;
+            }
+            match ch {
+                '\\' => escaped = true,
+                '"' => in_string = false,
+                _ => {}
+            }
+            continue;
+        }
+        match ch {
+            '"' => in_string = true,
+            '#' => return None,
+            _ => {
+                if line[index..].starts_with(needle)
+                    && line[..index]
+                        .chars()
+                        .next_back()
+                        .is_none_or(|previous| !is_identifier_char(previous))
+                {
+                    return Some(index);
+                }
+            }
+        }
+    }
+    None
+}
+
+fn is_identifier_char(ch: char) -> bool {
+    ch.is_ascii_alphanumeric() || ch == '_'
+}
+
+fn render_macro_expansion(template: &str, params: &[String], args: &[&str]) -> String {
+    let mut output = String::new();
+    let mut chars = template.char_indices().peekable();
+    let mut in_string = false;
+    let mut escaped = false;
+    while let Some((index, ch)) = chars.next() {
+        if in_string {
+            output.push(ch);
+            if escaped {
+                escaped = false;
+                continue;
+            }
+            match ch {
+                '\\' => escaped = true,
+                '"' => in_string = false,
+                _ => {}
+            }
+            continue;
+        }
+        match ch {
+            '"' => {
+                in_string = true;
+                output.push(ch);
+                continue;
+            }
+            '#' => {
+                output.push_str(&template[index..]);
+                break;
+            }
+            '$' => {}
+            _ => {
+                output.push(ch);
+                continue;
+            }
+        }
+        let name_start = index + ch.len_utf8();
+        let Some((_, first)) = chars.peek().copied() else {
+            output.push(ch);
+            continue;
+        };
+        if !(first.is_ascii_alphabetic() || first == '_') {
+            output.push(ch);
+            continue;
+        }
+        let mut name_end = name_start;
+        while let Some((next_index, next_ch)) = chars.peek().copied() {
+            if is_identifier_char(next_ch) {
+                name_end = next_index + next_ch.len_utf8();
+                chars.next();
+            } else {
+                break;
+            }
+        }
+        let name = &template[name_start..name_end];
+        if let Some(position) = params.iter().position(|param| param == name) {
+            output.push_str(args[position]);
+        } else {
+            output.push('$');
+            output.push_str(name);
+        }
+    }
+    output
+}
+
 fn synchronize_top_level(lines: &[&str], index: &mut usize) {
     if *index >= lines.len() {
         return;
@@ -529,8 +956,24 @@ fn synchronize_top_level(lines: &[&str], index: &mut usize) {
 
 fn brace_delta(line: &str) -> i32 {
     let mut delta = 0;
+    let mut in_string = false;
+    let mut escaped = false;
     for ch in line.chars() {
+        if in_string {
+            if escaped {
+                escaped = false;
+                continue;
+            }
+            match ch {
+                '\\' => escaped = true,
+                '"' => in_string = false,
+                _ => {}
+            }
+            continue;
+        }
         match ch {
+            '"' => in_string = true,
+            '#' => break,
             '{' => delta += 1,
             '}' => delta -= 1,
             _ => {}
@@ -784,6 +1227,7 @@ fn parse_function_in_context(
             .with_span(line_no, 1)
     })?;
     let name_text = header[..open_paren].trim();
+    let lifetime_params = parse_function_lifetime_params(name_text, path, line_no, fn_column + 3)?;
     let (name, type_params) = parse_function_name(name_text, path, line_no, fn_column + 3)?;
     let (receiver, params) = parse_params(
         &header[open_paren + 1..close_paren],
@@ -807,6 +1251,7 @@ fn parse_function_in_context(
             .with_span(line_no, 1)
         })?;
         let return_ty = parse_type_name(return_text.trim(), path, line_no, 1)?;
+        validate_function_lifetime_uses(&lifetime_params, &params, &return_ty, path, line_no)?;
         let extern_library =
             serde_json::from_str::<String>(extern_library.trim()).map_err(|_| {
                 Diagnostic::new("parse", "extern function library must be a quoted string")
@@ -845,6 +1290,7 @@ fn parse_function_in_context(
             .with_span(line_no, 1)
         })?;
     let return_ty = parse_type_name(return_text, path, line_no, 1)?;
+    validate_function_lifetime_uses(&lifetime_params, &params, &return_ty, path, line_no)?;
     *index += 1;
     let body = parse_stmt_list(lines, index, path)?;
     Ok(Function {
@@ -910,31 +1356,30 @@ fn parse_type_alias(
 
 fn parse_const_decl(trimmed: &str, path: &Path, line_no: usize) -> Result<ConstDecl, Diagnostic> {
     let (visibility, rest, visibility_column) = parse_visibility_prefix(trimmed);
-    let header = if let Some(rest) = rest.strip_prefix("const ") {
-        rest
+    let (keyword, header) = if let Some(rest) = rest.strip_prefix("const ") {
+        ("const", rest)
+    } else if let Some(rest) = rest.strip_prefix("static ") {
+        ("static", rest)
     } else {
-        let _ = rest.strip_prefix("const ").ok_or_else(|| {
-            Diagnostic::new("parse", "invalid const declaration")
-                .with_path(path.display().to_string())
-                .with_span(line_no, 1)
-        })?;
-        unreachable!()
+        return Err(Diagnostic::new("parse", "invalid const/static declaration")
+            .with_path(path.display().to_string())
+            .with_span(line_no, 1));
     };
-    let column = visibility_column + 6;
+    let column = visibility_column + keyword.len() + 1;
     let colon = find_top_level_char(header, ':').ok_or_else(|| {
-        Diagnostic::new("parse", "const declaration is missing ':'")
+        Diagnostic::new("parse", "const/static declaration is missing ':'")
             .with_path(path.display().to_string())
             .with_span(line_no, column)
     })?;
     let equals = find_top_level_char(header, '=').ok_or_else(|| {
-        Diagnostic::new("parse", "const declaration is missing '='")
+        Diagnostic::new("parse", "const/static declaration is missing '='")
             .with_path(path.display().to_string())
             .with_span(line_no, column)
     })?;
     if equals <= colon {
         return Err(Diagnostic::new(
             "parse",
-            "const declaration must use `const NAME: Type = expr` syntax",
+            "const/static declaration must use `const NAME: Type = expr` or `static NAME: Type = expr` syntax",
         )
         .with_path(path.display().to_string())
         .with_span(line_no, column));
@@ -944,18 +1389,19 @@ fn parse_const_decl(trimmed: &str, path: &Path, line_no: usize) -> Result<ConstD
     let ty_text = header[colon + 1..equals].trim();
     if ty_text.is_empty() {
         return Err(
-            Diagnostic::new("parse", "const declaration is missing a type")
+            Diagnostic::new("parse", "const/static declaration is missing a type")
                 .with_path(path.display().to_string())
                 .with_span(line_no, column + colon + 1),
         );
     }
     let expr_text = header[equals + 1..].trim();
     if expr_text.is_empty() {
-        return Err(
-            Diagnostic::new("parse", "const declaration is missing an initializer")
-                .with_path(path.display().to_string())
-                .with_span(line_no, column + equals + 1),
-        );
+        return Err(Diagnostic::new(
+            "parse",
+            "const/static declaration is missing an initializer",
+        )
+        .with_path(path.display().to_string())
+        .with_span(line_no, column + equals + 1));
     }
     Ok(ConstDecl {
         name: name.to_string(),
@@ -1282,6 +1728,9 @@ fn parse_if_stmt(lines: &[&str], index: &mut usize, path: &Path) -> Result<Stmt,
                 .with_path(path.display().to_string())
                 .with_span(line_no, 1)
         })?;
+    if let Some(pattern_raw) = cond_raw.strip_prefix("let ") {
+        return parse_if_let_stmt(lines, index, path, line_no, pattern_raw);
+    }
     let cond = parse_expr(cond_raw, path, line_no, 4)?;
     *index += 1;
     let then_block = parse_stmt_list(lines, index, path)?;
@@ -1308,6 +1757,137 @@ fn parse_if_stmt(lines: &[&str], index: &mut usize, path: &Path) -> Result<Stmt,
         line: line_no,
         column: 1,
     })
+}
+
+fn parse_if_let_stmt(
+    lines: &[&str],
+    index: &mut usize,
+    path: &Path,
+    line_no: usize,
+    pattern_raw: &str,
+) -> Result<Stmt, Diagnostic> {
+    let equals = find_top_level_char(pattern_raw, '=').ok_or_else(|| {
+        Diagnostic::new(
+            "parse",
+            "if let statement must use `if let <Variant>(...) = <expr> {` syntax",
+        )
+        .with_path(path.display().to_string())
+        .with_span(line_no, 4)
+    })?;
+    let pattern = pattern_raw[..equals].trim();
+    let expr_raw = pattern_raw[equals + 1..].trim();
+    if pattern.is_empty() || expr_raw.is_empty() {
+        return Err(Diagnostic::new(
+            "parse",
+            "if let statement must include both a pattern and an expression",
+        )
+        .with_path(path.display().to_string())
+        .with_span(line_no, 4));
+    }
+    let (variant, bindings, is_named) = parse_match_pattern(pattern, path, line_no)?;
+    let expr = parse_expr(expr_raw, path, line_no, 4 + equals + 1)?;
+    *index += 1;
+    let then_block = parse_stmt_list(lines, index, path)?;
+    skip_blank_lines(lines, index);
+    let else_block = if *index < lines.len() {
+        match lines[*index].trim() {
+            "} else {" => {
+                *index += 1;
+                Some(parse_stmt_list(lines, index, path)?)
+            }
+            "else {" => {
+                *index += 1;
+                Some(parse_stmt_list(lines, index, path)?)
+            }
+            _ => None,
+        }
+    } else {
+        None
+    };
+    Ok(Stmt::IfLet {
+        variant,
+        bindings,
+        is_named,
+        expr,
+        then_block,
+        else_block,
+        line: line_no,
+        column: 1,
+    })
+}
+
+fn parse_match_pattern(
+    pattern: &str,
+    path: &Path,
+    line_no: usize,
+) -> Result<(String, Vec<String>, bool), Diagnostic> {
+    if pattern.starts_with('(') {
+        return Err(
+            Diagnostic::new("parse", "nested match patterns are not supported yet")
+                .with_path(path.display().to_string())
+                .with_span(line_no, 1),
+        );
+    }
+    if pattern.ends_with('}')
+        && let Some(open_brace) = find_top_level_char(pattern, '{')
+        && matches!(find_matching_brace(pattern, open_brace), Some(close) if close == pattern.len() - 1)
+    {
+        let name = pattern[..open_brace].trim();
+        validate_ident(name, path, line_no, 1)?;
+        let bindings_raw = &pattern[open_brace + 1..pattern.len() - 1];
+        let bindings = parse_match_bindings(bindings_raw, open_brace, path, line_no)?;
+        Ok((name.to_string(), bindings, true))
+    } else if pattern.ends_with(')')
+        && let Some(open_paren) = find_top_level_char(pattern, '(')
+        && matches!(find_matching_paren(pattern, open_paren), Some(close) if close == pattern.len() - 1)
+    {
+        let name = pattern[..open_paren].trim();
+        validate_ident(name, path, line_no, 1)?;
+        let bindings_raw = &pattern[open_paren + 1..pattern.len() - 1];
+        let bindings = parse_match_bindings(bindings_raw, open_paren, path, line_no)?;
+        Ok((name.to_string(), bindings, false))
+    } else {
+        validate_ident(pattern, path, line_no, 1)?;
+        Ok((pattern.to_string(), Vec::new(), false))
+    }
+}
+
+fn parse_match_bindings(
+    bindings_raw: &str,
+    open_delim: usize,
+    path: &Path,
+    line_no: usize,
+) -> Result<Vec<String>, Diagnostic> {
+    if bindings_raw.trim().is_empty() {
+        return Err(Diagnostic::new("parse", "match arm binding is empty")
+            .with_path(path.display().to_string())
+            .with_span(line_no, open_delim + 2));
+    }
+    split_top_level_with_offsets(bindings_raw, ',')
+        .into_iter()
+        .map(|(binding_offset, raw_binding)| {
+            let binding = raw_binding.trim();
+            let leading_ws = raw_binding
+                .len()
+                .saturating_sub(raw_binding.trim_start().len());
+            let binding_column = open_delim + 2 + binding_offset + leading_ws;
+            if binding.is_empty() {
+                return Err(Diagnostic::new("parse", "match arm binding is empty")
+                    .with_path(path.display().to_string())
+                    .with_span(line_no, binding_column));
+            }
+            if let Some(nested_offset) = find_nested_match_pattern_offset(binding) {
+                return Err(Diagnostic::new(
+                    "parse",
+                    "nested match patterns are not supported yet",
+                )
+                .with_path(path.display().to_string())
+                .with_span(line_no, binding_column + nested_offset));
+            }
+            validate_ident(binding, path, line_no, binding_column)?;
+            Ok(binding.to_string())
+        })
+        .collect()
 }
 
 fn parse_while_stmt(lines: &[&str], index: &mut usize, path: &Path) -> Result<Stmt, Diagnostic> {
@@ -1521,6 +2101,94 @@ fn parse_type_name(
     line_no: usize,
     column: usize,
 ) -> Result<TypeName, Diagnostic> {
+    if raw.starts_with("fn(") {
+        let open = 2;
+        let close = find_matching_paren(raw, open).ok_or_else(|| {
+            Diagnostic::new("parse", "function type must use `fn(args): return` syntax")
+                .with_path(path.display().to_string())
+                .with_span(line_no, column)
+        })?;
+        let after = raw[close + 1..].trim_start();
+        let Some(return_raw) = after.strip_prefix(':') else {
+            return Err(
+                Diagnostic::new("parse", "function type is missing `: return`")
+                    .with_path(path.display().to_string())
+                    .with_span(line_no, column + close + 1),
+            );
+        };
+        let params_raw = raw[open + 1..close].trim();
+        let mut params = Vec::new();
+        if !params_raw.is_empty() {
+            for param_raw in split_top_level_type(params_raw, ',') {
+                params.push(parse_type_name(
+                    param_raw.trim(),
+                    path,
+                    line_no,
+                    column + open + 1,
+                )?);
+            }
+        }
+        let return_ty = parse_type_name(return_raw.trim(), path, line_no, column + close + 2)?;
+        return Ok(TypeName::Fn(params, Box::new(return_ty)));
+    }
+    if let Some(rest) = raw.strip_prefix("&'") {
+        let lifetime_len = rest
+            .find(|ch: char| !(ch.is_ascii_alphanumeric() || ch == '_'))
+            .unwrap_or(rest.len());
+        let lifetime = &rest[..lifetime_len];
+        if lifetime.is_empty() {
+            return Err(
+                Diagnostic::new("parse", "borrow lifetime annotation is missing a name")
+                    .with_path(path.display().to_string())
+                    .with_span(line_no, column + 1),
+            );
+        }
+        validate_ident(lifetime, path, line_no, column + 2)?;
+        let after_lifetime = rest[lifetime_len..].trim_start();
+        let skipped_ws = rest[lifetime_len..].len() - after_lifetime.len();
+        let inner_column = column + 2 + lifetime_len + skipped_ws;
+        if after_lifetime.starts_with("mut [")
+            && after_lifetime.ends_with(']')
+            && matches!(find_matching_square(after_lifetime, 4), Some(close) if close == after_lifetime.len() - 1)
+        {
+            let inner = after_lifetime[5..after_lifetime.len() - 1].trim();
+            if inner.is_empty() {
+                return Err(Diagnostic::new(
+                    "parse",
+                    "mutable slice type is missing an inner type",
+                )
+                .with_path(path.display().to_string())
+                .with_span(line_no, inner_column + 5));
+            }
+            return Ok(TypeName::LifetimeMutSlice(
+                lifetime.to_string(),
+                Box::new(parse_type_name(inner, path, line_no, inner_column + 5)?),
+            ));
+        }
+        if after_lifetime.starts_with('[')
+            && after_lifetime.ends_with(']')
+            && matches!(find_matching_square(after_lifetime, 0), Some(close) if close == after_lifetime.len() - 1)
+        {
+            let inner = after_lifetime[1..after_lifetime.len() - 1].trim();
+            if inner.is_empty() {
+                return Err(
+                    Diagnostic::new("parse", "slice type is missing an inner type")
+                        .with_path(path.display().to_string())
+                        .with_span(line_no, inner_column + 1),
+                );
+            }
+            return Ok(TypeName::LifetimeSlice(
+                lifetime.to_string(),
+                Box::new(parse_type_name(inner, path, line_no, inner_column + 1)?),
+            ));
+        }
+        return Err(Diagnostic::new(
+            "parse",
+            "borrow lifetime annotations must use `&'a [T]` or `&'a mut [T]` syntax",
+        )
+        .with_path(path.display().to_string())
+        .with_span(line_no, column));
+    }
     if raw.starts_with("&mut [")
         && raw.ends_with(']')
         && matches!(find_matching_square(raw, 5), Some(close) if close == raw.len() - 1)
@@ -1669,12 +2337,32 @@ fn parse_type_name(
                     .with_span(line_no, column),
             );
         }
-        return Ok(TypeName::Array(Box::new(parse_type_name(
-            inner,
-            path,
-            line_no,
-            column + 1,
-        )?)));
+        let (element_raw, len_raw) = if let Some(semi) = find_top_level_char(inner, ';') {
+            let element_raw = inner[..semi].trim();
+            let len_raw = inner[semi + 1..].trim();
+            if element_raw.is_empty() {
+                return Err(
+                    Diagnostic::new("parse", "array type is missing an element type")
+                        .with_path(path.display().to_string())
+                        .with_span(line_no, column + 1),
+                );
+            }
+            if len_raw.is_empty() {
+                return Err(
+                    Diagnostic::new("parse", "array type is missing a length expression")
+                        .with_path(path.display().to_string())
+                        .with_span(line_no, column + semi + 2),
+                );
+            }
+            parse_expr(len_raw, path, line_no, column + semi + 2)?;
+            (element_raw, Some(len_raw.to_string()))
+        } else {
+            (inner, None)
+        };
+        return Ok(TypeName::Array(
+            Box::new(parse_type_name(element_raw, path, line_no, column + 1)?),
+            len_raw,
+        ));
     }
     if let Some(open_angle) = find_top_level_char(raw, '<') {
         if !raw.ends_with('>')
@@ -1741,6 +2429,9 @@ fn parse_type_name(
 
 fn parse_expr(raw: &str, path: &Path, line_no: usize, column: usize) -> Result<Expr, Diagnostic> {
     let raw = raw.trim();
+    if raw.starts_with('|') {
+        return parse_term(raw, path, line_no, column);
+    }
     if let Some((op, split_index)) = find_compare_operator(raw) {
         let lhs_raw = raw[..split_index].trim();
         let rhs_offset = split_index + op.lexeme().len();
@@ -1782,6 +2473,9 @@ fn parse_add(raw: &str, path: &Path, line_no: usize, column: usize) -> Result<Ex
 }
 
 fn parse_term(raw: &str, path: &Path, line_no: usize, column: usize) -> Result<Expr, Diagnostic> {
+    if let Some(closure) = parse_closure_expr(raw, path, line_no, column)? {
+        return Ok(closure);
+    }
     if raw.is_empty() {
         return Err(Diagnostic::new("parse", "expression is empty")
             .with_path(path.display().to_string())
@@ -2017,6 +2711,291 @@ fn parse_term(raw: &str, path: &Path, line_no: usize, column: usize) -> Result<E
     })
 }
 
+fn parse_closure_expr(
+    raw: &str,
+    path: &Path,
+    line_no: usize,
+    column: usize,
+) -> Result<Option<Expr>, Diagnostic> {
+    if !raw.starts_with('|') {
+        return Ok(None);
+    }
+    let Some(close_bar) = find_closure_param_bar(raw) else {
+        return Err(
+            Diagnostic::new("parse", "closure parameters must be closed with `|`")
+                .with_path(path.display().to_string())
+                .with_span(line_no, column),
+        );
+    };
+    let params_raw = raw[1..close_bar].trim();
+    let body_raw = raw[close_bar + 1..].trim();
+    if body_raw.is_empty() {
+        return Err(Diagnostic::new("parse", "closure body is empty")
+            .with_path(path.display().to_string())
+            .with_span(line_no, column + close_bar + 1));
+    }
+    let mut params = Vec::new();
+    if !params_raw.is_empty() {
+        for param_text in split_top_level(params_raw, ',') {
+            let colon = find_top_level_char(param_text, ':').ok_or_else(|| {
+                Diagnostic::new("parse", "closure parameter must use `name: type` syntax")
+                    .with_path(path.display().to_string())
+                    .with_span(line_no, column + 1)
+            })?;
+            let name = param_text[..colon].trim();
+            validate_ident(name, path, line_no, column + 1)?;
+            let ty = parse_type_name(
+                param_text[colon + 1..].trim(),
+                path,
+                line_no,
+                column + colon + 2,
+            )?;
+            params.push(Param {
+                name: name.to_string(),
+                ty,
+                line: line_no,
+                column: column + 1,
+            });
+        }
+    }
+    let body_text = if body_raw.starts_with('{')
+        && body_raw.ends_with('}')
+        && matches!(find_matching_brace(body_raw, 0), Some(close) if close == body_raw.len() - 1)
+    {
+        body_raw[1..body_raw.len() - 1].trim()
+    } else {
+        body_raw
+    };
+    let body = parse_expr(body_text, path, line_no, column + close_bar + 1)?;
+    Ok(Some(Expr::Closure {
+        params,
+        body: Box::new(body),
+        line: line_no,
+        column,
+    }))
+}
+
+fn find_closure_param_bar(raw: &str) -> Option<usize> {
+    let mut in_string = false;
+    let mut escaped = false;
+    for (index, ch) in raw.char_indices().skip(1) {
+        if in_string {
+            if escaped {
+                escaped = false;
+            } else if ch == '\\' {
+                escaped = true;
+            } else if ch == '"' {
+                in_string = false;
+            }
+            continue;
+        }
+        if ch == '"' {
+            in_string = true;
+            continue;
+        }
+        if ch == '|' {
+            return Some(index);
+        }
+    }
+    None
+}
+
+fn parse_function_lifetime_params(
+    raw: &str,
+    path: &Path,
+    line_no: usize,
+    column: usize,
+) -> Result<Vec<String>, Diagnostic> {
+    let Some(open_angle) = find_top_level_char(raw, '<') else {
+        return Ok(Vec::new());
+    };
+    if !raw.ends_with('>')
+        || !matches!(find_matching_angle(raw, open_angle), Some(close) if close == raw.len() - 1)
+    {
+        return Ok(Vec::new());
+    }
+    let params_raw = raw[open_angle + 1..raw.len() - 1].trim();
+    let mut lifetimes = Vec::new();
+    for param in split_top_level_type(params_raw, ',') {
+        let param = param.trim();
+        if let Some(lifetime) = param.strip_prefix("'") {
+            if lifetime.is_empty() {
+                return Err(
+                    Diagnostic::new("parse", "lifetime parameter is missing a name")
+                        .with_path(path.display().to_string())
+                        .with_span(line_no, column + open_angle + 1),
+                );
+            }
+            validate_ident(lifetime, path, line_no, column + open_angle + 2)?;
+            if lifetimes.iter().any(|existing| existing == lifetime) {
+                return Err(Diagnostic::new(
+                    "parse",
+                    format!("duplicate lifetime parameter {lifetime:?}"),
+                )
+                .with_path(path.display().to_string())
+                .with_span(line_no, column + open_angle + 1));
+            }
+            lifetimes.push(lifetime.to_string());
+        }
+    }
+    Ok(lifetimes)
+}
+
+fn validate_function_lifetime_uses(
+    lifetime_params: &[String],
+    params: &[Param],
+    return_ty: &TypeName,
+    path: &Path,
+    line_no: usize,
+) -> Result<(), Diagnostic> {
+    let mut used = Vec::new();
+    for param in params {
+        collect_lifetime_uses(&param.ty, &mut used);
+    }
+    collect_lifetime_uses(return_ty, &mut used);
+    for lifetime in &used {
+        if !lifetime_params.iter().any(|declared| declared == lifetime) {
+            return Err(Diagnostic::new(
+                "parse",
+                format!("undeclared lifetime parameter {lifetime:?}"),
+            )
+            .with_path(path.display().to_string())
+            .with_span(line_no, 1));
+        }
+    }
+    let distinct = used.into_iter().collect::<std::collections::HashSet<_>>();
+    if distinct.len() > 1 {
+        return Err(Diagnostic::new(
+            "parse",
+            "multiple explicit lifetimes in one function signature are not supported yet",
+        )
+        .with_path(path.display().to_string())
+        .with_span(line_no, 1));
+    }
+    if let Some(return_lifetime) = explicit_return_lifetime(return_ty) {
+        for param in params {
+            if type_contains_borrowed_slice(&param.ty)
+                && !type_uses_lifetime(&param.ty, return_lifetime)
+            {
+                return Err(Diagnostic::new(
+                    "parse",
+                    "explicit borrowed return lifetimes cannot be mixed with unannotated borrowed parameters yet",
+                )
+                .with_path(path.display().to_string())
+                .with_span(line_no, 1));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn explicit_return_lifetime(ty: &TypeName) -> Option<&str> {
+    match ty {
+        TypeName::LifetimeSlice(lifetime, _) | TypeName::LifetimeMutSlice(lifetime, _) => {
+            Some(lifetime.as_str())
+        }
+        TypeName::Option(inner) | TypeName::Array(inner, _) => explicit_return_lifetime(inner),
+        TypeName::Result(ok, err) | TypeName::Map(ok, err) => {
+            explicit_return_lifetime(ok).or_else(|| explicit_return_lifetime(err))
+        }
+        TypeName::Tuple(elements) => elements.iter().find_map(explicit_return_lifetime),
+        TypeName::Named(_, args) => args.iter().find_map(explicit_return_lifetime),
+        TypeName::Fn(params, return_ty) => params
+            .iter()
+            .find_map(explicit_return_lifetime)
+            .or_else(|| explicit_return_lifetime(return_ty)),
+        TypeName::Ptr(_)
+        | TypeName::MutPtr(_)
+        | TypeName::Slice(_)
+        | TypeName::MutSlice(_)
+        | TypeName::Int
+        | TypeName::Bool
+        | TypeName::String => None,
+    }
+}
+
+fn type_uses_lifetime(ty: &TypeName, lifetime: &str) -> bool {
+    match ty {
+        TypeName::LifetimeSlice(name, inner) | TypeName::LifetimeMutSlice(name, inner) => {
+            name == lifetime || type_uses_lifetime(inner, lifetime)
+        }
+        TypeName::Named(_, args) | TypeName::Tuple(args) => {
+            args.iter().any(|arg| type_uses_lifetime(arg, lifetime))
+        }
+        TypeName::Fn(params, return_ty) => {
+            params.iter().any(|arg| type_uses_lifetime(arg, lifetime))
+                || type_uses_lifetime(return_ty, lifetime)
+        }
+        TypeName::Ptr(inner)
+        | TypeName::MutPtr(inner)
+        | TypeName::Slice(inner)
+        | TypeName::MutSlice(inner)
+        | TypeName::Option(inner)
+        | TypeName::Array(inner, _) => type_uses_lifetime(inner, lifetime),
+        TypeName::Result(ok, err) | TypeName::Map(ok, err) => {
+            type_uses_lifetime(ok, lifetime) || type_uses_lifetime(err, lifetime)
+        }
+        TypeName::Int | TypeName::Bool | TypeName::String => false,
+    }
+}
+
+fn type_contains_borrowed_slice(ty: &TypeName) -> bool {
+    match ty {
+        TypeName::Slice(_)
+        | TypeName::MutSlice(_)
+        | TypeName::LifetimeSlice(_, _)
+        | TypeName::LifetimeMutSlice(_, _) => true,
+        TypeName::Named(_, args) | TypeName::Tuple(args) => {
+            args.iter().any(type_contains_borrowed_slice)
+        }
+        TypeName::Fn(params, return_ty) => {
+            params.iter().any(type_contains_borrowed_slice)
+                || type_contains_borrowed_slice(return_ty)
+        }
+        TypeName::Ptr(inner)
+        | TypeName::MutPtr(inner)
+        | TypeName::Option(inner)
+        | TypeName::Array(inner, _) => type_contains_borrowed_slice(inner),
+        TypeName::Result(ok, err) | TypeName::Map(ok, err) => {
+            type_contains_borrowed_slice(ok) || type_contains_borrowed_slice(err)
+        }
+        TypeName::Int | TypeName::Bool | TypeName::String => false,
+    }
+}
+
+fn collect_lifetime_uses(ty: &TypeName, found: &mut Vec<String>) {
+    match ty {
+        TypeName::LifetimeSlice(lifetime, inner) | TypeName::LifetimeMutSlice(lifetime, inner) => {
+            if !found.iter().any(|existing| existing == lifetime) {
+                found.push(lifetime.clone());
+            }
+            collect_lifetime_uses(inner, found);
+        }
+        TypeName::Named(_, args) | TypeName::Tuple(args) => {
+            for arg in args {
+                collect_lifetime_uses(arg, found);
+            }
+        }
+        TypeName::Ptr(inner)
+        | TypeName::MutPtr(inner)
+        | TypeName::Slice(inner)
+        | TypeName::MutSlice(inner)
+        | TypeName::Option(inner)
+        | TypeName::Array(inner, _) => collect_lifetime_uses(inner, found),
+        TypeName::Result(ok, err) | TypeName::Map(ok, err) => {
+            collect_lifetime_uses(ok, found);
+            collect_lifetime_uses(err, found);
+        }
+        TypeName::Fn(params, return_ty) => {
+            for param in params {
+                collect_lifetime_uses(param, found);
+            }
+            collect_lifetime_uses(return_ty, found);
+        }
+        TypeName::Int | TypeName::Bool | TypeName::String => {}
+    }
+}
+
 fn parse_function_name<'a>(
     raw: &'a str,
     path: &Path,
@@ -2058,7 +3037,23 @@ fn parse_decl_name<'a>(
         let mut params = Vec::new();
         for param in split_top_level_type(params_raw, ',') {
             let param = param.trim();
-            validate_ident(param, path, line_no, column + open_angle + 1)?;
+            let type_param = if let Some(lifetime) = param.strip_prefix("'") {
+                if lifetime.is_empty() {
+                    return Err(
+                        Diagnostic::new("parse", "lifetime parameter is missing a name")
+                            .with_path(path.display().to_string())
+                            .with_span(line_no, column + open_angle + 1),
+                    );
+                }
+                validate_ident(lifetime, path, line_no, column + open_angle + 2)?;
+                None
+            } else {
+                validate_ident(param, path, line_no, column + open_angle + 1)?;
+                Some(param)
+            };
+            let Some(param) = type_param else {
+                continue;
+            };
             if params.iter().any(|existing| existing == param) {
                 return Err(Diagnostic::new(
                     "parse",

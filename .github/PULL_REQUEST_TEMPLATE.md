@@ -4,7 +4,7 @@
 
 ## Governing Issue
 
-Closes #<issue-number>  <!-- or use Fixes/Resolves, owner/repo#123, a full GitHub issue URL, or explain why no issue is linked -->
+Refs #<issue-number>  <!-- use Closes/Fixes/Resolves only when this PR fully completes the issue; otherwise use Refs/Part of, owner/repo#123, a full GitHub issue URL, or explain why no issue is linked -->
 
 ## Validation
 

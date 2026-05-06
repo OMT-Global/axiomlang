@@ -36,8 +36,8 @@ The following are explicitly outside the current agent-grade bar unless a new
 issue scopes them with testable acceptance criteria and owner approval:
 
 - Hosted package registry service design or operation.
-- `axiomc publish` and package upload workflows.
-- Signed third-party packages, SBOM emission, and registry trust roots.
+- Hosted package upload workflows beyond local static registry publishing.
+- Signed third-party packages, SBOM emission, and registry trust roots beyond the stage1 archive-signature sidecar.
 - Direct-native backend replacement.
 - Post-agent-grade ecosystem services.
 
@@ -47,7 +47,7 @@ issue scopes them with testable acceptance criteria and owner approval:
 | --- | --- | --- | --- |
 | [#264](https://github.com/OMT-Global/axiom/issues/264) Roadmap parity and agentic-native lead | Complete with this ledger | Close as completed when this PR lands | The broad roadmap is now represented by `docs/roadmap.md`, this ledger, and the AG0-AG5 execution contract. Future work should use scoped child issues rather than keeping the umbrella issue open as an implicit backlog. |
 | [#263](https://github.com/OMT-Global/axiom/issues/263) Hosted package registry | Deferred outside current bar | Keep open until implemented or formally descoped | A hosted registry depends on publish, signed packages, trust roots, and service ownership. The current repo has no registry service and the agent-grade bar explicitly excludes registry publishing. |
-| [#245](https://github.com/OMT-Global/axiom/issues/245) `axiomc publish` and package registry | Deferred outside current bar | Keep open until implemented or formally descoped | `docs/stage1-agent-grade-compiler.md` explicitly says publish and registry publishing are not required for the agent-grade bar. Stage1 currently supports local path dependencies and lockfiles, not package upload. |
+| [#245](https://github.com/OMT-Global/axiom/issues/245) `axiomc publish` and package registry | Implemented as local static registry publishing | Close as completed when this PR lands | `axiomc publish` now validates the lockfile, packs a deterministic `package.axp`, writes an `axiom-signature-v1` sidecar, and stages releases for `axiomc registry-index`. Hosted registry operation remains covered by #263. |
 | [#248](https://github.com/OMT-Global/axiom/issues/248) Lockfile integrity and signed packages | Deferred outside current bar | Keep open until implemented or formally descoped | Stage1 lockfiles are deterministic for local path graphs, but signed packages, SBOMs, and offline verification require a registry and trust model that do not exist in the current execution scope. |
 | [#101](https://github.com/OMT-Global/axiom/issues/101) AG5.3 proof workload fixtures | Open, blocked | Keep open | The issue requires CLI, worker, and HTTP service proof workloads. AG4.3 HTTP server support remains open, so the HTTP service fixture cannot honestly close yet. |
 | [#102](https://github.com/OMT-Global/axiom/issues/102) AG5.4 CI closure | Open, blocked | Keep open | CI can only make proof workloads blocking after #101 exists. This remains blocked on AG5.3 and AG4.3. |

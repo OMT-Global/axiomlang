@@ -4,4 +4,8 @@ true
 7
 "agent"
 {"name":"agent","retries":3,"ready":true}
+agent
+3
+true
+{"type":"object","properties":{"name":{"type":"string"},"retries":{"type":"integer"},"ready":{"type":"boolean"}}}
 none

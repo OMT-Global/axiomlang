@@ -1,0 +1,3 @@
+HTTP/1.1 200 OK /health
+content-type: application/json
+{"path":"/health","ok":true}

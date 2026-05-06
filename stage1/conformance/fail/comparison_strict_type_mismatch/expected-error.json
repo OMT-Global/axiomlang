@@ -1,0 +1,8 @@
+{
+  "kind": "type",
+  "code": null,
+  "message": "struct \"conformance_comparison_strict_type_mismatch_main_Task\" field \"id\" expects int, got string",
+  "path": "src/main.ax",
+  "line": 6,
+  "column": 13
+}

@@ -28,6 +28,9 @@ pub fn build_success(project: &Path, output: &BuildOutput) -> Value {
         "ok": true,
         "command": "build",
         "project": project.display().to_string(),
+        "backend": output.backend,
+        "locked": output.locked,
+        "offline": output.offline,
         "manifest": output.manifest,
         "entry": output.entry,
         "binary": output.binary,
@@ -36,6 +39,8 @@ pub fn build_success(project: &Path, output: &BuildOutput) -> Value {
         "statement_count": output.statement_count,
         "target": output.target,
         "debug": output.debug,
+        "cache_key": output.cache_key,
+        "metadata": output.metadata,
         "cache_hits": output.cache_hits,
         "cache_misses": output.cache_misses,
         "duration_ms": output.duration_ms,
@@ -55,6 +60,7 @@ pub fn test_success(project: &Path, filter: Option<&str>, output: &TestOutput) -
         "passed": output.passed,
         "failed": output.failed,
         "skipped": output.skipped,
+        "kinds": output.kinds,
         "duration_ms": output.duration_ms,
         "cases": output.cases,
     })
@@ -71,6 +77,7 @@ pub fn caps_success(project: &Path, capabilities: &[CapabilityDescriptor]) -> Va
 }
 
 pub fn error(command: &str, error: &Diagnostic) -> Value {
+    let error = error.normalized_for_json();
     json!({
         "schema_version": JSON_SCHEMA_VERSION,
         "ok": false,

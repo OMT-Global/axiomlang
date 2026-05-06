@@ -1,0 +1,6 @@
+import "std/json.ax"
+
+let int_ok: int = assert_eq(stringify_int(42), "42")
+let bool_ok: int = assert_eq(stringify_bool(false), "false")
+let string_ok: int = assert_eq(stringify_string("agent"), "\"agent\"")
+print int_ok + bool_ok + string_ok

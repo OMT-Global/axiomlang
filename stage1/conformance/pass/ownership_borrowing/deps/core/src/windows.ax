@@ -1,0 +1,7 @@
+pub fn core_tail(values: &[int]): &[int] {
+return values[1:]
+}
+
+pub fn core_len(values: &[int]): int {
+return len(core_tail(values))
+}
