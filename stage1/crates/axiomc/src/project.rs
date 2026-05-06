@@ -31,6 +31,8 @@ pub struct CheckedPackage {
     pub entry: String,
     pub statement_count: usize,
     pub capabilities: Vec<CapabilityDescriptor>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub exports: Vec<ApiExport>,
     pub warnings: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub exports: Vec<ApiExport>,
@@ -290,6 +292,7 @@ pub fn check_project_with_options(
             entry: analyzed.entry_path.display().to_string(),
             statement_count: analyzed.mir.statement_count(),
             capabilities: capability_descriptors(&analyzed.manifest.capabilities),
+            exports: Vec::new(),
             warnings: analyzed.manifest.capabilities.warnings(),
             exports,
         });
