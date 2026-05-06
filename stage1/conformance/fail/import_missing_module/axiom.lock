@@ -1,0 +1,6 @@
+version = 1
+
+[[package]]
+name = "conformance-import-missing-module"
+version = "0.1.0"
+source = "path"

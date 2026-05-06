@@ -11,6 +11,7 @@ use crate::manifest::{
     PublishSection, binary_path_for_target, capability_descriptors, entry_path,
     generated_rust_path, load_manifest, manifest_path, out_dir_path,
 >>>>>>> origin/codex/worker-j-issue-362
+>>>>>>> origin/codex/worker-j-issue-363
 };
 use crate::mir;
 use crate::stdlib;
@@ -69,7 +70,6 @@ pub struct BuiltPackage {
     pub target: Option<String>,
     pub debug: bool,
     pub cache_key: BuildCacheMetadata,
->>>>>>> origin/codex/issue-380-doc-json
 >>>>>>> origin/codex/issue-376-doctor-json
 >>>>>>> origin/codex/issue-377-inspect-symbols
 >>>>>>> origin/codex/issue-378-inspect-graph
@@ -96,7 +96,7 @@ pub struct BuildOutput {
 =======
 =======
 =======
->>>>>>> origin/codex/worker-j-issue-362
+>>>>>>> origin/codex/worker-j-issue-363
     pub manifest: String,
     pub entry: String,
     pub binary: String,
@@ -361,7 +361,7 @@ pub fn build_project_with_options(
 =======
 =======
 =======
->>>>>>> origin/codex/worker-j-issue-362
+>>>>>>> origin/codex/worker-j-issue-363
         manifest: root.manifest,
         entry: root.entry,
         binary: root.binary,
@@ -2170,9 +2170,10 @@ fn load_module_recursive(
 ) -> Result<(), Diagnostic> {
     let module_path = normalize_path(module_path);
     if visiting.contains(&module_path) {
+        let relative = relative_diagnostic_path(package_root, &module_path.display().to_string());
         return Err(Diagnostic::new(
             "import",
-            format!("circular import detected at {}", module_path.display()),
+            format!("circular import detected at {relative}"),
         )
         .with_path(module_path.display().to_string()));
     }
@@ -4838,9 +4839,11 @@ fn resolve_import_path(
                 .with_span(import.line, import.column));
             }
             if !candidate.exists() {
+                let relative =
+                    relative_diagnostic_path(&dependency.root, &candidate.display().to_string());
                 return Err(Diagnostic::new(
                     "import",
-                    format!("missing import {}", candidate.display()),
+                    format!("missing import {relative}"),
                 )
                 .with_path(module_path.display().to_string())
                 .with_span(import.line, import.column));
@@ -4867,8 +4870,9 @@ fn resolve_import_path(
         );
     }
     if !candidate.exists() {
+        let relative = relative_diagnostic_path(&package.root, &candidate.display().to_string());
         return Err(
-            Diagnostic::new("import", format!("missing import {}", candidate.display()))
+            Diagnostic::new("import", format!("missing import {relative}"))
                 .with_path(module_path.display().to_string())
                 .with_span(import.line, import.column),
         );

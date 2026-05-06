@@ -19,6 +19,7 @@ pub const KNOWN_CAPABILITIES: [CapabilityKind; 9] = [
 >>>>>>> origin/codex/issue-395-effective-fs-roots
 >>>>>>> origin/codex/worker-h-issue-413
 >>>>>>> origin/codex/worker-j-issue-362
+>>>>>>> origin/codex/worker-j-issue-363
 pub const KNOWN_CAPABILITIES: [CapabilityKind; 8] = [
     CapabilityKind::Fs,
     CapabilityKind::FsWrite,
@@ -89,6 +90,7 @@ pub enum TestKind {
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
     pub stderr: Option<String>,
 =======
 =======
@@ -105,6 +107,7 @@ pub struct PublishSection {
     pub checksum: Option<String>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub include: Vec<String>,
+=======
 =======
 }
 
@@ -234,7 +237,6 @@ struct RawTestTarget {
     kind: Option<String>,
     stderr: Option<String>,
 =======
-=======
     kind: Option<String>,
 }
 
@@ -243,6 +245,7 @@ struct RawPublishSection {
     registry: Option<String>,
     checksum: Option<String>,
     include: Option<Vec<String>>,
+=======
 =======
     kind: Option<String>,
 }
@@ -903,8 +906,8 @@ fn normalize_tests(
 
 <<<<<<< HEAD
 <<<<<<< HEAD
-=======
 >>>>>>> origin/codex/worker-j-issue-362
+=======
 fn normalize_test_kind(
     value: Option<String>,
     path: &Path,

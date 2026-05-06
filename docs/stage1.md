@@ -129,6 +129,7 @@ member package with `-p/--package`.
 >>>>>>> origin/codex/issue-395-effective-fs-roots
 >>>>>>> origin/codex/worker-h-issue-413
 >>>>>>> origin/codex/worker-j-issue-362
+>>>>>>> origin/codex/worker-j-issue-363
 
 ## JSON contract
 
@@ -205,6 +206,8 @@ still far from the stated 1.0 target for service and agent workloads.
 - The current import model is still intentionally small: package-local relative path imports plus dependency-prefixed imports like `core/math.ax`, direct `pub struct` / `pub enum` / `pub fn` exports only, and explicit parser diagnostics for unsupported aliases, re-exports, and namespace-qualified calls.
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
 =======
 - `axiomc publish` now validates the lockfile and stages a deterministic signed archive into a local static-registry tree for `axiomc registry-index`; there is still no hosted registry service, version resolution, trust-root management, or offline package verification beyond this bootstrap shape.
 =======
@@ -245,6 +248,7 @@ still far from the stated 1.0 target for service and agent workloads.
 >>>>>>> origin/codex/agent-i-language-slice
 >>>>>>> origin/codex/issue-395-effective-fs-roots
 >>>>>>> origin/codex/worker-j-issue-362
+>>>>>>> origin/codex/worker-j-issue-363
 - `axiomc fmt`, `axiomc bench`, `axiomc doc`, the stage1 scratch `repl`, and a
   bounded `axiomc lsp` analyzer now exist as bootstrap-grade toolchain
   commands. The LSP endpoint currently serves compiler-backed diagnostics over
@@ -289,6 +293,7 @@ Current proof points:
 - `stage1/examples/proof_worker` closes the queue-style AG5.3 proof workload with a deterministic worker fixture built on `std/async.ax`, `std/env.ax`, and `std/time.ax`.
 - `stage1/examples/proof_http_service` is a checked-in HTTP-shaped response fixture that routes request metadata from `std/env.ax`, stamps liveness with `std/time.ax`, and renders the response body through `std/json.ax`; it remains a fixture for the small-service AG5.3 workload while AG4.3/#97 continues toward a fuller async-runtime listen/accept/respond server API.
 <<<<<<< HEAD
+<<<<<<< HEAD
 - `stage1/examples/stdlib_http` extends AG4.1 with `import "std/http.ax"`, bringing `get(url)` into scope on top of a new blocking HTTP/1.0 client for `http://` and `https://` URLs; it shares the importing package's `[capabilities] net` flag with `std/net.ax` and keeps its smoke deterministic by pointing at a closed local port so the `None` branch always fires.
 - `stage1/examples/proof_cli` closes the first AG5.3 proof workload with a multi-package CLI fixture that pulls command and render helpers from separate local packages while staying fully inside the `axiomc` workflow and exercising capability-gated `std/env.ax` and `std/time.ax`.
 - `stage1/examples/proof_worker` closes the queue-style AG5.3 proof workload with a deterministic worker fixture built on `std/async.ax`, `std/env.ax`, and `std/time.ax`.
@@ -297,6 +302,7 @@ Current proof points:
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
+=======
 =======
 =======
 =======

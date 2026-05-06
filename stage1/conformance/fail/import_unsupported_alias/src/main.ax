@@ -1,0 +1,3 @@
+import "support.ax" as support
+
+print 0

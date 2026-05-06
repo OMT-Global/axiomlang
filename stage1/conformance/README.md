@@ -42,18 +42,14 @@ Current executable fixtures cover:
   the same package.
 <<<<<<< HEAD
 <<<<<<< HEAD
-<<<<<<< HEAD
 - `comparison_strict_typing`: Axiom-owned comparison fixture for explicit
   scalar typing and bool-only control flow.
 - `comparison_package_imports`: Axiom-owned comparison fixture for package-local
   imports and typed function boundaries.
 =======
 =======
-=======
 - `type_system_aggregates`: typed aggregate coverage for generic wrappers,
   structs, enums, tuples, arrays, maps, `Option`, and `Result`.
-
->>>>>>> origin/codex/worker-j-issue-362
 Packages under `fail/` are compile-fail fixtures. Each package is a complete
 stage1 project with `axiom.toml`, `axiom.lock`, source, and
 `expected-error.json`. The conformance runner checks the diagnostic kind, code,
@@ -65,6 +61,14 @@ Current compile-fail fixtures cover:
   whose body consumes a captured non-copy value.
 - `closure_captures_function_callee`: ownership diagnostics for closures
   that capture a function-valued callee and move it into a later closure.
+- `import_cycle`: import diagnostics for circular module references.
+- `import_duplicate_export`: import diagnostics for colliding public exports
+  from sibling modules.
+- `import_missing_module`: import diagnostics for missing package-local modules.
+- `import_path_escape`: import diagnostics for parent-directory traversal.
+- `import_reserved_namespace`: import diagnostics for incomplete `std`
+  namespace imports.
+- `import_unsupported_alias`: parse diagnostics for unsupported import aliases.
 - `mutable_borrow_while_shared_live`: ownership diagnostics for conflicting
   mutable and shared borrows.
 - `comparison_owned_resource_move`: Axiom-owned Go/Rust-style comparison

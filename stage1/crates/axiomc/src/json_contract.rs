@@ -49,9 +49,9 @@ pub fn build_success(project: &Path, output: &BuildOutput) -> Value {
 =======
 =======
 =======
->>>>>>> origin/codex/worker-h-issue-413
-=======
 >>>>>>> origin/codex/worker-j-issue-362
+=======
+>>>>>>> origin/codex/worker-j-issue-363
         "manifest": output.manifest,
         "entry": output.entry,
         "binary": output.binary,

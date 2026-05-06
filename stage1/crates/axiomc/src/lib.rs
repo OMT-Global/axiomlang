@@ -11,6 +11,7 @@ pub mod diagnostic_catalog;
 >>>>>>> origin/codex/issue-395-effective-fs-roots
 >>>>>>> origin/codex/worker-h-issue-413
 >>>>>>> origin/codex/worker-j-issue-362
+>>>>>>> origin/codex/worker-j-issue-363
 pub mod diagnostics;
 pub mod hir;
 pub mod json_contract;
@@ -70,6 +71,7 @@ mod tests {
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
             "[package]\nname = {name:?}\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = {fs}\n\"fs:write\" = {fs}\nnet = {net}\nprocess = {process}\nenv = {env}\nclock = {clock}\ncrypto = {crypto}\nasync = false\n"
 =======
 =======
@@ -77,7 +79,8 @@ mod tests {
 =======
 =======
 =======
->>>>>>> origin/codex/worker-j-issue-362
+=======
+>>>>>>> origin/codex/worker-j-issue-363
             "[package]\nname = {name:?}\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = {fs}\n\"fs:write\" = {fs}\nnet = {net}\nprocess = {process}\nenv = {env}\nclock = {clock}\ncrypto = {crypto}\n"
         )
 =======
@@ -417,6 +420,7 @@ print borrowed
 >>>>>>> origin/codex/issue-395-effective-fs-roots
 >>>>>>> origin/codex/worker-h-issue-413
 >>>>>>> origin/codex/worker-j-issue-362
+>>>>>>> origin/codex/worker-j-issue-363
     fn parser_expands_declarative_statement_macros_before_lowering() {
         let source = r#"macro_rules! answer {
 ($value:expr) => {
@@ -2965,11 +2969,13 @@ crypto = false
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
         assert_eq!(caps.len(), 9);
         assert!(caps.iter().all(|cap| !cap.enabled));
         assert!(caps.iter().any(|cap| cap.name == "async"));
         let project_caps = project_capabilities(&project).expect("project capabilities");
         assert_eq!(project_caps.len(), 9);
+=======
 =======
 =======
 =======
@@ -3266,6 +3272,7 @@ crypto = false
         assert_eq!(payload["capabilities"][3]["unsafe_unrestricted"], true);
 >>>>>>> origin/codex/worker-h-issue-413
 >>>>>>> origin/codex/worker-j-issue-362
+>>>>>>> origin/codex/worker-j-issue-363
     }
 
     #[test]
@@ -5847,7 +5854,9 @@ print serve_once("127.0.0.1:18080", "hello")
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
                 stderr: None,
+=======
 =======
 =======
 =======
@@ -5860,6 +5869,7 @@ print serve_once("127.0.0.1:18080", "hello")
     #[test]
 <<<<<<< HEAD
 >>>>>>> origin/codex/worker-j-issue-362
+>>>>>>> origin/codex/worker-j-issue-363
     fn manifest_parses_richer_test_kinds() {
         let dir = tempdir().expect("tempdir");
         let project = dir.path().join("typed-tests");
@@ -6401,6 +6411,7 @@ print serve_once("127.0.0.1:18080", "hello")
         let output =
             run_project_tests(&conformance_fixture()).expect("run stage1 conformance corpus");
 <<<<<<< HEAD
+<<<<<<< HEAD
         assert_eq!(output.cases.len(), 36);
         assert_eq!(output.passed, 36);
         assert_eq!(output.cases.len(), 29);
@@ -6410,6 +6421,9 @@ print serve_once("127.0.0.1:18080", "hello")
 =======
         assert_eq!(output.cases.len(), 26);
         assert_eq!(output.passed, 26);
+=======
+        assert_eq!(output.cases.len(), 31);
+        assert_eq!(output.passed, 31);
         assert_eq!(output.failed, 0);
         assert!(
             output
@@ -6421,6 +6435,7 @@ print serve_once("127.0.0.1:18080", "hello")
                 == 20
                 == 21
                 == 20
+>>>>>>> origin/codex/worker-j-issue-363
         );
         assert_eq!(
             output
@@ -9425,6 +9440,8 @@ print 0
         assert_eq!(payload["offline"], true);
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
 =======
 =======
         assert!(payload["target"].is_string());

@@ -20,6 +20,7 @@
 >>>>>>> origin/codex/issue-395-effective-fs-roots
 >>>>>>> origin/codex/worker-h-issue-413
 >>>>>>> origin/codex/worker-j-issue-362
+>>>>>>> origin/codex/worker-j-issue-363
 //! single-intrinsic capability-gated surfaces, one per capability class:
 //!
 //! * `std/time.ax` — `Duration`, `Instant`, `now_ms()`, `now()`,
@@ -86,6 +87,8 @@
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
 =======
 =======
 =======
