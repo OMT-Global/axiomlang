@@ -34,6 +34,8 @@ mod tests {
     use crate::manifest::{
         CapabilityConfig, TestKind, TestTarget, capability_descriptors, load_manifest,
         render_manifest,
+        CapabilityConfig, CapabilityKind, ExpectedDiagnostic, TestTarget, capability_descriptors,
+        load_manifest, render_manifest,
     };
     use crate::mir;
     use crate::new_project::{WorkloadTemplate, create_project, create_project_with_template};
@@ -71,7 +73,6 @@ mod tests {
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
-<<<<<<< HEAD
             "[package]\nname = {name:?}\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = {fs}\n\"fs:write\" = {fs}\nnet = {net}\nprocess = {process}\nenv = {env}\nclock = {clock}\ncrypto = {crypto}\nasync = false\n"
 =======
 =======
@@ -79,8 +80,6 @@ mod tests {
 =======
 =======
 =======
-=======
->>>>>>> origin/codex/worker-j-issue-363
             "[package]\nname = {name:?}\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = {fs}\n\"fs:write\" = {fs}\nnet = {net}\nprocess = {process}\nenv = {env}\nclock = {clock}\ncrypto = {crypto}\n"
         )
 =======
@@ -2969,13 +2968,11 @@ crypto = false
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
-<<<<<<< HEAD
         assert_eq!(caps.len(), 9);
         assert!(caps.iter().all(|cap| !cap.enabled));
         assert!(caps.iter().any(|cap| cap.name == "async"));
         let project_caps = project_capabilities(&project).expect("project capabilities");
         assert_eq!(project_caps.len(), 9);
-=======
 =======
 =======
 =======
@@ -3090,7 +3087,6 @@ crypto = false
                 .message
                 .contains("capabilities.unsafe_opt_ins[0] references unknown capability")
         );
->>>>>>> origin/codex/agent-g-regex
 >>>>>>> origin/codex/agent-f-fs
 >>>>>>> origin/codex/agent-i-language-slice
 >>>>>>> origin/codex/issue-387-capability-validation
@@ -5862,6 +5858,9 @@ print serve_once("127.0.0.1:18080", "hello")
 =======
 =======
 =======
+                expected_error: None,
+                capabilities: Vec::new(),
+                package: None,
             }]
         );
     }
@@ -5885,7 +5884,6 @@ print serve_once("127.0.0.1:18080", "hello")
 
         let manifest = load_manifest(&project).expect("load manifest");
         assert_eq!(manifest.tests[0].kind, TestKind::Table);
-=======
     fn manifest_rejects_reserved_registry_publish_fields() {
         let dir = tempdir().expect("tempdir");
 
@@ -5927,10 +5925,83 @@ print serve_once("127.0.0.1:18080", "hello")
         assert!(
             err.message
                 .contains("dependencies.core.version is reserved")
+=======
+    fn manifest_parses_test_metadata_contract() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("tests-metadata");
+        create_project(&project, Some("tests-metadata-app")).expect("create project");
+        fs::write(
+            project.join("axiom.toml"),
+            format!(
+                "{}\n[[tests]]\nname = \"alias-fail\"\nentry = \"src/alias_test.ax\"\npackage = \"tests-metadata-app\"\ncapabilities = [\"clock\", \"env\"]\nexpected_error = {{ kind = \"parse\", code = \"import_alias\", message = \"stage1 bootstrap does not support import aliases; import exported symbols directly\", path = \"src/alias_test.ax\", line = 1, column = 20 }}\n",
+                render_manifest("tests-metadata-app")
+            ),
+        )
+        .expect("write manifest");
+        let manifest = load_manifest(&project).expect("load manifest");
+        assert_eq!(manifest.tests.len(), 1);
+        let test = &manifest.tests[0];
+        assert_eq!(test.name, "alias-fail");
+        assert_eq!(test.entry, "src/alias_test.ax");
+        assert_eq!(test.package.as_deref(), Some("tests-metadata-app"));
+        assert_eq!(
+            test.capabilities,
+            vec![CapabilityKind::Clock, CapabilityKind::Env]
+        );
+        assert_eq!(
+            test.expected_error,
+            Some(ExpectedDiagnostic {
+                kind: String::from("parse"),
+                code: Some(String::from("import_alias")),
+                message: String::from(
+                    "stage1 bootstrap does not support import aliases; import exported symbols directly"
+                ),
+                path: String::from("src/alias_test.ax"),
+                line: 1,
+                column: 20,
+            })
         );
     }
 
     #[test]
+=======
+    fn run_project_tests_reports_manifest_metadata_in_json() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("runner-metadata");
+        create_project(&project, Some("runner-metadata-app")).expect("create project");
+        fs::write(
+            project.join("axiom.toml"),
+            format!(
+                "{}\n[[tests]]\nname = \"alias-fail\"\nentry = \"src/alias_test.ax\"\npackage = \"runner-metadata-app\"\ncapabilities = [\"clock\"]\nexpected_error = {{ kind = \"parse\", message = \"stage1 bootstrap does not support import aliases; import exported symbols directly\", path = \"src/alias_test.ax\", line = 1, column = 21 }}\n",
+                render_manifest("runner-metadata-app")
+            ),
+        )
+        .expect("write manifest");
+        fs::write(
+            project.join("src/alias_test.ax"),
+            "import \"support.ax\" as support\nprint 0\n",
+        )
+        .expect("write test");
+
+        let output = run_project_tests_with_options(
+            &project,
+            &TestOptions {
+                filter: Some(String::from("alias-fail")),
+                package: None,
+            },
+        )
+        .expect("run tests");
+        assert_eq!(output.passed, 1);
+        assert_eq!(output.failed, 0);
+        let payload = json_contract::test_success(&project, Some("alias-fail"), &output);
+        let case = &payload["cases"][0];
+        assert_eq!(case["expected_error"]["kind"], "parse");
+        assert_eq!(case["required_capabilities"][0], "clock");
+        assert_eq!(case["selected_package"], "runner-metadata-app");
+    }
+
+    #[test]
+>>>>>>> origin/codex/worker-j-issue-366
     fn run_project_tests_executes_manifest_cases() {
         let dir = tempdir().expect("tempdir");
         let project = dir.path().join("runner");
@@ -6418,7 +6489,6 @@ print serve_once("127.0.0.1:18080", "hello")
         assert_eq!(output.passed, 29);
         assert_eq!(output.cases.len(), 31);
         assert_eq!(output.passed, 31);
-=======
         assert_eq!(output.cases.len(), 26);
         assert_eq!(output.passed, 26);
 =======
@@ -6435,7 +6505,6 @@ print serve_once("127.0.0.1:18080", "hello")
                 == 20
                 == 21
                 == 20
->>>>>>> origin/codex/worker-j-issue-363
         );
         assert_eq!(
             output

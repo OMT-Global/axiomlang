@@ -12,6 +12,12 @@ stage1 project with `axiom.toml`, `axiom.lock`, source, and
 `src/**/*_test.ax` target through the Rust path, executes the generated binary,
 and compares stdout to the package-level expected output.
 
+Fixtures may also declare explicit `[[tests]]` entries in `axiom.toml`.
+Manifest test entries support `name`, `entry`, `stdout`, `expected_error`,
+`capabilities`, and `package` metadata. `axiomc test --json` reports those
+contracts on each discovered case so agents can inspect the fixture intent
+without reading sidecar files first.
+
 Current executable fixtures cover:
 
 - `legacy_core_programs`: migrated golden-program coverage for integer

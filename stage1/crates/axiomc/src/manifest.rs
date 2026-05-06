@@ -96,7 +96,6 @@ pub enum TestKind {
 =======
 =======
 =======
-=======
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq, Default)]
@@ -109,6 +108,20 @@ pub struct PublishSection {
     pub include: Vec<String>,
 =======
 =======
+=======
+    pub expected_error: Option<ExpectedDiagnostic>,
+    pub capabilities: Vec<CapabilityKind>,
+    pub package: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ExpectedDiagnostic {
+    pub kind: String,
+    pub code: Option<String>,
+    pub message: String,
+    pub path: String,
+    pub line: usize,
+    pub column: usize,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq, Default)]
@@ -135,7 +148,7 @@ pub struct CapabilityConfig {
     pub rationale: BTreeMap<String, String>,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
 #[serde(rename_all = "snake_case")]
 pub enum CapabilityKind {
     Fs,
@@ -236,7 +249,6 @@ struct RawTestTarget {
 <<<<<<< HEAD
     kind: Option<String>,
     stderr: Option<String>,
-=======
     kind: Option<String>,
 }
 
@@ -248,6 +260,10 @@ struct RawPublishSection {
 =======
 =======
     kind: Option<String>,
+=======
+    expected_error: Option<ExpectedDiagnostic>,
+    capabilities: Option<Vec<CapabilityKind>>,
+    package: Option<String>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -380,9 +396,7 @@ pub fn render_manifest(name: &str) -> String {
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
-<<<<<<< HEAD
         "[package]\nname = {name:?}\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\n\"fs:write\" = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\nffi = false\nasync = false\n"
-=======
 =======
 =======
 =======
@@ -887,10 +901,18 @@ fn normalize_tests(
         }
         let entry = required_field(raw_test.entry, path, &format!("{field_prefix}.entry"))?;
         validate_relative_path(path, &format!("{field_prefix}.entry"), &entry)?;
+        let package =
+            normalize_optional_name(path, &format!("{field_prefix}.package"), raw_test.package)?;
+        let capabilities = normalize_test_capabilities(
+            path,
+            &format!("{field_prefix}.capabilities"),
+            raw_test.capabilities.unwrap_or_default(),
+        )?;
         tests.push(TestTarget {
             name,
             entry,
             stdout: raw_test.stdout,
+<<<<<<< HEAD
             kind: normalize_test_kind(raw_test.kind, path, &format!("{field_prefix}.kind"))?,
 <<<<<<< HEAD
 <<<<<<< HEAD
@@ -899,6 +921,10 @@ fn normalize_tests(
 =======
 =======
 =======
+=======
+            expected_error: raw_test.expected_error,
+            capabilities,
+            package,
         });
     }
     Ok(tests)
@@ -907,7 +933,6 @@ fn normalize_tests(
 <<<<<<< HEAD
 <<<<<<< HEAD
 >>>>>>> origin/codex/worker-j-issue-362
-=======
 fn normalize_test_kind(
     value: Option<String>,
     path: &Path,
@@ -1005,6 +1030,39 @@ fn validate_sha256_checksum(path: &Path, checksum: &str) -> Result<(), Diagnosti
         "publish.checksum must use sha256:<64 lowercase hex characters>",
     )
     .with_path(path.display().to_string()))
+=======
+fn normalize_optional_name(
+    path: &Path,
+    field_name: &str,
+    value: Option<String>,
+) -> Result<Option<String>, Diagnostic> {
+    let Some(value) = value else {
+        return Ok(None);
+    };
+    required_field(Some(value), path, field_name).map(Some)
+}
+
+fn normalize_test_capabilities(
+    path: &Path,
+    field_name: &str,
+    values: Vec<CapabilityKind>,
+) -> Result<Vec<CapabilityKind>, Diagnostic> {
+    let mut capabilities = Vec::new();
+    let mut seen = std::collections::BTreeSet::new();
+    for capability in values {
+        if !seen.insert(capability) {
+            return Err(Diagnostic::new(
+                "manifest",
+                format!(
+                    "duplicate capability {:?} in {field_name}",
+                    capability.name()
+                ),
+            )
+            .with_path(path.display().to_string()));
+        }
+        capabilities.push(capability);
+    }
+    Ok(capabilities)
 }
 
 fn normalize_optional_relative_path(
