@@ -1,0 +1,11 @@
+fn apply(f: fn(int): int, value: int): int {
+return f(value)
+}
+
+let inc: fn(int): int = |x: int| x + 1
+print inc(41)
+print apply(|n: int| n + 2, 40)
+
+let base: int = 10
+let add_base: fn(int): int = |x: int| x + base
+print add_base(5)

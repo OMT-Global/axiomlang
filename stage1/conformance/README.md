@@ -22,7 +22,7 @@ Current executable fixtures cover:
 - `struct_field_access`: struct construction, field access, and passing a
   struct through a function.
 - `outcome_control_flow`: `Option` and `Result` construction plus `match`
-  control flow.
+  and `if let` control flow, including ignored fallback payloads.
 - `collection_operations`: standard collection helpers over arrays and
   borrowed slices.
 - `comparison_package_imports`: Axiom-owned Go/Rust-style comparison fixture
@@ -43,6 +43,10 @@ message, relative path, line, and column.
 
 Current compile-fail fixtures cover:
 
+- `closure_move_captured_non_copy`: ownership diagnostics for `fn` closures
+  whose body consumes a captured non-copy value.
+- `closure_captures_function_callee`: ownership diagnostics for closures
+  that capture a function-valued callee and move it into a later closure.
 - `mutable_borrow_while_shared_live`: ownership diagnostics for conflicting
   mutable and shared borrows.
 - `comparison_owned_resource_move`: Axiom-owned Go/Rust-style comparison

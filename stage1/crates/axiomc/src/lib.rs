@@ -31,7 +31,7 @@ mod tests {
         command_for_build_output, command_for_executable, project_capabilities, run_project_tests,
         run_project_tests_with_options, run_project_with_options,
     };
-    use crate::syntax::{Visibility, parse_program, parse_program_with_recovery};
+    use crate::syntax::{Stmt, TypeName, Visibility, parse_program, parse_program_with_recovery};
     use serde::Serialize;
     use std::fs;
     use std::path::{Path, PathBuf};
@@ -51,7 +51,7 @@ mod tests {
         crypto: bool,
     ) -> String {
         format!(
-            "[package]\nname = {name:?}\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = {fs}\n\"fs:write\" = {fs}\nnet = {net}\nprocess = {process}\nenv = {env}\nclock = {clock}\ncrypto = {crypto}\n"
+            "[package]\nname = {name:?}\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = {fs}\n\"fs:write\" = {fs}\nnet = {net}\nprocess = {process}\nenv = {env}\nclock = {clock}\ncrypto = {crypto}\nasync = false\n"
         )
     }
 
@@ -620,7 +620,7 @@ print fail()
 
     #[test]
     fn parser_tracks_package_visibility() {
-        let source = "pub(pkg) const ANSWER: int = 42\npub(pkg) type Id = int\npub(pkg) struct BuildInfo {\nlabel: string\n}\npub(pkg) enum Status {\nReady\n}\npub(pkg) fn answer(): int {\nreturn ANSWER\n}\npub(pkg) async fn answer_later(): int {\nreturn ANSWER\n}\n";
+        let source = "pub(pkg) static ANSWER: int = 42\npub(pkg) type Id = int\npub(pkg) struct BuildInfo {\nlabel: string\n}\npub(pkg) enum Status {\nReady\n}\npub(pkg) fn answer(): int {\nreturn ANSWER\n}\npub(pkg) async fn answer_later(): int {\nreturn ANSWER\n}\n";
         let parsed = parse_program(source, Path::new("main.ax")).expect("parse");
         assert_eq!(parsed.consts[0].visibility, Visibility::Package);
         assert_eq!(parsed.type_aliases[0].visibility, Visibility::Package);
@@ -1829,7 +1829,7 @@ print fail()
         .expect("write main");
         fs::write(
             project.join("src/shared.ax"),
-            "pub(pkg) const ANSWER: int = 42\npub(pkg) type Id = int\npub(pkg) struct BuildInfo {\nlabel: string\n}\npub(pkg) enum Status {\nReady\n}\npub(pkg) fn helper(): Id {\nreturn ANSWER\n}\npub(pkg) fn build(): BuildInfo {\nreturn BuildInfo { label: \"package\" }\n}\npub(pkg) fn ready(): Status {\nreturn Ready\n}\n",
+            "pub(pkg) static ANSWER: int = 42\npub(pkg) type Id = int\npub(pkg) struct BuildInfo {\nlabel: string\n}\npub(pkg) enum Status {\nReady\n}\npub(pkg) fn helper(): Id {\nreturn ANSWER\n}\npub(pkg) fn build(): BuildInfo {\nreturn BuildInfo { label: \"package\" }\n}\npub(pkg) fn ready(): Status {\nreturn Ready\n}\n",
         )
         .expect("write shared");
         let built = build_project(&project).expect("build package-visible module");
@@ -1844,6 +1844,12 @@ print fail()
         let dir = tempdir().expect("tempdir");
         let project = dir.path().join("package-visible-async-module");
         create_project(&project, Some("package-visible-async-module-app")).expect("create project");
+        fs::write(
+            project.join("axiom.toml"),
+            render_manifest("package-visible-async-module-app")
+                .replace("async = false", "async = true"),
+        )
+        .expect("write async-enabled manifest");
         fs::write(
             project.join("src/main.ax"),
             "import \"std/async.ax\"\nimport \"shared.ax\"\n\nlet task: Task<int> = helper(41)\nprint await task\n",
@@ -1929,6 +1935,13 @@ print fail()
         let dependency = project.join("deps/core");
         create_project(&project, Some(case_name)).expect("create root");
         create_project(&dependency, Some("package-visible-core")).expect("create dependency");
+        if dependency_source.contains("async fn") || main_source.contains("std/async.ax") {
+            fs::write(
+                dependency.join("axiom.toml"),
+                render_manifest("package-visible-core").replace("async = false", "async = true"),
+            )
+            .expect("write async-enabled dependency manifest");
+        }
 
         fs::write(dependency.join("src/shared.ax"), dependency_source).expect("write dependency");
         let dependency_manifest = load_manifest(&dependency).expect("load dependency manifest");
@@ -1943,7 +1956,11 @@ print fail()
             project.join("axiom.toml"),
             format!(
                 "{}\n[dependencies]\ncore = {{ path = \"deps/core\" }}\n",
-                render_manifest(case_name)
+                if dependency_source.contains("async fn") || main_source.contains("std/async.ax") {
+                    render_manifest(case_name).replace("async = false", "async = true")
+                } else {
+                    render_manifest(case_name)
+                }
             ),
         )
         .expect("write root manifest");
@@ -2452,10 +2469,11 @@ crypto = false
         create_project(&project, Some("caps-app")).expect("create project");
         let manifest = load_manifest(&project).expect("load manifest");
         let caps = capability_descriptors(&manifest.capabilities);
-        assert_eq!(caps.len(), 8);
+        assert_eq!(caps.len(), 9);
         assert!(caps.iter().all(|cap| !cap.enabled));
+        assert!(caps.iter().any(|cap| cap.name == "async"));
         let project_caps = project_capabilities(&project).expect("project capabilities");
-        assert_eq!(project_caps.len(), 8);
+        assert_eq!(project_caps.len(), 9);
     }
 
     #[test]
@@ -4081,6 +4099,129 @@ true
     }
 
     #[test]
+    fn closure_rejects_borrowed_slice_return_fn_value() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("closure-borrowed-slice-return");
+        create_project(&project, Some("closure-borrowed-slice-return")).expect("create project");
+        fs::write(
+            project.join("axiom.toml"),
+            render_manifest_with_capabilities(
+                "closure-borrowed-slice-return",
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+            ),
+        )
+        .expect("write manifest");
+        let manifest = load_manifest(&project).expect("load manifest");
+        fs::write(
+            project.join("axiom.lock"),
+            render_lockfile_for_project(&project, &manifest).expect("lockfile"),
+        )
+        .expect("write lockfile");
+        fs::write(
+            project.join("src/main.ax"),
+            "let xs: [int] = [1, 2, 3]\nlet head: fn(&[int]): &[int] = |ys: &[int]| ys\nprint len(head(xs[:]))\n",
+        )
+        .expect("write source");
+
+        let err = check_project(&project)
+            .expect_err("fn closures must reject borrowed slice return values");
+        assert_eq!(err.kind, "ownership");
+        assert_eq!(err.code.as_deref(), Some("closure_borrowed_slice_return"));
+        assert!(
+            err.message
+                .contains("closure fn values cannot return borrowed slice types"),
+            "unexpected diagnostic: {err:?}",
+        );
+    }
+
+    #[test]
+    fn closure_rejects_moving_captured_non_copy_fn_value() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("closure-captured-non-copy");
+        create_project(&project, Some("closure-captured-non-copy")).expect("create project");
+        fs::write(
+            project.join("axiom.toml"),
+            render_manifest_with_capabilities(
+                "closure-captured-non-copy",
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+            ),
+        )
+        .expect("write manifest");
+        let manifest = load_manifest(&project).expect("load manifest");
+        fs::write(
+            project.join("axiom.lock"),
+            render_lockfile_for_project(&project, &manifest).expect("lockfile"),
+        )
+        .expect("write lockfile");
+        fs::write(
+            project.join("src/main.ax"),
+            "let s: string = \"hello\"\nlet take: fn(): string = || s\nprint take()\n",
+        )
+        .expect("write source");
+
+        let err = check_project(&project)
+            .expect_err("fn closures must reject moving captured non-copy values");
+        assert_eq!(err.kind, "ownership");
+        assert_eq!(err.code.as_deref(), Some("closure_move_captured_non_copy"));
+        assert!(
+            err.message
+                .contains("closure cannot move captured non-copy value `s`"),
+            "unexpected diagnostic: {err:?}",
+        );
+    }
+
+    #[test]
+    fn closure_captures_function_value_callee_name() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("closure-captures-function-callee");
+        create_project(&project, Some("closure-captures-function-callee")).expect("create project");
+        fs::write(
+            project.join("axiom.toml"),
+            render_manifest_with_capabilities(
+                "closure-captures-function-callee",
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+            ),
+        )
+        .expect("write manifest");
+        let manifest = load_manifest(&project).expect("load manifest");
+        fs::write(
+            project.join("axiom.lock"),
+            render_lockfile_for_project(&project, &manifest).expect("lockfile"),
+        )
+        .expect("write lockfile");
+        fs::write(
+            project.join("src/main.ax"),
+            "let inner: fn(int): int = |x: int| x + 1\nlet outer: fn(int): int = |n: int| inner(n)\nprint inner(2)\n",
+        )
+        .expect("write source");
+
+        let err = check_project(&project)
+            .expect_err("closure bodies must capture function-valued callees by name");
+        assert_eq!(err.kind, "ownership");
+        assert!(
+            err.message.contains("use of moved value `inner`")
+                || err.message.contains("use of moved value \"inner\"")
+                || err.message.contains("cannot use moved value `inner`"),
+            "unexpected diagnostic: {err:?}",
+        );
+    }
+
+    #[test]
     fn stage1_project_imports_synthetic_stdlib_sync_module() {
         // `std/sync.ax` is ungated in stage1 because it is implemented in
         // Axiom using ownership tokens rather than host threads or blocking
@@ -4140,12 +4281,13 @@ true
             render_manifest_with_capabilities(
                 "stdlib-async-app",
                 false,
+                true,
                 false,
                 false,
+                true,
                 false,
-                false,
-                false,
-            ),
+            )
+            .replace("async = false", "async = true"),
         )
         .expect("write manifest");
         let manifest = load_manifest(&project).expect("load manifest");
@@ -4154,27 +4296,76 @@ true
             render_lockfile_for_project(&project, &manifest).expect("lockfile"),
         )
         .expect("write lockfile");
-        let source = "import \"std/async.ax\"\nasync fn compute(value: int): int {\nreturn value + 1\n}\nlet direct: Task<int> = compute(40)\nprint await direct\nlet handle: JoinHandle<int> = spawn<int>(compute(6))\nprint await join<int>(handle)\nlet canceled: Task<int> = cancel<int>(compute(1))\nprint is_canceled<int>(canceled)\nlet maybe: Option<int> = await timeout<int>(compute(5), 100)\nmatch maybe {\nSome(value) {\nprint value\n}\nNone {\nprint 0\n}\n}\nlet messages: AsyncChannel<string> = channel<string>()\nlet sent: AsyncChannel<string> = await send<string>(messages, \"message\")\nlet received: Option<string> = await recv<string>(sent)\nmatch received {\nSome(message) {\nprint message\n}\nNone {\nprint \"missing\"\n}\n}\nlet left_index: Task<Option<string>> = ready<Option<string>>(None)\nlet right_index: Task<Option<string>> = ready<Option<string>>(Some(\"right\"))\nlet picked_index: SelectResult<string> = await select<string>(left_index, right_index)\nprint selected<string>(picked_index)\nlet left_value: Task<Option<string>> = ready<Option<string>>(None)\nlet right_value: Task<Option<string>> = ready<Option<string>>(Some(\"right\"))\nlet picked_value: SelectResult<string> = await select<string>(left_value, right_value)\nmatch selected_value<string>(picked_value) {\nSome(value) {\nprint value\n}\nNone {\nprint \"none\"\n}\n}\n";
+        let source = "import \"std/async.ax\"\nimport \"std/async_time.ax\"\nimport \"std/async_net.ax\"\nasync fn compute(value: int): int {\nreturn value + 1\n}\nlet direct: Task<int> = compute(40)\nprint await direct\nlet handle: JoinHandle<int> = spawn<int>(compute(6))\nprint await join<int>(handle)\nlet canceled: Task<int> = cancel<int>(compute(1))\nprint is_canceled<int>(canceled)\nlet maybe: Option<int> = await timeout<int>(compute(5), 100)\nmatch maybe {\nSome(value) {\nprint value\n}\nNone {\nprint 0\n}\n}\nlet messages: AsyncChannel<string> = channel<string>()\nlet sent: AsyncChannel<string> = await send<string>(messages, \"message\")\nlet received: Option<string> = await recv<string>(sent)\nmatch received {\nSome(message) {\nprint message\n}\nNone {\nprint \"missing\"\n}\n}\nlet left_index: Task<Option<string>> = ready<Option<string>>(None)\nlet right_index: Task<Option<string>> = ready<Option<string>>(Some(\"right\"))\nlet picked_index: SelectResult<string> = await select<string>(left_index, right_index)\nprint selected<string>(picked_index)\nlet left_value: Task<Option<string>> = ready<Option<string>>(None)\nlet right_value: Task<Option<string>> = ready<Option<string>>(Some(\"right\"))\nlet picked_value: SelectResult<string> = await select<string>(left_value, right_value)\nmatch selected_value<string>(picked_value) {\nSome(value) {\nprint value\n}\nNone {\nprint \"none\"\n}\n}\nprint await sleep_ms(0) == 0\nlet missing_socket: Option<string> = await tcp_dial(\"127.0.0.1\", 1, \"ping\", 1)\nmatch missing_socket {\nSome(_reply) {\nprint \"unexpected\"\n}\nNone {\nprint \"net none\"\n}\n}\n";
         fs::write(project.join("src/main.ax"), source).expect("write source");
         fs::write(project.join("src/main_test.ax"), source).expect("write test");
         fs::write(
             project.join("src/main_test.stdout"),
-            "41\n7\ntrue\n6\nmessage\n1\nright\n",
+            "41\n7\ntrue\n6\nmessage\n1\nright\ntrue\nnet none\n",
         )
         .expect("write golden");
 
         let built = build_project(&project).expect("build project");
+        let generated = fs::read_to_string(&built.generated_rust).expect("read generated rust");
+        assert!(generated.contains("axiom_task_deferred(move ||"));
+        assert!(
+            generated.contains("std::thread::spawn(move || axiom_task_ready(axiom_await(task)))")
+        );
+        assert!(generated.contains("recv_timeout(std::time::Duration::from_millis"));
+        assert!(generated.contains("host async timeout cannot cancel running task"));
+        assert!(generated.contains("let _ = worker.join();"));
+        assert!(!generated.contains("drop(worker);"));
+        assert!(generated.contains("clock_sleep_ms(milliseconds)"));
+        assert!(generated.contains("net_tcp_dial(host, port, message, timeout_ms)"));
+        assert!(generated.contains("std::net::TcpStream::connect_timeout"));
+        assert!(generated.contains("let worker = std::thread::spawn(move ||"));
+        assert!(generated.contains(
+            "worker
+                    .join()"
+        ));
+        assert!(!generated.contains("return axiom_task_ready(value + 1);"));
         let output = compiled_binary_command(&built.binary)
             .output()
             .expect("run compiled binary");
         assert_eq!(
             String::from_utf8_lossy(&output.stdout),
-            "41\n7\ntrue\n6\nmessage\n1\nright\n"
+            "41\n7\ntrue\n6\nmessage\n1\nright\ntrue\nnet none\n"
+        );
+        let host_output = compiled_binary_command(&built.binary)
+            .env("AXIOM_ASYNC_EXECUTOR", "host")
+            .output()
+            .expect("run compiled binary with host async executor");
+        assert_eq!(
+            String::from_utf8_lossy(&host_output.stdout),
+            "41\n7\ntrue\n6\nmessage\n1\nright\ntrue\nnet none\n"
         );
 
         let tests = run_project_tests(&project).expect("run tests");
         assert_eq!(tests.passed, 1);
         assert_eq!(tests.failed, 0);
+    }
+
+    #[test]
+    fn stage1_project_rejects_async_runtime_without_async_capability() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("stdlib-async-denied");
+        create_project(&project, Some("stdlib-async-denied")).expect("create project");
+        fs::write(
+            project.join("src/main.ax"),
+            "import \"std/async.ax\"
+let task: Task<int> = ready<int>(1)
+print await task
+",
+        )
+        .expect("write source");
+
+        let err = check_project(&project).expect_err("expected async capability denial");
+        assert_eq!(err.kind, "capability");
+        assert!(
+            err.message.contains("requires [capabilities].async = true"),
+            "unexpected message: {}",
+            err.message
+        );
     }
 
     #[test]
@@ -5266,39 +5457,48 @@ print serve_once("127.0.0.1:18080", "hello")
 
     #[test]
     fn checked_in_proof_workload_examples_build_run_and_test() {
-        for example in ["proof_cli", "proof_worker", "proof_http_service"] {
-            let project = checked_in_example_fixture(example);
-            check_project(&project).expect("check checked-in proof workload example");
+        std::thread::Builder::new()
+            .name("proof-workload-examples".into())
+            .stack_size(8 * 1024 * 1024)
+            .spawn(|| {
+                for example in ["proof_cli", "proof_worker", "proof_http_service"] {
+                    let project = checked_in_example_fixture(example);
+                    check_project(&project).expect("check checked-in proof workload example");
 
-            let built = build_project(&project).expect("build checked-in proof workload example");
-            let output = compiled_binary_command(&built.binary)
-                .output()
-                .expect("run checked-in proof workload example");
-            let expected = fs::read_to_string(project.join("src/main_test.stdout"))
-                .expect("read expected stdout");
-            assert_eq!(
-                String::from_utf8_lossy(&output.stdout),
-                expected,
-                "example {example}"
-            );
+                    let built =
+                        build_project(&project).expect("build checked-in proof workload example");
+                    let output = compiled_binary_command(&built.binary)
+                        .output()
+                        .expect("run checked-in proof workload example");
+                    let expected = fs::read_to_string(project.join("src/main_test.stdout"))
+                        .expect("read expected stdout");
+                    assert_eq!(
+                        String::from_utf8_lossy(&output.stdout),
+                        expected,
+                        "example {example}"
+                    );
 
-            let tests =
-                run_project_tests(&project).expect("test checked-in proof workload example");
-            let expected_passed = match example {
-                "proof_cli" => 2,
-                _ => 1,
-            };
-            assert_eq!(tests.passed, expected_passed, "example {example}");
-            assert_eq!(tests.failed, 0, "example {example}");
-        }
+                    let tests = run_project_tests(&project)
+                        .expect("test checked-in proof workload example");
+                    let expected_passed = match example {
+                        "proof_cli" => 2,
+                        _ => 1,
+                    };
+                    assert_eq!(tests.passed, expected_passed, "example {example}");
+                    assert_eq!(tests.failed, 0, "example {example}");
+                }
+            })
+            .expect("spawn proof workload example test thread")
+            .join()
+            .expect("proof workload example test thread should not panic");
     }
 
     #[test]
     fn conformance_corpus_reports_stable_results() {
         let output =
             run_project_tests(&conformance_fixture()).expect("run stage1 conformance corpus");
-        assert_eq!(output.cases.len(), 31);
-        assert_eq!(output.passed, 31);
+        assert_eq!(output.cases.len(), 35);
+        assert_eq!(output.passed, 35);
         assert_eq!(output.failed, 0);
         assert!(
             output
@@ -5306,7 +5506,7 @@ print serve_once("127.0.0.1:18080", "hello")
                 .iter()
                 .filter(|case| case.expected_error.is_some())
                 .count()
-                == 21
+                == 24
         );
         assert_eq!(
             output
@@ -5314,7 +5514,7 @@ print serve_once("127.0.0.1:18080", "hello")
                 .iter()
                 .filter(|case| case.expected_stdout.is_some())
                 .count(),
-            10
+            11
         );
     }
 
@@ -5872,6 +6072,214 @@ print serve_once("127.0.0.1:18080", "hello")
     }
 
     #[test]
+    fn parser_accepts_const_sized_array_types() {
+        let source =
+            "const WIDTH: int = 3\nlet values: [int; WIDTH] = [1, 2, 3]\nprint len(values)\n";
+        let parsed = parse_program(source, Path::new("main.ax")).expect("parse const-sized array");
+        let Stmt::Let { ty, .. } = &parsed.stmts[0] else {
+            panic!("expected let statement");
+        };
+        assert_eq!(
+            ty,
+            &TypeName::Array(Box::new(TypeName::Int), Some(String::from("WIDTH")))
+        );
+    }
+
+    #[test]
+    fn build_project_emits_native_binary_with_const_sized_arrays() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("const-sized-arrays");
+        create_project(&project, Some("const-sized-arrays-app")).expect("create project");
+        fs::write(
+            project.join("src/main.ax"),
+            "const WIDTH: int = 3\nlet values: [int; WIDTH] = [1, 2, 3]\nprint len(values)\n",
+        )
+        .expect("write source");
+        let built = build_project(&project).expect("build project with const-sized arrays");
+        let output = compiled_binary_command(&built.binary)
+            .output()
+            .expect("run compiled binary");
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "3\n");
+    }
+
+    #[test]
+    fn build_project_rejects_unknown_const_sized_array_lengths() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("unknown-const-sized-arrays");
+        create_project(&project, Some("unknown-const-sized-arrays-app")).expect("create project");
+        fs::write(
+            project.join("src/main.ax"),
+            "let values: [int; MISSING] = [1, 2, 3]\nprint len(values)\n",
+        )
+        .expect("write source");
+        let error = build_project(&project).expect_err("unknown array length const should fail");
+        assert!(
+            error.message.contains("known int const/static expression"),
+            "unexpected diagnostic: {error:?}"
+        );
+    }
+
+    #[test]
+    fn build_project_rejects_non_int_const_sized_array_lengths() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("non-int-const-sized-arrays");
+        create_project(&project, Some("non-int-const-sized-arrays-app")).expect("create project");
+        fs::write(
+            project.join("src/main.ax"),
+            "const WIDTH: bool = true\nlet values: [int; WIDTH] = [1, 2, 3]\nprint len(values)\n",
+        )
+        .expect("write source");
+        let error = build_project(&project).expect_err("non-int array length const should fail");
+        assert!(
+            error.message.contains("must evaluate to int"),
+            "unexpected diagnostic: {error:?}"
+        );
+    }
+
+    #[test]
+    fn build_project_rejects_mismatched_const_sized_array_literals() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("mismatched-const-sized-arrays");
+        create_project(&project, Some("mismatched-const-sized-arrays-app"))
+            .expect("create project");
+        fs::write(
+            project.join("src/main.ax"),
+            "let values: [int; 2] = [1, 2, 3]\nprint len(values)\n",
+        )
+        .expect("write source");
+        let error = build_project(&project).expect_err("mismatched array literal should fail");
+        assert!(
+            error.message.contains("array literal length mismatch"),
+            "unexpected diagnostic: {error:?}"
+        );
+    }
+
+    #[test]
+    fn build_project_rejects_mismatched_const_sized_array_bindings() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("mismatched-const-sized-array-bindings");
+        create_project(&project, Some("mismatched-const-sized-array-bindings-app"))
+            .expect("create project");
+        fs::write(
+            project.join("src/main.ax"),
+            "let three: [int; 3] = [1, 2, 3]\nlet two: [int; 2] = three\nprint len(two)\n",
+        )
+        .expect("write source");
+        let error = build_project(&project).expect_err("mismatched array binding should fail");
+        assert!(
+            error.message.contains("expects [int; 2], got [int; 3]"),
+            "unexpected diagnostic: {error:?}"
+        );
+    }
+
+    #[test]
+    fn build_project_rejects_unsized_array_binding_to_sized_array() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("unsized-to-sized-array-binding");
+        create_project(&project, Some("unsized-to-sized-array-binding-app"))
+            .expect("create project");
+        fs::write(
+            project.join("src/main.ax"),
+            "let three: [int] = [1, 2, 3]
+let two: [int; 2] = three
+print len(two)
+",
+        )
+        .expect("write source");
+        let error =
+            build_project(&project).expect_err("unsized array should not satisfy sized binding");
+        assert!(
+            error.message.contains("expects [int; 2], got [int]"),
+            "unexpected diagnostic: {error:?}"
+        );
+    }
+
+    #[test]
+    fn build_project_rejects_unsized_array_argument_to_sized_parameter() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("unsized-to-sized-array-argument");
+        create_project(&project, Some("unsized-to-sized-array-argument-app"))
+            .expect("create project");
+        fs::write(
+            project.join("src/main.ax"),
+            "fn takes_two(xs: [int; 2]): int {
+return len(xs)
+}
+let three: [int] = [1, 2, 3]
+print takes_two(three)
+",
+        )
+        .expect("write source");
+        let error =
+            build_project(&project).expect_err("unsized array should not satisfy sized parameter");
+        assert!(
+            error
+                .message
+                .contains("expects argument type [int; 2], got [int]"),
+            "unexpected diagnostic: {error:?}"
+        );
+    }
+
+    #[test]
+    fn build_project_resolves_const_sized_arrays_inside_function_bodies() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("function-local-const-sized-arrays");
+        create_project(&project, Some("function-local-const-sized-arrays-app"))
+            .expect("create project");
+        fs::write(
+            project.join("src/main.ax"),
+            "const WIDTH: int = 3\nfn f(): int {\nlet xs: [int; WIDTH] = [1, 2, 3]\nreturn len(xs)\n}\nprint f()\n",
+        )
+        .expect("write source");
+        let built = build_project(&project)
+            .expect("build project with const-sized array inside function body");
+        let output = compiled_binary_command(&built.binary)
+            .output()
+            .expect("run compiled binary");
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout),
+            "3
+"
+        );
+    }
+
+    #[test]
+    fn build_project_rejects_unknown_const_sized_array_lengths_in_signatures() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("signature-unknown-const-sized-arrays");
+        create_project(&project, Some("signature-unknown-const-sized-arrays-app"))
+            .expect("create project");
+        fs::write(
+            project.join("src/main.ax"),
+            "fn first(values: [int; MISSING]): int {\nreturn values[0]\n}\nprint 1\n",
+        )
+        .expect("write source");
+        let error = build_project(&project)
+            .expect_err("unknown array length const in function signature should fail");
+        assert!(
+            error.message.contains("known int const/static expression"),
+            "unexpected diagnostic: {error:?}"
+        );
+    }
+
+    #[test]
+    fn build_project_emits_native_binary_with_static_declarations() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("static-declarations");
+        create_project(&project, Some("static-declarations-app")).expect("create project");
+        fs::write(
+            project.join("src/main.ax"),
+            "static ANSWER: int = 40 + 2\nstatic READY: bool = ANSWER == 42\nprint ANSWER\nprint READY\n",
+        )
+        .expect("write source");
+        let built = build_project(&project).expect("build project with static declarations");
+        let output = compiled_binary_command(&built.binary)
+            .output()
+            .expect("run compiled binary");
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "42\ntrue\n");
+    }
+
+    #[test]
     fn build_project_emits_native_binary_with_imported_public_consts() {
         let dir = tempdir().expect("tempdir");
         let project = dir.path().join("public-consts");
@@ -5909,6 +6317,44 @@ print serve_once("127.0.0.1:18080", "hello")
         let error = check_project(&project).expect_err("missing import should fail");
         assert!(error.message.contains("missing import"));
         assert_eq!(error.kind, "import");
+    }
+
+    #[test]
+    fn build_project_if_let_fallback_ignores_unmatched_named_payloads() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("if-let-named-fallback");
+        create_project(&project, Some("if-let-named-fallback-app")).expect("create project");
+        fs::write(
+            project.join("src/main.ax"),
+            "enum Choice {\nPicked(int)\nIgnored { render: string }\n}\nfn render(): int {\nreturn 7\n}\nlet choice: Choice = Ignored { render: \"skip\" }\nif let Picked(value) = choice {\nprint value\n} else {\nprint \"fallback\"\n}\n",
+        )
+        .expect("write source");
+
+        let built = build_project(&project).expect("build project");
+        let output = compiled_binary_command(&built.binary)
+            .output()
+            .expect("run compiled binary");
+        assert!(output.status.success());
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "fallback\n");
+    }
+
+    #[test]
+    fn build_project_if_let_fallback_ignores_unmatched_positional_payloads() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("if-let-positional-fallback");
+        create_project(&project, Some("if-let-positional-fallback-app")).expect("create project");
+        fs::write(
+            project.join("src/main.ax"),
+            "enum Choice {\nPicked(int)\nIgnored(int, string)\n}\nlet choice: Choice = Ignored(1, \"skip\")\nif let Picked(value) = choice {\nprint value\n} else {\nprint \"fallback\"\n}\n",
+        )
+        .expect("write source");
+
+        let built = build_project(&project).expect("build project");
+        let output = compiled_binary_command(&built.binary)
+            .output()
+            .expect("run compiled binary");
+        assert!(output.status.success());
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "fallback\n");
     }
 
     #[test]
@@ -7164,6 +7610,22 @@ print serve_once("127.0.0.1:18080", "hello")
         .expect("write source");
         let error = check_project(&project).expect_err("match should require payload binding");
         assert!(error.message.contains("expects 1 bindings, got 0"));
+        assert_eq!(error.kind, "type");
+    }
+
+    #[test]
+    fn check_project_rejects_bare_positional_payload_match_arm() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("bare-positional-payload-match-arm");
+        create_project(&project, Some("bare-positional-payload-match-arm-app"))
+            .expect("create project");
+        fs::write(
+            project.join("src/main.ax"),
+            "enum Choice {\nPicked(int, string)\nEmpty\n}\n\nfn render(choice: Choice): string {\nmatch choice {\nPicked {\nreturn \"picked\"\n}\nEmpty {\nreturn \"empty\"\n}\n}\n}\n\nprint render(Empty)\n",
+        )
+        .expect("write source");
+        let error = check_project(&project).expect_err("bare payload arm should bind arity");
+        assert!(error.message.contains("expects 2 bindings, got 0"));
         assert_eq!(error.kind, "type");
     }
 
