@@ -1,0 +1,48 @@
+{
+  "capabilities": [
+    {
+      "description": "filesystem read access",
+      "enabled": false,
+      "name": "fs"
+    },
+    {
+      "description": "filesystem write access",
+      "enabled": false,
+      "name": "fs:write"
+    },
+    {
+      "description": "network access",
+      "enabled": false,
+      "name": "net"
+    },
+    {
+      "description": "child process execution",
+      "enabled": false,
+      "name": "process"
+    },
+    {
+      "description": "environment variable access",
+      "enabled": false,
+      "name": "env"
+    },
+    {
+      "description": "wall-clock time access",
+      "enabled": false,
+      "name": "clock"
+    },
+    {
+      "description": "hashing and cryptography primitives",
+      "enabled": false,
+      "name": "crypto"
+    },
+    {
+      "description": "foreign function interface access",
+      "enabled": false,
+      "name": "ffi"
+    }
+  ],
+  "command": "caps",
+  "ok": true,
+  "project": "<project>",
+  "schema_version": "axiom.stage1.v1"
+}

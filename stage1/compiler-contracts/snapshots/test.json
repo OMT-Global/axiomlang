@@ -1,0 +1,31 @@
+{
+  "cases": [
+    {
+      "binary": "<project>/dist/tests/contract-app-src-main-test",
+      "duration_ms": 0,
+      "entry": "src/main_test.ax",
+      "error": null,
+      "exit_code": 0,
+      "expected_stdout": "hello from stage1\n",
+      "generated_rust": "<project>/dist/tests/contract-app-src-main-test.generated.rs",
+      "name": "src/main_test",
+      "ok": true,
+      "package_root": "<project>",
+      "stderr": "",
+      "stdout": "hello from stage1\n"
+    }
+  ],
+  "command": "test",
+  "duration_ms": 0,
+  "failed": 0,
+  "filter": null,
+  "manifest": "<project>/axiom.toml",
+  "ok": true,
+  "packages": [
+    "<project>"
+  ],
+  "passed": 1,
+  "project": "<project>",
+  "schema_version": "axiom.stage1.v1",
+  "skipped": 0
+}

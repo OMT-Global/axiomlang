@@ -1,0 +1,83 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://omt-global.github.io/axiom/schemas/axiom.stage1.command.schema.json",
+  "title": "Axiom stage1 compiler command JSON envelope",
+  "type": "object",
+  "oneOf": [
+    {
+      "title": "check",
+      "properties": {
+        "command": { "const": "check" }
+      },
+      "required": [
+        "schema_version",
+        "ok",
+        "command",
+        "project",
+        "manifest",
+        "entry",
+        "statement_count",
+        "capabilities",
+        "warnings",
+        "packages"
+      ]
+    },
+    {
+      "title": "build",
+      "properties": {
+        "command": { "const": "build" }
+      },
+      "required": [
+        "schema_version",
+        "ok",
+        "command",
+        "project",
+        "manifest",
+        "entry",
+        "binary",
+        "generated_rust",
+        "debug_map",
+        "statement_count",
+        "target",
+        "debug",
+        "cache_hits",
+        "cache_misses",
+        "duration_ms",
+        "packages"
+      ]
+    },
+    {
+      "title": "test",
+      "properties": {
+        "command": { "const": "test" }
+      },
+      "required": [
+        "schema_version",
+        "ok",
+        "command",
+        "project",
+        "manifest",
+        "packages",
+        "filter",
+        "passed",
+        "failed",
+        "skipped",
+        "duration_ms",
+        "cases"
+      ]
+    },
+    {
+      "title": "caps",
+      "properties": {
+        "command": { "const": "caps" }
+      },
+      "required": [
+        "schema_version",
+        "ok",
+        "command",
+        "project",
+        "capabilities"
+      ]
+    }
+  ]
+}

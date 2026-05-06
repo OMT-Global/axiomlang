@@ -1,0 +1,103 @@
+{
+  "capabilities": [
+    {
+      "description": "filesystem read access",
+      "enabled": false,
+      "name": "fs"
+    },
+    {
+      "description": "filesystem write access",
+      "enabled": false,
+      "name": "fs:write"
+    },
+    {
+      "description": "network access",
+      "enabled": false,
+      "name": "net"
+    },
+    {
+      "description": "child process execution",
+      "enabled": false,
+      "name": "process"
+    },
+    {
+      "description": "environment variable access",
+      "enabled": false,
+      "name": "env"
+    },
+    {
+      "description": "wall-clock time access",
+      "enabled": false,
+      "name": "clock"
+    },
+    {
+      "description": "hashing and cryptography primitives",
+      "enabled": false,
+      "name": "crypto"
+    },
+    {
+      "description": "foreign function interface access",
+      "enabled": false,
+      "name": "ffi"
+    }
+  ],
+  "command": "check",
+  "entry": "<project>/src/main.ax",
+  "manifest": "<project>/axiom.toml",
+  "ok": true,
+  "packages": [
+    {
+      "capabilities": [
+        {
+          "description": "filesystem read access",
+          "enabled": false,
+          "name": "fs"
+        },
+        {
+          "description": "filesystem write access",
+          "enabled": false,
+          "name": "fs:write"
+        },
+        {
+          "description": "network access",
+          "enabled": false,
+          "name": "net"
+        },
+        {
+          "description": "child process execution",
+          "enabled": false,
+          "name": "process"
+        },
+        {
+          "description": "environment variable access",
+          "enabled": false,
+          "name": "env"
+        },
+        {
+          "description": "wall-clock time access",
+          "enabled": false,
+          "name": "clock"
+        },
+        {
+          "description": "hashing and cryptography primitives",
+          "enabled": false,
+          "name": "crypto"
+        },
+        {
+          "description": "foreign function interface access",
+          "enabled": false,
+          "name": "ffi"
+        }
+      ],
+      "entry": "<project>/src/main.ax",
+      "manifest": "<project>/axiom.toml",
+      "package_root": "<project>",
+      "statement_count": 1,
+      "warnings": []
+    }
+  ],
+  "project": "<project>",
+  "schema_version": "axiom.stage1.v1",
+  "statement_count": 1,
+  "warnings": []
+}
