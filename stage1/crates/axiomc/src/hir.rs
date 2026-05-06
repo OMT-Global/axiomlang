@@ -4237,6 +4237,15 @@ fn lower_function(
         function.line,
         function.column,
     )?;
+    if function.is_async {
+        require_capability(
+            capabilities,
+            CapabilityKind::Async,
+            "async fn",
+            function.line,
+            function.column,
+        )?;
+    }
     if function.is_extern {
         if function.is_async {
             return Err(Diagnostic::new(
@@ -7284,6 +7293,13 @@ fn lower_expr_with_expected(
             })
         }
         syntax::Expr::Await { expr, line, column } => {
+            require_capability(
+                ctx.capabilities,
+                CapabilityKind::Async,
+                "await",
+                *line,
+                *column,
+            )?;
             let lowered = lower_expr(expr, env, ctx)?;
             let inner_ty = match lowered.ty() {
                 Type::Task(inner) => (**inner).clone(),
@@ -7826,6 +7842,7 @@ fn lower_async_runtime_intrinsic(
     env: &mut HashMap<String, Binding>,
     ctx: &LowerContext<'_>,
 ) -> Result<Expr, Diagnostic> {
+    require_capability(ctx.capabilities, CapabilityKind::Async, name, line, column)?;
     if type_args.len() != 1 {
         return Err(Diagnostic::new(
             "type",
