@@ -236,7 +236,6 @@ mod tests {
     #[test]
 <<<<<<< HEAD
 <<<<<<< HEAD
-<<<<<<< HEAD
     fn parser_distinguishes_owned_string_from_borrowed_str() {
         let source = r#"fn read(label: &str): int {
 print label
@@ -364,7 +363,6 @@ print borrowed
     }
 
     #[test]
-=======
 =======
 =======
     fn parser_expands_declarative_statement_macros_before_lowering() {
@@ -2816,7 +2814,6 @@ crypto = false
                 .message
                 .contains("capabilities.unsafe_opt_ins[0] references unknown capability")
         );
->>>>>>> origin/codex/issue-380-doc-json
 >>>>>>> origin/codex/issue-376-doctor-json
 >>>>>>> origin/codex/issue-377-inspect-symbols
 >>>>>>> origin/codex/issue-378-inspect-graph
@@ -5345,6 +5342,7 @@ print serve_once("127.0.0.1:18080", "hello")
                 entry: String::from("src/math_test.ax"),
                 stdout: Some(String::from("42\n")),
                 kind: TestKind::Unit,
+                stderr: None,
             }]
         );
     }
@@ -5478,8 +5476,62 @@ print serve_once("127.0.0.1:18080", "hello")
                 .as_ref()
                 .expect("error")
                 .message
-                .contains("expected \"99\\n\", got \"42\\n\"")
+                .contains("stdout expected \"99\\n\", got \"42\\n\"")
         );
+    }
+
+    #[test]
+    fn run_project_tests_reports_stdout_and_stderr_mismatches() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("runner-stream-fail");
+        create_project(&project, Some("runner-stream-fail-app")).expect("create project");
+        fs::write(
+            project.join("axiom.toml"),
+            format!(
+                "{}\n[[tests]]\nname = \"io-smoke\"\nentry = \"src/main_test.ax\"\nstdout = \"false\\n\"\nstderr = \"wrong stderr\\n\"\n",
+                render_manifest("runner-stream-fail-app")
+            ),
+        )
+        .expect("write manifest");
+        fs::write(
+            project.join("src/main_test.ax"),
+            "import \"std/io.ax\"\nlet n: int = eprintln(\"actual stderr\")\nprint n > 0\n",
+        )
+        .expect("write test");
+
+        let output = run_project_tests(&project).expect("run tests");
+
+        assert_eq!(output.passed, 0);
+        assert_eq!(output.failed, 1);
+        let case = output.cases.first().expect("test case");
+        assert_eq!(case.stdout, "true\n");
+        assert_eq!(case.stderr, "actual stderr\n");
+        assert_eq!(case.expected_stdout.as_deref(), Some("false\n"));
+        assert_eq!(case.expected_stderr.as_deref(), Some("wrong stderr\n"));
+        let message = &case.error.as_ref().expect("error").message;
+        assert!(message.contains("stdout expected \"false\\n\", got \"true\\n\""));
+        assert!(message.contains("stderr expected \"wrong stderr\\n\", got \"actual stderr\\n\""));
+    }
+
+    #[test]
+    fn run_project_tests_uses_sibling_stderr_golden() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("runner-stderr-golden");
+        create_project(&project, Some("runner-stderr-golden-app")).expect("create project");
+        fs::write(
+            project.join("src/main_test.ax"),
+            "import \"std/io.ax\"\nlet n: int = eprintln(\"hello stderr\")\nprint n > 0\n",
+        )
+        .expect("write test");
+        fs::write(project.join("src/main_test.stdout"), "true\n").expect("write stdout");
+        fs::write(project.join("src/main_test.stderr"), "hello stderr\n").expect("write stderr");
+
+        let output = run_project_tests(&project).expect("run tests");
+
+        assert_eq!(output.passed, 1);
+        let case = output.cases.first().expect("test case");
+        assert_eq!(case.expected_stderr.as_deref(), Some("hello stderr\n"));
+        assert!(case.ok);
     }
 
     #[test]
@@ -5776,9 +5828,7 @@ print serve_once("127.0.0.1:18080", "hello")
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
-<<<<<<< HEAD
                 == 24
-=======
 =======
 =======
 =======
@@ -5791,7 +5841,6 @@ print serve_once("127.0.0.1:18080", "hello")
                 .filter(|case| case.expected_stdout.is_some())
                 .count(),
             12
->>>>>>> origin/codex/issue-376-doctor-json
 >>>>>>> origin/codex/issue-377-inspect-symbols
 >>>>>>> origin/codex/issue-378-inspect-graph
             9

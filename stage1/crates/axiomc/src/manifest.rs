@@ -71,6 +71,7 @@ pub enum TestKind {
     Property,
     Snapshot,
     Benchmark,
+    pub stderr: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq, Default)]
@@ -90,9 +91,7 @@ pub struct CapabilityConfig {
     pub ffi: bool,
 <<<<<<< HEAD
 <<<<<<< HEAD
-<<<<<<< HEAD
     pub async_runtime: bool,
-=======
 =======
 =======
     pub deny_by_default: bool,
@@ -178,7 +177,10 @@ struct RawTestTarget {
     name: Option<String>,
     entry: Option<String>,
     stdout: Option<String>,
+<<<<<<< HEAD
     kind: Option<String>,
+=======
+    stderr: Option<String>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -303,9 +305,7 @@ pub fn render_manifest(name: &str) -> String {
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
-<<<<<<< HEAD
         "[package]\nname = {name:?}\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\n\"fs:write\" = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\nffi = false\nasync = false\n"
-=======
 =======
 =======
 =======
@@ -450,7 +450,6 @@ fn normalize_manifest(raw: RawManifest, path: &Path) -> Result<Manifest, Diagnos
             ffi: capabilities.ffi.unwrap_or(false),
 <<<<<<< HEAD
             async_runtime: capabilities.async_runtime.unwrap_or(false),
->>>>>>> origin/codex/issue-376-doctor-json
 =======
             deny_by_default: capabilities.deny_by_default.unwrap_or(false),
             unsafe_opt_ins,
@@ -677,6 +676,7 @@ fn normalize_tests(
             entry,
             stdout: raw_test.stdout,
             kind: normalize_test_kind(raw_test.kind, path, &format!("{field_prefix}.kind"))?,
+            stderr: raw_test.stderr,
         });
     }
     Ok(tests)
