@@ -70,6 +70,7 @@ pub struct BuiltPackage {
 >>>>>>> origin/codex/issue-380-doc-json
 >>>>>>> origin/codex/issue-376-doctor-json
 >>>>>>> origin/codex/issue-377-inspect-symbols
+>>>>>>> origin/codex/issue-378-inspect-graph
     pub metadata: BuildMetadata,
     pub cache_status: BuildCacheStatus,
     pub compile_ms: u64,
@@ -92,7 +93,9 @@ pub struct BuildOutput {
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
     pub cache_key: BuildCacheMetadata,
+=======
 =======
 =======
 =======
@@ -302,6 +305,7 @@ pub fn build_project_with_options(
 >>>>>>> origin/codex/issue-380-doc-json
 >>>>>>> origin/codex/issue-376-doctor-json
 >>>>>>> origin/codex/issue-377-inspect-symbols
+>>>>>>> origin/codex/issue-378-inspect-graph
             metadata: report.metadata,
             cache_status: report.cache_status,
             compile_ms: report.compile_ms,
@@ -337,7 +341,9 @@ pub fn build_project_with_options(
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
         cache_key: root.cache_key,
+=======
 =======
 =======
 =======
@@ -831,6 +837,7 @@ fn register_stdlib_package(graph: &mut PackageGraph) {
             async_runtime: true,
 >>>>>>> origin/codex/issue-376-doctor-json
 >>>>>>> origin/codex/issue-377-inspect-symbols
+>>>>>>> origin/codex/issue-378-inspect-graph
             deny_by_default: false,
             unsafe_opt_ins: Vec::new(),
             owners: BTreeMap::new(),
@@ -1124,6 +1131,7 @@ fn build_artifacts(
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 fn build_cache_metadata(cache: &BuildCacheFile) -> BuildCacheMetadata {
     BuildCacheMetadata {
         version: cache.version,
@@ -1147,7 +1155,8 @@ fn build_cache_metadata(cache: &BuildCacheFile) -> BuildCacheMetadata {
 =======
 =======
 =======
->>>>>>> origin/codex/issue-377-inspect-symbols
+=======
+>>>>>>> origin/codex/issue-378-inspect-graph
 fn build_metadata(package_root: &Path, cache: &BuildCacheFile) -> BuildMetadata {
     BuildMetadata {
         target: cache.target.clone(),

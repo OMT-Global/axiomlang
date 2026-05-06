@@ -9,6 +9,7 @@ pub const KNOWN_CAPABILITIES: [CapabilityKind; 9] = [
 >>>>>>> origin/codex/issue-380-doc-json
 >>>>>>> origin/codex/issue-376-doctor-json
 >>>>>>> origin/codex/issue-377-inspect-symbols
+>>>>>>> origin/codex/issue-378-inspect-graph
 pub const KNOWN_CAPABILITIES: [CapabilityKind; 8] = [
     CapabilityKind::Fs,
     CapabilityKind::FsWrite,
@@ -89,7 +90,9 @@ pub struct CapabilityConfig {
     pub ffi: bool,
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
     pub async_runtime: bool,
+=======
 =======
 =======
     pub deny_by_default: bool,
@@ -195,6 +198,7 @@ struct RawCapabilityConfig {
     async_runtime: Option<bool>,
 >>>>>>> origin/codex/issue-376-doctor-json
 >>>>>>> origin/codex/issue-377-inspect-symbols
+>>>>>>> origin/codex/issue-378-inspect-graph
     deny_by_default: Option<bool>,
     unsafe_opt_ins: Option<Vec<String>>,
     owners: Option<BTreeMap<String, String>>,
@@ -299,7 +303,9 @@ pub fn render_manifest(name: &str) -> String {
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
         "[package]\nname = {name:?}\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\n\"fs:write\" = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\nffi = false\nasync = false\n"
+=======
 =======
 =======
 =======

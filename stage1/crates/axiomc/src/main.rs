@@ -8,6 +8,8 @@ use axiomc::manifest::CapabilityDescriptor;
 >>>>>>> origin/codex/issue-380-doc-json
 >>>>>>> origin/codex/issue-376-doctor-json
 >>>>>>> origin/codex/issue-377-inspect-symbols
+use axiomc::lockfile::{expected_lockfile_for_project, validate_lockfile};
+use axiomc::manifest::{load_manifest, manifest_path};
 use axiomc::new_project::create_project;
 use axiomc::project::{
     BuildOptions, BuildOutput, CheckOptions, RunOptions, TestOptions, build_project_with_options,
@@ -21,6 +23,8 @@ use axiomc::syntax::parse_program;
 use clap::{Parser, Subcommand};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
+use serde::Serialize;
+use std::collections::{BTreeSet, HashMap};
 use std::fs;
 use std::io::{self, BufRead, Write};
 use std::path::{Path, PathBuf};
@@ -110,6 +114,11 @@ enum Command {
         #[command(subcommand)]
         command: InspectCommand,
     },
+    /// Inspect project metadata for agent tooling.
+    Inspect {
+        #[command(subcommand)]
+        command: InspectCommand,
+    },
     /// Format .ax source files with the canonical stage1 style.
     Fmt {
         path: PathBuf,
@@ -182,8 +191,8 @@ enum Command {
 enum CapsCommand {
     /// Diff two caps JSON payloads and fail on capability escalation.
     Diff { old: PathBuf, new: PathBuf },
-=======
 >>>>>>> origin/codex/issue-376-doctor-json
+=======
 =======
 }
 
@@ -191,11 +200,14 @@ enum CapsCommand {
 enum InspectCommand {
     /// Emit exported functions, types, consts, imports, and capability use.
     Symbols {
+    /// Emit package and module dependency graph details.
+    Graph {
         path: PathBuf,
         #[arg(long)]
         json: bool,
     },
 >>>>>>> origin/codex/issue-377-inspect-symbols
+>>>>>>> origin/codex/issue-378-inspect-graph
 }
 
 fn main() {
@@ -379,7 +391,10 @@ fn main() {
             }
         }
         Command::Inspect { command } => match command {
+<<<<<<< HEAD
             InspectCommand::Symbols { path, json } => match inspect_symbols(&path) {
+=======
+            InspectCommand::Graph { path, json } => match inspect_graph(&path) {
                 Ok(report) => {
                     if json {
                         println!(
@@ -398,6 +413,16 @@ fn main() {
                     0
                 }
                 Err(error) => print_error("inspect symbols", error, json),
+                        println!(
+                            "packages={} modules={} import_errors={}",
+                            report.packages.len(),
+                            report.modules.len(),
+                            report.import_errors.len()
+                        );
+                    }
+                    0
+                }
+                Err(error) => print_error("inspect graph", error, json),
             },
         },
         Command::Fmt { path, check } => match format_axiom_sources(&path, check) {
@@ -796,8 +821,9 @@ struct FormatEdit {
 
 #[derive(Debug, Clone, Serialize)]
 struct DoctorReport {
-=======
 struct InspectSymbolsReport {
+=======
+struct InspectGraphReport {
     schema_version: &'static str,
     ok: bool,
     command: &'static str,
@@ -963,6 +989,155 @@ struct SymbolSpan {
 fn inspect_symbols(path: &Path) -> Result<InspectSymbolsReport, Diagnostic> {
     let files = axiom_files(path)?;
     let mut symbols = Vec::new();
+    lockfile_status: &'static str,
+    lockfile_packages: Vec<LockfilePackageReport>,
+    packages: Vec<PackageNode>,
+    modules: Vec<ModuleNode>,
+    stdlib_modules: Vec<&'static str>,
+    cycles: Vec<Vec<String>>,
+    import_errors: Vec<ImportErrorReport>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct LockfilePackageReport {
+    name: String,
+    version: String,
+    source: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct PackageNode {
+    name: Option<String>,
+    root: String,
+    manifest: String,
+    dependencies: Vec<PackageEdge>,
+    workspace_members: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct PackageEdge {
+    name: String,
+    path: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct ModuleNode {
+    path: String,
+    imports: Vec<ModuleImport>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct ModuleImport {
+    path: String,
+    resolved: Option<String>,
+    is_stdlib: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct ImportErrorReport {
+    module: String,
+    import: String,
+    message: String,
+}
+
+fn inspect_graph(project: &Path) -> Result<InspectGraphReport, Diagnostic> {
+    let manifest = load_manifest(project)?;
+    let lockfile_status = match validate_lockfile(project, &manifest) {
+        Ok(()) => "valid",
+        Err(_) => "invalid",
+    };
+    let lockfile_packages = expected_lockfile_for_project(project, &manifest)?
+        .package
+        .into_iter()
+        .map(|package| LockfilePackageReport {
+            name: package.name,
+            version: package.version,
+            source: package.source,
+        })
+        .collect::<Vec<_>>();
+    let packages = package_nodes(project, &manifest);
+    let (modules, import_errors) = module_nodes(project, &manifest)?;
+    let cycles = module_cycles(&modules);
+
+    Ok(InspectGraphReport {
+        schema_version: json_contract::JSON_SCHEMA_VERSION,
+        ok: import_errors.is_empty() && cycles.is_empty() && lockfile_status == "valid",
+        command: "inspect graph",
+        project: project.display().to_string(),
+        lockfile_status,
+        lockfile_packages,
+        packages,
+        modules,
+        stdlib_modules: vec![
+            "std/async.ax",
+            "std/collections.ax",
+            "std/crypto_hash.ax",
+            "std/env.ax",
+            "std/fs.ax",
+            "std/http.ax",
+            "std/io.ax",
+            "std/json.ax",
+            "std/log.ax",
+            "std/net.ax",
+            "std/process.ax",
+            "std/string_builder.ax",
+            "std/sync.ax",
+            "std/time.ax",
+        ],
+        cycles,
+        import_errors,
+    })
+}
+
+fn package_nodes(project: &Path, manifest: &axiomc::manifest::Manifest) -> Vec<PackageNode> {
+    let dependencies = manifest
+        .dependencies
+        .iter()
+        .map(|(name, spec)| PackageEdge {
+            name: name.clone(),
+            path: project.join(&spec.path).display().to_string(),
+        })
+        .collect::<Vec<_>>();
+    let workspace_members = manifest
+        .workspace
+        .as_ref()
+        .map(|workspace| {
+            workspace
+                .members
+                .iter()
+                .map(|member| project.join(member).display().to_string())
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    vec![PackageNode {
+        name: manifest
+            .package
+            .as_ref()
+            .map(|package| package.name.clone()),
+        root: project.display().to_string(),
+        manifest: manifest_path(project).display().to_string(),
+        dependencies,
+        workspace_members,
+    }]
+}
+
+fn module_nodes(
+    project: &Path,
+    manifest: &axiomc::manifest::Manifest,
+) -> Result<(Vec<ModuleNode>, Vec<ImportErrorReport>), Diagnostic> {
+    let files = axiom_files(project)?;
+    let known = files
+        .iter()
+        .map(|path| normalize_for_graph(path))
+        .collect::<BTreeSet<_>>();
+    let dependencies = manifest
+        .dependencies
+        .iter()
+        .map(|(name, spec)| (name.as_str(), project.join(&spec.path).join("src")))
+        .collect::<HashMap<_, _>>();
+    let stdlib = stdlib_module_set();
+    let mut modules = Vec::new();
+    let mut errors = Vec::new();
     for file in files {
         let source = fs::read_to_string(&file).map_err(|err| {
             Diagnostic::new(
@@ -1252,6 +1427,147 @@ fn capability_for_call(name: &str) -> Option<&'static str> {
         "crypto_sha256" => Some("crypto"),
         _ => None,
     }
+        let mut imports = Vec::new();
+        for import in program.imports {
+            if import.path.starts_with("std/") {
+                let exists = stdlib.contains(import.path.as_str());
+                if !exists {
+                    errors.push(ImportErrorReport {
+                        module: file.display().to_string(),
+                        import: import.path.clone(),
+                        message: "unknown stdlib module".to_string(),
+                    });
+                }
+                imports.push(ModuleImport {
+                    path: import.path,
+                    resolved: None,
+                    is_stdlib: true,
+                });
+                continue;
+            }
+            let candidate = dependency_import_candidate(&dependencies, &import.path).unwrap_or_else(
+                || {
+                    file.parent()
+                        .map(|parent| parent.join(&import.path))
+                        .unwrap_or_else(|| PathBuf::from(&import.path))
+                },
+            );
+            let resolved = normalize_for_graph(&candidate);
+            if !known.contains(&resolved) {
+                errors.push(ImportErrorReport {
+                    module: file.display().to_string(),
+                    import: import.path.clone(),
+                    message: format!("missing import {}", candidate.display()),
+                });
+            }
+            imports.push(ModuleImport {
+                path: import.path,
+                resolved: Some(resolved),
+                is_stdlib: false,
+            });
+        }
+        modules.push(ModuleNode {
+            path: normalize_for_graph(&file),
+            imports,
+        });
+    }
+    modules.sort_by(|left, right| left.path.cmp(&right.path));
+    Ok((modules, errors))
+}
+
+fn dependency_import_candidate(
+    dependencies: &HashMap<&str, PathBuf>,
+    import: &str,
+) -> Option<PathBuf> {
+    let (dependency, rest) = import.split_once('/')?;
+    dependencies.get(dependency).map(|source_root| source_root.join(rest))
+}
+
+fn stdlib_module_set() -> BTreeSet<&'static str> {
+    [
+        "std/async.ax",
+        "std/collections.ax",
+        "std/crypto_hash.ax",
+        "std/env.ax",
+        "std/fs.ax",
+        "std/http.ax",
+        "std/io.ax",
+        "std/json.ax",
+        "std/log.ax",
+        "std/net.ax",
+        "std/process.ax",
+        "std/string_builder.ax",
+        "std/sync.ax",
+        "std/time.ax",
+    ]
+    .into_iter()
+    .collect()
+}
+
+fn module_cycles(modules: &[ModuleNode]) -> Vec<Vec<String>> {
+    let graph = modules
+        .iter()
+        .map(|module| {
+            (
+                module.path.clone(),
+                module
+                    .imports
+                    .iter()
+                    .filter_map(|import| import.resolved.clone())
+                    .collect::<Vec<_>>(),
+            )
+        })
+        .collect::<HashMap<_, _>>();
+    let mut cycles = Vec::new();
+    for node in graph.keys() {
+        let mut stack = Vec::new();
+        find_cycles(node, node, &graph, &mut stack, &mut cycles);
+    }
+    cycles.sort();
+    cycles.dedup();
+    cycles
+}
+
+fn find_cycles(
+    start: &str,
+    current: &str,
+    graph: &HashMap<String, Vec<String>>,
+    stack: &mut Vec<String>,
+    cycles: &mut Vec<Vec<String>>,
+) {
+    if stack.iter().any(|node| node == current) {
+        return;
+    }
+    stack.push(current.to_string());
+    for next in graph.get(current).into_iter().flatten() {
+        if next == start {
+            let mut cycle = stack.clone();
+            cycle.push(start.to_string());
+            cycles.push(canonical_cycle(cycle));
+        } else if graph.contains_key(next) {
+            find_cycles(start, next, graph, stack, cycles);
+        }
+    }
+    stack.pop();
+}
+
+fn canonical_cycle(mut cycle: Vec<String>) -> Vec<String> {
+    if cycle.len() <= 2 {
+        return cycle;
+    }
+    cycle.pop();
+    if let Some((index, _)) = cycle.iter().enumerate().min_by_key(|(_, value)| *value) {
+        cycle.rotate_left(index);
+    }
+    cycle.push(cycle[0].clone());
+    cycle
+}
+
+fn normalize_for_graph(path: &Path) -> String {
+    fs::canonicalize(path)
+        .unwrap_or_else(|_| path.to_path_buf())
+        .display()
+        .to_string()
 }
 
 #[derive(Debug, Clone)]
@@ -2021,6 +2337,7 @@ mod tests {
         assert!(help.contains("Discover, build, and run package test entrypoints"));
         assert!(help.contains("Inspect manifest capability requirements"));
         assert!(help.contains("Report local stage1 project and toolchain health"));
+>>>>>>> origin/codex/issue-378-inspect-graph
         assert!(help.contains("Inspect project metadata for agent tooling"));
         assert!(help.contains("Format .ax source files"));
         assert!(help.contains("Generate Markdown and HTML API docs"));
@@ -2058,6 +2375,7 @@ mod tests {
                 "only generated-rust is implemented in this preparatory backend plumbing"
             )
         );
+<<<<<<< HEAD
 <<<<<<< HEAD
     }
 
@@ -2102,9 +2420,10 @@ mod tests {
             }
             other => panic!("expected caps diff command with path, got {other:?}"),
         }
->>>>>>> origin/codex/issue-380-doc-json
 >>>>>>> origin/codex/issue-376-doctor-json
 =======
+=======
+>>>>>>> origin/codex/issue-378-inspect-graph
     }
 
     fn build_output(debug_map: Option<String>) -> BuildOutput {
@@ -2269,6 +2588,77 @@ mod tests {
             report
                 .known_unsupported_features
                 .contains(&"package registry resolution")
+    fn inspect_graph_reports_modules_lockfile_and_import_errors() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let project = dir.path().join("graph");
+        let dependency = project.join("deps/core");
+        create_project(&project, Some("graph-app")).expect("create project");
+        create_project(&dependency, Some("graph-core")).expect("create dependency");
+        fs::write(
+            project.join("axiom.toml"),
+            "[package]\nname = \"graph-app\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[dependencies]\ncore = { path = \"deps/core\" }\n",
+        )
+        .expect("write manifest");
+        fs::write(
+            project.join("src/main.ax"),
+            "import \"math.ax\"\nimport \"core/math.ax\"\nimport \"missing.ax\"\n\nprint value()\n",
+        )
+        .expect("write main source");
+        fs::write(
+            project.join("src/math.ax"),
+            "import \"std/time.ax\"\n\npub fn value(): int {\nreturn 7\n}\n",
+        )
+        .expect("write math source");
+        fs::write(
+            dependency.join("src/math.ax"),
+            "pub fn dep_value(): int {\nreturn 11\n}\n",
+        )
+        .expect("write dependency source");
+        let dependency_manifest = load_manifest(&dependency).expect("load dependency manifest");
+        fs::write(
+            dependency.join("axiom.lock"),
+            axiomc::lockfile::render_lockfile_for_project(&dependency, &dependency_manifest)
+                .expect("dependency lockfile"),
+        )
+        .expect("write dependency lockfile");
+        let manifest = load_manifest(&project).expect("load root manifest");
+        fs::write(
+            project.join("axiom.lock"),
+            axiomc::lockfile::render_lockfile_for_project(&project, &manifest)
+                .expect("root lockfile"),
+        )
+        .expect("write root lockfile");
+
+        let report = inspect_graph(&project).expect("inspect graph");
+
+        assert_eq!(report.command, "inspect graph");
+        assert_eq!(report.lockfile_status, "valid");
+        assert_eq!(report.lockfile_packages.len(), 2);
+        assert_eq!(report.packages.len(), 1);
+        assert!(report.modules.len() >= 4);
+        assert!(report.stdlib_modules.contains(&"std/time.ax"));
+        assert_eq!(report.import_errors.len(), 1);
+        assert!(report.import_errors[0].message.contains("missing import"));
+        let main = report
+            .modules
+            .iter()
+            .find(|module| {
+                module
+                    .imports
+                    .iter()
+                    .any(|import| import.path == "core/math.ax")
+            })
+            .expect("main module");
+        let dependency_import = main
+            .imports
+            .iter()
+            .find(|import| import.path == "core/math.ax")
+            .expect("dependency import");
+        assert!(
+            dependency_import
+                .resolved
+                .as_deref()
+                .is_some_and(|path| path.ends_with("deps/core/src/math.ax"))
         );
     }
 
@@ -2388,6 +2778,17 @@ mod tests {
         assert_eq!(report.unsafe_reductions, vec![String::from("env")]);
         assert!(!report.escalated);
         assert!(report.ok);
+    fn inspect_graph_detects_local_module_cycles() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let project = dir.path().join("cycle");
+        create_project(&project, Some("cycle-app")).expect("create project");
+        fs::write(project.join("src/main.ax"), "import \"a.ax\"\n").expect("write main source");
+        fs::write(project.join("src/a.ax"), "import \"b.ax\"\n").expect("write a source");
+        fs::write(project.join("src/b.ax"), "import \"a.ax\"\n").expect("write b source");
+
+        let report = inspect_graph(&project).expect("inspect graph");
+
+        assert!(!report.cycles.is_empty());
     }
 
     #[test]

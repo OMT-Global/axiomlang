@@ -46,6 +46,7 @@ cargo run --manifest-path stage1/Cargo.toml -p axiomc -- test stage1/examples/pr
 cargo run --manifest-path stage1/Cargo.toml -p axiomc -- caps stage1/examples/hello --json
 cargo run --manifest-path stage1/Cargo.toml -p axiomc -- doctor stage1/examples/hello --json
 cargo run --manifest-path stage1/Cargo.toml -p axiomc -- inspect symbols stage1/examples/modules --json
+cargo run --manifest-path stage1/Cargo.toml -p axiomc -- inspect graph stage1/examples/modules --json
 cargo run --manifest-path stage1/Cargo.toml -p axiomc -- fmt stage1/examples/hello --check
 cargo run --manifest-path stage1/Cargo.toml -p axiomc -- doc stage1/examples/hello
 cargo run --manifest-path stage1/Cargo.toml -p axiomc -- doc stage1/examples/hello --json
@@ -120,6 +121,9 @@ capabilities, and known unsupported feature buckets for agent preflight checks.
 `axiomc inspect symbols --json` emits exported package source symbols with
 source spans, signatures, module imports, and directly inferred intrinsic
 capability use for agent indexing.
+`axiomc inspect graph --json` emits package metadata, lockfile resolution,
+package-local module imports, stdlib module names, detected local import cycles,
+and import errors for agent dependency-graph checks.
 
 ## Current gaps
 
