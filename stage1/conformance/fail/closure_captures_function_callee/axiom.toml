@@ -1,5 +1,5 @@
 [package]
-name = "proof-worker"
+name = "conformance-closure-captures-function-callee"
 version = "0.1.0"
 
 [build]
@@ -10,8 +10,6 @@ out_dir = "dist"
 fs = false
 net = false
 process = false
-env = ["AXIOM_STAGE1_WORKER"]
-clock = true
+env = false
+clock = false
 crypto = false
-ffi = false
-async = true

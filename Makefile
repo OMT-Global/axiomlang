@@ -15,7 +15,7 @@ docs-python-exit-test:
 	bash scripts/ci/test-check-python-exit-docs.sh
 
 stage1-test:
-	cargo test --manifest-path stage1/Cargo.toml
+	RUST_MIN_STACK=8388608 cargo test --manifest-path stage1/Cargo.toml
 	$(MAKE) stage1-proof-test
 
 stage1-proof-test:

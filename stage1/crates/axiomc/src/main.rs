@@ -14,7 +14,8 @@ use axiomc::registry::{
 };
 use axiomc::syntax::parse_program;
 use clap::{Parser, Subcommand};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::io::{self, BufRead, Write};
 use std::path::{Path, PathBuf};
@@ -89,6 +90,8 @@ enum Command {
         path: Option<PathBuf>,
         #[arg(long)]
         json: bool,
+        #[command(subcommand)]
+        command: Option<CapsCommand>,
     },
     /// Format .ax source files with the canonical stage1 style.
     Fmt {
@@ -149,6 +152,12 @@ enum Command {
     Lsp,
     /// Start the bounded axiom-debug Debug Adapter Protocol endpoint.
     Dap,
+}
+
+#[derive(Debug, Subcommand)]
+enum CapsCommand {
+    /// Diff two caps JSON payloads and fail on capability escalation.
+    Diff { old: PathBuf, new: PathBuf },
 }
 
 fn main() {
@@ -267,27 +276,53 @@ fn main() {
             }
             Err(error) => print_error("test", error, json),
         },
-        Command::Caps { path, json } => {
-            let project = path.unwrap_or_else(|| PathBuf::from("."));
-            match project_capabilities(&project) {
-                Ok(capabilities) => {
-                    if json {
-                        println!("{}", json_contract::caps_success(&project, &capabilities));
-                        0
-                    } else {
-                        let payload = json_contract::caps_success(&project, &capabilities);
-                        match json_contract::to_pretty_string(&payload) {
+        Command::Caps {
+            path,
+            json,
+            command,
+        } => match command {
+            Some(CapsCommand::Diff { old, new }) => {
+                if path.is_some() {
+                    print_error(
+                        "caps",
+                        Diagnostic::new("caps", "`caps diff` does not accept PATH"),
+                        json,
+                    )
+                } else {
+                    match diff_caps_files(&old, &new) {
+                        Ok(report) => match json_contract::to_pretty_string(&report) {
                             Ok(output) => {
                                 println!("{output}");
-                                0
+                                if report.escalated { 1 } else { 0 }
                             }
                             Err(error) => print_error("caps", error, false),
-                        }
+                        },
+                        Err(error) => print_error("caps", error, json),
                     }
                 }
-                Err(error) => print_error("caps", error, json),
             }
-        }
+            None => {
+                let project = path.unwrap_or_else(|| PathBuf::from("."));
+                match project_capabilities(&project) {
+                    Ok(capabilities) => {
+                        if json {
+                            println!("{}", json_contract::caps_success(&project, &capabilities));
+                            0
+                        } else {
+                            let payload = json_contract::caps_success(&project, &capabilities);
+                            match json_contract::to_pretty_string(&payload) {
+                                Ok(output) => {
+                                    println!("{output}");
+                                    0
+                                }
+                                Err(error) => print_error("caps", error, false),
+                            }
+                        }
+                    }
+                    Err(error) => print_error("caps", error, json),
+                }
+            }
+        },
         Command::Fmt { path, check } => match format_axiom_sources(&path, check) {
             Ok(report) => {
                 for file in &report.files {
@@ -454,6 +489,175 @@ fn build_summary_lines(output: &BuildOutput, timings: bool) -> Vec<String> {
         }
     }
     lines
+}
+
+#[derive(Debug, Deserialize)]
+struct CapsPayload {
+    capabilities: Vec<CapsDescriptor>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct CapsDescriptor {
+    name: String,
+    #[serde(default)]
+    enabled: bool,
+    #[serde(default)]
+    allowed: Vec<String>,
+    #[serde(default)]
+    unsafe_unrestricted: bool,
+}
+
+#[derive(Debug, Serialize, PartialEq, Eq)]
+struct CapsDiffReport {
+    schema_version: &'static str,
+    ok: bool,
+    command: &'static str,
+    old: String,
+    new: String,
+    added_capabilities: Vec<String>,
+    removed_capabilities: Vec<String>,
+    escalated_capabilities: Vec<String>,
+    added_scopes: Vec<CapsScopeDiff>,
+    removed_scopes: Vec<CapsScopeDiff>,
+    unsafe_escalations: Vec<String>,
+    unsafe_reductions: Vec<String>,
+    escalated: bool,
+}
+
+#[derive(Debug, Serialize, PartialEq, Eq)]
+struct CapsScopeDiff {
+    capability: String,
+    scopes: Vec<String>,
+}
+
+fn diff_caps_files(old: &Path, new: &Path) -> Result<CapsDiffReport, Diagnostic> {
+    let old_payload = read_caps_payload(old)?;
+    let new_payload = read_caps_payload(new)?;
+    Ok(diff_caps_payloads(
+        &old_payload,
+        &new_payload,
+        old.display().to_string(),
+        new.display().to_string(),
+    ))
+}
+
+fn read_caps_payload(path: &Path) -> Result<CapsPayload, Diagnostic> {
+    let content = fs::read_to_string(path).map_err(|err| {
+        Diagnostic::new("caps", format!("failed to read {}: {err}", path.display()))
+            .with_path(path.display().to_string())
+    })?;
+    serde_json::from_str(&content).map_err(|err| {
+        Diagnostic::new(
+            "caps",
+            format!("failed to parse caps JSON {}: {err}", path.display()),
+        )
+        .with_path(path.display().to_string())
+    })
+}
+
+fn diff_caps_payloads(
+    old: &CapsPayload,
+    new: &CapsPayload,
+    old_path: String,
+    new_path: String,
+) -> CapsDiffReport {
+    let old_caps = caps_by_name(old);
+    let new_caps = caps_by_name(new);
+    let names: BTreeSet<String> = old_caps.keys().chain(new_caps.keys()).cloned().collect();
+
+    let mut added_capabilities = Vec::new();
+    let mut removed_capabilities = Vec::new();
+    let mut escalated_capabilities = Vec::new();
+    let mut added_scopes = Vec::new();
+    let mut removed_scopes = Vec::new();
+    let mut unsafe_escalations = Vec::new();
+    let mut unsafe_reductions = Vec::new();
+
+    for name in names {
+        let old_cap = old_caps.get(&name);
+        let new_cap = new_caps.get(&name);
+        let old_enabled = old_cap.is_some_and(|cap| cap.enabled);
+        let new_enabled = new_cap.is_some_and(|cap| cap.enabled);
+
+        match (old_enabled, new_enabled) {
+            (false, true) => {
+                added_capabilities.push(name.clone());
+                escalated_capabilities.push(name.clone());
+            }
+            (true, false) => removed_capabilities.push(name.clone()),
+            _ => {}
+        }
+
+        if old_enabled && new_enabled {
+            if let Some(diff) = scope_diff(&name, old_cap, new_cap, true) {
+                added_scopes.push(diff);
+            }
+            if let Some(diff) = scope_diff(&name, old_cap, new_cap, false) {
+                removed_scopes.push(diff);
+            }
+        }
+
+        let old_unsafe = old_cap.is_some_and(|cap| cap.unsafe_unrestricted);
+        let new_unsafe = new_cap.is_some_and(|cap| cap.unsafe_unrestricted);
+        match (old_unsafe, new_unsafe) {
+            (false, true) => unsafe_escalations.push(name.clone()),
+            (true, false) => unsafe_reductions.push(name.clone()),
+            _ => {}
+        }
+    }
+
+    let escalated = !escalated_capabilities.is_empty()
+        || !added_scopes.is_empty()
+        || !unsafe_escalations.is_empty();
+
+    CapsDiffReport {
+        schema_version: json_contract::JSON_SCHEMA_VERSION,
+        ok: !escalated,
+        command: "caps diff",
+        old: old_path,
+        new: new_path,
+        added_capabilities,
+        removed_capabilities,
+        escalated_capabilities,
+        added_scopes,
+        removed_scopes,
+        unsafe_escalations,
+        unsafe_reductions,
+        escalated,
+    }
+}
+
+fn caps_by_name(payload: &CapsPayload) -> BTreeMap<String, CapsDescriptor> {
+    payload
+        .capabilities
+        .iter()
+        .map(|capability| (capability.name.clone(), capability.clone()))
+        .collect()
+}
+
+fn scope_diff(
+    name: &str,
+    old: Option<&CapsDescriptor>,
+    new: Option<&CapsDescriptor>,
+    added: bool,
+) -> Option<CapsScopeDiff> {
+    let old_scopes: BTreeSet<String> = old
+        .into_iter()
+        .flat_map(|capability| capability.allowed.iter().cloned())
+        .collect();
+    let new_scopes: BTreeSet<String> = new
+        .into_iter()
+        .flat_map(|capability| capability.allowed.iter().cloned())
+        .collect();
+    let scopes: Vec<String> = if added {
+        new_scopes.difference(&old_scopes).cloned().collect()
+    } else {
+        old_scopes.difference(&new_scopes).cloned().collect()
+    };
+    (!scopes.is_empty()).then(|| CapsScopeDiff {
+        capability: name.to_string(),
+        scopes,
+    })
 }
 
 fn print_error(command: &str, error: Diagnostic, json: bool) -> i32 {
@@ -1183,6 +1387,49 @@ mod tests {
         );
     }
 
+    #[test]
+    fn caps_diff_cli_parses_old_and_new_payload_paths() {
+        let cli = Cli::try_parse_from(["axiomc", "caps", "diff", "old-caps.json", "new-caps.json"])
+            .expect("parse caps diff command");
+
+        match cli.command {
+            Command::Caps {
+                command: Some(CapsCommand::Diff { old, new }),
+                ..
+            } => {
+                assert_eq!(old, PathBuf::from("old-caps.json"));
+                assert_eq!(new, PathBuf::from("new-caps.json"));
+            }
+            other => panic!("expected caps diff command, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn caps_diff_cli_retains_path_for_runtime_rejection() {
+        let cli = Cli::try_parse_from([
+            "axiomc",
+            "caps",
+            "my-project",
+            "diff",
+            "old-caps.json",
+            "new-caps.json",
+        ])
+        .expect("parse caps diff command with path");
+
+        match cli.command {
+            Command::Caps {
+                path,
+                command: Some(CapsCommand::Diff { old, new }),
+                ..
+            } => {
+                assert_eq!(path, Some(PathBuf::from("my-project")));
+                assert_eq!(old, PathBuf::from("old-caps.json"));
+                assert_eq!(new, PathBuf::from("new-caps.json"));
+            }
+            other => panic!("expected caps diff command with path, got {other:?}"),
+        }
+    }
+
     fn build_output(debug_map: Option<String>) -> BuildOutput {
         BuildOutput {
             backend: NativeBackendKind::GeneratedRust,
@@ -1255,6 +1502,113 @@ mod tests {
             build_summary_lines(&build_output(None), false),
             vec![String::from("wrote dist/app (backend=generated-rust)")]
         );
+    }
+
+    #[test]
+    fn caps_diff_reports_added_removed_and_escalated_capabilities() {
+        let old = CapsPayload {
+            capabilities: vec![
+                CapsDescriptor {
+                    name: String::from("fs"),
+                    enabled: true,
+                    allowed: Vec::new(),
+                    unsafe_unrestricted: false,
+                },
+                CapsDescriptor {
+                    name: String::from("env"),
+                    enabled: true,
+                    allowed: vec![String::from("AXIOM_SAFE")],
+                    unsafe_unrestricted: false,
+                },
+                CapsDescriptor {
+                    name: String::from("process"),
+                    enabled: true,
+                    allowed: Vec::new(),
+                    unsafe_unrestricted: false,
+                },
+            ],
+        };
+        let new = CapsPayload {
+            capabilities: vec![
+                CapsDescriptor {
+                    name: String::from("fs"),
+                    enabled: false,
+                    allowed: Vec::new(),
+                    unsafe_unrestricted: false,
+                },
+                CapsDescriptor {
+                    name: String::from("net"),
+                    enabled: true,
+                    allowed: Vec::new(),
+                    unsafe_unrestricted: false,
+                },
+                CapsDescriptor {
+                    name: String::from("env"),
+                    enabled: true,
+                    allowed: vec![String::from("AXIOM_SECRET"), String::from("AXIOM_SAFE")],
+                    unsafe_unrestricted: true,
+                },
+                CapsDescriptor {
+                    name: String::from("process"),
+                    enabled: true,
+                    allowed: Vec::new(),
+                    unsafe_unrestricted: false,
+                },
+            ],
+        };
+
+        let report = diff_caps_payloads(
+            &old,
+            &new,
+            String::from("old.json"),
+            String::from("new.json"),
+        );
+
+        assert_eq!(report.added_capabilities, vec![String::from("net")]);
+        assert_eq!(report.removed_capabilities, vec![String::from("fs")]);
+        assert_eq!(report.escalated_capabilities, vec![String::from("net")]);
+        assert_eq!(
+            report.added_scopes,
+            vec![CapsScopeDiff {
+                capability: String::from("env"),
+                scopes: vec![String::from("AXIOM_SECRET")],
+            }]
+        );
+        assert_eq!(report.unsafe_escalations, vec![String::from("env")]);
+        assert!(report.escalated);
+        assert!(!report.ok);
+    }
+
+    #[test]
+    fn caps_diff_allows_reductions_without_escalation() {
+        let old = CapsPayload {
+            capabilities: vec![CapsDescriptor {
+                name: String::from("env"),
+                enabled: true,
+                allowed: vec![String::from("AXIOM_SECRET"), String::from("AXIOM_SAFE")],
+                unsafe_unrestricted: true,
+            }],
+        };
+        let new = CapsPayload {
+            capabilities: vec![CapsDescriptor {
+                name: String::from("env"),
+                enabled: true,
+                allowed: vec![String::from("AXIOM_SAFE")],
+                unsafe_unrestricted: false,
+            }],
+        };
+
+        let report = diff_caps_payloads(
+            &old,
+            &new,
+            String::from("old.json"),
+            String::from("new.json"),
+        );
+
+        assert_eq!(report.removed_scopes.len(), 1);
+        assert_eq!(report.unsafe_reductions, vec![String::from("env")]);
+        assert!(!report.escalated);
+        assert!(report.ok);
     }
 
     #[test]
