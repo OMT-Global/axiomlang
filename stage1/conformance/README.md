@@ -53,6 +53,7 @@ Current executable fixtures cover:
 >>>>>>> origin/codex/issue-418-schema-metadata
 >>>>>>> origin/codex/issue-409-proof-cli
 >>>>>>> origin/codex/issue-410-proof-worker
+>>>>>>> origin/codex/worker-f-issue-343
 - `comparison_strict_typing`: Axiom-owned comparison fixture for explicit
   scalar typing and bool-only control flow.
 - `comparison_package_imports`: Axiom-owned comparison fixture for package-local
@@ -62,8 +63,10 @@ Current executable fixtures cover:
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 - `type_system_aggregates`: typed aggregate coverage for generic wrappers,
   structs, enums, tuples, arrays, maps, `Option`, and `Result`.
+=======
 =======
 =======
 =======

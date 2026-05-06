@@ -86,6 +86,8 @@ stage1-crap-proposal:
 	python3 scripts/ci/propose-stage1-crap-thresholds.py --output stage1/quality/crap-threshold-proposal.json
 stage1-crap-proposal:
 	python3 scripts/ci/propose-stage1-crap-thresholds.py --output stage1/quality/crap-threshold-proposal.json
+stage1-crap-proposal:
+	python3 scripts/ci/propose-stage1-crap-thresholds.py --output stage1/quality/crap-threshold-proposal.json
 stage1-smoke:
 	cargo run --manifest-path stage1/Cargo.toml -p axiomc -- check stage1/examples/hello --json
 	cargo run --manifest-path stage1/Cargo.toml -p axiomc -- build stage1/examples/hello --json

@@ -31,6 +31,7 @@ cargo run --manifest-path stage1/Cargo.toml -p axiomc -- caps stage1/examples/he
 >>>>>>> origin/codex/issue-409-proof-cli
 >>>>>>> origin/codex/issue-410-proof-worker
 >>>>>>> origin/codex/worker-f-issue-341
+>>>>>>> origin/codex/worker-f-issue-343
 cargo run --manifest-path stage1/Cargo.toml -p axiomc -- publish stage1/examples/hello --registry-dir ./registry/packages --signing-key dev-key
 cargo run --manifest-path stage1/Cargo.toml -p axiomc -- registry-index ./registry/packages --base-url https://packages.example.test --out ./registry/index.json
 cargo run --manifest-path stage1/Cargo.toml -p axiomc -- registry-validate ./registry/index.json
@@ -94,6 +95,7 @@ contract.
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
 
 ## Editor Schemas
@@ -110,6 +112,7 @@ These schemas are intentionally metadata for editor completion, validation, and
 agent contract discovery. The compiler remains the source of truth for semantic
 checks such as dependency graph validity, capability enforcement, and source
 analysis.
+=======
 =======
 =======
 =======

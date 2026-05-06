@@ -578,6 +578,7 @@ fn lower_with_capabilities_impl(
 >>>>>>> origin/codex/issue-425-crap-thresholds
 >>>>>>> origin/codex/issue-409-proof-cli
 >>>>>>> origin/codex/issue-410-proof-worker
+>>>>>>> origin/codex/worker-f-issue-343
     )
     .map_err(single_diagnostic)?;
     let functions =
@@ -928,6 +929,7 @@ fn type_has_unboxed_recursive_path(
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
         Type::Error
         | Type::Int
         | Type::Numeric(_)
@@ -936,6 +938,7 @@ fn type_has_unboxed_recursive_path(
         | Type::Str
         | Type::Ptr(_)
         | Type::MutPtr(_) => false,
+=======
 =======
 =======
 =======
@@ -2831,8 +2834,6 @@ fn rewrite_aggregate_type_name(
                 column,
             )?),
         ),
-<<<<<<< HEAD
-=======
 =======
         syntax::TypeName::Int => syntax::TypeName::Int,
         syntax::TypeName::Numeric(numeric) => syntax::TypeName::Numeric(*numeric),
@@ -4383,8 +4384,6 @@ fn sanitize_symbol_suffix(raw: &str) -> String {
         .collect()
 }
 =======
-
->>>>>>> origin/codex/worker-f-issue-341
 fn ownership_error(code: &'static str, message: impl Into<String>) -> Diagnostic {
     Diagnostic::new("ownership", message).with_code(code)
 }
@@ -5603,7 +5602,7 @@ fn lower_match_stmt(
 >>>>>>> origin/codex/issue-422-comparison-gate
 =======
 =======
->>>>>>> origin/codex/worker-f-issue-341
+>>>>>>> origin/codex/worker-f-issue-343
 fn lower_stmt(
     stmt: &syntax::Stmt,
     env: &mut HashMap<String, Binding>,
@@ -5675,7 +5674,6 @@ fn lower_stmt(
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
-=======
             if actual != expected && !actual.is_error() && !expected.is_error() {
 =======
 =======
@@ -5695,6 +5693,8 @@ fn lower_stmt(
 =======
             if actual != expected && !actual.is_error() && !expected.is_error() {
 =======
+=======
+            if actual != expected && !actual.is_error() && !expected.is_error() {
                 return Err(Diagnostic::new(
                     "type",
                     format!("let binding {name:?} expects {expected}, got {actual}"),
@@ -10448,7 +10448,6 @@ fn contains_borrowed_slice_type_inner(
             visiting_structs,
             visiting_enums,
         ),
-<<<<<<< HEAD
 =======
         Type::Fn(params, return_ty) => {
             params.iter().any(|param| {
@@ -10587,7 +10586,6 @@ fn contains_mut_borrowed_slice_type_inner(
             visiting_enums,
         ),
 <<<<<<< HEAD
-=======
         Type::Fn(params, return_ty) => {
             params.iter().any(|param| {
                 contains_mut_borrowed_slice_type_inner(
@@ -10685,7 +10683,6 @@ fn borrow_kind_for_type(
         None
     }
 }
->>>>>>> origin/codex/issue-424-survivor-report
 fn increment_active_borrows(
     owner_names: &HashSet<String>,
     env: &mut HashMap<String, Binding>,

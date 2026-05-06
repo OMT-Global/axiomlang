@@ -28,6 +28,7 @@ use axiomc::manifest::{load_manifest, manifest_path};
 >>>>>>> origin/codex/issue-409-proof-cli
 >>>>>>> origin/codex/issue-410-proof-worker
 >>>>>>> origin/codex/worker-f-issue-341
+>>>>>>> origin/codex/worker-f-issue-343
 use axiomc::new_project::create_project;
 use axiomc::diagnostics::Diagnostic;
 use axiomc::json_contract;
@@ -41,6 +42,7 @@ use axiomc::project::{
 use axiomc::registry::{
     PublishOptions, load_registry_index, publish_package, render_registry_index,
 };
+<<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
@@ -82,15 +84,14 @@ use axiomc::registry::{load_registry_index, render_registry_index};
 =======
 =======
 =======
+=======
 use axiomc::syntax::parse_program;
 use clap::{Parser, Subcommand};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
-<<<<<<< HEAD
 use serde::Serialize;
 use std::collections::{BTreeSet, HashMap};
 >>>>>>> origin/codex/issue-424-survivor-report
-=======
 >>>>>>> origin/codex/worker-f-issue-341
 use std::fs;
 use std::io::{self, BufRead, Write};
@@ -120,6 +121,8 @@ enum Command {
         path: PathBuf,
         #[arg(long)]
         json: bool,
+        #[arg(long)]
+        exports: bool,
         #[arg(short = 'p', long = "package")]
         package: Option<String>,
     },
@@ -197,7 +200,6 @@ enum Command {
         code: String,
         #[arg(long)]
         json: bool,
->>>>>>> origin/codex/worker-f-issue-341
     },
     /// Format .ax source files with the canonical stage1 style.
     Fmt {
@@ -256,11 +258,11 @@ enum Command {
 >>>>>>> origin/codex/issue-425-crap-thresholds
 =======
 =======
->>>>>>> origin/codex/issue-409-proof-cli
-=======
 >>>>>>> origin/codex/issue-410-proof-worker
 =======
 >>>>>>> origin/codex/worker-f-issue-341
+=======
+>>>>>>> origin/codex/worker-f-issue-343
     /// Pack, sign, and publish a stage1 package into a local registry tree.
     Publish {
         path: PathBuf,
@@ -334,9 +336,9 @@ enum InspectCommand {
 =======
 =======
 =======
->>>>>>> origin/codex/issue-410-proof-worker
-=======
 >>>>>>> origin/codex/worker-f-issue-341
+=======
+>>>>>>> origin/codex/worker-f-issue-343
 }
 
 fn main() {
@@ -361,11 +363,13 @@ fn main() {
         Command::Check {
             path,
             json,
+            exports,
             package,
         } => match check_project_with_options(
             &path,
             &CheckOptions {
                 package: package.clone(),
+                include_exports: exports,
             },
         ) {
             Ok(output) => {
@@ -2679,7 +2683,7 @@ mod tests {
 =======
 =======
 =======
->>>>>>> origin/codex/worker-f-issue-341
+>>>>>>> origin/codex/worker-f-issue-343
     }
 
     fn build_output(debug_map: Option<String>) -> BuildOutput {
@@ -2709,6 +2713,7 @@ mod tests {
 >>>>>>> origin/codex/issue-409-proof-cli
 >>>>>>> origin/codex/issue-410-proof-worker
 >>>>>>> origin/codex/worker-f-issue-341
+>>>>>>> origin/codex/worker-f-issue-343
             manifest: String::from("axiom.toml"),
             entry: String::from("src/main.ax"),
             binary: String::from("dist/app"),
@@ -2717,6 +2722,7 @@ mod tests {
             statement_count: 1,
             target: None,
             debug: true,
+<<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
@@ -2745,6 +2751,7 @@ mod tests {
                 generated_rust_hash: String::from("rust-hash"),
                 sources: Vec::new(),
             },
+=======
 =======
 =======
 =======

@@ -22,6 +22,7 @@ pub mod diagnostic_catalog;
 >>>>>>> origin/codex/issue-409-proof-cli
 >>>>>>> origin/codex/issue-410-proof-worker
 >>>>>>> origin/codex/worker-f-issue-341
+>>>>>>> origin/codex/worker-f-issue-343
 pub mod diagnostics;
 pub mod hir;
 pub mod json_contract;
@@ -54,8 +55,10 @@ mod tests {
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
         CapabilityConfig, CapabilityKind, ExpectedDiagnostic, TestTarget, capability_descriptors,
         load_manifest, render_manifest,
+=======
 =======
 =======
 =======
@@ -106,7 +109,6 @@ mod tests {
             "[package]\nname = {name:?}\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = {fs}\n\"fs:write\" = {fs}\nnet = {net}\nprocess = {process}\nenv = {env}\nclock = {clock}\ncrypto = {crypto}\nasync = false\n"
             "[package]\nname = {name:?}\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = {fs}\n\"fs:write\" = {fs}\nnet = {net}\nprocess = {process}\nenv = {env}\nclock = {clock}\ncrypto = {crypto}\n"
             "[package]\nname = {name:?}\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = {fs}\n\"fs:write\" = {fs}\nnet = {net}\nprocess = {process}\nenv = {env}\nclock = {clock}\ncrypto = {crypto}\nasync = false\n"
-=======
             "[package]\nname = {name:?}\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = {fs}\n\"fs:write\" = {fs}\nnet = {net}\nprocess = {process}\nenv = {env}\nclock = {clock}\ncrypto = {crypto}\n"
 =======
 =======
@@ -116,6 +118,8 @@ mod tests {
             "[package]\nname = {name:?}\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = {fs}\n\"fs:write\" = {fs}\nnet = {net}\nprocess = {process}\nenv = {env}\nclock = {clock}\ncrypto = {crypto}\n"
 =======
             "[package]\nname = {name:?}\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = {fs}\n\"fs:write\" = {fs}\nnet = {net}\nprocess = {process}\nenv = {env}\nclock = {clock}\ncrypto = {crypto}\nasync = false\n"
+=======
+            "[package]\nname = {name:?}\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = {fs}\n\"fs:write\" = {fs}\nnet = {net}\nprocess = {process}\nenv = {env}\nclock = {clock}\ncrypto = {crypto}\n"
         )
 =======
         let mut manifest = format!(
@@ -465,6 +469,7 @@ print borrowed
 >>>>>>> origin/codex/issue-409-proof-cli
 >>>>>>> origin/codex/issue-410-proof-worker
 >>>>>>> origin/codex/worker-f-issue-341
+>>>>>>> origin/codex/worker-f-issue-343
     fn parser_expands_declarative_statement_macros_before_lowering() {
         let source = r#"macro_rules! answer {
 ($value:expr) => {
@@ -2502,6 +2507,7 @@ let bad: u8 = byte.wrapping_add(1u16)
             &project,
             &CheckOptions {
                 package: Some(String::from("workspace-app")),
+                include_exports: false,
             },
         )
         .expect("check selected workspace package");
@@ -3023,6 +3029,7 @@ crypto = false
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
 =======
 =======
@@ -3040,14 +3047,14 @@ crypto = false
 =======
 =======
 =======
+=======
         assert_eq!(caps.len(), 8);
         assert!(caps.iter().all(|cap| !cap.enabled));
         let project_caps = project_capabilities(&project).expect("project capabilities");
         assert_eq!(project_caps.len(), 8);
 =======
 =======
-=======
->>>>>>> origin/codex/worker-f-issue-341
+>>>>>>> origin/codex/worker-f-issue-343
     }
 
     #[test]
@@ -5958,6 +5965,7 @@ print serve_once("127.0.0.1:18080", "hello")
 >>>>>>> origin/codex/issue-409-proof-cli
 >>>>>>> origin/codex/issue-410-proof-worker
 >>>>>>> origin/codex/worker-f-issue-341
+>>>>>>> origin/codex/worker-f-issue-343
     fn manifest_parses_richer_test_kinds() {
         let dir = tempdir().expect("tempdir");
         let project = dir.path().join("typed-tests");
@@ -6063,6 +6071,7 @@ print serve_once("127.0.0.1:18080", "hello")
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
     fn run_project_tests_reports_manifest_metadata_in_json() {
         let dir = tempdir().expect("tempdir");
@@ -6110,7 +6119,8 @@ print serve_once("127.0.0.1:18080", "hello")
 =======
 =======
 =======
->>>>>>> origin/codex/worker-f-issue-341
+=======
+>>>>>>> origin/codex/worker-f-issue-343
     fn run_project_tests_executes_manifest_cases() {
         let dir = tempdir().expect("tempdir");
         let project = dir.path().join("runner");
@@ -6607,6 +6617,7 @@ print serve_once("127.0.0.1:18080", "hello")
 >>>>>>> origin/codex/issue-410-proof-worker
         assert_eq!(output.cases.len(), 35);
         assert_eq!(output.passed, 35);
+>>>>>>> origin/codex/worker-f-issue-343
         assert_eq!(output.failed, 0);
         assert!(
             output
@@ -6614,6 +6625,7 @@ print serve_once("127.0.0.1:18080", "hello")
                 .iter()
                 .filter(|case| case.expected_error.is_some())
                 .count()
+<<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
                 == 24
@@ -6625,13 +6637,15 @@ print serve_once("127.0.0.1:18080", "hello")
 =======
 =======
                 == 20
->>>>>>> origin/codex/issue-409-proof-cli
 =======
                 == 20
 >>>>>>> origin/codex/issue-410-proof-worker
 =======
                 == 24
 >>>>>>> origin/codex/worker-f-issue-341
+=======
+                == 20
+>>>>>>> origin/codex/worker-f-issue-343
         );
         assert_eq!(
             output
@@ -6650,10 +6664,11 @@ print serve_once("127.0.0.1:18080", "hello")
             9
             12
 =======
-=======
             9
 =======
             11
+=======
+            9
         );
     }
 
@@ -9660,6 +9675,95 @@ print 0
     }
 
     #[test]
+    fn check_json_can_include_package_public_api_exports() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("public-api-workspace");
+        let core = project.join("deps/core");
+        create_project(&project, Some("public-api-app")).expect("create root project");
+        create_project(&core, Some("public-api-core")).expect("create core project");
+
+        fs::write(
+            project.join("axiom.toml"),
+            "[package]\nname = \"public-api-app\"\nversion = \"0.1.0\"\n\n[workspace]\nmembers = [\"deps/core\"]\n\n[dependencies]\ncore = { path = \"deps/core\" }\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n",
+        )
+        .expect("write root manifest");
+        fs::write(
+            project.join("src/main.ax"),
+            "import \"core/main.ax\"\n\npub fn root_answer(): int {\nreturn answer()\n}\n\nprint root_answer()\n",
+        )
+        .expect("write root source");
+        fs::write(
+            core.join("src/main.ax"),
+            "pub const LIMIT: int = 7\npub type Id = int\n\npub struct Widget {\nlabel: string\n}\n\npub enum Status {\nReady\n}\n\npub fn answer(): int {\nreturn LIMIT\n}\n\npub fn use_map(values: {string: int}): {string: int} {\nreturn values\n}\n\nimpl Widget {\npub fn label(self): string {\nreturn self.label\n}\n}\n",
+        )
+        .expect("write core source");
+
+        let core_manifest = load_manifest(&core).expect("load core manifest");
+        fs::write(
+            core.join("axiom.lock"),
+            render_lockfile_for_project(&core, &core_manifest).expect("core lockfile"),
+        )
+        .expect("write core lockfile");
+        let root_manifest = load_manifest(&project).expect("load root manifest");
+        fs::write(
+            project.join("axiom.lock"),
+            render_lockfile_for_project(&project, &root_manifest).expect("root lockfile"),
+        )
+        .expect("write root lockfile");
+
+        let output = check_project_with_options(
+            &project,
+            &CheckOptions {
+                package: None,
+                include_exports: true,
+            },
+        )
+        .expect("check public api workspace");
+        let core_package = output
+            .packages
+            .iter()
+            .find(|package| package.package_root.ends_with("deps/core"))
+            .expect("core package exports");
+        let exported = core_package
+            .exports
+            .iter()
+            .map(|export| (export.kind.as_str(), export.name.as_str()))
+            .collect::<std::collections::BTreeSet<_>>();
+        assert!(exported.contains(&("const", "LIMIT")));
+        assert!(exported.contains(&("type_alias", "Id")));
+        assert!(exported.contains(&("struct", "Widget")));
+        assert!(exported.contains(&("enum", "Status")));
+        assert!(exported.contains(&("function", "answer")));
+        assert!(exported.contains(&("function", "label")));
+        assert!(exported.contains(&("function", "use_map")));
+        let signatures = core_package
+            .exports
+            .iter()
+            .map(|export| (export.name.as_str(), export.signature.as_deref()))
+            .collect::<std::collections::BTreeMap<_, _>>();
+        assert_eq!(
+            signatures.get("label").copied().flatten(),
+            Some("fn Widget.label(self): string")
+        );
+        assert_eq!(
+            signatures.get("use_map").copied().flatten(),
+            Some("fn use_map(values: {string: int}): {string: int}")
+        );
+
+        let payload = json_contract::check_success(&project, &output);
+        assert!(payload["exports"].is_array());
+        let root_exports = payload["exports"]
+            .as_array()
+            .expect("top-level root exports array");
+        assert!(root_exports.iter().any(|export| {
+            export["kind"] == "function"
+                && export["name"] == "root_answer"
+                && export["signature"] == "fn root_answer(): int"
+        }));
+        assert!(payload["packages"][1]["exports"].is_array());
+    }
+
+    #[test]
     fn json_contract_build_payload_includes_target() {
         let dir = tempdir().expect("tempdir");
         let project = dir.path().join("json-build");
@@ -9982,7 +10086,6 @@ print next.value
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
-=======
 
     // AG2: deterministic monomorphized symbol naming (#337)
     // These snapshot tests lock the exact symbol names produced for nested generics,
@@ -10096,6 +10199,7 @@ print c
             "echo<int> must be emitted exactly once regardless of call-site count"
         );
     }
+=======
 =======
 =======
 =======
