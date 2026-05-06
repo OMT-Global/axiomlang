@@ -45,6 +45,7 @@ cargo run --manifest-path stage1/Cargo.toml -p axiomc -- test stage1/examples/pr
 cargo run --manifest-path stage1/Cargo.toml -p axiomc -- test stage1/examples/proof_worker --json
 cargo run --manifest-path stage1/Cargo.toml -p axiomc -- caps stage1/examples/hello --json
 cargo run --manifest-path stage1/Cargo.toml -p axiomc -- doctor stage1/examples/hello --json
+cargo run --manifest-path stage1/Cargo.toml -p axiomc -- inspect symbols stage1/examples/modules --json
 cargo run --manifest-path stage1/Cargo.toml -p axiomc -- fmt stage1/examples/hello --check
 cargo run --manifest-path stage1/Cargo.toml -p axiomc -- doc stage1/examples/hello
 cargo run --manifest-path stage1/Cargo.toml -p axiomc -- doc stage1/examples/hello --json
@@ -116,6 +117,9 @@ more than the first syntax error without waiting for full checker recovery.
 `axiomc doctor --json` reports local `rustc` and `cargo` availability, the host
 target triple, lockfile status, package/workspace graph summary, manifest
 capabilities, and known unsupported feature buckets for agent preflight checks.
+`axiomc inspect symbols --json` emits exported package source symbols with
+source spans, signatures, module imports, and directly inferred intrinsic
+capability use for agent indexing.
 
 ## Current gaps
 

@@ -5,6 +5,7 @@ use serde::Serialize;
 use serde_json::{Value, json};
 >>>>>>> origin/codex/issue-380-doc-json
 >>>>>>> origin/codex/issue-376-doctor-json
+>>>>>>> origin/codex/issue-377-inspect-symbols
 use serde_json::{json, Value};
 use std::path::Path;
 
@@ -45,11 +46,13 @@ pub fn build_success(project: &Path, output: &BuildOutput) -> Value {
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
         "cache_key": output.cache_key,
 =======
 =======
 =======
->>>>>>> origin/codex/issue-376-doctor-json
+=======
+>>>>>>> origin/codex/issue-377-inspect-symbols
         "metadata": output.metadata,
         "cache_hits": output.cache_hits,
         "cache_misses": output.cache_misses,

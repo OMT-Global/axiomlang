@@ -55,6 +55,7 @@ mod tests {
             "[package]\nname = {name:?}\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = {fs}\n\"fs:write\" = {fs}\nnet = {net}\nprocess = {process}\nenv = {env}\nclock = {clock}\ncrypto = {crypto}\nasync = false\n"
 >>>>>>> origin/codex/issue-380-doc-json
 >>>>>>> origin/codex/issue-376-doctor-json
+>>>>>>> origin/codex/issue-377-inspect-symbols
             "[package]\nname = {name:?}\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = {fs}\n\"fs:write\" = {fs}\nnet = {net}\nprocess = {process}\nenv = {env}\nclock = {clock}\ncrypto = {crypto}\n"
         )
     }
@@ -233,6 +234,7 @@ mod tests {
     #[test]
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
     fn parser_distinguishes_owned_string_from_borrowed_str() {
         let source = r#"fn read(label: &str): int {
 print label
@@ -362,7 +364,8 @@ print borrowed
     #[test]
 =======
 =======
->>>>>>> origin/codex/issue-376-doctor-json
+=======
+>>>>>>> origin/codex/issue-377-inspect-symbols
     fn parser_expands_declarative_statement_macros_before_lowering() {
         let source = r#"macro_rules! answer {
 ($value:expr) => {
@@ -2817,6 +2820,7 @@ crypto = false
 >>>>>>> origin/codex/worker-a-issue-379-fmt-json
 >>>>>>> origin/codex/issue-380-doc-json
 >>>>>>> origin/codex/issue-376-doctor-json
+>>>>>>> origin/codex/issue-377-inspect-symbols
     }
 
     #[test]
@@ -5774,7 +5778,9 @@ print serve_once("127.0.0.1:18080", "hello")
                 .count()
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
                 == 24
+=======
 =======
 =======
                 == 20
@@ -5788,6 +5794,7 @@ print serve_once("127.0.0.1:18080", "hello")
             12
 >>>>>>> origin/codex/issue-380-doc-json
 >>>>>>> origin/codex/issue-376-doctor-json
+>>>>>>> origin/codex/issue-377-inspect-symbols
             9
         );
     }
@@ -8948,6 +8955,7 @@ print next.value
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 
     // AG2: deterministic monomorphized symbol naming (#337)
     // These snapshot tests lock the exact symbol names produced for nested generics,
@@ -9064,7 +9072,8 @@ print c
 =======
 =======
 =======
->>>>>>> origin/codex/issue-376-doctor-json
+=======
+>>>>>>> origin/codex/issue-377-inspect-symbols
 
     #[test]
     fn hir_recovery_collects_independent_type_errors_in_source_order() {

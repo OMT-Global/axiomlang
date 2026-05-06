@@ -548,6 +548,7 @@ fn lower_with_capabilities_impl(
 >>>>>>> origin/codex/worker-a-issue-379-fmt-json
 >>>>>>> origin/codex/issue-380-doc-json
 >>>>>>> origin/codex/issue-376-doctor-json
+>>>>>>> origin/codex/issue-377-inspect-symbols
     )
     .map_err(single_diagnostic)?;
     let functions =
@@ -873,6 +874,7 @@ fn type_has_unboxed_recursive_path(
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
         Type::Error
         | Type::Int
         | Type::Numeric(_)
@@ -881,6 +883,7 @@ fn type_has_unboxed_recursive_path(
         | Type::Str
         | Type::Ptr(_)
         | Type::MutPtr(_) => false,
+=======
 =======
 =======
 =======
@@ -5443,6 +5446,7 @@ fn lower_match_stmt(
 >>>>>>> origin/codex/worker-a-issue-379-fmt-json
 >>>>>>> origin/codex/issue-380-doc-json
 >>>>>>> origin/codex/issue-376-doctor-json
+>>>>>>> origin/codex/issue-377-inspect-symbols
 fn lower_stmt(
     stmt: &syntax::Stmt,
     env: &mut HashMap<String, Binding>,
@@ -5485,6 +5489,7 @@ fn lower_stmt(
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
             if let Some(expected_len) = expected_array_len {
                 if let syntax::Expr::ArrayLiteral { elements, .. } = expr {
                     if elements.len() != expected_len {
@@ -5501,6 +5506,7 @@ fn lower_stmt(
             }
             if !type_assignable_to(&actual, &expected) && !actual.is_error() && !expected.is_error()
             {
+=======
 =======
 =======
 =======
@@ -6506,8 +6512,8 @@ fn lower_expr_with_expected_inner(
 <<<<<<< HEAD
                 if !matches!(lhs.ty(), Type::Int | Type::Bool | Type::String | Type::Str) {
 >>>>>>> origin/codex/issue-380-doc-json
-=======
 >>>>>>> origin/codex/issue-376-doctor-json
+=======
                 if !matches!(lhs.ty(), Type::Int | Type::Bool | Type::String) {
                     return Err(Diagnostic::new(
                         "type",
