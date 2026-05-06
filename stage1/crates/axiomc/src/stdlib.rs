@@ -193,6 +193,7 @@ pub fn object3(first_field: string, second_field: string, third_field: string): 
         "pub fn count<T>(values: &[T]): int {\nreturn len(values)\n}\n\
 pub fn is_empty<T>(values: &[T]): bool {\nreturn len(values) == 0\n}\n\
 pub fn has_items<T>(values: &[T]): bool {\nreturn len(values) > 0\n}\n\
+pub fn count_mut<T>(values: &mut [T]): int {\nreturn len(values)\n}\n\
 pub fn skip<T>(values: &[T], count: int): &[T] {\nreturn values[count:]\n}\n\
 pub fn take<T>(values: &[T], count: int): &[T] {\nreturn values[:count]\n}\n\
 pub fn window<T>(values: &[T], start: int, end: int): &[T] {\nreturn values[start:end]\n}\n",

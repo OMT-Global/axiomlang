@@ -228,6 +228,133 @@ mod tests {
     }
 
     #[test]
+    fn parser_distinguishes_owned_string_from_borrowed_str() {
+        let source = r#"fn read(label: &str): int {
+print label
+return 1
+}
+
+let literal: &str = "borrowed"
+let owned: String = "owned"
+print read(literal)
+print read(owned)
+"#;
+        let parsed = parse_program(source, Path::new("main.ax")).expect("parse");
+        let hir = hir::lower(&parsed).expect("lower");
+        let mir = mir::lower(&hir);
+        let rendered = render_rust(&mir);
+        assert!(rendered.contains("fn read<'a>(label: &'a str) -> i64 {"));
+        assert!(rendered.contains(r#"let literal: &str = "borrowed";"#));
+        assert!(rendered.contains(r#"let owned: String = String::from("owned");"#));
+        assert!(rendered.contains(r#"println!("{}", read(literal));"#));
+        assert!(rendered.contains(r#"println!("{}", read(owned.as_str()));"#));
+    }
+
+    #[test]
+    fn parser_rejects_borrowed_str_from_temporary_string() {
+        let source = r#"fn make(): String {
+return "owned"
+}
+
+let borrowed: &str = make()
+print borrowed
+"#;
+        let parsed = parse_program(source, Path::new("main.ax")).expect("parse");
+        let err = hir::lower(&parsed).expect_err("lower should reject borrowed temporary String");
+        assert!(
+            err.message
+                .contains("cannot borrow a temporary String as &str")
+        );
+    }
+
+    #[test]
+    fn parser_rejects_borrowed_str_from_temporary_concat() {
+        let source = r#"let borrowed: &str = "own" + "ed"
+print borrowed
+"#;
+        let parsed = parse_program(source, Path::new("main.ax")).expect("parse");
+        let err = hir::lower(&parsed).expect_err("lower should reject borrowed temporary concat");
+        assert!(
+            err.message
+                .contains("cannot borrow a temporary String as &str")
+        );
+    }
+
+    #[test]
+    fn parser_rejects_borrowed_str_from_indexed_string() {
+        let source = r#"let values: [string] = ["hello"]
+let borrowed: &str = values[0]
+print borrowed
+"#;
+        let parsed = parse_program(source, Path::new("main.ax")).expect("parse");
+        let err = hir::lower(&parsed).expect_err("lower should reject indexed String borrow");
+        assert!(
+            err.message
+                .contains("cannot borrow a temporary String as &str")
+        );
+    }
+
+    #[test]
+    fn parser_allows_borrowed_str_call_arg_from_temporary_string() {
+        let source = r#"fn read(label: &str): int {
+print label
+return 1
+}
+
+fn make(): String {
+return "owned"
+}
+
+print read(make())
+"#;
+        let parsed = parse_program(source, Path::new("main.ax")).expect("parse");
+        let hir = hir::lower(&parsed).expect("lower");
+        let mir = mir::lower(&hir);
+        let rendered = render_rust(&mir);
+        assert!(rendered.contains(r#"println!("{}", read(make().as_str()));"#));
+    }
+
+    #[test]
+    fn parser_rejects_borrow_return_from_temporary_string_call_arg() {
+        let source = r#"fn echo(value: &str): &str {
+return value
+}
+
+fn make(): String {
+return "owned"
+}
+
+let borrowed: &str = echo(make())
+print borrowed
+"#;
+        let parsed = parse_program(source, Path::new("main.ax")).expect("parse");
+        let err = hir::lower(&parsed)
+            .expect_err("lower should reject escaping borrow from temporary String call arg");
+        assert!(
+            err.message
+                .contains("cannot borrow a temporary String as &str")
+        );
+    }
+
+    #[test]
+    fn parser_rejects_borrow_return_from_temporary_concat_call_arg() {
+        let source = r#"fn echo(value: &str): &str {
+return value
+}
+
+let borrowed: &str = echo("own" + "ed")
+print borrowed
+"#;
+        let parsed = parse_program(source, Path::new("main.ax")).expect("parse");
+        let err = hir::lower(&parsed)
+            .expect_err("lower should reject escaping borrow from temporary concat call arg");
+        assert!(
+            err.message
+                .contains("cannot borrow a temporary String as &str")
+        );
+    }
+
+    #[test]
     fn parser_expands_declarative_statement_macros_before_lowering() {
         let source = r#"macro_rules! answer {
 ($value:expr) => {
@@ -1082,6 +1209,89 @@ print fail()
             "let info: BuildInfo = BuildInfo { name: String::from(\"stage1\"), count: 42 };"
         ));
         assert!(rendered.contains("return (info).count;"));
+    }
+
+    #[test]
+    fn parser_lowers_numeric_tower_literals_and_casts() {
+        let source = "fn widen(value: u8): u32 {\nreturn value as u32\n}\n\nlet byte: u8 = 255u8\nlet word: u32 = widen(byte) + 1u32\nlet signed: i16 = -1i16\nlet big: i64 = signed as i64\nlet ratio: f64 = 3.5f64\nlet half: f32 = 0.5f32\nprint word as int\nprint big\n";
+        let parsed = parse_program(source, Path::new("main.ax")).expect("parse");
+        let hir = hir::lower(&parsed).expect("lower");
+        let mir = mir::lower(&hir);
+        let rendered = render_rust(&mir);
+        assert!(rendered.contains("fn widen(value: u8) -> u32 {"));
+        assert!(rendered.contains("return (value) as u32;"));
+        assert!(rendered.contains("let byte: u8 = 255u8;"));
+        assert!(rendered.contains("let word: u32 = widen(byte) + 1u32;"));
+        assert!(rendered.contains("let signed: i16 = -1i16;"));
+        assert!(rendered.contains("let big: i64 = (signed) as i64;"));
+        assert!(rendered.contains("let ratio: f64 = 3.5f64;"));
+        assert!(rendered.contains("let half: f32 = 0.5f32;"));
+        assert!(rendered.contains("println!(\"{}\", (word) as i64);"));
+    }
+
+    #[test]
+    fn checker_rejects_mixed_numeric_width_arithmetic_without_cast() {
+        let source = "let byte: u8 = 1u8\nlet word: u32 = 2u32\nlet bad: u32 = byte + word\n";
+        let parsed = parse_program(source, Path::new("main.ax")).expect("parse");
+        let error = hir::lower(&parsed).expect_err("mixed-width arithmetic should fail");
+        assert!(
+            error
+                .message
+                .contains("matching numeric or string operands")
+        );
+    }
+
+    #[test]
+    fn parser_rejects_unsigned_negative_numeric_literal() {
+        let source = "let bad: u8 = -1u8\n";
+        let error = parse_program(source, Path::new("main.ax"))
+            .expect_err("unsigned negative numeric literal should fail during parsing");
+        assert!(error.message.contains("invalid numeric literal"));
+    }
+
+    #[test]
+    fn parser_rejects_out_of_range_numeric_literal() {
+        let source = "let bad: u8 = 300u8\n";
+        let error = parse_program(source, Path::new("main.ax"))
+            .expect_err("out-of-range numeric literal should fail during parsing");
+        assert!(error.message.contains("invalid numeric literal"));
+    }
+
+    #[test]
+    fn parser_rejects_non_rust_suffixed_float_literals() {
+        for source in [
+            "let bad: f64 = NaNf64\n",
+            "let bad: f32 = inff32\n",
+            "let bad: f32 = 1e39f32\n",
+        ] {
+            let error = parse_program(source, Path::new("main.ax"))
+                .expect_err("non-rust float literal should fail during parsing");
+            assert!(error.message.contains("invalid numeric literal"));
+        }
+    }
+
+    #[test]
+    fn parser_lowers_numeric_checked_and_wrapping_methods() {
+        let source = "let byte: u8 = 255u8
+let wrapped: u8 = byte.wrapping_add(1u8)
+let checked: Option<u8> = byte.checked_add(1u8)
+";
+        let parsed = parse_program(source, Path::new("main.ax")).expect("parse");
+        let hir = hir::lower(&parsed).expect("lower");
+        let mir = mir::lower(&hir);
+        let rendered = render_rust(&mir);
+        assert!(rendered.contains("let wrapped: u8 = (byte).wrapping_add(1u8);"));
+        assert!(rendered.contains("let checked: Option<u8> = (byte).checked_add(1u8);"));
+    }
+
+    #[test]
+    fn checker_rejects_numeric_method_argument_type_mismatch() {
+        let source = "let byte: u8 = 1u8
+let bad: u8 = byte.wrapping_add(1u16)
+";
+        let parsed = parse_program(source, Path::new("main.ax")).expect("parse");
+        let error = hir::lower(&parsed).expect_err("numeric method argument width should fail");
+        assert!(error.message.contains("expects argument type u8"));
     }
 
     #[test]
@@ -3993,12 +4203,12 @@ true
             render_lockfile_for_project(&project, &manifest).expect("lockfile"),
         )
         .expect("write lockfile");
-        let source = "import \"std/collections.ax\"\nlet numbers: [int] = [4, 5, 6, 7]\nprint count<int>(numbers[:])\nprint is_empty<int>(numbers[:])\nprint has_items<int>(numbers[:])\nlet middle: &[int] = window<int>(numbers[:], 1, 3)\nprint count<int>(middle)\nprint first(middle)\nprint last(middle)\nlet prefix: &[int] = take<int>(numbers[:], 2)\nprint last(prefix)\nlet suffix: &[int] = skip<int>(numbers[:], 2)\nprint first(suffix)\nlet words: [string] = [\"build\", \"test\", \"ship\"]\nprint count<string>(words[:])\nlet empty_words: &[string] = take<string>(words[:], 0)\nprint is_empty<string>(empty_words)\n";
+        let source = "import \"std/collections.ax\"\nlet numbers: [int] = [4, 5, 6, 7]\nprint count_mut<int>(numbers[:])\nprint count<int>(numbers[:])\nprint is_empty<int>(numbers[:])\nprint has_items<int>(numbers[:])\nlet middle: &[int] = window<int>(numbers[:], 1, 3)\nprint count<int>(middle)\nprint first(middle)\nprint last(middle)\nlet prefix: &[int] = take<int>(numbers[:], 2)\nprint last(prefix)\nlet suffix: &[int] = skip<int>(numbers[:], 2)\nprint first(suffix)\nlet words: [string] = [\"build\", \"test\", \"ship\"]\nprint count<string>(words[:])\nlet empty_words: &[string] = take<string>(words[:], 0)\nprint is_empty<string>(empty_words)\n";
         fs::write(project.join("src/main.ax"), source).expect("write source");
         fs::write(project.join("src/main_test.ax"), source).expect("write test");
         fs::write(
             project.join("src/main_test.stdout"),
-            "4\nfalse\ntrue\n2\n5\n6\n5\n6\n3\ntrue\n",
+            "4\n4\nfalse\ntrue\n2\n5\n6\n5\n6\n3\ntrue\n",
         )
         .expect("write golden");
 
@@ -4008,7 +4218,7 @@ true
             .expect("run compiled binary");
         assert_eq!(
             String::from_utf8_lossy(&output.stdout),
-            "4\nfalse\ntrue\n2\n5\n6\n5\n6\n3\ntrue\n"
+            "4\n4\nfalse\ntrue\n2\n5\n6\n5\n6\n3\ntrue\n"
         );
 
         let tests = run_project_tests(&project).expect("run tests");
@@ -5453,6 +5663,21 @@ print serve_once("127.0.0.1:18080", "hello")
                 "mutable_borrow_while_shared_live",
                 "mutable_borrow_while_shared_live",
                 "cannot create mutable borrow of value",
+            ),
+            (
+                "shared_borrow_while_mutable_live",
+                "shared_borrow_while_mutable_live",
+                "cannot create shared borrow of value",
+            ),
+            (
+                "double_mutable_borrow",
+                "mutable_borrow_while_mutable_live",
+                "cannot create mutable borrow of value",
+            ),
+            (
+                "move_string_while_str_borrow_live",
+                "move_while_borrowed",
+                "cannot move value",
             ),
             (
                 "loop_move_outer_non_copy",
@@ -7117,6 +7342,23 @@ print 0
     }
 
     #[test]
+    fn check_project_rejects_str_return_from_local_string() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("str-return-local-string");
+        create_project(&project, Some("str-return-local-string-app")).expect("create project");
+        fs::write(
+            project.join("src/main.ax"),
+            "fn pick(input: &str): &str {\nlet owned: string = \"local\"\nreturn owned\n}\n\nprint 0\n",
+        )
+        .expect("write source");
+        let error = check_project(&project).expect_err("local string borrow return should fail");
+        assert!(error.message.contains(
+            "returning borrowed values requires data derived from one of the borrowed parameters"
+        ));
+        assert_eq!(error.kind, "ownership");
+    }
+
+    #[test]
     fn check_project_rejects_wrapped_borrow_return_from_local_value() {
         let dir = tempdir().expect("tempdir");
         let project = dir.path().join("wrapped-borrow-return-local");
@@ -7310,6 +7552,64 @@ print 0
             "cannot create mutable borrow of value \"values\" while another mutable borrow is still live"
         ));
         assert_eq!(error.kind, "ownership");
+    }
+
+    #[test]
+    fn build_project_accepts_mutable_slice_borrow_from_function_parameter() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("mut-param-slice-borrow");
+        create_project(&project, Some("mut-param-slice-borrow-app")).expect("create project");
+        fs::write(
+            project.join("src/main.ax"),
+            "fn use_mut(values: [int]): int {\nlet slice: &mut [int] = values[:]\nprint len(slice)\nreturn 0\n}\nlet ignored: int = use_mut([1, 2, 3])\n",
+        )
+        .expect("write source");
+
+        let built = build_project(&project).expect("build project");
+        let output = compiled_binary_command(&built.binary)
+            .output()
+            .expect("run compiled binary");
+        assert!(output.status.success());
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "3\n");
+    }
+
+    #[test]
+    fn build_project_accepts_mutable_slice_borrow_from_field_root() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("mut-field-slice-borrow");
+        create_project(&project, Some("mut-field-slice-borrow-app")).expect("create project");
+        fs::write(
+            project.join("src/main.ax"),
+            "struct Box {\nvalues: [int]\n}\nlet holder: Box = Box { values: [1, 2, 3] }\nlet slice: &mut [int] = (holder.values)[:]\nprint len(slice)\n",
+        )
+        .expect("write source");
+
+        let built = build_project(&project).expect("build project");
+        let output = compiled_binary_command(&built.binary)
+            .output()
+            .expect("run compiled binary");
+        assert!(output.status.success());
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "3\n");
+    }
+
+    #[test]
+    fn build_project_accepts_mutable_slice_borrow_from_match_payload() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("mut-match-payload-slice-borrow");
+        create_project(&project, Some("mut-match-payload-slice-borrow-app"))
+            .expect("create project");
+        fs::write(
+            project.join("src/main.ax"),
+            "enum Payload {\nItems([int])\n}\nlet payload: Payload = Items([1, 2, 3])\nmatch payload {\nItems(values) {\nlet slice: &mut [int] = values[:]\nprint len(slice)\n}\n}\n",
+        )
+        .expect("write source");
+
+        let built = build_project(&project).expect("build project");
+        let output = compiled_binary_command(&built.binary)
+            .output()
+            .expect("run compiled binary");
+        assert!(output.status.success());
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "3\n");
     }
 
     #[test]
