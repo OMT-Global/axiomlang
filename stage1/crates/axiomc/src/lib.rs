@@ -314,6 +314,46 @@ print read(make())
     }
 
     #[test]
+    fn parser_rejects_borrow_return_from_temporary_string_call_arg() {
+        let source = r#"fn echo(value: &str): &str {
+return value
+}
+
+fn make(): String {
+return "owned"
+}
+
+let borrowed: &str = echo(make())
+print borrowed
+"#;
+        let parsed = parse_program(source, Path::new("main.ax")).expect("parse");
+        let err = hir::lower(&parsed)
+            .expect_err("lower should reject escaping borrow from temporary String call arg");
+        assert!(
+            err.message
+                .contains("cannot borrow a temporary String as &str")
+        );
+    }
+
+    #[test]
+    fn parser_rejects_borrow_return_from_temporary_concat_call_arg() {
+        let source = r#"fn echo(value: &str): &str {
+return value
+}
+
+let borrowed: &str = echo("own" + "ed")
+print borrowed
+"#;
+        let parsed = parse_program(source, Path::new("main.ax")).expect("parse");
+        let err = hir::lower(&parsed)
+            .expect_err("lower should reject escaping borrow from temporary concat call arg");
+        assert!(
+            err.message
+                .contains("cannot borrow a temporary String as &str")
+        );
+    }
+
+    #[test]
     fn parser_expands_declarative_statement_macros_before_lowering() {
         let source = r#"macro_rules! answer {
 ($value:expr) => {
