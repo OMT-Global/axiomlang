@@ -26,6 +26,7 @@ version = "0.1.0"
 source = "path:fail/comparison_predictable_diagnostic"
 
 [[package]]
+<<<<<<< HEAD
 name = "conformance-comparison-strict-type-mismatch"
 version = "0.1.0"
 source = "path:fail/comparison_strict_type_mismatch"
@@ -36,6 +37,8 @@ version = "0.1.0"
 source = "path:fail/for_loop_requires_iteration_protocol"
 
 [[package]]
+=======
+>>>>>>> origin/codex/worker-a-issue-379-fmt-json
 name = "conformance-match-guard-not-supported"
 version = "0.1.0"
 source = "path:fail/match_guard_not_supported"

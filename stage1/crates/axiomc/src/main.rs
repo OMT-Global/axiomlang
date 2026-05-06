@@ -98,6 +98,8 @@ enum Command {
         path: PathBuf,
         #[arg(long)]
         check: bool,
+        #[arg(long)]
+        json: bool,
     },
     /// Generate Markdown and HTML API docs from source doc comments.
     Doc {
@@ -158,6 +160,7 @@ enum Command {
 enum CapsCommand {
     /// Diff two caps JSON payloads and fail on capability escalation.
     Diff { old: PathBuf, new: PathBuf },
+>>>>>>> origin/codex/worker-a-issue-379-fmt-json
 }
 
 fn main() {
@@ -301,6 +304,7 @@ fn main() {
                     }
                 }
             }
+<<<<<<< HEAD
             None => {
                 let project = path.unwrap_or_else(|| PathBuf::from("."));
                 match project_capabilities(&project) {
@@ -324,21 +328,44 @@ fn main() {
             }
         },
         Command::Fmt { path, check } => match format_axiom_sources(&path, check) {
+=======
+        }
+        Command::Fmt { path, check, json } => match format_axiom_sources(&path, check) {
             Ok(report) => {
-                for file in &report.files {
-                    if file.changed {
-                        eprintln!("formatted {}", file.path);
+                let serialization_error = if json {
+                    match json_contract::to_pretty_string(&report) {
+                        Ok(output) => {
+                            println!("{output}");
+                            None
+                        }
+                        Err(error) => Some(error),
+                    }
+                } else {
+                    None
+                };
+                if let Some(error) = serialization_error {
+                    print_error("fmt", error, true)
+                } else {
+                    if !json {
+                        for file in &report.files {
+                            if file.changed {
+                                eprintln!("formatted {}", file.path);
+                            }
+                        }
+                        if check && report.changed > 0 {
+                            eprintln!("{} file(s) need formatting", report.changed);
+                        } else {
+                            eprintln!("checked {} file(s)", report.files.len());
+                        }
+                    }
+                    if check && report.changed > 0 {
+                        1
+                    } else {
+                        0
                     }
                 }
-                if check && report.changed > 0 {
-                    eprintln!("{} file(s) need formatting", report.changed);
-                    1
-                } else {
-                    eprintln!("checked {} file(s)", report.files.len());
-                    0
-                }
             }
-            Err(error) => print_error("fmt", error, false),
+            Err(error) => print_error("fmt", error, json),
         },
         Command::Doc { path, out_dir } => match generate_docs(&path, &out_dir) {
             Ok(output) => {
@@ -672,14 +699,26 @@ fn print_error(command: &str, error: Diagnostic, json: bool) -> i32 {
     1
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
+struct FormatEdit {
+    action: String,
+    line: usize,
+    before: Option<String>,
+    after: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
 struct FormatFileReport {
     path: String,
     changed: bool,
+    edits: Vec<FormatEdit>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 struct FormatReport {
+    schema_version: &'static str,
+    command: &'static str,
+    check: bool,
     files: Vec<FormatFileReport>,
     changed: usize,
 }
@@ -701,6 +740,7 @@ fn format_axiom_sources(path: &Path, check: bool) -> Result<FormatReport, Diagno
         })?;
         let formatted = format_axiom_source(&original);
         let is_changed = formatted != original;
+        let edits = format_edits(&original, &formatted);
         if is_changed {
             changed += 1;
             if !check {
@@ -713,9 +753,13 @@ fn format_axiom_sources(path: &Path, check: bool) -> Result<FormatReport, Diagno
         reports.push(FormatFileReport {
             path: file.display().to_string(),
             changed: is_changed,
+            edits,
         });
     }
     Ok(FormatReport {
+        schema_version: json_contract::JSON_SCHEMA_VERSION,
+        command: "fmt",
+        check,
         files: reports,
         changed,
     })
@@ -737,6 +781,43 @@ fn format_axiom_source(source: &str) -> String {
         lines.pop();
     }
     format!("{}\n", lines.join("\n"))
+}
+
+fn format_edits(original: &str, formatted: &str) -> Vec<FormatEdit> {
+    let original_lines: Vec<&str> = original.split_inclusive('\n').collect();
+    let formatted_lines: Vec<&str> = formatted.split_inclusive('\n').collect();
+    let max_len = original_lines.len().max(formatted_lines.len());
+    let mut edits = Vec::new();
+    for index in 0..max_len {
+        match (original_lines.get(index), formatted_lines.get(index)) {
+            (Some(before), Some(after)) if before != after => edits.push(FormatEdit {
+                action: String::from("replace_line"),
+                line: index + 1,
+                before: Some(trim_line_ending(before).to_string()),
+                after: Some(trim_line_ending(after).to_string()),
+            }),
+            (Some(before), None) => edits.push(FormatEdit {
+                action: String::from("delete_line"),
+                line: index + 1,
+                before: Some(trim_line_ending(before).to_string()),
+                after: None,
+            }),
+            (None, Some(after)) => edits.push(FormatEdit {
+                action: String::from("insert_line"),
+                line: index + 1,
+                before: None,
+                after: Some(trim_line_ending(after).to_string()),
+            }),
+            _ => {}
+        }
+    }
+    edits
+}
+
+fn trim_line_ending(line: &str) -> &str {
+    line.strip_suffix('\n')
+        .and_then(|line| line.strip_suffix('\r').or(Some(line)))
+        .unwrap_or(line)
 }
 
 #[derive(Debug, Clone)]
@@ -1428,6 +1509,7 @@ mod tests {
             }
             other => panic!("expected caps diff command with path, got {other:?}"),
         }
+>>>>>>> origin/codex/worker-a-issue-379-fmt-json
     }
 
     fn build_output(debug_map: Option<String>) -> BuildOutput {
@@ -1443,6 +1525,7 @@ mod tests {
             statement_count: 1,
             target: None,
             debug: true,
+<<<<<<< HEAD
             cache_key: axiomc::project::BuildCacheMetadata {
                 version: 1,
                 compiler: String::from("stage1"),
@@ -1453,6 +1536,7 @@ mod tests {
                 generated_rust_hash: String::from("rust-hash"),
                 sources: Vec::new(),
             },
+=======
             metadata: axiomc::project::BuildMetadata {
                 target: None,
                 debug: true,
@@ -1626,6 +1710,55 @@ mod tests {
         assert_eq!(
             format_axiom_source("fn main() {   \n\tprint \"hi\"  \n\n\n}\n\n"),
             "fn main() {\n    print \"hi\"\n\n}\n"
+        );
+    }
+
+    #[test]
+    fn formatter_check_reports_json_planning_edits_without_writing() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let source = dir.path().join("src/main.ax");
+        fs::create_dir_all(source.parent().expect("source parent")).expect("mkdir");
+        fs::write(&source, "fn main() {   \n\tprint \"hi\"  \n\n\n}\n\n").expect("write source");
+
+        let report = format_axiom_sources(dir.path(), true).expect("format report");
+
+        assert_eq!(report.schema_version, json_contract::JSON_SCHEMA_VERSION);
+        assert_eq!(report.command, "fmt");
+        assert!(report.check);
+        assert_eq!(report.changed, 1);
+        assert_eq!(report.files.len(), 1);
+        assert!(report.files[0].changed);
+        assert!(report.files[0]
+            .edits
+            .iter()
+            .any(|edit| edit.action == "replace_line" && edit.line == 1));
+        assert_eq!(
+            fs::read_to_string(&source).expect("read source"),
+            "fn main() {   \n\tprint \"hi\"  \n\n\n}\n\n"
+        );
+    }
+
+    #[test]
+    fn formatter_check_reports_missing_final_newline_edit() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let source = dir.path().join("src/main.ax");
+        fs::create_dir_all(source.parent().expect("source parent")).expect("mkdir");
+        fs::write(&source, "fn main() {}").expect("write source");
+
+        let report = format_axiom_sources(dir.path(), true).expect("format report");
+
+        assert_eq!(report.changed, 1);
+        assert_eq!(report.files.len(), 1);
+        assert_eq!(report.files[0].edits.len(), 1);
+        assert_eq!(report.files[0].edits[0].action, "replace_line");
+        assert_eq!(report.files[0].edits[0].line, 1);
+        assert_eq!(
+            report.files[0].edits[0].before.as_deref(),
+            Some("fn main() {}")
+        );
+        assert_eq!(
+            report.files[0].edits[0].after.as_deref(),
+            Some("fn main() {}")
         );
     }
 

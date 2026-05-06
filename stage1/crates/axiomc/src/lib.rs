@@ -53,6 +53,7 @@ mod tests {
     ) -> String {
         format!(
             "[package]\nname = {name:?}\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = {fs}\n\"fs:write\" = {fs}\nnet = {net}\nprocess = {process}\nenv = {env}\nclock = {clock}\ncrypto = {crypto}\nasync = false\n"
+            "[package]\nname = {name:?}\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = {fs}\n\"fs:write\" = {fs}\nnet = {net}\nprocess = {process}\nenv = {env}\nclock = {clock}\ncrypto = {crypto}\n"
         )
     }
 
@@ -355,6 +356,7 @@ print borrowed
     }
 
     #[test]
+>>>>>>> origin/codex/worker-a-issue-379-fmt-json
     fn parser_expands_declarative_statement_macros_before_lowering() {
         let source = r#"macro_rules! answer {
 ($value:expr) => {
@@ -2699,11 +2701,17 @@ crypto = false
         create_project(&project, Some("caps-app")).expect("create project");
         let manifest = load_manifest(&project).expect("load manifest");
         let caps = capability_descriptors(&manifest.capabilities);
+<<<<<<< HEAD
         assert_eq!(caps.len(), 9);
         assert!(caps.iter().all(|cap| !cap.enabled));
         assert!(caps.iter().any(|cap| cap.name == "async"));
         let project_caps = project_capabilities(&project).expect("project capabilities");
         assert_eq!(project_caps.len(), 9);
+=======
+        assert_eq!(caps.len(), 8);
+        assert!(caps.iter().all(|cap| !cap.enabled));
+        let project_caps = project_capabilities(&project).expect("project capabilities");
+        assert_eq!(project_caps.len(), 8);
     }
 
     #[test]
@@ -2800,6 +2808,7 @@ crypto = false
                 .message
                 .contains("capabilities.unsafe_opt_ins[0] references unknown capability")
         );
+>>>>>>> origin/codex/worker-a-issue-379-fmt-json
     }
 
     #[test]
@@ -5742,8 +5751,12 @@ print serve_once("127.0.0.1:18080", "hello")
     fn conformance_corpus_reports_stable_results() {
         let output =
             run_project_tests(&conformance_fixture()).expect("run stage1 conformance corpus");
+<<<<<<< HEAD
         assert_eq!(output.cases.len(), 36);
         assert_eq!(output.passed, 36);
+=======
+        assert_eq!(output.cases.len(), 29);
+        assert_eq!(output.passed, 29);
         assert_eq!(output.failed, 0);
         assert!(
             output
@@ -5752,6 +5765,7 @@ print serve_once("127.0.0.1:18080", "hello")
                 .filter(|case| case.expected_error.is_some())
                 .count()
                 == 24
+                == 20
         );
         assert_eq!(
             output
@@ -5760,6 +5774,7 @@ print serve_once("127.0.0.1:18080", "hello")
                 .filter(|case| case.expected_stdout.is_some())
                 .count(),
             12
+            9
         );
     }
 
@@ -8916,6 +8931,7 @@ print next.value
         assert!(error.message.contains("must be called as"));
         assert!(error.message.contains(".new()"));
     }
+<<<<<<< HEAD
 
     // AG2: deterministic monomorphized symbol naming (#337)
     // These snapshot tests lock the exact symbol names produced for nested generics,
@@ -9029,6 +9045,8 @@ print c
             "echo<int> must be emitted exactly once regardless of call-site count"
         );
     }
+=======
+>>>>>>> origin/codex/worker-a-issue-379-fmt-json
 
     #[test]
     fn hir_recovery_collects_independent_type_errors_in_source_order() {

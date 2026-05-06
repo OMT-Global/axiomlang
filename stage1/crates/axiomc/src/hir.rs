@@ -545,6 +545,7 @@ fn lower_with_capabilities_impl(
         &enum_names,
         &aliases,
         &consts,
+>>>>>>> origin/codex/worker-a-issue-379-fmt-json
     )
     .map_err(single_diagnostic)?;
     let functions =
@@ -867,6 +868,7 @@ fn type_has_unboxed_recursive_path(
     visiting: &mut HashSet<AggregateRef>,
 ) -> bool {
     match ty {
+<<<<<<< HEAD
         Type::Error
         | Type::Int
         | Type::Numeric(_)
@@ -875,6 +877,10 @@ fn type_has_unboxed_recursive_path(
         | Type::Str
         | Type::Ptr(_)
         | Type::MutPtr(_) => false,
+=======
+        Type::Error | Type::Int | Type::Bool | Type::String | Type::Ptr(_) | Type::MutPtr(_) => {
+            false
+        }
         Type::Struct(name) => {
             let current = AggregateRef::Struct(name.clone());
             if &current == owner {
@@ -5428,6 +5434,7 @@ fn lower_match_stmt(
         span: SourceSpan { line, column },
     })
 }
+>>>>>>> origin/codex/worker-a-issue-379-fmt-json
 fn lower_stmt(
     stmt: &syntax::Stmt,
     env: &mut HashMap<String, Binding>,
@@ -5467,6 +5474,7 @@ fn lower_stmt(
             let expected_array_len = declared_array_len(ty, ctx, *line, *column)?;
             let lowered_expr = lower_expr_with_expected(expr, Some(&expected), env, ctx)?;
             let actual = lowered_expr.ty().clone();
+<<<<<<< HEAD
             if let Some(expected_len) = expected_array_len {
                 if let syntax::Expr::ArrayLiteral { elements, .. } = expr {
                     if elements.len() != expected_len {
@@ -5483,6 +5491,8 @@ fn lower_stmt(
             }
             if !type_assignable_to(&actual, &expected) && !actual.is_error() && !expected.is_error()
             {
+=======
+            if actual != expected && !actual.is_error() && !expected.is_error() {
                 return Err(Diagnostic::new(
                     "type",
                     format!("let binding {name:?} expects {expected}, got {actual}"),
@@ -6482,6 +6492,7 @@ fn lower_expr_with_expected_inner(
                 };
                 let lhs = lower_expr(&args[value_start], env, ctx)?;
                 if !matches!(lhs.ty(), Type::Int | Type::Bool | Type::String | Type::Str) {
+                if !matches!(lhs.ty(), Type::Int | Type::Bool | Type::String) {
                     return Err(Diagnostic::new(
                         "type",
                         format!(
@@ -10006,6 +10017,268 @@ fn explicit_borrow_return_params(function: &syntax::Function) -> Option<Vec<usiz
     )
 }
 
+<<<<<<< HEAD
+=======
+fn contains_borrowed_slice_type_inner(
+    ty: &Type,
+    structs: &HashMap<String, StructDef>,
+    enums: &HashMap<String, EnumDef>,
+    visiting_structs: &mut HashSet<String>,
+    visiting_enums: &mut HashSet<String>,
+) -> bool {
+    match ty {
+        Type::Slice(_) | Type::MutSlice(_) => true,
+        Type::Option(inner) => contains_borrowed_slice_type_inner(
+            inner,
+            structs,
+            enums,
+            visiting_structs,
+            visiting_enums,
+        ),
+        Type::Result(ok, err) => {
+            contains_borrowed_slice_type_inner(ok, structs, enums, visiting_structs, visiting_enums)
+                || contains_borrowed_slice_type_inner(
+                    err,
+                    structs,
+                    enums,
+                    visiting_structs,
+                    visiting_enums,
+                )
+        }
+        Type::Tuple(elements) => elements.iter().any(|element| {
+            contains_borrowed_slice_type_inner(
+                element,
+                structs,
+                enums,
+                visiting_structs,
+                visiting_enums,
+            )
+        }),
+        Type::Map(key, value) => {
+            contains_borrowed_slice_type_inner(
+                key,
+                structs,
+                enums,
+                visiting_structs,
+                visiting_enums,
+            ) || contains_borrowed_slice_type_inner(
+                value,
+                structs,
+                enums,
+                visiting_structs,
+                visiting_enums,
+            )
+        }
+        Type::Array(inner)
+        | Type::Task(inner)
+        | Type::JoinHandle(inner)
+        | Type::AsyncChannel(inner)
+        | Type::SelectResult(inner) => contains_borrowed_slice_type_inner(
+            inner,
+            structs,
+            enums,
+            visiting_structs,
+            visiting_enums,
+        ),
+        Type::Struct(name) => {
+            if !visiting_structs.insert(name.clone()) {
+                return false;
+            }
+            let contains = structs.get(name).is_some_and(|struct_def| {
+                struct_def.fields.iter().any(|field| {
+                    contains_borrowed_slice_type_inner(
+                        &field.ty,
+                        structs,
+                        enums,
+                        visiting_structs,
+                        visiting_enums,
+                    )
+                })
+            });
+            visiting_structs.remove(name);
+            contains
+        }
+        Type::Enum(name) => {
+            if !visiting_enums.insert(name.clone()) {
+                return false;
+            }
+            let contains = enums.get(name).is_some_and(|enum_def| {
+                enum_def.variants.iter().any(|variant| {
+                    variant.payload_tys.iter().any(|payload_ty| {
+                        contains_borrowed_slice_type_inner(
+                            payload_ty,
+                            structs,
+                            enums,
+                            visiting_structs,
+                            visiting_enums,
+                        )
+                    })
+                })
+            });
+            visiting_enums.remove(name);
+            contains
+        }
+        Type::Error | Type::Int | Type::Bool | Type::String | Type::Ptr(_) | Type::MutPtr(_) => {
+            false
+        }
+    }
+}
+
+fn contains_mut_borrowed_slice_type_inner(
+    ty: &Type,
+    structs: &HashMap<String, StructDef>,
+    enums: &HashMap<String, EnumDef>,
+    visiting_structs: &mut HashSet<String>,
+    visiting_enums: &mut HashSet<String>,
+) -> bool {
+    match ty {
+        Type::MutSlice(_) => true,
+        Type::Error
+        | Type::Slice(_)
+        | Type::Int
+        | Type::Bool
+        | Type::String
+        | Type::Ptr(_)
+        | Type::MutPtr(_) => false,
+        Type::Option(inner) => contains_mut_borrowed_slice_type_inner(
+            inner,
+            structs,
+            enums,
+            visiting_structs,
+            visiting_enums,
+        ),
+        Type::Result(ok, err) => {
+            contains_mut_borrowed_slice_type_inner(
+                ok,
+                structs,
+                enums,
+                visiting_structs,
+                visiting_enums,
+            ) || contains_mut_borrowed_slice_type_inner(
+                err,
+                structs,
+                enums,
+                visiting_structs,
+                visiting_enums,
+            )
+        }
+        Type::Tuple(elements) => elements.iter().any(|element| {
+            contains_mut_borrowed_slice_type_inner(
+                element,
+                structs,
+                enums,
+                visiting_structs,
+                visiting_enums,
+            )
+        }),
+        Type::Map(key, value) => {
+            contains_mut_borrowed_slice_type_inner(
+                key,
+                structs,
+                enums,
+                visiting_structs,
+                visiting_enums,
+            ) || contains_mut_borrowed_slice_type_inner(
+                value,
+                structs,
+                enums,
+                visiting_structs,
+                visiting_enums,
+            )
+        }
+        Type::Array(inner)
+        | Type::Task(inner)
+        | Type::JoinHandle(inner)
+        | Type::AsyncChannel(inner)
+        | Type::SelectResult(inner) => contains_mut_borrowed_slice_type_inner(
+            inner,
+            structs,
+            enums,
+            visiting_structs,
+            visiting_enums,
+        ),
+        Type::Struct(name) => {
+            if !visiting_structs.insert(name.clone()) {
+                return false;
+            }
+            let contains = structs.get(name).is_some_and(|struct_def| {
+                struct_def.fields.iter().any(|field| {
+                    contains_mut_borrowed_slice_type_inner(
+                        &field.ty,
+                        structs,
+                        enums,
+                        visiting_structs,
+                        visiting_enums,
+                    )
+                })
+            });
+            visiting_structs.remove(name);
+            contains
+        }
+        Type::Enum(name) => {
+            if !visiting_enums.insert(name.clone()) {
+                return false;
+            }
+            let contains = enums.get(name).is_some_and(|enum_def| {
+                enum_def.variants.iter().any(|variant| {
+                    variant.payload_tys.iter().any(|payload_ty| {
+                        contains_mut_borrowed_slice_type_inner(
+                            payload_ty,
+                            structs,
+                            enums,
+                            visiting_structs,
+                            visiting_enums,
+                        )
+                    })
+                })
+            });
+            visiting_enums.remove(name);
+            contains
+        }
+    }
+}
+
+fn classify_borrow_return(
+    params: &[Type],
+    return_ty: &Type,
+    structs: &HashMap<String, StructDef>,
+    enums: &HashMap<String, EnumDef>,
+    line: usize,
+    column: usize,
+) -> Result<Vec<usize>, Diagnostic> {
+    if !contains_borrowed_slice_type(return_ty, structs, enums) {
+        return Ok(Vec::new());
+    }
+    let matches = params
+        .iter()
+        .enumerate()
+        .filter_map(|(index, ty)| contains_borrowed_slice_type(ty, structs, enums).then_some(index))
+        .collect::<Vec<_>>();
+    if matches.is_empty() {
+        return Err(Diagnostic::new(
+            "type",
+            "borrowed return functions must take at least one borrowed parameter in stage1",
+        )
+        .with_span(line, column));
+    }
+    Ok(matches)
+}
+
+fn borrow_kind_for_type(
+    ty: &Type,
+    structs: &HashMap<String, StructDef>,
+    enums: &HashMap<String, EnumDef>,
+) -> Option<BorrowKind> {
+    if contains_mut_borrowed_slice_type(ty, structs, enums) {
+        Some(BorrowKind::Mutable)
+    } else if contains_borrowed_slice_type(ty, structs, enums) {
+        Some(BorrowKind::Shared)
+    } else {
+        None
+    }
+}
+
+>>>>>>> origin/codex/worker-a-issue-379-fmt-json
 fn increment_active_borrows(
     owner_names: &HashSet<String>,
     env: &mut HashMap<String, Binding>,

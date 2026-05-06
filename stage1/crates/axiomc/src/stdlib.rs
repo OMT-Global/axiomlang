@@ -63,6 +63,8 @@
 //!   wrappers over the stage1 async runtime values.
 //! * `std/async_time.ax` and `std/async_net.ax` — async task wrappers around
 //!   `std/time` timer and `std/net` loopback socket primitives.
+//! * `std/async.ax` — deterministic task, join, channel, timeout,
+//!   cancellation, and select wrappers over the stage1 async runtime values.
 //! * `std/regex.ax` — linear-time regular-expression helpers (`is_match`,
 //!   `find`, `replace_all`) over a stage1-safe NFA engine.
 //! * `std/testing.ax` — table-case, property, and snapshot assertion helpers
@@ -255,6 +257,7 @@ pub fn selected<T>(result: SelectResult<T>): int {\nreturn async_selected<T>(res
 pub fn selected_value<T>(result: SelectResult<T>): Option<T> {\nreturn async_selected_value<T>(result)\n}\n",
     ),
     (
+<<<<<<< HEAD
         "async_time.ax",
         "pub async fn sleep_ms(milliseconds: int): int {\nreturn clock_sleep_ms(milliseconds)\n}\n\
 pub async fn sleep_duration_ms(milliseconds: int): int {\nreturn clock_sleep_ms(milliseconds)\n}\n",
@@ -267,6 +270,8 @@ pub async fn udp_bind_loopback_once(response: string, timeout_ms: int): Option<i
 pub async fn udp_send_recv(host: string, port: int, message: string, timeout_ms: int): Option<string> {\nreturn net_udp_send_recv(host, port, message, timeout_ms)\n}\n",
     ),
     (
+=======
+>>>>>>> origin/codex/worker-a-issue-379-fmt-json
         "testing.ax",
         "pub fn table_int(name: string, actual: int, expected: int): int {\nreturn assert_case_eq(name, actual, expected)\n}\n\
 pub fn table_bool(name: string, actual: bool, expected: bool): int {\nreturn assert_case_eq(name, actual, expected)\n}\n\

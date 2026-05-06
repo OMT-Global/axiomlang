@@ -3,6 +3,7 @@ use crate::manifest::CapabilityDescriptor;
 use crate::project::{BuildOutput, CheckOutput, TestOutput};
 use serde::Serialize;
 use serde_json::{Value, json};
+use serde_json::{json, Value};
 use std::path::Path;
 
 pub const JSON_SCHEMA_VERSION: &str = "axiom.stage1.v1";
@@ -39,7 +40,10 @@ pub fn build_success(project: &Path, output: &BuildOutput) -> Value {
         "statement_count": output.statement_count,
         "target": output.target,
         "debug": output.debug,
+<<<<<<< HEAD
         "cache_key": output.cache_key,
+=======
+>>>>>>> origin/codex/worker-a-issue-379-fmt-json
         "metadata": output.metadata,
         "cache_hits": output.cache_hits,
         "cache_misses": output.cache_misses,

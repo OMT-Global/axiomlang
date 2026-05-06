@@ -66,6 +66,7 @@ pub struct BuiltPackage {
     pub target: Option<String>,
     pub debug: bool,
     pub cache_key: BuildCacheMetadata,
+>>>>>>> origin/codex/worker-a-issue-379-fmt-json
     pub metadata: BuildMetadata,
     pub cache_status: BuildCacheStatus,
     pub compile_ms: u64,
@@ -84,7 +85,9 @@ pub struct BuildOutput {
     pub statement_count: usize,
     pub target: Option<String>,
     pub debug: bool,
+<<<<<<< HEAD
     pub cache_key: BuildCacheMetadata,
+=======
     pub metadata: BuildMetadata,
     pub cache_hits: usize,
     pub cache_misses: usize,
@@ -286,6 +289,7 @@ pub fn build_project_with_options(
             target: resolved_target.clone(),
             debug: options.debug,
             cache_key: report.cache_key,
+>>>>>>> origin/codex/worker-a-issue-379-fmt-json
             metadata: report.metadata,
             cache_status: report.cache_status,
             compile_ms: report.compile_ms,
@@ -317,7 +321,9 @@ pub fn build_project_with_options(
         statement_count: root.statement_count,
         target: root.target,
         debug: root.debug,
+<<<<<<< HEAD
         cache_key: root.cache_key,
+=======
         metadata: root.metadata,
         cache_hits,
         cache_misses,
@@ -1095,6 +1101,7 @@ fn build_artifacts(
     })
 }
 
+<<<<<<< HEAD
 fn build_cache_metadata(cache: &BuildCacheFile) -> BuildCacheMetadata {
     BuildCacheMetadata {
         version: cache.version,
@@ -1116,6 +1123,8 @@ fn build_cache_metadata(cache: &BuildCacheFile) -> BuildCacheMetadata {
     }
 }
 
+=======
+>>>>>>> origin/codex/worker-a-issue-379-fmt-json
 fn build_metadata(package_root: &Path, cache: &BuildCacheFile) -> BuildMetadata {
     BuildMetadata {
         target: cache.target.clone(),

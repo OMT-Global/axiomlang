@@ -26,6 +26,7 @@ REF_ROOT = REPO_ROOT / "stage1/benchmarks/reference"
 BASELINE_PATH = REPO_ROOT / "stage1/benchmarks/baselines/stage1-build-median.json"
 DIAGNOSTIC_FIXTURE = REPO_ROOT / "stage1/conformance/fail/ownership_use_after_move"
 CAPABILITY_NAMES = ["fs", "fs:write", "net", "process", "env", "clock", "crypto", "ffi"]
+>>>>>>> origin/codex/worker-a-issue-379-fmt-json
 
 
 @dataclass(frozen=True)
@@ -170,8 +171,16 @@ def compare_regression_baseline(report: dict, baseline: dict | None) -> list[str
     return warnings
 
 
+<<<<<<< HEAD
 def file_size(path: Path) -> int | None:
     return path.stat().st_size if path.exists() else None
+=======
+def benchmark_workload(workload: Workload, temp_dir: Path) -> dict:
+    print(f"warming benchmark commands for {workload.name} ({workload.kind})...")
+    axiom_build(workload, cold=True)
+    axiom_build(workload, cold=False)
+    go_build(workload, temp_dir)
+    rust_build(workload, temp_dir)
 
 
 def capability_manifest_coverage(workload: Workload) -> dict[str, Any]:

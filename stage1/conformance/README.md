@@ -38,6 +38,14 @@ Current executable fixtures cover:
   successfully.
 - `package_visibility`: `pub(pkg)` items imported across sibling modules within
   the same package.
+<<<<<<< HEAD
+=======
+- `comparison_strict_typing`: Axiom-owned comparison fixture for explicit
+  scalar typing and bool-only control flow.
+- `comparison_package_imports`: Axiom-owned comparison fixture for package-local
+  imports and typed function boundaries.
+
+>>>>>>> origin/codex/worker-a-issue-379-fmt-json
 Packages under `fail/` are compile-fail fixtures. Each package is a complete
 stage1 project with `axiom.toml`, `axiom.lock`, source, and
 `expected-error.json`. The conformance runner checks the diagnostic kind, code,
