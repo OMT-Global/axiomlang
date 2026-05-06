@@ -76,7 +76,10 @@ cargo run --manifest-path stage1/Cargo.toml -p axiomc -- doc stage1/examples/hel
 cargo run --manifest-path stage1/Cargo.toml -p axiomc -- doc stage1/examples/hello --json
 cargo run --manifest-path stage1/Cargo.toml -p axiomc -- bench stage1/examples/benchmarks --json
 <<<<<<< HEAD
+<<<<<<< HEAD
 >>>>>>> origin/codex/issue-406-collection-lookup
+=======
+>>>>>>> origin/codex/agent-o-debug-info
 cargo run --manifest-path stage1/Cargo.toml -p axiomc -- test stage1/examples/stdlib_testing --include-benchmarks --json
 cargo run --manifest-path stage1/Cargo.toml -p axiomc -- test stage1/examples/stdlib_testing --include-benchmarks --json
 =======

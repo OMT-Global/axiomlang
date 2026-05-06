@@ -32,8 +32,8 @@ complete.
 >>>>>>> origin/codex/issue-395-effective-fs-roots
 >>>>>>> origin/codex/worker-j-issue-362
 >>>>>>> origin/codex/issue-425-crap-thresholds
-=======
 >>>>>>> origin/codex/worker-c-issue-361
+=======
 | #97 HTTP server | `std/http.ax get` is client-only. | Server lifecycle, routing, response APIs, capability policy, and concurrent handling remain AG4.3 work. |
 =======
 =======

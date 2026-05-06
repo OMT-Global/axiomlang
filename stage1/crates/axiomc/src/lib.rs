@@ -24,6 +24,7 @@ pub mod diagnostic_catalog;
 >>>>>>> origin/codex/worker-f-issue-341
 >>>>>>> origin/codex/worker-f-issue-343
 >>>>>>> origin/codex/worker-c-issue-361
+>>>>>>> origin/codex/agent-o-debug-info
 pub mod diagnostics;
 pub mod hir;
 pub mod json_contract;
@@ -57,6 +58,7 @@ mod tests {
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
         CapabilityConfig, CapabilityKind, ExpectedDiagnostic, TestTarget, capability_descriptors,
         load_manifest, render_manifest,
 =======
@@ -71,15 +73,14 @@ mod tests {
 =======
 =======
         lockfile_path, render_manifest,
+=======
     };
     use crate::mir;
     use crate::new_project::{WorkloadTemplate, create_project, create_project_with_template};
     use crate::project::{
         BuildCacheStatus, BuildOptions, CheckOptions, RunOptions, TestOptions, build_project,
         build_project_with_options, check_project, check_project_with_options,
-<<<<<<< HEAD
         command_for_build_output, command_for_executable, list_project_tests_with_options,
-=======
         command_for_build_output, command_for_executable, package_graph_metadata,
         project_capabilities, run_project_tests, run_project_tests_with_options,
         run_project_with_options,
@@ -110,6 +111,7 @@ mod tests {
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
             "[package]\nname = {name:?}\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = {fs}\n\"fs:write\" = {fs}\nnet = {net}\nprocess = {process}\nenv = {env}\nclock = {clock}\ncrypto = {crypto}\nasync = false\n"
             "[package]\nname = {name:?}\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = {fs}\n\"fs:write\" = {fs}\nnet = {net}\nprocess = {process}\nenv = {env}\nclock = {clock}\ncrypto = {crypto}\n"
             "[package]\nname = {name:?}\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = {fs}\n\"fs:write\" = {fs}\nnet = {net}\nprocess = {process}\nenv = {env}\nclock = {clock}\ncrypto = {crypto}\nasync = false\n"
@@ -120,6 +122,7 @@ mod tests {
             "[package]\nname = {name:?}\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = {fs}\n\"fs:write\" = {fs}\nnet = {net}\nprocess = {process}\nenv = {env}\nclock = {clock}\ncrypto = {crypto}\n"
 =======
             "[package]\nname = {name:?}\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = {fs}\n\"fs:write\" = {fs}\nnet = {net}\nprocess = {process}\nenv = {env}\nclock = {clock}\ncrypto = {crypto}\nasync = false\n"
+=======
 =======
 =======
             "[package]\nname = {name:?}\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = {fs}\n\"fs:write\" = {fs}\nnet = {net}\nprocess = {process}\nenv = {env}\nclock = {clock}\ncrypto = {crypto}\n"
@@ -473,6 +476,7 @@ print borrowed
 >>>>>>> origin/codex/worker-f-issue-341
 >>>>>>> origin/codex/worker-f-issue-343
 >>>>>>> origin/codex/worker-c-issue-361
+>>>>>>> origin/codex/agent-o-debug-info
     fn parser_expands_declarative_statement_macros_before_lowering() {
         let source = r#"macro_rules! answer {
 ($value:expr) => {
@@ -3100,6 +3104,7 @@ crypto = false
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
 =======
 =======
@@ -3118,11 +3123,11 @@ crypto = false
 =======
 =======
 =======
+=======
         assert_eq!(caps.len(), 8);
         assert!(caps.iter().all(|cap| !cap.enabled));
         let project_caps = project_capabilities(&project).expect("project capabilities");
         assert_eq!(project_caps.len(), 8);
-=======
 =======
     }
 
@@ -3414,6 +3419,7 @@ crypto = false
 >>>>>>> origin/codex/issue-418-schema-metadata
 >>>>>>> origin/codex/issue-422-comparison-gate
 >>>>>>> origin/codex/issue-425-crap-thresholds
+>>>>>>> origin/codex/agent-o-debug-info
     }
 
     #[test]
@@ -6000,10 +6006,12 @@ print serve_once("127.0.0.1:18080", "hello")
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
                 stderr: None,
                 expected_error: None,
                 capabilities: Vec::new(),
                 package: None,
+=======
 =======
 =======
 =======
@@ -6033,6 +6041,7 @@ print serve_once("127.0.0.1:18080", "hello")
 >>>>>>> origin/codex/worker-f-issue-341
 >>>>>>> origin/codex/worker-f-issue-343
 >>>>>>> origin/codex/worker-c-issue-361
+>>>>>>> origin/codex/agent-o-debug-info
     fn manifest_parses_richer_test_kinds() {
         let dir = tempdir().expect("tempdir");
         let project = dir.path().join("typed-tests");
@@ -6139,6 +6148,7 @@ print serve_once("127.0.0.1:18080", "hello")
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
     fn run_project_tests_reports_manifest_metadata_in_json() {
         let dir = tempdir().expect("tempdir");
         let project = dir.path().join("runner-metadata");
@@ -6175,6 +6185,7 @@ print serve_once("127.0.0.1:18080", "hello")
     }
 
     #[test]
+=======
 =======
 =======
 =======
@@ -6691,7 +6702,6 @@ print serve_once("127.0.0.1:18080", "hello")
                 .filter(|case| case.expected_error.is_some())
                 .count()
 <<<<<<< HEAD
-<<<<<<< HEAD
                 == 24
 <<<<<<< HEAD
 <<<<<<< HEAD
@@ -6699,13 +6709,11 @@ print serve_once("127.0.0.1:18080", "hello")
                 == 21
                 == 20
                 == 20
-=======
                 == 20
 =======
                 == 24
 =======
                 == 20
->>>>>>> origin/codex/worker-f-issue-343
         );
         assert_eq!(
             output
@@ -6713,7 +6721,6 @@ print serve_once("127.0.0.1:18080", "hello")
                 .iter()
                 .filter(|case| case.expected_stdout.is_some())
                 .count(),
-<<<<<<< HEAD
             12
             9
             10
@@ -6723,7 +6730,6 @@ print serve_once("127.0.0.1:18080", "hello")
             12
             9
             11
-=======
             9
         );
     }
@@ -9572,6 +9578,9 @@ print 0
         assert!(debug.packages[0].debug);
         let debug_map = PathBuf::from(debug.debug_map.as_ref().expect("debug map path"));
         assert!(debug_map.exists());
+        let debug_manifest =
+            PathBuf::from(debug.debug_manifest.as_ref().expect("debug manifest path"));
+        assert!(debug_manifest.exists());
         assert_eq!(debug.cache_hits, 0);
         assert_eq!(debug.cache_misses, 1);
 
@@ -9593,6 +9602,23 @@ print 0
         assert_eq!(map["mappings"][0]["line"], 1);
         assert_eq!(map["mappings"][0]["column"], 1);
         assert!(map["mappings"][0]["generated_line"].is_u64());
+        let manifest: serde_json::Value = serde_json::from_str(
+            &fs::read_to_string(&debug_manifest).expect("read debug manifest"),
+        )
+        .expect("parse debug manifest");
+        assert_eq!(manifest["schema_version"], "axiom.stage1.debug_manifest.v1");
+        assert_eq!(manifest["binary"], debug.binary);
+        assert_eq!(manifest["generated_rust"], debug.generated_rust);
+        assert_eq!(manifest["debug_map"], debug_map.display().to_string());
+        assert_eq!(manifest["rustc"]["debuginfo"], 2);
+        assert_eq!(manifest["rustc"]["opt_level"], 0);
+        assert_eq!(manifest["rustc"]["axiom_dwarf"], false);
+        assert_eq!(manifest["source_files"][0]["path"], source);
+        assert_eq!(manifest["source_files"][0]["line_count"], 2);
+        assert_eq!(manifest["source_files"][0]["mapping_count"], 2);
+        assert!(manifest["source_files"][0]["source_hash"].is_string());
+        assert!(manifest["binary_hash"].is_string());
+        assert!(manifest["generated_rust_hash"].is_string());
 
         if let Ok(readelf) = which::which("readelf") {
             let output = Command::new(readelf)
@@ -9685,6 +9711,7 @@ print 0
         );
 
         fs::remove_file(&debug_map).expect("remove debug map");
+        fs::remove_file(&debug_manifest).expect("remove debug manifest");
         let cached_debug = build_project_with_options(
             &project,
             &BuildOptions {
@@ -9699,6 +9726,7 @@ print 0
         assert_eq!(cached_debug.cache_hits, 1);
         assert_eq!(cached_debug.cache_misses, 0);
         assert!(debug_map.exists());
+        assert!(debug_manifest.exists());
     }
 
     #[test]
@@ -9936,6 +9964,7 @@ print 0
         assert_eq!(payload["command"], "build");
         assert_eq!(payload["backend"], "generated-rust");
 <<<<<<< HEAD
+<<<<<<< HEAD
         assert_eq!(payload["locked"], true);
         assert_eq!(payload["offline"], true);
 <<<<<<< HEAD
@@ -9955,6 +9984,11 @@ print 0
             payload["packages"][0]["cache_key"]["lockfile_hash"],
             payload["cache_key"]["lockfile_hash"]
         );
+=======
+        assert!(payload["target"].is_string());
+        assert_eq!(payload["debug"], true);
+        assert!(payload["debug_map"].is_string());
+        assert!(payload["debug_manifest"].is_string());
         assert!(payload["cache_hits"].is_u64());
         assert!(payload["cache_misses"].is_u64());
         assert!(payload["duration_ms"].is_u64());

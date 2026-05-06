@@ -34,6 +34,7 @@
 >>>>>>> origin/codex/worker-f-issue-343
 >>>>>>> origin/codex/worker-c-issue-361
 //! Today this provides fifteen stdlib modules. Six are thin wrappers over
+>>>>>>> origin/codex/agent-o-debug-info
 //! single-intrinsic capability-gated surfaces, one per capability class:
 //!
 //! * `std/time.ax` — `Duration`, `Instant`, `now_ms()`, `now()`,
@@ -108,6 +109,8 @@
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
 =======
 =======
 =======

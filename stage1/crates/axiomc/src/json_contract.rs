@@ -68,14 +68,15 @@ pub fn build_success(project: &Path, output: &BuildOutput) -> Value {
 =======
 =======
 =======
->>>>>>> origin/codex/worker-c-issue-361
-=======
 >>>>>>> origin/codex/worker-h-issue-414
+=======
+>>>>>>> origin/codex/agent-o-debug-info
         "manifest": output.manifest,
         "entry": output.entry,
         "binary": output.binary,
         "generated_rust": output.generated_rust,
         "debug_map": output.debug_map,
+        "debug_manifest": output.debug_manifest,
         "statement_count": output.statement_count,
         "target": output.target,
         "debug": output.debug,

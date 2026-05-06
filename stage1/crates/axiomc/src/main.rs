@@ -30,6 +30,7 @@ use axiomc::manifest::{load_manifest, manifest_path};
 >>>>>>> origin/codex/worker-f-issue-341
 >>>>>>> origin/codex/worker-f-issue-343
 >>>>>>> origin/codex/worker-c-issue-361
+>>>>>>> origin/codex/agent-o-debug-info
 use axiomc::new_project::create_project;
 use axiomc::diagnostics::Diagnostic;
 use axiomc::json_contract;
@@ -60,20 +61,19 @@ use axiomc::registry::{
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
->>>>>>> origin/codex/worker-h-issue-414
+<<<<<<< HEAD
 use axiomc::diagnostics::Diagnostic;
 use axiomc::json_contract;
 use axiomc::lsp;
 use axiomc::new_project::create_project;
 use axiomc::project::{
-<<<<<<< HEAD
     build_project_with_options, check_project_with_options, list_project_tests_with_options,
-=======
     build_project_with_options, check_project_with_options, package_graph_metadata,
     project_capabilities, run_project_tests_with_options, run_project_with_options, BuildOptions,
     BuildOutput, CheckOptions, RunOptions, TestOptions,
 };
 use axiomc::registry::{load_registry_index, render_registry_index};
+=======
 =======
 =======
 =======
@@ -274,9 +274,9 @@ enum Command {
 >>>>>>> origin/codex/issue-425-crap-thresholds
 =======
 =======
->>>>>>> origin/codex/worker-f-issue-343
-=======
 >>>>>>> origin/codex/worker-c-issue-361
+=======
+>>>>>>> origin/codex/agent-o-debug-info
     /// Pack, sign, and publish a stage1 package into a local registry tree.
     Publish {
         path: PathBuf,
@@ -357,9 +357,9 @@ enum PkgCommand {
 =======
 =======
 =======
->>>>>>> origin/codex/worker-c-issue-361
-=======
 >>>>>>> origin/codex/worker-h-issue-414
+=======
+>>>>>>> origin/codex/agent-o-debug-info
 }
 
 fn main() {
@@ -618,7 +618,6 @@ fn main() {
                 if report.ok { 0 } else { 1 }
             }
         }
-<<<<<<< HEAD
         Command::Inspect { command } => match command {
             InspectCommand::Symbols { path, json } => match inspect_symbols(&path) {
             InspectCommand::Graph { path, json } => match inspect_graph(&path) {
@@ -673,7 +672,6 @@ fn main() {
 >>>>>>> origin/codex/issue-423-mutation-smoke
 >>>>>>> origin/codex/issue-424-survivor-report
 >>>>>>> origin/codex/worker-f-issue-341
-=======
         Command::Pkg { command } => match command {
             PkgCommand::Graph { path, json } => match package_graph_metadata(&path) {
                 Ok(output) => {
@@ -705,7 +703,6 @@ fn main() {
                 Err(error) => print_error("pkg graph", error, json),
             },
         },
->>>>>>> origin/codex/worker-h-issue-414
         Command::Fmt { path, check } => match format_axiom_sources(&path, check) {
         }
         Command::Fmt { path, check, json } => match format_axiom_sources(&path, check) {
@@ -818,6 +815,7 @@ fn main() {
             Err(error) => print_error("repl", error, json),
         },
 <<<<<<< HEAD
+>>>>>>> origin/codex/agent-o-debug-info
         Command::Publish {
             path,
             registry_dir,
@@ -892,6 +890,8 @@ fn main() {
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
 =======
 =======
 =======
@@ -908,6 +908,9 @@ fn build_summary_lines(output: &BuildOutput, timings: bool) -> Vec<String> {
     )];
     if let Some(debug_map) = &output.debug_map {
         lines.push(format!("wrote debug map {debug_map}"));
+    }
+    if let Some(debug_manifest) = &output.debug_manifest {
+        lines.push(format!("wrote debug manifest {debug_manifest}"));
     }
     if timings {
         lines.push(
@@ -2746,10 +2749,10 @@ mod tests {
 =======
 =======
 =======
->>>>>>> origin/codex/worker-h-issue-414
+>>>>>>> origin/codex/agent-o-debug-info
     }
 
-    fn build_output(debug_map: Option<String>) -> BuildOutput {
+    fn build_output(debug_map: Option<String>, debug_manifest: Option<String>) -> BuildOutput {
         BuildOutput {
             backend: NativeBackendKind::GeneratedRust,
             locked: false,
@@ -2779,11 +2782,13 @@ mod tests {
 >>>>>>> origin/codex/worker-f-issue-343
 >>>>>>> origin/codex/worker-c-issue-361
 >>>>>>> origin/codex/worker-h-issue-414
+>>>>>>> origin/codex/agent-o-debug-info
             manifest: String::from("axiom.toml"),
             entry: String::from("src/main.ax"),
             binary: String::from("dist/app"),
             generated_rust: String::from("target/main.rs"),
             debug_map,
+            debug_manifest,
             statement_count: 1,
             target: None,
             debug: true,
@@ -2844,6 +2849,7 @@ mod tests {
     }
 
     #[test]
+<<<<<<< HEAD
     fn build_json_includes_target_debug_and_cache_key_metadata() {
         let payload = json_contract::build_success(
             Path::new("stage1/examples/hello"),
@@ -2870,14 +2876,20 @@ mod tests {
 
     #[test]
     fn build_summary_mentions_debug_map_when_available() {
+=======
+    fn build_summary_mentions_debug_artifacts_when_available() {
         assert_eq!(
             build_summary_lines(
-                &build_output(Some(String::from("target/main.debug-map.json"))),
+                &build_output(
+                    Some(String::from("target/main.debug-map.json")),
+                    Some(String::from("target/main.debug-manifest.json")),
+                ),
                 false,
             ),
             vec![
                 String::from("wrote dist/app (backend=generated-rust)"),
                 String::from("wrote debug map target/main.debug-map.json"),
+                String::from("wrote debug manifest target/main.debug-manifest.json"),
             ]
         );
     }
@@ -2905,6 +2917,8 @@ mod tests {
 =======
 =======
 =======
+            build_summary_lines(&build_output(None, None), false),
+            vec![String::from("wrote dist/app (backend=generated-rust)")]
         );
     }
 
