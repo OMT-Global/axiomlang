@@ -5334,31 +5334,40 @@ print serve_once("127.0.0.1:18080", "hello")
 
     #[test]
     fn checked_in_proof_workload_examples_build_run_and_test() {
-        for example in ["proof_cli", "proof_worker", "proof_http_service"] {
-            let project = checked_in_example_fixture(example);
-            check_project(&project).expect("check checked-in proof workload example");
+        std::thread::Builder::new()
+            .name("proof-workload-examples".into())
+            .stack_size(8 * 1024 * 1024)
+            .spawn(|| {
+                for example in ["proof_cli", "proof_worker", "proof_http_service"] {
+                    let project = checked_in_example_fixture(example);
+                    check_project(&project).expect("check checked-in proof workload example");
 
-            let built = build_project(&project).expect("build checked-in proof workload example");
-            let output = compiled_binary_command(&built.binary)
-                .output()
-                .expect("run checked-in proof workload example");
-            let expected = fs::read_to_string(project.join("src/main_test.stdout"))
-                .expect("read expected stdout");
-            assert_eq!(
-                String::from_utf8_lossy(&output.stdout),
-                expected,
-                "example {example}"
-            );
+                    let built =
+                        build_project(&project).expect("build checked-in proof workload example");
+                    let output = compiled_binary_command(&built.binary)
+                        .output()
+                        .expect("run checked-in proof workload example");
+                    let expected = fs::read_to_string(project.join("src/main_test.stdout"))
+                        .expect("read expected stdout");
+                    assert_eq!(
+                        String::from_utf8_lossy(&output.stdout),
+                        expected,
+                        "example {example}"
+                    );
 
-            let tests =
-                run_project_tests(&project).expect("test checked-in proof workload example");
-            let expected_passed = match example {
-                "proof_cli" => 2,
-                _ => 1,
-            };
-            assert_eq!(tests.passed, expected_passed, "example {example}");
-            assert_eq!(tests.failed, 0, "example {example}");
-        }
+                    let tests = run_project_tests(&project)
+                        .expect("test checked-in proof workload example");
+                    let expected_passed = match example {
+                        "proof_cli" => 2,
+                        _ => 1,
+                    };
+                    assert_eq!(tests.passed, expected_passed, "example {example}");
+                    assert_eq!(tests.failed, 0, "example {example}");
+                }
+            })
+            .expect("spawn proof workload example test thread")
+            .join()
+            .expect("proof workload example test thread should not panic");
     }
 
     #[test]
@@ -6185,6 +6194,44 @@ print takes_two(three)
         let error = check_project(&project).expect_err("missing import should fail");
         assert!(error.message.contains("missing import"));
         assert_eq!(error.kind, "import");
+    }
+
+    #[test]
+    fn build_project_if_let_fallback_ignores_unmatched_named_payloads() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("if-let-named-fallback");
+        create_project(&project, Some("if-let-named-fallback-app")).expect("create project");
+        fs::write(
+            project.join("src/main.ax"),
+            "enum Choice {\nPicked(int)\nIgnored { render: string }\n}\nfn render(): int {\nreturn 7\n}\nlet choice: Choice = Ignored { render: \"skip\" }\nif let Picked(value) = choice {\nprint value\n} else {\nprint \"fallback\"\n}\n",
+        )
+        .expect("write source");
+
+        let built = build_project(&project).expect("build project");
+        let output = compiled_binary_command(&built.binary)
+            .output()
+            .expect("run compiled binary");
+        assert!(output.status.success());
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "fallback\n");
+    }
+
+    #[test]
+    fn build_project_if_let_fallback_ignores_unmatched_positional_payloads() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("if-let-positional-fallback");
+        create_project(&project, Some("if-let-positional-fallback-app")).expect("create project");
+        fs::write(
+            project.join("src/main.ax"),
+            "enum Choice {\nPicked(int)\nIgnored(int, string)\n}\nlet choice: Choice = Ignored(1, \"skip\")\nif let Picked(value) = choice {\nprint value\n} else {\nprint \"fallback\"\n}\n",
+        )
+        .expect("write source");
+
+        let built = build_project(&project).expect("build project");
+        let output = compiled_binary_command(&built.binary)
+            .output()
+            .expect("run compiled binary");
+        assert!(output.status.success());
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "fallback\n");
     }
 
     #[test]
@@ -7440,6 +7487,22 @@ print takes_two(three)
         .expect("write source");
         let error = check_project(&project).expect_err("match should require payload binding");
         assert!(error.message.contains("expects 1 bindings, got 0"));
+        assert_eq!(error.kind, "type");
+    }
+
+    #[test]
+    fn check_project_rejects_bare_positional_payload_match_arm() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("bare-positional-payload-match-arm");
+        create_project(&project, Some("bare-positional-payload-match-arm-app"))
+            .expect("create project");
+        fs::write(
+            project.join("src/main.ax"),
+            "enum Choice {\nPicked(int, string)\nEmpty\n}\n\nfn render(choice: Choice): string {\nmatch choice {\nPicked {\nreturn \"picked\"\n}\nEmpty {\nreturn \"empty\"\n}\n}\n}\n\nprint render(Empty)\n",
+        )
+        .expect("write source");
+        let error = check_project(&project).expect_err("bare payload arm should bind arity");
+        assert!(error.message.contains("expects 2 bindings, got 0"));
         assert_eq!(error.kind, "type");
     }
 

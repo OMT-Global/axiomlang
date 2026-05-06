@@ -114,7 +114,33 @@ pub struct MatchArm {
     pub variant: String,
     pub bindings: Vec<String>,
     pub is_named: bool,
+    pub ignore_payloads: bool,
     pub body: Vec<Stmt>,
+}
+
+#[derive(Debug, Clone)]
+struct MatchArmInput {
+    variant: String,
+    bindings: Vec<String>,
+    is_named: bool,
+    ignore_payloads: bool,
+    body: Vec<syntax::Stmt>,
+    line: usize,
+    column: usize,
+}
+
+impl From<&syntax::MatchArm> for MatchArmInput {
+    fn from(arm: &syntax::MatchArm) -> Self {
+        Self {
+            variant: arm.variant.clone(),
+            bindings: arm.bindings.clone(),
+            is_named: arm.is_named,
+            ignore_payloads: false,
+            body: arm.body.clone(),
+            line: arm.line,
+            column: arm.column,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -606,6 +632,22 @@ fn collect_stmt_calls(stmt: &syntax::Stmt, calls: &mut VecDeque<String>) {
                 }
             }
         }
+        syntax::Stmt::IfLet {
+            expr,
+            then_block,
+            else_block,
+            ..
+        } => {
+            collect_expr_calls(expr, calls);
+            for stmt in then_block {
+                collect_stmt_calls(stmt, calls);
+            }
+            if let Some(else_block) = else_block {
+                for stmt in else_block {
+                    collect_stmt_calls(stmt, calls);
+                }
+            }
+        }
         syntax::Stmt::While { cond, body, .. } => {
             collect_expr_calls(cond, calls);
             for stmt in body {
@@ -984,6 +1026,44 @@ fn infer_generic_calls_in_stmt(
                     return_ty,
                     generic_functions,
                 )?,
+                line: *line,
+                column: *column,
+            }
+        }
+        syntax::Stmt::IfLet {
+            variant,
+            bindings,
+            is_named,
+            expr,
+            then_block,
+            else_block,
+            line,
+            column,
+        } => {
+            let mut then_env = env.clone();
+            let mut else_env = env.clone();
+            syntax::Stmt::IfLet {
+                variant: variant.clone(),
+                bindings: bindings.clone(),
+                is_named: *is_named,
+                expr: infer_generic_calls_in_expr(expr, None, env, generic_functions)?,
+                then_block: infer_generic_calls_in_stmts(
+                    then_block,
+                    &mut then_env,
+                    return_ty,
+                    generic_functions,
+                )?,
+                else_block: else_block
+                    .as_ref()
+                    .map(|block| {
+                        infer_generic_calls_in_stmts(
+                            block,
+                            &mut else_env,
+                            return_ty,
+                            generic_functions,
+                        )
+                    })
+                    .transpose()?,
                 line: *line,
                 column: *column,
             }
@@ -2583,6 +2663,58 @@ fn rewrite_stmt_aggregate_types(
             line: *line,
             column: *column,
         },
+        syntax::Stmt::IfLet {
+            variant,
+            bindings,
+            is_named,
+            expr,
+            then_block,
+            else_block,
+            line,
+            column,
+        } => syntax::Stmt::IfLet {
+            variant: variant.clone(),
+            bindings: bindings.clone(),
+            is_named: *is_named,
+            expr: rewrite_expr_aggregate_types(
+                expr,
+                generic_structs,
+                generic_enums,
+                queue,
+                queued,
+            )?,
+            then_block: then_block
+                .iter()
+                .map(|stmt| {
+                    rewrite_stmt_aggregate_types(
+                        stmt,
+                        generic_structs,
+                        generic_enums,
+                        queue,
+                        queued,
+                    )
+                })
+                .collect::<Result<Vec<_>, _>>()?,
+            else_block: else_block
+                .as_ref()
+                .map(|block| {
+                    block
+                        .iter()
+                        .map(|stmt| {
+                            rewrite_stmt_aggregate_types(
+                                stmt,
+                                generic_structs,
+                                generic_enums,
+                                queue,
+                                queued,
+                            )
+                        })
+                        .collect::<Result<Vec<_>, _>>()
+                })
+                .transpose()?,
+            line: *line,
+            column: *column,
+        },
         syntax::Stmt::While {
             cond,
             body,
@@ -3114,6 +3246,58 @@ fn rewrite_stmt_generic_calls(
         } => syntax::Stmt::If {
             cond: rewrite_expr_generic_calls(
                 cond,
+                type_bindings,
+                generic_functions,
+                queue,
+                queued,
+            )?,
+            then_block: then_block
+                .iter()
+                .map(|stmt| {
+                    rewrite_stmt_generic_calls(
+                        stmt,
+                        type_bindings,
+                        generic_functions,
+                        queue,
+                        queued,
+                    )
+                })
+                .collect::<Result<Vec<_>, _>>()?,
+            else_block: else_block
+                .as_ref()
+                .map(|block| {
+                    block
+                        .iter()
+                        .map(|stmt| {
+                            rewrite_stmt_generic_calls(
+                                stmt,
+                                type_bindings,
+                                generic_functions,
+                                queue,
+                                queued,
+                            )
+                        })
+                        .collect::<Result<Vec<_>, _>>()
+                })
+                .transpose()?,
+            line: *line,
+            column: *column,
+        },
+        syntax::Stmt::IfLet {
+            variant,
+            bindings,
+            is_named,
+            expr,
+            then_block,
+            else_block,
+            line,
+            column,
+        } => syntax::Stmt::IfLet {
+            variant: variant.clone(),
+            bindings: bindings.clone(),
+            is_named: *is_named,
+            expr: rewrite_expr_generic_calls(
+                expr,
                 type_bindings,
                 generic_functions,
                 queue,
@@ -4624,6 +4808,256 @@ fn validate_const_array_lengths_in_type(
     }
 }
 
+fn lower_match_stmt(
+    expr: &syntax::Expr,
+    arms: Vec<MatchArmInput>,
+    line: usize,
+    column: usize,
+    env: &mut HashMap<String, Binding>,
+    ctx: &LowerContext<'_>,
+) -> Result<Stmt, Diagnostic> {
+    let lowered_expr = lower_expr(expr, env, ctx)?;
+    let match_borrowed_owners = expr_borrowed_owners(&lowered_expr, env, ctx);
+    let match_borrow_kind = borrow_kind_for_type(lowered_expr.ty(), ctx.structs, ctx.enums);
+    let reuse_existing_match_binding =
+        matches!(lowered_expr, Expr::VarRef { .. }) && !match_borrowed_owners.is_empty();
+    if let Some(borrow_kind) = match_borrow_kind
+        && !reuse_existing_match_binding
+    {
+        increment_active_borrows(&match_borrowed_owners, env, borrow_kind, line, column)?;
+    }
+    if matches!(lowered_expr, Expr::VarRef { .. }) && !lowered_expr.ty().is_copy() {
+        move_lowered_owner_value(&lowered_expr, env)?;
+    }
+    let (enum_name, variant_defs) = match_variants(lowered_expr.ty(), ctx).ok_or_else(|| {
+        Diagnostic::new(
+            "type",
+            format!(
+                "match expects an enum-like value, got {}",
+                lowered_expr.ty()
+            ),
+        )
+        .with_span(line, column)
+    })?;
+    let before = env.clone();
+    let mut seen = HashMap::new();
+    let mut lowered_arms = Vec::new();
+    let mut arm_states = Vec::new();
+    let mut ignored_body_cache: HashMap<String, (Vec<Stmt>, HashMap<String, Binding>, bool)> =
+        HashMap::new();
+    for arm in arms {
+        let variant_def = variant_defs
+            .iter()
+            .find(|variant| variant.name == arm.variant)
+            .ok_or_else(|| {
+                Diagnostic::new(
+                    "type",
+                    message_with_suggestion(
+                        format!("enum {enum_name:?} has no variant {:?}", arm.variant),
+                        &arm.variant,
+                        variant_defs.iter().map(|variant| variant.name.as_str()),
+                    ),
+                )
+                .with_span(arm.line, arm.column)
+            })?;
+        if seen.insert(arm.variant.clone(), ()).is_some() {
+            return Err(
+                Diagnostic::new("type", format!("duplicate match arm {:?}", arm.variant))
+                    .with_span(arm.line, arm.column),
+            );
+        }
+        let mut arm_env = before.clone();
+        let binding_tys = if arm.ignore_payloads {
+            if !arm.bindings.is_empty() {
+                return Err(Diagnostic::new(
+                    "type",
+                    format!(
+                        "match arm {:?} cannot both ignore payloads and bind names",
+                        arm.variant
+                    ),
+                )
+                .with_span(arm.line, arm.column));
+            }
+            Vec::new()
+        } else if arm.is_named {
+            if variant_def.payload_names.is_empty() {
+                return Err(Diagnostic::new(
+                    "type",
+                    format!(
+                        "match arm {:?} uses named bindings, but variant {:?} is positional",
+                        arm.variant, arm.variant
+                    ),
+                )
+                .with_span(arm.line, arm.column));
+            }
+            if arm.bindings.len() != variant_def.payload_names.len() {
+                return Err(Diagnostic::new(
+                    "type",
+                    format!(
+                        "match arm {:?} expects {} named bindings, got {}",
+                        arm.variant,
+                        variant_def.payload_names.len(),
+                        arm.bindings.len()
+                    ),
+                )
+                .with_span(arm.line, arm.column));
+            } else {
+                let mut seen_named = HashMap::new();
+                let mut payload_tys = Vec::new();
+                for binding in &arm.bindings {
+                    let Some(position) = variant_def
+                        .payload_names
+                        .iter()
+                        .position(|name| name == binding)
+                    else {
+                        return Err(Diagnostic::new(
+                            "type",
+                            format!(
+                                "match arm {:?} has no named payload {:?}",
+                                arm.variant, binding
+                            ),
+                        )
+                        .with_span(arm.line, arm.column));
+                    };
+                    if seen_named.insert(binding.clone(), ()).is_some() {
+                        return Err(Diagnostic::new(
+                            "type",
+                            format!(
+                                "match arm {:?} repeats named payload {:?}",
+                                arm.variant, binding
+                            ),
+                        )
+                        .with_span(arm.line, arm.column));
+                    }
+                    payload_tys.push(variant_def.payload_tys[position].clone());
+                }
+                payload_tys
+            }
+        } else {
+            if !variant_def.payload_names.is_empty() {
+                return Err(Diagnostic::new(
+                    "type",
+                    format!(
+                        "match arm {:?} must use named bindings for variant {:?}",
+                        arm.variant, arm.variant
+                    ),
+                )
+                .with_span(arm.line, arm.column));
+            }
+            if arm.bindings.len() != variant_def.payload_tys.len() {
+                return Err(Diagnostic::new(
+                    "type",
+                    format!(
+                        "match arm {:?} expects {} bindings, got {}",
+                        arm.variant,
+                        variant_def.payload_tys.len(),
+                        arm.bindings.len()
+                    ),
+                )
+                .with_span(arm.line, arm.column));
+            } else {
+                variant_def.payload_tys.clone()
+            }
+        };
+        for (binding_index, (binding, payload_ty)) in
+            arm.bindings.iter().zip(binding_tys.iter()).enumerate()
+        {
+            if ctx.functions.contains_key(binding) {
+                return Err(Diagnostic::new(
+                    "type",
+                    format!("match binding {binding:?} conflicts with a function name"),
+                )
+                .with_span(arm.line, arm.column));
+            }
+            if arm_env.contains_key(binding) {
+                return Err(Diagnostic::new(
+                    "type",
+                    format!(
+                        "match binding {binding:?} reuses an existing name in the current scope"
+                    ),
+                )
+                .with_span(arm.line, arm.column));
+            }
+            arm_env.insert(
+                binding.clone(),
+                Binding {
+                    ty: payload_ty.clone(),
+                    moved: false,
+                    moved_projections: HashSet::new(),
+                    borrow_kind: borrow_kind_for_type(payload_ty, ctx.structs, ctx.enums),
+                    borrow_origin: match_binding_borrow_origin(
+                        &lowered_expr,
+                        &arm.variant,
+                        binding,
+                        binding_index,
+                        payload_ty,
+                        &before,
+                        ctx,
+                    ),
+                    borrowed_owners: match_binding_borrowed_owners(
+                        &lowered_expr,
+                        &arm.variant,
+                        binding,
+                        binding_index,
+                        payload_ty,
+                        &before,
+                        ctx,
+                    ),
+                    active_borrow_count: 0,
+                    active_mut_borrow_count: 0,
+                },
+            );
+        }
+        let (body, after, returns) = if arm.ignore_payloads && arm.bindings.is_empty() {
+            let cache_key = format!("{:?}", arm.body);
+            if let Some((body, after, returns)) = ignored_body_cache.get(&cache_key) {
+                (body.clone(), after.clone(), *returns)
+            } else {
+                let lowered = lower_block(&arm.body, &mut arm_env, ctx)?;
+                ignored_body_cache.insert(cache_key, lowered.clone());
+                lowered
+            }
+        } else {
+            lower_block(&arm.body, &mut arm_env, ctx)?
+        };
+        lowered_arms.push(MatchArm {
+            enum_name: enum_name.clone(),
+            variant: arm.variant.clone(),
+            bindings: arm.bindings.clone(),
+            is_named: arm.is_named,
+            ignore_payloads: arm.ignore_payloads,
+            body,
+        });
+        arm_states.push((after, returns));
+    }
+    let missing = variant_defs
+        .iter()
+        .filter(|variant| !seen.contains_key(&variant.name))
+        .map(|variant| variant.name.clone())
+        .collect::<Vec<_>>();
+    if !missing.is_empty() {
+        return Err(Diagnostic::new(
+            "type",
+            format!(
+                "match on {:?} is not exhaustive; missing {}",
+                enum_name,
+                missing.join(", ")
+            ),
+        )
+        .with_span(line, column));
+    }
+    merge_match_state(env, &before, &arm_states);
+    if let Some(borrow_kind) = match_borrow_kind
+        && !reuse_existing_match_binding
+    {
+        release_active_borrow_owners(&match_borrowed_owners, env, borrow_kind);
+    }
+    Ok(Stmt::Match {
+        expr: lowered_expr,
+        arms: lowered_arms,
+        span: SourceSpan { line, column },
+    })
+}
 fn lower_stmt(
     stmt: &syntax::Stmt,
     env: &mut HashMap<String, Binding>,
@@ -4938,230 +5372,113 @@ fn lower_stmt(
                 },
             })
         }
+        syntax::Stmt::IfLet {
+            variant,
+            bindings,
+            is_named,
+            expr,
+            then_block,
+            else_block,
+            line,
+            column,
+        } => {
+            let mut probe_env = env.clone();
+            let lowered_expr = lower_expr(expr, &mut probe_env, ctx)?;
+            let (_, variant_defs) = match_variants(lowered_expr.ty(), ctx).ok_or_else(|| {
+                Diagnostic::new(
+                    "type",
+                    format!(
+                        "if let expects an enum-like value, got {}",
+                        lowered_expr.ty()
+                    ),
+                )
+                .with_span(*line, *column)
+            })?;
+            let variant_def = variant_defs
+                .iter()
+                .find(|candidate| candidate.name == *variant)
+                .ok_or_else(|| {
+                    Diagnostic::new(
+                        "type",
+                        message_with_suggestion(
+                            format!("if let pattern has no variant {:?}", variant),
+                            variant,
+                            variant_defs.iter().map(|candidate| candidate.name.as_str()),
+                        ),
+                    )
+                    .with_span(*line, *column)
+                })?;
+            if *is_named && variant_def.payload_names.is_empty() {
+                return Err(Diagnostic::new(
+                    "type",
+                    format!(
+                        "if let pattern {:?} uses named bindings, but variant {:?} is positional",
+                        variant, variant
+                    ),
+                )
+                .with_span(*line, *column));
+            }
+            if !*is_named && !variant_def.payload_names.is_empty() {
+                return Err(Diagnostic::new(
+                    "type",
+                    format!(
+                        "if let pattern {:?} must use named bindings for variant {:?}",
+                        variant, variant
+                    ),
+                )
+                .with_span(*line, *column));
+            }
+            let expected_bindings = if *is_named {
+                variant_def.payload_names.len()
+            } else {
+                variant_def.payload_tys.len()
+            };
+            if bindings.len() != expected_bindings {
+                return Err(Diagnostic::new(
+                    "type",
+                    format!(
+                        "if let pattern {:?} expects {} bindings, got {}",
+                        variant,
+                        expected_bindings,
+                        bindings.len()
+                    ),
+                )
+                .with_span(*line, *column));
+            }
+            let mut arms = Vec::new();
+            arms.push(MatchArmInput {
+                variant: variant.clone(),
+                bindings: bindings.clone(),
+                is_named: *is_named,
+                ignore_payloads: false,
+                body: then_block.clone(),
+                line: *line,
+                column: *column,
+            });
+            let fallback_body = else_block.clone().unwrap_or_default();
+            for candidate in variant_defs {
+                if candidate.name != *variant {
+                    arms.push(MatchArmInput {
+                        variant: candidate.name.clone(),
+                        bindings: Vec::new(),
+                        is_named: !candidate.payload_names.is_empty(),
+                        ignore_payloads: true,
+                        body: fallback_body.clone(),
+                        line: *line,
+                        column: *column,
+                    });
+                }
+            }
+            lower_match_stmt(expr, arms, *line, *column, env, ctx)
+        }
         syntax::Stmt::Match {
             expr,
             arms,
             line,
             column,
         } => {
-            let lowered_expr = lower_expr(expr, env, ctx)?;
-            let match_borrowed_owners = expr_borrowed_owners(&lowered_expr, env, ctx);
-            let match_borrow_kind = borrow_kind_for_type(lowered_expr.ty(), ctx.structs, ctx.enums);
-            let reuse_existing_match_binding =
-                matches!(lowered_expr, Expr::VarRef { .. }) && !match_borrowed_owners.is_empty();
-            if let Some(borrow_kind) = match_borrow_kind
-                && !reuse_existing_match_binding
-            {
-                increment_active_borrows(&match_borrowed_owners, env, borrow_kind, *line, *column)?;
-            }
-            if matches!(lowered_expr, Expr::VarRef { .. }) && !lowered_expr.ty().is_copy() {
-                move_lowered_owner_value(&lowered_expr, env)?;
-            }
-            let (enum_name, variant_defs) =
-                match_variants(lowered_expr.ty(), ctx).ok_or_else(|| {
-                    Diagnostic::new(
-                        "type",
-                        format!(
-                            "match expects an enum-like value, got {}",
-                            lowered_expr.ty()
-                        ),
-                    )
-                    .with_span(*line, *column)
-                })?;
-            let before = env.clone();
-            let mut seen = HashMap::new();
-            let mut lowered_arms = Vec::new();
-            let mut arm_states = Vec::new();
-            for arm in arms {
-                let variant_def = variant_defs
-                    .iter()
-                    .find(|variant| variant.name == arm.variant)
-                    .ok_or_else(|| {
-                        Diagnostic::new(
-                            "type",
-                            message_with_suggestion(
-                                format!("enum {enum_name:?} has no variant {:?}", arm.variant),
-                                &arm.variant,
-                                variant_defs.iter().map(|variant| variant.name.as_str()),
-                            ),
-                        )
-                        .with_span(arm.line, arm.column)
-                    })?;
-                if seen.insert(arm.variant.clone(), ()).is_some() {
-                    return Err(Diagnostic::new(
-                        "type",
-                        format!("duplicate match arm {:?}", arm.variant),
-                    )
-                    .with_span(arm.line, arm.column));
-                }
-                let mut arm_env = before.clone();
-                let binding_tys = if arm.is_named {
-                    if variant_def.payload_names.is_empty() {
-                        return Err(Diagnostic::new(
-                            "type",
-                            format!(
-                                "match arm {:?} uses named bindings, but variant {:?} is positional",
-                                arm.variant, arm.variant
-                            ),
-                        )
-                        .with_span(arm.line, arm.column));
-                    }
-                    if arm.bindings.len() != variant_def.payload_names.len() {
-                        return Err(Diagnostic::new(
-                            "type",
-                            format!(
-                                "match arm {:?} expects {} named bindings, got {}",
-                                arm.variant,
-                                variant_def.payload_names.len(),
-                                arm.bindings.len()
-                            ),
-                        )
-                        .with_span(arm.line, arm.column));
-                    }
-                    let mut seen_named = HashMap::new();
-                    let mut payload_tys = Vec::new();
-                    for binding in &arm.bindings {
-                        let Some(position) = variant_def
-                            .payload_names
-                            .iter()
-                            .position(|name| name == binding)
-                        else {
-                            return Err(Diagnostic::new(
-                                "type",
-                                format!(
-                                    "match arm {:?} has no named payload {:?}",
-                                    arm.variant, binding
-                                ),
-                            )
-                            .with_span(arm.line, arm.column));
-                        };
-                        if seen_named.insert(binding.clone(), ()).is_some() {
-                            return Err(Diagnostic::new(
-                                "type",
-                                format!(
-                                    "match arm {:?} repeats named payload {:?}",
-                                    arm.variant, binding
-                                ),
-                            )
-                            .with_span(arm.line, arm.column));
-                        }
-                        payload_tys.push(variant_def.payload_tys[position].clone());
-                    }
-                    payload_tys
-                } else {
-                    if !variant_def.payload_names.is_empty() {
-                        return Err(Diagnostic::new(
-                            "type",
-                            format!(
-                                "match arm {:?} must use named bindings for variant {:?}",
-                                arm.variant, arm.variant
-                            ),
-                        )
-                        .with_span(arm.line, arm.column));
-                    }
-                    if arm.bindings.len() != variant_def.payload_tys.len() {
-                        return Err(Diagnostic::new(
-                            "type",
-                            format!(
-                                "match arm {:?} expects {} bindings, got {}",
-                                arm.variant,
-                                variant_def.payload_tys.len(),
-                                arm.bindings.len()
-                            ),
-                        )
-                        .with_span(arm.line, arm.column));
-                    }
-                    variant_def.payload_tys.clone()
-                };
-                for (binding_index, (binding, payload_ty)) in
-                    arm.bindings.iter().zip(binding_tys.iter()).enumerate()
-                {
-                    if ctx.functions.contains_key(binding) {
-                        return Err(Diagnostic::new(
-                            "type",
-                            format!("match binding {binding:?} conflicts with a function name"),
-                        )
-                        .with_span(arm.line, arm.column));
-                    }
-                    if arm_env.contains_key(binding) {
-                        return Err(Diagnostic::new(
-                            "type",
-                            format!(
-                                "match binding {binding:?} reuses an existing name in the current scope"
-                            ),
-                        )
-                        .with_span(arm.line, arm.column));
-                    }
-                    arm_env.insert(
-                        binding.clone(),
-                        Binding {
-                            ty: payload_ty.clone(),
-                            moved: false,
-                            moved_projections: HashSet::new(),
-                            borrow_kind: borrow_kind_for_type(payload_ty, ctx.structs, ctx.enums),
-                            borrow_origin: match_binding_borrow_origin(
-                                &lowered_expr,
-                                &arm.variant,
-                                binding,
-                                binding_index,
-                                payload_ty,
-                                &before,
-                                ctx,
-                            ),
-                            borrowed_owners: match_binding_borrowed_owners(
-                                &lowered_expr,
-                                &arm.variant,
-                                binding,
-                                binding_index,
-                                payload_ty,
-                                &before,
-                                ctx,
-                            ),
-                            active_borrow_count: 0,
-                            active_mut_borrow_count: 0,
-                        },
-                    );
-                }
-                let (body, after, returns) = lower_block(&arm.body, &mut arm_env, ctx)?;
-                lowered_arms.push(MatchArm {
-                    enum_name: enum_name.clone(),
-                    variant: arm.variant.clone(),
-                    bindings: arm.bindings.clone(),
-                    is_named: arm.is_named,
-                    body,
-                });
-                arm_states.push((after, returns));
-            }
-            let missing = variant_defs
-                .iter()
-                .filter(|variant| !seen.contains_key(&variant.name))
-                .map(|variant| variant.name.clone())
-                .collect::<Vec<_>>();
-            if !missing.is_empty() {
-                return Err(Diagnostic::new(
-                    "type",
-                    format!(
-                        "match on {:?} is not exhaustive; missing {}",
-                        enum_name,
-                        missing.join(", ")
-                    ),
-                )
-                .with_span(*line, *column));
-            }
-            merge_match_state(env, &before, &arm_states);
-            if let Some(borrow_kind) = match_borrow_kind
-                && !reuse_existing_match_binding
-            {
-                release_active_borrow_owners(&match_borrowed_owners, env, borrow_kind);
-            }
-            Ok(Stmt::Match {
-                expr: lowered_expr,
-                arms: lowered_arms,
-                span: SourceSpan {
-                    line: *line,
-                    column: *column,
-                },
-            })
+            let arms = arms.iter().map(MatchArmInput::from).collect();
+            lower_match_stmt(expr, arms, *line, *column, env, ctx)
         }
         syntax::Stmt::Defer { expr, line, column } => {
             let lowered_expr = lower_expr(expr, env, ctx)?;
@@ -9501,6 +9818,7 @@ impl syntax::Stmt {
             | syntax::Stmt::Panic { line, .. }
             | syntax::Stmt::Defer { line, .. }
             | syntax::Stmt::If { line, .. }
+            | syntax::Stmt::IfLet { line, .. }
             | syntax::Stmt::While { line, .. }
             | syntax::Stmt::Match { line, .. }
             | syntax::Stmt::Return { line, .. } => *line,
@@ -9514,6 +9832,7 @@ impl syntax::Stmt {
             | syntax::Stmt::Panic { column, .. }
             | syntax::Stmt::Defer { column, .. }
             | syntax::Stmt::If { column, .. }
+            | syntax::Stmt::IfLet { column, .. }
             | syntax::Stmt::While { column, .. }
             | syntax::Stmt::Match { column, .. }
             | syntax::Stmt::Return { column, .. } => *column,
