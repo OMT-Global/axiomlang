@@ -23,6 +23,7 @@ source = "path:fail/closure_move_captured_non_copy"
 >>>>>>> origin/codex/issue-370-command-fixtures
 >>>>>>> origin/codex/issue-418-schema-metadata
 >>>>>>> origin/codex/issue-409-proof-cli
+>>>>>>> origin/codex/issue-410-proof-worker
 name = "conformance-comparison-owned-resource-move"
 version = "0.1.0"
 source = "path:fail/comparison_owned_resource_move"
@@ -33,6 +34,7 @@ version = "0.1.0"
 source = "path:fail/comparison_predictable_diagnostic"
 
 [[package]]
+<<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
@@ -79,6 +81,7 @@ version = "0.1.0"
 source = "path:fail/import_unsupported_alias"
 
 [[package]]
+=======
 =======
 =======
 =======

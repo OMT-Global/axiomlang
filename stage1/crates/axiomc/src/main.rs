@@ -26,6 +26,7 @@ use axiomc::manifest::{load_manifest, manifest_path};
 >>>>>>> origin/codex/issue-423-mutation-smoke
 >>>>>>> origin/codex/issue-424-survivor-report
 >>>>>>> origin/codex/issue-409-proof-cli
+>>>>>>> origin/codex/issue-410-proof-worker
 use axiomc::new_project::create_project;
 use axiomc::diagnostics::Diagnostic;
 use axiomc::json_contract;
@@ -53,6 +54,7 @@ use axiomc::registry::{
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 use axiomc::diagnostics::Diagnostic;
 use axiomc::json_contract;
 use axiomc::lsp;
@@ -63,6 +65,7 @@ use axiomc::project::{
     BuildOutput, CheckOptions, RunOptions, TestOptions,
 };
 use axiomc::registry::{load_registry_index, render_registry_index};
+=======
 =======
 =======
 =======
@@ -169,7 +172,6 @@ enum Command {
         json: bool,
         #[command(subcommand)]
         command: Option<CapsCommand>,
-<<<<<<< HEAD
     },
     /// Report local stage1 project and toolchain health.
     Doctor {
@@ -192,7 +194,6 @@ enum Command {
         code: String,
         #[arg(long)]
         json: bool,
-=======
     },
     /// Format .ax source files with the canonical stage1 style.
     Fmt {
@@ -236,7 +237,7 @@ enum Command {
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
->>>>>>> origin/codex/agent-g-regex
+<<<<<<< HEAD
 >>>>>>> origin/codex/agent-f-fs
 >>>>>>> origin/codex/agent-i-language-slice
 >>>>>>> origin/codex/issue-387-capability-validation
@@ -252,6 +253,8 @@ enum Command {
 =======
 =======
 >>>>>>> origin/codex/issue-409-proof-cli
+=======
+>>>>>>> origin/codex/issue-410-proof-worker
     /// Pack, sign, and publish a stage1 package into a local registry tree.
     Publish {
         path: PathBuf,
@@ -325,9 +328,9 @@ enum InspectCommand {
 =======
 =======
 =======
->>>>>>> origin/codex/issue-424-survivor-report
-=======
 >>>>>>> origin/codex/issue-409-proof-cli
+=======
+>>>>>>> origin/codex/issue-410-proof-worker
 }
 
 fn main() {
@@ -2667,7 +2670,7 @@ mod tests {
 =======
 =======
 =======
->>>>>>> origin/codex/issue-409-proof-cli
+>>>>>>> origin/codex/issue-410-proof-worker
     }
 
     fn build_output(debug_map: Option<String>) -> BuildOutput {
@@ -2695,6 +2698,7 @@ mod tests {
 >>>>>>> origin/codex/issue-423-mutation-smoke
 >>>>>>> origin/codex/issue-424-survivor-report
 >>>>>>> origin/codex/issue-409-proof-cli
+>>>>>>> origin/codex/issue-410-proof-worker
             manifest: String::from("axiom.toml"),
             entry: String::from("src/main.ax"),
             binary: String::from("dist/app"),
@@ -2703,6 +2707,7 @@ mod tests {
             statement_count: 1,
             target: None,
             debug: true,
+<<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
@@ -2729,6 +2734,7 @@ mod tests {
                 generated_rust_hash: String::from("rust-hash"),
                 sources: Vec::new(),
             },
+=======
 =======
 =======
 =======

@@ -23,6 +23,7 @@ use crate::manifest::{
 >>>>>>> origin/codex/issue-423-mutation-smoke
 >>>>>>> origin/codex/issue-424-survivor-report
 >>>>>>> origin/codex/issue-409-proof-cli
+>>>>>>> origin/codex/issue-410-proof-worker
 };
 use crate::mir;
 use crate::stdlib;
@@ -87,11 +88,11 @@ pub struct BuiltPackage {
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
 =======
 =======
     pub cache_key: BuildCacheMetadata,
->>>>>>> origin/codex/agent-f-fs
 >>>>>>> origin/codex/issue-387-capability-validation
 >>>>>>> origin/codex/worker-h-issue-413
 =======
@@ -102,6 +103,8 @@ pub struct BuiltPackage {
 >>>>>>> origin/codex/issue-418-schema-metadata
 =======
 >>>>>>> origin/codex/issue-409-proof-cli
+=======
+>>>>>>> origin/codex/issue-410-proof-worker
     pub metadata: BuildMetadata,
     pub cache_status: BuildCacheStatus,
     pub compile_ms: u64,
@@ -131,6 +134,7 @@ pub struct BuildOutput {
 >>>>>>> origin/codex/issue-370-command-fixtures
 >>>>>>> origin/codex/issue-418-schema-metadata
 >>>>>>> origin/codex/issue-409-proof-cli
+>>>>>>> origin/codex/issue-410-proof-worker
     pub metadata: BuildMetadata,
     pub cache_hits: usize,
     pub cache_misses: usize,
@@ -354,12 +358,14 @@ pub fn build_project_with_options(
             debug: options.debug,
 <<<<<<< HEAD
 <<<<<<< HEAD
->>>>>>> origin/codex/issue-423-mutation-smoke
+<<<<<<< HEAD
 >>>>>>> origin/codex/issue-424-survivor-report
             cache_key: report.cache_key,
 =======
 =======
 >>>>>>> origin/codex/issue-409-proof-cli
+=======
+>>>>>>> origin/codex/issue-410-proof-worker
             metadata: report.metadata,
             cache_status: report.cache_status,
             compile_ms: report.compile_ms,
@@ -406,6 +412,7 @@ pub fn build_project_with_options(
 >>>>>>> origin/codex/issue-370-command-fixtures
 >>>>>>> origin/codex/issue-418-schema-metadata
 >>>>>>> origin/codex/issue-409-proof-cli
+>>>>>>> origin/codex/issue-410-proof-worker
         metadata: root.metadata,
         cache_hits,
         cache_misses,
@@ -739,12 +746,14 @@ fn collect_discovered_tests(
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
             kind,
             stderr,
             kind,
             expected_error: None,
             capabilities: Vec::new(),
             package: None,
+=======
 =======
 =======
 =======

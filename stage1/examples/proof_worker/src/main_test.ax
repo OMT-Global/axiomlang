@@ -2,6 +2,7 @@ import "std/async.ax"
 import "std/env.ax"
 import "std/time.ax"
 import "jobs.ax"
+import "state.ax"
 
 async fn run_once(queue: AsyncChannel<string>): string {
 let next: Option<string> = await recv<string>(queue)
@@ -22,3 +23,15 @@ let task: JoinHandle<string> = spawn<string>(run_once(queued))
 print name
 print await join<string>(task)
 print sleep(duration_ms(0)) == 0
+<<<<<<< HEAD
+=======
+match queue_name() {
+Some(value) {
+print value
+}
+None {
+print "missing"
+}
+}
+print processed_count()
+>>>>>>> origin/codex/issue-410-proof-worker

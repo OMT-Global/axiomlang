@@ -577,6 +577,7 @@ fn lower_with_capabilities_impl(
 >>>>>>> origin/codex/issue-418-schema-metadata
 >>>>>>> origin/codex/issue-425-crap-thresholds
 >>>>>>> origin/codex/issue-409-proof-cli
+>>>>>>> origin/codex/issue-410-proof-worker
     )
     .map_err(single_diagnostic)?;
     let functions =
@@ -926,6 +927,7 @@ fn type_has_unboxed_recursive_path(
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
         Type::Error
         | Type::Int
         | Type::Numeric(_)
@@ -934,6 +936,7 @@ fn type_has_unboxed_recursive_path(
         | Type::Str
         | Type::Ptr(_)
         | Type::MutPtr(_) => false,
+=======
 =======
 =======
 =======
@@ -2827,8 +2830,6 @@ fn rewrite_aggregate_type_name(
                 column,
             )?),
         ),
-<<<<<<< HEAD
-=======
 =======
         syntax::TypeName::Int => syntax::TypeName::Int,
         syntax::TypeName::Numeric(numeric) => syntax::TypeName::Numeric(*numeric),
@@ -4378,7 +4379,6 @@ fn sanitize_symbol_suffix(raw: &str) -> String {
         .map(|ch| if ch.is_ascii_alphanumeric() { ch } else { '_' })
         .collect()
 }
->>>>>>> origin/codex/issue-422-comparison-gate
 fn ownership_error(code: &'static str, message: impl Into<String>) -> Diagnostic {
     Diagnostic::new("ownership", message).with_code(code)
 }
@@ -5596,7 +5596,7 @@ fn lower_match_stmt(
 >>>>>>> origin/codex/issue-422-comparison-gate
 =======
 =======
->>>>>>> origin/codex/issue-409-proof-cli
+>>>>>>> origin/codex/issue-410-proof-worker
 fn lower_stmt(
     stmt: &syntax::Stmt,
     env: &mut HashMap<String, Binding>,
@@ -5670,7 +5670,6 @@ fn lower_stmt(
 <<<<<<< HEAD
 =======
 =======
-=======
             if actual != expected && !actual.is_error() && !expected.is_error() {
 =======
 =======
@@ -5684,6 +5683,7 @@ fn lower_stmt(
 =======
 =======
             if actual != expected && !actual.is_error() && !expected.is_error() {
+=======
 =======
 =======
 =======
@@ -10356,13 +10356,11 @@ fn type_has_lifetime(ty: &syntax::TypeName, lifetime: &str) -> bool {
             params.iter().any(|arg| type_has_lifetime(arg, lifetime))
                 || type_has_lifetime(return_ty, lifetime)
         }
-<<<<<<< HEAD
         syntax::TypeName::Int
         | syntax::TypeName::Numeric(_)
         | syntax::TypeName::Bool
         | syntax::TypeName::String
         | syntax::TypeName::Str => false,
-=======
         syntax::TypeName::Int | syntax::TypeName::Bool | syntax::TypeName::String => false,
     }
 }
@@ -10640,7 +10638,6 @@ fn borrow_kind_for_type(
         None
     }
 }
->>>>>>> origin/codex/issue-423-mutation-smoke
 >>>>>>> origin/codex/issue-424-survivor-report
 fn increment_active_borrows(
     owner_names: &HashSet<String>,
@@ -10657,8 +10654,6 @@ fn increment_active_borrows(
             )
         })?;
 <<<<<<< HEAD
-<<<<<<< HEAD
-=======
         binding.borrow_state.begin_borrow(
             owner_name,
             borrow_kind,
@@ -10699,7 +10694,6 @@ fn increment_active_borrows(
         if matches!(borrow_kind, BorrowKind::Mutable) {
             binding.active_mut_borrow_count += 1;
         }
->>>>>>> origin/codex/issue-424-survivor-report
     }
     Ok(())
 }

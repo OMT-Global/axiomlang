@@ -20,6 +20,7 @@ pub mod diagnostic_catalog;
 >>>>>>> origin/codex/issue-423-mutation-smoke
 >>>>>>> origin/codex/issue-424-survivor-report
 >>>>>>> origin/codex/issue-409-proof-cli
+>>>>>>> origin/codex/issue-410-proof-worker
 pub mod diagnostics;
 pub mod hir;
 pub mod json_contract;
@@ -50,8 +51,10 @@ mod tests {
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
         CapabilityConfig, CapabilityKind, ExpectedDiagnostic, TestTarget, capability_descriptors,
         load_manifest, render_manifest,
+=======
 =======
 =======
 =======
@@ -98,7 +101,6 @@ mod tests {
 <<<<<<< HEAD
 <<<<<<< HEAD
             "[package]\nname = {name:?}\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = {fs}\n\"fs:write\" = {fs}\nnet = {net}\nprocess = {process}\nenv = {env}\nclock = {clock}\ncrypto = {crypto}\nasync = false\n"
-=======
             "[package]\nname = {name:?}\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = {fs}\n\"fs:write\" = {fs}\nnet = {net}\nprocess = {process}\nenv = {env}\nclock = {clock}\ncrypto = {crypto}\n"
 =======
             "[package]\nname = {name:?}\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = {fs}\n\"fs:write\" = {fs}\nnet = {net}\nprocess = {process}\nenv = {env}\nclock = {clock}\ncrypto = {crypto}\nasync = false\n"
@@ -107,6 +109,7 @@ mod tests {
 =======
 =======
             "[package]\nname = {name:?}\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = {fs}\n\"fs:write\" = {fs}\nnet = {net}\nprocess = {process}\nenv = {env}\nclock = {clock}\ncrypto = {crypto}\nasync = false\n"
+=======
 =======
             "[package]\nname = {name:?}\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = {fs}\n\"fs:write\" = {fs}\nnet = {net}\nprocess = {process}\nenv = {env}\nclock = {clock}\ncrypto = {crypto}\n"
         )
@@ -456,6 +459,7 @@ print borrowed
 >>>>>>> origin/codex/issue-423-mutation-smoke
 >>>>>>> origin/codex/issue-424-survivor-report
 >>>>>>> origin/codex/issue-409-proof-cli
+>>>>>>> origin/codex/issue-410-proof-worker
     fn parser_expands_declarative_statement_macros_before_lowering() {
         let source = r#"macro_rules! answer {
 ($value:expr) => {
@@ -3012,6 +3016,7 @@ crypto = false
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
 =======
 =======
@@ -3028,13 +3033,14 @@ crypto = false
 =======
 =======
 =======
+=======
         assert_eq!(caps.len(), 8);
         assert!(caps.iter().all(|cap| !cap.enabled));
         let project_caps = project_capabilities(&project).expect("project capabilities");
         assert_eq!(project_caps.len(), 8);
 =======
-=======
 >>>>>>> origin/codex/issue-409-proof-cli
+=======
     }
 
     #[test]
@@ -5915,10 +5921,10 @@ print serve_once("127.0.0.1:18080", "hello")
 <<<<<<< HEAD
                 stderr: None,
 =======
-=======
                 expected_error: None,
                 capabilities: Vec::new(),
                 package: None,
+=======
 =======
 =======
 =======
@@ -5943,6 +5949,7 @@ print serve_once("127.0.0.1:18080", "hello")
 >>>>>>> origin/codex/issue-423-mutation-smoke
 >>>>>>> origin/codex/issue-424-survivor-report
 >>>>>>> origin/codex/issue-409-proof-cli
+>>>>>>> origin/codex/issue-410-proof-worker
     fn manifest_parses_richer_test_kinds() {
         let dir = tempdir().expect("tempdir");
         let project = dir.path().join("typed-tests");
@@ -6046,6 +6053,7 @@ print serve_once("127.0.0.1:18080", "hello")
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
     fn run_project_tests_reports_manifest_metadata_in_json() {
         let dir = tempdir().expect("tempdir");
@@ -6091,7 +6099,8 @@ print serve_once("127.0.0.1:18080", "hello")
 =======
 =======
 =======
->>>>>>> origin/codex/issue-409-proof-cli
+=======
+>>>>>>> origin/codex/issue-410-proof-worker
     fn run_project_tests_executes_manifest_cases() {
         let dir = tempdir().expect("tempdir");
         let project = dir.path().join("runner");
@@ -6585,6 +6594,7 @@ print serve_once("127.0.0.1:18080", "hello")
 >>>>>>> origin/codex/issue-423-mutation-smoke
 >>>>>>> origin/codex/issue-424-survivor-report
 >>>>>>> origin/codex/issue-409-proof-cli
+>>>>>>> origin/codex/issue-410-proof-worker
         assert_eq!(output.failed, 0);
         assert!(
             output
@@ -6593,6 +6603,7 @@ print serve_once("127.0.0.1:18080", "hello")
                 .filter(|case| case.expected_error.is_some())
                 .count()
 <<<<<<< HEAD
+<<<<<<< HEAD
                 == 24
 <<<<<<< HEAD
 <<<<<<< HEAD
@@ -6600,12 +6611,14 @@ print serve_once("127.0.0.1:18080", "hello")
                 == 21
                 == 20
 =======
->>>>>>> origin/codex/issue-423-mutation-smoke
 =======
 >>>>>>> origin/codex/issue-424-survivor-report
 =======
                 == 20
 >>>>>>> origin/codex/issue-409-proof-cli
+=======
+                == 20
+>>>>>>> origin/codex/issue-410-proof-worker
         );
         assert_eq!(
             output
@@ -6623,8 +6636,8 @@ print serve_once("127.0.0.1:18080", "hello")
             8
             9
 =======
-=======
             12
+=======
 =======
             9
         );
@@ -9913,7 +9926,6 @@ print next.value
 <<<<<<< HEAD
 <<<<<<< HEAD
 =======
-=======
 
     // AG2: deterministic monomorphized symbol naming (#337)
     // These snapshot tests lock the exact symbol names produced for nested generics,
@@ -10027,6 +10039,7 @@ print c
             "echo<int> must be emitted exactly once regardless of call-site count"
         );
     }
+=======
 =======
 =======
 =======

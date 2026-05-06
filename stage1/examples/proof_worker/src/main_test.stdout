@@ -1,3 +1,8 @@
 worker
 handled reconcile
 true
+<<<<<<< HEAD
+=======
+default
+1
+>>>>>>> origin/codex/issue-410-proof-worker
