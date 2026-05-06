@@ -2723,7 +2723,7 @@ fn collect_expr_mutable_borrows(expr: &Expr, locals: &mut HashSet<String>) {
             end,
             ty,
         } => {
-            if matches!(ty, Type::MutSlice(_)) {
+            if matches!(ty, Type::MutSlice(_)) && !matches!(base.ty(), Type::MutSlice(_)) {
                 if let Some(name) = mutable_borrow_root_name(base) {
                     locals.insert(name.to_string());
                 }
