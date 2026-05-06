@@ -247,6 +247,7 @@ pub enum TypeName {
     Numeric(NumericType),
     Bool,
     String,
+    Str,
     Named(String, Vec<TypeName>),
     Ptr(Box<TypeName>),
     MutPtr(Box<TypeName>),
@@ -2240,7 +2241,8 @@ fn parse_type_name(
     match raw {
         "int" => Ok(TypeName::Int),
         "bool" => Ok(TypeName::Bool),
-        "string" => Ok(TypeName::String),
+        "string" | "String" => Ok(TypeName::String),
+        "&str" => Ok(TypeName::Str),
         name => {
             if let Some(numeric) = NumericType::parse(name) {
                 return Ok(TypeName::Numeric(numeric));

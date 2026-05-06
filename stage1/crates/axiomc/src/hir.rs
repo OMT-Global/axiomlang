@@ -206,6 +206,10 @@ pub enum Expr {
         index: Box<Expr>,
         ty: Type,
     },
+    StringBorrow {
+        expr: Box<Expr>,
+        ty: Type,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Eq)]
@@ -215,6 +219,7 @@ pub enum Type {
     Numeric(syntax::NumericType),
     Bool,
     String,
+    Str,
     Struct(String),
     Enum(String),
     Ptr(Box<Type>),
@@ -812,6 +817,7 @@ fn type_has_unboxed_recursive_path(
         | Type::Numeric(_)
         | Type::Bool
         | Type::String
+        | Type::Str
         | Type::Ptr(_)
         | Type::MutPtr(_) => false,
         Type::Struct(name) => {
@@ -1587,7 +1593,8 @@ fn contains_generic_type_param(ty: &syntax::TypeName, type_params: &HashSet<Stri
         syntax::TypeName::Int
         | syntax::TypeName::Numeric(_)
         | syntax::TypeName::Bool
-        | syntax::TypeName::String => false,
+        | syntax::TypeName::String
+        | syntax::TypeName::Str => false,
     }
 }
 
@@ -1719,7 +1726,8 @@ fn unify_generic_type_name(
         syntax::TypeName::Int
         | syntax::TypeName::Numeric(_)
         | syntax::TypeName::Bool
-        | syntax::TypeName::String => Ok(()),
+        | syntax::TypeName::String
+        | syntax::TypeName::Str => Ok(()),
     }
 }
 
@@ -2132,7 +2140,8 @@ fn collect_type_params(ty: &syntax::TypeName, type_params: &[String], found: &mu
         syntax::TypeName::Int
         | syntax::TypeName::Numeric(_)
         | syntax::TypeName::Bool
-        | syntax::TypeName::String => {}
+        | syntax::TypeName::String
+        | syntax::TypeName::Str => {}
     }
 }
 
@@ -2523,6 +2532,7 @@ fn rewrite_aggregate_type_name(
         syntax::TypeName::Numeric(numeric) => syntax::TypeName::Numeric(*numeric),
         syntax::TypeName::Bool => syntax::TypeName::Bool,
         syntax::TypeName::String => syntax::TypeName::String,
+        syntax::TypeName::Str => syntax::TypeName::Str,
     })
 }
 
@@ -3772,6 +3782,7 @@ fn substitute_type_name(
         syntax::TypeName::Numeric(numeric) => syntax::TypeName::Numeric(*numeric),
         syntax::TypeName::Bool => syntax::TypeName::Bool,
         syntax::TypeName::String => syntax::TypeName::String,
+        syntax::TypeName::Str => syntax::TypeName::Str,
     }
 }
 
@@ -3823,6 +3834,7 @@ fn type_name_monomorph_suffix(ty: &syntax::TypeName) -> String {
         syntax::TypeName::Numeric(numeric) => numeric.as_str().to_string(),
         syntax::TypeName::Bool => String::from("bool"),
         syntax::TypeName::String => String::from("string"),
+        syntax::TypeName::Str => String::from("str"),
         syntax::TypeName::Named(name, args) if args.is_empty() => name.clone(),
         syntax::TypeName::Named(name, args) => monomorphized_type_name(name, args),
         syntax::TypeName::Ptr(inner) => format!("ptr_{}", type_name_monomorph_suffix(inner)),
@@ -3886,6 +3898,7 @@ impl Type {
             | Type::Int
             | Type::Numeric(_)
             | Type::Bool
+            | Type::Str
             | Type::Ptr(_)
             | Type::MutPtr(_)
             | Type::Slice(_) => true,
@@ -3907,7 +3920,7 @@ impl Type {
 
     fn supports_map_key(&self) -> bool {
         match self {
-            Type::Int | Type::Numeric(_) | Type::Bool | Type::String => true,
+            Type::Int | Type::Numeric(_) | Type::Bool | Type::String | Type::Str => true,
             Type::Tuple(elements) => elements.iter().all(Type::supports_map_key),
             Type::Error
             | Type::Struct(_)
@@ -4836,11 +4849,14 @@ fn lower_stmt(
             let lowered = lower_expr(expr, env, ctx)?;
             if !matches!(
                 lowered.ty(),
-                Type::Error | Type::Int | Type::Numeric(_) | Type::Bool | Type::String
+                Type::Error | Type::Int | Type::Numeric(_) | Type::Bool | Type::String | Type::Str
             ) {
                 return Err(Diagnostic::new(
                     "type",
-                    format!("print expects int, bool, or string, got {}", lowered.ty()),
+                    format!(
+                        "print expects int, bool, String, or &str, got {}",
+                        lowered.ty()
+                    ),
                 )
                 .with_span(*line, *column));
             }
@@ -5581,14 +5597,66 @@ fn lower_expr(
     lower_expr_with_expected(expr, None, env, ctx)
 }
 
+fn is_string_like_type(ty: &Type) -> bool {
+    matches!(ty, Type::String | Type::Str)
+}
+
+fn coerce_expr_to_expected(
+    expr: Expr,
+    expected: Option<&Type>,
+    allow_temporary_string_borrow: bool,
+) -> Result<Expr, Diagnostic> {
+    match expected {
+        Some(Type::Str) if expr.ty() == &Type::String => {
+            if !allow_temporary_string_borrow && !is_stable_string_borrow_owner(&expr) {
+                return Err(Diagnostic::new(
+                    "ownership",
+                    "cannot borrow a temporary String as &str; bind the String to a local first",
+                ));
+            }
+            Ok(Expr::StringBorrow {
+                expr: Box::new(expr),
+                ty: Type::Str,
+            })
+        }
+        _ => Ok(expr),
+    }
+}
+
+fn is_stable_string_borrow_owner(expr: &Expr) -> bool {
+    matches!(expr, Expr::VarRef { .. } | Expr::FieldAccess { .. })
+}
+
 fn lower_expr_with_expected(
     expr: &syntax::Expr,
     expected: Option<&Type>,
     env: &mut HashMap<String, Binding>,
     ctx: &LowerContext<'_>,
 ) -> Result<Expr, Diagnostic> {
+    lower_expr_with_expected_inner(expr, expected, env, ctx)
+        .and_then(|lowered| coerce_expr_to_expected(lowered, expected, false))
+}
+
+fn lower_call_arg_with_expected(
+    expr: &syntax::Expr,
+    expected: Option<&Type>,
+    env: &mut HashMap<String, Binding>,
+    ctx: &LowerContext<'_>,
+    allow_temporary_string_borrow: bool,
+) -> Result<Expr, Diagnostic> {
+    lower_expr_with_expected_inner(expr, expected, env, ctx).and_then(|lowered| {
+        coerce_expr_to_expected(lowered, expected, allow_temporary_string_borrow)
+    })
+}
+
+fn lower_expr_with_expected_inner(
+    expr: &syntax::Expr,
+    expected: Option<&Type>,
+    env: &mut HashMap<String, Binding>,
+    ctx: &LowerContext<'_>,
+) -> Result<Expr, Diagnostic> {
     match expr {
-        syntax::Expr::Literal(literal) => Ok(lower_literal(literal)),
+        syntax::Expr::Literal(literal) => Ok(lower_literal(literal, expected)),
         syntax::Expr::VarRef { name, line, column } => {
             if let Some(binding) = env.get(name) {
                 if binding.moved {
@@ -5829,7 +5897,7 @@ fn lower_expr_with_expected(
                     0
                 };
                 let lhs = lower_expr(&args[value_start], env, ctx)?;
-                if !matches!(lhs.ty(), Type::Int | Type::Bool | Type::String) {
+                if !matches!(lhs.ty(), Type::Int | Type::Bool | Type::String | Type::Str) {
                     return Err(Diagnostic::new(
                         "type",
                         format!(
@@ -6949,8 +7017,17 @@ fn lower_expr_with_expected(
                 }
                 let mut lowered_args = Vec::new();
                 let mut temporary_borrows = Vec::new();
-                for (arg, expected) in args.iter().zip(signature.params.iter()) {
-                    let lowered = lower_expr_with_expected(arg, Some(expected), env, ctx)?;
+                for (index, (arg, expected)) in args.iter().zip(signature.params.iter()).enumerate()
+                {
+                    let allow_temporary_string_borrow =
+                        !signature.borrow_return_params.contains(&index);
+                    let lowered = lower_call_arg_with_expected(
+                        arg,
+                        Some(expected),
+                        env,
+                        ctx,
+                        allow_temporary_string_borrow,
+                    )?;
                     if !type_assignable_to(lowered.ty(), expected) {
                         return Err(Diagnostic::new(
                             "type",
@@ -7144,8 +7221,17 @@ fn lower_expr_with_expected(
                     )
                     .with_span(*line, *column));
                 }
-                for (arg, expected) in args.iter().zip(signature.params.iter()) {
-                    let lowered = lower_expr_with_expected(arg, Some(expected), env, ctx)?;
+                for (index, (arg, expected)) in args.iter().zip(signature.params.iter()).enumerate()
+                {
+                    let allow_temporary_string_borrow =
+                        !signature.borrow_return_params.contains(&index);
+                    let lowered = lower_call_arg_with_expected(
+                        arg,
+                        Some(expected),
+                        env,
+                        ctx,
+                        allow_temporary_string_borrow,
+                    )?;
                     if lowered.ty() != expected {
                         return Err(Diagnostic::new(
                             "type",
@@ -7263,7 +7349,7 @@ fn lower_expr_with_expected(
             }
             lowered_args.push(lowered_base);
             for (arg, expected) in args.iter().zip(signature.params.iter().skip(1)) {
-                let lowered = lower_expr_with_expected(arg, Some(expected), env, ctx)?;
+                let lowered = lower_call_arg_with_expected(arg, Some(expected), env, ctx)?;
                 if lowered.ty() != expected {
                     return Err(Diagnostic::new(
                         "type",
@@ -7298,8 +7384,11 @@ fn lower_expr_with_expected(
             let rhs = lower_expr(rhs, env, ctx)?;
             let lhs_ty = lhs.ty().clone();
             let rhs_ty = rhs.ty().clone();
-            if lhs_ty != rhs_ty || !(is_addable_numeric(&lhs_ty) || matches!(lhs_ty, Type::String))
-            {
+            let result_ty = if lhs_ty == rhs_ty && is_addable_numeric(&lhs_ty) {
+                lhs_ty.clone()
+            } else if is_string_like_type(&lhs_ty) && is_string_like_type(&rhs_ty) {
+                Type::String
+            } else {
                 return Err(
                     Diagnostic::new(
                         "type",
@@ -7309,11 +7398,11 @@ fn lower_expr_with_expected(
                     )
                     .with_span(*line, *column),
                 );
-            }
+            };
             Ok(Expr::BinaryAdd {
                 lhs: Box::new(lhs),
                 rhs: Box::new(rhs),
-                ty: lhs_ty,
+                ty: result_ty,
             })
         }
         syntax::Expr::BinaryCompare {
@@ -7329,7 +7418,9 @@ fn lower_expr_with_expected(
             let rhs_ty = rhs.ty().clone();
             match op {
                 syntax::CompareOp::Eq | syntax::CompareOp::Ne => {
-                    if lhs_ty != rhs_ty {
+                    if lhs_ty != rhs_ty
+                        && !(is_string_like_type(&lhs_ty) && is_string_like_type(&rhs_ty))
+                    {
                         return Err(
                             Diagnostic::new(
                                 "type",
@@ -7732,13 +7823,27 @@ fn lower_expr_with_expected(
                 )
                 .with_span(*line, *column));
             }
+            let expected_key_value = match expected {
+                Some(Type::Map(key, value)) => Some((key.as_ref(), value.as_ref())),
+                _ => None,
+            };
             let mut lowered_entries = Vec::new();
             let mut key_ty = None;
             let mut value_ty = None;
             let mut temporary_borrows = Vec::new();
             for entry in entries {
-                let lowered_key = lower_expr(&entry.key, env, ctx)?;
-                let lowered_value = lower_expr(&entry.value, env, ctx)?;
+                let lowered_key = lower_expr_with_expected(
+                    &entry.key,
+                    expected_key_value.map(|(key, _)| key),
+                    env,
+                    ctx,
+                )?;
+                let lowered_value = lower_expr_with_expected(
+                    &entry.value,
+                    expected_key_value.map(|(_, value)| value),
+                    env,
+                    ctx,
+                )?;
                 if let Some(expected) = key_ty.as_ref() {
                     if lowered_key.ty() != expected {
                         return Err(Diagnostic::new(
@@ -7807,11 +7912,15 @@ fn lower_expr_with_expected(
                 )
                 .with_span(*line, *column));
             }
+            let expected_element = match expected {
+                Some(Type::Array(element_ty)) => Some(element_ty.as_ref()),
+                _ => None,
+            };
             let mut lowered_elements = Vec::new();
             let mut element_ty = None;
             let mut temporary_borrows = Vec::new();
             for element in elements {
-                let lowered = lower_expr(element, env, ctx)?;
+                let lowered = lower_expr_with_expected(element, expected_element, env, ctx)?;
                 if let Some(expected) = element_ty.as_ref() {
                     if lowered.ty() != expected {
                         return Err(Diagnostic::new(
@@ -7916,7 +8025,11 @@ fn lower_expr_with_expected(
             column,
         } => {
             let lowered_base = lower_projection_base_expr(base, env, ctx)?;
-            let lowered_index = lower_expr(index, env, ctx)?;
+            let index_expected_ty = match lowered_base.ty() {
+                Type::Map(key_ty, _) => Some(key_ty.as_ref()),
+                _ => None,
+            };
+            let lowered_index = lower_expr_with_expected(index, index_expected_ty, env, ctx)?;
             let result_ty = match lowered_base.ty() {
                 Type::Array(element_ty, _) => {
                     if lowered_index.ty() != &Type::Int {
@@ -8302,7 +8415,8 @@ fn validate_ffi_type_name(
         syntax::TypeName::Int
         | syntax::TypeName::Numeric(_)
         | syntax::TypeName::Bool
-        | syntax::TypeName::String => Ok(()),
+        | syntax::TypeName::String
+        | syntax::TypeName::Str => Ok(()),
         syntax::TypeName::Ptr(inner) | syntax::TypeName::MutPtr(inner) => {
             validate_ffi_type_name(inner, line, column)
         }
@@ -8316,7 +8430,7 @@ fn validate_ffi_type_name(
 
 fn validate_ffi_type(ty: &Type, line: usize, column: usize) -> Result<(), Diagnostic> {
     match ty {
-        Type::Int | Type::Numeric(_) | Type::Bool | Type::String => Ok(()),
+        Type::Int | Type::Numeric(_) | Type::Bool | Type::String | Type::Str => Ok(()),
         Type::Ptr(inner) | Type::MutPtr(inner) => validate_ffi_type(inner, line, column),
         _ => Err(Diagnostic::new(
             "type",
@@ -8409,7 +8523,7 @@ fn lower_variant_constructor(
     }
     let mut lowered_payloads = Vec::new();
     for (arg, expected) in args.iter().zip(variant.payload_tys.iter()) {
-        let lowered = lower_expr_with_expected(arg, Some(expected), env, ctx)?;
+        let lowered = lower_call_arg_with_expected(arg, Some(expected), env, ctx)?;
         if lowered.ty() != expected {
             return Err(Diagnostic::new(
                 "type",
@@ -8760,6 +8874,7 @@ fn expr_borrow_origin(
         ),
         Expr::Index { base, .. } => expr_borrow_origin(base, env, ctx),
         Expr::Literal { .. } | Expr::BinaryAdd { .. } | Expr::BinaryCompare { .. } => None,
+        Expr::StringBorrow { expr, .. } => expr_borrow_origin(expr, env, ctx),
     }
 }
 
@@ -8894,6 +9009,7 @@ fn expr_borrowed_owners(
         Expr::Literal { .. } | Expr::BinaryAdd { .. } | Expr::BinaryCompare { .. } => {
             HashSet::new()
         }
+        Expr::StringBorrow { expr, .. } => owned_borrow_root(expr).into_iter().collect(),
         Expr::StructLiteral { fields, .. } => {
             let mut owners = HashSet::new();
             for field in fields {
@@ -8957,7 +9073,7 @@ fn contains_borrowed_slice_type_inner(
     visiting_enums: &mut HashSet<String>,
 ) -> bool {
     match ty {
-        Type::Slice(_) | Type::MutSlice(_) => true,
+        Type::Slice(_) | Type::MutSlice(_) | Type::Str => true,
         Type::Option(inner) => contains_borrowed_slice_type_inner(
             inner,
             structs,
@@ -9073,6 +9189,7 @@ fn contains_mut_borrowed_slice_type_inner(
         | Type::Numeric(_)
         | Type::Bool
         | Type::String
+        | Type::Str
         | Type::Ptr(_)
         | Type::MutPtr(_) => false,
         Type::Option(inner) => contains_mut_borrowed_slice_type_inner(
@@ -9362,7 +9479,7 @@ fn merge_borrow_count(
     then_count.max(else_count)
 }
 
-fn lower_literal(literal: &syntax::Literal) -> Expr {
+fn lower_literal(literal: &syntax::Literal, expected: Option<&Type>) -> Expr {
     match literal {
         syntax::Literal::Int(value) => Expr::Literal {
             ty: Type::Int,
@@ -9380,7 +9497,11 @@ fn lower_literal(literal: &syntax::Literal) -> Expr {
             value: LiteralValue::Bool(*value),
         },
         syntax::Literal::String(value) => Expr::Literal {
-            ty: Type::String,
+            ty: if matches!(expected, Some(Type::Str)) {
+                Type::Str
+            } else {
+                Type::String
+            },
             value: LiteralValue::String(value.clone()),
         },
     }
@@ -9423,6 +9544,7 @@ fn lower_type_inner<T, U>(
         syntax::TypeName::Numeric(numeric) => Ok(Type::Numeric(*numeric)),
         syntax::TypeName::Bool => Ok(Type::Bool),
         syntax::TypeName::String => Ok(Type::String),
+        syntax::TypeName::Str => Ok(Type::Str),
         syntax::TypeName::Named(name, args) => {
             if is_async_runtime_type(name) {
                 if args.len() != 1 {
@@ -9632,6 +9754,7 @@ impl Expr {
             Expr::ArrayLiteral { ty, .. } => ty,
             Expr::Slice { ty, .. } => ty,
             Expr::Index { ty, .. } => ty,
+            Expr::StringBorrow { ty, .. } => ty,
         }
     }
 }
@@ -9765,6 +9888,7 @@ impl std::fmt::Display for Type {
             Type::Numeric(numeric) => write!(f, "{}", numeric.as_str()),
             Type::Bool => write!(f, "bool"),
             Type::String => write!(f, "string"),
+            Type::Str => write!(f, "&str"),
             Type::Struct(name) => write!(f, "{name}"),
             Type::Enum(name) => write!(f, "{name}"),
             Type::Ptr(inner) => write!(f, "ptr<{inner}>"),
