@@ -9,6 +9,7 @@
 //! `hir::lower_with_capabilities`.
 //!
 //! Today this provides sixteen stdlib modules. Six are thin wrappers over
+>>>>>>> origin/codex/issue-407-outcome-helpers
 //! Today this provides fifteen stdlib modules. Six are thin wrappers over
 //! single-intrinsic capability-gated surfaces, one per capability class:
 //!
@@ -66,11 +67,15 @@
 //!   `std/time` timer and `std/net` loopback socket primitives.
 //! * `std/async.ax` — deterministic task, join, channel, timeout,
 //!   cancellation, and select wrappers over the stage1 async runtime values.
+<<<<<<< HEAD
 //! * `std/regex.ax` — linear-time regular-expression helpers (`is_match`,
 //!   `find`, `replace_all`) over a stage1-safe NFA engine.
 //! * `std/testing.ax` — table-case, property, and snapshot assertion helpers
 //!   layered over the bootstrap test intrinsics.
 //! * `std/cli.ax` — access to process arguments forwarded by `axiomc run`.
+=======
+//! * `std/outcome.ax` — generic `Option<T>` / `Result<T, E>` predicates and
+//!   fallback unwrap helpers implemented in Axiom.
 
 use std::path::{Path, PathBuf};
 
@@ -301,6 +306,15 @@ pub fn replace_all(pattern: string, text: string, replacement: string): string {
         "pub fn args(): [string] {\nreturn cli_args()\n}\n\
 pub fn arg_count(): int {\nreturn cli_arg_count()\n}\n\
 pub fn arg(index: int): Option<string> {\nreturn cli_arg(index)\n}\n",
+    ),
+    (
+        "outcome.ax",
+        "pub fn option_is_some<T>(value: Option<T>): bool {\nmatch value {\nSome(_inner) {\nreturn true\n}\nNone {\nreturn false\n}\n}\n}\n\
+pub fn option_is_none<T>(value: Option<T>): bool {\nmatch value {\nSome(_inner) {\nreturn false\n}\nNone {\nreturn true\n}\n}\n}\n\
+pub fn option_unwrap_or<T>(value: Option<T>, fallback: T): T {\nmatch value {\nSome(inner) {\nreturn inner\n}\nNone {\nreturn fallback\n}\n}\n}\n\
+pub fn result_is_ok<T, E>(value: Result<T, E>): bool {\nmatch value {\nOk(_inner) {\nreturn true\n}\nErr(_error) {\nreturn false\n}\n}\n}\n\
+pub fn result_is_err<T, E>(value: Result<T, E>): bool {\nmatch value {\nOk(_inner) {\nreturn false\n}\nErr(_error) {\nreturn true\n}\n}\n}\n\
+pub fn result_unwrap_or<T, E>(value: Result<T, E>, fallback: T): T {\nmatch value {\nOk(inner) {\nreturn inner\n}\nErr(_error) {\nreturn fallback\n}\n}\n}\n",
     ),
 ];
 
