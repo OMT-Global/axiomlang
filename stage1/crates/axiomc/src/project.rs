@@ -2135,6 +2135,7 @@ fn flatten_modules(
     }
 
     let mut flattened_functions = Vec::new();
+    let mut flattened_consts = Vec::new();
     let mut flattened_type_aliases = Vec::new();
     let mut flattened_structs = Vec::new();
     let mut flattened_enums = Vec::new();
@@ -2473,6 +2474,7 @@ fn flatten_modules(
                 &module.path,
                 &mut HashSet::new(),
             )?;
+            flattened_consts.push(const_decl.clone());
         }
 
         for type_alias in &module.program.type_aliases {
@@ -2541,7 +2543,7 @@ fn flatten_modules(
             .map(|module| module.path.display().to_string())
             .unwrap_or_default(),
         imports: Vec::new(),
-        consts: Vec::new(),
+        consts: flattened_consts,
         type_aliases: flattened_type_aliases,
         structs: flattened_structs,
         enums: flattened_enums,
@@ -3912,14 +3914,17 @@ fn rewrite_type_name(
                 column,
             )?),
         )),
-        syntax::TypeName::Array(inner) => Ok(syntax::TypeName::Array(Box::new(rewrite_type_name(
-            inner,
-            visible_types,
-            private_imported_types,
-            module_path,
-            line,
-            column,
-        )?))),
+        syntax::TypeName::Array(inner, len) => Ok(syntax::TypeName::Array(
+            Box::new(rewrite_type_name(
+                inner,
+                visible_types,
+                private_imported_types,
+                module_path,
+                line,
+                column,
+            )?),
+            len.clone(),
+        )),
     }
 }
 
