@@ -260,7 +260,7 @@ impl Type {
             | Type::Struct(_)
             | Type::Enum(_)
             | Type::Map(_, _)
-            | Type::Array(_, _)
+            | Type::Array(_)
             | Type::Task(_)
             | Type::JoinHandle(_)
             | Type::AsyncChannel(_)
