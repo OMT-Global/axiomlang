@@ -54,6 +54,7 @@ pub struct TestTarget {
     pub name: String,
     pub entry: String,
     pub stdout: Option<String>,
+    pub stderr: Option<String>,
     pub kind: TestKind,
     pub expected_error: Option<ExpectedDiagnostic>,
     pub capabilities: Vec<CapabilityKind>,
@@ -189,6 +190,7 @@ struct RawTestTarget {
     name: Option<String>,
     entry: Option<String>,
     stdout: Option<String>,
+    stderr: Option<String>,
     kind: Option<String>,
     expected_error: Option<ExpectedDiagnostic>,
     capabilities: Option<Vec<CapabilityKind>>,
@@ -459,7 +461,6 @@ fn normalize_manifest(raw: RawManifest, path: &Path) -> Result<Manifest, Diagnos
         },
     })
 }
-
 
 fn validate_reserved_root_publish_fields(raw: &RawManifest, path: &Path) -> Result<(), Diagnostic> {
     if raw.registry.is_some() {
@@ -735,6 +736,7 @@ fn normalize_tests(
             name,
             entry,
             stdout: raw_test.stdout,
+            stderr: raw_test.stderr,
             kind: normalize_test_kind(raw_test.kind, path, &format!("{field_prefix}.kind"))?,
             expected_error: raw_test.expected_error,
             capabilities,

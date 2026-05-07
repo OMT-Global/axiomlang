@@ -79,28 +79,6 @@ without manual edits.
 
 `axiomc test` discovers `src/**/*_test.ax` entrypoints by default, builds each test
 as a native artifact, executes it, and compares stdout against a sibling
-`*.stdout` golden file when present. Tests can also use the built-in assertion
-helpers `assert_eq`, `assert_ne`, `assert_true`, and `assert_contains`; they
-return `0` on success so they fit in the current statement-only bootstrap
-surface via ordinary `let` bindings, and they abort the test with a source
-location plus expected/actual detail on failure. For richer stdlib-oriented
-coverage, `import "std/testing.ax"` exposes table-case helpers
-(`table_int` / `table_bool` / `table_string`), a named `property(name, holds)`
-helper for QuickCheck-style sampled checks expressed as deterministic loops or
-fixtures, and `snapshot(name, actual, expected)` for inline golden assertions.
-Projects that need explicit naming or inline expectations can still declare
-`[[tests]]` entries in `axiom.toml`, including `kind = "unit"`, `"table"`,
-`"property"`, `"snapshot"`, or `"benchmark"` for JSON reporting. Discovery
-classifies `*_table_test.ax`, `*_property.ax`, `*_property_test.ax`,
-`*_snapshot_test.ax`, and `*_golden_test.ax` as richer fixture kinds while
-preserving the ordinary `*_test.ax` lane. Benchmark entrypoints remain owned by
-`axiomc bench`, but `axiomc test --include-benchmarks` can smoke-run discovered
-`*_bench.ax` fixtures once so benchmark code participates in functional gates.
-The command also accepts `--filter <pattern>` to run a subset of discovered
-tests by test name or entry path, and the default CLI summary prints `passed` /
-`failed` / `skipped` counts. Workspace-only roots are supported as long as
-build/run commands select a concrete member package with `-p/--package`.
-
 `*.stdout` golden file when present. A sibling `*.stderr` file can also pin the
 expected stderr stream, and manifest-declared `[[tests]]` entries support inline
 `stdout` and `stderr` expectations. JSON output includes actual and expected
@@ -109,23 +87,26 @@ runtime diagnostics. Tests can also use the built-in assertion helpers
 `assert_eq`, `assert_ne`, `assert_true`, and `assert_contains`; they return `0`
 on success so they fit in the current statement-only bootstrap surface via
 ordinary `let` bindings, and they abort the test with a source location plus
-expected/actual detail on failure. Projects that need explicit naming or inline
-expectations can still declare `[[tests]]` entries in `axiom.toml`. The command
-now also accepts `--filter <pattern>` to run a subset of discovered tests by test
-name or entry path, and the default CLI summary now prints `passed` / `failed` /
-`skipped` counts. Workspace-only roots are now
-supported as long as build/run commands select a concrete member package with
-`-p/--package`.
-location plus expected/actual detail on failure. Projects that need explicit
-naming or inline expectations can still declare `[[tests]]` entries in
-`axiom.toml`. The command now also accepts `--filter <pattern>` to run a subset
-of discovered tests by test name or entry path, and the default CLI summary now
-prints `passed` / `failed` / `skipped` counts. `axiomc test --list` exposes the
-same discovery pass without building or running the tests; text output emits
-package, test name, and entry path columns, while `--json` adds stable package
-membership plus golden-output and compile-fail markers for automation. Workspace
-only roots are now supported as long as build/run commands select a concrete
-member package with `-p/--package`.
+expected/actual detail on failure. For richer stdlib-oriented coverage,
+`import "std/testing.ax"` exposes table-case helpers (`table_int` /
+`table_bool` / `table_string`), a named `property(name, holds)` helper for
+QuickCheck-style sampled checks expressed as deterministic loops or fixtures,
+and `snapshot(name, actual, expected)` for inline golden assertions. Projects
+that need explicit naming or inline expectations can still declare `[[tests]]`
+entries in `axiom.toml`, including `kind = "unit"`, `"table"`, `"property"`,
+`"snapshot"`, or `"benchmark"` for JSON reporting. Discovery classifies
+`*_table_test.ax`, `*_property.ax`, `*_property_test.ax`, `*_snapshot_test.ax`,
+and `*_golden_test.ax` as richer fixture kinds while preserving the ordinary
+`*_test.ax` lane. Benchmark entrypoints remain owned by `axiomc bench`, but
+`axiomc test --include-benchmarks` can smoke-run discovered `*_bench.ax`
+fixtures once so benchmark code participates in functional gates. The command
+also accepts `--filter <pattern>` to run a subset of discovered tests by test
+name or entry path, and the default CLI summary prints `passed` / `failed` /
+`skipped` counts. `axiomc test --list` exposes the same discovery pass without
+building or running the tests; text output emits package, test name, and entry
+path columns, while `--json` adds stable package membership plus golden-output
+and compile-fail markers for automation. Workspace-only roots are supported as
+long as build/run commands select a concrete member package with `-p/--package`.
 
 ## JSON contract
 

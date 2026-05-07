@@ -144,6 +144,7 @@ pub struct TestCaseResult {
     pub stdout: String,
     pub stderr: String,
     pub expected_stdout: Option<String>,
+    pub expected_stderr: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub expected_error: Option<ExpectedDiagnostic>,
     pub duration_ms: u64,
@@ -595,10 +596,23 @@ fn collect_discovered_tests(
         } else {
             package_expected_output.map(str::to_string)
         };
+        let stderr_path = path.with_extension("stderr");
+        let stderr = if stderr_path.exists() {
+            Some(fs::read_to_string(&stderr_path).map_err(|err| {
+                Diagnostic::new(
+                    "test",
+                    format!("failed to read {}: {err}", stderr_path.display()),
+                )
+                .with_path(stderr_path.display().to_string())
+            })?)
+        } else {
+            None
+        };
         tests.push(crate::manifest::TestTarget {
             name: relative.with_extension("").display().to_string(),
             entry: relative.display().to_string(),
             stdout,
+            stderr,
             kind,
             expected_error: None,
             capabilities: Vec::new(),
@@ -1447,6 +1461,7 @@ fn run_test_case(
             stdout: String::new(),
             stderr: String::new(),
             expected_stdout: test.stdout.clone(),
+            expected_stderr: test.stderr.clone(),
             expected_error: None,
             duration_ms: started.elapsed().as_millis() as u64,
             error: Some(error),
@@ -1483,23 +1498,39 @@ fn run_test_case(
                     )
                     .with_path(entry_path.display().to_string()),
                 )
-            } else if let Some(expected_stdout) = &test.stdout {
-                if &stdout != expected_stdout {
+            } else {
+                let mut mismatches = Vec::new();
+                if let Some(expected_stdout) = &test.stdout {
+                    if &stdout != expected_stdout {
+                        mismatches.push(format!(
+                            "stdout expected {:?}, got {:?}",
+                            expected_stdout, stdout
+                        ));
+                    }
+                }
+                if let Some(expected_stderr) = &test.stderr {
+                    if &stderr != expected_stderr {
+                        mismatches.push(format!(
+                            "stderr expected {:?}, got {:?}",
+                            expected_stderr, stderr
+                        ));
+                    }
+                }
+                if mismatches.is_empty() {
+                    None
+                } else {
                     Some(
                         Diagnostic::new(
                             "test",
                             format!(
-                                "test {:?} stdout did not match expected output: expected {:?}, got {:?}",
-                                test.name, expected_stdout, stdout
+                                "test {:?} stream output did not match expected output: {}",
+                                test.name,
+                                mismatches.join("; ")
                             ),
                         )
                         .with_path(entry_path.display().to_string()),
                     )
-                } else {
-                    None
                 }
-            } else {
-                None
             };
             TestCaseResult {
                 package_root: project_root.display().to_string(),
@@ -1513,6 +1544,7 @@ fn run_test_case(
                 stdout,
                 stderr,
                 expected_stdout: test.stdout.clone(),
+                expected_stderr: test.stderr.clone(),
                 expected_error: None,
                 duration_ms: started.elapsed().as_millis() as u64,
                 error,
@@ -1530,6 +1562,7 @@ fn run_test_case(
             stdout: String::new(),
             stderr: String::new(),
             expected_stdout: test.stdout.clone(),
+            expected_stderr: test.stderr.clone(),
             expected_error: None,
             duration_ms: started.elapsed().as_millis() as u64,
             error: Some(
@@ -1565,6 +1598,7 @@ fn run_compile_fail_case(
                 stdout: String::new(),
                 stderr: String::new(),
                 expected_stdout: None,
+                expected_stderr: None,
                 expected_error: None,
                 duration_ms: started.elapsed().as_millis() as u64,
                 error: Some(error),
@@ -1586,6 +1620,7 @@ fn run_compile_fail_case(
                 stdout: String::new(),
                 stderr: String::new(),
                 expected_stdout: None,
+                expected_stderr: None,
                 expected_error: Some(expected),
                 duration_ms: started.elapsed().as_millis() as u64,
                 error: Some(
@@ -1612,6 +1647,7 @@ fn run_compile_fail_case(
         stdout: String::new(),
         stderr: String::new(),
         expected_stdout: None,
+        expected_stderr: None,
         expected_error: Some(expected),
         duration_ms: started.elapsed().as_millis() as u64,
         error: mismatch.map(|message| {
@@ -1747,6 +1783,7 @@ fn failed_test_case_result(
         stdout: String::new(),
         stderr: String::new(),
         expected_stdout: test.stdout.clone(),
+        expected_stderr: test.stderr.clone(),
         expected_error: None,
         duration_ms: started.elapsed().as_millis() as u64,
         error: Some(error),
@@ -5113,6 +5150,7 @@ mod tests {
                 name: "unit".to_string(),
                 entry: "src/unit_test.ax".to_string(),
                 stdout: None,
+                stderr: None,
                 kind: TestKind::Unit,
                 expected_error: None,
                 capabilities: Vec::new(),
@@ -5122,6 +5160,7 @@ mod tests {
                 name: "bench".to_string(),
                 entry: "src/demo_bench.ax".to_string(),
                 stdout: None,
+                stderr: None,
                 kind: TestKind::Benchmark,
                 expected_error: None,
                 capabilities: Vec::new(),
@@ -5172,6 +5211,7 @@ mod tests {
             name: "manifest_bench".to_string(),
             entry: "src/manifest_bench.ax".to_string(),
             stdout: None,
+            stderr: None,
             kind: TestKind::Benchmark,
             expected_error: None,
             capabilities: Vec::new(),

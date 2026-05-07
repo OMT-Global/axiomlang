@@ -386,11 +386,7 @@ fn main() {
                             eprintln!("checked {} file(s)", report.files.len());
                         }
                     }
-                    if check && report.changed > 0 {
-                        1
-                    } else {
-                        0
-                    }
+                    if check && report.changed > 0 { 1 } else { 0 }
                 }
             }
             Err(error) => print_error("fmt", error, json),
@@ -1777,10 +1773,12 @@ mod tests {
         assert_eq!(report.changed, 1);
         assert_eq!(report.files.len(), 1);
         assert!(report.files[0].changed);
-        assert!(report.files[0]
-            .edits
-            .iter()
-            .any(|edit| edit.action == "replace_line" && edit.line == 1));
+        assert!(
+            report.files[0]
+                .edits
+                .iter()
+                .any(|edit| edit.action == "replace_line" && edit.line == 1)
+        );
         assert_eq!(
             fs::read_to_string(&source).expect("read source"),
             "fn main() {   \n\tprint \"hi\"  \n\n\n}\n\n"

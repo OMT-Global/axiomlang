@@ -13,7 +13,8 @@
       "ok": true,
       "package_root": "<project>",
       "stderr": "",
-      "stdout": "hello from stage1\n"
+      "stdout": "hello from stage1\n",
+      "expected_stderr": null
     }
   ],
   "command": "test",
