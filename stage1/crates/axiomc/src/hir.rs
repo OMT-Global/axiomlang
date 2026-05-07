@@ -6812,6 +6812,38 @@ fn lower_expr_with_expected_inner(
                     ty,
                 });
             }
+            if matches!(
+                name.as_str(),
+                "encoding_url_component_encode"
+                    | "encoding_url_component_decode"
+                    | "encoding_path_segment_encode"
+            ) {
+                if args.len() != 1 {
+                    return Err(Diagnostic::new(
+                        "type",
+                        format!("{name} expects 1 argument, got {}", args.len()),
+                    )
+                    .with_span(*line, *column));
+                }
+                let lowered = lower_expr_with_expected(&args[0], Some(&Type::String), env, ctx)?;
+                if lowered.ty() != &Type::String {
+                    return Err(Diagnostic::new(
+                        "type",
+                        format!("{name} expects a string argument, got {}", lowered.ty()),
+                    )
+                    .with_span(args[0].line(), args[0].column()));
+                }
+                move_lowered_value(&lowered, env)?;
+                return Ok(Expr::Call {
+                    name: name.clone(),
+                    args: vec![lowered],
+                    ty: if name == "encoding_url_component_decode" {
+                        Type::Option(Box::new(Type::String))
+                    } else {
+                        Type::String
+                    },
+                });
+            }
             if name == "fs_read" {
                 require_capability(ctx.capabilities, CapabilityKind::Fs, name, *line, *column)?;
                 if args.len() != 1 {

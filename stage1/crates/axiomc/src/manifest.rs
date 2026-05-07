@@ -131,12 +131,17 @@ struct RawManifest {
     build: Option<RawBuildSection>,
     tests: Option<Vec<RawTestTarget>>,
     capabilities: Option<RawCapabilityConfig>,
+    registry: Option<toml::Value>,
+    publish: Option<toml::Value>,
 }
 
 #[derive(Debug, Deserialize)]
 struct RawPackageSection {
     name: Option<String>,
     version: Option<String>,
+    checksum: Option<toml::Value>,
+    registry: Option<toml::Value>,
+    source: Option<toml::Value>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -160,6 +165,10 @@ enum RawDependencySpec {
 #[derive(Debug, Deserialize)]
 struct RawDependencyDetail {
     path: Option<String>,
+    version: Option<toml::Value>,
+    checksum: Option<toml::Value>,
+    registry: Option<toml::Value>,
+    source: Option<toml::Value>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -364,6 +373,7 @@ impl CapabilityKind {
 }
 
 fn normalize_manifest(raw: RawManifest, path: &Path) -> Result<Manifest, Diagnostic> {
+    validate_reserved_root_publish_fields(&raw, path)?;
     let workspace = normalize_workspace(raw.workspace, path)?;
     let package = normalize_package(raw.package, workspace.is_some(), path)?;
     let raw_build = raw.build;
@@ -432,6 +442,25 @@ fn normalize_manifest(raw: RawManifest, path: &Path) -> Result<Manifest, Diagnos
             rationale,
         },
     })
+}
+
+
+fn validate_reserved_root_publish_fields(raw: &RawManifest, path: &Path) -> Result<(), Diagnostic> {
+    if raw.registry.is_some() {
+        return Err(reserved_manifest_field(path, "[registry]"));
+    }
+    if raw.publish.is_some() {
+        return Err(reserved_manifest_field(path, "[publish]"));
+    }
+    Ok(())
+}
+
+fn reserved_manifest_field(path: &Path, field_name: &str) -> Diagnostic {
+    Diagnostic::new(
+        "manifest",
+        format!("{field_name} is reserved for future registry publishing"),
+    )
+    .with_path(path.display().to_string())
 }
 
 fn normalize_capability_name_list(
@@ -553,6 +582,15 @@ fn normalize_package(
         return Err(Diagnostic::new("manifest", "missing [package] section")
             .with_path(path.display().to_string()));
     };
+    if package.checksum.is_some() {
+        return Err(reserved_manifest_field(path, "package.checksum"));
+    }
+    if package.registry.is_some() {
+        return Err(reserved_manifest_field(path, "package.registry"));
+    }
+    if package.source.is_some() {
+        return Err(reserved_manifest_field(path, "package.source"));
+    }
     let package_name = required_field(package.name, path, "package.name")?;
     let package_version = required_field(package.version, path, "package.version")?;
     Ok(Some(PackageSection {
@@ -620,6 +658,30 @@ fn normalize_dependencies(
         let raw_path = match raw_spec {
             RawDependencySpec::Path(value) => value,
             RawDependencySpec::Detailed(detail) => {
+                if detail.version.is_some() {
+                    return Err(reserved_manifest_field(
+                        path,
+                        &format!("dependencies.{name}.version"),
+                    ));
+                }
+                if detail.checksum.is_some() {
+                    return Err(reserved_manifest_field(
+                        path,
+                        &format!("dependencies.{name}.checksum"),
+                    ));
+                }
+                if detail.registry.is_some() {
+                    return Err(reserved_manifest_field(
+                        path,
+                        &format!("dependencies.{name}.registry"),
+                    ));
+                }
+                if detail.source.is_some() {
+                    return Err(reserved_manifest_field(
+                        path,
+                        &format!("dependencies.{name}.source"),
+                    ));
+                }
                 required_field(detail.path, path, &format!("dependencies.{name}.path"))?
             }
         };

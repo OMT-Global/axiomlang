@@ -872,6 +872,59 @@ fn axiom_regex_replace_all(pattern: String, text: String, replacement: String) -
 }
 
 "#);
+    out.push_str(r#"#[allow(dead_code)]
+fn axiom_encoding_is_unreserved(byte: u8) -> bool {
+    byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b'~')
+}
+
+#[allow(dead_code)]
+fn axiom_percent_encode(value: String) -> String {
+    const HEX: &[u8; 16] = b"0123456789ABCDEF";
+    let mut out = String::new();
+    for byte in value.bytes() {
+        if axiom_encoding_is_unreserved(byte) {
+            out.push(byte as char);
+        } else {
+            out.push('%');
+            out.push(HEX[(byte >> 4) as usize] as char);
+            out.push(HEX[(byte & 0x0f) as usize] as char);
+        }
+    }
+    out
+}
+
+#[allow(dead_code)]
+fn axiom_percent_decode(value: String) -> Option<String> {
+    fn hex(byte: u8) -> Option<u8> {
+        match byte {
+            b'0'..=b'9' => Some(byte - b'0'),
+            b'a'..=b'f' => Some(byte - b'a' + 10),
+            b'A'..=b'F' => Some(byte - b'A' + 10),
+            _ => None,
+        }
+    }
+
+    let bytes = value.as_bytes();
+    let mut index = 0usize;
+    let mut out = Vec::new();
+    while index < bytes.len() {
+        if bytes[index] != b'%' {
+            out.push(bytes[index]);
+            index += 1;
+            continue;
+        }
+        if index + 2 >= bytes.len() {
+            return None;
+        }
+        let high = hex(bytes[index + 1])?;
+        let low = hex(bytes[index + 2])?;
+        out.push((high << 4) | low);
+        index += 3;
+    }
+    String::from_utf8(out).ok()
+}
+
+"#);
     out.push_str("#[allow(dead_code)]\n");
     out.push_str("fn axiom_fs_read(path: String) -> Option<String> {\n");
     out.push_str("    use std::io::Read;\n");
@@ -3260,6 +3313,15 @@ fn render_expr(expr: &Expr) -> String {
                 render_expr(&args[1]),
                 render_expr(&args[2])
             )
+        }
+        Expr::Call { name, args, .. } if name == "encoding_url_component_encode" => {
+            format!("axiom_percent_encode({})", render_expr(&args[0]))
+        }
+        Expr::Call { name, args, .. } if name == "encoding_url_component_decode" => {
+            format!("axiom_percent_decode({})", render_expr(&args[0]))
+        }
+        Expr::Call { name, args, .. } if name == "encoding_path_segment_encode" => {
+            format!("axiom_percent_encode({})", render_expr(&args[0]))
         }
         Expr::Call { name, args, .. } if name == "fs_read" => {
             format!("axiom_fs_read({})", render_expr(&args[0]))
