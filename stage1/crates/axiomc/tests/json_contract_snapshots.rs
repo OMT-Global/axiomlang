@@ -10,7 +10,12 @@ fn cli_json_outputs_match_checked_in_contract_snapshots() {
     let temp = tempfile::tempdir().expect("tempdir");
     let project = temp.path().join("contract-app");
 
-    run_axiomc(&["new", project.to_str().expect("project path"), "--name", "contract-app"]);
+    run_axiomc(&[
+        "new",
+        project.to_str().expect("project path"),
+        "--name",
+        "contract-app",
+    ]);
 
     for command in ["check", "build", "test", "caps"] {
         let mut args = vec![command, project.to_str().expect("project path"), "--json"];
@@ -95,8 +100,9 @@ fn normalize_value(value: &mut Value, project_aliases: &[String], key: Option<&s
                 Some("source_hash" | "generated_rust_hash" | "lockfile_hash" | "manifest_hash")
             ) {
                 *text = String::from("<hash>");
-            } else if let Some(project) =
-                project_aliases.iter().find(|project| text.starts_with(*project))
+            } else if let Some(project) = project_aliases
+                .iter()
+                .find(|project| text.starts_with(*project))
             {
                 *text = text.replacen(project, "<project>", 1);
             }

@@ -4758,17 +4758,15 @@ fn resolve_import_path(
         );
     }
     if !candidate.exists() {
-        return Err(
-            Diagnostic::new(
-                "import",
-                format!(
-                    "missing import {}",
-                    import_diagnostic_path(&package.root, &candidate)
-                ),
-            )
-            .with_path(module_path.display().to_string())
-            .with_span(import.line, import.column),
-        );
+        return Err(Diagnostic::new(
+            "import",
+            format!(
+                "missing import {}",
+                import_diagnostic_path(&package.root, &candidate)
+            ),
+        )
+        .with_path(module_path.display().to_string())
+        .with_span(import.line, import.column));
     }
     let candidate = canonicalize_existing_path(&candidate, "import path")?;
     if !candidate.starts_with(&package.root) {

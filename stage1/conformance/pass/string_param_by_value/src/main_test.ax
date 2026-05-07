@@ -1,0 +1,14 @@
+fn label(s: string): string {
+return s
+}
+
+fn wrap(s: string): string {
+return s
+}
+
+let tag: string = "stage1"
+let result: string = label(tag)
+print result
+
+let other: string = "owned"
+print wrap(other)

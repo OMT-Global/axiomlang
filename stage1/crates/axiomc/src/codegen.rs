@@ -872,7 +872,8 @@ fn axiom_regex_replace_all(pattern: String, text: String, replacement: String) -
 }
 
 "#);
-    out.push_str(r#"#[allow(dead_code)]
+    out.push_str(
+        r#"#[allow(dead_code)]
 fn axiom_encoding_is_unreserved(byte: u8) -> bool {
     byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b'~')
 }
@@ -924,7 +925,8 @@ fn axiom_percent_decode(value: String) -> Option<String> {
     String::from_utf8(out).ok()
 }
 
-"#);
+"#,
+    );
     out.push_str("#[allow(dead_code)]\n");
     out.push_str("fn axiom_fs_read(path: String) -> Option<String> {\n");
     out.push_str("    use std::io::Read;\n");
@@ -2437,7 +2439,7 @@ impl<'a> TypeContext<'a> {
                         visiting_enums,
                     )
             }
-            Type::Array(inner)
+            Type::Array(inner, _)
             | Type::Task(inner)
             | Type::JoinHandle(inner)
             | Type::AsyncChannel(inner)
@@ -2784,7 +2786,7 @@ fn collect_expr_mutable_borrows(expr: &Expr, locals: &mut HashSet<String>) {
             end,
             ty,
         } => {
-            if matches!(ty, Type::MutSlice(_)) && !matches!(base.ty(), Type::MutSlice(_)) {
+            if matches!(ty, Type::MutSlice(_)) {
                 if let Some(name) = mutable_borrow_root_name(base) {
                     locals.insert(name.to_string());
                 }
@@ -3084,35 +3086,14 @@ fn render_match_arm(
 ) {
     let pad = "    ".repeat(indent);
     if arm.bindings.is_empty() {
-        let variant = type_context
-            .enums
-            .get(arm.enum_name.as_str())
-            .and_then(|enum_def| {
-                enum_def
-                    .variants
-                    .iter()
-                    .find(|variant| variant.name == arm.variant)
-            });
-        let pattern = if let Some(variant) = variant {
-            if variant.payload_tys.is_empty() {
-                format!("{}::{}", arm.enum_name, arm.variant)
-            } else if arm.ignore_payloads && !variant.payload_names.is_empty() {
-                format!("{}::{} {{ .. }}", arm.enum_name, arm.variant)
-            } else if arm.ignore_payloads {
-                format!("{}::{}(..)", arm.enum_name, arm.variant)
-            } else {
-                format!("{}::{}", arm.enum_name, arm.variant)
-            }
-        } else if arm.enum_name == "Option" && arm.variant == "Some" {
-            String::from("Option::Some(_)")
-        } else if arm.enum_name == "Result" && arm.variant == "Ok" {
-            String::from("Result::Ok(_)")
-        } else if arm.enum_name == "Result" && arm.variant == "Err" {
-            String::from("Result::Err(_)")
+        if arm.ignore_payloads {
+            out.push_str(&format!(
+                "{pad}{}::{} {{ .. }} => {{\n",
+                arm.enum_name, arm.variant
+            ));
         } else {
-            format!("{}::{}", arm.enum_name, arm.variant)
-        };
-        out.push_str(&format!("{pad}{pattern} => {{\n"));
+            out.push_str(&format!("{pad}{}::{} => {{\n", arm.enum_name, arm.variant));
+        }
     } else if arm.is_named {
         out.push_str(&format!(
             "{pad}{}::{} {{ {} }} => {{\n",
@@ -3533,7 +3514,7 @@ fn render_expr(expr: &Expr) -> String {
             Type::Result(_, _) => unreachable!("type checker rejects result addition"),
             Type::Tuple(_) => unreachable!("type checker rejects tuple addition"),
             Type::Map(_, _) => unreachable!("type checker rejects map addition"),
-            Type::Array(_) => unreachable!("type checker rejects array addition"),
+            Type::Array(_, _) => unreachable!("type checker rejects array addition"),
             Type::Task(_) => unreachable!("type checker rejects task addition"),
             Type::JoinHandle(_) => unreachable!("type checker rejects join handle addition"),
             Type::AsyncChannel(_) => unreachable!("type checker rejects async channel addition"),
@@ -3639,7 +3620,7 @@ fn render_expr(expr: &Expr) -> String {
                 .map(|expr| format!("Some({})", render_expr(expr)))
                 .unwrap_or_else(|| String::from("None"));
             match base.ty() {
-                Type::Array(_) => {
+                Type::Array(_, _) => {
                     if matches!(expr.ty(), Type::MutSlice(_)) {
                         format!(
                             "axiom_slice_view_mut(&mut {}, {}, {})",
@@ -3677,7 +3658,7 @@ fn render_expr(expr: &Expr) -> String {
             }
         }
         Expr::Index { base, index, ty } => match base.ty() {
-            Type::Array(_) => {
+            Type::Array(_, _) => {
                 if ty.is_copy() {
                     format!(
                         "axiom_array_get(&{}, {})",
@@ -3800,7 +3781,7 @@ fn rust_type_inner(ty: &Type, lifetime: Option<&str>, type_context: &TypeContext
             rust_type_inner(key, lifetime, type_context),
             rust_type_inner(value, lifetime, type_context)
         ),
-        Type::Array(inner) => format!("Vec<{}>", rust_type_inner(inner, lifetime, type_context)),
+        Type::Array(inner, _) => format!("Vec<{}>", rust_type_inner(inner, lifetime, type_context)),
         Type::Task(inner) => format!(
             "AxiomTask<{}>",
             rust_type_inner(inner, lifetime, type_context)
@@ -3854,7 +3835,7 @@ fn render_collection_edge(collection: &Expr, result_ty: &Type, from_end: bool) -
         String::from("0")
     };
     match collection.ty() {
-        Type::Array(_) => {
+        Type::Array(_, _) => {
             if result_ty.is_copy() {
                 format!("{{ let values = {rendered}; axiom_array_get(&values, {index}) }}")
             } else {

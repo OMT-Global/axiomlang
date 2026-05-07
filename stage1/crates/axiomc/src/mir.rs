@@ -1,4 +1,4 @@
-use crate::{hir, syntax};
+use crate::hir;
 use serde::Serialize;
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -217,7 +217,7 @@ pub enum LiteralValue {
     Int(i64),
     Numeric {
         raw: String,
-        ty: syntax::NumericType,
+        ty: crate::syntax::NumericType,
     },
     Bool(bool),
     String(String),
@@ -237,7 +237,7 @@ pub enum CompareOp {
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub enum Type {
     Int,
-    Numeric(syntax::NumericType),
+    Numeric(crate::syntax::NumericType),
     Bool,
     String,
     Str,
@@ -251,7 +251,7 @@ pub enum Type {
     Result(Box<Type>, Box<Type>),
     Tuple(Vec<Type>),
     Map(Box<Type>, Box<Type>),
-    Array(Box<Type>),
+    Array(Box<Type>, Option<usize>),
     Task(Box<Type>),
     JoinHandle(Box<Type>),
     AsyncChannel(Box<Type>),
@@ -277,7 +277,7 @@ impl Type {
             | Type::Struct(_)
             | Type::Enum(_)
             | Type::Map(_, _)
-            | Type::Array(_)
+            | Type::Array(_, _)
             | Type::Task(_)
             | Type::JoinHandle(_)
             | Type::AsyncChannel(_)
@@ -647,7 +647,7 @@ fn lower_type(ty: &hir::Type) -> Type {
         hir::Type::Map(key, value) => {
             Type::Map(Box::new(lower_type(key)), Box::new(lower_type(value)))
         }
-        hir::Type::Array(inner, _) => Type::Array(Box::new(lower_type(inner))),
+        hir::Type::Array(inner, len) => Type::Array(Box::new(lower_type(inner)), *len),
         hir::Type::Task(inner) => Type::Task(Box::new(lower_type(inner))),
         hir::Type::JoinHandle(inner) => Type::JoinHandle(Box::new(lower_type(inner))),
         hir::Type::AsyncChannel(inner) => Type::AsyncChannel(Box::new(lower_type(inner))),

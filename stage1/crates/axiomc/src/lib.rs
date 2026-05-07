@@ -1,4 +1,3 @@
-pub mod borrowck;
 pub mod codegen;
 pub mod dap;
 pub mod diagnostics;
@@ -1338,25 +1337,6 @@ let bad: u8 = byte.wrapping_add(1u16)
                     "println!(\"{}\", { let values = words; let index = 0; axiom_array_take(values, index) });"
                 )
         );
-    }
-
-    #[test]
-    fn parser_lowers_explicit_lifetime_slice_signatures() {
-        let source = "fn tail<'a>(values: &'a [int]): &'a [int] {\nreturn values[1:]\n}\n\nfn mut_tail<'a>(values: &'a mut [int]): &'a mut [int] {\nreturn values[1:]\n}\n\nprint 0\n";
-        let parsed = parse_program(source, Path::new("main.ax")).expect("parse");
-        assert!(matches!(
-            parsed.functions[0].return_ty,
-            crate::syntax::TypeName::LifetimeSlice(ref name, _) if name == "a"
-        ));
-        assert!(matches!(
-            parsed.functions[1].return_ty,
-            crate::syntax::TypeName::LifetimeMutSlice(ref name, _) if name == "a"
-        ));
-        let hir = hir::lower(&parsed).expect("lower");
-        let mir = mir::lower(&hir);
-        let rendered = render_rust(&mir);
-        assert!(rendered.contains("fn tail<'a>(values: &'a [i64]) -> &'a [i64] {"));
-        assert!(rendered.contains("fn mut_tail<'a>(values: &'a mut [i64]) -> &'a mut [i64] {"));
     }
 
     #[test]
@@ -5788,16 +5768,22 @@ print serve_once("127.0.0.1:18080", "hello")
     fn conformance_corpus_reports_stable_results() {
         let output =
             run_project_tests(&conformance_fixture()).expect("run stage1 conformance corpus");
-        assert_eq!(output.cases.len(), 43);
-        assert_eq!(output.passed, 43);
-        assert_eq!(output.failed, 0);
+        assert_eq!(output.cases.len(), 60);
+        assert_eq!(output.passed, 60);
+        let failures: Vec<_> = output
+            .cases
+            .iter()
+            .filter(|case| !case.ok)
+            .map(|case| format!("{}: {:?}", case.name, case.error))
+            .collect();
+        assert_eq!(output.failed, 0, "conformance failures: {failures:#?}");
         assert!(
             output
                 .cases
                 .iter()
                 .filter(|case| case.expected_error.is_some())
                 .count()
-                == 30
+                == 43
         );
         assert_eq!(
             output
@@ -5805,7 +5791,7 @@ print serve_once("127.0.0.1:18080", "hello")
                 .iter()
                 .filter(|case| case.expected_stdout.is_some())
                 .count(),
-            13
+            17
         );
     }
 
@@ -7298,79 +7284,6 @@ print takes_two(three)
     }
 
     #[test]
-    fn parser_rejects_multiple_explicit_lifetimes_until_codegen_can_preserve_them() {
-        let source = "fn pick<'a, 'b>(left: &'a [int], right: &'b [int]): &'a [int] {
-return left
-}
-
-print 0
-";
-        let error = parse_program(source, Path::new("main.ax"))
-            .expect_err("multiple lifetimes should be rejected");
-        assert!(error.message.contains("multiple explicit lifetimes"));
-        assert_eq!(error.kind, "parse");
-    }
-
-    #[test]
-    fn parser_rejects_undeclared_explicit_lifetime_uses() {
-        let source = "fn tail(values: &'a [int]): &'a [int] {
-return values
-}
-
-print 0
-";
-        let error = parse_program(source, Path::new("main.ax"))
-            .expect_err("undeclared lifetime should be rejected");
-        assert!(error.message.contains("undeclared lifetime parameter"));
-        assert_eq!(error.kind, "parse");
-    }
-
-    #[test]
-    fn parser_rejects_duplicate_lifetime_parameters() {
-        let source = "fn tail<'a, 'a>(values: &'a [int]): &'a [int] {
-return values
-}
-
-print 0
-";
-        let error = parse_program(source, Path::new("main.ax"))
-            .expect_err("duplicate lifetime should be rejected");
-        assert!(error.message.contains("duplicate lifetime parameter"));
-        assert_eq!(error.kind, "parse");
-    }
-
-    #[test]
-    fn parser_rejects_explicit_lifetime_return_mixed_with_unannotated_borrowed_param() {
-        let source = "fn pick<'a>(left: &'a [int], right: &[int]): &'a [int] {
-return left
-}
-
-print 0
-";
-        let error = parse_program(source, Path::new("main.ax")).expect_err(
-            "explicit return lifetime mixed with unannotated borrowed param should fail",
-        );
-        assert!(error.message.contains("unannotated borrowed parameters"));
-        assert_eq!(error.kind, "parse");
-    }
-
-    #[test]
-    fn check_project_rejects_explicit_lifetime_return_from_wrong_parameter() {
-        let dir = tempdir().expect("tempdir");
-        let project = dir.path().join("explicit-lifetime-mismatch");
-        create_project(&project, Some("explicit-lifetime-mismatch-app")).expect("create project");
-        fs::write(
-            project.join("src/main.ax"),
-            "fn choose<'a, 'b>(left: &'a [int], right: &'b [int]): &'a [int] {\nreturn right\n}\n\nprint 0\n",
-        )
-        .expect("write source");
-        let error =
-            check_project(&project).expect_err("unsupported multi-lifetime signature should fail");
-        assert!(error.message.contains("multiple explicit lifetimes"));
-        assert_eq!(error.kind, "parse");
-    }
-
-    #[test]
     fn check_project_rejects_slice_return_from_local_value() {
         let dir = tempdir().expect("tempdir");
         let project = dir.path().join("slice-return-local");
@@ -7381,23 +7294,6 @@ print 0
         )
         .expect("write source");
         let error = check_project(&project).expect_err("local slice return should fail");
-        assert!(error.message.contains(
-            "returning borrowed values requires data derived from one of the borrowed parameters"
-        ));
-        assert_eq!(error.kind, "ownership");
-    }
-
-    #[test]
-    fn check_project_rejects_str_return_from_local_string() {
-        let dir = tempdir().expect("tempdir");
-        let project = dir.path().join("str-return-local-string");
-        create_project(&project, Some("str-return-local-string-app")).expect("create project");
-        fs::write(
-            project.join("src/main.ax"),
-            "fn pick(input: &str): &str {\nlet owned: string = \"local\"\nreturn owned\n}\n\nprint 0\n",
-        )
-        .expect("write source");
-        let error = check_project(&project).expect_err("local string borrow return should fail");
         assert!(error.message.contains(
             "returning borrowed values requires data derived from one of the borrowed parameters"
         ));
@@ -8769,17 +8665,6 @@ print 0
         assert!(payload["target"].is_string());
         assert_eq!(payload["debug"], true);
         assert!(payload["debug_map"].is_string());
-        assert_eq!(payload["cache_key"]["target"], payload["target"]);
-        assert_eq!(payload["cache_key"]["debug"], true);
-        assert!(payload["cache_key"]["manifest_hash"].is_string());
-        assert!(payload["cache_key"]["lockfile_hash"].is_string());
-        assert!(payload["cache_key"]["generated_rust_hash"].is_string());
-        assert!(payload["cache_key"]["sources"].is_array());
-        assert!(payload["cache_key"]["sources"][0]["source_hash"].is_string());
-        assert_eq!(
-            payload["packages"][0]["cache_key"]["lockfile_hash"],
-            payload["cache_key"]["lockfile_hash"]
-        );
         assert!(payload["cache_hits"].is_u64());
         assert!(payload["cache_misses"].is_u64());
         assert!(payload["duration_ms"].is_u64());

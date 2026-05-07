@@ -1,14 +1,39 @@
 version = 1
 
 [[package]]
-name = "conformance-closure-captures-function-callee"
+name = "conformance-borrow-escape-enum-payload"
 version = "0.1.0"
-source = "path:fail/closure_captures_function_callee"
+source = "path:fail/borrow_escape_enum_payload"
+
+[[package]]
+name = "conformance-borrow-escape-option-payload"
+version = "0.1.0"
+source = "path:fail/borrow_escape_option_payload"
+
+[[package]]
+name = "conformance-borrow-escape-result-payload"
+version = "0.1.0"
+source = "path:fail/borrow_escape_result_payload"
+
+[[package]]
+name = "conformance-borrow-escape-struct-field"
+version = "0.1.0"
+source = "path:fail/borrow_escape_struct_field"
+
+[[package]]
+name = "conformance-borrow-escape-tuple-element"
+version = "0.1.0"
+source = "path:fail/borrow_escape_tuple_element"
 
 [[package]]
 name = "conformance-closure-borrowed-slice-return"
 version = "0.1.0"
 source = "path:fail/closure_borrowed_slice_return"
+
+[[package]]
+name = "conformance-closure-captures-function-callee"
+version = "0.1.0"
+source = "path:fail/closure_captures_function_callee"
 
 [[package]]
 name = "conformance-closure-move-captured-non-copy"
@@ -31,6 +56,11 @@ source = "path:fail/comparison_predictable_diagnostic"
 name = "conformance-comparison-strict-type-mismatch"
 version = "0.1.0"
 source = "path:fail/comparison_strict_type_mismatch"
+
+[[package]]
+name = "conformance-double-mutable-borrow"
+version = "0.1.0"
+source = "path:fail/double_mutable_borrow"
 
 [[package]]
 name = "conformance-for-loop-requires-iteration-protocol"
@@ -75,6 +105,11 @@ version = "0.1.0"
 source = "path:fail/match_guard_not_supported"
 
 [[package]]
+name = "conformance-move-while-mutably-borrowed"
+version = "0.1.0"
+source = "path:fail/move_while_mutably_borrowed"
+
+[[package]]
 name = "conformance-mutable-borrow-while-shared-live"
 version = "0.1.0"
 source = "path:fail/mutable_borrow_while_shared_live"
@@ -88,6 +123,16 @@ source = "path:fail/named_nested_match_pattern_not_supported"
 name = "conformance-nested-match-pattern-not-supported"
 version = "0.1.0"
 source = "path:fail/nested_match_pattern_not_supported"
+
+[[package]]
+name = "conformance-ownership-across-dependency-boundary"
+version = "0.1.0"
+source = "path:fail/ownership_across_dependency_boundary"
+
+[[package]]
+name = "core"
+version = "0.1.0"
+source = "path:fail/ownership_across_dependency_boundary/deps/core"
 
 [[package]]
 name = "conformance-ownership-use-after-move"
@@ -130,6 +175,11 @@ version = "0.1.0"
 source = "path:fail/panic_requires_string_argument"
 
 [[package]]
+name = "conformance-rebind-owned-value-not-supported"
+version = "0.1.0"
+source = "path:fail/rebind_owned_value_not_supported"
+
+[[package]]
 name = "conformance-recursive-enum-without-indirection"
 version = "0.1.0"
 source = "path:fail/recursive_enum_without_indirection"
@@ -155,9 +205,29 @@ version = "0.1.0"
 source = "path:fail/result_ok_without_context"
 
 [[package]]
+name = "conformance-shared-borrow-while-mutable-live"
+version = "0.1.0"
+source = "path:fail/shared_borrow_while_mutable_live"
+
+[[package]]
+name = "conformance-slice-type-alias-cycle"
+version = "0.1.0"
+source = "path:fail/slice_type_alias_cycle"
+
+[[package]]
 name = "conformance-stdlib-clock-without-capability"
 version = "0.1.0"
 source = "path:fail/stdlib_clock_without_capability"
+
+[[package]]
+name = "conformance-string-borrow-local-return"
+version = "0.1.0"
+source = "path:fail/string_borrow_local_return"
+
+[[package]]
+name = "conformance-string-use-after-move"
+version = "0.1.0"
+source = "path:fail/string_use_after_move"
 
 [[package]]
 name = "conformance-closures"
@@ -218,6 +288,26 @@ source = "path:pass/package_local_modules"
 name = "conformance-package-visibility"
 version = "0.1.0"
 source = "path:pass/package_visibility"
+
+[[package]]
+name = "conformance-slice-type-alias-in-option"
+version = "0.1.0"
+source = "path:pass/slice_type_alias_in_option"
+
+[[package]]
+name = "conformance-slice-type-alias-in-signature"
+version = "0.1.0"
+source = "path:pass/slice_type_alias_in_signature"
+
+[[package]]
+name = "conformance-slice-type-alias-in-struct"
+version = "0.1.0"
+source = "path:pass/slice_type_alias_in_struct"
+
+[[package]]
+name = "conformance-string-param-by-value"
+version = "0.1.0"
+source = "path:pass/string_param_by_value"
 
 [[package]]
 name = "conformance-struct-field-access"
