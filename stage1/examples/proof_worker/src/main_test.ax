@@ -22,6 +22,15 @@ let processed: int = processed_count()
 let handle: JoinHandle<string> = spawn<string>(process(queue_name, worker, processed))
 print await join<string>(handle)
 print sleep(duration_ms(0)) == 0
+match queue_name() {
+Some(value) {
+print value
+}
+None {
+print "missing"
+}
+}
+print processed_count()
 }
 None {
 print "idle"
