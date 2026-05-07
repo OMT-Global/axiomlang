@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "description": "Initial committed non-blocking stage1 build benchmark baseline. CI compares current medians to these values with tolerance and emits PASS/WARN diagnostics only.",
+  "capturedOn": "2026-05-02",
+  "rounds": 5,
+  "workloads": {
+    "hello": {
+      "kind": "compute",
+      "medians_ms": {
+        "axiom_cold_build": 279.33672499784734,
+        "axiom_warm_build": 27.693095995346084,
+        "go_build": 178.93155400815886,
+        "rust_build": 94.51339099905454
+      }
+    },
+    "capabilities": {
+      "kind": "io",
+      "medians_ms": {
+        "axiom_cold_build": 451.7177259986056,
+        "axiom_warm_build": 28.485748000093736,
+        "go_build": 267.77919399319217,
+        "rust_build": 144.8271749977721
+      }
+    },
+    "stdlib_async": {
+      "kind": "concurrency",
+      "medians_ms": {
+        "axiom_cold_build": 309.42940499517135,
+        "axiom_warm_build": 30.04441199300345,
+        "go_build": 183.86928300606087,
+        "rust_build": 474.37387400714215
+      }
+    }
+  }
+}

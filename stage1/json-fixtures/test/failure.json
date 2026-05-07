@@ -1,0 +1,35 @@
+{
+  "schema_version": "axiom.stage1.v1",
+  "ok": false,
+  "command": "test",
+  "project": "stage1/examples/modules",
+  "manifest": "/workspace/axiom/stage1/examples/modules/axiom.toml",
+  "packages": [
+    "/workspace/axiom/stage1/examples/modules"
+  ],
+  "filter": null,
+  "passed": 0,
+  "failed": 1,
+  "skipped": 0,
+  "duration_ms": 215,
+  "cases": [
+    {
+      "package_root": "/workspace/axiom/stage1/examples/modules",
+      "name": "src/math_test",
+      "entry": "src/math_test.ax",
+      "ok": false,
+      "binary": "/workspace/axiom/stage1/examples/modules/dist/tests/modules-stage1-src-math-test",
+      "generated_rust": "/workspace/axiom/stage1/examples/modules/dist/tests/modules-stage1-src-math-test.generated.rs",
+      "exit_code": 0,
+      "stdout": "42\n",
+      "stderr": "",
+      "expected_stdout": "41\n",
+      "duration_ms": 210,
+      "error": {
+        "kind": "test",
+        "message": "stdout mismatch for src/math_test",
+        "path": "/workspace/axiom/stage1/examples/modules/src/math_test.stdout"
+      }
+    }
+  ]
+}

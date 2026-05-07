@@ -1,0 +1,8 @@
+{
+  "kind": "ownership",
+  "code": "use_after_move",
+  "message": "use of moved value \"tag\"",
+  "path": "src/main.ax",
+  "line": 7,
+  "column": 7
+}

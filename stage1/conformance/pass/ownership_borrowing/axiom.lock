@@ -1,0 +1,11 @@
+version = 1
+
+[[package]]
+name = "conformance-ownership-borrowing"
+version = "0.1.0"
+source = "path"
+
+[[package]]
+name = "borrow-core"
+version = "0.1.0"
+source = "path:deps/core"

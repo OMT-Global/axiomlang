@@ -24,7 +24,7 @@ defaults:
 jobs:
   changes:
     name: Detect Extended Validation Scope
-    runs-on: ['self-hosted', 'synology', 'shell-only', 'public']
+    runs-on: ubuntu-latest
     outputs:
       app: ${{ steps.preset.outputs.app || steps.filter.outputs.app || 'false' }}
       ci: ${{ steps.preset.outputs.ci || steps.filter.outputs.ci || 'false' }}
@@ -75,7 +75,7 @@ jobs:
               - 'Makefile'
   fast-checks:
     name: Fast Checks
-    runs-on: ['self-hosted', 'synology', 'shell-only', 'public']
+    runs-on: ubuntu-latest
     timeout-minutes: 15
     needs: changes
     if: needs.changes.outputs.app == 'true' || needs.changes.outputs.ci == 'true'
@@ -88,37 +88,53 @@ jobs:
 
   validate-secrets:
     name: Validate Secrets
-    runs-on: ['self-hosted', 'synology', 'shell-only', 'public']
+    runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v4 pinned 2026-04-19
       - name: Scan repository for secret patterns
         run: bash scripts/check-detect-secrets.sh --all-files
 
-  performance-benchmarks:
-    name: Performance Benchmarks
-    runs-on: ['self-hosted', 'synology', 'shell-only', 'public']
+  stage1-extended-checks:
+    name: Stage1 Extended Checks
+    runs-on: ubuntu-latest
     timeout-minutes: 20
     needs: changes
     if: needs.changes.outputs.app == 'true' || needs.changes.outputs.ci == 'true'
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v4 pinned 2026-04-19
       - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable pinned 2026-04-19
+
+      - name: Run extended stage1 checks
+        run: bash scripts/ci/run-extended-stage1-checks.sh
+
+  performance-benchmarks:
+    name: Performance Benchmarks
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: changes
+    if: needs.changes.outputs.app == 'true' || needs.changes.outputs.ci == 'true'
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v4 pinned 2026-04-19
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable pinned 2026-04-19
+
       - name: Set up Go
-        uses: actions/setup-go@44694675825211faa026b3c33043df3e48a5fa00 # v6 pinned 2026-04-19
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6 pinned 2026-04-19
         with:
           go-version: '1.24.2'
+
       - name: Run stage1 benchmark gate
         run: make stage1-bench-gate
 
   extended-validation-gate:
     name: Extended Validation Gate
-    runs-on: ['self-hosted', 'synology', 'shell-only', 'public']
+    runs-on: ubuntu-latest
     if: always()
     needs:
       - changes
       - fast-checks
       - validate-secrets
+      - stage1-extended-checks
       - performance-benchmarks
     steps:
       - name: Check extended validation jobs
@@ -127,6 +143,7 @@ jobs:
             changes=${{ needs.changes.result }}
             fast-checks=${{ needs.fast-checks.result }}
             validate-secrets=${{ needs.validate-secrets.result }}
+            stage1-extended-checks=${{ needs.stage1-extended-checks.result }}
             performance-benchmarks=${{ needs.performance-benchmarks.result }}
         run: |
           failed=0

@@ -1,0 +1,7 @@
+{
+  "kind": "type",
+  "message": "type alias \"conformance_slice_type_alias_cycle_main_Names\" is recursive",
+  "path": "src/main.ax",
+  "line": 1,
+  "column": 1
+}

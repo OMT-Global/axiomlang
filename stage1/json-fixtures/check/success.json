@@ -1,0 +1,93 @@
+{
+  "schema_version": "axiom.stage1.v1",
+  "ok": true,
+  "command": "check",
+  "project": "stage1/examples/hello",
+  "manifest": "/workspace/axiom/stage1/examples/hello/axiom.toml",
+  "entry": "/workspace/axiom/stage1/examples/hello/src/main.ax",
+  "statement_count": 11,
+  "capabilities": [
+    {
+      "name": "fs",
+      "enabled": false,
+      "description": "filesystem access"
+    },
+    {
+      "name": "net",
+      "enabled": false,
+      "description": "network access"
+    },
+    {
+      "name": "process",
+      "enabled": false,
+      "description": "child process execution"
+    },
+    {
+      "name": "env",
+      "enabled": false,
+      "description": "environment variable access"
+    },
+    {
+      "name": "clock",
+      "enabled": false,
+      "description": "wall-clock time access"
+    },
+    {
+      "name": "crypto",
+      "enabled": false,
+      "description": "hashing and cryptography primitives"
+    },
+    {
+      "name": "ffi",
+      "enabled": false,
+      "description": "foreign function interface access"
+    }
+  ],
+  "warnings": [],
+  "packages": [
+    {
+      "package_root": "/workspace/axiom/stage1/examples/hello",
+      "manifest": "/workspace/axiom/stage1/examples/hello/axiom.toml",
+      "entry": "/workspace/axiom/stage1/examples/hello/src/main.ax",
+      "statement_count": 11,
+      "capabilities": [
+        {
+          "name": "fs",
+          "enabled": false,
+          "description": "filesystem access"
+        },
+        {
+          "name": "net",
+          "enabled": false,
+          "description": "network access"
+        },
+        {
+          "name": "process",
+          "enabled": false,
+          "description": "child process execution"
+        },
+        {
+          "name": "env",
+          "enabled": false,
+          "description": "environment variable access"
+        },
+        {
+          "name": "clock",
+          "enabled": false,
+          "description": "wall-clock time access"
+        },
+        {
+          "name": "crypto",
+          "enabled": false,
+          "description": "hashing and cryptography primitives"
+        },
+        {
+          "name": "ffi",
+          "enabled": false,
+          "description": "foreign function interface access"
+        }
+      ],
+      "warnings": []
+    }
+  ]
+}

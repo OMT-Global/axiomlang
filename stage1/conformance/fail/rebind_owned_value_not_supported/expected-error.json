@@ -1,0 +1,8 @@
+{
+  "kind": "ownership",
+  "code": "rebind_not_supported",
+  "message": "rebinding name \"p\" is not supported; the existing binding holds an owned value",
+  "path": "src/main.ax",
+  "line": 7,
+  "column": 1
+}

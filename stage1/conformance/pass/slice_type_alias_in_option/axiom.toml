@@ -1,0 +1,6 @@
+[package]
+name = "conformance-slice-type-alias-in-option"
+version = "0.1.0"
+
+[features]
+async = false

@@ -3,6 +3,7 @@ use axiomc::dap;
 use axiomc::diagnostics::Diagnostic;
 use axiomc::json_contract;
 use axiomc::lsp;
+use axiomc::manifest::{entry_path, load_manifest};
 use axiomc::new_project::create_project;
 use axiomc::project::{
     BuildOptions, BuildOutput, CheckOptions, RunOptions, TestOptions, build_project_with_options,
@@ -14,7 +15,8 @@ use axiomc::registry::{
 };
 use axiomc::syntax::parse_program;
 use clap::{Parser, Subcommand};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::io::{self, BufRead, Write};
 use std::path::{Path, PathBuf};
@@ -35,11 +37,19 @@ enum Command {
         #[arg(long)]
         name: Option<String>,
     },
+    /// Parse the primary stage1 package entrypoint without typechecking.
+    Parse {
+        path: PathBuf,
+        #[arg(long)]
+        json: bool,
+    },
     /// Check a stage1 package or workspace member without building an artifact.
     Check {
         path: PathBuf,
         #[arg(long)]
         json: bool,
+        #[arg(long)]
+        exports: bool,
         #[arg(short = 'p', long = "package")]
         package: Option<String>,
     },
@@ -59,6 +69,12 @@ enum Command {
         target: Option<String>,
         #[arg(short = 'p', long = "package")]
         package: Option<String>,
+        /// Require axiom.lock to exactly match the local manifest/workspace/dependency graph.
+        #[arg(long)]
+        locked: bool,
+        /// Resolve the build using only local path graph data and no network access.
+        #[arg(long)]
+        offline: bool,
     },
     /// Build and run a stage1 package through the current generated-Rust backend path.
     Run {
@@ -83,6 +99,8 @@ enum Command {
         path: Option<PathBuf>,
         #[arg(long)]
         json: bool,
+        #[command(subcommand)]
+        command: Option<CapsCommand>,
     },
     /// Format .ax source files with the canonical stage1 style.
     Fmt {
@@ -105,6 +123,14 @@ enum Command {
         warmup: usize,
         #[arg(long, default_value_t = 5)]
         iterations: usize,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Convert mutation-test survivors into a stable issue-comment report.
+    MutationReport {
+        /// JSON mutation output from tools such as cargo-mutants.
+        input: PathBuf,
+        /// Emit the normalized machine-readable report instead of Markdown.
         #[arg(long)]
         json: bool,
     },
@@ -139,6 +165,12 @@ enum Command {
     Dap,
 }
 
+#[derive(Debug, Subcommand)]
+enum CapsCommand {
+    /// Diff two caps JSON payloads and fail on capability escalation.
+    Diff { old: PathBuf, new: PathBuf },
+}
+
 fn main() {
     let cli = Cli::parse();
     let code = match cli.command {
@@ -149,14 +181,38 @@ fn main() {
             }
             Err(error) => print_error("new", error, false),
         },
+        Command::Parse { path, json } => match parse_project_entry(&path) {
+            Ok(output) => {
+                if json {
+                    println!(
+                        "{}",
+                        serde_json::json!({
+                            "schema_version": json_contract::JSON_SCHEMA_VERSION,
+                            "ok": true,
+                            "command": "parse",
+                            "project": path.display().to_string(),
+                            "manifest": output.manifest,
+                            "entry": output.entry,
+                            "statement_count": output.statement_count,
+                        })
+                    );
+                } else {
+                    eprintln!("OK statements={}", output.statement_count);
+                }
+                0
+            }
+            Err(error) => print_error("parse", error, json),
+        },
         Command::Check {
             path,
             json,
+            exports,
             package,
         } => match check_project_with_options(
             &path,
             &CheckOptions {
                 package: package.clone(),
+                include_exports: exports,
             },
         ) {
             Ok(output) => {
@@ -179,6 +235,8 @@ fn main() {
             debug,
             timings,
             target,
+            locked,
+            offline,
             package,
         } => {
             match build_project_with_options(
@@ -188,6 +246,8 @@ fn main() {
                     target,
                     package: package.clone(),
                     debug,
+                    locked,
+                    offline,
                 },
             ) {
                 Ok(output) => {
@@ -251,27 +311,53 @@ fn main() {
             }
             Err(error) => print_error("test", error, json),
         },
-        Command::Caps { path, json } => {
-            let project = path.unwrap_or_else(|| PathBuf::from("."));
-            match project_capabilities(&project) {
-                Ok(capabilities) => {
-                    if json {
-                        println!("{}", json_contract::caps_success(&project, &capabilities));
-                        0
-                    } else {
-                        let payload = json_contract::caps_success(&project, &capabilities);
-                        match json_contract::to_pretty_string(&payload) {
+        Command::Caps {
+            path,
+            json,
+            command,
+        } => match command {
+            Some(CapsCommand::Diff { old, new }) => {
+                if path.is_some() {
+                    print_error(
+                        "caps",
+                        Diagnostic::new("caps", "`caps diff` does not accept PATH"),
+                        json,
+                    )
+                } else {
+                    match diff_caps_files(&old, &new) {
+                        Ok(report) => match json_contract::to_pretty_string(&report) {
                             Ok(output) => {
                                 println!("{output}");
-                                0
+                                if report.escalated { 1 } else { 0 }
                             }
                             Err(error) => print_error("caps", error, false),
-                        }
+                        },
+                        Err(error) => print_error("caps", error, json),
                     }
                 }
-                Err(error) => print_error("caps", error, json),
             }
-        }
+            None => {
+                let project = path.unwrap_or_else(|| PathBuf::from("."));
+                match project_capabilities(&project) {
+                    Ok(capabilities) => {
+                        if json {
+                            println!("{}", json_contract::caps_success(&project, &capabilities));
+                            0
+                        } else {
+                            let payload = json_contract::caps_success(&project, &capabilities);
+                            match json_contract::to_pretty_string(&payload) {
+                                Ok(output) => {
+                                    println!("{output}");
+                                    0
+                                }
+                                Err(error) => print_error("caps", error, false),
+                            }
+                        }
+                    }
+                    Err(error) => print_error("caps", error, json),
+                }
+            }
+        },
         Command::Fmt { path, check, json } => match format_axiom_sources(&path, check) {
             Ok(report) => {
                 let serialization_error = if json {
@@ -341,6 +427,21 @@ fn main() {
                 if report.failed == 0 { 0 } else { 1 }
             }
             Err(error) => print_error("bench", error, json),
+        },
+        Command::MutationReport { input, json } => match mutation_report_from_path(&input) {
+            Ok(report) => {
+                if json {
+                    println!(
+                        "{}",
+                        json_contract::to_pretty_string(&report)
+                            .unwrap_or_else(|_| String::from("{}"))
+                    );
+                } else {
+                    println!("{}", render_mutation_issue_report(&report));
+                }
+                0
+            }
+            Err(error) => print_error("mutation-report", error, json),
         },
         Command::Repl { json } => match run_repl(io::stdin().lock(), io::stdout(), json) {
             Ok(()) => 0,
@@ -418,6 +519,30 @@ fn main() {
     std::process::exit(code);
 }
 
+#[derive(Debug)]
+struct ParseOutput {
+    manifest: String,
+    entry: String,
+    statement_count: usize,
+}
+
+fn parse_project_entry(path: &Path) -> Result<ParseOutput, Diagnostic> {
+    let manifest = load_manifest(path)?;
+    let entry = entry_path(path, &manifest);
+    let source = fs::read_to_string(&entry).map_err(|err| {
+        Diagnostic::new(
+            "parse",
+            format!("failed to read {}: {err}", entry.display()),
+        )
+    })?;
+    let program = parse_program(&source, &entry)?;
+    Ok(ParseOutput {
+        manifest: path.join("axiom.toml").display().to_string(),
+        entry: entry.display().to_string(),
+        statement_count: program.stmts.len(),
+    })
+}
+
 fn build_summary_lines(output: &BuildOutput, timings: bool) -> Vec<String> {
     let mut lines = vec![format!(
         "wrote {} (backend={})",
@@ -443,6 +568,175 @@ fn build_summary_lines(output: &BuildOutput, timings: bool) -> Vec<String> {
         }
     }
     lines
+}
+
+#[derive(Debug, Deserialize)]
+struct CapsPayload {
+    capabilities: Vec<CapsDescriptor>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct CapsDescriptor {
+    name: String,
+    #[serde(default)]
+    enabled: bool,
+    #[serde(default)]
+    allowed: Vec<String>,
+    #[serde(default)]
+    unsafe_unrestricted: bool,
+}
+
+#[derive(Debug, Serialize, PartialEq, Eq)]
+struct CapsDiffReport {
+    schema_version: &'static str,
+    ok: bool,
+    command: &'static str,
+    old: String,
+    new: String,
+    added_capabilities: Vec<String>,
+    removed_capabilities: Vec<String>,
+    escalated_capabilities: Vec<String>,
+    added_scopes: Vec<CapsScopeDiff>,
+    removed_scopes: Vec<CapsScopeDiff>,
+    unsafe_escalations: Vec<String>,
+    unsafe_reductions: Vec<String>,
+    escalated: bool,
+}
+
+#[derive(Debug, Serialize, PartialEq, Eq)]
+struct CapsScopeDiff {
+    capability: String,
+    scopes: Vec<String>,
+}
+
+fn diff_caps_files(old: &Path, new: &Path) -> Result<CapsDiffReport, Diagnostic> {
+    let old_payload = read_caps_payload(old)?;
+    let new_payload = read_caps_payload(new)?;
+    Ok(diff_caps_payloads(
+        &old_payload,
+        &new_payload,
+        old.display().to_string(),
+        new.display().to_string(),
+    ))
+}
+
+fn read_caps_payload(path: &Path) -> Result<CapsPayload, Diagnostic> {
+    let content = fs::read_to_string(path).map_err(|err| {
+        Diagnostic::new("caps", format!("failed to read {}: {err}", path.display()))
+            .with_path(path.display().to_string())
+    })?;
+    serde_json::from_str(&content).map_err(|err| {
+        Diagnostic::new(
+            "caps",
+            format!("failed to parse caps JSON {}: {err}", path.display()),
+        )
+        .with_path(path.display().to_string())
+    })
+}
+
+fn diff_caps_payloads(
+    old: &CapsPayload,
+    new: &CapsPayload,
+    old_path: String,
+    new_path: String,
+) -> CapsDiffReport {
+    let old_caps = caps_by_name(old);
+    let new_caps = caps_by_name(new);
+    let names: BTreeSet<String> = old_caps.keys().chain(new_caps.keys()).cloned().collect();
+
+    let mut added_capabilities = Vec::new();
+    let mut removed_capabilities = Vec::new();
+    let mut escalated_capabilities = Vec::new();
+    let mut added_scopes = Vec::new();
+    let mut removed_scopes = Vec::new();
+    let mut unsafe_escalations = Vec::new();
+    let mut unsafe_reductions = Vec::new();
+
+    for name in names {
+        let old_cap = old_caps.get(&name);
+        let new_cap = new_caps.get(&name);
+        let old_enabled = old_cap.is_some_and(|cap| cap.enabled);
+        let new_enabled = new_cap.is_some_and(|cap| cap.enabled);
+
+        match (old_enabled, new_enabled) {
+            (false, true) => {
+                added_capabilities.push(name.clone());
+                escalated_capabilities.push(name.clone());
+            }
+            (true, false) => removed_capabilities.push(name.clone()),
+            _ => {}
+        }
+
+        if old_enabled && new_enabled {
+            if let Some(diff) = scope_diff(&name, old_cap, new_cap, true) {
+                added_scopes.push(diff);
+            }
+            if let Some(diff) = scope_diff(&name, old_cap, new_cap, false) {
+                removed_scopes.push(diff);
+            }
+        }
+
+        let old_unsafe = old_cap.is_some_and(|cap| cap.unsafe_unrestricted);
+        let new_unsafe = new_cap.is_some_and(|cap| cap.unsafe_unrestricted);
+        match (old_unsafe, new_unsafe) {
+            (false, true) => unsafe_escalations.push(name.clone()),
+            (true, false) => unsafe_reductions.push(name.clone()),
+            _ => {}
+        }
+    }
+
+    let escalated = !escalated_capabilities.is_empty()
+        || !added_scopes.is_empty()
+        || !unsafe_escalations.is_empty();
+
+    CapsDiffReport {
+        schema_version: json_contract::JSON_SCHEMA_VERSION,
+        ok: !escalated,
+        command: "caps diff",
+        old: old_path,
+        new: new_path,
+        added_capabilities,
+        removed_capabilities,
+        escalated_capabilities,
+        added_scopes,
+        removed_scopes,
+        unsafe_escalations,
+        unsafe_reductions,
+        escalated,
+    }
+}
+
+fn caps_by_name(payload: &CapsPayload) -> BTreeMap<String, CapsDescriptor> {
+    payload
+        .capabilities
+        .iter()
+        .map(|capability| (capability.name.clone(), capability.clone()))
+        .collect()
+}
+
+fn scope_diff(
+    name: &str,
+    old: Option<&CapsDescriptor>,
+    new: Option<&CapsDescriptor>,
+    added: bool,
+) -> Option<CapsScopeDiff> {
+    let old_scopes: BTreeSet<String> = old
+        .into_iter()
+        .flat_map(|capability| capability.allowed.iter().cloned())
+        .collect();
+    let new_scopes: BTreeSet<String> = new
+        .into_iter()
+        .flat_map(|capability| capability.allowed.iter().cloned())
+        .collect();
+    let scopes: Vec<String> = if added {
+        new_scopes.difference(&old_scopes).cloned().collect()
+    } else {
+        old_scopes.difference(&new_scopes).cloned().collect()
+    };
+    (!scopes.is_empty()).then(|| CapsScopeDiff {
+        capability: name.to_string(),
+        scopes,
+    })
 }
 
 fn print_error(command: &str, error: Diagnostic, json: bool) -> i32 {
@@ -773,6 +1067,258 @@ fn run_benchmarks(
     })
 }
 
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+struct MutationIssueReport {
+    schema_version: &'static str,
+    survivor_count: usize,
+    groups: Vec<MutationSurvivorGroup>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+struct MutationSurvivorGroup {
+    file: String,
+    function: String,
+    recommended_fixture: String,
+    survivors: Vec<MutationSurvivor>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+struct MutationSurvivor {
+    id: String,
+    mutator: String,
+    line: Option<u64>,
+    description: String,
+}
+
+fn mutation_report_from_path(path: &Path) -> Result<MutationIssueReport, Diagnostic> {
+    let source = fs::read_to_string(path).map_err(|err| {
+        Diagnostic::new(
+            "mutation-report",
+            format!("failed to read {}: {err}", path.display()),
+        )
+        .with_path(path.display().to_string())
+    })?;
+    let base_dir = path.parent();
+    mutation_report_from_json_str_with_base_dir(&source, base_dir)
+}
+
+fn mutation_report_from_json_str(source: &str) -> Result<MutationIssueReport, Diagnostic> {
+    mutation_report_from_json_str_with_base_dir(source, None)
+}
+
+fn mutation_report_from_json_str_with_base_dir(
+    source: &str,
+    base_dir: Option<&Path>,
+) -> Result<MutationIssueReport, Diagnostic> {
+    let value: serde_json::Value = serde_json::from_str(source)
+        .map_err(|err| Diagnostic::new("mutation-report", format!("invalid JSON: {err}")))?;
+    let rows = mutation_rows(&value).ok_or_else(|| {
+        Diagnostic::new(
+            "mutation-report",
+            "expected a JSON array or an object containing mutants/survivors/results",
+        )
+    })?;
+
+    let mut survivors = Vec::new();
+    for row in rows {
+        if is_survivor(row) {
+            let file = string_field(row, &["file", "source_file", "source", "path"])
+                .unwrap_or_else(|| String::from("<unknown>"));
+            let function = string_field(row, &["function", "function_name", "fn", "symbol"])
+                .unwrap_or_else(|| {
+                    infer_function_from_file_and_line(
+                        &file,
+                        number_field(row, &["line", "start_line"]),
+                        base_dir,
+                    )
+                });
+            survivors.push((
+                file,
+                function,
+                MutationSurvivor {
+                    id: string_field(row, &["id", "name", "mutant", "mutation_id"])
+                        .unwrap_or_else(|| stable_survivor_id(row)),
+                    mutator: string_field(row, &["mutator", "operator", "mutation", "kind"])
+                        .unwrap_or_else(|| String::from("unknown")),
+                    line: number_field(row, &["line", "start_line"]),
+                    description: string_field(
+                        row,
+                        &["description", "replacement", "diff", "summary"],
+                    )
+                    .unwrap_or_else(|| String::from("surviving mutation")),
+                },
+            ));
+        }
+    }
+
+    survivors.sort_by(|a, b| (&a.0, &a.1, a.2.line, &a.2.id).cmp(&(&b.0, &b.1, b.2.line, &b.2.id)));
+    let mut groups: Vec<MutationSurvivorGroup> = Vec::new();
+    for (file, function, survivor) in survivors {
+        if let Some(group) = groups
+            .last_mut()
+            .filter(|g| g.file == file && g.function == function)
+        {
+            group.survivors.push(survivor);
+        } else {
+            groups.push(MutationSurvivorGroup {
+                recommended_fixture: recommended_fixture_name(&file, &function),
+                file,
+                function,
+                survivors: vec![survivor],
+            });
+        }
+    }
+    let survivor_count = groups.iter().map(|group| group.survivors.len()).sum();
+    Ok(MutationIssueReport {
+        schema_version: "axiom.stage1.mutation-issue-report.v1",
+        survivor_count,
+        groups,
+    })
+}
+
+fn mutation_rows(value: &serde_json::Value) -> Option<Vec<&serde_json::Value>> {
+    if let Some(rows) = value.as_array() {
+        return Some(rows.iter().collect());
+    }
+    for key in ["survivors", "mutants", "results", "mutations"] {
+        if let Some(rows) = value.get(key).and_then(|v| v.as_array()) {
+            return Some(rows.iter().collect());
+        }
+    }
+    None
+}
+
+fn is_survivor(value: &serde_json::Value) -> bool {
+    for key in ["status", "outcome", "result"] {
+        if let Some(status) = value.get(key).and_then(|v| v.as_str()) {
+            let normalized = status.to_ascii_lowercase().replace(['_', '-'], " ");
+            return normalized == "survived" || normalized == "survivor" || normalized == "live";
+        }
+    }
+    value
+        .get("survived")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false)
+}
+
+fn string_field(value: &serde_json::Value, keys: &[&str]) -> Option<String> {
+    keys.iter()
+        .find_map(|key| value.get(*key)?.as_str().map(ToString::to_string))
+}
+
+fn number_field(value: &serde_json::Value, keys: &[&str]) -> Option<u64> {
+    keys.iter().find_map(|key| value.get(*key)?.as_u64())
+}
+
+fn stable_survivor_id(value: &serde_json::Value) -> String {
+    let encoded = serde_json::to_string(value).unwrap_or_default();
+    format!("survivor-{:016x}", stable_hash(&encoded))
+}
+
+fn stable_hash(input: &str) -> u64 {
+    input.bytes().fold(0xcbf29ce484222325, |hash, byte| {
+        (hash ^ u64::from(byte)).wrapping_mul(0x100000001b3)
+    })
+}
+
+fn infer_function_from_file_and_line(
+    file: &str,
+    line: Option<u64>,
+    base_dir: Option<&Path>,
+) -> String {
+    if let Some(line) = line {
+        let source_path = match (Path::new(file).is_absolute(), base_dir) {
+            (true, _) | (_, None) => PathBuf::from(file),
+            (false, Some(base_dir)) => base_dir.join(file),
+        };
+        if let Ok(source) = fs::read_to_string(source_path) {
+            let mut current_function = None;
+            for (index, source_line) in source.lines().enumerate() {
+                let source_line_number = u64::try_from(index).unwrap_or(u64::MAX) + 1;
+                if source_line_number > line {
+                    break;
+                }
+                if let Some(function) = function_name_from_source_line(source_line) {
+                    current_function = Some(function);
+                }
+            }
+            if let Some(function) = current_function {
+                return function;
+            }
+        }
+    }
+
+    Path::new(file)
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("module")
+        .to_string()
+}
+
+fn function_name_from_source_line(line: &str) -> Option<String> {
+    let trimmed = line.trim_start();
+    let without_visibility = trimmed.strip_prefix("pub ").unwrap_or(trimmed);
+    let without_async = without_visibility
+        .strip_prefix("async ")
+        .unwrap_or(without_visibility);
+    let signature = without_async.strip_prefix("fn ")?;
+    let name: String = signature
+        .chars()
+        .take_while(|c| c.is_ascii_alphanumeric() || *c == '_')
+        .collect();
+    if name.is_empty() { None } else { Some(name) }
+}
+
+fn recommended_fixture_name(file: &str, function: &str) -> String {
+    let stem = Path::new(file)
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("source");
+    let raw = format!("mutation_{}_{}_survivors", stem, function);
+    raw.chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() {
+                c.to_ascii_lowercase()
+            } else {
+                '_'
+            }
+        })
+        .collect::<String>()
+        .split('_')
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join("_")
+}
+
+fn render_mutation_issue_report(report: &MutationIssueReport) -> String {
+    let mut out = String::new();
+    out.push_str("## Mutation survivor report\n\n");
+    out.push_str(&format!("Surviving mutants: {}\n\n", report.survivor_count));
+    if report.groups.is_empty() {
+        out.push_str("No surviving mutants found.\n");
+        return out;
+    }
+    for group in &report.groups {
+        out.push_str(&format!("### `{}` :: `{}`\n\n", group.file, group.function));
+        out.push_str(&format!(
+            "Recommended fixture: `{}`\n\n",
+            group.recommended_fixture
+        ));
+        for survivor in &group.survivors {
+            let line = survivor
+                .line
+                .map(|line| format!(":{line}"))
+                .unwrap_or_default();
+            out.push_str(&format!(
+                "- `{}`{} `{}` — {}\n",
+                survivor.id, line, survivor.mutator, survivor.description
+            ));
+        }
+        out.push('\n');
+    }
+    out
+}
+
 fn run_repl<R: BufRead, W: Write>(
     mut input: R,
     mut output: W,
@@ -931,6 +1477,8 @@ mod tests {
         assert!(build_help.contains(
             "Build a stage1 package through the current generated-Rust backend path into a native or WASM artifact"
         ));
+        assert!(build_help.contains("--locked"));
+        assert!(build_help.contains("--offline"));
         assert!(!build_help.contains("direct-native"));
         assert!(help.contains("Discover, build, and run package test entrypoints"));
         assert!(help.contains("Inspect manifest capability requirements"));
@@ -941,6 +1489,20 @@ mod tests {
         assert!(help.contains("Pack, sign, and publish a stage1 package"));
         assert!(help.contains("Build a static package-registry index"));
         assert!(help.contains("Validate a static package-registry index JSON file"));
+    }
+
+    #[test]
+    fn build_accepts_locked_offline_flags() {
+        let cli = Cli::parse_from(["axiomc", "build", ".", "--locked", "--offline"]);
+        match cli.command {
+            Command::Build {
+                locked, offline, ..
+            } => {
+                assert!(locked);
+                assert!(offline);
+            }
+            other => panic!("expected build command, got {other:?}"),
+        }
     }
 
     #[test]
@@ -958,9 +1520,54 @@ mod tests {
         );
     }
 
+    #[test]
+    fn caps_diff_cli_parses_old_and_new_payload_paths() {
+        let cli = Cli::try_parse_from(["axiomc", "caps", "diff", "old-caps.json", "new-caps.json"])
+            .expect("parse caps diff command");
+
+        match cli.command {
+            Command::Caps {
+                command: Some(CapsCommand::Diff { old, new }),
+                ..
+            } => {
+                assert_eq!(old, PathBuf::from("old-caps.json"));
+                assert_eq!(new, PathBuf::from("new-caps.json"));
+            }
+            other => panic!("expected caps diff command, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn caps_diff_cli_retains_path_for_runtime_rejection() {
+        let cli = Cli::try_parse_from([
+            "axiomc",
+            "caps",
+            "my-project",
+            "diff",
+            "old-caps.json",
+            "new-caps.json",
+        ])
+        .expect("parse caps diff command with path");
+
+        match cli.command {
+            Command::Caps {
+                path,
+                command: Some(CapsCommand::Diff { old, new }),
+                ..
+            } => {
+                assert_eq!(path, Some(PathBuf::from("my-project")));
+                assert_eq!(old, PathBuf::from("old-caps.json"));
+                assert_eq!(new, PathBuf::from("new-caps.json"));
+            }
+            other => panic!("expected caps diff command with path, got {other:?}"),
+        }
+    }
+
     fn build_output(debug_map: Option<String>) -> BuildOutput {
         BuildOutput {
             backend: NativeBackendKind::GeneratedRust,
+            locked: false,
+            offline: false,
             manifest: String::from("axiom.toml"),
             entry: String::from("src/main.ax"),
             binary: String::from("dist/app"),
@@ -969,11 +1576,53 @@ mod tests {
             statement_count: 1,
             target: None,
             debug: true,
+            cache_key: axiomc::project::BuildCacheMetadata {
+                version: 1,
+                compiler: String::from("stage1"),
+                target: None,
+                debug: true,
+                manifest_hash: String::from("manifest-hash"),
+                lockfile_hash: String::from("lockfile-hash"),
+                generated_rust_hash: String::from("rust-hash"),
+                sources: Vec::new(),
+            },
+            metadata: axiomc::project::BuildMetadata {
+                target: None,
+                debug: true,
+                lockfile: String::from("axiom.lock"),
+                lockfile_hash: String::from("lock-hash"),
+                source_hash: String::from("source-hash"),
+            },
             cache_hits: 0,
             cache_misses: 1,
             duration_ms: 1,
             packages: Vec::new(),
         }
+    }
+
+    #[test]
+    fn build_json_includes_target_debug_and_cache_key_metadata() {
+        let payload = json_contract::build_success(
+            Path::new("stage1/examples/hello"),
+            &build_output(Some(String::from("target/main.debug-map.json"))),
+        );
+
+        assert_eq!(payload["target"], serde_json::json!(null));
+        assert_eq!(payload["debug"], serde_json::json!(true));
+        assert_eq!(payload["metadata"]["target"], serde_json::json!(null));
+        assert_eq!(payload["metadata"]["debug"], serde_json::json!(true));
+        assert_eq!(
+            payload["metadata"]["lockfile"],
+            serde_json::json!("axiom.lock")
+        );
+        assert_eq!(
+            payload["metadata"]["lockfile_hash"],
+            serde_json::json!("lock-hash")
+        );
+        assert_eq!(
+            payload["metadata"]["source_hash"],
+            serde_json::json!("source-hash")
+        );
     }
 
     #[test]
@@ -996,6 +1645,113 @@ mod tests {
             build_summary_lines(&build_output(None), false),
             vec![String::from("wrote dist/app (backend=generated-rust)")]
         );
+    }
+
+    #[test]
+    fn caps_diff_reports_added_removed_and_escalated_capabilities() {
+        let old = CapsPayload {
+            capabilities: vec![
+                CapsDescriptor {
+                    name: String::from("fs"),
+                    enabled: true,
+                    allowed: Vec::new(),
+                    unsafe_unrestricted: false,
+                },
+                CapsDescriptor {
+                    name: String::from("env"),
+                    enabled: true,
+                    allowed: vec![String::from("AXIOM_SAFE")],
+                    unsafe_unrestricted: false,
+                },
+                CapsDescriptor {
+                    name: String::from("process"),
+                    enabled: true,
+                    allowed: Vec::new(),
+                    unsafe_unrestricted: false,
+                },
+            ],
+        };
+        let new = CapsPayload {
+            capabilities: vec![
+                CapsDescriptor {
+                    name: String::from("fs"),
+                    enabled: false,
+                    allowed: Vec::new(),
+                    unsafe_unrestricted: false,
+                },
+                CapsDescriptor {
+                    name: String::from("net"),
+                    enabled: true,
+                    allowed: Vec::new(),
+                    unsafe_unrestricted: false,
+                },
+                CapsDescriptor {
+                    name: String::from("env"),
+                    enabled: true,
+                    allowed: vec![String::from("AXIOM_SECRET"), String::from("AXIOM_SAFE")],
+                    unsafe_unrestricted: true,
+                },
+                CapsDescriptor {
+                    name: String::from("process"),
+                    enabled: true,
+                    allowed: Vec::new(),
+                    unsafe_unrestricted: false,
+                },
+            ],
+        };
+
+        let report = diff_caps_payloads(
+            &old,
+            &new,
+            String::from("old.json"),
+            String::from("new.json"),
+        );
+
+        assert_eq!(report.added_capabilities, vec![String::from("net")]);
+        assert_eq!(report.removed_capabilities, vec![String::from("fs")]);
+        assert_eq!(report.escalated_capabilities, vec![String::from("net")]);
+        assert_eq!(
+            report.added_scopes,
+            vec![CapsScopeDiff {
+                capability: String::from("env"),
+                scopes: vec![String::from("AXIOM_SECRET")],
+            }]
+        );
+        assert_eq!(report.unsafe_escalations, vec![String::from("env")]);
+        assert!(report.escalated);
+        assert!(!report.ok);
+    }
+
+    #[test]
+    fn caps_diff_allows_reductions_without_escalation() {
+        let old = CapsPayload {
+            capabilities: vec![CapsDescriptor {
+                name: String::from("env"),
+                enabled: true,
+                allowed: vec![String::from("AXIOM_SECRET"), String::from("AXIOM_SAFE")],
+                unsafe_unrestricted: true,
+            }],
+        };
+        let new = CapsPayload {
+            capabilities: vec![CapsDescriptor {
+                name: String::from("env"),
+                enabled: true,
+                allowed: vec![String::from("AXIOM_SAFE")],
+                unsafe_unrestricted: false,
+            }],
+        };
+
+        let report = diff_caps_payloads(
+            &old,
+            &new,
+            String::from("old.json"),
+            String::from("new.json"),
+        );
+
+        assert_eq!(report.removed_scopes.len(), 1);
+        assert_eq!(report.unsafe_reductions, vec![String::from("env")]);
+        assert!(!report.escalated);
+        assert!(report.ok);
     }
 
     #[test]
@@ -1071,6 +1827,96 @@ mod tests {
         assert_eq!(items.len(), 1);
         assert_eq!(items[0].signature, "pub fn inc(value: int): int {");
         assert_eq!(items[0].docs, vec![String::from("Adds one.")]);
+    }
+
+    #[test]
+    fn mutation_report_groups_survivors_stably() {
+        let source = r#"{
+          "mutants": [
+            {"id":"m2","status":"killed","file":"src/main.ax","function":"score","line":8,"mutator":"replace + with -"},
+            {"id":"m1","status":"survived","file":"src/main.ax","function":"score","line":7,"mutator":"replace > with >=","description":"boundary branch survived"},
+            {"id":"m3","survived":true,"file":"src/main.ax","function":"score","line":9,"operator":"remove call"},
+            {"id":"m4","outcome":"survived","source_file":"src/lib.ax","fn":"parse","start_line":3,"kind":"literal replacement"}
+          ]
+        }"#;
+
+        let report = mutation_report_from_json_str(source).expect("mutation report");
+
+        assert_eq!(report.survivor_count, 3);
+        assert_eq!(report.groups.len(), 2);
+        assert_eq!(report.groups[0].file, "src/lib.ax");
+        assert_eq!(
+            report.groups[0].recommended_fixture,
+            "mutation_lib_parse_survivors"
+        );
+        assert_eq!(report.groups[1].file, "src/main.ax");
+        assert_eq!(report.groups[1].survivors.len(), 2);
+        assert_eq!(report.groups[1].survivors[0].id, "m1");
+    }
+
+    #[test]
+    fn mutation_report_infers_function_from_source_line() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let source_path = dir.path().join("main.ax");
+        fs::write(
+            &source_path,
+            "fn first(): int {\nreturn 1\n}\n\npub fn second(value: int): int {\nreturn value + 1\n}\n",
+        )
+        .expect("write source");
+        let json = format!(
+            r#"[
+                {{"id":"m1","status":"survived","file":"{}","line":2}},
+                {{"id":"m2","status":"survived","file":"{}","line":6}}
+            ]"#,
+            source_path.display(),
+            source_path.display()
+        );
+
+        let report = mutation_report_from_json_str(&json).expect("mutation report");
+
+        assert_eq!(report.groups.len(), 2);
+        assert_eq!(report.groups[0].function, "first");
+        assert_eq!(report.groups[1].function, "second");
+    }
+
+    #[test]
+    fn mutation_report_infers_function_from_relative_source_file() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        fs::create_dir_all(dir.path().join("src")).expect("create src dir");
+        fs::write(
+            dir.path().join("src/main.ax"),
+            "fn first(): int {\nreturn 1\n}\n\nfn second(): int {\nreturn 2\n}\n",
+        )
+        .expect("write source");
+        let report_path = dir.path().join("mutants.json");
+        fs::write(
+            &report_path,
+            r#"[
+                {"id":"m1","status":"survived","file":"src/main.ax","line":2},
+                {"id":"m2","status":"survived","file":"src/main.ax","line":6}
+            ]"#,
+        )
+        .expect("write report");
+
+        let report = mutation_report_from_path(&report_path).expect("mutation report");
+
+        assert_eq!(report.groups.len(), 2);
+        assert_eq!(report.groups[0].function, "first");
+        assert_eq!(report.groups[1].function, "second");
+    }
+
+    #[test]
+    fn mutation_report_markdown_is_issue_comment_ready() {
+        let report = mutation_report_from_json_str(
+            r#"[{"id":"m1","status":"survived","file":"src/main.ax","function":"main","mutator":"negate condition","description":"condition still passes"}]"#,
+        )
+        .expect("mutation report");
+
+        let markdown = render_mutation_issue_report(&report);
+
+        assert!(markdown.contains("## Mutation survivor report"));
+        assert!(markdown.contains("Recommended fixture: `mutation_main_main_survivors`"));
+        assert!(markdown.contains("- `m1` `negate condition` — condition still passes"));
     }
 
     #[test]

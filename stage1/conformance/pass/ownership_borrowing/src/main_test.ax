@@ -1,0 +1,35 @@
+import "core/windows.ax"
+
+struct LocalView {
+view: &[int]
+}
+
+struct Pair {
+name: string
+values: [int]
+}
+
+fn local_tail(values: &[int]): &[int] {
+return values[1:]
+}
+
+fn wrap(values: &[int]): LocalView {
+return LocalView { view: local_tail(values) }
+}
+
+fn measure(values: &[int]): int {
+return len(values)
+}
+
+let numbers: [int] = [3, 7, 9, 11]
+let direct: &[int] = core_tail(numbers[:])
+print first(direct)
+let local: LocalView = wrap(numbers[:])
+print last(local.view)
+print measure(numbers[:])
+print core_len(numbers[:])
+
+let pair: Pair = Pair { name: "left", values: [5, 6, 7] }
+let moved_values: [int] = pair.values
+print len(moved_values)
+print pair.name

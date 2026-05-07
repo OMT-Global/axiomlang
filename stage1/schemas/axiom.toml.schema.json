@@ -1,0 +1,174 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://axiom.omt.global/schemas/axiom.toml.schema.json",
+  "title": "Axiom stage1 package manifest",
+  "description": "Editor metadata for axiom.toml after TOML-to-JSON decoding.",
+  "type": "object",
+  "properties": {
+    "package": {
+      "type": "object",
+      "required": [
+        "name",
+        "version"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "additionalProperties": false
+    },
+    "workspace": {
+      "type": "object",
+      "required": [
+        "members"
+      ],
+      "properties": {
+        "members": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true
+        }
+      },
+      "additionalProperties": false
+    },
+    "build": {
+      "type": "object",
+      "properties": {
+        "entry": {
+          "type": "string",
+          "default": "src/main.ax"
+        },
+        "out_dir": {
+          "type": "string",
+          "default": "dist"
+        }
+      },
+      "additionalProperties": false
+    },
+    "dependencies": {
+      "type": "object",
+      "additionalProperties": {
+        "oneOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "object",
+            "required": [
+              "path"
+            ],
+            "properties": {
+              "path": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "additionalProperties": false
+          }
+        ]
+      }
+    },
+    "tests": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "name",
+          "entry"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "entry": {
+            "type": "string",
+            "minLength": 1
+          },
+          "stdout": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "capabilities": {
+      "type": "object",
+      "properties": {
+        "fs": {
+          "type": "boolean",
+          "default": false
+        },
+        "fs:write": {
+          "type": "boolean",
+          "default": false
+        },
+        "fs_root": {
+          "type": "string"
+        },
+        "net": {
+          "type": "boolean",
+          "default": false
+        },
+        "process": {
+          "type": "boolean",
+          "default": false
+        },
+        "env": {
+          "oneOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "uniqueItems": true
+            }
+          ],
+          "default": false
+        },
+        "env_unrestricted": {
+          "type": "boolean",
+          "default": false
+        },
+        "clock": {
+          "type": "boolean",
+          "default": false
+        },
+        "crypto": {
+          "type": "boolean",
+          "default": false
+        },
+        "ffi": {
+          "type": "boolean",
+          "default": false
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "anyOf": [
+    {
+      "required": [
+        "package"
+      ]
+    },
+    {
+      "required": [
+        "workspace"
+      ]
+    }
+  ],
+  "additionalProperties": false
+}
