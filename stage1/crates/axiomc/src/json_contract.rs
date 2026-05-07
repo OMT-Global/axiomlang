@@ -17,6 +17,7 @@ pub fn check_success(project: &Path, output: &CheckOutput) -> Value {
         "entry": output.entry,
         "statement_count": output.statement_count,
         "capabilities": output.capabilities,
+        "exports": output.exports,
         "warnings": output.warnings,
         "packages": output.packages,
     })

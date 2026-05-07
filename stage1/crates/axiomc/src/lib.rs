@@ -2392,6 +2392,7 @@ let bad: u8 = byte.wrapping_add(1u16)
             &project,
             &CheckOptions {
                 package: Some(String::from("workspace-app")),
+                include_exports: false,
             },
         )
         .expect("check selected workspace package");
@@ -8601,6 +8602,95 @@ print 0
         assert_eq!(payload["command"], "check");
         assert_eq!(payload["ok"], true);
         assert!(payload["packages"].is_array());
+    }
+
+    #[test]
+    fn check_json_can_include_package_public_api_exports() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("public-api-workspace");
+        let core = project.join("deps/core");
+        create_project(&project, Some("public-api-app")).expect("create root project");
+        create_project(&core, Some("public-api-core")).expect("create core project");
+
+        fs::write(
+            project.join("axiom.toml"),
+            "[package]\nname = \"public-api-app\"\nversion = \"0.1.0\"\n\n[workspace]\nmembers = [\"deps/core\"]\n\n[dependencies]\ncore = { path = \"deps/core\" }\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n",
+        )
+        .expect("write root manifest");
+        fs::write(
+            project.join("src/main.ax"),
+            "import \"core/main.ax\"\n\npub fn root_answer(): int {\nreturn answer()\n}\n\nprint root_answer()\n",
+        )
+        .expect("write root source");
+        fs::write(
+            core.join("src/main.ax"),
+            "pub const LIMIT: int = 7\npub type Id = int\n\npub struct Widget {\nlabel: string\n}\n\npub enum Status {\nReady\n}\n\npub fn answer(): int {\nreturn LIMIT\n}\n\npub fn use_map(values: {string: int}): {string: int} {\nreturn values\n}\n\nimpl Widget {\npub fn label(self): string {\nreturn self.label\n}\n}\n",
+        )
+        .expect("write core source");
+
+        let core_manifest = load_manifest(&core).expect("load core manifest");
+        fs::write(
+            core.join("axiom.lock"),
+            render_lockfile_for_project(&core, &core_manifest).expect("core lockfile"),
+        )
+        .expect("write core lockfile");
+        let root_manifest = load_manifest(&project).expect("load root manifest");
+        fs::write(
+            project.join("axiom.lock"),
+            render_lockfile_for_project(&project, &root_manifest).expect("root lockfile"),
+        )
+        .expect("write root lockfile");
+
+        let output = check_project_with_options(
+            &project,
+            &CheckOptions {
+                package: None,
+                include_exports: true,
+            },
+        )
+        .expect("check public api workspace");
+        let core_package = output
+            .packages
+            .iter()
+            .find(|package| package.package_root.ends_with("deps/core"))
+            .expect("core package exports");
+        let exported = core_package
+            .exports
+            .iter()
+            .map(|export| (export.kind.as_str(), export.name.as_str()))
+            .collect::<std::collections::BTreeSet<_>>();
+        assert!(exported.contains(&("const", "LIMIT")));
+        assert!(exported.contains(&("type_alias", "Id")));
+        assert!(exported.contains(&("struct", "Widget")));
+        assert!(exported.contains(&("enum", "Status")));
+        assert!(exported.contains(&("function", "answer")));
+        assert!(exported.contains(&("function", "label")));
+        assert!(exported.contains(&("function", "use_map")));
+        let signatures = core_package
+            .exports
+            .iter()
+            .map(|export| (export.name.as_str(), export.signature.as_deref()))
+            .collect::<std::collections::BTreeMap<_, _>>();
+        assert_eq!(
+            signatures.get("label").copied().flatten(),
+            Some("fn Widget.label(self): string")
+        );
+        assert_eq!(
+            signatures.get("use_map").copied().flatten(),
+            Some("fn use_map(values: {string: int}): {string: int}")
+        );
+
+        let payload = json_contract::check_success(&project, &output);
+        assert!(payload["exports"].is_array());
+        let root_exports = payload["exports"]
+            .as_array()
+            .expect("top-level root exports array");
+        assert!(root_exports.iter().any(|export| {
+            export["kind"] == "function"
+                && export["name"] == "root_answer"
+                && export["signature"] == "fn root_answer(): int"
+        }));
+        assert!(payload["packages"][1]["exports"].is_array());
     }
 
     #[test]
