@@ -5724,7 +5724,7 @@ print serve_once("127.0.0.1:18080", "hello")
         let output =
             run_project_tests(&conformance_fixture()).expect("run stage1 conformance corpus");
         assert_eq!(output.cases.len(), 60);
-        assert_eq!(output.passed, 59);
+        assert_eq!(output.passed, 60);
         let failures: Vec<_> = output
             .cases
             .iter()
