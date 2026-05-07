@@ -55,6 +55,19 @@ pub struct TestTarget {
     pub entry: String,
     pub stdout: Option<String>,
     pub kind: TestKind,
+    pub expected_error: Option<ExpectedDiagnostic>,
+    pub capabilities: Vec<CapabilityKind>,
+    pub package: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ExpectedDiagnostic {
+    pub kind: String,
+    pub code: Option<String>,
+    pub message: String,
+    pub path: String,
+    pub line: usize,
+    pub column: usize,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq, PartialOrd, Ord, Default)]
@@ -90,7 +103,7 @@ pub struct CapabilityConfig {
     pub rationale: BTreeMap<String, String>,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
 #[serde(rename_all = "snake_case")]
 pub enum CapabilityKind {
     Fs,
@@ -177,6 +190,9 @@ struct RawTestTarget {
     entry: Option<String>,
     stdout: Option<String>,
     kind: Option<String>,
+    expected_error: Option<ExpectedDiagnostic>,
+    capabilities: Option<Vec<CapabilityKind>>,
+    package: Option<String>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -708,14 +724,58 @@ fn normalize_tests(
         }
         let entry = required_field(raw_test.entry, path, &format!("{field_prefix}.entry"))?;
         validate_relative_path(path, &format!("{field_prefix}.entry"), &entry)?;
+        let package =
+            normalize_optional_name(path, &format!("{field_prefix}.package"), raw_test.package)?;
+        let capabilities = normalize_test_capabilities(
+            path,
+            &format!("{field_prefix}.capabilities"),
+            raw_test.capabilities.unwrap_or_default(),
+        )?;
         tests.push(TestTarget {
             name,
             entry,
             stdout: raw_test.stdout,
             kind: normalize_test_kind(raw_test.kind, path, &format!("{field_prefix}.kind"))?,
+            expected_error: raw_test.expected_error,
+            capabilities,
+            package,
         });
     }
     Ok(tests)
+}
+
+fn normalize_optional_name(
+    path: &Path,
+    field_name: &str,
+    value: Option<String>,
+) -> Result<Option<String>, Diagnostic> {
+    let Some(value) = value else {
+        return Ok(None);
+    };
+    required_field(Some(value), path, field_name).map(Some)
+}
+
+fn normalize_test_capabilities(
+    path: &Path,
+    field_name: &str,
+    values: Vec<CapabilityKind>,
+) -> Result<Vec<CapabilityKind>, Diagnostic> {
+    let mut capabilities = Vec::new();
+    let mut seen = std::collections::BTreeSet::new();
+    for capability in values {
+        if !seen.insert(capability) {
+            return Err(Diagnostic::new(
+                "manifest",
+                format!(
+                    "duplicate capability {:?} in {field_name}",
+                    capability.name()
+                ),
+            )
+            .with_path(path.display().to_string()));
+        }
+        capabilities.push(capability);
+    }
+    Ok(capabilities)
 }
 
 fn normalize_test_kind(

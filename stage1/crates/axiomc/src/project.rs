@@ -589,6 +589,9 @@ fn collect_discovered_tests(
             entry: relative.display().to_string(),
             stdout,
             kind,
+            expected_error: None,
+            capabilities: Vec::new(),
+            package: None,
         });
     }
     Ok(())
@@ -5087,12 +5090,18 @@ mod tests {
                 entry: "src/unit_test.ax".to_string(),
                 stdout: None,
                 kind: TestKind::Unit,
+                expected_error: None,
+                capabilities: Vec::new(),
+                package: None,
             },
             crate::manifest::TestTarget {
                 name: "bench".to_string(),
                 entry: "src/demo_bench.ax".to_string(),
                 stdout: None,
                 kind: TestKind::Benchmark,
+                expected_error: None,
+                capabilities: Vec::new(),
+                package: None,
             },
         ];
 
@@ -5140,6 +5149,9 @@ mod tests {
             entry: "src/manifest_bench.ax".to_string(),
             stdout: None,
             kind: TestKind::Benchmark,
+            expected_error: None,
+            capabilities: Vec::new(),
+            package: None,
         });
 
         let tests = collect_test_targets(root, &manifest, None, true)

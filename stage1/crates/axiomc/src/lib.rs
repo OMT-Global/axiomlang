@@ -5306,6 +5306,9 @@ print serve_once("127.0.0.1:18080", "hello")
                 entry: String::from("src/math_test.ax"),
                 stdout: Some(String::from("42\n")),
                 kind: TestKind::Unit,
+                expected_error: None,
+                capabilities: Vec::new(),
+                package: None,
             }]
         );
     }
