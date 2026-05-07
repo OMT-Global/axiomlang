@@ -1,0 +1,7 @@
+struct InternalBuffer {
+capacity: int
+}
+
+pub fn allocate(size: int): InternalBuffer {
+return InternalBuffer { capacity: size }
+}

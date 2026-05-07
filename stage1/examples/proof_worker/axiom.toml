@@ -14,3 +14,4 @@ env = ["AXIOM_STAGE1_WORKER"]
 clock = true
 crypto = false
 ffi = false
+async = true

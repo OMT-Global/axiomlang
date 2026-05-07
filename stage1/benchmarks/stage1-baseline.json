@@ -1,0 +1,141 @@
+{
+  "schema_version": "axiom.stage1.benchmark_harness.v1",
+  "rounds": 3,
+  "commands": [
+    "parse",
+    "check",
+    "build",
+    "run"
+  ],
+  "workloads": {
+    "hello": {
+      "project": "stage1/examples/hello",
+      "timings": {
+        "parse": {
+          "samples_ms": [
+            52.016,
+            51.565,
+            55.485
+          ],
+          "median_ms": 52.016,
+          "statement_count": 6
+        },
+        "check": {
+          "samples_ms": [
+            52.419,
+            50.954,
+            55.787
+          ],
+          "median_ms": 52.419,
+          "statement_count": 11
+        },
+        "build": {
+          "samples_ms": [
+            360.943,
+            87.011,
+            82.25
+          ],
+          "median_ms": 87.011,
+          "statement_count": 11,
+          "compiler_duration_ms": 26,
+          "cache_hits": 1,
+          "cache_misses": 0
+        },
+        "run": {
+          "samples_ms": [
+            78.167,
+            77.71,
+            102.002
+          ],
+          "median_ms": 78.167
+        }
+      }
+    },
+    "capabilities": {
+      "project": "stage1/examples/capabilities",
+      "timings": {
+        "parse": {
+          "samples_ms": [
+            49.498,
+            49.716,
+            49.222
+          ],
+          "median_ms": 49.498,
+          "statement_count": 6
+        },
+        "check": {
+          "samples_ms": [
+            51.55,
+            50.136,
+            50.326
+          ],
+          "median_ms": 50.326,
+          "statement_count": 12
+        },
+        "build": {
+          "samples_ms": [
+            500.435,
+            78.767,
+            77.48
+          ],
+          "median_ms": 78.767,
+          "statement_count": 12,
+          "compiler_duration_ms": 25,
+          "cache_hits": 1,
+          "cache_misses": 0
+        },
+        "run": {
+          "samples_ms": [
+            109.178,
+            78.001,
+            78.825
+          ],
+          "median_ms": 78.825
+        }
+      }
+    },
+    "modules": {
+      "project": "stage1/examples/modules",
+      "timings": {
+        "parse": {
+          "samples_ms": [
+            58.304,
+            50.61,
+            50.946
+          ],
+          "median_ms": 50.946,
+          "statement_count": 5
+        },
+        "check": {
+          "samples_ms": [
+            83.776,
+            59.501,
+            66.482
+          ],
+          "median_ms": 66.482,
+          "statement_count": 12
+        },
+        "build": {
+          "samples_ms": [
+            361.702,
+            84.498,
+            87.064
+          ],
+          "median_ms": 87.064,
+          "statement_count": 12,
+          "compiler_duration_ms": 26,
+          "cache_hits": 1,
+          "cache_misses": 0
+        },
+        "run": {
+          "samples_ms": [
+            80.631,
+            85.865,
+            82.18
+          ],
+          "median_ms": 82.18
+        }
+      }
+    }
+  }
+}

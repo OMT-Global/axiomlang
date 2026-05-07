@@ -1,0 +1,11 @@
+enum Snapshot {
+Data(&[int])
+}
+
+fn capture(input: &[int]): Snapshot {
+let local: [int] = [4, 5, 6]
+return Data(local[:])
+}
+
+let values: [int] = [1, 2, 3]
+let s: Snapshot = capture(values[:])

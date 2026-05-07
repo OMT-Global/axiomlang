@@ -1,0 +1,7 @@
+fn wrap_some(input: &[int]): Option<&[int]> {
+let local: [int] = [1, 2, 3]
+return Some(local[:])
+}
+
+let values: [int] = [10, 20, 30]
+let opt: Option<&[int]> = wrap_some(values[:])

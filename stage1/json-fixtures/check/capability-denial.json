@@ -1,0 +1,12 @@
+{
+  "schema_version": "axiom.stage1.v1",
+  "ok": false,
+  "command": "check",
+  "error": {
+    "kind": "capability",
+    "message": "call to \"clock_now_ms\" requires [capabilities].clock = true",
+    "path": "/workspace/axiom/stage1/conformance/fail/stdlib_clock_without_capability/src/main.ax",
+    "line": 1,
+    "column": 11
+  }
+}

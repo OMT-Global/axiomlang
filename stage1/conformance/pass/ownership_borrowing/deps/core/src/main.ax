@@ -1,0 +1,3 @@
+import "windows.ax"
+
+print 0

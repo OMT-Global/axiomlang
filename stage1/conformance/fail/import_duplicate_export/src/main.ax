@@ -1,0 +1,4 @@
+import "left.ax"
+import "right.ax"
+
+print shared()

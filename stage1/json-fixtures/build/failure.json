@@ -1,0 +1,12 @@
+{
+  "schema_version": "axiom.stage1.v1",
+  "ok": false,
+  "command": "build",
+  "error": {
+    "kind": "build",
+    "message": "rustc failed to produce the requested build artifact",
+    "path": "/workspace/axiom/stage1/examples/hello/dist/hello-stage1.generated.rs",
+    "line": null,
+    "column": null
+  }
+}

@@ -1,0 +1,6 @@
+fn pick(input: &str): &str {
+let owned: String = "local"
+return owned
+}
+
+print pick("seed")
