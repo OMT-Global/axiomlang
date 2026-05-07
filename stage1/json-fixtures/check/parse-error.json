@@ -1,0 +1,12 @@
+{
+  "schema_version": "axiom.stage1.v1",
+  "ok": false,
+  "command": "check",
+  "error": {
+    "kind": "parse",
+    "message": "nested match patterns are not supported yet",
+    "path": "/workspace/axiom/stage1/conformance/fail/nested_match_pattern_not_supported/src/main.ax",
+    "line": 6,
+    "column": 6
+  }
+}

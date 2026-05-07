@@ -1,0 +1,26 @@
+import "std/encoding.ax"
+
+let encoded: string = url_component_encode("hello world/one")
+print encoded
+
+let decoded: Option<string> = url_component_decode(encoded)
+match decoded {
+Some(value) {
+print value
+}
+None {
+print "decode failed"
+}
+}
+
+let bad: Option<string> = url_component_decode("bad%2")
+match bad {
+Some(value) {
+print value
+}
+None {
+print "bad percent"
+}
+}
+
+print path_segment_encode("reports/April 2026")

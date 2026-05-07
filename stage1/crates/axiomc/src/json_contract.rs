@@ -2,7 +2,7 @@ use crate::diagnostics::Diagnostic;
 use crate::manifest::CapabilityDescriptor;
 use crate::project::{BuildOutput, CheckOutput, TestOutput};
 use serde::Serialize;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::path::Path;
 
 pub const JSON_SCHEMA_VERSION: &str = "axiom.stage1.v1";
@@ -17,6 +17,7 @@ pub fn check_success(project: &Path, output: &CheckOutput) -> Value {
         "entry": output.entry,
         "statement_count": output.statement_count,
         "capabilities": output.capabilities,
+        "exports": output.exports,
         "warnings": output.warnings,
         "packages": output.packages,
     })
@@ -39,6 +40,7 @@ pub fn build_success(project: &Path, output: &BuildOutput) -> Value {
         "statement_count": output.statement_count,
         "target": output.target,
         "debug": output.debug,
+        "cache_key": output.cache_key,
         "metadata": output.metadata,
         "cache_hits": output.cache_hits,
         "cache_misses": output.cache_misses,

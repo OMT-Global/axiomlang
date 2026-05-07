@@ -21,7 +21,7 @@ mod tests {
     use crate::lockfile::{render_lockfile, render_lockfile_for_project};
     use crate::manifest::{
         CapabilityConfig, TestKind, TestTarget, capability_descriptors, load_manifest,
-        render_manifest,
+        lockfile_path, render_manifest,
     };
     use crate::mir;
     use crate::new_project::create_project;
@@ -31,7 +31,7 @@ mod tests {
         command_for_build_output, command_for_executable, project_capabilities, run_project_tests,
         run_project_tests_with_options, run_project_with_options,
     };
-    use crate::syntax::{Visibility, parse_program, parse_program_with_recovery};
+    use crate::syntax::{Stmt, TypeName, Visibility, parse_program, parse_program_with_recovery};
     use serde::Serialize;
     use std::fs;
     use std::path::{Path, PathBuf};
@@ -51,7 +51,7 @@ mod tests {
         crypto: bool,
     ) -> String {
         format!(
-            "[package]\nname = {name:?}\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = {fs}\n\"fs:write\" = {fs}\nnet = {net}\nprocess = {process}\nenv = {env}\nclock = {clock}\ncrypto = {crypto}\n"
+            "[package]\nname = {name:?}\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = {fs}\n\"fs:write\" = {fs}\nnet = {net}\nprocess = {process}\nenv = {env}\nclock = {clock}\ncrypto = {crypto}\nasync = false\n"
         )
     }
 
@@ -224,6 +224,133 @@ mod tests {
         assert!(rendered.contains("if ready {"));
         assert!(rendered.contains("println!(\"{}\", banner(String::from(\"from stage1\")));"));
         assert!(rendered.contains("println!(\"{}\", ready);"));
+    }
+
+    #[test]
+    fn parser_distinguishes_owned_string_from_borrowed_str() {
+        let source = r#"fn read(label: &str): int {
+print label
+return 1
+}
+
+let literal: &str = "borrowed"
+let owned: String = "owned"
+print read(literal)
+print read(owned)
+"#;
+        let parsed = parse_program(source, Path::new("main.ax")).expect("parse");
+        let hir = hir::lower(&parsed).expect("lower");
+        let mir = mir::lower(&hir);
+        let rendered = render_rust(&mir);
+        assert!(rendered.contains("fn read<'a>(label: &'a str) -> i64 {"));
+        assert!(rendered.contains(r#"let literal: &str = "borrowed";"#));
+        assert!(rendered.contains(r#"let owned: String = String::from("owned");"#));
+        assert!(rendered.contains(r#"println!("{}", read(literal));"#));
+        assert!(rendered.contains(r#"println!("{}", read(owned.as_str()));"#));
+    }
+
+    #[test]
+    fn parser_rejects_borrowed_str_from_temporary_string() {
+        let source = r#"fn make(): String {
+return "owned"
+}
+
+let borrowed: &str = make()
+print borrowed
+"#;
+        let parsed = parse_program(source, Path::new("main.ax")).expect("parse");
+        let err = hir::lower(&parsed).expect_err("lower should reject borrowed temporary String");
+        assert!(
+            err.message
+                .contains("cannot borrow a temporary String as &str")
+        );
+    }
+
+    #[test]
+    fn parser_rejects_borrowed_str_from_temporary_concat() {
+        let source = r#"let borrowed: &str = "own" + "ed"
+print borrowed
+"#;
+        let parsed = parse_program(source, Path::new("main.ax")).expect("parse");
+        let err = hir::lower(&parsed).expect_err("lower should reject borrowed temporary concat");
+        assert!(
+            err.message
+                .contains("cannot borrow a temporary String as &str")
+        );
+    }
+
+    #[test]
+    fn parser_rejects_borrowed_str_from_indexed_string() {
+        let source = r#"let values: [string] = ["hello"]
+let borrowed: &str = values[0]
+print borrowed
+"#;
+        let parsed = parse_program(source, Path::new("main.ax")).expect("parse");
+        let err = hir::lower(&parsed).expect_err("lower should reject indexed String borrow");
+        assert!(
+            err.message
+                .contains("cannot borrow a temporary String as &str")
+        );
+    }
+
+    #[test]
+    fn parser_allows_borrowed_str_call_arg_from_temporary_string() {
+        let source = r#"fn read(label: &str): int {
+print label
+return 1
+}
+
+fn make(): String {
+return "owned"
+}
+
+print read(make())
+"#;
+        let parsed = parse_program(source, Path::new("main.ax")).expect("parse");
+        let hir = hir::lower(&parsed).expect("lower");
+        let mir = mir::lower(&hir);
+        let rendered = render_rust(&mir);
+        assert!(rendered.contains(r#"println!("{}", read(make().as_str()));"#));
+    }
+
+    #[test]
+    fn parser_rejects_borrow_return_from_temporary_string_call_arg() {
+        let source = r#"fn echo(value: &str): &str {
+return value
+}
+
+fn make(): String {
+return "owned"
+}
+
+let borrowed: &str = echo(make())
+print borrowed
+"#;
+        let parsed = parse_program(source, Path::new("main.ax")).expect("parse");
+        let err = hir::lower(&parsed)
+            .expect_err("lower should reject escaping borrow from temporary String call arg");
+        assert!(
+            err.message
+                .contains("cannot borrow a temporary String as &str")
+        );
+    }
+
+    #[test]
+    fn parser_rejects_borrow_return_from_temporary_concat_call_arg() {
+        let source = r#"fn echo(value: &str): &str {
+return value
+}
+
+let borrowed: &str = echo("own" + "ed")
+print borrowed
+"#;
+        let parsed = parse_program(source, Path::new("main.ax")).expect("parse");
+        let err = hir::lower(&parsed)
+            .expect_err("lower should reject escaping borrow from temporary concat call arg");
+        assert!(
+            err.message
+                .contains("cannot borrow a temporary String as &str")
+        );
     }
 
     #[test]
@@ -620,7 +747,7 @@ print fail()
 
     #[test]
     fn parser_tracks_package_visibility() {
-        let source = "pub(pkg) const ANSWER: int = 42\npub(pkg) type Id = int\npub(pkg) struct BuildInfo {\nlabel: string\n}\npub(pkg) enum Status {\nReady\n}\npub(pkg) fn answer(): int {\nreturn ANSWER\n}\npub(pkg) async fn answer_later(): int {\nreturn ANSWER\n}\n";
+        let source = "pub(pkg) static ANSWER: int = 42\npub(pkg) type Id = int\npub(pkg) struct BuildInfo {\nlabel: string\n}\npub(pkg) enum Status {\nReady\n}\npub(pkg) fn answer(): int {\nreturn ANSWER\n}\npub(pkg) async fn answer_later(): int {\nreturn ANSWER\n}\n";
         let parsed = parse_program(source, Path::new("main.ax")).expect("parse");
         assert_eq!(parsed.consts[0].visibility, Visibility::Package);
         assert_eq!(parsed.type_aliases[0].visibility, Visibility::Package);
@@ -1081,6 +1208,89 @@ print fail()
             "let info: BuildInfo = BuildInfo { name: String::from(\"stage1\"), count: 42 };"
         ));
         assert!(rendered.contains("return (info).count;"));
+    }
+
+    #[test]
+    fn parser_lowers_numeric_tower_literals_and_casts() {
+        let source = "fn widen(value: u8): u32 {\nreturn value as u32\n}\n\nlet byte: u8 = 255u8\nlet word: u32 = widen(byte) + 1u32\nlet signed: i16 = -1i16\nlet big: i64 = signed as i64\nlet ratio: f64 = 3.5f64\nlet half: f32 = 0.5f32\nprint word as int\nprint big\n";
+        let parsed = parse_program(source, Path::new("main.ax")).expect("parse");
+        let hir = hir::lower(&parsed).expect("lower");
+        let mir = mir::lower(&hir);
+        let rendered = render_rust(&mir);
+        assert!(rendered.contains("fn widen(value: u8) -> u32 {"));
+        assert!(rendered.contains("return (value) as u32;"));
+        assert!(rendered.contains("let byte: u8 = 255u8;"));
+        assert!(rendered.contains("let word: u32 = widen(byte) + 1u32;"));
+        assert!(rendered.contains("let signed: i16 = -1i16;"));
+        assert!(rendered.contains("let big: i64 = (signed) as i64;"));
+        assert!(rendered.contains("let ratio: f64 = 3.5f64;"));
+        assert!(rendered.contains("let half: f32 = 0.5f32;"));
+        assert!(rendered.contains("println!(\"{}\", (word) as i64);"));
+    }
+
+    #[test]
+    fn checker_rejects_mixed_numeric_width_arithmetic_without_cast() {
+        let source = "let byte: u8 = 1u8\nlet word: u32 = 2u32\nlet bad: u32 = byte + word\n";
+        let parsed = parse_program(source, Path::new("main.ax")).expect("parse");
+        let error = hir::lower(&parsed).expect_err("mixed-width arithmetic should fail");
+        assert!(
+            error
+                .message
+                .contains("matching numeric or string operands")
+        );
+    }
+
+    #[test]
+    fn parser_rejects_unsigned_negative_numeric_literal() {
+        let source = "let bad: u8 = -1u8\n";
+        let error = parse_program(source, Path::new("main.ax"))
+            .expect_err("unsigned negative numeric literal should fail during parsing");
+        assert!(error.message.contains("invalid numeric literal"));
+    }
+
+    #[test]
+    fn parser_rejects_out_of_range_numeric_literal() {
+        let source = "let bad: u8 = 300u8\n";
+        let error = parse_program(source, Path::new("main.ax"))
+            .expect_err("out-of-range numeric literal should fail during parsing");
+        assert!(error.message.contains("invalid numeric literal"));
+    }
+
+    #[test]
+    fn parser_rejects_non_rust_suffixed_float_literals() {
+        for source in [
+            "let bad: f64 = NaNf64\n",
+            "let bad: f32 = inff32\n",
+            "let bad: f32 = 1e39f32\n",
+        ] {
+            let error = parse_program(source, Path::new("main.ax"))
+                .expect_err("non-rust float literal should fail during parsing");
+            assert!(error.message.contains("invalid numeric literal"));
+        }
+    }
+
+    #[test]
+    fn parser_lowers_numeric_checked_and_wrapping_methods() {
+        let source = "let byte: u8 = 255u8
+let wrapped: u8 = byte.wrapping_add(1u8)
+let checked: Option<u8> = byte.checked_add(1u8)
+";
+        let parsed = parse_program(source, Path::new("main.ax")).expect("parse");
+        let hir = hir::lower(&parsed).expect("lower");
+        let mir = mir::lower(&hir);
+        let rendered = render_rust(&mir);
+        assert!(rendered.contains("let wrapped: u8 = (byte).wrapping_add(1u8);"));
+        assert!(rendered.contains("let checked: Option<u8> = (byte).checked_add(1u8);"));
+    }
+
+    #[test]
+    fn checker_rejects_numeric_method_argument_type_mismatch() {
+        let source = "let byte: u8 = 1u8
+let bad: u8 = byte.wrapping_add(1u16)
+";
+        let parsed = parse_program(source, Path::new("main.ax")).expect("parse");
+        let error = hir::lower(&parsed).expect_err("numeric method argument width should fail");
+        assert!(error.message.contains("expects argument type u8"));
     }
 
     #[test]
@@ -1829,7 +2039,7 @@ print fail()
         .expect("write main");
         fs::write(
             project.join("src/shared.ax"),
-            "pub(pkg) const ANSWER: int = 42\npub(pkg) type Id = int\npub(pkg) struct BuildInfo {\nlabel: string\n}\npub(pkg) enum Status {\nReady\n}\npub(pkg) fn helper(): Id {\nreturn ANSWER\n}\npub(pkg) fn build(): BuildInfo {\nreturn BuildInfo { label: \"package\" }\n}\npub(pkg) fn ready(): Status {\nreturn Ready\n}\n",
+            "pub(pkg) static ANSWER: int = 42\npub(pkg) type Id = int\npub(pkg) struct BuildInfo {\nlabel: string\n}\npub(pkg) enum Status {\nReady\n}\npub(pkg) fn helper(): Id {\nreturn ANSWER\n}\npub(pkg) fn build(): BuildInfo {\nreturn BuildInfo { label: \"package\" }\n}\npub(pkg) fn ready(): Status {\nreturn Ready\n}\n",
         )
         .expect("write shared");
         let built = build_project(&project).expect("build package-visible module");
@@ -1844,6 +2054,12 @@ print fail()
         let dir = tempdir().expect("tempdir");
         let project = dir.path().join("package-visible-async-module");
         create_project(&project, Some("package-visible-async-module-app")).expect("create project");
+        fs::write(
+            project.join("axiom.toml"),
+            render_manifest("package-visible-async-module-app")
+                .replace("async = false", "async = true"),
+        )
+        .expect("write async-enabled manifest");
         fs::write(
             project.join("src/main.ax"),
             "import \"std/async.ax\"\nimport \"shared.ax\"\n\nlet task: Task<int> = helper(41)\nprint await task\n",
@@ -1929,6 +2145,13 @@ print fail()
         let dependency = project.join("deps/core");
         create_project(&project, Some(case_name)).expect("create root");
         create_project(&dependency, Some("package-visible-core")).expect("create dependency");
+        if dependency_source.contains("async fn") || main_source.contains("std/async.ax") {
+            fs::write(
+                dependency.join("axiom.toml"),
+                render_manifest("package-visible-core").replace("async = false", "async = true"),
+            )
+            .expect("write async-enabled dependency manifest");
+        }
 
         fs::write(dependency.join("src/shared.ax"), dependency_source).expect("write dependency");
         let dependency_manifest = load_manifest(&dependency).expect("load dependency manifest");
@@ -1943,7 +2166,11 @@ print fail()
             project.join("axiom.toml"),
             format!(
                 "{}\n[dependencies]\ncore = {{ path = \"deps/core\" }}\n",
-                render_manifest(case_name)
+                if dependency_source.contains("async fn") || main_source.contains("std/async.ax") {
+                    render_manifest(case_name).replace("async = false", "async = true")
+                } else {
+                    render_manifest(case_name)
+                }
             ),
         )
         .expect("write root manifest");
@@ -2145,6 +2372,7 @@ print fail()
             &project,
             &CheckOptions {
                 package: Some(String::from("workspace-app")),
+                include_exports: false,
             },
         )
         .expect("check selected workspace package");
@@ -2452,10 +2680,11 @@ crypto = false
         create_project(&project, Some("caps-app")).expect("create project");
         let manifest = load_manifest(&project).expect("load manifest");
         let caps = capability_descriptors(&manifest.capabilities);
-        assert_eq!(caps.len(), 8);
+        assert_eq!(caps.len(), 9);
         assert!(caps.iter().all(|cap| !cap.enabled));
+        assert!(caps.iter().any(|cap| cap.name == "async"));
         let project_caps = project_capabilities(&project).expect("project capabilities");
-        assert_eq!(project_caps.len(), 8);
+        assert_eq!(project_caps.len(), 9);
     }
 
     #[test]
@@ -2483,6 +2712,75 @@ crypto = false
         assert_eq!(payload["capabilities"][4]["allowed"][0], "FOO");
         assert_eq!(payload["capabilities"][4]["allowed"][1], "LOG_LEVEL");
         assert!(payload["capabilities"][4]["unsafe_unrestricted"].is_null());
+    }
+
+    #[test]
+    fn capability_view_includes_policy_metadata() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("caps-policy");
+        create_project(&project, Some("caps-policy-app")).expect("create project");
+        fs::write(
+            project.join("axiom.toml"),
+            "[package]\nname = \"caps-policy-app\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = true\ndeny_by_default = true\nunsafe_opt_ins = [\"ffi\"]\nowners = { fs = \"platform\", ffi = \"runtime\" }\nrationale = { fs = \"read package fixtures\", ffi = \"native host bridge migration\" }\n",
+        )
+        .expect("write manifest");
+
+        let caps = project_capabilities(&project).expect("project capabilities");
+        let fs_cap = caps
+            .iter()
+            .find(|cap| cap.name == "fs")
+            .expect("fs capability");
+        assert!(fs_cap.enabled);
+        assert!(fs_cap.deny_by_default);
+        assert_eq!(fs_cap.owner.as_deref(), Some("platform"));
+        assert_eq!(fs_cap.rationale.as_deref(), Some("read package fixtures"));
+        assert!(!fs_cap.unsafe_opt_in);
+
+        let ffi_cap = caps
+            .iter()
+            .find(|cap| cap.name == "ffi")
+            .expect("ffi capability");
+        assert!(ffi_cap.unsafe_opt_in);
+        assert_eq!(ffi_cap.owner.as_deref(), Some("runtime"));
+
+        let payload = json_contract::caps_success(&project, &caps);
+        let payload_fs = payload["capabilities"]
+            .as_array()
+            .expect("capabilities array")
+            .iter()
+            .find(|cap| cap["name"] == "fs")
+            .expect("fs capability payload");
+        assert_eq!(payload_fs["deny_by_default"], true);
+        assert_eq!(payload_fs["owner"], "platform");
+        assert_eq!(payload_fs["rationale"], "read package fixtures");
+
+        let payload_ffi = payload["capabilities"]
+            .as_array()
+            .expect("capabilities array")
+            .iter()
+            .find(|cap| cap["name"] == "ffi")
+            .expect("ffi capability payload");
+        assert_eq!(payload_ffi["unsafe_opt_in"], true);
+    }
+
+    #[test]
+    fn capability_policy_metadata_rejects_unknown_capability_names() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("caps-policy-invalid");
+        create_project(&project, Some("caps-policy-invalid-app")).expect("create project");
+        fs::write(
+            project.join("axiom.toml"),
+            "[package]\nname = \"caps-policy-invalid-app\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nunsafe_opt_ins = [\"filesystem\"]\n",
+        )
+        .expect("write manifest");
+
+        let error = load_manifest(&project).expect_err("unknown capability should fail");
+        assert_eq!(error.kind, "manifest");
+        assert!(
+            error
+                .message
+                .contains("capabilities.unsafe_opt_ins[0] references unknown capability")
+        );
     }
 
     #[test]
@@ -3886,12 +4184,12 @@ true
             render_lockfile_for_project(&project, &manifest).expect("lockfile"),
         )
         .expect("write lockfile");
-        let source = "import \"std/collections.ax\"\nlet numbers: [int] = [4, 5, 6, 7]\nprint count<int>(numbers[:])\nprint is_empty<int>(numbers[:])\nprint has_items<int>(numbers[:])\nlet middle: &[int] = window<int>(numbers[:], 1, 3)\nprint count<int>(middle)\nprint first(middle)\nprint last(middle)\nlet prefix: &[int] = take<int>(numbers[:], 2)\nprint last(prefix)\nlet suffix: &[int] = skip<int>(numbers[:], 2)\nprint first(suffix)\nlet words: [string] = [\"build\", \"test\", \"ship\"]\nprint count<string>(words[:])\nlet empty_words: &[string] = take<string>(words[:], 0)\nprint is_empty<string>(empty_words)\n";
+        let source = "import \"std/collections.ax\"\nlet numbers: [int] = [4, 5, 6, 7]\nprint count_mut<int>(numbers[:])\nprint count<int>(numbers[:])\nprint is_empty<int>(numbers[:])\nprint has_items<int>(numbers[:])\nlet middle: &[int] = window<int>(numbers[:], 1, 3)\nprint count<int>(middle)\nprint first(middle)\nprint last(middle)\nlet prefix: &[int] = take<int>(numbers[:], 2)\nprint last(prefix)\nlet suffix: &[int] = skip<int>(numbers[:], 2)\nprint first(suffix)\nlet words: [string] = [\"build\", \"test\", \"ship\"]\nprint count<string>(words[:])\nlet empty_words: &[string] = take<string>(words[:], 0)\nprint is_empty<string>(empty_words)\n";
         fs::write(project.join("src/main.ax"), source).expect("write source");
         fs::write(project.join("src/main_test.ax"), source).expect("write test");
         fs::write(
             project.join("src/main_test.stdout"),
-            "4\nfalse\ntrue\n2\n5\n6\n5\n6\n3\ntrue\n",
+            "4\n4\nfalse\ntrue\n2\n5\n6\n5\n6\n3\ntrue\n",
         )
         .expect("write golden");
 
@@ -3901,7 +4199,7 @@ true
             .expect("run compiled binary");
         assert_eq!(
             String::from_utf8_lossy(&output.stdout),
-            "4\nfalse\ntrue\n2\n5\n6\n5\n6\n3\ntrue\n"
+            "4\n4\nfalse\ntrue\n2\n5\n6\n5\n6\n3\ntrue\n"
         );
 
         let tests = run_project_tests(&project).expect("run tests");
@@ -4012,6 +4310,129 @@ true
     }
 
     #[test]
+    fn closure_rejects_borrowed_slice_return_fn_value() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("closure-borrowed-slice-return");
+        create_project(&project, Some("closure-borrowed-slice-return")).expect("create project");
+        fs::write(
+            project.join("axiom.toml"),
+            render_manifest_with_capabilities(
+                "closure-borrowed-slice-return",
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+            ),
+        )
+        .expect("write manifest");
+        let manifest = load_manifest(&project).expect("load manifest");
+        fs::write(
+            project.join("axiom.lock"),
+            render_lockfile_for_project(&project, &manifest).expect("lockfile"),
+        )
+        .expect("write lockfile");
+        fs::write(
+            project.join("src/main.ax"),
+            "let xs: [int] = [1, 2, 3]\nlet head: fn(&[int]): &[int] = |ys: &[int]| ys\nprint len(head(xs[:]))\n",
+        )
+        .expect("write source");
+
+        let err = check_project(&project)
+            .expect_err("fn closures must reject borrowed slice return values");
+        assert_eq!(err.kind, "ownership");
+        assert_eq!(err.code.as_deref(), Some("closure_borrowed_slice_return"));
+        assert!(
+            err.message
+                .contains("closure fn values cannot return borrowed slice types"),
+            "unexpected diagnostic: {err:?}",
+        );
+    }
+
+    #[test]
+    fn closure_rejects_moving_captured_non_copy_fn_value() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("closure-captured-non-copy");
+        create_project(&project, Some("closure-captured-non-copy")).expect("create project");
+        fs::write(
+            project.join("axiom.toml"),
+            render_manifest_with_capabilities(
+                "closure-captured-non-copy",
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+            ),
+        )
+        .expect("write manifest");
+        let manifest = load_manifest(&project).expect("load manifest");
+        fs::write(
+            project.join("axiom.lock"),
+            render_lockfile_for_project(&project, &manifest).expect("lockfile"),
+        )
+        .expect("write lockfile");
+        fs::write(
+            project.join("src/main.ax"),
+            "let s: string = \"hello\"\nlet take: fn(): string = || s\nprint take()\n",
+        )
+        .expect("write source");
+
+        let err = check_project(&project)
+            .expect_err("fn closures must reject moving captured non-copy values");
+        assert_eq!(err.kind, "ownership");
+        assert_eq!(err.code.as_deref(), Some("closure_move_captured_non_copy"));
+        assert!(
+            err.message
+                .contains("closure cannot move captured non-copy value `s`"),
+            "unexpected diagnostic: {err:?}",
+        );
+    }
+
+    #[test]
+    fn closure_captures_function_value_callee_name() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("closure-captures-function-callee");
+        create_project(&project, Some("closure-captures-function-callee")).expect("create project");
+        fs::write(
+            project.join("axiom.toml"),
+            render_manifest_with_capabilities(
+                "closure-captures-function-callee",
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+            ),
+        )
+        .expect("write manifest");
+        let manifest = load_manifest(&project).expect("load manifest");
+        fs::write(
+            project.join("axiom.lock"),
+            render_lockfile_for_project(&project, &manifest).expect("lockfile"),
+        )
+        .expect("write lockfile");
+        fs::write(
+            project.join("src/main.ax"),
+            "let inner: fn(int): int = |x: int| x + 1\nlet outer: fn(int): int = |n: int| inner(n)\nprint inner(2)\n",
+        )
+        .expect("write source");
+
+        let err = check_project(&project)
+            .expect_err("closure bodies must capture function-valued callees by name");
+        assert_eq!(err.kind, "ownership");
+        assert!(
+            err.message.contains("use of moved value `inner`")
+                || err.message.contains("use of moved value \"inner\"")
+                || err.message.contains("cannot use moved value `inner`"),
+            "unexpected diagnostic: {err:?}",
+        );
+    }
+
+    #[test]
     fn stage1_project_imports_synthetic_stdlib_sync_module() {
         // `std/sync.ax` is ungated in stage1 because it is implemented in
         // Axiom using ownership tokens rather than host threads or blocking
@@ -4071,12 +4492,13 @@ true
             render_manifest_with_capabilities(
                 "stdlib-async-app",
                 false,
+                true,
                 false,
                 false,
+                true,
                 false,
-                false,
-                false,
-            ),
+            )
+            .replace("async = false", "async = true"),
         )
         .expect("write manifest");
         let manifest = load_manifest(&project).expect("load manifest");
@@ -4085,27 +4507,76 @@ true
             render_lockfile_for_project(&project, &manifest).expect("lockfile"),
         )
         .expect("write lockfile");
-        let source = "import \"std/async.ax\"\nasync fn compute(value: int): int {\nreturn value + 1\n}\nlet direct: Task<int> = compute(40)\nprint await direct\nlet handle: JoinHandle<int> = spawn<int>(compute(6))\nprint await join<int>(handle)\nlet canceled: Task<int> = cancel<int>(compute(1))\nprint is_canceled<int>(canceled)\nlet maybe: Option<int> = await timeout<int>(compute(5), 100)\nmatch maybe {\nSome(value) {\nprint value\n}\nNone {\nprint 0\n}\n}\nlet messages: AsyncChannel<string> = channel<string>()\nlet sent: AsyncChannel<string> = await send<string>(messages, \"message\")\nlet received: Option<string> = await recv<string>(sent)\nmatch received {\nSome(message) {\nprint message\n}\nNone {\nprint \"missing\"\n}\n}\nlet left_index: Task<Option<string>> = ready<Option<string>>(None)\nlet right_index: Task<Option<string>> = ready<Option<string>>(Some(\"right\"))\nlet picked_index: SelectResult<string> = await select<string>(left_index, right_index)\nprint selected<string>(picked_index)\nlet left_value: Task<Option<string>> = ready<Option<string>>(None)\nlet right_value: Task<Option<string>> = ready<Option<string>>(Some(\"right\"))\nlet picked_value: SelectResult<string> = await select<string>(left_value, right_value)\nmatch selected_value<string>(picked_value) {\nSome(value) {\nprint value\n}\nNone {\nprint \"none\"\n}\n}\n";
+        let source = "import \"std/async.ax\"\nimport \"std/async_time.ax\"\nimport \"std/async_net.ax\"\nasync fn compute(value: int): int {\nreturn value + 1\n}\nlet direct: Task<int> = compute(40)\nprint await direct\nlet handle: JoinHandle<int> = spawn<int>(compute(6))\nprint await join<int>(handle)\nlet canceled: Task<int> = cancel<int>(compute(1))\nprint is_canceled<int>(canceled)\nlet maybe: Option<int> = await timeout<int>(compute(5), 100)\nmatch maybe {\nSome(value) {\nprint value\n}\nNone {\nprint 0\n}\n}\nlet messages: AsyncChannel<string> = channel<string>()\nlet sent: AsyncChannel<string> = await send<string>(messages, \"message\")\nlet received: Option<string> = await recv<string>(sent)\nmatch received {\nSome(message) {\nprint message\n}\nNone {\nprint \"missing\"\n}\n}\nlet left_index: Task<Option<string>> = ready<Option<string>>(None)\nlet right_index: Task<Option<string>> = ready<Option<string>>(Some(\"right\"))\nlet picked_index: SelectResult<string> = await select<string>(left_index, right_index)\nprint selected<string>(picked_index)\nlet left_value: Task<Option<string>> = ready<Option<string>>(None)\nlet right_value: Task<Option<string>> = ready<Option<string>>(Some(\"right\"))\nlet picked_value: SelectResult<string> = await select<string>(left_value, right_value)\nmatch selected_value<string>(picked_value) {\nSome(value) {\nprint value\n}\nNone {\nprint \"none\"\n}\n}\nprint await sleep_ms(0) == 0\nlet missing_socket: Option<string> = await tcp_dial(\"127.0.0.1\", 1, \"ping\", 1)\nmatch missing_socket {\nSome(_reply) {\nprint \"unexpected\"\n}\nNone {\nprint \"net none\"\n}\n}\n";
         fs::write(project.join("src/main.ax"), source).expect("write source");
         fs::write(project.join("src/main_test.ax"), source).expect("write test");
         fs::write(
             project.join("src/main_test.stdout"),
-            "41\n7\ntrue\n6\nmessage\n1\nright\n",
+            "41\n7\ntrue\n6\nmessage\n1\nright\ntrue\nnet none\n",
         )
         .expect("write golden");
 
         let built = build_project(&project).expect("build project");
+        let generated = fs::read_to_string(&built.generated_rust).expect("read generated rust");
+        assert!(generated.contains("axiom_task_deferred(move ||"));
+        assert!(
+            generated.contains("std::thread::spawn(move || axiom_task_ready(axiom_await(task)))")
+        );
+        assert!(generated.contains("recv_timeout(std::time::Duration::from_millis"));
+        assert!(generated.contains("host async timeout cannot cancel running task"));
+        assert!(generated.contains("let _ = worker.join();"));
+        assert!(!generated.contains("drop(worker);"));
+        assert!(generated.contains("clock_sleep_ms(milliseconds)"));
+        assert!(generated.contains("net_tcp_dial(host, port, message, timeout_ms)"));
+        assert!(generated.contains("std::net::TcpStream::connect_timeout"));
+        assert!(generated.contains("let worker = std::thread::spawn(move ||"));
+        assert!(generated.contains(
+            "worker
+                    .join()"
+        ));
+        assert!(!generated.contains("return axiom_task_ready(value + 1);"));
         let output = compiled_binary_command(&built.binary)
             .output()
             .expect("run compiled binary");
         assert_eq!(
             String::from_utf8_lossy(&output.stdout),
-            "41\n7\ntrue\n6\nmessage\n1\nright\n"
+            "41\n7\ntrue\n6\nmessage\n1\nright\ntrue\nnet none\n"
+        );
+        let host_output = compiled_binary_command(&built.binary)
+            .env("AXIOM_ASYNC_EXECUTOR", "host")
+            .output()
+            .expect("run compiled binary with host async executor");
+        assert_eq!(
+            String::from_utf8_lossy(&host_output.stdout),
+            "41\n7\ntrue\n6\nmessage\n1\nright\ntrue\nnet none\n"
         );
 
         let tests = run_project_tests(&project).expect("run tests");
         assert_eq!(tests.passed, 1);
         assert_eq!(tests.failed, 0);
+    }
+
+    #[test]
+    fn stage1_project_rejects_async_runtime_without_async_capability() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("stdlib-async-denied");
+        create_project(&project, Some("stdlib-async-denied")).expect("create project");
+        fs::write(
+            project.join("src/main.ax"),
+            "import \"std/async.ax\"
+let task: Task<int> = ready<int>(1)
+print await task
+",
+        )
+        .expect("write source");
+
+        let err = check_project(&project).expect_err("expected async capability denial");
+        assert_eq!(err.kind, "capability");
+        assert!(
+            err.message.contains("requires [capabilities].async = true"),
+            "unexpected message: {}",
+            err.message
+        );
     }
 
     #[test]
@@ -4835,6 +5306,9 @@ print serve_once("127.0.0.1:18080", "hello")
                 entry: String::from("src/math_test.ax"),
                 stdout: Some(String::from("42\n")),
                 kind: TestKind::Unit,
+                expected_error: None,
+                capabilities: Vec::new(),
+                package: None,
             }]
         );
     }
@@ -4855,6 +5329,51 @@ print serve_once("127.0.0.1:18080", "hello")
 
         let manifest = load_manifest(&project).expect("load manifest");
         assert_eq!(manifest.tests[0].kind, TestKind::Table);
+    }
+
+    #[test]
+    fn manifest_rejects_reserved_registry_publish_fields() {
+        let dir = tempdir().expect("tempdir");
+
+        let root_registry = dir.path().join("root-registry");
+        create_project(&root_registry, Some("root-registry-app")).expect("create project");
+        fs::write(
+            root_registry.join("axiom.toml"),
+            format!(
+                "{}\n[registry]\nsource = \"https://registry.example\"\n",
+                render_manifest("root-registry-app")
+            ),
+        )
+        .expect("write manifest");
+        let err = load_manifest(&root_registry).expect_err("reserved registry should fail");
+        assert!(err.message.contains("[registry] is reserved"));
+
+        let package_checksum = dir.path().join("package-checksum");
+        create_project(&package_checksum, Some("package-checksum-app")).expect("create project");
+        fs::write(
+            package_checksum.join("axiom.toml"),
+            "[package]\nname = \"package-checksum-app\"\nversion = \"0.1.0\"\nchecksum = \"sha256:abc\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n",
+        )
+        .expect("write manifest");
+        let err = load_manifest(&package_checksum).expect_err("reserved checksum should fail");
+        assert!(err.message.contains("package.checksum is reserved"));
+
+        let dependency_version = dir.path().join("dependency-version");
+        create_project(&dependency_version, Some("dependency-version-app"))
+            .expect("create project");
+        fs::write(
+            dependency_version.join("axiom.toml"),
+            format!(
+                "{}\n[dependencies]\ncore = {{ version = \"1.0.0\", registry = \"default\" }}\n",
+                render_manifest("dependency-version-app")
+            ),
+        )
+        .expect("write manifest");
+        let err = load_manifest(&dependency_version).expect_err("reserved dependency should fail");
+        assert!(
+            err.message
+                .contains("dependencies.core.version is reserved")
+        );
     }
 
     #[test]
@@ -5175,6 +5694,21 @@ print serve_once("127.0.0.1:18080", "hello")
                 "cannot create mutable borrow of value",
             ),
             (
+                "shared_borrow_while_mutable_live",
+                "shared_borrow_while_mutable_live",
+                "cannot create shared borrow of value",
+            ),
+            (
+                "double_mutable_borrow",
+                "mutable_borrow_while_mutable_live",
+                "cannot create mutable borrow of value",
+            ),
+            (
+                "move_string_while_str_borrow_live",
+                "move_while_borrowed",
+                "cannot move value",
+            ),
+            (
                 "loop_move_outer_non_copy",
                 "loop_move_outer_non_copy",
                 "cannot move non-copy value",
@@ -5197,47 +5731,62 @@ print serve_once("127.0.0.1:18080", "hello")
 
     #[test]
     fn checked_in_proof_workload_examples_build_run_and_test() {
-        for example in ["proof_cli", "proof_worker", "proof_http_service"] {
-            let project = checked_in_example_fixture(example);
-            check_project(&project).expect("check checked-in proof workload example");
+        std::thread::Builder::new()
+            .name("proof-workload-examples".into())
+            .stack_size(8 * 1024 * 1024)
+            .spawn(|| {
+                for example in ["proof_cli", "proof_worker", "proof_http_service"] {
+                    let project = checked_in_example_fixture(example);
+                    check_project(&project).expect("check checked-in proof workload example");
 
-            let built = build_project(&project).expect("build checked-in proof workload example");
-            let output = compiled_binary_command(&built.binary)
-                .output()
-                .expect("run checked-in proof workload example");
-            let expected = fs::read_to_string(project.join("src/main_test.stdout"))
-                .expect("read expected stdout");
-            assert_eq!(
-                String::from_utf8_lossy(&output.stdout),
-                expected,
-                "example {example}"
-            );
+                    let built =
+                        build_project(&project).expect("build checked-in proof workload example");
+                    let output = compiled_binary_command(&built.binary)
+                        .output()
+                        .expect("run checked-in proof workload example");
+                    let expected = fs::read_to_string(project.join("src/main_test.stdout"))
+                        .expect("read expected stdout");
+                    assert_eq!(
+                        String::from_utf8_lossy(&output.stdout),
+                        expected,
+                        "example {example}"
+                    );
 
-            let tests =
-                run_project_tests(&project).expect("test checked-in proof workload example");
-            let expected_passed = match example {
-                "proof_cli" => 2,
-                _ => 1,
-            };
-            assert_eq!(tests.passed, expected_passed, "example {example}");
-            assert_eq!(tests.failed, 0, "example {example}");
-        }
+                    let tests = run_project_tests(&project)
+                        .expect("test checked-in proof workload example");
+                    let expected_passed = match example {
+                        "proof_cli" => 2,
+                        _ => 1,
+                    };
+                    assert_eq!(tests.passed, expected_passed, "example {example}");
+                    assert_eq!(tests.failed, 0, "example {example}");
+                }
+            })
+            .expect("spawn proof workload example test thread")
+            .join()
+            .expect("proof workload example test thread should not panic");
     }
 
     #[test]
     fn conformance_corpus_reports_stable_results() {
         let output =
             run_project_tests(&conformance_fixture()).expect("run stage1 conformance corpus");
-        assert_eq!(output.cases.len(), 29);
-        assert_eq!(output.passed, 29);
-        assert_eq!(output.failed, 0);
+        assert_eq!(output.cases.len(), 60);
+        assert_eq!(output.passed, 60);
+        let failures: Vec<_> = output
+            .cases
+            .iter()
+            .filter(|case| !case.ok)
+            .map(|case| format!("{}: {:?}", case.name, case.error))
+            .collect();
+        assert_eq!(output.failed, 0, "conformance failures: {failures:#?}");
         assert!(
             output
                 .cases
                 .iter()
                 .filter(|case| case.expected_error.is_some())
                 .count()
-                == 20
+                == 43
         );
         assert_eq!(
             output
@@ -5245,7 +5794,7 @@ print serve_once("127.0.0.1:18080", "hello")
                 .iter()
                 .filter(|case| case.expected_stdout.is_some())
                 .count(),
-            9
+            17
         );
     }
 
@@ -5803,6 +6352,214 @@ print serve_once("127.0.0.1:18080", "hello")
     }
 
     #[test]
+    fn parser_accepts_const_sized_array_types() {
+        let source =
+            "const WIDTH: int = 3\nlet values: [int; WIDTH] = [1, 2, 3]\nprint len(values)\n";
+        let parsed = parse_program(source, Path::new("main.ax")).expect("parse const-sized array");
+        let Stmt::Let { ty, .. } = &parsed.stmts[0] else {
+            panic!("expected let statement");
+        };
+        assert_eq!(
+            ty,
+            &TypeName::Array(Box::new(TypeName::Int), Some(String::from("WIDTH")))
+        );
+    }
+
+    #[test]
+    fn build_project_emits_native_binary_with_const_sized_arrays() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("const-sized-arrays");
+        create_project(&project, Some("const-sized-arrays-app")).expect("create project");
+        fs::write(
+            project.join("src/main.ax"),
+            "const WIDTH: int = 3\nlet values: [int; WIDTH] = [1, 2, 3]\nprint len(values)\n",
+        )
+        .expect("write source");
+        let built = build_project(&project).expect("build project with const-sized arrays");
+        let output = compiled_binary_command(&built.binary)
+            .output()
+            .expect("run compiled binary");
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "3\n");
+    }
+
+    #[test]
+    fn build_project_rejects_unknown_const_sized_array_lengths() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("unknown-const-sized-arrays");
+        create_project(&project, Some("unknown-const-sized-arrays-app")).expect("create project");
+        fs::write(
+            project.join("src/main.ax"),
+            "let values: [int; MISSING] = [1, 2, 3]\nprint len(values)\n",
+        )
+        .expect("write source");
+        let error = build_project(&project).expect_err("unknown array length const should fail");
+        assert!(
+            error.message.contains("known int const/static expression"),
+            "unexpected diagnostic: {error:?}"
+        );
+    }
+
+    #[test]
+    fn build_project_rejects_non_int_const_sized_array_lengths() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("non-int-const-sized-arrays");
+        create_project(&project, Some("non-int-const-sized-arrays-app")).expect("create project");
+        fs::write(
+            project.join("src/main.ax"),
+            "const WIDTH: bool = true\nlet values: [int; WIDTH] = [1, 2, 3]\nprint len(values)\n",
+        )
+        .expect("write source");
+        let error = build_project(&project).expect_err("non-int array length const should fail");
+        assert!(
+            error.message.contains("must evaluate to int"),
+            "unexpected diagnostic: {error:?}"
+        );
+    }
+
+    #[test]
+    fn build_project_rejects_mismatched_const_sized_array_literals() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("mismatched-const-sized-arrays");
+        create_project(&project, Some("mismatched-const-sized-arrays-app"))
+            .expect("create project");
+        fs::write(
+            project.join("src/main.ax"),
+            "let values: [int; 2] = [1, 2, 3]\nprint len(values)\n",
+        )
+        .expect("write source");
+        let error = build_project(&project).expect_err("mismatched array literal should fail");
+        assert!(
+            error.message.contains("array literal length mismatch"),
+            "unexpected diagnostic: {error:?}"
+        );
+    }
+
+    #[test]
+    fn build_project_rejects_mismatched_const_sized_array_bindings() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("mismatched-const-sized-array-bindings");
+        create_project(&project, Some("mismatched-const-sized-array-bindings-app"))
+            .expect("create project");
+        fs::write(
+            project.join("src/main.ax"),
+            "let three: [int; 3] = [1, 2, 3]\nlet two: [int; 2] = three\nprint len(two)\n",
+        )
+        .expect("write source");
+        let error = build_project(&project).expect_err("mismatched array binding should fail");
+        assert!(
+            error.message.contains("expects [int; 2], got [int; 3]"),
+            "unexpected diagnostic: {error:?}"
+        );
+    }
+
+    #[test]
+    fn build_project_rejects_unsized_array_binding_to_sized_array() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("unsized-to-sized-array-binding");
+        create_project(&project, Some("unsized-to-sized-array-binding-app"))
+            .expect("create project");
+        fs::write(
+            project.join("src/main.ax"),
+            "let three: [int] = [1, 2, 3]
+let two: [int; 2] = three
+print len(two)
+",
+        )
+        .expect("write source");
+        let error =
+            build_project(&project).expect_err("unsized array should not satisfy sized binding");
+        assert!(
+            error.message.contains("expects [int; 2], got [int]"),
+            "unexpected diagnostic: {error:?}"
+        );
+    }
+
+    #[test]
+    fn build_project_rejects_unsized_array_argument_to_sized_parameter() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("unsized-to-sized-array-argument");
+        create_project(&project, Some("unsized-to-sized-array-argument-app"))
+            .expect("create project");
+        fs::write(
+            project.join("src/main.ax"),
+            "fn takes_two(xs: [int; 2]): int {
+return len(xs)
+}
+let three: [int] = [1, 2, 3]
+print takes_two(three)
+",
+        )
+        .expect("write source");
+        let error =
+            build_project(&project).expect_err("unsized array should not satisfy sized parameter");
+        assert!(
+            error
+                .message
+                .contains("expects argument type [int; 2], got [int]"),
+            "unexpected diagnostic: {error:?}"
+        );
+    }
+
+    #[test]
+    fn build_project_resolves_const_sized_arrays_inside_function_bodies() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("function-local-const-sized-arrays");
+        create_project(&project, Some("function-local-const-sized-arrays-app"))
+            .expect("create project");
+        fs::write(
+            project.join("src/main.ax"),
+            "const WIDTH: int = 3\nfn f(): int {\nlet xs: [int; WIDTH] = [1, 2, 3]\nreturn len(xs)\n}\nprint f()\n",
+        )
+        .expect("write source");
+        let built = build_project(&project)
+            .expect("build project with const-sized array inside function body");
+        let output = compiled_binary_command(&built.binary)
+            .output()
+            .expect("run compiled binary");
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout),
+            "3
+"
+        );
+    }
+
+    #[test]
+    fn build_project_rejects_unknown_const_sized_array_lengths_in_signatures() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("signature-unknown-const-sized-arrays");
+        create_project(&project, Some("signature-unknown-const-sized-arrays-app"))
+            .expect("create project");
+        fs::write(
+            project.join("src/main.ax"),
+            "fn first(values: [int; MISSING]): int {\nreturn values[0]\n}\nprint 1\n",
+        )
+        .expect("write source");
+        let error = build_project(&project)
+            .expect_err("unknown array length const in function signature should fail");
+        assert!(
+            error.message.contains("known int const/static expression"),
+            "unexpected diagnostic: {error:?}"
+        );
+    }
+
+    #[test]
+    fn build_project_emits_native_binary_with_static_declarations() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("static-declarations");
+        create_project(&project, Some("static-declarations-app")).expect("create project");
+        fs::write(
+            project.join("src/main.ax"),
+            "static ANSWER: int = 40 + 2\nstatic READY: bool = ANSWER == 42\nprint ANSWER\nprint READY\n",
+        )
+        .expect("write source");
+        let built = build_project(&project).expect("build project with static declarations");
+        let output = compiled_binary_command(&built.binary)
+            .output()
+            .expect("run compiled binary");
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "42\ntrue\n");
+    }
+
+    #[test]
     fn build_project_emits_native_binary_with_imported_public_consts() {
         let dir = tempdir().expect("tempdir");
         let project = dir.path().join("public-consts");
@@ -5840,6 +6597,44 @@ print serve_once("127.0.0.1:18080", "hello")
         let error = check_project(&project).expect_err("missing import should fail");
         assert!(error.message.contains("missing import"));
         assert_eq!(error.kind, "import");
+    }
+
+    #[test]
+    fn build_project_if_let_fallback_ignores_unmatched_named_payloads() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("if-let-named-fallback");
+        create_project(&project, Some("if-let-named-fallback-app")).expect("create project");
+        fs::write(
+            project.join("src/main.ax"),
+            "enum Choice {\nPicked(int)\nIgnored { render: string }\n}\nfn render(): int {\nreturn 7\n}\nlet choice: Choice = Ignored { render: \"skip\" }\nif let Picked(value) = choice {\nprint value\n} else {\nprint \"fallback\"\n}\n",
+        )
+        .expect("write source");
+
+        let built = build_project(&project).expect("build project");
+        let output = compiled_binary_command(&built.binary)
+            .output()
+            .expect("run compiled binary");
+        assert!(output.status.success());
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "fallback\n");
+    }
+
+    #[test]
+    fn build_project_if_let_fallback_ignores_unmatched_positional_payloads() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("if-let-positional-fallback");
+        create_project(&project, Some("if-let-positional-fallback-app")).expect("create project");
+        fs::write(
+            project.join("src/main.ax"),
+            "enum Choice {\nPicked(int)\nIgnored(int, string)\n}\nlet choice: Choice = Ignored(1, \"skip\")\nif let Picked(value) = choice {\nprint value\n} else {\nprint \"fallback\"\n}\n",
+        )
+        .expect("write source");
+
+        let built = build_project(&project).expect("build project");
+        let output = compiled_binary_command(&built.binary)
+            .output()
+            .expect("run compiled binary");
+        assert!(output.status.success());
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "fallback\n");
     }
 
     #[test]
@@ -6705,6 +7500,64 @@ print serve_once("127.0.0.1:18080", "hello")
     }
 
     #[test]
+    fn build_project_accepts_mutable_slice_borrow_from_function_parameter() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("mut-param-slice-borrow");
+        create_project(&project, Some("mut-param-slice-borrow-app")).expect("create project");
+        fs::write(
+            project.join("src/main.ax"),
+            "fn use_mut(values: [int]): int {\nlet slice: &mut [int] = values[:]\nprint len(slice)\nreturn 0\n}\nlet ignored: int = use_mut([1, 2, 3])\n",
+        )
+        .expect("write source");
+
+        let built = build_project(&project).expect("build project");
+        let output = compiled_binary_command(&built.binary)
+            .output()
+            .expect("run compiled binary");
+        assert!(output.status.success());
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "3\n");
+    }
+
+    #[test]
+    fn build_project_accepts_mutable_slice_borrow_from_field_root() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("mut-field-slice-borrow");
+        create_project(&project, Some("mut-field-slice-borrow-app")).expect("create project");
+        fs::write(
+            project.join("src/main.ax"),
+            "struct Box {\nvalues: [int]\n}\nlet holder: Box = Box { values: [1, 2, 3] }\nlet slice: &mut [int] = (holder.values)[:]\nprint len(slice)\n",
+        )
+        .expect("write source");
+
+        let built = build_project(&project).expect("build project");
+        let output = compiled_binary_command(&built.binary)
+            .output()
+            .expect("run compiled binary");
+        assert!(output.status.success());
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "3\n");
+    }
+
+    #[test]
+    fn build_project_accepts_mutable_slice_borrow_from_match_payload() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("mut-match-payload-slice-borrow");
+        create_project(&project, Some("mut-match-payload-slice-borrow-app"))
+            .expect("create project");
+        fs::write(
+            project.join("src/main.ax"),
+            "enum Payload {\nItems([int])\n}\nlet payload: Payload = Items([1, 2, 3])\nmatch payload {\nItems(values) {\nlet slice: &mut [int] = values[:]\nprint len(slice)\n}\n}\n",
+        )
+        .expect("write source");
+
+        let built = build_project(&project).expect("build project");
+        let output = compiled_binary_command(&built.binary)
+            .output()
+            .expect("run compiled binary");
+        assert!(output.status.success());
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "3\n");
+    }
+
+    #[test]
     fn check_project_rejects_moving_owned_array_while_mutable_slice_borrow_is_live() {
         let dir = tempdir().expect("tempdir");
         let project = dir.path().join("live-mut-borrow-move");
@@ -7099,6 +7952,22 @@ print serve_once("127.0.0.1:18080", "hello")
     }
 
     #[test]
+    fn check_project_rejects_bare_positional_payload_match_arm() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("bare-positional-payload-match-arm");
+        create_project(&project, Some("bare-positional-payload-match-arm-app"))
+            .expect("create project");
+        fs::write(
+            project.join("src/main.ax"),
+            "enum Choice {\nPicked(int, string)\nEmpty\n}\n\nfn render(choice: Choice): string {\nmatch choice {\nPicked {\nreturn \"picked\"\n}\nEmpty {\nreturn \"empty\"\n}\n}\n}\n\nprint render(Empty)\n",
+        )
+        .expect("write source");
+        let error = check_project(&project).expect_err("bare payload arm should bind arity");
+        assert!(error.message.contains("expects 2 bindings, got 0"));
+        assert_eq!(error.kind, "type");
+    }
+
+    #[test]
     fn check_project_rejects_multi_payload_match_binding_count() {
         let dir = tempdir().expect("tempdir");
         let project = dir.path().join("multi-payload-binding-count");
@@ -7216,6 +8085,49 @@ print serve_once("127.0.0.1:18080", "hello")
             .output()
             .expect("run compiled binary");
         assert_eq!(String::from_utf8_lossy(&output.stdout), "ready\n");
+    }
+
+    #[test]
+    fn check_project_reports_import_cycle_path_and_stable_code() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("import-cycle");
+        create_project(&project, Some("import-cycle-app")).expect("create project");
+        let main = project.join("src/main.ax");
+        let alpha = project.join("src/alpha.ax");
+        let beta = project.join("src/beta.ax");
+        fs::write(&main, "import \"alpha.ax\"\n\nprint alpha_value()\n").expect("write main");
+        fs::write(
+            &alpha,
+            "import \"beta.ax\"\n\npub fn alpha_value(): int {\nreturn beta_value()\n}\n",
+        )
+        .expect("write alpha");
+        fs::write(
+            &beta,
+            "import \"alpha.ax\"\n\npub fn beta_value(): int {\nreturn 7\n}\n",
+        )
+        .expect("write beta");
+
+        let error = check_project(&project).expect_err("import cycle should fail");
+        assert_eq!(error.kind, "import");
+        assert_eq!(error.code.as_deref(), Some("import_cycle"));
+        assert!(error.message.contains("circular import detected:"));
+        assert!(error.message.contains("src/alpha.ax"));
+        assert!(error.message.contains("src/beta.ax"));
+        assert!(error.path.as_deref().unwrap().ends_with("src/alpha.ax"));
+        assert_eq!(error.related.len(), 2);
+        let related_paths = error
+            .related
+            .iter()
+            .map(|related| related.path.as_deref().unwrap_or_default())
+            .collect::<Vec<_>>();
+        assert!(related_paths.iter().any(|path| path.ends_with("src/alpha.ax")));
+        assert!(related_paths.iter().any(|path| path.ends_with("src/beta.ax")));
+        assert!(
+            error
+                .related
+                .iter()
+                .all(|related| related.code.as_deref() == Some("import_cycle_member"))
+        );
     }
 
     #[test]
@@ -7370,6 +8282,94 @@ print serve_once("127.0.0.1:18080", "hello")
 
         assert_eq!(output.target.as_deref(), Some(target.as_str()));
         assert!(project.join("dist/targeted-build-app").exists());
+    }
+
+    #[test]
+    fn build_project_locked_offline_succeeds_for_local_graph() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("locked-offline-build");
+        create_project(&project, Some("locked-offline-app")).expect("create project");
+
+        let output = build_project_with_options(
+            &project,
+            &BuildOptions {
+                locked: true,
+                offline: true,
+                ..BuildOptions::default()
+            },
+        )
+        .expect("build local project in locked offline mode");
+
+        assert!(Path::new(&output.binary).exists());
+    }
+
+    #[test]
+    fn build_project_offline_requires_locked() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("offline-without-locked");
+        create_project(&project, Some("offline-without-locked-app")).expect("create project");
+
+        let error = build_project_with_options(
+            &project,
+            &BuildOptions {
+                offline: true,
+                ..BuildOptions::default()
+            },
+        )
+        .expect_err("offline without locked should fail");
+
+        assert_eq!(error.kind, "build");
+        assert!(error.message.contains("offline builds require --locked"));
+    }
+
+    #[test]
+    fn build_project_locked_offline_rejects_missing_lockfile_without_writing_it() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("missing-lockfile");
+        create_project(&project, Some("missing-lockfile-app")).expect("create project");
+        let lockfile = lockfile_path(&project);
+        fs::remove_file(&lockfile).expect("remove lockfile");
+
+        let error = build_project_with_options(
+            &project,
+            &BuildOptions {
+                locked: true,
+                offline: true,
+                ..BuildOptions::default()
+            },
+        )
+        .expect_err("missing lockfile should fail");
+
+        assert_eq!(error.kind, "lockfile");
+        assert!(!lockfile.exists());
+    }
+
+    #[test]
+    fn build_project_locked_offline_rejects_stale_lockfile_without_rewriting_it() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("stale-lockfile");
+        create_project(&project, Some("stale-lockfile-app")).expect("create project");
+        let lockfile = lockfile_path(&project);
+        let stale_lockfile = fs::read_to_string(&lockfile)
+            .expect("read lockfile")
+            .replace("stale-lockfile-app", "other-app");
+        fs::write(&lockfile, &stale_lockfile).expect("write stale lockfile");
+
+        let error = build_project_with_options(
+            &project,
+            &BuildOptions {
+                locked: true,
+                offline: true,
+                ..BuildOptions::default()
+            },
+        )
+        .expect_err("stale lockfile should fail");
+
+        assert_eq!(error.kind, "lockfile");
+        assert_eq!(
+            fs::read_to_string(&lockfile).expect("read stale lockfile"),
+            stale_lockfile
+        );
     }
 
     #[test]
@@ -7529,15 +8529,19 @@ print serve_once("127.0.0.1:18080", "hello")
             .as_array()
             .expect("imported debug mappings array");
         assert!(
-            imported_mappings.iter().any(|mapping| mapping["source"] == source
-                && mapping["line"] == 2
-                && mapping["column"] == 1),
+            imported_mappings
+                .iter()
+                .any(|mapping| mapping["source"] == source
+                    && mapping["line"] == 2
+                    && mapping["column"] == 1),
             "debug map should retain primary source spans after imports"
         );
         assert!(
-            imported_mappings.iter().any(|mapping| mapping["source"] == helper_source
-                && mapping["line"] == 2
-                && mapping["column"] == 1),
+            imported_mappings
+                .iter()
+                .any(|mapping| mapping["source"] == helper_source
+                    && mapping["line"] == 2
+                    && mapping["column"] == 1),
             "debug map should retain imported module source spans instead of collapsing to the primary file"
         );
 
@@ -7676,6 +8680,95 @@ print serve_once("127.0.0.1:18080", "hello")
     }
 
     #[test]
+    fn check_json_can_include_package_public_api_exports() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("public-api-workspace");
+        let core = project.join("deps/core");
+        create_project(&project, Some("public-api-app")).expect("create root project");
+        create_project(&core, Some("public-api-core")).expect("create core project");
+
+        fs::write(
+            project.join("axiom.toml"),
+            "[package]\nname = \"public-api-app\"\nversion = \"0.1.0\"\n\n[workspace]\nmembers = [\"deps/core\"]\n\n[dependencies]\ncore = { path = \"deps/core\" }\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n",
+        )
+        .expect("write root manifest");
+        fs::write(
+            project.join("src/main.ax"),
+            "import \"core/main.ax\"\n\npub fn root_answer(): int {\nreturn answer()\n}\n\nprint root_answer()\n",
+        )
+        .expect("write root source");
+        fs::write(
+            core.join("src/main.ax"),
+            "pub const LIMIT: int = 7\npub type Id = int\n\npub struct Widget {\nlabel: string\n}\n\npub enum Status {\nReady\n}\n\npub fn answer(): int {\nreturn LIMIT\n}\n\npub fn use_map(values: {string: int}): {string: int} {\nreturn values\n}\n\nimpl Widget {\npub fn label(self): string {\nreturn self.label\n}\n}\n",
+        )
+        .expect("write core source");
+
+        let core_manifest = load_manifest(&core).expect("load core manifest");
+        fs::write(
+            core.join("axiom.lock"),
+            render_lockfile_for_project(&core, &core_manifest).expect("core lockfile"),
+        )
+        .expect("write core lockfile");
+        let root_manifest = load_manifest(&project).expect("load root manifest");
+        fs::write(
+            project.join("axiom.lock"),
+            render_lockfile_for_project(&project, &root_manifest).expect("root lockfile"),
+        )
+        .expect("write root lockfile");
+
+        let output = check_project_with_options(
+            &project,
+            &CheckOptions {
+                package: None,
+                include_exports: true,
+            },
+        )
+        .expect("check public api workspace");
+        let core_package = output
+            .packages
+            .iter()
+            .find(|package| package.package_root.ends_with("deps/core"))
+            .expect("core package exports");
+        let exported = core_package
+            .exports
+            .iter()
+            .map(|export| (export.kind.as_str(), export.name.as_str()))
+            .collect::<std::collections::BTreeSet<_>>();
+        assert!(exported.contains(&("const", "LIMIT")));
+        assert!(exported.contains(&("type_alias", "Id")));
+        assert!(exported.contains(&("struct", "Widget")));
+        assert!(exported.contains(&("enum", "Status")));
+        assert!(exported.contains(&("function", "answer")));
+        assert!(exported.contains(&("function", "label")));
+        assert!(exported.contains(&("function", "use_map")));
+        let signatures = core_package
+            .exports
+            .iter()
+            .map(|export| (export.name.as_str(), export.signature.as_deref()))
+            .collect::<std::collections::BTreeMap<_, _>>();
+        assert_eq!(
+            signatures.get("label").copied().flatten(),
+            Some("fn Widget.label(self): string")
+        );
+        assert_eq!(
+            signatures.get("use_map").copied().flatten(),
+            Some("fn use_map(values: {string: int}): {string: int}")
+        );
+
+        let payload = json_contract::check_success(&project, &output);
+        assert!(payload["exports"].is_array());
+        let root_exports = payload["exports"]
+            .as_array()
+            .expect("top-level root exports array");
+        assert!(root_exports.iter().any(|export| {
+            export["kind"] == "function"
+                && export["name"] == "root_answer"
+                && export["signature"] == "fn root_answer(): int"
+        }));
+        assert!(payload["packages"][1]["exports"].is_array());
+    }
+
+    #[test]
     fn json_contract_build_payload_includes_target() {
         let dir = tempdir().expect("tempdir");
         let project = dir.path().join("json-build");
@@ -7772,11 +8865,27 @@ print serve_once("127.0.0.1:18080", "hello")
     #[test]
     fn json_contract_adds_stable_codes_for_common_diagnostic_kinds() {
         let cases = [
-            ("parse", "missing closing brace for block", "parse.missing_closing_brace"),
+            (
+                "parse",
+                "missing closing brace for block",
+                "parse.missing_closing_brace",
+            ),
             ("manifest", "invalid axiom.toml", "manifest.invalid"),
-            ("import", "import not found: ./missing.ax", "import.unresolved"),
-            ("capability", "fs requires capability fs", "capability.denied"),
-            ("type", "undefined variable \"answer\"", "type.undefined_symbol"),
+            (
+                "import",
+                "import not found: ./missing.ax",
+                "import.unresolved",
+            ),
+            (
+                "capability",
+                "fs requires capability fs",
+                "capability.denied",
+            ),
+            (
+                "type",
+                "undefined variable \"answer\"",
+                "type.undefined_symbol",
+            ),
             ("build", "failed to invoke rustc", "build.failed"),
             ("runtime", "process exited with status 1", "runtime.failed"),
         ];
@@ -7800,16 +8909,21 @@ print serve_once("127.0.0.1:18080", "hello")
         let source_payload = json_contract::error("check", &source_error);
 
         assert_eq!(source_payload["error"]["repair"]["action"], "edit_source");
-        assert!(source_payload["error"]["repair"]["edit"]
-            .as_str()
-            .expect("repair edit")
-            .contains("reported span"));
+        assert!(
+            source_payload["error"]["repair"]["edit"]
+                .as_str()
+                .expect("repair edit")
+                .contains("reported span")
+        );
 
         let fmt_error = crate::diagnostics::Diagnostic::new("fmt", "1 file(s) need formatting");
         let fmt_payload = json_contract::error("fmt", &fmt_error);
 
         assert_eq!(fmt_payload["error"]["repair"]["action"], "run_command");
-        assert_eq!(fmt_payload["error"]["repair"]["command"], "axiomc fmt <path>");
+        assert_eq!(
+            fmt_payload["error"]["repair"]["command"],
+            "axiomc fmt <path>"
+        );
     }
 
     #[test]
@@ -7957,6 +9071,119 @@ print next.value
         assert!(error.message.contains(".new()"));
     }
 
+    // AG2: deterministic monomorphized symbol naming (#337)
+    // These snapshot tests lock the exact symbol names produced for nested generics,
+    // Result/Option type arguments, and multi-site convergence.
+
+    #[test]
+    fn monomorphized_names_are_deterministic_for_option_type_arg() {
+        let source = "\
+fn first<T>(value: T): T {
+return value
+}
+let a: Option<int> = Some(1)
+let b: Option<int> = first<Option<int>>(a)
+match b {
+Some(v) {
+print v
+}
+None {
+print 0
+}
+}
+";
+        let parsed = parse_program(source, Path::new("main.ax")).expect("parse");
+        let hir = hir::lower(&parsed).expect("lower");
+        let mir = mir::lower(&hir);
+        let rendered = render_rust(&mir);
+        assert!(
+            rendered.contains("fn first__option_int("),
+            "Option<int> arg must produce symbol suffix 'option_int'; got:\n{rendered}"
+        );
+    }
+
+    #[test]
+    fn monomorphized_names_are_deterministic_for_result_type_arg() {
+        let source = "\
+fn first<T>(value: T): T {
+return value
+}
+let a: Result<int, string> = Ok(42)
+let b: Result<int, string> = first<Result<int, string>>(a)
+match b {
+Ok(v) {
+print v
+}
+Err(e) {
+print e
+}
+}
+";
+        let parsed = parse_program(source, Path::new("main.ax")).expect("parse");
+        let hir = hir::lower(&parsed).expect("lower");
+        let mir = mir::lower(&hir);
+        let rendered = render_rust(&mir);
+        assert!(
+            rendered.contains("fn first__result_int_string("),
+            "Result<int,string> arg must produce symbol suffix 'result_int_string'; got:\n{rendered}"
+        );
+    }
+
+    #[test]
+    fn monomorphized_names_are_deterministic_for_deeply_nested_generics() {
+        let source = "\
+fn wrap<T>(value: T): T {
+return value
+}
+fn identity<T>(value: T): T {
+return value
+}
+let a: int = 1
+let b: int = wrap<int>(a)
+let c: int = identity<int>(b)
+print c
+";
+        let parsed = parse_program(source, Path::new("main.ax")).expect("parse");
+        let hir = hir::lower(&parsed).expect("lower");
+        let mir = mir::lower(&hir);
+        let rendered = render_rust(&mir);
+        assert!(
+            rendered.contains("fn wrap__int("),
+            "wrap<int> must produce 'wrap__int'"
+        );
+        assert!(
+            rendered.contains("fn identity__int("),
+            "identity<int> must produce 'identity__int'"
+        );
+    }
+
+    #[test]
+    fn monomorphized_names_converge_across_multiple_call_sites() {
+        // Calling the same generic instantiation from many sites must emit exactly one
+        // monomorphized copy, not one per call site.
+        let source = "\
+fn echo<T>(value: T): T {
+return value
+}
+let a: int = echo<int>(1)
+let b: int = echo<int>(2)
+let c: int = echo<int>(3)
+print a
+print b
+print c
+";
+        let parsed = parse_program(source, Path::new("main.ax")).expect("parse");
+        let hir = hir::lower(&parsed).expect("lower");
+        let mir = mir::lower(&hir);
+        let rendered = render_rust(&mir);
+        // Exactly one definition, not three.
+        let count = rendered.matches("fn echo__int(").count();
+        assert_eq!(
+            count, 1,
+            "echo<int> must be emitted exactly once regardless of call-site count"
+        );
+    }
+
     #[test]
     fn hir_recovery_collects_independent_type_errors_in_source_order() {
         // Three functions each reference an undefined variable; recovery must
@@ -8001,10 +9228,7 @@ return missing_c
             "expected error for missing_c"
         );
         // Verify source order: line numbers must be non-decreasing.
-        let lines: Vec<usize> = diagnostics
-            .iter()
-            .filter_map(|d| d.line)
-            .collect();
+        let lines: Vec<usize> = diagnostics.iter().filter_map(|d| d.line).collect();
         let sorted = {
             let mut s = lines.clone();
             s.sort_unstable();

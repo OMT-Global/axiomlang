@@ -1,0 +1,4 @@
+let owned: string = "hello"
+let borrowed: &str = owned
+let moved: string = owned
+print borrowed

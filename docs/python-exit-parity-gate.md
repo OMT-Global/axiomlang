@@ -13,6 +13,26 @@ supported Axiom implementation. The final Python deletion issue is blocked until
 this matrix has no `blocked` rows. Any future `blocked` row must link a child
 issue in the row.
 
+`make python-exit-readiness` is the machine-checkable deletion readiness gate.
+It emits `axiom.python_exit.readiness.v1` JSON and fails if the parity matrix is
+blocked, stage0 files are still tracked, CI still uses Python unittest as a
+runtime correctness gate, user docs still advertise `python -m axiom`, or the
+Rust-owned Makefile gates are missing.
+
+Deletion PRs must use the strict issue-state variant:
+
+```bash
+make python-exit-readiness-github
+```
+
+That variant fails unless the issue states are available and Python-exit blocker
+issues [#266](https://github.com/OMT-Global/axiom/issues/266) through
+[#271](https://github.com/OMT-Global/axiom/issues/271) are all closed. Offline
+automation can provide the same contract with
+`scripts/ci/check-python-exit-readiness.sh --issue-state-file <path>
+--require-issue-states`, where the state file contains one `<issue> <state>`
+pair per line.
+
 The verification snapshot for this matrix is:
 
 - Legacy module help: no current Python package is checked in here; legacy module

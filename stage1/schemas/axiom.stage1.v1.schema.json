@@ -1,0 +1,195 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://axiom.omt.global/schemas/axiom.stage1.v1.schema.json",
+  "title": "Axiom stage1 compiler JSON envelope",
+  "description": "Versioned machine-readable output emitted by axiomc commands with --json.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "ok",
+    "command"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "axiom.stage1.v1"
+    },
+    "ok": {
+      "type": "boolean"
+    },
+    "command": {
+      "enum": [
+        "check",
+        "build",
+        "test",
+        "caps",
+        "bench",
+        "repl"
+      ]
+    },
+    "project": {
+      "type": "string"
+    },
+    "manifest": {
+      "type": "string"
+    },
+    "entry": {
+      "type": "string"
+    },
+    "statement_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "warnings": {
+      "type": "array"
+    },
+    "packages": {
+      "type": "array"
+    },
+    "capabilities": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/capability"
+      }
+    },
+    "binary": {
+      "type": "string"
+    },
+    "generated_rust": {
+      "type": "string"
+    },
+    "debug_map": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "target": {
+      "type": "string"
+    },
+    "debug": {
+      "type": "boolean"
+    },
+    "cache_hits": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "cache_misses": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "duration_ms": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "filter": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "passed": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "failed": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "skipped": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "cases": {
+      "type": "array"
+    },
+    "error": {
+      "$ref": "#/$defs/diagnostic"
+    }
+  },
+  "$defs": {
+    "capability": {
+      "type": "object",
+      "required": [
+        "name",
+        "enabled",
+        "description"
+      ],
+      "properties": {
+        "name": {
+          "enum": [
+            "fs",
+            "fs:write",
+            "net",
+            "process",
+            "env",
+            "clock",
+            "crypto",
+            "ffi"
+          ]
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "description": {
+          "type": "string"
+        },
+        "allowed": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "unsafe_unrestricted": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "diagnostic": {
+      "type": "object",
+      "required": [
+        "kind",
+        "message"
+      ],
+      "properties": {
+        "kind": {
+          "type": "string"
+        },
+        "code": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "message": {
+          "type": "string"
+        },
+        "path": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "line": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        },
+        "column": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        },
+        "related": {
+          "type": "array"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": true
+}

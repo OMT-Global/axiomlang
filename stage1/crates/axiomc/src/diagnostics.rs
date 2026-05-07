@@ -15,6 +15,8 @@ pub struct Diagnostic {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub code: Option<String>,
     pub message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub help: Option<String>,
     pub path: Option<String>,
     pub line: Option<usize>,
     pub column: Option<usize>,
@@ -30,12 +32,18 @@ impl Diagnostic {
             kind: kind.into(),
             code: None,
             message: message.into(),
+            help: None,
             path: None,
             line: None,
             column: None,
             related: Vec::new(),
             repair: None,
         }
+    }
+
+    pub fn with_help(mut self, help: impl Into<String>) -> Self {
+        self.help = Some(help.into());
+        self
     }
 
     pub fn with_code(mut self, code: impl Into<String>) -> Self {
@@ -132,7 +140,9 @@ fn repair_hint(kind: &str, _message: &str) -> Option<DiagnosticRepair> {
         ),
         "manifest" | "capability" => (
             "edit_manifest",
-            Some("Update axiom.toml with the narrowest required package, dependency, or capability change."),
+            Some(
+                "Update axiom.toml with the narrowest required package, dependency, or capability change.",
+            ),
             None,
         ),
         "import" => (
@@ -140,11 +150,7 @@ fn repair_hint(kind: &str, _message: &str) -> Option<DiagnosticRepair> {
             Some("Fix the quoted relative import path or add the missing imported source file."),
             None,
         ),
-        "fmt" => (
-            "run_command",
-            None,
-            Some("axiomc fmt <path>"),
-        ),
+        "fmt" => ("run_command", None, Some("axiomc fmt <path>")),
         "source" => (
             "check_path",
             Some("Use an existing .ax source path or package directory."),

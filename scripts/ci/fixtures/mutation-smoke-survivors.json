@@ -1,0 +1,25 @@
+{
+  "mutants": [
+    {
+      "area": "parser",
+      "file": "stage1/crates/axiomc/src/syntax.rs",
+      "name": "parser_recovery_gap",
+      "status": "survived",
+      "test_filter": "parser_recovery_reports_stable_top_level_errors"
+    }
+  ],
+  "schema_version": "axiom.stage1.mutation-smoke.v1",
+  "summary": {
+    "killed": 3,
+    "survived": 1,
+    "total": 4
+  },
+  "survivors": [
+    {
+      "area": "parser",
+      "file": "stage1/crates/axiomc/src/syntax.rs",
+      "name": "parser_recovery_gap",
+      "test_filter": "parser_recovery_reports_stable_top_level_errors"
+    }
+  ]
+}

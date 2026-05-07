@@ -1,0 +1,6 @@
+version = 1
+
+[[package]]
+name = "conformance-shared-borrow-while-mutable-live"
+version = "0.1.0"
+source = "path"

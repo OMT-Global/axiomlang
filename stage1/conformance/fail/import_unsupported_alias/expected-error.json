@@ -1,0 +1,8 @@
+{
+  "kind": "parse",
+  "code": null,
+  "message": "stage1 bootstrap does not support import aliases; import exported symbols directly",
+  "path": "src/main.ax",
+  "line": 1,
+  "column": 21
+}

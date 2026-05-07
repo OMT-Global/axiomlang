@@ -1,0 +1,8 @@
+{
+  "kind": "import",
+  "code": null,
+  "message": "missing import src/missing.ax",
+  "path": "src/main.ax",
+  "line": 1,
+  "column": 1
+}

@@ -1,0 +1,21 @@
+[package]
+name = "conformance-ownership-borrowing"
+version = "0.1.0"
+
+[workspace]
+members = ["deps/core"]
+
+[dependencies]
+core = { path = "deps/core" }
+
+[build]
+entry = "src/main_test.ax"
+out_dir = "dist"
+
+[capabilities]
+fs = false
+net = false
+process = false
+env = false
+clock = false
+crypto = false

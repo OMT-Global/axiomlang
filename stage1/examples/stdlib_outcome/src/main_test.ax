@@ -1,0 +1,21 @@
+import "std/outcome.ax"
+
+let ready: Option<int> = Some(7)
+let missing: Option<int> = None
+print option_is_some<int>(ready)
+print option_is_none<int>(missing)
+
+let chosen: Option<string> = Some("primary")
+let absent: Option<string> = None
+print option_unwrap_or<string>(chosen, "fallback")
+print option_unwrap_or<string>(absent, "fallback")
+
+let ok_value: Result<int, string> = Ok(11)
+let err_value: Result<int, string> = Err("nope")
+print result_is_ok<int, string>(ok_value)
+print result_is_err<int, string>(err_value)
+
+let ok_again: Result<string, string> = Ok("done")
+let err_again: Result<string, string> = Err("failed")
+print result_unwrap_or<string, string>(ok_again, "fallback")
+print result_unwrap_or<string, string>(err_again, "fallback")

@@ -32,6 +32,8 @@ pub struct CheckedPackage {
     pub statement_count: usize,
     pub capabilities: Vec<CapabilityDescriptor>,
     pub warnings: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub exports: Vec<ApiExport>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -41,7 +43,18 @@ pub struct CheckOutput {
     pub statement_count: usize,
     pub capabilities: Vec<CapabilityDescriptor>,
     pub warnings: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub exports: Vec<ApiExport>,
     pub packages: Vec<CheckedPackage>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct ApiExport {
+    pub kind: String,
+    pub name: String,
+    pub module: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub signature: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -65,6 +78,7 @@ pub struct BuiltPackage {
     pub statement_count: usize,
     pub target: Option<String>,
     pub debug: bool,
+    pub cache_key: BuildCacheMetadata,
     pub metadata: BuildMetadata,
     pub cache_status: BuildCacheStatus,
     pub compile_ms: u64,
@@ -83,11 +97,31 @@ pub struct BuildOutput {
     pub statement_count: usize,
     pub target: Option<String>,
     pub debug: bool,
+    pub cache_key: BuildCacheMetadata,
     pub metadata: BuildMetadata,
     pub cache_hits: usize,
     pub cache_misses: usize,
     pub duration_ms: u64,
     pub packages: Vec<BuiltPackage>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct BuildCacheMetadata {
+    pub version: u32,
+    pub compiler: String,
+    pub target: Option<String>,
+    pub debug: bool,
+    pub manifest_hash: String,
+    pub lockfile_hash: String,
+    pub generated_rust_hash: String,
+    pub sources: Vec<BuildSourceMetadata>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct BuildSourceMetadata {
+    pub path: String,
+    pub source_hash: String,
+    pub imports: Vec<String>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
@@ -141,6 +175,7 @@ pub struct TestOutput {
 #[derive(Debug, Clone, Default)]
 pub struct CheckOptions {
     pub package: Option<String>,
+    pub include_exports: bool,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -183,6 +218,11 @@ pub fn check_project_with_options(
     for package_root in workspace_package_roots(&graph, &project_root, options.package.as_deref())?
     {
         let analyzed = analyze_package(&graph, &package_root)?;
+        let exports = if options.include_exports {
+            public_api_exports(&analyzed.modules, &package_root)
+        } else {
+            Vec::new()
+        };
         packages.push(CheckedPackage {
             package_root: package_root.display().to_string(),
             manifest: manifest_path(&package_root).display().to_string(),
@@ -190,6 +230,7 @@ pub fn check_project_with_options(
             statement_count: analyzed.mir.statement_count(),
             capabilities: capability_descriptors(&analyzed.manifest.capabilities),
             warnings: analyzed.manifest.capabilities.warnings(),
+            exports,
         });
     }
     let root = packages.first().cloned().ok_or_else(|| {
@@ -207,6 +248,7 @@ pub fn check_project_with_options(
         statement_count: root.statement_count,
         capabilities: root.capabilities,
         warnings: root.warnings,
+        exports: root.exports,
         packages,
     })
 }
@@ -227,6 +269,7 @@ pub fn build_project_with_options(
     project_root: &Path,
     options: &BuildOptions,
 ) -> Result<BuildOutput, Diagnostic> {
+    validate_build_resolution_mode(options)?;
     let project_root = canonicalize_existing_path(&normalize_path(project_root), "project root")?;
     let graph = load_package_graph(&project_root)?;
     validate_workspace_root_lockfile(&graph, &project_root)?;
@@ -264,6 +307,7 @@ pub fn build_project_with_options(
             statement_count: analyzed.mir.statement_count(),
             target: resolved_target.clone(),
             debug: options.debug,
+            cache_key: report.cache_key,
             metadata: report.metadata,
             cache_status: report.cache_status,
             compile_ms: report.compile_ms,
@@ -295,12 +339,23 @@ pub fn build_project_with_options(
         statement_count: root.statement_count,
         target: root.target,
         debug: root.debug,
+        cache_key: root.cache_key,
         metadata: root.metadata,
         cache_hits,
         cache_misses,
         duration_ms: started.elapsed().as_millis() as u64,
         packages,
     })
+}
+
+fn validate_build_resolution_mode(options: &BuildOptions) -> Result<(), Diagnostic> {
+    if options.offline && !options.locked {
+        return Err(Diagnostic::new(
+            "build",
+            "offline builds require --locked so axiom.lock is the only dependency resolution source",
+        ));
+    }
+    Ok(())
 }
 
 pub fn run_project(project_root: &Path) -> Result<i32, Diagnostic> {
@@ -545,6 +600,9 @@ fn collect_discovered_tests(
             entry: relative.display().to_string(),
             stdout,
             kind,
+            expected_error: None,
+            capabilities: Vec::new(),
+            package: None,
         });
     }
     Ok(())
@@ -781,6 +839,11 @@ fn register_stdlib_package(graph: &mut PackageGraph) {
             clock: true,
             crypto: true,
             ffi: false,
+            async_runtime: true,
+            deny_by_default: false,
+            unsafe_opt_ins: Vec::new(),
+            owners: BTreeMap::new(),
+            rationale: BTreeMap::new(),
         },
     };
     graph.packages.insert(
@@ -954,6 +1017,7 @@ fn resolve_workspace_members(
 struct BuildArtifactReport {
     metadata: BuildMetadata,
     cache_status: BuildCacheStatus,
+    cache_key: BuildCacheMetadata,
     compile_ms: u64,
 }
 
@@ -1033,6 +1097,7 @@ fn build_artifacts(
         return Ok(BuildArtifactReport {
             metadata: build_metadata(package_root, &cache),
             cache_status: BuildCacheStatus::Hit,
+            cache_key: build_cache_metadata(&cache),
             compile_ms: 0,
         });
     }
@@ -1060,8 +1125,30 @@ fn build_artifacts(
     Ok(BuildArtifactReport {
         metadata: build_metadata(package_root, &cache),
         cache_status: BuildCacheStatus::Miss,
+        cache_key: build_cache_metadata(&cache),
         compile_ms,
     })
+}
+
+fn build_cache_metadata(cache: &BuildCacheFile) -> BuildCacheMetadata {
+    BuildCacheMetadata {
+        version: cache.version,
+        compiler: cache.compiler.clone(),
+        target: cache.target.clone(),
+        debug: cache.debug,
+        manifest_hash: cache.manifest_hash.clone(),
+        lockfile_hash: cache.lockfile_hash.clone(),
+        generated_rust_hash: cache.rust_hash.clone(),
+        sources: cache
+            .modules
+            .iter()
+            .map(|module| BuildSourceMetadata {
+                path: module.path.clone(),
+                source_hash: module.source_hash.clone(),
+                imports: module.imports.clone(),
+            })
+            .collect(),
+    }
 }
 
 fn build_metadata(package_root: &Path, cache: &BuildCacheFile) -> BuildMetadata {
@@ -1838,17 +1925,33 @@ fn load_module_recursive(
     visiting: &mut Vec<PathBuf>,
 ) -> Result<(), Diagnostic> {
     let module_path = normalize_path(module_path);
-    if visiting.contains(&module_path) {
+    let package = graph.context(package_root)?;
+    if let Some(cycle_start) = visiting.iter().position(|path| path == &module_path) {
+        let mut cycle = visiting[cycle_start..].to_vec();
+        cycle.push(module_path.clone());
+        let cycle_path = cycle
+            .iter()
+            .map(|path| import_diagnostic_path(&package.root, path))
+            .collect::<Vec<_>>();
+        let related = visiting[cycle_start..]
+            .iter()
+            .map(|path| {
+                Diagnostic::new("import", "module participates in import cycle")
+                    .with_code("import_cycle_member")
+                    .with_path(path.display().to_string())
+            })
+            .collect();
         return Err(Diagnostic::new(
             "import",
-            format!("circular import detected at {}", module_path.display()),
+            format!("circular import detected: {}", cycle_path.join(" -> ")),
         )
-        .with_path(module_path.display().to_string()));
+        .with_code("import_cycle")
+        .with_path(module_path.display().to_string())
+        .with_related(related));
     }
     if loaded.contains_key(&module_path) {
         return Ok(());
     }
-    let package = graph.context(package_root)?;
 
     let source = if stdlib::is_stdlib_path(&module_path) {
         stdlib::stdlib_source_for(&module_path)
@@ -1988,6 +2091,22 @@ fn validate_stmt_capabilities(
                 }
             }
         }
+        syntax::Stmt::IfLet {
+            expr,
+            then_block,
+            else_block,
+            ..
+        } => {
+            validate_expr_capabilities(module_path, expr, capabilities)?;
+            for stmt in then_block {
+                validate_stmt_capabilities(module_path, stmt, capabilities)?;
+            }
+            if let Some(else_block) = else_block {
+                for stmt in else_block {
+                    validate_stmt_capabilities(module_path, stmt, capabilities)?;
+                }
+            }
+        }
         syntax::Stmt::While { cond, body, .. } => {
             validate_expr_capabilities(module_path, cond, capabilities)?;
             for stmt in body {
@@ -2051,6 +2170,9 @@ fn validate_expr_capabilities(
             validate_expr_capabilities(module_path, lhs, capabilities)?;
             validate_expr_capabilities(module_path, rhs, capabilities)
         }
+        syntax::Expr::Cast { expr, .. } => {
+            validate_expr_capabilities(module_path, expr, capabilities)
+        }
         syntax::Expr::Try { expr, .. } | syntax::Expr::Await { expr, .. } => {
             validate_expr_capabilities(module_path, expr, capabilities)
         }
@@ -2093,6 +2215,9 @@ fn validate_expr_capabilities(
             validate_expr_capabilities(module_path, base, capabilities)?;
             validate_expr_capabilities(module_path, index, capabilities)
         }
+        syntax::Expr::Closure { body, .. } => {
+            validate_expr_capabilities(module_path, body, capabilities)
+        }
     }
 }
 
@@ -2131,6 +2256,7 @@ fn flatten_modules(
     }
 
     let mut flattened_functions = Vec::new();
+    let mut flattened_consts = Vec::new();
     let mut flattened_type_aliases = Vec::new();
     let mut flattened_structs = Vec::new();
     let mut flattened_enums = Vec::new();
@@ -2469,6 +2595,7 @@ fn flatten_modules(
                 &module.path,
                 &mut HashSet::new(),
             )?;
+            flattened_consts.push(const_decl.clone());
         }
 
         for type_alias in &module.program.type_aliases {
@@ -2537,13 +2664,186 @@ fn flatten_modules(
             .map(|module| module.path.display().to_string())
             .unwrap_or_default(),
         imports: Vec::new(),
-        consts: Vec::new(),
+        consts: flattened_consts,
         type_aliases: flattened_type_aliases,
         structs: flattened_structs,
         enums: flattened_enums,
         functions: flattened_functions,
         stmts: flattened_stmts,
     })
+}
+
+fn public_api_exports(modules: &[LoadedModule], package_root: &Path) -> Vec<ApiExport> {
+    let mut exports = Vec::new();
+    for module in modules
+        .iter()
+        .filter(|module| module.package_root == package_root)
+    {
+        let module_path = module.path.display().to_string();
+        for alias in module
+            .program
+            .type_aliases
+            .iter()
+            .filter(|alias| alias.visibility.is_public())
+        {
+            exports.push(ApiExport {
+                kind: String::from("type_alias"),
+                name: alias.name.clone(),
+                module: module_path.clone(),
+                signature: Some(format!(
+                    "type {} = {}",
+                    alias.name,
+                    format_type_name(&alias.ty)
+                )),
+            });
+        }
+        for struct_decl in module
+            .program
+            .structs
+            .iter()
+            .filter(|struct_decl| struct_decl.visibility.is_public())
+        {
+            exports.push(ApiExport {
+                kind: String::from("struct"),
+                name: struct_decl.name.clone(),
+                module: module_path.clone(),
+                signature: Some(format!("struct {}", struct_decl.name)),
+            });
+        }
+        for enum_decl in module
+            .program
+            .enums
+            .iter()
+            .filter(|enum_decl| enum_decl.visibility.is_public())
+        {
+            exports.push(ApiExport {
+                kind: String::from("enum"),
+                name: enum_decl.name.clone(),
+                module: module_path.clone(),
+                signature: Some(format!("enum {}", enum_decl.name)),
+            });
+        }
+        for function in module
+            .program
+            .functions
+            .iter()
+            .filter(|function| function.visibility.is_public())
+        {
+            let params = format_function_params(function);
+            let display_name = function
+                .impl_target
+                .as_ref()
+                .map(|target| format!("{target}.{}", function.name))
+                .unwrap_or_else(|| function.name.clone());
+            exports.push(ApiExport {
+                kind: String::from("function"),
+                name: function.name.clone(),
+                module: module_path.clone(),
+                signature: Some(format!(
+                    "fn {display_name}({params}): {}",
+                    format_type_name(&function.return_ty)
+                )),
+            });
+        }
+        for constant in module
+            .program
+            .consts
+            .iter()
+            .filter(|constant| constant.visibility.is_public())
+        {
+            exports.push(ApiExport {
+                kind: String::from("const"),
+                name: constant.name.clone(),
+                module: module_path.clone(),
+                signature: Some(format!(
+                    "const {}: {}",
+                    constant.name,
+                    format_type_name(&constant.ty)
+                )),
+            });
+        }
+    }
+    exports.sort_by(|left, right| {
+        left.module
+            .cmp(&right.module)
+            .then_with(|| left.kind.cmp(&right.kind))
+            .then_with(|| left.name.cmp(&right.name))
+    });
+    exports
+}
+
+fn format_function_params(function: &syntax::Function) -> String {
+    let mut params = Vec::new();
+    if function.receiver.is_some() {
+        params.push(String::from("self"));
+    }
+    params.extend(
+        function
+            .params
+            .iter()
+            .map(|param| format!("{}: {}", param.name, format_type_name(&param.ty))),
+    );
+    params.join(", ")
+}
+
+fn format_type_name(ty: &syntax::TypeName) -> String {
+    match ty {
+        syntax::TypeName::Int => String::from("int"),
+        syntax::TypeName::Numeric(numeric) => numeric.as_str().to_string(),
+        syntax::TypeName::Bool => String::from("bool"),
+        syntax::TypeName::String => String::from("string"),
+        syntax::TypeName::Str => String::from("str"),
+        syntax::TypeName::Named(name, args) if args.is_empty() => name.clone(),
+        syntax::TypeName::Named(name, args) => format!(
+            "{name}<{}>",
+            args.iter()
+                .map(format_type_name)
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+        syntax::TypeName::Ptr(inner) => format!("&{}", format_type_name(inner)),
+        syntax::TypeName::MutPtr(inner) => format!("&mut {}", format_type_name(inner)),
+        syntax::TypeName::Slice(inner) => format!("&[{}]", format_type_name(inner)),
+        syntax::TypeName::MutSlice(inner) => format!("&mut [{}]", format_type_name(inner)),
+        syntax::TypeName::LifetimeSlice(lifetime, inner) => {
+            format!("&'{lifetime} [{}]", format_type_name(inner))
+        }
+        syntax::TypeName::LifetimeMutSlice(lifetime, inner) => {
+            format!("&'{lifetime} mut [{}]", format_type_name(inner))
+        }
+        syntax::TypeName::Option(inner) => format!("Option<{}>", format_type_name(inner)),
+        syntax::TypeName::Result(ok, err) => {
+            format!(
+                "Result<{}, {}>",
+                format_type_name(ok),
+                format_type_name(err)
+            )
+        }
+        syntax::TypeName::Tuple(elements) => format!(
+            "({})",
+            elements
+                .iter()
+                .map(format_type_name)
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+        syntax::TypeName::Map(key, value) => {
+            format!("{{{}: {}}}", format_type_name(key), format_type_name(value))
+        }
+        syntax::TypeName::Array(inner, len) => match len {
+            Some(len) => format!("[{}; {len}]", format_type_name(inner)),
+            None => format!("[{}]", format_type_name(inner)),
+        },
+        syntax::TypeName::Fn(params, return_ty) => format!(
+            "fn({}) -> {}",
+            params
+                .iter()
+                .map(format_type_name)
+                .collect::<Vec<_>>()
+                .join(", "),
+            format_type_name(return_ty)
+        ),
+    }
 }
 
 fn build_module_symbols(module: &LoadedModule) -> Result<ModuleSymbols, Diagnostic> {
@@ -3152,6 +3452,70 @@ fn rewrite_stmt(
             line: *line,
             column: *column,
         },
+        syntax::Stmt::IfLet {
+            variant,
+            bindings,
+            is_named,
+            expr,
+            then_block,
+            else_block,
+            line,
+            column,
+        } => syntax::Stmt::IfLet {
+            variant: variant.clone(),
+            bindings: bindings.clone(),
+            is_named: *is_named,
+            expr: rewrite_expr(
+                expr,
+                visible_functions,
+                visible_consts,
+                visible_structs,
+                visible_types,
+                private_imported,
+                private_imported_consts,
+                private_imported_types,
+                module_path,
+            )?,
+            then_block: then_block
+                .iter()
+                .map(|stmt| {
+                    rewrite_stmt(
+                        stmt,
+                        visible_functions,
+                        visible_consts,
+                        visible_structs,
+                        visible_types,
+                        private_imported,
+                        private_imported_consts,
+                        private_imported_types,
+                        module_path,
+                    )
+                })
+                .collect::<Result<Vec<_>, _>>()?,
+            else_block: else_block
+                .as_ref()
+                .map(|block| {
+                    block
+                        .iter()
+                        .map(|stmt| {
+                            rewrite_stmt(
+                                stmt,
+                                visible_functions,
+                                visible_consts,
+                                visible_structs,
+                                visible_types,
+                                private_imported,
+                                private_imported_consts,
+                                private_imported_types,
+                                module_path,
+                            )
+                        })
+                        .collect::<Result<Vec<_>, _>>()
+                })
+                .transpose()?,
+            line: *line,
+            column: *column,
+        },
         syntax::Stmt::While {
             cond,
             body,
@@ -3479,6 +3843,34 @@ fn rewrite_expr(
             line: *line,
             column: *column,
         },
+        syntax::Expr::Cast {
+            expr,
+            ty,
+            line,
+            column,
+        } => syntax::Expr::Cast {
+            expr: Box::new(rewrite_expr(
+                expr,
+                visible_functions,
+                visible_consts,
+                visible_structs,
+                visible_types,
+                private_imported,
+                private_imported_consts,
+                private_imported_types,
+                module_path,
+            )?),
+            ty: rewrite_type_name(
+                ty,
+                visible_types,
+                private_imported_types,
+                module_path,
+                *line,
+                *column,
+            )?,
+            line: *line,
+            column: *column,
+        },
         syntax::Expr::Try { expr, line, column } => syntax::Expr::Try {
             expr: Box::new(rewrite_expr(
                 expr,
@@ -3768,6 +4160,44 @@ fn rewrite_expr(
             line: *line,
             column: *column,
         },
+        syntax::Expr::Closure {
+            params,
+            body,
+            line,
+            column,
+        } => syntax::Expr::Closure {
+            params: params
+                .iter()
+                .map(|param| {
+                    Ok(syntax::Param {
+                        name: param.name.clone(),
+                        ty: rewrite_type_name(
+                            &param.ty,
+                            visible_types,
+                            private_imported_types,
+                            module_path,
+                            param.line,
+                            param.column,
+                        )?,
+                        line: param.line,
+                        column: param.column,
+                    })
+                })
+                .collect::<Result<Vec<_>, Diagnostic>>()?,
+            body: Box::new(rewrite_expr(
+                body,
+                visible_functions,
+                visible_consts,
+                visible_structs,
+                visible_types,
+                private_imported,
+                private_imported_consts,
+                private_imported_types,
+                module_path,
+            )?),
+            line: *line,
+            column: *column,
+        },
     })
 }
 
@@ -3781,8 +4211,10 @@ fn rewrite_type_name(
 ) -> Result<syntax::TypeName, Diagnostic> {
     match ty {
         syntax::TypeName::Int => Ok(syntax::TypeName::Int),
+        syntax::TypeName::Numeric(numeric) => Ok(syntax::TypeName::Numeric(*numeric)),
         syntax::TypeName::Bool => Ok(syntax::TypeName::Bool),
         syntax::TypeName::String => Ok(syntax::TypeName::String),
+        syntax::TypeName::Str => Ok(syntax::TypeName::Str),
         syntax::TypeName::Named(name, args) => {
             if !visible_types.contains_key(name) && private_imported_types.contains(name) {
                 return Err(Diagnostic::new(
@@ -3857,6 +4289,30 @@ fn rewrite_type_name(
                 column,
             )?)))
         }
+        syntax::TypeName::LifetimeSlice(lifetime, inner) => Ok(syntax::TypeName::LifetimeSlice(
+            lifetime.clone(),
+            Box::new(rewrite_type_name(
+                inner,
+                visible_types,
+                private_imported_types,
+                module_path,
+                line,
+                column,
+            )?),
+        )),
+        syntax::TypeName::LifetimeMutSlice(lifetime, inner) => {
+            Ok(syntax::TypeName::LifetimeMutSlice(
+                lifetime.clone(),
+                Box::new(rewrite_type_name(
+                    inner,
+                    visible_types,
+                    private_imported_types,
+                    module_path,
+                    line,
+                    column,
+                )?),
+            ))
+        }
         syntax::TypeName::Result(ok, err) => Ok(syntax::TypeName::Result(
             Box::new(rewrite_type_name(
                 ok,
@@ -3908,14 +4364,40 @@ fn rewrite_type_name(
                 column,
             )?),
         )),
-        syntax::TypeName::Array(inner) => Ok(syntax::TypeName::Array(Box::new(rewrite_type_name(
-            inner,
-            visible_types,
-            private_imported_types,
-            module_path,
-            line,
-            column,
-        )?))),
+        syntax::TypeName::Array(inner, len) => Ok(syntax::TypeName::Array(
+            Box::new(rewrite_type_name(
+                inner,
+                visible_types,
+                private_imported_types,
+                module_path,
+                line,
+                column,
+            )?),
+            len.clone(),
+        )),
+        syntax::TypeName::Fn(params, return_ty) => Ok(syntax::TypeName::Fn(
+            params
+                .iter()
+                .map(|param| {
+                    rewrite_type_name(
+                        param,
+                        visible_types,
+                        private_imported_types,
+                        module_path,
+                        line,
+                        column,
+                    )
+                })
+                .collect::<Result<Vec<_>, _>>()?,
+            Box::new(rewrite_type_name(
+                return_ty,
+                visible_types,
+                private_imported_types,
+                module_path,
+                line,
+                column,
+            )?),
+        )),
     }
 }
 
@@ -4273,7 +4755,10 @@ fn resolve_import_path(
             if !candidate.exists() {
                 return Err(Diagnostic::new(
                     "import",
-                    format!("missing import {}", candidate.display()),
+                    format!(
+                        "missing import {}",
+                        import_diagnostic_path(&dependency.root, &candidate)
+                    ),
                 )
                 .with_path(module_path.display().to_string())
                 .with_span(import.line, import.column));
@@ -4300,11 +4785,15 @@ fn resolve_import_path(
         );
     }
     if !candidate.exists() {
-        return Err(
-            Diagnostic::new("import", format!("missing import {}", candidate.display()))
-                .with_path(module_path.display().to_string())
-                .with_span(import.line, import.column),
-        );
+        return Err(Diagnostic::new(
+            "import",
+            format!(
+                "missing import {}",
+                import_diagnostic_path(&package.root, &candidate)
+            ),
+        )
+        .with_path(module_path.display().to_string())
+        .with_span(import.line, import.column));
     }
     let candidate = canonicalize_existing_path(&candidate, "import path")?;
     if !candidate.starts_with(&package.root) {
@@ -4315,6 +4804,13 @@ fn resolve_import_path(
         );
     }
     Ok((package.root.clone(), candidate))
+}
+
+fn import_diagnostic_path(package_root: &Path, path: &Path) -> String {
+    normalize_path(path)
+        .strip_prefix(package_root)
+        .map(|relative| relative.display().to_string())
+        .unwrap_or_else(|_| path.display().to_string())
 }
 
 fn canonicalize_existing_path(path: &Path, label: &str) -> Result<PathBuf, Diagnostic> {
@@ -4446,6 +4942,7 @@ fn stmt_line(stmt: &syntax::Stmt) -> usize {
         | syntax::Stmt::Panic { line, .. }
         | syntax::Stmt::Defer { line, .. }
         | syntax::Stmt::If { line, .. }
+        | syntax::Stmt::IfLet { line, .. }
         | syntax::Stmt::While { line, .. }
         | syntax::Stmt::Match { line, .. }
         | syntax::Stmt::Return { line, .. } => *line,
@@ -4459,6 +4956,7 @@ fn stmt_column(stmt: &syntax::Stmt) -> usize {
         | syntax::Stmt::Panic { column, .. }
         | syntax::Stmt::Defer { column, .. }
         | syntax::Stmt::If { column, .. }
+        | syntax::Stmt::IfLet { column, .. }
         | syntax::Stmt::While { column, .. }
         | syntax::Stmt::Match { column, .. }
         | syntax::Stmt::Return { column, .. } => *column,
@@ -4616,12 +5114,18 @@ mod tests {
                 entry: "src/unit_test.ax".to_string(),
                 stdout: None,
                 kind: TestKind::Unit,
+                expected_error: None,
+                capabilities: Vec::new(),
+                package: None,
             },
             crate::manifest::TestTarget {
                 name: "bench".to_string(),
                 entry: "src/demo_bench.ax".to_string(),
                 stdout: None,
                 kind: TestKind::Benchmark,
+                expected_error: None,
+                capabilities: Vec::new(),
+                package: None,
             },
         ];
 
@@ -4669,6 +5173,9 @@ mod tests {
             entry: "src/manifest_bench.ax".to_string(),
             stdout: None,
             kind: TestKind::Benchmark,
+            expected_error: None,
+            capabilities: Vec::new(),
+            package: None,
         });
 
         let tests = collect_test_targets(root, &manifest, None, true)

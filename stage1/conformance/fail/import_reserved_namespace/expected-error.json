@@ -1,0 +1,8 @@
+{
+  "kind": "import",
+  "code": null,
+  "message": "stdlib import must include a module path (e.g. import \"std/time.ax\")",
+  "path": "src/main.ax",
+  "line": 1,
+  "column": 1
+}

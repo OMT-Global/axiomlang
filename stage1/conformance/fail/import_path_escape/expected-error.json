@@ -1,0 +1,8 @@
+{
+  "kind": "import",
+  "code": null,
+  "message": "stage1 imports may not traverse parent directories",
+  "path": "src/main.ax",
+  "line": 1,
+  "column": 1
+}

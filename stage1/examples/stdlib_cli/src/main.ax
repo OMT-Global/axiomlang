@@ -1,0 +1,15 @@
+import "std/cli.ax"
+
+print arg_count()
+let values: [string] = args()
+print len(values)
+
+let first_arg: Option<string> = arg(0)
+match first_arg {
+Some(value) {
+print value
+}
+None {
+print "missing"
+}
+}

@@ -1,0 +1,3 @@
+let inner: fn(int): int = |x: int| x + 1
+let outer: fn(int): int = |n: int| inner(n)
+print inner(2)
