@@ -9225,6 +9225,7 @@ fn lower_map_lookup_intrinsic(
             ctx.structs,
             ctx.enums,
             ctx.aliases,
+            ctx.consts,
             line,
             column,
         )?;
@@ -9233,6 +9234,7 @@ fn lower_map_lookup_intrinsic(
             ctx.structs,
             ctx.enums,
             ctx.aliases,
+            ctx.consts,
             line,
             column,
         )?;
