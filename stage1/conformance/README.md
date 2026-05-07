@@ -45,6 +45,8 @@ Current executable fixtures cover:
   successfully.
 - `package_visibility`: `pub(pkg)` items imported across sibling modules within
   the same package.
+- `type_system_aggregates`: typed aggregate coverage for generic wrappers,
+  structs, enums, tuples, arrays, maps, `Option`, and `Result`.
 
 - `comparison_strict_typing`: Axiom-owned comparison fixture for explicit
   scalar typing and bool-only control flow.
