@@ -1,0 +1,7 @@
+fn wrap_ok(input: &[int]): Result<&[int], string> {
+let local: [int] = [7, 8, 9]
+return Ok(local[:])
+}
+
+let values: [int] = [1, 2, 3]
+let res: Result<&[int], string> = wrap_ok(values[:])

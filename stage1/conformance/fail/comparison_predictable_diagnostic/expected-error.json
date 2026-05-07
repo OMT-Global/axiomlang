@@ -1,0 +1,8 @@
+{
+  "kind": "type",
+  "code": null,
+  "message": "let binding \"count\" expects int, got string",
+  "path": "src/main.ax",
+  "line": 1,
+  "column": 1
+}

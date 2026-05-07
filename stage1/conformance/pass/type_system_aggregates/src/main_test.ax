@@ -1,0 +1,86 @@
+struct Window<T> {
+view: &[T]
+}
+
+struct MaybeBox<T> {
+item: Option<T>
+}
+
+struct ResultBox<T, E> {
+item: Result<T, E>
+}
+
+struct Buckets<T> {
+items: [T]
+by_name: {string: T}
+}
+
+enum Slot<T> {
+Filled(T)
+Empty
+}
+
+fn tail<T>(values: &[T]): &[T] {
+return values[1:]
+}
+
+fn make_window<T>(values: &[T]): Window<T> {
+return Window { view: tail<T>(values) }
+}
+
+let values: [int] = [4, 5, 6]
+let window: Window<int> = Window { view: values[:] }
+print len(window.view)
+let tail_window: Window<int> = make_window<int>(values[:])
+print len(tail_window.view)
+
+let maybe: MaybeBox<int> = MaybeBox { item: Some(8) }
+match maybe.item {
+Some(value) {
+print value
+}
+None {
+print 0
+}
+}
+
+let result: ResultBox<string, string> = ResultBox { item: Ok("ready") }
+match result.item {
+Ok(value) {
+print value
+}
+Err(error) {
+print error
+}
+}
+
+let bucket_values: [int] = [10, 20]
+let bucket_lookup: {string: int} = {"answer": 42}
+let buckets: Buckets<int> = Buckets { items: bucket_values, by_name: bucket_lookup }
+print len(buckets.items)
+let answers: {string: int} = buckets.by_name
+print answers["answer"]
+
+let number: Slot<int> = Filled(42)
+match number {
+Filled(value) {
+print value
+}
+Empty {
+print 0
+}
+}
+
+let text: Slot<string> = Filled("done")
+match text {
+Filled(value) {
+print value
+}
+Empty {
+print "empty"
+}
+}
+
+let label: (string, int) = ("agent", 7)
+print label.0
+print label.1

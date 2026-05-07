@@ -1,0 +1,8 @@
+{
+  "kind": "ownership",
+  "code": "closure_move_captured_non_copy",
+  "message": "closure cannot move captured non-copy value `s` because fn closures must be callable more than once",
+  "path": "src/main.ax",
+  "line": 2,
+  "column": 21
+}

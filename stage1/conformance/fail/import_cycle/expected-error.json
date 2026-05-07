@@ -1,0 +1,8 @@
+{
+  "kind": "import",
+  "code": null,
+  "message": "circular import detected at src/a.ax",
+  "path": "src/a.ax",
+  "line": 0,
+  "column": 0
+}

@@ -1,0 +1,7 @@
+fn consume(s: string): string {
+return s
+}
+
+let tag: string = "test"
+let result: string = consume(tag)
+print tag

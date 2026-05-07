@@ -12,6 +12,11 @@ AG0 is the current entry floor and must remain intact before any downstream work
   `test`, and `caps`.
 - The backend is still generated Rust plus `rustc`. That is acceptable for the
   agent-grade milestone as long as the public workflow is fully `axiomc`-driven.
+
+  Debug builds now produce a generated-Rust source map and debug manifest that
+  correlate the native binary, generated Rust, and `.ax` source hashes, but they
+  do not yet provide native `.ax` DWARF line tables.
+
 - The new backend-selection seam is preparatory plumbing only; it does not yet
   satisfy or close #105 on its own.
 - The current language floor includes multi-file modules, structs, enums,
@@ -140,6 +145,9 @@ Deliberate exclusions:
 - no higher-kinded abstractions
 - no macros
 - no requirement for user-defined closures at this milestone
+- no broad const-evaluation expansion beyond the current scalar `const` floor and
+  scalar module-scope `static` declarations; `const fn`, array-size constants,
+  address-taking, and non-scalar statics remain follow-on language work
 
 Acceptance:
 
@@ -155,7 +163,7 @@ Status: complete for the current stage1 bootstrap contract.
 
 - `AG3.1` local path dependency graphs, package-root workspace members, and root lockfile validation are landed.
 - `AG3.2` now rejects import aliases, re-exports, and namespace-qualified calls with explicit parser diagnostics.
-- `AG3.3` now denies capability-gated compiler-known intrinsics across all six manifest flags: `fs_read(...)`, `net_resolve(...)`, `process_status(...)`, `env_get(...)`, `clock_now_ms()`, `clock_elapsed_ms(...)`, `clock_sleep_ms(...)`, and `crypto_sha256(...)`.
+- `AG3.3` now denies capability-gated compiler-known intrinsics across manifest flags: `fs_read(...)`, `fs_create_file(...)`, `fs_write_file(...)`, `fs_append_file(...)`, `fs_mkdir(...)`, `fs_mkdir_all(...)`, `fs_remove_file(...)`, `fs_remove_dir(...)`, `fs_replace_file(...)`, `net_resolve(...)`, `process_status(...)`, `env_get(...)`, `clock_now_ms()`, `clock_elapsed_ms(...)`, `clock_sleep_ms(...)`, and `crypto_sha256(...)`.
 - Workspace-only manifests are now accepted at the root, and `axiomc check/build/run/test -p <package>` can target a concrete workspace member when the root has no `[package]` section.
 
 Work packages:
@@ -196,6 +204,12 @@ stdio" precedent alongside the existing `print` statement. `std/json.ax`
 adds ungated scalar/string JSON helpers, `std/collections.ax` adds generic
 borrowed-slice helpers on top of AG2 generic functions, `std/sync.ax` provides
 ownership-shaped synchronization values, and `std/async.ax` exposes the
+deterministic AG4.2 task/channel runtime. AG4.4 capability-aware integration
+for the currently landed stdlib/runtime surface is now complete. AG4.3 remains
+open: `std/http.ax::serve_once` and `std/http.ax::serve` are intermediate
+loopback-only blocking service primitives that provide smoke coverage for
+bind/accept/route/respond and bounded lifecycle behavior, but they are not the
+full async-runtime listen/accept/respond service surface required by #97.
 deterministic AG4.2 task/channel runtime. `std/regex.ax` adds an ungated
 generated-runtime regex floor for deterministic matching, finding, and
 replacement. AG4.4 capability-aware integration
@@ -227,14 +241,22 @@ Work packages:
     `stage1_project_rejects_stdlib_env_without_env_capability`).
   - `std.fs` — **landed** as `std/fs.ax` exposing
     `read_file(path: string): Option<string>` on top of the existing `fs_read`
-    intrinsic. The generated helper treats relative paths as package-relative,
-    restricts access to the package root by default or `[capabilities]
-    fs_root = "<relative package path>"`, canonicalizes requested files to deny
-    traversal and symlink escapes, and rejects reads larger than 64 MiB. Covered
-    by `stage1/examples/stdlib_fs` and Rust tests
+    intrinsic. `std/fs_write.ax` exposes write-side helpers `create_file`,
+    `write_file`, `append_file`, `mkdir`, `mkdir_all`, `remove_file`,
+    `remove_dir`, and `replace_file`. Reads require `[capabilities].fs = true`;
+    write helpers require `[capabilities].fs_write = true` and are reported as
+    `fs:write` by `axiomc caps`. The generated helpers treat relative paths as
+    package-relative, restrict access to the package root by default or
+    `[capabilities] fs_root = "<relative package path>"`, canonicalize requested
+    files or their existing ancestors to deny traversal and symlink escapes, and
+    reject reads or writes larger than 64 MiB. Covered by
+    `stage1/examples/stdlib_fs`, `stage1/examples/stdlib_fs_write`, and Rust tests
     (`stage1_project_imports_synthetic_stdlib_fs_module`,
     `stage1_project_rejects_stdlib_fs_without_fs_capability`,
-    `build_project_scopes_fs_read_to_manifest_root`).
+    `stage1_project_imports_synthetic_stdlib_fs_write_side`,
+    `stage1_project_rejects_stdlib_fs_write_without_fs_write_capability`,
+    `build_project_scopes_fs_read_to_manifest_root`, and
+    `build_project_scopes_fs_write_to_manifest_root`).
   - `std.net` — **landed** (extension beyond the original AG4.1 list to close
     the capability/wrapper symmetry) as `std/net.ax` exposing
     `resolve(host: string): Option<string>` on top of the existing
@@ -276,19 +298,37 @@ Work packages:
     for deterministic object encoding. Covered by `stage1/examples/stdlib_json`
     and two Rust tests (`stage1_project_imports_synthetic_stdlib_json_module`,
     `stage1_project_rejects_stdlib_json_with_wrong_argument_type`).
-  - `std.http` — **landed (client only)** as `std/http.ax` exposing
-    `get(url: string): Option<string>` on top of a new `http_get` intrinsic
-    that implements a blocking HTTP/1.0 client for `http://` and `https://`
-    URLs in the generated Rust runtime. TLS failures return `None` and emit a
-    structured `net` diagnostic. AG4.3 HTTP *server* support stays as follow-on
-    work. `http_get` shares the existing `net` capability because any code that
-    can open a raw TCP socket could implement HTTP itself, so a separate `http`
-    manifest flag would not add meaningful isolation in stage1. Covered by
-    `stage1/examples/stdlib_http` and Rust tests
-    (`stage1_project_imports_synthetic_stdlib_http_module`,
+  - `std.http` — **partially landed** as `std/http.ax` exposing
+    `get(url: string): Option<string>`, the intermediate loopback-only
+    `serve_once(bind: string, body: string): bool` smoke primitive, and the
+    route-shaped helpers `route(path: string, body: string): HttpRoute`,
+    `respond(body: string): HttpRoute`, and
+    `serve(bind: string, selected_route: HttpRoute, max_requests: int): bool`
+    on top of the `http_get`, `http_serve_once`, and loopback-only
+    `http_serve_route` intrinsics. The client path implements a blocking
+    HTTP/1.0 fetch for `http://` and `https://` URLs in the generated Rust
+    runtime; TLS failures return `None` and emit a structured `net`
+    diagnostic. The server path is intentionally narrow: it accepts only
+    loopback bind addresses, serves plain-text HTTP/1.0 responses, and exits
+    after one request for `serve_once` or after the bounded `max_requests`
+    count for `serve`. Both intrinsics share the existing `net` capability
+    because any code that can open a raw TCP socket could implement HTTP
+    itself, so a separate `http` manifest flag would not add meaningful
+    isolation in stage1. Covered by `stage1/examples/stdlib_http` and Rust
+    tests (`stage1_project_imports_synthetic_stdlib_http_module`,
     `stage1_stdlib_http_get_supports_https_urls`,
-    `stage1_stdlib_http_reports_tls_diagnostics`, and
-    `stage1_project_rejects_stdlib_http_without_net_capability`).
+    `stage1_stdlib_http_reports_tls_diagnostics`,
+    `stage1_stdlib_http_service_serves_one_request`,
+    `stage1_stdlib_http_service_rejects_non_loopback_bind`,
+    `stage1_stdlib_http_routed_service_rejects_non_loopback_bind`,
+    `stage1_stdlib_http_service_routes_multiple_requests`,
+    `stage1_project_rejects_stdlib_http_without_net_capability`, and
+    `stage1_project_rejects_stdlib_http_service_without_net_capability`).
+    This remains an intermediate #97 slice: it covers simple request routing,
+    response helpers, bounded lifecycle behavior, loopback bind enforcement,
+    and native threaded request fan-out, but the final async-runtime
+    listen/accept/respond API remains AG4.3 work.
+
   - `std.collections` — **landed** as `std/collections.ax` exposing generic
     borrowed-slice helpers (`count`, `is_empty`, `has_items`, `skip`, `take`,
     and `window`) on top of AG2 generic functions plus existing collection
@@ -325,11 +365,11 @@ Work packages:
   does not provide host-thread scheduling, blocking wakeups, or real timers.
   Covered by `stage1/examples/stdlib_async` and one Rust integration test
   (`stage1_project_supports_async_runtime_surface`).
-- `AG4.3`: HTTP service support
-  - HTTP server support is required at this milestone, not just client support.
+- `AG4.3`: HTTP service support — **partial / intermediate** via the loopback-only blocking `std/http.ax::serve_once(bind, body)` smoke primitive and bounded `std/http.ax::serve(bind, route, max_requests)` helper. This does **not** close #97; full service support still needs the async-runtime listen/accept/respond API shape, richer lifecycle controls, and acceptance coverage.
+
 - `AG4.4`: capability-aware integration
   - **landed for the current stdlib/runtime surface**: compiler-known
-    intrinsics enforce all six manifest flags, stdlib wrappers preserve that
+    intrinsics enforce all manifest flags, stdlib wrappers preserve that
     enforcement against the importing package's manifest, capability-denied
     programs fail before native execution, and the Rust suite covers both
     per-wrapper denial paths and cross-package capability interactions

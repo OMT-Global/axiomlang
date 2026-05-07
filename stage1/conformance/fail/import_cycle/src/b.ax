@@ -1,0 +1,5 @@
+import "a.ax"
+
+pub fn b(): int {
+return 2
+}

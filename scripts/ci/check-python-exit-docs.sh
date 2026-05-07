@@ -3,6 +3,7 @@ set -euo pipefail
 
 decision_doc="docs/python-exit-vm-disposition.md"
 parity_doc="docs/python-exit-parity-gate.md"
+readiness_doc="docs/python-exit-deletion-readiness.json"
 
 if [[ ! -f "$decision_doc" ]]; then
   echo "missing $decision_doc" >&2
@@ -11,6 +12,11 @@ fi
 
 if [[ ! -f "$parity_doc" ]]; then
   echo "missing $parity_doc" >&2
+  exit 1
+fi
+
+if [[ ! -f "$readiness_doc" ]]; then
+  echo "missing $readiness_doc" >&2
   exit 1
 fi
 
@@ -110,6 +116,48 @@ if grep -Eiq '(^|[^[:alpha:]])(python|stage0)([^[:alpha:]]|$)' <<< "$quickstart_
   exit 1
 fi
 
+python3 - "$readiness_doc" <<'PY'
+import json, os, sys, urllib.error, urllib.request
+readiness_doc = sys.argv[1]
+required_issues = [266, 267, 268, 269, 270, 271]
+with open(readiness_doc, encoding="utf-8") as handle:
+    readiness = json.load(handle)
+if readiness.get("finalDeletionIssue") != 272:
+    print("Python deletion readiness checklist must name final deletion issue #272", file=sys.stderr); sys.exit(1)
+items = readiness.get("blockingIssues")
+if not isinstance(items, list):
+    print("Python deletion readiness checklist must contain blockingIssues", file=sys.stderr); sys.exit(1)
+seen = []
+for item in items:
+    if not isinstance(item, dict):
+        print("Python deletion readiness checklist entries must be objects", file=sys.stderr); sys.exit(1)
+    issue = item.get("issue"); check = item.get("check")
+    if issue not in required_issues or not isinstance(check, str) or not check:
+        print("Python deletion readiness checklist entries must cover #266-#271 with checks", file=sys.stderr); sys.exit(1)
+    seen.append(issue)
+if sorted(seen) != required_issues:
+    print("Python deletion readiness checklist must cover exactly issues #266 through #271", file=sys.stderr); sys.exit(1)
+states_json = os.environ.get("AXIOM_PYTHON_EXIT_ISSUE_STATES_JSON")
+if states_json:
+    states = {int(k): str(v).lower() for k, v in json.loads(states_json).items()}
+else:
+    states = {}
+    try:
+        for issue in required_issues:
+            req = urllib.request.Request(f"https://api.github.com/repos/OMT-Global/axiom/issues/{issue}", headers={"Accept":"application/vnd.github+json","User-Agent":"axiom-python-exit-readiness-check"})
+            with urllib.request.urlopen(req, timeout=20) as response:
+                item = json.load(response)
+            states[issue] = str(item.get("state", "")).lower()
+    except (urllib.error.URLError, TimeoutError) as exc:
+        print(f"unable to verify Python deletion blocker issue states: {exc}", file=sys.stderr); sys.exit(1)
+missing = [issue for issue in required_issues if issue not in states]
+if missing:
+    print("unable to verify Python deletion blocker issue states: missing " + ", ".join(f"#{issue}" for issue in missing), file=sys.stderr); sys.exit(1)
+open_blockers = [issue for issue in required_issues if states[issue] != "closed"]
+if open_blockers:
+    print("Python deletion blocked by open readiness issues: " + ", ".join(f"#{issue}" for issue in open_blockers), file=sys.stderr); sys.exit(1)
+PY
+
 if awk -F '|' '
   /^## Command And Runtime Matrix/ { in_matrix = 1; next }
   /^## / && in_matrix { in_matrix = 0 }
@@ -128,11 +176,10 @@ for path in README.md docs scripts; do
   fi
 done
 
-if [[ "${#doc_search_paths[@]}" -gt 0 ]] && rg -n "$legacy_invocation" "${doc_search_paths[@]}" \
-  --glob '*.md' \
-  --glob '*.sh' \
-  --glob '!docs/python-exit-parity-gate.md' \
-  --glob '!docs/python-exit-vm-disposition.md'; then
+if [[ "${#doc_search_paths[@]}" -gt 0 ]] && grep -RInF --include='*.md' --include='*.sh' \
+  --exclude='python-exit-parity-gate.md' \
+  --exclude='python-exit-vm-disposition.md' \
+  "$legacy_invocation" "${doc_search_paths[@]}"; then
   echo "user-facing docs still instruct users to run $legacy_invocation" >&2
   exit 1
 fi
@@ -146,7 +193,7 @@ for path in .github scripts Makefile project.bootstrap.yaml; do
   fi
 done
 
-if [[ "${#ci_search_paths[@]}" -gt 0 ]] && rg -n --hidden "$python_unittest" "${ci_search_paths[@]}"; then
+if [[ "${#ci_search_paths[@]}" -gt 0 ]] && grep -RInF "$python_unittest" "${ci_search_paths[@]}"; then
   echo "CI still uses Python unittest as a language/runtime correctness gate" >&2
   exit 1
 fi

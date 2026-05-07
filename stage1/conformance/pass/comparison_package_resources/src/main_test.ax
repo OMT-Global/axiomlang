@@ -1,0 +1,16 @@
+import "support/resource.ax"
+
+let buffer: OwnedBuffer = claim("go-rust comparison", [10, 20, 30])
+print buffer.name
+let owned_items: [int] = buffer.items
+let borrowed: &[int] = owned_items[1:]
+print len(borrowed)
+
+match describe(borrowed) {
+Ok(value) {
+print value
+}
+Err(message) {
+print message
+}
+}

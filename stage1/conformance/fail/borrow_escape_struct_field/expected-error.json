@@ -1,0 +1,8 @@
+{
+  "kind": "ownership",
+  "code": "borrow_return_requires_param_origin",
+  "message": "returning borrowed values requires data derived from one of the borrowed parameters in stage1",
+  "path": "src/main.ax",
+  "line": 7,
+  "column": 1
+}

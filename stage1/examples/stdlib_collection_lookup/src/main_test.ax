@@ -1,0 +1,26 @@
+import "std/collections.ax"
+
+let scores: {string: int} = {"build": 7, "deploy": 9}
+print contains_key<string, int>(scores, "deploy")
+
+let deploy_scores: {string: int} = {"build": 7, "deploy": 9}
+let found: Option<int> = get<string, int>(deploy_scores, "deploy")
+match found {
+Some(value) {
+print value
+}
+None {
+print 0
+}
+}
+
+let missing_scores: {string: int} = {"build": 7, "deploy": 9}
+let missing: Option<int> = get<string, int>(missing_scores, "test")
+match missing {
+Some(value) {
+print value
+}
+None {
+print 0
+}
+}

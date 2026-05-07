@@ -1,0 +1,3 @@
+import "a.ax"
+
+print 0

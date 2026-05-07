@@ -1,0 +1,3 @@
+let xs: [int] = [1, 2, 3]
+let head: fn(&[int]): &[int] = |ys: &[int]| ys
+print len(head(xs[:]))
