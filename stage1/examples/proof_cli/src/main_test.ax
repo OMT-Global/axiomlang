@@ -4,9 +4,11 @@ import "core/command.ax"
 import "core/render.ax"
 import "ui/render.ax"
 
-let mode: string = requested_mode(get_env("AXIOM_STAGE1_CLI_MODE"))
+let mode_for_plan: string = requested_mode(get_env("AXIOM_STAGE1_CLI_MODE"))
+let mode_for_status: string = requested_mode(get_env("AXIOM_STAGE1_CLI_MODE"))
+let mode_for_run: string = requested_mode(get_env("AXIOM_STAGE1_CLI_MODE"))
 print headline("axiom")
-print describe(mode, plan(mode))
-print render_command("status", 3, mode)
-print render_command("run", 7, mode)
+print describe(mode_for_plan, plan(requested_mode(get_env("AXIOM_STAGE1_CLI_MODE"))))
+print render_command("status", 3, mode_for_status)
+print render_command("run", 7, mode_for_run)
 print now_ms() > 0
