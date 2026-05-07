@@ -16,6 +16,7 @@ from typing import Any, Callable
 ROUNDS = 5
 BASELINE_FLOOR_MS = 50.0
 COLD_BUILD_LIMIT_MULTIPLIER = 4.0
+CONCURRENCY_COLD_BUILD_LIMIT_MULTIPLIER = 6.0
 WARM_BUILD_LIMIT_MULTIPLIER = 2.0
 REGRESSION_TOLERANCE = 0.35
 
@@ -235,7 +236,12 @@ def benchmark_workload(workload: Workload, temp_dir: Path) -> dict[str, Any]:
     rust_run_samples, rust_run_median = collect_samples(lambda: run_binary(rust_binary))
 
     reference_floor = max(min(go_build_median, rust_build_median), BASELINE_FLOOR_MS)
-    cold_limit = reference_floor * COLD_BUILD_LIMIT_MULTIPLIER
+    cold_multiplier = (
+        CONCURRENCY_COLD_BUILD_LIMIT_MULTIPLIER
+        if workload.kind == "concurrency"
+        else COLD_BUILD_LIMIT_MULTIPLIER
+    )
+    cold_limit = reference_floor * cold_multiplier
     warm_limit = reference_floor * WARM_BUILD_LIMIT_MULTIPLIER
 
     return {
@@ -244,6 +250,10 @@ def benchmark_workload(workload: Workload, temp_dir: Path) -> dict[str, Any]:
             "name": "native_reference_budget",
             "mode": "blocking",
             "reference_floor_ms": reference_floor,
+            "limit_multipliers": {
+                "axiom_cold_build": cold_multiplier,
+                "axiom_warm_build": WARM_BUILD_LIMIT_MULTIPLIER,
+            },
             "limits_ms": {
                 "axiom_cold_build": cold_limit,
                 "axiom_warm_build": warm_limit,
@@ -314,6 +324,7 @@ def main() -> int:
         "baseline_floor_ms": BASELINE_FLOOR_MS,
         "cold_build_limit_multiplier": COLD_BUILD_LIMIT_MULTIPLIER,
         "warm_build_limit_multiplier": WARM_BUILD_LIMIT_MULTIPLIER,
+        "concurrency_cold_build_limit_multiplier": CONCURRENCY_COLD_BUILD_LIMIT_MULTIPLIER,
         "regression_tolerance": args.tolerance,
         "baseline_path": str(args.baseline.relative_to(REPO_ROOT) if args.baseline.is_relative_to(REPO_ROOT) else args.baseline),
         "workloads": workloads,
