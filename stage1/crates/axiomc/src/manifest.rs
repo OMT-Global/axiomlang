@@ -2,7 +2,6 @@ use crate::diagnostics::Diagnostic;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use url::Url;
 
 pub const MANIFEST_FILENAME: &str = "axiom.toml";
 pub const LOCK_FILENAME: &str = "axiom.lock";
@@ -1030,15 +1029,7 @@ fn normalize_publish(raw: RawPublishSection, path: &Path) -> Result<PublishSecti
 }
 
 fn validate_registry_source(path: &Path, registry: &str) -> Result<(), Diagnostic> {
-    let valid = Url::parse(registry).is_ok_and(|url| match url.scheme() {
-        "https" => url.host_str().is_some(),
-        "file" if registry.starts_with("file:///") => url
-            .to_file_path()
-            .is_ok_and(|path| path.is_absolute() && path.components().count() > 1),
-        "file" => false,
-        _ => false,
-    });
-    if valid {
+    if is_valid_https_registry(registry) || is_valid_file_registry(registry) {
         return Ok(());
     }
     Err(Diagnostic::new(
@@ -1046,6 +1037,38 @@ fn validate_registry_source(path: &Path, registry: &str) -> Result<(), Diagnosti
         "publish.registry must be a valid https:// or file: registry source",
     )
     .with_path(path.display().to_string()))
+}
+
+fn is_valid_https_registry(registry: &str) -> bool {
+    let Some(rest) = registry.strip_prefix("https://") else {
+        return false;
+    };
+    let Some(authority) = rest.split('/').next() else {
+        return false;
+    };
+    if authority.is_empty() || authority.contains('@') || authority.chars().any(char::is_whitespace)
+    {
+        return false;
+    }
+    let host = authority.split_once(':').map_or(authority, |(host, port)| {
+        if port.is_empty() || !port.chars().all(|ch| ch.is_ascii_digit()) {
+            return "";
+        }
+        host
+    });
+    !host.is_empty()
+        && !host.starts_with('.')
+        && !host.ends_with('.')
+        && host
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '.' | '-'))
+}
+
+fn is_valid_file_registry(registry: &str) -> bool {
+    let Some(path) = registry.strip_prefix("file://") else {
+        return false;
+    };
+    path.starts_with('/') && path.len() > 1 && !path.chars().any(char::is_whitespace)
 }
 
 fn validate_sha256_checksum(path: &Path, checksum: &str) -> Result<(), Diagnostic> {
