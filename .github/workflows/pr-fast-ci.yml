@@ -77,8 +77,7 @@ jobs:
 
       - name: Run fast checks
         run: bash scripts/ci/run-fast-checks.sh
-      - name: Run advisory Go/Rust/Axiom comparison report
-        continue-on-error: true
+      - name: Run Go/Rust/Axiom comparison report
         run: python3 scripts/ci/check-stage1-benchmarks.py --json-out stage1/target/stage1-comparison-report.json
 
       - name: Upload advisory comparison report

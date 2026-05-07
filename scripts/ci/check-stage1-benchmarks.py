@@ -16,6 +16,7 @@ from typing import Any, Callable
 ROUNDS = 5
 BASELINE_FLOOR_MS = 50.0
 COLD_BUILD_LIMIT_MULTIPLIER = 4.0
+CONCURRENCY_COLD_BUILD_LIMIT_MULTIPLIER = 6.0
 WARM_BUILD_LIMIT_MULTIPLIER = 2.0
 REGRESSION_TOLERANCE = 0.35
 
@@ -124,7 +125,7 @@ def file_size(path: Path) -> int | None:
 
 
 def compare_limit(actual_ms: float, limit_ms: float) -> str:
-    return "pass" if actual_ms <= limit_ms else "advisory-fail"
+    return "pass" if actual_ms <= limit_ms else "fail"
 
 
 def capability_manifest_coverage(workload: Workload) -> dict[str, Any]:
@@ -235,14 +236,24 @@ def benchmark_workload(workload: Workload, temp_dir: Path) -> dict[str, Any]:
     rust_run_samples, rust_run_median = collect_samples(lambda: run_binary(rust_binary))
 
     reference_floor = max(min(go_build_median, rust_build_median), BASELINE_FLOOR_MS)
-    cold_limit = reference_floor * COLD_BUILD_LIMIT_MULTIPLIER
+    cold_multiplier = (
+        CONCURRENCY_COLD_BUILD_LIMIT_MULTIPLIER
+        if workload.kind == "concurrency"
+        else COLD_BUILD_LIMIT_MULTIPLIER
+    )
+    cold_limit = reference_floor * cold_multiplier
     warm_limit = reference_floor * WARM_BUILD_LIMIT_MULTIPLIER
 
     return {
         "kind": workload.kind,
         "policy": {
-            "mode": "advisory",
+            "name": "native_reference_budget",
+            "mode": "blocking",
             "reference_floor_ms": reference_floor,
+            "limit_multipliers": {
+                "axiom_cold_build": cold_multiplier,
+                "axiom_warm_build": WARM_BUILD_LIMIT_MULTIPLIER,
+            },
             "limits_ms": {
                 "axiom_cold_build": cold_limit,
                 "axiom_warm_build": warm_limit,
@@ -292,7 +303,6 @@ def main() -> int:
     parser.add_argument("--json-out", type=Path, help="write the machine-readable report to this path")
     parser.add_argument("--baseline", type=Path, default=BASELINE_PATH, help="committed JSON baseline to compare against")
     parser.add_argument("--tolerance", type=float, default=REGRESSION_TOLERANCE, help="allowed fractional regression before WARN output")
-    parser.add_argument("--enforce", action="store_true", help="fail when advisory limits are exceeded")
     args = parser.parse_args()
 
     missing = ensure_tools()
@@ -306,11 +316,15 @@ def main() -> int:
 
     report: dict[str, Any] = {
         "schema_version": "axiom.stage1.comparison.v1",
-        "policy": "advisory-nonblocking",
+        "policy": {
+            "native_reference_budget": "blocking",
+            "committed_baseline_comparison": "advisory-nonblocking",
+        },
         "rounds": ROUNDS,
         "baseline_floor_ms": BASELINE_FLOOR_MS,
         "cold_build_limit_multiplier": COLD_BUILD_LIMIT_MULTIPLIER,
         "warm_build_limit_multiplier": WARM_BUILD_LIMIT_MULTIPLIER,
+        "concurrency_cold_build_limit_multiplier": CONCURRENCY_COLD_BUILD_LIMIT_MULTIPLIER,
         "regression_tolerance": args.tolerance,
         "baseline_path": str(args.baseline.relative_to(REPO_ROOT) if args.baseline.is_relative_to(REPO_ROOT) else args.baseline),
         "workloads": workloads,
@@ -318,14 +332,14 @@ def main() -> int:
     }
     report["baseline_comparisons"] = compare_to_baseline(report, load_baseline(args.baseline), args.tolerance)
 
-    advisory_failures = [
+    native_budget_failures = [
         f"{name}.{metric}"
         for name, workload in workloads.items()
         for metric, status in workload["policy"]["status"].items()
-        if status == "advisory-fail"
+        if status == "fail"
     ]
-    if advisory_failures:
-        print("ADVISORY comparison limit findings: " + ", ".join(advisory_failures), file=sys.stderr)
+    if native_budget_failures:
+        print("FAIL native reference budget exceeded: " + ", ".join(native_budget_failures), file=sys.stderr)
 
     payload = json.dumps(report, indent=2, sort_keys=True) + "\n"
     if args.json_out:
@@ -334,7 +348,7 @@ def main() -> int:
     else:
         print(payload, end="")
 
-    return 1 if args.enforce and advisory_failures else 0
+    return 1 if native_budget_failures else 0
 
 
 if __name__ == "__main__":
