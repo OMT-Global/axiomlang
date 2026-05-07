@@ -872,7 +872,8 @@ fn axiom_regex_replace_all(pattern: String, text: String, replacement: String) -
 }
 
 "#);
-    out.push_str(r#"#[allow(dead_code)]
+    out.push_str(
+        r#"#[allow(dead_code)]
 fn axiom_encoding_is_unreserved(byte: u8) -> bool {
     byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b'~')
 }
@@ -924,7 +925,8 @@ fn axiom_percent_decode(value: String) -> Option<String> {
     String::from_utf8(out).ok()
 }
 
-"#);
+"#,
+    );
     out.push_str("#[allow(dead_code)]\n");
     out.push_str("fn axiom_fs_read(path: String) -> Option<String> {\n");
     out.push_str("    use std::io::Read;\n");
