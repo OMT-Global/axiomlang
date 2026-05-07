@@ -1,0 +1,12 @@
+{
+  "schema_version": "axiom.stage1.v1",
+  "ok": false,
+  "command": "check",
+  "error": {
+    "kind": "type",
+    "message": "panic expects a string argument, got int",
+    "path": "/workspace/axiom/stage1/conformance/fail/panic_requires_string_argument/src/main.ax",
+    "line": 1,
+    "column": 1
+  }
+}

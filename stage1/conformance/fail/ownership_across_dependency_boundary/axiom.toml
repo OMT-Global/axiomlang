@@ -1,0 +1,18 @@
+[package]
+name = "conformance-ownership-across-dependency-boundary"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[dependencies]
+core = { path = "deps/core" }
+
+[capabilities]
+fs = false
+net = false
+process = false
+env = false
+clock = false
+crypto = false

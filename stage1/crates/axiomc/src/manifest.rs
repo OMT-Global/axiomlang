@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 
 pub const MANIFEST_FILENAME: &str = "axiom.toml";
 pub const LOCK_FILENAME: &str = "axiom.lock";
-pub const KNOWN_CAPABILITIES: [CapabilityKind; 8] = [
+pub const KNOWN_CAPABILITIES: [CapabilityKind; 9] = [
     CapabilityKind::Fs,
     CapabilityKind::FsWrite,
     CapabilityKind::Net,
@@ -14,6 +14,7 @@ pub const KNOWN_CAPABILITIES: [CapabilityKind; 8] = [
     CapabilityKind::Clock,
     CapabilityKind::Crypto,
     CapabilityKind::Ffi,
+    CapabilityKind::Async,
 ];
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -54,6 +55,19 @@ pub struct TestTarget {
     pub entry: String,
     pub stdout: Option<String>,
     pub kind: TestKind,
+    pub expected_error: Option<ExpectedDiagnostic>,
+    pub capabilities: Vec<CapabilityKind>,
+    pub package: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ExpectedDiagnostic {
+    pub kind: String,
+    pub code: Option<String>,
+    pub message: String,
+    pub path: String,
+    pub line: usize,
+    pub column: usize,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq, PartialOrd, Ord, Default)]
@@ -82,9 +96,14 @@ pub struct CapabilityConfig {
     pub clock: bool,
     pub crypto: bool,
     pub ffi: bool,
+    pub async_runtime: bool,
+    pub deny_by_default: bool,
+    pub unsafe_opt_ins: Vec<String>,
+    pub owners: BTreeMap<String, String>,
+    pub rationale: BTreeMap<String, String>,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
 #[serde(rename_all = "snake_case")]
 pub enum CapabilityKind {
     Fs,
@@ -95,6 +114,7 @@ pub enum CapabilityKind {
     Clock,
     Crypto,
     Ffi,
+    Async,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -102,10 +122,18 @@ pub struct CapabilityDescriptor {
     pub name: String,
     pub enabled: bool,
     pub description: &'static str,
+    #[serde(skip_serializing_if = "is_false")]
+    pub deny_by_default: bool,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub allowed: Vec<String>,
     #[serde(skip_serializing_if = "is_false")]
     pub unsafe_unrestricted: bool,
+    #[serde(skip_serializing_if = "is_false")]
+    pub unsafe_opt_in: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub owner: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rationale: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -116,12 +144,17 @@ struct RawManifest {
     build: Option<RawBuildSection>,
     tests: Option<Vec<RawTestTarget>>,
     capabilities: Option<RawCapabilityConfig>,
+    registry: Option<toml::Value>,
+    publish: Option<toml::Value>,
 }
 
 #[derive(Debug, Deserialize)]
 struct RawPackageSection {
     name: Option<String>,
     version: Option<String>,
+    checksum: Option<toml::Value>,
+    registry: Option<toml::Value>,
+    source: Option<toml::Value>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -145,6 +178,10 @@ enum RawDependencySpec {
 #[derive(Debug, Deserialize)]
 struct RawDependencyDetail {
     path: Option<String>,
+    version: Option<toml::Value>,
+    checksum: Option<toml::Value>,
+    registry: Option<toml::Value>,
+    source: Option<toml::Value>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -153,6 +190,9 @@ struct RawTestTarget {
     entry: Option<String>,
     stdout: Option<String>,
     kind: Option<String>,
+    expected_error: Option<ExpectedDiagnostic>,
+    capabilities: Option<Vec<CapabilityKind>>,
+    package: Option<String>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -168,6 +208,12 @@ struct RawCapabilityConfig {
     clock: Option<bool>,
     crypto: Option<bool>,
     ffi: Option<bool>,
+    #[serde(rename = "async")]
+    async_runtime: Option<bool>,
+    deny_by_default: Option<bool>,
+    unsafe_opt_ins: Option<Vec<String>>,
+    owners: Option<BTreeMap<String, String>>,
+    rationale: Option<BTreeMap<String, String>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -249,19 +295,23 @@ pub fn capability_descriptors(config: &CapabilityConfig) -> Vec<CapabilityDescri
             name: kind.name().to_string(),
             enabled: config.enabled(*kind),
             description: kind.description(),
+            deny_by_default: config.deny_by_default,
             allowed: if *kind == CapabilityKind::Env {
                 config.env_vars.clone()
             } else {
                 Vec::new()
             },
             unsafe_unrestricted: *kind == CapabilityKind::Env && config.env_unrestricted,
+            unsafe_opt_in: config.unsafe_opt_ins.iter().any(|name| name == kind.name()),
+            owner: config.owners.get(kind.name()).cloned(),
+            rationale: config.rationale.get(kind.name()).cloned(),
         })
         .collect()
 }
 
 pub fn render_manifest(name: &str) -> String {
     format!(
-        "[package]\nname = {name:?}\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\n\"fs:write\" = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\nffi = false\n"
+        "[package]\nname = {name:?}\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\n\"fs:write\" = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\nffi = false\nasync = false\n"
     )
 }
 
@@ -276,6 +326,7 @@ impl CapabilityConfig {
             CapabilityKind::Clock => self.clock,
             CapabilityKind::Crypto => self.crypto,
             CapabilityKind::Ffi => self.ffi,
+            CapabilityKind::Async => self.async_runtime,
         }
     }
 
@@ -301,6 +352,13 @@ impl Manifest {
 }
 
 impl CapabilityKind {
+    pub fn from_name(name: &str) -> Option<Self> {
+        KNOWN_CAPABILITIES
+            .iter()
+            .copied()
+            .find(|kind| kind.name() == name)
+    }
+
     pub fn name(self) -> &'static str {
         match self {
             CapabilityKind::Fs => "fs",
@@ -311,6 +369,7 @@ impl CapabilityKind {
             CapabilityKind::Clock => "clock",
             CapabilityKind::Crypto => "crypto",
             CapabilityKind::Ffi => "ffi",
+            CapabilityKind::Async => "async",
         }
     }
 
@@ -324,11 +383,13 @@ impl CapabilityKind {
             CapabilityKind::Clock => "wall-clock time access",
             CapabilityKind::Crypto => "hashing and cryptography primitives",
             CapabilityKind::Ffi => "foreign function interface access",
+            CapabilityKind::Async => "host async runtime access",
         }
     }
 }
 
 fn normalize_manifest(raw: RawManifest, path: &Path) -> Result<Manifest, Diagnostic> {
+    validate_reserved_root_publish_fields(&raw, path)?;
     let workspace = normalize_workspace(raw.workspace, path)?;
     let package = normalize_package(raw.package, workspace.is_some(), path)?;
     let raw_build = raw.build;
@@ -356,6 +417,21 @@ fn normalize_manifest(raw: RawManifest, path: &Path) -> Result<Manifest, Diagnos
         capabilities.env,
         capabilities.env_unrestricted.unwrap_or(false),
     )?;
+    let unsafe_opt_ins = normalize_capability_name_list(
+        path,
+        "capabilities.unsafe_opt_ins",
+        capabilities.unsafe_opt_ins.unwrap_or_default(),
+    )?;
+    let owners = normalize_capability_string_map(
+        path,
+        "capabilities.owners",
+        capabilities.owners.unwrap_or_default(),
+    )?;
+    let rationale = normalize_capability_string_map(
+        path,
+        "capabilities.rationale",
+        capabilities.rationale.unwrap_or_default(),
+    )?;
     Ok(Manifest {
         package,
         dependencies,
@@ -375,8 +451,90 @@ fn normalize_manifest(raw: RawManifest, path: &Path) -> Result<Manifest, Diagnos
             clock: capabilities.clock.unwrap_or(false),
             crypto: capabilities.crypto.unwrap_or(false),
             ffi: capabilities.ffi.unwrap_or(false),
+            async_runtime: capabilities.async_runtime.unwrap_or(false),
+            deny_by_default: capabilities.deny_by_default.unwrap_or(false),
+            unsafe_opt_ins,
+            owners,
+            rationale,
         },
     })
+}
+
+
+fn validate_reserved_root_publish_fields(raw: &RawManifest, path: &Path) -> Result<(), Diagnostic> {
+    if raw.registry.is_some() {
+        return Err(reserved_manifest_field(path, "[registry]"));
+    }
+    if raw.publish.is_some() {
+        return Err(reserved_manifest_field(path, "[publish]"));
+    }
+    Ok(())
+}
+
+fn reserved_manifest_field(path: &Path, field_name: &str) -> Diagnostic {
+    Diagnostic::new(
+        "manifest",
+        format!("{field_name} is reserved for future registry publishing"),
+    )
+    .with_path(path.display().to_string())
+}
+
+fn normalize_capability_name_list(
+    path: &Path,
+    field_name: &str,
+    values: Vec<String>,
+) -> Result<Vec<String>, Diagnostic> {
+    let mut names = Vec::new();
+    let mut seen = std::collections::BTreeSet::new();
+    for (index, value) in values.into_iter().enumerate() {
+        let item_field = format!("{field_name}[{index}]");
+        let name = normalize_capability_name(path, &item_field, value)?;
+        if !seen.insert(name.clone()) {
+            return Err(Diagnostic::new(
+                "manifest",
+                format!("duplicate capability metadata entry {name:?}"),
+            )
+            .with_path(path.display().to_string()));
+        }
+        names.push(name);
+    }
+    Ok(names)
+}
+
+fn normalize_capability_string_map(
+    path: &Path,
+    field_name: &str,
+    values: BTreeMap<String, String>,
+) -> Result<BTreeMap<String, String>, Diagnostic> {
+    let mut normalized = BTreeMap::new();
+    for (name, value) in values {
+        let field = format!("{field_name}.{name}");
+        let name = normalize_capability_name(path, &field, name)?;
+        if value.trim().is_empty() {
+            return Err(
+                Diagnostic::new("manifest", format!("{field} must not be empty"))
+                    .with_path(path.display().to_string()),
+            );
+        }
+        normalized.insert(name, value);
+    }
+    Ok(normalized)
+}
+
+fn normalize_capability_name(
+    path: &Path,
+    field_name: &str,
+    value: String,
+) -> Result<String, Diagnostic> {
+    let name = required_field(Some(value), path, field_name)?;
+    if CapabilityKind::from_name(&name).is_none() {
+        return Err(Diagnostic::new(
+            "manifest",
+            format!("{field_name} references unknown capability {name:?}"),
+        )
+        .with_path(path.display().to_string()));
+    }
+    Ok(name)
 }
 
 fn normalize_env_capability(
@@ -440,6 +598,15 @@ fn normalize_package(
         return Err(Diagnostic::new("manifest", "missing [package] section")
             .with_path(path.display().to_string()));
     };
+    if package.checksum.is_some() {
+        return Err(reserved_manifest_field(path, "package.checksum"));
+    }
+    if package.registry.is_some() {
+        return Err(reserved_manifest_field(path, "package.registry"));
+    }
+    if package.source.is_some() {
+        return Err(reserved_manifest_field(path, "package.source"));
+    }
     let package_name = required_field(package.name, path, "package.name")?;
     let package_version = required_field(package.version, path, "package.version")?;
     Ok(Some(PackageSection {
@@ -507,6 +674,30 @@ fn normalize_dependencies(
         let raw_path = match raw_spec {
             RawDependencySpec::Path(value) => value,
             RawDependencySpec::Detailed(detail) => {
+                if detail.version.is_some() {
+                    return Err(reserved_manifest_field(
+                        path,
+                        &format!("dependencies.{name}.version"),
+                    ));
+                }
+                if detail.checksum.is_some() {
+                    return Err(reserved_manifest_field(
+                        path,
+                        &format!("dependencies.{name}.checksum"),
+                    ));
+                }
+                if detail.registry.is_some() {
+                    return Err(reserved_manifest_field(
+                        path,
+                        &format!("dependencies.{name}.registry"),
+                    ));
+                }
+                if detail.source.is_some() {
+                    return Err(reserved_manifest_field(
+                        path,
+                        &format!("dependencies.{name}.source"),
+                    ));
+                }
                 required_field(detail.path, path, &format!("dependencies.{name}.path"))?
             }
         };
@@ -533,14 +724,58 @@ fn normalize_tests(
         }
         let entry = required_field(raw_test.entry, path, &format!("{field_prefix}.entry"))?;
         validate_relative_path(path, &format!("{field_prefix}.entry"), &entry)?;
+        let package =
+            normalize_optional_name(path, &format!("{field_prefix}.package"), raw_test.package)?;
+        let capabilities = normalize_test_capabilities(
+            path,
+            &format!("{field_prefix}.capabilities"),
+            raw_test.capabilities.unwrap_or_default(),
+        )?;
         tests.push(TestTarget {
             name,
             entry,
             stdout: raw_test.stdout,
             kind: normalize_test_kind(raw_test.kind, path, &format!("{field_prefix}.kind"))?,
+            expected_error: raw_test.expected_error,
+            capabilities,
+            package,
         });
     }
     Ok(tests)
+}
+
+fn normalize_optional_name(
+    path: &Path,
+    field_name: &str,
+    value: Option<String>,
+) -> Result<Option<String>, Diagnostic> {
+    let Some(value) = value else {
+        return Ok(None);
+    };
+    required_field(Some(value), path, field_name).map(Some)
+}
+
+fn normalize_test_capabilities(
+    path: &Path,
+    field_name: &str,
+    values: Vec<CapabilityKind>,
+) -> Result<Vec<CapabilityKind>, Diagnostic> {
+    let mut capabilities = Vec::new();
+    let mut seen = std::collections::BTreeSet::new();
+    for capability in values {
+        if !seen.insert(capability) {
+            return Err(Diagnostic::new(
+                "manifest",
+                format!(
+                    "duplicate capability {:?} in {field_name}",
+                    capability.name()
+                ),
+            )
+            .with_path(path.display().to_string()));
+        }
+        capabilities.push(capability);
+    }
+    Ok(capabilities)
 }
 
 fn normalize_test_kind(

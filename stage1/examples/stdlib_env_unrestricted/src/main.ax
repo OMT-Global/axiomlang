@@ -1,0 +1,10 @@
+import "std/env.ax"
+
+match get_env("__AXIOM_STAGE1_MISSING__") {
+Some(value) {
+print value
+}
+None {
+print "none"
+}
+}

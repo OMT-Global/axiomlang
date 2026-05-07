@@ -1,0 +1,14 @@
+import "std/sync.ax"
+
+pub fn queue_name(): Option<string> {
+let configured: Once<string> = once_with<string>("default")
+return once_take<string>(configured)
+}
+
+pub fn processed_count(): int {
+let counter: Mutex<int> = mutex<int>(0)
+let guard: MutexGuard<int> = lock<int>(counter)
+let updated: Mutex<int> = replace<int>(guard, 1)
+let final_guard: MutexGuard<int> = lock<int>(updated)
+return into_inner<int>(final_guard)
+}

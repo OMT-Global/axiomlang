@@ -1,0 +1,8 @@
+{
+  "kind": "import",
+  "code": null,
+  "message": "imported function \"shared\" collides with an existing name",
+  "path": "src/main.ax",
+  "line": 2,
+  "column": 1
+}

@@ -8,7 +8,7 @@
 //! enforcement continues to run against the importing package's manifest via
 //! `hir::lower_with_capabilities`.
 //!
-//! Today this provides sixteen stdlib modules. Six are thin wrappers over
+//! Today this provides twenty-one stdlib modules. Six are thin wrappers over
 //! single-intrinsic capability-gated surfaces, one per capability class:
 //!
 //! * `std/time.ax` — `Duration`, `Instant`, `now_ms()`, `now()`,
@@ -33,13 +33,17 @@
 //! wrapper, demonstrating that the `std.*` surface is not limited to one
 //! wrapper per capability:
 //!
-//! * `std/http.ax` — `get(url)` on top of the new `http_get` intrinsic. HTTP
-//!   shares the `net` capability surface because any code that can open a
-//!   raw TCP socket could implement HTTP itself, so a separate `http`
-//!   manifest flag would not add meaningful isolation in stage1. The
-//!   stage1 client supports both http:// and https:// URLs.
+//! * `std/http.ax` — `get(url)`, `serve_once(bind, body)`, and the route-shaped
+//!   `serve(bind, route(path, body), max_requests)` helper on top of the new
+//!   `http_get`, `http_serve_once`, and `http_serve_route` intrinsics. HTTP
+//!   shares the `net` capability surface because any code that can open a raw
+//!   TCP socket could implement HTTP itself, so a separate `http` manifest flag
+//!   would not add meaningful isolation in stage1. The stage1 client supports
+//!   both http:// and https:// URLs; the server helpers bind loopback-only
+//!   sockets and serve blocking HTTP/1.0 responses.
+
 //!
-//! The eighth through fourteenth modules are stdlib surfaces not tied to a
+//! The eighth through fifteenth modules are stdlib surfaces not tied to a
 //! capability flag, matching the ambient status of the `print` statement:
 //!
 //! * `std/io.ax` — `eprintln(text)` on top of the new ungated `io_eprintln`
@@ -55,12 +59,18 @@
 //! * `std/sync.ax` — ownership-shaped synchronization primitives implemented
 //!   in Axiom: move-only mutex guards, one-shot cells, and single-slot
 //!   nonblocking channels.
-//! * `std/async.ax` — deterministic task, join, channel, timeout,
-//!   cancellation, and select wrappers over the stage1 async runtime values.
+//! * `std/async.ax` — task, join, channel, timeout, cancellation, and select
+//!   wrappers over the stage1 async runtime values.
+//! * `std/async_time.ax` and `std/async_net.ax` — async task wrappers around
+//!   `std/time` timer and `std/net` loopback socket primitives.
 //! * `std/regex.ax` — linear-time regular-expression helpers (`is_match`,
 //!   `find`, `replace_all`) over a stage1-safe NFA engine.
 //! * `std/testing.ax` — table-case, property, and snapshot assertion helpers
 //!   layered over the bootstrap test intrinsics.
+//! * `std/outcome.ax` — generic `Option<T>` / `Result<T, E>` predicates and
+//!   fallback unwrap helpers implemented in Axiom.
+//! * `std/encoding.ax` — URL component and path segment percent-encoding
+//!   helpers.
 
 use std::path::{Path, PathBuf};
 
@@ -187,9 +197,12 @@ pub fn object3(first_field: string, second_field: string, third_field: string): 
         "pub fn count<T>(values: &[T]): int {\nreturn len(values)\n}\n\
 pub fn is_empty<T>(values: &[T]): bool {\nreturn len(values) == 0\n}\n\
 pub fn has_items<T>(values: &[T]): bool {\nreturn len(values) > 0\n}\n\
+pub fn count_mut<T>(values: &mut [T]): int {\nreturn len(values)\n}\n\
 pub fn skip<T>(values: &[T], count: int): &[T] {\nreturn values[count:]\n}\n\
 pub fn take<T>(values: &[T], count: int): &[T] {\nreturn values[:count]\n}\n\
-pub fn window<T>(values: &[T], start: int, end: int): &[T] {\nreturn values[start:end]\n}\n",
+pub fn window<T>(values: &[T], start: int, end: int): &[T] {\nreturn values[start:end]\n}\n\
+pub fn get<K, V>(values: {K: V}, key: K): Option<V> {\nreturn map_get<K, V>(values, key)\n}\n\
+pub fn contains_key<K, V>(values: {K: V}, key: K): bool {\nreturn map_contains_key<K, V>(values, key)\n}\n",
     ),
     (
         "string_builder.ax",
@@ -248,6 +261,18 @@ pub fn selected<T>(result: SelectResult<T>): int {\nreturn async_selected<T>(res
 pub fn selected_value<T>(result: SelectResult<T>): Option<T> {\nreturn async_selected_value<T>(result)\n}\n",
     ),
     (
+        "async_time.ax",
+        "pub async fn sleep_ms(milliseconds: int): int {\nreturn clock_sleep_ms(milliseconds)\n}\n\
+pub async fn sleep_duration_ms(milliseconds: int): int {\nreturn clock_sleep_ms(milliseconds)\n}\n",
+    ),
+    (
+        "async_net.ax",
+        "pub async fn tcp_listen_loopback_once(response: string, timeout_ms: int): Option<int> {\nreturn net_tcp_listen_loopback_once(response, timeout_ms)\n}\n\
+pub async fn tcp_dial(host: string, port: int, message: string, timeout_ms: int): Option<string> {\nreturn net_tcp_dial(host, port, message, timeout_ms)\n}\n\
+pub async fn udp_bind_loopback_once(response: string, timeout_ms: int): Option<int> {\nreturn net_udp_bind_loopback_once(response, timeout_ms)\n}\n\
+pub async fn udp_send_recv(host: string, port: int, message: string, timeout_ms: int): Option<string> {\nreturn net_udp_send_recv(host, port, message, timeout_ms)\n}\n",
+    ),
+    (
         "testing.ax",
         "pub fn table_int(name: string, actual: int, expected: int): int {\nreturn assert_case_eq(name, actual, expected)\n}\n\
 pub fn table_bool(name: string, actual: bool, expected: bool): int {\nreturn assert_case_eq(name, actual, expected)\n}\n\
@@ -257,13 +282,40 @@ pub fn snapshot(name: string, actual: string, expected: string): int {\nreturn a
     ),
     (
         "http.ax",
-        "pub fn get(url: string): Option<string> {\nreturn http_get(url)\n}\n",
+        "pub struct HttpRoute {\npath: string\nbody: string\n}\n\
+pub fn get(url: string): Option<string> {\nreturn http_get(url)\n}\n\
+pub fn route(path: string, body: string): HttpRoute {\nreturn HttpRoute { path: path, body: body }\n}\n\
+pub fn respond(body: string): HttpRoute {\nreturn route(\"/\", body)\n}\n\
+pub fn serve(bind: string, selected_route: HttpRoute, max_requests: int): bool {\nreturn http_serve_route(bind, selected_route.path, selected_route.body, max_requests)\n}\n\
+pub fn serve_once(bind: string, body: string): bool {\nreturn http_serve_once(bind, body)\n}\n",
     ),
     (
         "regex.ax",
         "pub fn is_match(pattern: string, text: string): bool {\nreturn regex_is_match(pattern, text)\n}\n\
 pub fn find(pattern: string, text: string): Option<string> {\nreturn regex_find(pattern, text)\n}\n\
 pub fn replace_all(pattern: string, text: string, replacement: string): string {\nreturn regex_replace_all(pattern, text, replacement)\n}\n",
+    ),
+    (
+        "encoding.ax",
+        "pub fn url_component_encode(value: string): string {
+return encoding_url_component_encode(value)
+}
+pub fn url_component_decode(value: string): Option<string> {
+return encoding_url_component_decode(value)
+}
+pub fn path_segment_encode(value: string): string {
+return encoding_path_segment_encode(value)
+}
+",
+    ),
+    (
+        "outcome.ax",
+        "pub fn option_is_some<T>(value: Option<T>): bool {\nmatch value {\nSome(_inner) {\nreturn true\n}\nNone {\nreturn false\n}\n}\n}\n\
+pub fn option_is_none<T>(value: Option<T>): bool {\nmatch value {\nSome(_inner) {\nreturn false\n}\nNone {\nreturn true\n}\n}\n}\n\
+pub fn option_unwrap_or<T>(value: Option<T>, fallback: T): T {\nmatch value {\nSome(inner) {\nreturn inner\n}\nNone {\nreturn fallback\n}\n}\n}\n\
+pub fn result_is_ok<T, E>(value: Result<T, E>): bool {\nmatch value {\nOk(_inner) {\nreturn true\n}\nErr(_error) {\nreturn false\n}\n}\n}\n\
+pub fn result_is_err<T, E>(value: Result<T, E>): bool {\nmatch value {\nOk(_inner) {\nreturn false\n}\nErr(_error) {\nreturn true\n}\n}\n}\n\
+pub fn result_unwrap_or<T, E>(value: Result<T, E>, fallback: T): T {\nmatch value {\nOk(inner) {\nreturn inner\n}\nErr(_error) {\nreturn fallback\n}\n}\n}\n",
     ),
 ];
 

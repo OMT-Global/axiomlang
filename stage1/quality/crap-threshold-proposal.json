@@ -1,0 +1,234 @@
+{
+  "ciBlocking": false,
+  "coverage": {
+    "input": null,
+    "missingCoveragePolicy": "rank as 0% covered, do not enforce"
+  },
+  "enablement": {
+    "blockingMode": "requires explicit --enforce or CI opt-in after acceptance",
+    "defaultMode": "report-only"
+  },
+  "formula": "complexity^2 * (1 - coverage)^3 + complexity",
+  "hotspots": [
+    {
+      "complexity": 413,
+      "coverage_percent": null,
+      "crap": 170982.0,
+      "end_line": 7404,
+      "lines": 2247,
+      "name": "lower_expr_with_expected",
+      "path": "stage1/crates/axiomc/src/hir.rs",
+      "start_line": 5158
+    },
+    {
+      "complexity": 235,
+      "coverage_percent": null,
+      "crap": 55460.0,
+      "end_line": 1929,
+      "lines": 1830,
+      "name": "render_rust_for_package_with_capabilities",
+      "path": "stage1/crates/axiomc/src/codegen.rs",
+      "start_line": 100
+    },
+    {
+      "complexity": 79,
+      "coverage_percent": null,
+      "crap": 6320.0,
+      "end_line": 4907,
+      "lines": 571,
+      "name": "lower_stmt",
+      "path": "stage1/crates/axiomc/src/hir.rs",
+      "start_line": 4337
+    },
+    {
+      "complexity": 72,
+      "coverage_percent": null,
+      "crap": 5256.0,
+      "end_line": 3116,
+      "lines": 494,
+      "name": "render_expr",
+      "path": "stage1/crates/axiomc/src/codegen.rs",
+      "start_line": 2623
+    },
+    {
+      "complexity": 70,
+      "coverage_percent": null,
+      "crap": 4970.0,
+      "end_line": 2439,
+      "lines": 235,
+      "name": "parse_term",
+      "path": "stage1/crates/axiomc/src/syntax.rs",
+      "start_line": 2205
+    },
+    {
+      "complexity": 65,
+      "coverage_percent": null,
+      "crap": 4290.0,
+      "end_line": 2343,
+      "lines": 314,
+      "name": "flatten_modules",
+      "path": "stage1/crates/axiomc/src/project.rs",
+      "start_line": 2030
+    },
+    {
+      "complexity": 63,
+      "coverage_percent": null,
+      "crap": 4032.0,
+      "end_line": 2161,
+      "lines": 223,
+      "name": "parse_type_name",
+      "path": "stage1/crates/axiomc/src/syntax.rs",
+      "start_line": 1939
+    },
+    {
+      "complexity": 49,
+      "coverage_percent": null,
+      "crap": 2450.0,
+      "end_line": 3033,
+      "lines": 103,
+      "name": "find_top_level_char",
+      "path": "stage1/crates/axiomc/src/syntax.rs",
+      "start_line": 2931
+    },
+    {
+      "complexity": 41,
+      "coverage_percent": null,
+      "crap": 1722.0,
+      "end_line": 524,
+      "lines": 179,
+      "name": "parse_program_with_recovery",
+      "path": "stage1/crates/axiomc/src/syntax.rs",
+      "start_line": 346
+    },
+    {
+      "complexity": 39,
+      "coverage_percent": null,
+      "crap": 1560.0,
+      "end_line": 7588,
+      "lines": 183,
+      "name": "lower_async_runtime_intrinsic",
+      "path": "stage1/crates/axiomc/src/hir.rs",
+      "start_line": 7406
+    },
+    {
+      "complexity": 38,
+      "coverage_percent": null,
+      "crap": 1482.0,
+      "end_line": 397,
+      "lines": 258,
+      "name": "main",
+      "path": "stage1/crates/axiomc/src/main.rs",
+      "start_line": 140
+    },
+    {
+      "complexity": 38,
+      "coverage_percent": null,
+      "crap": 1482.0,
+      "end_line": 3493,
+      "lines": 515,
+      "name": "rewrite_expr",
+      "path": "stage1/crates/axiomc/src/project.rs",
+      "start_line": 2979
+    },
+    {
+      "complexity": 36,
+      "coverage_percent": null,
+      "crap": 1332.0,
+      "end_line": 1564,
+      "lines": 128,
+      "name": "unify_generic_type_name",
+      "path": "stage1/crates/axiomc/src/hir.rs",
+      "start_line": 1437
+    },
+    {
+      "complexity": 32,
+      "coverage_percent": null,
+      "crap": 1056.0,
+      "end_line": 3514,
+      "lines": 368,
+      "name": "rewrite_expr_generic_calls",
+      "path": "stage1/crates/axiomc/src/hir.rs",
+      "start_line": 3147
+    },
+    {
+      "complexity": 30,
+      "coverage_percent": null,
+      "crap": 930.0,
+      "end_line": 1253,
+      "lines": 315,
+      "name": "infer_generic_calls_in_expr",
+      "path": "stage1/crates/axiomc/src/hir.rs",
+      "start_line": 939
+    },
+    {
+      "complexity": 30,
+      "coverage_percent": null,
+      "crap": 930.0,
+      "end_line": 1910,
+      "lines": 131,
+      "name": "parse_match_arms",
+      "path": "stage1/crates/axiomc/src/syntax.rs",
+      "start_line": 1780
+    },
+    {
+      "complexity": 27,
+      "coverage_percent": null,
+      "crap": 756.0,
+      "end_line": 2927,
+      "lines": 349,
+      "name": "rewrite_expr_aggregate_types",
+      "path": "stage1/crates/axiomc/src/hir.rs",
+      "start_line": 2579
+    },
+    {
+      "complexity": 26,
+      "coverage_percent": null,
+      "crap": 702.0,
+      "end_line": 1870,
+      "lines": 200,
+      "name": "monomorphize_aggregates",
+      "path": "stage1/crates/axiomc/src/hir.rs",
+      "start_line": 1671
+    },
+    {
+      "complexity": 25,
+      "coverage_percent": null,
+      "crap": 650.0,
+      "end_line": 1087,
+      "lines": 96,
+      "name": "parse_stmt_list",
+      "path": "stage1/crates/axiomc/src/syntax.rs",
+      "start_line": 992
+    },
+    {
+      "complexity": 24,
+      "coverage_percent": null,
+      "crap": 600.0,
+      "end_line": 2362,
+      "lines": 196,
+      "name": "rewrite_aggregate_type_name",
+      "path": "stage1/crates/axiomc/src/hir.rs",
+      "start_line": 2167
+    }
+  ],
+  "observedBootstrapThresholds": {
+    "critical": 170985.0,
+    "warn": 1620.0,
+    "watch": 270.0
+  },
+  "proposedThresholds": {
+    "critical": 100.0,
+    "warn": 60.0,
+    "watch": 30.0
+  },
+  "ratchetPolicy": "initial CI opt-in should report all hotspots and fail only new or changed functions above proposedThresholds unless maintainers explicitly choose a full-baseline cleanup gate",
+  "schemaVersion": 1,
+  "status": "proposal-only",
+  "summary": {
+    "functionsAnalyzed": 864,
+    "max": 170982.0,
+    "p90": 90.0,
+    "p95": 267.2,
+    "p99": 1619.94
+  }
+}

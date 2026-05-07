@@ -1,0 +1,12 @@
+struct Window {
+view: &[int]
+}
+
+fn wrap(input: &[int]): Window {
+let local: [int] = [1, 2, 3]
+return Window { view: local[:] }
+}
+
+let values: [int] = [10, 20, 30]
+let w: Window = wrap(values[:])
+print first(w.view)
