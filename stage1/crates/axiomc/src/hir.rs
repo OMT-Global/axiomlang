@@ -3745,7 +3745,7 @@ fn rewrite_expr_generic_calls(
                 }
                 monomorphized_function_name(name, &type_args)
             } else {
-                if !type_args.is_empty() && !is_async_runtime_intrinsic(name) {
+                if !type_args.is_empty() && !preserves_intrinsic_type_args(name) {
                     return Err(Diagnostic::new(
                         "type",
                         format!("function {:?} is not generic", name),
@@ -3754,7 +3754,7 @@ fn rewrite_expr_generic_calls(
                 }
                 name.clone()
             };
-            let keep_type_args = is_async_runtime_intrinsic(name.as_str());
+            let keep_type_args = preserves_intrinsic_type_args(name.as_str());
             syntax::Expr::Call {
                 name,
                 type_args: if keep_type_args {
@@ -4220,6 +4220,10 @@ fn is_async_runtime_intrinsic(name: &str) -> bool {
             | "async_selected"
             | "async_selected_value"
     )
+}
+
+fn preserves_intrinsic_type_args(name: &str) -> bool {
+    is_async_runtime_intrinsic(name) || matches!(name, "map_get" | "map_contains_key")
 }
 
 fn type_name_monomorph_suffix(ty: &syntax::TypeName) -> String {
@@ -6315,6 +6319,9 @@ fn lower_expr_with_expected_inner(
                 return lower_async_runtime_intrinsic(
                     name, type_args, args, *line, *column, env, ctx,
                 );
+            }
+            if name == "map_get" || name == "map_contains_key" {
+                return lower_map_lookup_intrinsic(name, type_args, args, *line, *column, env, ctx);
             }
             if !type_args.is_empty() {
                 return Err(
@@ -9173,6 +9180,93 @@ fn lower_async_runtime_intrinsic(
         name: name.to_string(),
         args: lowered_args,
         ty,
+    })
+}
+
+fn lower_map_lookup_intrinsic(
+    name: &str,
+    type_args: &[syntax::TypeName],
+    args: &[syntax::Expr],
+    line: usize,
+    column: usize,
+    env: &mut HashMap<String, Binding>,
+    ctx: &LowerContext<'_>,
+) -> Result<Expr, Diagnostic> {
+    if !type_args.is_empty() && type_args.len() != 2 {
+        return Err(Diagnostic::new(
+            "type",
+            format!(
+                "{name} expects 0 or 2 type arguments, got {}",
+                type_args.len()
+            ),
+        )
+        .with_span(line, column));
+    }
+    if args.len() != 2 {
+        return Err(Diagnostic::new(
+            "type",
+            format!("{name} expects 2 arguments, got {}", args.len()),
+        )
+        .with_span(line, column));
+    }
+    let lowered_map = lower_expr(&args[0], env, ctx)?;
+    let Type::Map(key_ty, value_ty) = lowered_map.ty() else {
+        return Err(Diagnostic::new(
+            "type",
+            format!("{name} expects a map value, got {}", lowered_map.ty()),
+        )
+        .with_span(args[0].line(), args[0].column()));
+    };
+    let key_ty = (*key_ty.clone()).clone();
+    let value_ty = (*value_ty.clone()).clone();
+    if let [expected_key, expected_value] = type_args {
+        let expected_key = lower_type(
+            expected_key,
+            ctx.structs,
+            ctx.enums,
+            ctx.aliases,
+            ctx.consts,
+            line,
+            column,
+        )?;
+        let expected_value = lower_type(
+            expected_value,
+            ctx.structs,
+            ctx.enums,
+            ctx.aliases,
+            ctx.consts,
+            line,
+            column,
+        )?;
+        if expected_key != key_ty || expected_value != value_ty {
+            return Err(Diagnostic::new(
+                "type",
+                format!(
+                    "{name} type arguments expect {{{expected_key}: {expected_value}}}, got {}",
+                    lowered_map.ty()
+                ),
+            )
+            .with_span(line, column));
+        }
+    }
+    let lowered_key = lower_expr_with_expected(&args[1], Some(&key_ty), env, ctx)?;
+    if lowered_key.ty() != &key_ty {
+        return Err(Diagnostic::new(
+            "type",
+            format!("{name} expects key type {key_ty}, got {}", lowered_key.ty()),
+        )
+        .with_span(args[1].line(), args[1].column()));
+    }
+    move_lowered_value(&lowered_map, env)?;
+    move_lowered_value(&lowered_key, env)?;
+    Ok(Expr::Call {
+        name: name.to_string(),
+        args: vec![lowered_map, lowered_key],
+        ty: if name == "map_get" {
+            Type::Option(Box::new(value_ty))
+        } else {
+            Type::Bool
+        },
     })
 }
 
