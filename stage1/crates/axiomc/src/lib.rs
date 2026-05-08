@@ -24,7 +24,7 @@ mod tests {
         lockfile_path, render_manifest,
     };
     use crate::mir;
-    use crate::new_project::create_project;
+    use crate::new_project::{WorkloadTemplate, create_project, create_project_with_template};
     use crate::project::{
         BuildCacheStatus, BuildOptions, CheckOptions, RunOptions, TestOptions, build_project,
         build_project_with_options, check_project, check_project_with_options,
@@ -204,6 +204,27 @@ mod tests {
         assert!(project.join("src/main_test.stdout").exists());
         let manifest = load_manifest(&project).expect("load manifest");
         assert_eq!(manifest.tests, Vec::<TestTarget>::new());
+    }
+
+    #[test]
+    fn new_project_templates_build_and_test_without_edits() {
+        let dir = tempdir().expect("tempdir");
+        for template in [
+            WorkloadTemplate::Cli,
+            WorkloadTemplate::Worker,
+            WorkloadTemplate::Service,
+        ] {
+            let project = dir.path().join(format!("{}-app", template.name()));
+            create_project_with_template(&project, None, template).expect("create project");
+
+            check_project(&project).expect("check generated project");
+            let built = build_project(&project).expect("build generated project");
+            assert_eq!(built.packages.len(), 1);
+            assert!(Path::new(&built.binary).exists());
+            let tests = run_project_tests(&project).expect("test generated project");
+            assert_eq!(tests.failed, 0);
+            assert_eq!(tests.passed, 1);
+        }
     }
 
     #[test]

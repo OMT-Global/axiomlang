@@ -4,7 +4,7 @@ use axiomc::diagnostics::Diagnostic;
 use axiomc::json_contract;
 use axiomc::lsp;
 use axiomc::manifest::{entry_path, load_manifest};
-use axiomc::new_project::create_project;
+use axiomc::new_project::{WorkloadTemplate, create_project_with_template};
 use axiomc::project::{
     BuildOptions, BuildOutput, CheckOptions, RunOptions, TestOptions, build_project_with_options,
     check_project_with_options, project_capabilities, run_project_tests_with_options,
@@ -36,6 +36,8 @@ enum Command {
         path: PathBuf,
         #[arg(long)]
         name: Option<String>,
+        #[arg(long, default_value = "cli")]
+        template: String,
     },
     /// Parse the primary stage1 package entrypoint without typechecking.
     Parse {
@@ -189,9 +191,18 @@ enum InspectCommand {
 fn main() {
     let cli = Cli::parse();
     let code = match cli.command {
-        Command::New { path, name } => match create_project(&path, name.as_deref()) {
+        Command::New {
+            path,
+            name,
+            template,
+        } => match WorkloadTemplate::parse(&template)
+            .and_then(|template| create_project_with_template(&path, name.as_deref(), template))
+        {
             Ok(()) => {
-                println!("initialized stage1 project in {}", path.display());
+                println!(
+                    "initialized stage1 {template} project in {}",
+                    path.display()
+                );
                 0
             }
             Err(error) => print_error("new", error, false),
