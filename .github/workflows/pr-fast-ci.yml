@@ -10,10 +10,10 @@ concurrency:
 
 permissions:
   contents: read
-  pull-requests: read
 
 env:
   NODE_VERSION: '20'
+  PYTHON_VERSION: '3.12'
 
 defaults:
   run:
@@ -22,101 +22,118 @@ defaults:
 jobs:
   changes:
     name: Detect Relevant Changes
-    runs-on: ubuntu-latest
+    runs-on: ['self-hosted', 'synology', 'shell-only', 'public']
     outputs:
       app: ${{ steps.filter.outputs.app }}
       ci: ${{ steps.filter.outputs.ci }}
     steps:
-      - uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v3 pinned 2026-04-19
+      - uses: dorny/paths-filter@v3
         id: filter
         with:
           filters: |
             app:
               - 'project.bootstrap.yaml'
               - 'AGENTS.md'
-              - 'CLAUDE.md'
+              - 'CONTRIBUTING.md'
               - '.github/PULL_REQUEST_TEMPLATE.md'
-              - '.devcontainer/**'
               - '.githooks/**'
               - '.github/workflows/**'
               - 'scripts/**'
               - 'docs/bootstrap/**'
               - 'README.md'
               - 'docs/**'
-              - 'stage1/**'
-              - 'Makefile'
             ci:
               - 'project.bootstrap.yaml'
               - 'AGENTS.md'
-              - 'CLAUDE.md'
+              - 'CONTRIBUTING.md'
               - '.github/PULL_REQUEST_TEMPLATE.md'
-              - '.devcontainer/**'
               - '.githooks/**'
               - '.github/workflows/**'
               - 'scripts/**'
               - 'docs/bootstrap/**'
               - '.env.example'
               - 'CODEOWNERS'
-              - 'Makefile'
-              - '.github/dependabot.yml'
 
   fast-checks:
     name: Fast Checks
-    runs-on: ubuntu-latest
+    runs-on: ['self-hosted', 'synology', 'shell-only', 'public']
     timeout-minutes: 15
     needs: changes
     if: >-
       github.event.pull_request.draft == false &&
       (needs.changes.outputs.app == 'true' || needs.changes.outputs.ci == 'true')
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v4 pinned 2026-04-19
+      - uses: actions/checkout@v4
         with:
           ref: ${{ github.event.pull_request.head.sha }}
-      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable pinned 2026-04-19
-      - uses: actions/setup-go@44694675825211faa026b3c33043df3e48a5fa00 # v6 pinned 2026-04-19
 
       - name: Run fast checks
         run: bash scripts/ci/run-fast-checks.sh
-      - name: Run Go/Rust/Axiom comparison report
-        run: python3 scripts/ci/check-stage1-benchmarks.py --json-out stage1/target/stage1-comparison-report.json
 
-      - name: Upload advisory comparison report
-        if: always()
-        uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808 # v4 pinned 2026-04-19
-        with:
-          name: stage1-comparison-report
-          path: stage1/target/stage1-comparison-report.json
-          if-no-files-found: ignore
+  validate-pr-description:
+    name: Validate PR Description
+    runs-on: ['self-hosted', 'synology', 'shell-only', 'public']
+    timeout-minutes: 5
+    if: github.event.pull_request.draft == false
+    env:
+      PR_BODY: ${{ github.event.pull_request.body }}
+    steps:
+      - name: Require generated PR template content
+        run: |
+          failed=0
+
+          require_line() {
+            local line="$1"
+            if ! grep -Fqx "$line" <<<"$PR_BODY"; then
+              echo "Missing required PR section: $line"
+              failed=1
+            fi
+          }
+
+          require_line "## Summary"
+          require_line "## Governing Issue"
+          require_line "## Validation"
+          require_line "## Bootstrap Governance"
+          require_line "## Merge Automation"
+          require_line "## Notes"
+
+          if grep -Eiq 'Closes #$|#<issue-number>|what changed|why it changed|notable tradeoffs|migration or rollout notes|follow-up work if any' <<<"$PR_BODY"; then
+            echo "PR body still contains template placeholder text."
+            failed=1
+          fi
+
+          if ! grep -Eiq '(^|[[:space:]-])((close[sd]?|fix(e[sd])?|resolve[sd]?)[[:space:]]+#[0-9]+|no issue is linked|no linked issue|without a linked issue|no governing issue)' <<<"$PR_BODY"; then
+            echo "PR body must close/link an issue or explicitly explain why no issue is linked."
+            failed=1
+          fi
+
+          if ! grep -Eiq '(^|[[:space:]-])(\[[xX]\]|not run|not applicable|n/a)' <<<"$PR_BODY"; then
+            echo "PR body must include validation evidence, a checked validation item, or a reason validation was not run."
+            failed=1
+          fi
+
+          if ! grep -Eiq '(auto-merge is enabled|auto-merge enabled|auto merge is enabled|auto merge enabled|auto-merge.*(unavailable|unsafe|blocked|not supported)|auto merge.*(unavailable|unsafe|blocked|not supported))' <<<"$PR_BODY"; then
+            echo "PR body must state that auto-merge is enabled or explain why it is unavailable or unsafe."
+            failed=1
+          fi
+
+          exit "$failed"
 
   validate-secrets:
     name: Validate Secrets
-    runs-on: ubuntu-latest
+    runs-on: ['self-hosted', 'synology', 'shell-only', 'public']
     timeout-minutes: 10
     if: github.event.pull_request.draft == false
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v4 pinned 2026-04-19
+      - uses: actions/checkout@v4
         with:
           ref: ${{ github.event.pull_request.head.sha }}
       - name: Scan repository for secret patterns
         run: bash scripts/check-detect-secrets.sh --all-files
 
-  validate-pr-description:
-    name: Validate PR Description
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    if: github.event.pull_request.draft == false && github.event.pull_request.user.login != 'dependabot[bot]'
-    env:
-      PR_BODY: ${{ github.event.pull_request.body }}
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v4 pinned 2026-04-19
-        with:
-          ref: ${{ github.event.pull_request.head.sha }}
-      - name: Validate PR description requirements
-        run: bash scripts/ci/validate-pr-description.sh
-
   ci-gate:
     name: CI Gate
-    runs-on: ubuntu-latest
+    runs-on: ['self-hosted', 'synology', 'shell-only', 'public']
     if: always()
     needs:
       - changes
