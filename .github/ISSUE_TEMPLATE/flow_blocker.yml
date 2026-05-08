@@ -1,0 +1,52 @@
+name: Flow blocker
+description: Record a blocked unit of work with a next actor and unblock target
+title: "Flow blocker: "
+labels:
+  - state:blocked-infra
+body:
+  - type: textarea
+    id: blocked_item
+    attributes:
+      label: Blocked issue/PR
+      description: Link the blocked item.
+    validations:
+      required: true
+  - type: dropdown
+    id: blocked_type
+    attributes:
+      label: Blocker type
+      options:
+        - Human decision
+        - Infrastructure
+        - Scope
+        - Auth/credential
+        - External dependency
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence
+      description: Logs, checks, review comments, or command output proving the block.
+    validations:
+      required: true
+  - type: dropdown
+    id: next_actor
+    attributes:
+      label: Next actor
+      options:
+        - Pheidon
+        - Apollo
+        - Ares
+        - Daedalus
+        - Hephaestus
+        - Hermes
+        - Human
+    validations:
+      required: true
+  - type: textarea
+    id: unblock
+    attributes:
+      label: Required unblock action
+    validations:
+      required: true

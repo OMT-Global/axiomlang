@@ -1,0 +1,53 @@
+name: Implementation work
+description: Durable contract for autonomous or review-gated implementation work
+title: ""
+labels:
+  - state:intake
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem / intent
+      description: What should change and why?
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: Concrete conditions that make this done.
+    validations:
+      required: true
+  - type: textarea
+    id: validation
+    attributes:
+      label: Validation commands
+      description: Commands or checks the worker should run.
+    validations:
+      required: true
+  - type: dropdown
+    id: autonomy
+    attributes:
+      label: Autonomy class
+      options:
+        - Class 0 - Observe only
+        - Class 1 - Safe autonomous
+        - Class 2 - Review-gated autonomous
+        - Class 3 - Human decision required
+        - Class 4 - Forbidden unattended
+    validations:
+      required: true
+  - type: dropdown
+    id: lane
+    attributes:
+      label: Recommended lane
+      options:
+        - Pheidon
+        - Apollo
+        - Ares
+        - Daedalus
+        - Hephaestus
+        - Hermes
+        - Human
+    validations:
+      required: true

@@ -18,6 +18,8 @@ repo:
     - .github/workflows/pr-fast-ci.yml
     - .github/workflows/extended-validation.yml
     - .github/workflows/claude.yml
+    - .github/ISSUE_TEMPLATE/implementation.yml
+    - .github/ISSUE_TEMPLATE/flow_blocker.yml
     - scripts/check-detect-secrets.sh
     - scripts/ci/**
     - scripts/codex-cloud/**
@@ -30,6 +32,7 @@ archetype:
   moduleName: axiom
 github:
   createRepo: false
+  flowGovernance: true
   reviewers:
     - jmcte
     - pheidon
