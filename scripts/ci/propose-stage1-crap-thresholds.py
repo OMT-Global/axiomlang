@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -177,7 +178,18 @@ def main() -> int:
     parser.add_argument("--enforce", action="store_true")
     args = parser.parse_args()
 
+    if not args.source_root.exists():
+        print(f"error: source root does not exist: {args.source_root}", file=sys.stderr)
+        return 2
+    if not args.source_root.is_dir():
+        print(f"error: source root is not a directory: {args.source_root}", file=sys.stderr)
+        return 2
+
     metrics = collect_metrics(args.source_root, args.default_coverage)
+    if not metrics:
+        print(f"error: no Rust functions discovered under source root: {args.source_root}", file=sys.stderr)
+        return 2
+
     report = proposal(metrics, args.threshold, args.max_hotspots, args.source_root)
     payload = json.dumps(report, indent=2, sort_keys=True) + "\n"
     if args.output:

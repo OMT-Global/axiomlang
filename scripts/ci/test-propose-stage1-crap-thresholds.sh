@@ -60,4 +60,18 @@ if python3 "$repo_root/scripts/ci/propose-stage1-crap-thresholds.py" --source-ro
   exit 1
 fi
 
+if python3 "$repo_root/scripts/ci/propose-stage1-crap-thresholds.py" --source-root "$temp_dir/missing" >/dev/null 2>"$temp_dir/missing.err"; then
+  echo "missing --source-root must fail" >&2
+  exit 1
+fi
+grep -q "source root does not exist" "$temp_dir/missing.err"
+
+empty_dir="$temp_dir/empty"
+mkdir "$empty_dir"
+if python3 "$repo_root/scripts/ci/propose-stage1-crap-thresholds.py" --source-root "$empty_dir" >/dev/null 2>"$temp_dir/empty.err"; then
+  echo "empty --source-root must fail" >&2
+  exit 1
+fi
+grep -q "no Rust functions discovered" "$temp_dir/empty.err"
+
 echo "stage1 CRAP threshold proposal test passed"
