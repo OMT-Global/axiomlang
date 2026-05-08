@@ -1,9 +1,6 @@
-# Default ownership includes a backup human reviewer so PR review is not single-pointed.
 * @jmcte @pheidon
-
-# Security-sensitive governance and automation paths request an additional reviewer.
 /.github/workflows/ @jmcte @pheidon @scrappedcode
 /.githooks/ @jmcte @pheidon @scrappedcode
 /scripts/ @jmcte @pheidon @scrappedcode
 /project.bootstrap.yaml @jmcte @pheidon @scrappedcode
-/stage1/crates/axiomc/src/ @jmcte @pheidon
+/stage1/crates/axiomc/src/ @jmcte @pheidon @scrappedcode
