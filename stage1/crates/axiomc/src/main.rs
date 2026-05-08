@@ -945,8 +945,10 @@ fn render_type(ty: &axiomc::syntax::TypeName) -> String {
     use axiomc::syntax::TypeName;
     match ty {
         TypeName::Int => "int".to_string(),
+        TypeName::Numeric(numeric) => numeric.as_str().to_string(),
         TypeName::Bool => "bool".to_string(),
         TypeName::String => "string".to_string(),
+        TypeName::Str => "str".to_string(),
         TypeName::Named(name, args) if args.is_empty() => name.clone(),
         TypeName::Named(name, args) => format!(
             "{}<{}>",
@@ -957,6 +959,12 @@ fn render_type(ty: &axiomc::syntax::TypeName) -> String {
         TypeName::MutPtr(inner) => format!("mut ptr<{}>", render_type(inner)),
         TypeName::Slice(inner) => format!("&[{}]", render_type(inner)),
         TypeName::MutSlice(inner) => format!("&mut [{}]", render_type(inner)),
+        TypeName::LifetimeSlice(lifetime, inner) => {
+            format!("&'{lifetime} [{}]", render_type(inner))
+        }
+        TypeName::LifetimeMutSlice(lifetime, inner) => {
+            format!("&'{lifetime} mut [{}]", render_type(inner))
+        }
         TypeName::Option(inner) => format!("Option<{}>", render_type(inner)),
         TypeName::Result(ok, err) => format!("Result<{}, {}>", render_type(ok), render_type(err)),
         TypeName::Tuple(elements) => format!(
@@ -968,7 +976,17 @@ fn render_type(ty: &axiomc::syntax::TypeName) -> String {
                 .join(", ")
         ),
         TypeName::Map(key, value) => format!("{{{}: {}}}", render_type(key), render_type(value)),
-        TypeName::Array(inner) => format!("[{}]", render_type(inner)),
+        TypeName::Array(inner, Some(size)) => format!("[{}; {}]", render_type(inner), size),
+        TypeName::Array(inner, None) => format!("[{}]", render_type(inner)),
+        TypeName::Fn(params, ret) => format!(
+            "fn({}) -> {}",
+            params
+                .iter()
+                .map(render_type)
+                .collect::<Vec<_>>()
+                .join(", "),
+            render_type(ret)
+        ),
     }
 }
 
@@ -1005,6 +1023,20 @@ fn collect_stmt_capabilities(stmt: &axiomc::syntax::Stmt, capabilities: &mut Vec
             ..
         } => {
             collect_expr_capabilities(cond, capabilities);
+            for stmt in then_block {
+                collect_stmt_capabilities(stmt, capabilities);
+            }
+            for stmt in else_block.iter().flatten() {
+                collect_stmt_capabilities(stmt, capabilities);
+            }
+        }
+        Stmt::IfLet {
+            expr,
+            then_block,
+            else_block,
+            ..
+        } => {
+            collect_expr_capabilities(expr, capabilities);
             for stmt in then_block {
                 collect_stmt_capabilities(stmt, capabilities);
             }
@@ -1050,7 +1082,7 @@ fn collect_expr_capabilities(expr: &axiomc::syntax::Expr, capabilities: &mut Vec
             collect_expr_capabilities(lhs, capabilities);
             collect_expr_capabilities(rhs, capabilities);
         }
-        Expr::Try { expr, .. } | Expr::Await { expr, .. } => {
+        Expr::Cast { expr, .. } | Expr::Try { expr, .. } | Expr::Await { expr, .. } => {
             collect_expr_capabilities(expr, capabilities);
         }
         Expr::StructLiteral { fields, .. } => {
@@ -1087,6 +1119,7 @@ fn collect_expr_capabilities(expr: &axiomc::syntax::Expr, capabilities: &mut Vec
             collect_expr_capabilities(base, capabilities);
             collect_expr_capabilities(index, capabilities);
         }
+        Expr::Closure { body, .. } => collect_expr_capabilities(body, capabilities),
         Expr::Literal(_) | Expr::VarRef { .. } => {}
     }
 }
@@ -1096,8 +1129,12 @@ fn capability_for_call(name: &str) -> Option<&'static str> {
         "clock_now_ms" | "clock_elapsed_ms" | "clock_sleep_ms" => Some("clock"),
         "env_get" => Some("env"),
         "fs_read" => Some("fs"),
+        "fs_write" | "fs_create" | "fs_append" | "fs_mkdir" | "fs_mkdir_all" | "fs_remove_file"
+        | "fs_remove_dir" | "fs_replace" => Some("fs:write"),
         "net_resolve"
         | "http_get"
+        | "http_serve_once"
+        | "http_serve_route"
         | "net_tcp_listen_loopback_once"
         | "tcp_listen_loopback_once"
         | "net_tcp_dial"
@@ -1107,12 +1144,16 @@ fn capability_for_call(name: &str) -> Option<&'static str> {
         | "net_udp_send_recv"
         | "udp_send_recv" => Some("net"),
         "process_status" => Some("process"),
-        "crypto_sha256" => Some("crypto"),
+        "crypto_sha256"
+        | "crypto_hmac_sha256"
+        | "crypto_constant_time_eq"
+        | "hmac_sha256"
+        | "constant_time_eq" => Some("crypto"),
         _ => None,
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 struct FormatFileReport {
     path: String,
     changed: bool,
@@ -2106,7 +2147,6 @@ mod tests {
         assert_eq!(report.unsafe_reductions, vec![String::from("env")]);
         assert!(!report.escalated);
         assert!(report.ok);
-
     }
 
     #[test]
@@ -2116,7 +2156,7 @@ mod tests {
         fs::create_dir_all(&source_dir).expect("create source dir");
         fs::write(
             source_dir.join("main.ax"),
-            "import \"time.ax\"\n\npub const LIMIT: int = 3\n\npub struct Job {\nname: string\n}\n\npub fn now(): int {\nreturn clock_now_ms()\n}\n\npub fn dial(): int {\nreturn net_tcp_dial(\"127.0.0.1\", 80)\n}\n\npub fn slice_time(values: [int]): [int] {\nreturn values[0:clock_now_ms()]\n}\n\nfn private_helper(): int {\nreturn 1\n}\n",
+            "import \"time.ax\"\n\npub const LIMIT: int = 3\n\npub struct Job {\nname: string\n}\n\npub fn now(): int {\nreturn clock_now_ms()\n}\n\npub fn dial(): int {\nreturn net_tcp_dial(\"127.0.0.1\", 80)\n}\n\npub fn write_file_cap(): int {\nreturn fs_write(\"tmp.txt\", \"ok\")\n}\n\npub fn create_file_cap(): int {\nreturn fs_create(\"tmp.txt\")\n}\n\npub fn serve_once_cap(): bool {\nreturn http_serve_once(\"127.0.0.1:0\", \"ok\")\n}\n\npub fn serve_route_cap(): bool {\nreturn http_serve_route(\"127.0.0.1:0\", \"/\", \"ok\", 1)\n}\n\npub fn mac(): string {\nreturn hmac_sha256(\"key\", \"message\")\n}\n\npub fn safe_eq(): bool {\nreturn constant_time_eq(\"left\", \"right\")\n}\n\npub fn slice_time(values: [int]): [int] {\nreturn values[0:clock_now_ms()]\n}\n\nfn private_helper(): int {\nreturn 1\n}\n",
         )
         .expect("write main source");
         fs::write(
@@ -2128,7 +2168,7 @@ mod tests {
         let report = inspect_symbols(dir.path()).expect("inspect symbols");
 
         assert_eq!(report.command, "inspect symbols");
-        assert_eq!(report.symbols.len(), 6);
+        assert_eq!(report.symbols.len(), 12);
         let now = report
             .symbols
             .iter()
@@ -2144,6 +2184,30 @@ mod tests {
             .find(|symbol| symbol.name == "dial")
             .expect("dial symbol");
         assert_eq!(dial.capabilities, vec!["net"]);
+        for symbol_name in ["write_file_cap", "create_file_cap"] {
+            let symbol = report
+                .symbols
+                .iter()
+                .find(|symbol| symbol.name == symbol_name)
+                .expect("fs write symbol");
+            assert_eq!(symbol.capabilities, vec!["fs:write"]);
+        }
+        for symbol_name in ["serve_once_cap", "serve_route_cap"] {
+            let symbol = report
+                .symbols
+                .iter()
+                .find(|symbol| symbol.name == symbol_name)
+                .expect("net symbol");
+            assert_eq!(symbol.capabilities, vec!["net"]);
+        }
+        for symbol_name in ["mac", "safe_eq"] {
+            let symbol = report
+                .symbols
+                .iter()
+                .find(|symbol| symbol.name == symbol_name)
+                .expect("crypto symbol");
+            assert_eq!(symbol.capabilities, vec!["crypto"]);
+        }
         let slice_time = report
             .symbols
             .iter()
