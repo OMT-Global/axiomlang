@@ -2483,6 +2483,7 @@ let bad: u8 = byte.wrapping_add(1u16)
         .expect("write root lockfile");
 
         let graph = package_graph_metadata(&project).expect("load package graph metadata");
+        assert_eq!(graph.schema_version, json_contract::JSON_SCHEMA_VERSION);
         assert_eq!(graph.packages.len(), 3);
         let root = graph
             .packages
