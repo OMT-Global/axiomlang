@@ -156,6 +156,39 @@
         }
       },
       "additionalProperties": false
+    },
+    "publish": {
+      "type": "object",
+      "required": [
+        "registry"
+      ],
+      "properties": {
+        "registry": {
+          "type": "string",
+          "pattern": "^(https://|file:).+"
+        },
+        "checksum": {
+          "type": "string",
+          "pattern": "^sha256:[0-9A-Fa-f]{64}$"
+        },
+        "include": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true
+        },
+        "exclude": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true
+        }
+      },
+      "additionalProperties": false
     }
   },
   "anyOf": [
