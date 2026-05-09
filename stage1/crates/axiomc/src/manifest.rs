@@ -1040,45 +1040,86 @@ fn validate_registry_source(path: &Path, registry: &str) -> Result<(), Diagnosti
 }
 
 fn is_valid_registry_url(registry: &str) -> bool {
-    let Ok(url) = url::Url::parse(registry) else {
-        return false;
-    };
-
-    match url.scheme() {
-        "https" => is_valid_https_registry_url(&url),
-        "file" => registry.starts_with("file:///") && is_valid_file_registry_url(&url),
-        _ => false,
+    if let Some(rest) = registry.strip_prefix("https://") {
+        return is_valid_https_registry_url(rest);
     }
+    if let Some(path) = registry.strip_prefix("file://") {
+        return is_valid_file_registry_url(path);
+    }
+    false
 }
 
-fn is_valid_https_registry_url(url: &url::Url) -> bool {
-    if url.cannot_be_a_base()
-        || url.host().is_none()
-        || !url.username().is_empty()
-        || url.password().is_some()
+fn is_valid_https_registry_url(rest: &str) -> bool {
+    let authority_end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
+    let authority = &rest[..authority_end];
+    let suffix = &rest[authority_end..];
+
+    if authority.is_empty()
+        || authority.contains('@')
+        || suffix.starts_with('?')
+        || suffix.starts_with('#')
     {
         return false;
     }
 
-    // Exercise structural authority parsing, including port range validation.
-    if url.port_or_known_default().is_none() {
+    let (host, port) = split_registry_authority(authority);
+    let Some(host) = host else {
         return false;
+    };
+    if let Some(port) = port {
+        if port.is_empty() || port.parse::<u16>().is_err() {
+            return false;
+        }
     }
 
-    match url.host() {
-        Some(url::Host::Domain(host)) => is_valid_registry_host(host),
-        Some(url::Host::Ipv4(_)) | Some(url::Host::Ipv6(_)) => true,
-        None => false,
+    if host.starts_with('[') || host.ends_with(']') {
+        return is_valid_ipv6_authority_host(host);
+    }
+    if host.parse::<std::net::Ipv4Addr>().is_ok() {
+        return true;
+    }
+    is_valid_registry_host(host)
+}
+
+fn split_registry_authority(authority: &str) -> (Option<&str>, Option<&str>) {
+    if authority.starts_with('[') {
+        let Some(close) = authority.find(']') else {
+            return (None, None);
+        };
+        let host = &authority[..=close];
+        let rest = &authority[close + 1..];
+        if rest.is_empty() {
+            return (Some(host), None);
+        }
+        if let Some(port) = rest.strip_prefix(':') {
+            return (Some(host), Some(port));
+        }
+        return (None, None);
+    }
+
+    match authority.rsplit_once(':') {
+        Some((host, port)) if !host.contains(':') => (Some(host), Some(port)),
+        Some(_) => (None, None),
+        None => (Some(authority), None),
     }
 }
 
-fn is_valid_file_registry_url(url: &url::Url) -> bool {
-    url.host().is_none()
-        && url.query().is_none()
-        && url.fragment().is_none()
-        && !url.path().is_empty()
-        && url.path() != "/"
-        && Path::new(url.path()).is_absolute()
+fn is_valid_ipv6_authority_host(host: &str) -> bool {
+    let Some(inner) = host
+        .strip_prefix('[')
+        .and_then(|value| value.strip_suffix(']'))
+    else {
+        return false;
+    };
+    inner.parse::<std::net::Ipv6Addr>().is_ok()
+}
+
+fn is_valid_file_registry_url(path: &str) -> bool {
+    path.starts_with('/')
+        && path != "/"
+        && !path.contains('?')
+        && !path.contains('#')
+        && Path::new(path).is_absolute()
 }
 
 fn is_valid_registry_host(host: &str) -> bool {
