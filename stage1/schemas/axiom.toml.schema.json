@@ -100,6 +100,69 @@
           "kind": {
             "type": "string",
             "minLength": 1
+          },
+          "stderr": {
+            "type": "string"
+          },
+          "expected_error": {
+            "type": "object",
+            "required": [
+              "kind",
+              "message",
+              "path",
+              "line",
+              "column"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "minLength": 1
+              },
+              "code": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "message": {
+                "type": "string",
+                "minLength": 1
+              },
+              "path": {
+                "type": "string",
+                "minLength": 1
+              },
+              "line": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "column": {
+                "type": "integer",
+                "minimum": 1
+              }
+            },
+            "additionalProperties": false
+          },
+          "capabilities": {
+            "type": "array",
+            "items": {
+              "enum": [
+                "fs",
+                "fs:write",
+                "net",
+                "process",
+                "env",
+                "clock",
+                "crypto",
+                "ffi",
+                "async"
+              ]
+            },
+            "uniqueItems": true
+          },
+          "package": {
+            "type": "string",
+            "minLength": 1
           }
         },
         "additionalProperties": false
