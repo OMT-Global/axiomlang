@@ -7,8 +7,13 @@ cd "$repo_root"
 bash scripts/ci/test-pr-fast-ci-workflow.sh
 
 if [[ "${AXIOM_FAST_CI_PROOF_WORKLOADS:-1}" != "1" ]]; then
-  echo "Skipping proof workload execution because no Rust C linker is available."
-  exit 0
+  echo "error: proof workload execution is required for PR fast checks." >&2
+  exit 1
+fi
+
+if ! command -v cc >/dev/null 2>&1; then
+  echo "error: cc is required to run proof workloads in PR fast checks." >&2
+  exit 1
 fi
 
 for example in proof_cli proof_worker proof_http_service; do

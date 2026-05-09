@@ -71,15 +71,24 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable pinned 2026-04-19
 
-      - name: Detect Rust linker availability
+      - name: Ensure Rust linker availability
         run: |
-          if command -v cc >/dev/null 2>&1; then
-            echo "AXIOM_FAST_CI_PROOF_WORKLOADS=1" >> "$GITHUB_ENV"
-            exit 0
+          if ! command -v cc >/dev/null 2>&1; then
+            if command -v apt-get >/dev/null 2>&1; then
+              apt-get update
+              apt-get install -y --no-install-recommends gcc libc6-dev
+            else
+              echo "::error::cc is unavailable and no supported package manager is present; proof workloads are a required PR gate"
+              exit 1
+            fi
           fi
 
-          echo "::warning::cc is unavailable on this self-hosted runner; skipping proof workload execution"
-          echo "AXIOM_FAST_CI_PROOF_WORKLOADS=0" >> "$GITHUB_ENV"
+          if ! command -v cc >/dev/null 2>&1; then
+            echo "::error::cc is unavailable after environment setup; proof workloads are a required PR gate"
+            exit 1
+          fi
+
+          echo "AXIOM_FAST_CI_PROOF_WORKLOADS=1" >> "$GITHUB_ENV"
 
       - name: Run fast checks
         run: bash scripts/ci/run-fast-checks.sh
