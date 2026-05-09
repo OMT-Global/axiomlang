@@ -2,7 +2,6 @@ use crate::diagnostics::Diagnostic;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use url::Url;
 
 pub const MANIFEST_FILENAME: &str = "axiom.toml";
 pub const LOCK_FILENAME: &str = "axiom.lock";
@@ -1041,13 +1040,56 @@ fn validate_registry_source(path: &Path, registry: &str) -> Result<(), Diagnosti
 }
 
 fn is_valid_registry_url(registry: &str) -> bool {
-    Url::parse(registry).is_ok_and(|url| match url.scheme() {
-        "https" => url.host_str().is_some(),
-        "file" if registry.starts_with("file:///") => url
-            .to_file_path()
-            .is_ok_and(|path| path.is_absolute() && path.components().count() > 1),
-        "file" => false,
-        _ => false,
+    if let Some(rest) = registry.strip_prefix("https://") {
+        return has_valid_https_authority(rest);
+    }
+    if let Some(path) = registry.strip_prefix("file:///") {
+        return !path.is_empty()
+            && !path.starts_with('/')
+            && Path::new(&format!("/{path}")).is_absolute();
+    }
+    false
+}
+
+fn has_valid_https_authority(rest: &str) -> bool {
+    let authority = rest
+        .split_once(['/', '?', '#'])
+        .map_or(rest, |(authority, _)| authority);
+    if authority.is_empty()
+        || authority.contains('@')
+        || authority
+            .chars()
+            .any(|ch| ch.is_ascii_control() || ch.is_ascii_whitespace())
+    {
+        return false;
+    }
+
+    let (host, port) = match authority.rsplit_once(':') {
+        Some((host, port)) if !host.contains(':') => (host, Some(port)),
+        Some(_) => return false,
+        None => (authority, None),
+    };
+    if !is_valid_registry_host(host) {
+        return false;
+    }
+    match port {
+        Some(port) => !port.is_empty() && port.parse::<u16>().is_ok(),
+        None => true,
+    }
+}
+
+fn is_valid_registry_host(host: &str) -> bool {
+    if host.is_empty() || host.len() > 253 || host.starts_with('.') || host.ends_with('.') {
+        return false;
+    }
+    host.split('.').all(|label| {
+        !label.is_empty()
+            && label.len() <= 63
+            && !label.starts_with('-')
+            && !label.ends_with('-')
+            && label
+                .chars()
+                .all(|ch| ch.is_ascii_alphanumeric() || ch == '-')
     })
 }
 
