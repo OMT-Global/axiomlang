@@ -833,6 +833,7 @@ fn register_stdlib_package(graph: &mut PackageGraph) {
             name: stdlib::STDLIB_PACKAGE_NAME.to_string(),
             version: stdlib::STDLIB_PACKAGE_VERSION.to_string(),
         }),
+        publish: None,
         dependencies: BTreeMap::new(),
         workspace: None,
         build: BuildSection {
@@ -5009,6 +5010,7 @@ mod tests {
     fn workspace_only_manifest() -> Manifest {
         Manifest {
             package: None,
+            publish: None,
             dependencies: BTreeMap::new(),
             workspace: None,
             build: BuildSection {
@@ -5026,6 +5028,7 @@ mod tests {
                 name: "demo".to_string(),
                 version: "0.1.0".to_string(),
             }),
+            publish: None,
             dependencies: BTreeMap::new(),
             workspace: None,
             build: BuildSection {

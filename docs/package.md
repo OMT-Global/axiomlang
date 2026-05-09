@@ -103,38 +103,27 @@ analysis.
 The generated index records per-release capability manifests, archive/signature URLs,
 and yanked status so a simple static host can serve lockfile-friendly package metadata. This is publish and registry-index groundwork for a future hosted registry service, not the hosted service itself.
 
-and yanked status so a simple static host can serve lockfile-friendly package metadata. This is registry-index groundwork for a future hosted registry service, not the hosted service itself.
-
 ## Registry And Publish Contract
 
-The local manifest contract reserves the package-registry surface without
-implementing remote publishing yet. Today, `axiomc` accepts local path
-dependencies only:
+The local manifest contract exposes publish metadata for future registry tooling while keeping dependency resolution local-only. Today, `axiomc` accepts local path dependencies and rejects registry dependency selectors:
 
 ```toml
 [dependencies]
 core = { path = "deps/core" }
 ```
 
-Package identity is the pair in `[package]`:
+Package identity is the pair in `[package]`. Publish metadata is optional and declarative only:
 
 ```toml
 [package]
 name = "agent-worker"
 version = "0.1.0"
+
+[publish]
+registry = "https://registry.example.test/index"
+checksum = "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+include = ["src/**", "axiom.toml", "axiom.lock"]
+exclude = ["dist/**"]
 ```
 
-Future registry packages will need stable source and integrity metadata:
-
-- Package identity: `package.name` plus `package.version`.
-- Registry source: a named registry or URL source for non-local packages.
-- Checksums: content-addressed package archives, expected to use a tagged form
-  such as `sha256:<hex>`.
-- Publish metadata: include/exclude rules, target registry, archive checksum,
-  and provenance or signature references.
-
-Those fields are intentionally reserved. Until `axiomc publish` and registry
-resolution exist, manifests must not contain `[registry]`, `[publish]`,
-`package.checksum`, `package.registry`, `package.source`, or dependency
-`version`/`checksum`/`registry`/`source` fields. The parser rejects them instead
-of silently treating a registry package as a local package.
+Parser validation enforces the reserved boundary: root `[registry]`, `package.checksum`, `package.registry`, `package.source`, and dependency `version`/`checksum`/`registry`/`source` fields are rejected instead of silently treating a registry package as a local package. `[publish]` is accepted only as metadata; it does not make `axiomc` contact or upload to a remote registry.
