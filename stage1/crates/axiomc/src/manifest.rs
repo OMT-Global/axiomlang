@@ -1040,42 +1040,45 @@ fn validate_registry_source(path: &Path, registry: &str) -> Result<(), Diagnosti
 }
 
 fn is_valid_registry_url(registry: &str) -> bool {
-    if let Some(rest) = registry.strip_prefix("https://") {
-        return has_valid_https_authority(rest);
+    let Ok(url) = url::Url::parse(registry) else {
+        return false;
+    };
+
+    match url.scheme() {
+        "https" => is_valid_https_registry_url(&url),
+        "file" => registry.starts_with("file:///") && is_valid_file_registry_url(&url),
+        _ => false,
     }
-    if let Some(path) = registry.strip_prefix("file:///") {
-        return !path.is_empty()
-            && !path.starts_with('/')
-            && Path::new(&format!("/{path}")).is_absolute();
-    }
-    false
 }
 
-fn has_valid_https_authority(rest: &str) -> bool {
-    let authority = rest
-        .split_once(['/', '?', '#'])
-        .map_or(rest, |(authority, _)| authority);
-    if authority.is_empty()
-        || authority.contains('@')
-        || authority
-            .chars()
-            .any(|ch| ch.is_ascii_control() || ch.is_ascii_whitespace())
+fn is_valid_https_registry_url(url: &url::Url) -> bool {
+    if url.cannot_be_a_base()
+        || url.host().is_none()
+        || !url.username().is_empty()
+        || url.password().is_some()
     {
         return false;
     }
 
-    let (host, port) = match authority.rsplit_once(':') {
-        Some((host, port)) if !host.contains(':') => (host, Some(port)),
-        Some(_) => return false,
-        None => (authority, None),
-    };
-    if !is_valid_registry_host(host) {
+    // Exercise structural authority parsing, including port range validation.
+    if url.port_or_known_default().is_none() {
         return false;
     }
-    match port {
-        Some(port) => !port.is_empty() && port.parse::<u16>().is_ok(),
-        None => true,
+
+    match url.host() {
+        Some(url::Host::Domain(host)) => is_valid_registry_host(host),
+        Some(url::Host::Ipv4(_)) | Some(url::Host::Ipv6(_)) => true,
+        None => false,
     }
+}
+
+fn is_valid_file_registry_url(url: &url::Url) -> bool {
+    url.host().is_none()
+        && url.query().is_none()
+        && url.fragment().is_none()
+        && !url.path().is_empty()
+        && url.path() != "/"
+        && Path::new(url.path()).is_absolute()
 }
 
 fn is_valid_registry_host(host: &str) -> bool {

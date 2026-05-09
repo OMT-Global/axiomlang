@@ -104,6 +104,7 @@ dependencies = [
  "serde_json",
  "tempfile",
  "toml",
+ "url",
  "which",
 ]
 
