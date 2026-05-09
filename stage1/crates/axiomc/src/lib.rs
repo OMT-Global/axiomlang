@@ -1,5 +1,6 @@
 pub mod codegen;
 pub mod dap;
+pub mod diagnostic_catalog;
 pub mod diagnostics;
 pub mod hir;
 pub mod json_contract;
@@ -28,8 +29,9 @@ mod tests {
     use crate::project::{
         BuildCacheStatus, BuildOptions, CheckOptions, RunOptions, TestOptions, build_project,
         build_project_with_options, check_project, check_project_with_options,
-        command_for_build_output, command_for_executable, project_capabilities, run_project_tests,
-        run_project_tests_with_options, run_project_with_options,
+        command_for_build_output, command_for_executable, list_project_tests_with_options,
+        project_capabilities, run_project_tests, run_project_tests_with_options,
+        run_project_with_options,
     };
     use crate::syntax::{Stmt, TypeName, Visibility, parse_program, parse_program_with_recovery};
     use serde::Serialize;
@@ -5709,6 +5711,54 @@ print serve_once("127.0.0.1:18080", "hello")
         assert_eq!(output.kinds.get(&TestKind::Table), Some(&1));
         assert_eq!(output.kinds.get(&TestKind::Property), Some(&1));
         assert_eq!(output.kinds.get(&TestKind::Snapshot), Some(&1));
+    }
+
+    #[test]
+    fn list_project_tests_reports_stable_names_paths_and_package_membership() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("list-tests-discovery");
+        create_project(&project, Some("list-tests-app")).expect("create project");
+        fs::write(project.join("src/main_test.ax"), "print \"unit\"\n").expect("write unit test");
+        fs::create_dir_all(project.join("src/nested")).expect("create nested dir");
+        fs::write(
+            project.join("src/nested/cases_table_test.ax"),
+            "print \"table\"\n",
+        )
+        .expect("write table test");
+
+        let output = list_project_tests_with_options(&project, &TestOptions::default())
+            .expect("list discovered tests");
+
+        assert_eq!(output.packages, vec![project.display().to_string()]);
+        let listed = output
+            .tests
+            .iter()
+            .map(|test| {
+                (
+                    test.package.as_deref(),
+                    test.name.as_str(),
+                    test.entry.as_str(),
+                    test.kind,
+                )
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            listed,
+            vec![
+                (
+                    Some("list-tests-app"),
+                    "src/main_test",
+                    "src/main_test.ax",
+                    TestKind::Unit,
+                ),
+                (
+                    Some("list-tests-app"),
+                    "src/nested/cases_table_test",
+                    "src/nested/cases_table_test.ax",
+                    TestKind::Table,
+                ),
+            ]
+        );
     }
 
     #[test]

@@ -1,5 +1,6 @@
 use axiomc::codegen::NativeBackendKind;
 use axiomc::dap;
+use axiomc::diagnostic_catalog::{DiagnosticCodeInfo, diagnostic_code_info};
 use axiomc::diagnostics::Diagnostic;
 use axiomc::json_contract;
 use axiomc::lsp;
@@ -7,8 +8,8 @@ use axiomc::manifest::{entry_path, load_manifest};
 use axiomc::new_project::{WorkloadTemplate, create_project_with_template};
 use axiomc::project::{
     BuildOptions, BuildOutput, CheckOptions, RunOptions, TestOptions, build_project_with_options,
-    check_project_with_options, project_capabilities, run_project_tests_with_options,
-    run_project_with_options,
+    check_project_with_options, list_project_tests_with_options, project_capabilities,
+    run_project_tests_with_options, run_project_with_options,
 };
 use axiomc::registry::{
     PublishOptions, load_registry_index, publish_package, render_registry_index,
@@ -93,6 +94,8 @@ enum Command {
         filter: Option<String>,
         #[arg(long)]
         include_benchmarks: bool,
+        #[arg(long)]
+        list: bool,
         #[arg(short = 'p', long = "package")]
         package: Option<String>,
     },
@@ -108,6 +111,12 @@ enum Command {
     Inspect {
         #[command(subcommand)]
         command: InspectCommand,
+    },
+    /// Explain a stable diagnostic code.
+    Explain {
+        code: String,
+        #[arg(long)]
+        json: bool,
     },
     /// Format .ax source files with the canonical stage1 style.
     Fmt {
@@ -303,40 +312,68 @@ fn main() {
             json,
             filter,
             include_benchmarks,
+            list,
             package,
-        } => match run_project_tests_with_options(
-            &path,
-            &TestOptions {
+        } => {
+            let options = TestOptions {
                 filter: filter.clone(),
                 package: package.clone(),
                 include_benchmarks,
-            },
-        ) {
-            Ok(output) => {
-                let ok = output.failed == 0;
-                if json {
-                    println!(
-                        "{}",
-                        json_contract::test_success(&path, filter.as_deref(), &output)
-                    );
-                } else {
-                    for case in &output.cases {
-                        let status = if case.ok { "PASS" } else { "FAIL" };
-                        eprintln!("{status} {:?} {} ({})", case.kind, case.name, case.entry);
-                        if let Some(error) = &case.error {
-                            eprintln!("  {}", error);
+            };
+            if list {
+                match list_project_tests_with_options(&path, &options) {
+                    Ok(output) => {
+                        if json {
+                            println!(
+                                "{}",
+                                json_contract::test_list_success(&path, filter.as_deref(), &output)
+                            );
+                        } else {
+                            for test in &output.tests {
+                                let package = test.package.as_deref().unwrap_or("<unnamed>");
+                                eprintln!(
+                                    "{:?} {} {} ({})",
+                                    test.kind, package, test.name, test.entry
+                                );
+                            }
+                            eprintln!("discovered: {}", output.tests.len());
                         }
-                        eprintln!("  duration: {} ms", case.duration_ms);
+                        0
                     }
-                    eprintln!(
-                        "passed: {} failed: {} skipped: {} duration: {} ms",
-                        output.passed, output.failed, output.skipped, output.duration_ms
-                    );
+                    Err(error) => print_error("test", error, json),
                 }
-                if ok { 0 } else { 1 }
+            } else {
+                match run_project_tests_with_options(&path, &options) {
+                    Ok(output) => {
+                        let ok = output.failed == 0;
+                        if json {
+                            println!(
+                                "{}",
+                                json_contract::test_success(&path, filter.as_deref(), &output)
+                            );
+                        } else {
+                            for case in &output.cases {
+                                let status = if case.ok { "PASS" } else { "FAIL" };
+                                eprintln!(
+                                    "{status} {:?} {} ({})",
+                                    case.kind, case.name, case.entry
+                                );
+                                if let Some(error) = &case.error {
+                                    eprintln!("  {}", error);
+                                }
+                                eprintln!("  duration: {} ms", case.duration_ms);
+                            }
+                            eprintln!(
+                                "passed: {} failed: {} skipped: {} duration: {} ms",
+                                output.passed, output.failed, output.skipped, output.duration_ms
+                            );
+                        }
+                        if ok { 0 } else { 1 }
+                    }
+                    Err(error) => print_error("test", error, json),
+                }
             }
-            Err(error) => print_error("test", error, json),
-        },
+        }
         Command::Caps {
             path,
             json,
@@ -383,6 +420,25 @@ fn main() {
                     Err(error) => print_error("caps", error, json),
                 }
             }
+        },
+        Command::Explain { code, json } => match diagnostic_code_info(&code) {
+            Some(info) => {
+                if json {
+                    println!(
+                        "{}",
+                        json_contract::to_pretty_string(&explain_payload(info))
+                            .unwrap_or_else(|_| String::from("{}"))
+                    );
+                } else {
+                    println!("{}", explain_text(info));
+                }
+                0
+            }
+            None => print_error(
+                "explain",
+                Diagnostic::new("diagnostic", format!("unknown diagnostic code {code:?}")),
+                json,
+            ),
         },
         Command::Inspect { command } => match command {
             InspectCommand::Symbols { path, json } => match inspect_symbols(&path) {
@@ -781,6 +837,36 @@ fn scope_diff(
         capability: name.to_string(),
         scopes,
     })
+}
+
+fn explain_payload(info: &DiagnosticCodeInfo) -> serde_json::Value {
+    serde_json::json!({
+        "schema_version": json_contract::JSON_SCHEMA_VERSION,
+        "ok": true,
+        "command": "explain",
+        "diagnostic": info,
+    })
+}
+
+fn explain_text(info: &DiagnosticCodeInfo) -> String {
+    format!(
+        "{code} ({kind})
+{title}
+
+{explanation}
+
+Example:
+{example}
+
+Suggested fix:
+{suggested_fix}",
+        code = info.code,
+        kind = info.kind,
+        title = info.title,
+        explanation = info.explanation,
+        example = info.example,
+        suggested_fix = info.suggested_fix,
+    )
 }
 
 fn print_error(command: &str, error: Diagnostic, json: bool) -> i32 {
@@ -1888,6 +1974,7 @@ mod tests {
         assert!(help.contains("Discover, build, and run package test entrypoints"));
         assert!(help.contains("Inspect manifest capability requirements"));
         assert!(help.contains("Inspect project metadata for agent tooling"));
+        assert!(help.contains("Explain a stable diagnostic code"));
         assert!(help.contains("Format .ax source files"));
         assert!(help.contains("Generate Markdown and HTML API docs"));
         assert!(help.contains("Run discovered *_bench.ax entrypoints"));
@@ -1895,6 +1982,18 @@ mod tests {
         assert!(help.contains("Pack, sign, and publish a stage1 package"));
         assert!(help.contains("Build a static package-registry index"));
         assert!(help.contains("Validate a static package-registry index JSON file"));
+    }
+
+    #[test]
+    fn test_accepts_list_flag() {
+        let cli = Cli::parse_from(["axiomc", "test", ".", "--list", "--json"]);
+        match cli.command {
+            Command::Test { list, json, .. } => {
+                assert!(list);
+                assert!(json);
+            }
+            other => panic!("expected test command, got {other:?}"),
+        }
     }
 
     #[test]
@@ -2237,6 +2336,29 @@ mod tests {
                 .iter()
                 .any(|symbol| symbol.name == "private_helper")
         );
+    }
+
+    #[test]
+    fn explain_text_includes_example_and_fix() {
+        let info = diagnostic_code_info("use_after_move").expect("diagnostic info");
+        let text = explain_text(info);
+
+        assert!(text.contains("use_after_move (ownership)"));
+        assert!(text.contains("Example:"));
+        assert!(text.contains("Suggested fix:"));
+    }
+
+    #[test]
+    fn explain_json_payload_is_versioned() {
+        let info = diagnostic_code_info("use_after_move").expect("diagnostic info");
+        let payload = explain_payload(info);
+
+        assert_eq!(
+            payload["schema_version"],
+            json_contract::JSON_SCHEMA_VERSION
+        );
+        assert_eq!(payload["command"], "explain");
+        assert_eq!(payload["diagnostic"]["code"], "use_after_move");
     }
 
     #[test]

@@ -1014,6 +1014,10 @@ registry = "https://registry.example.test/index"
 "#,
         );
         let error = load_manifest(dir.path()).expect_err("dependency registry should be reserved");
-        assert!(error.message.contains("dependencies.dep.registry is reserved"));
+        assert!(
+            error
+                .message
+                .contains("dependencies.dep.registry is reserved")
+        );
     }
 }
