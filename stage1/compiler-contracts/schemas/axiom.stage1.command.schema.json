@@ -114,7 +114,8 @@
         "debug",
         "cache_status",
         "compile_ms",
-        "metadata"
+        "metadata",
+        "cache_key"
       ],
       "properties": {
         "manifest": {
@@ -164,10 +165,10 @@
           "$ref": "#/$defs/durationMs"
         },
         "metadata": {
-          "type": [
-            "object",
-            "null"
-          ]
+          "$ref": "#/$defs/buildMetadata"
+        },
+        "cache_key": {
+          "$ref": "#/$defs/cacheKey"
         }
       }
     },
@@ -187,7 +188,8 @@
         "stderr",
         "expected_stdout",
         "duration_ms",
-        "error"
+        "error",
+        "expected_stderr"
       ],
       "properties": {
         "name": {
@@ -234,6 +236,12 @@
         "kind": {
           "type": "string",
           "minLength": 1
+        },
+        "expected_stderr": {
+          "type": [
+            "string",
+            "null"
+          ]
         }
       }
     },
@@ -250,7 +258,8 @@
         "statement_count",
         "capabilities",
         "warnings",
-        "packages"
+        "packages",
+        "exports"
       ],
       "properties": {
         "schema_version": {
@@ -291,6 +300,12 @@
           "items": {
             "$ref": "#/$defs/checkPackage"
           }
+        },
+        "exports": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
         }
       }
     },
@@ -317,7 +332,8 @@
         "cache_hits",
         "cache_misses",
         "duration_ms",
-        "packages"
+        "packages",
+        "cache_key"
       ],
       "properties": {
         "schema_version": {
@@ -373,10 +389,7 @@
           "type": "boolean"
         },
         "metadata": {
-          "type": [
-            "object",
-            "null"
-          ]
+          "$ref": "#/$defs/buildMetadata"
         },
         "cache_hits": {
           "type": "integer",
@@ -394,6 +407,9 @@
           "items": {
             "$ref": "#/$defs/buildPackage"
           }
+        },
+        "cache_key": {
+          "$ref": "#/$defs/cacheKey"
         }
       }
     },
@@ -501,6 +517,114 @@
           "items": {
             "$ref": "#/$defs/capability"
           }
+        }
+      }
+    },
+    "cacheSource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "source_hash",
+        "imports"
+      ],
+      "properties": {
+        "path": {
+          "$ref": "#/$defs/path"
+        },
+        "source_hash": {
+          "type": "string",
+          "minLength": 1
+        },
+        "imports": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "cacheKey": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "compiler",
+        "debug",
+        "generated_rust_hash",
+        "lockfile_hash",
+        "manifest_hash",
+        "sources",
+        "target",
+        "version"
+      ],
+      "properties": {
+        "compiler": {
+          "type": "string",
+          "minLength": 1
+        },
+        "debug": {
+          "type": "boolean"
+        },
+        "generated_rust_hash": {
+          "type": "string",
+          "minLength": 1
+        },
+        "lockfile_hash": {
+          "type": "string",
+          "minLength": 1
+        },
+        "manifest_hash": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sources": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/cacheSource"
+          }
+        },
+        "target": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "buildMetadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "debug",
+        "lockfile",
+        "lockfile_hash",
+        "source_hash",
+        "target"
+      ],
+      "properties": {
+        "debug": {
+          "type": "boolean"
+        },
+        "lockfile": {
+          "$ref": "#/$defs/path"
+        },
+        "lockfile_hash": {
+          "type": "string",
+          "minLength": 1
+        },
+        "source_hash": {
+          "type": "string",
+          "minLength": 1
+        },
+        "target": {
+          "type": [
+            "string",
+            "null"
+          ]
         }
       }
     }
