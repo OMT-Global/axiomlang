@@ -77,8 +77,16 @@ jobs:
             exit 0
           fi
           if command -v apt-get >/dev/null 2>&1; then
-            apt-get update
-            apt-get install -y --no-install-recommends build-essential
+            apt_cmd=(apt-get)
+            if [[ "$(id -u)" != "0" ]]; then
+              if ! command -v sudo >/dev/null 2>&1; then
+                echo "cc is missing and sudo is unavailable to install build-essential" >&2
+                exit 1
+              fi
+              apt_cmd=(sudo -n apt-get)
+            fi
+            "${apt_cmd[@]}" update
+            "${apt_cmd[@]}" install -y --no-install-recommends build-essential
           fi
           command -v cc >/dev/null 2>&1
 
