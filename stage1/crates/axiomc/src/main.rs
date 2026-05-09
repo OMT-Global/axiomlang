@@ -452,13 +452,6 @@ fn main() {
                 Err(error) => print_error("pkg graph", error, json),
             },
         },
-
-                    }
-                    0
-                }
-                Err(error) => print_error("inspect symbols", error, json),
-            },
-        },
         Command::Fmt { path, check, json } => match format_axiom_sources(&path, check) {
             Ok(report) => {
                 let serialization_error = if json {
