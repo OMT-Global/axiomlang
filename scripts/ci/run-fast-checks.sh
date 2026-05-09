@@ -12,8 +12,11 @@ if [[ "${AXIOM_FAST_CI_PROOF_WORKLOADS:-1}" != "1" ]]; then
 fi
 
 if ! command -v cc >/dev/null 2>&1; then
-  echo "error: cc is required to run proof workloads in PR fast checks." >&2
-  exit 1
+  rust_linker="${AXIOM_FAST_CI_RUST_LINKER:-}"
+  if [[ -z "$rust_linker" || ! -x "$rust_linker" ]]; then
+    echo "error: cc or AXIOM_FAST_CI_RUST_LINKER is required to run proof workloads in PR fast checks." >&2
+    exit 1
+  fi
 fi
 
 for example in proof_cli proof_worker proof_http_service; do

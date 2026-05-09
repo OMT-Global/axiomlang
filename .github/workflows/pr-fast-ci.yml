@@ -73,22 +73,21 @@ jobs:
 
       - name: Ensure Rust linker availability
         run: |
-          if ! command -v cc >/dev/null 2>&1; then
-            if command -v apt-get >/dev/null 2>&1; then
-              apt-get update
-              apt-get install -y --no-install-recommends gcc libc6-dev
-            else
-              echo "::error::cc is unavailable and no supported package manager is present; proof workloads are a required PR gate"
-              exit 1
-            fi
+          if command -v cc >/dev/null 2>&1; then
+            echo "AXIOM_FAST_CI_PROOF_WORKLOADS=1" >> "$GITHUB_ENV"
+            exit 0
           fi
 
-          if ! command -v cc >/dev/null 2>&1; then
-            echo "::error::cc is unavailable after environment setup; proof workloads are a required PR gate"
-            exit 1
+          rust_lld="$(rustc --print sysroot)/lib/rustlib/$(rustc -vV | awk '/^host:/ { print $2 }')/bin/rust-lld"
+          if [[ -x "$rust_lld" ]]; then
+            echo "RUSTFLAGS=-C linker=$rust_lld" >> "$GITHUB_ENV"
+            echo "AXIOM_FAST_CI_RUST_LINKER=$rust_lld" >> "$GITHUB_ENV"
+            echo "AXIOM_FAST_CI_PROOF_WORKLOADS=1" >> "$GITHUB_ENV"
+            exit 0
           fi
 
-          echo "AXIOM_FAST_CI_PROOF_WORKLOADS=1" >> "$GITHUB_ENV"
+          echo "::error::no usable Rust linker found; proof workloads are a required PR gate"
+          exit 1
 
       - name: Run fast checks
         run: bash scripts/ci/run-fast-checks.sh
