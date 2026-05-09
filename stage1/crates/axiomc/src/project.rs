@@ -162,6 +162,22 @@ pub struct ExpectedDiagnostic {
 }
 
 #[derive(Debug, Clone, Serialize)]
+pub struct ListedTest {
+    pub package_root: String,
+    pub package: Option<String>,
+    pub name: String,
+    pub kind: TestKind,
+    pub entry: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct TestListOutput {
+    pub manifest: String,
+    pub packages: Vec<String>,
+    pub tests: Vec<ListedTest>,
+}
+
+#[derive(Debug, Clone, Serialize)]
 pub struct TestOutput {
     pub manifest: String,
     pub packages: Vec<String>,
@@ -410,6 +426,62 @@ pub fn run_project_with_options(
 
 pub fn run_project_tests(project_root: &Path) -> Result<TestOutput, Diagnostic> {
     run_project_tests_with_options(project_root, &TestOptions::default())
+}
+
+pub fn list_project_tests_with_options(
+    project_root: &Path,
+    options: &TestOptions,
+) -> Result<TestListOutput, Diagnostic> {
+    let project_root = canonicalize_existing_path(&normalize_path(project_root), "project root")?;
+    let graph = load_package_graph(&project_root)?;
+    validate_workspace_root_lockfile(&graph, &project_root)?;
+    let manifest_path_text = manifest_path(&project_root).display().to_string();
+    let mut packages = Vec::new();
+    let mut tests = Vec::new();
+    for package_root in workspace_package_roots(&graph, &project_root, options.package.as_deref())?
+    {
+        let manifest = graph.context(&package_root)?.manifest.clone();
+        validate_lockfile(&package_root, &manifest)?;
+        let discovered = if expected_error_path(&package_root).exists() {
+            Vec::new()
+        } else {
+            collect_test_targets(
+                &package_root,
+                &manifest,
+                options.filter.as_deref(),
+                options.include_benchmarks,
+            )?
+        };
+        if discovered.is_empty() {
+            continue;
+        }
+        packages.push(package_root.display().to_string());
+        let package_name = manifest
+            .package
+            .as_ref()
+            .map(|package| package.name.clone());
+        for test in discovered {
+            tests.push(ListedTest {
+                package_root: package_root.display().to_string(),
+                package: test.package.clone().or_else(|| package_name.clone()),
+                name: test.name,
+                kind: test.kind,
+                entry: test.entry,
+            });
+        }
+    }
+    if tests.is_empty() {
+        return Err(Diagnostic::new(
+            "test",
+            "no tests discovered under src/**/*_test.ax across the workspace and no [[tests]] configured in axiom.toml",
+        )
+        .with_path(manifest_path_text));
+    }
+    Ok(TestListOutput {
+        manifest: manifest_path(&project_root).display().to_string(),
+        packages,
+        tests,
+    })
 }
 
 pub fn run_project_tests_with_options(

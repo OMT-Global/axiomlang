@@ -7,8 +7,8 @@ use axiomc::manifest::{entry_path, load_manifest};
 use axiomc::new_project::{WorkloadTemplate, create_project_with_template};
 use axiomc::project::{
     BuildOptions, BuildOutput, CheckOptions, RunOptions, TestOptions, build_project_with_options,
-    check_project_with_options, project_capabilities, run_project_tests_with_options,
-    run_project_with_options,
+    check_project_with_options, list_project_tests_with_options, project_capabilities,
+    run_project_tests_with_options, run_project_with_options,
 };
 use axiomc::registry::{
     PublishOptions, load_registry_index, publish_package, render_registry_index,
@@ -93,6 +93,8 @@ enum Command {
         filter: Option<String>,
         #[arg(long)]
         include_benchmarks: bool,
+        #[arg(long)]
+        list: bool,
         #[arg(short = 'p', long = "package")]
         package: Option<String>,
     },
@@ -303,40 +305,68 @@ fn main() {
             json,
             filter,
             include_benchmarks,
+            list,
             package,
-        } => match run_project_tests_with_options(
-            &path,
-            &TestOptions {
+        } => {
+            let options = TestOptions {
                 filter: filter.clone(),
                 package: package.clone(),
                 include_benchmarks,
-            },
-        ) {
-            Ok(output) => {
-                let ok = output.failed == 0;
-                if json {
-                    println!(
-                        "{}",
-                        json_contract::test_success(&path, filter.as_deref(), &output)
-                    );
-                } else {
-                    for case in &output.cases {
-                        let status = if case.ok { "PASS" } else { "FAIL" };
-                        eprintln!("{status} {:?} {} ({})", case.kind, case.name, case.entry);
-                        if let Some(error) = &case.error {
-                            eprintln!("  {}", error);
+            };
+            if list {
+                match list_project_tests_with_options(&path, &options) {
+                    Ok(output) => {
+                        if json {
+                            println!(
+                                "{}",
+                                json_contract::test_list_success(&path, filter.as_deref(), &output)
+                            );
+                        } else {
+                            for test in &output.tests {
+                                let package = test.package.as_deref().unwrap_or("<unnamed>");
+                                eprintln!(
+                                    "{:?} {} {} ({})",
+                                    test.kind, package, test.name, test.entry
+                                );
+                            }
+                            eprintln!("discovered: {}", output.tests.len());
                         }
-                        eprintln!("  duration: {} ms", case.duration_ms);
+                        0
                     }
-                    eprintln!(
-                        "passed: {} failed: {} skipped: {} duration: {} ms",
-                        output.passed, output.failed, output.skipped, output.duration_ms
-                    );
+                    Err(error) => print_error("test", error, json),
                 }
-                if ok { 0 } else { 1 }
+            } else {
+                match run_project_tests_with_options(&path, &options) {
+                    Ok(output) => {
+                        let ok = output.failed == 0;
+                        if json {
+                            println!(
+                                "{}",
+                                json_contract::test_success(&path, filter.as_deref(), &output)
+                            );
+                        } else {
+                            for case in &output.cases {
+                                let status = if case.ok { "PASS" } else { "FAIL" };
+                                eprintln!(
+                                    "{status} {:?} {} ({})",
+                                    case.kind, case.name, case.entry
+                                );
+                                if let Some(error) = &case.error {
+                                    eprintln!("  {}", error);
+                                }
+                                eprintln!("  duration: {} ms", case.duration_ms);
+                            }
+                            eprintln!(
+                                "passed: {} failed: {} skipped: {} duration: {} ms",
+                                output.passed, output.failed, output.skipped, output.duration_ms
+                            );
+                        }
+                        if ok { 0 } else { 1 }
+                    }
+                    Err(error) => print_error("test", error, json),
+                }
             }
-            Err(error) => print_error("test", error, json),
-        },
+        }
         Command::Caps {
             path,
             json,
@@ -1895,6 +1925,18 @@ mod tests {
         assert!(help.contains("Pack, sign, and publish a stage1 package"));
         assert!(help.contains("Build a static package-registry index"));
         assert!(help.contains("Validate a static package-registry index JSON file"));
+    }
+
+    #[test]
+    fn test_accepts_list_flag() {
+        let cli = Cli::parse_from(["axiomc", "test", ".", "--list", "--json"]);
+        match cli.command {
+            Command::Test { list, json, .. } => {
+                assert!(list);
+                assert!(json);
+            }
+            other => panic!("expected test command, got {other:?}"),
+        }
     }
 
     #[test]
