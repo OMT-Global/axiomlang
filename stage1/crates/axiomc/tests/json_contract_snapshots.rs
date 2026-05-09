@@ -1,3 +1,4 @@
+use jsonschema::Validator;
 use serde_json::{Map, Value};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -7,6 +8,7 @@ use std::process::Command;
 fn cli_json_outputs_match_checked_in_contract_snapshots() {
     let contracts = contract_root();
     let schema = read_json(&contracts.join("schemas/axiom.stage1.command.schema.json"));
+    let validator = jsonschema::validator_for(&schema).expect("compile JSON contract schema");
     let temp = tempfile::tempdir().expect("tempdir");
     let project = temp.path().join("contract-app");
 
@@ -23,7 +25,7 @@ fn cli_json_outputs_match_checked_in_contract_snapshots() {
             args = vec![command, project.to_str().expect("project path"), "--json"];
         }
         let output = run_axiomc_json(&args);
-        assert_schema_required_fields(&schema, &output);
+        assert_payload_matches_schema(&validator, command, &output);
 
         let normalized = normalize_payload(output, &project);
         let snapshot = read_json(&contracts.join(format!("snapshots/{command}.json")));
@@ -63,19 +65,9 @@ fn read_json(path: &Path) -> Value {
     serde_json::from_str(&fs::read_to_string(path).expect("read json")).expect("parse json")
 }
 
-fn assert_schema_required_fields(schema: &Value, payload: &Value) {
-    let command = payload["command"].as_str().expect("payload command");
-    let variants = schema["oneOf"].as_array().expect("schema oneOf");
-    let variant = variants
-        .iter()
-        .find(|variant| variant["properties"]["command"]["const"] == command)
-        .unwrap_or_else(|| panic!("schema variant for command {command}"));
-    for field in variant["required"].as_array().expect("required fields") {
-        let field = field.as_str().expect("required field name");
-        assert!(
-            payload.get(field).is_some(),
-            "{command} payload is missing required field {field}"
-        );
+fn assert_payload_matches_schema(validator: &Validator, command: &str, payload: &Value) {
+    if let Err(error) = validator.validate(payload) {
+        panic!("{command} JSON payload failed schema validation: {error}");
     }
 }
 
@@ -94,13 +86,11 @@ fn normalize_payload(mut payload: Value, project: &Path) -> Value {
 
 fn normalize_value(value: &mut Value, project_aliases: &[String], key: Option<&str>) {
     match value {
+        Value::String(text) if key.is_some_and(|key| key.ends_with("_hash")) => {
+            *text = "<hash>".to_string();
+        }
         Value::String(text) => {
-            if matches!(
-                key,
-                Some("source_hash" | "generated_rust_hash" | "lockfile_hash" | "manifest_hash")
-            ) {
-                *text = String::from("<hash>");
-            } else if let Some(project) = project_aliases
+            if let Some(project) = project_aliases
                 .iter()
                 .find(|project| text.starts_with(*project))
             {

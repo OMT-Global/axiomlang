@@ -1,0 +1,11 @@
+import "std/http.ax"
+import "response.ax"
+
+pub fn health_route(started: bool): HttpRoute {
+return route("/health", body("/health", started))
+}
+
+pub fn serve_health(bind: string, max_requests: int, started: bool): bool {
+let selected_route: HttpRoute = health_route(started)
+return serve(bind, selected_route, max_requests)
+}

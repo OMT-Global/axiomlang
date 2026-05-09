@@ -8,7 +8,7 @@ out_dir = "dist"
 
 [capabilities]
 fs = false
-net = false
+net = true
 process = false
 env = ["REQUEST_METHOD", "REQUEST_PATH"]
 clock = true

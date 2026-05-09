@@ -5,10 +5,249 @@
   "type": "object",
   "oneOf": [
     {
-      "title": "check",
+      "$ref": "#/$defs/check"
+    },
+    {
+      "$ref": "#/$defs/build"
+    },
+    {
+      "$ref": "#/$defs/test"
+    },
+    {
+      "$ref": "#/$defs/caps"
+    }
+  ],
+  "$defs": {
+    "schemaVersion": {
+      "const": "axiom.stage1.v1"
+    },
+    "path": {
+      "type": "string",
+      "minLength": 1
+    },
+    "durationMs": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "statementCount": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "capability": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "description",
+        "enabled"
+      ],
       "properties": {
-        "command": { "const": "check" }
-      },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "description": {
+          "type": "string"
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "allowed": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "checkPackage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "manifest",
+        "entry",
+        "package_root",
+        "statement_count",
+        "capabilities",
+        "warnings"
+      ],
+      "properties": {
+        "manifest": {
+          "$ref": "#/$defs/path"
+        },
+        "entry": {
+          "$ref": "#/$defs/path"
+        },
+        "package_root": {
+          "$ref": "#/$defs/path"
+        },
+        "statement_count": {
+          "$ref": "#/$defs/statementCount"
+        },
+        "capabilities": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/capability"
+          }
+        },
+        "warnings": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "buildPackage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "manifest",
+        "entry",
+        "package_root",
+        "statement_count",
+        "backend",
+        "binary",
+        "generated_rust",
+        "debug_map",
+        "target",
+        "debug",
+        "cache_status",
+        "compile_ms",
+        "metadata",
+        "cache_key"
+      ],
+      "properties": {
+        "manifest": {
+          "$ref": "#/$defs/path"
+        },
+        "entry": {
+          "$ref": "#/$defs/path"
+        },
+        "package_root": {
+          "$ref": "#/$defs/path"
+        },
+        "statement_count": {
+          "$ref": "#/$defs/statementCount"
+        },
+        "backend": {
+          "type": "string",
+          "minLength": 1
+        },
+        "binary": {
+          "$ref": "#/$defs/path"
+        },
+        "generated_rust": {
+          "$ref": "#/$defs/path"
+        },
+        "debug_map": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "target": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "debug": {
+          "type": "boolean"
+        },
+        "cache_status": {
+          "enum": [
+            "hit",
+            "miss"
+          ]
+        },
+        "compile_ms": {
+          "$ref": "#/$defs/durationMs"
+        },
+        "metadata": {
+          "$ref": "#/$defs/buildMetadata"
+        },
+        "cache_key": {
+          "$ref": "#/$defs/cacheKey"
+        }
+      }
+    },
+    "testCase": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "kind",
+        "entry",
+        "package_root",
+        "binary",
+        "generated_rust",
+        "ok",
+        "exit_code",
+        "stdout",
+        "stderr",
+        "expected_stdout",
+        "duration_ms",
+        "error",
+        "expected_stderr"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "entry": {
+          "type": "string",
+          "minLength": 1
+        },
+        "package_root": {
+          "$ref": "#/$defs/path"
+        },
+        "binary": {
+          "$ref": "#/$defs/path"
+        },
+        "generated_rust": {
+          "$ref": "#/$defs/path"
+        },
+        "ok": {
+          "type": "boolean"
+        },
+        "exit_code": {
+          "type": "integer"
+        },
+        "stdout": {
+          "type": "string"
+        },
+        "stderr": {
+          "type": "string"
+        },
+        "expected_stdout": {
+          "type": "string"
+        },
+        "duration_ms": {
+          "$ref": "#/$defs/durationMs"
+        },
+        "error": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "kind": {
+          "type": "string",
+          "minLength": 1
+        },
+        "expected_stderr": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "check": {
+      "type": "object",
+      "additionalProperties": false,
       "required": [
         "schema_version",
         "ok",
@@ -19,19 +258,68 @@
         "statement_count",
         "capabilities",
         "warnings",
-        "packages"
-      ]
-    },
-    {
-      "title": "build",
+        "packages",
+        "exports"
+      ],
       "properties": {
-        "command": { "const": "build" }
-      },
+        "schema_version": {
+          "$ref": "#/$defs/schemaVersion"
+        },
+        "project": {
+          "$ref": "#/$defs/path"
+        },
+        "ok": {
+          "const": true
+        },
+        "command": {
+          "const": "check"
+        },
+        "manifest": {
+          "$ref": "#/$defs/path"
+        },
+        "entry": {
+          "$ref": "#/$defs/path"
+        },
+        "statement_count": {
+          "$ref": "#/$defs/statementCount"
+        },
+        "capabilities": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/capability"
+          }
+        },
+        "warnings": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "packages": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/checkPackage"
+          }
+        },
+        "exports": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "build": {
+      "type": "object",
+      "additionalProperties": false,
       "required": [
         "schema_version",
         "ok",
         "command",
         "project",
+        "backend",
+        "locked",
+        "offline",
         "manifest",
         "entry",
         "binary",
@@ -40,17 +328,94 @@
         "statement_count",
         "target",
         "debug",
+        "metadata",
         "cache_hits",
         "cache_misses",
         "duration_ms",
-        "packages"
-      ]
-    },
-    {
-      "title": "test",
+        "packages",
+        "cache_key"
+      ],
       "properties": {
-        "command": { "const": "test" }
-      },
+        "schema_version": {
+          "$ref": "#/$defs/schemaVersion"
+        },
+        "project": {
+          "$ref": "#/$defs/path"
+        },
+        "ok": {
+          "const": true
+        },
+        "command": {
+          "const": "build"
+        },
+        "backend": {
+          "type": "string",
+          "minLength": 1
+        },
+        "locked": {
+          "type": "boolean"
+        },
+        "offline": {
+          "type": "boolean"
+        },
+        "manifest": {
+          "$ref": "#/$defs/path"
+        },
+        "entry": {
+          "$ref": "#/$defs/path"
+        },
+        "binary": {
+          "$ref": "#/$defs/path"
+        },
+        "generated_rust": {
+          "$ref": "#/$defs/path"
+        },
+        "debug_map": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "statement_count": {
+          "$ref": "#/$defs/statementCount"
+        },
+        "target": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "debug": {
+          "type": "boolean"
+        },
+        "metadata": {
+          "$ref": "#/$defs/buildMetadata"
+        },
+        "cache_hits": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "cache_misses": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "duration_ms": {
+          "$ref": "#/$defs/durationMs"
+        },
+        "packages": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/buildPackage"
+          }
+        },
+        "cache_key": {
+          "$ref": "#/$defs/cacheKey"
+        }
+      }
+    },
+    "test": {
+      "type": "object",
+      "additionalProperties": false,
       "required": [
         "schema_version",
         "ok",
@@ -62,22 +427,206 @@
         "passed",
         "failed",
         "skipped",
+        "kinds",
         "duration_ms",
         "cases"
-      ]
-    },
-    {
-      "title": "caps",
+      ],
       "properties": {
-        "command": { "const": "caps" }
-      },
+        "schema_version": {
+          "$ref": "#/$defs/schemaVersion"
+        },
+        "project": {
+          "$ref": "#/$defs/path"
+        },
+        "ok": {
+          "type": "boolean"
+        },
+        "command": {
+          "const": "test"
+        },
+        "manifest": {
+          "$ref": "#/$defs/path"
+        },
+        "packages": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/path"
+          }
+        },
+        "filter": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "passed": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "failed": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "skipped": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "kinds": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "duration_ms": {
+          "$ref": "#/$defs/durationMs"
+        },
+        "cases": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/testCase"
+          }
+        }
+      }
+    },
+    "caps": {
+      "type": "object",
+      "additionalProperties": false,
       "required": [
         "schema_version",
         "ok",
         "command",
         "project",
         "capabilities"
-      ]
+      ],
+      "properties": {
+        "schema_version": {
+          "$ref": "#/$defs/schemaVersion"
+        },
+        "project": {
+          "$ref": "#/$defs/path"
+        },
+        "ok": {
+          "const": true
+        },
+        "command": {
+          "const": "caps"
+        },
+        "capabilities": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/capability"
+          }
+        }
+      }
+    },
+    "cacheSource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "source_hash",
+        "imports"
+      ],
+      "properties": {
+        "path": {
+          "$ref": "#/$defs/path"
+        },
+        "source_hash": {
+          "type": "string",
+          "minLength": 1
+        },
+        "imports": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "cacheKey": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "compiler",
+        "debug",
+        "generated_rust_hash",
+        "lockfile_hash",
+        "manifest_hash",
+        "sources",
+        "target",
+        "version"
+      ],
+      "properties": {
+        "compiler": {
+          "type": "string",
+          "minLength": 1
+        },
+        "debug": {
+          "type": "boolean"
+        },
+        "generated_rust_hash": {
+          "type": "string",
+          "minLength": 1
+        },
+        "lockfile_hash": {
+          "type": "string",
+          "minLength": 1
+        },
+        "manifest_hash": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sources": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/cacheSource"
+          }
+        },
+        "target": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "buildMetadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "debug",
+        "lockfile",
+        "lockfile_hash",
+        "source_hash",
+        "target"
+      ],
+      "properties": {
+        "debug": {
+          "type": "boolean"
+        },
+        "lockfile": {
+          "$ref": "#/$defs/path"
+        },
+        "lockfile_hash": {
+          "type": "string",
+          "minLength": 1
+        },
+        "source_hash": {
+          "type": "string",
+          "minLength": 1
+        },
+        "target": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
     }
-  ]
+  }
 }
