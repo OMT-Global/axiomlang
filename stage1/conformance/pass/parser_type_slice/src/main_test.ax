@@ -1,0 +1,40 @@
+type Labels = &[string]
+type Scores = [int]
+
+enum MaybeCount {
+Counted(int)
+Missing
+}
+
+struct Packet {
+label: string
+score: int
+flags: [bool]
+}
+
+fn pick_count(count: MaybeCount): int {
+match count {
+Counted(value) {
+return value
+}
+Missing {
+return 0
+}
+}
+}
+
+fn label_count(labels: Labels): int {
+return len(labels)
+}
+
+fn total(scores: Scores): int {
+return len(scores)
+}
+
+let packet: Packet = Packet { label: "parser", score: 3, flags: [true, false] }
+let labels: [string] = ["parser", "type"]
+let scores: [int] = [packet.score, 1]
+let count: MaybeCount = Counted(total(scores))
+print pick_count(count)
+print first(packet.flags)
+print label_count(labels[:])
