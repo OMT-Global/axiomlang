@@ -4233,7 +4233,17 @@ fn is_async_runtime_intrinsic(name: &str) -> bool {
 }
 
 fn preserves_intrinsic_type_args(name: &str) -> bool {
-    is_async_runtime_intrinsic(name) || matches!(name, "map_get" | "map_contains_key")
+    is_async_runtime_intrinsic(name)
+        || matches!(
+            name,
+            "map_get"
+                | "map_contains_key"
+                | "map_keys"
+                | "contains"
+                | "get"
+                | "get_or_default"
+                | "keys"
+        )
 }
 
 fn type_name_monomorph_suffix(ty: &syntax::TypeName) -> String {
@@ -6318,7 +6328,16 @@ fn lower_expr_with_expected_inner(
                     name, type_args, args, *line, *column, env, ctx,
                 );
             }
-            if name == "map_get" || name == "map_contains_key" {
+            if matches!(
+                name.as_str(),
+                "map_get"
+                    | "map_contains_key"
+                    | "map_keys"
+                    | "contains"
+                    | "get"
+                    | "get_or_default"
+                    | "keys"
+            ) {
                 return lower_map_lookup_intrinsic(name, type_args, args, *line, *column, env, ctx);
             }
             if !type_args.is_empty() {
@@ -9233,10 +9252,20 @@ fn lower_map_lookup_intrinsic(
         )
         .with_span(line, column));
     }
-    if args.len() != 2 {
+    let expected_args = if matches!(name, "map_keys" | "keys") {
+        1
+    } else if name == "get_or_default" {
+        3
+    } else {
+        2
+    };
+    if args.len() != expected_args {
         return Err(Diagnostic::new(
             "type",
-            format!("{name} expects 2 arguments, got {}", args.len()),
+            format!(
+                "{name} expects {expected_args} arguments, got {}",
+                args.len()
+            ),
         )
         .with_span(line, column));
     }
@@ -9280,6 +9309,14 @@ fn lower_map_lookup_intrinsic(
             .with_span(line, column));
         }
     }
+    if matches!(name, "map_keys" | "keys") {
+        move_lowered_value(&lowered_map, env)?;
+        return Ok(Expr::Call {
+            name: name.to_string(),
+            args: vec![lowered_map],
+            ty: Type::Array(Box::new(key_ty), None),
+        });
+    }
     let lowered_key = lower_expr_with_expected(&args[1], Some(&key_ty), env, ctx)?;
     if lowered_key.ty() != &key_ty {
         return Err(Diagnostic::new(
@@ -9288,15 +9325,31 @@ fn lower_map_lookup_intrinsic(
         )
         .with_span(args[1].line(), args[1].column()));
     }
-    move_lowered_value(&lowered_map, env)?;
-    move_lowered_value(&lowered_key, env)?;
+    let mut lowered_args = vec![lowered_map, lowered_key];
+    if name == "get_or_default" {
+        let lowered_default = lower_expr_with_expected(&args[2], Some(&value_ty), env, ctx)?;
+        if lowered_default.ty() != &value_ty {
+            return Err(Diagnostic::new(
+                "type",
+                format!(
+                    "{name} expects default type {value_ty}, got {}",
+                    lowered_default.ty()
+                ),
+            )
+            .with_span(args[2].line(), args[2].column()));
+        }
+        move_lowered_value(&lowered_default, env)?;
+        lowered_args.push(lowered_default);
+    }
+    move_lowered_value(&lowered_args[0], env)?;
+    move_lowered_value(&lowered_args[1], env)?;
     Ok(Expr::Call {
         name: name.to_string(),
-        args: vec![lowered_map, lowered_key],
-        ty: if name == "map_get" {
-            Type::Option(Box::new(value_ty))
-        } else {
-            Type::Bool
+        args: lowered_args,
+        ty: match name {
+            "map_get" | "get" => Type::Option(Box::new(value_ty)),
+            "get_or_default" => value_ty,
+            _ => Type::Bool,
         },
     })
 }

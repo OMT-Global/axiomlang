@@ -45,6 +45,7 @@ members = [
   "fail/string_use_after_move",
   "pass/closures",
   "pass/collection_operations",
+  "pass/collection_lookup_helpers",
   "pass/comparison_package_imports",
   "pass/comparison_package_resources",
   "pass/comparison_strict_typing",
