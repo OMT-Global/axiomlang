@@ -33,6 +33,37 @@ fn cli_json_outputs_match_checked_in_contract_snapshots() {
     }
 }
 
+#[test]
+fn doc_json_failure_uses_error_contract() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let missing = temp.path().join("missing-doc-project");
+    let out_dir = temp.path().join("docs");
+    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args([
+            "doc",
+            missing.to_str().expect("missing path"),
+            "--out-dir",
+            out_dir.to_str().expect("out dir"),
+            "--json",
+        ])
+        .output()
+        .expect("run failing axiomc doc --json");
+
+    assert!(
+        !output.status.success(),
+        "doc --json should fail for missing input"
+    );
+    assert!(
+        output.stderr.is_empty(),
+        "JSON failures should not use stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse JSON error payload");
+    assert_eq!(payload["ok"], false);
+    assert_eq!(payload["command"], "doc");
+    assert!(payload.get("error").is_some(), "missing JSON error object");
+}
+
 fn contract_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../../compiler-contracts")

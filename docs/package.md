@@ -11,7 +11,6 @@ cargo run --manifest-path stage1/Cargo.toml -p axiomc -- build stage1/examples/h
 cargo run --manifest-path stage1/Cargo.toml -p axiomc -- run stage1/examples/hello
 cargo run --manifest-path stage1/Cargo.toml -p axiomc -- test stage1/examples/modules --json
 cargo run --manifest-path stage1/Cargo.toml -p axiomc -- caps stage1/examples/hello --json
-
 cargo run --manifest-path stage1/Cargo.toml -p axiomc -- publish stage1/examples/hello --registry-dir ./registry/packages --signing-key dev-key
 cargo run --manifest-path stage1/Cargo.toml -p axiomc -- pkg graph stage1/examples/workspace_only --json
 cargo run --manifest-path stage1/Cargo.toml -p axiomc -- registry-index ./registry/packages --base-url https://packages.example.test --out ./registry/index.json
@@ -35,37 +34,22 @@ filesystem access is enabled, the `fs` capability includes the manifest-relative
 `configured_root` and canonical `effective_root` so operators can inspect the
 actual package-local filesystem boundary before build or run.
 
-Local path dependencies may declare a bounded version constraint:
-
-```toml
-[dependencies]
-core = { path = "deps/core", version = "^0.1.0" }
-```
-
-Stage1 currently accepts `*`, exact `MAJOR.MINOR.PATCH`, and caret
-`^MAJOR.MINOR.PATCH` constraints. The compiler validates the constraint against
-the dependency package's `[package].version` while loading the local package
-graph and fails deterministically when the versions are incompatible.
-
-Local path dependencies may declare a bounded version constraint:
-
-```toml
-[dependencies]
-core = { path = "deps/core", version = "^0.1.0" }
-```
-
-Stage1 currently accepts `*`, exact `MAJOR.MINOR.PATCH`, and caret
-`^MAJOR.MINOR.PATCH` constraints. The compiler validates the constraint against
-the dependency package's `[package].version` while loading the local package
-graph and fails deterministically when the versions are incompatible.
-
 `axiomc pkg graph <path> --json` prints the resolved local package graph without
 mutating manifests or lockfiles. The JSON lists each package root, package
 identity, workspace members, local dependencies, build entrypoint, capabilities,
 and whether that package's `axiom.lock` is current or stale.
 
-See [stage1.md](stage1.md) for the current compiler, package, and capability
-contract.
+Local path dependencies may declare a bounded version constraint:
+
+```toml
+[dependencies]
+core = { path = "deps/core", version = "^0.1.0" }
+```
+
+Stage1 currently accepts `*`, exact `MAJOR.MINOR.PATCH`, and caret
+`^MAJOR.MINOR.PATCH` constraints. The compiler validates the constraint against
+the dependency package's `[package].version` while loading the local package
+graph and fails deterministically when the versions are incompatible.
 
 ## Editor Schemas
 

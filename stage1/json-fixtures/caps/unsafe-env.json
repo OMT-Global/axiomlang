@@ -2,43 +2,19 @@
   "schema_version": "axiom.stage1.v1",
   "ok": true,
   "command": "caps",
-  "project": "stage1/examples/stdlib_env_unrestricted",
+  "project": "<project>",
   "capabilities": [
     {
-      "name": "fs",
-      "enabled": false,
-      "description": "filesystem access"
-    },
-    {
-      "name": "net",
-      "enabled": false,
-      "description": "network access"
-    },
-    {
-      "name": "process",
-      "enabled": false,
-      "description": "child process execution"
-    },
-    {
-      "name": "env",
-      "enabled": true,
       "description": "environment variable access",
+      "enabled": true,
+      "name": "env",
+      "allowed": ["AXIOM_SAFE", "AXIOM_SECRET"],
       "unsafe_unrestricted": true
     },
     {
-      "name": "clock",
+      "description": "network access",
       "enabled": false,
-      "description": "wall-clock time access"
-    },
-    {
-      "name": "crypto",
-      "enabled": false,
-      "description": "hashing and cryptography primitives"
-    },
-    {
-      "name": "ffi",
-      "enabled": false,
-      "description": "foreign function interface access"
+      "name": "net"
     }
   ]
 }
