@@ -51,28 +51,6 @@ Stage1 currently accepts `*`, exact `MAJOR.MINOR.PATCH`, and caret
 the dependency package's `[package].version` while loading the local package
 graph and fails deterministically when the versions are incompatible.
 
-## Publish Contract
-
-Remote publishing is not implemented in stage1, but manifests can now declare
-the package metadata that future registry tooling will inspect:
-
-```toml
-[publish]
-registry = "https://registry.example.test/index"
-checksum = "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-include = ["src", "axiom.toml", "axiom.lock"]
-```
-
-Package identity still comes from `[package].name` and `[package].version`.
-`[publish].registry` is validated as an `https://` or `file:` registry source,
-`[publish].checksum` must use `sha256:<64 hex characters>`, and include entries
-must be relative paths without parent traversal. These fields define the
-manifest contract only; `axiomc` does not publish, upload, or contact a remote
-registry.
-
-See [stage1.md](stage1.md) for the current compiler, package, and capability
-contract.
-
 ## Editor Schemas
 
 Checked-in editor and agent metadata lives under `stage1/schemas/`:
@@ -103,21 +81,25 @@ and yanked status so a simple static host can serve lockfile-friendly package me
 
 ## Registry And Publish Contract
 
-The local manifest contract reserves the package-registry surface without
-implementing remote publishing yet. Today, `axiomc` accepts local path
-dependencies only:
+The local manifest contract exposes publish metadata for future registry tooling while keeping dependency resolution local-only. Today, `axiomc` accepts local path dependencies and rejects registry dependency selectors:
 
 ```toml
 [dependencies]
 core = { path = "deps/core" }
 ```
 
-Package identity is the pair in `[package]`:
+Package identity is the pair in `[package]`. Publish metadata is optional and declarative only:
 
 ```toml
 [package]
 name = "agent-worker"
 version = "0.1.0"
+
+[publish]
+registry = "https://registry.example.test/index"
+checksum = "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+include = ["src/**", "axiom.toml", "axiom.lock"]
+exclude = ["dist/**"]
 ```
 
 Future registry packages will need stable source and integrity metadata:
@@ -129,8 +111,12 @@ Future registry packages will need stable source and integrity metadata:
 - Publish metadata: include/exclude rules, target registry, archive checksum,
   and provenance or signature references.
 
-Those fields are intentionally reserved. Until `axiomc publish` and registry
-resolution exist, manifests must not contain `[registry]`, `[publish]`,
-`package.checksum`, `package.registry`, `package.source`, or dependency
-`version`/`checksum`/`registry`/`source` fields. The parser rejects them instead
-of silently treating a registry package as a local package.
+Those registry fields are intentionally reserved. Until registry resolution
+exists, manifests must not contain root `[registry]`, `package.checksum`,
+`package.registry`, `package.source`, or dependency
+`checksum`/`registry`/`source` fields. Local dependency `version` constraints
+are accepted only with a local `path` and are validated against the dependency
+package version. The parser rejects reserved registry fields instead
+of silently treating a registry package as a local package. `[publish]` is
+accepted only as metadata; it does not make `axiomc` contact or upload to a
+remote registry.

@@ -67,6 +67,54 @@ pub const STABLE_DIAGNOSTIC_CODES: &[DiagnosticCodeInfo] = &[
         example: "let first: &mut [int] = values[0:1]\nlet second: &mut [int] = values[1:2]",
         suggested_fix: "End the first mutable borrow before creating another mutable borrow of the same owner.",
     },
+    DiagnosticCodeInfo {
+        code: "closure_move_captured_non_copy",
+        kind: "ownership",
+        title: "Closure moves captured non-copy value",
+        explanation: "A closure body moved a captured non-copy value, so the captured binding would be unavailable after the closure runs.",
+        example: "let name: string = \"agent\"\nlet f = fn() {\n  let moved: string = name\n}",
+        suggested_fix: "Pass owned data into the closure deliberately, clone/copy only copy-compatible data, or restructure the closure so it borrows instead of moving the captured value.",
+    },
+    DiagnosticCodeInfo {
+        code: "closure_borrowed_slice_return",
+        kind: "ownership",
+        title: "Closure returns borrowed slice without safe origin",
+        explanation: "A closure returned a borrowed slice whose lifetime could not be tied to a safe borrowed parameter origin.",
+        example: "let f = fn(): &[int] {\n  let values: [int] = [1]\n  return values[0:1]\n}",
+        suggested_fix: "Return owned data from the closure, or derive the borrowed return from an explicit borrowed parameter.",
+    },
+    DiagnosticCodeInfo {
+        code: "rebind_not_supported",
+        kind: "binding",
+        title: "Rebinding is not supported",
+        explanation: "A binding name was declared more than once in the same unsupported rebinding context.",
+        example: "let count: int = 1\nlet count: int = 2",
+        suggested_fix: "Use a distinct binding name, or rewrite the code to avoid redeclaring the same local.",
+    },
+    DiagnosticCodeInfo {
+        code: "import_cycle",
+        kind: "imports",
+        title: "Import cycle detected",
+        explanation: "The package import graph contains a cycle, so the compiler cannot establish an acyclic module order.",
+        example: "// a.ax imports b.ax\n// b.ax imports a.ax",
+        suggested_fix: "Break the cycle by moving shared declarations into a third module or by depending in only one direction.",
+    },
+    DiagnosticCodeInfo {
+        code: "import_cycle_member",
+        kind: "imports",
+        title: "Import participates in a cycle",
+        explanation: "This import is one member of a larger import cycle reported by the project checker.",
+        example: "import \"./b.ax\"",
+        suggested_fix: "Inspect the full cycle diagnostic, then remove or invert one of the participating imports.",
+    },
+    DiagnosticCodeInfo {
+        code: "generated_rust_compilation_failed",
+        kind: "build",
+        title: "Generated Rust compilation failed",
+        explanation: "The generated Rust backend emitted code that rustc rejected while building the stage1 artifact.",
+        example: "axiomc build . --backend generated-rust",
+        suggested_fix: "Read the embedded rustc stderr, minimize the Axiom source that triggered it, and fix the backend lowering or source program as appropriate.",
+    },
 ];
 
 pub fn diagnostic_code_info(code: &str) -> Option<&'static DiagnosticCodeInfo> {
@@ -93,6 +141,12 @@ mod tests {
         assert!(codes.contains(&"mutable_borrow_while_shared_live"));
         assert!(codes.contains(&"shared_borrow_while_mutable_live"));
         assert!(codes.contains(&"mutable_borrow_while_mutable_live"));
+        assert!(codes.contains(&"closure_move_captured_non_copy"));
+        assert!(codes.contains(&"closure_borrowed_slice_return"));
+        assert!(codes.contains(&"rebind_not_supported"));
+        assert!(codes.contains(&"import_cycle"));
+        assert!(codes.contains(&"import_cycle_member"));
+        assert!(codes.contains(&"generated_rust_compilation_failed"));
     }
 
     #[test]

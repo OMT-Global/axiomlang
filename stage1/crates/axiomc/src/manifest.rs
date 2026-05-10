@@ -20,6 +20,7 @@ pub const KNOWN_CAPABILITIES: [CapabilityKind; 9] = [
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct Manifest {
     pub package: Option<PackageSection>,
+    pub publish: Option<PublishSection>,
     pub dependencies: BTreeMap<String, DependencySpec>,
     pub workspace: Option<WorkspaceSection>,
     pub build: BuildSection,
@@ -31,6 +32,14 @@ pub struct Manifest {
 pub struct PackageSection {
     pub name: String,
     pub version: String,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct PublishSection {
+    pub registry: String,
+    pub checksum: Option<String>,
+    pub include: Vec<String>,
+    pub exclude: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -47,6 +56,8 @@ pub struct BuildSection {
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct DependencySpec {
     pub path: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -127,6 +138,12 @@ pub struct CapabilityDescriptor {
     pub deny_by_default: bool,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub allowed: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub configured_root: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub effective_root: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub package_root: Option<String>,
     #[serde(skip_serializing_if = "is_false")]
     pub unsafe_unrestricted: bool,
     #[serde(skip_serializing_if = "is_false")]
@@ -146,7 +163,15 @@ struct RawManifest {
     tests: Option<Vec<RawTestTarget>>,
     capabilities: Option<RawCapabilityConfig>,
     registry: Option<toml::Value>,
-    publish: Option<toml::Value>,
+    publish: Option<RawPublishSection>,
+}
+
+#[derive(Debug, Deserialize)]
+struct RawPublishSection {
+    registry: Option<String>,
+    checksum: Option<String>,
+    include: Option<Vec<String>>,
+    exclude: Option<Vec<String>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -179,7 +204,7 @@ enum RawDependencySpec {
 #[derive(Debug, Deserialize)]
 struct RawDependencyDetail {
     path: Option<String>,
-    version: Option<toml::Value>,
+    version: Option<String>,
     checksum: Option<toml::Value>,
     registry: Option<toml::Value>,
     source: Option<toml::Value>,
@@ -303,6 +328,9 @@ pub fn capability_descriptors(config: &CapabilityConfig) -> Vec<CapabilityDescri
             } else {
                 Vec::new()
             },
+            configured_root: None,
+            effective_root: None,
+            package_root: None,
             unsafe_unrestricted: *kind == CapabilityKind::Env && config.env_unrestricted,
             unsafe_opt_in: config.unsafe_opt_ins.iter().any(|name| name == kind.name()),
             owner: config.owners.get(kind.name()).cloned(),
@@ -392,6 +420,7 @@ impl CapabilityKind {
 
 fn normalize_manifest(raw: RawManifest, path: &Path) -> Result<Manifest, Diagnostic> {
     validate_reserved_root_publish_fields(&raw, path)?;
+    let publish = normalize_publish(raw.publish, path)?;
     let workspace = normalize_workspace(raw.workspace, path)?;
     let package = normalize_package(raw.package, workspace.is_some(), path)?;
     let raw_build = raw.build;
@@ -436,6 +465,7 @@ fn normalize_manifest(raw: RawManifest, path: &Path) -> Result<Manifest, Diagnos
     )?;
     Ok(Manifest {
         package,
+        publish,
         dependencies,
         workspace,
         build: BuildSection { entry, out_dir },
@@ -466,10 +496,95 @@ fn validate_reserved_root_publish_fields(raw: &RawManifest, path: &Path) -> Resu
     if raw.registry.is_some() {
         return Err(reserved_manifest_field(path, "[registry]"));
     }
-    if raw.publish.is_some() {
-        return Err(reserved_manifest_field(path, "[publish]"));
-    }
     Ok(())
+}
+
+fn normalize_publish(
+    raw_publish: Option<RawPublishSection>,
+    path: &Path,
+) -> Result<Option<PublishSection>, Diagnostic> {
+    let Some(raw_publish) = raw_publish else {
+        return Ok(None);
+    };
+    let registry = required_field(raw_publish.registry, path, "publish.registry")?;
+    validate_registry_source(path, "publish.registry", &registry)?;
+    let checksum = match raw_publish.checksum {
+        Some(value) => {
+            let checksum = required_field(Some(value), path, "publish.checksum")?;
+            validate_sha256_checksum(path, "publish.checksum", &checksum)?;
+            Some(checksum)
+        }
+        None => None,
+    };
+    let include = normalize_publish_globs(
+        path,
+        "publish.include",
+        raw_publish.include.unwrap_or_default(),
+    )?;
+    let exclude = normalize_publish_globs(
+        path,
+        "publish.exclude",
+        raw_publish.exclude.unwrap_or_default(),
+    )?;
+    Ok(Some(PublishSection {
+        registry,
+        checksum,
+        include,
+        exclude,
+    }))
+}
+
+fn validate_registry_source(path: &Path, field_name: &str, value: &str) -> Result<(), Diagnostic> {
+    if value.starts_with("https://") || value.starts_with("file:") {
+        return Ok(());
+    }
+    Err(Diagnostic::new(
+        "manifest",
+        format!("{field_name} must be an https:// URL or file: registry source"),
+    )
+    .with_path(path.display().to_string()))
+}
+
+fn validate_sha256_checksum(path: &Path, field_name: &str, value: &str) -> Result<(), Diagnostic> {
+    let Some(hex) = value.strip_prefix("sha256:") else {
+        return Err(Diagnostic::new(
+            "manifest",
+            format!("{field_name} must use sha256:<64 hex characters>"),
+        )
+        .with_path(path.display().to_string()));
+    };
+    if hex.len() == 64 && hex.chars().all(|ch| ch.is_ascii_hexdigit()) {
+        Ok(())
+    } else {
+        Err(Diagnostic::new(
+            "manifest",
+            format!("{field_name} must use sha256:<64 hex characters>"),
+        )
+        .with_path(path.display().to_string()))
+    }
+}
+
+fn normalize_publish_globs(
+    path: &Path,
+    field_name: &str,
+    values: Vec<String>,
+) -> Result<Vec<String>, Diagnostic> {
+    let mut normalized = Vec::new();
+    let mut seen = std::collections::BTreeSet::new();
+    for (index, value) in values.into_iter().enumerate() {
+        let item_field = format!("{field_name}[{index}]");
+        let value = required_field(Some(value), path, &item_field)?;
+        validate_relative_path(path, &item_field, &value)?;
+        if !seen.insert(value.clone()) {
+            return Err(Diagnostic::new(
+                "manifest",
+                format!("duplicate publish pattern {value:?}"),
+            )
+            .with_path(path.display().to_string()));
+        }
+        normalized.push(value);
+    }
+    Ok(normalized)
 }
 
 fn reserved_manifest_field(path: &Path, field_name: &str) -> Diagnostic {
@@ -672,15 +787,19 @@ fn normalize_dependencies(
                     .with_path(path.display().to_string()),
             );
         }
-        let raw_path = match raw_spec {
-            RawDependencySpec::Path(value) => value,
+        match raw_spec {
+            RawDependencySpec::Path(value) => {
+                validate_dependency_path(path, &format!("dependencies.{name}.path"), &value)?;
+                dependencies.insert(
+                    name,
+                    DependencySpec {
+                        path: value,
+                        version: None,
+                    },
+                );
+                continue;
+            }
             RawDependencySpec::Detailed(detail) => {
-                if detail.version.is_some() {
-                    return Err(reserved_manifest_field(
-                        path,
-                        &format!("dependencies.{name}.version"),
-                    ));
-                }
                 if detail.checksum.is_some() {
                     return Err(reserved_manifest_field(
                         path,
@@ -699,13 +818,70 @@ fn normalize_dependencies(
                         &format!("dependencies.{name}.source"),
                     ));
                 }
-                required_field(detail.path, path, &format!("dependencies.{name}.path"))?
+                if detail.path.is_none() && detail.version.is_some() {
+                    return Err(reserved_manifest_field(
+                        path,
+                        &format!("dependencies.{name}.version"),
+                    ));
+                }
+                let raw_path =
+                    required_field(detail.path, path, &format!("dependencies.{name}.path"))?;
+                validate_dependency_path(path, &format!("dependencies.{name}.path"), &raw_path)?;
+                let version = normalize_dependency_version(
+                    path,
+                    &format!("dependencies.{name}.version"),
+                    detail.version,
+                )?;
+                dependencies.insert(
+                    name,
+                    DependencySpec {
+                        path: raw_path,
+                        version,
+                    },
+                );
             }
         };
-        validate_dependency_path(path, &format!("dependencies.{name}.path"), &raw_path)?;
-        dependencies.insert(name, DependencySpec { path: raw_path });
     }
     Ok(dependencies)
+}
+
+fn normalize_dependency_version(
+    path: &Path,
+    field_name: &str,
+    version: Option<String>,
+) -> Result<Option<String>, Diagnostic> {
+    let Some(version) = version else {
+        return Ok(None);
+    };
+    let version = required_field(Some(version), path, field_name)?;
+    validate_version_constraint(path, field_name, &version)?;
+    Ok(Some(version))
+}
+
+fn validate_version_constraint(
+    path: &Path,
+    field_name: &str,
+    version: &str,
+) -> Result<(), Diagnostic> {
+    if version == "*" {
+        return Ok(());
+    }
+    let candidate = version.strip_prefix('^').unwrap_or(version);
+    let parts = candidate.split('.').collect::<Vec<_>>();
+    if parts.len() == 3
+        && parts
+            .iter()
+            .all(|part| !part.is_empty() && part.chars().all(|ch| ch.is_ascii_digit()))
+    {
+        return Ok(());
+    }
+    Err(
+        Diagnostic::new(
+            "manifest",
+            format!("{field_name} must be '*', an exact MAJOR.MINOR.PATCH version, or a caret constraint like ^1.2.3"),
+        )
+        .with_path(path.display().to_string()),
+    )
 }
 
 fn normalize_tests(
@@ -843,4 +1019,77 @@ fn validate_dependency_path(path: &Path, field_name: &str, value: &str) -> Resul
         );
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod registry_publish_manifest_tests {
+    use super::*;
+    use tempfile::tempdir;
+
+    fn write_manifest(text: &str) -> tempfile::TempDir {
+        let dir = tempdir().unwrap_or_else(|err| panic!("tempdir: {err}"));
+        std::fs::write(dir.path().join(MANIFEST_FILENAME), text)
+            .unwrap_or_else(|err| panic!("write manifest: {err}"));
+        dir
+    }
+
+    #[test]
+    fn accepts_publish_manifest_contract_without_remote_publishing() {
+        let dir = write_manifest(
+            r#"
+[package]
+name = "demo"
+version = "0.1.0"
+
+[publish]
+registry = "https://registry.example.test/index"
+checksum = "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+include = ["src/**", "axiom.toml"]
+exclude = ["dist/**"]
+"#,
+        );
+        let manifest = load_manifest(dir.path()).expect("manifest should load");
+        let publish = manifest.publish.expect("publish metadata");
+        assert_eq!(publish.registry, "https://registry.example.test/index");
+        assert_eq!(publish.include, vec!["src/**", "axiom.toml"]);
+        assert_eq!(publish.exclude, vec!["dist/**"]);
+    }
+
+    #[test]
+    fn rejects_invalid_publish_checksum() {
+        let dir = write_manifest(
+            r#"
+[package]
+name = "demo"
+version = "0.1.0"
+
+[publish]
+registry = "https://registry.example.test/index"
+checksum = "sha256:not-a-digest"
+"#,
+        );
+        let error = load_manifest(dir.path()).expect_err("checksum should be rejected");
+        assert!(error.message.contains("publish.checksum must use sha256"));
+    }
+
+    #[test]
+    fn still_reserves_dependency_registry_resolution_fields() {
+        let dir = write_manifest(
+            r#"
+[package]
+name = "demo"
+version = "0.1.0"
+
+[dependencies.dep]
+path = "dep"
+registry = "https://registry.example.test/index"
+"#,
+        );
+        let error = load_manifest(dir.path()).expect_err("dependency registry should be reserved");
+        assert!(
+            error
+                .message
+                .contains("dependencies.dep.registry is reserved")
+        );
+    }
 }

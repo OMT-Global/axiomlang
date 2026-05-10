@@ -1,5 +1,6 @@
 use axiomc::codegen::NativeBackendKind;
 use axiomc::dap;
+use axiomc::diagnostic_catalog::{DiagnosticCodeInfo, diagnostic_code_info};
 use axiomc::diagnostics::Diagnostic;
 use axiomc::json_contract;
 use axiomc::lsp;
@@ -7,8 +8,8 @@ use axiomc::manifest::{entry_path, load_manifest};
 use axiomc::new_project::{WorkloadTemplate, create_project_with_template};
 use axiomc::project::{
     BuildOptions, BuildOutput, CheckOptions, RunOptions, TestOptions, build_project_with_options,
-    check_project_with_options, package_graph_metadata, project_capabilities,
-    run_project_tests_with_options, run_project_with_options,
+    check_project_with_options, list_project_tests_with_options, package_graph_metadata,
+    project_capabilities, run_project_tests_with_options, run_project_with_options,
 };
 use axiomc::registry::{
     PublishOptions, load_registry_index, publish_package, render_registry_index,
@@ -93,6 +94,8 @@ enum Command {
         filter: Option<String>,
         #[arg(long)]
         include_benchmarks: bool,
+        #[arg(long)]
+        list: bool,
         #[arg(short = 'p', long = "package")]
         package: Option<String>,
     },
@@ -109,10 +112,16 @@ enum Command {
         #[command(subcommand)]
         command: InspectCommand,
     },
-    /// Inspect package metadata and resolved local package graph.
+    /// Inspect local package graph metadata.
     Pkg {
         #[command(subcommand)]
         command: PkgCommand,
+    },
+    /// Explain a stable diagnostic code.
+    Explain {
+        code: String,
+        #[arg(long)]
+        json: bool,
     },
     /// Format .ax source files with the canonical stage1 style.
     Fmt {
@@ -318,40 +327,68 @@ fn main() {
             json,
             filter,
             include_benchmarks,
+            list,
             package,
-        } => match run_project_tests_with_options(
-            &path,
-            &TestOptions {
+        } => {
+            let options = TestOptions {
                 filter: filter.clone(),
                 package: package.clone(),
                 include_benchmarks,
-            },
-        ) {
-            Ok(output) => {
-                let ok = output.failed == 0;
-                if json {
-                    println!(
-                        "{}",
-                        json_contract::test_success(&path, filter.as_deref(), &output)
-                    );
-                } else {
-                    for case in &output.cases {
-                        let status = if case.ok { "PASS" } else { "FAIL" };
-                        eprintln!("{status} {:?} {} ({})", case.kind, case.name, case.entry);
-                        if let Some(error) = &case.error {
-                            eprintln!("  {}", error);
+            };
+            if list {
+                match list_project_tests_with_options(&path, &options) {
+                    Ok(output) => {
+                        if json {
+                            println!(
+                                "{}",
+                                json_contract::test_list_success(&path, filter.as_deref(), &output)
+                            );
+                        } else {
+                            for test in &output.tests {
+                                let package = test.package.as_deref().unwrap_or("<unnamed>");
+                                eprintln!(
+                                    "{:?} {} {} ({})",
+                                    test.kind, package, test.name, test.entry
+                                );
+                            }
+                            eprintln!("discovered: {}", output.tests.len());
                         }
-                        eprintln!("  duration: {} ms", case.duration_ms);
+                        0
                     }
-                    eprintln!(
-                        "passed: {} failed: {} skipped: {} duration: {} ms",
-                        output.passed, output.failed, output.skipped, output.duration_ms
-                    );
+                    Err(error) => print_error("test", error, json),
                 }
-                if ok { 0 } else { 1 }
+            } else {
+                match run_project_tests_with_options(&path, &options) {
+                    Ok(output) => {
+                        let ok = output.failed == 0;
+                        if json {
+                            println!(
+                                "{}",
+                                json_contract::test_success(&path, filter.as_deref(), &output)
+                            );
+                        } else {
+                            for case in &output.cases {
+                                let status = if case.ok { "PASS" } else { "FAIL" };
+                                eprintln!(
+                                    "{status} {:?} {} ({})",
+                                    case.kind, case.name, case.entry
+                                );
+                                if let Some(error) = &case.error {
+                                    eprintln!("  {}", error);
+                                }
+                                eprintln!("  duration: {} ms", case.duration_ms);
+                            }
+                            eprintln!(
+                                "passed: {} failed: {} skipped: {} duration: {} ms",
+                                output.passed, output.failed, output.skipped, output.duration_ms
+                            );
+                        }
+                        if ok { 0 } else { 1 }
+                    }
+                    Err(error) => print_error("test", error, json),
+                }
             }
-            Err(error) => print_error("test", error, json),
-        },
+        }
         Command::Caps {
             path,
             json,
@@ -399,6 +436,25 @@ fn main() {
                 }
             }
         },
+        Command::Explain { code, json } => match diagnostic_code_info(&code) {
+            Some(info) => {
+                if json {
+                    println!(
+                        "{}",
+                        json_contract::to_pretty_string(&explain_payload(info))
+                            .unwrap_or_else(|_| String::from("{}"))
+                    );
+                } else {
+                    println!("{}", explain_text(info));
+                }
+                0
+            }
+            None => print_error(
+                "explain",
+                Diagnostic::new("diagnostic", format!("unknown diagnostic code {code:?}")),
+                json,
+            ),
+        },
         Command::Inspect { command } => match command {
             InspectCommand::Symbols { path, json } => match inspect_symbols(&path) {
                 Ok(report) => {
@@ -425,29 +481,18 @@ fn main() {
             PkgCommand::Graph { path, json } => match package_graph_metadata(&path) {
                 Ok(output) => {
                     if json {
-                        match serde_json::to_string(&output) {
-                            Ok(output) => {
-                                println!("{output}");
-                                0
-                            }
-                            Err(error) => print_error(
-                                "pkg graph",
-                                Diagnostic::new(
-                                    "json",
-                                    format!("failed to serialize package graph JSON: {error}"),
-                                ),
-                                false,
-                            ),
-                        }
+                        println!(
+                            "{}",
+                            json_contract::to_pretty_string(&output)
+                                .unwrap_or_else(|_| String::from("{}"))
+                        );
                     } else {
-                        match json_contract::to_pretty_string(&output) {
-                            Ok(output) => {
-                                println!("{output}");
-                                0
-                            }
-                            Err(error) => print_error("pkg graph", error, false),
+                        for package in &output.packages {
+                            let name = package.name.as_deref().unwrap_or("<workspace>");
+                            println!("{} {}", name, package.root);
                         }
                     }
+                    0
                 }
                 Err(error) => print_error("pkg graph", error, json),
             },
@@ -641,6 +686,9 @@ fn build_summary_lines(output: &BuildOutput, timings: bool) -> Vec<String> {
     if let Some(debug_map) = &output.debug_map {
         lines.push(format!("wrote debug map {debug_map}"));
     }
+    if let Some(debug_manifest) = &output.debug_manifest {
+        lines.push(format!("wrote debug manifest {debug_manifest}"));
+    }
     if timings {
         lines.push(
             format!(
@@ -827,6 +875,36 @@ fn scope_diff(
         capability: name.to_string(),
         scopes,
     })
+}
+
+fn explain_payload(info: &DiagnosticCodeInfo) -> serde_json::Value {
+    serde_json::json!({
+        "schema_version": json_contract::JSON_SCHEMA_VERSION,
+        "ok": true,
+        "command": "explain",
+        "diagnostic": info,
+    })
+}
+
+fn explain_text(info: &DiagnosticCodeInfo) -> String {
+    format!(
+        "{code} ({kind})
+{title}
+
+{explanation}
+
+Example:
+{example}
+
+Suggested fix:
+{suggested_fix}",
+        code = info.code,
+        kind = info.kind,
+        title = info.title,
+        explanation = info.explanation,
+        example = info.example,
+        suggested_fix = info.suggested_fix,
+    )
 }
 
 fn print_error(command: &str, error: Diagnostic, json: bool) -> i32 {
@@ -1934,6 +2012,8 @@ mod tests {
         assert!(help.contains("Discover, build, and run package test entrypoints"));
         assert!(help.contains("Inspect manifest capability requirements"));
         assert!(help.contains("Inspect project metadata for agent tooling"));
+        assert!(help.contains("Inspect local package graph metadata"));
+        assert!(help.contains("Explain a stable diagnostic code"));
         assert!(help.contains("Format .ax source files"));
         assert!(help.contains("Generate Markdown and HTML API docs"));
         assert!(help.contains("Run discovered *_bench.ax entrypoints"));
@@ -1941,6 +2021,32 @@ mod tests {
         assert!(help.contains("Pack, sign, and publish a stage1 package"));
         assert!(help.contains("Build a static package-registry index"));
         assert!(help.contains("Validate a static package-registry index JSON file"));
+    }
+
+    #[test]
+    fn pkg_graph_cli_parses_path_and_json_flag() {
+        let cli = Cli::parse_from(["axiomc", "pkg", "graph", ".", "--json"]);
+        match cli.command {
+            Command::Pkg {
+                command: PkgCommand::Graph { path, json },
+            } => {
+                assert_eq!(path, PathBuf::from("."));
+                assert!(json);
+            }
+            other => panic!("expected pkg graph command, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_accepts_list_flag() {
+        let cli = Cli::parse_from(["axiomc", "test", ".", "--list", "--json"]);
+        match cli.command {
+            Command::Test { list, json, .. } => {
+                assert!(list);
+                assert!(json);
+            }
+            other => panic!("expected test command, got {other:?}"),
+        }
     }
 
     #[test]
@@ -2015,7 +2121,7 @@ mod tests {
         }
     }
 
-    fn build_output(debug_map: Option<String>) -> BuildOutput {
+    fn build_output(debug_map: Option<String>, debug_manifest: Option<String>) -> BuildOutput {
         BuildOutput {
             backend: NativeBackendKind::GeneratedRust,
             locked: false,
@@ -2025,6 +2131,7 @@ mod tests {
             binary: String::from("dist/app"),
             generated_rust: String::from("target/main.rs"),
             debug_map,
+            debug_manifest,
             statement_count: 1,
             target: None,
             debug: true,
@@ -2056,7 +2163,7 @@ mod tests {
     fn build_json_includes_target_debug_and_cache_key_metadata() {
         let payload = json_contract::build_success(
             Path::new("stage1/examples/hello"),
-            &build_output(Some(String::from("target/main.debug-map.json"))),
+            &build_output(Some(String::from("target/main.debug-map.json")), None),
         );
 
         assert_eq!(payload["target"], serde_json::json!(null));
@@ -2078,15 +2185,19 @@ mod tests {
     }
 
     #[test]
-    fn build_summary_mentions_debug_map_when_available() {
+    fn build_summary_mentions_debug_artifacts_when_available() {
         assert_eq!(
             build_summary_lines(
-                &build_output(Some(String::from("target/main.debug-map.json"))),
+                &build_output(
+                    Some(String::from("target/main.debug-map.json")),
+                    Some(String::from("target/main.debug-manifest.json")),
+                ),
                 false,
             ),
             vec![
                 String::from("wrote dist/app (backend=generated-rust)"),
                 String::from("wrote debug map target/main.debug-map.json"),
+                String::from("wrote debug manifest target/main.debug-manifest.json"),
             ]
         );
     }
@@ -2094,7 +2205,7 @@ mod tests {
     #[test]
     fn build_summary_omits_debug_map_for_release_builds() {
         assert_eq!(
-            build_summary_lines(&build_output(None), false),
+            build_summary_lines(&build_output(None, None), false),
             vec![String::from("wrote dist/app (backend=generated-rust)")]
         );
     }
@@ -2283,6 +2394,29 @@ mod tests {
                 .iter()
                 .any(|symbol| symbol.name == "private_helper")
         );
+    }
+
+    #[test]
+    fn explain_text_includes_example_and_fix() {
+        let info = diagnostic_code_info("use_after_move").expect("diagnostic info");
+        let text = explain_text(info);
+
+        assert!(text.contains("use_after_move (ownership)"));
+        assert!(text.contains("Example:"));
+        assert!(text.contains("Suggested fix:"));
+    }
+
+    #[test]
+    fn explain_json_payload_is_versioned() {
+        let info = diagnostic_code_info("use_after_move").expect("diagnostic info");
+        let payload = explain_payload(info);
+
+        assert_eq!(
+            payload["schema_version"],
+            json_contract::JSON_SCHEMA_VERSION
+        );
+        assert_eq!(payload["command"], "explain");
+        assert_eq!(payload["diagnostic"]["code"], "use_after_move");
     }
 
     #[test]

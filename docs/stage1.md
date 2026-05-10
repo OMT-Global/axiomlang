@@ -129,26 +129,11 @@ for incremental cache validation, plus a smaller `metadata` object for
 requested/resolved target, debug mode, package lockfile, lockfile hash, and
 aggregate source hash inspection. Debug builds report `debug_map`, a JSON
 sidecar that maps generated Rust statement lines back to Axiom file/line/column
-positions. `axiomc build --timings` prints total build time, cache hit/miss
-counts, and per-package compile timing/cache status for the incremental
-generated-Rust cache.
-
-with generated source-position markers. Build JSON also carries `metadata` for
-cache-key inspection: requested/resolved `target`, `debug`, package `lockfile`,
-`lockfile_hash`, and aggregate `source_hash`. Debug builds also report `debug_map`,
-a JSON sidecar that maps generated Rust statement lines back to Axiom
-
-file/line/column positions. `axiomc build --timings` prints total build time,
-cache hit/miss counts, and per-package compile timing/cache status for the
-incremental generated-Rust cache.
-
-file/line/column positions, plus `debug_manifest`, a JSON sidecar that binds
-the native binary hash, generated Rust hash, rustc debug-mode settings, source
-file hashes, and mapping counts for debugger/tooling consumers.
-`axiomc build --timings` prints total build time, cache hit/miss counts, and
-per-package compile timing/cache status for the incremental generated-Rust
-cache.
-
+positions, plus `debug_manifest`, a JSON sidecar that binds the native binary
+hash, generated Rust hash, rustc debug-mode settings, source file hashes, and
+mapping counts for debugger/tooling consumers. `axiomc build --timings` prints
+total build time, cache hit/miss counts, and per-package compile timing/cache
+status for the incremental generated-Rust cache.
 Parser diagnostics now preserve additional recovered top-level parse errors in
 the error payload's `related` array when possible, so editor tooling can show
 more than the first syntax error without waiting for full checker recovery.
@@ -224,20 +209,13 @@ still far from the stated 1.0 target for service and agent workloads.
   exposes the hit/miss counts plus per-package compile time.
 - `axiomc build --debug` now asks `rustc` for debuginfo on the generated Rust
   shim, disables optimization, emits generated Rust source markers, and writes a
-  JSON source-map sidecar for Axiom file/line/column positions. Native DWARF line
-  tables intentionally remain generated-Rust locations because rustc path
-  remapping cannot represent Axiom span rows or multiple imported source files;
-  full Axiom-native debugger stepping remains a direct-backend follow-on.
-- `axiomc build --debug` now asks `rustc` for debuginfo, disables optimization,
-  emits generated Rust source markers, and writes a JSON source-map sidecar for
-  Axiom file/line/column positions; full Axiom-native debugger stepping remains
-  a direct-backend follow-on.
-
-  Axiom file/line/column positions. It also writes a debug manifest sidecar
-  that ties the native binary to the generated Rust, the source map, and the
-  hashed `.ax` source files. The manifest is an explicit generated-Rust bridge:
-  current DWARF still points at generated Rust, so full Axiom-native debugger
-  stepping remains a direct-backend follow-on.
+  JSON source-map sidecar for Axiom file/line/column positions. It also writes
+  a debug manifest sidecar that ties the native binary to the generated Rust,
+  the source map, and the hashed `.ax` source files. The manifest is an
+  explicit generated-Rust bridge: current DWARF still points at generated Rust,
+  and rustc path remapping cannot represent Axiom span rows or multiple
+  imported source files, so full Axiom-native debugger stepping remains a
+  direct-backend follow-on.
 - `axiomc fmt`, `axiomc bench`, `axiomc doc`, the stage1 scratch `repl`, and a
   bounded `axiomc lsp` analyzer now exist as bootstrap-grade toolchain
   commands. The LSP endpoint currently serves compiler-backed diagnostics over
