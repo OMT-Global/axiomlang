@@ -1,0 +1,8 @@
+fn count(flag: bool): int {
+if flag {
+return "wrong"
+}
+return 1
+}
+
+print count(true)
