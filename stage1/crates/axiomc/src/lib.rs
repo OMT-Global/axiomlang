@@ -2809,6 +2809,80 @@ crypto = false
     }
 
     #[test]
+    fn publish_manifest_contract_validates_registry_metadata() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("publish-contract");
+        create_project(&project, Some("publish-contract-app")).expect("create project");
+        fs::write(
+            project.join("axiom.toml"),
+            format!(
+                "{}\n[publish]\nregistry = \"https://registry.example.test/index\"\nchecksum = \"sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\"\ninclude = [\"src\", \"axiom.toml\"]\n",
+                render_manifest("publish-contract-app")
+            ),
+        )
+        .expect("write publish manifest");
+
+        let manifest = load_manifest(&project).expect("load publish manifest");
+        let publish = manifest.publish.expect("publish section");
+        assert_eq!(
+            publish.registry.as_str(),
+            "https://registry.example.test/index"
+        );
+        assert_eq!(publish.include, vec!["src", "axiom.toml"]);
+
+        fs::write(
+            project.join("axiom.toml"),
+            format!(
+                "{}\n[publish]\nregistry = \"http://registry.example.test/index\"\nchecksum = \"sha256:not-a-real-checksum\"\n",
+                render_manifest("publish-contract-app")
+            ),
+        )
+        .expect("write invalid publish manifest");
+        let error = load_manifest(&project).expect_err("invalid registry should fail");
+        assert_eq!(error.kind, "manifest");
+        assert!(error.message.contains("publish.registry"));
+    }
+
+    #[test]
+    fn publish_manifest_rejects_malformed_registry_sources() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("publish-registry-invalid");
+        create_project(&project, Some("publish-registry-invalid-app")).expect("create project");
+
+        for registry in [
+            "https://",
+            "https://not a host",
+            "https://user@registry.example.test/index",
+            "https://registry.example.test?mirror=1",
+            "https://registry.example.test#fragment",
+            "https://registry.example.test/index?mirror=1",
+            "https://registry.example.test/index#fragment",
+            "https://registry.example.test:bad-port/index",
+            "https://registry.example.test:65536/index",
+            "https://registry.example.test:99999/index",
+            "https://[::1]:99999/index",
+            "https://exa[mple.test/index",
+            "file:",
+            "file://",
+            "file://hosted/path",
+            "file:relative/path",
+        ] {
+            fs::write(
+                project.join("axiom.toml"),
+                format!(
+                    "{}\n[publish]\nregistry = \"{registry}\"\n",
+                    render_manifest("publish-registry-invalid-app")
+                ),
+            )
+            .expect("write invalid publish manifest");
+
+            let error = load_manifest(&project).expect_err("malformed registry should fail");
+            assert_eq!(error.kind, "manifest");
+            assert!(error.message.contains("publish.registry"));
+        }
+    }
+
+    #[test]
     fn dependency_package_must_enable_its_own_capabilities() {
         let dir = tempdir().expect("tempdir");
         let project = dir.path().join("dep-cap-root");
