@@ -47,6 +47,9 @@ Current executable fixtures cover:
   the same package.
 - `type_system_aggregates`: typed aggregate coverage for generic wrappers,
   structs, enums, tuples, arrays, maps, `Option`, and `Result`.
+- `parser_type_slice`: migrated parser/type coverage for type aliases,
+  borrowed slices, enum payload patterns, typed aggregate literals, and
+  return-type checking through parsed control flow.
 
 Packages under `fail/` are compile-fail fixtures. Each package is a complete
 stage1 project with `axiom.toml`, `axiom.lock`, source, and
@@ -75,6 +78,9 @@ Current compile-fail fixtures cover:
   diagnostic for predictable error message shape.
 - `comparison_strict_type_mismatch`: Axiom-owned Go/Rust-style comparison
   diagnostic for strict struct field typing.
+- `parser_type_return_mismatch`: migrated parser/type diagnostic coverage for
+  return expressions whose parsed value type disagrees with the declared
+  function return type.
 - `ownership_use_after_move`: ownership diagnostics for reading a moved value.
 - `panic_rejects_unreachable_statement`: control diagnostics for statements
   that appear after `panic(...)` in the same block.
