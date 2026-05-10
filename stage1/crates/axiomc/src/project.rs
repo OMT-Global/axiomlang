@@ -75,6 +75,8 @@ pub struct BuiltPackage {
     pub binary: String,
     pub generated_rust: String,
     pub debug_map: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub debug_manifest: Option<String>,
     pub statement_count: usize,
     pub target: Option<String>,
     pub debug: bool,
@@ -94,6 +96,8 @@ pub struct BuildOutput {
     pub binary: String,
     pub generated_rust: String,
     pub debug_map: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub debug_manifest: Option<String>,
     pub statement_count: usize,
     pub target: Option<String>,
     pub debug: bool,
@@ -162,6 +166,22 @@ pub struct ExpectedDiagnostic {
 }
 
 #[derive(Debug, Clone, Serialize)]
+pub struct ListedTest {
+    pub package_root: String,
+    pub package: Option<String>,
+    pub name: String,
+    pub kind: TestKind,
+    pub entry: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct TestListOutput {
+    pub manifest: String,
+    pub packages: Vec<String>,
+    pub tests: Vec<ListedTest>,
+}
+
+#[derive(Debug, Clone, Serialize)]
 pub struct TestOutput {
     pub manifest: String,
     pub packages: Vec<String>,
@@ -171,6 +191,47 @@ pub struct TestOutput {
     pub skipped: usize,
     pub kinds: BTreeMap<TestKind, usize>,
     pub duration_ms: u64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct PackageGraphOutput {
+    pub manifest: String,
+    pub packages: Vec<PackageGraphPackage>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct PackageGraphPackage {
+    pub root: String,
+    pub manifest: String,
+    pub name: Option<String>,
+    pub version: Option<String>,
+    pub workspace_only: bool,
+    pub entrypoint: Option<String>,
+    pub capabilities: Vec<CapabilityDescriptor>,
+    pub dependencies: Vec<PackageGraphDependency>,
+    pub members: Vec<PackageGraphMember>,
+    pub lockfile: PackageGraphLockfile,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct PackageGraphDependency {
+    pub name: String,
+    pub path: String,
+    pub package: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct PackageGraphMember {
+    pub path: String,
+    pub package: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct PackageGraphLockfile {
+    pub path: String,
+    pub status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -305,6 +366,9 @@ pub fn build_project_with_options(
             debug_map: options
                 .debug
                 .then(|| debug_source_map_path(&generated_rust).display().to_string()),
+            debug_manifest: options
+                .debug
+                .then(|| debug_manifest_path(&generated_rust).display().to_string()),
             statement_count: analyzed.mir.statement_count(),
             target: resolved_target.clone(),
             debug: options.debug,
@@ -337,6 +401,7 @@ pub fn build_project_with_options(
         binary: root.binary,
         generated_rust: root.generated_rust,
         debug_map: root.debug_map,
+        debug_manifest: root.debug_manifest,
         statement_count: root.statement_count,
         target: root.target,
         debug: root.debug,
@@ -410,6 +475,62 @@ pub fn run_project_with_options(
 
 pub fn run_project_tests(project_root: &Path) -> Result<TestOutput, Diagnostic> {
     run_project_tests_with_options(project_root, &TestOptions::default())
+}
+
+pub fn list_project_tests_with_options(
+    project_root: &Path,
+    options: &TestOptions,
+) -> Result<TestListOutput, Diagnostic> {
+    let project_root = canonicalize_existing_path(&normalize_path(project_root), "project root")?;
+    let graph = load_package_graph(&project_root)?;
+    validate_workspace_root_lockfile(&graph, &project_root)?;
+    let manifest_path_text = manifest_path(&project_root).display().to_string();
+    let mut packages = Vec::new();
+    let mut tests = Vec::new();
+    for package_root in workspace_package_roots(&graph, &project_root, options.package.as_deref())?
+    {
+        let manifest = graph.context(&package_root)?.manifest.clone();
+        validate_lockfile(&package_root, &manifest)?;
+        let discovered = if expected_error_path(&package_root).exists() {
+            Vec::new()
+        } else {
+            collect_test_targets(
+                &package_root,
+                &manifest,
+                options.filter.as_deref(),
+                options.include_benchmarks,
+            )?
+        };
+        if discovered.is_empty() {
+            continue;
+        }
+        packages.push(package_root.display().to_string());
+        let package_name = manifest
+            .package
+            .as_ref()
+            .map(|package| package.name.clone());
+        for test in discovered {
+            tests.push(ListedTest {
+                package_root: package_root.display().to_string(),
+                package: test.package.clone().or_else(|| package_name.clone()),
+                name: test.name,
+                kind: test.kind,
+                entry: test.entry,
+            });
+        }
+    }
+    if tests.is_empty() {
+        return Err(Diagnostic::new(
+            "test",
+            "no tests discovered under src/**/*_test.ax across the workspace and no [[tests]] configured in axiom.toml",
+        )
+        .with_path(manifest_path_text));
+    }
+    Ok(TestListOutput {
+        manifest: manifest_path(&project_root).display().to_string(),
+        packages,
+        tests,
+    })
 }
 
 pub fn run_project_tests_with_options(
@@ -654,7 +775,122 @@ fn load_package_expected_output(project_root: &Path) -> Result<Option<String>, D
 
 pub fn project_capabilities(project_root: &Path) -> Result<Vec<CapabilityDescriptor>, Diagnostic> {
     let manifest = load_manifest(project_root)?;
-    Ok(capability_descriptors(&manifest.capabilities))
+    let mut capabilities = capability_descriptors(&manifest.capabilities);
+    if manifest.capabilities.fs || manifest.capabilities.fs_write {
+        let configured_root = manifest
+            .capabilities
+            .fs_root
+            .clone()
+            .unwrap_or_else(|| String::from("."));
+        let package_root = fs::canonicalize(project_root).map_err(|err| {
+            Diagnostic::new(
+                "manifest",
+                format!("failed to canonicalize package root: {err}"),
+            )
+            .with_path(project_root.display().to_string())
+        })?;
+        let effective_root = fs_root_path_for_package(project_root, &manifest)?;
+        for capability in capabilities.iter_mut().filter(|capability| {
+            capability.enabled
+                && (capability.name == CapabilityKind::Fs.name()
+                    || capability.name == CapabilityKind::FsWrite.name())
+        }) {
+            capability.configured_root = Some(configured_root.clone());
+            capability.effective_root = Some(effective_root.display().to_string());
+            capability.package_root = Some(package_root.display().to_string());
+        }
+    }
+    Ok(capabilities)
+}
+
+pub fn package_graph_metadata(project_root: &Path) -> Result<PackageGraphOutput, Diagnostic> {
+    let project_root = canonicalize_existing_path(&normalize_path(project_root), "project root")?;
+    let graph = load_package_graph(&project_root)?;
+    let mut roots = graph
+        .packages
+        .keys()
+        .filter(|root| **root != stdlib::stdlib_root())
+        .cloned()
+        .collect::<Vec<_>>();
+    roots.sort();
+    let mut packages = Vec::new();
+    for root in roots {
+        let package = graph.context(&root)?;
+        let name = package
+            .manifest
+            .package
+            .as_ref()
+            .map(|package| package.name.clone());
+        let version = package
+            .manifest
+            .package
+            .as_ref()
+            .map(|package| package.version.clone());
+        let entrypoint = package
+            .manifest
+            .package
+            .as_ref()
+            .map(|_| entry_path(&root, &package.manifest).display().to_string());
+        let dependencies = package
+            .dependencies
+            .iter()
+            .map(|(name, dependency_root)| {
+                let dependency = graph.context(dependency_root)?;
+                Ok(PackageGraphDependency {
+                    name: name.clone(),
+                    path: dependency_root.display().to_string(),
+                    package: dependency
+                        .manifest
+                        .package
+                        .as_ref()
+                        .map(|package| package.name.clone()),
+                })
+            })
+            .collect::<Result<Vec<_>, Diagnostic>>()?;
+        let members = package
+            .workspace_members
+            .iter()
+            .map(|member_root| {
+                let member = graph.context(member_root)?;
+                Ok(PackageGraphMember {
+                    path: member_root.display().to_string(),
+                    package: member
+                        .manifest
+                        .package
+                        .as_ref()
+                        .map(|package| package.name.clone()),
+                })
+            })
+            .collect::<Result<Vec<_>, Diagnostic>>()?;
+        let lockfile = match validate_lockfile(&root, &package.manifest) {
+            Ok(()) => PackageGraphLockfile {
+                path: crate::manifest::lockfile_path(&root).display().to_string(),
+                status: String::from("current"),
+                message: None,
+            },
+            Err(error) => PackageGraphLockfile {
+                path: crate::manifest::lockfile_path(&root).display().to_string(),
+                status: String::from("stale"),
+                message: Some(error.message),
+            },
+        };
+        packages.push(PackageGraphPackage {
+            root: root.display().to_string(),
+            manifest: manifest_path(&root).display().to_string(),
+            name,
+            version,
+            workspace_only: package.manifest.is_workspace_only(),
+            entrypoint,
+            capabilities: capability_descriptors(&package.manifest.capabilities),
+            dependencies,
+            members,
+            lockfile,
+        });
+    }
+    Ok(PackageGraphOutput {
+        manifest: manifest_path(&project_root).display().to_string(),
+        packages,
+    })
 }
 
 #[derive(Debug, Clone)]
@@ -931,6 +1167,13 @@ fn load_package_graph_recursive(
         }
         let dependency_root = canonicalize_existing_path(&dependency_root, "dependency path")?;
         load_package_graph_recursive(&dependency_root, graph, visiting)?;
+        validate_dependency_version(
+            &manifest_path(&project_root),
+            name,
+            spec,
+            graph,
+            &dependency_root,
+        )?;
         dependencies.insert(name.clone(), dependency_root);
     }
     for member_root in &workspace_members {
@@ -948,6 +1191,76 @@ fn load_package_graph_recursive(
         },
     );
     Ok(())
+}
+
+fn validate_dependency_version(
+    manifest_path: &Path,
+    dependency_name: &str,
+    spec: &crate::manifest::DependencySpec,
+    graph: &PackageGraph,
+    dependency_root: &Path,
+) -> Result<(), Diagnostic> {
+    let Some(constraint) = spec.version.as_deref() else {
+        return Ok(());
+    };
+    let dependency = graph.context(dependency_root)?;
+    let package = dependency.manifest.package.as_ref().ok_or_else(|| {
+        Diagnostic::new(
+            "manifest",
+            format!(
+                "dependency {dependency_name:?} declares version constraint {constraint:?}, but {} has no [package] version",
+                manifest_path.display()
+            ),
+        )
+        .with_path(manifest_path.display().to_string())
+    })?;
+    if dependency_version_matches(constraint, &package.version) {
+        return Ok(());
+    }
+    Err(
+        Diagnostic::new(
+            "manifest",
+            format!(
+                "dependency {dependency_name:?} version constraint {constraint:?} is incompatible with package version {:?}",
+                package.version
+            ),
+        )
+        .with_path(manifest_path.display().to_string()),
+    )
+}
+
+fn dependency_version_matches(constraint: &str, version: &str) -> bool {
+    if constraint == "*" || constraint == version {
+        return true;
+    }
+    let Some(base) = constraint.strip_prefix('^') else {
+        return false;
+    };
+    let Some(base) = parse_semver_triplet(base) else {
+        return false;
+    };
+    let Some(version) = parse_semver_triplet(version) else {
+        return false;
+    };
+    if base.0 == 0 && base.1 == 0 {
+        version.0 == 0 && version.1 == 0 && version.2 == base.2
+    } else if base.0 == 0 {
+        version.0 == 0 && version.1 == base.1 && version >= base
+    } else {
+        version.0 == base.0 && version >= base
+    }
+}
+
+fn parse_semver_triplet(version: &str) -> Option<(u64, u64, u64)> {
+    let parts = version.split('.').collect::<Vec<_>>();
+    if parts.len() != 3 {
+        return None;
+    }
+    Some((
+        parts[0].parse().ok()?,
+        parts[1].parse().ok()?,
+        parts[2].parse().ok()?,
+    ))
 }
 
 fn resolve_workspace_members(
@@ -1107,7 +1420,7 @@ fn build_artifacts(
         .is_some_and(|stored| cache_matches(stored, &cache, generated_rust, binary))
     {
         if options.debug {
-            write_debug_source_map(generated_rust, &debug_source_map_path(generated_rust))?;
+            write_debug_artifacts(generated_rust, binary, analyzed)?;
         }
         return Ok(BuildArtifactReport {
             metadata: build_metadata(package_root, &cache),
@@ -1122,9 +1435,6 @@ fn build_artifacts(
             format!("failed to write {}: {err}", generated_rust.display()),
         )
     })?;
-    if options.debug {
-        write_debug_source_map(generated_rust, &debug_source_map_path(generated_rust))?;
-    }
     let started = Instant::now();
     compile_native(
         options.backend,
@@ -1134,6 +1444,9 @@ fn build_artifacts(
         options.debug,
     )?;
     let compile_ms = started.elapsed().as_millis() as u64;
+    if options.debug {
+        write_debug_artifacts(generated_rust, binary, analyzed)?;
+    }
     let mut cache = cache;
     cache.binary_hash = Some(hash_file_bytes(binary)?);
     write_build_cache(&cache_path, &cache)?;
@@ -1197,6 +1510,10 @@ fn debug_source_map_path(generated_rust: &Path) -> PathBuf {
     generated_rust.with_extension("debug-map.json")
 }
 
+fn debug_manifest_path(generated_rust: &Path) -> PathBuf {
+    generated_rust.with_extension("debug-manifest.json")
+}
+
 #[derive(Debug, Serialize)]
 struct DebugSourceMap<'a> {
     schema_version: &'static str,
@@ -1210,6 +1527,50 @@ struct DebugSourceMapping {
     source: String,
     line: usize,
     column: usize,
+}
+
+#[derive(Debug, Serialize)]
+struct DebugManifest<'a> {
+    schema_version: &'static str,
+    binary: &'a str,
+    binary_hash: String,
+    generated_rust: &'a str,
+    generated_rust_hash: String,
+    debug_map: &'a str,
+    rustc: DebugRustcInfo,
+    source_files: Vec<DebugSourceFile>,
+}
+
+#[derive(Debug, Serialize)]
+struct DebugRustcInfo {
+    debuginfo: u8,
+    opt_level: u8,
+    native_debug_info: &'static str,
+    axiom_dwarf: bool,
+}
+
+#[derive(Debug, Serialize)]
+struct DebugSourceFile {
+    path: String,
+    source_hash: String,
+    line_count: usize,
+    mapping_count: usize,
+}
+
+fn write_debug_artifacts(
+    generated_rust: &Path,
+    binary: &Path,
+    analyzed: &AnalyzedProject,
+) -> Result<(), Diagnostic> {
+    let debug_map = debug_source_map_path(generated_rust);
+    write_debug_source_map(generated_rust, &debug_map)?;
+    write_debug_manifest(
+        generated_rust,
+        binary,
+        &debug_map,
+        &debug_manifest_path(generated_rust),
+        analyzed,
+    )
 }
 
 fn write_debug_source_map(generated_rust: &Path, debug_map: &Path) -> Result<(), Diagnostic> {
@@ -1234,6 +1595,72 @@ fn write_debug_source_map(generated_rust: &Path, debug_map: &Path) -> Result<(),
             format!("failed to write {}: {err}", debug_map.display()),
         )
     })
+}
+
+fn write_debug_manifest(
+    generated_rust: &Path,
+    binary: &Path,
+    debug_map: &Path,
+    debug_manifest: &Path,
+    analyzed: &AnalyzedProject,
+) -> Result<(), Diagnostic> {
+    let generated_source = fs::read_to_string(generated_rust).map_err(|err| {
+        Diagnostic::new(
+            "build",
+            format!("failed to read {}: {err}", generated_rust.display()),
+        )
+    })?;
+    let generated_rust_path = generated_rust.display().to_string();
+    let binary_path = binary.display().to_string();
+    let debug_map_path = debug_map.display().to_string();
+    let manifest = DebugManifest {
+        schema_version: "axiom.stage1.debug_manifest.v1",
+        binary: &binary_path,
+        binary_hash: hash_file_bytes(binary)?,
+        generated_rust: &generated_rust_path,
+        generated_rust_hash: hash_file(generated_rust)?,
+        debug_map: &debug_map_path,
+        rustc: DebugRustcInfo {
+            debuginfo: 2,
+            opt_level: 0,
+            native_debug_info: "rustc DWARF points at generated Rust",
+            axiom_dwarf: false,
+        },
+        source_files: debug_source_files(analyzed, &generated_source)?,
+    };
+    let content = serde_json::to_string_pretty(&manifest).map_err(|err| {
+        Diagnostic::new("build", format!("failed to render debug manifest: {err}"))
+    })?;
+    fs::write(debug_manifest, format!("{content}\n")).map_err(|err| {
+        Diagnostic::new(
+            "build",
+            format!("failed to write {}: {err}", debug_manifest.display()),
+        )
+    })
+}
+
+fn debug_source_files(
+    analyzed: &AnalyzedProject,
+    generated_source: &str,
+) -> Result<Vec<DebugSourceFile>, Diagnostic> {
+    let mut mapping_counts = BTreeMap::<String, usize>::new();
+    for mapping in debug_source_mappings(generated_source) {
+        *mapping_counts.entry(mapping.source).or_default() += 1;
+    }
+    analyzed
+        .modules
+        .iter()
+        .map(|module| {
+            let source = module_source(&module.path)?;
+            let path = module.path.display().to_string();
+            Ok(DebugSourceFile {
+                mapping_count: mapping_counts.get(&path).copied().unwrap_or(0),
+                path,
+                source_hash: hash_text(&source),
+                line_count: source.lines().count(),
+            })
+        })
+        .collect()
 }
 
 fn debug_source_mappings(generated_source: &str) -> Vec<DebugSourceMapping> {
@@ -1689,9 +2116,11 @@ fn expected_error_mismatch(
         .unwrap_or_default();
     let actual_line = actual.line.unwrap_or_default();
     let actual_column = actual.column.unwrap_or_default();
+    let message_matches = actual.message == expected.message
+        || (expected.message.ends_with(':') && actual.message.starts_with(&expected.message));
     if actual.kind == expected.kind
         && actual.code == expected.code
-        && actual.message == expected.message
+        && message_matches
         && actual_path == expected.path
         && actual_line == expected.line
         && actual_column == expected.column
@@ -2181,7 +2610,7 @@ fn validate_expr_capabilities(
                 && !capabilities.enabled(kind)
             {
                 let requirement = if kind == CapabilityKind::Env {
-                    String::from("[capabilities].env = [\"NAME\"] or env_unrestricted = true")
+                    env_capability_requirement(args)
                 } else {
                     format!("[capabilities].{} = true", kind.name())
                 };
@@ -2256,6 +2685,15 @@ fn validate_expr_capabilities(
         syntax::Expr::Closure { body, .. } => {
             validate_expr_capabilities(module_path, body, capabilities)
         }
+    }
+}
+
+fn env_capability_requirement(args: &[syntax::Expr]) -> String {
+    match args.first() {
+        Some(syntax::Expr::Literal(syntax::Literal::String(name))) => {
+            format!("[capabilities].env = [{name:?}] or env_unrestricted = true")
+        }
+        _ => String::from("[capabilities].env = [\"NAME\"] or env_unrestricted = true"),
     }
 }
 
@@ -4791,6 +5229,8 @@ fn resolve_import_path(
                 .with_span(import.line, import.column));
             }
             if !candidate.exists() {
+                let relative =
+                    relative_diagnostic_path(&dependency.root, &candidate.display().to_string());
                 return Err(Diagnostic::new(
                     "import",
                     format!(

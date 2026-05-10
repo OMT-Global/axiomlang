@@ -56,6 +56,8 @@ pub struct BuildSection {
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct DependencySpec {
     pub path: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -136,6 +138,12 @@ pub struct CapabilityDescriptor {
     pub deny_by_default: bool,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub allowed: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub configured_root: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub effective_root: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub package_root: Option<String>,
     #[serde(skip_serializing_if = "is_false")]
     pub unsafe_unrestricted: bool,
     #[serde(skip_serializing_if = "is_false")]
@@ -196,7 +204,7 @@ enum RawDependencySpec {
 #[derive(Debug, Deserialize)]
 struct RawDependencyDetail {
     path: Option<String>,
-    version: Option<toml::Value>,
+    version: Option<String>,
     checksum: Option<toml::Value>,
     registry: Option<toml::Value>,
     source: Option<toml::Value>,
@@ -320,6 +328,9 @@ pub fn capability_descriptors(config: &CapabilityConfig) -> Vec<CapabilityDescri
             } else {
                 Vec::new()
             },
+            configured_root: None,
+            effective_root: None,
+            package_root: None,
             unsafe_unrestricted: *kind == CapabilityKind::Env && config.env_unrestricted,
             unsafe_opt_in: config.unsafe_opt_ins.iter().any(|name| name == kind.name()),
             owner: config.owners.get(kind.name()).cloned(),
@@ -776,15 +787,19 @@ fn normalize_dependencies(
                     .with_path(path.display().to_string()),
             );
         }
-        let raw_path = match raw_spec {
-            RawDependencySpec::Path(value) => value,
+        match raw_spec {
+            RawDependencySpec::Path(value) => {
+                validate_dependency_path(path, &format!("dependencies.{name}.path"), &value)?;
+                dependencies.insert(
+                    name,
+                    DependencySpec {
+                        path: value,
+                        version: None,
+                    },
+                );
+                continue;
+            }
             RawDependencySpec::Detailed(detail) => {
-                if detail.version.is_some() {
-                    return Err(reserved_manifest_field(
-                        path,
-                        &format!("dependencies.{name}.version"),
-                    ));
-                }
                 if detail.checksum.is_some() {
                     return Err(reserved_manifest_field(
                         path,
@@ -803,13 +818,70 @@ fn normalize_dependencies(
                         &format!("dependencies.{name}.source"),
                     ));
                 }
-                required_field(detail.path, path, &format!("dependencies.{name}.path"))?
+                if detail.path.is_none() && detail.version.is_some() {
+                    return Err(reserved_manifest_field(
+                        path,
+                        &format!("dependencies.{name}.version"),
+                    ));
+                }
+                let raw_path =
+                    required_field(detail.path, path, &format!("dependencies.{name}.path"))?;
+                validate_dependency_path(path, &format!("dependencies.{name}.path"), &raw_path)?;
+                let version = normalize_dependency_version(
+                    path,
+                    &format!("dependencies.{name}.version"),
+                    detail.version,
+                )?;
+                dependencies.insert(
+                    name,
+                    DependencySpec {
+                        path: raw_path,
+                        version,
+                    },
+                );
             }
         };
-        validate_dependency_path(path, &format!("dependencies.{name}.path"), &raw_path)?;
-        dependencies.insert(name, DependencySpec { path: raw_path });
     }
     Ok(dependencies)
+}
+
+fn normalize_dependency_version(
+    path: &Path,
+    field_name: &str,
+    version: Option<String>,
+) -> Result<Option<String>, Diagnostic> {
+    let Some(version) = version else {
+        return Ok(None);
+    };
+    let version = required_field(Some(version), path, field_name)?;
+    validate_version_constraint(path, field_name, &version)?;
+    Ok(Some(version))
+}
+
+fn validate_version_constraint(
+    path: &Path,
+    field_name: &str,
+    version: &str,
+) -> Result<(), Diagnostic> {
+    if version == "*" {
+        return Ok(());
+    }
+    let candidate = version.strip_prefix('^').unwrap_or(version);
+    let parts = candidate.split('.').collect::<Vec<_>>();
+    if parts.len() == 3
+        && parts
+            .iter()
+            .all(|part| !part.is_empty() && part.chars().all(|ch| ch.is_ascii_digit()))
+    {
+        return Ok(());
+    }
+    Err(
+        Diagnostic::new(
+            "manifest",
+            format!("{field_name} must be '*', an exact MAJOR.MINOR.PATCH version, or a caret constraint like ^1.2.3"),
+        )
+        .with_path(path.display().to_string()),
+    )
 }
 
 fn normalize_tests(
@@ -1014,6 +1086,10 @@ registry = "https://registry.example.test/index"
 "#,
         );
         let error = load_manifest(dir.path()).expect_err("dependency registry should be reserved");
-        assert!(error.message.contains("dependencies.dep.registry is reserved"));
+        assert!(
+            error
+                .message
+                .contains("dependencies.dep.registry is reserved")
+        );
     }
 }

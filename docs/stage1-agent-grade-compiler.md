@@ -19,6 +19,9 @@ AG0 is the current entry floor and must remain intact before any downstream work
 
 - The new backend-selection seam is preparatory plumbing only; it does not yet
   satisfy or close #105 on its own.
+  Debug builds now produce a generated-Rust source map and debug manifest that
+  correlate the native binary, generated Rust, and `.ax` source hashes, but they
+  do not yet provide native `.ax` DWARF line tables.
 - The current language floor includes multi-file modules, structs, enums,
   arrays, maps, tuples, borrowed slices, `Option<T>`, `Result<T, E>`, and the
   ownership/bootstrap work captured by `stage1/examples/borrowed_shapes`.

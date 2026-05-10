@@ -1,5 +1,6 @@
 pub mod codegen;
 pub mod dap;
+pub mod diagnostic_catalog;
 pub mod diagnostics;
 pub mod hir;
 pub mod json_contract;
@@ -28,7 +29,8 @@ mod tests {
     use crate::project::{
         BuildCacheStatus, BuildOptions, CheckOptions, RunOptions, TestOptions, build_project,
         build_project_with_options, check_project, check_project_with_options,
-        command_for_build_output, command_for_executable, project_capabilities, run_project_tests,
+        command_for_build_output, command_for_executable, list_project_tests_with_options,
+        package_graph_metadata, project_capabilities, run_project_tests,
         run_project_tests_with_options, run_project_with_options,
     };
     use crate::syntax::{Stmt, TypeName, Visibility, parse_program, parse_program_with_recovery};
@@ -2440,6 +2442,76 @@ let bad: u8 = byte.wrapping_add(1u16)
     }
 
     #[test]
+    fn package_graph_metadata_lists_workspace_packages() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("workspace-graph-root");
+        let app = project.join("members/app");
+        let core = project.join("members/core");
+        fs::create_dir_all(project.join("members")).expect("create workspace members dir");
+        create_project(&app, Some("workspace-graph-app")).expect("create app member");
+        create_project(&core, Some("workspace-graph-core")).expect("create core member");
+
+        fs::write(
+            app.join("axiom.toml"),
+            format!(
+                "{}\n[dependencies]\ncore = {{ path = \"../core\" }}\n",
+                render_manifest("workspace-graph-app")
+            ),
+        )
+        .expect("write app manifest");
+        let app_manifest = load_manifest(&app).expect("load app manifest");
+        fs::write(
+            app.join("axiom.lock"),
+            render_lockfile_for_project(&app, &app_manifest).expect("app lockfile"),
+        )
+        .expect("write app lockfile");
+        let core_manifest = load_manifest(&core).expect("load core manifest");
+        fs::write(
+            core.join("axiom.lock"),
+            render_lockfile_for_project(&core, &core_manifest).expect("core lockfile"),
+        )
+        .expect("write core lockfile");
+        fs::write(
+            project.join("axiom.toml"),
+            "[workspace]\nmembers = [\"members/app\", \"members/core\"]\n",
+        )
+        .expect("write workspace-only manifest");
+        let root_manifest = load_manifest(&project).expect("load root manifest");
+        fs::write(
+            project.join("axiom.lock"),
+            render_lockfile_for_project(&project, &root_manifest).expect("root lockfile"),
+        )
+        .expect("write root lockfile");
+
+        let graph = package_graph_metadata(&project).expect("load package graph metadata");
+        assert_eq!(graph.packages.len(), 3);
+        let root = graph
+            .packages
+            .iter()
+            .find(|package| package.workspace_only)
+            .expect("workspace-only package");
+        assert_eq!(root.members.len(), 2);
+        assert_eq!(root.lockfile.status, "current");
+        let app = graph
+            .packages
+            .iter()
+            .find(|package| package.name.as_deref() == Some("workspace-graph-app"))
+            .expect("app package");
+        assert_eq!(app.dependencies.len(), 1);
+        assert_eq!(app.dependencies[0].name, "core");
+        assert_eq!(
+            app.dependencies[0].package.as_deref(),
+            Some("workspace-graph-core")
+        );
+        assert!(
+            app.entrypoint
+                .as_deref()
+                .unwrap_or("")
+                .ends_with("src/main.ax")
+        );
+    }
+
+    #[test]
     fn workspace_only_manifest_requires_package_for_run() {
         let dir = tempdir().expect("tempdir");
         let project = dir.path().join("workspace-only-run");
@@ -2631,6 +2703,107 @@ crypto = false
     }
 
     #[test]
+    fn dependency_version_constraints_are_enforced() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("versioned-dependency-app");
+        let dependency = project.join("deps/core");
+        create_project(&project, Some("versioned-dependency-app")).expect("create root");
+        create_project(&dependency, Some("versioned-core")).expect("create dependency");
+
+        fs::write(
+            dependency.join("src/math.ax"),
+            "pub fn answer(): int {\nreturn 42\n}\n",
+        )
+        .expect("write dependency source");
+        let dependency_manifest = load_manifest(&dependency).expect("load dependency manifest");
+        fs::write(
+            dependency.join("axiom.lock"),
+            render_lockfile_for_project(&dependency, &dependency_manifest)
+                .expect("dependency lockfile"),
+        )
+        .expect("write dependency lockfile");
+
+        fs::write(
+            project.join("axiom.toml"),
+            format!(
+                "{}\n[dependencies]\ncore = {{ path = \"deps/core\", version = \"^0.2.0\" }}\n",
+                render_manifest("versioned-dependency-app")
+            ),
+        )
+        .expect("write root manifest");
+        fs::write(
+            project.join("src/main.ax"),
+            "import \"core/math.ax\"\nprint answer()\n",
+        )
+        .expect("write root source");
+        let manifest = load_manifest(&project).expect("load root manifest");
+        fs::write(
+            project.join("axiom.lock"),
+            render_lockfile_for_project(&project, &manifest).expect("root lockfile"),
+        )
+        .expect("write root lockfile");
+
+        let error = check_project(&project).expect_err("incompatible version should fail");
+        assert_eq!(error.kind, "manifest");
+        assert!(
+            error
+                .message
+                .contains("version constraint \"^0.2.0\" is incompatible")
+        );
+
+        fs::write(
+            project.join("axiom.toml"),
+            format!(
+                "{}\n[dependencies]\ncore = {{ path = \"deps/core\", version = \"^0.1.0\" }}\n",
+                render_manifest("versioned-dependency-app")
+            ),
+        )
+        .expect("write compatible root manifest");
+        let manifest = load_manifest(&project).expect("load compatible root manifest");
+        fs::write(
+            project.join("axiom.lock"),
+            render_lockfile_for_project(&project, &manifest).expect("compatible root lockfile"),
+        )
+        .expect("write compatible root lockfile");
+        check_project(&project).expect("compatible version should pass");
+
+        fs::write(
+            dependency.join("axiom.toml"),
+            "[package]\nname = \"versioned-core\"\nversion = \"0.0.4\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n",
+        )
+        .expect("write 0.0.x dependency manifest");
+        let dependency_manifest = load_manifest(&dependency).expect("load 0.0.x dependency");
+        fs::write(
+            dependency.join("axiom.lock"),
+            render_lockfile_for_project(&dependency, &dependency_manifest)
+                .expect("0.0.x dependency lockfile"),
+        )
+        .expect("write 0.0.x dependency lockfile");
+        fs::write(
+            project.join("axiom.toml"),
+            format!(
+                "{}\n[dependencies]\ncore = {{ path = \"deps/core\", version = \"^0.0.3\" }}\n",
+                render_manifest("versioned-dependency-app")
+            ),
+        )
+        .expect("write 0.0.x root manifest");
+        let manifest = load_manifest(&project).expect("load 0.0.x root manifest");
+        fs::write(
+            project.join("axiom.lock"),
+            render_lockfile_for_project(&project, &manifest).expect("0.0.x root lockfile"),
+        )
+        .expect("write 0.0.x root lockfile");
+
+        let error = check_project(&project).expect_err("^0.0.3 must reject 0.0.4");
+        assert_eq!(error.kind, "manifest");
+        assert!(
+            error
+                .message
+                .contains("version constraint \"^0.0.3\" is incompatible")
+        );
+    }
+
+    #[test]
     fn dependency_package_must_enable_its_own_capabilities() {
         let dir = tempdir().expect("tempdir");
         let project = dir.path().join("dep-cap-root");
@@ -2805,6 +2978,138 @@ crypto = false
     }
 
     #[test]
+    fn capability_view_includes_effective_fs_root_scope() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("caps-fs");
+        create_project(&project, Some("caps-fs-app")).expect("create project");
+        fs::create_dir_all(project.join("data")).expect("create fs root");
+        fs::write(
+            project.join("axiom.toml"),
+            "[package]\nname = \"caps-fs-app\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = true\nfs_root = \"data\"\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\nffi = false\n",
+        )
+        .expect("write manifest");
+
+        let caps = project_capabilities(&project).expect("project capabilities");
+        let fs_capability = caps
+            .iter()
+            .find(|cap| cap.name == "fs")
+            .expect("fs capability");
+        assert!(fs_capability.enabled);
+        assert_eq!(fs_capability.configured_root.as_deref(), Some("data"));
+        let canonical_data = fs::canonicalize(project.join("data"))
+            .expect("canonical fs root")
+            .to_string_lossy()
+            .into_owned();
+        let canonical_project = fs::canonicalize(&project)
+            .expect("canonical package root")
+            .to_string_lossy()
+            .into_owned();
+        assert_eq!(
+            fs_capability.effective_root.as_deref(),
+            Some(canonical_data.as_str())
+        );
+        assert_eq!(
+            fs_capability.package_root.as_deref(),
+            Some(canonical_project.as_str())
+        );
+
+        let payload = json_contract::caps_success(&project, &caps);
+        assert_eq!(payload["capabilities"][0]["name"], "fs");
+        assert_eq!(payload["capabilities"][0]["configured_root"], "data");
+        assert_eq!(payload["capabilities"][0]["effective_root"], canonical_data);
+        assert_eq!(
+            payload["capabilities"][0]["package_root"],
+            canonical_project
+        );
+    }
+
+    #[test]
+    fn capability_view_includes_fs_write_root_scope() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("caps-fs-write");
+        create_project(&project, Some("caps-fs-write-app")).expect("create project");
+        fs::create_dir_all(project.join("data")).expect("create fs root");
+        fs::write(
+            project.join("axiom.toml"),
+            "[package]\nname = \"caps-fs-write-app\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\n\"fs:write\" = true\nfs_root = \"data\"\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\nffi = false\n",
+        )
+        .expect("write manifest");
+
+        let caps = project_capabilities(&project).expect("project capabilities");
+        let fs_capability = caps
+            .iter()
+            .find(|cap| cap.name == "fs")
+            .expect("fs capability");
+        assert!(!fs_capability.enabled);
+        assert!(fs_capability.configured_root.is_none());
+
+        let fs_write_capability = caps
+            .iter()
+            .find(|cap| cap.name == "fs:write")
+            .expect("fs:write capability");
+        assert!(fs_write_capability.enabled);
+        assert_eq!(fs_write_capability.configured_root.as_deref(), Some("data"));
+        let canonical_data = fs::canonicalize(project.join("data"))
+            .expect("canonical fs root")
+            .to_string_lossy()
+            .into_owned();
+        let canonical_project = fs::canonicalize(&project)
+            .expect("canonical package root")
+            .to_string_lossy()
+            .into_owned();
+        assert_eq!(
+            fs_write_capability.effective_root.as_deref(),
+            Some(canonical_data.as_str())
+        );
+        assert_eq!(
+            fs_write_capability.package_root.as_deref(),
+            Some(canonical_project.as_str())
+        );
+
+        let payload = json_contract::caps_success(&project, &caps);
+        assert_eq!(payload["capabilities"][1]["name"], "fs:write");
+        assert_eq!(payload["capabilities"][1]["configured_root"], "data");
+        assert_eq!(payload["capabilities"][1]["effective_root"], canonical_data);
+        assert_eq!(
+            payload["capabilities"][1]["package_root"],
+            canonical_project
+        );
+    }
+
+    #[test]
+    fn capability_view_reports_unsafe_env_grants() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("caps-env-unrestricted");
+        create_project(&project, Some("caps-env-unrestricted-app")).expect("create project");
+        fs::write(
+            project.join("axiom.toml"),
+            "[package]\nname = \"caps-env-unrestricted-app\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nenv_unrestricted = true\n",
+        )
+        .expect("write manifest");
+
+        let manifest = load_manifest(&project).expect("load manifest");
+        assert_eq!(manifest.capabilities.warnings().len(), 1);
+        let caps = project_capabilities(&project).expect("project capabilities");
+        let env = caps
+            .iter()
+            .find(|cap| cap.name == "env")
+            .expect("env capability");
+        assert!(env.enabled);
+        assert!(env.allowed.is_empty());
+        assert!(env.unsafe_unrestricted);
+
+        let payload = json_contract::caps_success(&project, &caps);
+        let env_payload = payload["capabilities"]
+            .as_array()
+            .expect("capabilities array")
+            .iter()
+            .find(|cap| cap["name"] == "env")
+            .expect("env capability payload");
+        assert!(env_payload["allowed"].is_null());
+        assert_eq!(env_payload["unsafe_unrestricted"], true);
+    }
+
+    #[test]
     fn check_project_rejects_extern_function_without_ffi_capability() {
         let dir = tempdir().expect("tempdir");
         let project = dir.path().join("ffi-denied");
@@ -2908,8 +3213,33 @@ print strlen("hello")
         assert!(
             error
                 .message
-                .contains("requires [capabilities].env = [\"NAME\"]")
+                .contains("requires [capabilities].env = [\"PATH\"]")
         );
+    }
+
+    #[test]
+    fn env_denial_diagnostic_names_allowlist_entry_without_env_value() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("env-denied-secret-safe");
+        create_project(&project, Some("env-denied-secret-safe-app")).expect("create project");
+        fs::write(
+            project.join("src/main.ax"),
+            "let value: Option<string> = env_get(\"AWS_SECRET_ACCESS_KEY\")\nprint \"never\"\n",
+        )
+        .expect("write source");
+
+        let error = check_project(&project).expect_err("env capability should be required");
+        let payload = json_contract::error("check", &error);
+        let payload = json_contract::to_pretty_string(&payload).expect("serialize error payload");
+        assert_eq!(error.kind, "capability");
+        assert!(
+            error
+                .message
+                .contains("requires [capabilities].env = [\"AWS_SECRET_ACCESS_KEY\"]")
+        );
+        assert!(payload.contains("AWS_SECRET_ACCESS_KEY"));
+        assert!(!error.message.contains("blocked-secret-value"));
+        assert!(!payload.contains("blocked-secret-value"));
     }
 
     #[test]
@@ -3168,6 +3498,32 @@ print strlen("hello")
             "inside ok\nabsolute denied\ntraversal denied\nsymlink denied\nlarge denied\n",
         )
         .expect("write golden");
+        let caps = project_capabilities(&project).expect("project capabilities");
+        let fs_capability = caps
+            .iter()
+            .find(|cap| cap.name == "fs")
+            .expect("fs capability");
+        let canonical_data = fs::canonicalize(&data)
+            .expect("canonical fs root")
+            .to_string_lossy()
+            .into_owned();
+        let canonical_project = fs::canonicalize(&project)
+            .expect("canonical package root")
+            .to_string_lossy()
+            .into_owned();
+        assert_eq!(fs_capability.configured_root.as_deref(), Some("data"));
+        assert_eq!(
+            fs_capability.effective_root.as_deref(),
+            Some(canonical_data.as_str())
+        );
+        assert_eq!(
+            fs_capability.package_root.as_deref(),
+            Some(canonical_project.as_str())
+        );
+        assert!(
+            canonical_data.starts_with(&canonical_project),
+            "reported fs root must stay within reported package root"
+        );
 
         let built = build_project(&project).expect("build project");
         let output = compiled_binary_command(&built.binary)
@@ -5394,8 +5750,26 @@ print serve_once("127.0.0.1:18080", "hello")
         let err = load_manifest(&dependency_version).expect_err("reserved dependency should fail");
         assert!(
             err.message
-                .contains("dependencies.core.version is reserved")
+                .contains("dependencies.core.registry is reserved")
         );
+
+        let invalid_dependency_version = dir.path().join("invalid-dependency-version");
+        create_project(
+            &invalid_dependency_version,
+            Some("invalid-dependency-version-app"),
+        )
+        .expect("create project");
+        fs::write(
+            invalid_dependency_version.join("axiom.toml"),
+            format!(
+                "{}\n[dependencies]\ncore = {{ path = \"deps/core\", version = \"latest\" }}\n",
+                render_manifest("invalid-dependency-version-app")
+            ),
+        )
+        .expect("write manifest");
+        let err = load_manifest(&invalid_dependency_version)
+            .expect_err("invalid dependency version should fail");
+        assert!(err.message.contains("dependencies.core.version must be"));
     }
 
     #[test]
@@ -5709,6 +6083,54 @@ print serve_once("127.0.0.1:18080", "hello")
         assert_eq!(output.kinds.get(&TestKind::Table), Some(&1));
         assert_eq!(output.kinds.get(&TestKind::Property), Some(&1));
         assert_eq!(output.kinds.get(&TestKind::Snapshot), Some(&1));
+    }
+
+    #[test]
+    fn list_project_tests_reports_stable_names_paths_and_package_membership() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("list-tests-discovery");
+        create_project(&project, Some("list-tests-app")).expect("create project");
+        fs::write(project.join("src/main_test.ax"), "print \"unit\"\n").expect("write unit test");
+        fs::create_dir_all(project.join("src/nested")).expect("create nested dir");
+        fs::write(
+            project.join("src/nested/cases_table_test.ax"),
+            "print \"table\"\n",
+        )
+        .expect("write table test");
+
+        let output = list_project_tests_with_options(&project, &TestOptions::default())
+            .expect("list discovered tests");
+
+        assert_eq!(output.packages, vec![project.display().to_string()]);
+        let listed = output
+            .tests
+            .iter()
+            .map(|test| {
+                (
+                    test.package.as_deref(),
+                    test.name.as_str(),
+                    test.entry.as_str(),
+                    test.kind,
+                )
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            listed,
+            vec![
+                (
+                    Some("list-tests-app"),
+                    "src/main_test",
+                    "src/main_test.ax",
+                    TestKind::Unit,
+                ),
+                (
+                    Some("list-tests-app"),
+                    "src/nested/cases_table_test",
+                    "src/nested/cases_table_test.ax",
+                    TestKind::Table,
+                ),
+            ]
+        );
     }
 
     #[test]
@@ -8625,6 +9047,9 @@ print takes_two(three)
         assert!(debug.packages[0].debug);
         let debug_map = PathBuf::from(debug.debug_map.as_ref().expect("debug map path"));
         assert!(debug_map.exists());
+        let debug_manifest =
+            PathBuf::from(debug.debug_manifest.as_ref().expect("debug manifest path"));
+        assert!(debug_manifest.exists());
         assert_eq!(debug.cache_hits, 0);
         assert_eq!(debug.cache_misses, 1);
 
@@ -8646,6 +9071,23 @@ print takes_two(three)
         assert_eq!(map["mappings"][0]["line"], 1);
         assert_eq!(map["mappings"][0]["column"], 1);
         assert!(map["mappings"][0]["generated_line"].is_u64());
+        let manifest: serde_json::Value = serde_json::from_str(
+            &fs::read_to_string(&debug_manifest).expect("read debug manifest"),
+        )
+        .expect("parse debug manifest");
+        assert_eq!(manifest["schema_version"], "axiom.stage1.debug_manifest.v1");
+        assert_eq!(manifest["binary"], debug.binary);
+        assert_eq!(manifest["generated_rust"], debug.generated_rust);
+        assert_eq!(manifest["debug_map"], debug_map.display().to_string());
+        assert_eq!(manifest["rustc"]["debuginfo"], 2);
+        assert_eq!(manifest["rustc"]["opt_level"], 0);
+        assert_eq!(manifest["rustc"]["axiom_dwarf"], false);
+        assert_eq!(manifest["source_files"][0]["path"], source);
+        assert_eq!(manifest["source_files"][0]["line_count"], 2);
+        assert_eq!(manifest["source_files"][0]["mapping_count"], 2);
+        assert!(manifest["source_files"][0]["source_hash"].is_string());
+        assert!(manifest["binary_hash"].is_string());
+        assert!(manifest["generated_rust_hash"].is_string());
 
         if let Ok(readelf) = which::which("readelf") {
             let output = Command::new(readelf)
@@ -8738,6 +9180,7 @@ print takes_two(three)
         );
 
         fs::remove_file(&debug_map).expect("remove debug map");
+        fs::remove_file(&debug_manifest).expect("remove debug manifest");
         let cached_debug = build_project_with_options(
             &project,
             &BuildOptions {
@@ -8752,6 +9195,7 @@ print takes_two(three)
         assert_eq!(cached_debug.cache_hits, 1);
         assert_eq!(cached_debug.cache_misses, 0);
         assert!(debug_map.exists());
+        assert!(debug_manifest.exists());
     }
 
     #[test]
@@ -8991,6 +9435,18 @@ print takes_two(three)
         assert!(payload["target"].is_string());
         assert_eq!(payload["debug"], true);
         assert!(payload["debug_map"].is_string());
+        assert!(payload["debug_manifest"].is_string());
+        assert_eq!(payload["cache_key"]["target"], payload["target"]);
+        assert_eq!(payload["cache_key"]["debug"], true);
+        assert!(payload["cache_key"]["manifest_hash"].is_string());
+        assert!(payload["cache_key"]["lockfile_hash"].is_string());
+        assert!(payload["cache_key"]["generated_rust_hash"].is_string());
+        assert!(payload["cache_key"]["sources"].is_array());
+        assert!(payload["cache_key"]["sources"][0]["source_hash"].is_string());
+        assert_eq!(
+            payload["packages"][0]["cache_key"]["lockfile_hash"],
+            payload["cache_key"]["lockfile_hash"]
+        );
         assert!(payload["cache_hits"].is_u64());
         assert!(payload["cache_misses"].is_u64());
         assert!(payload["duration_ms"].is_u64());

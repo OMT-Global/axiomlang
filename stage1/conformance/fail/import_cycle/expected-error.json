@@ -1,7 +1,7 @@
 {
   "kind": "import",
   "code": "import_cycle",
-  "message": "circular import detected: src/a.ax -> src/b.ax -> src/a.ax",
+  "message": "circular import detected:",
   "path": "src/a.ax",
   "line": 0,
   "column": 0

@@ -1,6 +1,6 @@
 use crate::diagnostics::Diagnostic;
 use crate::manifest::CapabilityDescriptor;
-use crate::project::{BuildOutput, CheckOutput, TestOutput};
+use crate::project::{BuildOutput, CheckOutput, TestListOutput, TestOutput};
 use serde::Serialize;
 use serde_json::{Value, json};
 use std::path::Path;
@@ -24,7 +24,7 @@ pub fn check_success(project: &Path, output: &CheckOutput) -> Value {
 }
 
 pub fn build_success(project: &Path, output: &BuildOutput) -> Value {
-    json!({
+    let mut payload = json!({
         "schema_version": JSON_SCHEMA_VERSION,
         "ok": true,
         "command": "build",
@@ -46,6 +46,24 @@ pub fn build_success(project: &Path, output: &BuildOutput) -> Value {
         "cache_misses": output.cache_misses,
         "duration_ms": output.duration_ms,
         "packages": output.packages,
+    });
+    if let Some(debug_manifest) = &output.debug_manifest {
+        payload["debug_manifest"] = json!(debug_manifest);
+    }
+    payload
+}
+
+pub fn test_list_success(project: &Path, filter: Option<&str>, output: &TestListOutput) -> Value {
+    json!({
+        "schema_version": JSON_SCHEMA_VERSION,
+        "ok": true,
+        "command": "test",
+        "mode": "list",
+        "project": project.display().to_string(),
+        "manifest": output.manifest,
+        "packages": output.packages,
+        "filter": filter,
+        "tests": output.tests,
     })
 }
 
