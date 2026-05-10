@@ -1,4 +1,5 @@
 use axiomc::json_contract;
+use jsonschema::Validator;
 use serde_json::Value;
 use std::fs;
 use std::path::Path;
@@ -14,6 +15,25 @@ fn fixture(group: &str, name: &str) -> Value {
         .expect("fixture is valid JSON")
 }
 
+fn schema_validator() -> Validator {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("..")
+        .join("schemas")
+        .join("axiom.stage1.v1.schema.json");
+    let schema: Value = serde_json::from_str(
+        &fs::read_to_string(path).expect("read stage1 schema"),
+    )
+    .expect("stage1 schema is valid JSON");
+    jsonschema::validator_for(&schema).expect("compile stage1 JSON schema")
+}
+
+fn assert_matches_stage1_schema(validator: &Validator, payload: &Value) {
+    if let Err(error) = validator.validate(payload) {
+        panic!("fixture failed stage1 schema validation: {error}");
+    }
+}
+
 fn assert_envelope(payload: &Value, command: &str, ok: bool) {
     assert_eq!(
         payload["schema_version"],
@@ -25,7 +45,9 @@ fn assert_envelope(payload: &Value, command: &str, ok: bool) {
 
 #[test]
 fn build_fixtures_cover_target_triple_and_failure_diagnostic() {
+    let validator = schema_validator();
     let success = fixture("build", "success.json");
+    assert_matches_stage1_schema(&validator, &success);
     assert_envelope(&success, "build", true);
     assert_eq!(success["target"], "aarch64-apple-darwin");
     assert!(success["duration_ms"].is_u64());
@@ -34,6 +56,7 @@ fn build_fixtures_cover_target_triple_and_failure_diagnostic() {
     assert!(success["packages"][0]["target"].is_string());
 
     let failure = fixture("build", "failure.json");
+    assert_matches_stage1_schema(&validator, &failure);
     assert_envelope(&failure, "build", false);
     assert_eq!(failure["error"]["kind"], "build");
     assert!(failure["error"]["message"].is_string());
@@ -41,7 +64,9 @@ fn build_fixtures_cover_target_triple_and_failure_diagnostic() {
 
 #[test]
 fn test_fixtures_cover_filter_durations_and_failed_cases() {
+    let validator = schema_validator();
     let filtered = fixture("test", "filter-success.json");
+    assert_matches_stage1_schema(&validator, &filtered);
     assert_envelope(&filtered, "test", true);
     assert_eq!(filtered["filter"], "math");
     assert_eq!(filtered["passed"], 1);
@@ -50,6 +75,7 @@ fn test_fixtures_cover_filter_durations_and_failed_cases() {
     assert!(filtered["cases"][0]["duration_ms"].is_u64());
 
     let failure = fixture("test", "failure.json");
+    assert_matches_stage1_schema(&validator, &failure);
     assert_envelope(&failure, "test", false);
     assert_eq!(failure["passed"], 0);
     assert_eq!(failure["failed"], 1);
@@ -59,7 +85,9 @@ fn test_fixtures_cover_filter_durations_and_failed_cases() {
 
 #[test]
 fn caps_fixture_covers_unsafe_capability_state() {
+    let validator = schema_validator();
     let payload = fixture("caps", "unsafe-env.json");
+    assert_matches_stage1_schema(&validator, &payload);
     assert_envelope(&payload, "caps", true);
 
     let env = payload["capabilities"]

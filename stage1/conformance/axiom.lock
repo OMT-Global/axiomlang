@@ -295,6 +295,11 @@ version = "0.1.0"
 source = "path:pass/package_visibility"
 
 [[package]]
+name = "conformance-runtime-negative-diagnostics"
+version = "0.1.0"
+source = "path:pass/runtime_negative_diagnostics"
+
+[[package]]
 name = "conformance-slice-type-alias-in-option"
 version = "0.1.0"
 source = "path:pass/slice_type_alias_in_option"
