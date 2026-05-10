@@ -27,7 +27,7 @@ class Phase:
 
 
 PHASES = (
-    Phase("parser", ("fmt", "{project}", "--check")),
+    Phase("parser", ("parse", "{project}")),
     Phase("check", ("check", "{project}", "--json")),
     Phase("build", ("build", "{project}", "--json")),
     Phase("run", ("run", "{project}")),
