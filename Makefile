@@ -79,7 +79,7 @@ stage1-crap-proposal:
 	python3 scripts/ci/propose-stage1-crap-thresholds.py --output stage1/quality/crap-threshold-proposal.json
 
 mutation-rust-smoke:
-	bash scripts/ci/run-mutation-rust-smoke.sh
+	python3 scripts/ci/run-mutation-rust-smoke.py
 
 stage1-crap-thresholds:
 	python3 scripts/ci/propose-stage1-crap-thresholds.py
