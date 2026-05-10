@@ -200,7 +200,11 @@ pub fn has_items<T>(values: &[T]): bool {\nreturn len(values) > 0\n}\n\
 pub fn count_mut<T>(values: &mut [T]): int {\nreturn len(values)\n}\n\
 pub fn skip<T>(values: &[T], count: int): &[T] {\nreturn values[count:]\n}\n\
 pub fn take<T>(values: &[T], count: int): &[T] {\nreturn values[:count]\n}\n\
-pub fn window<T>(values: &[T], start: int, end: int): &[T] {\nreturn values[start:end]\n}\n",
+pub fn window<T>(values: &[T], start: int, end: int): &[T] {\nreturn values[start:end]\n}\n\
+pub fn contains<K, V>(values: {K: V}, key: K): bool {\nreturn map_contains_key<K, V>(values, key)\n}\n\
+pub fn get<K, V>(values: {K: V}, key: K): Option<V> {\nreturn map_get<K, V>(values, key)\n}\n\
+pub fn get_or_default<K, V>(values: {K: V}, key: K, default: V): V {\nmatch map_get<K, V>(values, key) {\nSome(value) {\nreturn value\n}\nNone {\nreturn default\n}\n}\n}\n\
+pub fn keys<K, V>(values: {K: V}): [K] {\nreturn map_keys<K, V>(values)\n}\n",
     ),
     (
         "string_builder.ax",
