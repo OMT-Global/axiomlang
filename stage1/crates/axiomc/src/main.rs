@@ -2440,7 +2440,7 @@ mod tests {
     }
 
     #[test]
-    fn build_summary_omits_debug_map_for_release_builds() {
+    fn build_summary_omits_debug_artifacts_for_release_builds() {
         assert_eq!(
             build_summary_lines(&build_output(None, None), false),
             vec![String::from("wrote dist/app (backend=generated-rust)")]

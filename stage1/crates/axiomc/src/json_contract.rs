@@ -37,6 +37,7 @@ pub fn build_success(project: &Path, output: &BuildOutput) -> Value {
         "binary": output.binary,
         "generated_rust": output.generated_rust,
         "debug_map": output.debug_map,
+        "debug_manifest": output.debug_manifest,
         "statement_count": output.statement_count,
         "target": output.target,
         "debug": output.debug,

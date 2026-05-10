@@ -72,11 +72,13 @@
       },
       "package_root": "<project>",
       "statement_count": 1,
-      "target": null
+      "target": null,
+      "debug_manifest": null
     }
   ],
   "project": "<project>",
   "schema_version": "axiom.stage1.v1",
   "statement_count": 1,
-  "target": null
+  "target": null,
+  "debug_manifest": null
 }
