@@ -3087,7 +3087,7 @@ crypto = false
         create_project(&project, Some("caps-env-unrestricted-app")).expect("create project");
         fs::write(
             project.join("axiom.toml"),
-            "[package]\nname = \"caps-env-unrestricted-app\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nenv_unrestricted = true\n",
+            "[package]\nname = \"caps-env-unrestricted-app\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nenv_unrestricted = true\nunsafe_rationale = \"test fixture intentionally exercises unrestricted env reporting\"\n",
         )
         .expect("write manifest");
 
