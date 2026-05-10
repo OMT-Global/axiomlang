@@ -1,0 +1,21 @@
+import "std/collections.ax"
+
+let scores: {string: int} = {"build": 7, "deploy": 9}
+print contains<string, int>(scores, "deploy")
+
+let fallback_scores: {string: int} = {"build": 7, "deploy": 9}
+print get_or_default<string, int>(fallback_scores, "missing", 42)
+
+let lookup_scores: {string: int} = {"build": 7, "deploy": 9}
+match get<string, int>(lookup_scores, "build") {
+Some(value) {
+print value
+}
+None {
+print 0
+}
+}
+
+let labels: {string: int} = {"build": 7, "deploy": 9}
+let label_keys: [string] = keys<string, int>(labels)
+print len(label_keys)
