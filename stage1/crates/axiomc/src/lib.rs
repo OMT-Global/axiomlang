@@ -3108,7 +3108,7 @@ crypto = false
             .expect("capabilities array")
             .iter()
             .find(|cap| cap["name"] == "env")
-            .expect("env capability payload");
+            .expect("env capability JSON");
         assert!(env_payload["allowed"].is_null());
         assert_eq!(env_payload["unsafe_unrestricted"], true);
     }
