@@ -4,6 +4,11 @@ set -euo pipefail
 pr_body="${PR_BODY:-}"
 failed=0
 
+if [[ "${PR_AUTHOR:-}" == "dependabot[bot]" ]] && grep -Eq '^Bumps \[[^]]+\]\([^)]+\) from [^[:space:]]+ to [^[:space:]]+\.' <<<"$pr_body"; then
+  echo "Dependabot PR body detected; accepting generated dependency update summary."
+  exit 0
+fi
+
 require_line() {
   local line="$1"
   if ! grep -Fqx "$line" <<<"$pr_body"; then

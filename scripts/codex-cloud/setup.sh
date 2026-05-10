@@ -12,3 +12,10 @@ elif [[ -f yarn.lock ]]; then
 elif [[ -f package.json ]]; then
   npm install --prefer-offline --no-audit --no-fund
 fi
+
+if [[ -f pyproject.toml ]]; then
+  python3 -m venv .venv
+  source .venv/bin/activate
+  python -m pip install --upgrade pip setuptools wheel
+  python -m pip install -e ".[dev]" >/dev/null 2>&1 || python -m pip install -e . >/dev/null 2>&1 || true
+fi

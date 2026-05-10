@@ -1,0 +1,114 @@
+{
+  "capabilities": [
+    {
+      "description": "filesystem read access",
+      "enabled": false,
+      "name": "fs"
+    },
+    {
+      "description": "filesystem write access",
+      "enabled": false,
+      "name": "fs:write"
+    },
+    {
+      "description": "network access",
+      "enabled": false,
+      "name": "net"
+    },
+    {
+      "description": "child process execution",
+      "enabled": false,
+      "name": "process"
+    },
+    {
+      "description": "environment variable access",
+      "enabled": false,
+      "name": "env"
+    },
+    {
+      "description": "wall-clock time access",
+      "enabled": false,
+      "name": "clock"
+    },
+    {
+      "description": "hashing and cryptography primitives",
+      "enabled": false,
+      "name": "crypto"
+    },
+    {
+      "description": "foreign function interface access",
+      "enabled": false,
+      "name": "ffi"
+    },
+    {
+      "description": "host async runtime access",
+      "enabled": false,
+      "name": "async"
+    }
+  ],
+  "command": "check",
+  "entry": "/workspace/axiom/stage1/examples/hello/src/main.ax",
+  "exports": [],
+  "manifest": "/workspace/axiom/stage1/examples/hello/axiom.toml",
+  "ok": true,
+  "packages": [
+    {
+      "capabilities": [
+        {
+          "description": "filesystem read access",
+          "enabled": false,
+          "name": "fs"
+        },
+        {
+          "description": "filesystem write access",
+          "enabled": false,
+          "name": "fs:write"
+        },
+        {
+          "description": "network access",
+          "enabled": false,
+          "name": "net"
+        },
+        {
+          "description": "child process execution",
+          "enabled": false,
+          "name": "process"
+        },
+        {
+          "description": "environment variable access",
+          "enabled": false,
+          "name": "env"
+        },
+        {
+          "description": "wall-clock time access",
+          "enabled": false,
+          "name": "clock"
+        },
+        {
+          "description": "hashing and cryptography primitives",
+          "enabled": false,
+          "name": "crypto"
+        },
+        {
+          "description": "foreign function interface access",
+          "enabled": false,
+          "name": "ffi"
+        },
+        {
+          "description": "host async runtime access",
+          "enabled": false,
+          "name": "async"
+        }
+      ],
+      "entry": "/workspace/axiom/stage1/examples/hello/src/main.ax",
+      "manifest": "/workspace/axiom/stage1/examples/hello/axiom.toml",
+      "package_root": "/workspace/axiom/stage1/examples/hello",
+      "statement_count": 11,
+      "warnings": []
+    }
+  ],
+  "project": "stage1/examples/hello",
+  "schema_version": "axiom.stage1.v1",
+  "statement_count": 11,
+  "warnings": []
+}

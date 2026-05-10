@@ -6,6 +6,7 @@ pub struct Program {
     pub path: String,
     pub structs: Vec<StructDef>,
     pub enums: Vec<EnumDef>,
+    pub statics: Vec<StaticDef>,
     pub functions: Vec<Function>,
     pub stmts: Vec<Stmt>,
 }
@@ -33,6 +34,13 @@ pub struct EnumVariantDef {
     pub name: String,
     pub payload_tys: Vec<Type>,
     pub payload_names: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct StaticDef {
+    pub name: String,
+    pub ty: Type,
+    pub expr: Expr,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -144,6 +152,10 @@ pub enum Expr {
         rhs: Box<Expr>,
         ty: Type,
     },
+    Cast {
+        expr: Box<Expr>,
+        ty: Type,
+    },
     Try {
         expr: Box<Expr>,
         ty: Type,
@@ -202,13 +214,22 @@ pub enum Expr {
         index: Box<Expr>,
         ty: Type,
     },
+    StringBorrow {
+        expr: Box<Expr>,
+        ty: Type,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub enum LiteralValue {
     Int(i64),
+    Numeric {
+        raw: String,
+        ty: crate::syntax::NumericType,
+    },
     Bool(bool),
     String(String),
+    Str(String),
 }
 
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
@@ -224,8 +245,10 @@ pub enum CompareOp {
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub enum Type {
     Int,
+    Numeric(crate::syntax::NumericType),
     Bool,
     String,
+    Str,
     Struct(String),
     Enum(String),
     Ptr(Box<Type>),
@@ -236,7 +259,7 @@ pub enum Type {
     Result(Box<Type>, Box<Type>),
     Tuple(Vec<Type>),
     Map(Box<Type>, Box<Type>),
-    Array(Box<Type>),
+    Array(Box<Type>, Option<usize>),
     Task(Box<Type>),
     JoinHandle(Box<Type>),
     AsyncChannel(Box<Type>),
@@ -247,7 +270,13 @@ pub enum Type {
 impl Type {
     pub fn is_copy(&self) -> bool {
         match self {
-            Type::Int | Type::Bool | Type::Ptr(_) | Type::MutPtr(_) | Type::Slice(_) => true,
+            Type::Int
+            | Type::Numeric(_)
+            | Type::Bool
+            | Type::Str
+            | Type::Ptr(_)
+            | Type::MutPtr(_)
+            | Type::Slice(_) => true,
             Type::MutSlice(_) => false,
             Type::Option(inner) => inner.is_copy(),
             Type::Result(ok, err) => ok.is_copy() && err.is_copy(),
@@ -256,7 +285,7 @@ impl Type {
             | Type::Struct(_)
             | Type::Enum(_)
             | Type::Map(_, _)
-            | Type::Array(_)
+            | Type::Array(_, _)
             | Type::Task(_)
             | Type::JoinHandle(_)
             | Type::AsyncChannel(_)
@@ -277,8 +306,17 @@ pub fn lower(program: &hir::Program) -> Program {
         path: program.path.clone(),
         structs: program.structs.iter().map(lower_struct).collect(),
         enums: program.enums.iter().map(lower_enum).collect(),
+        statics: program.statics.iter().map(lower_static).collect(),
         functions: program.functions.iter().map(lower_function).collect(),
         stmts: program.stmts.iter().map(lower_stmt).collect(),
+    }
+}
+
+fn lower_static(static_def: &hir::StaticDef) -> StaticDef {
+    StaticDef {
+        name: static_def.name.clone(),
+        ty: lower_type(&static_def.ty),
+        expr: lower_expr(&static_def.expr),
     }
 }
 
@@ -296,12 +334,15 @@ impl Expr {
     pub fn ty(&self) -> Type {
         match self {
             Expr::Literal(LiteralValue::Int(_)) => Type::Int,
+            Expr::Literal(LiteralValue::Numeric { ty, .. }) => Type::Numeric(*ty),
             Expr::Literal(LiteralValue::Bool(_)) => Type::Bool,
             Expr::Literal(LiteralValue::String(_)) => Type::String,
+            Expr::Literal(LiteralValue::Str(_)) => Type::Str,
             Expr::VarRef { ty, .. } => ty.clone(),
             Expr::Call { ty, .. } => ty.clone(),
             Expr::BinaryAdd { ty, .. } => ty.clone(),
             Expr::BinaryCompare { ty, .. } => ty.clone(),
+            Expr::Cast { ty, .. } => ty.clone(),
             Expr::Try { ty, .. } => ty.clone(),
             Expr::Await { ty, .. } => ty.clone(),
             Expr::StructLiteral { ty, .. } => ty.clone(),
@@ -314,6 +355,7 @@ impl Expr {
             Expr::Closure { ty, .. } => ty.clone(),
             Expr::Slice { ty, .. } => ty.clone(),
             Expr::Index { ty, .. } => ty.clone(),
+            Expr::StringBorrow { ty, .. } => ty.clone(),
         }
     }
 }
@@ -473,10 +515,20 @@ fn lower_source_span(span: &hir::SourceSpan) -> SourceSpan {
 
 fn lower_expr(expr: &hir::Expr) -> Expr {
     match expr {
-        hir::Expr::Literal { value, .. } => Expr::Literal(match value {
+        hir::Expr::Literal { ty, value } => Expr::Literal(match value {
             hir::LiteralValue::Int(value) => LiteralValue::Int(*value),
+            hir::LiteralValue::Numeric { raw, ty } => LiteralValue::Numeric {
+                raw: raw.clone(),
+                ty: *ty,
+            },
             hir::LiteralValue::Bool(value) => LiteralValue::Bool(*value),
-            hir::LiteralValue::String(value) => LiteralValue::String(value.clone()),
+            hir::LiteralValue::String(value) => {
+                if matches!(ty, hir::Type::Str) {
+                    LiteralValue::Str(value.clone())
+                } else {
+                    LiteralValue::String(value.clone())
+                }
+            }
         }),
         hir::Expr::VarRef { name, ty } => Expr::VarRef {
             name: name.clone(),
@@ -496,6 +548,10 @@ fn lower_expr(expr: &hir::Expr) -> Expr {
             op: lower_compare_op(*op),
             lhs: Box::new(lower_expr(lhs)),
             rhs: Box::new(lower_expr(rhs)),
+            ty: lower_type(ty),
+        },
+        hir::Expr::Cast { expr, ty } => Expr::Cast {
+            expr: Box::new(lower_expr(expr)),
             ty: lower_type(ty),
         },
         hir::Expr::Try { expr, ty } => Expr::Try {
@@ -579,6 +635,10 @@ fn lower_expr(expr: &hir::Expr) -> Expr {
             index: Box::new(lower_expr(index)),
             ty: lower_type(ty),
         },
+        hir::Expr::StringBorrow { expr, ty } => Expr::StringBorrow {
+            expr: Box::new(lower_expr(expr)),
+            ty: lower_type(ty),
+        },
     }
 }
 
@@ -586,8 +646,10 @@ fn lower_type(ty: &hir::Type) -> Type {
     match ty {
         hir::Type::Error => unreachable!("type-error sentinel must not reach MIR lowering"),
         hir::Type::Int => Type::Int,
+        hir::Type::Numeric(numeric) => Type::Numeric(*numeric),
         hir::Type::Bool => Type::Bool,
         hir::Type::String => Type::String,
+        hir::Type::Str => Type::Str,
         hir::Type::Struct(name) => Type::Struct(name.clone()),
         hir::Type::Enum(name) => Type::Enum(name.clone()),
         hir::Type::Ptr(inner) => Type::Ptr(Box::new(lower_type(inner))),
@@ -602,7 +664,7 @@ fn lower_type(ty: &hir::Type) -> Type {
         hir::Type::Map(key, value) => {
             Type::Map(Box::new(lower_type(key)), Box::new(lower_type(value)))
         }
-        hir::Type::Array(inner, _) => Type::Array(Box::new(lower_type(inner))),
+        hir::Type::Array(inner, len) => Type::Array(Box::new(lower_type(inner)), *len),
         hir::Type::Task(inner) => Type::Task(Box::new(lower_type(inner))),
         hir::Type::JoinHandle(inner) => Type::JoinHandle(Box::new(lower_type(inner))),
         hir::Type::AsyncChannel(inner) => Type::AsyncChannel(Box::new(lower_type(inner))),

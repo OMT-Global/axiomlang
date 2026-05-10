@@ -12,6 +12,7 @@ cargo run --manifest-path stage1/Cargo.toml -p axiomc -- run stage1/examples/hel
 cargo run --manifest-path stage1/Cargo.toml -p axiomc -- test stage1/examples/modules --json
 cargo run --manifest-path stage1/Cargo.toml -p axiomc -- caps stage1/examples/hello --json
 cargo run --manifest-path stage1/Cargo.toml -p axiomc -- publish stage1/examples/hello --registry-dir ./registry/packages --signing-key dev-key
+cargo run --manifest-path stage1/Cargo.toml -p axiomc -- pkg graph stage1/examples/workspace_only --json
 cargo run --manifest-path stage1/Cargo.toml -p axiomc -- registry-index ./registry/packages --base-url https://packages.example.test --out ./registry/index.json
 cargo run --manifest-path stage1/Cargo.toml -p axiomc -- registry-validate ./registry/index.json
 ```
@@ -28,8 +29,42 @@ The current stage1 examples document the supported manifest surface:
   `--package` selection.
 - `stage1/examples/capabilities`: manifest-gated runtime capabilities.
 
-See [stage1.md](stage1.md) for the current compiler, package, and capability
-contract.
+`axiomc caps <package> --json` reports the declared capability surface. When
+filesystem access is enabled, the `fs` capability includes the manifest-relative
+`configured_root` and canonical `effective_root` so operators can inspect the
+actual package-local filesystem boundary before build or run.
+
+`axiomc pkg graph <path> --json` prints the resolved local package graph without
+mutating manifests or lockfiles. The JSON lists each package root, package
+identity, workspace members, local dependencies, build entrypoint, capabilities,
+and whether that package's `axiom.lock` is current or stale.
+
+Local path dependencies may declare a bounded version constraint:
+
+```toml
+[dependencies]
+core = { path = "deps/core", version = "^0.1.0" }
+```
+
+Stage1 currently accepts `*`, exact `MAJOR.MINOR.PATCH`, and caret
+`^MAJOR.MINOR.PATCH` constraints. The compiler validates the constraint against
+the dependency package's `[package].version` while loading the local package
+graph and fails deterministically when the versions are incompatible.
+
+## Editor Schemas
+
+Checked-in editor and agent metadata lives under `stage1/schemas/`:
+
+- `stage1/schemas/axiom.toml.schema.json` describes the decoded `axiom.toml`
+  manifest shape for TOML-aware editors.
+- `stage1/schemas/axiom.stage1.v1.schema.json` describes the shared JSON
+  envelope emitted by `axiomc check`, `build`, `test`, and `caps` with
+  `--json`.
+
+These schemas are intentionally metadata for editor completion, validation, and
+agent contract discovery. The compiler remains the source of truth for semantic
+checks such as dependency graph validity, capability enforcement, and source
+analysis.
 
 ## Publish and Static Registry Groundwork
 
@@ -43,3 +78,45 @@ contract.
 
 The generated index records per-release capability manifests, archive/signature URLs,
 and yanked status so a simple static host can serve lockfile-friendly package metadata. This is publish and registry-index groundwork for a future hosted registry service, not the hosted service itself.
+
+## Registry And Publish Contract
+
+The local manifest contract exposes publish metadata for future registry tooling while keeping dependency resolution local-only. Today, `axiomc` accepts local path dependencies and rejects registry dependency selectors:
+
+```toml
+[dependencies]
+core = { path = "deps/core" }
+```
+
+Package identity is the pair in `[package]`. Publish metadata is optional and declarative only:
+
+```toml
+[package]
+name = "agent-worker"
+version = "0.1.0"
+
+[publish]
+registry = "https://registry.example.test/index"
+checksum = "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+include = ["src/**", "axiom.toml", "axiom.lock"]
+exclude = ["dist/**"]
+```
+
+Future registry packages will need stable source and integrity metadata:
+
+- Package identity: `package.name` plus `package.version`.
+- Registry source: a named registry or URL source for non-local packages.
+- Checksums: content-addressed package archives, expected to use a tagged form
+  such as `sha256:<hex>`.
+- Publish metadata: include/exclude rules, target registry, archive checksum,
+  and provenance or signature references.
+
+Those registry fields are intentionally reserved. Until registry resolution
+exists, manifests must not contain root `[registry]`, `package.checksum`,
+`package.registry`, `package.source`, or dependency
+`checksum`/`registry`/`source` fields. Local dependency `version` constraints
+are accepted only with a local `path` and are validated against the dependency
+package version. The parser rejects reserved registry fields instead
+of silently treating a registry package as a local package. `[publish]` is
+accepted only as metadata; it does not make `axiomc` contact or upload to a
+remote registry.

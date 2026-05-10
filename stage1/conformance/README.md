@@ -12,6 +12,12 @@ stage1 project with `axiom.toml`, `axiom.lock`, source, and
 `src/**/*_test.ax` target through the Rust path, executes the generated binary,
 and compares stdout to the package-level expected output.
 
+Fixtures may also declare explicit `[[tests]]` entries in `axiom.toml`.
+Manifest test entries support `name`, `entry`, `stdout`, `expected_error`,
+`capabilities`, and `package` metadata. `axiomc test --json` reports those
+contracts on each discovered case so agents can inspect the fixture intent
+without reading sidecar files first.
+
 Current executable fixtures cover:
 
 - `legacy_core_programs`: migrated golden-program coverage for integer
@@ -27,6 +33,7 @@ Current executable fixtures cover:
   borrowed slices.
 - `ownership_borrowing`: borrow-safe parameter, aggregate, borrowed-return,
   projection move, and dependency-boundary execution.
+
 - `comparison_package_imports`: Axiom-owned Go/Rust-style comparison fixture
   for explicit package imports and cross-module function calls.
 - `comparison_package_resources`: Axiom-owned Go/Rust-style comparison fixture
@@ -38,6 +45,14 @@ Current executable fixtures cover:
   successfully.
 - `package_visibility`: `pub(pkg)` items imported across sibling modules within
   the same package.
+- `type_system_aggregates`: typed aggregate coverage for generic wrappers,
+  structs, enums, tuples, arrays, maps, `Option`, and `Result`.
+- `parser_type_slice`: migrated parser/type coverage for type aliases,
+  borrowed slices, enum payload patterns, typed aggregate literals, and
+  return-type checking through parsed control flow.
+- `runtime_negative_diagnostics`: executable negative runtime coverage for
+  structured `panic(...)` diagnostics and array bounds runtime diagnostics.
+
 Packages under `fail/` are compile-fail fixtures. Each package is a complete
 stage1 project with `axiom.toml`, `axiom.lock`, source, and
 `expected-error.json`. The conformance runner checks the diagnostic kind, code,
@@ -49,6 +64,14 @@ Current compile-fail fixtures cover:
   whose body consumes a captured non-copy value.
 - `closure_captures_function_callee`: ownership diagnostics for closures
   that capture a function-valued callee and move it into a later closure.
+- `import_cycle`: import diagnostics for circular module references.
+- `import_duplicate_export`: import diagnostics for colliding public exports
+  from sibling modules.
+- `import_missing_module`: import diagnostics for missing package-local modules.
+- `import_path_escape`: import diagnostics for parent-directory traversal.
+- `import_reserved_namespace`: import diagnostics for incomplete `std`
+  namespace imports.
+- `import_unsupported_alias`: parse diagnostics for unsupported import aliases.
 - `mutable_borrow_while_shared_live`: ownership diagnostics for conflicting
   mutable and shared borrows.
 - `comparison_owned_resource_move`: Axiom-owned Go/Rust-style comparison
@@ -57,6 +80,9 @@ Current compile-fail fixtures cover:
   diagnostic for predictable error message shape.
 - `comparison_strict_type_mismatch`: Axiom-owned Go/Rust-style comparison
   diagnostic for strict struct field typing.
+- `parser_type_return_mismatch`: migrated parser/type diagnostic coverage for
+  return expressions whose parsed value type disagrees with the declared
+  function return type.
 - `ownership_use_after_move`: ownership diagnostics for reading a moved value.
 - `panic_rejects_unreachable_statement`: control diagnostics for statements
   that appear after `panic(...)` in the same block.

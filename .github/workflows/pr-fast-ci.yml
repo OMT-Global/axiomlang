@@ -10,10 +10,10 @@ concurrency:
 
 permissions:
   contents: read
-  pull-requests: read
 
 env:
   NODE_VERSION: '20'
+  PYTHON_VERSION: '3.12'
 
 defaults:
   run:
@@ -22,102 +22,145 @@ defaults:
 jobs:
   changes:
     name: Detect Relevant Changes
-    runs-on: ubuntu-latest
+    runs-on: ['self-hosted', 'synology', 'shell-only', 'public']
     outputs:
       app: ${{ steps.filter.outputs.app }}
       ci: ${{ steps.filter.outputs.ci }}
     steps:
-      - uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v3 pinned 2026-04-19
+      - uses: dorny/paths-filter@v3
         id: filter
         with:
           filters: |
             app:
               - 'project.bootstrap.yaml'
               - 'AGENTS.md'
-              - 'CLAUDE.md'
+              - 'CONTRIBUTING.md'
               - '.github/PULL_REQUEST_TEMPLATE.md'
-              - '.devcontainer/**'
               - '.githooks/**'
               - '.github/workflows/**'
               - 'scripts/**'
+              - 'stage1/**'
               - 'docs/bootstrap/**'
               - 'README.md'
               - 'docs/**'
-              - 'stage1/**'
-              - 'Makefile'
             ci:
               - 'project.bootstrap.yaml'
               - 'AGENTS.md'
-              - 'CLAUDE.md'
+              - 'CONTRIBUTING.md'
               - '.github/PULL_REQUEST_TEMPLATE.md'
-              - '.devcontainer/**'
               - '.githooks/**'
               - '.github/workflows/**'
               - 'scripts/**'
+              - 'stage1/**'
               - 'docs/bootstrap/**'
               - '.env.example'
               - 'CODEOWNERS'
-              - 'Makefile'
-              - '.github/dependabot.yml'
 
   fast-checks:
     name: Fast Checks
-    runs-on: ubuntu-latest
+    runs-on: ['self-hosted', 'synology', 'shell-only', 'public']
     timeout-minutes: 15
     needs: changes
     if: >-
       github.event.pull_request.draft == false &&
       (needs.changes.outputs.app == 'true' || needs.changes.outputs.ci == 'true')
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v4 pinned 2026-04-19
+      - uses: actions/checkout@v4
         with:
           ref: ${{ github.event.pull_request.head.sha }}
+
       - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable pinned 2026-04-19
-      - uses: actions/setup-go@44694675825211faa026b3c33043df3e48a5fa00 # v6 pinned 2026-04-19
+
+      - name: Ensure Rust linker availability
+        run: |
+          if command -v cc >/dev/null 2>&1; then
+            echo "AXIOM_FAST_CI_PROOF_WORKLOADS=1" >> "$GITHUB_ENV"
+            exit 0
+          fi
+
+          rust_lld="$(rustc --print sysroot)/lib/rustlib/$(rustc -vV | awk '/^host:/ { print $2 }')/bin/rust-lld"
+          if [[ -x "$rust_lld" ]]; then
+            rust_lld_flags=(-C "linker=$rust_lld")
+            for lib_dir in /usr/lib/gcc/x86_64-linux-gnu/* /usr/lib/x86_64-linux-gnu /lib/x86_64-linux-gnu; do
+              if [[ -d "$lib_dir" ]]; then
+                rust_lld_flags+=(-C "link-arg=-L$lib_dir")
+              fi
+            done
+            printf '%s\n' 'fn main() {}' > /tmp/axiom-fast-ci-linker-smoke.rs
+            if rustc "${rust_lld_flags[@]}" /tmp/axiom-fast-ci-linker-smoke.rs -o /tmp/axiom-fast-ci-linker-smoke; then
+              echo "RUSTFLAGS=${rust_lld_flags[*]}" >> "$GITHUB_ENV"
+              echo "AXIOM_FAST_CI_RUST_LINKER=$rust_lld" >> "$GITHUB_ENV"
+              echo "AXIOM_FAST_CI_PROOF_WORKLOADS=1" >> "$GITHUB_ENV"
+              exit 0
+            fi
+          fi
+
+          if command -v apt-get >/dev/null 2>&1; then
+            apt_cache="${RUNNER_TEMP:-/tmp}/axiom-fast-ci-apt-cache"
+            apt_lists="${RUNNER_TEMP:-/tmp}/axiom-fast-ci-apt-lists"
+            mkdir -p "$apt_cache/partial" "$apt_lists/partial"
+            apt_get=(
+              apt-get
+              -o Acquire::Retries=3
+              -o Dpkg::Use-Pty=0
+              -o APT::Sandbox::User=root
+              -o Dir::Cache::archives="$apt_cache"
+              -o Dir::State::lists="$apt_lists"
+            )
+            if [[ "$(id -u)" != "0" ]]; then
+              apt_get=(sudo "${apt_get[@]}")
+            fi
+
+            # Some self-hosted runner images keep apt state/cache directories
+            # with restrictive ownership from prior jobs. Use job-local apt
+            # cache/list paths so provisioning does not depend on mutable host
+            # apt cache permissions.
+            "${apt_get[@]}" update || true
+            DEBIAN_FRONTEND=noninteractive "${apt_get[@]}" install -y --no-install-recommends gcc libc6-dev || true
+          fi
+
+          if command -v cc >/dev/null 2>&1; then
+            echo "AXIOM_FAST_CI_PROOF_WORKLOADS=1" >> "$GITHUB_ENV"
+            exit 0
+          fi
+
+          echo "::error::no usable Rust linker found; proof workloads are a required PR gate"
+          exit 1
 
       - name: Run fast checks
         run: bash scripts/ci/run-fast-checks.sh
-      - name: Run advisory Go/Rust/Axiom comparison report
-        continue-on-error: true
-        run: python3 scripts/ci/check-stage1-benchmarks.py --json-out stage1/target/stage1-comparison-report.json
 
-      - name: Upload advisory comparison report
-        if: always()
-        uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808 # v4 pinned 2026-04-19
+  validate-pr-description:
+    name: Validate PR Description
+    runs-on: ['self-hosted', 'synology', 'shell-only', 'public']
+    timeout-minutes: 5
+    if: github.event.pull_request.draft == false
+    env:
+      PR_BODY: ${{ github.event.pull_request.body }}
+      PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+    steps:
+      - uses: actions/checkout@v4
         with:
-          name: stage1-comparison-report
-          path: stage1/target/stage1-comparison-report.json
-          if-no-files-found: ignore
+          ref: ${{ github.event.pull_request.head.sha }}
+      - name: Require generated PR template content
+        run: bash scripts/ci/validate-pr-description.sh
+
 
   validate-secrets:
     name: Validate Secrets
-    runs-on: ubuntu-latest
+    runs-on: ['self-hosted', 'synology', 'shell-only', 'public']
     timeout-minutes: 10
     if: github.event.pull_request.draft == false
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v4 pinned 2026-04-19
+      - uses: actions/checkout@v4
         with:
           ref: ${{ github.event.pull_request.head.sha }}
       - name: Scan repository for secret patterns
         run: bash scripts/check-detect-secrets.sh --all-files
 
-  validate-pr-description:
-    name: Validate PR Description
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    if: github.event.pull_request.draft == false && github.event.pull_request.user.login != 'dependabot[bot]'
-    env:
-      PR_BODY: ${{ github.event.pull_request.body }}
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v4 pinned 2026-04-19
-        with:
-          ref: ${{ github.event.pull_request.head.sha }}
-      - name: Validate PR description requirements
-        run: bash scripts/ci/validate-pr-description.sh
-
   ci-gate:
     name: CI Gate
-    runs-on: ubuntu-latest
+    runs-on: ['self-hosted', 'synology', 'shell-only', 'public']
     if: always()
     needs:
       - changes

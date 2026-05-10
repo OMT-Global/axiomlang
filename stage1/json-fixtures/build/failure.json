@@ -1,0 +1,14 @@
+{
+  "schema_version": "axiom.stage1.v1",
+  "ok": false,
+  "command": "build",
+  "error": {
+    "kind": "build",
+    "code": "build.failed",
+    "message": "rustc failed to produce the requested build artifact",
+    "path": "<project>/src/main.ax",
+    "line": 1,
+    "column": 1,
+    "related": []
+  }
+}

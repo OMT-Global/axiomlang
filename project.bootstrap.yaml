@@ -1,8 +1,8 @@
 version: 1
 project:
   name: axiom
-  description: An experimental, end-to-end inspectable programming language with a Rust-based
-    native bootstrap compiler.
+  description: An experimental, end-to-end inspectable programming language with a Rust-based native
+    bootstrap compiler.
   visibility: public
   owner: OMT-Global
   defaultBranch: main
@@ -18,6 +18,9 @@ repo:
     - .github/workflows/pr-fast-ci.yml
     - .github/workflows/extended-validation.yml
     - .github/workflows/claude.yml
+    - .github/dependabot.yml
+    - .github/ISSUE_TEMPLATE/implementation.yml
+    - .github/ISSUE_TEMPLATE/flow_blocker.yml
     - scripts/check-detect-secrets.sh
     - scripts/ci/**
     - scripts/codex-cloud/**
@@ -39,31 +42,195 @@ github:
       owners:
         - "@jmcte"
         - "@pheidon"
-    - pattern: "/.github/workflows/"
+    - pattern: /.github/workflows/
       owners:
         - "@jmcte"
         - "@pheidon"
         - "@scrappedcode"
-    - pattern: "/.githooks/"
+    - pattern: /.githooks/
       owners:
         - "@jmcte"
         - "@pheidon"
         - "@scrappedcode"
-    - pattern: "/scripts/"
+    - pattern: /scripts/
       owners:
         - "@jmcte"
         - "@pheidon"
         - "@scrappedcode"
-    - pattern: "/project.bootstrap.yaml"
+    - pattern: /project.bootstrap.yaml
       owners:
         - "@jmcte"
         - "@pheidon"
         - "@scrappedcode"
-    - pattern: "/stage1/crates/axiomc/src/"
+    - pattern: /stage1/crates/axiomc/src/
       owners:
         - "@jmcte"
         - "@pheidon"
         - "@scrappedcode"
+  issueLabels:
+    - name: area:frontend
+      color: 1f77b4
+      description: Frontend and user-interface work.
+    - name: area:api
+      color: 2ca02c
+      description: API contracts, endpoints, and integrations.
+    - name: area:data
+      color: 9467bd
+      description: Data models, persistence, migration, and analytics work.
+    - name: area:ledger
+      color: 8c564b
+      description: Ledger, accounting, transaction, or reconciliation work.
+    - name: area:rules
+      color: bcbd22
+      description: Domain rules, policy logic, and decision engines.
+    - name: area:ai
+      color: 17becf
+      description: AI, agents, prompts, and model integration work.
+    - name: area:infra
+      color: 7f7f7f
+      description: Infrastructure, CI, deployment, and operations work.
+    - name: area:security
+      color: d62728
+      description: Security-sensitive implementation or hardening work.
+    - name: area:accessibility
+      color: e377c2
+      description: Accessibility and inclusive UX work.
+    - name: area:qa
+      color: ff7f0e
+      description: Quality assurance, test coverage, and release validation.
+    - name: risk:low
+      color: 0e8a16
+      description: Low implementation or operational risk.
+    - name: risk:medium
+      color: fbca04
+      description: Moderate implementation or operational risk.
+    - name: risk:high
+      color: d93f0b
+      description: High implementation or operational risk.
+    - name: risk:domain
+      color: "5319e7"
+      description: Domain correctness risk requiring subject-matter review.
+    - name: risk:security
+      color: b60205
+      description: Security risk requiring explicit review.
+    - name: risk:prod
+      color: "000000"
+      description: Production impact or rollout risk.
+    - name: status:needs-spec
+      color: cfd3d7
+      description: Needs clearer scope, acceptance criteria, or constraints.
+    - name: status:ready-for-agent
+      color: 0e8a16
+      description: Ready for assigned agent implementation.
+    - name: status:agent-building
+      color: 1d76db
+      description: Agent implementation is in progress.
+    - name: status:needs-review
+      color: fbca04
+      description: Needs review before merge or closure.
+    - name: status:needs-human-approval
+      color: d93f0b
+      description: Needs explicit human approval before proceeding.
+    - name: status:ready-to-merge
+      color: 0e8a16
+      description: Ready to merge after required checks pass.
+    - name: status:blocked
+      color: b60205
+      description: Blocked by a dependency, decision, credential, or access gate.
+    - name: review:product
+      color: 0052cc
+      description: Needs product review.
+    - name: review:architecture
+      color: "5319e7"
+      description: Needs architecture review.
+    - name: review:security
+      color: b60205
+      description: Needs security review.
+    - name: review:tax
+      color: d4c5f9
+      description: Needs tax review.
+    - name: review:legal
+      color: c2e0c6
+      description: Needs legal review.
+    - name: review:accessibility
+      color: e99695
+      description: Needs accessibility review.
+    - name: review:release
+      color: f9d0c4
+      description: Needs release review.
+    - name: lane:apollo
+      color: 8dd3c7
+      description: Scope, backlog, synthesis, and issue-contract work.
+    - name: lane:ares
+      color: fb8072
+      description: Validation, adversarial review, and test-pressure work.
+    - name: lane:daedalus
+      color: 80b1d3
+      description: Implementation and substantive code repair work.
+    - name: lane:hephaestus
+      color: fdb462
+      description: CI, build, lockfile, mergeability, and artifact work.
+    - name: lane:hermes
+      color: bebada
+      description: macOS/platform-native or special execution work.
+    - name: lane:pheidon
+      color: b3de69
+      description: Orchestration, gate, governance, and controller action.
+    - name: state:intake
+      color: d9d9d9
+      description: Captured but not yet planned.
+    - name: state:ready-for-planning
+      color: ccebc5
+      description: Ready for planning refinement.
+    - name: state:ready-for-implementation
+      color: bc80bd
+      description: Ready for assigned implementation.
+    - name: state:needs-review
+      color: ffffb3
+      description: Needs review before advancing.
+    - name: state:needs-repair
+      color: fb8072
+      description: Needs repair before advancing.
+    - name: state:repairing
+      color: fdb462
+      description: Repair is actively assigned.
+    - name: state:ready-for-approval
+      color: b3de69
+      description: Pheidon/gate approval is next.
+    - name: state:waiting-checks
+      color: ffffb3
+      description: Waiting on checks or merge queue.
+    - name: state:auto-merge-armed
+      color: b3de69
+      description: Auto-merge is enabled.
+    - name: state:blocked-human
+      color: e41a1c
+      description: Human decision required.
+    - name: state:blocked-infra
+      color: 984ea3
+      description: Infrastructure/tooling/auth blocker.
+    - name: state:blocked-scope
+      color: ff7f00
+      description: Scope or acceptance criteria blocker.
+    - name: state:paused
+      color: "999999"
+      description: Intentionally paused.
+    - name: autonomy:observe
+      color: d9d9d9
+      description: Class 0; observe only.
+    - name: autonomy:safe
+      color: b3de69
+      description: Class 1; safe autonomous work allowed.
+    - name: autonomy:review-gated
+      color: ffffb3
+      description: Class 2; review-gated autonomous work.
+    - name: autonomy:human-required
+      color: fb8072
+      description: Class 3; human decision required.
+    - name: autonomy:forbidden-unattended
+      color: "000000"
+      description: Class 4; forbidden unattended.
+  flowGovernance: true
   autoMerge: true
   deleteBranchOnMerge: true
   requiredApprovals: 1
@@ -84,20 +251,49 @@ github:
 ci:
   runnerPolicy: hybrid-safe
   nodeVersion: "20"
+  pythonVersion: "3.12"
   fastChecks:
     - stage1-test
     - stage1-conformance
     - stage1-smoke
   extendedChecks: []
   nightlyCron: 0 7 * * *
+  additionalWorkflows: []
+  dependabot:
+    enabled: true
+    securityUpdates: true
+    versionUpdates: true
+    ecosystems:
+      - packageEcosystem: npm
+        directory: /
+        interval: weekly
+        groupMinorAndPatch: true
+        ignoreMajorUpdates: true
+      - packageEcosystem: github-actions
+        directory: /
+        interval: weekly
+        groupMinorAndPatch: false
+        ignoreMajorUpdates: true
+  aiAttestation:
+    enabled: false
+    artifactName: ai-attestation
+    retentionDays: 90
+    provider: unknown
+    model: unknown
+    promptHash: unknown
+    reusableWorkflowRepo: OMT-Global/bootstrap
+    reusableWorkflowRef: refs/heads/main
+release:
+  enabled: true
+  tagPrefix: v
+  createGitHubRelease: true
+  updateMajorTag: true
+  updateMinorTag: true
+  reusableWorkflowRepo: OMT-Global/bootstrap
+  reusableWorkflowRef: refs/heads/main
 agents:
   manageCodexHome: true
-  manageClaudeHome: true
   codexProfile: default
-  claudeProfile: default
-  enableClaudeWebEnvironment: true
-  enableClaudeDevcontainer: true
-  enableClaudeGitHubAction: true
   sharedSkills: []
 environments:
   dev:

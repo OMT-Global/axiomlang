@@ -8,7 +8,7 @@
 //! enforcement continues to run against the importing package's manifest via
 //! `hir::lower_with_capabilities`.
 //!
-//! Today this provides sixteen stdlib modules. Six are thin wrappers over
+//! Today this provides twenty-one stdlib modules. Six are thin wrappers over
 //! single-intrinsic capability-gated surfaces, one per capability class:
 //!
 //! * `std/time.ax` — `Duration`, `Instant`, `now_ms()`, `now()`,
@@ -43,7 +43,7 @@
 //!   sockets and serve blocking HTTP/1.0 responses.
 
 //!
-//! The eighth through fourteenth modules are stdlib surfaces not tied to a
+//! The eighth through fifteenth modules are stdlib surfaces not tied to a
 //! capability flag, matching the ambient status of the `print` statement:
 //!
 //! * `std/io.ax` — `eprintln(text)` on top of the new ungated `io_eprintln`
@@ -67,6 +67,9 @@
 //!   `find`, `replace_all`) over a stage1-safe NFA engine.
 //! * `std/testing.ax` — table-case, property, and snapshot assertion helpers
 //!   layered over the bootstrap test intrinsics.
+//! * `std/outcome.ax` — generic `Option<T>` / `Result<T, E>` predicates and
+//!   fallback unwrap helpers implemented in Axiom.
+//! * `std/encoding.ax` — URL query and path percent-encoding helpers.
 
 use std::path::{Path, PathBuf};
 
@@ -193,9 +196,14 @@ pub fn object3(first_field: string, second_field: string, third_field: string): 
         "pub fn count<T>(values: &[T]): int {\nreturn len(values)\n}\n\
 pub fn is_empty<T>(values: &[T]): bool {\nreturn len(values) == 0\n}\n\
 pub fn has_items<T>(values: &[T]): bool {\nreturn len(values) > 0\n}\n\
+pub fn count_mut<T>(values: &mut [T]): int {\nreturn len(values)\n}\n\
 pub fn skip<T>(values: &[T], count: int): &[T] {\nreturn values[count:]\n}\n\
 pub fn take<T>(values: &[T], count: int): &[T] {\nreturn values[:count]\n}\n\
-pub fn window<T>(values: &[T], start: int, end: int): &[T] {\nreturn values[start:end]\n}\n",
+pub fn window<T>(values: &[T], start: int, end: int): &[T] {\nreturn values[start:end]\n}\n\
+pub fn contains<K, V>(values: {K: V}, key: K): bool {\nreturn map_contains_key<K, V>(values, key)\n}\n\
+pub fn get<K, V>(values: {K: V}, key: K): Option<V> {\nreturn map_get<K, V>(values, key)\n}\n\
+pub fn get_or_default<K, V>(values: {K: V}, key: K, default: V): V {\nmatch map_get<K, V>(values, key) {\nSome(value) {\nreturn value\n}\nNone {\nreturn default\n}\n}\n}\n\
+pub fn keys<K, V>(values: {K: V}): [K] {\nreturn map_keys<K, V>(values)\n}\n",
     ),
     (
         "string_builder.ax",
@@ -287,6 +295,34 @@ pub fn serve_once(bind: string, body: string): bool {\nreturn http_serve_once(bi
         "pub fn is_match(pattern: string, text: string): bool {\nreturn regex_is_match(pattern, text)\n}\n\
 pub fn find(pattern: string, text: string): Option<string> {\nreturn regex_find(pattern, text)\n}\n\
 pub fn replace_all(pattern: string, text: string, replacement: string): string {\nreturn regex_replace_all(pattern, text, replacement)\n}\n",
+    ),
+    (
+        "encoding.ax",
+        "pub fn url_component_encode(value: string): string {
+return encoding_url_component_encode(value)
+}
+pub fn url_component_decode(value: string): Option<string> {
+return encoding_url_component_decode(value)
+}
+pub fn path_segment_encode(value: string): string {
+return encoding_path_segment_encode(value)
+}
+pub fn query_pair_encode(name: string, value: string): string {
+return encoding_url_query_pair_encode(name, value)
+}
+pub fn path_join_segment(base: string, segment: string): string {
+return encoding_path_join_segment(base, segment)
+}
+",
+    ),
+    (
+        "outcome.ax",
+        "pub fn option_is_some<T>(value: Option<T>): bool {\nmatch value {\nSome(_inner) {\nreturn true\n}\nNone {\nreturn false\n}\n}\n}\n\
+pub fn option_is_none<T>(value: Option<T>): bool {\nmatch value {\nSome(_inner) {\nreturn false\n}\nNone {\nreturn true\n}\n}\n}\n\
+pub fn option_unwrap_or<T>(value: Option<T>, fallback: T): T {\nmatch value {\nSome(inner) {\nreturn inner\n}\nNone {\nreturn fallback\n}\n}\n}\n\
+pub fn result_is_ok<T, E>(value: Result<T, E>): bool {\nmatch value {\nOk(_inner) {\nreturn true\n}\nErr(_error) {\nreturn false\n}\n}\n}\n\
+pub fn result_is_err<T, E>(value: Result<T, E>): bool {\nmatch value {\nOk(_inner) {\nreturn false\n}\nErr(_error) {\nreturn true\n}\n}\n}\n\
+pub fn result_unwrap_or<T, E>(value: Result<T, E>, fallback: T): T {\nmatch value {\nOk(inner) {\nreturn inner\n}\nErr(_error) {\nreturn fallback\n}\n}\n}\n",
     ),
 ];
 

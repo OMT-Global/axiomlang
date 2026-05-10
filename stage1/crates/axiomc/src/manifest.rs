@@ -20,6 +20,7 @@ pub const KNOWN_CAPABILITIES: [CapabilityKind; 9] = [
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct Manifest {
     pub package: Option<PackageSection>,
+    pub publish: Option<PublishSection>,
     pub dependencies: BTreeMap<String, DependencySpec>,
     pub workspace: Option<WorkspaceSection>,
     pub build: BuildSection,
@@ -31,6 +32,14 @@ pub struct Manifest {
 pub struct PackageSection {
     pub name: String,
     pub version: String,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct PublishSection {
+    pub registry: String,
+    pub checksum: Option<String>,
+    pub include: Vec<String>,
+    pub exclude: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -47,6 +56,8 @@ pub struct BuildSection {
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct DependencySpec {
     pub path: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -54,7 +65,21 @@ pub struct TestTarget {
     pub name: String,
     pub entry: String,
     pub stdout: Option<String>,
+    pub stderr: Option<String>,
     pub kind: TestKind,
+    pub expected_error: Option<ExpectedDiagnostic>,
+    pub capabilities: Vec<CapabilityKind>,
+    pub package: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ExpectedDiagnostic {
+    pub kind: String,
+    pub code: Option<String>,
+    pub message: String,
+    pub path: String,
+    pub line: usize,
+    pub column: usize,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq, PartialOrd, Ord, Default)]
@@ -78,6 +103,8 @@ pub struct CapabilityConfig {
     pub env: bool,
     pub env_vars: Vec<String>,
     pub env_unrestricted: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub unsafe_rationale: Option<String>,
     #[serde(skip_serializing)]
     pub env_legacy_unrestricted: bool,
     pub clock: bool,
@@ -90,7 +117,7 @@ pub struct CapabilityConfig {
     pub rationale: BTreeMap<String, String>,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
 #[serde(rename_all = "snake_case")]
 pub enum CapabilityKind {
     Fs,
@@ -113,10 +140,18 @@ pub struct CapabilityDescriptor {
     pub deny_by_default: bool,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub allowed: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub configured_root: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub effective_root: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub package_root: Option<String>,
     #[serde(skip_serializing_if = "is_false")]
     pub unsafe_unrestricted: bool,
     #[serde(skip_serializing_if = "is_false")]
     pub unsafe_opt_in: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub unsafe_rationale: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub owner: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -131,12 +166,17 @@ struct RawManifest {
     build: Option<RawBuildSection>,
     tests: Option<Vec<RawTestTarget>>,
     capabilities: Option<RawCapabilityConfig>,
+    registry: Option<toml::Value>,
+    publish: Option<RawPublishSection>,
 }
 
 #[derive(Debug, Deserialize)]
 struct RawPackageSection {
     name: Option<String>,
     version: Option<String>,
+    checksum: Option<toml::Value>,
+    registry: Option<toml::Value>,
+    source: Option<toml::Value>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -160,6 +200,10 @@ enum RawDependencySpec {
 #[derive(Debug, Deserialize)]
 struct RawDependencyDetail {
     path: Option<String>,
+    version: Option<String>,
+    checksum: Option<toml::Value>,
+    registry: Option<toml::Value>,
+    source: Option<toml::Value>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -167,7 +211,19 @@ struct RawTestTarget {
     name: Option<String>,
     entry: Option<String>,
     stdout: Option<String>,
+    stderr: Option<String>,
     kind: Option<String>,
+    expected_error: Option<ExpectedDiagnostic>,
+    capabilities: Option<Vec<CapabilityKind>>,
+    package: Option<String>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct RawPublishSection {
+    registry: Option<String>,
+    checksum: Option<String>,
+    include: Option<Vec<String>>,
+    exclude: Option<Vec<String>>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -180,6 +236,7 @@ struct RawCapabilityConfig {
     process: Option<bool>,
     env: Option<RawEnvCapability>,
     env_unrestricted: Option<bool>,
+    unsafe_rationale: Option<String>,
     clock: Option<bool>,
     crypto: Option<bool>,
     ffi: Option<bool>,
@@ -276,8 +333,14 @@ pub fn capability_descriptors(config: &CapabilityConfig) -> Vec<CapabilityDescri
             } else {
                 Vec::new()
             },
+            configured_root: None,
+            effective_root: None,
+            package_root: None,
             unsafe_unrestricted: *kind == CapabilityKind::Env && config.env_unrestricted,
             unsafe_opt_in: config.unsafe_opt_ins.iter().any(|name| name == kind.name()),
+            unsafe_rationale: (*kind == CapabilityKind::Env && config.env_unrestricted)
+                .then(|| config.unsafe_rationale.clone())
+                .flatten(),
             owner: config.owners.get(kind.name()).cloned(),
             rationale: config.rationale.get(kind.name()).cloned(),
         })
@@ -364,6 +427,8 @@ impl CapabilityKind {
 }
 
 fn normalize_manifest(raw: RawManifest, path: &Path) -> Result<Manifest, Diagnostic> {
+    validate_reserved_root_publish_fields(&raw, path)?;
+    let publish = normalize_publish(raw.publish, path)?;
     let workspace = normalize_workspace(raw.workspace, path)?;
     let package = normalize_package(raw.package, workspace.is_some(), path)?;
     let raw_build = raw.build;
@@ -386,10 +451,13 @@ fn normalize_manifest(raw: RawManifest, path: &Path) -> Result<Manifest, Diagnos
     let capabilities = raw.capabilities.unwrap_or_default();
     let fs_root =
         normalize_optional_relative_path(path, "capabilities.fs_root", capabilities.fs_root)?;
-    let (env, env_vars, env_unrestricted, env_legacy_unrestricted) = normalize_env_capability(
+    let explicit_env_unrestricted = capabilities.env_unrestricted.unwrap_or(false);
+    let (env, env_vars, env_unrestricted, env_legacy_unrestricted) =
+        normalize_env_capability(path, capabilities.env, explicit_env_unrestricted)?;
+    let unsafe_rationale = normalize_unsafe_rationale(
         path,
-        capabilities.env,
-        capabilities.env_unrestricted.unwrap_or(false),
+        capabilities.unsafe_rationale,
+        explicit_env_unrestricted,
     )?;
     let unsafe_opt_ins = normalize_capability_name_list(
         path,
@@ -408,6 +476,7 @@ fn normalize_manifest(raw: RawManifest, path: &Path) -> Result<Manifest, Diagnos
     )?;
     Ok(Manifest {
         package,
+        publish,
         dependencies,
         workspace,
         build: BuildSection { entry, out_dir },
@@ -421,6 +490,7 @@ fn normalize_manifest(raw: RawManifest, path: &Path) -> Result<Manifest, Diagnos
             env,
             env_vars,
             env_unrestricted,
+            unsafe_rationale,
             env_legacy_unrestricted,
             clock: capabilities.clock.unwrap_or(false),
             crypto: capabilities.crypto.unwrap_or(false),
@@ -432,6 +502,109 @@ fn normalize_manifest(raw: RawManifest, path: &Path) -> Result<Manifest, Diagnos
             rationale,
         },
     })
+}
+
+fn validate_reserved_root_publish_fields(raw: &RawManifest, path: &Path) -> Result<(), Diagnostic> {
+    if raw.registry.is_some() {
+        return Err(reserved_manifest_field(path, "[registry]"));
+    }
+    Ok(())
+}
+
+fn normalize_publish(
+    raw_publish: Option<RawPublishSection>,
+    path: &Path,
+) -> Result<Option<PublishSection>, Diagnostic> {
+    let Some(raw_publish) = raw_publish else {
+        return Ok(None);
+    };
+    let registry = required_field(raw_publish.registry, path, "publish.registry")?;
+    validate_registry_source(path, "publish.registry", &registry)?;
+    let checksum = match raw_publish.checksum {
+        Some(value) => {
+            let checksum = required_field(Some(value), path, "publish.checksum")?;
+            validate_sha256_checksum(path, "publish.checksum", &checksum)?;
+            Some(checksum)
+        }
+        None => None,
+    };
+    let include = normalize_publish_globs(
+        path,
+        "publish.include",
+        raw_publish.include.unwrap_or_default(),
+    )?;
+    let exclude = normalize_publish_globs(
+        path,
+        "publish.exclude",
+        raw_publish.exclude.unwrap_or_default(),
+    )?;
+    Ok(Some(PublishSection {
+        registry,
+        checksum,
+        include,
+        exclude,
+    }))
+}
+
+fn validate_registry_source(path: &Path, field_name: &str, value: &str) -> Result<(), Diagnostic> {
+    if is_valid_registry_url(value) {
+        return Ok(());
+    }
+    Err(Diagnostic::new(
+        "manifest",
+        format!("{field_name} must be a valid https:// or file:// registry source"),
+    )
+    .with_path(path.display().to_string()))
+}
+
+fn validate_sha256_checksum(path: &Path, field_name: &str, value: &str) -> Result<(), Diagnostic> {
+    let Some(hex) = value.strip_prefix("sha256:") else {
+        return Err(Diagnostic::new(
+            "manifest",
+            format!("{field_name} must use sha256:<64 hex characters>"),
+        )
+        .with_path(path.display().to_string()));
+    };
+    if hex.len() == 64 && hex.chars().all(|ch| ch.is_ascii_hexdigit()) {
+        Ok(())
+    } else {
+        Err(Diagnostic::new(
+            "manifest",
+            format!("{field_name} must use sha256:<64 hex characters>"),
+        )
+        .with_path(path.display().to_string()))
+    }
+}
+
+fn normalize_publish_globs(
+    path: &Path,
+    field_name: &str,
+    values: Vec<String>,
+) -> Result<Vec<String>, Diagnostic> {
+    let mut normalized = Vec::new();
+    let mut seen = std::collections::BTreeSet::new();
+    for (index, value) in values.into_iter().enumerate() {
+        let item_field = format!("{field_name}[{index}]");
+        let value = required_field(Some(value), path, &item_field)?;
+        validate_relative_path(path, &item_field, &value)?;
+        if !seen.insert(value.clone()) {
+            return Err(Diagnostic::new(
+                "manifest",
+                format!("duplicate publish pattern {value:?}"),
+            )
+            .with_path(path.display().to_string()));
+        }
+        normalized.push(value);
+    }
+    Ok(normalized)
+}
+
+fn reserved_manifest_field(path: &Path, field_name: &str) -> Diagnostic {
+    Diagnostic::new(
+        "manifest",
+        format!("{field_name} is reserved for future registry publishing"),
+    )
+    .with_path(path.display().to_string())
 }
 
 fn normalize_capability_name_list(
@@ -512,6 +685,26 @@ fn normalize_env_capability(
     }
 }
 
+fn normalize_unsafe_rationale(
+    path: &Path,
+    rationale: Option<String>,
+    env_unrestricted: bool,
+) -> Result<Option<String>, Diagnostic> {
+    let rationale = rationale.map(|value| value.trim().to_string());
+    if env_unrestricted {
+        match rationale {
+            Some(value) if !value.is_empty() => Ok(Some(value)),
+            _ => Err(Diagnostic::new(
+                "manifest",
+                "capabilities.unsafe_rationale is required when unrestricted environment access is enabled",
+            )
+            .with_path(path.display().to_string())),
+        }
+    } else {
+        Ok(rationale.filter(|value| !value.is_empty()))
+    }
+}
+
 fn normalize_env_allowlist(path: &Path, values: Vec<String>) -> Result<Vec<String>, Diagnostic> {
     let mut vars = Vec::new();
     let mut seen = std::collections::BTreeSet::new();
@@ -553,6 +746,15 @@ fn normalize_package(
         return Err(Diagnostic::new("manifest", "missing [package] section")
             .with_path(path.display().to_string()));
     };
+    if package.checksum.is_some() {
+        return Err(reserved_manifest_field(path, "package.checksum"));
+    }
+    if package.registry.is_some() {
+        return Err(reserved_manifest_field(path, "package.registry"));
+    }
+    if package.source.is_some() {
+        return Err(reserved_manifest_field(path, "package.source"));
+    }
     let package_name = required_field(package.name, path, "package.name")?;
     let package_version = required_field(package.version, path, "package.version")?;
     Ok(Some(PackageSection {
@@ -617,16 +819,101 @@ fn normalize_dependencies(
                     .with_path(path.display().to_string()),
             );
         }
-        let raw_path = match raw_spec {
-            RawDependencySpec::Path(value) => value,
+        match raw_spec {
+            RawDependencySpec::Path(value) => {
+                validate_dependency_path(path, &format!("dependencies.{name}.path"), &value)?;
+                dependencies.insert(
+                    name,
+                    DependencySpec {
+                        path: value,
+                        version: None,
+                    },
+                );
+                continue;
+            }
             RawDependencySpec::Detailed(detail) => {
-                required_field(detail.path, path, &format!("dependencies.{name}.path"))?
+                if detail.checksum.is_some() {
+                    return Err(reserved_manifest_field(
+                        path,
+                        &format!("dependencies.{name}.checksum"),
+                    ));
+                }
+                if detail.registry.is_some() {
+                    return Err(reserved_manifest_field(
+                        path,
+                        &format!("dependencies.{name}.registry"),
+                    ));
+                }
+                if detail.source.is_some() {
+                    return Err(reserved_manifest_field(
+                        path,
+                        &format!("dependencies.{name}.source"),
+                    ));
+                }
+                if detail.path.is_none() && detail.version.is_some() {
+                    return Err(reserved_manifest_field(
+                        path,
+                        &format!("dependencies.{name}.version"),
+                    ));
+                }
+                let raw_path =
+                    required_field(detail.path, path, &format!("dependencies.{name}.path"))?;
+                validate_dependency_path(path, &format!("dependencies.{name}.path"), &raw_path)?;
+                let version = normalize_dependency_version(
+                    path,
+                    &format!("dependencies.{name}.version"),
+                    detail.version,
+                )?;
+                dependencies.insert(
+                    name,
+                    DependencySpec {
+                        path: raw_path,
+                        version,
+                    },
+                );
             }
         };
-        validate_dependency_path(path, &format!("dependencies.{name}.path"), &raw_path)?;
-        dependencies.insert(name, DependencySpec { path: raw_path });
     }
     Ok(dependencies)
+}
+
+fn normalize_dependency_version(
+    path: &Path,
+    field_name: &str,
+    version: Option<String>,
+) -> Result<Option<String>, Diagnostic> {
+    let Some(version) = version else {
+        return Ok(None);
+    };
+    let version = required_field(Some(version), path, field_name)?;
+    validate_version_constraint(path, field_name, &version)?;
+    Ok(Some(version))
+}
+
+fn validate_version_constraint(
+    path: &Path,
+    field_name: &str,
+    version: &str,
+) -> Result<(), Diagnostic> {
+    if version == "*" {
+        return Ok(());
+    }
+    let candidate = version.strip_prefix('^').unwrap_or(version);
+    let parts = candidate.split('.').collect::<Vec<_>>();
+    if parts.len() == 3
+        && parts
+            .iter()
+            .all(|part| !part.is_empty() && part.chars().all(|ch| ch.is_ascii_digit()))
+    {
+        return Ok(());
+    }
+    Err(
+        Diagnostic::new(
+            "manifest",
+            format!("{field_name} must be '*', an exact MAJOR.MINOR.PATCH version, or a caret constraint like ^1.2.3"),
+        )
+        .with_path(path.display().to_string()),
+    )
 }
 
 fn normalize_tests(
@@ -646,14 +933,59 @@ fn normalize_tests(
         }
         let entry = required_field(raw_test.entry, path, &format!("{field_prefix}.entry"))?;
         validate_relative_path(path, &format!("{field_prefix}.entry"), &entry)?;
+        let package =
+            normalize_optional_name(path, &format!("{field_prefix}.package"), raw_test.package)?;
+        let capabilities = normalize_test_capabilities(
+            path,
+            &format!("{field_prefix}.capabilities"),
+            raw_test.capabilities.unwrap_or_default(),
+        )?;
         tests.push(TestTarget {
             name,
             entry,
             stdout: raw_test.stdout,
+            stderr: raw_test.stderr,
             kind: normalize_test_kind(raw_test.kind, path, &format!("{field_prefix}.kind"))?,
+            expected_error: raw_test.expected_error,
+            capabilities,
+            package,
         });
     }
     Ok(tests)
+}
+
+fn normalize_optional_name(
+    path: &Path,
+    field_name: &str,
+    value: Option<String>,
+) -> Result<Option<String>, Diagnostic> {
+    let Some(value) = value else {
+        return Ok(None);
+    };
+    required_field(Some(value), path, field_name).map(Some)
+}
+
+fn normalize_test_capabilities(
+    path: &Path,
+    field_name: &str,
+    values: Vec<CapabilityKind>,
+) -> Result<Vec<CapabilityKind>, Diagnostic> {
+    let mut capabilities = Vec::new();
+    let mut seen = std::collections::BTreeSet::new();
+    for capability in values {
+        if !seen.insert(capability) {
+            return Err(Diagnostic::new(
+                "manifest",
+                format!(
+                    "duplicate capability {:?} in {field_name}",
+                    capability.name()
+                ),
+            )
+            .with_path(path.display().to_string()));
+        }
+        capabilities.push(capability);
+    }
+    Ok(capabilities)
 }
 
 fn normalize_test_kind(
@@ -675,6 +1007,104 @@ fn normalize_test_kind(
         )
         .with_path(path.display().to_string())),
     }
+}
+
+fn is_valid_registry_url(registry: &str) -> bool {
+    if let Some(rest) = registry.strip_prefix("https://") {
+        return is_valid_https_registry_url(rest);
+    }
+    if let Some(path) = registry.strip_prefix("file://") {
+        return is_valid_file_registry_url(path);
+    }
+    false
+}
+
+fn is_valid_https_registry_url(rest: &str) -> bool {
+    let authority_end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
+    let authority = &rest[..authority_end];
+    let suffix = &rest[authority_end..];
+
+    if authority.is_empty()
+        || authority.contains('@')
+        || suffix.contains('?')
+        || suffix.contains('#')
+    {
+        return false;
+    }
+
+    let (host, port) = split_registry_authority(authority);
+    let Some(host) = host else {
+        return false;
+    };
+    if let Some(port) = port {
+        if port.is_empty() || port.parse::<u16>().is_err() {
+            return false;
+        }
+    }
+
+    if host.starts_with('[') || host.ends_with(']') {
+        return is_valid_ipv6_authority_host(host);
+    }
+    if host.parse::<std::net::Ipv4Addr>().is_ok() {
+        return true;
+    }
+    is_valid_registry_host(host)
+}
+
+fn split_registry_authority(authority: &str) -> (Option<&str>, Option<&str>) {
+    if authority.starts_with('[') {
+        let Some(close) = authority.find(']') else {
+            return (None, None);
+        };
+        let host = &authority[..=close];
+        let rest = &authority[close + 1..];
+        if rest.is_empty() {
+            return (Some(host), None);
+        }
+        if let Some(port) = rest.strip_prefix(':') {
+            return (Some(host), Some(port));
+        }
+        return (None, None);
+    }
+
+    match authority.rsplit_once(':') {
+        Some((host, port)) if !host.contains(':') => (Some(host), Some(port)),
+        Some(_) => (None, None),
+        None => (Some(authority), None),
+    }
+}
+
+fn is_valid_ipv6_authority_host(host: &str) -> bool {
+    let Some(inner) = host
+        .strip_prefix('[')
+        .and_then(|value| value.strip_suffix(']'))
+    else {
+        return false;
+    };
+    inner.parse::<std::net::Ipv6Addr>().is_ok()
+}
+
+fn is_valid_file_registry_url(path: &str) -> bool {
+    path.starts_with('/')
+        && path != "/"
+        && !path.contains('?')
+        && !path.contains('#')
+        && Path::new(path).is_absolute()
+}
+
+fn is_valid_registry_host(host: &str) -> bool {
+    if host.is_empty() || host.len() > 253 || host.starts_with('.') || host.ends_with('.') {
+        return false;
+    }
+    host.split('.').all(|label| {
+        !label.is_empty()
+            && label.len() <= 63
+            && !label.starts_with('-')
+            && !label.ends_with('-')
+            && label
+                .chars()
+                .all(|ch| ch.is_ascii_alphanumeric() || ch == '-')
+    })
 }
 
 fn normalize_optional_relative_path(
@@ -719,4 +1149,108 @@ fn validate_dependency_path(path: &Path, field_name: &str, value: &str) -> Resul
         );
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod registry_publish_manifest_tests {
+    use super::*;
+    use tempfile::tempdir;
+
+    fn write_manifest(text: &str) -> tempfile::TempDir {
+        let dir = tempdir().unwrap_or_else(|err| panic!("tempdir: {err}"));
+        std::fs::write(dir.path().join(MANIFEST_FILENAME), text)
+            .unwrap_or_else(|err| panic!("write manifest: {err}"));
+        dir
+    }
+
+    #[test]
+    fn accepts_publish_manifest_contract_without_remote_publishing() {
+        let dir = write_manifest(
+            r#"
+[package]
+name = "demo"
+version = "0.1.0"
+
+[publish]
+registry = "https://registry.example.test/index"
+checksum = "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+include = ["src/**", "axiom.toml"]
+exclude = ["dist/**"]
+"#,
+        );
+        let manifest = load_manifest(dir.path()).expect("manifest should load");
+        let publish = manifest.publish.expect("publish metadata");
+        assert_eq!(publish.registry, "https://registry.example.test/index");
+        assert_eq!(publish.include, vec!["src/**", "axiom.toml"]);
+        assert_eq!(publish.exclude, vec!["dist/**"]);
+    }
+
+    #[test]
+    fn rejects_invalid_publish_checksum() {
+        let dir = write_manifest(
+            r#"
+[package]
+name = "demo"
+version = "0.1.0"
+
+[publish]
+registry = "https://registry.example.test/index"
+checksum = "sha256:not-a-digest"
+"#,
+        );
+        let error = load_manifest(dir.path()).expect_err("checksum should be rejected");
+        assert!(error.message.contains("publish.checksum must use sha256"));
+    }
+
+    #[test]
+    fn rejects_malformed_publish_registry_sources() {
+        for registry in [
+            "https://registry.example.test?mirror=1",
+            "https://registry.example.test#fragment",
+            "https://registry.example.test/index?mirror=1",
+            "https://registry.example.test/index#fragment",
+        ] {
+            let manifest_text = format!(
+                r#"
+[package]
+name = "demo"
+version = "0.1.0"
+
+[publish]
+registry = "{registry}"
+checksum = "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+"#
+            );
+            let dir = write_manifest(&manifest_text);
+            let error = load_manifest(dir.path()).unwrap_err();
+            assert!(
+                error.message.contains(
+                    "publish.registry must be a valid https:// or file:// registry source"
+                ),
+                "unexpected error for {registry}: {}",
+                error.message
+            );
+        }
+    }
+
+    #[test]
+    fn still_reserves_dependency_registry_resolution_fields() {
+        let dir = write_manifest(
+            r#"
+[package]
+name = "demo"
+version = "0.1.0"
+
+[dependencies.dep]
+path = "dep"
+registry = "https://registry.example.test/index"
+"#,
+        );
+        let error = load_manifest(dir.path()).expect_err("dependency registry should be reserved");
+        assert!(
+            error
+                .message
+                .contains("dependencies.dep.registry is reserved")
+        );
+    }
 }

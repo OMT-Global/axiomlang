@@ -47,6 +47,9 @@ the parser and examples:
 - Keep capability use visible in `axiom.toml`; do not hide filesystem, network,
   process, environment, clock, or crypto behavior behind helper modules without
   documenting it.
+- Prefer environment allowlists such as `env = ["LOG_LEVEL"]`. If migration work
+  must use `env_unrestricted = true`, include `unsafe_rationale` in the same
+  `[capabilities]` table so reviewers can audit the unsafe grant.
 
 ## Imports
 

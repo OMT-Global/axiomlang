@@ -13,4 +13,5 @@ toml.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true
+jsonschema.workspace = true
 which.workspace = true

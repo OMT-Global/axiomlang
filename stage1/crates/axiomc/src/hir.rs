@@ -1,4 +1,3 @@
-use crate::borrowck::{self, BorrowKind, BorrowState, SourceSpan as BorrowSourceSpan};
 use crate::diagnostics::{Diagnostic, message_with_suggestion};
 use crate::manifest::{CapabilityConfig, CapabilityKind};
 use crate::syntax;
@@ -10,6 +9,7 @@ pub struct Program {
     pub path: String,
     pub structs: Vec<StructDef>,
     pub enums: Vec<EnumDef>,
+    pub statics: Vec<StaticDef>,
     pub functions: Vec<Function>,
     pub stmts: Vec<Stmt>,
 }
@@ -37,6 +37,13 @@ pub struct EnumVariantDef {
     pub name: String,
     pub payload_tys: Vec<Type>,
     pub payload_names: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct StaticDef {
+    pub name: String,
+    pub ty: Type,
+    pub expr: Expr,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -176,6 +183,10 @@ pub enum Expr {
         rhs: Box<Expr>,
         ty: Type,
     },
+    Cast {
+        expr: Box<Expr>,
+        ty: Type,
+    },
     Try {
         expr: Box<Expr>,
         ty: Type,
@@ -234,14 +245,20 @@ pub enum Expr {
         index: Box<Expr>,
         ty: Type,
     },
+    StringBorrow {
+        expr: Box<Expr>,
+        ty: Type,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Eq)]
 pub enum Type {
     Error,
     Int,
+    Numeric(syntax::NumericType),
     Bool,
     String,
+    Str,
     Struct(String),
     Enum(String),
     Ptr(Box<Type>),
@@ -266,7 +283,9 @@ impl PartialEq for Type {
             (Type::Error, Type::Error)
             | (Type::Int, Type::Int)
             | (Type::Bool, Type::Bool)
-            | (Type::String, Type::String) => true,
+            | (Type::String, Type::String)
+            | (Type::Str, Type::Str) => true,
+            (Type::Numeric(lhs), Type::Numeric(rhs)) => lhs == rhs,
             (Type::Struct(lhs), Type::Struct(rhs)) | (Type::Enum(lhs), Type::Enum(rhs)) => {
                 lhs == rhs
             }
@@ -343,6 +362,10 @@ fn type_assignable_to(actual: &Type, expected: &Type) -> bool {
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub enum LiteralValue {
     Int(i64),
+    Numeric {
+        raw: String,
+        ty: syntax::NumericType,
+    },
     Bool(bool),
     String(String),
 }
@@ -371,7 +394,8 @@ struct Binding {
     borrow_kind: Option<BorrowKind>,
     borrow_origin: Option<BorrowOrigin>,
     borrowed_owners: HashSet<String>,
-    borrow_state: BorrowState,
+    active_borrow_count: usize,
+    active_mut_borrow_count: usize,
 }
 
 type ProjectionPath = Vec<ProjectionSegment>;
@@ -395,6 +419,7 @@ struct MethodSig {
     function_name: String,
     params: Vec<Type>,
     return_ty: Type,
+    borrow_return_params: Vec<usize>,
     has_self: bool,
 }
 
@@ -402,6 +427,12 @@ struct MethodSig {
 enum BorrowOrigin {
     Param(String),
     Local,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BorrowKind {
+    Shared,
+    Mutable,
 }
 
 struct LowerContext<'a> {
@@ -438,6 +469,40 @@ fn function_symbol_name(function: &syntax::Function) -> String {
     match &function.impl_target {
         Some(target) => format!("{target}__{}", function.name),
         None => function.name.clone(),
+    }
+}
+
+fn is_castable_numeric(ty: &Type) -> bool {
+    matches!(ty, Type::Int | Type::Numeric(_))
+}
+
+fn is_ordered_numeric(ty: &Type) -> bool {
+    matches!(ty, Type::Int | Type::Numeric(_))
+}
+
+fn is_addable_numeric(ty: &Type) -> bool {
+    matches!(ty, Type::Int | Type::Numeric(_))
+}
+
+fn numeric_method_return_ty(receiver: &Type, method: &str) -> Option<Type> {
+    let is_integer = match receiver {
+        Type::Int => true,
+        Type::Numeric(numeric) => {
+            !matches!(numeric, syntax::NumericType::F32 | syntax::NumericType::F64)
+        }
+        _ => false,
+    };
+    if !is_integer {
+        return None;
+    }
+    match method {
+        "wrapping_add" | "wrapping_sub" | "wrapping_mul" | "wrapping_div" | "wrapping_rem" => {
+            Some(receiver.clone())
+        }
+        "checked_add" | "checked_sub" | "checked_mul" | "checked_div" | "checked_rem" => {
+            Some(Type::Option(Box::new(receiver.clone())))
+        }
+        _ => None,
     }
 }
 
@@ -547,6 +612,14 @@ fn lower_with_capabilities_impl(
         current_return: None,
         current_borrow_return_params: HashSet::new(),
     };
+    let statics = match lower_static_decls(&program.consts, &structs, &enums, &aliases, &ctx) {
+        Ok(statics) => statics,
+        Err(error) if recover => {
+            append_diagnostic(&mut diagnostics, error);
+            Vec::new()
+        }
+        Err(error) => return Err(single_diagnostic(error)),
+    };
     let mut env = HashMap::new();
     let stmts = if recover {
         let (stmts, mut block_diagnostics, _) =
@@ -566,6 +639,7 @@ fn lower_with_capabilities_impl(
         path: program.path.clone(),
         structs: lowered_structs,
         enums: lowered_enums,
+        statics,
         functions: lowered_functions,
         stmts,
     })
@@ -697,7 +771,9 @@ fn collect_expr_calls(expr: &syntax::Expr, calls: &mut VecDeque<String>) {
             collect_expr_calls(lhs, calls);
             collect_expr_calls(rhs, calls);
         }
-        syntax::Expr::Try { expr, .. } | syntax::Expr::Await { expr, .. } => {
+        syntax::Expr::Try { expr, .. }
+        | syntax::Expr::Await { expr, .. }
+        | syntax::Expr::Cast { expr, .. } => {
             collect_expr_calls(expr, calls);
         }
         syntax::Expr::StructLiteral { fields, .. } => {
@@ -820,9 +896,14 @@ fn type_has_unboxed_recursive_path(
     visiting: &mut HashSet<AggregateRef>,
 ) -> bool {
     match ty {
-        Type::Error | Type::Int | Type::Bool | Type::String | Type::Ptr(_) | Type::MutPtr(_) => {
-            false
-        }
+        Type::Error
+        | Type::Int
+        | Type::Numeric(_)
+        | Type::Bool
+        | Type::String
+        | Type::Str
+        | Type::Ptr(_)
+        | Type::MutPtr(_) => false,
         Type::Struct(name) => {
             let current = AggregateRef::Struct(name.clone());
             if &current == owner {
@@ -1250,6 +1331,22 @@ fn infer_generic_calls_in_expr(
             line: *line,
             column: *column,
         },
+        syntax::Expr::Cast {
+            expr,
+            ty,
+            line,
+            column,
+        } => syntax::Expr::Cast {
+            expr: Box::new(infer_generic_calls_in_expr(
+                expr,
+                Some(ty),
+                env,
+                generic_functions,
+            )?),
+            ty: ty.clone(),
+            line: *line,
+            column: *column,
+        },
         syntax::Expr::Try { expr, line, column } => syntax::Expr::Try {
             expr: Box::new(infer_generic_calls_in_expr(
                 expr,
@@ -1643,7 +1740,11 @@ fn contains_generic_type_param(ty: &syntax::TypeName, type_params: &HashSet<Stri
                 .any(|param| contains_generic_type_param(param, type_params))
                 || contains_generic_type_param(return_ty, type_params)
         }
-        syntax::TypeName::Int | syntax::TypeName::Bool | syntax::TypeName::String => false,
+        syntax::TypeName::Int
+        | syntax::TypeName::Numeric(_)
+        | syntax::TypeName::Bool
+        | syntax::TypeName::String
+        | syntax::TypeName::Str => false,
     }
 }
 
@@ -1720,7 +1821,7 @@ fn unify_generic_type_name(
             }
         }
         syntax::TypeName::LifetimeSlice(_, lhs) => {
-            if let syntax::TypeName::LifetimeSlice(_, rhs) | syntax::TypeName::Slice(rhs) = actual {
+            if let syntax::TypeName::LifetimeSlice(_, rhs) = actual {
                 unify_generic_type_name(lhs, rhs, type_params, bindings, line, column)
             } else if contains_generic_type_param(pattern, type_params) {
                 Err(generic_constraint_mismatch(pattern, actual, line, column))
@@ -1729,9 +1830,7 @@ fn unify_generic_type_name(
             }
         }
         syntax::TypeName::LifetimeMutSlice(_, lhs) => {
-            if let syntax::TypeName::LifetimeMutSlice(_, rhs) | syntax::TypeName::MutSlice(rhs) =
-                actual
-            {
+            if let syntax::TypeName::LifetimeMutSlice(_, rhs) = actual {
                 unify_generic_type_name(lhs, rhs, type_params, bindings, line, column)
             } else if contains_generic_type_param(pattern, type_params) {
                 Err(generic_constraint_mismatch(pattern, actual, line, column))
@@ -1809,7 +1908,11 @@ fn unify_generic_type_name(
                 Ok(())
             }
         }
-        syntax::TypeName::Int | syntax::TypeName::Bool | syntax::TypeName::String => Ok(()),
+        syntax::TypeName::Int
+        | syntax::TypeName::Numeric(_)
+        | syntax::TypeName::Bool
+        | syntax::TypeName::String
+        | syntax::TypeName::Str => Ok(()),
     }
 }
 
@@ -1998,6 +2101,7 @@ fn monomorphize_aggregates(program: syntax::Program) -> Result<syntax::Program, 
                     &mut queue,
                     &mut queued,
                 )?,
+                is_static: constant.is_static,
                 visibility: constant.visibility,
                 line: constant.line,
                 column: constant.column,
@@ -2227,7 +2331,11 @@ fn collect_type_params(ty: &syntax::TypeName, type_params: &[String], found: &mu
                 collect_type_params(element, type_params, found);
             }
         }
-        syntax::TypeName::Int | syntax::TypeName::Bool | syntax::TypeName::String => {}
+        syntax::TypeName::Int
+        | syntax::TypeName::Numeric(_)
+        | syntax::TypeName::Bool
+        | syntax::TypeName::String
+        | syntax::TypeName::Str => {}
     }
 }
 
@@ -2664,8 +2772,10 @@ fn rewrite_aggregate_type_name(
             )?),
         ),
         syntax::TypeName::Int => syntax::TypeName::Int,
+        syntax::TypeName::Numeric(numeric) => syntax::TypeName::Numeric(*numeric),
         syntax::TypeName::Bool => syntax::TypeName::Bool,
         syntax::TypeName::String => syntax::TypeName::String,
+        syntax::TypeName::Str => syntax::TypeName::Str,
     })
 }
 
@@ -3060,6 +3170,31 @@ fn rewrite_expr_aggregate_types(
                 queue,
                 queued,
             )?),
+            line: *line,
+            column: *column,
+        },
+        syntax::Expr::Cast {
+            expr,
+            ty,
+            line,
+            column,
+        } => syntax::Expr::Cast {
+            expr: Box::new(rewrite_expr_aggregate_types(
+                expr,
+                generic_structs,
+                generic_enums,
+                queue,
+                queued,
+            )?),
+            ty: rewrite_aggregate_type_name(
+                ty,
+                generic_structs,
+                generic_enums,
+                queue,
+                queued,
+                *line,
+                *column,
+            )?,
             line: *line,
             column: *column,
         },
@@ -3638,7 +3773,7 @@ fn rewrite_expr_generic_calls(
                 }
                 monomorphized_function_name(name, &type_args)
             } else {
-                if !type_args.is_empty() && !is_async_runtime_intrinsic(name) {
+                if !type_args.is_empty() && !preserves_intrinsic_type_args(name) {
                     return Err(Diagnostic::new(
                         "type",
                         format!("function {:?} is not generic", name),
@@ -3647,7 +3782,7 @@ fn rewrite_expr_generic_calls(
                 }
                 name.clone()
             };
-            let keep_type_args = is_async_runtime_intrinsic(name.as_str());
+            let keep_type_args = preserves_intrinsic_type_args(name.as_str());
             syntax::Expr::Call {
                 name,
                 type_args: if keep_type_args {
@@ -3734,6 +3869,23 @@ fn rewrite_expr_generic_calls(
                 queue,
                 queued,
             )?),
+            line: *line,
+            column: *column,
+        },
+        syntax::Expr::Cast {
+            expr,
+            ty,
+            line,
+            column,
+        } => syntax::Expr::Cast {
+            expr: Box::new(rewrite_expr_generic_calls(
+                expr,
+                type_bindings,
+                generic_functions,
+                queue,
+                queued,
+            )?),
+            ty: substitute_type_name(ty, type_bindings),
             line: *line,
             column: *column,
         },
@@ -4049,8 +4201,10 @@ fn substitute_type_name(
             Box::new(substitute_type_name(return_ty, type_bindings)),
         ),
         syntax::TypeName::Int => syntax::TypeName::Int,
+        syntax::TypeName::Numeric(numeric) => syntax::TypeName::Numeric(*numeric),
         syntax::TypeName::Bool => syntax::TypeName::Bool,
         syntax::TypeName::String => syntax::TypeName::String,
+        syntax::TypeName::Str => syntax::TypeName::Str,
     }
 }
 
@@ -4096,23 +4250,47 @@ fn is_async_runtime_intrinsic(name: &str) -> bool {
     )
 }
 
+fn preserves_intrinsic_type_args(name: &str) -> bool {
+    is_async_runtime_intrinsic(name)
+        || matches!(
+            name,
+            "map_get"
+                | "map_contains_key"
+                | "map_keys"
+                | "contains"
+                | "get"
+                | "get_or_default"
+                | "keys"
+        )
+}
+
 fn type_name_monomorph_suffix(ty: &syntax::TypeName) -> String {
     match ty {
         syntax::TypeName::Int => String::from("int"),
+        syntax::TypeName::Numeric(numeric) => numeric.as_str().to_string(),
         syntax::TypeName::Bool => String::from("bool"),
         syntax::TypeName::String => String::from("string"),
+        syntax::TypeName::Str => String::from("str"),
         syntax::TypeName::Named(name, args) if args.is_empty() => name.clone(),
         syntax::TypeName::Named(name, args) => monomorphized_type_name(name, args),
         syntax::TypeName::Ptr(inner) => format!("ptr_{}", type_name_monomorph_suffix(inner)),
         syntax::TypeName::MutPtr(inner) => {
             format!("mutptr_{}", type_name_monomorph_suffix(inner))
         }
-        syntax::TypeName::Slice(inner) | syntax::TypeName::LifetimeSlice(_, inner) => {
-            format!("slice_{}", type_name_monomorph_suffix(inner))
-        }
-        syntax::TypeName::MutSlice(inner) | syntax::TypeName::LifetimeMutSlice(_, inner) => {
+        syntax::TypeName::Slice(inner) => format!("slice_{}", type_name_monomorph_suffix(inner)),
+        syntax::TypeName::MutSlice(inner) => {
             format!("mutslice_{}", type_name_monomorph_suffix(inner))
         }
+        syntax::TypeName::LifetimeSlice(lifetime, inner) => format!(
+            "lslice_{}_{}",
+            sanitize_symbol_suffix(lifetime),
+            type_name_monomorph_suffix(inner)
+        ),
+        syntax::TypeName::LifetimeMutSlice(lifetime, inner) => format!(
+            "lmutslice_{}_{}",
+            sanitize_symbol_suffix(lifetime),
+            type_name_monomorph_suffix(inner)
+        ),
         syntax::TypeName::Option(inner) => {
             format!("option_{}", type_name_monomorph_suffix(inner))
         }
@@ -4173,7 +4351,9 @@ impl Type {
         match self {
             Type::Error
             | Type::Int
+            | Type::Numeric(_)
             | Type::Bool
+            | Type::Str
             | Type::Ptr(_)
             | Type::MutPtr(_)
             | Type::Slice(_) => true,
@@ -4196,7 +4376,7 @@ impl Type {
 
     fn supports_map_key(&self) -> bool {
         match self {
-            Type::Int | Type::Bool | Type::String => true,
+            Type::Int | Type::Numeric(_) | Type::Bool | Type::String | Type::Str => true,
             Type::Tuple(elements) => elements.iter().all(Type::supports_map_key),
             Type::Error
             | Type::Struct(_)
@@ -4513,26 +4693,14 @@ fn collect_function_signatures(
         } else {
             return_ty.clone()
         };
-        let borrow_return_params =
-            if let Some(explicit_params) = explicit_borrow_return_params(function) {
-                if explicit_params.is_empty() {
-                    return Err(Diagnostic::new(
-                        "type",
-                        "explicit borrowed return lifetime does not match any borrowed parameter",
-                    )
-                    .with_span(function.line, function.column));
-                }
-                explicit_params
-            } else {
-                borrowck::classify_borrow_return(
-                    &params,
-                    &signature_return_ty,
-                    structs,
-                    enums,
-                    function.line,
-                    function.column,
-                )?
-            };
+        let borrow_return_params = classify_borrow_return(
+            &params,
+            &signature_return_ty,
+            structs,
+            enums,
+            function.line,
+            function.column,
+        )?;
         if signatures
             .insert(
                 function_symbol_name(function),
@@ -4618,10 +4786,19 @@ fn collect_method_signatures(
         } else {
             return_ty
         };
+        let borrow_return_params = classify_borrow_return(
+            &params,
+            &return_ty,
+            structs,
+            enums,
+            function.line,
+            function.column,
+        )?;
         let method = MethodSig {
             function_name: function_symbol_name(function),
             params,
             return_ty,
+            borrow_return_params,
             has_self: function.receiver.is_some(),
         };
         let entry = methods.entry(target_name.clone()).or_default();
@@ -4637,6 +4814,60 @@ fn collect_method_signatures(
         }
     }
     Ok(methods)
+}
+
+fn lower_static_decls(
+    consts: &[syntax::ConstDecl],
+    structs: &HashMap<String, StructDef>,
+    enums: &HashMap<String, EnumDef>,
+    aliases: &HashMap<String, syntax::TypeAliasDecl>,
+    ctx: &LowerContext<'_>,
+) -> Result<Vec<StaticDef>, Diagnostic> {
+    let mut lowered = Vec::new();
+    for decl in consts.iter().filter(|decl| decl.is_static) {
+        let ty = lower_type(&decl.ty, structs, enums, aliases, ctx.consts, decl.line, decl.column)?;
+        let mut env = HashMap::new();
+        let mut expr = lower_expr_with_expected(&decl.expr, Some(&ty), &mut env, ctx)?;
+        if expr.ty() != &ty {
+            return Err(Diagnostic::new(
+                "type",
+                format!("static {:?} expects {}, got {}", decl.name, ty, expr.ty()),
+            )
+            .with_span(decl.line, decl.column));
+        }
+        if matches!(ty, Type::Bool) {
+            if let Some(value) = static_bool_value(&expr) {
+                expr = Expr::Literal {
+                    ty: Type::Bool,
+                    value: LiteralValue::Bool(value),
+                };
+            }
+        }
+        if matches!(ty, Type::String)
+            && !matches!(
+                expr,
+                Expr::Literal {
+                    value: LiteralValue::String(_),
+                    ..
+                }
+            )
+        {
+            return Err(Diagnostic::new(
+                "type",
+                format!(
+                    "static {:?} string initializers must be string literals in stage1",
+                    decl.name
+                ),
+            )
+            .with_span(decl.line, decl.column));
+        }
+        lowered.push(StaticDef {
+            name: decl.name.clone(),
+            ty,
+            expr,
+        });
+    }
+    Ok(lowered)
 }
 
 fn lower_function(
@@ -4709,10 +4940,11 @@ fn lower_function(
                 ty: ty.clone(),
                 moved: false,
                 moved_projections: HashSet::new(),
-                borrow_kind: borrowck::borrow_kind_for_type(&ty, structs, enums),
+                borrow_kind: borrow_kind_for_type(&ty, structs, enums),
                 borrow_origin: binding_borrow_origin(&ty, Some("self"), structs, enums),
                 borrowed_owners: HashSet::new(),
-                borrow_state: BorrowState::default(),
+                active_borrow_count: 0,
+                active_mut_borrow_count: 0,
             },
         );
         params.push(Param {
@@ -4752,10 +4984,11 @@ fn lower_function(
                 ty: ty.clone(),
                 moved: false,
                 moved_projections: HashSet::new(),
-                borrow_kind: borrowck::borrow_kind_for_type(&ty, structs, enums),
+                borrow_kind: borrow_kind_for_type(&ty, structs, enums),
                 borrow_origin: binding_borrow_origin(&ty, Some(&param.name), structs, enums),
                 borrowed_owners: HashSet::new(),
-                borrow_state: BorrowState::default(),
+                active_borrow_count: 0,
+                active_mut_borrow_count: 0,
             },
         );
         params.push(Param {
@@ -4893,7 +5126,8 @@ fn insert_type_error_binding_for_failed_stmt(
             borrow_kind: None,
             borrow_origin: None,
             borrowed_owners: HashSet::new(),
-            borrow_state: BorrowState::default(),
+            active_borrow_count: 0,
+            active_mut_borrow_count: 0,
         });
     }
 }
@@ -5053,8 +5287,7 @@ fn lower_match_stmt(
 ) -> Result<Stmt, Diagnostic> {
     let lowered_expr = lower_expr(expr, env, ctx)?;
     let match_borrowed_owners = expr_borrowed_owners(&lowered_expr, env, ctx);
-    let match_borrow_kind =
-        borrowck::borrow_kind_for_type(lowered_expr.ty(), ctx.structs, ctx.enums);
+    let match_borrow_kind = borrow_kind_for_type(lowered_expr.ty(), ctx.structs, ctx.enums);
     let reuse_existing_match_binding =
         matches!(lowered_expr, Expr::VarRef { .. }) && !match_borrowed_owners.is_empty();
     if let Some(borrow_kind) = match_borrow_kind
@@ -5220,7 +5453,7 @@ fn lower_match_stmt(
                     ty: payload_ty.clone(),
                     moved: false,
                     moved_projections: HashSet::new(),
-                    borrow_kind: borrowck::borrow_kind_for_type(payload_ty, ctx.structs, ctx.enums),
+                    borrow_kind: borrow_kind_for_type(payload_ty, ctx.structs, ctx.enums),
                     borrow_origin: match_binding_borrow_origin(
                         &lowered_expr,
                         &arm.variant,
@@ -5239,7 +5472,8 @@ fn lower_match_stmt(
                         &before,
                         ctx,
                     ),
-                    borrow_state: BorrowState::default(),
+                    active_borrow_count: 0,
+                    active_mut_borrow_count: 0,
                 },
             );
         }
@@ -5314,11 +5548,17 @@ fn lower_stmt(
                 .with_span(*line, *column));
             }
             if env.contains_key(name) {
-                return Err(Diagnostic::new(
-                    "type",
-                    format!("rebinding existing name {name:?} is not yet supported in stage1"),
-                )
-                .with_span(*line, *column));
+                let existing = &env[name];
+                let message = if !existing.ty.is_copy() {
+                    format!(
+                        "rebinding name {name:?} is not supported; the existing binding holds an owned value"
+                    )
+                } else {
+                    format!("rebinding name {name:?} is not supported in stage1")
+                };
+                return Err(Diagnostic::new("ownership", message)
+                    .with_code("rebind_not_supported")
+                    .with_span(*line, *column));
             }
             let expected = lower_type(
                 ty,
@@ -5356,9 +5596,7 @@ fn lower_stmt(
             }
             let borrowed_owners =
                 binding_borrowed_owners_from_expr(&expected, &lowered_expr, env, ctx);
-            if let Some(borrow_kind) =
-                borrowck::borrow_kind_for_type(&expected, ctx.structs, ctx.enums)
-            {
+            if let Some(borrow_kind) = borrow_kind_for_type(&expected, ctx.structs, ctx.enums) {
                 increment_active_borrows(&borrowed_owners, env, borrow_kind, *line, *column)?;
             }
             if !actual.is_copy() {
@@ -5370,7 +5608,7 @@ fn lower_stmt(
                     ty: expected.clone(),
                     moved: false,
                     moved_projections: HashSet::new(),
-                    borrow_kind: borrowck::borrow_kind_for_type(&expected, ctx.structs, ctx.enums),
+                    borrow_kind: borrow_kind_for_type(&expected, ctx.structs, ctx.enums),
                     borrow_origin: binding_borrow_origin_from_expr(
                         &expected,
                         &lowered_expr,
@@ -5378,7 +5616,8 @@ fn lower_stmt(
                         ctx,
                     ),
                     borrowed_owners,
-                    borrow_state: BorrowState::default(),
+                    active_borrow_count: 0,
+                    active_mut_borrow_count: 0,
                 },
             );
             Ok(Stmt::Let {
@@ -5395,11 +5634,14 @@ fn lower_stmt(
             let lowered = lower_expr(expr, env, ctx)?;
             if !matches!(
                 lowered.ty(),
-                Type::Error | Type::Int | Type::Bool | Type::String
+                Type::Error | Type::Int | Type::Numeric(_) | Type::Bool | Type::String | Type::Str
             ) {
                 return Err(Diagnostic::new(
                     "type",
-                    format!("print expects int, bool, or string, got {}", lowered.ty()),
+                    format!(
+                        "print expects int, bool, String, or &str, got {}",
+                        lowered.ty()
+                    ),
                 )
                 .with_span(*line, *column));
             }
@@ -5585,8 +5827,8 @@ fn lower_stmt(
                             .iter()
                             .any(|projection| !pre_binding.moved_projections.contains(projection));
                         if post_binding.moved || moved_projection_in_body {
-                            return Err(borrowck::ownership_error(
-                                borrowck::LOOP_MOVE_OUTER_NON_COPY,
+                            return Err(ownership_error(
+                                OWNERSHIP_LOOP_MOVE_OUTER_NON_COPY,
                                 format!(
                                     "cannot move non-copy value `{}` inside loop body — \
                                      value would not be available on subsequent iterations",
@@ -5744,7 +5986,7 @@ fn lower_stmt(
                 )
                 .with_span(*line, *column));
             }
-            if borrowck::contains_borrowed_slice_type(expected, ctx.structs, ctx.enums)
+            if contains_borrowed_slice_type(expected, ctx.structs, ctx.enums)
                 && !ctx.current_borrow_return_params.is_empty()
             {
                 match expr_borrow_origin(&lowered_expr, env, ctx) {
@@ -5752,8 +5994,8 @@ fn lower_stmt(
                     Some(BorrowOrigin::Param(origin))
                         if ctx.current_borrow_return_params.contains(&origin) => {}
                     _ => {
-                        return Err(borrowck::ownership_error(
-                            borrowck::BORROW_RETURN_REQUIRES_PARAM_ORIGIN,
+                        return Err(ownership_error(
+                            OWNERSHIP_BORROW_RETURN_REQUIRES_PARAM_ORIGIN,
                             format!(
                                 "returning borrowed values requires data derived from one of the borrowed parameters in stage1"
                             ),
@@ -5814,34 +6056,25 @@ fn merge_branch_state(
                 borrow_kind: binding.borrow_kind,
                 borrow_origin: binding.borrow_origin.clone(),
                 borrowed_owners: binding.borrowed_owners.clone(),
-                borrow_state: BorrowState {
-                    active_shared_or_mutable: merge_borrow_count(
-                        binding.borrow_state.active_shared_or_mutable,
-                        then_returns,
-                        then_after
-                            .get(name)
-                            .map(|entry| entry.borrow_state.active_shared_or_mutable),
-                        else_returns,
-                        else_after.and_then(|branch| {
-                            branch
-                                .get(name)
-                                .map(|entry| entry.borrow_state.active_shared_or_mutable)
-                        }),
-                    ),
-                    active_mutable: merge_borrow_count(
-                        binding.borrow_state.active_mutable,
-                        then_returns,
-                        then_after
-                            .get(name)
-                            .map(|entry| entry.borrow_state.active_mutable),
-                        else_returns,
-                        else_after.and_then(|branch| {
-                            branch
-                                .get(name)
-                                .map(|entry| entry.borrow_state.active_mutable)
-                        }),
-                    ),
-                },
+                active_borrow_count: merge_borrow_count(
+                    binding.active_borrow_count,
+                    then_returns,
+                    then_after.get(name).map(|entry| entry.active_borrow_count),
+                    else_returns,
+                    else_after
+                        .and_then(|branch| branch.get(name).map(|entry| entry.active_borrow_count)),
+                ),
+                active_mut_borrow_count: merge_borrow_count(
+                    binding.active_mut_borrow_count,
+                    then_returns,
+                    then_after
+                        .get(name)
+                        .map(|entry| entry.active_mut_borrow_count),
+                    else_returns,
+                    else_after.and_then(|branch| {
+                        branch.get(name).map(|entry| entry.active_mut_borrow_count)
+                    }),
+                ),
             },
         );
     }
@@ -5891,28 +6124,23 @@ fn merge_loop_state(
                 borrow_kind: binding.borrow_kind,
                 borrow_origin: binding.borrow_origin.clone(),
                 borrowed_owners: binding.borrowed_owners.clone(),
-                borrow_state: BorrowState {
-                    active_shared_or_mutable: if body_returns {
-                        binding.borrow_state.active_shared_or_mutable
-                    } else {
-                        let body_count = body_after
-                            .get(name)
-                            .map(|entry| entry.borrow_state.active_shared_or_mutable)
-                            .unwrap_or(binding.borrow_state.active_shared_or_mutable);
-                        binding
-                            .borrow_state
-                            .active_shared_or_mutable
-                            .max(body_count)
-                    },
-                    active_mutable: if body_returns {
-                        binding.borrow_state.active_mutable
-                    } else {
-                        let body_count = body_after
-                            .get(name)
-                            .map(|entry| entry.borrow_state.active_mutable)
-                            .unwrap_or(binding.borrow_state.active_mutable);
-                        binding.borrow_state.active_mutable.max(body_count)
-                    },
+                active_borrow_count: if body_returns {
+                    binding.active_borrow_count
+                } else {
+                    let body_count = body_after
+                        .get(name)
+                        .map(|entry| entry.active_borrow_count)
+                        .unwrap_or(binding.active_borrow_count);
+                    binding.active_borrow_count.max(body_count)
+                },
+                active_mut_borrow_count: if body_returns {
+                    binding.active_mut_borrow_count
+                } else {
+                    let body_count = body_after
+                        .get(name)
+                        .map(|entry| entry.active_mut_borrow_count)
+                        .unwrap_or(binding.active_mut_borrow_count);
+                    binding.active_mut_borrow_count.max(body_count)
                 },
             },
         );
@@ -5945,34 +6173,28 @@ fn merge_match_state(
                 borrow_kind: binding.borrow_kind,
                 borrow_origin: binding.borrow_origin.clone(),
                 borrowed_owners: binding.borrowed_owners.clone(),
-                borrow_state: BorrowState {
-                    active_shared_or_mutable: arm_states
-                        .iter()
-                        .filter_map(|(after, returns)| {
-                            if *returns {
-                                Some(binding.borrow_state.active_shared_or_mutable)
-                            } else {
-                                after
-                                    .get(name)
-                                    .map(|entry| entry.borrow_state.active_shared_or_mutable)
-                            }
-                        })
-                        .max()
-                        .unwrap_or(binding.borrow_state.active_shared_or_mutable),
-                    active_mutable: arm_states
-                        .iter()
-                        .filter_map(|(after, returns)| {
-                            if *returns {
-                                Some(binding.borrow_state.active_mutable)
-                            } else {
-                                after
-                                    .get(name)
-                                    .map(|entry| entry.borrow_state.active_mutable)
-                            }
-                        })
-                        .max()
-                        .unwrap_or(binding.borrow_state.active_mutable),
-                },
+                active_borrow_count: arm_states
+                    .iter()
+                    .filter_map(|(after, returns)| {
+                        if *returns {
+                            Some(binding.active_borrow_count)
+                        } else {
+                            after.get(name).map(|entry| entry.active_borrow_count)
+                        }
+                    })
+                    .max()
+                    .unwrap_or(binding.active_borrow_count),
+                active_mut_borrow_count: arm_states
+                    .iter()
+                    .filter_map(|(after, returns)| {
+                        if *returns {
+                            Some(binding.active_mut_borrow_count)
+                        } else {
+                            after.get(name).map(|entry| entry.active_mut_borrow_count)
+                        }
+                    })
+                    .max()
+                    .unwrap_or(binding.active_mut_borrow_count),
             },
         );
     }
@@ -6043,27 +6265,79 @@ fn lower_expr(
     lower_expr_with_expected(expr, None, env, ctx)
 }
 
+fn is_string_like_type(ty: &Type) -> bool {
+    matches!(ty, Type::String | Type::Str)
+}
+
+fn coerce_expr_to_expected(
+    expr: Expr,
+    expected: Option<&Type>,
+    allow_temporary_string_borrow: bool,
+) -> Result<Expr, Diagnostic> {
+    match expected {
+        Some(Type::Str) if expr.ty() == &Type::String => {
+            if !allow_temporary_string_borrow && !is_stable_string_borrow_owner(&expr) {
+                return Err(Diagnostic::new(
+                    "ownership",
+                    "cannot borrow a temporary String as &str; bind the String to a local first",
+                ));
+            }
+            Ok(Expr::StringBorrow {
+                expr: Box::new(expr),
+                ty: Type::Str,
+            })
+        }
+        _ => Ok(expr),
+    }
+}
+
+fn is_stable_string_borrow_owner(expr: &Expr) -> bool {
+    matches!(expr, Expr::VarRef { .. } | Expr::FieldAccess { .. })
+}
+
 fn lower_expr_with_expected(
     expr: &syntax::Expr,
     expected: Option<&Type>,
     env: &mut HashMap<String, Binding>,
     ctx: &LowerContext<'_>,
 ) -> Result<Expr, Diagnostic> {
+    lower_expr_with_expected_inner(expr, expected, env, ctx)
+        .and_then(|lowered| coerce_expr_to_expected(lowered, expected, false))
+}
+
+fn lower_call_arg_with_expected(
+    expr: &syntax::Expr,
+    expected: Option<&Type>,
+    env: &mut HashMap<String, Binding>,
+    ctx: &LowerContext<'_>,
+    allow_temporary_string_borrow: bool,
+) -> Result<Expr, Diagnostic> {
+    lower_expr_with_expected_inner(expr, expected, env, ctx).and_then(|lowered| {
+        coerce_expr_to_expected(lowered, expected, allow_temporary_string_borrow)
+    })
+}
+
+fn lower_expr_with_expected_inner(
+    expr: &syntax::Expr,
+    expected: Option<&Type>,
+    env: &mut HashMap<String, Binding>,
+    ctx: &LowerContext<'_>,
+) -> Result<Expr, Diagnostic> {
     match expr {
-        syntax::Expr::Literal(literal) => Ok(lower_literal(literal)),
+        syntax::Expr::Literal(literal) => Ok(lower_literal(literal, expected)),
         syntax::Expr::VarRef { name, line, column } => {
             if let Some(binding) = env.get(name) {
                 if binding.moved {
-                    return Err(borrowck::ownership_error(
-                        borrowck::USE_AFTER_MOVE,
+                    return Err(ownership_error(
+                        OWNERSHIP_USE_AFTER_MOVE,
                         format!("use of moved value {name:?}"),
                     )
                     .with_help("consider restructuring to avoid the move, or ensure the value is only used once")
                     .with_span(*line, *column));
                 }
                 if !binding.moved_projections.is_empty() {
-                    return Err(borrowck::ownership_error(
-                        borrowck::USE_AFTER_MOVE,
+                    return Err(ownership_error(
+                        OWNERSHIP_USE_AFTER_MOVE,
                         format!("use of partially moved value {name:?}"),
                     )
                     .with_help("consider restructuring to avoid the move, or ensure the value is only used once")
@@ -6125,6 +6399,18 @@ fn lower_expr_with_expected(
                 return lower_async_runtime_intrinsic(
                     name, type_args, args, *line, *column, env, ctx,
                 );
+            }
+            if matches!(
+                name.as_str(),
+                "map_get"
+                    | "map_contains_key"
+                    | "map_keys"
+                    | "contains"
+                    | "get"
+                    | "get_or_default"
+                    | "keys"
+            ) {
+                return lower_map_lookup_intrinsic(name, type_args, args, *line, *column, env, ctx);
             }
             if !type_args.is_empty() {
                 return Err(
@@ -6291,7 +6577,7 @@ fn lower_expr_with_expected(
                     0
                 };
                 let lhs = lower_expr(&args[value_start], env, ctx)?;
-                if !matches!(lhs.ty(), Type::Int | Type::Bool | Type::String) {
+                if !matches!(lhs.ty(), Type::Int | Type::Bool | Type::String | Type::Str) {
                     return Err(Diagnostic::new(
                         "type",
                         format!(
@@ -6613,6 +6899,55 @@ fn lower_expr_with_expected(
                     name: name.clone(),
                     args: lowered_args,
                     ty,
+                });
+            }
+            if matches!(
+                name.as_str(),
+                "encoding_url_component_encode"
+                    | "encoding_url_component_decode"
+                    | "encoding_path_segment_encode"
+                    | "encoding_url_query_pair_encode"
+                    | "encoding_path_join_segment"
+            ) {
+                let expected_arity = if matches!(
+                    name.as_str(),
+                    "encoding_url_query_pair_encode" | "encoding_path_join_segment"
+                ) {
+                    2
+                } else {
+                    1
+                };
+                if args.len() != expected_arity {
+                    return Err(Diagnostic::new(
+                        "type",
+                        format!(
+                            "{name} expects {expected_arity} argument(s), got {}",
+                            args.len()
+                        ),
+                    )
+                    .with_span(*line, *column));
+                }
+                let mut lowered_args = Vec::new();
+                for arg in args {
+                    let lowered = lower_expr_with_expected(arg, Some(&Type::String), env, ctx)?;
+                    if lowered.ty() != &Type::String {
+                        return Err(Diagnostic::new(
+                            "type",
+                            format!("{name} expects string arguments, got {}", lowered.ty()),
+                        )
+                        .with_span(arg.line(), arg.column()));
+                    }
+                    move_lowered_value(&lowered, env)?;
+                    lowered_args.push(lowered);
+                }
+                return Ok(Expr::Call {
+                    name: name.clone(),
+                    args: lowered_args,
+                    ty: if name == "encoding_url_component_decode" {
+                        Type::Option(Box::new(Type::String))
+                    } else {
+                        Type::String
+                    },
                 });
             }
             if name == "fs_read" {
@@ -7391,14 +7726,14 @@ fn lower_expr_with_expected(
             if let Some(binding) = env.get(name) {
                 if let Type::Fn(param_tys, return_ty) = binding.ty.clone() {
                     if binding.moved {
-                        return Err(borrowck::ownership_error(
+                        return Err(ownership_error(
                             OWNERSHIP_USE_AFTER_MOVE,
                             format!("use of moved value {name:?}"),
                         )
                         .with_span(*line, *column));
                     }
                     if !binding.moved_projections.is_empty() {
-                        return Err(borrowck::ownership_error(
+                        return Err(ownership_error(
                             OWNERSHIP_USE_AFTER_MOVE,
                             format!("use of partially moved value {name:?}"),
                         )
@@ -7418,7 +7753,7 @@ fn lower_expr_with_expected(
                     let mut lowered_args = Vec::new();
                     for (arg, expected) in args.iter().zip(param_tys.iter()) {
                         let lowered = lower_expr_with_expected(arg, Some(expected), env, ctx)?;
-                        if lowered.ty() != expected {
+                        if !type_assignable_to(lowered.ty(), expected) {
                             return Err(Diagnostic::new(
                                 "type",
                                 format!(
@@ -7463,8 +7798,17 @@ fn lower_expr_with_expected(
                 }
                 let mut lowered_args = Vec::new();
                 let mut temporary_borrows = Vec::new();
-                for (arg, expected) in args.iter().zip(signature.params.iter()) {
-                    let lowered = lower_expr_with_expected(arg, Some(expected), env, ctx)?;
+                for (index, (arg, expected)) in args.iter().zip(signature.params.iter()).enumerate()
+                {
+                    let allow_temporary_string_borrow =
+                        !signature.borrow_return_params.contains(&index);
+                    let lowered = lower_call_arg_with_expected(
+                        arg,
+                        Some(expected),
+                        env,
+                        ctx,
+                        allow_temporary_string_borrow,
+                    )?;
                     if !type_assignable_to(lowered.ty(), expected) {
                         return Err(Diagnostic::new(
                             "type",
@@ -7503,7 +7847,7 @@ fn lower_expr_with_expected(
                 let lowered = lower_expr_with_expected(&args[0], inner_expected, env, ctx)?;
                 let inner_ty = lowered.ty().clone();
                 if let Some(expected_inner) = inner_expected
-                    && &inner_ty != expected_inner
+                    && !type_assignable_to(&inner_ty, expected_inner)
                 {
                     return Err(Diagnostic::new(
                         "type",
@@ -7540,7 +7884,7 @@ fn lower_expr_with_expected(
                     .with_span(*line, *column));
                 };
                 let lowered = lower_expr_with_expected(&args[0], Some(ok_ty.as_ref()), env, ctx)?;
-                if lowered.ty() != ok_ty.as_ref() {
+                if !type_assignable_to(lowered.ty(), ok_ty.as_ref()) {
                     return Err(Diagnostic::new(
                         "type",
                         format!(
@@ -7577,7 +7921,7 @@ fn lower_expr_with_expected(
                     .with_span(*line, *column));
                 };
                 let lowered = lower_expr_with_expected(&args[0], Some(err_ty.as_ref()), env, ctx)?;
-                if lowered.ty() != err_ty.as_ref() {
+                if !type_assignable_to(lowered.ty(), err_ty.as_ref()) {
                     return Err(Diagnostic::new(
                         "type",
                         format!(
@@ -7658,9 +8002,18 @@ fn lower_expr_with_expected(
                     )
                     .with_span(*line, *column));
                 }
-                for (arg, expected) in args.iter().zip(signature.params.iter()) {
-                    let lowered = lower_expr_with_expected(arg, Some(expected), env, ctx)?;
-                    if lowered.ty() != expected {
+                for (index, (arg, expected)) in args.iter().zip(signature.params.iter()).enumerate()
+                {
+                    let allow_temporary_string_borrow =
+                        !signature.borrow_return_params.contains(&index);
+                    let lowered = lower_call_arg_with_expected(
+                        arg,
+                        Some(expected),
+                        env,
+                        ctx,
+                        allow_temporary_string_borrow,
+                    )?;
+                    if !type_assignable_to(lowered.ty(), expected) {
                         return Err(Diagnostic::new(
                             "type",
                             format!(
@@ -7685,6 +8038,35 @@ fn lower_expr_with_expected(
                 });
             }
             let lowered_base = lower_expr(base, env, ctx)?;
+            if let Some(return_ty) = numeric_method_return_ty(lowered_base.ty(), method) {
+                if args.len() != 1 {
+                    return Err(Diagnostic::new(
+                        "type",
+                        format!(
+                            "numeric method {method:?} expects 1 argument, got {}",
+                            args.len()
+                        ),
+                    )
+                    .with_span(*line, *column));
+                }
+                let receiver_ty = lowered_base.ty().clone();
+                let lowered_arg = lower_expr_with_expected(&args[0], Some(&receiver_ty), env, ctx)?;
+                if lowered_arg.ty() != &receiver_ty {
+                    return Err(Diagnostic::new(
+                        "type",
+                        format!(
+                            "numeric method {method:?} expects argument type {receiver_ty}, got {}",
+                            lowered_arg.ty()
+                        ),
+                    )
+                    .with_span(args[0].line(), args[0].column()));
+                }
+                return Ok(Expr::Call {
+                    name: format!("__axiom_numeric_{method}"),
+                    args: vec![lowered_base, lowered_arg],
+                    ty: return_ty,
+                });
+            }
             let Some(owner_name) = method_owner_name(lowered_base.ty()) else {
                 return Err(Diagnostic::new(
                     "type",
@@ -7747,9 +8129,20 @@ fn lower_expr_with_expected(
                 move_lowered_value(&lowered_base, env)?;
             }
             lowered_args.push(lowered_base);
-            for (arg, expected) in args.iter().zip(signature.params.iter().skip(1)) {
-                let lowered = lower_expr_with_expected(arg, Some(expected), env, ctx)?;
-                if lowered.ty() != expected {
+            for (arg_index, (arg, expected)) in
+                args.iter().zip(signature.params.iter().skip(1)).enumerate()
+            {
+                let param_index = arg_index + 1;
+                let allow_temporary_string_borrow =
+                    !signature.borrow_return_params.contains(&param_index);
+                let lowered = lower_call_arg_with_expected(
+                    arg,
+                    Some(expected),
+                    env,
+                    ctx,
+                    allow_temporary_string_borrow,
+                )?;
+                if !type_assignable_to(lowered.ty(), expected) {
                     return Err(Diagnostic::new(
                         "type",
                         format!(
@@ -7783,21 +8176,25 @@ fn lower_expr_with_expected(
             let rhs = lower_expr(rhs, env, ctx)?;
             let lhs_ty = lhs.ty().clone();
             let rhs_ty = rhs.ty().clone();
-            if lhs_ty != rhs_ty || !matches!(lhs_ty, Type::Int | Type::String) {
+            let result_ty = if lhs_ty == rhs_ty && is_addable_numeric(&lhs_ty) {
+                lhs_ty.clone()
+            } else if is_string_like_type(&lhs_ty) && is_string_like_type(&rhs_ty) {
+                Type::String
+            } else {
                 return Err(
                     Diagnostic::new(
                         "type",
                         format!(
-                            "operator '+' expects matching int or string operands, got {lhs_ty} and {rhs_ty}"
+                            "operator '+' expects matching numeric or string operands, got {lhs_ty} and {rhs_ty}"
                         ),
                     )
                     .with_span(*line, *column),
                 );
-            }
+            };
             Ok(Expr::BinaryAdd {
                 lhs: Box::new(lhs),
                 rhs: Box::new(rhs),
-                ty: lhs_ty,
+                ty: result_ty,
             })
         }
         syntax::Expr::BinaryCompare {
@@ -7813,7 +8210,9 @@ fn lower_expr_with_expected(
             let rhs_ty = rhs.ty().clone();
             match op {
                 syntax::CompareOp::Eq | syntax::CompareOp::Ne => {
-                    if lhs_ty != rhs_ty {
+                    if lhs_ty != rhs_ty
+                        && !(is_string_like_type(&lhs_ty) && is_string_like_type(&rhs_ty))
+                    {
                         return Err(
                             Diagnostic::new(
                                 "type",
@@ -7830,11 +8229,11 @@ fn lower_expr_with_expected(
                 | syntax::CompareOp::Le
                 | syntax::CompareOp::Gt
                 | syntax::CompareOp::Ge => {
-                    if lhs_ty != Type::Int || rhs_ty != Type::Int {
+                    if lhs_ty != rhs_ty || !is_ordered_numeric(&lhs_ty) {
                         return Err(Diagnostic::new(
                             "type",
                             format!(
-                                "operator '{}' expects int operands, got {lhs_ty} and {rhs_ty}",
+                                "operator '{}' expects matching numeric operands, got {lhs_ty} and {rhs_ty}",
                                 op.lexeme()
                             ),
                         )
@@ -7847,6 +8246,37 @@ fn lower_expr_with_expected(
                 lhs: Box::new(lhs),
                 rhs: Box::new(rhs),
                 ty: Type::Bool,
+            })
+        }
+        syntax::Expr::Cast {
+            expr,
+            ty,
+            line,
+            column,
+        } => {
+            let expr = lower_expr(expr, env, ctx)?;
+            let target = lower_type(
+                ty,
+                ctx.structs,
+                ctx.enums,
+                ctx.aliases,
+                ctx.consts,
+                *line,
+                *column,
+            )?;
+            if !is_castable_numeric(expr.ty()) || !is_castable_numeric(&target) {
+                return Err(Diagnostic::new(
+                    "type",
+                    format!(
+                        "cast expects numeric source and target types, got {} as {target}",
+                        expr.ty()
+                    ),
+                )
+                .with_span(*line, *column));
+            }
+            Ok(Expr::Cast {
+                expr: Box::new(expr),
+                ty: target,
             })
         }
         syntax::Expr::Try { expr, line, column } => {
@@ -8200,13 +8630,27 @@ fn lower_expr_with_expected(
                 )
                 .with_span(*line, *column));
             }
+            let expected_key_value = match expected {
+                Some(Type::Map(key, value)) => Some((key.as_ref(), value.as_ref())),
+                _ => None,
+            };
             let mut lowered_entries = Vec::new();
             let mut key_ty = None;
             let mut value_ty = None;
             let mut temporary_borrows = Vec::new();
             for entry in entries {
-                let lowered_key = lower_expr(&entry.key, env, ctx)?;
-                let lowered_value = lower_expr(&entry.value, env, ctx)?;
+                let lowered_key = lower_expr_with_expected(
+                    &entry.key,
+                    expected_key_value.map(|(key, _)| key),
+                    env,
+                    ctx,
+                )?;
+                let lowered_value = lower_expr_with_expected(
+                    &entry.value,
+                    expected_key_value.map(|(_, value)| value),
+                    env,
+                    ctx,
+                )?;
                 if let Some(expected) = key_ty.as_ref() {
                     if lowered_key.ty() != expected {
                         return Err(Diagnostic::new(
@@ -8275,13 +8719,17 @@ fn lower_expr_with_expected(
                 )
                 .with_span(*line, *column));
             }
+            let expected_element = match expected {
+                Some(Type::Array(element_ty, _)) => Some(element_ty.as_ref()),
+                _ => None,
+            };
             let mut lowered_elements = Vec::new();
             let mut element_ty = None;
             let mut temporary_borrows = Vec::new();
             for element in elements {
-                let lowered = lower_expr(element, env, ctx)?;
+                let lowered = lower_expr_with_expected(element, expected_element, env, ctx)?;
                 if let Some(expected) = element_ty.as_ref() {
-                    if lowered.ty() != expected {
+                    if !type_assignable_to(lowered.ty(), expected) {
                         return Err(Diagnostic::new(
                             "type",
                             format!(
@@ -8384,7 +8832,11 @@ fn lower_expr_with_expected(
             column,
         } => {
             let lowered_base = lower_projection_base_expr(base, env, ctx)?;
-            let lowered_index = lower_expr(index, env, ctx)?;
+            let index_expected_ty = match lowered_base.ty() {
+                Type::Map(key_ty, _) => Some(key_ty.as_ref()),
+                _ => None,
+            };
+            let lowered_index = lower_expr_with_expected(index, index_expected_ty, env, ctx)?;
             let result_ty = match lowered_base.ty() {
                 Type::Array(element_ty, _) => {
                     if lowered_index.ty() != &Type::Int {
@@ -8518,7 +8970,8 @@ fn lower_expr_with_expected(
                         borrow_kind: None,
                         borrow_origin: Some(BorrowOrigin::Local),
                         borrowed_owners: HashSet::new(),
-                        borrow_state: BorrowState::default(),
+                        active_borrow_count: 0,
+                        active_mut_borrow_count: 0,
                     },
                 );
             }
@@ -8529,8 +8982,8 @@ fn lower_expr_with_expected(
             }
             let captured_names = referenced.clone();
 
-            if borrowck::contains_borrowed_slice_type(expected_return, ctx.structs, ctx.enums) {
-                return Err(borrowck::ownership_error(
+            if contains_borrowed_slice_type(expected_return, ctx.structs, ctx.enums) {
+                return Err(ownership_error(
                     OWNERSHIP_CLOSURE_BORROWED_SLICE_RETURN,
                     "closure fn values cannot return borrowed slice types in stage1 because codegen cannot express the returned reference lifetime",
                 )
@@ -8554,7 +9007,7 @@ fn lower_expr_with_expected(
                 && captured_names.contains(name)
                 && !lowered_body.ty().is_copy()
             {
-                return Err(borrowck::ownership_error(
+                return Err(ownership_error(
                     OWNERSHIP_CLOSURE_MOVE_CAPTURED_NON_COPY,
                     format!(
                         "closure cannot move captured non-copy value `{}` because fn closures must be callable more than once",
@@ -8577,7 +9030,7 @@ fn lower_expr_with_expected(
                         .iter()
                         .any(|projection| !pre_binding.moved_projections.contains(projection));
                     if post_binding.moved || moved_projection_in_body {
-                        return Err(borrowck::ownership_error(
+                        return Err(ownership_error(
                             OWNERSHIP_CLOSURE_MOVE_CAPTURED_NON_COPY,
                             format!(
                                 "closure cannot move captured non-copy value `{}` because fn closures must be callable more than once",
@@ -8645,9 +9098,9 @@ fn collect_var_refs(expr: &syntax::Expr, refs: &mut HashSet<String>) {
             collect_var_refs(lhs, refs);
             collect_var_refs(rhs, refs);
         }
-        syntax::Expr::Try { expr, .. } | syntax::Expr::Await { expr, .. } => {
-            collect_var_refs(expr, refs)
-        }
+        syntax::Expr::Try { expr, .. }
+        | syntax::Expr::Await { expr, .. }
+        | syntax::Expr::Cast { expr, .. } => collect_var_refs(expr, refs),
         syntax::Expr::StructLiteral { fields, .. } => {
             for field in fields {
                 collect_var_refs(&field.expr, refs);
@@ -8869,6 +9322,127 @@ fn lower_async_runtime_intrinsic(
     })
 }
 
+fn lower_map_lookup_intrinsic(
+    name: &str,
+    type_args: &[syntax::TypeName],
+    args: &[syntax::Expr],
+    line: usize,
+    column: usize,
+    env: &mut HashMap<String, Binding>,
+    ctx: &LowerContext<'_>,
+) -> Result<Expr, Diagnostic> {
+    if !type_args.is_empty() && type_args.len() != 2 {
+        return Err(Diagnostic::new(
+            "type",
+            format!(
+                "{name} expects 0 or 2 type arguments, got {}",
+                type_args.len()
+            ),
+        )
+        .with_span(line, column));
+    }
+    let expected_args = if matches!(name, "map_keys" | "keys") {
+        1
+    } else if name == "get_or_default" {
+        3
+    } else {
+        2
+    };
+    if args.len() != expected_args {
+        return Err(Diagnostic::new(
+            "type",
+            format!(
+                "{name} expects {expected_args} arguments, got {}",
+                args.len()
+            ),
+        )
+        .with_span(line, column));
+    }
+    let lowered_map = lower_expr(&args[0], env, ctx)?;
+    let Type::Map(key_ty, value_ty) = lowered_map.ty() else {
+        return Err(Diagnostic::new(
+            "type",
+            format!("{name} expects a map value, got {}", lowered_map.ty()),
+        )
+        .with_span(args[0].line(), args[0].column()));
+    };
+    let key_ty = (*key_ty.clone()).clone();
+    let value_ty = (*value_ty.clone()).clone();
+    if let [expected_key, expected_value] = type_args {
+        let expected_key = lower_type(
+            expected_key,
+            ctx.structs,
+            ctx.enums,
+            ctx.aliases,
+            ctx.consts,
+            line,
+            column,
+        )?;
+        let expected_value = lower_type(
+            expected_value,
+            ctx.structs,
+            ctx.enums,
+            ctx.aliases,
+            ctx.consts,
+            line,
+            column,
+        )?;
+        if expected_key != key_ty || expected_value != value_ty {
+            return Err(Diagnostic::new(
+                "type",
+                format!(
+                    "{name} type arguments expect {{{expected_key}: {expected_value}}}, got {}",
+                    lowered_map.ty()
+                ),
+            )
+            .with_span(line, column));
+        }
+    }
+    if matches!(name, "map_keys" | "keys") {
+        move_lowered_value(&lowered_map, env)?;
+        return Ok(Expr::Call {
+            name: name.to_string(),
+            args: vec![lowered_map],
+            ty: Type::Array(Box::new(key_ty), None),
+        });
+    }
+    let lowered_key = lower_expr_with_expected(&args[1], Some(&key_ty), env, ctx)?;
+    if lowered_key.ty() != &key_ty {
+        return Err(Diagnostic::new(
+            "type",
+            format!("{name} expects key type {key_ty}, got {}", lowered_key.ty()),
+        )
+        .with_span(args[1].line(), args[1].column()));
+    }
+    let mut lowered_args = vec![lowered_map, lowered_key];
+    if name == "get_or_default" {
+        let lowered_default = lower_expr_with_expected(&args[2], Some(&value_ty), env, ctx)?;
+        if lowered_default.ty() != &value_ty {
+            return Err(Diagnostic::new(
+                "type",
+                format!(
+                    "{name} expects default type {value_ty}, got {}",
+                    lowered_default.ty()
+                ),
+            )
+            .with_span(args[2].line(), args[2].column()));
+        }
+        move_lowered_value(&lowered_default, env)?;
+        lowered_args.push(lowered_default);
+    }
+    move_lowered_value(&lowered_args[0], env)?;
+    move_lowered_value(&lowered_args[1], env)?;
+    Ok(Expr::Call {
+        name: name.to_string(),
+        args: lowered_args,
+        ty: match name {
+            "map_get" | "get" => Type::Option(Box::new(value_ty)),
+            "get_or_default" => value_ty,
+            _ => Type::Bool,
+        },
+    })
+}
+
 fn lower_projection_base_expr(
     expr: &syntax::Expr,
     env: &mut HashMap<String, Binding>,
@@ -8880,8 +9454,8 @@ fn lower_projection_base_expr(
                 return lower_expr(expr, env, ctx);
             };
             if binding.moved {
-                return Err(borrowck::ownership_error(
-                    borrowck::USE_AFTER_MOVE,
+                return Err(ownership_error(
+                    OWNERSHIP_USE_AFTER_MOVE,
                     format!("use of moved value {name:?}"),
                 )
                 .with_span(*line, *column));
@@ -8993,7 +9567,11 @@ fn validate_ffi_type_name(
     column: usize,
 ) -> Result<(), Diagnostic> {
     match ty {
-        syntax::TypeName::Int | syntax::TypeName::Bool | syntax::TypeName::String => Ok(()),
+        syntax::TypeName::Int
+        | syntax::TypeName::Numeric(_)
+        | syntax::TypeName::Bool
+        | syntax::TypeName::String
+        | syntax::TypeName::Str => Ok(()),
         syntax::TypeName::Ptr(inner) | syntax::TypeName::MutPtr(inner) => {
             validate_ffi_type_name(inner, line, column)
         }
@@ -9007,7 +9585,7 @@ fn validate_ffi_type_name(
 
 fn validate_ffi_type(ty: &Type, line: usize, column: usize) -> Result<(), Diagnostic> {
     match ty {
-        Type::Int | Type::Bool | Type::String => Ok(()),
+        Type::Int | Type::Numeric(_) | Type::Bool | Type::String | Type::Str => Ok(()),
         Type::Ptr(inner) | Type::MutPtr(inner) => validate_ffi_type(inner, line, column),
         _ => Err(Diagnostic::new(
             "type",
@@ -9100,8 +9678,8 @@ fn lower_variant_constructor(
     }
     let mut lowered_payloads = Vec::new();
     for (arg, expected) in args.iter().zip(variant.payload_tys.iter()) {
-        let lowered = lower_expr_with_expected(arg, Some(expected), env, ctx)?;
-        if lowered.ty() != expected {
+        let lowered = lower_call_arg_with_expected(arg, Some(expected), env, ctx, false)?;
+        if !type_assignable_to(lowered.ty(), expected) {
             return Err(Diagnostic::new(
                 "type",
                 format!(
@@ -9162,7 +9740,7 @@ fn lower_named_variant_constructor(
         }
         let expected = &variant.payload_tys[position];
         let lowered = lower_expr_with_expected(&field.expr, Some(expected), env, ctx)?;
-        if lowered.ty() != expected {
+        if !type_assignable_to(lowered.ty(), expected) {
             return Err(Diagnostic::new(
                 "type",
                 format!(
@@ -9229,15 +9807,15 @@ fn mark_projection_moved(
             format!("internal error: missing binding for moved value {name:?}"),
         )
     })?;
-    if binding.borrow_state.active_shared_or_mutable > 0 {
-        return Err(borrowck::ownership_error(
-            borrowck::MOVE_WHILE_BORROWED,
+    if binding.active_borrow_count > 0 {
+        return Err(ownership_error(
+            OWNERSHIP_MOVE_WHILE_BORROWED,
             format!("cannot move value {name:?} while borrowed slices are still live"),
         ));
     }
     if projection_is_unavailable(binding, &projection) {
-        return Err(borrowck::ownership_error(
-            borrowck::USE_AFTER_MOVE,
+        return Err(ownership_error(
+            OWNERSHIP_USE_AFTER_MOVE,
             format!(
                 "use of moved value {:?}",
                 format_projected_name(name, &projection)
@@ -9263,8 +9841,8 @@ fn ensure_lowered_projection_traversable(
         return Ok(());
     };
     if projection_has_moved_ancestor(binding, &projection) {
-        return Err(borrowck::ownership_error(
-            borrowck::USE_AFTER_MOVE,
+        return Err(ownership_error(
+            OWNERSHIP_USE_AFTER_MOVE,
             format!(
                 "use of moved value {:?}",
                 format_projected_name(name, &projection)
@@ -9354,7 +9932,7 @@ fn binding_borrow_origin(
     structs: &HashMap<String, StructDef>,
     enums: &HashMap<String, EnumDef>,
 ) -> Option<BorrowOrigin> {
-    if !borrowck::contains_borrowed_slice_type(ty, structs, enums) {
+    if !contains_borrowed_slice_type(ty, structs, enums) {
         return None;
     }
     Some(match param_name {
@@ -9369,7 +9947,7 @@ fn binding_borrow_origin_from_expr(
     env: &HashMap<String, Binding>,
     ctx: &LowerContext<'_>,
 ) -> Option<BorrowOrigin> {
-    if !borrowck::contains_borrowed_slice_type(ty, ctx.structs, ctx.enums) {
+    if !contains_borrowed_slice_type(ty, ctx.structs, ctx.enums) {
         return None;
     }
     expr_borrow_origin(expr, env, ctx)
@@ -9381,7 +9959,7 @@ fn binding_borrowed_owners_from_expr(
     env: &HashMap<String, Binding>,
     ctx: &LowerContext<'_>,
 ) -> HashSet<String> {
-    if !borrowck::contains_borrowed_slice_type(ty, ctx.structs, ctx.enums) {
+    if !contains_borrowed_slice_type(ty, ctx.structs, ctx.enums) {
         return HashSet::new();
     }
     expr_borrowed_owners(expr, env, ctx)
@@ -9392,7 +9970,7 @@ fn expr_borrow_origin(
     env: &HashMap<String, Binding>,
     ctx: &LowerContext<'_>,
 ) -> Option<BorrowOrigin> {
-    if !borrowck::contains_borrowed_slice_type(expr.ty(), ctx.structs, ctx.enums) {
+    if !contains_borrowed_slice_type(expr.ty(), ctx.structs, ctx.enums) {
         return None;
     }
     match expr {
@@ -9421,7 +9999,9 @@ fn expr_borrow_origin(
                 .iter()
                 .map(|element| expr_borrow_origin(element, env, ctx)),
         ),
-        Expr::Try { expr, .. } | Expr::Await { expr, .. } => expr_borrow_origin(expr, env, ctx),
+        Expr::Try { expr, .. } | Expr::Await { expr, .. } | Expr::Cast { expr, .. } => {
+            expr_borrow_origin(expr, env, ctx)
+        }
         Expr::TupleIndex { base, .. } => expr_borrow_origin(base, env, ctx),
         Expr::MapLiteral { entries, .. } => {
             merge_borrow_origins(entries.iter().flat_map(|entry| {
@@ -9450,6 +10030,8 @@ fn expr_borrow_origin(
         Expr::Index { base, .. } => expr_borrow_origin(base, env, ctx),
         Expr::Closure { .. } => None,
         Expr::Literal { .. } | Expr::BinaryAdd { .. } | Expr::BinaryCompare { .. } => None,
+        Expr::StringBorrow { expr, .. } => expr_borrow_origin(expr, env, ctx)
+            .or_else(|| owned_borrow_root(expr).map(|_| BorrowOrigin::Local)),
     }
 }
 
@@ -9504,7 +10086,7 @@ fn match_binding_borrow_origin(
     env: &HashMap<String, Binding>,
     ctx: &LowerContext<'_>,
 ) -> Option<BorrowOrigin> {
-    if !borrowck::contains_borrowed_slice_type(payload_ty, ctx.structs, ctx.enums) {
+    if !contains_borrowed_slice_type(payload_ty, ctx.structs, ctx.enums) {
         return None;
     }
     if let Some(payload_expr) =
@@ -9524,7 +10106,7 @@ fn match_binding_borrowed_owners(
     env: &HashMap<String, Binding>,
     ctx: &LowerContext<'_>,
 ) -> HashSet<String> {
-    if !borrowck::contains_borrowed_slice_type(payload_ty, ctx.structs, ctx.enums) {
+    if !contains_borrowed_slice_type(payload_ty, ctx.structs, ctx.enums) {
         return HashSet::new();
     }
     if let Some(payload_expr) =
@@ -9540,7 +10122,7 @@ fn expr_borrowed_owners(
     env: &HashMap<String, Binding>,
     ctx: &LowerContext<'_>,
 ) -> HashSet<String> {
-    if !borrowck::contains_borrowed_slice_type(expr.ty(), ctx.structs, ctx.enums) {
+    if !contains_borrowed_slice_type(expr.ty(), ctx.structs, ctx.enums) {
         return HashSet::new();
     }
     match expr {
@@ -9565,7 +10147,9 @@ fn expr_borrowed_owners(
             })
             .unwrap_or_default(),
         Expr::TupleLiteral { elements, .. } => collect_expr_borrowed_owners(elements, env, ctx),
-        Expr::Try { expr, .. } | Expr::Await { expr, .. } => expr_borrowed_owners(expr, env, ctx),
+        Expr::Try { expr, .. } | Expr::Await { expr, .. } | Expr::Cast { expr, .. } => {
+            expr_borrowed_owners(expr, env, ctx)
+        }
         Expr::TupleIndex { base, .. } => expr_borrowed_owners(base, env, ctx),
         Expr::MapLiteral { entries, .. } => {
             let mut owners = HashSet::new();
@@ -9583,6 +10167,7 @@ fn expr_borrowed_owners(
         Expr::Literal { .. } | Expr::BinaryAdd { .. } | Expr::BinaryCompare { .. } => {
             HashSet::new()
         }
+        Expr::StringBorrow { expr, .. } => owned_borrow_root(expr).into_iter().collect(),
         Expr::StructLiteral { fields, .. } => {
             let mut owners = HashSet::new();
             for field in fields {
@@ -9616,69 +10201,325 @@ fn owned_borrow_root(expr: &Expr) -> Option<String> {
     }
 }
 
-fn explicit_return_lifetime(ty: &syntax::TypeName) -> Option<&str> {
-    match ty {
-        syntax::TypeName::LifetimeSlice(name, _) | syntax::TypeName::LifetimeMutSlice(name, _) => {
-            Some(name.as_str())
-        }
-        syntax::TypeName::Option(inner) | syntax::TypeName::Array(inner, _) => {
-            explicit_return_lifetime(inner)
-        }
-        syntax::TypeName::Result(ok, err) | syntax::TypeName::Map(ok, err) => {
-            explicit_return_lifetime(ok).or_else(|| explicit_return_lifetime(err))
-        }
-        syntax::TypeName::Tuple(elements) => elements.iter().find_map(explicit_return_lifetime),
-        syntax::TypeName::Named(_, args) => args.iter().find_map(explicit_return_lifetime),
-        syntax::TypeName::Fn(params, return_ty) => params
-            .iter()
-            .find_map(explicit_return_lifetime)
-            .or_else(|| explicit_return_lifetime(return_ty)),
-        syntax::TypeName::Slice(_)
-        | syntax::TypeName::MutSlice(_)
-        | syntax::TypeName::Ptr(_)
-        | syntax::TypeName::MutPtr(_)
-        | syntax::TypeName::Int
-        | syntax::TypeName::Bool
-        | syntax::TypeName::String => None,
-    }
+fn contains_borrowed_slice_type(
+    ty: &Type,
+    structs: &HashMap<String, StructDef>,
+    enums: &HashMap<String, EnumDef>,
+) -> bool {
+    contains_borrowed_slice_type_inner(ty, structs, enums, &mut HashSet::new(), &mut HashSet::new())
 }
 
-fn type_has_lifetime(ty: &syntax::TypeName, lifetime: &str) -> bool {
-    match ty {
-        syntax::TypeName::LifetimeSlice(name, _) | syntax::TypeName::LifetimeMutSlice(name, _) => {
-            name == lifetime
-        }
-        syntax::TypeName::Option(inner)
-        | syntax::TypeName::Array(inner, _)
-        | syntax::TypeName::Ptr(inner)
-        | syntax::TypeName::MutPtr(inner)
-        | syntax::TypeName::Slice(inner)
-        | syntax::TypeName::MutSlice(inner) => type_has_lifetime(inner, lifetime),
-        syntax::TypeName::Result(ok, err) | syntax::TypeName::Map(ok, err) => {
-            type_has_lifetime(ok, lifetime) || type_has_lifetime(err, lifetime)
-        }
-        syntax::TypeName::Tuple(elements) => elements
-            .iter()
-            .any(|element| type_has_lifetime(element, lifetime)),
-        syntax::TypeName::Named(_, args) => args.iter().any(|arg| type_has_lifetime(arg, lifetime)),
-        syntax::TypeName::Fn(params, return_ty) => {
-            params.iter().any(|arg| type_has_lifetime(arg, lifetime))
-                || type_has_lifetime(return_ty, lifetime)
-        }
-        syntax::TypeName::Int | syntax::TypeName::Bool | syntax::TypeName::String => false,
-    }
-}
-
-fn explicit_borrow_return_params(function: &syntax::Function) -> Option<Vec<usize>> {
-    let lifetime = explicit_return_lifetime(&function.return_ty)?;
-    Some(
-        function
-            .params
-            .iter()
-            .enumerate()
-            .filter_map(|(index, param)| type_has_lifetime(&param.ty, lifetime).then_some(index))
-            .collect(),
+fn contains_mut_borrowed_slice_type(
+    ty: &Type,
+    structs: &HashMap<String, StructDef>,
+    enums: &HashMap<String, EnumDef>,
+) -> bool {
+    contains_mut_borrowed_slice_type_inner(
+        ty,
+        structs,
+        enums,
+        &mut HashSet::new(),
+        &mut HashSet::new(),
     )
+}
+
+fn contains_borrowed_slice_type_inner(
+    ty: &Type,
+    structs: &HashMap<String, StructDef>,
+    enums: &HashMap<String, EnumDef>,
+    visiting_structs: &mut HashSet<String>,
+    visiting_enums: &mut HashSet<String>,
+) -> bool {
+    match ty {
+        Type::Slice(_) | Type::MutSlice(_) | Type::Str => true,
+        Type::Option(inner) => contains_borrowed_slice_type_inner(
+            inner,
+            structs,
+            enums,
+            visiting_structs,
+            visiting_enums,
+        ),
+        Type::Result(ok, err) => {
+            contains_borrowed_slice_type_inner(ok, structs, enums, visiting_structs, visiting_enums)
+                || contains_borrowed_slice_type_inner(
+                    err,
+                    structs,
+                    enums,
+                    visiting_structs,
+                    visiting_enums,
+                )
+        }
+        Type::Tuple(elements) => elements.iter().any(|element| {
+            contains_borrowed_slice_type_inner(
+                element,
+                structs,
+                enums,
+                visiting_structs,
+                visiting_enums,
+            )
+        }),
+        Type::Map(key, value) => {
+            contains_borrowed_slice_type_inner(
+                key,
+                structs,
+                enums,
+                visiting_structs,
+                visiting_enums,
+            ) || contains_borrowed_slice_type_inner(
+                value,
+                structs,
+                enums,
+                visiting_structs,
+                visiting_enums,
+            )
+        }
+        Type::Array(inner, _)
+        | Type::Task(inner)
+        | Type::JoinHandle(inner)
+        | Type::AsyncChannel(inner)
+        | Type::SelectResult(inner) => contains_borrowed_slice_type_inner(
+            inner,
+            structs,
+            enums,
+            visiting_structs,
+            visiting_enums,
+        ),
+        Type::Fn(params, return_ty) => {
+            params.iter().any(|param| {
+                contains_borrowed_slice_type_inner(
+                    param,
+                    structs,
+                    enums,
+                    visiting_structs,
+                    visiting_enums,
+                )
+            }) || contains_borrowed_slice_type_inner(
+                return_ty,
+                structs,
+                enums,
+                visiting_structs,
+                visiting_enums,
+            )
+        }
+        Type::Struct(name) => {
+            if !visiting_structs.insert(name.clone()) {
+                return false;
+            }
+            let contains = structs.get(name).is_some_and(|struct_def| {
+                struct_def.fields.iter().any(|field| {
+                    contains_borrowed_slice_type_inner(
+                        &field.ty,
+                        structs,
+                        enums,
+                        visiting_structs,
+                        visiting_enums,
+                    )
+                })
+            });
+            visiting_structs.remove(name);
+            contains
+        }
+        Type::Enum(name) => {
+            if !visiting_enums.insert(name.clone()) {
+                return false;
+            }
+            let contains = enums.get(name).is_some_and(|enum_def| {
+                enum_def.variants.iter().any(|variant| {
+                    variant.payload_tys.iter().any(|payload_ty| {
+                        contains_borrowed_slice_type_inner(
+                            payload_ty,
+                            structs,
+                            enums,
+                            visiting_structs,
+                            visiting_enums,
+                        )
+                    })
+                })
+            });
+            visiting_enums.remove(name);
+            contains
+        }
+        Type::Error
+        | Type::Int
+        | Type::Numeric(_)
+        | Type::Bool
+        | Type::String
+        | Type::Ptr(_)
+        | Type::MutPtr(_) => false,
+    }
+}
+
+fn contains_mut_borrowed_slice_type_inner(
+    ty: &Type,
+    structs: &HashMap<String, StructDef>,
+    enums: &HashMap<String, EnumDef>,
+    visiting_structs: &mut HashSet<String>,
+    visiting_enums: &mut HashSet<String>,
+) -> bool {
+    match ty {
+        Type::MutSlice(_) => true,
+        Type::Error
+        | Type::Slice(_)
+        | Type::Int
+        | Type::Numeric(_)
+        | Type::Bool
+        | Type::String
+        | Type::Str
+        | Type::Ptr(_)
+        | Type::MutPtr(_) => false,
+        Type::Option(inner) => contains_mut_borrowed_slice_type_inner(
+            inner,
+            structs,
+            enums,
+            visiting_structs,
+            visiting_enums,
+        ),
+        Type::Result(ok, err) => {
+            contains_mut_borrowed_slice_type_inner(
+                ok,
+                structs,
+                enums,
+                visiting_structs,
+                visiting_enums,
+            ) || contains_mut_borrowed_slice_type_inner(
+                err,
+                structs,
+                enums,
+                visiting_structs,
+                visiting_enums,
+            )
+        }
+        Type::Tuple(elements) => elements.iter().any(|element| {
+            contains_mut_borrowed_slice_type_inner(
+                element,
+                structs,
+                enums,
+                visiting_structs,
+                visiting_enums,
+            )
+        }),
+        Type::Map(key, value) => {
+            contains_mut_borrowed_slice_type_inner(
+                key,
+                structs,
+                enums,
+                visiting_structs,
+                visiting_enums,
+            ) || contains_mut_borrowed_slice_type_inner(
+                value,
+                structs,
+                enums,
+                visiting_structs,
+                visiting_enums,
+            )
+        }
+        Type::Array(inner, _)
+        | Type::Task(inner)
+        | Type::JoinHandle(inner)
+        | Type::AsyncChannel(inner)
+        | Type::SelectResult(inner) => contains_mut_borrowed_slice_type_inner(
+            inner,
+            structs,
+            enums,
+            visiting_structs,
+            visiting_enums,
+        ),
+        Type::Fn(params, return_ty) => {
+            params.iter().any(|param| {
+                contains_mut_borrowed_slice_type_inner(
+                    param,
+                    structs,
+                    enums,
+                    visiting_structs,
+                    visiting_enums,
+                )
+            }) || contains_mut_borrowed_slice_type_inner(
+                return_ty,
+                structs,
+                enums,
+                visiting_structs,
+                visiting_enums,
+            )
+        }
+        Type::Struct(name) => {
+            if !visiting_structs.insert(name.clone()) {
+                return false;
+            }
+            let contains = structs.get(name).is_some_and(|struct_def| {
+                struct_def.fields.iter().any(|field| {
+                    contains_mut_borrowed_slice_type_inner(
+                        &field.ty,
+                        structs,
+                        enums,
+                        visiting_structs,
+                        visiting_enums,
+                    )
+                })
+            });
+            visiting_structs.remove(name);
+            contains
+        }
+        Type::Enum(name) => {
+            if !visiting_enums.insert(name.clone()) {
+                return false;
+            }
+            let contains = enums.get(name).is_some_and(|enum_def| {
+                enum_def.variants.iter().any(|variant| {
+                    variant.payload_tys.iter().any(|payload_ty| {
+                        contains_mut_borrowed_slice_type_inner(
+                            payload_ty,
+                            structs,
+                            enums,
+                            visiting_structs,
+                            visiting_enums,
+                        )
+                    })
+                })
+            });
+            visiting_enums.remove(name);
+            contains
+        }
+    }
+}
+
+fn classify_borrow_return(
+    params: &[Type],
+    return_ty: &Type,
+    structs: &HashMap<String, StructDef>,
+    enums: &HashMap<String, EnumDef>,
+    line: usize,
+    column: usize,
+) -> Result<Vec<usize>, Diagnostic> {
+    if !contains_borrowed_slice_type(return_ty, structs, enums) {
+        return Ok(Vec::new());
+    }
+    let matches = params
+        .iter()
+        .enumerate()
+        .filter_map(|(index, ty)| contains_borrowed_slice_type(ty, structs, enums).then_some(index))
+        .collect::<Vec<_>>();
+    if matches.is_empty() {
+        return Err(Diagnostic::new(
+            "type",
+            "borrowed return functions must take at least one borrowed parameter in stage1",
+        )
+        .with_span(line, column));
+    }
+    Ok(matches)
+}
+
+fn borrow_kind_for_type(
+    ty: &Type,
+    structs: &HashMap<String, StructDef>,
+    enums: &HashMap<String, EnumDef>,
+) -> Option<BorrowKind> {
+    if contains_mut_borrowed_slice_type(ty, structs, enums) {
+        Some(BorrowKind::Mutable)
+    } else if contains_borrowed_slice_type(ty, structs, enums) {
+        Some(BorrowKind::Shared)
+    } else {
+        None
+    }
 }
 
 fn increment_active_borrows(
@@ -9695,11 +10536,41 @@ fn increment_active_borrows(
                 format!("internal error: missing borrow owner {owner_name:?}"),
             )
         })?;
-        binding.borrow_state.begin_borrow(
-            owner_name,
-            borrow_kind,
-            BorrowSourceSpan::new(line, column),
-        )?;
+        match borrow_kind {
+            BorrowKind::Shared if binding.active_mut_borrow_count > 0 => {
+                return Err(ownership_error(
+                    OWNERSHIP_SHARED_BORROW_WHILE_MUTABLE_LIVE,
+                    format!(
+                        "cannot create shared borrow of value {owner_name:?} while a mutable borrow is still live"
+                    ),
+                )
+                .with_span(line, column));
+            }
+            BorrowKind::Mutable if binding.active_mut_borrow_count > 0 => {
+                return Err(ownership_error(
+                    OWNERSHIP_MUTABLE_BORROW_WHILE_MUTABLE_LIVE,
+                    format!(
+                        "cannot create mutable borrow of value {owner_name:?} while another mutable borrow is still live"
+                    ),
+                )
+                .with_span(line, column));
+            }
+            BorrowKind::Mutable if binding.active_borrow_count > 0 => {
+                return Err(ownership_error(
+                    OWNERSHIP_MUTABLE_BORROW_WHILE_SHARED_LIVE,
+                    format!(
+                        "cannot create mutable borrow of value {owner_name:?} while a shared borrow is still live"
+                    ),
+                )
+                .with_help("drop the shared borrow before creating a mutable borrow")
+                .with_span(line, column));
+            }
+            _ => {}
+        }
+        binding.active_borrow_count += 1;
+        if matches!(borrow_kind, BorrowKind::Mutable) {
+            binding.active_mut_borrow_count += 1;
+        }
     }
     Ok(())
 }
@@ -9711,8 +10582,7 @@ fn record_temporary_borrows(
     temporary_borrows: &mut Vec<(HashSet<String>, BorrowKind)>,
 ) -> Result<(), Diagnostic> {
     let owners = expr_borrowed_owners(expr, env, ctx);
-    let Some(borrow_kind) = borrowck::borrow_kind_for_type(expr.ty(), ctx.structs, ctx.enums)
-    else {
+    let Some(borrow_kind) = borrow_kind_for_type(expr.ty(), ctx.structs, ctx.enums) else {
         return Ok(());
     };
     increment_active_borrows(&owners, env, borrow_kind, 0, 0)?;
@@ -9747,7 +10617,10 @@ fn decrement_active_borrow(
     let Some(binding) = env.get_mut(owner_name) else {
         return;
     };
-    binding.borrow_state.end_borrow(borrow_kind);
+    binding.active_borrow_count = binding.active_borrow_count.saturating_sub(1);
+    if matches!(borrow_kind, BorrowKind::Mutable) {
+        binding.active_mut_borrow_count = binding.active_mut_borrow_count.saturating_sub(1);
+    }
 }
 
 fn release_scope_borrows(env: &mut HashMap<String, Binding>, scope_names: &HashSet<String>) {
@@ -9798,18 +10671,29 @@ fn merge_borrow_count(
     then_count.max(else_count)
 }
 
-fn lower_literal(literal: &syntax::Literal) -> Expr {
+fn lower_literal(literal: &syntax::Literal, expected: Option<&Type>) -> Expr {
     match literal {
         syntax::Literal::Int(value) => Expr::Literal {
             ty: Type::Int,
             value: LiteralValue::Int(*value),
+        },
+        syntax::Literal::Numeric { raw, ty } => Expr::Literal {
+            ty: Type::Numeric(*ty),
+            value: LiteralValue::Numeric {
+                raw: raw.clone(),
+                ty: *ty,
+            },
         },
         syntax::Literal::Bool(value) => Expr::Literal {
             ty: Type::Bool,
             value: LiteralValue::Bool(*value),
         },
         syntax::Literal::String(value) => Expr::Literal {
-            ty: Type::String,
+            ty: if matches!(expected, Some(Type::Str)) {
+                Type::Str
+            } else {
+                Type::String
+            },
             value: LiteralValue::String(value.clone()),
         },
     }
@@ -9849,8 +10733,10 @@ fn lower_type_inner<T, U>(
 ) -> Result<Type, Diagnostic> {
     match ty {
         syntax::TypeName::Int => Ok(Type::Int),
+        syntax::TypeName::Numeric(numeric) => Ok(Type::Numeric(*numeric)),
         syntax::TypeName::Bool => Ok(Type::Bool),
         syntax::TypeName::String => Ok(Type::String),
+        syntax::TypeName::Str => Ok(Type::Str),
         syntax::TypeName::Named(name, args) => {
             if is_async_runtime_type(name) {
                 if args.len() != 1 {
@@ -10065,6 +10951,7 @@ impl Expr {
             Expr::Call { ty, .. } => ty,
             Expr::BinaryAdd { ty, .. } => ty,
             Expr::BinaryCompare { ty, .. } => ty,
+            Expr::Cast { ty, .. } => ty,
             Expr::Try { ty, .. } => ty,
             Expr::Await { ty, .. } => ty,
             Expr::StructLiteral { ty, .. } => ty,
@@ -10077,6 +10964,7 @@ impl Expr {
             Expr::Closure { ty, .. } => ty,
             Expr::Slice { ty, .. } => ty,
             Expr::Index { ty, .. } => ty,
+            Expr::StringBorrow { ty, .. } => ty,
         }
     }
 }
@@ -10154,6 +11042,7 @@ impl syntax::Expr {
             | syntax::Expr::MethodCall { line, .. }
             | syntax::Expr::BinaryAdd { line, .. }
             | syntax::Expr::BinaryCompare { line, .. }
+            | syntax::Expr::Cast { line, .. }
             | syntax::Expr::Try { line, .. }
             | syntax::Expr::Await { line, .. }
             | syntax::Expr::StructLiteral { line, .. }
@@ -10176,6 +11065,7 @@ impl syntax::Expr {
             | syntax::Expr::MethodCall { column, .. }
             | syntax::Expr::BinaryAdd { column, .. }
             | syntax::Expr::BinaryCompare { column, .. }
+            | syntax::Expr::Cast { column, .. }
             | syntax::Expr::Try { column, .. }
             | syntax::Expr::Await { column, .. }
             | syntax::Expr::StructLiteral { column, .. }
@@ -10209,8 +11099,10 @@ impl std::fmt::Display for Type {
         match self {
             Type::Error => write!(f, "<type-error>"),
             Type::Int => write!(f, "int"),
+            Type::Numeric(numeric) => write!(f, "{}", numeric.as_str()),
             Type::Bool => write!(f, "bool"),
             Type::String => write!(f, "string"),
+            Type::Str => write!(f, "&str"),
             Type::Struct(name) => write!(f, "{name}"),
             Type::Enum(name) => write!(f, "{name}"),
             Type::Ptr(inner) => write!(f, "ptr<{inner}>"),

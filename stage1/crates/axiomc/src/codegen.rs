@@ -1,8 +1,8 @@
 use crate::diagnostics::Diagnostic;
 use crate::manifest::CapabilityConfig;
 use crate::mir::{
-    EnumDef, Expr, Function, LiteralValue, MatchArm, Param, Program, SourceSpan, Stmt, StructDef,
-    StructField, Type,
+    EnumDef, Expr, Function, LiteralValue, MatchArm, Param, Program, SourceSpan, StaticDef, Stmt,
+    StructDef, StructField, Type,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -872,6 +872,78 @@ fn axiom_regex_replace_all(pattern: String, text: String, replacement: String) -
 }
 
 "#);
+    out.push_str(
+        r#"#[allow(dead_code)]
+fn axiom_encoding_is_unreserved(byte: u8) -> bool {
+    byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b'~')
+}
+
+#[allow(dead_code)]
+fn axiom_percent_encode(value: String) -> String {
+    const HEX: &[u8; 16] = b"0123456789ABCDEF";
+    let mut out = String::new();
+    for byte in value.bytes() {
+        if axiom_encoding_is_unreserved(byte) {
+            out.push(byte as char);
+        } else {
+            out.push('%');
+            out.push(HEX[(byte >> 4) as usize] as char);
+            out.push(HEX[(byte & 0x0f) as usize] as char);
+        }
+    }
+    out
+}
+
+#[allow(dead_code)]
+fn axiom_query_pair_encode(name: String, value: String) -> String {
+    format!("{}={}", axiom_percent_encode(name), axiom_percent_encode(value))
+}
+
+#[allow(dead_code)]
+fn axiom_path_join_segment(base: String, segment: String) -> String {
+    let encoded = axiom_percent_encode(segment);
+    if base.is_empty() {
+        encoded
+    } else if base.ends_with('/') {
+        format!("{base}{encoded}")
+    } else {
+        format!("{base}/{encoded}")
+    }
+}
+
+#[allow(dead_code)]
+fn axiom_percent_decode(value: String) -> Option<String> {
+    fn hex(byte: u8) -> Option<u8> {
+        match byte {
+            b'0'..=b'9' => Some(byte - b'0'),
+            b'a'..=b'f' => Some(byte - b'a' + 10),
+            b'A'..=b'F' => Some(byte - b'A' + 10),
+            _ => None,
+        }
+    }
+
+    let bytes = value.as_bytes();
+    let mut index = 0usize;
+    let mut out = Vec::new();
+    while index < bytes.len() {
+        if bytes[index] != b'%' {
+            out.push(bytes[index]);
+            index += 1;
+            continue;
+        }
+        if index + 2 >= bytes.len() {
+            return None;
+        }
+        let high = hex(bytes[index + 1])?;
+        let low = hex(bytes[index + 2])?;
+        out.push((high << 4) | low);
+        index += 3;
+    }
+    String::from_utf8(out).ok()
+}
+
+"#,
+    );
     out.push_str("#[allow(dead_code)]\n");
     out.push_str("fn axiom_fs_read(path: String) -> Option<String> {\n");
     out.push_str("    use std::io::Read;\n");
@@ -2139,12 +2211,30 @@ fn axiom_crypto_constant_time_eq(left: String, right: String) -> bool {
     out.push_str("        None => axiom_runtime_error(\"runtime\", \"map key not found\"),\n");
     out.push_str("    }\n");
     out.push_str("}\n\n");
+    out.push_str("#[allow(dead_code)]\n");
+    out.push_str("fn axiom_map_lookup<K: Eq + std::hash::Hash, V>(mut values: HashMap<K, V>, key: K) -> Option<V> {\n");
+    out.push_str("    values.remove(&key)\n");
+    out.push_str("}\n\n");
+    out.push_str("#[allow(dead_code)]\n");
+    out.push_str("fn axiom_map_contains_key<K: Eq + std::hash::Hash, V>(values: HashMap<K, V>, key: K) -> bool {\n");
+    out.push_str("    values.contains_key(&key)\n");
+    out.push_str("}\n\n");
+    out.push_str("#[allow(dead_code)]\n");
+    out.push_str(
+        "fn axiom_map_keys<K: Eq + std::hash::Hash, V>(values: HashMap<K, V>) -> Vec<K> {\n",
+    );
+    out.push_str("    values.into_keys().collect()\n");
+    out.push_str("}\n\n");
     for enum_def in &program.enums {
         render_enum(enum_def, &type_context, &mut out);
         out.push('\n');
     }
     for struct_def in &program.structs {
         render_struct(struct_def, &type_context, &mut out);
+        out.push('\n');
+    }
+    for static_def in &program.statics {
+        render_static(static_def, &type_context, &mut out);
         out.push('\n');
     }
     for function in &program.functions {
@@ -2154,6 +2244,7 @@ fn axiom_crypto_constant_time_eq(left: String, right: String) -> bool {
     out.push_str("fn main() -> std::process::ExitCode {\n");
     out.push_str("    axiom_install_panic_hook();\n");
     out.push_str("    let result = panic::catch_unwind(|| {\n");
+    let main_mutable_locals = collect_mutably_borrowed_locals(&program.stmts);
     render_stmt_block(
         &program.stmts,
         &type_context,
@@ -2163,6 +2254,7 @@ fn axiom_crypto_constant_time_eq(left: String, right: String) -> bool {
         false,
         debug,
         &[],
+        &main_mutable_locals,
     );
     out.push_str("    });\n");
     out.push_str("    match result {\n");
@@ -2230,6 +2322,7 @@ fn expr_uses_call(expr: &Expr, name: &str) -> bool {
         Expr::BinaryAdd { lhs, rhs, .. } | Expr::BinaryCompare { lhs, rhs, .. } => {
             expr_uses_call(lhs, name) || expr_uses_call(rhs, name)
         }
+        Expr::Cast { expr, .. } => expr_uses_call(expr, name),
         Expr::Try { expr, .. }
         | Expr::Await { expr, .. }
         | Expr::FieldAccess { base: expr, .. } => expr_uses_call(expr, name),
@@ -2258,6 +2351,7 @@ fn expr_uses_call(expr: &Expr, name: &str) -> bool {
         }
         Expr::Closure { body, .. } => expr_uses_call(body, name),
         Expr::Literal(_) | Expr::VarRef { .. } => false,
+        Expr::StringBorrow { expr, .. } => expr_uses_call(expr, name),
     }
 }
 
@@ -2267,6 +2361,13 @@ struct TypeContext<'a> {
 }
 
 impl<'a> TypeContext<'a> {
+    fn empty() -> Self {
+        Self {
+            structs: HashMap::new(),
+            enums: HashMap::new(),
+        }
+    }
+
     fn new(program: &'a Program) -> Self {
         Self {
             structs: program
@@ -2301,7 +2402,13 @@ impl<'a> TypeContext<'a> {
         visiting_enums: &mut HashSet<String>,
     ) -> bool {
         match ty {
-            Type::Int | Type::Bool | Type::String | Type::Ptr(_) | Type::MutPtr(_) => false,
+            Type::Int
+            | Type::Numeric(_)
+            | Type::Bool
+            | Type::String
+            | Type::Ptr(_)
+            | Type::MutPtr(_) => false,
+            Type::Str => true,
             Type::Slice(_) | Type::MutSlice(_) => true,
             Type::Struct(name) => {
                 if !visiting_structs.insert(name.clone()) {
@@ -2359,7 +2466,7 @@ impl<'a> TypeContext<'a> {
                         visiting_enums,
                     )
             }
-            Type::Array(inner)
+            Type::Array(inner, _)
             | Type::Task(inner)
             | Type::JoinHandle(inner)
             | Type::AsyncChannel(inner)
@@ -2376,6 +2483,42 @@ impl<'a> TypeContext<'a> {
                 )
             }
         }
+    }
+}
+
+fn render_static(static_def: &StaticDef, type_context: &TypeContext<'_>, out: &mut String) {
+    out.push_str("#[allow(dead_code)]\n");
+    out.push_str("#[allow(non_upper_case_globals)]\n");
+    out.push_str(&format!(
+        "static {}: {} = {};\n",
+        static_def.name,
+        rust_static_type(&static_def.ty, type_context),
+        render_static_expr(&static_def.expr)
+    ));
+}
+
+fn render_static_expr(expr: &Expr) -> String {
+    match expr {
+        Expr::Literal(LiteralValue::String(value)) => format!("{value:?}"),
+        Expr::BinaryAdd { lhs, rhs, .. } => {
+            format!("{} + {}", render_static_expr(lhs), render_static_expr(rhs))
+        }
+        Expr::BinaryCompare { op, lhs, rhs, .. } => {
+            format!(
+                "{} {} {}",
+                render_static_expr(lhs),
+                op.lexeme(),
+                render_static_expr(rhs)
+            )
+        }
+        _ => render_expr(expr),
+    }
+}
+
+fn rust_static_type(ty: &Type, type_context: &TypeContext<'_>) -> String {
+    match ty {
+        Type::String => String::from("&'static str"),
+        _ => rust_type(ty, type_context),
     }
 }
 
@@ -2460,10 +2603,11 @@ fn render_function(
         return;
     }
     let uses_slice_lifetime = function_signature_uses_borrowed_slice(function, type_context);
+    let mutable_locals = collect_mutably_borrowed_locals(&function.body);
     let params = function
         .params
         .iter()
-        .map(|param| render_param(param, uses_slice_lifetime, type_context))
+        .map(|param| render_param(param, uses_slice_lifetime, type_context, &mutable_locals))
         .collect::<Vec<_>>()
         .join(", ");
     let lifetime = if uses_slice_lifetime { "<'a>" } else { "" };
@@ -2486,6 +2630,7 @@ fn render_function(
             false,
             debug,
             &[],
+            &mutable_locals,
         );
         out.push_str("    })\n");
     } else {
@@ -2498,6 +2643,7 @@ fn render_function(
             false,
             debug,
             &[],
+            &mutable_locals,
         );
     }
     out.push_str("}\n");
@@ -2622,12 +2768,140 @@ fn render_param(
     param: &Param,
     uses_slice_lifetime: bool,
     type_context: &TypeContext<'_>,
+    mutable_locals: &HashSet<String>,
 ) -> String {
+    let mutability = mutable_locals
+        .contains(&param.name)
+        .then_some("mut ")
+        .unwrap_or("");
     format!(
-        "{}: {}",
+        "{}{}: {}",
+        mutability,
         param.name,
         rust_type_in_signature(&param.ty, uses_slice_lifetime, type_context)
     )
+}
+
+fn collect_mutably_borrowed_locals(stmts: &[Stmt]) -> HashSet<String> {
+    let mut locals = HashSet::new();
+    for stmt in stmts {
+        collect_stmt_mutable_borrows(stmt, &mut locals);
+    }
+    locals
+}
+
+fn collect_stmt_mutable_borrows(stmt: &Stmt, locals: &mut HashSet<String>) {
+    match stmt {
+        Stmt::Let { expr, .. }
+        | Stmt::Print { expr, .. }
+        | Stmt::Defer { expr, .. }
+        | Stmt::Return { expr, .. } => collect_expr_mutable_borrows(expr, locals),
+        Stmt::Panic { message, .. } => collect_expr_mutable_borrows(message, locals),
+        Stmt::If {
+            cond,
+            then_block,
+            else_block,
+            ..
+        } => {
+            collect_expr_mutable_borrows(cond, locals);
+            for stmt in then_block {
+                collect_stmt_mutable_borrows(stmt, locals);
+            }
+            if let Some(else_block) = else_block {
+                for stmt in else_block {
+                    collect_stmt_mutable_borrows(stmt, locals);
+                }
+            }
+        }
+        Stmt::While { cond, body, .. } => {
+            collect_expr_mutable_borrows(cond, locals);
+            for stmt in body {
+                collect_stmt_mutable_borrows(stmt, locals);
+            }
+        }
+        Stmt::Match { expr, arms, .. } => {
+            collect_expr_mutable_borrows(expr, locals);
+            for arm in arms {
+                for stmt in &arm.body {
+                    collect_stmt_mutable_borrows(stmt, locals);
+                }
+            }
+        }
+    }
+}
+
+fn mutable_borrow_root_name(expr: &Expr) -> Option<&str> {
+    match expr {
+        Expr::VarRef { name, .. } => Some(name),
+        Expr::FieldAccess { base, .. } | Expr::TupleIndex { base, .. } => {
+            mutable_borrow_root_name(base)
+        }
+        Expr::Index { base, .. } => mutable_borrow_root_name(base),
+        _ => None,
+    }
+}
+
+fn collect_expr_mutable_borrows(expr: &Expr, locals: &mut HashSet<String>) {
+    match expr {
+        Expr::Slice {
+            base,
+            start,
+            end,
+            ty,
+        } => {
+            if matches!(ty, Type::MutSlice(_)) {
+                if let Some(name) = mutable_borrow_root_name(base) {
+                    locals.insert(name.to_string());
+                }
+            }
+            collect_expr_mutable_borrows(base, locals);
+            if let Some(start) = start {
+                collect_expr_mutable_borrows(start, locals);
+            }
+            if let Some(end) = end {
+                collect_expr_mutable_borrows(end, locals);
+            }
+        }
+        Expr::Call { args, .. }
+        | Expr::TupleLiteral { elements: args, .. }
+        | Expr::ArrayLiteral { elements: args, .. } => {
+            for arg in args {
+                collect_expr_mutable_borrows(arg, locals);
+            }
+        }
+        Expr::BinaryAdd { lhs, rhs, .. } | Expr::BinaryCompare { lhs, rhs, .. } => {
+            collect_expr_mutable_borrows(lhs, locals);
+            collect_expr_mutable_borrows(rhs, locals);
+        }
+        Expr::Try { expr, .. }
+        | Expr::Await { expr, .. }
+        | Expr::Cast { expr, .. }
+        | Expr::StringBorrow { expr, .. }
+        | Expr::FieldAccess { base: expr, .. }
+        | Expr::TupleIndex { base: expr, .. } => collect_expr_mutable_borrows(expr, locals),
+        Expr::StructLiteral { fields, .. } => {
+            for field in fields {
+                collect_expr_mutable_borrows(&field.expr, locals);
+            }
+        }
+        Expr::MapLiteral { entries, .. } => {
+            for entry in entries {
+                collect_expr_mutable_borrows(&entry.key, locals);
+                collect_expr_mutable_borrows(&entry.value, locals);
+            }
+        }
+        Expr::EnumVariant { payloads, .. } => {
+            for payload in payloads {
+                collect_expr_mutable_borrows(payload, locals);
+            }
+        }
+        Expr::Index { base, index, .. } => {
+            collect_expr_mutable_borrows(base, locals);
+            collect_expr_mutable_borrows(index, locals);
+        }
+        Expr::Closure { body, .. } => collect_expr_mutable_borrows(body, locals),
+        Expr::Literal(_) | Expr::VarRef { .. } => {}
+    }
 }
 
 fn render_stmt_block(
@@ -2639,6 +2913,7 @@ fn render_stmt_block(
     in_async_function: bool,
     debug: bool,
     active_defers: &[(String, SourceSpan)],
+    mutable_locals: &HashSet<String>,
 ) {
     let mut local_defers: Vec<(String, SourceSpan)> = Vec::new();
     for stmt in stmts {
@@ -2651,6 +2926,7 @@ fn render_stmt_block(
             in_async_function,
             debug,
             active_defers,
+            mutable_locals,
             &mut local_defers,
         );
     }
@@ -2676,6 +2952,7 @@ fn render_stmt(
     in_async_function: bool,
     debug: bool,
     active_defers: &[(String, SourceSpan)],
+    mutable_locals: &HashSet<String>,
     local_defers: &mut Vec<(String, SourceSpan)>,
 ) {
     let pad = "    ".repeat(indent);
@@ -2687,8 +2964,12 @@ fn render_stmt(
             span,
         } => {
             render_source_marker(source_path, *span, out, indent, debug);
+            let mutability = mutable_locals
+                .contains(name)
+                .then_some("mut ")
+                .unwrap_or("");
             out.push_str(&format!(
-                "{pad}let {name}: {} = {};
+                "{pad}let {mutability}{name}: {} = {};
 ",
                 rust_type(ty, type_context),
                 render_expr(expr)
@@ -2738,6 +3019,7 @@ fn render_stmt(
                 in_async_function,
                 debug,
                 &scoped_defers,
+                mutable_locals,
             );
             if let Some(else_block) = else_block {
                 out.push_str(&format!(
@@ -2753,6 +3035,7 @@ fn render_stmt(
                     in_async_function,
                     debug,
                     &scoped_defers,
+                    mutable_locals,
                 );
                 out.push_str(&format!(
                     "{pad}}}
@@ -2783,6 +3066,7 @@ fn render_stmt(
                 in_async_function,
                 debug,
                 &scoped_defers,
+                mutable_locals,
             );
             out.push_str(&format!(
                 "{pad}}}
@@ -2808,6 +3092,7 @@ fn render_stmt(
                     in_async_function,
                     debug,
                     &scoped_defers,
+                    mutable_locals,
                 );
             }
             out.push_str(&format!(
@@ -2836,6 +3121,21 @@ fn render_stmt(
     }
 }
 
+fn render_match_binding(binding: &str, mutable_locals: &HashSet<String>) -> String {
+    mutable_locals
+        .contains(binding)
+        .then(|| format!("mut {binding}"))
+        .unwrap_or_else(|| binding.to_string())
+}
+
+fn render_match_bindings(bindings: &[String], mutable_locals: &HashSet<String>) -> String {
+    bindings
+        .iter()
+        .map(|binding| render_match_binding(binding, mutable_locals))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
 fn render_match_arm(
     arm: &MatchArm,
     type_context: &TypeContext<'_>,
@@ -2845,51 +3145,31 @@ fn render_match_arm(
     in_async_function: bool,
     debug: bool,
     active_defers: &[(String, SourceSpan)],
+    mutable_locals: &HashSet<String>,
 ) {
     let pad = "    ".repeat(indent);
     if arm.bindings.is_empty() {
-        let variant = type_context
-            .enums
-            .get(arm.enum_name.as_str())
-            .and_then(|enum_def| {
-                enum_def
-                    .variants
-                    .iter()
-                    .find(|variant| variant.name == arm.variant)
-            });
-        let pattern = if let Some(variant) = variant {
-            if variant.payload_tys.is_empty() {
-                format!("{}::{}", arm.enum_name, arm.variant)
-            } else if arm.ignore_payloads && !variant.payload_names.is_empty() {
-                format!("{}::{} {{ .. }}", arm.enum_name, arm.variant)
-            } else if arm.ignore_payloads {
-                format!("{}::{}(..)", arm.enum_name, arm.variant)
-            } else {
-                format!("{}::{}", arm.enum_name, arm.variant)
-            }
-        } else if arm.enum_name == "Option" && arm.variant == "Some" {
-            String::from("Option::Some(_)")
-        } else if arm.enum_name == "Result" && arm.variant == "Ok" {
-            String::from("Result::Ok(_)")
-        } else if arm.enum_name == "Result" && arm.variant == "Err" {
-            String::from("Result::Err(_)")
+        if arm.ignore_payloads {
+            out.push_str(&format!(
+                "{pad}{}::{} {{ .. }} => {{\n",
+                arm.enum_name, arm.variant
+            ));
         } else {
-            format!("{}::{}", arm.enum_name, arm.variant)
-        };
-        out.push_str(&format!("{pad}{pattern} => {{\n"));
+            out.push_str(&format!("{pad}{}::{} => {{\n", arm.enum_name, arm.variant));
+        }
     } else if arm.is_named {
         out.push_str(&format!(
             "{pad}{}::{} {{ {} }} => {{\n",
             arm.enum_name,
             arm.variant,
-            arm.bindings.join(", ")
+            render_match_bindings(&arm.bindings, mutable_locals)
         ));
     } else {
         out.push_str(&format!(
             "{pad}{}::{}({}) => {{\n",
             arm.enum_name,
             arm.variant,
-            arm.bindings.join(", ")
+            render_match_bindings(&arm.bindings, mutable_locals)
         ));
     }
     render_stmt_block(
@@ -2901,6 +3181,7 @@ fn render_match_arm(
         in_async_function,
         debug,
         active_defers,
+        mutable_locals,
     );
     out.push_str(&format!("{pad}}},\n"));
 }
@@ -2925,8 +3206,11 @@ fn render_source_marker(
 fn render_expr(expr: &Expr) -> String {
     match expr {
         Expr::Literal(LiteralValue::Int(value)) => value.to_string(),
+        Expr::Literal(LiteralValue::Numeric { raw, ty }) => format!("{raw}{}", ty.as_str()),
         Expr::Literal(LiteralValue::Bool(value)) => value.to_string(),
         Expr::Literal(LiteralValue::String(value)) => format!("String::from({value:?})"),
+        Expr::Literal(LiteralValue::Str(value)) => format!("{value:?}"),
+        Expr::StringBorrow { expr, .. } => format!("{}.as_str()", render_expr(expr)),
         Expr::VarRef { name, .. } if name == "self" => String::from("self_"),
         Expr::VarRef { name, .. } => name.clone(),
         Expr::Call { name, args, .. } if name == "assert_true" => {
@@ -3038,6 +3322,34 @@ fn render_expr(expr: &Expr) -> String {
         Expr::Call { name, args, .. } if name == "json_stringify_string" => {
             format!("axiom_json_stringify_string({})", render_expr(&args[0]))
         }
+        Expr::Call { name, args, .. } if matches!(name.as_str(), "map_get" | "get") => {
+            format!(
+                "axiom_map_lookup({}, {})",
+                render_expr(&args[0]),
+                render_expr(&args[1])
+            )
+        }
+
+        Expr::Call { name, args, .. } if name == "get_or_default" => {
+            format!(
+                "match axiom_map_lookup({}, {}) {{ Some(value) => value, None => {} }}",
+                render_expr(&args[0]),
+                render_expr(&args[1]),
+                render_expr(&args[2])
+            )
+        }
+        Expr::Call { name, args, .. }
+            if matches!(name.as_str(), "map_contains_key" | "contains") =>
+        {
+            format!(
+                "axiom_map_contains_key({}, {})",
+                render_expr(&args[0]),
+                render_expr(&args[1])
+            )
+        }
+        Expr::Call { name, args, .. } if matches!(name.as_str(), "map_keys" | "keys") => {
+            format!("axiom_map_keys({})", render_expr(&args[0]))
+        }
         Expr::Call { name, args, .. } if name == "regex_is_match" => {
             format!(
                 "axiom_regex_is_match({}, {})",
@@ -3058,6 +3370,29 @@ fn render_expr(expr: &Expr) -> String {
                 render_expr(&args[0]),
                 render_expr(&args[1]),
                 render_expr(&args[2])
+            )
+        }
+        Expr::Call { name, args, .. } if name == "encoding_url_component_encode" => {
+            format!("axiom_percent_encode({})", render_expr(&args[0]))
+        }
+        Expr::Call { name, args, .. } if name == "encoding_url_component_decode" => {
+            format!("axiom_percent_decode({})", render_expr(&args[0]))
+        }
+        Expr::Call { name, args, .. } if name == "encoding_path_segment_encode" => {
+            format!("axiom_percent_encode({})", render_expr(&args[0]))
+        }
+        Expr::Call { name, args, .. } if name == "encoding_url_query_pair_encode" => {
+            format!(
+                "axiom_query_pair_encode({}, {})",
+                render_expr(&args[0]),
+                render_expr(&args[1])
+            )
+        }
+        Expr::Call { name, args, .. } if name == "encoding_path_join_segment" => {
+            format!(
+                "axiom_path_join_segment({}, {})",
+                render_expr(&args[0]),
+                render_expr(&args[1])
             )
         }
         Expr::Call { name, args, .. } if name == "fs_read" => {
@@ -3240,13 +3575,22 @@ fn render_expr(expr: &Expr) -> String {
         Expr::Call { name, args, ty } if name == "last" => {
             render_collection_edge(&args[0], ty, true)
         }
+        Expr::Call { name, args, .. } if name.starts_with("__axiom_numeric_") => {
+            let method = name.trim_start_matches("__axiom_numeric_");
+            format!(
+                "({}).{}({})",
+                render_expr(&args[0]),
+                method,
+                render_expr(&args[1])
+            )
+        }
         Expr::Call { name, args, .. } => {
             let rendered_args = args.iter().map(render_expr).collect::<Vec<_>>().join(", ");
             format!("{name}({rendered_args})")
         }
         Expr::BinaryAdd { lhs, rhs, ty } => match ty {
-            Type::Int => format!("{} + {}", render_expr(lhs), render_expr(rhs)),
-            Type::String => format!(
+            Type::Int | Type::Numeric(_) => format!("{} + {}", render_expr(lhs), render_expr(rhs)),
+            Type::String | Type::Str => format!(
                 "format!(\"{{}}{{}}\", {}, {})",
                 render_expr(lhs),
                 render_expr(rhs)
@@ -3261,7 +3605,7 @@ fn render_expr(expr: &Expr) -> String {
             Type::Result(_, _) => unreachable!("type checker rejects result addition"),
             Type::Tuple(_) => unreachable!("type checker rejects tuple addition"),
             Type::Map(_, _) => unreachable!("type checker rejects map addition"),
-            Type::Array(_) => unreachable!("type checker rejects array addition"),
+            Type::Array(_, _) => unreachable!("type checker rejects array addition"),
             Type::Task(_) => unreachable!("type checker rejects task addition"),
             Type::JoinHandle(_) => unreachable!("type checker rejects join handle addition"),
             Type::AsyncChannel(_) => unreachable!("type checker rejects async channel addition"),
@@ -3271,6 +3615,11 @@ fn render_expr(expr: &Expr) -> String {
         Expr::BinaryCompare { op, lhs, rhs, .. } => {
             format!("{} {} {}", render_expr(lhs), op.lexeme(), render_expr(rhs))
         }
+        Expr::Cast { expr, ty } => format!(
+            "({}) as {}",
+            render_expr(expr),
+            rust_type(ty, &TypeContext::empty())
+        ),
         Expr::Try { expr, .. } => format!("({})?", render_expr(expr)),
         Expr::Await { expr, .. } => format!("axiom_await({})", render_expr(expr)),
         Expr::StructLiteral { name, fields, .. } => {
@@ -3362,7 +3711,7 @@ fn render_expr(expr: &Expr) -> String {
                 .map(|expr| format!("Some({})", render_expr(expr)))
                 .unwrap_or_else(|| String::from("None"));
             match base.ty() {
-                Type::Array(_) => {
+                Type::Array(_, _) => {
                     if matches!(expr.ty(), Type::MutSlice(_)) {
                         format!(
                             "axiom_slice_view_mut(&mut {}, {}, {})",
@@ -3400,7 +3749,7 @@ fn render_expr(expr: &Expr) -> String {
             }
         }
         Expr::Index { base, index, ty } => match base.ty() {
-            Type::Array(_) => {
+            Type::Array(_, _) => {
                 if ty.is_copy() {
                     format!(
                         "axiom_array_get(&{}, {})",
@@ -3461,8 +3810,13 @@ fn rust_type_in_signature(
 fn rust_type_inner(ty: &Type, lifetime: Option<&str>, type_context: &TypeContext<'_>) -> String {
     match ty {
         Type::Int => String::from("i64"),
+        Type::Numeric(numeric) => numeric.as_str().to_string(),
         Type::Bool => String::from("bool"),
         Type::String => String::from("String"),
+        Type::Str => match lifetime {
+            Some(lifetime) => format!("&{lifetime} str"),
+            None => String::from("&str"),
+        },
         Type::Struct(name) => {
             if type_context.struct_uses_borrowed_slice(name) {
                 format!("{name}<{}>", lifetime.unwrap_or("'_"))
@@ -3518,7 +3872,7 @@ fn rust_type_inner(ty: &Type, lifetime: Option<&str>, type_context: &TypeContext
             rust_type_inner(key, lifetime, type_context),
             rust_type_inner(value, lifetime, type_context)
         ),
-        Type::Array(inner) => format!("Vec<{}>", rust_type_inner(inner, lifetime, type_context)),
+        Type::Array(inner, _) => format!("Vec<{}>", rust_type_inner(inner, lifetime, type_context)),
         Type::Task(inner) => format!(
             "AxiomTask<{}>",
             rust_type_inner(inner, lifetime, type_context)
@@ -3572,7 +3926,7 @@ fn render_collection_edge(collection: &Expr, result_ty: &Type, from_end: bool) -
         String::from("0")
     };
     match collection.ty() {
-        Type::Array(_) => {
+        Type::Array(_, _) => {
             if result_ty.is_copy() {
                 format!("{{ let values = {rendered}; axiom_array_get(&values, {index}) }}")
             } else {

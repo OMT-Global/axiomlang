@@ -116,7 +116,6 @@ if grep -Eiq '(^|[^[:alpha:]])(python|stage0)([^[:alpha:]]|$)' <<< "$quickstart_
   exit 1
 fi
 
-
 python3 - "$readiness_doc" <<'PY'
 import json, os, sys, urllib.error, urllib.request
 readiness_doc = sys.argv[1]

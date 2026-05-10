@@ -1,0 +1,14 @@
+type IntSlice = &[int]
+
+struct View {
+data: IntSlice
+}
+
+fn make_view(values: IntSlice): View {
+return View { data: values }
+}
+
+let numbers: [int] = [10, 20, 30]
+let v: View = make_view(numbers[:])
+print first(v.data)
+print len(v.data)

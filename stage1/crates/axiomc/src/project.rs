@@ -3,6 +3,7 @@ use crate::codegen::{
 };
 use crate::diagnostics::Diagnostic;
 use crate::hir;
+use crate::json_contract;
 use crate::lockfile::validate_lockfile;
 use crate::manifest::{
     BuildSection, CapabilityConfig, CapabilityDescriptor, CapabilityKind, Manifest, PackageSection,
@@ -32,6 +33,8 @@ pub struct CheckedPackage {
     pub statement_count: usize,
     pub capabilities: Vec<CapabilityDescriptor>,
     pub warnings: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub exports: Vec<ApiExport>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -41,7 +44,18 @@ pub struct CheckOutput {
     pub statement_count: usize,
     pub capabilities: Vec<CapabilityDescriptor>,
     pub warnings: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub exports: Vec<ApiExport>,
     pub packages: Vec<CheckedPackage>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct ApiExport {
+    pub kind: String,
+    pub name: String,
+    pub module: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub signature: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -62,6 +76,7 @@ pub struct BuiltPackage {
     pub binary: String,
     pub generated_rust: String,
     pub debug_map: Option<String>,
+    pub debug_manifest: Option<String>,
     pub statement_count: usize,
     pub target: Option<String>,
     pub debug: bool,
@@ -81,6 +96,7 @@ pub struct BuildOutput {
     pub binary: String,
     pub generated_rust: String,
     pub debug_map: Option<String>,
+    pub debug_manifest: Option<String>,
     pub statement_count: usize,
     pub target: Option<String>,
     pub debug: bool,
@@ -131,6 +147,7 @@ pub struct TestCaseResult {
     pub stdout: String,
     pub stderr: String,
     pub expected_stdout: Option<String>,
+    pub expected_stderr: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub expected_error: Option<ExpectedDiagnostic>,
     pub duration_ms: u64,
@@ -148,6 +165,22 @@ pub struct ExpectedDiagnostic {
 }
 
 #[derive(Debug, Clone, Serialize)]
+pub struct ListedTest {
+    pub package_root: String,
+    pub package: Option<String>,
+    pub name: String,
+    pub kind: TestKind,
+    pub entry: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct TestListOutput {
+    pub manifest: String,
+    pub packages: Vec<String>,
+    pub tests: Vec<ListedTest>,
+}
+
+#[derive(Debug, Clone, Serialize)]
 pub struct TestOutput {
     pub manifest: String,
     pub packages: Vec<String>,
@@ -159,9 +192,52 @@ pub struct TestOutput {
     pub duration_ms: u64,
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct PackageGraphOutput {
+    pub schema_version: &'static str,
+    pub manifest: String,
+    pub packages: Vec<PackageGraphPackage>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct PackageGraphPackage {
+    pub root: String,
+    pub manifest: String,
+    pub name: Option<String>,
+    pub version: Option<String>,
+    pub workspace_only: bool,
+    pub entrypoint: Option<String>,
+    pub capabilities: Vec<CapabilityDescriptor>,
+    pub dependencies: Vec<PackageGraphDependency>,
+    pub members: Vec<PackageGraphMember>,
+    pub lockfile: PackageGraphLockfile,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct PackageGraphDependency {
+    pub name: String,
+    pub path: String,
+    pub package: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct PackageGraphMember {
+    pub path: String,
+    pub package: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct PackageGraphLockfile {
+    pub path: String,
+    pub status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct CheckOptions {
     pub package: Option<String>,
+    pub include_exports: bool,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -204,6 +280,11 @@ pub fn check_project_with_options(
     for package_root in workspace_package_roots(&graph, &project_root, options.package.as_deref())?
     {
         let analyzed = analyze_package(&graph, &package_root)?;
+        let exports = if options.include_exports {
+            public_api_exports(&analyzed.modules, &package_root)
+        } else {
+            Vec::new()
+        };
         packages.push(CheckedPackage {
             package_root: package_root.display().to_string(),
             manifest: manifest_path(&package_root).display().to_string(),
@@ -211,6 +292,7 @@ pub fn check_project_with_options(
             statement_count: analyzed.mir.statement_count(),
             capabilities: capability_descriptors(&analyzed.manifest.capabilities),
             warnings: analyzed.manifest.capabilities.warnings(),
+            exports,
         });
     }
     let root = packages.first().cloned().ok_or_else(|| {
@@ -228,6 +310,7 @@ pub fn check_project_with_options(
         statement_count: root.statement_count,
         capabilities: root.capabilities,
         warnings: root.warnings,
+        exports: root.exports,
         packages,
     })
 }
@@ -248,6 +331,7 @@ pub fn build_project_with_options(
     project_root: &Path,
     options: &BuildOptions,
 ) -> Result<BuildOutput, Diagnostic> {
+    validate_build_resolution_mode(options)?;
     let project_root = canonicalize_existing_path(&normalize_path(project_root), "project root")?;
     let graph = load_package_graph(&project_root)?;
     validate_workspace_root_lockfile(&graph, &project_root)?;
@@ -282,6 +366,9 @@ pub fn build_project_with_options(
             debug_map: options
                 .debug
                 .then(|| debug_source_map_path(&generated_rust).display().to_string()),
+            debug_manifest: options
+                .debug
+                .then(|| debug_manifest_path(&generated_rust).display().to_string()),
             statement_count: analyzed.mir.statement_count(),
             target: resolved_target.clone(),
             debug: options.debug,
@@ -314,6 +401,7 @@ pub fn build_project_with_options(
         binary: root.binary,
         generated_rust: root.generated_rust,
         debug_map: root.debug_map,
+        debug_manifest: root.debug_manifest,
         statement_count: root.statement_count,
         target: root.target,
         debug: root.debug,
@@ -324,6 +412,16 @@ pub fn build_project_with_options(
         duration_ms: started.elapsed().as_millis() as u64,
         packages,
     })
+}
+
+fn validate_build_resolution_mode(options: &BuildOptions) -> Result<(), Diagnostic> {
+    if options.offline && !options.locked {
+        return Err(Diagnostic::new(
+            "build",
+            "offline builds require --locked so axiom.lock is the only dependency resolution source",
+        ));
+    }
+    Ok(())
 }
 
 pub fn run_project(project_root: &Path) -> Result<i32, Diagnostic> {
@@ -377,6 +475,62 @@ pub fn run_project_with_options(
 
 pub fn run_project_tests(project_root: &Path) -> Result<TestOutput, Diagnostic> {
     run_project_tests_with_options(project_root, &TestOptions::default())
+}
+
+pub fn list_project_tests_with_options(
+    project_root: &Path,
+    options: &TestOptions,
+) -> Result<TestListOutput, Diagnostic> {
+    let project_root = canonicalize_existing_path(&normalize_path(project_root), "project root")?;
+    let graph = load_package_graph(&project_root)?;
+    validate_workspace_root_lockfile(&graph, &project_root)?;
+    let manifest_path_text = manifest_path(&project_root).display().to_string();
+    let mut packages = Vec::new();
+    let mut tests = Vec::new();
+    for package_root in workspace_package_roots(&graph, &project_root, options.package.as_deref())?
+    {
+        let manifest = graph.context(&package_root)?.manifest.clone();
+        validate_lockfile(&package_root, &manifest)?;
+        let discovered = if expected_error_path(&package_root).exists() {
+            Vec::new()
+        } else {
+            collect_test_targets(
+                &package_root,
+                &manifest,
+                options.filter.as_deref(),
+                options.include_benchmarks,
+            )?
+        };
+        if discovered.is_empty() {
+            continue;
+        }
+        packages.push(package_root.display().to_string());
+        let package_name = manifest
+            .package
+            .as_ref()
+            .map(|package| package.name.clone());
+        for test in discovered {
+            tests.push(ListedTest {
+                package_root: package_root.display().to_string(),
+                package: test.package.clone().or_else(|| package_name.clone()),
+                name: test.name,
+                kind: test.kind,
+                entry: test.entry,
+            });
+        }
+    }
+    if tests.is_empty() {
+        return Err(Diagnostic::new(
+            "test",
+            "no tests discovered under src/**/*_test.ax across the workspace and no [[tests]] configured in axiom.toml",
+        )
+        .with_path(manifest_path_text));
+    }
+    Ok(TestListOutput {
+        manifest: manifest_path(&project_root).display().to_string(),
+        packages,
+        tests,
+    })
 }
 
 pub fn run_project_tests_with_options(
@@ -563,11 +717,27 @@ fn collect_discovered_tests(
         } else {
             package_expected_output.map(str::to_string)
         };
+        let stderr_path = path.with_extension("stderr");
+        let stderr = if stderr_path.exists() {
+            Some(fs::read_to_string(&stderr_path).map_err(|err| {
+                Diagnostic::new(
+                    "test",
+                    format!("failed to read {}: {err}", stderr_path.display()),
+                )
+                .with_path(stderr_path.display().to_string())
+            })?)
+        } else {
+            None
+        };
         tests.push(crate::manifest::TestTarget {
             name: relative.with_extension("").display().to_string(),
             entry: relative.display().to_string(),
             stdout,
+            stderr,
             kind,
+            expected_error: None,
+            capabilities: Vec::new(),
+            package: None,
         });
     }
     Ok(())
@@ -605,7 +775,123 @@ fn load_package_expected_output(project_root: &Path) -> Result<Option<String>, D
 
 pub fn project_capabilities(project_root: &Path) -> Result<Vec<CapabilityDescriptor>, Diagnostic> {
     let manifest = load_manifest(project_root)?;
-    Ok(capability_descriptors(&manifest.capabilities))
+    let mut capabilities = capability_descriptors(&manifest.capabilities);
+    if manifest.capabilities.fs || manifest.capabilities.fs_write {
+        let configured_root = manifest
+            .capabilities
+            .fs_root
+            .clone()
+            .unwrap_or_else(|| String::from("."));
+        let package_root = fs::canonicalize(project_root).map_err(|err| {
+            Diagnostic::new(
+                "manifest",
+                format!("failed to canonicalize package root: {err}"),
+            )
+            .with_path(project_root.display().to_string())
+        })?;
+        let effective_root = fs_root_path_for_package(project_root, &manifest)?;
+        for capability in capabilities.iter_mut().filter(|capability| {
+            capability.enabled
+                && (capability.name == CapabilityKind::Fs.name()
+                    || capability.name == CapabilityKind::FsWrite.name())
+        }) {
+            capability.configured_root = Some(configured_root.clone());
+            capability.effective_root = Some(effective_root.display().to_string());
+            capability.package_root = Some(package_root.display().to_string());
+        }
+    }
+    Ok(capabilities)
+}
+
+pub fn package_graph_metadata(project_root: &Path) -> Result<PackageGraphOutput, Diagnostic> {
+    let project_root = canonicalize_existing_path(&normalize_path(project_root), "project root")?;
+    let graph = load_package_graph(&project_root)?;
+    let mut roots = graph
+        .packages
+        .keys()
+        .filter(|root| **root != stdlib::stdlib_root())
+        .cloned()
+        .collect::<Vec<_>>();
+    roots.sort();
+    let mut packages = Vec::new();
+    for root in roots {
+        let package = graph.context(&root)?;
+        let name = package
+            .manifest
+            .package
+            .as_ref()
+            .map(|package| package.name.clone());
+        let version = package
+            .manifest
+            .package
+            .as_ref()
+            .map(|package| package.version.clone());
+        let entrypoint = package
+            .manifest
+            .package
+            .as_ref()
+            .map(|_| entry_path(&root, &package.manifest).display().to_string());
+        let dependencies = package
+            .dependencies
+            .iter()
+            .map(|(name, dependency_root)| {
+                let dependency = graph.context(dependency_root)?;
+                Ok(PackageGraphDependency {
+                    name: name.clone(),
+                    path: dependency_root.display().to_string(),
+                    package: dependency
+                        .manifest
+                        .package
+                        .as_ref()
+                        .map(|package| package.name.clone()),
+                })
+            })
+            .collect::<Result<Vec<_>, Diagnostic>>()?;
+        let members = package
+            .workspace_members
+            .iter()
+            .map(|member_root| {
+                let member = graph.context(member_root)?;
+                Ok(PackageGraphMember {
+                    path: member_root.display().to_string(),
+                    package: member
+                        .manifest
+                        .package
+                        .as_ref()
+                        .map(|package| package.name.clone()),
+                })
+            })
+            .collect::<Result<Vec<_>, Diagnostic>>()?;
+        let lockfile = match validate_lockfile(&root, &package.manifest) {
+            Ok(()) => PackageGraphLockfile {
+                path: crate::manifest::lockfile_path(&root).display().to_string(),
+                status: String::from("current"),
+                message: None,
+            },
+            Err(error) => PackageGraphLockfile {
+                path: crate::manifest::lockfile_path(&root).display().to_string(),
+                status: String::from("stale"),
+                message: Some(error.message),
+            },
+        };
+        packages.push(PackageGraphPackage {
+            root: root.display().to_string(),
+            manifest: manifest_path(&root).display().to_string(),
+            name,
+            version,
+            workspace_only: package.manifest.is_workspace_only(),
+            entrypoint,
+            capabilities: capability_descriptors(&package.manifest.capabilities),
+            dependencies,
+            members,
+            lockfile,
+        });
+    }
+    Ok(PackageGraphOutput {
+        schema_version: json_contract::JSON_SCHEMA_VERSION,
+        manifest: manifest_path(&project_root).display().to_string(),
+        packages,
+    })
 }
 
 #[derive(Debug, Clone)]
@@ -784,6 +1070,7 @@ fn register_stdlib_package(graph: &mut PackageGraph) {
             name: stdlib::STDLIB_PACKAGE_NAME.to_string(),
             version: stdlib::STDLIB_PACKAGE_VERSION.to_string(),
         }),
+        publish: None,
         dependencies: BTreeMap::new(),
         workspace: None,
         build: BuildSection {
@@ -800,6 +1087,7 @@ fn register_stdlib_package(graph: &mut PackageGraph) {
             env: true,
             env_vars: Vec::new(),
             env_unrestricted: true,
+            unsafe_rationale: Some(String::from("synthetic stdlib host shims")),
             env_legacy_unrestricted: false,
             clock: true,
             crypto: true,
@@ -881,6 +1169,13 @@ fn load_package_graph_recursive(
         }
         let dependency_root = canonicalize_existing_path(&dependency_root, "dependency path")?;
         load_package_graph_recursive(&dependency_root, graph, visiting)?;
+        validate_dependency_version(
+            &manifest_path(&project_root),
+            name,
+            spec,
+            graph,
+            &dependency_root,
+        )?;
         dependencies.insert(name.clone(), dependency_root);
     }
     for member_root in &workspace_members {
@@ -898,6 +1193,76 @@ fn load_package_graph_recursive(
         },
     );
     Ok(())
+}
+
+fn validate_dependency_version(
+    manifest_path: &Path,
+    dependency_name: &str,
+    spec: &crate::manifest::DependencySpec,
+    graph: &PackageGraph,
+    dependency_root: &Path,
+) -> Result<(), Diagnostic> {
+    let Some(constraint) = spec.version.as_deref() else {
+        return Ok(());
+    };
+    let dependency = graph.context(dependency_root)?;
+    let package = dependency.manifest.package.as_ref().ok_or_else(|| {
+        Diagnostic::new(
+            "manifest",
+            format!(
+                "dependency {dependency_name:?} declares version constraint {constraint:?}, but {} has no [package] version",
+                manifest_path.display()
+            ),
+        )
+        .with_path(manifest_path.display().to_string())
+    })?;
+    if dependency_version_matches(constraint, &package.version) {
+        return Ok(());
+    }
+    Err(
+        Diagnostic::new(
+            "manifest",
+            format!(
+                "dependency {dependency_name:?} version constraint {constraint:?} is incompatible with package version {:?}",
+                package.version
+            ),
+        )
+        .with_path(manifest_path.display().to_string()),
+    )
+}
+
+fn dependency_version_matches(constraint: &str, version: &str) -> bool {
+    if constraint == "*" || constraint == version {
+        return true;
+    }
+    let Some(base) = constraint.strip_prefix('^') else {
+        return false;
+    };
+    let Some(base) = parse_semver_triplet(base) else {
+        return false;
+    };
+    let Some(version) = parse_semver_triplet(version) else {
+        return false;
+    };
+    if base.0 == 0 && base.1 == 0 {
+        version.0 == 0 && version.1 == 0 && version.2 == base.2
+    } else if base.0 == 0 {
+        version.0 == 0 && version.1 == base.1 && version >= base
+    } else {
+        version.0 == base.0 && version >= base
+    }
+}
+
+fn parse_semver_triplet(version: &str) -> Option<(u64, u64, u64)> {
+    let parts = version.split('.').collect::<Vec<_>>();
+    if parts.len() != 3 {
+        return None;
+    }
+    Some((
+        parts[0].parse().ok()?,
+        parts[1].parse().ok()?,
+        parts[2].parse().ok()?,
+    ))
 }
 
 fn resolve_workspace_members(
@@ -1057,7 +1422,7 @@ fn build_artifacts(
         .is_some_and(|stored| cache_matches(stored, &cache, generated_rust, binary))
     {
         if options.debug {
-            write_debug_source_map(generated_rust, &debug_source_map_path(generated_rust))?;
+            write_debug_artifacts(generated_rust, binary, analyzed)?;
         }
         return Ok(BuildArtifactReport {
             metadata: build_metadata(package_root, &cache),
@@ -1072,9 +1437,6 @@ fn build_artifacts(
             format!("failed to write {}: {err}", generated_rust.display()),
         )
     })?;
-    if options.debug {
-        write_debug_source_map(generated_rust, &debug_source_map_path(generated_rust))?;
-    }
     let started = Instant::now();
     compile_native(
         options.backend,
@@ -1084,6 +1446,9 @@ fn build_artifacts(
         options.debug,
     )?;
     let compile_ms = started.elapsed().as_millis() as u64;
+    if options.debug {
+        write_debug_artifacts(generated_rust, binary, analyzed)?;
+    }
     let mut cache = cache;
     cache.binary_hash = Some(hash_file_bytes(binary)?);
     write_build_cache(&cache_path, &cache)?;
@@ -1147,6 +1512,10 @@ fn debug_source_map_path(generated_rust: &Path) -> PathBuf {
     generated_rust.with_extension("debug-map.json")
 }
 
+fn debug_manifest_path(generated_rust: &Path) -> PathBuf {
+    generated_rust.with_extension("debug-manifest.json")
+}
+
 #[derive(Debug, Serialize)]
 struct DebugSourceMap<'a> {
     schema_version: &'static str,
@@ -1160,6 +1529,50 @@ struct DebugSourceMapping {
     source: String,
     line: usize,
     column: usize,
+}
+
+#[derive(Debug, Serialize)]
+struct DebugManifest<'a> {
+    schema_version: &'static str,
+    binary: &'a str,
+    binary_hash: String,
+    generated_rust: &'a str,
+    generated_rust_hash: String,
+    debug_map: &'a str,
+    rustc: DebugRustcInfo,
+    source_files: Vec<DebugSourceFile>,
+}
+
+#[derive(Debug, Serialize)]
+struct DebugRustcInfo {
+    debuginfo: u8,
+    opt_level: u8,
+    native_debug_info: &'static str,
+    axiom_dwarf: bool,
+}
+
+#[derive(Debug, Serialize)]
+struct DebugSourceFile {
+    path: String,
+    source_hash: String,
+    line_count: usize,
+    mapping_count: usize,
+}
+
+fn write_debug_artifacts(
+    generated_rust: &Path,
+    binary: &Path,
+    analyzed: &AnalyzedProject,
+) -> Result<(), Diagnostic> {
+    let debug_map = debug_source_map_path(generated_rust);
+    write_debug_source_map(generated_rust, &debug_map)?;
+    write_debug_manifest(
+        generated_rust,
+        binary,
+        &debug_map,
+        &debug_manifest_path(generated_rust),
+        analyzed,
+    )
 }
 
 fn write_debug_source_map(generated_rust: &Path, debug_map: &Path) -> Result<(), Diagnostic> {
@@ -1184,6 +1597,72 @@ fn write_debug_source_map(generated_rust: &Path, debug_map: &Path) -> Result<(),
             format!("failed to write {}: {err}", debug_map.display()),
         )
     })
+}
+
+fn write_debug_manifest(
+    generated_rust: &Path,
+    binary: &Path,
+    debug_map: &Path,
+    debug_manifest: &Path,
+    analyzed: &AnalyzedProject,
+) -> Result<(), Diagnostic> {
+    let generated_source = fs::read_to_string(generated_rust).map_err(|err| {
+        Diagnostic::new(
+            "build",
+            format!("failed to read {}: {err}", generated_rust.display()),
+        )
+    })?;
+    let generated_rust_path = generated_rust.display().to_string();
+    let binary_path = binary.display().to_string();
+    let debug_map_path = debug_map.display().to_string();
+    let manifest = DebugManifest {
+        schema_version: "axiom.stage1.debug_manifest.v1",
+        binary: &binary_path,
+        binary_hash: hash_file_bytes(binary)?,
+        generated_rust: &generated_rust_path,
+        generated_rust_hash: hash_file(generated_rust)?,
+        debug_map: &debug_map_path,
+        rustc: DebugRustcInfo {
+            debuginfo: 2,
+            opt_level: 0,
+            native_debug_info: "rustc DWARF points at generated Rust",
+            axiom_dwarf: false,
+        },
+        source_files: debug_source_files(analyzed, &generated_source)?,
+    };
+    let content = serde_json::to_string_pretty(&manifest).map_err(|err| {
+        Diagnostic::new("build", format!("failed to render debug manifest: {err}"))
+    })?;
+    fs::write(debug_manifest, format!("{content}\n")).map_err(|err| {
+        Diagnostic::new(
+            "build",
+            format!("failed to write {}: {err}", debug_manifest.display()),
+        )
+    })
+}
+
+fn debug_source_files(
+    analyzed: &AnalyzedProject,
+    generated_source: &str,
+) -> Result<Vec<DebugSourceFile>, Diagnostic> {
+    let mut mapping_counts = BTreeMap::<String, usize>::new();
+    for mapping in debug_source_mappings(generated_source) {
+        *mapping_counts.entry(mapping.source).or_default() += 1;
+    }
+    analyzed
+        .modules
+        .iter()
+        .map(|module| {
+            let source = module_source(&module.path)?;
+            let path = module.path.display().to_string();
+            Ok(DebugSourceFile {
+                mapping_count: mapping_counts.get(&path).copied().unwrap_or(0),
+                path,
+                source_hash: hash_text(&source),
+                line_count: source.lines().count(),
+            })
+        })
+        .collect()
 }
 
 fn debug_source_mappings(generated_source: &str) -> Vec<DebugSourceMapping> {
@@ -1412,6 +1891,7 @@ fn run_test_case(
             stdout: String::new(),
             stderr: String::new(),
             expected_stdout: test.stdout.clone(),
+            expected_stderr: test.stderr.clone(),
             expected_error: None,
             duration_ms: started.elapsed().as_millis() as u64,
             error: Some(error),
@@ -1426,46 +1906,70 @@ fn run_test_case(
             let stdout = String::from_utf8_lossy(&output.stdout).to_string();
             let stderr = String::from_utf8_lossy(&output.stderr).to_string();
             let exit_code = output.status.code();
-            let error = if !output.status.success() {
-                let detail = stderr.trim();
-                Some(
-                    Diagnostic::new(
-                        "test",
-                        if detail.is_empty() {
-                            format!(
-                                "test {:?} exited with status {}",
-                                test.name,
-                                exit_code.unwrap_or(1)
-                            )
-                        } else {
-                            format!(
-                                "test {:?} exited with status {}: {}",
-                                test.name,
-                                exit_code.unwrap_or(1),
-                                detail
-                            )
-                        },
-                    )
-                    .with_path(entry_path.display().to_string()),
-                )
-            } else if let Some(expected_stdout) = &test.stdout {
+            let mut mismatches = Vec::new();
+            if let Some(expected_stdout) = &test.stdout {
                 if &stdout != expected_stdout {
+                    mismatches.push(format!(
+                        "stdout expected {:?}, got {:?}",
+                        expected_stdout, stdout
+                    ));
+                }
+            }
+            if let Some(expected_stderr) = &test.stderr {
+                if &stderr != expected_stderr {
+                    mismatches.push(format!(
+                        "stderr expected {:?}, got {:?}",
+                        expected_stderr, stderr
+                    ));
+                }
+            }
+            let expected_runtime_failure = !output.status.success() && test.stderr.is_some();
+            let error =
+                if mismatches.is_empty() && (output.status.success() || expected_runtime_failure) {
+                    None
+                } else if !output.status.success() {
+                    let detail = stderr.trim();
                     Some(
                         Diagnostic::new(
                             "test",
-                            format!(
-                                "test {:?} stdout did not match expected output: expected {:?}, got {:?}",
-                                test.name, expected_stdout, stdout
-                            ),
+                            if detail.is_empty() {
+                                format!(
+                                    "test {:?} exited with status {}",
+                                    test.name,
+                                    exit_code.unwrap_or(1)
+                                )
+                            } else if mismatches.is_empty() {
+                                format!(
+                                    "test {:?} exited with status {}: {}",
+                                    test.name,
+                                    exit_code.unwrap_or(1),
+                                    detail
+                                )
+                            } else {
+                                format!(
+                                    "test {:?} exited with status {}: {}; {}",
+                                    test.name,
+                                    exit_code.unwrap_or(1),
+                                    detail,
+                                    mismatches.join("; ")
+                                )
+                            },
                         )
                         .with_path(entry_path.display().to_string()),
                     )
                 } else {
-                    None
-                }
-            } else {
-                None
-            };
+                    Some(
+                        Diagnostic::new(
+                            "test",
+                            format!(
+                                "test {:?} stream output did not match expected output: {}",
+                                test.name,
+                                mismatches.join("; ")
+                            ),
+                        )
+                        .with_path(entry_path.display().to_string()),
+                    )
+                };
             TestCaseResult {
                 package_root: project_root.display().to_string(),
                 name: test.name.clone(),
@@ -1478,6 +1982,7 @@ fn run_test_case(
                 stdout,
                 stderr,
                 expected_stdout: test.stdout.clone(),
+                expected_stderr: test.stderr.clone(),
                 expected_error: None,
                 duration_ms: started.elapsed().as_millis() as u64,
                 error,
@@ -1495,6 +2000,7 @@ fn run_test_case(
             stdout: String::new(),
             stderr: String::new(),
             expected_stdout: test.stdout.clone(),
+            expected_stderr: test.stderr.clone(),
             expected_error: None,
             duration_ms: started.elapsed().as_millis() as u64,
             error: Some(
@@ -1530,6 +2036,7 @@ fn run_compile_fail_case(
                 stdout: String::new(),
                 stderr: String::new(),
                 expected_stdout: None,
+                expected_stderr: None,
                 expected_error: None,
                 duration_ms: started.elapsed().as_millis() as u64,
                 error: Some(error),
@@ -1551,6 +2058,7 @@ fn run_compile_fail_case(
                 stdout: String::new(),
                 stderr: String::new(),
                 expected_stdout: None,
+                expected_stderr: None,
                 expected_error: Some(expected),
                 duration_ms: started.elapsed().as_millis() as u64,
                 error: Some(
@@ -1577,6 +2085,7 @@ fn run_compile_fail_case(
         stdout: String::new(),
         stderr: String::new(),
         expected_stdout: None,
+        expected_stderr: None,
         expected_error: Some(expected),
         duration_ms: started.elapsed().as_millis() as u64,
         error: mismatch.map(|message| {
@@ -1617,9 +2126,11 @@ fn expected_error_mismatch(
         .unwrap_or_default();
     let actual_line = actual.line.unwrap_or_default();
     let actual_column = actual.column.unwrap_or_default();
+    let message_matches = actual.message == expected.message
+        || (expected.message.ends_with(':') && actual.message.starts_with(&expected.message));
     if actual.kind == expected.kind
         && actual.code == expected.code
-        && actual.message == expected.message
+        && message_matches
         && actual_path == expected.path
         && actual_line == expected.line
         && actual_column == expected.column
@@ -1712,6 +2223,7 @@ fn failed_test_case_result(
         stdout: String::new(),
         stderr: String::new(),
         expected_stdout: test.stdout.clone(),
+        expected_stderr: test.stderr.clone(),
         expected_error: None,
         duration_ms: started.elapsed().as_millis() as u64,
         error: Some(error),
@@ -1890,17 +2402,33 @@ fn load_module_recursive(
     visiting: &mut Vec<PathBuf>,
 ) -> Result<(), Diagnostic> {
     let module_path = normalize_path(module_path);
-    if visiting.contains(&module_path) {
+    let package = graph.context(package_root)?;
+    if let Some(cycle_start) = visiting.iter().position(|path| path == &module_path) {
+        let mut cycle = visiting[cycle_start..].to_vec();
+        cycle.push(module_path.clone());
+        let cycle_path = cycle
+            .iter()
+            .map(|path| import_diagnostic_path(&package.root, path))
+            .collect::<Vec<_>>();
+        let related = visiting[cycle_start..]
+            .iter()
+            .map(|path| {
+                Diagnostic::new("import", "module participates in import cycle")
+                    .with_code("import_cycle_member")
+                    .with_path(path.display().to_string())
+            })
+            .collect();
         return Err(Diagnostic::new(
             "import",
-            format!("circular import detected at {}", module_path.display()),
+            format!("circular import detected: {}", cycle_path.join(" -> ")),
         )
-        .with_path(module_path.display().to_string()));
+        .with_code("import_cycle")
+        .with_path(module_path.display().to_string())
+        .with_related(related));
     }
     if loaded.contains_key(&module_path) {
         return Ok(());
     }
-    let package = graph.context(package_root)?;
 
     let source = if stdlib::is_stdlib_path(&module_path) {
         stdlib::stdlib_source_for(&module_path)
@@ -2092,7 +2620,7 @@ fn validate_expr_capabilities(
                 && !capabilities.enabled(kind)
             {
                 let requirement = if kind == CapabilityKind::Env {
-                    String::from("[capabilities].env = [\"NAME\"] or env_unrestricted = true")
+                    env_capability_requirement(args)
                 } else {
                     format!("[capabilities].{} = true", kind.name())
                 };
@@ -2118,6 +2646,9 @@ fn validate_expr_capabilities(
         syntax::Expr::BinaryAdd { lhs, rhs, .. } | syntax::Expr::BinaryCompare { lhs, rhs, .. } => {
             validate_expr_capabilities(module_path, lhs, capabilities)?;
             validate_expr_capabilities(module_path, rhs, capabilities)
+        }
+        syntax::Expr::Cast { expr, .. } => {
+            validate_expr_capabilities(module_path, expr, capabilities)
         }
         syntax::Expr::Try { expr, .. } | syntax::Expr::Await { expr, .. } => {
             validate_expr_capabilities(module_path, expr, capabilities)
@@ -2164,6 +2695,15 @@ fn validate_expr_capabilities(
         syntax::Expr::Closure { body, .. } => {
             validate_expr_capabilities(module_path, body, capabilities)
         }
+    }
+}
+
+fn env_capability_requirement(args: &[syntax::Expr]) -> String {
+    match args.first() {
+        Some(syntax::Expr::Literal(syntax::Literal::String(name))) => {
+            format!("[capabilities].env = [{name:?}] or env_unrestricted = true")
+        }
+        _ => String::from("[capabilities].env = [\"NAME\"] or env_unrestricted = true"),
     }
 }
 
@@ -2529,7 +3069,7 @@ fn flatten_modules(
             &module.path,
         )?;
         for const_decl in &module.program.consts {
-            resolve_const_decl(
+            let resolved_expr = resolve_const_decl(
                 const_decl,
                 &visible_consts,
                 &visible_functions,
@@ -2541,7 +3081,16 @@ fn flatten_modules(
                 &module.path,
                 &mut HashSet::new(),
             )?;
-            flattened_consts.push(const_decl.clone());
+            if const_decl.is_static {
+                let mut rewritten = module_symbols
+                    .consts
+                    .get(&const_decl.name)
+                    .cloned()
+                    .unwrap_or_else(|| const_decl.clone());
+                rewritten.expr = resolved_expr;
+                rewritten.name = format!("{}_{}", module_symbols.module_id, const_decl.name);
+                flattened_consts.push(rewritten);
+            }
         }
 
         for type_alias in &module.program.type_aliases {
@@ -2617,6 +3166,179 @@ fn flatten_modules(
         functions: flattened_functions,
         stmts: flattened_stmts,
     })
+}
+
+fn public_api_exports(modules: &[LoadedModule], package_root: &Path) -> Vec<ApiExport> {
+    let mut exports = Vec::new();
+    for module in modules
+        .iter()
+        .filter(|module| module.package_root == package_root)
+    {
+        let module_path = module.path.display().to_string();
+        for alias in module
+            .program
+            .type_aliases
+            .iter()
+            .filter(|alias| alias.visibility.is_public())
+        {
+            exports.push(ApiExport {
+                kind: String::from("type_alias"),
+                name: alias.name.clone(),
+                module: module_path.clone(),
+                signature: Some(format!(
+                    "type {} = {}",
+                    alias.name,
+                    format_type_name(&alias.ty)
+                )),
+            });
+        }
+        for struct_decl in module
+            .program
+            .structs
+            .iter()
+            .filter(|struct_decl| struct_decl.visibility.is_public())
+        {
+            exports.push(ApiExport {
+                kind: String::from("struct"),
+                name: struct_decl.name.clone(),
+                module: module_path.clone(),
+                signature: Some(format!("struct {}", struct_decl.name)),
+            });
+        }
+        for enum_decl in module
+            .program
+            .enums
+            .iter()
+            .filter(|enum_decl| enum_decl.visibility.is_public())
+        {
+            exports.push(ApiExport {
+                kind: String::from("enum"),
+                name: enum_decl.name.clone(),
+                module: module_path.clone(),
+                signature: Some(format!("enum {}", enum_decl.name)),
+            });
+        }
+        for function in module
+            .program
+            .functions
+            .iter()
+            .filter(|function| function.visibility.is_public())
+        {
+            let params = format_function_params(function);
+            let display_name = function
+                .impl_target
+                .as_ref()
+                .map(|target| format!("{target}.{}", function.name))
+                .unwrap_or_else(|| function.name.clone());
+            exports.push(ApiExport {
+                kind: String::from("function"),
+                name: function.name.clone(),
+                module: module_path.clone(),
+                signature: Some(format!(
+                    "fn {display_name}({params}): {}",
+                    format_type_name(&function.return_ty)
+                )),
+            });
+        }
+        for constant in module
+            .program
+            .consts
+            .iter()
+            .filter(|constant| constant.visibility.is_public())
+        {
+            exports.push(ApiExport {
+                kind: String::from("const"),
+                name: constant.name.clone(),
+                module: module_path.clone(),
+                signature: Some(format!(
+                    "const {}: {}",
+                    constant.name,
+                    format_type_name(&constant.ty)
+                )),
+            });
+        }
+    }
+    exports.sort_by(|left, right| {
+        left.module
+            .cmp(&right.module)
+            .then_with(|| left.kind.cmp(&right.kind))
+            .then_with(|| left.name.cmp(&right.name))
+    });
+    exports
+}
+
+fn format_function_params(function: &syntax::Function) -> String {
+    let mut params = Vec::new();
+    if function.receiver.is_some() {
+        params.push(String::from("self"));
+    }
+    params.extend(
+        function
+            .params
+            .iter()
+            .map(|param| format!("{}: {}", param.name, format_type_name(&param.ty))),
+    );
+    params.join(", ")
+}
+
+fn format_type_name(ty: &syntax::TypeName) -> String {
+    match ty {
+        syntax::TypeName::Int => String::from("int"),
+        syntax::TypeName::Numeric(numeric) => numeric.as_str().to_string(),
+        syntax::TypeName::Bool => String::from("bool"),
+        syntax::TypeName::String => String::from("string"),
+        syntax::TypeName::Str => String::from("str"),
+        syntax::TypeName::Named(name, args) if args.is_empty() => name.clone(),
+        syntax::TypeName::Named(name, args) => format!(
+            "{name}<{}>",
+            args.iter()
+                .map(format_type_name)
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+        syntax::TypeName::Ptr(inner) => format!("&{}", format_type_name(inner)),
+        syntax::TypeName::MutPtr(inner) => format!("&mut {}", format_type_name(inner)),
+        syntax::TypeName::Slice(inner) => format!("&[{}]", format_type_name(inner)),
+        syntax::TypeName::MutSlice(inner) => format!("&mut [{}]", format_type_name(inner)),
+        syntax::TypeName::LifetimeSlice(lifetime, inner) => {
+            format!("&'{lifetime} [{}]", format_type_name(inner))
+        }
+        syntax::TypeName::LifetimeMutSlice(lifetime, inner) => {
+            format!("&'{lifetime} mut [{}]", format_type_name(inner))
+        }
+        syntax::TypeName::Option(inner) => format!("Option<{}>", format_type_name(inner)),
+        syntax::TypeName::Result(ok, err) => {
+            format!(
+                "Result<{}, {}>",
+                format_type_name(ok),
+                format_type_name(err)
+            )
+        }
+        syntax::TypeName::Tuple(elements) => format!(
+            "({})",
+            elements
+                .iter()
+                .map(format_type_name)
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+        syntax::TypeName::Map(key, value) => {
+            format!("{{{}: {}}}", format_type_name(key), format_type_name(value))
+        }
+        syntax::TypeName::Array(inner, len) => match len {
+            Some(len) => format!("[{}; {len}]", format_type_name(inner)),
+            None => format!("[{}]", format_type_name(inner)),
+        },
+        syntax::TypeName::Fn(params, return_ty) => format!(
+            "fn({}) -> {}",
+            params
+                .iter()
+                .map(format_type_name)
+                .collect::<Vec<_>>()
+                .join(", "),
+            format_type_name(return_ty)
+        ),
+    }
 }
 
 fn build_module_symbols(module: &LoadedModule) -> Result<ModuleSymbols, Diagnostic> {
@@ -3616,6 +4338,34 @@ fn rewrite_expr(
             line: *line,
             column: *column,
         },
+        syntax::Expr::Cast {
+            expr,
+            ty,
+            line,
+            column,
+        } => syntax::Expr::Cast {
+            expr: Box::new(rewrite_expr(
+                expr,
+                visible_functions,
+                visible_consts,
+                visible_structs,
+                visible_types,
+                private_imported,
+                private_imported_consts,
+                private_imported_types,
+                module_path,
+            )?),
+            ty: rewrite_type_name(
+                ty,
+                visible_types,
+                private_imported_types,
+                module_path,
+                *line,
+                *column,
+            )?,
+            line: *line,
+            column: *column,
+        },
         syntax::Expr::Try { expr, line, column } => syntax::Expr::Try {
             expr: Box::new(rewrite_expr(
                 expr,
@@ -3956,8 +4706,10 @@ fn rewrite_type_name(
 ) -> Result<syntax::TypeName, Diagnostic> {
     match ty {
         syntax::TypeName::Int => Ok(syntax::TypeName::Int),
+        syntax::TypeName::Numeric(numeric) => Ok(syntax::TypeName::Numeric(*numeric)),
         syntax::TypeName::Bool => Ok(syntax::TypeName::Bool),
         syntax::TypeName::String => Ok(syntax::TypeName::String),
+        syntax::TypeName::Str => Ok(syntax::TypeName::Str),
         syntax::TypeName::Named(name, args) => {
             if !visible_types.contains_key(name) && private_imported_types.contains(name) {
                 return Err(Diagnostic::new(
@@ -4156,9 +4908,10 @@ fn resolve_const_decl(
     module_path: &Path,
     resolving: &mut HashSet<String>,
 ) -> Result<syntax::Expr, Diagnostic> {
+    let kind = if const_decl.is_static { "static" } else { "const" };
     if !resolving.insert(const_decl.name.clone()) {
         return Err(
-            Diagnostic::new("type", format!("recursive const {:?}", const_decl.name))
+            Diagnostic::new("type", format!("recursive {kind} {:?}", const_decl.name))
                 .with_path(module_path.display().to_string())
                 .with_span(const_decl.line, const_decl.column),
         );
@@ -4180,7 +4933,7 @@ fn resolve_const_decl(
         Diagnostic::new(
             "type",
             format!(
-                "const {:?} requires a compile-time scalar expression",
+                "{kind} {:?} requires a compile-time scalar expression",
                 const_decl.name
             ),
         )
@@ -4190,7 +4943,7 @@ fn resolve_const_decl(
     let expected = const_type_name(&const_decl.ty).ok_or_else(|| {
         Diagnostic::new(
             "type",
-            format!("const {:?} must use int, bool, or string", const_decl.name),
+            format!("{kind} {:?} must use int, bool, or string", const_decl.name),
         )
         .with_path(module_path.display().to_string())
         .with_span(const_decl.line, const_decl.column)
@@ -4199,7 +4952,7 @@ fn resolve_const_decl(
         return Err(Diagnostic::new(
             "type",
             format!(
-                "const {:?} expects {}, got {}",
+                "{kind} {:?} expects {}, got {}",
                 const_decl.name,
                 const_type_label(&expected),
                 const_type_label(&actual)
@@ -4496,9 +5249,14 @@ fn resolve_import_path(
                 .with_span(import.line, import.column));
             }
             if !candidate.exists() {
+                let relative =
+                    relative_diagnostic_path(&dependency.root, &candidate.display().to_string());
                 return Err(Diagnostic::new(
                     "import",
-                    format!("missing import {}", candidate.display()),
+                    format!(
+                        "missing import {}",
+                        import_diagnostic_path(&dependency.root, &candidate)
+                    ),
                 )
                 .with_path(module_path.display().to_string())
                 .with_span(import.line, import.column));
@@ -4525,11 +5283,15 @@ fn resolve_import_path(
         );
     }
     if !candidate.exists() {
-        return Err(
-            Diagnostic::new("import", format!("missing import {}", candidate.display()))
-                .with_path(module_path.display().to_string())
-                .with_span(import.line, import.column),
-        );
+        return Err(Diagnostic::new(
+            "import",
+            format!(
+                "missing import {}",
+                import_diagnostic_path(&package.root, &candidate)
+            ),
+        )
+        .with_path(module_path.display().to_string())
+        .with_span(import.line, import.column));
     }
     let candidate = canonicalize_existing_path(&candidate, "import path")?;
     if !candidate.starts_with(&package.root) {
@@ -4540,6 +5302,13 @@ fn resolve_import_path(
         );
     }
     Ok((package.root.clone(), candidate))
+}
+
+fn import_diagnostic_path(package_root: &Path, path: &Path) -> String {
+    normalize_path(path)
+        .strip_prefix(package_root)
+        .map(|relative| relative.display().to_string())
+        .unwrap_or_else(|_| path.display().to_string())
 }
 
 fn canonicalize_existing_path(path: &Path, label: &str) -> Result<PathBuf, Diagnostic> {
@@ -4701,6 +5470,7 @@ mod tests {
     fn workspace_only_manifest() -> Manifest {
         Manifest {
             package: None,
+            publish: None,
             dependencies: BTreeMap::new(),
             workspace: None,
             build: BuildSection {
@@ -4718,6 +5488,7 @@ mod tests {
                 name: "demo".to_string(),
                 version: "0.1.0".to_string(),
             }),
+            publish: None,
             dependencies: BTreeMap::new(),
             workspace: None,
             build: BuildSection {
@@ -4842,13 +5613,21 @@ mod tests {
                 name: "unit".to_string(),
                 entry: "src/unit_test.ax".to_string(),
                 stdout: None,
+                stderr: None,
                 kind: TestKind::Unit,
+                expected_error: None,
+                capabilities: Vec::new(),
+                package: None,
             },
             crate::manifest::TestTarget {
                 name: "bench".to_string(),
                 entry: "src/demo_bench.ax".to_string(),
                 stdout: None,
+                stderr: None,
                 kind: TestKind::Benchmark,
+                expected_error: None,
+                capabilities: Vec::new(),
+                package: None,
             },
         ];
 
@@ -4895,7 +5674,11 @@ mod tests {
             name: "manifest_bench".to_string(),
             entry: "src/manifest_bench.ax".to_string(),
             stdout: None,
+            stderr: None,
             kind: TestKind::Benchmark,
+            expected_error: None,
+            capabilities: Vec::new(),
+            package: None,
         });
 
         let tests = collect_test_targets(root, &manifest, None, true)

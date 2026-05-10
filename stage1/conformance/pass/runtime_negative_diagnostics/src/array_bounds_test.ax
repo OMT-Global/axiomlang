@@ -1,0 +1,2 @@
+let values: [int] = [1]
+print values[2]

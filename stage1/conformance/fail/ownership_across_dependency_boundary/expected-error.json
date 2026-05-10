@@ -1,0 +1,8 @@
+{
+  "kind": "import",
+  "code": null,
+  "message": "type \"InternalBuffer\" is not visible from this module",
+  "path": "src/main.ax",
+  "line": 3,
+  "column": 1
+}
