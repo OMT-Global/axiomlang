@@ -24,6 +24,12 @@ class Stage1BenchHarnessTests(unittest.TestCase):
         )
         self.assertEqual(command[1:], ["check", "stage1/examples/hello", "--json"])
 
+    def test_parser_phase_uses_real_parse_command(self) -> None:
+        parser = next(
+            phase for phase in stage1_bench_harness.PHASES if phase.name == "parser"
+        )
+        self.assertEqual(parser.args, ("parse", "{project}"))
+
     def test_median_handles_even_and_odd_samples(self) -> None:
         self.assertEqual(stage1_bench_harness.median_ms([1.0, 5.0, 3.0]), 3.0)
         self.assertEqual(stage1_bench_harness.median_ms([10.0, 20.0]), 15.0)

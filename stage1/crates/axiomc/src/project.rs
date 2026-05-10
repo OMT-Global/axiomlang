@@ -3,6 +3,7 @@ use crate::codegen::{
 };
 use crate::diagnostics::Diagnostic;
 use crate::hir;
+use crate::json_contract;
 use crate::lockfile::validate_lockfile;
 use crate::manifest::{
     BuildSection, CapabilityConfig, CapabilityDescriptor, CapabilityKind, Manifest, PackageSection,
@@ -195,6 +196,7 @@ pub struct TestOutput {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct PackageGraphOutput {
+    pub schema_version: &'static str,
     pub manifest: String,
     pub packages: Vec<PackageGraphPackage>,
 }
@@ -888,6 +890,7 @@ pub fn package_graph_metadata(project_root: &Path) -> Result<PackageGraphOutput,
         });
     }
     Ok(PackageGraphOutput {
+        schema_version: json_contract::JSON_SCHEMA_VERSION,
         manifest: manifest_path(&project_root).display().to_string(),
         packages,
     })
@@ -1086,6 +1089,7 @@ fn register_stdlib_package(graph: &mut PackageGraph) {
             env: true,
             env_vars: Vec::new(),
             env_unrestricted: true,
+            unsafe_rationale: Some(String::from("synthetic stdlib host shims")),
             env_legacy_unrestricted: false,
             clock: true,
             crypto: true,

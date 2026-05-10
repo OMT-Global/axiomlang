@@ -4,15 +4,14 @@ use axiomc::diagnostic_catalog::{DiagnosticCodeInfo, diagnostic_code_info};
 use axiomc::diagnostics::Diagnostic;
 use axiomc::json_contract;
 use axiomc::lsp;
-use axiomc::manifest::{entry_path, load_manifest};
+use axiomc::manifest::{CapabilityDescriptor, entry_path, load_manifest};
 use axiomc::new_project::{WorkloadTemplate, create_project_with_template};
 use axiomc::project::{
     BuildOptions, BuildOutput, CheckOptions, RunOptions, TestOptions, build_project_with_options,
     check_project_with_options, list_project_tests_with_options, package_graph_metadata,
     project_capabilities, run_project_tests_with_options, run_project_with_options,
-};
-use axiomc::registry::{
-    PublishOptions, load_registry_index, publish_package, render_registry_index,
+};use axiomc::registry::{
+    load_registry_index, publish_package, render_registry_index, PublishOptions,
 };
 use axiomc::syntax::parse_program;
 use clap::{Parser, Subcommand};
@@ -21,6 +20,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::io::{self, BufRead, Write};
 use std::path::{Path, PathBuf};
+use std::process::Command as ProcessCommand;
 use std::time::Instant;
 
 #[derive(Debug, Parser)]
@@ -123,6 +123,12 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    /// Report local stage1 project and toolchain health.
+    Doctor {
+        path: Option<PathBuf>,
+        #[arg(long)]
+        json: bool,
+    },
     /// Format .ax source files with the canonical stage1 style.
     Fmt {
         path: PathBuf,
@@ -136,6 +142,8 @@ enum Command {
         path: PathBuf,
         #[arg(long, default_value = "docs/axiom")]
         out_dir: PathBuf,
+        #[arg(long)]
+        json: bool,
     },
     /// Run discovered *_bench.ax entrypoints with warmup and iterations.
     Bench {
@@ -193,9 +201,9 @@ enum CapsCommand {
 }
 
 #[derive(Debug, Subcommand)]
-enum PkgCommand {
-    /// Emit the resolved local package graph.
-    Graph {
+enum InspectCommand {
+    /// Emit exported functions, types, consts, imports, and capability use.
+    Symbols {
         path: PathBuf,
         #[arg(long)]
         json: bool,
@@ -203,9 +211,9 @@ enum PkgCommand {
 }
 
 #[derive(Debug, Subcommand)]
-enum InspectCommand {
-    /// Emit exported functions, types, consts, imports, and capability use.
-    Symbols {
+enum PkgCommand {
+    /// Print resolved packages, members, dependencies, entrypoints, capabilities, and lockfile status.
+    Graph {
         path: PathBuf,
         #[arg(long)]
         json: bool,
@@ -387,6 +395,7 @@ fn main() {
                     }
                     Err(error) => print_error("test", error, json),
                 }
+
             }
         }
         Command::Caps {
@@ -406,7 +415,11 @@ fn main() {
                         Ok(report) => match json_contract::to_pretty_string(&report) {
                             Ok(output) => {
                                 println!("{output}");
-                                if report.escalated { 1 } else { 0 }
+                                if report.escalated {
+                                    1
+                                } else {
+                                    0
+                                }
                             }
                             Err(error) => print_error("caps", error, false),
                         },
@@ -497,6 +510,22 @@ fn main() {
                 Err(error) => print_error("pkg graph", error, json),
             },
         },
+        Command::Doctor { path, json } => {
+            let project = path.unwrap_or_else(|| PathBuf::from("."));
+            let report = doctor_report(&project);
+            if json {
+                match json_contract::to_pretty_string(&report) {
+                    Ok(output) => {
+                        println!("{output}");
+                        if report.ok { 0 } else { 1 }
+                    }
+                    Err(error) => print_error("doctor", error, false),
+                }
+            } else {
+                println!("{}", doctor_text(&report));
+                if report.ok { 0 } else { 1 }
+            }
+        },
         Command::Fmt { path, check, json } => match format_axiom_sources(&path, check) {
             Ok(report) => {
                 let serialization_error = if json {
@@ -530,13 +559,27 @@ fn main() {
             }
             Err(error) => print_error("fmt", error, json),
         },
-        Command::Doc { path, out_dir } => match generate_docs(&path, &out_dir) {
+        Command::Doc {
+            path,
+            out_dir,
+            json,
+        } => match generate_docs(&path, &out_dir) {
             Ok(output) => {
-                eprintln!("wrote {}", output.markdown.display());
-                eprintln!("wrote {}", output.html.display());
-                0
+                if json {
+                    match json_contract::to_pretty_string(&output) {
+                        Ok(payload) => {
+                            println!("{payload}");
+                            0
+                        }
+                        Err(error) => print_error("doc", error, json),
+                    }
+                } else {
+                    eprintln!("wrote {}", output.markdown.display());
+                    eprintln!("wrote {}", output.html.display());
+                    0
+                }
             }
-            Err(error) => print_error("doc", error, false),
+            Err(error) => print_error("doc", error, json),
         },
         Command::Bench {
             path,
@@ -559,7 +602,11 @@ fn main() {
                         );
                     }
                 }
-                if report.failed == 0 { 0 } else { 1 }
+                if report.failed == 0 {
+                    0
+                } else {
+                    1
+                }
             }
             Err(error) => print_error("bench", error, json),
         },
@@ -1289,6 +1336,152 @@ fn capability_for_call(name: &str) -> Option<&'static str> {
 }
 
 #[derive(Debug, Clone, Serialize)]
+struct DoctorReport {
+    schema_version: &'static str,
+    ok: bool,
+    command: &'static str,
+    project: String,
+    rustc: ToolProbe,
+    cargo: ToolProbe,
+    target_triple: Option<String>,
+    lockfile_status: &'static str,
+    capabilities: Vec<axiomc::manifest::CapabilityDescriptor>,
+    workspace_graph: Vec<DoctorPackage>,
+    known_unsupported_features: Vec<&'static str>,
+    error: Option<Diagnostic>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct ToolProbe {
+    available: bool,
+    version: Option<String>,
+    error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct DoctorPackage {
+    package_root: String,
+    manifest: String,
+    entry: String,
+    statement_count: usize,
+}
+
+fn doctor_report(project: &Path) -> DoctorReport {
+    let rustc = probe_tool("rustc", &["-vV"]);
+    let cargo = probe_tool("cargo", &["--version"]);
+    let target_triple = rustc.version.as_deref().and_then(parse_rustc_host_target);
+    let check = check_project_with_options(project, &CheckOptions::default());
+    let (ok, lockfile_status, capabilities, workspace_graph, error) = match check {
+        Ok(output) => {
+            let packages = output
+                .packages
+                .iter()
+                .map(|package| DoctorPackage {
+                    package_root: package.package_root.clone(),
+                    manifest: package.manifest.clone(),
+                    entry: package.entry.clone(),
+                    statement_count: package.statement_count,
+                })
+                .collect();
+            (
+                rustc.available && cargo.available,
+                "valid",
+                output.capabilities,
+                packages,
+                None,
+            )
+        }
+        Err(error) => {
+            let lockfile_status =
+                if error.message.contains("axiom.lock") || error.message.contains("lockfile") {
+                    "invalid"
+                } else {
+                    "unknown"
+                };
+            (false, lockfile_status, Vec::new(), Vec::new(), Some(error))
+        }
+    };
+    DoctorReport {
+        schema_version: json_contract::JSON_SCHEMA_VERSION,
+        ok,
+        command: "doctor",
+        project: project.display().to_string(),
+        rustc,
+        cargo,
+        target_triple,
+        lockfile_status,
+        capabilities,
+        workspace_graph,
+        known_unsupported_features: vec![
+            "package registry resolution",
+            "native Axiom DWARF line tables",
+            "general borrow checker",
+            "trait-style interfaces",
+            "closures",
+        ],
+        error,
+    }
+}
+
+fn probe_tool(program: &str, args: &[&str]) -> ToolProbe {
+    match ProcessCommand::new(program).args(args).output() {
+        Ok(output) if output.status.success() => ToolProbe {
+            available: true,
+            version: Some(String::from_utf8_lossy(&output.stdout).trim().to_string()),
+            error: None,
+        },
+        Ok(output) => ToolProbe {
+            available: false,
+            version: None,
+            error: Some(String::from_utf8_lossy(&output.stderr).trim().to_string()),
+        },
+        Err(error) => ToolProbe {
+            available: false,
+            version: None,
+            error: Some(error.to_string()),
+        },
+    }
+}
+
+fn parse_rustc_host_target(version: &str) -> Option<String> {
+    version
+        .lines()
+        .find_map(|line| line.strip_prefix("host: "))
+        .map(str::to_string)
+}
+
+fn doctor_text(report: &DoctorReport) -> String {
+    let mut lines = vec![
+        format!("project: {}", report.project),
+        format!("ok: {}", report.ok),
+        format!("rustc: {}", tool_text(&report.rustc)),
+        format!("cargo: {}", tool_text(&report.cargo)),
+        format!(
+            "target_triple: {}",
+            report.target_triple.as_deref().unwrap_or("unknown")
+        ),
+        format!("lockfile_status: {}", report.lockfile_status),
+        format!("packages: {}", report.workspace_graph.len()),
+    ];
+    if let Some(error) = &report.error {
+        lines.push(format!("error: {error}"));
+    }
+    lines.push(format!(
+        "known_unsupported_features: {}",
+        report.known_unsupported_features.join(", ")
+    ));
+    lines.join("\n")
+}
+
+fn tool_text(tool: &ToolProbe) -> String {
+    if tool.available {
+        tool.version.as_deref().unwrap_or("available").to_string()
+    } else {
+        format!("missing ({})", tool.error.as_deref().unwrap_or("unknown"))
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
 struct FormatFileReport {
     path: String,
     changed: bool,
@@ -1401,10 +1594,15 @@ fn trim_line_ending(line: &str) -> &str {
         .unwrap_or(line)
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 struct DocOutput {
+    schema_version: &'static str,
+    command: &'static str,
+    ok: bool,
     markdown: PathBuf,
     html: PathBuf,
+    items: Vec<DocItem>,
+    capabilities: Vec<CapabilityDescriptor>,
 }
 
 fn generate_docs(path: &Path, out_dir: &Path) -> Result<DocOutput, Diagnostic> {
@@ -1438,17 +1636,26 @@ fn generate_docs(path: &Path, out_dir: &Path) -> Result<DocOutput, Diagnostic> {
             format!("failed to write {}: {err}", html_path.display()),
         )
     })?;
+    let capabilities = project_capabilities(path).unwrap_or_default();
     Ok(DocOutput {
+        schema_version: json_contract::JSON_SCHEMA_VERSION,
+        command: "doc",
+        ok: true,
         markdown: markdown_path,
         html: html_path,
+        items,
+        capabilities,
     })
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 struct DocItem {
     file: String,
+    kind: String,
+    public: bool,
     signature: String,
     docs: Vec<String>,
+    examples: Vec<String>,
 }
 
 fn extract_doc_items(files: &[PathBuf]) -> Result<Vec<DocItem>, Diagnostic> {
@@ -1466,10 +1673,22 @@ fn extract_doc_items(files: &[PathBuf]) -> Result<Vec<DocItem>, Diagnostic> {
                 continue;
             }
             if is_documented_signature(trimmed) {
+                let examples = pending_docs
+                    .iter()
+                    .filter_map(|line| {
+                        line.strip_prefix("Example:")
+                            .or_else(|| line.strip_prefix("example:"))
+                            .map(str::trim)
+                            .map(str::to_string)
+                    })
+                    .collect();
                 items.push(DocItem {
                     file: file.display().to_string(),
+                    kind: doc_item_kind(trimmed).to_string(),
+                    public: trimmed.starts_with("pub "),
                     signature: trimmed.to_string(),
                     docs: std::mem::take(&mut pending_docs),
+                    examples,
                 });
             } else if !trimmed.is_empty() {
                 pending_docs.clear();
@@ -1477,6 +1696,22 @@ fn extract_doc_items(files: &[PathBuf]) -> Result<Vec<DocItem>, Diagnostic> {
         }
     }
     Ok(items)
+}
+
+fn doc_item_kind(line: &str) -> &'static str {
+    let line = line.strip_prefix("pub ").unwrap_or(line);
+    let line = line.strip_prefix("async ").unwrap_or(line);
+    if line.starts_with("fn ") {
+        "function"
+    } else if line.starts_with("struct ") {
+        "struct"
+    } else if line.starts_with("enum ") {
+        "enum"
+    } else if line.starts_with("const ") {
+        "const"
+    } else {
+        "declaration"
+    }
 }
 
 fn is_documented_signature(line: &str) -> bool {
@@ -1795,7 +2030,11 @@ fn function_name_from_source_line(line: &str) -> Option<String> {
         .chars()
         .take_while(|c| c.is_ascii_alphanumeric() || *c == '_')
         .collect();
-    if name.is_empty() { None } else { Some(name) }
+    if name.is_empty() {
+        None
+    } else {
+        Some(name)
+    }
 }
 
 fn recommended_fixture_name(file: &str, function: &str) -> String {
@@ -2014,6 +2253,7 @@ mod tests {
         assert!(help.contains("Inspect project metadata for agent tooling"));
         assert!(help.contains("Inspect local package graph metadata"));
         assert!(help.contains("Explain a stable diagnostic code"));
+        assert!(help.contains("Report local stage1 project and toolchain health"));
         assert!(help.contains("Format .ax source files"));
         assert!(help.contains("Generate Markdown and HTML API docs"));
         assert!(help.contains("Run discovered *_bench.ax entrypoints"));
@@ -2071,11 +2311,8 @@ mod tests {
             );
         let rendered = error.to_string();
         assert!(rendered.contains("unsupported backend \"direct-native\""));
-        assert!(
-            rendered.contains(
-                "only generated-rust is implemented in this preparatory backend plumbing"
-            )
-        );
+        assert!(rendered
+            .contains("only generated-rust is implemented in this preparatory backend plumbing"));
     }
 
     #[test]
@@ -2420,6 +2657,37 @@ mod tests {
     }
 
     #[test]
+    fn doctor_reports_project_health_json_fields() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let project = dir.path().join("doctor");
+        create_project_with_template(&project, Some("doctor-app"), WorkloadTemplate::Cli)
+            .expect("create project");
+
+        let report = doctor_report(&project);
+
+        assert_eq!(report.schema_version, json_contract::JSON_SCHEMA_VERSION);
+        assert_eq!(report.command, "doctor");
+        assert_eq!(report.lockfile_status, "valid");
+        assert_eq!(report.workspace_graph.len(), 1);
+        assert!(report.target_triple.is_some());
+        assert!(
+            report
+                .known_unsupported_features
+                .contains(&"package registry resolution")
+        );
+    }
+
+    #[test]
+    fn rustc_host_target_parser_reads_verbose_version_output() {
+        let version = "rustc 1.90.0\nhost: aarch64-apple-darwin\nrelease: 1.90.0\n";
+
+        assert_eq!(
+            parse_rustc_host_target(version).as_deref(),
+            Some("aarch64-apple-darwin")
+        );
+    }
+
+    #[test]
     fn formatter_trims_whitespace_and_collapses_blank_runs() {
         assert_eq!(
             format_axiom_source("fn main() {   \n\tprint \"hi\"  \n\n\n}\n\n"),
@@ -2493,6 +2761,8 @@ mod tests {
 
         assert_eq!(items.len(), 1);
         assert_eq!(items[0].signature, "pub fn inc(value: int): int {");
+        assert_eq!(items[0].kind, "function");
+        assert!(items[0].public);
         assert_eq!(items[0].docs, vec![String::from("Adds one.")]);
     }
 
@@ -2584,6 +2854,38 @@ mod tests {
         assert!(markdown.contains("## Mutation survivor report"));
         assert!(markdown.contains("Recommended fixture: `mutation_main_main_survivors`"));
         assert!(markdown.contains("- `m1` `negate condition` — condition still passes"));
+    }
+
+    #[test]
+    fn doc_json_surface_includes_items_and_capabilities() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let project = dir.path().join("doc-json");
+        fs::create_dir_all(project.join("src")).expect("mkdir");
+        fs::write(
+            project.join("axiom.toml"),
+            "[package]\nname = \"doc-json\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nenv = true\nenv_vars = [\"AXIOM_ENV\"]\n",
+        )
+        .expect("write manifest");
+        fs::write(project.join("axiom.lock"), "version = 1\n").expect("write lock");
+        fs::write(
+            project.join("src/main.ax"),
+            "/// Handles a request.\n/// Example: route(\"/health\")\npub fn route(path: string): string {\nreturn \"ok\"\n}\n",
+        )
+        .expect("write source");
+
+        let output = generate_docs(&project, &project.join("docs/api")).expect("generate docs");
+
+        assert_eq!(output.command, "doc");
+        assert!(output.ok);
+        assert_eq!(output.items.len(), 1);
+        assert_eq!(
+            output.items[0].examples,
+            vec![String::from("route(\"/health\")")]
+        );
+        assert!(output
+            .capabilities
+            .iter()
+            .any(|capability| capability.name == "env"));
     }
 
     #[test]
