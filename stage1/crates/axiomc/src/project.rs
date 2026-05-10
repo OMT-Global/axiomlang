@@ -1089,6 +1089,7 @@ fn register_stdlib_package(graph: &mut PackageGraph) {
             env: true,
             env_vars: Vec::new(),
             env_unrestricted: true,
+            unsafe_rationale: Some(String::from("synthetic stdlib host shims")),
             env_legacy_unrestricted: false,
             clock: true,
             crypto: true,
@@ -1907,48 +1908,57 @@ fn run_test_case(
             let stdout = String::from_utf8_lossy(&output.stdout).to_string();
             let stderr = String::from_utf8_lossy(&output.stderr).to_string();
             let exit_code = output.status.code();
-            let error = if !output.status.success() {
-                let detail = stderr.trim();
-                Some(
-                    Diagnostic::new(
-                        "test",
-                        if detail.is_empty() {
-                            format!(
-                                "test {:?} exited with status {}",
-                                test.name,
-                                exit_code.unwrap_or(1)
-                            )
-                        } else {
-                            format!(
-                                "test {:?} exited with status {}: {}",
-                                test.name,
-                                exit_code.unwrap_or(1),
-                                detail
-                            )
-                        },
-                    )
-                    .with_path(entry_path.display().to_string()),
-                )
-            } else {
-                let mut mismatches = Vec::new();
-                if let Some(expected_stdout) = &test.stdout {
-                    if &stdout != expected_stdout {
-                        mismatches.push(format!(
-                            "stdout expected {:?}, got {:?}",
-                            expected_stdout, stdout
-                        ));
-                    }
+            let mut mismatches = Vec::new();
+            if let Some(expected_stdout) = &test.stdout {
+                if &stdout != expected_stdout {
+                    mismatches.push(format!(
+                        "stdout expected {:?}, got {:?}",
+                        expected_stdout, stdout
+                    ));
                 }
-                if let Some(expected_stderr) = &test.stderr {
-                    if &stderr != expected_stderr {
-                        mismatches.push(format!(
-                            "stderr expected {:?}, got {:?}",
-                            expected_stderr, stderr
-                        ));
-                    }
+            }
+            if let Some(expected_stderr) = &test.stderr {
+                if &stderr != expected_stderr {
+                    mismatches.push(format!(
+                        "stderr expected {:?}, got {:?}",
+                        expected_stderr, stderr
+                    ));
                 }
-                if mismatches.is_empty() {
+            }
+            let expected_runtime_failure = !output.status.success() && test.stderr.is_some();
+            let error =
+                if mismatches.is_empty() && (output.status.success() || expected_runtime_failure) {
                     None
+                } else if !output.status.success() {
+                    let detail = stderr.trim();
+                    Some(
+                        Diagnostic::new(
+                            "test",
+                            if detail.is_empty() {
+                                format!(
+                                    "test {:?} exited with status {}",
+                                    test.name,
+                                    exit_code.unwrap_or(1)
+                                )
+                            } else if mismatches.is_empty() {
+                                format!(
+                                    "test {:?} exited with status {}: {}",
+                                    test.name,
+                                    exit_code.unwrap_or(1),
+                                    detail
+                                )
+                            } else {
+                                format!(
+                                    "test {:?} exited with status {}: {}; {}",
+                                    test.name,
+                                    exit_code.unwrap_or(1),
+                                    detail,
+                                    mismatches.join("; ")
+                                )
+                            },
+                        )
+                        .with_path(entry_path.display().to_string()),
+                    )
                 } else {
                     Some(
                         Diagnostic::new(
@@ -1961,8 +1971,7 @@ fn run_test_case(
                         )
                         .with_path(entry_path.display().to_string()),
                     )
-                }
-            };
+                };
             TestCaseResult {
                 package_root: project_root.display().to_string(),
                 name: test.name.clone(),
