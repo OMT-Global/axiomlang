@@ -1,9 +1,8 @@
 import "std/http.ax"
 import "std/encoding.ax"
-import "std/encoding.ax"
 
 let path: string = path_segment_encode("health check")
-let query: string = query_pair("q", "hello world/one")
+let query: string = query_pair_encode("q", "hello world/one")
 let url: string = "http://127.0.0.1:1/" + path + "?" + query
 
 match get(url) {
