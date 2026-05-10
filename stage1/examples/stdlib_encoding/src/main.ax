@@ -24,3 +24,5 @@ print "bad percent"
 }
 
 print path_segment_encode("reports/April 2026")
+print query_pair_encode("q", "agent path/one")
+print path_join_segment("/docs", "stage 1/encoding")

@@ -1,5 +1,4 @@
 import "std/fs.ax"
-import "std/fs_write.ax"
 
 print mkdir_all("scratch/nested")
 print write_file("scratch/nested/data.txt", "one")
