@@ -52,6 +52,7 @@ members = [
   "pass/functions_across_modules",
   "pass/legacy_core_programs",
   "pass/outcome_control_flow",
+  "pass/runtime_negative_diagnostics",
   "pass/ownership_borrowing",
   "pass/package_local_modules",
   "pass/package_visibility",
