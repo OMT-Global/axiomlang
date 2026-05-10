@@ -895,6 +895,23 @@ fn axiom_percent_encode(value: String) -> String {
 }
 
 #[allow(dead_code)]
+fn axiom_query_pair_encode(name: String, value: String) -> String {
+    format!("{}={}", axiom_percent_encode(name), axiom_percent_encode(value))
+}
+
+#[allow(dead_code)]
+fn axiom_path_join_segment(base: String, segment: String) -> String {
+    let encoded = axiom_percent_encode(segment);
+    if base.is_empty() {
+        encoded
+    } else if base.ends_with('/') {
+        format!("{base}{encoded}")
+    } else {
+        format!("{base}/{encoded}")
+    }
+}
+
+#[allow(dead_code)]
 fn axiom_percent_decode(value: String) -> Option<String> {
     fn hex(byte: u8) -> Option<u8> {
         match byte {
@@ -3323,6 +3340,20 @@ fn render_expr(expr: &Expr) -> String {
         }
         Expr::Call { name, args, .. } if name == "encoding_path_segment_encode" => {
             format!("axiom_percent_encode({})", render_expr(&args[0]))
+        }
+        Expr::Call { name, args, .. } if name == "encoding_url_query_pair_encode" => {
+            format!(
+                "axiom_query_pair_encode({}, {})",
+                render_expr(&args[0]),
+                render_expr(&args[1])
+            )
+        }
+        Expr::Call { name, args, .. } if name == "encoding_path_join_segment" => {
+            format!(
+                "axiom_path_join_segment({}, {})",
+                render_expr(&args[0]),
+                render_expr(&args[1])
+            )
         }
         Expr::Call { name, args, .. } if name == "fs_read" => {
             format!("axiom_fs_read({})", render_expr(&args[0]))
