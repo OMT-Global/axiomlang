@@ -234,6 +234,17 @@ pub struct PackageGraphLockfile {
     pub message: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct CapabilitySbomOutput { pub manifest: String, pub packages: Vec<CapabilitySbomPackage> }
+#[derive(Debug, Clone, Serialize)]
+pub struct CapabilitySbomPackage { pub root: String, pub manifest: String, pub name: Option<String>, pub version: Option<String>, pub workspace_only: bool, pub entrypoint: Option<String>, pub package_graph: CapabilitySbomPackageGraph, pub stdlib_imports: Vec<String>, pub intrinsic_use: Vec<CapabilitySbomIntrinsicUse>, pub capability_scopes: Vec<CapabilityDescriptor>, pub unsafe_grants: Vec<CapabilitySbomUnsafeGrant> }
+#[derive(Debug, Clone, Serialize)]
+pub struct CapabilitySbomPackageGraph { pub dependencies: Vec<PackageGraphDependency>, pub members: Vec<PackageGraphMember>, pub lockfile: PackageGraphLockfile }
+#[derive(Debug, Clone, Serialize, PartialEq, Eq, PartialOrd, Ord)]
+pub struct CapabilitySbomIntrinsicUse { pub intrinsic: String, pub capability: String, pub module: String, pub line: usize, pub column: usize }
+#[derive(Debug, Clone, Serialize)]
+pub struct CapabilitySbomUnsafeGrant { pub capability: String, pub kind: String, #[serde(skip_serializing_if = "Option::is_none")] pub rationale: Option<String> }
+
 #[derive(Debug, Clone, Default)]
 pub struct CheckOptions {
     pub package: Option<String>,
@@ -801,6 +812,35 @@ pub fn project_capabilities(project_root: &Path) -> Result<Vec<CapabilityDescrip
         }
     }
     Ok(capabilities)
+}
+
+pub fn capability_sbom(project_root: &Path) -> Result<CapabilitySbomOutput, Diagnostic> {
+    let project_root = canonicalize_existing_path(&normalize_path(project_root), "project root")?;
+    let graph = load_package_graph(&project_root)?;
+    let graph_output = package_graph_metadata(&project_root)?;
+    let mut packages = Vec::new();
+    for graph_package in graph_output.packages {
+        let root = PathBuf::from(&graph_package.root);
+        let context = graph.context(&root)?;
+        let mut stdlib_imports = BTreeSet::new();
+        let mut intrinsic_use = BTreeSet::new();
+        if !context.manifest.is_workspace_only() {
+            let entry = canonicalize_package_path(&entry_path(&root, &context.manifest), &root, "manifest", "build.entry resolves outside the package")?;
+            let modules = load_modules(&graph, &root, &entry)?;
+            for module in &modules {
+                collect_stdlib_imports(&module.program, &mut stdlib_imports);
+                collect_program_intrinsic_use(&module.path, &module.program, &mut intrinsic_use);
+            }
+        }
+        let unsafe_grants = graph_package.capabilities.iter().flat_map(|capability| {
+            let mut grants = Vec::new();
+            if capability.unsafe_unrestricted { grants.push(CapabilitySbomUnsafeGrant { capability: capability.name.clone(), kind: String::from("unsafe_unrestricted"), rationale: capability.rationale.clone() }); }
+            if capability.unsafe_opt_in { grants.push(CapabilitySbomUnsafeGrant { capability: capability.name.clone(), kind: String::from("unsafe_opt_in"), rationale: capability.rationale.clone() }); }
+            grants
+        }).collect();
+        packages.push(CapabilitySbomPackage { root: graph_package.root, manifest: graph_package.manifest, name: graph_package.name, version: graph_package.version, workspace_only: graph_package.workspace_only, entrypoint: graph_package.entrypoint, package_graph: CapabilitySbomPackageGraph { dependencies: graph_package.dependencies, members: graph_package.members, lockfile: graph_package.lockfile }, stdlib_imports: stdlib_imports.into_iter().collect(), intrinsic_use: intrinsic_use.into_iter().collect(), capability_scopes: graph_package.capabilities, unsafe_grants });
+    }
+    Ok(CapabilitySbomOutput { manifest: manifest_path(&project_root).display().to_string(), packages })
 }
 
 pub fn package_graph_metadata(project_root: &Path) -> Result<PackageGraphOutput, Diagnostic> {
@@ -2497,6 +2537,11 @@ fn package_section<'a>(
         Diagnostic::new("manifest", message).with_path(manifest_file.display().to_string())
     })
 }
+
+fn collect_stdlib_imports(program: &syntax::Program, imports: &mut BTreeSet<String>) { for import in &program.imports { if import.path == stdlib::STDLIB_IMPORT_PREFIX || import.path.strip_prefix(stdlib::STDLIB_IMPORT_PREFIX).is_some_and(|rest| rest.starts_with('/')) { imports.insert(import.path.clone()); } } }
+fn collect_program_intrinsic_use(module_path: &Path, program: &syntax::Program, uses: &mut BTreeSet<CapabilitySbomIntrinsicUse>) { for f in &program.functions { for stmt in &f.body { collect_stmt_intrinsic_use(module_path, stmt, uses); } } for stmt in &program.stmts { collect_stmt_intrinsic_use(module_path, stmt, uses); } }
+fn collect_stmt_intrinsic_use(module_path: &Path, stmt: &syntax::Stmt, uses: &mut BTreeSet<CapabilitySbomIntrinsicUse>) { match stmt { syntax::Stmt::Let{expr,..}|syntax::Stmt::Print{expr,..}|syntax::Stmt::Panic{expr,..}|syntax::Stmt::Defer{expr,..}|syntax::Stmt::Return{expr,..} => collect_expr_intrinsic_use(module_path, expr, uses), syntax::Stmt::If{cond,then_block,else_block,..} => { collect_expr_intrinsic_use(module_path, cond, uses); for s in then_block { collect_stmt_intrinsic_use(module_path, s, uses); } if let Some(b)=else_block { for s in b { collect_stmt_intrinsic_use(module_path, s, uses); } } }, syntax::Stmt::IfLet{expr,then_block,else_block,..} => { collect_expr_intrinsic_use(module_path, expr, uses); for s in then_block { collect_stmt_intrinsic_use(module_path, s, uses); } if let Some(b)=else_block { for s in b { collect_stmt_intrinsic_use(module_path, s, uses); } } }, syntax::Stmt::While{cond,body,..} => { collect_expr_intrinsic_use(module_path, cond, uses); for s in body { collect_stmt_intrinsic_use(module_path, s, uses); } }, syntax::Stmt::Match{expr,arms,..} => { collect_expr_intrinsic_use(module_path, expr, uses); for arm in arms { for s in &arm.body { collect_stmt_intrinsic_use(module_path, s, uses); } } } } }
+fn collect_expr_intrinsic_use(module_path: &Path, expr: &syntax::Expr, uses: &mut BTreeSet<CapabilitySbomIntrinsicUse>) { match expr { syntax::Expr::Literal(_) | syntax::Expr::VarRef{..} => {}, syntax::Expr::Call{name,args,line,column,..} => { if let Some(kind)=intrinsic_capability(name) { uses.insert(CapabilitySbomIntrinsicUse{ intrinsic: name.clone(), capability: kind.name().to_string(), module: module_path.display().to_string(), line:*line, column:*column }); } for a in args { collect_expr_intrinsic_use(module_path, a, uses); } }, syntax::Expr::MethodCall{base,args,..} => { collect_expr_intrinsic_use(module_path, base, uses); for a in args { collect_expr_intrinsic_use(module_path, a, uses); } }, syntax::Expr::BinaryAdd{lhs,rhs,..}|syntax::Expr::BinaryCompare{lhs,rhs,..} => { collect_expr_intrinsic_use(module_path, lhs, uses); collect_expr_intrinsic_use(module_path, rhs, uses); }, syntax::Expr::Cast{expr,..}|syntax::Expr::Try{expr,..}|syntax::Expr::Await{expr,..}|syntax::Expr::FieldAccess{base:expr,..}|syntax::Expr::TupleIndex{base:expr,..}|syntax::Expr::Closure{body:expr,..} => collect_expr_intrinsic_use(module_path, expr, uses), syntax::Expr::StructLiteral{fields,..} => { for f in fields { collect_expr_intrinsic_use(module_path, &f.expr, uses); } }, syntax::Expr::TupleLiteral{elements,..}|syntax::Expr::ArrayLiteral{elements,..} => { for e in elements { collect_expr_intrinsic_use(module_path, e, uses); } }, syntax::Expr::MapLiteral{entries,..} => { for e in entries { collect_expr_intrinsic_use(module_path, &e.key, uses); collect_expr_intrinsic_use(module_path, &e.value, uses); } }, syntax::Expr::Slice{base,start,end,..} => { collect_expr_intrinsic_use(module_path, base, uses); if let Some(s)=start { collect_expr_intrinsic_use(module_path, s, uses); } if let Some(e)=end { collect_expr_intrinsic_use(module_path, e, uses); } }, syntax::Expr::Index{base,index,..} => { collect_expr_intrinsic_use(module_path, base, uses); collect_expr_intrinsic_use(module_path, index, uses); } } }
 
 fn validate_module_capabilities(
     graph: &PackageGraph,

@@ -28,7 +28,7 @@ mod tests {
     use crate::new_project::{WorkloadTemplate, create_project, create_project_with_template};
     use crate::project::{
         BuildCacheStatus, BuildOptions, CheckOptions, RunOptions, TestOptions, build_project,
-        build_project_with_options, check_project, check_project_with_options,
+        build_project_with_options, capability_sbom, check_project, check_project_with_options,
         command_for_build_output, command_for_executable, list_project_tests_with_options,
         package_graph_metadata, project_capabilities, run_project_tests,
         run_project_tests_with_options, run_project_with_options,
@@ -2014,23 +2014,30 @@ let bad: u8 = byte.wrapping_add(1u16)
         .expect("write dependency lockfile");
         fs::write(
             project.join("axiom.toml"),
-            format!(
-                "{}\n[dependencies]\ncore = {{ path = \"deps/core\" }}\n",
-                render_manifest("deps-app")
-            ),
+            r#"[package]
+name = "caps-sbom-app"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+clock = true
+env_unrestricted = true
+"#,
         )
         .expect("write manifest");
         fs::write(
             project.join("src/main.ax"),
-            "import \"core/math.ax\"\nprint answer()\n",
+            r#"import "std/time.ax"
+
+fn main() {
+    let _now = clock_now_ms();
+}
+"#,
         )
-        .expect("write root source");
-        fs::write(
-            project.join("src/main_test.ax"),
-            "import \"core/math.ax\"\nprint answer()\n",
-        )
-        .expect("write root test");
-        fs::write(project.join("src/main_test.stdout"), "42\n").expect("write expected stdout");
+        .expect("write source");
         let manifest = load_manifest(&project).expect("load manifest");
         fs::write(
             project.join("axiom.lock"),
@@ -3074,6 +3081,67 @@ crypto = false
             payload["capabilities"][1]["package_root"],
             canonical_project
         );
+    }
+
+    #[test]
+    fn capability_sbom_includes_package_graph_and_capability_surfaces() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("caps-sbom");
+        create_project(&project, Some("caps-sbom-app")).expect("create project");
+        fs::write(
+            project.join("axiom.toml"),
+            r#"[package]
+name = "caps-sbom-app"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+clock = true
+env_unrestricted = true
+"#,
+        )
+        .expect("write manifest");
+        fs::write(
+            project.join("src/main.ax"),
+            r#"import "std/time.ax"
+
+fn main() {
+    let _now = clock_now_ms();
+}
+"#,
+        )
+        .expect("write source");
+        let manifest = load_manifest(&project).expect("load manifest");
+        fs::write(
+            project.join("axiom.lock"),
+            render_lockfile_for_project(&project, &manifest).expect("lockfile"),
+        )
+        .expect("write lockfile");
+
+        let sbom = capability_sbom(&project).expect("capability sbom");
+        assert_eq!(sbom.packages.len(), 1);
+        let package = &sbom.packages[0];
+        assert_eq!(package.name.as_deref(), Some("caps-sbom-app"));
+        assert_eq!(package.package_graph.lockfile.status, "current");
+        assert!(package
+            .stdlib_imports
+            .iter()
+            .any(|import| import == "std/time.ax"));
+        assert!(package
+            .intrinsic_use
+            .iter()
+            .any(|usage| usage.intrinsic == "clock_now_ms" && usage.capability == "clock"));
+        assert!(package
+            .capability_scopes
+            .iter()
+            .any(|capability| capability.name == "env" && capability.unsafe_unrestricted));
+        assert!(package
+            .unsafe_grants
+            .iter()
+            .any(|grant| grant.capability == "env" && grant.kind == "unsafe_unrestricted"));
     }
 
     #[test]

@@ -8,14 +8,14 @@ use axiomc::manifest::{entry_path, load_manifest};
 use axiomc::new_project::{WorkloadTemplate, create_project_with_template};
 use axiomc::project::{
     BuildOptions, BuildOutput, CheckOptions, RunOptions, TestOptions, build_project_with_options,
-    check_project_with_options, list_project_tests_with_options, package_graph_metadata,
+    check_project_with_options, list_project_tests_with_options, capability_sbom, package_graph_metadata,
     project_capabilities, run_project_tests_with_options, run_project_with_options,
 };
 use axiomc::registry::{
     PublishOptions, load_registry_index, publish_package, render_registry_index,
 };
 use axiomc::syntax::parse_program;
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
@@ -104,6 +104,8 @@ enum Command {
         path: Option<PathBuf>,
         #[arg(long)]
         json: bool,
+        #[arg(long, value_enum)]
+        format: Option<CapsFormat>,
         #[command(subcommand)]
         command: Option<CapsCommand>,
     },
@@ -184,6 +186,11 @@ enum Command {
     Lsp,
     /// Start the bounded axiom-debug Debug Adapter Protocol endpoint.
     Dap,
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum CapsFormat {
+    SbomJson,
 }
 
 #[derive(Debug, Subcommand)]
@@ -392,6 +399,7 @@ fn main() {
         Command::Caps {
             path,
             json,
+            format,
             command,
         } => match command {
             Some(CapsCommand::Diff { old, new }) => {
@@ -416,7 +424,19 @@ fn main() {
             }
             None => {
                 let project = path.unwrap_or_else(|| PathBuf::from("."));
-                match project_capabilities(&project) {
+                if matches!(format, Some(CapsFormat::SbomJson)) {
+                    match capability_sbom(&project) {
+                        Ok(sbom) => match json_contract::to_pretty_string(&sbom) {
+                            Ok(output) => {
+                                println!("{output}");
+                                0
+                            }
+                            Err(error) => print_error("caps", error, false),
+                        },
+                        Err(error) => print_error("caps", error, json),
+                    }
+                } else {
+                    match project_capabilities(&project) {
                     Ok(capabilities) => {
                         if json {
                             println!("{}", json_contract::caps_success(&project, &capabilities));
@@ -433,6 +453,7 @@ fn main() {
                         }
                     }
                     Err(error) => print_error("caps", error, json),
+                    }
                 }
             }
         },
