@@ -6834,26 +6834,43 @@ fn lower_expr_with_expected_inner(
                 "encoding_url_component_encode"
                     | "encoding_url_component_decode"
                     | "encoding_path_segment_encode"
+                    | "encoding_url_query_pair_encode"
+                    | "encoding_path_join_segment"
             ) {
-                if args.len() != 1 {
+                let expected_arity = if matches!(
+                    name.as_str(),
+                    "encoding_url_query_pair_encode" | "encoding_path_join_segment"
+                ) {
+                    2
+                } else {
+                    1
+                };
+                if args.len() != expected_arity {
                     return Err(Diagnostic::new(
                         "type",
-                        format!("{name} expects 1 argument, got {}", args.len()),
+                        format!(
+                            "{name} expects {expected_arity} argument(s), got {}",
+                            args.len()
+                        ),
                     )
                     .with_span(*line, *column));
                 }
-                let lowered = lower_expr_with_expected(&args[0], Some(&Type::String), env, ctx)?;
-                if lowered.ty() != &Type::String {
-                    return Err(Diagnostic::new(
-                        "type",
-                        format!("{name} expects a string argument, got {}", lowered.ty()),
-                    )
-                    .with_span(args[0].line(), args[0].column()));
+                let mut lowered_args = Vec::new();
+                for arg in args {
+                    let lowered = lower_expr_with_expected(arg, Some(&Type::String), env, ctx)?;
+                    if lowered.ty() != &Type::String {
+                        return Err(Diagnostic::new(
+                            "type",
+                            format!("{name} expects string arguments, got {}", lowered.ty()),
+                        )
+                        .with_span(arg.line(), arg.column()));
+                    }
+                    move_lowered_value(&lowered, env)?;
+                    lowered_args.push(lowered);
                 }
-                move_lowered_value(&lowered, env)?;
                 return Ok(Expr::Call {
                     name: name.clone(),
-                    args: vec![lowered],
+                    args: lowered_args,
                     ty: if name == "encoding_url_component_decode" {
                         Type::Option(Box::new(Type::String))
                     } else {
