@@ -65,6 +65,7 @@ pub struct ConstDecl {
     pub name: String,
     pub ty: TypeName,
     pub expr: Expr,
+    pub is_static: bool,
     pub visibility: Visibility,
     pub line: usize,
     pub column: usize,
@@ -526,7 +527,7 @@ pub fn parse_program_with_recovery(source: &str, path: &Path) -> Result<Program,
             || trimmed.starts_with("pub static ")
             || trimmed.starts_with("pub(pkg) static ")
         {
-            match parse_const_decl(trimmed, path, line_no) {
+            match parse_const_or_static_decl(trimmed, path, line_no) {
                 Ok(const_decl) => consts.push(const_decl),
                 Err(error) => diagnostics.push(error),
             }
@@ -1135,10 +1136,15 @@ fn parse_stmt_list(
             .with_path(path.display().to_string())
             .with_span(line_no, 1));
         }
-        if trimmed.starts_with("const ") || trimmed.starts_with("pub const ") {
+        if trimmed.starts_with("const ")
+            || trimmed.starts_with("pub const ")
+            || trimmed.starts_with("static ")
+            || trimmed.starts_with("pub static ")
+            || trimmed.starts_with("pub(pkg) static ")
+        {
             return Err(Diagnostic::new(
                 "parse",
-                "stage1 bootstrap only supports top-level const declarations",
+                "stage1 bootstrap only supports top-level const/static declarations",
             )
             .with_path(path.display().to_string())
             .with_span(line_no, 1));
@@ -1249,7 +1255,7 @@ fn parse_stmt(
     let message = if in_block {
         "stage1 bootstrap currently supports let, print, panic, defer, if/else, while, match, and return statements inside blocks"
     } else {
-        "stage1 bootstrap currently supports top-level import, const, type, struct, enum, fn, let, print, panic, defer, if/else, while, and match statements"
+        "stage1 bootstrap currently supports top-level import, const, static, type, struct, enum, fn, let, print, panic, defer, if/else, while, and match statements"
     };
     Err(Diagnostic::new("parse", message)
         .with_path(path.display().to_string())
@@ -1417,7 +1423,7 @@ fn parse_type_alias(
     })
 }
 
-fn parse_const_decl(trimmed: &str, path: &Path, line_no: usize) -> Result<ConstDecl, Diagnostic> {
+fn parse_const_or_static_decl(trimmed: &str, path: &Path, line_no: usize) -> Result<ConstDecl, Diagnostic> {
     let (visibility, rest, visibility_column) = parse_visibility_prefix(trimmed);
     let (keyword, header) = if let Some(rest) = rest.strip_prefix("const ") {
         ("const", rest)
@@ -1470,6 +1476,7 @@ fn parse_const_decl(trimmed: &str, path: &Path, line_no: usize) -> Result<ConstD
         name: name.to_string(),
         ty: parse_type_name(ty_text, path, line_no, column + colon + 2)?,
         expr: parse_expr(expr_text, path, line_no, column + equals + 2)?,
+        is_static: keyword == "static",
         visibility,
         line: line_no,
         column: 1,

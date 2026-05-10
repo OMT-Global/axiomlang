@@ -6,6 +6,7 @@ pub struct Program {
     pub path: String,
     pub structs: Vec<StructDef>,
     pub enums: Vec<EnumDef>,
+    pub statics: Vec<StaticDef>,
     pub functions: Vec<Function>,
     pub stmts: Vec<Stmt>,
 }
@@ -33,6 +34,13 @@ pub struct EnumVariantDef {
     pub name: String,
     pub payload_tys: Vec<Type>,
     pub payload_names: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct StaticDef {
+    pub name: String,
+    pub ty: Type,
+    pub expr: Expr,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -298,8 +306,17 @@ pub fn lower(program: &hir::Program) -> Program {
         path: program.path.clone(),
         structs: program.structs.iter().map(lower_struct).collect(),
         enums: program.enums.iter().map(lower_enum).collect(),
+        statics: program.statics.iter().map(lower_static).collect(),
         functions: program.functions.iter().map(lower_function).collect(),
         stmts: program.stmts.iter().map(lower_stmt).collect(),
+    }
+}
+
+fn lower_static(static_def: &hir::StaticDef) -> StaticDef {
+    StaticDef {
+        name: static_def.name.clone(),
+        ty: lower_type(&static_def.ty),
+        expr: lower_expr(&static_def.expr),
     }
 }
 

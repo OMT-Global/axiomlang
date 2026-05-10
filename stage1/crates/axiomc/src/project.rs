@@ -3071,7 +3071,7 @@ fn flatten_modules(
             &module.path,
         )?;
         for const_decl in &module.program.consts {
-            resolve_const_decl(
+            let resolved_expr = resolve_const_decl(
                 const_decl,
                 &visible_consts,
                 &visible_functions,
@@ -3083,7 +3083,16 @@ fn flatten_modules(
                 &module.path,
                 &mut HashSet::new(),
             )?;
-            flattened_consts.push(const_decl.clone());
+            if const_decl.is_static {
+                let mut rewritten = module_symbols
+                    .consts
+                    .get(&const_decl.name)
+                    .cloned()
+                    .unwrap_or_else(|| const_decl.clone());
+                rewritten.expr = resolved_expr;
+                rewritten.name = format!("{}_{}", module_symbols.module_id, const_decl.name);
+                flattened_consts.push(rewritten);
+            }
         }
 
         for type_alias in &module.program.type_aliases {
@@ -4901,9 +4910,10 @@ fn resolve_const_decl(
     module_path: &Path,
     resolving: &mut HashSet<String>,
 ) -> Result<syntax::Expr, Diagnostic> {
+    let kind = if const_decl.is_static { "static" } else { "const" };
     if !resolving.insert(const_decl.name.clone()) {
         return Err(
-            Diagnostic::new("type", format!("recursive const {:?}", const_decl.name))
+            Diagnostic::new("type", format!("recursive {kind} {:?}", const_decl.name))
                 .with_path(module_path.display().to_string())
                 .with_span(const_decl.line, const_decl.column),
         );
@@ -4925,7 +4935,7 @@ fn resolve_const_decl(
         Diagnostic::new(
             "type",
             format!(
-                "const {:?} requires a compile-time scalar expression",
+                "{kind} {:?} requires a compile-time scalar expression",
                 const_decl.name
             ),
         )
@@ -4935,7 +4945,7 @@ fn resolve_const_decl(
     let expected = const_type_name(&const_decl.ty).ok_or_else(|| {
         Diagnostic::new(
             "type",
-            format!("const {:?} must use int, bool, or string", const_decl.name),
+            format!("{kind} {:?} must use int, bool, or string", const_decl.name),
         )
         .with_path(module_path.display().to_string())
         .with_span(const_decl.line, const_decl.column)
@@ -4944,7 +4954,7 @@ fn resolve_const_decl(
         return Err(Diagnostic::new(
             "type",
             format!(
-                "const {:?} expects {}, got {}",
+                "{kind} {:?} expects {}, got {}",
                 const_decl.name,
                 const_type_label(&expected),
                 const_type_label(&actual)

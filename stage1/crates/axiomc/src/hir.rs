@@ -9,6 +9,7 @@ pub struct Program {
     pub path: String,
     pub structs: Vec<StructDef>,
     pub enums: Vec<EnumDef>,
+    pub statics: Vec<StaticDef>,
     pub functions: Vec<Function>,
     pub stmts: Vec<Stmt>,
 }
@@ -36,6 +37,13 @@ pub struct EnumVariantDef {
     pub name: String,
     pub payload_tys: Vec<Type>,
     pub payload_names: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct StaticDef {
+    pub name: String,
+    pub ty: Type,
+    pub expr: Expr,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -604,6 +612,14 @@ fn lower_with_capabilities_impl(
         current_return: None,
         current_borrow_return_params: HashSet::new(),
     };
+    let statics = match lower_static_decls(&program.consts, &structs, &enums, &aliases, &ctx) {
+        Ok(statics) => statics,
+        Err(error) if recover => {
+            append_diagnostic(&mut diagnostics, error);
+            Vec::new()
+        }
+        Err(error) => return Err(single_diagnostic(error)),
+    };
     let mut env = HashMap::new();
     let stmts = if recover {
         let (stmts, mut block_diagnostics, _) =
@@ -623,6 +639,7 @@ fn lower_with_capabilities_impl(
         path: program.path.clone(),
         structs: lowered_structs,
         enums: lowered_enums,
+        statics,
         functions: lowered_functions,
         stmts,
     })
@@ -2084,6 +2101,7 @@ fn monomorphize_aggregates(program: syntax::Program) -> Result<syntax::Program, 
                     &mut queue,
                     &mut queued,
                 )?,
+                is_static: constant.is_static,
                 visibility: constant.visibility,
                 line: constant.line,
                 column: constant.column,
@@ -4796,6 +4814,60 @@ fn collect_method_signatures(
         }
     }
     Ok(methods)
+}
+
+fn lower_static_decls(
+    consts: &[syntax::ConstDecl],
+    structs: &HashMap<String, StructDef>,
+    enums: &HashMap<String, EnumDef>,
+    aliases: &HashMap<String, syntax::TypeAliasDecl>,
+    ctx: &LowerContext<'_>,
+) -> Result<Vec<StaticDef>, Diagnostic> {
+    let mut lowered = Vec::new();
+    for decl in consts.iter().filter(|decl| decl.is_static) {
+        let ty = lower_type(&decl.ty, structs, enums, aliases, ctx.consts, decl.line, decl.column)?;
+        let mut env = HashMap::new();
+        let mut expr = lower_expr_with_expected(&decl.expr, Some(&ty), &mut env, ctx)?;
+        if expr.ty() != &ty {
+            return Err(Diagnostic::new(
+                "type",
+                format!("static {:?} expects {}, got {}", decl.name, ty, expr.ty()),
+            )
+            .with_span(decl.line, decl.column));
+        }
+        if matches!(ty, Type::Bool) {
+            if let Some(value) = static_bool_value(&expr) {
+                expr = Expr::Literal {
+                    ty: Type::Bool,
+                    value: LiteralValue::Bool(value),
+                };
+            }
+        }
+        if matches!(ty, Type::String)
+            && !matches!(
+                expr,
+                Expr::Literal {
+                    value: LiteralValue::String(_),
+                    ..
+                }
+            )
+        {
+            return Err(Diagnostic::new(
+                "type",
+                format!(
+                    "static {:?} string initializers must be string literals in stage1",
+                    decl.name
+                ),
+            )
+            .with_span(decl.line, decl.column));
+        }
+        lowered.push(StaticDef {
+            name: decl.name.clone(),
+            ty,
+            expr,
+        });
+    }
+    Ok(lowered)
 }
 
 fn lower_function(
