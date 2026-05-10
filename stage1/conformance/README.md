@@ -50,6 +50,8 @@ Current executable fixtures cover:
 - `parser_type_slice`: migrated parser/type coverage for type aliases,
   borrowed slices, enum payload patterns, typed aggregate literals, and
   return-type checking through parsed control flow.
+- `runtime_negative_diagnostics`: executable negative runtime coverage for
+  structured `panic(...)` diagnostics and array bounds runtime diagnostics.
 
 Packages under `fail/` are compile-fail fixtures. Each package is a complete
 stage1 project with `axiom.toml`, `axiom.lock`, source, and
