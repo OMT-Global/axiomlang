@@ -52,9 +52,13 @@ mod tests {
         clock: bool,
         crypto: bool,
     ) -> String {
-        format!(
+        let mut manifest = format!(
             "[package]\nname = {name:?}\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = {fs}\n\"fs:write\" = {fs}\nnet = {net}\nprocess = {process}\nenv = {env}\nclock = {clock}\ncrypto = {crypto}\nasync = false\n"
-        )
+        );
+        if env {
+            manifest.push_str("unsafe_rationale = \"test fixture uses legacy unrestricted env\"\n");
+        }
+        manifest
     }
 
     fn write_process_fixture(dir: &Path) -> String {
@@ -2484,6 +2488,7 @@ let bad: u8 = byte.wrapping_add(1u16)
         .expect("write root lockfile");
 
         let graph = package_graph_metadata(&project).expect("load package graph metadata");
+        assert_eq!(graph.schema_version, json_contract::JSON_SCHEMA_VERSION);
         assert_eq!(graph.packages.len(), 3);
         let root = graph
             .packages
@@ -2804,6 +2809,80 @@ crypto = false
     }
 
     #[test]
+    fn publish_manifest_contract_validates_registry_metadata() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("publish-contract");
+        create_project(&project, Some("publish-contract-app")).expect("create project");
+        fs::write(
+            project.join("axiom.toml"),
+            format!(
+                "{}\n[publish]\nregistry = \"https://registry.example.test/index\"\nchecksum = \"sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\"\ninclude = [\"src\", \"axiom.toml\"]\n",
+                render_manifest("publish-contract-app")
+            ),
+        )
+        .expect("write publish manifest");
+
+        let manifest = load_manifest(&project).expect("load publish manifest");
+        let publish = manifest.publish.expect("publish section");
+        assert_eq!(
+            publish.registry.as_str(),
+            "https://registry.example.test/index"
+        );
+        assert_eq!(publish.include, vec!["src", "axiom.toml"]);
+
+        fs::write(
+            project.join("axiom.toml"),
+            format!(
+                "{}\n[publish]\nregistry = \"http://registry.example.test/index\"\nchecksum = \"sha256:not-a-real-checksum\"\n",
+                render_manifest("publish-contract-app")
+            ),
+        )
+        .expect("write invalid publish manifest");
+        let error = load_manifest(&project).expect_err("invalid registry should fail");
+        assert_eq!(error.kind, "manifest");
+        assert!(error.message.contains("publish.registry"));
+    }
+
+    #[test]
+    fn publish_manifest_rejects_malformed_registry_sources() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("publish-registry-invalid");
+        create_project(&project, Some("publish-registry-invalid-app")).expect("create project");
+
+        for registry in [
+            "https://",
+            "https://not a host",
+            "https://user@registry.example.test/index",
+            "https://registry.example.test?mirror=1",
+            "https://registry.example.test#fragment",
+            "https://registry.example.test/index?mirror=1",
+            "https://registry.example.test/index#fragment",
+            "https://registry.example.test:bad-port/index",
+            "https://registry.example.test:65536/index",
+            "https://registry.example.test:99999/index",
+            "https://[::1]:99999/index",
+            "https://exa[mple.test/index",
+            "file:",
+            "file://",
+            "file://hosted/path",
+            "file:relative/path",
+        ] {
+            fs::write(
+                project.join("axiom.toml"),
+                format!(
+                    "{}\n[publish]\nregistry = \"{registry}\"\n",
+                    render_manifest("publish-registry-invalid-app")
+                ),
+            )
+            .expect("write invalid publish manifest");
+
+            let error = load_manifest(&project).expect_err("malformed registry should fail");
+            assert_eq!(error.kind, "manifest");
+            assert!(error.message.contains("publish.registry"));
+        }
+    }
+
+    #[test]
     fn dependency_package_must_enable_its_own_capabilities() {
         let dir = tempdir().expect("tempdir");
         let project = dir.path().join("dep-cap-root");
@@ -3083,7 +3162,7 @@ crypto = false
         create_project(&project, Some("caps-env-unrestricted-app")).expect("create project");
         fs::write(
             project.join("axiom.toml"),
-            "[package]\nname = \"caps-env-unrestricted-app\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nenv_unrestricted = true\n",
+            "[package]\nname = \"caps-env-unrestricted-app\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nenv_unrestricted = true\nunsafe_rationale = \"test fixture intentionally exercises unrestricted env reporting\"\n",
         )
         .expect("write manifest");
 
@@ -3104,9 +3183,79 @@ crypto = false
             .expect("capabilities array")
             .iter()
             .find(|cap| cap["name"] == "env")
-            .expect("env capability payload");
+            .expect("env capability JSON");
         assert!(env_payload["allowed"].is_null());
         assert_eq!(env_payload["unsafe_unrestricted"], true);
+    }
+
+    #[test]
+    fn unrestricted_env_requires_unsafe_rationale() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("caps-env-unrestricted");
+        create_project(&project, Some("caps-env-unrestricted-app")).expect("create project");
+        fs::write(
+            project.join("axiom.toml"),
+            "[package]\nname = \"caps-env-unrestricted-app\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nenv_unrestricted = true\n",
+        )
+        .expect("write manifest");
+
+        let error = load_manifest(&project).expect_err("unsafe rationale should be required");
+        assert_eq!(error.kind, "manifest");
+        assert!(
+            error
+                .message
+                .contains("capabilities.unsafe_rationale is required")
+        );
+    }
+
+    #[test]
+    fn explicit_unrestricted_env_requires_rationale_with_legacy_env_bool() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("caps-env-explicit-and-legacy");
+        create_project(&project, Some("caps-env-explicit-and-legacy-app")).expect("create project");
+        fs::write(
+            project.join("axiom.toml"),
+            "[package]\nname = \"caps-env-explicit-and-legacy-app\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nenv = true\nenv_unrestricted = true\n",
+        )
+        .expect("write manifest");
+
+        let error = load_manifest(&project)
+            .expect_err("explicit env_unrestricted should require unsafe rationale");
+        assert_eq!(error.kind, "manifest");
+        assert!(
+            error
+                .message
+                .contains("capabilities.unsafe_rationale is required")
+        );
+    }
+
+    #[test]
+    fn unrestricted_env_rationale_is_reported_in_caps() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("caps-env-rationale");
+        create_project(&project, Some("caps-env-rationale-app")).expect("create project");
+        fs::write(
+            project.join("axiom.toml"),
+            "[package]\nname = \"caps-env-rationale-app\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nenv_unrestricted = true\nunsafe_rationale = \"migration reads audited CI variables\"\n",
+        )
+        .expect("write manifest");
+
+        let manifest = load_manifest(&project).expect("load manifest");
+        assert_eq!(
+            manifest.capabilities.unsafe_rationale.as_deref(),
+            Some("migration reads audited CI variables")
+        );
+        let caps = project_capabilities(&project).expect("project capabilities");
+        let env = caps
+            .iter()
+            .find(|cap| cap.name == "env")
+            .expect("env capability");
+        assert!(env.enabled);
+        assert!(env.unsafe_unrestricted);
+        assert_eq!(
+            env.unsafe_rationale.as_deref(),
+            Some("migration reads audited CI variables")
+        );
     }
 
     #[test]
@@ -6377,8 +6526,8 @@ print serve_health("127.0.0.1:18080", 1, started)
     fn conformance_corpus_reports_stable_results() {
         let output =
             run_project_tests(&conformance_fixture()).expect("run stage1 conformance corpus");
-        assert_eq!(output.cases.len(), 60);
-        assert_eq!(output.passed, 60);
+        assert_eq!(output.cases.len(), 63);
+        assert_eq!(output.passed, 63);
         let failures: Vec<_> = output
             .cases
             .iter()
@@ -6400,7 +6549,15 @@ print serve_health("127.0.0.1:18080", 1, started)
                 .iter()
                 .filter(|case| case.expected_stdout.is_some())
                 .count(),
-            17
+            18
+        );
+        assert_eq!(
+            output
+                .cases
+                .iter()
+                .filter(|case| case.expected_stderr.is_some())
+                .count(),
+            2
         );
     }
 

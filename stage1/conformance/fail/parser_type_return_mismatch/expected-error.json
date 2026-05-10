@@ -1,0 +1,8 @@
+{
+  "kind": "type",
+  "code": null,
+  "message": "return expects int, got string",
+  "path": "src/main.ax",
+  "line": 3,
+  "column": 1
+}

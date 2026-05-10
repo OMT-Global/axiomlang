@@ -103,6 +103,8 @@ pub struct CapabilityConfig {
     pub env: bool,
     pub env_vars: Vec<String>,
     pub env_unrestricted: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub unsafe_rationale: Option<String>,
     #[serde(skip_serializing)]
     pub env_legacy_unrestricted: bool,
     pub clock: bool,
@@ -149,6 +151,8 @@ pub struct CapabilityDescriptor {
     #[serde(skip_serializing_if = "is_false")]
     pub unsafe_opt_in: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub unsafe_rationale: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub owner: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rationale: Option<String>,
@@ -164,14 +168,6 @@ struct RawManifest {
     capabilities: Option<RawCapabilityConfig>,
     registry: Option<toml::Value>,
     publish: Option<RawPublishSection>,
-}
-
-#[derive(Debug, Deserialize)]
-struct RawPublishSection {
-    registry: Option<String>,
-    checksum: Option<String>,
-    include: Option<Vec<String>>,
-    exclude: Option<Vec<String>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -223,6 +219,14 @@ struct RawTestTarget {
 }
 
 #[derive(Debug, Default, Deserialize)]
+struct RawPublishSection {
+    registry: Option<String>,
+    checksum: Option<String>,
+    include: Option<Vec<String>>,
+    exclude: Option<Vec<String>>,
+}
+
+#[derive(Debug, Default, Deserialize)]
 struct RawCapabilityConfig {
     fs: Option<bool>,
     #[serde(rename = "fs:write")]
@@ -232,6 +236,7 @@ struct RawCapabilityConfig {
     process: Option<bool>,
     env: Option<RawEnvCapability>,
     env_unrestricted: Option<bool>,
+    unsafe_rationale: Option<String>,
     clock: Option<bool>,
     crypto: Option<bool>,
     ffi: Option<bool>,
@@ -333,6 +338,9 @@ pub fn capability_descriptors(config: &CapabilityConfig) -> Vec<CapabilityDescri
             package_root: None,
             unsafe_unrestricted: *kind == CapabilityKind::Env && config.env_unrestricted,
             unsafe_opt_in: config.unsafe_opt_ins.iter().any(|name| name == kind.name()),
+            unsafe_rationale: (*kind == CapabilityKind::Env && config.env_unrestricted)
+                .then(|| config.unsafe_rationale.clone())
+                .flatten(),
             owner: config.owners.get(kind.name()).cloned(),
             rationale: config.rationale.get(kind.name()).cloned(),
         })
@@ -443,10 +451,13 @@ fn normalize_manifest(raw: RawManifest, path: &Path) -> Result<Manifest, Diagnos
     let capabilities = raw.capabilities.unwrap_or_default();
     let fs_root =
         normalize_optional_relative_path(path, "capabilities.fs_root", capabilities.fs_root)?;
-    let (env, env_vars, env_unrestricted, env_legacy_unrestricted) = normalize_env_capability(
+    let explicit_env_unrestricted = capabilities.env_unrestricted.unwrap_or(false);
+    let (env, env_vars, env_unrestricted, env_legacy_unrestricted) =
+        normalize_env_capability(path, capabilities.env, explicit_env_unrestricted)?;
+    let unsafe_rationale = normalize_unsafe_rationale(
         path,
-        capabilities.env,
-        capabilities.env_unrestricted.unwrap_or(false),
+        capabilities.unsafe_rationale,
+        explicit_env_unrestricted,
     )?;
     let unsafe_opt_ins = normalize_capability_name_list(
         path,
@@ -479,6 +490,7 @@ fn normalize_manifest(raw: RawManifest, path: &Path) -> Result<Manifest, Diagnos
             env,
             env_vars,
             env_unrestricted,
+            unsafe_rationale,
             env_legacy_unrestricted,
             clock: capabilities.clock.unwrap_or(false),
             crypto: capabilities.crypto.unwrap_or(false),
@@ -535,12 +547,12 @@ fn normalize_publish(
 }
 
 fn validate_registry_source(path: &Path, field_name: &str, value: &str) -> Result<(), Diagnostic> {
-    if value.starts_with("https://") || value.starts_with("file:") {
+    if is_valid_registry_url(value) {
         return Ok(());
     }
     Err(Diagnostic::new(
         "manifest",
-        format!("{field_name} must be an https:// URL or file: registry source"),
+        format!("{field_name} must be a valid https:// or file:// registry source"),
     )
     .with_path(path.display().to_string()))
 }
@@ -670,6 +682,26 @@ fn normalize_env_capability(
             Ok((true, vars, env_unrestricted, false))
         }
         None => Ok((env_unrestricted, Vec::new(), env_unrestricted, false)),
+    }
+}
+
+fn normalize_unsafe_rationale(
+    path: &Path,
+    rationale: Option<String>,
+    env_unrestricted: bool,
+) -> Result<Option<String>, Diagnostic> {
+    let rationale = rationale.map(|value| value.trim().to_string());
+    if env_unrestricted {
+        match rationale {
+            Some(value) if !value.is_empty() => Ok(Some(value)),
+            _ => Err(Diagnostic::new(
+                "manifest",
+                "capabilities.unsafe_rationale is required when unrestricted environment access is enabled",
+            )
+            .with_path(path.display().to_string())),
+        }
+    } else {
+        Ok(rationale.filter(|value| !value.is_empty()))
     }
 }
 
@@ -977,6 +1009,104 @@ fn normalize_test_kind(
     }
 }
 
+fn is_valid_registry_url(registry: &str) -> bool {
+    if let Some(rest) = registry.strip_prefix("https://") {
+        return is_valid_https_registry_url(rest);
+    }
+    if let Some(path) = registry.strip_prefix("file://") {
+        return is_valid_file_registry_url(path);
+    }
+    false
+}
+
+fn is_valid_https_registry_url(rest: &str) -> bool {
+    let authority_end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
+    let authority = &rest[..authority_end];
+    let suffix = &rest[authority_end..];
+
+    if authority.is_empty()
+        || authority.contains('@')
+        || suffix.contains('?')
+        || suffix.contains('#')
+    {
+        return false;
+    }
+
+    let (host, port) = split_registry_authority(authority);
+    let Some(host) = host else {
+        return false;
+    };
+    if let Some(port) = port {
+        if port.is_empty() || port.parse::<u16>().is_err() {
+            return false;
+        }
+    }
+
+    if host.starts_with('[') || host.ends_with(']') {
+        return is_valid_ipv6_authority_host(host);
+    }
+    if host.parse::<std::net::Ipv4Addr>().is_ok() {
+        return true;
+    }
+    is_valid_registry_host(host)
+}
+
+fn split_registry_authority(authority: &str) -> (Option<&str>, Option<&str>) {
+    if authority.starts_with('[') {
+        let Some(close) = authority.find(']') else {
+            return (None, None);
+        };
+        let host = &authority[..=close];
+        let rest = &authority[close + 1..];
+        if rest.is_empty() {
+            return (Some(host), None);
+        }
+        if let Some(port) = rest.strip_prefix(':') {
+            return (Some(host), Some(port));
+        }
+        return (None, None);
+    }
+
+    match authority.rsplit_once(':') {
+        Some((host, port)) if !host.contains(':') => (Some(host), Some(port)),
+        Some(_) => (None, None),
+        None => (Some(authority), None),
+    }
+}
+
+fn is_valid_ipv6_authority_host(host: &str) -> bool {
+    let Some(inner) = host
+        .strip_prefix('[')
+        .and_then(|value| value.strip_suffix(']'))
+    else {
+        return false;
+    };
+    inner.parse::<std::net::Ipv6Addr>().is_ok()
+}
+
+fn is_valid_file_registry_url(path: &str) -> bool {
+    path.starts_with('/')
+        && path != "/"
+        && !path.contains('?')
+        && !path.contains('#')
+        && Path::new(path).is_absolute()
+}
+
+fn is_valid_registry_host(host: &str) -> bool {
+    if host.is_empty() || host.len() > 253 || host.starts_with('.') || host.ends_with('.') {
+        return false;
+    }
+    host.split('.').all(|label| {
+        !label.is_empty()
+            && label.len() <= 63
+            && !label.starts_with('-')
+            && !label.ends_with('-')
+            && label
+                .chars()
+                .all(|ch| ch.is_ascii_alphanumeric() || ch == '-')
+    })
+}
+
 fn normalize_optional_relative_path(
     path: &Path,
     field_name: &str,
@@ -1070,6 +1200,37 @@ checksum = "sha256:not-a-digest"
         );
         let error = load_manifest(dir.path()).expect_err("checksum should be rejected");
         assert!(error.message.contains("publish.checksum must use sha256"));
+    }
+
+    #[test]
+    fn rejects_malformed_publish_registry_sources() {
+        for registry in [
+            "https://registry.example.test?mirror=1",
+            "https://registry.example.test#fragment",
+            "https://registry.example.test/index?mirror=1",
+            "https://registry.example.test/index#fragment",
+        ] {
+            let manifest_text = format!(
+                r#"
+[package]
+name = "demo"
+version = "0.1.0"
+
+[publish]
+registry = "{registry}"
+checksum = "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+"#
+            );
+            let dir = write_manifest(&manifest_text);
+            let error = load_manifest(dir.path()).unwrap_err();
+            assert!(
+                error.message.contains(
+                    "publish.registry must be a valid https:// or file:// registry source"
+                ),
+                "unexpected error for {registry}: {}",
+                error.message
+            );
+        }
     }
 
     #[test]

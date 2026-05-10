@@ -2,34 +2,39 @@
   "schema_version": "axiom.stage1.v1",
   "ok": false,
   "command": "test",
-  "project": "stage1/examples/modules",
-  "manifest": "/workspace/axiom/stage1/examples/modules/axiom.toml",
-  "packages": [
-    "/workspace/axiom/stage1/examples/modules"
-  ],
+  "project": "<project>",
+  "manifest": "<project>/axiom.toml",
+  "packages": ["<project>"],
   "filter": null,
   "passed": 0,
   "failed": 1,
   "skipped": 0,
-  "duration_ms": 215,
+  "kinds": {"unit": 1},
+  "duration_ms": 9,
   "cases": [
     {
-      "package_root": "/workspace/axiom/stage1/examples/modules",
-      "name": "src/math_test",
-      "entry": "src/math_test.ax",
-      "ok": false,
-      "binary": "/workspace/axiom/stage1/examples/modules/dist/tests/modules-stage1-src-math-test",
-      "generated_rust": "/workspace/axiom/stage1/examples/modules/dist/tests/modules-stage1-src-math-test.generated.rs",
-      "exit_code": 0,
-      "stdout": "42\n",
-      "stderr": "",
-      "expected_stdout": "41\n",
-      "duration_ms": 210,
+      "binary": "<project>/dist/tests/contract-app-src-main-test",
+      "duration_ms": 9,
+      "entry": "src/main_test.ax",
       "error": {
         "kind": "test",
-        "message": "stdout mismatch for src/math_test",
-        "path": "/workspace/axiom/stage1/examples/modules/src/math_test.stdout"
-      }
+        "code": "test.failed",
+        "message": "test exited with status 1",
+        "path": "src/main_test.ax",
+        "line": null,
+        "column": null,
+        "related": []
+      },
+      "exit_code": 1,
+      "expected_stdout": "ok\\n",
+      "expected_stderr": null,
+      "generated_rust": "<project>/dist/tests/contract-app-src-main-test.generated.rs",
+      "kind": "unit",
+      "name": "src/main_test",
+      "ok": false,
+      "package_root": "<project>",
+      "stderr": "assertion failed\\n",
+      "stdout": ""
     }
   ]
 }

@@ -1,0 +1,25 @@
+[package]
+name = "conformance-runtime-negative-diagnostics"
+version = "0.1.0"
+
+[build]
+entry = "src/panic_test.ax"
+out_dir = "dist"
+
+[capabilities]
+fs = false
+net = false
+process = false
+env = false
+clock = false
+crypto = false
+
+[[tests]]
+name = "panic_runtime_diagnostic"
+entry = "src/panic_test.ax"
+stderr = "{\"kind\":\"panic\",\"message\":\"conformance panic\"}\n"
+
+[[tests]]
+name = "array_bounds_runtime_diagnostic"
+entry = "src/array_bounds_test.ax"
+stderr = "{\"kind\":\"runtime\",\"message\":\"array index out of bounds\"}\n"
