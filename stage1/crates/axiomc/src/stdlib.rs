@@ -69,8 +69,7 @@
 //!   layered over the bootstrap test intrinsics.
 //! * `std/outcome.ax` — generic `Option<T>` / `Result<T, E>` predicates and
 //!   fallback unwrap helpers implemented in Axiom.
-//! * `std/encoding.ax` — URL component and path segment percent-encoding
-//!   helpers.
+//! * `std/encoding.ax` — URL query and path percent-encoding helpers.
 
 use std::path::{Path, PathBuf};
 
@@ -307,6 +306,12 @@ return encoding_url_component_decode(value)
 }
 pub fn path_segment_encode(value: string): string {
 return encoding_path_segment_encode(value)
+}
+pub fn query_pair_encode(name: string, value: string): string {
+return encoding_url_query_pair_encode(name, value)
+}
+pub fn path_join_segment(base: string, segment: string): string {
+return encoding_path_join_segment(base, segment)
 }
 ",
     ),
