@@ -1,0 +1,31 @@
+import "std/json.ax"
+
+let item: JsonValue = value_object2(field_string("id", "worker"), field_int("attempts", 2))
+let tags: JsonValue = array2(value_string("cli"), value_string("worker"))
+let payload: JsonValue = value_object3(field_value("item", item), field_value("tags", tags), field_bool("ready", true))
+print stringify_value(payload)
+
+match parse_value("{\"item\":{\"id\":\"worker\",\"attempts\":2},\"tags\":[\"cli\",\"worker\"],\"ready\":true}") {
+Some(parsed) {
+print stringify_value(parsed)
+}
+None {
+print "invalid"
+}
+}
+
+match parse_value("{\"item\":{\"id\":\"worker\",\"attempts\":2},\"tags\":[\"cli\",\"worker\"],\"ready\":true}") {
+Some(parsed) {
+match parse_field_value(parsed, "item") {
+Some(nested) {
+print stringify_value(nested)
+}
+None {
+print "missing"
+}
+}
+}
+None {
+print "invalid"
+}
+}

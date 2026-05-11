@@ -1,0 +1,6 @@
+version = 1
+
+[[package]]
+name = "stdlib-json-value"
+version = "0.1.0"
+source = "path"

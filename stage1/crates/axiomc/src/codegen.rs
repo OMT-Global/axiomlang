@@ -551,6 +551,12 @@ fn axiom_async_timeout<T: Send + 'static>(task: AxiomTask<T>, timeout_ms: i64) -
     out.push_str("    axiom_json_parse_int(axiom_json_object_field(text, key)?)\n");
     out.push_str("}\n\n");
     out.push_str("#[allow(dead_code)]\n");
+    out.push_str("fn axiom_json_parse_value(text: String) -> Option<String> {\n");
+    out.push_str("    let text = text.trim();\n");
+    out.push_str("    let end = axiom_json_scan_value_end(text, 0)?;\n");
+    out.push_str("    if axiom_json_skip_ws(text, end) == text.len() { Some(text.to_string()) } else { None }\n");
+    out.push_str("}\n\n");
+    out.push_str("#[allow(dead_code)]\n");
     out.push_str("fn axiom_json_parse_field_bool(text: String, key: String) -> Option<bool> {\n");
     out.push_str("    axiom_json_parse_bool(axiom_json_object_field(text, key)?)\n");
     out.push_str("}\n\n");
@@ -559,6 +565,12 @@ fn axiom_async_timeout<T: Send + 'static>(task: AxiomTask<T>, timeout_ms: i64) -
         "fn axiom_json_parse_field_string(text: String, key: String) -> Option<String> {\n",
     );
     out.push_str("    axiom_json_parse_string(axiom_json_object_field(text, key)?)\n");
+    out.push_str("}\n\n");
+    out.push_str("#[allow(dead_code)]\n");
+    out.push_str(
+        "fn axiom_json_parse_field_value(text: String, key: String) -> Option<String> {\n",
+    );
+    out.push_str("    axiom_json_parse_value(axiom_json_object_field(text, key)?)\n");
     out.push_str("}\n\n");
     out.push_str("#[allow(dead_code)]\n");
     out.push_str("fn axiom_json_escape_string(value: &str) -> String {\n");
@@ -590,6 +602,10 @@ fn axiom_async_timeout<T: Send + 'static>(task: AxiomTask<T>, timeout_ms: i64) -
     out.push_str("#[allow(dead_code)]\n");
     out.push_str("fn axiom_json_stringify_string(value: String) -> String {\n");
     out.push_str("    axiom_json_escape_string(&value)\n");
+    out.push_str("}\n\n");
+    out.push_str("#[allow(dead_code)]\n");
+    out.push_str("fn axiom_json_stringify_value(value: String) -> String {\n");
+    out.push_str("    axiom_json_parse_value(value.clone()).unwrap_or(value)\n");
     out.push_str("}\n\n");
     out.push_str(r#"#[derive(Clone, Debug, PartialEq, Eq)]
 enum AxiomRegexAtom {
@@ -3334,8 +3350,21 @@ fn render_expr(expr: &Expr) -> String {
         Expr::Call { name, args, .. } if name == "json_stringify_bool" => {
             format!("axiom_json_stringify_bool({})", render_expr(&args[0]))
         }
+        Expr::Call { name, args, .. } if name == "json_parse_value" => {
+            format!("axiom_json_parse_value({})", render_expr(&args[0]))
+        }
+        Expr::Call { name, args, .. } if name == "json_parse_field_value" => {
+            format!(
+                "axiom_json_parse_field_value({}, {})",
+                render_expr(&args[0]),
+                render_expr(&args[1])
+            )
+        }
         Expr::Call { name, args, .. } if name == "json_stringify_string" => {
             format!("axiom_json_stringify_string({})", render_expr(&args[0]))
+        }
+        Expr::Call { name, args, .. } if name == "json_stringify_value" => {
+            format!("axiom_json_stringify_value({})", render_expr(&args[0]))
         }
         Expr::Call { name, .. } if name == "cli_args" => String::from("axiom_cli_args()"),
         Expr::Call { name, .. } if name == "cli_arg_count" => String::from("axiom_cli_arg_count()"),
