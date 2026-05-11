@@ -41,6 +41,7 @@ members = [
   "fail/shared_borrow_while_mutable_live",
   "fail/slice_type_alias_cycle",
   "fail/stdlib_clock_without_capability",
+  "fail/stdlib_fs_write_without_capability",
   "fail/string_borrow_local_return",
   "fail/string_use_after_move",
   "pass/closures",
