@@ -48,8 +48,9 @@
 //!
 //! * `std/io.ax` — `eprintln(text)` on top of the new ungated `io_eprintln`
 //!   intrinsic (writes a line to stderr and returns bytes written).
-//! * `std/json.ax` — scalar/string JSON parsing and serialization helpers on
-//!   top of new ungated `json_parse_*` / `json_stringify_*` intrinsics.
+//! * `std/json.ax` — scalar/string JSON parsing plus first-class `JsonValue`
+//!   parsing, composition, nested field lookup, and serialization helpers on
+//!   top of ungated `json_parse_*` / `json_stringify_*` intrinsics.
 //! * `std/collections.ax` — generic borrowed-slice helpers built on the
 //!   existing polymorphic collection primitives and AG2 generic functions.
 //! * `std/string_builder.ax` — an owned string accumulator implemented with
@@ -170,18 +171,26 @@ pub fn constant_time_eq(left: string, right: string): bool {\nreturn crypto_cons
     ),
     (
         "json.ax",
-        "pub fn parse_int(text: string): Option<int> {\nreturn json_parse_int(text)\n}\n\
+        "pub struct JsonValue {\nsource: string\n}\n\
+pub fn parse_value(text: string): Option<JsonValue> {\nmatch json_parse_value(text) {\nSome(source) {\nreturn Some(JsonValue { source: source })\n}\nNone {\nreturn None\n}\n}\n}\n\
+pub fn stringify_value(value: JsonValue): string {\nreturn json_stringify_value(value.source)\n}\n\
+pub fn parse_int(text: string): Option<int> {\nreturn json_parse_int(text)\n}\n\
 pub fn parse_bool(text: string): Option<bool> {\nreturn json_parse_bool(text)\n}\n\
 pub fn parse_string(text: string): Option<string> {\nreturn json_parse_string(text)\n}\n\
 pub fn parse_field_int(text: string, key: string): Option<int> {\nreturn json_parse_field_int(text, key)\n}\n\
 pub fn parse_field_bool(text: string, key: string): Option<bool> {\nreturn json_parse_field_bool(text, key)\n}\n\
 pub fn parse_field_string(text: string, key: string): Option<string> {\nreturn json_parse_field_string(text, key)\n}\n\
+pub fn parse_field_value(value: JsonValue, key: string): Option<JsonValue> {\nmatch json_parse_field_value(value.source, key) {\nSome(source) {\nreturn Some(JsonValue { source: source })\n}\nNone {\nreturn None\n}\n}\n}\n\
 pub fn stringify_int(value: int): string {\nreturn json_stringify_int(value)\n}\n\
 pub fn stringify_bool(value: bool): string {\nreturn json_stringify_bool(value)\n}\n\
 pub fn stringify_string(value: string): string {\nreturn json_stringify_string(value)\n}\n\
+pub fn value_string(value: string): JsonValue {\nreturn JsonValue { source: json_stringify_string(value) }\n}\n\
+pub fn value_int(value: int): JsonValue {\nreturn JsonValue { source: json_stringify_int(value) }\n}\n\
+pub fn value_bool(value: bool): JsonValue {\nreturn JsonValue { source: json_stringify_bool(value) }\n}\n\
 pub fn field_string(key: string, value: string): string {\nreturn json_stringify_string(key) + \":\" + json_stringify_string(value)\n}\n\
 pub fn field_int(key: string, value: int): string {\nreturn json_stringify_string(key) + \":\" + json_stringify_int(value)\n}\n\
 pub fn field_bool(key: string, value: bool): string {\nreturn json_stringify_string(key) + \":\" + json_stringify_bool(value)\n}\n\
+pub fn field_value(key: string, value: JsonValue): string {\nreturn json_stringify_string(key) + \":\" + json_stringify_value(value.source)\n}\n\
 pub fn schema_field_string(key: string): string {\nreturn json_stringify_string(key) + \":{\\\"type\\\":\\\"string\\\"}\"\n}\n\
 pub fn schema_field_int(key: string): string {\nreturn json_stringify_string(key) + \":{\\\"type\\\":\\\"integer\\\"}\"\n}\n\
 pub fn schema_field_bool(key: string): string {\nreturn json_stringify_string(key) + \":{\\\"type\\\":\\\"boolean\\\"}\"\n}\n\
@@ -190,7 +199,13 @@ pub fn schema_object2(first_field: string, second_field: string): string {\nretu
 pub fn schema_object3(first_field: string, second_field: string, third_field: string): string {\nreturn \"{\\\"type\\\":\\\"object\\\",\\\"properties\\\":{\" + first_field + \",\" + second_field + \",\" + third_field + \"}}\"\n}\n\
 pub fn object1(field: string): string {\nreturn \"{\" + field + \"}\"\n}\n\
 pub fn object2(first_field: string, second_field: string): string {\nreturn \"{\" + first_field + \",\" + second_field + \"}\"\n}\n\
-pub fn object3(first_field: string, second_field: string, third_field: string): string {\nreturn \"{\" + first_field + \",\" + second_field + \",\" + third_field + \"}\"\n}\n",
+pub fn object3(first_field: string, second_field: string, third_field: string): string {\nreturn \"{\" + first_field + \",\" + second_field + \",\" + third_field + \"}\"\n}\n\
+pub fn value_object1(field: string): JsonValue {\nreturn JsonValue { source: object1(field) }\n}\n\
+pub fn value_object2(first_field: string, second_field: string): JsonValue {\nreturn JsonValue { source: object2(first_field, second_field) }\n}\n\
+pub fn value_object3(first_field: string, second_field: string, third_field: string): JsonValue {\nreturn JsonValue { source: object3(first_field, second_field, third_field) }\n}\n\
+pub fn array1(first: JsonValue): JsonValue {\nreturn JsonValue { source: \"[\" + json_stringify_value(first.source) + \"]\" }\n}\n\
+pub fn array2(first: JsonValue, second: JsonValue): JsonValue {\nreturn JsonValue { source: \"[\" + json_stringify_value(first.source) + \",\" + json_stringify_value(second.source) + \"]\" }\n}\n\
+pub fn array3(first: JsonValue, second: JsonValue, third: JsonValue): JsonValue {\nreturn JsonValue { source: \"[\" + json_stringify_value(first.source) + \",\" + json_stringify_value(second.source) + \",\" + json_stringify_value(third.source) + \"]\" }\n}\n",
     ),
     (
         "collections.ax",

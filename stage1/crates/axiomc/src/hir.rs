@@ -4825,7 +4825,15 @@ fn lower_static_decls(
 ) -> Result<Vec<StaticDef>, Diagnostic> {
     let mut lowered = Vec::new();
     for decl in consts.iter().filter(|decl| decl.is_static) {
-        let ty = lower_type(&decl.ty, structs, enums, aliases, ctx.consts, decl.line, decl.column)?;
+        let ty = lower_type(
+            &decl.ty,
+            structs,
+            enums,
+            aliases,
+            ctx.consts,
+            decl.line,
+            decl.column,
+        )?;
         let mut env = HashMap::new();
         let mut expr = lower_expr_with_expected(&decl.expr, Some(&ty), &mut env, ctx)?;
         if expr.ty() != &ty {
@@ -6857,6 +6865,102 @@ fn lower_expr_with_expected_inner(
                     name: name.clone(),
                     args: vec![lowered],
                     ty: Type::String,
+                });
+            }
+            if name == "json_parse_value" {
+                if args.len() != 1 {
+                    return Err(Diagnostic::new(
+                        "type",
+                        format!("json_parse_value expects 1 argument, got {}", args.len()),
+                    )
+                    .with_span(*line, *column));
+                }
+                let lowered = lower_expr_with_expected(&args[0], Some(&Type::String), env, ctx)?;
+                if lowered.ty() != &Type::String {
+                    return Err(Diagnostic::new(
+                        "type",
+                        format!(
+                            "json_parse_value expects a string argument, got {}",
+                            lowered.ty()
+                        ),
+                    )
+                    .with_span(args[0].line(), args[0].column()));
+                }
+                move_lowered_value(&lowered, env)?;
+                return Ok(Expr::Call {
+                    name: name.clone(),
+                    args: vec![lowered],
+                    ty: Type::Option(Box::new(Type::String)),
+                });
+            }
+            if name == "json_stringify_value" {
+                if args.len() != 1 {
+                    return Err(Diagnostic::new(
+                        "type",
+                        format!(
+                            "json_stringify_value expects 1 argument, got {}",
+                            args.len()
+                        ),
+                    )
+                    .with_span(*line, *column));
+                }
+                let lowered = lower_expr_with_expected(&args[0], Some(&Type::String), env, ctx)?;
+                if lowered.ty() != &Type::String {
+                    return Err(Diagnostic::new(
+                        "type",
+                        format!(
+                            "json_stringify_value expects a string argument, got {}",
+                            lowered.ty()
+                        ),
+                    )
+                    .with_span(args[0].line(), args[0].column()));
+                }
+                move_lowered_value(&lowered, env)?;
+                return Ok(Expr::Call {
+                    name: name.clone(),
+                    args: vec![lowered],
+                    ty: Type::String,
+                });
+            }
+            if name == "json_parse_field_value" {
+                if args.len() != 2 {
+                    return Err(Diagnostic::new(
+                        "type",
+                        format!(
+                            "json_parse_field_value expects 2 arguments, got {}",
+                            args.len()
+                        ),
+                    )
+                    .with_span(*line, *column));
+                }
+                let text = lower_expr_with_expected(&args[0], Some(&Type::String), env, ctx)?;
+                if text.ty() != &Type::String {
+                    return Err(Diagnostic::new(
+                        "type",
+                        format!(
+                            "json_parse_field_value expects a string JSON argument, got {}",
+                            text.ty()
+                        ),
+                    )
+                    .with_span(args[0].line(), args[0].column()));
+                }
+                let key = lower_expr_with_expected(&args[1], Some(&Type::String), env, ctx)?;
+                if key.ty() != &Type::String {
+                    return Err(Diagnostic::new(
+                        "type",
+                        format!(
+                            "json_parse_field_value expects a string key argument, got {}",
+                            key.ty()
+                        ),
+                    )
+                    .with_span(args[1].line(), args[1].column()));
+                }
+                move_lowered_value(&text, env)?;
+                move_lowered_value(&key, env)?;
+                return Ok(Expr::Call {
+                    name: name.clone(),
+                    args: vec![text, key],
+                    ty: Type::Option(Box::new(Type::String)),
                 });
             }
             if name == "regex_is_match" || name == "regex_find" || name == "regex_replace_all" {
