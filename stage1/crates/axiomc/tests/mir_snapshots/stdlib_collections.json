@@ -1,0 +1,1084 @@
+{
+  "enums": [],
+  "functions": [
+    {
+      "body": [
+        {
+          "Return": {
+            "expr": {
+              "Call": {
+                "args": [
+                  {
+                    "VarRef": {
+                      "name": "values",
+                      "ty": {
+                        "Slice": "Int"
+                      }
+                    }
+                  }
+                ],
+                "name": "len",
+                "ty": "Int"
+              }
+            },
+            "span": {
+              "column": 1,
+              "line": 2
+            }
+          }
+        }
+      ],
+      "column": 1,
+      "extern_abi": null,
+      "extern_library": null,
+      "is_async": false,
+      "is_extern": false,
+      "line": 1,
+      "name": "std_collections_count__int",
+      "params": [
+        {
+          "name": "values",
+          "ty": {
+            "Slice": "Int"
+          }
+        }
+      ],
+      "path": "<stdlib>/collections.ax",
+      "return_ty": "Int",
+      "source_name": "count"
+    },
+    {
+      "body": [
+        {
+          "Return": {
+            "expr": {
+              "BinaryCompare": {
+                "lhs": {
+                  "Call": {
+                    "args": [
+                      {
+                        "VarRef": {
+                          "name": "values",
+                          "ty": {
+                            "Slice": "Int"
+                          }
+                        }
+                      }
+                    ],
+                    "name": "len",
+                    "ty": "Int"
+                  }
+                },
+                "op": "Eq",
+                "rhs": {
+                  "Literal": {
+                    "Int": 0
+                  }
+                },
+                "ty": "Bool"
+              }
+            },
+            "span": {
+              "column": 1,
+              "line": 5
+            }
+          }
+        }
+      ],
+      "column": 1,
+      "extern_abi": null,
+      "extern_library": null,
+      "is_async": false,
+      "is_extern": false,
+      "line": 4,
+      "name": "std_collections_is_empty__int",
+      "params": [
+        {
+          "name": "values",
+          "ty": {
+            "Slice": "Int"
+          }
+        }
+      ],
+      "path": "<stdlib>/collections.ax",
+      "return_ty": "Bool",
+      "source_name": "is_empty"
+    },
+    {
+      "body": [
+        {
+          "Return": {
+            "expr": {
+              "BinaryCompare": {
+                "lhs": {
+                  "Call": {
+                    "args": [
+                      {
+                        "VarRef": {
+                          "name": "values",
+                          "ty": {
+                            "Slice": "Int"
+                          }
+                        }
+                      }
+                    ],
+                    "name": "len",
+                    "ty": "Int"
+                  }
+                },
+                "op": "Gt",
+                "rhs": {
+                  "Literal": {
+                    "Int": 0
+                  }
+                },
+                "ty": "Bool"
+              }
+            },
+            "span": {
+              "column": 1,
+              "line": 8
+            }
+          }
+        }
+      ],
+      "column": 1,
+      "extern_abi": null,
+      "extern_library": null,
+      "is_async": false,
+      "is_extern": false,
+      "line": 7,
+      "name": "std_collections_has_items__int",
+      "params": [
+        {
+          "name": "values",
+          "ty": {
+            "Slice": "Int"
+          }
+        }
+      ],
+      "path": "<stdlib>/collections.ax",
+      "return_ty": "Bool",
+      "source_name": "has_items"
+    },
+    {
+      "body": [
+        {
+          "Return": {
+            "expr": {
+              "Slice": {
+                "base": {
+                  "VarRef": {
+                    "name": "values",
+                    "ty": {
+                      "Slice": "Int"
+                    }
+                  }
+                },
+                "end": {
+                  "VarRef": {
+                    "name": "end",
+                    "ty": "Int"
+                  }
+                },
+                "start": {
+                  "VarRef": {
+                    "name": "start",
+                    "ty": "Int"
+                  }
+                },
+                "ty": {
+                  "Slice": "Int"
+                }
+              }
+            },
+            "span": {
+              "column": 1,
+              "line": 20
+            }
+          }
+        }
+      ],
+      "column": 1,
+      "extern_abi": null,
+      "extern_library": null,
+      "is_async": false,
+      "is_extern": false,
+      "line": 19,
+      "name": "std_collections_window__int",
+      "params": [
+        {
+          "name": "values",
+          "ty": {
+            "Slice": "Int"
+          }
+        },
+        {
+          "name": "start",
+          "ty": "Int"
+        },
+        {
+          "name": "end",
+          "ty": "Int"
+        }
+      ],
+      "path": "<stdlib>/collections.ax",
+      "return_ty": {
+        "Slice": "Int"
+      },
+      "source_name": "window"
+    },
+    {
+      "body": [
+        {
+          "Return": {
+            "expr": {
+              "Slice": {
+                "base": {
+                  "VarRef": {
+                    "name": "values",
+                    "ty": {
+                      "Slice": "Int"
+                    }
+                  }
+                },
+                "end": {
+                  "VarRef": {
+                    "name": "count",
+                    "ty": "Int"
+                  }
+                },
+                "start": null,
+                "ty": {
+                  "Slice": "Int"
+                }
+              }
+            },
+            "span": {
+              "column": 1,
+              "line": 17
+            }
+          }
+        }
+      ],
+      "column": 1,
+      "extern_abi": null,
+      "extern_library": null,
+      "is_async": false,
+      "is_extern": false,
+      "line": 16,
+      "name": "std_collections_take__int",
+      "params": [
+        {
+          "name": "values",
+          "ty": {
+            "Slice": "Int"
+          }
+        },
+        {
+          "name": "count",
+          "ty": "Int"
+        }
+      ],
+      "path": "<stdlib>/collections.ax",
+      "return_ty": {
+        "Slice": "Int"
+      },
+      "source_name": "take"
+    },
+    {
+      "body": [
+        {
+          "Return": {
+            "expr": {
+              "Slice": {
+                "base": {
+                  "VarRef": {
+                    "name": "values",
+                    "ty": {
+                      "Slice": "Int"
+                    }
+                  }
+                },
+                "end": null,
+                "start": {
+                  "VarRef": {
+                    "name": "count",
+                    "ty": "Int"
+                  }
+                },
+                "ty": {
+                  "Slice": "Int"
+                }
+              }
+            },
+            "span": {
+              "column": 1,
+              "line": 14
+            }
+          }
+        }
+      ],
+      "column": 1,
+      "extern_abi": null,
+      "extern_library": null,
+      "is_async": false,
+      "is_extern": false,
+      "line": 13,
+      "name": "std_collections_skip__int",
+      "params": [
+        {
+          "name": "values",
+          "ty": {
+            "Slice": "Int"
+          }
+        },
+        {
+          "name": "count",
+          "ty": "Int"
+        }
+      ],
+      "path": "<stdlib>/collections.ax",
+      "return_ty": {
+        "Slice": "Int"
+      },
+      "source_name": "skip"
+    },
+    {
+      "body": [
+        {
+          "Return": {
+            "expr": {
+              "Call": {
+                "args": [
+                  {
+                    "VarRef": {
+                      "name": "values",
+                      "ty": {
+                        "Slice": "String"
+                      }
+                    }
+                  }
+                ],
+                "name": "len",
+                "ty": "Int"
+              }
+            },
+            "span": {
+              "column": 1,
+              "line": 2
+            }
+          }
+        }
+      ],
+      "column": 1,
+      "extern_abi": null,
+      "extern_library": null,
+      "is_async": false,
+      "is_extern": false,
+      "line": 1,
+      "name": "std_collections_count__string",
+      "params": [
+        {
+          "name": "values",
+          "ty": {
+            "Slice": "String"
+          }
+        }
+      ],
+      "path": "<stdlib>/collections.ax",
+      "return_ty": "Int",
+      "source_name": "count"
+    },
+    {
+      "body": [
+        {
+          "Return": {
+            "expr": {
+              "Slice": {
+                "base": {
+                  "VarRef": {
+                    "name": "values",
+                    "ty": {
+                      "Slice": "String"
+                    }
+                  }
+                },
+                "end": {
+                  "VarRef": {
+                    "name": "count",
+                    "ty": "Int"
+                  }
+                },
+                "start": null,
+                "ty": {
+                  "Slice": "String"
+                }
+              }
+            },
+            "span": {
+              "column": 1,
+              "line": 17
+            }
+          }
+        }
+      ],
+      "column": 1,
+      "extern_abi": null,
+      "extern_library": null,
+      "is_async": false,
+      "is_extern": false,
+      "line": 16,
+      "name": "std_collections_take__string",
+      "params": [
+        {
+          "name": "values",
+          "ty": {
+            "Slice": "String"
+          }
+        },
+        {
+          "name": "count",
+          "ty": "Int"
+        }
+      ],
+      "path": "<stdlib>/collections.ax",
+      "return_ty": {
+        "Slice": "String"
+      },
+      "source_name": "take"
+    },
+    {
+      "body": [
+        {
+          "Return": {
+            "expr": {
+              "BinaryCompare": {
+                "lhs": {
+                  "Call": {
+                    "args": [
+                      {
+                        "VarRef": {
+                          "name": "values",
+                          "ty": {
+                            "Slice": "String"
+                          }
+                        }
+                      }
+                    ],
+                    "name": "len",
+                    "ty": "Int"
+                  }
+                },
+                "op": "Eq",
+                "rhs": {
+                  "Literal": {
+                    "Int": 0
+                  }
+                },
+                "ty": "Bool"
+              }
+            },
+            "span": {
+              "column": 1,
+              "line": 5
+            }
+          }
+        }
+      ],
+      "column": 1,
+      "extern_abi": null,
+      "extern_library": null,
+      "is_async": false,
+      "is_extern": false,
+      "line": 4,
+      "name": "std_collections_is_empty__string",
+      "params": [
+        {
+          "name": "values",
+          "ty": {
+            "Slice": "String"
+          }
+        }
+      ],
+      "path": "<stdlib>/collections.ax",
+      "return_ty": "Bool",
+      "source_name": "is_empty"
+    }
+  ],
+  "path": "<example>/src/main.ax",
+  "statics": [],
+  "stmts": [
+    {
+      "Let": {
+        "expr": {
+          "ArrayLiteral": {
+            "elements": [
+              {
+                "Literal": {
+                  "Int": 4
+                }
+              },
+              {
+                "Literal": {
+                  "Int": 5
+                }
+              },
+              {
+                "Literal": {
+                  "Int": 6
+                }
+              },
+              {
+                "Literal": {
+                  "Int": 7
+                }
+              }
+            ],
+            "ty": {
+              "Array": [
+                "Int",
+                4
+              ]
+            }
+          }
+        },
+        "name": "numbers",
+        "span": {
+          "column": 1,
+          "line": 3
+        },
+        "ty": {
+          "Array": [
+            "Int",
+            null
+          ]
+        }
+      }
+    },
+    {
+      "Print": {
+        "expr": {
+          "Call": {
+            "args": [
+              {
+                "Slice": {
+                  "base": {
+                    "VarRef": {
+                      "name": "numbers",
+                      "ty": {
+                        "Array": [
+                          "Int",
+                          null
+                        ]
+                      }
+                    }
+                  },
+                  "end": null,
+                  "start": null,
+                  "ty": {
+                    "Slice": "Int"
+                  }
+                }
+              }
+            ],
+            "name": "std_collections_count__int",
+            "ty": "Int"
+          }
+        },
+        "span": {
+          "column": 1,
+          "line": 4
+        }
+      }
+    },
+    {
+      "Print": {
+        "expr": {
+          "Call": {
+            "args": [
+              {
+                "Slice": {
+                  "base": {
+                    "VarRef": {
+                      "name": "numbers",
+                      "ty": {
+                        "Array": [
+                          "Int",
+                          null
+                        ]
+                      }
+                    }
+                  },
+                  "end": null,
+                  "start": null,
+                  "ty": {
+                    "Slice": "Int"
+                  }
+                }
+              }
+            ],
+            "name": "std_collections_is_empty__int",
+            "ty": "Bool"
+          }
+        },
+        "span": {
+          "column": 1,
+          "line": 5
+        }
+      }
+    },
+    {
+      "Print": {
+        "expr": {
+          "Call": {
+            "args": [
+              {
+                "Slice": {
+                  "base": {
+                    "VarRef": {
+                      "name": "numbers",
+                      "ty": {
+                        "Array": [
+                          "Int",
+                          null
+                        ]
+                      }
+                    }
+                  },
+                  "end": null,
+                  "start": null,
+                  "ty": {
+                    "Slice": "Int"
+                  }
+                }
+              }
+            ],
+            "name": "std_collections_has_items__int",
+            "ty": "Bool"
+          }
+        },
+        "span": {
+          "column": 1,
+          "line": 6
+        }
+      }
+    },
+    {
+      "Let": {
+        "expr": {
+          "Call": {
+            "args": [
+              {
+                "Slice": {
+                  "base": {
+                    "VarRef": {
+                      "name": "numbers",
+                      "ty": {
+                        "Array": [
+                          "Int",
+                          null
+                        ]
+                      }
+                    }
+                  },
+                  "end": null,
+                  "start": null,
+                  "ty": {
+                    "Slice": "Int"
+                  }
+                }
+              },
+              {
+                "Literal": {
+                  "Int": 1
+                }
+              },
+              {
+                "Literal": {
+                  "Int": 3
+                }
+              }
+            ],
+            "name": "std_collections_window__int",
+            "ty": {
+              "Slice": "Int"
+            }
+          }
+        },
+        "name": "middle",
+        "span": {
+          "column": 1,
+          "line": 8
+        },
+        "ty": {
+          "Slice": "Int"
+        }
+      }
+    },
+    {
+      "Print": {
+        "expr": {
+          "Call": {
+            "args": [
+              {
+                "VarRef": {
+                  "name": "middle",
+                  "ty": {
+                    "Slice": "Int"
+                  }
+                }
+              }
+            ],
+            "name": "std_collections_count__int",
+            "ty": "Int"
+          }
+        },
+        "span": {
+          "column": 1,
+          "line": 9
+        }
+      }
+    },
+    {
+      "Print": {
+        "expr": {
+          "Call": {
+            "args": [
+              {
+                "VarRef": {
+                  "name": "middle",
+                  "ty": {
+                    "Slice": "Int"
+                  }
+                }
+              }
+            ],
+            "name": "first",
+            "ty": "Int"
+          }
+        },
+        "span": {
+          "column": 1,
+          "line": 10
+        }
+      }
+    },
+    {
+      "Print": {
+        "expr": {
+          "Call": {
+            "args": [
+              {
+                "VarRef": {
+                  "name": "middle",
+                  "ty": {
+                    "Slice": "Int"
+                  }
+                }
+              }
+            ],
+            "name": "last",
+            "ty": "Int"
+          }
+        },
+        "span": {
+          "column": 1,
+          "line": 11
+        }
+      }
+    },
+    {
+      "Let": {
+        "expr": {
+          "Call": {
+            "args": [
+              {
+                "Slice": {
+                  "base": {
+                    "VarRef": {
+                      "name": "numbers",
+                      "ty": {
+                        "Array": [
+                          "Int",
+                          null
+                        ]
+                      }
+                    }
+                  },
+                  "end": null,
+                  "start": null,
+                  "ty": {
+                    "Slice": "Int"
+                  }
+                }
+              },
+              {
+                "Literal": {
+                  "Int": 2
+                }
+              }
+            ],
+            "name": "std_collections_take__int",
+            "ty": {
+              "Slice": "Int"
+            }
+          }
+        },
+        "name": "prefix",
+        "span": {
+          "column": 1,
+          "line": 13
+        },
+        "ty": {
+          "Slice": "Int"
+        }
+      }
+    },
+    {
+      "Print": {
+        "expr": {
+          "Call": {
+            "args": [
+              {
+                "VarRef": {
+                  "name": "prefix",
+                  "ty": {
+                    "Slice": "Int"
+                  }
+                }
+              }
+            ],
+            "name": "last",
+            "ty": "Int"
+          }
+        },
+        "span": {
+          "column": 1,
+          "line": 14
+        }
+      }
+    },
+    {
+      "Let": {
+        "expr": {
+          "Call": {
+            "args": [
+              {
+                "Slice": {
+                  "base": {
+                    "VarRef": {
+                      "name": "numbers",
+                      "ty": {
+                        "Array": [
+                          "Int",
+                          null
+                        ]
+                      }
+                    }
+                  },
+                  "end": null,
+                  "start": null,
+                  "ty": {
+                    "Slice": "Int"
+                  }
+                }
+              },
+              {
+                "Literal": {
+                  "Int": 2
+                }
+              }
+            ],
+            "name": "std_collections_skip__int",
+            "ty": {
+              "Slice": "Int"
+            }
+          }
+        },
+        "name": "suffix",
+        "span": {
+          "column": 1,
+          "line": 16
+        },
+        "ty": {
+          "Slice": "Int"
+        }
+      }
+    },
+    {
+      "Print": {
+        "expr": {
+          "Call": {
+            "args": [
+              {
+                "VarRef": {
+                  "name": "suffix",
+                  "ty": {
+                    "Slice": "Int"
+                  }
+                }
+              }
+            ],
+            "name": "first",
+            "ty": "Int"
+          }
+        },
+        "span": {
+          "column": 1,
+          "line": 17
+        }
+      }
+    },
+    {
+      "Let": {
+        "expr": {
+          "ArrayLiteral": {
+            "elements": [
+              {
+                "Literal": {
+                  "String": "build"
+                }
+              },
+              {
+                "Literal": {
+                  "String": "test"
+                }
+              },
+              {
+                "Literal": {
+                  "String": "ship"
+                }
+              }
+            ],
+            "ty": {
+              "Array": [
+                "String",
+                3
+              ]
+            }
+          }
+        },
+        "name": "words",
+        "span": {
+          "column": 1,
+          "line": 19
+        },
+        "ty": {
+          "Array": [
+            "String",
+            null
+          ]
+        }
+      }
+    },
+    {
+      "Print": {
+        "expr": {
+          "Call": {
+            "args": [
+              {
+                "Slice": {
+                  "base": {
+                    "VarRef": {
+                      "name": "words",
+                      "ty": {
+                        "Array": [
+                          "String",
+                          null
+                        ]
+                      }
+                    }
+                  },
+                  "end": null,
+                  "start": null,
+                  "ty": {
+                    "Slice": "String"
+                  }
+                }
+              }
+            ],
+            "name": "std_collections_count__string",
+            "ty": "Int"
+          }
+        },
+        "span": {
+          "column": 1,
+          "line": 20
+        }
+      }
+    },
+    {
+      "Let": {
+        "expr": {
+          "Call": {
+            "args": [
+              {
+                "Slice": {
+                  "base": {
+                    "VarRef": {
+                      "name": "words",
+                      "ty": {
+                        "Array": [
+                          "String",
+                          null
+                        ]
+                      }
+                    }
+                  },
+                  "end": null,
+                  "start": null,
+                  "ty": {
+                    "Slice": "String"
+                  }
+                }
+              },
+              {
+                "Literal": {
+                  "Int": 0
+                }
+              }
+            ],
+            "name": "std_collections_take__string",
+            "ty": {
+              "Slice": "String"
+            }
+          }
+        },
+        "name": "empty_words",
+        "span": {
+          "column": 1,
+          "line": 21
+        },
+        "ty": {
+          "Slice": "String"
+        }
+      }
+    },
+    {
+      "Print": {
+        "expr": {
+          "Call": {
+            "args": [
+              {
+                "VarRef": {
+                  "name": "empty_words",
+                  "ty": {
+                    "Slice": "String"
+                  }
+                }
+              }
+            ],
+            "name": "std_collections_is_empty__string",
+            "ty": "Bool"
+          }
+        },
+        "span": {
+          "column": 1,
+          "line": 22
+        }
+      }
+    }
+  ],
+  "structs": []
+}

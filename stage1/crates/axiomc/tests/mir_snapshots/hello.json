@@ -1,0 +1,284 @@
+{
+  "enums": [],
+  "functions": [
+    {
+      "body": [
+        {
+          "Return": {
+            "expr": {
+              "BinaryAdd": {
+                "lhs": {
+                  "Literal": {
+                    "String": "hello "
+                  }
+                },
+                "rhs": {
+                  "VarRef": {
+                    "name": "name",
+                    "ty": "String"
+                  }
+                },
+                "ty": "String"
+              }
+            },
+            "span": {
+              "column": 1,
+              "line": 2
+            }
+          }
+        }
+      ],
+      "column": 1,
+      "extern_abi": null,
+      "extern_library": null,
+      "is_async": false,
+      "is_extern": false,
+      "line": 1,
+      "name": "hello_stage1_main_banner",
+      "params": [
+        {
+          "name": "name",
+          "ty": "String"
+        }
+      ],
+      "path": "<example>/src/main.ax",
+      "return_ty": "String",
+      "source_name": "banner"
+    },
+    {
+      "body": [
+        {
+          "Return": {
+            "expr": {
+              "BinaryAdd": {
+                "lhs": {
+                  "VarRef": {
+                    "name": "base",
+                    "ty": "Int"
+                  }
+                },
+                "rhs": {
+                  "Literal": {
+                    "Int": 2
+                  }
+                },
+                "ty": "Int"
+              }
+            },
+            "span": {
+              "column": 1,
+              "line": 6
+            }
+          }
+        }
+      ],
+      "column": 1,
+      "extern_abi": null,
+      "extern_library": null,
+      "is_async": false,
+      "is_extern": false,
+      "line": 5,
+      "name": "hello_stage1_main_lucky",
+      "params": [
+        {
+          "name": "base",
+          "ty": "Int"
+        }
+      ],
+      "path": "<example>/src/main.ax",
+      "return_ty": "Int",
+      "source_name": "lucky"
+    },
+    {
+      "body": [
+        {
+          "Return": {
+            "expr": {
+              "BinaryCompare": {
+                "lhs": {
+                  "VarRef": {
+                    "name": "value",
+                    "ty": "Int"
+                  }
+                },
+                "op": "Eq",
+                "rhs": {
+                  "Literal": {
+                    "Int": 42
+                  }
+                },
+                "ty": "Bool"
+              }
+            },
+            "span": {
+              "column": 1,
+              "line": 10
+            }
+          }
+        }
+      ],
+      "column": 1,
+      "extern_abi": null,
+      "extern_library": null,
+      "is_async": false,
+      "is_extern": false,
+      "line": 9,
+      "name": "hello_stage1_main_is_ready",
+      "params": [
+        {
+          "name": "value",
+          "ty": "Int"
+        }
+      ],
+      "path": "<example>/src/main.ax",
+      "return_ty": "Bool",
+      "source_name": "is_ready"
+    }
+  ],
+  "path": "<example>/src/main.ax",
+  "statics": [],
+  "stmts": [
+    {
+      "Let": {
+        "expr": {
+          "Call": {
+            "args": [
+              {
+                "Literal": {
+                  "Int": 40
+                }
+              }
+            ],
+            "name": "hello_stage1_main_lucky",
+            "ty": "Int"
+          }
+        },
+        "name": "answer",
+        "span": {
+          "column": 1,
+          "line": 13
+        },
+        "ty": "Int"
+      }
+    },
+    {
+      "Let": {
+        "expr": {
+          "Call": {
+            "args": [
+              {
+                "VarRef": {
+                  "name": "answer",
+                  "ty": "Int"
+                }
+              }
+            ],
+            "name": "hello_stage1_main_is_ready",
+            "ty": "Bool"
+          }
+        },
+        "name": "ready",
+        "span": {
+          "column": 1,
+          "line": 14
+        },
+        "ty": "Bool"
+      }
+    },
+    {
+      "While": {
+        "body": [],
+        "cond": {
+          "Literal": {
+            "Bool": false
+          }
+        },
+        "span": {
+          "column": 1,
+          "line": 16
+        }
+      }
+    },
+    {
+      "If": {
+        "cond": {
+          "VarRef": {
+            "name": "ready",
+            "ty": "Bool"
+          }
+        },
+        "else_block": [
+          {
+            "Print": {
+              "expr": {
+                "Literal": {
+                  "String": "stage1 failed"
+                }
+              },
+              "span": {
+                "column": 1,
+                "line": 23
+              }
+            }
+          }
+        ],
+        "span": {
+          "column": 1,
+          "line": 20
+        },
+        "then_block": [
+          {
+            "Print": {
+              "expr": {
+                "Call": {
+                  "args": [
+                    {
+                      "Literal": {
+                        "String": "from stage1"
+                      }
+                    }
+                  ],
+                  "name": "hello_stage1_main_banner",
+                  "ty": "String"
+                }
+              },
+              "span": {
+                "column": 1,
+                "line": 21
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "Print": {
+        "expr": {
+          "VarRef": {
+            "name": "answer",
+            "ty": "Int"
+          }
+        },
+        "span": {
+          "column": 1,
+          "line": 26
+        }
+      }
+    },
+    {
+      "Print": {
+        "expr": {
+          "VarRef": {
+            "name": "ready",
+            "ty": "Bool"
+          }
+        },
+        "span": {
+          "column": 1,
+          "line": 27
+        }
+      }
+    }
+  ],
+  "structs": []
+}

@@ -1,0 +1,1065 @@
+{
+  "enums": [
+    {
+      "name": "generic_aggregates_stage1_main_Slot__int",
+      "variants": [
+        {
+          "name": "Filled",
+          "payload_names": [],
+          "payload_tys": [
+            "Int"
+          ]
+        },
+        {
+          "name": "Empty",
+          "payload_names": [],
+          "payload_tys": []
+        }
+      ]
+    },
+    {
+      "name": "generic_aggregates_stage1_main_Slot__string",
+      "variants": [
+        {
+          "name": "Filled",
+          "payload_names": [],
+          "payload_tys": [
+            "String"
+          ]
+        },
+        {
+          "name": "Empty",
+          "payload_names": [],
+          "payload_tys": []
+        }
+      ]
+    }
+  ],
+  "functions": [
+    {
+      "body": [
+        {
+          "Return": {
+            "expr": {
+              "StructLiteral": {
+                "fields": [
+                  {
+                    "expr": {
+                      "Call": {
+                        "args": [
+                          {
+                            "VarRef": {
+                              "name": "values",
+                              "ty": {
+                                "Slice": "Int"
+                              }
+                            }
+                          }
+                        ],
+                        "name": "generic_aggregates_stage1_main_tail__int",
+                        "ty": {
+                          "Slice": "Int"
+                        }
+                      }
+                    },
+                    "name": "view"
+                  }
+                ],
+                "name": "generic_aggregates_stage1_main_Window__int",
+                "ty": {
+                  "Struct": "generic_aggregates_stage1_main_Window__int"
+                }
+              }
+            },
+            "span": {
+              "column": 1,
+              "line": 28
+            }
+          }
+        }
+      ],
+      "column": 1,
+      "extern_abi": null,
+      "extern_library": null,
+      "is_async": false,
+      "is_extern": false,
+      "line": 27,
+      "name": "generic_aggregates_stage1_main_make_window__int",
+      "params": [
+        {
+          "name": "values",
+          "ty": {
+            "Slice": "Int"
+          }
+        }
+      ],
+      "path": "<example>/src/main.ax",
+      "return_ty": {
+        "Struct": "generic_aggregates_stage1_main_Window__int"
+      },
+      "source_name": "make_window"
+    },
+    {
+      "body": [
+        {
+          "Return": {
+            "expr": {
+              "Slice": {
+                "base": {
+                  "VarRef": {
+                    "name": "values",
+                    "ty": {
+                      "Slice": "Int"
+                    }
+                  }
+                },
+                "end": null,
+                "start": {
+                  "Literal": {
+                    "Int": 1
+                  }
+                },
+                "ty": {
+                  "Slice": "Int"
+                }
+              }
+            },
+            "span": {
+              "column": 1,
+              "line": 24
+            }
+          }
+        }
+      ],
+      "column": 1,
+      "extern_abi": null,
+      "extern_library": null,
+      "is_async": false,
+      "is_extern": false,
+      "line": 23,
+      "name": "generic_aggregates_stage1_main_tail__int",
+      "params": [
+        {
+          "name": "values",
+          "ty": {
+            "Slice": "Int"
+          }
+        }
+      ],
+      "path": "<example>/src/main.ax",
+      "return_ty": {
+        "Slice": "Int"
+      },
+      "source_name": "tail"
+    }
+  ],
+  "path": "<example>/src/main.ax",
+  "statics": [],
+  "stmts": [
+    {
+      "Let": {
+        "expr": {
+          "ArrayLiteral": {
+            "elements": [
+              {
+                "Literal": {
+                  "Int": 4
+                }
+              },
+              {
+                "Literal": {
+                  "Int": 5
+                }
+              },
+              {
+                "Literal": {
+                  "Int": 6
+                }
+              }
+            ],
+            "ty": {
+              "Array": [
+                "Int",
+                3
+              ]
+            }
+          }
+        },
+        "name": "values",
+        "span": {
+          "column": 1,
+          "line": 31
+        },
+        "ty": {
+          "Array": [
+            "Int",
+            null
+          ]
+        }
+      }
+    },
+    {
+      "Let": {
+        "expr": {
+          "StructLiteral": {
+            "fields": [
+              {
+                "expr": {
+                  "Slice": {
+                    "base": {
+                      "VarRef": {
+                        "name": "values",
+                        "ty": {
+                          "Array": [
+                            "Int",
+                            null
+                          ]
+                        }
+                      }
+                    },
+                    "end": null,
+                    "start": null,
+                    "ty": {
+                      "Slice": "Int"
+                    }
+                  }
+                },
+                "name": "view"
+              }
+            ],
+            "name": "generic_aggregates_stage1_main_Window__int",
+            "ty": {
+              "Struct": "generic_aggregates_stage1_main_Window__int"
+            }
+          }
+        },
+        "name": "window",
+        "span": {
+          "column": 1,
+          "line": 32
+        },
+        "ty": {
+          "Struct": "generic_aggregates_stage1_main_Window__int"
+        }
+      }
+    },
+    {
+      "Print": {
+        "expr": {
+          "Call": {
+            "args": [
+              {
+                "FieldAccess": {
+                  "base": {
+                    "VarRef": {
+                      "name": "window",
+                      "ty": {
+                        "Struct": "generic_aggregates_stage1_main_Window__int"
+                      }
+                    }
+                  },
+                  "field": "view",
+                  "ty": {
+                    "Slice": "Int"
+                  }
+                }
+              }
+            ],
+            "name": "len",
+            "ty": "Int"
+          }
+        },
+        "span": {
+          "column": 1,
+          "line": 33
+        }
+      }
+    },
+    {
+      "Let": {
+        "expr": {
+          "Call": {
+            "args": [
+              {
+                "Slice": {
+                  "base": {
+                    "VarRef": {
+                      "name": "values",
+                      "ty": {
+                        "Array": [
+                          "Int",
+                          null
+                        ]
+                      }
+                    }
+                  },
+                  "end": null,
+                  "start": null,
+                  "ty": {
+                    "Slice": "Int"
+                  }
+                }
+              }
+            ],
+            "name": "generic_aggregates_stage1_main_make_window__int",
+            "ty": {
+              "Struct": "generic_aggregates_stage1_main_Window__int"
+            }
+          }
+        },
+        "name": "tail_window",
+        "span": {
+          "column": 1,
+          "line": 34
+        },
+        "ty": {
+          "Struct": "generic_aggregates_stage1_main_Window__int"
+        }
+      }
+    },
+    {
+      "Print": {
+        "expr": {
+          "Call": {
+            "args": [
+              {
+                "FieldAccess": {
+                  "base": {
+                    "VarRef": {
+                      "name": "tail_window",
+                      "ty": {
+                        "Struct": "generic_aggregates_stage1_main_Window__int"
+                      }
+                    }
+                  },
+                  "field": "view",
+                  "ty": {
+                    "Slice": "Int"
+                  }
+                }
+              }
+            ],
+            "name": "len",
+            "ty": "Int"
+          }
+        },
+        "span": {
+          "column": 1,
+          "line": 35
+        }
+      }
+    },
+    {
+      "Let": {
+        "expr": {
+          "StructLiteral": {
+            "fields": [
+              {
+                "expr": {
+                  "EnumVariant": {
+                    "enum_name": "Option",
+                    "field_names": [],
+                    "payloads": [
+                      {
+                        "Literal": {
+                          "Int": 8
+                        }
+                      }
+                    ],
+                    "ty": {
+                      "Option": "Int"
+                    },
+                    "variant": "Some"
+                  }
+                },
+                "name": "item"
+              }
+            ],
+            "name": "generic_aggregates_stage1_main_MaybeBox__int",
+            "ty": {
+              "Struct": "generic_aggregates_stage1_main_MaybeBox__int"
+            }
+          }
+        },
+        "name": "maybe",
+        "span": {
+          "column": 1,
+          "line": 37
+        },
+        "ty": {
+          "Struct": "generic_aggregates_stage1_main_MaybeBox__int"
+        }
+      }
+    },
+    {
+      "Match": {
+        "arms": [
+          {
+            "bindings": [
+              "value"
+            ],
+            "body": [
+              {
+                "Print": {
+                  "expr": {
+                    "VarRef": {
+                      "name": "value",
+                      "ty": "Int"
+                    }
+                  },
+                  "span": {
+                    "column": 1,
+                    "line": 40
+                  }
+                }
+              }
+            ],
+            "enum_name": "Option",
+            "ignore_payloads": false,
+            "is_named": false,
+            "variant": "Some"
+          },
+          {
+            "bindings": [],
+            "body": [
+              {
+                "Print": {
+                  "expr": {
+                    "Literal": {
+                      "Int": 0
+                    }
+                  },
+                  "span": {
+                    "column": 1,
+                    "line": 43
+                  }
+                }
+              }
+            ],
+            "enum_name": "Option",
+            "ignore_payloads": false,
+            "is_named": false,
+            "variant": "None"
+          }
+        ],
+        "expr": {
+          "FieldAccess": {
+            "base": {
+              "VarRef": {
+                "name": "maybe",
+                "ty": {
+                  "Struct": "generic_aggregates_stage1_main_MaybeBox__int"
+                }
+              }
+            },
+            "field": "item",
+            "ty": {
+              "Option": "Int"
+            }
+          }
+        },
+        "span": {
+          "column": 1,
+          "line": 38
+        }
+      }
+    },
+    {
+      "Let": {
+        "expr": {
+          "StructLiteral": {
+            "fields": [
+              {
+                "expr": {
+                  "EnumVariant": {
+                    "enum_name": "Result",
+                    "field_names": [],
+                    "payloads": [
+                      {
+                        "Literal": {
+                          "String": "ready"
+                        }
+                      }
+                    ],
+                    "ty": {
+                      "Result": [
+                        "String",
+                        "String"
+                      ]
+                    },
+                    "variant": "Ok"
+                  }
+                },
+                "name": "item"
+              }
+            ],
+            "name": "generic_aggregates_stage1_main_ResultBox__string__string",
+            "ty": {
+              "Struct": "generic_aggregates_stage1_main_ResultBox__string__string"
+            }
+          }
+        },
+        "name": "result",
+        "span": {
+          "column": 1,
+          "line": 47
+        },
+        "ty": {
+          "Struct": "generic_aggregates_stage1_main_ResultBox__string__string"
+        }
+      }
+    },
+    {
+      "Match": {
+        "arms": [
+          {
+            "bindings": [
+              "value"
+            ],
+            "body": [
+              {
+                "Print": {
+                  "expr": {
+                    "VarRef": {
+                      "name": "value",
+                      "ty": "String"
+                    }
+                  },
+                  "span": {
+                    "column": 1,
+                    "line": 50
+                  }
+                }
+              }
+            ],
+            "enum_name": "Result",
+            "ignore_payloads": false,
+            "is_named": false,
+            "variant": "Ok"
+          },
+          {
+            "bindings": [
+              "error"
+            ],
+            "body": [
+              {
+                "Print": {
+                  "expr": {
+                    "VarRef": {
+                      "name": "error",
+                      "ty": "String"
+                    }
+                  },
+                  "span": {
+                    "column": 1,
+                    "line": 53
+                  }
+                }
+              }
+            ],
+            "enum_name": "Result",
+            "ignore_payloads": false,
+            "is_named": false,
+            "variant": "Err"
+          }
+        ],
+        "expr": {
+          "FieldAccess": {
+            "base": {
+              "VarRef": {
+                "name": "result",
+                "ty": {
+                  "Struct": "generic_aggregates_stage1_main_ResultBox__string__string"
+                }
+              }
+            },
+            "field": "item",
+            "ty": {
+              "Result": [
+                "String",
+                "String"
+              ]
+            }
+          }
+        },
+        "span": {
+          "column": 1,
+          "line": 48
+        }
+      }
+    },
+    {
+      "Let": {
+        "expr": {
+          "ArrayLiteral": {
+            "elements": [
+              {
+                "Literal": {
+                  "Int": 10
+                }
+              },
+              {
+                "Literal": {
+                  "Int": 20
+                }
+              }
+            ],
+            "ty": {
+              "Array": [
+                "Int",
+                2
+              ]
+            }
+          }
+        },
+        "name": "bucket_values",
+        "span": {
+          "column": 1,
+          "line": 57
+        },
+        "ty": {
+          "Array": [
+            "Int",
+            null
+          ]
+        }
+      }
+    },
+    {
+      "Let": {
+        "expr": {
+          "MapLiteral": {
+            "entries": [
+              {
+                "key": {
+                  "Literal": {
+                    "String": "answer"
+                  }
+                },
+                "value": {
+                  "Literal": {
+                    "Int": 42
+                  }
+                }
+              }
+            ],
+            "ty": {
+              "Map": [
+                "String",
+                "Int"
+              ]
+            }
+          }
+        },
+        "name": "bucket_lookup",
+        "span": {
+          "column": 1,
+          "line": 58
+        },
+        "ty": {
+          "Map": [
+            "String",
+            "Int"
+          ]
+        }
+      }
+    },
+    {
+      "Let": {
+        "expr": {
+          "StructLiteral": {
+            "fields": [
+              {
+                "expr": {
+                  "VarRef": {
+                    "name": "bucket_values",
+                    "ty": {
+                      "Array": [
+                        "Int",
+                        null
+                      ]
+                    }
+                  }
+                },
+                "name": "items"
+              },
+              {
+                "expr": {
+                  "VarRef": {
+                    "name": "bucket_lookup",
+                    "ty": {
+                      "Map": [
+                        "String",
+                        "Int"
+                      ]
+                    }
+                  }
+                },
+                "name": "by_name"
+              }
+            ],
+            "name": "generic_aggregates_stage1_main_Buckets__int",
+            "ty": {
+              "Struct": "generic_aggregates_stage1_main_Buckets__int"
+            }
+          }
+        },
+        "name": "buckets",
+        "span": {
+          "column": 1,
+          "line": 59
+        },
+        "ty": {
+          "Struct": "generic_aggregates_stage1_main_Buckets__int"
+        }
+      }
+    },
+    {
+      "Print": {
+        "expr": {
+          "Call": {
+            "args": [
+              {
+                "FieldAccess": {
+                  "base": {
+                    "VarRef": {
+                      "name": "buckets",
+                      "ty": {
+                        "Struct": "generic_aggregates_stage1_main_Buckets__int"
+                      }
+                    }
+                  },
+                  "field": "items",
+                  "ty": {
+                    "Array": [
+                      "Int",
+                      null
+                    ]
+                  }
+                }
+              }
+            ],
+            "name": "len",
+            "ty": "Int"
+          }
+        },
+        "span": {
+          "column": 1,
+          "line": 60
+        }
+      }
+    },
+    {
+      "Let": {
+        "expr": {
+          "FieldAccess": {
+            "base": {
+              "VarRef": {
+                "name": "buckets",
+                "ty": {
+                  "Struct": "generic_aggregates_stage1_main_Buckets__int"
+                }
+              }
+            },
+            "field": "by_name",
+            "ty": {
+              "Map": [
+                "String",
+                "Int"
+              ]
+            }
+          }
+        },
+        "name": "answers",
+        "span": {
+          "column": 1,
+          "line": 61
+        },
+        "ty": {
+          "Map": [
+            "String",
+            "Int"
+          ]
+        }
+      }
+    },
+    {
+      "Print": {
+        "expr": {
+          "Index": {
+            "base": {
+              "VarRef": {
+                "name": "answers",
+                "ty": {
+                  "Map": [
+                    "String",
+                    "Int"
+                  ]
+                }
+              }
+            },
+            "index": {
+              "Literal": {
+                "String": "answer"
+              }
+            },
+            "ty": "Int"
+          }
+        },
+        "span": {
+          "column": 1,
+          "line": 62
+        }
+      }
+    },
+    {
+      "Let": {
+        "expr": {
+          "EnumVariant": {
+            "enum_name": "generic_aggregates_stage1_main_Slot__int",
+            "field_names": [],
+            "payloads": [
+              {
+                "Literal": {
+                  "Int": 42
+                }
+              }
+            ],
+            "ty": {
+              "Enum": "generic_aggregates_stage1_main_Slot__int"
+            },
+            "variant": "Filled"
+          }
+        },
+        "name": "number",
+        "span": {
+          "column": 1,
+          "line": 64
+        },
+        "ty": {
+          "Enum": "generic_aggregates_stage1_main_Slot__int"
+        }
+      }
+    },
+    {
+      "Match": {
+        "arms": [
+          {
+            "bindings": [
+              "value"
+            ],
+            "body": [
+              {
+                "Print": {
+                  "expr": {
+                    "VarRef": {
+                      "name": "value",
+                      "ty": "Int"
+                    }
+                  },
+                  "span": {
+                    "column": 1,
+                    "line": 67
+                  }
+                }
+              }
+            ],
+            "enum_name": "generic_aggregates_stage1_main_Slot__int",
+            "ignore_payloads": false,
+            "is_named": false,
+            "variant": "Filled"
+          },
+          {
+            "bindings": [],
+            "body": [
+              {
+                "Print": {
+                  "expr": {
+                    "Literal": {
+                      "Int": 0
+                    }
+                  },
+                  "span": {
+                    "column": 1,
+                    "line": 70
+                  }
+                }
+              }
+            ],
+            "enum_name": "generic_aggregates_stage1_main_Slot__int",
+            "ignore_payloads": false,
+            "is_named": false,
+            "variant": "Empty"
+          }
+        ],
+        "expr": {
+          "VarRef": {
+            "name": "number",
+            "ty": {
+              "Enum": "generic_aggregates_stage1_main_Slot__int"
+            }
+          }
+        },
+        "span": {
+          "column": 1,
+          "line": 65
+        }
+      }
+    },
+    {
+      "Let": {
+        "expr": {
+          "EnumVariant": {
+            "enum_name": "generic_aggregates_stage1_main_Slot__string",
+            "field_names": [],
+            "payloads": [
+              {
+                "Literal": {
+                  "String": "done"
+                }
+              }
+            ],
+            "ty": {
+              "Enum": "generic_aggregates_stage1_main_Slot__string"
+            },
+            "variant": "Filled"
+          }
+        },
+        "name": "text",
+        "span": {
+          "column": 1,
+          "line": 74
+        },
+        "ty": {
+          "Enum": "generic_aggregates_stage1_main_Slot__string"
+        }
+      }
+    },
+    {
+      "Match": {
+        "arms": [
+          {
+            "bindings": [
+              "value"
+            ],
+            "body": [
+              {
+                "Print": {
+                  "expr": {
+                    "VarRef": {
+                      "name": "value",
+                      "ty": "String"
+                    }
+                  },
+                  "span": {
+                    "column": 1,
+                    "line": 77
+                  }
+                }
+              }
+            ],
+            "enum_name": "generic_aggregates_stage1_main_Slot__string",
+            "ignore_payloads": false,
+            "is_named": false,
+            "variant": "Filled"
+          },
+          {
+            "bindings": [],
+            "body": [
+              {
+                "Print": {
+                  "expr": {
+                    "Literal": {
+                      "String": "empty"
+                    }
+                  },
+                  "span": {
+                    "column": 1,
+                    "line": 80
+                  }
+                }
+              }
+            ],
+            "enum_name": "generic_aggregates_stage1_main_Slot__string",
+            "ignore_payloads": false,
+            "is_named": false,
+            "variant": "Empty"
+          }
+        ],
+        "expr": {
+          "VarRef": {
+            "name": "text",
+            "ty": {
+              "Enum": "generic_aggregates_stage1_main_Slot__string"
+            }
+          }
+        },
+        "span": {
+          "column": 1,
+          "line": 75
+        }
+      }
+    }
+  ],
+  "structs": [
+    {
+      "fields": [
+        {
+          "name": "items",
+          "ty": {
+            "Array": [
+              "Int",
+              null
+            ]
+          }
+        },
+        {
+          "name": "by_name",
+          "ty": {
+            "Map": [
+              "String",
+              "Int"
+            ]
+          }
+        }
+      ],
+      "name": "generic_aggregates_stage1_main_Buckets__int"
+    },
+    {
+      "fields": [
+        {
+          "name": "item",
+          "ty": {
+            "Option": "Int"
+          }
+        }
+      ],
+      "name": "generic_aggregates_stage1_main_MaybeBox__int"
+    },
+    {
+      "fields": [
+        {
+          "name": "item",
+          "ty": {
+            "Result": [
+              "String",
+              "String"
+            ]
+          }
+        }
+      ],
+      "name": "generic_aggregates_stage1_main_ResultBox__string__string"
+    },
+    {
+      "fields": [
+        {
+          "name": "view",
+          "ty": {
+            "Slice": "Int"
+          }
+        }
+      ],
+      "name": "generic_aggregates_stage1_main_Window__int"
+    }
+  ]
+}

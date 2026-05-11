@@ -1074,6 +1074,14 @@ fn analyze_entry(
     })
 }
 
+/// Return the lowered MIR for a package root. This is primarily used by
+/// snapshot-style regression tests that need the same package analysis path as
+/// normal project builds without rendering native code.
+pub fn lower_project_to_mir(project_root: &Path) -> Result<mir::Program, Diagnostic> {
+    let graph = load_package_graph(project_root)?;
+    Ok(analyze_package(&graph, project_root)?.mir)
+}
+
 fn validate_workspace_root_lockfile(
     graph: &PackageGraph,
     project_root: &Path,

@@ -1,0 +1,479 @@
+{
+  "enums": [
+    {
+      "name": "borrowed_shapes_stage1_main_Snapshot",
+      "variants": [
+        {
+          "name": "Window",
+          "payload_names": [],
+          "payload_tys": [
+            {
+              "Struct": "borrowed_shapes_stage1_main_Window"
+            }
+          ]
+        },
+        {
+          "name": "Named",
+          "payload_names": [
+            "window"
+          ],
+          "payload_tys": [
+            {
+              "Struct": "borrowed_shapes_stage1_main_Window"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "functions": [
+    {
+      "body": [
+        {
+          "Return": {
+            "expr": {
+              "StructLiteral": {
+                "fields": [
+                  {
+                    "expr": {
+                      "Slice": {
+                        "base": {
+                          "VarRef": {
+                            "name": "values",
+                            "ty": {
+                              "Slice": "Int"
+                            }
+                          }
+                        },
+                        "end": null,
+                        "start": {
+                          "Literal": {
+                            "Int": 1
+                          }
+                        },
+                        "ty": {
+                          "Slice": "Int"
+                        }
+                      }
+                    },
+                    "name": "view"
+                  }
+                ],
+                "name": "borrowed_shapes_stage1_main_Window",
+                "ty": {
+                  "Struct": "borrowed_shapes_stage1_main_Window"
+                }
+              }
+            },
+            "span": {
+              "column": 1,
+              "line": 11
+            }
+          }
+        }
+      ],
+      "column": 1,
+      "extern_abi": null,
+      "extern_library": null,
+      "is_async": false,
+      "is_extern": false,
+      "line": 10,
+      "name": "borrowed_shapes_stage1_main_tail",
+      "params": [
+        {
+          "name": "values",
+          "ty": {
+            "Slice": "Int"
+          }
+        }
+      ],
+      "path": "<example>/src/main.ax",
+      "return_ty": {
+        "Struct": "borrowed_shapes_stage1_main_Window"
+      },
+      "source_name": "tail"
+    },
+    {
+      "body": [
+        {
+          "Match": {
+            "arms": [
+              {
+                "bindings": [
+                  "window"
+                ],
+                "body": [
+                  {
+                    "Return": {
+                      "expr": {
+                        "Call": {
+                          "args": [
+                            {
+                              "FieldAccess": {
+                                "base": {
+                                  "VarRef": {
+                                    "name": "window",
+                                    "ty": {
+                                      "Struct": "borrowed_shapes_stage1_main_Window"
+                                    }
+                                  }
+                                },
+                                "field": "view",
+                                "ty": {
+                                  "Slice": "Int"
+                                }
+                              }
+                            }
+                          ],
+                          "name": "first",
+                          "ty": "Int"
+                        }
+                      },
+                      "span": {
+                        "column": 1,
+                        "line": 17
+                      }
+                    }
+                  }
+                ],
+                "enum_name": "borrowed_shapes_stage1_main_Snapshot",
+                "ignore_payloads": false,
+                "is_named": false,
+                "variant": "Window"
+              },
+              {
+                "bindings": [
+                  "window"
+                ],
+                "body": [
+                  {
+                    "Return": {
+                      "expr": {
+                        "Call": {
+                          "args": [
+                            {
+                              "FieldAccess": {
+                                "base": {
+                                  "VarRef": {
+                                    "name": "window",
+                                    "ty": {
+                                      "Struct": "borrowed_shapes_stage1_main_Window"
+                                    }
+                                  }
+                                },
+                                "field": "view",
+                                "ty": {
+                                  "Slice": "Int"
+                                }
+                              }
+                            }
+                          ],
+                          "name": "last",
+                          "ty": "Int"
+                        }
+                      },
+                      "span": {
+                        "column": 1,
+                        "line": 20
+                      }
+                    }
+                  }
+                ],
+                "enum_name": "borrowed_shapes_stage1_main_Snapshot",
+                "ignore_payloads": false,
+                "is_named": true,
+                "variant": "Named"
+              }
+            ],
+            "expr": {
+              "VarRef": {
+                "name": "snapshot",
+                "ty": {
+                  "Enum": "borrowed_shapes_stage1_main_Snapshot"
+                }
+              }
+            },
+            "span": {
+              "column": 1,
+              "line": 15
+            }
+          }
+        }
+      ],
+      "column": 1,
+      "extern_abi": null,
+      "extern_library": null,
+      "is_async": false,
+      "is_extern": false,
+      "line": 14,
+      "name": "borrowed_shapes_stage1_main_read",
+      "params": [
+        {
+          "name": "snapshot",
+          "ty": {
+            "Enum": "borrowed_shapes_stage1_main_Snapshot"
+          }
+        }
+      ],
+      "path": "<example>/src/main.ax",
+      "return_ty": "Int",
+      "source_name": "read"
+    }
+  ],
+  "path": "<example>/src/main.ax",
+  "statics": [],
+  "stmts": [
+    {
+      "Let": {
+        "expr": {
+          "ArrayLiteral": {
+            "elements": [
+              {
+                "Literal": {
+                  "Int": 3
+                }
+              },
+              {
+                "Literal": {
+                  "Int": 7
+                }
+              },
+              {
+                "Literal": {
+                  "Int": 9
+                }
+              },
+              {
+                "Literal": {
+                  "Int": 11
+                }
+              }
+            ],
+            "ty": {
+              "Array": [
+                "Int",
+                4
+              ]
+            }
+          }
+        },
+        "name": "numbers",
+        "span": {
+          "column": 1,
+          "line": 25
+        },
+        "ty": {
+          "Array": [
+            "Int",
+            null
+          ]
+        }
+      }
+    },
+    {
+      "Let": {
+        "expr": {
+          "Call": {
+            "args": [
+              {
+                "Slice": {
+                  "base": {
+                    "VarRef": {
+                      "name": "numbers",
+                      "ty": {
+                        "Array": [
+                          "Int",
+                          null
+                        ]
+                      }
+                    }
+                  },
+                  "end": null,
+                  "start": null,
+                  "ty": {
+                    "Slice": "Int"
+                  }
+                }
+              }
+            ],
+            "name": "borrowed_shapes_stage1_main_tail",
+            "ty": {
+              "Struct": "borrowed_shapes_stage1_main_Window"
+            }
+          }
+        },
+        "name": "window",
+        "span": {
+          "column": 1,
+          "line": 26
+        },
+        "ty": {
+          "Struct": "borrowed_shapes_stage1_main_Window"
+        }
+      }
+    },
+    {
+      "Print": {
+        "expr": {
+          "Call": {
+            "args": [
+              {
+                "FieldAccess": {
+                  "base": {
+                    "VarRef": {
+                      "name": "window",
+                      "ty": {
+                        "Struct": "borrowed_shapes_stage1_main_Window"
+                      }
+                    }
+                  },
+                  "field": "view",
+                  "ty": {
+                    "Slice": "Int"
+                  }
+                }
+              }
+            ],
+            "name": "first",
+            "ty": "Int"
+          }
+        },
+        "span": {
+          "column": 1,
+          "line": 27
+        }
+      }
+    },
+    {
+      "Print": {
+        "expr": {
+          "Call": {
+            "args": [
+              {
+                "EnumVariant": {
+                  "enum_name": "borrowed_shapes_stage1_main_Snapshot",
+                  "field_names": [],
+                  "payloads": [
+                    {
+                      "Call": {
+                        "args": [
+                          {
+                            "Slice": {
+                              "base": {
+                                "VarRef": {
+                                  "name": "numbers",
+                                  "ty": {
+                                    "Array": [
+                                      "Int",
+                                      null
+                                    ]
+                                  }
+                                }
+                              },
+                              "end": null,
+                              "start": null,
+                              "ty": {
+                                "Slice": "Int"
+                              }
+                            }
+                          }
+                        ],
+                        "name": "borrowed_shapes_stage1_main_tail",
+                        "ty": {
+                          "Struct": "borrowed_shapes_stage1_main_Window"
+                        }
+                      }
+                    }
+                  ],
+                  "ty": {
+                    "Enum": "borrowed_shapes_stage1_main_Snapshot"
+                  },
+                  "variant": "Window"
+                }
+              }
+            ],
+            "name": "borrowed_shapes_stage1_main_read",
+            "ty": "Int"
+          }
+        },
+        "span": {
+          "column": 1,
+          "line": 28
+        }
+      }
+    },
+    {
+      "Print": {
+        "expr": {
+          "Call": {
+            "args": [
+              {
+                "EnumVariant": {
+                  "enum_name": "borrowed_shapes_stage1_main_Snapshot",
+                  "field_names": [
+                    "window"
+                  ],
+                  "payloads": [
+                    {
+                      "Call": {
+                        "args": [
+                          {
+                            "Slice": {
+                              "base": {
+                                "VarRef": {
+                                  "name": "numbers",
+                                  "ty": {
+                                    "Array": [
+                                      "Int",
+                                      null
+                                    ]
+                                  }
+                                }
+                              },
+                              "end": null,
+                              "start": null,
+                              "ty": {
+                                "Slice": "Int"
+                              }
+                            }
+                          }
+                        ],
+                        "name": "borrowed_shapes_stage1_main_tail",
+                        "ty": {
+                          "Struct": "borrowed_shapes_stage1_main_Window"
+                        }
+                      }
+                    }
+                  ],
+                  "ty": {
+                    "Enum": "borrowed_shapes_stage1_main_Snapshot"
+                  },
+                  "variant": "Named"
+                }
+              }
+            ],
+            "name": "borrowed_shapes_stage1_main_read",
+            "ty": "Int"
+          }
+        },
+        "span": {
+          "column": 1,
+          "line": 29
+        }
+      }
+    }
+  ],
+  "structs": [
+    {
+      "fields": [
+        {
+          "name": "view",
+          "ty": {
+            "Slice": "Int"
+          }
+        }
+      ],
+      "name": "borrowed_shapes_stage1_main_Window"
+    }
+  ]
+}
