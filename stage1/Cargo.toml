@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/axiomc"]
+members = ["crates/axiom-lsp", "crates/axiomc"]
 resolver = "2"
 
 [workspace.package]
