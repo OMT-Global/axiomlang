@@ -5147,40 +5147,37 @@ true
             render_lockfile_for_project(&project, &manifest).expect("lockfile"),
         )
         .expect("write lockfile");
-        let source = "import \"std/async.ax\"\nimport \"std/async_time.ax\"\nimport \"std/async_net.ax\"\nasync fn compute(value: int): int {\nreturn value + 1\n}\nlet direct: Task<int> = compute(40)\nprint await direct\nlet handle: JoinHandle<int> = spawn<int>(compute(6))\nprint await join<int>(handle)\nlet canceled: Task<int> = cancel<int>(compute(1))\nprint is_canceled<int>(canceled)\nlet maybe: Option<int> = await timeout<int>(compute(5), 100)\nmatch maybe {\nSome(value) {\nprint value\n}\nNone {\nprint 0\n}\n}\nlet messages: AsyncChannel<string> = channel<string>()\nlet sent: AsyncChannel<string> = await send<string>(messages, \"message\")\nlet received: Option<string> = await recv<string>(sent)\nmatch received {\nSome(message) {\nprint message\n}\nNone {\nprint \"missing\"\n}\n}\nlet left_index: Task<Option<string>> = ready<Option<string>>(None)\nlet right_index: Task<Option<string>> = ready<Option<string>>(Some(\"right\"))\nlet picked_index: SelectResult<string> = await select<string>(left_index, right_index)\nprint selected<string>(picked_index)\nlet left_value: Task<Option<string>> = ready<Option<string>>(None)\nlet right_value: Task<Option<string>> = ready<Option<string>>(Some(\"right\"))\nlet picked_value: SelectResult<string> = await select<string>(left_value, right_value)\nmatch selected_value<string>(picked_value) {\nSome(value) {\nprint value\n}\nNone {\nprint \"none\"\n}\n}\nprint await sleep_ms(0) == 0\nlet missing_socket: Option<string> = await tcp_dial(\"127.0.0.1\", 1, \"ping\", 1)\nmatch missing_socket {\nSome(_reply) {\nprint \"unexpected\"\n}\nNone {\nprint \"net none\"\n}\n}\n";
+        let source = "import \"std/async.ax\"\nimport \"std/async_time.ax\"\nimport \"std/async_net.ax\"\nasync fn compute(value: int): int {\nreturn value + 1\n}\nlet direct: Task<int> = compute(40)\nprint await direct\nlet first: JoinHandle<int> = spawn<int>(compute(6))\nlet second: JoinHandle<int> = spawn<int>(compute(10))\nprint await join<int>(second)\nprint await join<int>(first)\nlet canceled: Task<int> = cancel<int>(compute(1))\nprint is_canceled<int>(canceled)\nlet maybe: Option<int> = await timeout<int>(compute(5), 100)\nmatch maybe {\nSome(value) {\nprint value\n}\nNone {\nprint 0\n}\n}\nlet messages: AsyncChannel<string> = channel<string>()\nlet sent: AsyncChannel<string> = await send<string>(messages, \"message\")\nlet received: Option<string> = await recv<string>(sent)\nmatch received {\nSome(message) {\nprint message\n}\nNone {\nprint \"missing\"\n}\n}\nlet left_index: Task<Option<string>> = ready<Option<string>>(None)\nlet right_index: Task<Option<string>> = ready<Option<string>>(Some(\"right\"))\nlet picked_index: SelectResult<string> = await select<string>(left_index, right_index)\nprint selected<string>(picked_index)\nlet left_value: Task<Option<string>> = ready<Option<string>>(None)\nlet right_value: Task<Option<string>> = ready<Option<string>>(Some(\"right\"))\nlet picked_value: SelectResult<string> = await select<string>(left_value, right_value)\nmatch selected_value<string>(picked_value) {\nSome(value) {\nprint value\n}\nNone {\nprint \"none\"\n}\n}\nprint await sleep_ms(0) == 0\nlet missing_socket: Option<string> = await tcp_dial(\"127.0.0.1\", 1, \"ping\", 1)\nmatch missing_socket {\nSome(_reply) {\nprint \"unexpected\"\n}\nNone {\nprint \"net none\"\n}\n}\n";
         fs::write(project.join("src/main.ax"), source).expect("write source");
         fs::write(project.join("src/main_test.ax"), source).expect("write test");
         fs::write(
             project.join("src/main_test.stdout"),
-            "41\n7\ntrue\n6\nmessage\n1\nright\ntrue\nnet none\n",
+            "41\n11\n7\ntrue\n6\nmessage\n1\nright\ntrue\nnet none\n",
         )
         .expect("write golden");
 
         let built = build_project(&project).expect("build project");
         let generated = fs::read_to_string(&built.generated_rust).expect("read generated rust");
         assert!(generated.contains("axiom_task_deferred(move ||"));
-        assert!(
-            generated.contains("std::thread::spawn(move || axiom_task_ready(axiom_await(task)))")
-        );
-        assert!(generated.contains("recv_timeout(std::time::Duration::from_millis"));
-        assert!(generated.contains("host async timeout cannot cancel running task"));
-        assert!(generated.contains("let _ = worker.join();"));
-        assert!(!generated.contains("drop(worker);"));
+        assert!(generated.contains("struct AxiomRuntimeScheduler"));
+        assert!(generated.contains("fn schedule<T>(&mut self, task: AxiomTask<T>)"));
+        assert!(generated.contains("fn join<T>(&mut self, mut handle: AxiomJoinHandle<T>)"));
+        assert!(!generated.contains("AXIOM_ASYNC_EXECUTOR"));
+        assert!(!generated.contains("std::thread::JoinHandle"));
+        assert!(!generated.contains("std::thread::spawn(move || axiom_task_ready(axiom_await(task)))"));
+        assert!(!generated.contains("recv_timeout(std::time::Duration::from_millis"));
         assert!(generated.contains("clock_sleep_ms(milliseconds)"));
         assert!(generated.contains("net_tcp_dial(host, port, message, timeout_ms)"));
         assert!(generated.contains("std::net::TcpStream::connect_timeout"));
         assert!(generated.contains("let worker = std::thread::spawn(move ||"));
-        assert!(generated.contains(
-            "worker
-                    .join()"
-        ));
+        assert!(generated.contains("scheduler.schedule(task)"));
         assert!(!generated.contains("return axiom_task_ready(value + 1);"));
         let output = compiled_binary_command(&built.binary)
             .output()
             .expect("run compiled binary");
         assert_eq!(
             String::from_utf8_lossy(&output.stdout),
-            "41\n7\ntrue\n6\nmessage\n1\nright\ntrue\nnet none\n"
+            "41\n11\n7\ntrue\n6\nmessage\n1\nright\ntrue\nnet none\n"
         );
         let host_output = compiled_binary_command(&built.binary)
             .env("AXIOM_ASYNC_EXECUTOR", "host")
@@ -5188,7 +5185,7 @@ true
             .expect("run compiled binary with host async executor");
         assert_eq!(
             String::from_utf8_lossy(&host_output.stdout),
-            "41\n7\ntrue\n6\nmessage\n1\nright\ntrue\nnet none\n"
+            "41\n11\n7\ntrue\n6\nmessage\n1\nright\ntrue\nnet none\n"
         );
 
         let tests = run_project_tests(&project).expect("run tests");
