@@ -9,7 +9,10 @@
       "description": "environment variable access",
       "enabled": true,
       "name": "env",
-      "allowed": ["AXIOM_SAFE", "AXIOM_SECRET"],
+      "allowed": [
+        "AXIOM_SAFE",
+        "AXIOM_SECRET"
+      ],
       "unsafe_unrestricted": true,
       "unsafe_opt_in": true,
       "unsafe_rationale": "legacy environment bridge"
@@ -24,7 +27,9 @@
     {
       "name": "env",
       "granted": true,
-      "triggers": ["manifest:capabilities.env"]
+      "triggers": [
+        "manifest:capabilities.env"
+      ]
     },
     {
       "name": "net",
@@ -37,7 +42,10 @@
       "description": "environment variable access",
       "enabled": true,
       "name": "env",
-      "allowed": ["AXIOM_SAFE", "AXIOM_SECRET"],
+      "allowed": [
+        "AXIOM_SAFE",
+        "AXIOM_SECRET"
+      ],
       "unsafe_unrestricted": true,
       "unsafe_opt_in": true,
       "unsafe_rationale": "legacy environment bridge"
@@ -71,7 +79,10 @@
           "description": "environment variable access",
           "enabled": true,
           "name": "env",
-          "allowed": ["AXIOM_SAFE", "AXIOM_SECRET"],
+          "allowed": [
+            "AXIOM_SAFE",
+            "AXIOM_SECRET"
+          ],
           "unsafe_unrestricted": true,
           "unsafe_opt_in": true,
           "unsafe_rationale": "legacy environment bridge"
@@ -87,7 +98,14 @@
   "stdlib_modules": [
     {
       "capability": "env",
-      "modules": ["std/env"]
+      "modules": [
+        {
+          "module": "std/env",
+          "triggers": [
+            "1:1:env_get"
+          ]
+        }
+      ]
     }
   ]
 }

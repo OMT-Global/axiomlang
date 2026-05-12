@@ -257,7 +257,24 @@
           "modules": {
             "type": "array",
             "items": {
-              "$ref": "#/$defs/path"
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "module",
+                "triggers"
+              ],
+              "properties": {
+                "module": {
+                  "$ref": "#/$defs/path"
+                },
+                "triggers": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                }
+              }
             }
           }
         }
@@ -595,7 +612,24 @@
                 "modules": {
                   "type": "array",
                   "items": {
-                    "$ref": "#/$defs/path"
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "module",
+                      "triggers"
+                    ],
+                    "properties": {
+                      "module": {
+                        "$ref": "#/$defs/path"
+                      },
+                      "triggers": {
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      }
+                    }
                   }
                 }
               }
