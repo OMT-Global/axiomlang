@@ -461,14 +461,14 @@ fn main() {
                         },
                         Err(error) => print_error("caps", error, json),
                     }
-                } else {
+                } else if json {
                     match (project_capabilities(&project), capability_sbom(&project)) {
                         (Ok(capabilities), Ok(sbom)) => {
-                            let payload = if json {
-                                json_contract::caps_manifest_success(&project, &capabilities, &sbom)
-                            } else {
-                                json_contract::caps_success(&project, &capabilities)
-                            };
+                            let payload = json_contract::caps_manifest_success(
+                                &project,
+                                &capabilities,
+                                &sbom,
+                            );
                             match json_contract::to_pretty_string(&payload) {
                                 Ok(output) => {
                                     println!("{output}");
@@ -478,6 +478,20 @@ fn main() {
                             }
                         }
                         (Err(error), _) | (_, Err(error)) => print_error("caps", error, json),
+                    }
+                } else {
+                    match project_capabilities(&project) {
+                        Ok(capabilities) => {
+                            let payload = json_contract::caps_success(&project, &capabilities);
+                            match json_contract::to_pretty_string(&payload) {
+                                Ok(output) => {
+                                    println!("{output}");
+                                    0
+                                }
+                                Err(error) => print_error("caps", error, false),
+                            }
+                        }
+                        Err(error) => print_error("caps", error, json),
                     }
                 }
             }
