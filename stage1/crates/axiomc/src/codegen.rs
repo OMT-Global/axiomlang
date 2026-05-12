@@ -156,7 +156,8 @@ pub fn render_rust_for_package_with_capabilities(
         );
     }
     out.push_str("use std::panic;\n");
-    out.push_str("use std::sync::Once;\n\n");
+    out.push_str("use std::thread;\n");
+    out.push_str("use std::sync::{Arc, Condvar, Mutex, Once};\n\n");
     let package_root = rust_path_literal(package_root);
     let fs_root = rust_path_literal(fs_root);
     out.push_str(&format!(
@@ -187,11 +188,16 @@ pub fn render_rust_for_package_with_capabilities(
     out.push_str("}\n\n");
     out.push_str("#[allow(dead_code)]\n");
     out.push_str("struct AxiomJoinHandle<T> {\n");
-    out.push_str("    task: Option<AxiomTask<T>>,\n");
+    out.push_str("    handle: Option<thread::JoinHandle<T>>,\n");
+    out.push_str("}\n\n");
+    out.push_str("#[allow(dead_code)]\n");
+    out.push_str("#[derive(Clone)]\n");
+    out.push_str("struct AxiomChannel<T> {\n");
+    out.push_str("    state: Arc<(Mutex<AxiomChannelState<T>>, Condvar)>,\n");
     out.push_str("}\n\n");
     out.push_str("#[allow(dead_code)]\n");
     out.push_str("#[derive(Debug, PartialEq)]\n");
-    out.push_str("struct AxiomChannel<T> {\n");
+    out.push_str("struct AxiomChannelState<T> {\n");
     out.push_str("    slot: Option<T>,\n");
     out.push_str("    closed: bool,\n");
     out.push_str("}\n\n");
@@ -253,16 +259,22 @@ impl AxiomRuntimeScheduler {
         Self { scheduled: 0, completed: 0 }
     }
 
-    fn schedule<T>(&mut self, task: AxiomTask<T>) -> AxiomJoinHandle<T> {
+    fn schedule<T: Send + 'static>(&mut self, task: AxiomTask<T>) -> AxiomJoinHandle<T> {
         self.scheduled += 1;
-        AxiomJoinHandle { task: Some(task) }
+        AxiomJoinHandle {
+            handle: Some(thread::spawn(move || axiom_await(task))),
+        }
     }
 
-    fn join<T>(&mut self, mut handle: AxiomJoinHandle<T>) -> AxiomTask<T> {
-        match handle.task.take() {
-            Some(task) => {
+    fn join<T: Send + 'static>(&mut self, mut handle: AxiomJoinHandle<T>) -> AxiomTask<T> {
+        match handle.handle.take() {
+            Some(join_handle) => {
                 self.completed += 1;
-                task
+                axiom_task_deferred(move || {
+                    join_handle
+                        .join()
+                        .unwrap_or_else(|_| axiom_runtime_error("async", "joined task panicked"))
+                })
             }
             None => axiom_runtime_error("async", "invalid join handle state"),
         }
@@ -294,6 +306,53 @@ fn axiom_async_timeout<T: Send + 'static>(task: AxiomTask<T>, timeout_ms: i64) -
     }
     let _timeout_ms = timeout_ms;
     axiom_task_ready(Some(axiom_await(task)))
+}
+
+#[allow(dead_code)]
+fn axiom_async_channel<T>() -> AxiomChannel<T> {
+    AxiomChannel {
+        state: Arc::new((
+            Mutex::new(AxiomChannelState { slot: None, closed: false }),
+            Condvar::new(),
+        )),
+    }
+}
+
+#[allow(dead_code)]
+fn axiom_async_send<T: Send + 'static>(channel: AxiomChannel<T>, value: T) -> AxiomTask<AxiomChannel<T>> {
+    axiom_task_deferred(move || {
+        let (lock, wakeup) = &*channel.state;
+        let mut state = lock.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        while state.slot.is_some() && !state.closed {
+            state = wakeup.wait(state).unwrap_or_else(|poisoned| poisoned.into_inner());
+        }
+        if state.closed {
+            axiom_runtime_error("async", "send on closed channel");
+        }
+        state.slot = Some(value);
+        wakeup.notify_one();
+        drop(state);
+        channel
+    })
+}
+
+#[allow(dead_code)]
+fn axiom_async_recv<T: Send + 'static>(channel: AxiomChannel<T>) -> AxiomTask<Option<T>> {
+    axiom_task_deferred(move || {
+        let (lock, wakeup) = &*channel.state;
+        let mut state = lock.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        loop {
+            if state.slot.is_some() {
+                let value = state.slot.take();
+                wakeup.notify_one();
+                return value;
+            }
+            if state.closed {
+                return None;
+            }
+            state = wakeup.wait(state).unwrap_or_else(|poisoned| poisoned.into_inner());
+        }
+    })
 }
 
 "#);
@@ -3567,18 +3626,18 @@ fn render_expr(expr: &Expr) -> String {
             )
         }
         Expr::Call { name, .. } if name == "async_channel" => {
-            String::from("AxiomChannel { slot: None, closed: false }")
+            String::from("axiom_async_channel()")
         }
         Expr::Call { name, args, .. } if name == "async_send" => {
             format!(
-                "{{ let _channel = {}; axiom_task_ready(AxiomChannel {{ slot: Some({}), closed: false }}) }}",
+                "axiom_async_send({}, {})",
                 render_expr(&args[0]),
                 render_expr(&args[1])
             )
         }
         Expr::Call { name, args, .. } if name == "async_recv" => {
             format!(
-                "{{ let channel = {}; axiom_task_ready(channel.slot) }}",
+                "axiom_async_recv({})",
                 render_expr(&args[0])
             )
         }
