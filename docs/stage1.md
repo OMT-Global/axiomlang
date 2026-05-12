@@ -309,3 +309,7 @@ Important bar definition:
   `make stage1-conformance`, and `make stage1-smoke`.
 - Land stage1 slices in small, reviewable increments; do not combine data-model work, ownership work, and backend replacement in one change.
 - Prefer compile-fail tests for language rule changes before broad end-to-end examples.
+
+## Reference
+
+- [Typed MIR contract](stage1-mir-contract.md)

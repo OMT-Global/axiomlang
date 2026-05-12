@@ -686,3 +686,157 @@ fn lower_compare_op(op: hir::CompareOp) -> CompareOp {
         hir::CompareOp::Ge => CompareOp::Ge,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::hir;
+    use crate::syntax;
+    use serde_json::json;
+    use std::path::Path;
+
+    fn lower_source(source: &str) -> Program {
+        let parsed =
+            syntax::parse_program(source, Path::new("main.ax")).expect("parse MIR fixture");
+        let hir = hir::lower(&parsed).expect("lower HIR fixture");
+        lower(&hir)
+    }
+
+    #[test]
+    fn mir_contract_covers_locals_moves_borrows_calls_branches_match_and_return() {
+        let program = lower_source(
+            r#"
+struct Pair {
+name: string
+values: [int]
+}
+
+enum Choice {
+Picked(int)
+Skipped
+}
+
+fn tail(values: &[int]): &[int] {
+return values[1:]
+}
+
+fn choose(flag: bool): Choice {
+if flag {
+return Picked(7)
+}
+return Skipped
+}
+
+let pair: Pair = Pair { name: "alpha", values: [1, 2, 3] }
+let moved_values: [int] = pair.values
+let borrowed: &[int] = tail(moved_values[:])
+match choose(true) {
+Picked(value) {
+print value
+}
+Skipped {
+print len(borrowed)
+}
+}
+print pair.name
+"#,
+        );
+
+        assert_eq!(
+            program.structs[0].fields[1].ty,
+            Type::Array(Box::new(Type::Int), None)
+        );
+        assert_eq!(program.enums[0].variants[0].payload_tys, vec![Type::Int]);
+
+        let tail_fn = program
+            .functions
+            .iter()
+            .find(|function| function.source_name == "tail")
+            .expect("tail function lowered");
+        assert_eq!(tail_fn.params[0].ty, Type::Slice(Box::new(Type::Int)));
+        assert_eq!(tail_fn.return_ty, Type::Slice(Box::new(Type::Int)));
+        assert!(matches!(
+            tail_fn.body.first(),
+            Some(Stmt::Return {
+                expr: Expr::Slice { .. },
+                ..
+            })
+        ));
+
+        let choose_fn = program
+            .functions
+            .iter()
+            .find(|function| function.source_name == "choose")
+            .expect("choose function lowered");
+        assert!(matches!(choose_fn.body.first(), Some(Stmt::If { .. })));
+        assert!(matches!(
+            choose_fn.body.last(),
+            Some(Stmt::Return {
+                expr: Expr::EnumVariant { .. },
+                ..
+            })
+        ));
+
+        assert!(
+            matches!(program.stmts[0], Stmt::Let { ref name, ty: Type::Struct(ref struct_name), expr: Expr::StructLiteral { .. }, .. } if name == "pair" && struct_name == "Pair")
+        );
+        assert!(
+            matches!(program.stmts[1], Stmt::Let { ref name, ty: Type::Array(_, None), expr: Expr::FieldAccess { .. }, .. } if name == "moved_values")
+        );
+        assert!(
+            matches!(program.stmts[2], Stmt::Let { ref name, ty: Type::Slice(_), expr: Expr::Call { .. }, .. } if name == "borrowed")
+        );
+        assert!(
+            matches!(program.stmts[3], Stmt::Match { ref expr, ref arms, .. } if matches!(expr, Expr::Call { name, ty: Type::Enum(enum_name), .. } if name.contains("choose") && enum_name == "Choice") && arms.len() == 2)
+        );
+    }
+
+    #[test]
+    fn mir_contract_serializes_stable_typed_shapes() {
+        let program = lower_source(
+            r#"
+enum Choice {
+Picked(int)
+Skipped
+}
+
+fn choose(flag: bool): Choice {
+if flag {
+return Picked(7)
+}
+return Skipped
+}
+
+match choose(true) {
+Picked(value) {
+print value
+}
+Skipped {
+print 0
+}
+}
+"#,
+        );
+        let value = serde_json::to_value(&program).expect("serialize MIR");
+        assert_eq!(
+            value["enums"][0]["variants"][0]["payload_tys"],
+            json!(["Int"])
+        );
+        assert_eq!(
+            value["functions"][0]["return_ty"],
+            json!({ "Enum": "Choice" })
+        );
+        assert_eq!(
+            value["functions"][0]["body"][0]["If"]["cond"]["VarRef"]["ty"],
+            json!("Bool")
+        );
+        assert_eq!(
+            value["stmts"][0]["Match"]["expr"]["Call"]["ty"],
+            json!({ "Enum": "Choice" })
+        );
+        assert_eq!(
+            value["stmts"][0]["Match"]["arms"][0]["bindings"],
+            json!(["value"])
+        );
+    }
+}
