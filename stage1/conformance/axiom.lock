@@ -220,6 +220,11 @@ version = "0.1.0"
 source = "path:fail/stdlib_clock_without_capability"
 
 [[package]]
+name = "conformance-stdlib-fs-write-without-capability"
+version = "0.1.0"
+source = "path:fail/stdlib_fs_write_without_capability"
+
+[[package]]
 name = "conformance-string-borrow-local-return"
 version = "0.1.0"
 source = "path:fail/string_borrow_local_return"

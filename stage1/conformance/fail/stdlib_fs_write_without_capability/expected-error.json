@@ -1,0 +1,8 @@
+{
+  "kind": "capability",
+  "code": null,
+  "message": "call to \"fs_write\" requires [capabilities].fs:write = true",
+  "path": "src/main.ax",
+  "line": 5,
+  "column": 8
+}

@@ -98,6 +98,8 @@ Current compile-fail fixtures cover:
   expected `Result<T, E>` context.
 - `stdlib_clock_without_capability`: capability diagnostics for clock
   intrinsics without the manifest opt-in.
+- `stdlib_fs_write_without_capability`: capability diagnostics for write-side
+  filesystem helpers without the manifest opt-in.
 - `package_visibility_dependency_boundary`: import diagnostics for `pub(pkg)`
   items that are referenced across a dependency package boundary.
 - `recursive_struct_without_indirection`: type diagnostics for direct
