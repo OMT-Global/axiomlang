@@ -17,10 +17,10 @@ use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::env;
 use std::fs;
-use std::io;
+use std::io::{self, Read, Write};
 use std::path::{Component, Path, PathBuf};
-use std::process::Command;
-use std::time::Instant;
+use std::process::{Command, Stdio};
+use std::time::{Duration, Instant};
 
 const BUILD_CACHE_VERSION: u32 = 1;
 const BUILD_CACHE_COMPILER: &str = concat!("axiomc-stage1-", env!("CARGO_PKG_VERSION"));
@@ -748,6 +748,7 @@ fn collect_discovered_tests(
             stderr,
             kind,
             expected_error: None,
+            http: None,
             capabilities: Vec::new(),
             package: None,
         });
@@ -1948,9 +1949,14 @@ fn run_test_case(
     }
 
     let build_output_dir = out_dir_path(project_root, manifest);
-    match command_for_build_output(&binary, &build_output_dir)
-        .and_then(|mut command| command.output())
-    {
+    let command_result = if test.http.is_some() {
+        run_http_fixture_case(&binary, &build_output_dir, test)
+    } else {
+        command_for_build_output(&binary, &build_output_dir)
+            .and_then(|mut command| command.output())
+    };
+
+    match command_result {
         Ok(output) => {
             let stdout = String::from_utf8_lossy(&output.stdout).to_string();
             let stderr = String::from_utf8_lossy(&output.stderr).to_string();
@@ -2061,6 +2067,63 @@ fn run_test_case(
             ),
         },
     }
+}
+
+fn run_http_fixture_case(
+    binary: &Path,
+    build_output_dir: &Path,
+    test: &crate::manifest::TestTarget,
+) -> io::Result<std::process::Output> {
+    let fixture = test.http.as_ref().expect("http fixture present");
+    let listener = std::net::TcpListener::bind(("127.0.0.1", 0))?;
+    let port = listener.local_addr()?.port();
+    drop(listener);
+
+    let mut command = command_for_build_output(binary, build_output_dir)?;
+    command
+        .env("AXIOM_TEST_BIND", format!("127.0.0.1:{port}"))
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    let mut child = command.spawn()?;
+
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let mut stream = loop {
+        match std::net::TcpStream::connect(("127.0.0.1", port)) {
+            Ok(stream) => break stream,
+            Err(err) if Instant::now() < deadline => {
+                let _ = err;
+                std::thread::sleep(Duration::from_millis(25));
+            }
+            Err(err) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(io::Error::new(
+                    io::ErrorKind::TimedOut,
+                    format!("http fixture service never became ready: {err}"),
+                ));
+            }
+        }
+    };
+
+    let path = if fixture.path.starts_with('/') {
+        fixture.path.clone()
+    } else {
+        format!("/{}", fixture.path)
+    };
+    stream.write_all(format!("GET {path} HTTP/1.0\r\nHost: 127.0.0.1\r\n\r\n").as_bytes())?;
+    let mut response = String::new();
+    stream.read_to_string(&mut response)?;
+    let body = response.split("\r\n\r\n").nth(1).unwrap_or("");
+    if body != fixture.expected_body {
+        let _ = child.kill();
+        let _ = child.wait();
+        return Err(io::Error::other(format!(
+            "http response body expected {:?}, got {:?}",
+            fixture.expected_body, body
+        )));
+    }
+
+    child.wait_with_output()
 }
 
 fn run_compile_fail_case(
@@ -5670,6 +5733,7 @@ mod tests {
                 stderr: None,
                 kind: TestKind::Unit,
                 expected_error: None,
+                http: None,
                 capabilities: Vec::new(),
                 package: None,
             },
@@ -5680,6 +5744,7 @@ mod tests {
                 stderr: None,
                 kind: TestKind::Benchmark,
                 expected_error: None,
+                http: None,
                 capabilities: Vec::new(),
                 package: None,
             },

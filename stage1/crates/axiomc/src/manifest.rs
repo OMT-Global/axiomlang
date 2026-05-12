@@ -68,8 +68,15 @@ pub struct TestTarget {
     pub stderr: Option<String>,
     pub kind: TestKind,
     pub expected_error: Option<ExpectedDiagnostic>,
+    pub http: Option<HttpTestFixture>,
     pub capabilities: Vec<CapabilityKind>,
     pub package: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct HttpTestFixture {
+    pub path: String,
+    pub expected_body: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -214,6 +221,7 @@ struct RawTestTarget {
     stderr: Option<String>,
     kind: Option<String>,
     expected_error: Option<ExpectedDiagnostic>,
+    http: Option<HttpTestFixture>,
     capabilities: Option<Vec<CapabilityKind>>,
     package: Option<String>,
 }
@@ -947,6 +955,7 @@ fn normalize_tests(
             stderr: raw_test.stderr,
             kind: normalize_test_kind(raw_test.kind, path, &format!("{field_prefix}.kind"))?,
             expected_error: raw_test.expected_error,
+            http: raw_test.http,
             capabilities,
             package,
         });

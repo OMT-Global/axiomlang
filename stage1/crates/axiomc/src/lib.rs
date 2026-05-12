@@ -6004,6 +6004,7 @@ print serve_once("127.0.0.1:18080", "hello")
                 stderr: None,
                 kind: TestKind::Unit,
                 expected_error: None,
+                http: None,
                 capabilities: Vec::new(),
                 package: None,
             }]
@@ -6132,6 +6133,47 @@ print serve_once("127.0.0.1:18080", "hello")
                 .iter()
                 .any(|case| case.entry == "src/main_test.ax")
         );
+    }
+
+    #[test]
+    fn run_project_tests_supports_local_http_fixture_runner() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("service-runner");
+        create_project(&project, Some("service-runner-app")).expect("create project");
+        fs::write(
+            project.join("axiom.toml"),
+            format!(
+                "{}\n[[tests]]\nname = \"service-smoke\"\nentry = \"src/service_test.ax\"\nstdout = \"true\\n\"\ncapabilities = [\"net\", \"env\"]\nhttp = {{ path = \"/health\", expected_body = \"ok\" }}\n",
+                render_manifest("service-runner-app")
+            ),
+        )
+        .expect("write manifest");
+        fs::write(
+            project.join("src/service_test.ax"),
+            r#"import "std/env.ax"
+import "std/http.ax"
+
+match get_env("AXIOM_TEST_BIND") {
+Some(bind) {
+print serve_once(bind, "ok")
+}
+None {
+print false
+}
+}
+"#,
+        )
+        .expect("write service test");
+
+        let output = run_project_tests(&project).expect("run tests");
+        let service_case = output
+            .cases
+            .iter()
+            .find(|case| case.name == "service-smoke")
+            .expect("service case");
+        assert!(service_case.ok, "service case failed: {service_case:?}");
+        assert_eq!(service_case.stdout, "true\n");
+        assert_eq!(output.failed, 0);
     }
 
     #[test]
