@@ -4,7 +4,9 @@ import "response.ax"
 
 pub fn health_route(started: bool): HttpRoute {
 let path: string = path_join_segment("", "health")
-return route("/" + path, body("/" + path, started))
+let req: HttpRequest = request("GET", "/" + path, "")
+let selected_response: HttpResponse = json_response(req, started)
+return route_response(req.path, selected_response)
 }
 
 pub fn serve_health(bind: string, max_requests: int, started: bool): bool {

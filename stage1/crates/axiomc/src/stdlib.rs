@@ -299,12 +299,55 @@ pub fn snapshot(name: string, actual: string, expected: string): int {\nreturn a
     ),
     (
         "http.ax",
-        "pub struct HttpRoute {\npath: string\nbody: string\n}\n\
-pub fn get(url: string): Option<string> {\nreturn http_get(url)\n}\n\
-pub fn route(path: string, body: string): HttpRoute {\nreturn HttpRoute { path: path, body: body }\n}\n\
-pub fn respond(body: string): HttpRoute {\nreturn route(\"/\", body)\n}\n\
-pub fn serve(bind: string, selected_route: HttpRoute, max_requests: int): bool {\nreturn http_serve_route(bind, selected_route.path, selected_route.body, max_requests)\n}\n\
-pub fn serve_once(bind: string, body: string): bool {\nreturn http_serve_once(bind, body)\n}\n",
+        "pub struct HttpHeader {
+name: string
+value: string
+}
+pub struct HttpRequest {
+method: string
+path: string
+body: string
+}
+pub struct HttpResponse {
+status: int
+body: string
+headers: [HttpHeader]
+}
+pub struct HttpRoute {
+path: string
+response: HttpResponse
+}
+pub fn get(url: string): Option<string> {
+return http_get(url)
+}
+pub fn header(name: string, value: string): HttpHeader {
+return HttpHeader { name: name, value: value }
+}
+pub fn request(method: string, path: string, body: string): HttpRequest {
+return HttpRequest { method: method, path: path, body: body }
+}
+pub fn response(status: int, body: string, headers: [HttpHeader]): HttpResponse {
+return HttpResponse { status: status, body: body, headers: headers }
+}
+pub fn text_response(status: int, body: string): HttpResponse {
+return response(status, body, [header(\"content-type\", \"text/plain; charset=utf-8\")])
+}
+pub fn route(path: string, body: string): HttpRoute {
+return HttpRoute { path: path, response: text_response(200, body) }
+}
+pub fn route_response(path: string, selected_response: HttpResponse): HttpRoute {
+return HttpRoute { path: path, response: selected_response }
+}
+pub fn respond(body: string): HttpRoute {
+return route(\"/\", body)
+}
+pub fn serve(bind: string, selected_route: HttpRoute, max_requests: int): bool {
+return http_serve_route(bind, selected_route.path, selected_route.response.body, max_requests)
+}
+pub fn serve_once(bind: string, body: string): bool {
+return http_serve_once(bind, body)
+}
+",
     ),
     (
         "regex.ax",
