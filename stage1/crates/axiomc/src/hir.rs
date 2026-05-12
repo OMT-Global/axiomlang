@@ -7574,6 +7574,7 @@ fn lower_expr_with_expected_inner(
                     .with_span(*line, *column));
                 }
                 let lowered = lower_expr_with_expected(&args[0], Some(&Type::String), env, ctx)?;
+                validate_process_command_allowlist_hir(ctx.capabilities, &lowered, *line, *column)?;
                 if lowered.ty() != &Type::String {
                     return Err(Diagnostic::new(
                         "type",
@@ -9734,6 +9735,37 @@ fn validate_ffi_type(ty: &Type, line: usize, column: usize) -> Result<(), Diagno
         _ => Err(Diagnostic::new(
             "type",
             "FFI signatures only support int, bool, string, ptr<T>, and mutptr<T> in stage1",
+        )
+        .with_span(line, column)),
+    }
+}
+
+
+fn validate_process_command_allowlist_hir(
+    capabilities: &CapabilityConfig,
+    command: &Expr,
+    line: usize,
+    column: usize,
+) -> Result<(), Diagnostic> {
+    if capabilities.process_commands.is_empty() {
+        return Ok(());
+    }
+    match command {
+        Expr::Literal {
+            value: LiteralValue::String(value),
+            ..
+        } if capabilities.process_commands.iter().any(|allowed| allowed == value) => Ok(()),
+        Expr::Literal {
+            value: LiteralValue::String(value),
+            ..
+        } => Err(Diagnostic::new(
+            "capability",
+            format!("call to \"process_status\" requires [capabilities].process to include {value:?}"),
+        )
+        .with_span(line, column)),
+        _ => Err(Diagnostic::new(
+            "capability",
+            "call to \"process_status\" requires a string literal listed in [capabilities].process",
         )
         .with_span(line, column)),
     }

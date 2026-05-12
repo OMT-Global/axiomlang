@@ -3809,6 +3809,178 @@ print strlen("hello")
     }
 
     #[test]
+    fn check_project_accepts_process_command_in_manifest_allowlist() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("process-allowlisted");
+        create_project(&project, Some("process-allowlisted-app")).expect("create project");
+        fs::write(
+            project.join("axiom.toml"),
+            r#"[package]
+name = "process-allowlisted-app"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+process = ["/bin/true"]
+"#,
+        )
+        .expect("write manifest");
+        fs::write(
+            project.join("src/main.ax"),
+            "print process_status(\"/bin/true\")\n",
+        )
+        .expect("write source");
+
+        check_project(&project).expect("allowlisted process command should be accepted");
+    }
+
+    #[test]
+    fn load_manifest_rejects_empty_process_allowlist() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("process-empty-allowlist");
+        create_project(&project, Some("process-empty-allowlist-app")).expect("create project");
+        fs::write(
+            project.join("axiom.toml"),
+            r#"[package]
+name = "process-empty-allowlist-app"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+process = []
+"#,
+        )
+        .expect("write manifest");
+        fs::write(
+            project.join("src/main.ax"),
+            "print process_status(\"/bin/true\")\n",
+        )
+        .expect("write source");
+
+        let error = load_manifest(&project).expect_err("empty process allowlist should fail closed");
+        assert_eq!(error.kind, "manifest");
+        assert!(
+            error
+                .message
+                .contains("capabilities.process must list at least one allowed command"),
+            "unexpected diagnostic: {error:?}",
+        );
+    }
+
+    #[test]
+    fn check_project_rejects_process_command_missing_from_manifest_allowlist() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("process-not-allowlisted");
+        create_project(&project, Some("process-not-allowlisted-app")).expect("create project");
+        fs::write(
+            project.join("axiom.toml"),
+            r#"[package]
+name = "process-not-allowlisted-app"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+process = ["/bin/true"]
+"#,
+        )
+        .expect("write manifest");
+        fs::write(
+            project.join("src/main.ax"),
+            "print process_status(\"/bin/false\")\n",
+        )
+        .expect("write source");
+
+        let error = check_project(&project).expect_err("unlisted process command should fail");
+        assert_eq!(error.kind, "capability");
+        assert!(
+            error
+                .message
+                .contains("requires [capabilities].process to include \"/bin/false\"")
+        );
+    }
+
+    #[test]
+    fn check_project_rejects_stdlib_process_command_missing_from_manifest_allowlist() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("stdlib-process-not-allowlisted");
+        create_project(&project, Some("stdlib-process-not-allowlisted-app")).expect("create project");
+        fs::write(
+            project.join("axiom.toml"),
+            r#"[package]
+name = "stdlib-process-not-allowlisted-app"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+process = ["/bin/true"]
+"#,
+        )
+        .expect("write manifest");
+        fs::write(
+            project.join("src/main.ax"),
+            r#"import "std/process.ax"
+print run_status("/bin/false")
+"#,
+        )
+        .expect("write source");
+
+        let error = check_project(&project).expect_err("unlisted stdlib process command should fail");
+        assert_eq!(error.kind, "capability");
+        assert!(
+            error
+                .message
+                .contains(r#"requires [capabilities].process to include "/bin/false""#)
+        );
+    }
+
+    #[test]
+    fn check_project_rejects_dynamic_process_command_with_manifest_allowlist() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("process-dynamic-denied");
+        create_project(&project, Some("process-dynamic-denied-app")).expect("create project");
+        fs::write(
+            project.join("axiom.toml"),
+            r#"[package]
+name = "process-dynamic-denied-app"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+process = ["/bin/true"]
+"#,
+        )
+        .expect("write manifest");
+        fs::write(
+            project.join("src/main.ax"),
+            "let command: string = \"/bin/true\"\nprint process_status(command)\n",
+        )
+        .expect("write source");
+
+        let error = check_project(&project).expect_err("dynamic process command should fail");
+        assert_eq!(error.kind, "capability");
+        assert!(
+            error
+                .message
+                .contains("requires a string literal listed in [capabilities].process")
+        );
+    }
+
+    #[test]
     fn check_project_rejects_crypto_intrinsic_without_capability() {
         let dir = tempdir().expect("tempdir");
         let project = dir.path().join("crypto-denied");

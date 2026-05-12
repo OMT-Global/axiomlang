@@ -1134,6 +1134,7 @@ fn register_stdlib_package(graph: &mut PackageGraph) {
             fs_root: None,
             net: true,
             process: true,
+            process_commands: Vec::new(),
             env: true,
             env_vars: Vec::new(),
             env_unrestricted: true,
@@ -2748,6 +2749,9 @@ fn validate_expr_capabilities(
                 .with_path(module_path.display().to_string())
                 .with_span(*line, *column));
             }
+            if name == "process_status" || name == "run_status" {
+                validate_process_command_allowlist(module_path, name, args, capabilities, *line, *column)?;
+            }
             for arg in args {
                 validate_expr_capabilities(module_path, arg, capabilities)?;
             }
@@ -2812,6 +2816,36 @@ fn validate_expr_capabilities(
         syntax::Expr::Closure { body, .. } => {
             validate_expr_capabilities(module_path, body, capabilities)
         }
+    }
+}
+
+
+fn validate_process_command_allowlist(
+    module_path: &Path,
+    call_name: &str,
+    args: &[syntax::Expr],
+    capabilities: &CapabilityConfig,
+    line: usize,
+    column: usize,
+) -> Result<(), Diagnostic> {
+    if capabilities.process_commands.is_empty() {
+        return Ok(());
+    }
+    match args.first() {
+        Some(syntax::Expr::Literal(syntax::Literal::String(command)))
+            if capabilities.process_commands.iter().any(|allowed| allowed == command) => Ok(()),
+        Some(syntax::Expr::Literal(syntax::Literal::String(command))) => Err(Diagnostic::new(
+            "capability",
+            format!("call to {call_name:?} requires [capabilities].process to include {command:?}"),
+        )
+        .with_path(module_path.display().to_string())
+        .with_span(line, column)),
+        _ => Err(Diagnostic::new(
+            "capability",
+            format!("call to {call_name:?} requires a string literal listed in [capabilities].process"),
+        )
+        .with_path(module_path.display().to_string())
+        .with_span(line, column)),
     }
 }
 

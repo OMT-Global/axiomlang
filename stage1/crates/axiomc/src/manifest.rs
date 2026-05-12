@@ -107,6 +107,7 @@ pub struct CapabilityConfig {
     pub fs_root: Option<String>,
     pub net: bool,
     pub process: bool,
+    pub process_commands: Vec<String>,
     pub env: bool,
     pub env_vars: Vec<String>,
     pub env_unrestricted: bool,
@@ -241,7 +242,7 @@ struct RawCapabilityConfig {
     fs_write: Option<bool>,
     fs_root: Option<String>,
     net: Option<bool>,
-    process: Option<bool>,
+    process: Option<RawProcessCapability>,
     env: Option<RawEnvCapability>,
     env_unrestricted: Option<bool>,
     unsafe_rationale: Option<String>,
@@ -254,6 +255,13 @@ struct RawCapabilityConfig {
     unsafe_opt_ins: Option<Vec<String>>,
     owners: Option<BTreeMap<String, String>>,
     rationale: Option<BTreeMap<String, String>>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum RawProcessCapability {
+    LegacyBool(bool),
+    AllowList(Vec<String>),
 }
 
 #[derive(Debug, Deserialize)]
@@ -336,10 +344,10 @@ pub fn capability_descriptors(config: &CapabilityConfig) -> Vec<CapabilityDescri
             enabled: config.enabled(*kind),
             description: kind.description(),
             deny_by_default: config.deny_by_default,
-            allowed: if *kind == CapabilityKind::Env {
-                config.env_vars.clone()
-            } else {
-                Vec::new()
+            allowed: match *kind {
+                CapabilityKind::Env => config.env_vars.clone(),
+                CapabilityKind::Process => config.process_commands.clone(),
+                _ => Vec::new(),
             },
             configured_root: None,
             effective_root: None,
@@ -459,6 +467,7 @@ fn normalize_manifest(raw: RawManifest, path: &Path) -> Result<Manifest, Diagnos
     let capabilities = raw.capabilities.unwrap_or_default();
     let fs_root =
         normalize_optional_relative_path(path, "capabilities.fs_root", capabilities.fs_root)?;
+    let (process, process_commands) = normalize_process_capability(path, capabilities.process)?;
     let explicit_env_unrestricted = capabilities.env_unrestricted.unwrap_or(false);
     let (env, env_vars, env_unrestricted, env_legacy_unrestricted) =
         normalize_env_capability(path, capabilities.env, explicit_env_unrestricted)?;
@@ -494,7 +503,8 @@ fn normalize_manifest(raw: RawManifest, path: &Path) -> Result<Manifest, Diagnos
             fs_write: capabilities.fs_write.unwrap_or(false),
             fs_root,
             net: capabilities.net.unwrap_or(false),
-            process: capabilities.process.unwrap_or(false),
+            process,
+            process_commands,
             env,
             env_vars,
             env_unrestricted,
@@ -671,6 +681,58 @@ fn normalize_capability_name(
         .with_path(path.display().to_string()));
     }
     Ok(name)
+}
+
+fn normalize_process_capability(
+    path: &Path,
+    raw_process: Option<RawProcessCapability>,
+) -> Result<(bool, Vec<String>), Diagnostic> {
+    match raw_process {
+        Some(RawProcessCapability::LegacyBool(enabled)) => Ok((enabled, Vec::new())),
+        Some(RawProcessCapability::AllowList(values)) => {
+            let commands = normalize_process_allowlist(path, values)?;
+            Ok((true, commands))
+        }
+        None => Ok((false, Vec::new())),
+    }
+}
+
+fn normalize_process_allowlist(
+    path: &Path,
+    values: Vec<String>,
+) -> Result<Vec<String>, Diagnostic> {
+    if values.is_empty() {
+        return Err(
+            Diagnostic::new("manifest", "capabilities.process must list at least one allowed command or use false to disable process execution")
+                .with_path(path.display().to_string()),
+        );
+    }
+    let mut commands = Vec::new();
+    let mut seen = std::collections::BTreeSet::new();
+    for (index, value) in values.into_iter().enumerate() {
+        let field_name = format!("capabilities.process[{index}]");
+        if value.trim().is_empty() {
+            return Err(
+                Diagnostic::new("manifest", format!("{field_name} must not be empty"))
+                    .with_path(path.display().to_string()),
+            );
+        }
+        if value.chars().any(char::is_whitespace) {
+            return Err(
+                Diagnostic::new("manifest", format!("{field_name} must be a single command path or binary name, not a shell command line"))
+                    .with_path(path.display().to_string()),
+            );
+        }
+        if !seen.insert(value.clone()) {
+            return Err(Diagnostic::new(
+                "manifest",
+                format!("duplicate process command {value:?}"),
+            )
+            .with_path(path.display().to_string()));
+        }
+        commands.push(value);
+    }
+    Ok(commands)
 }
 
 fn normalize_env_capability(
