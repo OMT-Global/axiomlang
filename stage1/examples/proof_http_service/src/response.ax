@@ -1,7 +1,15 @@
+import "std/http.ax"
 import "std/json.ax"
 
-pub fn status_line(method: string, path: string): string {
+pub fn status_for(method: string): int {
 if method == "GET" {
+return 200
+}
+return 405
+}
+
+pub fn status_line(status: int, path: string): string {
+if status == 200 {
 return "HTTP/1.1 200 OK " + path
 }
 return "HTTP/1.1 405 METHOD_NOT_ALLOWED " + path
@@ -9,4 +17,8 @@ return "HTTP/1.1 405 METHOD_NOT_ALLOWED " + path
 
 pub fn body(path: string, started: bool): string {
 return "{\"path\":" + stringify_string(path) + ",\"ok\":" + stringify_bool(started) + "}"
+}
+
+pub fn json_response(request: HttpRequest, started: bool): HttpResponse {
+return response(status_for(request.method), body(request.path, started), [header("content-type", "application/json")])
 }

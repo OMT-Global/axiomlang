@@ -1,3 +1,5 @@
+import "std/http.ax"
+
 pub fn request_method(raw: Option<string>): string {
 match raw {
 Some(value) {
@@ -18,4 +20,8 @@ None {
 return "/health"
 }
 }
+}
+
+pub fn current_request(raw_method: Option<string>, raw_path: Option<string>): HttpRequest {
+return request(request_method(raw_method), request_path(raw_path), "")
 }
