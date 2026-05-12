@@ -5652,6 +5652,43 @@ mod tests {
     }
 
     #[test]
+    fn fs_read_and_write_intrinsics_use_separate_capabilities() {
+        assert_eq!(intrinsic_capability("fs_read"), Some(CapabilityKind::Fs));
+
+        for intrinsic in [
+            "fs_write",
+            "fs_create",
+            "fs_append",
+            "fs_mkdir",
+            "fs_mkdir_all",
+            "fs_remove_file",
+            "fs_remove_dir",
+            "fs_replace",
+        ] {
+            assert_eq!(
+                intrinsic_capability(intrinsic),
+                Some(CapabilityKind::FsWrite),
+                "{intrinsic} must require the explicit fs:write capability, not fs"
+            );
+        }
+    }
+
+    #[test]
+    fn fs_read_grant_does_not_enable_write_capability() {
+        let capabilities = CapabilityConfig {
+            fs: true,
+            fs_write: false,
+            ..CapabilityConfig::default()
+        };
+
+        assert!(capabilities.enabled(CapabilityKind::Fs));
+        assert!(
+            !capabilities.enabled(CapabilityKind::FsWrite),
+            "read-only fs grants must not imply future write API access"
+        );
+    }
+
+    #[test]
     fn test_artifact_name_reports_missing_package_manifest() {
         let dir = tempdir().unwrap_or_else(|err| panic!("tempdir: {err}"));
         let error = match test_artifact_name(dir.path(), &workspace_only_manifest(), "main_test") {
