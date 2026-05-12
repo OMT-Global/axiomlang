@@ -188,7 +188,6 @@ pub fn render_rust_for_package_with_capabilities(
     out.push_str("#[allow(dead_code)]\n");
     out.push_str("struct AxiomJoinHandle<T> {\n");
     out.push_str("    task: Option<AxiomTask<T>>,\n");
-    out.push_str("    worker: Option<std::thread::JoinHandle<AxiomTask<T>>>,\n");
     out.push_str("}\n\n");
     out.push_str("#[allow(dead_code)]\n");
     out.push_str("#[derive(Debug, PartialEq)]\n");
@@ -243,37 +242,43 @@ pub fn render_rust_for_package_with_capabilities(
     out.push_str("    }\n");
     out.push_str("}\n\n");
     out.push_str(r#"#[allow(dead_code)]
-fn axiom_async_host_enabled() -> bool {
-    AXIOM_ASYNC_CAPABILITY
-        && std::env::var("AXIOM_ASYNC_EXECUTOR")
-            .map(|value| value.eq_ignore_ascii_case("host"))
-            .unwrap_or(false)
+struct AxiomRuntimeScheduler {
+    scheduled: usize,
+    completed: usize,
+}
+
+#[allow(dead_code)]
+impl AxiomRuntimeScheduler {
+    fn new() -> Self {
+        Self { scheduled: 0, completed: 0 }
+    }
+
+    fn schedule<T>(&mut self, task: AxiomTask<T>) -> AxiomJoinHandle<T> {
+        self.scheduled += 1;
+        AxiomJoinHandle { task: Some(task) }
+    }
+
+    fn join<T>(&mut self, mut handle: AxiomJoinHandle<T>) -> AxiomTask<T> {
+        match handle.task.take() {
+            Some(task) => {
+                self.completed += 1;
+                task
+            }
+            None => axiom_runtime_error("async", "invalid join handle state"),
+        }
+    }
 }
 
 #[allow(dead_code)]
 fn axiom_async_spawn<T: Send + 'static>(task: AxiomTask<T>) -> AxiomJoinHandle<T> {
-    if axiom_async_host_enabled() {
-        AxiomJoinHandle {
-            task: None,
-            worker: Some(std::thread::spawn(move || axiom_task_ready(axiom_await(task)))),
-        }
-    } else {
-        AxiomJoinHandle {
-            task: Some(task),
-            worker: None,
-        }
-    }
+    let mut scheduler = AxiomRuntimeScheduler::new();
+    scheduler.schedule(task)
 }
 
 #[allow(dead_code)]
 fn axiom_async_join<T: Send + 'static>(handle: AxiomJoinHandle<T>) -> AxiomTask<T> {
-    match (handle.task, handle.worker) {
-        (Some(task), None) => task,
-        (None, Some(worker)) => worker
-            .join()
-            .unwrap_or_else(|_| axiom_runtime_error("async", "host async worker panicked")),
-        _ => axiom_runtime_error("async", "invalid join handle state"),
-    }
+    let mut scheduler = AxiomRuntimeScheduler::new();
+    scheduler.join(handle)
 }
 
 #[allow(dead_code)]
@@ -287,36 +292,8 @@ fn axiom_async_timeout<T: Send + 'static>(task: AxiomTask<T>, timeout_ms: i64) -
     if task.canceled {
         return axiom_task_ready(None);
     }
-    if axiom_async_host_enabled() {
-        let (tx, rx) = std::sync::mpsc::sync_channel(1);
-        let worker = std::thread::spawn(move || {
-            let value = axiom_await(task);
-            let _ = tx.send(());
-            value
-        });
-        match rx.recv_timeout(std::time::Duration::from_millis(timeout_ms.max(0) as u64)) {
-            Ok(()) => axiom_task_ready(Some(
-                worker
-                    .join()
-                    .unwrap_or_else(|_| axiom_runtime_error("async", "host async timeout worker panicked")),
-            )),
-            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-                // Rust cannot forcibly cancel a running thread safely. The host
-                // executor therefore refuses to detach timed-out work: wait for
-                // completion to keep side effects inside the task lifecycle, then
-                // report that this task could not be safely timed out.
-                let _ = worker.join();
-                axiom_runtime_error("async", "host async timeout cannot cancel running task")
-            }
-            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
-                let _ = worker.join();
-                axiom_runtime_error("async", "host async timeout worker panicked")
-            }
-        }
-    } else {
-        let _timeout_ms = timeout_ms;
-        axiom_task_ready(Some(axiom_await(task)))
-    }
+    let _timeout_ms = timeout_ms;
+    axiom_task_ready(Some(axiom_await(task)))
 }
 
 "#);
