@@ -4091,6 +4091,106 @@ net = { hosts = ["localhost"], ports = [8080] }
     }
 
     #[test]
+    fn check_project_accepts_http_url_matching_network_allowlist() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("http-url-allowlisted");
+        create_project(&project, Some("http-url-allowlisted-app")).expect("create project");
+        fs::write(
+            project.join("axiom.toml"),
+            r#"[package]
+name = "http-url-allowlisted-app"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+net = { hosts = ["example.com"], ports = [443] }
+"#,
+        )
+        .expect("write manifest");
+        fs::write(
+            project.join("src/main.ax"),
+            "match http_get(\"https://example.com/\") {\nSome(_body) {\nprint true\n}\nNone {\nprint false\n}\n}\n",
+        )
+        .expect("write source");
+
+        check_project(&project).expect("allowlisted HTTP URL should be accepted");
+    }
+
+    #[test]
+    fn check_project_rejects_dynamic_http_url_with_network_allowlist() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("http-url-dynamic-allowlist");
+        create_project(&project, Some("http-url-dynamic-allowlist-app")).expect("create project");
+        fs::write(
+            project.join("axiom.toml"),
+            r#"[package]
+name = "http-url-dynamic-allowlist-app"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+net = { hosts = ["example.com"], ports = [443] }
+"#,
+        )
+        .expect("write manifest");
+        fs::write(
+            project.join("src/main.ax"),
+            "let url: string = \"https://example.com/\"\nmatch http_get(url) {\nSome(_body) {\nprint true\n}\nNone {\nprint false\n}\n}\n",
+        )
+        .expect("write source");
+
+        let error = check_project(&project).expect_err("dynamic HTTP URL should fail closed");
+        assert_eq!(error.kind, "capability");
+        assert!(
+            error.message.contains("requires a static URL literal"),
+            "unexpected diagnostic: {error:?}",
+        );
+    }
+
+    #[test]
+    fn check_project_rejects_http_url_port_missing_from_manifest_allowlist() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("http-url-port-not-allowlisted");
+        create_project(&project, Some("http-url-port-not-allowlisted-app"))
+            .expect("create project");
+        fs::write(
+            project.join("axiom.toml"),
+            r#"[package]
+name = "http-url-port-not-allowlisted-app"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+net = { hosts = ["example.com"], ports = [443] }
+"#,
+        )
+        .expect("write manifest");
+        fs::write(
+            project.join("src/main.ax"),
+            "match http_get(\"http://example.com/\") {\nSome(_body) {\nprint true\n}\nNone {\nprint false\n}\n}\n",
+        )
+        .expect("write source");
+
+        let error = check_project(&project).expect_err("unlisted HTTP URL port should fail");
+        assert_eq!(error.kind, "capability");
+        assert!(
+            error
+                .message
+                .contains("requires [capabilities].net.ports to include 80"),
+            "unexpected diagnostic: {error:?}",
+        );
+    }
+
+    #[test]
     fn check_project_rejects_crypto_intrinsic_without_capability() {
         let dir = tempdir().expect("tempdir");
         let project = dir.path().join("crypto-denied");

@@ -6660,7 +6660,6 @@ fn lower_expr_with_expected_inner(
                     )
                     .with_span(args[0].line(), args[0].column()));
                 }
-                validate_net_host_allowlist_hir(ctx.capabilities, name, &lowered, *line, *column)?;
                 move_lowered_value(&lowered, env)?;
                 return Ok(Expr::Call {
                     name: name.clone(),
@@ -6687,7 +6686,6 @@ fn lower_expr_with_expected_inner(
                     )
                     .with_span(args[0].line(), args[0].column()));
                 }
-                validate_net_host_allowlist_hir(ctx.capabilities, name, &lowered, *line, *column)?;
                 move_lowered_value(&lowered, env)?;
                 return Ok(Expr::Call {
                     name: name.clone(),
@@ -6714,7 +6712,6 @@ fn lower_expr_with_expected_inner(
                     )
                     .with_span(args[0].line(), args[0].column()));
                 }
-                validate_net_host_allowlist_hir(ctx.capabilities, name, &lowered, *line, *column)?;
                 move_lowered_value(&lowered, env)?;
                 return Ok(Expr::Call {
                     name: name.clone(),
@@ -7460,7 +7457,13 @@ fn lower_expr_with_expected_inner(
                     )
                     .with_span(args[0].line(), args[0].column()));
                 }
-                validate_net_host_allowlist_hir(ctx.capabilities, name, &lowered, *line, *column)?;
+                validate_http_get_net_allowlist_hir(
+                    ctx.capabilities,
+                    name,
+                    &lowered,
+                    *line,
+                    *column,
+                )?;
                 move_lowered_value(&lowered, env)?;
                 return Ok(Expr::Call {
                     name: name.clone(),
@@ -9795,6 +9798,87 @@ fn validate_net_host_allowlist_hir(
         )
         .with_span(line, column)),
     }
+}
+
+fn validate_http_get_net_allowlist_hir(
+    capabilities: &CapabilityConfig,
+    intrinsic_name: &str,
+    url: &Expr,
+    line: usize,
+    column: usize,
+) -> Result<(), Diagnostic> {
+    if capabilities.net_hosts.is_empty() && capabilities.net_ports.is_empty() {
+        return Ok(());
+    }
+    match url {
+        Expr::Literal {
+            value: LiteralValue::String(value),
+            ..
+        } => {
+            let Some((_scheme, host, port, _path)) = split_http_url_literal(value) else {
+                return Err(Diagnostic::new(
+                    "capability",
+                    format!("{intrinsic_name:?} requires a static http:// or https:// URL literal"),
+                )
+                .with_span(line, column));
+            };
+            if !capabilities.net_hosts.is_empty()
+                && !capabilities
+                    .net_hosts
+                    .iter()
+                    .any(|allowed| allowed.eq_ignore_ascii_case(host))
+            {
+                return Err(Diagnostic::new(
+                    "capability",
+                    format!(
+                        "call to {intrinsic_name:?} requires [capabilities].net.hosts to include {host:?}"
+                    ),
+                )
+                .with_span(line, column));
+            }
+            if !capabilities.net_ports.is_empty() && !capabilities.net_ports.contains(&port) {
+                return Err(Diagnostic::new(
+                    "capability",
+                    format!(
+                        "call to {intrinsic_name:?} requires [capabilities].net.ports to include {port}"
+                    ),
+                )
+                .with_span(line, column));
+            }
+            Ok(())
+        }
+        _ => Err(Diagnostic::new(
+            "capability",
+            format!(
+                "call to {intrinsic_name:?} requires a static URL literal when [capabilities].net host or port allowlists are configured"
+            ),
+        )
+        .with_span(line, column)),
+    }
+}
+
+fn split_http_url_literal(url: &str) -> Option<(&str, &str, u16, &str)> {
+    let (scheme, rest, default_port) = if let Some(rest) = url.strip_prefix("http://") {
+        ("http", rest, 80)
+    } else if let Some(rest) = url.strip_prefix("https://") {
+        ("https", rest, 443)
+    } else {
+        return None;
+    };
+    let (authority, path) = rest.split_once('/').unwrap_or((rest, ""));
+    if authority.is_empty() {
+        return None;
+    }
+    let (host, port) = if let Some((host, port)) = authority.rsplit_once(':') {
+        if host.is_empty() {
+            return None;
+        }
+        (host, port.parse::<u16>().ok()?)
+    } else {
+        (authority, default_port)
+    };
+    let path = if path.is_empty() { "/" } else { path };
+    Some((scheme, host, port, path))
 }
 
 fn validate_net_port_allowlist_hir(

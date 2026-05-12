@@ -1946,6 +1946,9 @@ fn axiom_http_get(url: String) -> Option<String> {
         if clean_host.is_empty() || clean_path.is_empty() {
             return None;
         }
+        if !axiom_net_host_allowed(clean_host.as_str()) || !axiom_net_port_allowed(port) {
+            return None;
+        }
         let request = axiom_http_request(clean_host.as_str(), clean_path.as_str());
         if scheme == "https" {
             let response = match axiom_https_get_native_tls(clean_host.as_str(), port, &request) {
