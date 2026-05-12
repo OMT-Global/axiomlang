@@ -21,10 +21,9 @@ fn schema_validator() -> Validator {
         .join("..")
         .join("schemas")
         .join("axiom.stage1.v1.schema.json");
-    let schema: Value = serde_json::from_str(
-        &fs::read_to_string(path).expect("read stage1 schema"),
-    )
-    .expect("stage1 schema is valid JSON");
+    let schema: Value =
+        serde_json::from_str(&fs::read_to_string(path).expect("read stage1 schema"))
+            .expect("stage1 schema is valid JSON");
     jsonschema::validator_for(&schema).expect("compile stage1 JSON schema")
 }
 
@@ -58,7 +57,10 @@ fn build_fixtures_cover_target_triple_and_failure_diagnostic() {
     assert!(success["metadata"]["lockfile"].is_string());
     assert!(success["metadata"]["lockfile_hash"].is_string());
     assert!(success["metadata"]["source_hash"].is_string());
-    assert_eq!(success["cache_key"]["compiler"], "axiomc-stage1-0.1.0-generated-rust");
+    assert_eq!(
+        success["cache_key"]["compiler"],
+        "axiomc-stage1-0.1.0-generated-rust"
+    );
     assert_eq!(success["cache_key"]["debug"], false);
     assert!(success["cache_key"]["generated_rust_hash"].is_string());
     assert!(success["cache_key"]["lockfile_hash"].is_string());

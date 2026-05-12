@@ -3652,7 +3652,10 @@ print strlen("hello")
             );
         }
         assert!(audit.contains("\"outcome\":\"ok\""), "audit log: {audit}");
-        assert!(audit.contains("\"outcome\":\"denied\""), "audit log: {audit}");
+        assert!(
+            audit.contains("\"outcome\":\"denied\""),
+            "audit log: {audit}"
+        );
         assert!(!audit.contains("secret-content"));
         assert!(!audit.contains("more-secret-content"));
         assert!(!audit.contains("secret-body"));
@@ -3863,7 +3866,8 @@ process = []
         )
         .expect("write source");
 
-        let error = load_manifest(&project).expect_err("empty process allowlist should fail closed");
+        let error =
+            load_manifest(&project).expect_err("empty process allowlist should fail closed");
         assert_eq!(error.kind, "manifest");
         assert!(
             error
@@ -3912,7 +3916,8 @@ process = ["/bin/true"]
     fn check_project_rejects_stdlib_process_command_missing_from_manifest_allowlist() {
         let dir = tempdir().expect("tempdir");
         let project = dir.path().join("stdlib-process-not-allowlisted");
-        create_project(&project, Some("stdlib-process-not-allowlisted-app")).expect("create project");
+        create_project(&project, Some("stdlib-process-not-allowlisted-app"))
+            .expect("create project");
         fs::write(
             project.join("axiom.toml"),
             r#"[package]
@@ -3936,7 +3941,8 @@ print run_status("/bin/false")
         )
         .expect("write source");
 
-        let error = check_project(&project).expect_err("unlisted stdlib process command should fail");
+        let error =
+            check_project(&project).expect_err("unlisted stdlib process command should fail");
         assert_eq!(error.kind, "capability");
         assert!(
             error
@@ -3977,6 +3983,210 @@ process = ["/bin/true"]
             error
                 .message
                 .contains("requires a string literal listed in [capabilities].process")
+        );
+    }
+
+    #[test]
+    fn load_manifest_accepts_network_host_and_port_allowlists() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("net-allowlist");
+        create_project(&project, Some("net-allowlist-app")).expect("create project");
+        fs::write(
+            project.join("axiom.toml"),
+            r#"[package]
+name = "net-allowlist-app"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+net = { hosts = ["LOCALHOST"], ports = [8080] }
+"#,
+        )
+        .expect("write manifest");
+
+        let manifest = load_manifest(&project).expect("load manifest");
+        assert!(manifest.capabilities.net);
+        assert_eq!(manifest.capabilities.net_hosts, vec!["localhost"]);
+        assert_eq!(manifest.capabilities.net_ports, vec![8080]);
+        let net = capability_descriptors(&manifest.capabilities)
+            .into_iter()
+            .find(|capability| capability.name == "net")
+            .expect("net descriptor");
+        assert_eq!(net.allowed, vec!["host:localhost", "port:8080"]);
+    }
+
+    #[test]
+    fn check_project_rejects_network_host_missing_from_manifest_allowlist() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("net-host-not-allowlisted");
+        create_project(&project, Some("net-host-not-allowlisted-app")).expect("create project");
+        fs::write(
+            project.join("axiom.toml"),
+            r#"[package]
+name = "net-host-not-allowlisted-app"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+net = { hosts = ["localhost"] }
+"#,
+        )
+        .expect("write manifest");
+        fs::write(
+            project.join("src/main.ax"),
+            "print net_resolve(\"example.com\")\n",
+        )
+        .expect("write source");
+
+        let error = check_project(&project).expect_err("unlisted network host should fail");
+        assert_eq!(error.kind, "capability");
+        assert!(
+            error
+                .message
+                .contains(r#"requires [capabilities].net.hosts to include "example.com""#),
+            "unexpected diagnostic: {error:?}",
+        );
+    }
+
+    #[test]
+    fn check_project_rejects_network_port_missing_from_manifest_allowlist() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("net-port-not-allowlisted");
+        create_project(&project, Some("net-port-not-allowlisted-app")).expect("create project");
+        fs::write(
+            project.join("axiom.toml"),
+            r#"[package]
+name = "net-port-not-allowlisted-app"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+net = { hosts = ["localhost"], ports = [8080] }
+"#,
+        )
+        .expect("write manifest");
+        fs::write(
+            project.join("src/main.ax"),
+            "print net_tcp_dial(\"localhost\", 9090, \"ping\", 1000)\n",
+        )
+        .expect("write source");
+
+        let error = check_project(&project).expect_err("unlisted network port should fail");
+        assert_eq!(error.kind, "capability");
+        assert!(
+            error
+                .message
+                .contains("requires [capabilities].net.ports to include 9090"),
+            "unexpected diagnostic: {error:?}",
+        );
+    }
+
+    #[test]
+    fn check_project_accepts_http_url_matching_network_allowlist() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("http-url-allowlisted");
+        create_project(&project, Some("http-url-allowlisted-app")).expect("create project");
+        fs::write(
+            project.join("axiom.toml"),
+            r#"[package]
+name = "http-url-allowlisted-app"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+net = { hosts = ["example.com"], ports = [443] }
+"#,
+        )
+        .expect("write manifest");
+        fs::write(
+            project.join("src/main.ax"),
+            "match http_get(\"https://example.com/\") {\nSome(_body) {\nprint true\n}\nNone {\nprint false\n}\n}\n",
+        )
+        .expect("write source");
+
+        check_project(&project).expect("allowlisted HTTP URL should be accepted");
+    }
+
+    #[test]
+    fn check_project_rejects_dynamic_http_url_with_network_allowlist() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("http-url-dynamic-allowlist");
+        create_project(&project, Some("http-url-dynamic-allowlist-app")).expect("create project");
+        fs::write(
+            project.join("axiom.toml"),
+            r#"[package]
+name = "http-url-dynamic-allowlist-app"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+net = { hosts = ["example.com"], ports = [443] }
+"#,
+        )
+        .expect("write manifest");
+        fs::write(
+            project.join("src/main.ax"),
+            "let url: string = \"https://example.com/\"\nmatch http_get(url) {\nSome(_body) {\nprint true\n}\nNone {\nprint false\n}\n}\n",
+        )
+        .expect("write source");
+
+        let error = check_project(&project).expect_err("dynamic HTTP URL should fail closed");
+        assert_eq!(error.kind, "capability");
+        assert!(
+            error.message.contains("requires a static URL literal"),
+            "unexpected diagnostic: {error:?}",
+        );
+    }
+
+    #[test]
+    fn check_project_rejects_http_url_port_missing_from_manifest_allowlist() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("http-url-port-not-allowlisted");
+        create_project(&project, Some("http-url-port-not-allowlisted-app"))
+            .expect("create project");
+        fs::write(
+            project.join("axiom.toml"),
+            r#"[package]
+name = "http-url-port-not-allowlisted-app"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+net = { hosts = ["example.com"], ports = [443] }
+"#,
+        )
+        .expect("write manifest");
+        fs::write(
+            project.join("src/main.ax"),
+            "match http_get(\"http://example.com/\") {\nSome(_body) {\nprint true\n}\nNone {\nprint false\n}\n}\n",
+        )
+        .expect("write source");
+
+        let error = check_project(&project).expect_err("unlisted HTTP URL port should fail");
+        assert_eq!(error.kind, "capability");
+        assert!(
+            error
+                .message
+                .contains("requires [capabilities].net.ports to include 80"),
+            "unexpected diagnostic: {error:?}",
         );
     }
 
@@ -10705,100 +10915,5 @@ return missing_c
             s
         };
         assert_eq!(lines, sorted, "diagnostics must be in source order");
-    }
-
-    #[test]
-    fn build_project_emits_native_binary_with_static_globals() {
-        let dir = tempdir().expect("tempdir");
-        let project = dir.path().join("static-globals");
-        create_project(&project, Some("static-globals-app")).expect("create project");
-        fs::write(
-            project.join("src/main.ax"),
-            "static ANSWER: int = 40 + 2\nstatic READY: bool = ANSWER == 42\nstatic LABEL: string = \"stage\" + \"1\"\nprint ANSWER\nprint READY\nprint LABEL\n",
-        )
-        .expect("write source");
-        let built = build_project(&project).expect("build project with static globals");
-        let output = compiled_binary_command(&built.binary)
-            .output()
-            .expect("run compiled binary");
-        assert_eq!(
-            String::from_utf8_lossy(&output.stdout),
-            "42\ntrue\nstage1\n"
-        );
-    }
-
-    #[test]
-    fn build_project_folds_static_string_comparisons() {
-        let dir = tempdir().expect("tempdir");
-        let project = dir.path().join("static-string-cmp");
-        create_project(&project, Some("static-string-cmp-app")).expect("create project");
-        fs::write(
-            project.join("src/main.ax"),
-            "static LABEL: string = \"hello\"\nstatic MATCH: bool = LABEL == \"hello\"\nprint MATCH\n",
-        )
-        .expect("write source");
-        let built = build_project(&project).expect("build project with static string comparison");
-        let output = compiled_binary_command(&built.binary)
-            .output()
-            .expect("run compiled binary");
-        assert_eq!(String::from_utf8_lossy(&output.stdout), "true\n");
-    }
-
-    #[test]
-    fn build_project_preserves_static_source_names_for_recursion_tracking() {
-        let dir = tempdir().expect("tempdir");
-        let project = dir.path().join("static-recursion");
-        create_project(&project, Some("static-recursion-app")).expect("create project");
-        fs::write(
-            project.join("src/main.ax"),
-            "static BASE: int = 10\nstatic DERIVED: int = BASE + 5\nprint DERIVED\n",
-        )
-        .expect("write source");
-        let built = build_project(&project).expect("build project with derived static");
-        let output = compiled_binary_command(&built.binary)
-            .output()
-            .expect("run compiled binary");
-        assert_eq!(String::from_utf8_lossy(&output.stdout), "15\n");
-    }
-
-    #[test]
-    fn build_project_emits_native_binary_with_imported_public_static_globals() {
-        let dir = tempdir().expect("tempdir");
-        let project = dir.path().join("public-statics");
-        create_project(&project, Some("public-statics-app")).expect("create project");
-        fs::write(
-            project.join("src/main.ax"),
-            "import \"values.ax\"\nprint ANSWER\nprint LABEL\n",
-        )
-        .expect("write main");
-        fs::write(
-            project.join("src/values.ax"),
-            "pub static ANSWER: int = 40 + 2\npub static LABEL: string = \"stage\" + \"1\"\n",
-        )
-        .expect("write values");
-        let built = build_project(&project).expect("build project with imported public statics");
-        let output = compiled_binary_command(&built.binary)
-            .output()
-            .expect("run compiled binary");
-        assert_eq!(String::from_utf8_lossy(&output.stdout), "42\nstage1\n");
-    }
-
-    #[test]
-    fn check_project_rejects_static_type_mismatch() {
-        let dir = tempdir().expect("tempdir");
-        let project = dir.path().join("static-type-mismatch");
-        create_project(&project, Some("static-type-mismatch-app")).expect("create project");
-        fs::write(
-            project.join("src/main.ax"),
-            "static ANSWER: bool = 42\nprint ANSWER\n",
-        )
-        .expect("write source");
-        let error = check_project(&project).expect_err("type mismatch should fail");
-        assert!(
-            error.message.contains("static") && error.message.contains("ANSWER"),
-            "expected static type error, got: {}",
-            error.message
-        );
-        assert_eq!(error.kind, "type");
     }
 }

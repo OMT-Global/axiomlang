@@ -1423,7 +1423,11 @@ fn parse_type_alias(
     })
 }
 
-fn parse_const_or_static_decl(trimmed: &str, path: &Path, line_no: usize) -> Result<ConstDecl, Diagnostic> {
+fn parse_const_or_static_decl(
+    trimmed: &str,
+    path: &Path,
+    line_no: usize,
+) -> Result<ConstDecl, Diagnostic> {
     let (visibility, rest, visibility_column) = parse_visibility_prefix(trimmed);
     let (keyword, header) = if let Some(rest) = rest.strip_prefix("const ") {
         ("const", rest)

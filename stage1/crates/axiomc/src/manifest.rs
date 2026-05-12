@@ -106,6 +106,8 @@ pub struct CapabilityConfig {
     pub fs_write: bool,
     pub fs_root: Option<String>,
     pub net: bool,
+    pub net_hosts: Vec<String>,
+    pub net_ports: Vec<u16>,
     pub process: bool,
     pub process_commands: Vec<String>,
     pub env: bool,
@@ -241,7 +243,7 @@ struct RawCapabilityConfig {
     #[serde(rename = "fs:write")]
     fs_write: Option<bool>,
     fs_root: Option<String>,
-    net: Option<bool>,
+    net: Option<RawNetCapability>,
     process: Option<RawProcessCapability>,
     env: Option<RawEnvCapability>,
     env_unrestricted: Option<bool>,
@@ -262,6 +264,19 @@ struct RawCapabilityConfig {
 enum RawProcessCapability {
     LegacyBool(bool),
     AllowList(Vec<String>),
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum RawNetCapability {
+    LegacyBool(bool),
+    AllowList(RawNetAllowlist),
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct RawNetAllowlist {
+    hosts: Option<Vec<String>>,
+    ports: Option<Vec<u16>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -347,6 +362,15 @@ pub fn capability_descriptors(config: &CapabilityConfig) -> Vec<CapabilityDescri
             allowed: match *kind {
                 CapabilityKind::Env => config.env_vars.clone(),
                 CapabilityKind::Process => config.process_commands.clone(),
+                CapabilityKind::Net => {
+                    let mut allowed = config
+                        .net_hosts
+                        .iter()
+                        .map(|host| format!("host:{host}"))
+                        .collect::<Vec<_>>();
+                    allowed.extend(config.net_ports.iter().map(|port| format!("port:{port}")));
+                    allowed
+                }
                 _ => Vec::new(),
             },
             configured_root: None,
@@ -467,6 +491,7 @@ fn normalize_manifest(raw: RawManifest, path: &Path) -> Result<Manifest, Diagnos
     let capabilities = raw.capabilities.unwrap_or_default();
     let fs_root =
         normalize_optional_relative_path(path, "capabilities.fs_root", capabilities.fs_root)?;
+    let (net, net_hosts, net_ports) = normalize_net_capability(path, capabilities.net)?;
     let (process, process_commands) = normalize_process_capability(path, capabilities.process)?;
     let explicit_env_unrestricted = capabilities.env_unrestricted.unwrap_or(false);
     let (env, env_vars, env_unrestricted, env_legacy_unrestricted) =
@@ -502,7 +527,9 @@ fn normalize_manifest(raw: RawManifest, path: &Path) -> Result<Manifest, Diagnos
             fs: capabilities.fs.unwrap_or(false),
             fs_write: capabilities.fs_write.unwrap_or(false),
             fs_root,
-            net: capabilities.net.unwrap_or(false),
+            net,
+            net_hosts,
+            net_ports,
             process,
             process_commands,
             env,
@@ -681,6 +708,85 @@ fn normalize_capability_name(
         .with_path(path.display().to_string()));
     }
     Ok(name)
+}
+
+fn normalize_net_capability(
+    path: &Path,
+    raw_net: Option<RawNetCapability>,
+) -> Result<(bool, Vec<String>, Vec<u16>), Diagnostic> {
+    match raw_net {
+        Some(RawNetCapability::LegacyBool(enabled)) => Ok((enabled, Vec::new(), Vec::new())),
+        Some(RawNetCapability::AllowList(values)) => {
+            let hosts = normalize_net_host_allowlist(path, values.hosts.unwrap_or_default())?;
+            let ports = normalize_net_port_allowlist(path, values.ports.unwrap_or_default())?;
+            if hosts.is_empty() && ports.is_empty() {
+                return Err(Diagnostic::new(
+                    "manifest",
+                    "capabilities.net must include at least one allowed host or port, or use false to disable network access",
+                )
+                .with_path(path.display().to_string()));
+            }
+            Ok((true, hosts, ports))
+        }
+        None => Ok((false, Vec::new(), Vec::new())),
+    }
+}
+
+fn normalize_net_host_allowlist(
+    path: &Path,
+    values: Vec<String>,
+) -> Result<Vec<String>, Diagnostic> {
+    let mut hosts = Vec::new();
+    let mut seen = std::collections::BTreeSet::new();
+    for (index, value) in values.into_iter().enumerate() {
+        let field_name = format!("capabilities.net.hosts[{index}]");
+        let host = value.trim().to_ascii_lowercase();
+        if host.is_empty() {
+            return Err(
+                Diagnostic::new("manifest", format!("{field_name} must not be empty"))
+                    .with_path(path.display().to_string()),
+            );
+        }
+        if host.chars().any(char::is_whitespace) || host.contains('/') || host.contains(':') {
+            return Err(Diagnostic::new(
+                "manifest",
+                format!(
+                    "{field_name} must be a host name or IP literal, not a URL or socket address"
+                ),
+            )
+            .with_path(path.display().to_string()));
+        }
+        if !seen.insert(host.clone()) {
+            return Err(
+                Diagnostic::new("manifest", format!("duplicate network host {host:?}"))
+                    .with_path(path.display().to_string()),
+            );
+        }
+        hosts.push(host);
+    }
+    Ok(hosts)
+}
+
+fn normalize_net_port_allowlist(path: &Path, values: Vec<u16>) -> Result<Vec<u16>, Diagnostic> {
+    let mut ports = Vec::new();
+    let mut seen = std::collections::BTreeSet::new();
+    for (index, port) in values.into_iter().enumerate() {
+        if port == 0 {
+            return Err(Diagnostic::new(
+                "manifest",
+                format!("capabilities.net.ports[{index}] must be between 1 and 65535"),
+            )
+            .with_path(path.display().to_string()));
+        }
+        if !seen.insert(port) {
+            return Err(
+                Diagnostic::new("manifest", format!("duplicate network port {port}"))
+                    .with_path(path.display().to_string()),
+            );
+        }
+        ports.push(port);
+    }
+    Ok(ports)
 }
 
 fn normalize_process_capability(
