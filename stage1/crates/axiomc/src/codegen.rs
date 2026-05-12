@@ -51,7 +51,8 @@ impl FromStr for NativeBackendKind {
 
 #[cfg(test)]
 mod tests {
-    use super::NativeBackendKind;
+    use super::{GeneratedRustBackendInput, NativeBackendKind, render_generated_rust};
+    use crate::mir::{Function, Program, Type};
     use std::str::FromStr;
 
     #[test]
@@ -66,17 +67,105 @@ mod tests {
     fn rejects_unsupported_backend_value() {
         let error = NativeBackendKind::from_str("direct-native")
             .expect_err("unsupported backend values should be rejected");
-        assert!(error
-            .contains("only generated-rust is implemented in this preparatory backend plumbing"));
+        assert!(
+            error.contains(
+                "only generated-rust is implemented in this preparatory backend plumbing"
+            )
+        );
+    }
+
+    #[test]
+    fn generated_rust_backend_accepts_mir_input_contract() {
+        let program = Program {
+            path: String::from("contract"),
+            functions: vec![Function {
+                name: String::from("main"),
+                source_name: String::from("main"),
+                path: String::from("contract"),
+                params: vec![],
+                return_ty: Type::Int,
+                body: vec![],
+                is_async: false,
+                is_extern: false,
+                extern_abi: None,
+                extern_library: None,
+                line: 1,
+                column: 1,
+            }],
+            structs: vec![],
+            enums: vec![],
+            statics: vec![],
+            stmts: vec![],
+        };
+
+        let rendered = render_generated_rust(&GeneratedRustBackendInput::from_mir(program));
+
+        assert!(rendered.contains("fn main()"));
     }
 }
 
+/// Typed input contract for the generated-Rust backend.
+///
+/// Codegen intentionally receives a lowered MIR program plus backend context
+/// only. Keeping this as the public seam prevents the generated-Rust backend
+/// from depending on parser, syntax, or HIR internals.
+#[derive(Debug, Clone)]
+pub struct GeneratedRustBackendInput {
+    pub program: Program,
+    pub debug: bool,
+    pub package_root: std::path::PathBuf,
+    pub fs_root: std::path::PathBuf,
+    pub capabilities: CapabilityConfig,
+}
+
+impl GeneratedRustBackendInput {
+    pub fn from_mir(program: Program) -> Self {
+        Self {
+            program,
+            debug: false,
+            package_root: std::path::PathBuf::from("."),
+            fs_root: std::path::PathBuf::from("."),
+            capabilities: CapabilityConfig::default(),
+        }
+    }
+
+    pub fn with_debug(mut self, debug: bool) -> Self {
+        self.debug = debug;
+        self
+    }
+
+    pub fn with_paths(
+        mut self,
+        package_root: impl Into<std::path::PathBuf>,
+        fs_root: impl Into<std::path::PathBuf>,
+    ) -> Self {
+        self.package_root = package_root.into();
+        self.fs_root = fs_root.into();
+        self
+    }
+
+    pub fn with_capabilities(mut self, capabilities: CapabilityConfig) -> Self {
+        self.capabilities = capabilities;
+        self
+    }
+}
+
+pub fn render_generated_rust(input: &GeneratedRustBackendInput) -> String {
+    render_rust_for_package_with_capabilities(
+        &input.program,
+        input.debug,
+        &input.package_root,
+        &input.fs_root,
+        &input.capabilities,
+    )
+}
+
 pub fn render_rust(program: &Program) -> String {
-    render_rust_with_debug(program, false)
+    render_generated_rust(&GeneratedRustBackendInput::from_mir(program.clone()))
 }
 
 pub fn render_rust_with_debug(program: &Program, debug: bool) -> String {
-    render_rust_for_package(program, debug, Path::new("."), Path::new("."))
+    render_generated_rust(&GeneratedRustBackendInput::from_mir(program.clone()).with_debug(debug))
 }
 
 pub fn render_rust_for_package(
@@ -2222,7 +2311,9 @@ fn axiom_http_serve_once(bind: String, body: String) -> bool {
         "    if !AXIOM_ENV_UNRESTRICTED && !AXIOM_ENV_ALLOWLIST.contains(&name.as_str()) {\n",
     );
     out.push_str("        axiom_host_audit(\"env_get\", args, \"denied\");\n");
-    out.push_str("        axiom_capability_audit(\"env_get\", \"env\", &arg_summary, \"denied\");\n");
+    out.push_str(
+        "        axiom_capability_audit(\"env_get\", \"env\", &arg_summary, \"denied\");\n",
+    );
     out.push_str("        return None;\n");
     out.push_str("    }\n");
     out.push_str("    let value = std::env::var(name).ok();\n");
