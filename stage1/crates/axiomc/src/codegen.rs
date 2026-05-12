@@ -301,11 +301,28 @@ fn axiom_async_cancel<T>(mut task: AxiomTask<T>) -> AxiomTask<T> {
 
 #[allow(dead_code)]
 fn axiom_async_timeout<T: Send + 'static>(task: AxiomTask<T>, timeout_ms: i64) -> AxiomTask<Option<T>> {
-    if task.canceled {
-        return axiom_task_ready(None);
-    }
-    let _timeout_ms = timeout_ms;
-    axiom_task_ready(Some(axiom_await(task)))
+    axiom_task_deferred(move || {
+        if task.canceled {
+            return None;
+        }
+        let timeout = std::time::Duration::from_millis(timeout_ms.clamp(0, 30_000) as u64);
+        let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+        let worker = std::thread::spawn(move || {
+            let value = axiom_await(task);
+            let _ = sender.send(value);
+        });
+        match receiver.recv_timeout(timeout) {
+            Ok(value) => {
+                let _ = worker.join();
+                Some(value)
+            }
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => None,
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                let _ = worker.join();
+                axiom_runtime_error("async", "timed task panicked")
+            }
+        }
+    })
 }
 
 #[allow(dead_code)]
@@ -3625,9 +3642,7 @@ fn render_expr(expr: &Expr) -> String {
                 render_expr(&args[1])
             )
         }
-        Expr::Call { name, .. } if name == "async_channel" => {
-            String::from("axiom_async_channel()")
-        }
+        Expr::Call { name, .. } if name == "async_channel" => String::from("axiom_async_channel()"),
         Expr::Call { name, args, .. } if name == "async_send" => {
             format!(
                 "axiom_async_send({}, {})",
@@ -3636,10 +3651,7 @@ fn render_expr(expr: &Expr) -> String {
             )
         }
         Expr::Call { name, args, .. } if name == "async_recv" => {
-            format!(
-                "axiom_async_recv({})",
-                render_expr(&args[0])
-            )
+            format!("axiom_async_recv({})", render_expr(&args[0]))
         }
         Expr::Call { name, args, .. } if name == "async_select" => {
             format!(

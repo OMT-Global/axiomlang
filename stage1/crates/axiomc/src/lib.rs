@@ -3251,22 +3251,30 @@ fn main() {
         let package = &sbom.packages[0];
         assert_eq!(package.name.as_deref(), Some("caps-sbom-app"));
         assert_eq!(package.package_graph.lockfile.status, "current");
-        assert!(package
-            .stdlib_imports
-            .iter()
-            .any(|import| import == "std/time.ax"));
-        assert!(package
-            .intrinsic_use
-            .iter()
-            .any(|usage| usage.intrinsic == "clock_now_ms" && usage.capability == "clock"));
-        assert!(package
-            .capability_scopes
-            .iter()
-            .any(|capability| capability.name == "env" && capability.unsafe_unrestricted));
-        assert!(package
-            .unsafe_grants
-            .iter()
-            .any(|grant| grant.capability == "env" && grant.kind == "unsafe_unrestricted"));
+        assert!(
+            package
+                .stdlib_imports
+                .iter()
+                .any(|import| import == "std/time.ax")
+        );
+        assert!(
+            package
+                .intrinsic_use
+                .iter()
+                .any(|usage| usage.intrinsic == "clock_now_ms" && usage.capability == "clock")
+        );
+        assert!(
+            package
+                .capability_scopes
+                .iter()
+                .any(|capability| capability.name == "env" && capability.unsafe_unrestricted)
+        );
+        assert!(
+            package
+                .unsafe_grants
+                .iter()
+                .any(|grant| grant.capability == "env" && grant.kind == "unsafe_unrestricted")
+        );
     }
 
     #[test]
@@ -5164,8 +5172,12 @@ true
         assert!(generated.contains("fn join<T>(&mut self, mut handle: AxiomJoinHandle<T>)"));
         assert!(!generated.contains("AXIOM_ASYNC_EXECUTOR"));
         assert!(!generated.contains("std::thread::JoinHandle"));
-        assert!(!generated.contains("std::thread::spawn(move || axiom_task_ready(axiom_await(task)))"));
-        assert!(!generated.contains("recv_timeout(std::time::Duration::from_millis"));
+        assert!(
+            !generated.contains("std::thread::spawn(move || axiom_task_ready(axiom_await(task)))")
+        );
+        assert!(generated.contains("receiver.recv_timeout(timeout)"));
+        assert!(generated.contains("timeout_ms.clamp(0, 30_000)"));
+        assert!(generated.contains("RecvTimeoutError::Timeout"));
         assert!(generated.contains("clock_sleep_ms(milliseconds)"));
         assert!(generated.contains("net_tcp_dial(host, port, message, timeout_ms)"));
         assert!(generated.contains("std::net::TcpStream::connect_timeout"));
@@ -5188,6 +5200,53 @@ true
             "41\n11\n7\ntrue\n6\nmessage\n1\nright\ntrue\nnet none\n"
         );
 
+        let tests = run_project_tests(&project).expect("run tests");
+        assert_eq!(tests.passed, 1);
+        assert_eq!(tests.failed, 0);
+    }
+
+    #[test]
+    fn stage1_async_timeout_uses_real_elapsed_timer_and_returns_none() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("stdlib-async-timeout-app");
+        create_project(&project, Some("stdlib-async-timeout-app")).expect("create project");
+        fs::write(
+            project.join("axiom.toml"),
+            render_manifest_with_capabilities(
+                "stdlib-async-timeout-app",
+                false,
+                true,
+                false,
+                false,
+                true,
+                false,
+            )
+            .replace("async = false", "async = true"),
+        )
+        .expect("write manifest");
+        let manifest = load_manifest(&project).expect("load manifest");
+        fs::write(
+            project.join("axiom.lock"),
+            render_lockfile_for_project(&project, &manifest).expect("lockfile"),
+        )
+        .expect("write lockfile");
+        let source = "import \"std/async.ax\"\nimport \"std/async_time.ax\"\nasync fn slow(value: int): int {\nlet slept: int = await sleep_ms(80)\nreturn value + slept\n}\nlet start: int = clock_now_ms()\nlet maybe: Option<int> = await timeout<int>(slow(7), 25)\nlet elapsed: int = clock_elapsed_ms(start)\nmatch maybe {\nSome(value) {\nprint value\n}\nNone {\nprint \"timed out\"\n}\n}\nprint elapsed >= 20\nprint elapsed < 200\nlet canceled: Task<int> = cancel<int>(slow(1))\nlet canceled_timeout: Option<int> = await timeout<int>(canceled, 25)\nmatch canceled_timeout {\nSome(value) {\nprint value\n}\nNone {\nprint \"canceled\"\n}\n}\n";
+        fs::write(project.join("src/main.ax"), source).expect("write source");
+        fs::write(project.join("src/main_test.ax"), source).expect("write test");
+        fs::write(
+            project.join("src/main_test.stdout"),
+            "timed out\ntrue\ntrue\ncanceled\n",
+        )
+        .expect("write golden");
+
+        let built = build_project(&project).expect("build project");
+        let output = compiled_binary_command(&built.binary)
+            .output()
+            .expect("run compiled binary");
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout),
+            "timed out\ntrue\ntrue\ncanceled\n"
+        );
         let tests = run_project_tests(&project).expect("run tests");
         assert_eq!(tests.passed, 1);
         assert_eq!(tests.failed, 0);
@@ -7472,12 +7531,10 @@ print takes_two(three)
 
         let built = build_project(&project).expect("build project with static string comparisons");
         let generated = fs::read_to_string(&built.generated_rust).expect("read generated rust");
-        assert!(generated.contains(
-            "static static_string_comparison_app_main_SAME: bool = true;"
-        ));
-        assert!(generated.contains(
-            "static static_string_comparison_app_main_DIFFERENT: bool = true;"
-        ));
+        assert!(generated.contains("static static_string_comparison_app_main_SAME: bool = true;"));
+        assert!(
+            generated.contains("static static_string_comparison_app_main_DIFFERENT: bool = true;")
+        );
         let output = compiled_binary_command(&built.binary)
             .output()
             .expect("run compiled binary");
@@ -10345,10 +10402,7 @@ return missing_c
         let output = compiled_binary_command(&built.binary)
             .output()
             .expect("run compiled binary");
-        assert_eq!(
-            String::from_utf8_lossy(&output.stdout),
-            "42\nstage1\n"
-        );
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "42\nstage1\n");
     }
 
     #[test]
