@@ -16,7 +16,7 @@ pub mod syntax;
 
 #[cfg(test)]
 mod tests {
-    use crate::codegen::{NativeBackendKind, render_rust};
+    use crate::codegen::{NativeBackendKind, render_rust, render_rust_with_debug};
     use crate::hir;
     use crate::json_contract;
     use crate::lockfile::{render_lockfile, render_lockfile_for_project};
@@ -671,6 +671,13 @@ print demo()
         assert!(
             cleanup < ret,
             "defer should render before return: {rendered}"
+        );
+
+        let debug_rendered = render_rust_with_debug(&mir, true);
+        let marker = "// axiom-source: main.ax:7:1\n    let _ = trace(String::from(\"cleanup\"));";
+        assert!(
+            debug_rendered.contains(marker),
+            "generated defer cleanup should carry the defer source span: {debug_rendered}"
         );
     }
 
