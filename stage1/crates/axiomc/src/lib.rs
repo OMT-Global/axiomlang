@@ -254,6 +254,45 @@ mod tests {
     }
 
     #[test]
+    fn render_rust_orders_generated_definitions_deterministically() {
+        let source_a = r#"fn zed(): int {
+return 2
+}
+
+fn alpha(): int {
+return 1
+}
+
+print alpha()
+print zed()
+"#;
+        let source_b = r#"fn alpha(): int {
+return 1
+}
+
+fn zed(): int {
+return 2
+}
+
+print alpha()
+print zed()
+"#;
+
+        let parsed_a = parse_program(source_a, Path::new("main.ax")).expect("parse a");
+        let parsed_b = parse_program(source_b, Path::new("main.ax")).expect("parse b");
+        let rendered_a = render_rust(&mir::lower(&hir::lower(&parsed_a).expect("lower a")));
+        let rendered_b = render_rust(&mir::lower(&hir::lower(&parsed_b).expect("lower b")));
+
+        assert_eq!(rendered_a, rendered_b);
+        assert!(
+            rendered_a
+                .find("fn alpha() -> i64")
+                .expect("alpha function")
+                < rendered_a.find("fn zed() -> i64").expect("zed function")
+        );
+    }
+
+    #[test]
     fn parser_distinguishes_owned_string_from_borrowed_str() {
         let source = r#"fn read(label: &str): int {
 print label

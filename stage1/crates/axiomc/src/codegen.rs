@@ -137,6 +137,15 @@ fn deterministic_numbers(values: &[u16]) -> Vec<u16> {
         .collect()
 }
 
+fn deterministic_named_refs<T, F>(values: &[T], name: F) -> Vec<&T>
+where
+    F: Fn(&T) -> &str,
+{
+    let mut values = values.iter().collect::<Vec<_>>();
+    values.sort_by(|left, right| name(left).cmp(name(right)));
+    values
+}
+
 pub fn render_rust_for_package_with_capabilities(
     program: &Program,
     debug: bool,
@@ -2555,19 +2564,24 @@ fn axiom_crypto_constant_time_eq(left: String, right: String) -> bool {
     );
     out.push_str("    values.into_keys().collect()\n");
     out.push_str("}\n\n");
-    for enum_def in &program.enums {
+    for enum_def in deterministic_named_refs(&program.enums, |enum_def| enum_def.name.as_str()) {
         render_enum(enum_def, &type_context, &mut out);
         out.push('\n');
     }
-    for struct_def in &program.structs {
+    for struct_def in
+        deterministic_named_refs(&program.structs, |struct_def| struct_def.name.as_str())
+    {
         render_struct(struct_def, &type_context, &mut out);
         out.push('\n');
     }
-    for static_def in &program.statics {
+    for static_def in
+        deterministic_named_refs(&program.statics, |static_def| static_def.name.as_str())
+    {
         render_static(static_def, &type_context, &mut out);
         out.push('\n');
     }
-    for function in &program.functions {
+    for function in deterministic_named_refs(&program.functions, |function| function.name.as_str())
+    {
         render_function(function, &type_context, &mut out, debug);
         out.push('\n');
     }
