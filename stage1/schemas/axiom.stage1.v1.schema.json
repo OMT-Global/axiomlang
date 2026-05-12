@@ -24,7 +24,7 @@
       "type": "string"
     },
     "manifest": {
-      "type": "string"
+      "$ref": "#/$defs/path"
     },
     "entry": {
       "type": "string"
@@ -98,58 +98,197 @@
     },
     "error": {
       "$ref": "#/$defs/diagnostic"
+    },
+    "requested": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "granted",
+          "triggers"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "granted": {
+            "type": "boolean"
+          },
+          "triggers": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      }
+    },
+    "granted": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/capability"
+      }
+    },
+    "denied": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "unsafe": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "package",
+          "capability",
+          "kind",
+          "rationale"
+        ],
+        "properties": {
+          "package": {
+            "$ref": "#/$defs/path"
+          },
+          "capability": {
+            "type": "string",
+            "minLength": 1
+          },
+          "kind": {
+            "type": "string",
+            "minLength": 1
+          },
+          "rationale": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      }
+    },
+    "transitive_package_usage": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "root",
+          "manifest",
+          "name",
+          "version",
+          "workspace_only",
+          "entrypoint",
+          "dependencies",
+          "members",
+          "capability_scopes"
+        ],
+        "properties": {
+          "root": {
+            "$ref": "#/$defs/path"
+          },
+          "manifest": {
+            "$ref": "#/$defs/path"
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "version": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "workspace_only": {
+            "type": "boolean"
+          },
+          "entrypoint": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "dependencies": {
+            "type": "array"
+          },
+          "members": {
+            "type": "array"
+          },
+          "capability_scopes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/capability"
+            }
+          }
+        }
+      }
+    },
+    "stdlib_modules": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "capability",
+          "modules"
+        ],
+        "properties": {
+          "capability": {
+            "type": "string",
+            "minLength": 1
+          },
+          "modules": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/path"
+            }
+          }
+        }
+      }
     }
   },
   "$defs": {
     "capability": {
       "type": "object",
+      "additionalProperties": false,
       "required": [
         "name",
-        "enabled",
-        "description"
+        "description",
+        "enabled"
       ],
       "properties": {
         "name": {
-          "enum": [
-            "fs",
-            "fs:write",
-            "net",
-            "process",
-            "env",
-            "clock",
-            "crypto",
-            "ffi",
-            "async"
-          ]
-        },
-        "enabled": {
-          "type": "boolean"
+          "type": "string",
+          "minLength": 1
         },
         "description": {
           "type": "string"
+        },
+        "enabled": {
+          "type": "boolean"
         },
         "allowed": {
           "type": "array",
           "items": {
             "type": "string"
           }
-        },
-        "unsafe_unrestricted": {
-          "type": "boolean"
-        },
-        "deny_by_default": {
-          "type": "boolean"
-        },
-        "unsafe_opt_in": {
-          "type": "boolean"
-        },
-        "owner": {
-          "type": "string",
-          "minLength": 1
-        },
-        "rationale": {
-          "type": "string",
-          "minLength": 1
         },
         "configured_root": {
           "type": "string",
@@ -162,9 +301,28 @@
         "package_root": {
           "type": "string",
           "minLength": 1
+        },
+        "deny_by_default": {
+          "type": "boolean"
+        },
+        "unsafe_unrestricted": {
+          "type": "boolean"
+        },
+        "unsafe_opt_in": {
+          "type": "boolean"
+        },
+        "unsafe_rationale": {
+          "type": "string"
+        },
+        "owner": {
+          "type": "string",
+          "minLength": 1
+        },
+        "rationale": {
+          "type": "string",
+          "minLength": 1
         }
-      },
-      "additionalProperties": false
+      }
     },
     "diagnostic": {
       "type": "object",
@@ -210,7 +368,231 @@
         }
       },
       "additionalProperties": false
+    },
+    "path": {
+      "type": "string",
+      "minLength": 1
+    },
+    "schemaVersion": {
+      "const": "axiom.stage1.v1"
     }
   },
-  "additionalProperties": true
+  "additionalProperties": true,
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "command": {
+            "const": "caps"
+          }
+        },
+        "required": [
+          "command"
+        ]
+      },
+      "then": {
+        "required": [
+          "schema_version",
+          "ok",
+          "command",
+          "project",
+          "capabilities",
+          "manifest",
+          "requested",
+          "granted",
+          "denied",
+          "unsafe",
+          "transitive_package_usage",
+          "stdlib_modules"
+        ],
+        "properties": {
+          "schema_version": {
+            "$ref": "#/$defs/schemaVersion"
+          },
+          "project": {
+            "$ref": "#/$defs/path"
+          },
+          "ok": {
+            "const": true
+          },
+          "command": {
+            "const": "caps"
+          },
+          "capabilities": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/capability"
+            }
+          },
+          "manifest": {
+            "$ref": "#/$defs/path"
+          },
+          "requested": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "name",
+                "granted",
+                "triggers"
+              ],
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "granted": {
+                  "type": "boolean"
+                },
+                "triggers": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                }
+              }
+            }
+          },
+          "granted": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/capability"
+            }
+          },
+          "denied": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "name"
+              ],
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            }
+          },
+          "unsafe": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "package",
+                "capability",
+                "kind",
+                "rationale"
+              ],
+              "properties": {
+                "package": {
+                  "$ref": "#/$defs/path"
+                },
+                "capability": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "kind": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "rationale": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              }
+            }
+          },
+          "transitive_package_usage": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "root",
+                "manifest",
+                "name",
+                "version",
+                "workspace_only",
+                "entrypoint",
+                "dependencies",
+                "members",
+                "capability_scopes"
+              ],
+              "properties": {
+                "root": {
+                  "$ref": "#/$defs/path"
+                },
+                "manifest": {
+                  "$ref": "#/$defs/path"
+                },
+                "name": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "version": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "workspace_only": {
+                  "type": "boolean"
+                },
+                "entrypoint": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "dependencies": {
+                  "type": "array"
+                },
+                "members": {
+                  "type": "array"
+                },
+                "capability_scopes": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/capability"
+                  }
+                }
+              }
+            }
+          },
+          "stdlib_modules": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "capability",
+                "modules"
+              ],
+              "properties": {
+                "capability": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "modules": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/path"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
 }
