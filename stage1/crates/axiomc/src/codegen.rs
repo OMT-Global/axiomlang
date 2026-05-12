@@ -66,11 +66,8 @@ mod tests {
     fn rejects_unsupported_backend_value() {
         let error = NativeBackendKind::from_str("direct-native")
             .expect_err("unsupported backend values should be rejected");
-        assert!(
-            error.contains(
-                "only generated-rust is implemented in this preparatory backend plumbing"
-            )
-        );
+        assert!(error
+            .contains("only generated-rust is implemented in this preparatory backend plumbing"));
     }
 }
 
@@ -469,6 +466,48 @@ fn axiom_async_recv<T: Send + 'static>(channel: AxiomChannel<T>) -> AxiomTask<Op
     out.push_str("        Err(_) => -1,\n");
     out.push_str("    }\n");
     out.push_str("}\n\n");
+    out.push_str(
+        r##"#[allow(dead_code)]
+fn axiom_json_escape(value: &str) -> String {
+    let mut escaped = String::new();
+    for ch in value.chars() {
+        match ch {
+            '\\' => escaped.push_str("\\\\"),
+            '"' => escaped.push_str("\\\""),
+            '\n' => escaped.push_str("\\n"),
+            '\r' => escaped.push_str("\\r"),
+            '\t' => escaped.push_str("\\t"),
+            ch if ch.is_control() => escaped.push_str(&format!("\\u{:04x}", ch as u32)),
+            ch => escaped.push(ch),
+        }
+    }
+    escaped
+}
+
+#[allow(dead_code)]
+fn axiom_capability_audit(intrinsic: &str, capability: &str, arg_summary: &str, outcome: &str) {
+    let Ok(path) = std::env::var("AXIOM_CAPABILITY_AUDIT_JSONL") else {
+        return;
+    };
+    if path.trim().is_empty() {
+        return;
+    }
+    let event = format!(
+        "{{\"package\":\"{}\",\"intrinsic\":\"{}\",\"capability\":\"{}\",\"args\":\"{}\",\"outcome\":\"{}\"}}\n",
+        axiom_json_escape(AXIOM_PACKAGE_ROOT),
+        axiom_json_escape(intrinsic),
+        axiom_json_escape(capability),
+        axiom_json_escape(arg_summary),
+        axiom_json_escape(outcome),
+    );
+    if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
+        use std::io::Write;
+        let _ = file.write_all(event.as_bytes());
+    }
+}
+
+"##,
+    );
     out.push_str("#[allow(dead_code)]\n");
     out.push_str("fn axiom_assert_fail(message: String, _line: i64, _column: i64) -> i64 {\n");
     out.push_str("    axiom_runtime_error(\"assertion\", &message)\n");
@@ -2125,6 +2164,7 @@ fn axiom_http_serve_once(bind: String, body: String) -> bool {
     }
     out.push_str("#[allow(dead_code)]\n");
     out.push_str("fn axiom_process_status(program: String) -> i64 {\n");
+    out.push_str("    let arg_summary = format!(\"program_len={}\", program.len());\n");
     out.push_str("    let args = axiom_host_arg_summary(&[(\"program\", format!(\"string:{}\", program.len()))]);\n");
     out.push_str("    let status = std::process::Command::new(program)\n");
     out.push_str("        .status()\n");
@@ -2133,6 +2173,7 @@ fn axiom_http_serve_once(bind: String, body: String) -> bool {
     out.push_str("        .map(i64::from)\n");
     out.push_str("        .unwrap_or(-1);\n");
     out.push_str("    axiom_host_audit(\"process_status\", args, if status >= 0 { \"ok\" } else { \"denied\" });\n");
+    out.push_str("    axiom_capability_audit(\"process_status\", \"process\", &arg_summary, if status == -1 { \"error\" } else { \"status\" });\n");
     out.push_str("    status\n");
     out.push_str("}\n\n");
     out.push_str("#[allow(dead_code)]\n");
@@ -2142,7 +2183,9 @@ fn axiom_http_serve_once(bind: String, body: String) -> bool {
     out.push_str("        Ok(now) => now,\n");
     out.push_str("        Err(_) => axiom_runtime_error(\"runtime\", \"system clock must be after unix epoch\"),\n");
     out.push_str("    };\n");
-    out.push_str("    now.as_millis() as i64\n");
+    out.push_str("    let result = now.as_millis() as i64;\n");
+    out.push_str("    axiom_capability_audit(\"clock_now_ms\", \"clock\", \"argc=0\", \"ok\");\n");
+    out.push_str("    result\n");
     out.push_str("}\n\n");
     out.push_str("#[allow(dead_code)]\n");
     out.push_str("fn axiom_clock_elapsed_ms(start_ms: i64) -> i64 {\n");
@@ -2164,18 +2207,26 @@ fn axiom_http_serve_once(bind: String, body: String) -> bool {
     out.push_str("}\n\n");
     out.push_str("#[allow(dead_code)]\n");
     out.push_str("fn axiom_env_get(name: String) -> Option<String> {\n");
+    out.push_str("    let arg_summary = format!(\"name_len={}\", name.len());\n");
+    out.push_str("    let args = axiom_host_arg_summary(&[(\"name\", format!(\"string:{}\", name.len()))]);\n");
     out.push_str(
         "    if !AXIOM_ENV_UNRESTRICTED && !AXIOM_ENV_ALLOWLIST.contains(&name.as_str()) {\n",
     );
+    out.push_str("        axiom_host_audit(\"env_get\", args, \"denied\");\n");
+    out.push_str("        axiom_capability_audit(\"env_get\", \"env\", &arg_summary, \"denied\");\n");
     out.push_str("        return None;\n");
     out.push_str("    }\n");
-    out.push_str("    let args = axiom_host_arg_summary(&[(\"name\", format!(\"string:{}\", name.len()))]);\n");
     out.push_str("    let value = std::env::var(name).ok();\n");
     out.push_str("    axiom_host_audit(\"env_get\", args, if value.is_some() { \"ok\" } else { \"missing\" });\n");
+    out.push_str("    axiom_capability_audit(\"env_get\", \"env\", &arg_summary, if value.is_some() { \"some\" } else { \"none\" });\n");
     out.push_str("    value\n");
     out.push_str("}\n\n");
     out.push_str("#[allow(dead_code)]\n");
     out.push_str("fn axiom_crypto_sha256(input: String) -> String {\n");
+    out.push_str("    let arg_summary = format!(\"input_len={}\", input.len());\n");
+    out.push_str(
+        "    axiom_capability_audit(\"crypto_sha256\", \"crypto\", &arg_summary, \"ok\");\n",
+    );
     out.push_str("    const K: [u32; 64] = [\n");
     out.push_str("        0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5,\n");
     out.push_str("        0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,\n");
