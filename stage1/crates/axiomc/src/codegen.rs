@@ -3215,12 +3215,19 @@ fn render_stmt_block(
             &mut local_defers,
         );
     }
-    render_deferred_exprs(out, indent, &local_defers);
+    render_deferred_exprs(out, indent, source_path, debug, &local_defers);
 }
 
-fn render_deferred_exprs(out: &mut String, indent: usize, defers: &[(String, SourceSpan)]) {
+fn render_deferred_exprs(
+    out: &mut String,
+    indent: usize,
+    source_path: &str,
+    debug: bool,
+    defers: &[(String, SourceSpan)],
+) {
     let pad = "    ".repeat(indent);
-    for (expr, _) in defers.iter().rev() {
+    for (expr, span) in defers.iter().rev() {
+        render_source_marker(source_path, *span, out, indent, debug);
         out.push_str(&format!(
             "{pad}let _ = {expr};
 "
@@ -3269,8 +3276,8 @@ fn render_stmt(
         }
         Stmt::Panic { message, span } => {
             render_source_marker(source_path, *span, out, indent, debug);
-            render_deferred_exprs(out, indent, local_defers);
-            render_deferred_exprs(out, indent, active_defers);
+            render_deferred_exprs(out, indent, source_path, debug, local_defers);
+            render_deferred_exprs(out, indent, source_path, debug, active_defers);
             out.push_str(&format!(
                 "{pad}axiom_panic({});
 ",
@@ -3387,8 +3394,8 @@ fn render_stmt(
         }
         Stmt::Return { expr, span } => {
             render_source_marker(source_path, *span, out, indent, debug);
-            render_deferred_exprs(out, indent, local_defers);
-            render_deferred_exprs(out, indent, active_defers);
+            render_deferred_exprs(out, indent, source_path, debug, local_defers);
+            render_deferred_exprs(out, indent, source_path, debug, active_defers);
             if in_async_function {
                 out.push_str(&format!(
                     "{pad}return axiom_task_ready({});
