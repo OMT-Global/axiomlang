@@ -3536,10 +3536,12 @@ print strlen("hello")
         .expect("write source");
 
         let built = build_project(&project).expect("build project");
+        let audit_path = project.join("capability-audit.jsonl");
         let output = compiled_binary_command(&built.binary)
             .env("FOO", "allowed")
             .env("BAR", "blocked")
             .env("AWS_SECRET_ACCESS_KEY", "blocked-secret")
+            .env("AXIOM_CAPABILITY_AUDIT_JSONL", &audit_path)
             .output()
             .expect("run compiled binary");
 
@@ -3547,6 +3549,16 @@ print strlen("hello")
             String::from_utf8_lossy(&output.stdout),
             "allowed\nnone bar\nnone secret\n"
         );
+        let audit = fs::read_to_string(&audit_path).expect("read audit log");
+        assert!(audit.contains("\"intrinsic\":\"env_get\""));
+        assert!(audit.contains("\"args\":\"name_len=3\""));
+        assert!(audit.contains("\"outcome\":\"some\""));
+        assert!(audit.contains("\"args\":\"name_len=18\""));
+        assert!(audit.contains("\"args\":\"name_len=21\""));
+        assert_eq!(audit.matches("\"outcome\":\"denied\"").count(), 2);
+        assert!(!audit.contains("BAR"));
+        assert!(!audit.contains("AWS_SECRET_ACCESS_KEY"));
+        assert!(!audit.contains("blocked-secret"));
     }
 
     #[test]
