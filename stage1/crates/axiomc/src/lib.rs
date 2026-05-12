@@ -3593,6 +3593,60 @@ print strlen("hello")
     }
 
     #[test]
+    fn generated_runtime_audits_failed_network_intrinsic_paths() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("host-audit-net-failure");
+        create_project(&project, Some("host-audit-net-failure-app")).expect("create project");
+        fs::write(
+            project.join("axiom.toml"),
+            render_manifest_with_capabilities(
+                "host-audit-net-failure-app",
+                false,
+                true,
+                false,
+                false,
+                false,
+                false,
+            ),
+        )
+        .expect("write manifest");
+        let manifest = load_manifest(&project).expect("load manifest");
+        fs::write(
+            project.join("axiom.lock"),
+            render_lockfile_for_project(&project, &manifest).expect("lockfile"),
+        )
+        .expect("write lockfile");
+        fs::write(
+            project.join("src/main.ax"),
+            "import \"std/net.ax\"\nmatch tcp_dial(\"127.0.0.1\", 1, \"ping\", 1) {\nSome(_reply) {\nprint \"unexpected\"\n}\nNone {\nprint \"tcp none\"\n}\n}\n",
+        )
+        .expect("write source");
+
+        let built = build_project(&project).expect("build project");
+        let audit_log = project.join("host-audit-net-failure.jsonl");
+        let output = compiled_binary_command(&built.binary)
+            .env("AXIOM_HOST_AUDIT_LOG", &audit_log)
+            .output()
+            .expect("run compiled binary");
+
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "tcp none\n");
+        let audit = fs::read_to_string(audit_log).expect("read audit log");
+        assert!(
+            audit.contains("\"intrinsic\":\"net_tcp_dial\""),
+            "audit log: {audit}"
+        );
+        assert!(
+            audit.contains("\"outcome\":\"denied\""),
+            "audit log: {audit}"
+        );
+        assert!(
+            audit.contains("\"args\":{\"host\":\"string:9\""),
+            "audit log: {audit}"
+        );
+        assert!(!audit.contains("ping"));
+    }
+
+    #[test]
     fn legacy_env_bool_still_checks_with_deprecation_warning() {
         let dir = tempdir().expect("tempdir");
         let project = dir.path().join("legacy-env");
