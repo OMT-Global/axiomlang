@@ -25,8 +25,9 @@ fn schema_validator() -> Validator {
         .join("..")
         .join("schemas")
         .join("axiom.stage1.v1.schema.json");
-    let schema: Value = serde_json::from_str(&fs::read_to_string(schema_path).expect("read schema"))
-        .expect("schema is valid JSON");
+    let schema: Value =
+        serde_json::from_str(&fs::read_to_string(schema_path).expect("read schema"))
+            .expect("schema is valid JSON");
     jsonschema::validator_for(&schema).expect("compile stage1 JSON schema")
 }
 
@@ -49,8 +50,9 @@ fn check_fixtures_validate_against_stage1_v1_schema() {
         if path.extension().and_then(|ext| ext.to_str()) != Some("json") {
             continue;
         }
-        let payload: Value = serde_json::from_str(&fs::read_to_string(&path).expect("read fixture"))
-            .expect("fixture is valid JSON");
+        let payload: Value =
+            serde_json::from_str(&fs::read_to_string(&path).expect("read fixture"))
+                .expect("fixture is valid JSON");
         if let Err(error) = validator.validate(&payload) {
             panic!(
                 "{} failed axiom.stage1.v1 schema validation: {error}",

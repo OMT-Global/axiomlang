@@ -174,6 +174,16 @@ pub fn render_rust_for_package_with_capabilities(
         out.push_str(&format!("    {name:?},\n"));
     }
     out.push_str("];\n");
+    out.push_str("const AXIOM_NET_HOST_ALLOWLIST: &[&str] = &[\n");
+    for host in &capabilities.net_hosts {
+        out.push_str(&format!("    {host:?},\n"));
+    }
+    out.push_str("];\n");
+    out.push_str("const AXIOM_NET_PORT_ALLOWLIST: &[u16] = &[\n");
+    for port in &capabilities.net_ports {
+        out.push_str(&format!("    {port},\n"));
+    }
+    out.push_str("];\n");
     out.push_str("const AXIOM_MAX_FS_READ_BYTES: u64 = 64 * 1024 * 1024;\n");
     out.push_str("const AXIOM_MAX_FS_WRITE_BYTES: usize = 64 * 1024 * 1024;\n\n");
     out.push_str("const AXIOM_HOST_AUDIT_LOG_ENV: &str = \"AXIOM_HOST_AUDIT_LOG\";\n\n");
@@ -1427,9 +1437,19 @@ fn axiom_fs_replace(path: String, content: String) -> i64 {
     out.push_str("    Some(addrs)\n");
     out.push_str("}\n\n");
     out.push_str("#[allow(dead_code)]\n");
+    out.push_str("fn axiom_net_host_allowed(host: &str) -> bool {\n");
+    out.push_str("    AXIOM_NET_HOST_ALLOWLIST.is_empty() || AXIOM_NET_HOST_ALLOWLIST.iter().any(|allowed| allowed.eq_ignore_ascii_case(host))\n");
+    out.push_str("}\n\n");
+    out.push_str("#[allow(dead_code)]\n");
+    out.push_str("fn axiom_net_port_allowed(port: u16) -> bool {\n");
+    out.push_str(
+        "    AXIOM_NET_PORT_ALLOWLIST.is_empty() || AXIOM_NET_PORT_ALLOWLIST.contains(&port)\n",
+    );
+    out.push_str("}\n\n");
+    out.push_str("#[allow(dead_code)]\n");
     out.push_str("fn axiom_net_resolve(host: String) -> Option<String> {\n");
     out.push_str("    let args = axiom_host_arg_summary(&[(\"host\", format!(\"string:{}\", host.len()))]);\n");
-    out.push_str("    let resolved = axiom_resolve_public_socket_addrs(host.as_str(), 0)\n");
+    out.push_str("    let resolved = if axiom_net_host_allowed(host.as_str()) { axiom_resolve_public_socket_addrs(host.as_str(), 0) } else { None }\n");
     out.push_str("        .and_then(|addrs| addrs.into_iter().next())\n");
     out.push_str("        .map(|addr| addr.ip().to_string());\n");
     out.push_str("    axiom_host_audit(\"net_resolve\", args, if resolved.is_some() { \"ok\" } else { \"denied\" });\n");
@@ -1444,6 +1464,9 @@ fn axiom_net_timeout(timeout_ms: i64) -> Option<std::time::Duration> {
 #[allow(dead_code)]
 fn axiom_loopback_socket_addr(host: String, port: i64) -> Option<std::net::SocketAddr> {
     let port = u16::try_from(port).ok()?;
+    if !axiom_net_port_allowed(port) || !axiom_net_host_allowed(host.as_str()) {
+        return None;
+    }
     let ip = match host.as_str() {
         "localhost" => std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST),
         _ => host.parse::<std::net::IpAddr>().ok()?,
@@ -1943,6 +1966,9 @@ fn axiom_http_get(url: String) -> Option<String> {
         let clean_host = axiom_http_strip_crlf(host);
         let clean_path = axiom_http_strip_crlf(path);
         if clean_host.is_empty() || clean_path.is_empty() {
+            return None;
+        }
+        if !axiom_net_host_allowed(clean_host.as_str()) || !axiom_net_port_allowed(port) {
             return None;
         }
         let request = axiom_http_request(clean_host.as_str(), clean_path.as_str());

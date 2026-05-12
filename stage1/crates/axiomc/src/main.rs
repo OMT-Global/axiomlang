@@ -3,16 +3,20 @@ use axiomc::dap;
 use axiomc::diagnostic_catalog::{DiagnosticCodeInfo, diagnostic_code_info};
 use axiomc::diagnostics::Diagnostic;
 use axiomc::json_contract;
-use axiomc::lsp;
 use axiomc::lockfile::{expected_lockfile_for_project, validate_lockfile};
+use axiomc::lsp;
 use axiomc::manifest::{CapabilityDescriptor, entry_path, load_manifest, manifest_path};
+#[cfg(test)]
+use axiomc::new_project::create_project;
 use axiomc::new_project::{WorkloadTemplate, create_project_with_template};
 use axiomc::project::{
     BuildOptions, BuildOutput, CheckOptions, RunOptions, TestOptions, build_project_with_options,
-    check_project_with_options, list_project_tests_with_options, capability_sbom, package_graph_metadata,
-    project_capabilities, run_project_tests_with_options, run_project_with_options,
-};use axiomc::registry::{
-    load_registry_index, publish_package, render_registry_index, PublishOptions,
+    capability_sbom, check_project_with_options, list_project_tests_with_options,
+    package_graph_metadata, project_capabilities, run_project_tests_with_options,
+    run_project_with_options,
+};
+use axiomc::registry::{
+    PublishOptions, load_registry_index, publish_package, render_registry_index,
 };
 use axiomc::syntax::parse_program;
 use clap::{Parser, Subcommand, ValueEnum};
@@ -416,7 +420,6 @@ fn main() {
                     }
                     Err(error) => print_error("test", error, json),
                 }
-
             }
         }
         Command::Caps {
@@ -437,11 +440,7 @@ fn main() {
                         Ok(report) => match json_contract::to_pretty_string(&report) {
                             Ok(output) => {
                                 println!("{output}");
-                                if report.escalated {
-                                    1
-                                } else {
-                                    0
-                                }
+                                if report.escalated { 1 } else { 0 }
                             }
                             Err(error) => print_error("caps", error, false),
                         },
@@ -464,22 +463,25 @@ fn main() {
                     }
                 } else {
                     match project_capabilities(&project) {
-                    Ok(capabilities) => {
-                        if json {
-                            println!("{}", json_contract::caps_success(&project, &capabilities));
-                            0
-                        } else {
-                            let payload = json_contract::caps_success(&project, &capabilities);
-                            match json_contract::to_pretty_string(&payload) {
-                                Ok(output) => {
-                                    println!("{output}");
-                                    0
+                        Ok(capabilities) => {
+                            if json {
+                                println!(
+                                    "{}",
+                                    json_contract::caps_success(&project, &capabilities)
+                                );
+                                0
+                            } else {
+                                let payload = json_contract::caps_success(&project, &capabilities);
+                                match json_contract::to_pretty_string(&payload) {
+                                    Ok(output) => {
+                                        println!("{output}");
+                                        0
+                                    }
+                                    Err(error) => print_error("caps", error, false),
                                 }
-                                Err(error) => print_error("caps", error, false),
                             }
                         }
-                    }
-                    Err(error) => print_error("caps", error, json),
+                        Err(error) => print_error("caps", error, json),
                     }
                 }
             }
@@ -580,7 +582,7 @@ fn main() {
                 println!("{}", doctor_text(&report));
                 if report.ok { 0 } else { 1 }
             }
-        },
+        }
         Command::Fmt { path, check, json } => match format_axiom_sources(&path, check) {
             Ok(report) => {
                 let serialization_error = if json {
@@ -657,11 +659,7 @@ fn main() {
                         );
                     }
                 }
-                if report.failed == 0 {
-                    0
-                } else {
-                    1
-                }
+                if report.failed == 0 { 0 } else { 1 }
             }
             Err(error) => print_error("bench", error, json),
         },
@@ -2085,11 +2083,7 @@ fn function_name_from_source_line(line: &str) -> Option<String> {
         .chars()
         .take_while(|c| c.is_ascii_alphanumeric() || *c == '_')
         .collect();
-    if name.is_empty() {
-        None
-    } else {
-        Some(name)
-    }
+    if name.is_empty() { None } else { Some(name) }
 }
 
 fn recommended_fixture_name(file: &str, function: &str) -> String {
@@ -2392,14 +2386,12 @@ fn inspect_module_nodes(
                 });
                 continue;
             }
-            let candidate =
-                inspect_dependency_import_candidate(&dependencies, &import.path).unwrap_or_else(
-                    || {
-                        file.parent()
-                            .map(|parent| parent.join(&import.path))
-                            .unwrap_or_else(|| PathBuf::from(&import.path))
-                    },
-                );
+            let candidate = inspect_dependency_import_candidate(&dependencies, &import.path)
+                .unwrap_or_else(|| {
+                    file.parent()
+                        .map(|parent| parent.join(&import.path))
+                        .unwrap_or_else(|| PathBuf::from(&import.path))
+                });
             let resolved = normalize_for_graph(&candidate);
             if !known.contains(&resolved) {
                 errors.push(ImportErrorReport {
@@ -2679,8 +2671,11 @@ mod tests {
             );
         let rendered = error.to_string();
         assert!(rendered.contains("unsupported backend \"direct-native\""));
-        assert!(rendered
-            .contains("only generated-rust is implemented in this preparatory backend plumbing"));
+        assert!(
+            rendered.contains(
+                "only generated-rust is implemented in this preparatory backend plumbing"
+            )
+        );
     }
 
     #[test]
@@ -3339,10 +3334,12 @@ mod tests {
             output.items[0].examples,
             vec![String::from("route(\"/health\")")]
         );
-        assert!(output
-            .capabilities
-            .iter()
-            .any(|capability| capability.name == "env"));
+        assert!(
+            output
+                .capabilities
+                .iter()
+                .any(|capability| capability.name == "env")
+        );
     }
 
     #[test]

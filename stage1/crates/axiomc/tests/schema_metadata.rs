@@ -32,13 +32,11 @@ fn editor_metadata_schemas_are_parseable_and_current() {
         "https://axiom.omt.global/schemas/axiom.stage1.v1.schema.json"
     );
     assert_eq!(
-        compiler_schema["properties"]["command"]["type"],
-        "string",
+        compiler_schema["properties"]["command"]["type"], "string",
         "compiler schema accepts all command names used by shared JSON error envelopes"
     );
     assert_eq!(
-        compiler_schema["properties"]["command"]["minLength"],
-        1,
+        compiler_schema["properties"]["command"]["minLength"], 1,
         "compiler schema rejects empty command names without pinning the CLI command set"
     );
     assert_eq!(
@@ -84,7 +82,9 @@ fn editor_metadata_schemas_are_parseable_and_current() {
         .expect("manifest unsafe opt-in capability enum");
     for capability in &known_capability_names {
         assert!(
-            manifest_unsafe_opt_ins.iter().any(|value| value == capability),
+            manifest_unsafe_opt_ins
+                .iter()
+                .any(|value| value == capability),
             "manifest schema unsafe_opt_ins includes {capability}"
         );
     }
