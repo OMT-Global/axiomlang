@@ -5,7 +5,7 @@ use crate::mir::{
     StructDef, StructField, Type,
 };
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::fmt;
 use std::path::Path;
 use std::process::Command;
@@ -51,7 +51,7 @@ impl FromStr for NativeBackendKind {
 
 #[cfg(test)]
 mod tests {
-    use super::NativeBackendKind;
+    use super::{NativeBackendKind, deterministic_numbers, deterministic_strings};
     use std::str::FromStr;
 
     #[test]
@@ -66,8 +66,33 @@ mod tests {
     fn rejects_unsupported_backend_value() {
         let error = NativeBackendKind::from_str("direct-native")
             .expect_err("unsupported backend values should be rejected");
-        assert!(error
-            .contains("only generated-rust is implemented in this preparatory backend plumbing"));
+        assert!(
+            error.contains(
+                "only generated-rust is implemented in this preparatory backend plumbing"
+            )
+        );
+    }
+
+    #[test]
+    fn deterministic_capability_allowlists_are_sorted_and_deduplicated() {
+        let env_vars = vec![
+            String::from("ZED"),
+            String::from("ALPHA"),
+            String::from("ZED"),
+        ];
+        let net_hosts = vec![
+            String::from("z.example"),
+            String::from("a.example"),
+            String::from("z.example"),
+        ];
+        let net_ports = vec![443, 80, 443];
+
+        assert_eq!(deterministic_strings(&env_vars), vec!["ALPHA", "ZED"]);
+        assert_eq!(
+            deterministic_strings(&net_hosts),
+            vec!["a.example", "z.example"]
+        );
+        assert_eq!(deterministic_numbers(&net_ports), vec![80, 443]);
     }
 }
 
@@ -92,6 +117,33 @@ pub fn render_rust_for_package(
         fs_root,
         &CapabilityConfig::default(),
     )
+}
+
+fn deterministic_strings(values: &[String]) -> Vec<&str> {
+    values
+        .iter()
+        .map(String::as_str)
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect()
+}
+
+fn deterministic_numbers(values: &[u16]) -> Vec<u16> {
+    values
+        .iter()
+        .copied()
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect()
+}
+
+fn deterministic_named_refs<T, F>(values: &[T], name: F) -> Vec<&T>
+where
+    F: Fn(&T) -> &str,
+{
+    let mut values = values.iter().collect::<Vec<_>>();
+    values.sort_by(|left, right| name(left).cmp(name(right)));
+    values
 }
 
 pub fn render_rust_for_package_with_capabilities(
@@ -170,17 +222,17 @@ pub fn render_rust_for_package_with_capabilities(
         capabilities.async_runtime
     ));
     out.push_str("const AXIOM_ENV_ALLOWLIST: &[&str] = &[\n");
-    for name in &capabilities.env_vars {
+    for name in deterministic_strings(&capabilities.env_vars) {
         out.push_str(&format!("    {name:?},\n"));
     }
     out.push_str("];\n");
     out.push_str("const AXIOM_NET_HOST_ALLOWLIST: &[&str] = &[\n");
-    for host in &capabilities.net_hosts {
+    for host in deterministic_strings(&capabilities.net_hosts) {
         out.push_str(&format!("    {host:?},\n"));
     }
     out.push_str("];\n");
     out.push_str("const AXIOM_NET_PORT_ALLOWLIST: &[u16] = &[\n");
-    for port in &capabilities.net_ports {
+    for port in deterministic_numbers(&capabilities.net_ports) {
         out.push_str(&format!("    {port},\n"));
     }
     out.push_str("];\n");
@@ -2222,7 +2274,9 @@ fn axiom_http_serve_once(bind: String, body: String) -> bool {
         "    if !AXIOM_ENV_UNRESTRICTED && !AXIOM_ENV_ALLOWLIST.contains(&name.as_str()) {\n",
     );
     out.push_str("        axiom_host_audit(\"env_get\", args, \"denied\");\n");
-    out.push_str("        axiom_capability_audit(\"env_get\", \"env\", &arg_summary, \"denied\");\n");
+    out.push_str(
+        "        axiom_capability_audit(\"env_get\", \"env\", &arg_summary, \"denied\");\n",
+    );
     out.push_str("        return None;\n");
     out.push_str("    }\n");
     out.push_str("    let value = std::env::var(name).ok();\n");
@@ -2510,19 +2564,24 @@ fn axiom_crypto_constant_time_eq(left: String, right: String) -> bool {
     );
     out.push_str("    values.into_keys().collect()\n");
     out.push_str("}\n\n");
-    for enum_def in &program.enums {
+    for enum_def in deterministic_named_refs(&program.enums, |enum_def| enum_def.name.as_str()) {
         render_enum(enum_def, &type_context, &mut out);
         out.push('\n');
     }
-    for struct_def in &program.structs {
+    for struct_def in
+        deterministic_named_refs(&program.structs, |struct_def| struct_def.name.as_str())
+    {
         render_struct(struct_def, &type_context, &mut out);
         out.push('\n');
     }
-    for static_def in &program.statics {
+    for static_def in
+        deterministic_named_refs(&program.statics, |static_def| static_def.name.as_str())
+    {
         render_static(static_def, &type_context, &mut out);
         out.push('\n');
     }
-    for function in &program.functions {
+    for function in deterministic_named_refs(&program.functions, |function| function.name.as_str())
+    {
         render_function(function, &type_context, &mut out, debug);
         out.push('\n');
     }
