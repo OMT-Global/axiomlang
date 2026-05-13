@@ -1973,7 +1973,7 @@ fn monomorphize_program(program: &syntax::Program) -> Result<syntax::Program, Di
     let mut emitted = HashSet::new();
     while let Some(instantiation) = queue.pop_front() {
         if emitted.len() >= MAX_GENERIC_INSTANTIATION_EXPANSIONS {
-            return Err(generic_instantiation_limit_diagnostic(&instantiation));
+            return Err(generic_instantiation_cycle_diagnostic(&instantiation));
         }
         if !emitted.insert(instantiation.clone()) {
             continue;
@@ -2169,7 +2169,7 @@ fn monomorphize_aggregates(program: syntax::Program) -> Result<syntax::Program, 
     let mut emitted = HashSet::new();
     while let Some(instantiation) = queue.pop_front() {
         if emitted.len() >= MAX_GENERIC_INSTANTIATION_EXPANSIONS {
-            return Err(generic_instantiation_limit_diagnostic(&instantiation));
+            return Err(generic_instantiation_cycle_diagnostic(&instantiation));
         }
         if !emitted.insert(instantiation.clone()) {
             continue;
@@ -2229,15 +2229,15 @@ fn monomorphize_aggregates(program: syntax::Program) -> Result<syntax::Program, 
     })
 }
 
-fn generic_instantiation_limit_diagnostic(instantiation: &GenericInstantiation) -> Diagnostic {
+fn generic_instantiation_cycle_diagnostic(instantiation: &GenericInstantiation) -> Diagnostic {
     Diagnostic::new(
         "type",
         format!(
-            "generic instantiation resource limit exceeded while expanding {:?}; generic expansion is bounded to prevent runaway recursive instantiations",
+            "generic instantiation cycle detected while expanding {:?}; recursive generic instantiations are not supported",
             instantiation.name
         ),
     )
-    .with_code("generic_instantiation_limit")
+    .with_code("generic_instantiation_cycle")
 }
 
 fn validate_generic_function(function: &syntax::Function) -> Result<(), Diagnostic> {

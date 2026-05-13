@@ -11302,7 +11302,7 @@ print 0
         .expect("write source");
         let error = check_project(&project).expect_err("recursive generic struct should fail");
         assert_eq!(error.kind, "type");
-        assert_eq!(error.code.as_deref(), Some("generic_instantiation_limit"));
+        assert_eq!(error.code.as_deref(), Some("generic_instantiation_cycle"));
     }
 
     #[test]
@@ -11323,11 +11323,11 @@ print answer
         .expect("write source");
         let error = check_project(&project).expect_err("recursive generic function should fail");
         assert_eq!(error.kind, "type");
-        assert_eq!(error.code.as_deref(), Some("generic_instantiation_limit"));
+        assert_eq!(error.code.as_deref(), Some("generic_instantiation_cycle"));
     }
 
     #[test]
-    fn check_project_allows_more_than_bounded_nonrecursive_generic_instantiations() {
+    fn check_project_allows_many_finite_nonrecursive_generic_instantiations() {
         let dir = tempdir().expect("tempdir");
         let project = dir.path().join("many-generic-instantiations");
         create_project(&project, Some("many-generic-instantiations-app")).expect("create project");
@@ -11343,8 +11343,7 @@ print answer
         source.push_str("print 0\n");
 
         fs::write(project.join("src/main.ax"), source).expect("write source");
-        check_project(&project)
-            .expect("finite generic instantiations beyond the former 72-expansion cap should pass");
+        check_project(&project).expect("finite generic instantiations should pass");
     }
 
     #[test]
