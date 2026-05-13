@@ -970,7 +970,7 @@ struct GenericInstantiation {
     type_args: Vec<syntax::TypeName>,
 }
 
-const MAX_GENERIC_INSTANTIATIONS: usize = 72;
+const MAX_GENERIC_INSTANTIATION_EXPANSIONS: usize = 256;
 
 fn infer_generic_call_type_args(
     program: &syntax::Program,
@@ -1972,7 +1972,7 @@ fn monomorphize_program(program: &syntax::Program) -> Result<syntax::Program, Di
 
     let mut emitted = HashSet::new();
     while let Some(instantiation) = queue.pop_front() {
-        if emitted.len() >= MAX_GENERIC_INSTANTIATIONS {
+        if emitted.len() >= MAX_GENERIC_INSTANTIATION_EXPANSIONS {
             return Err(generic_instantiation_limit_diagnostic(&instantiation));
         }
         if !emitted.insert(instantiation.clone()) {
@@ -2168,7 +2168,7 @@ fn monomorphize_aggregates(program: syntax::Program) -> Result<syntax::Program, 
     let mut enums = enums;
     let mut emitted = HashSet::new();
     while let Some(instantiation) = queue.pop_front() {
-        if emitted.len() >= MAX_GENERIC_INSTANTIATIONS {
+        if emitted.len() >= MAX_GENERIC_INSTANTIATION_EXPANSIONS {
             return Err(generic_instantiation_limit_diagnostic(&instantiation));
         }
         if !emitted.insert(instantiation.clone()) {
@@ -2233,7 +2233,7 @@ fn generic_instantiation_limit_diagnostic(instantiation: &GenericInstantiation) 
     Diagnostic::new(
         "type",
         format!(
-            "generic instantiation limit exceeded while expanding {:?}; generic expansion is bounded to prevent runaway recursive instantiations",
+            "generic instantiation resource limit exceeded while expanding {:?}; generic expansion is bounded to prevent runaway recursive instantiations",
             instantiation.name
         ),
     )

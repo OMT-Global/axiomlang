@@ -11333,7 +11333,7 @@ print answer
         create_project(&project, Some("many-generic-instantiations-app")).expect("create project");
 
         let mut source = String::from("fn accept<T>(value: Option<T>): int {\nreturn 1\n}\n\n");
-        for i in 0..70 {
+        for i in 0..80 {
             let mut ty = String::from("int");
             for _ in 0..i {
                 ty = format!("Option<{ty}>");
@@ -11344,7 +11344,7 @@ print answer
 
         fs::write(project.join("src/main.ax"), source).expect("write source");
         check_project(&project)
-            .expect("finite generic instantiations beyond the former cap should pass");
+            .expect("finite generic instantiations beyond the former 72-expansion cap should pass");
     }
 
     #[test]
