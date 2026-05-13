@@ -1,0 +1,7 @@
+{
+  "kind": "type",
+  "message": "generic type \"conformance_generic_struct_constructor_missing_type_args_main_Pair\" expects 2 type arguments, got 1",
+  "path": "src/main.ax",
+  "line": 6,
+  "column": 8
+}

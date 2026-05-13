@@ -1,0 +1,7 @@
+{
+  "kind": "type",
+  "message": "enum variant \"Named\" payload \"item\" expects int, got string",
+  "path": "src/main.ax",
+  "line": 6,
+  "column": 8
+}

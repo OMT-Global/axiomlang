@@ -1,0 +1,6 @@
+struct Box<T> {
+item: T
+}
+fn make(): Box<int> {
+return Box<int, string> { item: 1 }
+}

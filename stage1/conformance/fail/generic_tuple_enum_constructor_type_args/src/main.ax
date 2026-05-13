@@ -1,0 +1,5 @@
+enum Slot<T> {
+Filled(T)
+Empty
+}
+let value: Slot<int> = Filled<string>(1)

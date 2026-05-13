@@ -4104,7 +4104,10 @@ fn find_compare_operator(raw: &str) -> Option<(CompareOp, usize)> {
         if paren_depth == 0 && brace_depth == 0 && bracket_depth == 0 {
             if ch == '<'
                 && let Some(close_angle) = find_matching_angle(raw, index)
-                && raw[close_angle + 1..].trim_start().starts_with('(')
+                && matches!(
+                    raw[close_angle + 1..].trim_start().chars().next(),
+                    Some('(' | '{')
+                )
             {
                 cursor += 1;
                 while cursor < chars.len() && chars[cursor].0 <= close_angle {
