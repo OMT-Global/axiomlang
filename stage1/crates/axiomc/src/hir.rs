@@ -11445,6 +11445,87 @@ fn literal_value(expr: &Expr) -> Option<&LiteralValue> {
     }
 }
 
+#[cfg(test)]
+mod boundary_tests {
+    use super::*;
+    use std::path::Path;
+
+    fn parse(source: &str) -> syntax::Program {
+        syntax::parse_program(source, Path::new("main.ax")).expect("parse fixture")
+    }
+
+    #[test]
+    fn hir_lowering_drops_parser_import_syntax() {
+        let parsed = parse(
+            r#"
+import "./other.ax"
+fn main(): int {
+return 1
+}
+let value: int = main()
+"#,
+        );
+
+        assert_eq!(parsed.imports.len(), 1, "parser owns import syntax");
+        let lowered = lower(&parsed).expect("HIR lowering should ignore unresolved unused imports");
+
+        assert_eq!(lowered.path, "main.ax");
+        assert_eq!(lowered.functions.len(), 1);
+        assert_eq!(lowered.stmts.len(), 1);
+    }
+
+    #[test]
+    fn hir_lowering_owns_duplicate_symbol_validation() {
+        let parsed = parse(
+            r#"
+fn value(): int {
+return 1
+}
+fn value(): int {
+return 2
+}
+"#,
+        );
+
+        let error = lower(&parsed).expect_err("HIR lowering should reject duplicate symbols");
+        assert_eq!(error.kind, "type");
+        assert!(error.message.contains("duplicate function"));
+    }
+
+    #[test]
+    fn hir_lowering_owns_type_name_resolution() {
+        let parsed = parse(
+            r#"
+fn main(): MissingType {
+return 1
+}
+"#,
+        );
+
+        let error = lower(&parsed).expect_err("HIR lowering should reject unknown type names");
+        assert_eq!(error.kind, "type");
+        assert!(error.message.contains("unknown type \"MissingType\""));
+    }
+
+    #[test]
+    fn hir_lowering_owns_ownership_validation() {
+        let parsed = parse(
+            r#"
+fn consume(value: string): int {
+return 1
+}
+let value: string = "owned"
+let first: int = consume(value)
+let second: int = consume(value)
+"#,
+        );
+
+        let error = lower(&parsed).expect_err("HIR lowering should reject use after move");
+        assert_eq!(error.kind, "ownership");
+        assert!(error.message.contains("use of moved value") || error.message.contains("moved"));
+    }
+}
+
 impl Expr {
     pub fn ty(&self) -> &Type {
         match self {
