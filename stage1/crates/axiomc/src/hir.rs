@@ -970,6 +970,8 @@ struct GenericInstantiation {
     type_args: Vec<syntax::TypeName>,
 }
 
+const MAX_GENERIC_INSTANTIATION_EXPANSIONS: usize = 256;
+
 fn infer_generic_call_type_args(
     program: &syntax::Program,
     generic_functions: &HashMap<String, syntax::Function>,
@@ -1970,6 +1972,9 @@ fn monomorphize_program(program: &syntax::Program) -> Result<syntax::Program, Di
 
     let mut emitted = HashSet::new();
     while let Some(instantiation) = queue.pop_front() {
+        if emitted.len() >= MAX_GENERIC_INSTANTIATION_EXPANSIONS {
+            return Err(generic_instantiation_limit_diagnostic(&instantiation));
+        }
         if !emitted.insert(instantiation.clone()) {
             continue;
         }
@@ -2163,6 +2168,9 @@ fn monomorphize_aggregates(program: syntax::Program) -> Result<syntax::Program, 
     let mut enums = enums;
     let mut emitted = HashSet::new();
     while let Some(instantiation) = queue.pop_front() {
+        if emitted.len() >= MAX_GENERIC_INSTANTIATION_EXPANSIONS {
+            return Err(generic_instantiation_limit_diagnostic(&instantiation));
+        }
         if !emitted.insert(instantiation.clone()) {
             continue;
         }
@@ -2219,6 +2227,17 @@ fn monomorphize_aggregates(program: syntax::Program) -> Result<syntax::Program, 
         functions,
         stmts,
     })
+}
+
+fn generic_instantiation_limit_diagnostic(instantiation: &GenericInstantiation) -> Diagnostic {
+    Diagnostic::new(
+        "type",
+        format!(
+            "generic instantiation resource limit exceeded while expanding {:?}; generic expansion is bounded to prevent runaway recursive instantiations",
+            instantiation.name
+        ),
+    )
+    .with_code("generic_instantiation_limit")
 }
 
 fn validate_generic_function(function: &syntax::Function) -> Result<(), Diagnostic> {
@@ -3243,12 +3262,22 @@ fn rewrite_expr_aggregate_types(
                 let type_params = generic_structs
                     .get(name)
                     .map(|decl| decl.type_params.as_slice())
-                    .or_else(|| generic_enums.get(name).map(|decl| decl.type_params.as_slice()))
+                    .or_else(|| {
+                        generic_enums
+                            .get(name)
+                            .map(|decl| decl.type_params.as_slice())
+                    })
                     .ok_or_else(|| {
                         Diagnostic::new("type", format!("type {name:?} is not generic"))
                             .with_span(*line, *column)
                     })?;
-                generic_decl_type_bindings(name, type_params, &rewritten_type_args, *line, *column)?;
+                generic_decl_type_bindings(
+                    name,
+                    type_params,
+                    &rewritten_type_args,
+                    *line,
+                    *column,
+                )?;
                 let instantiation = GenericInstantiation {
                     name: name.clone(),
                     type_args: rewritten_type_args.clone(),
@@ -3283,7 +3312,7 @@ fn rewrite_expr_aggregate_types(
                 line: *line,
                 column: *column,
             }
-        },
+        }
         syntax::Expr::FieldAccess {
             base,
             field,

@@ -11285,6 +11285,73 @@ print c
     }
 
     #[test]
+    fn check_project_rejects_recursive_generic_struct_instantiation_cycle() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("recursive-generic-struct");
+        create_project(&project, Some("recursive-generic-struct-app")).expect("create project");
+        fs::write(
+            project.join("src/main.ax"),
+            "struct Loop<T> {
+next: Loop<Loop<T>>
+}
+
+let value: Loop<int> = Loop { next: Loop { next: 0 } }
+print 0
+",
+        )
+        .expect("write source");
+        let error = check_project(&project).expect_err("recursive generic struct should fail");
+        assert_eq!(error.kind, "type");
+        assert_eq!(error.code.as_deref(), Some("generic_instantiation_limit"));
+    }
+
+    #[test]
+    fn check_project_rejects_recursive_generic_function_instantiation_cycle() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("recursive-generic-function");
+        create_project(&project, Some("recursive-generic-function-app")).expect("create project");
+        fs::write(
+            project.join("src/main.ax"),
+            "fn grow<T>(value: T): int {
+return grow<Option<T>>(None)
+}
+
+let answer: int = grow<int>(1)
+print answer
+",
+        )
+        .expect("write source");
+        let error = check_project(&project).expect_err("recursive generic function should fail");
+        assert_eq!(error.kind, "type");
+        assert_eq!(error.code.as_deref(), Some("generic_instantiation_limit"));
+    }
+
+    #[test]
+    fn check_project_reports_resource_limit_for_many_finite_nonrecursive_generic_instantiations() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("many-generic-instantiations");
+        create_project(&project, Some("many-generic-instantiations-app")).expect("create project");
+
+        let mut source = String::from("fn accept<T>(value: T): int {\nreturn 1\n}\n\n");
+        for i in 0..300 {
+            source.push_str(&format!("struct S{i} {{\nvalue: int\n}}\n"));
+        }
+        source.push_str("\n");
+        for i in 0..300 {
+            source.push_str(&format!(
+                "let value{i}: int = accept<S{i}>(S{i} {{ value: {i} }})\n"
+            ));
+        }
+        source.push_str("print 0\n");
+
+        fs::write(project.join("src/main.ax"), source).expect("write source");
+        let error = check_project(&project)
+            .expect_err("finite generic instantiations beyond the active cap should be bounded");
+        assert_eq!(error.kind, "type");
+        assert_eq!(error.code.as_deref(), Some("generic_instantiation_limit"));
+    }
+
+    #[test]
     fn hir_recovery_collects_independent_type_errors_in_source_order() {
         // Three functions each reference an undefined variable; recovery must
         // accumulate all three errors rather than short-circuit after the first.
