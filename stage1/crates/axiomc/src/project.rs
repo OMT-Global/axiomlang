@@ -5023,6 +5023,7 @@ fn rewrite_expr(
         },
         syntax::Expr::StructLiteral {
             name,
+            type_args,
             fields,
             line,
             column,
@@ -5040,6 +5041,7 @@ fn rewrite_expr(
                     .get(name)
                     .cloned()
                     .unwrap_or_else(|| name.clone()),
+                type_args: type_args.clone(),
                 fields: fields
                     .iter()
                     .map(|field| {

@@ -364,6 +364,7 @@ pub enum Expr {
     },
     StructLiteral {
         name: String,
+        type_args: Vec<TypeName>,
         fields: Vec<StructFieldValue>,
         line: usize,
         column: usize,
@@ -2962,8 +2963,9 @@ fn parse_term(raw: &str, path: &Path, line_no: usize, column: usize) -> Result<E
         && let Some(open_brace) = find_top_level_char(raw, '{')
         && matches!(find_matching_brace(raw, open_brace), Some(close) if close == raw.len() - 1)
     {
-        let name = raw[..open_brace].trim();
-        if !name.is_empty() {
+        let target = raw[..open_brace].trim();
+        if !target.is_empty() {
+            let (name, type_args) = parse_call_name(target, path, line_no, column)?;
             validate_ident(name, path, line_no, column)?;
             let fields = parse_struct_literal_fields(
                 &raw[open_brace + 1..raw.len() - 1],
@@ -2973,6 +2975,7 @@ fn parse_term(raw: &str, path: &Path, line_no: usize, column: usize) -> Result<E
             )?;
             return Ok(Expr::StructLiteral {
                 name: name.to_string(),
+                type_args,
                 fields,
                 line: line_no,
                 column,

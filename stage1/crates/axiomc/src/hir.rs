@@ -1365,11 +1365,13 @@ fn infer_generic_calls_in_expr(
         },
         syntax::Expr::StructLiteral {
             name,
+            type_args,
             fields,
             line,
             column,
         } => syntax::Expr::StructLiteral {
             name: name.clone(),
+            type_args: type_args.clone(),
             fields: fields
                 .iter()
                 .map(|field| {
@@ -3218,30 +3220,69 @@ fn rewrite_expr_aggregate_types(
         },
         syntax::Expr::StructLiteral {
             name,
+            type_args,
             fields,
             line,
             column,
-        } => syntax::Expr::StructLiteral {
-            name: name.clone(),
-            fields: fields
+        } => {
+            let rewritten_type_args = type_args
                 .iter()
-                .map(|field| {
-                    Ok(syntax::StructFieldValue {
-                        name: field.name.clone(),
-                        expr: rewrite_expr_aggregate_types(
-                            &field.expr,
-                            generic_structs,
-                            generic_enums,
-                            queue,
-                            queued,
-                        )?,
-                        line: field.line,
-                        column: field.column,
-                    })
+                .map(|type_arg| {
+                    rewrite_aggregate_type_name(
+                        type_arg,
+                        generic_structs,
+                        generic_enums,
+                        queue,
+                        queued,
+                        *line,
+                        *column,
+                    )
                 })
-                .collect::<Result<Vec<_>, Diagnostic>>()?,
-            line: *line,
-            column: *column,
+                .collect::<Result<Vec<_>, _>>()?;
+            let rewritten_name = if !rewritten_type_args.is_empty() {
+                let type_params = generic_structs
+                    .get(name)
+                    .map(|decl| decl.type_params.as_slice())
+                    .or_else(|| generic_enums.get(name).map(|decl| decl.type_params.as_slice()))
+                    .ok_or_else(|| {
+                        Diagnostic::new("type", format!("type {name:?} is not generic"))
+                            .with_span(*line, *column)
+                    })?;
+                generic_decl_type_bindings(name, type_params, &rewritten_type_args, *line, *column)?;
+                let instantiation = GenericInstantiation {
+                    name: name.clone(),
+                    type_args: rewritten_type_args.clone(),
+                };
+                if queued.insert(instantiation.clone()) {
+                    queue.push_back(instantiation);
+                }
+                monomorphized_type_name(name, &rewritten_type_args)
+            } else {
+                name.clone()
+            };
+            syntax::Expr::StructLiteral {
+                name: rewritten_name,
+                type_args: Vec::new(),
+                fields: fields
+                    .iter()
+                    .map(|field| {
+                        Ok(syntax::StructFieldValue {
+                            name: field.name.clone(),
+                            expr: rewrite_expr_aggregate_types(
+                                &field.expr,
+                                generic_structs,
+                                generic_enums,
+                                queue,
+                                queued,
+                            )?,
+                            line: field.line,
+                            column: field.column,
+                        })
+                    })
+                    .collect::<Result<Vec<_>, Diagnostic>>()?,
+                line: *line,
+                column: *column,
+            }
         },
         syntax::Expr::FieldAccess {
             base,
@@ -3909,11 +3950,13 @@ fn rewrite_expr_generic_calls(
         },
         syntax::Expr::StructLiteral {
             name,
+            type_args,
             fields,
             line,
             column,
         } => syntax::Expr::StructLiteral {
             name: name.clone(),
+            type_args: type_args.clone(),
             fields: fields
                 .iter()
                 .map(|field| {
@@ -8721,10 +8764,18 @@ fn lower_expr_with_expected_inner(
         }
         syntax::Expr::StructLiteral {
             name,
+            type_args,
             fields,
             line,
             column,
         } => {
+            if !type_args.is_empty() {
+                return Err(Diagnostic::new(
+                    "type",
+                    format!("generic constructor {name:?} was not monomorphized"),
+                )
+                .with_span(*line, *column));
+            }
             if let Some(variant) = resolve_variant(name, expected, ctx, *line, *column)?
                 && !variant.payload_names.is_empty()
             {
