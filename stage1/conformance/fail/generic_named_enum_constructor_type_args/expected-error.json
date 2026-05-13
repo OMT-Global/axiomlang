@@ -1,0 +1,8 @@
+{
+  "kind": "parse",
+  "code": "parse.invalid_syntax",
+  "message": "invalid identifier \"string>\"",
+  "path": "src/main.ax",
+  "line": 6,
+  "column": 8
+}

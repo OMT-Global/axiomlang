@@ -94,6 +94,12 @@ Current compile-fail fixtures cover:
   message is not a `string`.
 - `panic_rejects_type_arguments`: type diagnostics for `panic(...)` when the
   statement incorrectly supplies type arguments.
+- `generic_struct_constructor_extra_type_args`: parse diagnostics for explicit
+  generic struct constructor type arguments that cannot lower to codegen.
+- `generic_tuple_enum_constructor_type_args`: type diagnostics for tuple enum
+  constructors that incorrectly supply explicit type arguments.
+- `generic_named_enum_constructor_type_args`: parse diagnostics for named-payload
+  enum constructors that incorrectly supply explicit type arguments.
 - `result_ok_without_context`: type diagnostics for `Ok(...)` without an
   expected `Result<T, E>` context.
 - `stdlib_clock_without_capability`: capability diagnostics for clock

@@ -1,0 +1,8 @@
+{
+  "kind": "type",
+  "code": "type.invalid",
+  "message": "function \"Filled\" is not generic",
+  "path": "src/main.ax",
+  "line": 5,
+  "column": 19
+}
