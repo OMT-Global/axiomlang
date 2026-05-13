@@ -73,6 +73,18 @@ pub fn publish_package(
     registry_root: &Path,
     options: &PublishOptions,
 ) -> Result<PublishOutput, Diagnostic> {
+    let signing_key = options.signing_key.as_deref().ok_or_else(|| {
+        Diagnostic::new(
+            "publish",
+            "publish requires --signing-key; the stage1 registry has no default key, and the emitted .sig file is an integrity tag, not authenticity proof",
+        )
+    })?;
+    if signing_key.trim().is_empty() {
+        return Err(Diagnostic::new(
+            "publish",
+            "--signing-key must not be empty",
+        ));
+    }
     let project_root = fs::canonicalize(project_root).map_err(|err| {
         Diagnostic::new(
             "publish",
@@ -134,15 +146,8 @@ pub fn publish_package(
         Diagnostic::new("publish", format!("failed to write package archive: {err}"))
             .with_path(archive_out.display().to_string())
     })?;
-    let signature = render_archive_signature(
-        &package.name,
-        &package.version,
-        &archive_hash,
-        options
-            .signing_key
-            .as_deref()
-            .unwrap_or("axiom-stage1-dev-key"),
-    );
+    let signature =
+        render_archive_signature(&package.name, &package.version, &archive_hash, signing_key);
     let signature_out = release_dir.join(format!("{DEFAULT_ARCHIVE_FILENAME}.sig"));
     fs::write(&signature_out, signature).map_err(|err| {
         Diagnostic::new(
@@ -190,11 +195,15 @@ fn render_package_archive(project_root: &Path) -> Result<Vec<u8>, Diagnostic> {
 
 fn publishable_files(project_root: &Path) -> Result<Vec<PathBuf>, Diagnostic> {
     let mut files = Vec::new();
-    collect_publishable_files(project_root, &mut files)?;
+    collect_publishable_files(project_root, project_root, &mut files)?;
     Ok(files)
 }
 
-fn collect_publishable_files(dir: &Path, files: &mut Vec<PathBuf>) -> Result<(), Diagnostic> {
+fn collect_publishable_files(
+    project_root: &Path,
+    dir: &Path,
+    files: &mut Vec<PathBuf>,
+) -> Result<(), Diagnostic> {
     for entry in fs::read_dir(dir).map_err(|err| {
         Diagnostic::new(
             "publish",
@@ -208,13 +217,48 @@ fn collect_publishable_files(dir: &Path, files: &mut Vec<PathBuf>) -> Result<(),
         let path = entry.path();
         let name = entry.file_name();
         let name = name.to_string_lossy();
-        if path.is_dir() {
+        let metadata = fs::symlink_metadata(&path).map_err(|err| {
+            Diagnostic::new(
+                "publish",
+                format!("failed to stat {}: {err}", path.display()),
+            )
+            .with_path(path.display().to_string())
+        })?;
+        if metadata.file_type().is_symlink() {
+            return Err(Diagnostic::new(
+                "publish",
+                format!(
+                    "refusing to package symlinked path {} -- publish does not follow symlinks",
+                    path.display()
+                ),
+            )
+            .with_path(path.display().to_string()));
+        }
+        if metadata.is_dir() {
             if matches!(name.as_ref(), ".git" | "target" | "dist") {
                 continue;
             }
-            collect_publishable_files(&path, files)?;
-        } else if should_publish_file(&path) {
-            files.push(path);
+            collect_publishable_files(project_root, &path, files)?;
+        } else if metadata.is_file() && should_publish_file(&path) {
+            let canonical = fs::canonicalize(&path).map_err(|err| {
+                Diagnostic::new(
+                    "publish",
+                    format!("failed to resolve {}: {err}", path.display()),
+                )
+                .with_path(path.display().to_string())
+            })?;
+            if !canonical.starts_with(project_root) {
+                return Err(Diagnostic::new(
+                    "publish",
+                    format!(
+                        "refusing to package {} -- resolves outside the project root {}",
+                        path.display(),
+                        project_root.display()
+                    ),
+                )
+                .with_path(path.display().to_string()));
+            }
+            files.push(canonical);
         }
     }
     Ok(())
@@ -253,11 +297,80 @@ fn render_archive_signature(
     archive_hash: &str,
     signing_key: &str,
 ) -> String {
-    let signature =
-        hash_bytes(format!("{signing_key}\0{package}\0{version}\0{archive_hash}").as_bytes());
+    // The emitted file is a tamper-detection integrity tag, not a cryptographic
+    // signature. It binds (key, package, version, archive_hash) under a 64-bit
+    // non-cryptographic hash and is intended only to catch accidental drift in
+    // a stage1 dev registry. The file extension stays `.sig` for backward
+    // compatibility with consumers, but the in-file header documents the
+    // weaker semantics so operators do not mistake this for authenticity.
+    let integrity = compute_integrity_tag(signing_key, package, version, archive_hash);
     format!(
-        "axiom-signature-v1\npackage={package}\nversion={version}\narchive_hash={archive_hash}\nsignature={signature}\n"
+        "axiom-integrity-v1\npackage={package}\nversion={version}\narchive_hash={archive_hash}\nintegrity={integrity}\n"
     )
+}
+
+fn compute_integrity_tag(
+    signing_key: &str,
+    package: &str,
+    version: &str,
+    archive_hash: &str,
+) -> String {
+    hash_bytes(format!("{signing_key}\0{package}\0{version}\0{archive_hash}").as_bytes())
+}
+
+/// Re-derive the integrity tag for an archive and compare it against the
+/// emitted `.sig` payload. Returns Ok(()) when the tag binds the same archive
+/// bytes under the supplied key.
+pub fn verify_archive_integrity(
+    package: &str,
+    version: &str,
+    archive_bytes: &[u8],
+    signature_payload: &str,
+    signing_key: &str,
+) -> Result<(), Diagnostic> {
+    let mut header = None;
+    let mut declared_hash = None;
+    let mut declared_integrity = None;
+    for line in signature_payload.lines() {
+        if header.is_none() {
+            header = Some(line);
+            continue;
+        }
+        if let Some((key, value)) = line.split_once('=') {
+            match key {
+                "archive_hash" => declared_hash = Some(value.to_string()),
+                "integrity" => declared_integrity = Some(value.to_string()),
+                _ => {}
+            }
+        }
+    }
+    if header != Some("axiom-integrity-v1") {
+        return Err(Diagnostic::new(
+            "registry",
+            "signature payload missing axiom-integrity-v1 header",
+        ));
+    }
+    let declared_hash = declared_hash
+        .ok_or_else(|| Diagnostic::new("registry", "signature payload missing archive_hash"))?;
+    let declared_integrity = declared_integrity
+        .ok_or_else(|| Diagnostic::new("registry", "signature payload missing integrity tag"))?;
+    let actual_hash = hash_bytes(archive_bytes);
+    if declared_hash != actual_hash {
+        return Err(Diagnostic::new(
+            "registry",
+            format!(
+                "archive hash mismatch: payload declares {declared_hash}, archive hashes to {actual_hash}"
+            ),
+        ));
+    }
+    let expected_integrity = compute_integrity_tag(signing_key, package, version, &actual_hash);
+    if declared_integrity != expected_integrity {
+        return Err(Diagnostic::new(
+            "registry",
+            "integrity tag does not match supplied signing key",
+        ));
+    }
+    Ok(())
 }
 
 fn hash_bytes(value: &[u8]) -> String {
@@ -611,8 +724,11 @@ mod tests {
         assert!(archive.contains("--- file src/main.ax"));
         let signature =
             fs::read_to_string(release.join("package.axp.sig")).expect("read signature");
-        assert!(signature.contains("axiom-signature-v1"));
+        assert!(signature.contains("axiom-integrity-v1"));
         assert!(signature.contains(&format!("archive_hash={}", output.archive_hash)));
+        let archive_bytes = fs::read(release.join("package.axp")).expect("read archive bytes");
+        verify_archive_integrity("core", "1.0.0", &archive_bytes, &signature, "test-key")
+            .expect("integrity tag verifies under publishing key");
 
         let index = build_registry_index(&registry, "https://packages.example.test")
             .expect("build registry index");
@@ -632,9 +748,13 @@ mod tests {
         let dir = tempdir().expect("tempdir");
         let project = write_publishable_project(dir.path(), "core", "1.0.0");
         let registry = dir.path().join("registry");
-        publish_package(&project, &registry, &PublishOptions::default()).expect("initial publish");
+        let opts = PublishOptions {
+            signing_key: Some(String::from("test-key")),
+            allow_overwrite: false,
+        };
+        publish_package(&project, &registry, &opts).expect("initial publish");
 
-        let error = publish_package(&project, &registry, &PublishOptions::default())
+        let error = publish_package(&project, &registry, &opts)
             .expect_err("duplicate publish should fail");
 
         assert_eq!(error.kind, "publish");
@@ -642,12 +762,88 @@ mod tests {
     }
 
     #[test]
+    fn publish_requires_explicit_signing_key() {
+        let dir = tempdir().expect("tempdir");
+        let project = write_publishable_project(dir.path(), "core", "1.0.0");
+        let registry = dir.path().join("registry");
+
+        let error = publish_package(&project, &registry, &PublishOptions::default())
+            .expect_err("missing signing key should fail");
+
+        assert_eq!(error.kind, "publish");
+        assert!(error.message.contains("--signing-key"));
+        assert!(!registry.exists(), "registry tree must not be created");
+    }
+
+    #[test]
+    fn verify_archive_integrity_rejects_tampered_archive() {
+        let dir = tempdir().expect("tempdir");
+        let project = write_publishable_project(dir.path(), "core", "1.0.0");
+        let registry = dir.path().join("registry");
+        publish_package(
+            &project,
+            &registry,
+            &PublishOptions {
+                signing_key: Some(String::from("test-key")),
+                allow_overwrite: false,
+            },
+        )
+        .expect("publish package");
+        let release = registry.join("core").join("1.0.0");
+        let signature = fs::read_to_string(release.join("package.axp.sig")).expect("read sig");
+
+        let tampered = b"AXIOM_PACKAGE_ARCHIVE_V1\n--- file evil.ax 4 ---\nevil\n";
+        let error =
+            verify_archive_integrity("core", "1.0.0", tampered, &signature, "test-key")
+                .expect_err("tampered archive should fail");
+        assert!(error.message.contains("archive hash mismatch"));
+
+        let original = fs::read(release.join("package.axp")).expect("read archive");
+        let error =
+            verify_archive_integrity("core", "1.0.0", &original, &signature, "wrong-key")
+                .expect_err("wrong key should fail");
+        assert!(error.message.contains("does not match supplied signing key"));
+    }
+
+    #[test]
+    fn publish_rejects_symlinked_source_file() {
+        let dir = tempdir().expect("tempdir");
+        let project = write_publishable_project(dir.path(), "core", "1.0.0");
+        let outside = dir.path().join("outside-secret.ax");
+        fs::write(&outside, "secret\n").expect("write outside file");
+        let link_path = project.join("src").join("leaked.ax");
+
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&outside, &link_path).expect("create symlink");
+        #[cfg(windows)]
+        std::os::windows::fs::symlink_file(&outside, &link_path).expect("create symlink");
+
+        let registry = dir.path().join("registry");
+        let error = publish_package(
+            &project,
+            &registry,
+            &PublishOptions {
+                signing_key: Some(String::from("test-key")),
+                allow_overwrite: false,
+            },
+        )
+        .expect_err("symlinked file should be rejected");
+
+        assert_eq!(error.kind, "publish");
+        assert!(error.message.contains("symlinked"));
+    }
+
+    #[test]
     fn publish_rejects_traversal_package_name() {
         let dir = tempdir().expect("tempdir");
         let project = write_publishable_project(dir.path(), "../escaped-publish", "1.0.0");
         let registry = dir.path().join("registry");
+        let opts = PublishOptions {
+            signing_key: Some(String::from("test-key")),
+            allow_overwrite: false,
+        };
 
-        let error = publish_package(&project, &registry, &PublishOptions::default())
+        let error = publish_package(&project, &registry, &opts)
             .expect_err("traversal package name should fail");
 
         assert_eq!(error.kind, "publish");
@@ -660,8 +856,12 @@ mod tests {
         let dir = tempdir().expect("tempdir");
         let project = write_publishable_project(dir.path(), "core", "../escaped-version");
         let registry = dir.path().join("registry");
+        let opts = PublishOptions {
+            signing_key: Some(String::from("test-key")),
+            allow_overwrite: false,
+        };
 
-        let error = publish_package(&project, &registry, &PublishOptions::default())
+        let error = publish_package(&project, &registry, &opts)
             .expect_err("traversal package version should fail");
 
         assert_eq!(error.kind, "publish");

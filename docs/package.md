@@ -68,7 +68,7 @@ analysis.
 
 ## Publish and Static Registry Groundwork
 
-`axiomc publish` packs a checked stage1 package into a deterministic `package.axp`, writes an `axiom-signature-v1` sidecar, and copies `axiom.toml` plus `axiom.lock` into a local registry tree at `<packages>/<name>/<version>/`. The command validates the lockfile first and refuses to replace an existing release unless `--allow-overwrite` is passed.
+`axiomc publish` packs a checked stage1 package into a deterministic `package.axp`, writes an `axiom-integrity-v1` sidecar bound to a required `--signing-key`, and copies `axiom.toml` plus `axiom.lock` into a local registry tree at `<packages>/<name>/<version>/`. The command validates the lockfile first and refuses to replace an existing release unless `--allow-overwrite` is passed. The sidecar is a tamper-detection integrity tag, not a cryptographic signature; the stage1 registry does not yet provide authenticity proof.
 
 `axiomc registry-index` builds a static JSON index from package release folders laid out as
 `<packages>/<name>/<version>/axiom.toml`. Each release may include:
