@@ -7691,6 +7691,70 @@ print serve_health("127.0.0.1:18080", 1, started)
     }
 
     #[test]
+    fn check_project_infers_generic_collection_helper_from_argument_type() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("generic-inferred-collection-helper");
+        create_project(&project, Some("generic-inferred-collection-helper-app"))
+            .expect("create project");
+        fs::write(
+            project.join("src/main.ax"),
+            "fn first<T>(values: [T]): T {
+return values[0]
+}
+
+let answer: int = first([1, 2, 3])
+print answer
+",
+        )
+        .expect("write source");
+        let output = check_project(&project)
+            .expect("generic collection helper should infer type args from array argument");
+        assert_eq!(output.statement_count, 3);
+    }
+
+    #[test]
+    fn check_project_infers_generic_option_helper_from_argument_type() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("generic-inferred-option-helper");
+        create_project(&project, Some("generic-inferred-option-helper-app"))
+            .expect("create project");
+        fs::write(
+            project.join("src/main.ax"),
+            "fn some<T>(value: T): Option<T> {
+return Some(value)
+}
+
+let present: Option<string> = some(\"x\")
+",
+        )
+        .expect("write source");
+        let output = check_project(&project)
+            .expect("generic Option helper should infer type args from argument");
+        assert_eq!(output.statement_count, 2);
+    }
+
+    #[test]
+    fn check_project_rejects_ambiguous_generic_call_without_type_args() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("generic-inferred-ambiguous");
+        create_project(&project, Some("generic-inferred-ambiguous-app")).expect("create project");
+        fs::write(
+            project.join("src/main.ax"),
+            "fn make<T>(): Option<T> {
+return None
+}
+
+print make()
+",
+        )
+        .expect("write source");
+        let error = check_project(&project)
+            .expect_err("ambiguous generic calls should require explicit type args");
+        assert!(error.message.contains("could not infer type parameter"));
+        assert_eq!(error.kind, "type");
+    }
+
+    #[test]
     fn check_project_reports_generic_inference_constraint_mismatch() {
         let dir = tempdir().expect("tempdir");
         let project = dir.path().join("generic-inference-mismatch");
