@@ -17,6 +17,7 @@ members = [
   "fail/generic_struct_constructor_missing_type_args",
   "fail/generic_struct_constructor_mismatched_type_args",
   "fail/generic_tuple_enum_constructor_type_args",
+  "fail/generic_named_enum_constructor_missing_type_args",
   "fail/generic_named_enum_constructor_mismatched_type_args",
   "fail/import_cycle",
   "fail/import_duplicate_export",

@@ -101,7 +101,13 @@ Current compile-fail fixtures cover:
 - `generic_struct_constructor_mismatched_type_args`: type diagnostics for generic
   struct constructors whose payload does not match the contextual type argument.
 - `generic_tuple_enum_constructor_type_args`: type diagnostics for tuple enum
-  constructors that incorrectly supply explicit type arguments.
+  constructors that incorrectly supply explicit type arguments; named-payload
+  enum constructors are covered through contextual generic validation because
+  the current named-literal surface has no valid explicit `Variant<T> { ... }`
+  form that reaches HIR lowering.
+- `generic_named_enum_constructor_missing_type_args`: type diagnostics for
+  named-payload enum constructors whose contextual generic type has too few
+  type arguments.
 - `generic_named_enum_constructor_mismatched_type_args`: type diagnostics for
   named-payload enum constructors whose payload does not match the contextual
   type argument.

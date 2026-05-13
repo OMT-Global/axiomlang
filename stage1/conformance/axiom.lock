@@ -71,6 +71,11 @@ version = "0.1.0"
 source = "path:fail/generic_named_enum_constructor_mismatched_type_args"
 
 [[package]]
+name = "conformance-generic-named-enum-constructor-missing-type-args"
+version = "0.1.0"
+source = "path:fail/generic_named_enum_constructor_missing_type_args"
+
+[[package]]
 name = "conformance-generic-struct-constructor-extra-type-args"
 version = "0.1.0"
 source = "path:fail/generic_struct_constructor_extra_type_args"

@@ -1,0 +1,7 @@
+{
+  "kind": "type",
+  "message": "generic type \"conformance_generic_named_enum_constructor_missing_type_args_main_Pair\" expects 2 type arguments, got 1",
+  "path": "src/main.ax",
+  "line": 5,
+  "column": 1
+}
