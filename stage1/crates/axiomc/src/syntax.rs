@@ -3,6 +3,13 @@ use serde::Serialize;
 use std::path::Path;
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+/// Parser-owned AST for a single stage1 source file.
+///
+/// This layer records syntax only: imports are raw module references, names are
+/// raw source spellings, and type annotations are `TypeName` syntax trees.
+/// Visibility, duplicate-symbol checks, imported symbol availability, concrete
+/// type resolution, and ownership/borrow validation are intentionally deferred
+/// to project flattening and HIR lowering.
 pub struct Program {
     pub path: String,
     pub imports: Vec<Import>,
