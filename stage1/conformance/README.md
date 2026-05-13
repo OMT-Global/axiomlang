@@ -94,6 +94,25 @@ Current compile-fail fixtures cover:
   message is not a `string`.
 - `panic_rejects_type_arguments`: type diagnostics for `panic(...)` when the
   statement incorrectly supplies type arguments.
+- `generic_struct_constructor_extra_type_args`: type diagnostics tied to the
+  constructor path for explicit generic struct constructor type arguments with
+  invalid arity.
+- `generic_struct_constructor_missing_type_args`: type diagnostics tied to the
+  constructor path when a generic struct constructor spelling supplies too few
+  explicit type arguments.
+- `generic_struct_constructor_mismatched_type_args`: type diagnostics for generic
+  struct constructors whose payload does not match the contextual type argument.
+- `generic_tuple_enum_constructor_type_args`: type diagnostics for tuple enum
+  constructors that incorrectly supply explicit type arguments; named-payload
+  enum constructors are covered through contextual generic validation because
+  the current named-literal surface has no valid explicit `Variant<T> { ... }`
+  form that reaches HIR lowering.
+- `generic_named_enum_constructor_missing_type_args`: type diagnostics tied to
+  the named-payload constructor path when the current syntax surface sees an
+  explicitly generic variant constructor spelling.
+- `generic_named_enum_constructor_mismatched_type_args`: type diagnostics for
+  named-payload enum constructors whose payload does not match the contextual
+  type argument.
 - `result_ok_without_context`: type diagnostics for `Ok(...)` without an
   expected `Result<T, E>` context.
 - `stdlib_clock_without_capability`: capability diagnostics for clock
