@@ -534,7 +534,7 @@ fn lower_expr(expr: &hir::Expr) -> Expr {
             name: name.clone(),
             ty: lower_type(ty),
         },
-        hir::Expr::Call { name, args, ty } => Expr::Call {
+        hir::Expr::Call { name, args, ty, .. } => Expr::Call {
             name: name.clone(),
             args: args.iter().map(lower_expr).collect(),
             ty: lower_type(ty),

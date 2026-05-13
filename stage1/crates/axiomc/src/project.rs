@@ -2769,12 +2769,16 @@ fn collect_hir_stmt_intrinsic_use(
 fn collect_hir_expr_intrinsic_use(
     module_path: &str,
     expr: &hir::Expr,
-    line: usize,
-    column: usize,
+    fallback_line: usize,
+    fallback_column: usize,
     uses: &mut BTreeSet<CapabilitySbomIntrinsicUse>,
 ) {
     match expr {
-        hir::Expr::Call { name, args, .. } => {
+        hir::Expr::Call {
+            name, args, span, ..
+        } => {
+            let line = span.line;
+            let column = span.column;
             if let Some(kind) = intrinsic_capability(name) {
                 uses.insert(CapabilitySbomIntrinsicUse {
                     intrinsic: name.clone(),
@@ -2789,56 +2793,104 @@ fn collect_hir_expr_intrinsic_use(
             }
         }
         hir::Expr::BinaryAdd { lhs, rhs, .. } | hir::Expr::BinaryCompare { lhs, rhs, .. } => {
-            collect_hir_expr_intrinsic_use(module_path, lhs, line, column, uses);
-            collect_hir_expr_intrinsic_use(module_path, rhs, line, column, uses);
+            collect_hir_expr_intrinsic_use(module_path, lhs, fallback_line, fallback_column, uses);
+            collect_hir_expr_intrinsic_use(module_path, rhs, fallback_line, fallback_column, uses);
         }
         hir::Expr::Cast { expr, .. }
         | hir::Expr::Try { expr, .. }
         | hir::Expr::Await { expr, .. }
         | hir::Expr::StringBorrow { expr, .. } => {
-            collect_hir_expr_intrinsic_use(module_path, expr, line, column, uses)
+            collect_hir_expr_intrinsic_use(module_path, expr, fallback_line, fallback_column, uses)
         }
         hir::Expr::StructLiteral { fields, .. } => {
             for field in fields {
-                collect_hir_expr_intrinsic_use(module_path, &field.expr, line, column, uses);
+                collect_hir_expr_intrinsic_use(
+                    module_path,
+                    &field.expr,
+                    fallback_line,
+                    fallback_column,
+                    uses,
+                );
             }
         }
         hir::Expr::FieldAccess { base, .. } | hir::Expr::TupleIndex { base, .. } => {
-            collect_hir_expr_intrinsic_use(module_path, base, line, column, uses)
+            collect_hir_expr_intrinsic_use(module_path, base, fallback_line, fallback_column, uses)
         }
         hir::Expr::TupleLiteral { elements, .. } | hir::Expr::ArrayLiteral { elements, .. } => {
             for element in elements {
-                collect_hir_expr_intrinsic_use(module_path, element, line, column, uses);
+                collect_hir_expr_intrinsic_use(
+                    module_path,
+                    element,
+                    fallback_line,
+                    fallback_column,
+                    uses,
+                );
             }
         }
         hir::Expr::MapLiteral { entries, .. } => {
             for entry in entries {
-                collect_hir_expr_intrinsic_use(module_path, &entry.key, line, column, uses);
-                collect_hir_expr_intrinsic_use(module_path, &entry.value, line, column, uses);
+                collect_hir_expr_intrinsic_use(
+                    module_path,
+                    &entry.key,
+                    fallback_line,
+                    fallback_column,
+                    uses,
+                );
+                collect_hir_expr_intrinsic_use(
+                    module_path,
+                    &entry.value,
+                    fallback_line,
+                    fallback_column,
+                    uses,
+                );
             }
         }
         hir::Expr::Index { base, index, .. } => {
-            collect_hir_expr_intrinsic_use(module_path, base, line, column, uses);
-            collect_hir_expr_intrinsic_use(module_path, index, line, column, uses);
+            collect_hir_expr_intrinsic_use(module_path, base, fallback_line, fallback_column, uses);
+            collect_hir_expr_intrinsic_use(
+                module_path,
+                index,
+                fallback_line,
+                fallback_column,
+                uses,
+            );
         }
         hir::Expr::Slice {
             base, start, end, ..
         } => {
-            collect_hir_expr_intrinsic_use(module_path, base, line, column, uses);
+            collect_hir_expr_intrinsic_use(module_path, base, fallback_line, fallback_column, uses);
             if let Some(start) = start {
-                collect_hir_expr_intrinsic_use(module_path, start, line, column, uses);
+                collect_hir_expr_intrinsic_use(
+                    module_path,
+                    start,
+                    fallback_line,
+                    fallback_column,
+                    uses,
+                );
             }
             if let Some(end) = end {
-                collect_hir_expr_intrinsic_use(module_path, end, line, column, uses);
+                collect_hir_expr_intrinsic_use(
+                    module_path,
+                    end,
+                    fallback_line,
+                    fallback_column,
+                    uses,
+                );
             }
         }
         hir::Expr::EnumVariant { payloads, .. } => {
             for payload in payloads {
-                collect_hir_expr_intrinsic_use(module_path, payload, line, column, uses);
+                collect_hir_expr_intrinsic_use(
+                    module_path,
+                    payload,
+                    fallback_line,
+                    fallback_column,
+                    uses,
+                );
             }
         }
         hir::Expr::Closure { body, .. } => {
-            collect_hir_expr_intrinsic_use(module_path, body, line, column, uses);
+            collect_hir_expr_intrinsic_use(module_path, body, fallback_line, fallback_column, uses);
         }
         hir::Expr::Literal { .. } | hir::Expr::VarRef { .. } => {}
     }
@@ -5907,6 +5959,51 @@ mod tests {
                 "{intrinsic} must require the explicit fs:write capability, not fs"
             );
         }
+    }
+
+    #[test]
+    fn hir_intrinsic_collection_preserves_nested_call_sites() {
+        let expr = hir::Expr::TupleLiteral {
+            elements: vec![
+                hir::Expr::Call {
+                    name: "clock_now_ms".to_string(),
+                    args: Vec::new(),
+                    ty: hir::Type::Int,
+                    span: hir::SourceSpan {
+                        line: 7,
+                        column: 21,
+                    },
+                },
+                hir::Expr::Call {
+                    name: "clock_now_ms".to_string(),
+                    args: Vec::new(),
+                    ty: hir::Type::Int,
+                    span: hir::SourceSpan {
+                        line: 7,
+                        column: 38,
+                    },
+                },
+            ],
+            ty: hir::Type::Tuple(vec![hir::Type::Int, hir::Type::Int]),
+        };
+        let stmt = hir::Stmt::Let {
+            name: "pair".to_string(),
+            ty: hir::Type::Tuple(vec![hir::Type::Int, hir::Type::Int]),
+            expr,
+            span: hir::SourceSpan { line: 7, column: 1 },
+        };
+        let mut uses = BTreeSet::new();
+
+        collect_hir_stmt_intrinsic_use("src/main.ax", &stmt, &mut uses);
+        let uses = uses.into_iter().collect::<Vec<_>>();
+
+        assert_eq!(uses.len(), 2);
+        assert_eq!(uses[0].intrinsic, "clock_now_ms");
+        assert_eq!(uses[0].line, 7);
+        assert_eq!(uses[0].column, 21);
+        assert_eq!(uses[1].intrinsic, "clock_now_ms");
+        assert_eq!(uses[1].line, 7);
+        assert_eq!(uses[1].column, 38);
     }
 
     #[test]
