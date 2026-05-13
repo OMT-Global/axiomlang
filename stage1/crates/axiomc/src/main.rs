@@ -179,12 +179,19 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
-    /// Pack, sign, and publish a stage1 package into a local registry tree.
+    /// Pack and publish a stage1 package into a local registry tree.
+    ///
+    /// Note: --signing-key is required and the emitted `.sig` payload is a
+    /// tamper-detection integrity tag bound to that key, not a cryptographic
+    /// signature. The stage1 registry does not yet provide authenticity proof.
     Publish {
         path: PathBuf,
         #[arg(long = "registry-dir")]
         registry_dir: PathBuf,
-        #[arg(long = "signing-key")]
+        #[arg(
+            long = "signing-key",
+            help = "Required integrity key bound into the emitted .sig payload. Not authenticity proof."
+        )]
         signing_key: Option<String>,
         #[arg(long)]
         allow_overwrite: bool,
