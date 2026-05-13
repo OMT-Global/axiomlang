@@ -857,17 +857,11 @@ pub fn capability_sbom(project_root: &Path) -> Result<CapabilitySbomOutput, Diag
         let mut stdlib_imports = BTreeSet::new();
         let mut intrinsic_use = BTreeSet::new();
         if !context.manifest.is_workspace_only() {
-            let entry = canonicalize_package_path(
-                &entry_path(&root, &context.manifest),
-                &root,
-                "manifest",
-                "build.entry resolves outside the package",
-            )?;
-            let modules = load_modules(&graph, &root, &entry)?;
-            for module in &modules {
+            let analyzed = analyze_package(&graph, &root)?;
+            for module in &analyzed.modules {
                 collect_stdlib_imports(&module.program, &mut stdlib_imports);
-                collect_program_intrinsic_use(&module.path, &module.program, &mut intrinsic_use);
             }
+            collect_hir_intrinsic_use(&analyzed.hir, &mut intrinsic_use);
         }
         let unsafe_grants = graph_package
             .capabilities
@@ -1037,6 +1031,7 @@ impl PackageGraph {
 struct AnalyzedProject {
     manifest: Manifest,
     entry_path: PathBuf,
+    hir: hir::Program,
     mir: mir::Program,
     modules: Vec<LoadedModule>,
 }
@@ -1140,6 +1135,7 @@ fn analyze_entry(
     Ok(AnalyzedProject {
         manifest,
         entry_path: entry,
+        hir,
         mir,
         modules,
     })
@@ -2704,156 +2700,147 @@ fn collect_stdlib_imports(program: &syntax::Program, imports: &mut BTreeSet<Stri
         }
     }
 }
-fn collect_program_intrinsic_use(
-    module_path: &Path,
-    program: &syntax::Program,
+
+fn collect_hir_intrinsic_use(
+    program: &hir::Program,
     uses: &mut BTreeSet<CapabilitySbomIntrinsicUse>,
 ) {
-    for f in &program.functions {
-        for stmt in &f.body {
-            collect_stmt_intrinsic_use(module_path, stmt, uses);
+    for static_def in &program.statics {
+        collect_hir_expr_intrinsic_use(&program.path, &static_def.expr, 1, 1, uses);
+    }
+    for function in &program.functions {
+        for stmt in &function.body {
+            collect_hir_stmt_intrinsic_use(&function.path, stmt, uses);
         }
     }
     for stmt in &program.stmts {
-        collect_stmt_intrinsic_use(module_path, stmt, uses);
+        collect_hir_stmt_intrinsic_use(&program.path, stmt, uses);
     }
 }
-fn collect_stmt_intrinsic_use(
-    module_path: &Path,
-    stmt: &syntax::Stmt,
+
+fn collect_hir_stmt_intrinsic_use(
+    module_path: &str,
+    stmt: &hir::Stmt,
     uses: &mut BTreeSet<CapabilitySbomIntrinsicUse>,
 ) {
     match stmt {
-        syntax::Stmt::Let { expr, .. }
-        | syntax::Stmt::Print { expr, .. }
-        | syntax::Stmt::Panic { expr, .. }
-        | syntax::Stmt::Defer { expr, .. }
-        | syntax::Stmt::Return { expr, .. } => collect_expr_intrinsic_use(module_path, expr, uses),
-        syntax::Stmt::If {
+        hir::Stmt::Let { expr, span, .. }
+        | hir::Stmt::Print { expr, span }
+        | hir::Stmt::Defer { expr, span }
+        | hir::Stmt::Return { expr, span } => {
+            collect_hir_expr_intrinsic_use(module_path, expr, span.line, span.column, uses)
+        }
+        hir::Stmt::Panic { message, span } => {
+            collect_hir_expr_intrinsic_use(module_path, message, span.line, span.column, uses)
+        }
+        hir::Stmt::If {
             cond,
             then_block,
             else_block,
-            ..
+            span,
         } => {
-            collect_expr_intrinsic_use(module_path, cond, uses);
-            for s in then_block {
-                collect_stmt_intrinsic_use(module_path, s, uses);
+            collect_hir_expr_intrinsic_use(module_path, cond, span.line, span.column, uses);
+            for stmt in then_block {
+                collect_hir_stmt_intrinsic_use(module_path, stmt, uses);
             }
-            if let Some(b) = else_block {
-                for s in b {
-                    collect_stmt_intrinsic_use(module_path, s, uses);
+            if let Some(block) = else_block {
+                for stmt in block {
+                    collect_hir_stmt_intrinsic_use(module_path, stmt, uses);
                 }
             }
         }
-        syntax::Stmt::IfLet {
-            expr,
-            then_block,
-            else_block,
-            ..
-        } => {
-            collect_expr_intrinsic_use(module_path, expr, uses);
-            for s in then_block {
-                collect_stmt_intrinsic_use(module_path, s, uses);
-            }
-            if let Some(b) = else_block {
-                for s in b {
-                    collect_stmt_intrinsic_use(module_path, s, uses);
-                }
+        hir::Stmt::While { cond, body, span } => {
+            collect_hir_expr_intrinsic_use(module_path, cond, span.line, span.column, uses);
+            for stmt in body {
+                collect_hir_stmt_intrinsic_use(module_path, stmt, uses);
             }
         }
-        syntax::Stmt::While { cond, body, .. } => {
-            collect_expr_intrinsic_use(module_path, cond, uses);
-            for s in body {
-                collect_stmt_intrinsic_use(module_path, s, uses);
-            }
-        }
-        syntax::Stmt::Match { expr, arms, .. } => {
-            collect_expr_intrinsic_use(module_path, expr, uses);
+        hir::Stmt::Match { expr, arms, span } => {
+            collect_hir_expr_intrinsic_use(module_path, expr, span.line, span.column, uses);
             for arm in arms {
-                for s in &arm.body {
-                    collect_stmt_intrinsic_use(module_path, s, uses);
+                for stmt in &arm.body {
+                    collect_hir_stmt_intrinsic_use(module_path, stmt, uses);
                 }
             }
         }
     }
 }
-fn collect_expr_intrinsic_use(
-    module_path: &Path,
-    expr: &syntax::Expr,
+
+fn collect_hir_expr_intrinsic_use(
+    module_path: &str,
+    expr: &hir::Expr,
+    line: usize,
+    column: usize,
     uses: &mut BTreeSet<CapabilitySbomIntrinsicUse>,
 ) {
     match expr {
-        syntax::Expr::Literal(_) | syntax::Expr::VarRef { .. } => {}
-        syntax::Expr::Call {
-            name,
-            args,
-            line,
-            column,
-            ..
-        } => {
+        hir::Expr::Call { name, args, .. } => {
             if let Some(kind) = intrinsic_capability(name) {
                 uses.insert(CapabilitySbomIntrinsicUse {
                     intrinsic: name.clone(),
                     capability: kind.name().to_string(),
-                    module: module_path.display().to_string(),
-                    line: *line,
-                    column: *column,
+                    module: module_path.to_string(),
+                    line,
+                    column,
                 });
             }
-            for a in args {
-                collect_expr_intrinsic_use(module_path, a, uses);
+            for arg in args {
+                collect_hir_expr_intrinsic_use(module_path, arg, line, column, uses);
             }
         }
-        syntax::Expr::MethodCall { base, args, .. } => {
-            collect_expr_intrinsic_use(module_path, base, uses);
-            for a in args {
-                collect_expr_intrinsic_use(module_path, a, uses);
+        hir::Expr::BinaryAdd { lhs, rhs, .. } | hir::Expr::BinaryCompare { lhs, rhs, .. } => {
+            collect_hir_expr_intrinsic_use(module_path, lhs, line, column, uses);
+            collect_hir_expr_intrinsic_use(module_path, rhs, line, column, uses);
+        }
+        hir::Expr::Cast { expr, .. }
+        | hir::Expr::Try { expr, .. }
+        | hir::Expr::Await { expr, .. }
+        | hir::Expr::StringBorrow { expr, .. } => {
+            collect_hir_expr_intrinsic_use(module_path, expr, line, column, uses)
+        }
+        hir::Expr::StructLiteral { fields, .. } => {
+            for field in fields {
+                collect_hir_expr_intrinsic_use(module_path, &field.expr, line, column, uses);
             }
         }
-        syntax::Expr::BinaryAdd { lhs, rhs, .. } | syntax::Expr::BinaryCompare { lhs, rhs, .. } => {
-            collect_expr_intrinsic_use(module_path, lhs, uses);
-            collect_expr_intrinsic_use(module_path, rhs, uses);
+        hir::Expr::FieldAccess { base, .. } | hir::Expr::TupleIndex { base, .. } => {
+            collect_hir_expr_intrinsic_use(module_path, base, line, column, uses)
         }
-        syntax::Expr::Cast { expr, .. }
-        | syntax::Expr::Try { expr, .. }
-        | syntax::Expr::Await { expr, .. }
-        | syntax::Expr::FieldAccess { base: expr, .. }
-        | syntax::Expr::TupleIndex { base: expr, .. }
-        | syntax::Expr::Closure { body: expr, .. } => {
-            collect_expr_intrinsic_use(module_path, expr, uses)
-        }
-        syntax::Expr::StructLiteral { fields, .. } => {
-            for f in fields {
-                collect_expr_intrinsic_use(module_path, &f.expr, uses);
+        hir::Expr::TupleLiteral { elements, .. } | hir::Expr::ArrayLiteral { elements, .. } => {
+            for element in elements {
+                collect_hir_expr_intrinsic_use(module_path, element, line, column, uses);
             }
         }
-        syntax::Expr::TupleLiteral { elements, .. }
-        | syntax::Expr::ArrayLiteral { elements, .. } => {
-            for e in elements {
-                collect_expr_intrinsic_use(module_path, e, uses);
+        hir::Expr::MapLiteral { entries, .. } => {
+            for entry in entries {
+                collect_hir_expr_intrinsic_use(module_path, &entry.key, line, column, uses);
+                collect_hir_expr_intrinsic_use(module_path, &entry.value, line, column, uses);
             }
         }
-        syntax::Expr::MapLiteral { entries, .. } => {
-            for e in entries {
-                collect_expr_intrinsic_use(module_path, &e.key, uses);
-                collect_expr_intrinsic_use(module_path, &e.value, uses);
-            }
+        hir::Expr::Index { base, index, .. } => {
+            collect_hir_expr_intrinsic_use(module_path, base, line, column, uses);
+            collect_hir_expr_intrinsic_use(module_path, index, line, column, uses);
         }
-        syntax::Expr::Slice {
+        hir::Expr::Slice {
             base, start, end, ..
         } => {
-            collect_expr_intrinsic_use(module_path, base, uses);
-            if let Some(s) = start {
-                collect_expr_intrinsic_use(module_path, s, uses);
+            collect_hir_expr_intrinsic_use(module_path, base, line, column, uses);
+            if let Some(start) = start {
+                collect_hir_expr_intrinsic_use(module_path, start, line, column, uses);
             }
-            if let Some(e) = end {
-                collect_expr_intrinsic_use(module_path, e, uses);
+            if let Some(end) = end {
+                collect_hir_expr_intrinsic_use(module_path, end, line, column, uses);
             }
         }
-        syntax::Expr::Index { base, index, .. } => {
-            collect_expr_intrinsic_use(module_path, base, uses);
-            collect_expr_intrinsic_use(module_path, index, uses);
+        hir::Expr::EnumVariant { payloads, .. } => {
+            for payload in payloads {
+                collect_hir_expr_intrinsic_use(module_path, payload, line, column, uses);
+            }
         }
+        hir::Expr::Closure { body, .. } => {
+            collect_hir_expr_intrinsic_use(module_path, body, line, column, uses);
+        }
+        hir::Expr::Literal { .. } | hir::Expr::VarRef { .. } => {}
     }
 }
 
