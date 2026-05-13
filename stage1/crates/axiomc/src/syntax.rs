@@ -1161,9 +1161,50 @@ fn synchronize_top_level(lines: &[&str], index: &mut usize) {
     let mut depth = brace_delta(lines[*index]);
     *index += 1;
     while *index < lines.len() && depth > 0 {
+        if depth == 1 && is_top_level_recovery_anchor(lines[*index]) {
+            return;
+        }
         depth += brace_delta(lines[*index]);
         *index += 1;
     }
+}
+
+fn is_top_level_recovery_anchor(line: &str) -> bool {
+    if line.trim_start() != line {
+        return false;
+    }
+    let trimmed = line.trim();
+    trimmed.starts_with("import ")
+        || trimmed.starts_with("pub import ")
+        || trimmed.starts_with("pub(pkg) import ")
+        || trimmed.starts_with("pub use ")
+        || trimmed.starts_with("pub(pkg) use ")
+        || trimmed.starts_with("export ")
+        || trimmed.starts_with("fn ")
+        || trimmed.starts_with("async fn ")
+        || trimmed.starts_with("extern fn ")
+        || trimmed.starts_with("pub fn ")
+        || trimmed.starts_with("pub async fn ")
+        || trimmed.starts_with("pub extern fn ")
+        || trimmed.starts_with("pub(pkg) fn ")
+        || trimmed.starts_with("pub(pkg) async fn ")
+        || trimmed.starts_with("pub(pkg) extern fn ")
+        || trimmed.starts_with("const ")
+        || trimmed.starts_with("pub const ")
+        || trimmed.starts_with("pub(pkg) const ")
+        || trimmed.starts_with("static ")
+        || trimmed.starts_with("pub static ")
+        || trimmed.starts_with("pub(pkg) static ")
+        || trimmed.starts_with("type ")
+        || trimmed.starts_with("pub type ")
+        || trimmed.starts_with("pub(pkg) type ")
+        || trimmed.starts_with("struct ")
+        || trimmed.starts_with("pub struct ")
+        || trimmed.starts_with("pub(pkg) struct ")
+        || trimmed.starts_with("enum ")
+        || trimmed.starts_with("pub enum ")
+        || trimmed.starts_with("pub(pkg) enum ")
+        || trimmed.starts_with("impl ")
 }
 
 fn brace_delta(line: &str) -> i32 {

@@ -957,6 +957,43 @@ print fail()
     }
 
     #[test]
+    fn parser_recovery_reports_multiple_top_level_declaration_errors() {
+        let source = "struct Broken {
+field int
+fn missing_return() {
+return 0
+struct BadHeader
+enum AlsoBroken {
+Variant(
+";
+        let diagnostics = parse_program_with_recovery(source, Path::new("main.ax"))
+            .expect_err("recovering parser should report independent declaration parse errors");
+
+        assert!(
+            diagnostics.len() >= 3,
+            "expected at least three diagnostics, got {diagnostics:?}"
+        );
+        assert_eq!(
+            diagnostics
+                .iter()
+                .take(4)
+                .map(|diagnostic| diagnostic.line)
+                .collect::<Vec<_>>(),
+            vec![Some(2), Some(3), Some(5), Some(7)]
+        );
+        assert_eq!(diagnostics[0].message, "struct field is missing ':'");
+        assert_eq!(
+            diagnostics[1].message,
+            "function declaration must include a return type"
+        );
+        assert_eq!(
+            diagnostics[2].message,
+            "struct declaration must use `struct Name {` syntax"
+        );
+        assert_eq!(diagnostics[3].message, "invalid identifier \"Variant(\"");
+    }
+
+    #[test]
     fn parser_recovery_reports_multiple_errors_inside_function_blocks() {
         let source = "fn main(): int {\nlet a: int = \nprint .broken\nreturn 0\n}\n";
         let diagnostics = parse_program_with_recovery(source, Path::new("main.ax"))
