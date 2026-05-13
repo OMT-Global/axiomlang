@@ -6845,6 +6845,121 @@ print serve_once("127.0.0.1:18080", "hello")
     }
 
     #[test]
+    fn manifest_rejects_per_test_capabilities_until_enforced() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("per-test-caps");
+        create_project(&project, Some("per-test-caps-app")).expect("create project");
+        fs::write(
+            project.join("axiom.toml"),
+            format!(
+                "{}\n[[tests]]\nname = \"smoke\"\nentry = \"src/main_test.ax\"\ncapabilities = [\"net\"]\n",
+                render_manifest("per-test-caps-app")
+            ),
+        )
+        .expect("write manifest");
+
+        let err = load_manifest(&project).expect_err("per-test capabilities should be rejected");
+        assert_eq!(err.kind, "manifest");
+        assert!(
+            err.message.contains("tests[0].capabilities"),
+            "diagnostic should name the offending field, got {:?}",
+            err.message
+        );
+        assert!(
+            err.message.contains("not yet enforced"),
+            "diagnostic should explain why, got {:?}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn manifest_test_expected_error_passes_on_diagnostic_match() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("manifest-expected-error-pass");
+        create_project(&project, Some("manifest-expected-error-pass-app"))
+            .expect("create project");
+        fs::write(
+            project.join("src/broken_test.ax"),
+            "let x: int = \"not an int\"\n",
+        )
+        .expect("write broken test source");
+        fs::write(
+            project.join("axiom.toml"),
+            format!(
+                "{}\n[[tests]]\nname = \"compile-fail-smoke\"\nentry = \"src/broken_test.ax\"\n[tests.expected_error]\nkind = \"type\"\nmessage = \"let binding \\\"x\\\" expects int, got string\"\npath = \"src/broken_test.ax\"\nline = 1\ncolumn = 1\n",
+                render_manifest("manifest-expected-error-pass-app")
+            ),
+        )
+        .expect("write manifest");
+        let manifest = load_manifest(&project).expect("load manifest");
+        fs::write(
+            project.join("axiom.lock"),
+            render_lockfile_for_project(&project, &manifest).expect("lockfile"),
+        )
+        .expect("write lockfile");
+
+        let tests = run_project_tests(&project).expect("run tests");
+        let smoke = tests
+            .cases
+            .iter()
+            .find(|case| case.name == "compile-fail-smoke")
+            .expect("compile-fail-smoke case");
+        assert!(
+            smoke.ok,
+            "matching manifest expected_error should pass: {smoke:?}"
+        );
+        assert!(smoke.expected_error.is_some());
+    }
+
+    #[test]
+    fn manifest_test_expected_error_fails_on_diagnostic_mismatch() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("manifest-expected-error-mismatch");
+        create_project(&project, Some("manifest-expected-error-mismatch-app"))
+            .expect("create project");
+        fs::write(
+            project.join("src/broken_test.ax"),
+            "let x: int = \"not an int\"\n",
+        )
+        .expect("write broken test source");
+        fs::write(
+            project.join("axiom.toml"),
+            format!(
+                "{}\n[[tests]]\nname = \"compile-fail-smoke\"\nentry = \"src/broken_test.ax\"\n[tests.expected_error]\nkind = \"type\"\ncode = \"AX-TYPE-999\"\nmessage = \"wrong message\"\npath = \"src/broken_test.ax\"\nline = 1\ncolumn = 14\n",
+                render_manifest("manifest-expected-error-mismatch-app")
+            ),
+        )
+        .expect("write manifest");
+        let manifest = load_manifest(&project).expect("load manifest");
+        fs::write(
+            project.join("axiom.lock"),
+            render_lockfile_for_project(&project, &manifest).expect("lockfile"),
+        )
+        .expect("write lockfile");
+
+        let tests = run_project_tests(&project).expect("run tests");
+        let smoke = tests
+            .cases
+            .iter()
+            .find(|case| case.name == "compile-fail-smoke")
+            .expect("compile-fail-smoke case");
+        assert!(
+            !smoke.ok,
+            "mismatched manifest expected_error should fail: {smoke:?}"
+        );
+        let error_message = smoke
+            .error
+            .as_ref()
+            .map(|err| err.message.clone())
+            .unwrap_or_default();
+        assert!(
+            error_message.contains("compile-fail diagnostic mismatch"),
+            "diagnostic should explain the mismatch, got {:?}",
+            error_message
+        );
+    }
+
+    #[test]
     fn manifest_parses_richer_test_kinds() {
         let dir = tempdir().expect("tempdir");
         let project = dir.path().join("typed-tests");

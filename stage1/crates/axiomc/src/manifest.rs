@@ -1111,6 +1111,19 @@ fn normalize_tests(
         validate_relative_path(path, &format!("{field_prefix}.entry"), &entry)?;
         let package =
             normalize_optional_name(path, &format!("{field_prefix}.package"), raw_test.package)?;
+        if raw_test
+            .capabilities
+            .as_ref()
+            .is_some_and(|capabilities| !capabilities.is_empty())
+        {
+            return Err(Diagnostic::new(
+                "manifest",
+                format!(
+                    "{field_prefix}.capabilities is not yet enforced per test; declare capabilities at the package [capabilities] level instead",
+                ),
+            )
+            .with_path(path.display().to_string()));
+        }
         let capabilities = normalize_test_capabilities(
             path,
             &format!("{field_prefix}.capabilities"),

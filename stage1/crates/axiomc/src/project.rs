@@ -2053,6 +2053,9 @@ fn run_test_case(
     manifest: &Manifest,
     test: &crate::manifest::TestTarget,
 ) -> TestCaseResult {
+    if test.expected_error.is_some() {
+        return run_manifest_compile_fail_case(project_root, graph, manifest, test);
+    }
     let started = Instant::now();
     let entry_path = project_root.join(&test.entry);
     let generated_rust = match test_generated_rust_path(project_root, manifest, &test.name) {
@@ -2284,6 +2287,78 @@ fn run_http_fixture_case(
     }
 
     child.wait_with_output()
+}
+
+fn run_manifest_compile_fail_case(
+    project_root: &Path,
+    graph: &PackageGraph,
+    manifest: &Manifest,
+    test: &crate::manifest::TestTarget,
+) -> TestCaseResult {
+    let started = Instant::now();
+    let manifest_expected = test
+        .expected_error
+        .as_ref()
+        .expect("caller checked expected_error.is_some()");
+    let expected = ExpectedDiagnostic {
+        kind: manifest_expected.kind.clone(),
+        code: manifest_expected.code.clone(),
+        message: manifest_expected.message.clone(),
+        path: manifest_expected.path.clone(),
+        line: manifest_expected.line,
+        column: manifest_expected.column,
+    };
+    let entry_path = project_root.join(&test.entry);
+    let actual = match analyze_entry(graph, project_root, manifest.clone(), entry_path.clone()) {
+        Ok(_) => {
+            return TestCaseResult {
+                package_root: project_root.display().to_string(),
+                name: test.name.clone(),
+                kind: test.kind,
+                entry: test.entry.clone(),
+                ok: false,
+                binary: None,
+                generated_rust: None,
+                exit_code: None,
+                stdout: String::new(),
+                stderr: String::new(),
+                expected_stdout: None,
+                expected_stderr: None,
+                expected_error: Some(expected),
+                duration_ms: started.elapsed().as_millis() as u64,
+                error: Some(
+                    Diagnostic::new(
+                        "test",
+                        format!(
+                            "manifest compile-fail test {:?} unexpectedly checked successfully",
+                            test.name
+                        ),
+                    )
+                    .with_path(entry_path.display().to_string()),
+                ),
+            };
+        }
+        Err(error) => diagnostic_with_default_path(error, &entry_path),
+    };
+    let mismatch = expected_error_mismatch(project_root, &expected, &actual);
+    TestCaseResult {
+        package_root: project_root.display().to_string(),
+        name: test.name.clone(),
+        kind: test.kind,
+        entry: test.entry.clone(),
+        ok: mismatch.is_none(),
+        binary: None,
+        generated_rust: None,
+        exit_code: None,
+        stdout: String::new(),
+        stderr: String::new(),
+        expected_stdout: None,
+        expected_stderr: None,
+        expected_error: Some(expected),
+        duration_ms: started.elapsed().as_millis() as u64,
+        error: mismatch
+            .map(|message| Diagnostic::new("test", message).with_path(entry_path.display().to_string())),
+    }
 }
 
 fn run_compile_fail_case(
