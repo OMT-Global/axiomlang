@@ -6007,6 +6007,57 @@ mod tests {
     }
 
     #[test]
+    fn hir_intrinsic_collection_preserves_static_initializer_call_sites() {
+        let static_def = hir::StaticDef {
+            name: "CLOCK_PAIR".to_string(),
+            ty: hir::Type::Tuple(vec![hir::Type::Int, hir::Type::Int]),
+            expr: hir::Expr::TupleLiteral {
+                elements: vec![
+                    hir::Expr::Call {
+                        name: "clock_now_ms".to_string(),
+                        args: Vec::new(),
+                        ty: hir::Type::Int,
+                        span: hir::SourceSpan {
+                            line: 3,
+                            column: 22,
+                        },
+                    },
+                    hir::Expr::Call {
+                        name: "clock_now_ms".to_string(),
+                        args: Vec::new(),
+                        ty: hir::Type::Int,
+                        span: hir::SourceSpan {
+                            line: 3,
+                            column: 38,
+                        },
+                    },
+                ],
+                ty: hir::Type::Tuple(vec![hir::Type::Int, hir::Type::Int]),
+            },
+        };
+        let program = hir::Program {
+            path: "src/main.ax".to_string(),
+            structs: Vec::new(),
+            enums: Vec::new(),
+            statics: vec![static_def],
+            functions: Vec::new(),
+            stmts: Vec::new(),
+        };
+        let mut uses = BTreeSet::new();
+
+        collect_hir_intrinsic_use(&program, &mut uses);
+        let uses = uses.into_iter().collect::<Vec<_>>();
+
+        assert_eq!(uses.len(), 2);
+        assert_eq!(uses[0].intrinsic, "clock_now_ms");
+        assert_eq!(uses[0].line, 3);
+        assert_eq!(uses[0].column, 22);
+        assert_eq!(uses[1].intrinsic, "clock_now_ms");
+        assert_eq!(uses[1].line, 3);
+        assert_eq!(uses[1].column, 38);
+    }
+
+    #[test]
     fn fs_read_grant_does_not_enable_write_capability() {
         let capabilities = CapabilityConfig {
             fs: true,
