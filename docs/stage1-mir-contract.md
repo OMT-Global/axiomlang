@@ -14,6 +14,8 @@ A MIR Program contains package path metadata plus typed declarations and top-lev
 
 Every expression variant that can be consumed by later passes carries or computes a Type through Expr::ty(). The MIR type algebra covers primitive values, owned strings, borrowed strings, structs, enums, pointers, slices, options/results, tuples, maps, arrays, async/task handles, channels, select results, and function types.
 
+The generated-Rust backend consumes MIR through `codegen::GeneratedRustBackendInput`. That interface is intentionally MIR-only: parser, syntax, and HIR details must be resolved before constructing backend input, so code generation cannot reach back into earlier compiler internals.
+
 ## Required lowering coverage
 
 The typed MIR contract explicitly covers the constructs needed by the stage1 roadmap slice:
