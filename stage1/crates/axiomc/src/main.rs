@@ -461,24 +461,34 @@ fn main() {
                         },
                         Err(error) => print_error("caps", error, json),
                     }
+                } else if json {
+                    match (project_capabilities(&project), capability_sbom(&project)) {
+                        (Ok(capabilities), Ok(sbom)) => {
+                            let payload = json_contract::caps_manifest_success(
+                                &project,
+                                &capabilities,
+                                &sbom,
+                            );
+                            match json_contract::to_pretty_string(&payload) {
+                                Ok(output) => {
+                                    println!("{output}");
+                                    0
+                                }
+                                Err(error) => print_error("caps", error, false),
+                            }
+                        }
+                        (Err(error), _) | (_, Err(error)) => print_error("caps", error, json),
+                    }
                 } else {
                     match project_capabilities(&project) {
                         Ok(capabilities) => {
-                            if json {
-                                println!(
-                                    "{}",
-                                    json_contract::caps_success(&project, &capabilities)
-                                );
-                                0
-                            } else {
-                                let payload = json_contract::caps_success(&project, &capabilities);
-                                match json_contract::to_pretty_string(&payload) {
-                                    Ok(output) => {
-                                        println!("{output}");
-                                        0
-                                    }
-                                    Err(error) => print_error("caps", error, false),
+                            let payload = json_contract::caps_success(&project, &capabilities);
+                            match json_contract::to_pretty_string(&payload) {
+                                Ok(output) => {
+                                    println!("{output}");
+                                    0
                                 }
+                                Err(error) => print_error("caps", error, false),
                             }
                         }
                         Err(error) => print_error("caps", error, json),

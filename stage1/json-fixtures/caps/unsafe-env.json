@@ -3,18 +3,109 @@
   "ok": true,
   "command": "caps",
   "project": "<project>",
+  "manifest": "<project>/axiom.toml",
   "capabilities": [
     {
       "description": "environment variable access",
       "enabled": true,
       "name": "env",
-      "allowed": ["AXIOM_SAFE", "AXIOM_SECRET"],
-      "unsafe_unrestricted": true
+      "allowed": [
+        "AXIOM_SAFE",
+        "AXIOM_SECRET"
+      ],
+      "unsafe_unrestricted": true,
+      "unsafe_opt_in": true,
+      "unsafe_rationale": "legacy environment bridge"
     },
     {
       "description": "network access",
       "enabled": false,
       "name": "net"
+    }
+  ],
+  "requested": [
+    {
+      "name": "env",
+      "granted": true,
+      "triggers": [
+        "manifest:capabilities.env"
+      ]
+    },
+    {
+      "name": "net",
+      "granted": false,
+      "triggers": []
+    }
+  ],
+  "granted": [
+    {
+      "description": "environment variable access",
+      "enabled": true,
+      "name": "env",
+      "allowed": [
+        "AXIOM_SAFE",
+        "AXIOM_SECRET"
+      ],
+      "unsafe_unrestricted": true,
+      "unsafe_opt_in": true,
+      "unsafe_rationale": "legacy environment bridge"
+    }
+  ],
+  "denied": [
+    {
+      "name": "net"
+    }
+  ],
+  "unsafe": [
+    {
+      "package": "<project>",
+      "capability": "env",
+      "kind": "unsafe_unrestricted",
+      "rationale": "legacy environment bridge"
+    }
+  ],
+  "transitive_package_usage": [
+    {
+      "root": "<project>",
+      "manifest": "<project>/axiom.toml",
+      "name": "caps-env-app",
+      "version": "0.1.0",
+      "workspace_only": false,
+      "entrypoint": "<project>/src/main.ax",
+      "dependencies": [],
+      "members": [],
+      "capability_scopes": [
+        {
+          "description": "environment variable access",
+          "enabled": true,
+          "name": "env",
+          "allowed": [
+            "AXIOM_SAFE",
+            "AXIOM_SECRET"
+          ],
+          "unsafe_unrestricted": true,
+          "unsafe_opt_in": true,
+          "unsafe_rationale": "legacy environment bridge"
+        },
+        {
+          "description": "network access",
+          "enabled": false,
+          "name": "net"
+        }
+      ]
+    }
+  ],
+  "stdlib_modules": [
+    {
+      "capability": "env",
+      "modules": [
+        {
+          "module": "std/env",
+          "triggers": [
+            "1:1:env_get"
+          ]
+        }
+      ]
     }
   ]
 }

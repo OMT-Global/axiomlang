@@ -1,8 +1,9 @@
 use crate::diagnostics::Diagnostic;
 use crate::manifest::CapabilityDescriptor;
-use crate::project::{BuildOutput, CheckOutput, TestListOutput, TestOutput};
+use crate::project::{BuildOutput, CapabilitySbomOutput, CheckOutput, TestListOutput, TestOutput};
 use serde::Serialize;
 use serde_json::{Value, json};
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 pub const JSON_SCHEMA_VERSION: &str = "axiom.stage1.v1";
@@ -90,6 +91,132 @@ pub fn caps_success(project: &Path, capabilities: &[CapabilityDescriptor]) -> Va
         "command": "caps",
         "project": project.display().to_string(),
         "capabilities": capabilities,
+    })
+}
+
+pub fn caps_manifest_success(
+    project: &Path,
+    capabilities: &[CapabilityDescriptor],
+    sbom: &CapabilitySbomOutput,
+) -> Value {
+    let by_name: BTreeMap<&str, &CapabilityDescriptor> = capabilities
+        .iter()
+        .map(|capability| (capability.name.as_str(), capability))
+        .collect();
+    let mut requested_by_capability: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+    for package in &sbom.packages {
+        for use_site in &package.intrinsic_use {
+            requested_by_capability
+                .entry(use_site.capability.clone())
+                .or_default()
+                .insert(format!(
+                    "{}:{}:{}:{}",
+                    use_site.module, use_site.line, use_site.column, use_site.intrinsic
+                ));
+        }
+    }
+
+    let requested: Vec<Value> = requested_by_capability
+        .iter()
+        .map(|(name, triggers)| {
+            json!({
+                "name": name,
+                "granted": by_name.get(name.as_str()).is_some_and(|capability| capability.enabled),
+                "triggers": triggers.iter().cloned().collect::<Vec<_>>(),
+            })
+        })
+        .collect();
+    let granted: Vec<&CapabilityDescriptor> = capabilities
+        .iter()
+        .filter(|capability| capability.enabled)
+        .collect();
+    let denied: Vec<Value> = requested_by_capability
+        .keys()
+        .filter(|name| {
+            !by_name
+                .get(name.as_str())
+                .is_some_and(|capability| capability.enabled)
+        })
+        .map(|name| json!({ "name": name }))
+        .collect();
+    let unsafe_entries: Vec<Value> = sbom
+        .packages
+        .iter()
+        .flat_map(|package| {
+            package.unsafe_grants.iter().map(move |grant| {
+                json!({
+                    "package": package.root,
+                    "capability": grant.capability,
+                    "kind": grant.kind,
+                    "rationale": grant.rationale,
+                })
+            })
+        })
+        .collect();
+    let transitive_package_usage: Vec<Value> = sbom
+        .packages
+        .iter()
+        .map(|package| {
+            json!({
+                "root": package.root,
+                "manifest": package.manifest,
+                "name": package.name,
+                "version": package.version,
+                "workspace_only": package.workspace_only,
+                "entrypoint": package.entrypoint,
+                "dependencies": package.package_graph.dependencies,
+                "members": package.package_graph.members,
+                "capability_scopes": package.capability_scopes,
+            })
+        })
+        .collect();
+    let mut stdlib_modules_by_capability: BTreeMap<String, BTreeMap<String, BTreeSet<String>>> =
+        BTreeMap::new();
+    for package in &sbom.packages {
+        for use_site in &package.intrinsic_use {
+            stdlib_modules_by_capability
+                .entry(use_site.capability.clone())
+                .or_default()
+                .entry(use_site.module.clone())
+                .or_default()
+                .insert(format!(
+                    "{}:{}:{}",
+                    use_site.line, use_site.column, use_site.intrinsic
+                ));
+        }
+    }
+    let stdlib_modules: Vec<Value> = stdlib_modules_by_capability
+        .into_iter()
+        .map(|(capability, modules)| {
+            let modules = modules
+                .into_iter()
+                .map(|(module, triggers)| {
+                    json!({
+                        "module": module,
+                        "triggers": triggers.into_iter().collect::<Vec<_>>(),
+                    })
+                })
+                .collect::<Vec<_>>();
+            json!({
+                "capability": capability,
+                "modules": modules,
+            })
+        })
+        .collect();
+
+    json!({
+        "schema_version": JSON_SCHEMA_VERSION,
+        "ok": true,
+        "command": "caps",
+        "project": project.display().to_string(),
+        "manifest": sbom.manifest,
+        "capabilities": capabilities,
+        "requested": requested,
+        "granted": granted,
+        "denied": denied,
+        "unsafe": unsafe_entries,
+        "transitive_package_usage": transitive_package_usage,
+        "stdlib_modules": stdlib_modules,
     })
 }
 

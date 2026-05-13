@@ -2075,6 +2075,7 @@ out_dir = "dist"
 [capabilities]
 clock = true
 env_unrestricted = true
+unsafe_rationale = "test fixture intentionally exercises unrestricted env reporting"
 "#,
         )
         .expect("write manifest");
@@ -2082,9 +2083,7 @@ env_unrestricted = true
             project.join("src/main.ax"),
             r#"import "std/time.ax"
 
-fn main() {
-    let _now = clock_now_ms();
-}
+let now: int = clock_now_ms()
 "#,
         )
         .expect("write source");
@@ -3272,6 +3271,7 @@ out_dir = "dist"
 [capabilities]
 clock = true
 env_unrestricted = true
+unsafe_rationale = "test fixture intentionally exercises unrestricted env reporting"
 "#,
         )
         .expect("write manifest");
@@ -3279,9 +3279,7 @@ env_unrestricted = true
             project.join("src/main.ax"),
             r#"import "std/time.ax"
 
-fn main() {
-    let _now = clock_now_ms();
-}
+let now: int = clock_now_ms()
 "#,
         )
         .expect("write source");
@@ -3320,6 +3318,36 @@ fn main() {
                 .unsafe_grants
                 .iter()
                 .any(|grant| grant.capability == "env" && grant.kind == "unsafe_unrestricted")
+        );
+
+        let caps = project_capabilities(&project).expect("project capabilities");
+        let payload = json_contract::caps_manifest_success(&project, &caps, &sbom);
+        let clock_modules = payload["stdlib_modules"]
+            .as_array()
+            .expect("stdlib module capability entries")
+            .iter()
+            .find(|entry| entry["capability"] == "clock")
+            .expect("clock stdlib module entry");
+        let module = clock_modules["modules"]
+            .as_array()
+            .expect("clock modules")
+            .first()
+            .expect("clock module trigger entry");
+        assert!(
+            module["module"]
+                .as_str()
+                .expect("module path")
+                .ends_with("src/main.ax")
+        );
+        assert!(
+            module["triggers"]
+                .as_array()
+                .expect("module triggers")
+                .iter()
+                .any(|trigger| trigger
+                    .as_str()
+                    .expect("trigger string")
+                    .ends_with("clock_now_ms"))
         );
     }
 
