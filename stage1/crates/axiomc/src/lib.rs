@@ -957,6 +957,47 @@ print fail()
     }
 
     #[test]
+    fn parser_recovery_reports_multiple_errors_inside_function_blocks() {
+        let source = "fn main(): int {\nlet a: int = \nprint .broken\nreturn 0\n}\n";
+        let diagnostics = parse_program_with_recovery(source, Path::new("main.ax"))
+            .expect_err("recovering parser should report multiple block parse errors");
+
+        assert_eq!(diagnostics.len(), 2);
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.line)
+                .collect::<Vec<_>>(),
+            vec![Some(2), Some(3)]
+        );
+        assert_eq!(diagnostics[0].message, "expression is empty");
+        assert_eq!(diagnostics[1].message, "field access is incomplete");
+    }
+
+    #[test]
+    fn parser_recovery_continues_after_bad_nested_statement_blocks() {
+        let source =
+            "fn main(): int {\nfor value in [1] {\nprint value\n}\nlet a: int = \nreturn 0\n}\n";
+        let diagnostics = parse_program_with_recovery(source, Path::new("main.ax"))
+            .expect_err("recovering parser should skip bad nested blocks and continue");
+
+        assert_eq!(diagnostics.len(), 2);
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.line)
+                .collect::<Vec<_>>(),
+            vec![Some(2), Some(5)]
+        );
+        assert!(
+            diagnostics[0]
+                .message
+                .contains("does not support `for` loops yet")
+        );
+        assert_eq!(diagnostics[1].message, "expression is empty");
+    }
+
+    #[test]
     fn parser_recovery_resynchronizes_top_level_statements_from_their_start() {
         let source =
             "if true {\nfor value in [1] {\nprint value\n}\n}\nlet answer int = 42\nprint answer\n";

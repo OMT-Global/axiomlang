@@ -520,7 +520,7 @@ pub fn parse_program_with_recovery(source: &str, path: &Path) -> Result<Program,
             match parse_function(&lines, &mut index, path) {
                 Ok(function) => functions.push(function),
                 Err(error) => {
-                    diagnostics.push(error);
+                    push_diagnostic_with_related(&mut diagnostics, error);
                     index = start_index;
                     synchronize_top_level(&lines, &mut index);
                 }
@@ -560,7 +560,7 @@ pub fn parse_program_with_recovery(source: &str, path: &Path) -> Result<Program,
             match parse_struct(&lines, &mut index, path) {
                 Ok(struct_decl) => structs.push(struct_decl),
                 Err(error) => {
-                    diagnostics.push(error);
+                    push_diagnostic_with_related(&mut diagnostics, error);
                     index = start_index;
                     synchronize_top_level(&lines, &mut index);
                 }
@@ -575,7 +575,7 @@ pub fn parse_program_with_recovery(source: &str, path: &Path) -> Result<Program,
             match parse_enum(&lines, &mut index, path) {
                 Ok(enum_decl) => enums.push(enum_decl),
                 Err(error) => {
-                    diagnostics.push(error);
+                    push_diagnostic_with_related(&mut diagnostics, error);
                     index = start_index;
                     synchronize_top_level(&lines, &mut index);
                 }
@@ -587,7 +587,7 @@ pub fn parse_program_with_recovery(source: &str, path: &Path) -> Result<Program,
             match parse_impl(&lines, &mut index, path) {
                 Ok(methods) => functions.extend(methods),
                 Err(error) => {
-                    diagnostics.push(error);
+                    push_diagnostic_with_related(&mut diagnostics, error);
                     index = start_index;
                     synchronize_top_level(&lines, &mut index);
                 }
@@ -598,7 +598,7 @@ pub fn parse_program_with_recovery(source: &str, path: &Path) -> Result<Program,
         match parse_stmt(&lines, &mut index, path, false) {
             Ok(stmt) => stmts.push(stmt),
             Err(error) => {
-                diagnostics.push(error);
+                push_diagnostic_with_related(&mut diagnostics, error);
                 index = start_index;
                 synchronize_top_level(&lines, &mut index);
             }
@@ -1180,11 +1180,87 @@ fn parse_stmt_list(
             .with_path(path.display().to_string())
             .with_span(line_no, 1));
         }
-        stmts.push(parse_stmt(lines, index, path, true)?);
+        match parse_stmt(lines, index, path, true) {
+            Ok(stmt) => stmts.push(stmt),
+            Err(error) => {
+                let mut diagnostics = vec![error];
+                let failed_index = *index;
+                synchronize_statement(lines, index);
+                while *index < lines.len() {
+                    let trimmed = lines[*index].trim();
+                    if trimmed.is_empty() {
+                        *index += 1;
+                        continue;
+                    }
+                    if trimmed == "}" || trimmed == "} else {" {
+                        break;
+                    }
+                    match parse_stmt(lines, index, path, true) {
+                        Ok(stmt) => stmts.push(stmt),
+                        Err(error) => {
+                            diagnostics.push(error);
+                            let before = *index;
+                            synchronize_statement(lines, index);
+                            if *index == before {
+                                *index += 1;
+                            }
+                        }
+                    }
+                }
+                let mut first = diagnostics.remove(0);
+                first.related = diagnostics;
+                if *index == failed_index {
+                    *index += 1;
+                }
+                return Err(first);
+            }
+        }
     }
     Err(Diagnostic::new("parse", "missing closing brace for block")
         .with_path(path.display().to_string())
         .with_span(lines.len().max(1), 1))
+}
+
+fn push_diagnostic_with_related(diagnostics: &mut Vec<Diagnostic>, mut diagnostic: Diagnostic) {
+    diagnostics.push(Diagnostic {
+        related: Vec::new(),
+        ..diagnostic.clone()
+    });
+    diagnostics.append(&mut diagnostic.related);
+}
+
+fn synchronize_statement(lines: &[&str], index: &mut usize) {
+    if *index >= lines.len() {
+        return;
+    }
+    let trimmed = lines[*index].trim();
+    if trimmed.ends_with('{') {
+        synchronize_nested_block(lines, index);
+    } else {
+        *index += 1;
+    }
+}
+
+fn synchronize_nested_block(lines: &[&str], index: &mut usize) {
+    let mut depth = 0usize;
+    while *index < lines.len() {
+        let trimmed = lines[*index].trim();
+        if trimmed.ends_with('{') {
+            depth += 1;
+        }
+        if trimmed == "}" || trimmed == "} else {" {
+            if depth == 0 {
+                return;
+            }
+            depth -= 1;
+            *index += 1;
+            if depth == 0 {
+                return;
+            }
+            continue;
+        }
+        *index += 1;
+    }
 }
 
 fn parse_stmt(
