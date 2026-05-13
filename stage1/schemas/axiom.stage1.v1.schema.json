@@ -46,10 +46,16 @@
       }
     },
     "binary": {
-      "type": "string"
+      "type": [
+        "string",
+        "null"
+      ]
     },
     "generated_rust": {
-      "type": "string"
+      "type": [
+        "string",
+        "null"
+      ]
     },
     "debug_map": {
       "type": [
@@ -57,8 +63,49 @@
         "null"
       ]
     },
-    "target": {
+    "debug_manifest": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "debug_symbols": {
+      "type": [
+        "object",
+        "array",
+        "null"
+      ]
+    },
+    "exports": {
+      "type": "array"
+    },
+    "backend": {
       "type": "string"
+    },
+    "locked": {
+      "type": "boolean"
+    },
+    "offline": {
+      "type": "boolean"
+    },
+    "cache_key": {
+      "type": [
+        "object",
+        "string",
+        "null"
+      ]
+    },
+    "metadata": {
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "target": {
+      "type": [
+        "string",
+        "null"
+      ]
     },
     "debug": {
       "type": "boolean"
@@ -81,6 +128,19 @@
         "null"
       ]
     },
+    "mode": {
+      "type": "string"
+    },
+    "tests": {
+      "type": "array"
+    },
+    "kinds": {
+      "type": [
+        "object",
+        "array",
+        "null"
+      ]
+    },
     "passed": {
       "type": "integer",
       "minimum": 0
@@ -95,6 +155,16 @@
     },
     "cases": {
       "type": "array"
+    },
+    "check": {
+      "type": "boolean"
+    },
+    "files": {
+      "type": "array"
+    },
+    "changed": {
+      "type": "integer",
+      "minimum": 0
     },
     "error": {
       "$ref": "#/$defs/diagnostic"

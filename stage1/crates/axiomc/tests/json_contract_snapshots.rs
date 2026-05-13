@@ -34,6 +34,56 @@ fn cli_json_outputs_match_checked_in_contract_snapshots() {
 }
 
 #[test]
+fn cli_json_outputs_validate_against_public_v1_schema() {
+    let schema = read_json(&public_v1_schema_path());
+    let validator = jsonschema::validator_for(&schema).expect("compile public v1 schema");
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("contract-app");
+
+    run_axiomc(&[
+        "new",
+        project.to_str().expect("project path"),
+        "--name",
+        "contract-app",
+    ]);
+
+    let project_str = project.to_str().expect("project path");
+    let invocations: [(&str, Vec<&str>); 6] = [
+        ("check", vec!["check", project_str, "--json"]),
+        ("build", vec!["build", project_str, "--json"]),
+        ("test", vec!["test", project_str, "--json"]),
+        ("caps", vec!["caps", project_str, "--json"]),
+        ("parse", vec!["parse", project_str, "--json"]),
+        ("fmt", vec!["fmt", project_str, "--check", "--json"]),
+    ];
+
+    for (label, args) in invocations {
+        let output = run_axiomc_json(&args);
+        assert_payload_matches_schema(&validator, label, &output);
+        assert_eq!(
+            output["schema_version"], "axiom.stage1.v1",
+            "{label} did not declare axiom.stage1.v1"
+        );
+        assert!(
+            output.get("ok").is_some(),
+            "{label} payload missing required `ok` field"
+        );
+        assert_eq!(
+            output["command"].as_str().map(|s| s.split(' ').next().unwrap_or(s)),
+            Some(label),
+            "{label} payload command field drifted"
+        );
+    }
+}
+
+fn public_v1_schema_path() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../schemas/axiom.stage1.v1.schema.json")
+        .canonicalize()
+        .expect("public v1 schema path")
+}
+
+#[test]
 fn doc_json_failure_uses_error_contract() {
     let temp = tempfile::tempdir().expect("tempdir");
     let missing = temp.path().join("missing-doc-project");

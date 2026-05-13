@@ -1565,6 +1565,7 @@ struct FormatFileReport {
 #[derive(Debug, Clone, Serialize)]
 struct FormatReport {
     schema_version: &'static str,
+    ok: bool,
     command: &'static str,
     check: bool,
     files: Vec<FormatFileReport>,
@@ -1606,6 +1607,7 @@ fn format_axiom_sources(path: &Path, check: bool) -> Result<FormatReport, Diagno
     }
     Ok(FormatReport {
         schema_version: json_contract::JSON_SCHEMA_VERSION,
+        ok: !check || changed == 0,
         command: "fmt",
         check,
         files: reports,
