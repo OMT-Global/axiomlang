@@ -255,6 +255,84 @@ mod tests {
     }
 
     #[test]
+    fn hir_lowering_keeps_imports_as_parser_metadata() {
+        let source =
+            "import \"core/math.ax\"\n\nfn answer(): int {\nreturn 42\n}\n\nprint answer()\n";
+        let parsed = parse_program(source, Path::new("main.ax")).expect("parse");
+        assert_eq!(parsed.imports.len(), 1);
+        assert_eq!(parsed.imports[0].path, "core/math.ax");
+
+        let lowered = hir::lower(&parsed).expect("lower");
+        assert_eq!(lowered.functions.len(), 1);
+        assert_eq!(lowered.functions[0].name, "answer");
+        assert_eq!(lowered.path, "main.ax");
+    }
+
+    #[test]
+    fn hir_lowering_owns_symbol_resolution_for_impl_methods() {
+        let source = "struct Widget {\nlabel: string\n}\n\nimpl Widget {\nfn label(self): string {\nreturn self.label\n}\n}\n\nlet widget: Widget = Widget { label: \"ok\" }\nprint widget.label()\n";
+        let parsed = parse_program(source, Path::new("main.ax")).expect("parse");
+        let parsed_method = parsed
+            .functions
+            .iter()
+            .find(|function| function.source_name == "label")
+            .expect("parsed method");
+        assert_eq!(parsed_method.name, "label");
+        assert_eq!(parsed_method.impl_target.as_deref(), Some("Widget"));
+
+        let lowered = hir::lower(&parsed).expect("lower");
+        let lowered_method = lowered
+            .functions
+            .iter()
+            .find(|function| function.source_name == "label")
+            .expect("lowered method");
+        assert_eq!(lowered_method.name, "Widget__label");
+        assert_eq!(lowered_method.params[0].name, "self_");
+        assert_eq!(
+            lowered_method.params[0].ty,
+            hir::Type::Struct("Widget".to_string())
+        );
+    }
+
+    #[test]
+    fn hir_lowering_owns_type_name_classification() {
+        let source = "struct Widget {\nlabel: string\n}\n\nenum Status {\nReady\n}\n\nfn mark(widget: Widget, status: Status): Widget {\nmatch status {\nReady {\nreturn widget\n}\n}\n}\n\nprint 0\n";
+        let parsed = parse_program(source, Path::new("main.ax")).expect("parse");
+        let parsed_function = parsed
+            .functions
+            .iter()
+            .find(|function| function.name == "mark")
+            .expect("parsed function");
+        assert_eq!(
+            parsed_function.params[0].ty,
+            TypeName::Named("Widget".to_string(), Vec::new())
+        );
+        assert_eq!(
+            parsed_function.params[1].ty,
+            TypeName::Named("Status".to_string(), Vec::new())
+        );
+
+        let lowered = hir::lower(&parsed).expect("lower");
+        let lowered_function = lowered
+            .functions
+            .iter()
+            .find(|function| function.name == "mark")
+            .expect("lowered function");
+        assert_eq!(
+            lowered_function.params[0].ty,
+            hir::Type::Struct("Widget".to_string())
+        );
+        assert_eq!(
+            lowered_function.params[1].ty,
+            hir::Type::Enum("Status".to_string())
+        );
+        assert_eq!(
+            lowered_function.return_ty,
+            hir::Type::Struct("Widget".to_string())
+        );
+    }
+
+    #[test]
     fn render_rust_orders_generated_definitions_deterministically() {
         let source_a = r#"fn zed(): int {
 return 2
