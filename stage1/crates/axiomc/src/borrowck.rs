@@ -96,6 +96,7 @@ impl BorrowState {
         Ok(())
     }
 
+    #[allow(dead_code)]
     pub(crate) fn end_borrow(&mut self, kind: BorrowKind) {
         self.active_shared_or_mutable = self.active_shared_or_mutable.saturating_sub(1);
         if matches!(kind, BorrowKind::Mutable) {
@@ -196,6 +197,7 @@ pub(crate) fn borrow_kind_for_type(
     }
 }
 
+#[allow(dead_code)]
 pub(crate) fn contains_borrowed_slice_type(
     ty: &Type,
     structs: &HashMap<String, StructDef>,

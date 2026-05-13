@@ -1,3 +1,4 @@
+use crate::borrowck;
 use crate::diagnostics::{Diagnostic, message_with_suggestion};
 use crate::manifest::{CapabilityConfig, CapabilityKind};
 use crate::syntax;
@@ -429,11 +430,7 @@ enum BorrowOrigin {
     Local,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum BorrowKind {
-    Shared,
-    Mutable,
-}
+type BorrowKind = borrowck::BorrowKind;
 
 struct LowerContext<'a> {
     consts: &'a HashMap<String, syntax::ConstDecl>,
@@ -457,13 +454,11 @@ struct VariantInfo {
 
 const OWNERSHIP_CLOSURE_MOVE_CAPTURED_NON_COPY: &str = "closure_move_captured_non_copy";
 const OWNERSHIP_CLOSURE_BORROWED_SLICE_RETURN: &str = "closure_borrowed_slice_return";
-const OWNERSHIP_LOOP_MOVE_OUTER_NON_COPY: &str = "loop_move_outer_non_copy";
-const OWNERSHIP_BORROW_RETURN_REQUIRES_PARAM_ORIGIN: &str = "borrow_return_requires_param_origin";
-const OWNERSHIP_MOVE_WHILE_BORROWED: &str = "move_while_borrowed";
-const OWNERSHIP_USE_AFTER_MOVE: &str = "use_after_move";
-const OWNERSHIP_SHARED_BORROW_WHILE_MUTABLE_LIVE: &str = "shared_borrow_while_mutable_live";
-const OWNERSHIP_MUTABLE_BORROW_WHILE_MUTABLE_LIVE: &str = "mutable_borrow_while_mutable_live";
-const OWNERSHIP_MUTABLE_BORROW_WHILE_SHARED_LIVE: &str = "mutable_borrow_while_shared_live";
+const OWNERSHIP_LOOP_MOVE_OUTER_NON_COPY: &str = borrowck::LOOP_MOVE_OUTER_NON_COPY;
+const OWNERSHIP_BORROW_RETURN_REQUIRES_PARAM_ORIGIN: &str =
+    borrowck::BORROW_RETURN_REQUIRES_PARAM_ORIGIN;
+const OWNERSHIP_MOVE_WHILE_BORROWED: &str = borrowck::MOVE_WHILE_BORROWED;
+const OWNERSHIP_USE_AFTER_MOVE: &str = borrowck::USE_AFTER_MOVE;
 
 fn function_symbol_name(function: &syntax::Function) -> String {
     match &function.impl_target {
@@ -4339,7 +4334,7 @@ fn sanitize_symbol_suffix(raw: &str) -> String {
 }
 
 fn ownership_error(code: &'static str, message: impl Into<String>) -> Diagnostic {
-    Diagnostic::new("ownership", message).with_code(code)
+    borrowck::ownership_error(code, message)
 }
 
 impl Type {
@@ -10851,22 +10846,7 @@ fn classify_borrow_return(
     line: usize,
     column: usize,
 ) -> Result<Vec<usize>, Diagnostic> {
-    if !contains_borrowed_slice_type(return_ty, structs, enums) {
-        return Ok(Vec::new());
-    }
-    let matches = params
-        .iter()
-        .enumerate()
-        .filter_map(|(index, ty)| contains_borrowed_slice_type(ty, structs, enums).then_some(index))
-        .collect::<Vec<_>>();
-    if matches.is_empty() {
-        return Err(Diagnostic::new(
-            "type",
-            "borrowed return functions must take at least one borrowed parameter in stage1",
-        )
-        .with_span(line, column));
-    }
-    Ok(matches)
+    borrowck::classify_borrow_return(params, return_ty, structs, enums, line, column)
 }
 
 fn borrow_kind_for_type(
@@ -10874,13 +10854,7 @@ fn borrow_kind_for_type(
     structs: &HashMap<String, StructDef>,
     enums: &HashMap<String, EnumDef>,
 ) -> Option<BorrowKind> {
-    if contains_mut_borrowed_slice_type(ty, structs, enums) {
-        Some(BorrowKind::Mutable)
-    } else if contains_borrowed_slice_type(ty, structs, enums) {
-        Some(BorrowKind::Shared)
-    } else {
-        None
-    }
+    borrowck::borrow_kind_for_type(ty, structs, enums)
 }
 
 fn increment_active_borrows(
@@ -10897,41 +10871,17 @@ fn increment_active_borrows(
                 format!("internal error: missing borrow owner {owner_name:?}"),
             )
         })?;
-        match borrow_kind {
-            BorrowKind::Shared if binding.active_mut_borrow_count > 0 => {
-                return Err(ownership_error(
-                    OWNERSHIP_SHARED_BORROW_WHILE_MUTABLE_LIVE,
-                    format!(
-                        "cannot create shared borrow of value {owner_name:?} while a mutable borrow is still live"
-                    ),
-                )
-                .with_span(line, column));
-            }
-            BorrowKind::Mutable if binding.active_mut_borrow_count > 0 => {
-                return Err(ownership_error(
-                    OWNERSHIP_MUTABLE_BORROW_WHILE_MUTABLE_LIVE,
-                    format!(
-                        "cannot create mutable borrow of value {owner_name:?} while another mutable borrow is still live"
-                    ),
-                )
-                .with_span(line, column));
-            }
-            BorrowKind::Mutable if binding.active_borrow_count > 0 => {
-                return Err(ownership_error(
-                    OWNERSHIP_MUTABLE_BORROW_WHILE_SHARED_LIVE,
-                    format!(
-                        "cannot create mutable borrow of value {owner_name:?} while a shared borrow is still live"
-                    ),
-                )
-                .with_help("drop the shared borrow before creating a mutable borrow")
-                .with_span(line, column));
-            }
-            _ => {}
-        }
-        binding.active_borrow_count += 1;
-        if matches!(borrow_kind, BorrowKind::Mutable) {
-            binding.active_mut_borrow_count += 1;
-        }
+        let mut state = borrowck::BorrowState {
+            active_shared_or_mutable: binding.active_borrow_count,
+            active_mutable: binding.active_mut_borrow_count,
+        };
+        state.begin_borrow(
+            owner_name,
+            borrow_kind,
+            borrowck::SourceSpan::new(line, column),
+        )?;
+        binding.active_borrow_count = state.active_shared_or_mutable;
+        binding.active_mut_borrow_count = state.active_mutable;
     }
     Ok(())
 }

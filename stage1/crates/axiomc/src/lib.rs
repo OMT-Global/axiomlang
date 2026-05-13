@@ -1,3 +1,4 @@
+pub(crate) mod borrowck;
 pub mod codegen;
 pub mod dap;
 pub mod diagnostic_catalog;
