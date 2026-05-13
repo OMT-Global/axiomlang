@@ -2531,6 +2531,7 @@ let now: int = clock_now_ms()
             &CheckOptions {
                 package: Some(String::from("workspace-app")),
                 include_exports: false,
+                include_debug_symbols: false,
             },
         )
         .expect("check selected workspace package");
@@ -10597,6 +10598,7 @@ print takes_two(three)
             &CheckOptions {
                 package: None,
                 include_exports: true,
+                include_debug_symbols: false,
             },
         )
         .expect("check public api workspace");
@@ -10642,6 +10644,78 @@ print takes_two(three)
                 && export["signature"] == "fn root_answer(): int"
         }));
         assert!(payload["packages"][1]["exports"].is_array());
+    }
+
+    #[test]
+    fn check_json_can_include_debug_symbol_table() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("debug-symbols");
+        create_project(&project, Some("debug-symbols-app")).expect("create project");
+        fs::write(
+            project.join("src/main.ax"),
+            "pub type Id = int
+
+pub struct Widget {
+label: string
+}
+
+fn helper(): int {
+return 1
+}
+
+pub fn main_value(): int {
+return helper()
+}
+
+print main_value()
+",
+        )
+        .expect("write source");
+
+        let manifest = load_manifest(&project).expect("load manifest");
+        fs::write(
+            project.join("axiom.lock"),
+            render_lockfile_for_project(&project, &manifest).expect("lockfile"),
+        )
+        .expect("write lockfile");
+
+        let output = check_project_with_options(
+            &project,
+            &CheckOptions {
+                package: None,
+                include_exports: false,
+                include_debug_symbols: true,
+            },
+        )
+        .expect("check with debug symbols");
+        let payload = json_contract::check_success(&project, &output);
+        assert_eq!(
+            payload["debug_symbols"]["schema_version"],
+            "axiom.stage1.debug_symbols.v1"
+        );
+        let symbols = payload["debug_symbols"]["modules"][0]["symbols"]
+            .as_array()
+            .expect("symbols array");
+        assert!(symbols.iter().any(|symbol| {
+            symbol["kind"] == "function"
+                && symbol["name"] == "main_value"
+                && symbol["visibility"] == "public"
+        }));
+        assert!(symbols.iter().any(|symbol| {
+            symbol["kind"] == "function"
+                && symbol["name"] == "helper"
+                && symbol["visibility"] == "module"
+        }));
+        assert!(
+            symbols
+                .iter()
+                .any(|symbol| { symbol["kind"] == "type_alias" && symbol["name"] == "Id" })
+        );
+        assert!(
+            symbols
+                .iter()
+                .any(|symbol| { symbol["kind"] == "struct" && symbol["name"] == "Widget" })
+        );
     }
 
     #[test]

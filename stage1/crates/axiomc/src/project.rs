@@ -35,6 +35,8 @@ pub struct CheckedPackage {
     pub warnings: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub exports: Vec<ApiExport>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub debug_symbols: Option<DebugSymbolTable>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -46,6 +48,8 @@ pub struct CheckOutput {
     pub warnings: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub exports: Vec<ApiExport>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub debug_symbols: Option<DebugSymbolTable>,
     pub packages: Vec<CheckedPackage>,
 }
 
@@ -56,6 +60,29 @@ pub struct ApiExport {
     pub module: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub signature: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct DebugSymbolTable {
+    pub schema_version: &'static str,
+    pub modules: Vec<DebugModuleSymbols>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct DebugModuleSymbols {
+    pub module: String,
+    pub package_root: String,
+    pub symbols: Vec<DebugSymbol>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct DebugSymbol {
+    pub kind: String,
+    pub name: String,
+    pub visibility: String,
+    pub signature: String,
+    pub line: usize,
+    pub column: usize,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -279,6 +306,7 @@ pub struct CapabilitySbomUnsafeGrant {
 pub struct CheckOptions {
     pub package: Option<String>,
     pub include_exports: bool,
+    pub include_debug_symbols: bool,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -327,6 +355,9 @@ pub fn check_project_with_options(
         } else {
             Vec::new()
         };
+        let debug_symbols = options
+            .include_debug_symbols
+            .then(|| debug_symbol_table(&analyzed.modules, &package_root));
         packages.push(CheckedPackage {
             package_root: package_root.display().to_string(),
             manifest: manifest_path(&package_root).display().to_string(),
@@ -335,6 +366,7 @@ pub fn check_project_with_options(
             capabilities: capability_descriptors(&analyzed.manifest.capabilities),
             warnings: analyzed.manifest.capabilities.warnings(),
             exports,
+            debug_symbols,
         });
     }
     let root = packages.first().cloned().ok_or_else(|| {
@@ -353,6 +385,7 @@ pub fn check_project_with_options(
         capabilities: root.capabilities,
         warnings: root.warnings,
         exports: root.exports,
+        debug_symbols: root.debug_symbols,
         packages,
     })
 }
@@ -3660,6 +3693,104 @@ fn flatten_modules(
         functions: flattened_functions,
         stmts: flattened_stmts,
     })
+}
+
+fn debug_symbol_table(modules: &[LoadedModule], package_root: &Path) -> DebugSymbolTable {
+    let mut module_symbols = Vec::new();
+    for module in modules
+        .iter()
+        .filter(|module| module.package_root == package_root)
+    {
+        let mut symbols = Vec::new();
+        for alias in &module.program.type_aliases {
+            symbols.push(DebugSymbol {
+                kind: String::from("type_alias"),
+                name: alias.name.clone(),
+                visibility: visibility_name(alias.visibility).to_string(),
+                signature: format!("type {} = {}", alias.name, format_type_name(&alias.ty)),
+                line: alias.line,
+                column: alias.column,
+            });
+        }
+        for struct_decl in &module.program.structs {
+            symbols.push(DebugSymbol {
+                kind: String::from("struct"),
+                name: struct_decl.name.clone(),
+                visibility: visibility_name(struct_decl.visibility).to_string(),
+                signature: format!("struct {}", struct_decl.name),
+                line: struct_decl.line,
+                column: struct_decl.column,
+            });
+        }
+        for enum_decl in &module.program.enums {
+            symbols.push(DebugSymbol {
+                kind: String::from("enum"),
+                name: enum_decl.name.clone(),
+                visibility: visibility_name(enum_decl.visibility).to_string(),
+                signature: format!("enum {}", enum_decl.name),
+                line: enum_decl.line,
+                column: enum_decl.column,
+            });
+        }
+        for function in &module.program.functions {
+            symbols.push(DebugSymbol {
+                kind: String::from("function"),
+                name: function.name.clone(),
+                visibility: visibility_name(function.visibility).to_string(),
+                signature: format!(
+                    "fn {}({}): {}",
+                    function
+                        .impl_target
+                        .as_ref()
+                        .map(|target| format!("{target}.{}", function.name))
+                        .unwrap_or_else(|| function.name.clone()),
+                    format_function_params(function),
+                    format_type_name(&function.return_ty)
+                ),
+                line: function.line,
+                column: function.column,
+            });
+        }
+        for constant in &module.program.consts {
+            symbols.push(DebugSymbol {
+                kind: String::from("const"),
+                name: constant.name.clone(),
+                visibility: visibility_name(constant.visibility).to_string(),
+                signature: format!(
+                    "const {}: {}",
+                    constant.name,
+                    format_type_name(&constant.ty)
+                ),
+                line: constant.line,
+                column: constant.column,
+            });
+        }
+        symbols.sort_by(|left, right| {
+            left.line
+                .cmp(&right.line)
+                .then_with(|| left.column.cmp(&right.column))
+                .then_with(|| left.kind.cmp(&right.kind))
+                .then_with(|| left.name.cmp(&right.name))
+        });
+        module_symbols.push(DebugModuleSymbols {
+            module: module.path.display().to_string(),
+            package_root: module.package_root.display().to_string(),
+            symbols,
+        });
+    }
+    module_symbols.sort_by(|left, right| left.module.cmp(&right.module));
+    DebugSymbolTable {
+        schema_version: "axiom.stage1.debug_symbols.v1",
+        modules: module_symbols,
+    }
+}
+
+fn visibility_name(visibility: syntax::Visibility) -> &'static str {
+    match visibility {
+        syntax::Visibility::Public => "public",
+        syntax::Visibility::Package => "package",
+        syntax::Visibility::Module => "module",
+    }
 }
 
 fn public_api_exports(modules: &[LoadedModule], package_root: &Path) -> Vec<ApiExport> {

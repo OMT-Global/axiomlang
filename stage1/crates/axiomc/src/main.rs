@@ -58,6 +58,8 @@ enum Command {
         json: bool,
         #[arg(long)]
         exports: bool,
+        #[arg(long = "debug-symbols")]
+        debug_symbols: bool,
         #[arg(short = 'p', long = "package")]
         package: Option<String>,
     },
@@ -285,12 +287,14 @@ fn main() {
             path,
             json,
             exports,
+            debug_symbols,
             package,
         } => match check_project_with_options(
             &path,
             &CheckOptions {
                 package: package.clone(),
                 include_exports: exports,
+                include_debug_symbols: debug_symbols,
             },
         ) {
             Ok(output) => {

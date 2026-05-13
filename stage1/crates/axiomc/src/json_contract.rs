@@ -9,7 +9,7 @@ use std::path::Path;
 pub const JSON_SCHEMA_VERSION: &str = "axiom.stage1.v1";
 
 pub fn check_success(project: &Path, output: &CheckOutput) -> Value {
-    json!({
+    let mut payload = json!({
         "schema_version": JSON_SCHEMA_VERSION,
         "ok": true,
         "command": "check",
@@ -21,7 +21,11 @@ pub fn check_success(project: &Path, output: &CheckOutput) -> Value {
         "exports": output.exports,
         "warnings": output.warnings,
         "packages": output.packages,
-    })
+    });
+    if let Some(debug_symbols) = &output.debug_symbols {
+        payload["debug_symbols"] = json!(debug_symbols);
+    }
+    payload
 }
 
 pub fn build_success(project: &Path, output: &BuildOutput) -> Value {
