@@ -1,0 +1,7 @@
+enum Pair<T> {
+Named { item: T }
+Empty
+}
+fn make(): Pair<int> {
+return Named { item: "wrong" }
+}

@@ -1,0 +1,7 @@
+{
+  "kind": "type",
+  "message": "type \"Named\" is not generic",
+  "path": "src/main.ax",
+  "line": 6,
+  "column": 8
+}

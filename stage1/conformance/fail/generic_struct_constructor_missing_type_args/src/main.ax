@@ -1,0 +1,7 @@
+struct Pair<T, E> {
+left: T
+right: E
+}
+fn make(): Pair<int, string> {
+return Pair<int> { left: 1, right: "ok" }
+}

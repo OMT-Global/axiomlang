@@ -1,0 +1,7 @@
+{
+  "kind": "type",
+  "message": "struct \"conformance_generic_struct_constructor_mismatched_type_args_main_Box__int\" field \"item\" expects int, got string",
+  "path": "src/main.ax",
+  "line": 5,
+  "column": 8
+}
