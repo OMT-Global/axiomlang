@@ -56,8 +56,10 @@ mod tests {
         let mut manifest = format!(
             "[package]\nname = {name:?}\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = {fs}\n\"fs:write\" = {fs}\nnet = {net}\nprocess = {process}\nenv = {env}\nclock = {clock}\ncrypto = {crypto}\nasync = false\n"
         );
-        if env {
-            manifest.push_str("unsafe_rationale = \"test fixture uses legacy unrestricted env\"\n");
+        if env || process {
+            manifest.push_str(
+                "unsafe_rationale = \"test fixture uses legacy unrestricted env/process\"\n",
+            );
         }
         manifest
     }
@@ -3652,6 +3654,80 @@ clock = false
         assert_eq!(
             env.unsafe_rationale.as_deref(),
             Some("migration reads audited CI variables")
+        );
+    }
+
+    #[test]
+    fn unrestricted_process_requires_unsafe_rationale() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("caps-process-unrestricted");
+        create_project(&project, Some("caps-process-unrestricted-app")).expect("create project");
+        fs::write(
+            project.join("axiom.toml"),
+            "[package]\nname = \"caps-process-unrestricted-app\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nprocess = true\n",
+        )
+        .expect("write manifest");
+
+        let error = load_manifest(&project)
+            .expect_err("unrestricted process should require unsafe rationale");
+        assert_eq!(error.kind, "manifest");
+        assert!(
+            error
+                .message
+                .contains("capabilities.unsafe_rationale is required"),
+            "got {:?}",
+            error.message
+        );
+        assert!(
+            error.message.contains("unrestricted process execution"),
+            "diagnostic should name the offending grant, got {:?}",
+            error.message
+        );
+    }
+
+    #[test]
+    fn process_allowlist_does_not_require_unsafe_rationale() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("caps-process-allowlist");
+        create_project(&project, Some("caps-process-allowlist-app")).expect("create project");
+        fs::write(
+            project.join("axiom.toml"),
+            "[package]\nname = \"caps-process-allowlist-app\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nprocess = [\"/bin/echo\"]\n",
+        )
+        .expect("write manifest");
+
+        let manifest = load_manifest(&project).expect("allowlisted process should load");
+        assert!(manifest.capabilities.process);
+        assert!(manifest.capabilities.unsafe_rationale.is_none());
+        assert!(
+            !manifest.capabilities.warnings().iter().any(|warning| {
+                warning.contains("unrestricted process execution")
+            })
+        );
+    }
+
+    #[test]
+    fn unrestricted_process_emits_warning_alongside_rationale() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("caps-process-warning");
+        create_project(&project, Some("caps-process-warning-app")).expect("create project");
+        fs::write(
+            project.join("axiom.toml"),
+            "[package]\nname = \"caps-process-warning-app\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nprocess = true\nunsafe_rationale = \"smoke test spawns a single audited helper\"\n",
+        )
+        .expect("write manifest");
+
+        let manifest = load_manifest(&project).expect("load manifest with rationale");
+        let warnings = manifest.capabilities.warnings();
+        assert!(
+            warnings
+                .iter()
+                .any(|warning| warning.contains("unrestricted process execution")),
+            "warnings should flag unrestricted process: {warnings:?}"
+        );
+        assert_eq!(
+            manifest.capabilities.unsafe_rationale.as_deref(),
+            Some("smoke test spawns a single audited helper")
         );
     }
 
