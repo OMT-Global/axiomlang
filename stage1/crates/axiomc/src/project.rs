@@ -857,7 +857,7 @@ pub fn capability_sbom(project_root: &Path) -> Result<CapabilitySbomOutput, Diag
         let mut stdlib_imports = BTreeSet::new();
         let mut intrinsic_use = BTreeSet::new();
         if !context.manifest.is_workspace_only() {
-            let analyzed = analyze_package(&graph, &root)?;
+            let analyzed = analyze_package_for_capability_sbom(&graph, &root)?;
             for module in &analyzed.modules {
                 collect_stdlib_imports(&module.program, &mut stdlib_imports);
             }
@@ -1090,6 +1090,65 @@ impl SymbolNamespace {
             SymbolNamespace::Enum => "enum",
         }
     }
+}
+
+fn audit_capabilities_for_sbom(manifest_capabilities: &CapabilityConfig) -> CapabilityConfig {
+    let mut capabilities = manifest_capabilities.clone();
+    capabilities.fs = true;
+    capabilities.fs_write = true;
+    capabilities.net = true;
+    capabilities.net_hosts.clear();
+    capabilities.net_ports.clear();
+    capabilities.process = true;
+    capabilities.process_commands.clear();
+    capabilities.env = true;
+    capabilities.env_vars.clear();
+    capabilities.env_unrestricted = true;
+    capabilities.clock = true;
+    capabilities.crypto = true;
+    capabilities.ffi = true;
+    capabilities.async_runtime = true;
+    capabilities
+}
+
+fn analyze_package_for_capability_sbom(
+    graph: &PackageGraph,
+    package_root: &Path,
+) -> Result<AnalyzedProject, Diagnostic> {
+    let package_root = normalize_path(package_root);
+    let package_root = canonicalize_existing_path(&package_root, "package root")?;
+    let mut manifest = graph.context(&package_root)?.manifest.clone();
+    if manifest.is_workspace_only() {
+        return Err(Diagnostic::new(
+            "manifest",
+            format!(
+                "workspace-only manifest at {} is not directly buildable",
+                manifest_path(&package_root).display()
+            ),
+        )
+        .with_path(manifest_path(&package_root).display().to_string()));
+    }
+    validate_lockfile(&package_root, &manifest)?;
+    let entry = entry_path(&package_root, &manifest);
+    let entry = canonicalize_package_path(
+        &entry,
+        &package_root,
+        "manifest",
+        "build.entry resolves outside the package",
+    )?;
+    let modules = load_modules(graph, &package_root, &entry)?;
+    let flattened = flatten_modules(graph, &modules)?;
+    manifest.capabilities = audit_capabilities_for_sbom(&manifest.capabilities);
+    let hir = hir::lower_with_capabilities(&flattened, &manifest.capabilities)
+        .map_err(|error| diagnostic_with_default_path(error, &entry))?;
+    let mir = mir::lower(&hir);
+    Ok(AnalyzedProject {
+        manifest,
+        entry_path: entry,
+        hir,
+        mir,
+        modules,
+    })
 }
 
 fn analyze_package(

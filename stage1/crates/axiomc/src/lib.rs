@@ -3353,6 +3353,49 @@ let now: int = clock_now_ms()
     }
 
     #[test]
+    fn capability_sbom_records_denied_intrinsic_use() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("caps-sbom-denied");
+        create_project(&project, Some("caps-sbom-denied-app")).expect("create project");
+        fs::write(
+            project.join("axiom.toml"),
+            r#"[package]
+name = "caps-sbom-denied-app"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+clock = false
+"#,
+        )
+        .expect("write manifest");
+        fs::write(
+            project.join("src/main.ax"),
+            r#"let now: int = clock_now_ms()
+"#,
+        )
+        .expect("write source");
+        let manifest = load_manifest(&project).expect("load manifest");
+        fs::write(
+            project.join("axiom.lock"),
+            render_lockfile_for_project(&project, &manifest).expect("lockfile"),
+        )
+        .expect("write lockfile");
+
+        let sbom = capability_sbom(&project).expect("capability sbom");
+        let package = sbom.packages.first().expect("package");
+        assert!(
+            package
+                .intrinsic_use
+                .iter()
+                .any(|usage| usage.intrinsic == "clock_now_ms" && usage.capability == "clock")
+        );
+    }
+
+    #[test]
     fn capability_view_reports_unsafe_env_grants() {
         let dir = tempdir().expect("tempdir");
         let project = dir.path().join("caps-env-unrestricted");
