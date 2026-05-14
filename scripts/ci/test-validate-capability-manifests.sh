@@ -25,6 +25,7 @@ clock = false
 crypto = false
 ffi = false
 async = false
+unsafe_rationale = "test fixture documents unrestricted grants"
 TOML
 
 python3 "$repo_root/scripts/ci/validate-capability-manifests.py" --root "$tmpdir"

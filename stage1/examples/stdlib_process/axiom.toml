@@ -13,3 +13,4 @@ process = true
 env = false
 clock = false
 crypto = false
+unsafe_rationale = "stdlib_process example exercises unrestricted process execution intentionally"

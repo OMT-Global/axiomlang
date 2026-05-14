@@ -409,17 +409,22 @@ impl CapabilityConfig {
     }
 
     pub fn warnings(&self) -> Vec<String> {
+        let mut warnings = Vec::new();
         if self.env_legacy_unrestricted {
-            vec![String::from(
+            warnings.push(String::from(
                 "warning: [capabilities].env = true is deprecated and grants unrestricted environment access; prefer env = [\"NAME\"] or use env_unrestricted = true only during migration",
-            )]
+            ));
         } else if self.env_unrestricted {
-            vec![String::from(
+            warnings.push(String::from(
                 "warning: [capabilities].env_unrestricted = true grants unrestricted environment access and bypasses the env allowlist",
-            )]
-        } else {
-            Vec::new()
+            ));
         }
+        if self.process && self.process_commands.is_empty() {
+            warnings.push(String::from(
+                "warning: [capabilities].process = true grants unrestricted process execution; prefer process = [\"COMMAND\"] to declare an allowlist",
+            ));
+        }
+        warnings
     }
 }
 
@@ -493,6 +498,7 @@ fn normalize_manifest(raw: RawManifest, path: &Path) -> Result<Manifest, Diagnos
         normalize_optional_relative_path(path, "capabilities.fs_root", capabilities.fs_root)?;
     let (net, net_hosts, net_ports) = normalize_net_capability(path, capabilities.net)?;
     let (process, process_commands) = normalize_process_capability(path, capabilities.process)?;
+    let process_unrestricted = process && process_commands.is_empty();
     let explicit_env_unrestricted = capabilities.env_unrestricted.unwrap_or(false);
     let (env, env_vars, env_unrestricted, env_legacy_unrestricted) =
         normalize_env_capability(path, capabilities.env, explicit_env_unrestricted)?;
@@ -500,6 +506,7 @@ fn normalize_manifest(raw: RawManifest, path: &Path) -> Result<Manifest, Diagnos
         path,
         capabilities.unsafe_rationale,
         explicit_env_unrestricted,
+        process_unrestricted,
     )?;
     let unsafe_opt_ins = normalize_capability_name_list(
         path,
@@ -865,19 +872,29 @@ fn normalize_unsafe_rationale(
     path: &Path,
     rationale: Option<String>,
     env_unrestricted: bool,
+    process_unrestricted: bool,
 ) -> Result<Option<String>, Diagnostic> {
     let rationale = rationale.map(|value| value.trim().to_string());
+    let mut triggers: Vec<&str> = Vec::new();
     if env_unrestricted {
-        match rationale {
-            Some(value) if !value.is_empty() => Ok(Some(value)),
-            _ => Err(Diagnostic::new(
-                "manifest",
-                "capabilities.unsafe_rationale is required when unrestricted environment access is enabled",
-            )
-            .with_path(path.display().to_string())),
-        }
-    } else {
-        Ok(rationale.filter(|value| !value.is_empty()))
+        triggers.push("unrestricted environment access");
+    }
+    if process_unrestricted {
+        triggers.push("unrestricted process execution");
+    }
+    if triggers.is_empty() {
+        return Ok(rationale.filter(|value| !value.is_empty()));
+    }
+    match rationale {
+        Some(value) if !value.is_empty() => Ok(Some(value)),
+        _ => Err(Diagnostic::new(
+            "manifest",
+            format!(
+                "capabilities.unsafe_rationale is required when {} is enabled",
+                triggers.join(" and "),
+            ),
+        )
+        .with_path(path.display().to_string())),
     }
 }
 

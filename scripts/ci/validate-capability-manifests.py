@@ -24,7 +24,7 @@ BOOL_KEYS = {
     "ffi",
     "async",
 }
-KNOWN_KEYS = BOOL_KEYS | {"fs_root", "env"}
+KNOWN_KEYS = BOOL_KEYS | {"fs_root", "env", "unsafe_rationale"}
 
 
 def iter_manifests(root: Path) -> list[Path]:
@@ -57,6 +57,8 @@ def validate_manifest(path: Path) -> list[str]:
             validate_fs_root(path, value, errors)
         elif key == "env":
             validate_env(path, value, errors)
+        elif key == "unsafe_rationale" and (not isinstance(value, str) or not value.strip()):
+            errors.append(f"{path}: [capabilities].unsafe_rationale must be a non-empty string")
     return errors
 
 
