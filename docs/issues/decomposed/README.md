@@ -17,7 +17,34 @@ The first decomposition wave (sub-issues for #326, #97, #328, #330, #332, #101) 
 | #223 Declarative macros | `223-a-…`, `223-b-…`, `223-c-…`, `223-d-…` | 4 |
 | #230 DWARF debug info | `230-a-…`, `230-b-…` | 2 |
 
-**Total: 25 sub-issues** (24 child issues + this index).
+**Wave-2 total: 24 child issues.**
+
+## Wave 3 contents
+
+Feature-gap decompositions discovered by auditing `docs/roadmap.md`, `docs/stage1-agent-grade-compiler.md`, `docs/stage1-stdlib-status.md`, and `docs/stage1-language-issue-disposition.md`, plus session-discovered code-health items.
+
+| Parent | Children (files in this directory) | Count |
+|---|---|---|
+| #218 mutable references (AG1.2) | `218-a-…` through `218-e-…` | 5 |
+| #220 full numeric tower | `220-a-…` through `220-f-…` | 6 |
+| #222 const / static remaining | `222-a-…` through `222-d-…` | 4 |
+| #234 net sockets | `234-a-…` through `234-d-…` | 4 |
+| #236 crypto primitives | `236-a-…` through `236-e-…` | 5 |
+| #216 traits (per RFC 0001) | `216-a-…` through `216-d-…` | 4 |
+| AG1.4 stable ownership diagnostics | `ag1-4-stable-ownership-diagnostics.md` | 1 |
+| AG4.2 async runtime gaps | `ag4-2-async-runtime-gaps.md` | 1 |
+| stdlib: stdin readline | `stdlib-io-stdin-readline.md` | 1 |
+| Code health: native-test gating | `code-health-native-test-gating.md` | 1 |
+
+**Wave-3 total: 32 child / standalone issues.**
+
+## Wave 1 (already on GitHub)
+
+Filed live as #603 – #622: 20 sub-issues for #326, #97, #328, #330, #332, #101. Not duplicated in this directory.
+
+## Grand total
+
+44 GitHub-filed + 56 ready-to-file in this directory = **100 granular work items** carved out of the ~12 umbrella issues.
 
 ## File format
 
