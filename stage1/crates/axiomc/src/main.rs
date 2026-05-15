@@ -2641,7 +2641,7 @@ mod tests {
         assert!(help.contains("Generate Markdown and HTML API docs"));
         assert!(help.contains("Run discovered *_bench.ax entrypoints"));
         assert!(help.contains("Start a small stage1 scratch REPL"));
-        assert!(help.contains("Pack, sign, and publish a stage1 package"));
+        assert!(help.contains("Pack and publish a stage1 package into a local registry tree"));
         assert!(help.contains("Build a static package-registry index"));
         assert!(help.contains("Validate a static package-registry index JSON file"));
     }

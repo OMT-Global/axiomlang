@@ -45,7 +45,7 @@ python-exit-readiness-github:
 	bash scripts/ci/check-python-exit-readiness.sh --json --require-issue-states
 
 stage1-test:
-	RUST_MIN_STACK=8388608 cargo test --manifest-path stage1/Cargo.toml
+	RUST_MIN_STACK=8388608 cargo test --manifest-path stage1/Cargo.toml --features run-native-tests
 	$(MAKE) stage1-proof-test
 
 stage1-proof-test:

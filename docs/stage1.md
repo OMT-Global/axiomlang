@@ -284,6 +284,12 @@ Current proof points:
   `stage1/examples/proof_worker`, while `make stage1-smoke` carries their
   blocking build/run acceptance path. The small HTTP service proof remains
   blocked on server-side HTTP support.
+- Local `cargo test --manifest-path stage1/Cargo.toml -p axiomc` keeps native
+  runtime tests listed but ignored by default so sandboxed contributor hosts
+  without linker tooling still get a clean compiler test signal. Use
+  `cargo test --manifest-path stage1/Cargo.toml -p axiomc --features run-native-tests`
+  or `make stage1-test` when the host has the native toolchain and should run
+  the full build/run coverage.
 
 Agent-grade compiler milestone summary:
 
