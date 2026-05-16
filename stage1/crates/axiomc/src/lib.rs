@@ -1879,7 +1879,7 @@ let bad: u8 = byte.wrapping_add(1u16)
     }
 
     #[test]
-    fn check_project_keeps_private_const_array_lengths_per_module() {
+    fn build_project_keeps_private_const_array_lengths_per_module() {
         let dir = tempdir().expect("tempdir");
         let project = dir.path().join("const-array-module-namespaces");
         create_project(&project, Some("const-array-module-namespaces-app"))
@@ -1900,7 +1900,11 @@ let bad: u8 = byte.wrapping_add(1u16)
         )
         .expect("write source");
 
-        check_project(&project).expect("check project");
+        let built = build_project(&project).expect("build project");
+        let output = compiled_binary_command(&built.binary)
+            .output()
+            .expect("run compiled binary");
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "3\n6\n");
     }
 
     #[test]
