@@ -7976,7 +7976,7 @@ fn lower_expr_with_expected_inner(
                     ty: Type::String,
                 });
             }
-            if name == "crypto_hmac_sha256" {
+            if name == "crypto_hmac_sha256" || name == "crypto_hmac_sha512" {
                 require_capability(
                     ctx.capabilities,
                     CapabilityKind::Crypto,
@@ -7987,7 +7987,7 @@ fn lower_expr_with_expected_inner(
                 if args.len() != 2 {
                     return Err(Diagnostic::new(
                         "type",
-                        format!("crypto_hmac_sha256 expects 2 arguments, got {}", args.len()),
+                        format!("{name} expects 2 arguments, got {}", args.len()),
                     )
                     .with_span(*line, *column));
                 }
@@ -7995,7 +7995,7 @@ fn lower_expr_with_expected_inner(
                 if key.ty() != &Type::String {
                     return Err(Diagnostic::new(
                         "type",
-                        format!("crypto_hmac_sha256 expects a string key, got {}", key.ty()),
+                        format!("{name} expects a string key, got {}", key.ty()),
                     )
                     .with_span(args[0].line(), args[0].column()));
                 }
@@ -8004,10 +8004,7 @@ fn lower_expr_with_expected_inner(
                 if message.ty() != &Type::String {
                     return Err(Diagnostic::new(
                         "type",
-                        format!(
-                            "crypto_hmac_sha256 expects a string message, got {}",
-                            message.ty()
-                        ),
+                        format!("{name} expects a string message, got {}", message.ty()),
                     )
                     .with_span(args[1].line(), args[1].column()));
                 }

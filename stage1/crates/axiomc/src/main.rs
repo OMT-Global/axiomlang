@@ -1402,8 +1402,12 @@ fn capability_for_call(name: &str) -> Option<&'static str> {
         "process_status" => Some("process"),
         "crypto_sha256"
         | "crypto_hmac_sha256"
+        | "crypto_hmac_sha512"
         | "crypto_constant_time_eq"
         | "hmac_sha256"
+        | "hmac_sha512"
+        | "verify_sha256"
+        | "verify_sha512"
         | "constant_time_eq" => Some("crypto"),
         _ => None,
     }

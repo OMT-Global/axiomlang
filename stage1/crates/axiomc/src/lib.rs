@@ -5350,12 +5350,12 @@ print "missing"
             render_lockfile_for_project(&project, &manifest).expect("lockfile"),
         )
         .expect("write lockfile");
-        let source = "import \"std/crypto_mac.ax\"\nprint hmac_sha256(\"key\", \"The quick brown fox jumps over the lazy dog\")\nprint constant_time_eq(hmac_sha256(\"key\", \"The quick brown fox jumps over the lazy dog\"), \"f7bc83f430538424b13298e6aa6fb143ef4d59a14946175997479dbc2d1a3cd8\")\nprint constant_time_eq(hmac_sha256(\"key\", \"The quick brown fox jumps over the lazy dog\"), \"ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad\")\nprint constant_time_eq(\"short\", \"shorter\")\n";
+        let source = "import \"std/crypto_mac.ax\"\nprint hmac_sha256(\"key\", \"The quick brown fox jumps over the lazy dog\")\nprint hmac_sha512(\"Jefe\", \"what do ya want for nothing?\")\nprint verify_sha256(\"f7bc83f430538424b13298e6aa6fb143ef4d59a14946175997479dbc2d1a3cd8\", \"key\", \"The quick brown fox jumps over the lazy dog\")\nprint verify_sha512(\"164b7a7bfcf819e2e395fbe73b56e0a387bd64222e831fd610270cd7ea2505549758bf75c05a994a6d034f65f8f0e6fdcaeab1a34d4a6b4b636e070a38bce737\", \"Jefe\", \"what do ya want for nothing?\")\nprint constant_time_eq(hmac_sha256(\"key\", \"The quick brown fox jumps over the lazy dog\"), \"ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad\")\nprint constant_time_eq(\"short\", \"shorter\")\n";
         fs::write(project.join("src/main.ax"), source).expect("write source");
         fs::write(project.join("src/main_test.ax"), source).expect("write test");
         fs::write(
             project.join("src/main_test.stdout"),
-            "f7bc83f430538424b13298e6aa6fb143ef4d59a14946175997479dbc2d1a3cd8\ntrue\nfalse\nfalse\n",
+            "f7bc83f430538424b13298e6aa6fb143ef4d59a14946175997479dbc2d1a3cd8\n164b7a7bfcf819e2e395fbe73b56e0a387bd64222e831fd610270cd7ea2505549758bf75c05a994a6d034f65f8f0e6fdcaeab1a34d4a6b4b636e070a38bce737\ntrue\ntrue\nfalse\nfalse\n",
         )
         .expect("write golden");
 
@@ -5365,12 +5365,49 @@ print "missing"
             .expect("run compiled binary");
         assert_eq!(
             String::from_utf8_lossy(&output.stdout),
-            "f7bc83f430538424b13298e6aa6fb143ef4d59a14946175997479dbc2d1a3cd8\ntrue\nfalse\nfalse\n"
+            "f7bc83f430538424b13298e6aa6fb143ef4d59a14946175997479dbc2d1a3cd8\n164b7a7bfcf819e2e395fbe73b56e0a387bd64222e831fd610270cd7ea2505549758bf75c05a994a6d034f65f8f0e6fdcaeab1a34d4a6b4b636e070a38bce737\ntrue\ntrue\nfalse\nfalse\n"
         );
 
         let tests = run_project_tests(&project).expect("run tests");
         assert_eq!(tests.passed, 1);
         assert_eq!(tests.failed, 0);
+    }
+
+    #[test]
+    fn stage1_project_imports_synthetic_stdlib_crypto_umbrella_module() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("stdlib-crypto-umbrella-app");
+        create_project(&project, Some("stdlib-crypto-umbrella-app")).expect("create project");
+        fs::write(
+            project.join("axiom.toml"),
+            render_manifest_with_capabilities(
+                "stdlib-crypto-umbrella-app",
+                false,
+                false,
+                false,
+                false,
+                false,
+                true,
+            ),
+        )
+        .expect("write manifest");
+        let manifest = load_manifest(&project).expect("load manifest");
+        fs::write(
+            project.join("axiom.lock"),
+            render_lockfile_for_project(&project, &manifest).expect("lockfile"),
+        )
+        .expect("write lockfile");
+        let source = "import \"std/crypto.ax\"\nprint sha256(\"abc\")\nprint verify_sha512(\"164b7a7bfcf819e2e395fbe73b56e0a387bd64222e831fd610270cd7ea2505549758bf75c05a994a6d034f65f8f0e6fdcaeab1a34d4a6b4b636e070a38bce737\", \"Jefe\", \"what do ya want for nothing?\")\n";
+        fs::write(project.join("src/main.ax"), source).expect("write source");
+
+        let built = build_project(&project).expect("build project");
+        let output = compiled_binary_command(&built.binary)
+            .output()
+            .expect("run compiled binary");
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout),
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad\ntrue\n"
+        );
     }
 
     #[test]

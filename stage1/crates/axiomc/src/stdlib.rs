@@ -25,9 +25,12 @@
 //!   (This is the stage1 spelling of the `std.crypto.hash` module from the
 //!   AG4.1 plan; stage1 uses a flat filename to avoid cross-platform path
 //!   separator issues in the virtual stdlib table.)
-//! * `std/crypto_mac.ax` — `hmac_sha256(key, message)` and
-//!   `constant_time_eq(left, right)` on top of `crypto_hmac_sha256` and
-//!   `crypto_constant_time_eq` (crypto).
+//! * `std/crypto_mac.ax` — `hmac_sha256(key, message)`,
+//!   `hmac_sha512(key, message)`, `verify_sha256(tag, key, message)`,
+//!   `verify_sha512(tag, key, message)`, and `constant_time_eq(left, right)`
+//!   on top of `crypto_hmac_*` and `crypto_constant_time_eq` (crypto).
+//! * `std/crypto.ax` — umbrella re-export module for the stage1 crypto hash
+//!   and MAC helpers.
 //!
 //! The seventh module shares an existing capability class with a peer
 //! wrapper, demonstrating that the `std.*` surface is not limited to one
@@ -163,7 +166,19 @@ pub fn udp_send_recv(host: string, port: int, message: string, timeout_ms: int):
     (
         "crypto_mac.ax",
         "pub fn hmac_sha256(key: string, message: string): string {\nreturn crypto_hmac_sha256(key, message)\n}\n\
-pub fn constant_time_eq(left: string, right: string): bool {\nreturn crypto_constant_time_eq(left, right)\n}\n",
+pub fn hmac_sha512(key: string, message: string): string {\nreturn crypto_hmac_sha512(key, message)\n}\n\
+pub fn constant_time_eq(left: string, right: string): bool {\nreturn crypto_constant_time_eq(left, right)\n}\n\
+pub fn verify_sha256(tag: string, key: string, message: string): bool {\nreturn constant_time_eq(tag, hmac_sha256(key, message))\n}\n\
+pub fn verify_sha512(tag: string, key: string, message: string): bool {\nreturn constant_time_eq(tag, hmac_sha512(key, message))\n}\n",
+    ),
+    (
+        "crypto.ax",
+        "pub fn sha256(input: string): string {\nreturn crypto_sha256(input)\n}\n\
+pub fn hmac_sha256(key: string, message: string): string {\nreturn crypto_hmac_sha256(key, message)\n}\n\
+pub fn hmac_sha512(key: string, message: string): string {\nreturn crypto_hmac_sha512(key, message)\n}\n\
+pub fn constant_time_eq(left: string, right: string): bool {\nreturn crypto_constant_time_eq(left, right)\n}\n\
+pub fn verify_sha256(tag: string, key: string, message: string): bool {\nreturn constant_time_eq(tag, hmac_sha256(key, message))\n}\n\
+pub fn verify_sha512(tag: string, key: string, message: string): bool {\nreturn constant_time_eq(tag, hmac_sha512(key, message))\n}\n",
     ),
     (
         "io.ax",
