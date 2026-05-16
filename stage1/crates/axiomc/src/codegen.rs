@@ -2727,6 +2727,11 @@ fn axiom_crypto_sha512_bytes(input: &[u8]) -> Vec<u8> {
 fn axiom_crypto_constant_time_eq(left: String, right: String) -> bool {
     let left = left.as_bytes();
     let right = right.as_bytes();
+    axiom_crypto_constant_time_eq_u8(left, right)
+}
+
+#[allow(dead_code)]
+fn axiom_crypto_constant_time_eq_u8(left: &[u8], right: &[u8]) -> bool {
     if left.len() != right.len() {
         return false;
     }
@@ -4097,6 +4102,13 @@ fn render_expr(expr: &Expr) -> String {
         Expr::Call { name, args, .. } if name == "crypto_constant_time_eq" => {
             format!(
                 "axiom_crypto_constant_time_eq({}, {})",
+                render_expr(&args[0]),
+                render_expr(&args[1])
+            )
+        }
+        Expr::Call { name, args, .. } if name == "crypto_constant_time_eq_u8" => {
+            format!(
+                "axiom_crypto_constant_time_eq_u8({}, {})",
                 render_expr(&args[0]),
                 render_expr(&args[1])
             )

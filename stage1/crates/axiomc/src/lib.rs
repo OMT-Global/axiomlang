@@ -3704,9 +3704,11 @@ clock = false
         assert!(manifest.capabilities.process);
         assert!(manifest.capabilities.unsafe_rationale.is_none());
         assert!(
-            !manifest.capabilities.warnings().iter().any(|warning| {
-                warning.contains("unrestricted process execution")
-            })
+            !manifest
+                .capabilities
+                .warnings()
+                .iter()
+                .any(|warning| { warning.contains("unrestricted process execution") })
         );
     }
 
@@ -5397,7 +5399,7 @@ print "missing"
             render_lockfile_for_project(&project, &manifest).expect("lockfile"),
         )
         .expect("write lockfile");
-        let source = "import \"std/crypto.ax\"\nprint sha256(\"abc\")\nprint verify_sha512(\"164b7a7bfcf819e2e395fbe73b56e0a387bd64222e831fd610270cd7ea2505549758bf75c05a994a6d034f65f8f0e6fdcaeab1a34d4a6b4b636e070a38bce737\", \"Jefe\", \"what do ya want for nothing?\")\n";
+        let source = "import \"std/crypto.ax\"\nlet left: [u8] = [1u8, 2u8, 3u8]\nlet right: [u8] = [1u8, 2u8, 3u8]\nlet mismatch: [u8] = [1u8, 2u8, 4u8]\nprint sha256(\"abc\")\nprint verify_sha512(\"164b7a7bfcf819e2e395fbe73b56e0a387bd64222e831fd610270cd7ea2505549758bf75c05a994a6d034f65f8f0e6fdcaeab1a34d4a6b4b636e070a38bce737\", \"Jefe\", \"what do ya want for nothing?\")\nprint constant_time_eq(\"tag\", \"tag\")\nprint constant_time_eq_u8(left[:], right[:])\nprint constant_time_eq_u8(left[:], mismatch[:])\n";
         fs::write(project.join("src/main.ax"), source).expect("write source");
 
         let built = build_project(&project).expect("build project");
@@ -5406,7 +5408,7 @@ print "missing"
             .expect("run compiled binary");
         assert_eq!(
             String::from_utf8_lossy(&output.stdout),
-            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad\ntrue\n"
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad\ntrue\ntrue\ntrue\nfalse\n"
         );
     }
 
@@ -5436,7 +5438,7 @@ print "missing"
         .expect("write lockfile");
         fs::write(
             project.join("src/main.ax"),
-            "import \"std/crypto_mac.ax\"\nprint hmac_sha256(\"key\", \"message\")\n",
+            "import \"std/crypto_mac.ax\"\nlet left: [u8] = [1u8]\nprint constant_time_eq_u8(left[:], left[:])\n",
         )
         .expect("write source");
 
@@ -7002,8 +7004,7 @@ print serve_once("127.0.0.1:18080", "hello")
     fn manifest_test_expected_error_passes_on_diagnostic_match() {
         let dir = tempdir().expect("tempdir");
         let project = dir.path().join("manifest-expected-error-pass");
-        create_project(&project, Some("manifest-expected-error-pass-app"))
-            .expect("create project");
+        create_project(&project, Some("manifest-expected-error-pass-app")).expect("create project");
         fs::write(
             project.join("src/broken_test.ax"),
             "let x: int = \"not an int\"\n",
@@ -7827,8 +7828,8 @@ print serve_health("127.0.0.1:18080", 1, started)
     fn conformance_corpus_reports_stable_results() {
         let output =
             run_project_tests(&conformance_fixture()).expect("run stage1 conformance corpus");
-        assert_eq!(output.cases.len(), 70);
-        assert_eq!(output.passed, 70);
+        assert_eq!(output.cases.len(), 71);
+        assert_eq!(output.passed, 71);
         let failures: Vec<_> = output
             .cases
             .iter()
@@ -7850,7 +7851,7 @@ print serve_health("127.0.0.1:18080", 1, started)
                 .iter()
                 .filter(|case| case.expected_stdout.is_some())
                 .count(),
-            18
+            19
         );
         assert_eq!(
             output

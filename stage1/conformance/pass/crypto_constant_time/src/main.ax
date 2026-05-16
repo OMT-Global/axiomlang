@@ -1,0 +1,10 @@
+import "std/crypto.ax"
+
+let left: [u8] = [1u8, 2u8, 3u8]
+let same: [u8] = [1u8, 2u8, 3u8]
+let different: [u8] = [1u8, 2u8, 4u8]
+
+print constant_time_eq("capability-tag", "capability-tag")
+print constant_time_eq("capability-tag", "capability-tug")
+print constant_time_eq_u8(left[:], same[:])
+print constant_time_eq_u8(left[:], different[:])

@@ -1404,11 +1404,13 @@ fn capability_for_call(name: &str) -> Option<&'static str> {
         | "crypto_hmac_sha256"
         | "crypto_hmac_sha512"
         | "crypto_constant_time_eq"
+        | "crypto_constant_time_eq_u8"
         | "hmac_sha256"
         | "hmac_sha512"
         | "verify_sha256"
         | "verify_sha512"
-        | "constant_time_eq" => Some("crypto"),
+        | "constant_time_eq"
+        | "constant_time_eq_u8" => Some("crypto"),
         _ => None,
     }
 }

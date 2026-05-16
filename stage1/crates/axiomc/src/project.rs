@@ -3331,6 +3331,7 @@ fn intrinsic_capability(name: &str) -> Option<CapabilityKind> {
         "crypto_hmac_sha256" => Some(CapabilityKind::Crypto),
         "crypto_hmac_sha512" => Some(CapabilityKind::Crypto),
         "crypto_constant_time_eq" => Some(CapabilityKind::Crypto),
+        "crypto_constant_time_eq_u8" => Some(CapabilityKind::Crypto),
         _ => None,
     }
 }

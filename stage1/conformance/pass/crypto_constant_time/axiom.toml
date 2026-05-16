@@ -1,0 +1,20 @@
+[package]
+name = "conformance-crypto-constant-time"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+fs = false
+net = false
+process = false
+env = false
+clock = false
+crypto = true
+
+[[tests]]
+name = "crypto_constant_time_helpers"
+entry = "src/main.ax"
+stdout = "true\nfalse\ntrue\nfalse\n"

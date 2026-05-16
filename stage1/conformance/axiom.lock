@@ -291,6 +291,11 @@ version = "0.1.0"
 source = "path:pass/comparison_strict_typing"
 
 [[package]]
+name = "conformance-crypto-constant-time"
+version = "0.1.0"
+source = "path:pass/crypto_constant_time"
+
+[[package]]
 name = "conformance-functions-across-modules"
 version = "0.1.0"
 source = "path:pass/functions_across_modules"
@@ -359,4 +364,3 @@ source = "path:pass/struct_field_access"
 name = "conformance-type-system-aggregates"
 version = "0.1.0"
 source = "path:pass/type_system_aggregates"
-
