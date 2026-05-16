@@ -157,4 +157,19 @@ mod tests {
         assert!(info.explanation.contains("non-copy value"));
         assert!(info.suggested_fix.contains("moved-to binding"));
     }
+
+    #[test]
+    fn stage1_docs_list_stable_ownership_codes() {
+        let docs = include_str!("../../../../docs/stage1.md");
+        for info in STABLE_DIAGNOSTIC_CODES
+            .iter()
+            .filter(|info| info.kind == "ownership")
+        {
+            assert!(
+                docs.contains(info.code),
+                "docs/stage1.md should list ownership code {}",
+                info.code
+            );
+        }
+    }
 }
