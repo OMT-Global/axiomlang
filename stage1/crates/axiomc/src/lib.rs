@@ -7827,8 +7827,8 @@ print serve_health("127.0.0.1:18080", 1, started)
     fn conformance_corpus_reports_stable_results() {
         let output =
             run_project_tests(&conformance_fixture()).expect("run stage1 conformance corpus");
-        assert_eq!(output.cases.len(), 64);
-        assert_eq!(output.passed, 64);
+        assert_eq!(output.cases.len(), 70);
+        assert_eq!(output.passed, 70);
         let failures: Vec<_> = output
             .cases
             .iter()
@@ -7836,13 +7836,13 @@ print serve_health("127.0.0.1:18080", 1, started)
             .map(|case| format!("{}: {:?}", case.name, case.error))
             .collect();
         assert_eq!(output.failed, 0, "conformance failures: {failures:#?}");
-        assert!(
+        assert_eq!(
             output
                 .cases
                 .iter()
                 .filter(|case| case.expected_error.is_some())
-                .count()
-                == 44
+                .count(),
+            50
         );
         assert_eq!(
             output

@@ -1,0 +1,6 @@
+static GREETING: string = "hello"
+static POINT: (int, int) = (0, 0)
+
+print GREETING
+print POINT.0
+print POINT.1
