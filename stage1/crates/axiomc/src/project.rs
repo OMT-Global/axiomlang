@@ -3684,16 +3684,16 @@ fn flatten_modules(
                 &module.path,
                 &mut HashSet::new(),
             )?;
+            let mut rewritten = module_symbols
+                .consts
+                .get(&const_decl.name)
+                .cloned()
+                .unwrap_or_else(|| const_decl.clone());
+            rewritten.expr = resolved_expr;
             if const_decl.is_static {
-                let mut rewritten = module_symbols
-                    .consts
-                    .get(&const_decl.name)
-                    .cloned()
-                    .unwrap_or_else(|| const_decl.clone());
-                rewritten.expr = resolved_expr;
                 rewritten.name = format!("{}_{}", module_symbols.module_id, const_decl.name);
-                flattened_consts.push(rewritten);
             }
+            flattened_consts.push(rewritten);
         }
 
         for type_alias in &module.program.type_aliases {

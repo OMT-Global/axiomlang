@@ -1,0 +1,9 @@
+const WIDTH: int = 3
+
+fn sum(values: [int; WIDTH]): int {
+return values[0] + values[1] + values[2]
+}
+
+let values: [int; WIDTH] = [1, 2, 3]
+print len(values)
+print sum(values)
