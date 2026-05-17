@@ -132,9 +132,11 @@ aggregate source hash inspection. Debug builds report `debug_map`, a JSON
 sidecar that maps generated Rust statement lines back to Axiom file/line/column
 positions, plus `debug_manifest`, a JSON sidecar that binds the native binary
 hash, generated Rust hash, rustc debug-mode settings, source file hashes, and
-mapping counts for debugger/tooling consumers. `axiomc build --timings` prints
-total build time, cache hit/miss counts, and per-package compile timing/cache
-status for the incremental generated-Rust cache.
+mapping counts for debugger/tooling consumers. See
+`docs/stage1-debug-map.md` for the LLDB/GDB sidecar translation workflow.
+`axiomc build --timings` prints total build time, cache hit/miss counts, and
+per-package compile timing/cache status for the incremental generated-Rust
+cache.
 Parser diagnostics now preserve additional recovered top-level parse errors in
 the error payload's `related` array when possible, so editor tooling can show
 more than the first syntax error without waiting for full checker recovery.
@@ -227,11 +229,12 @@ still far from the stated 1.0 target for service and agent workloads.
   shim, disables optimization, emits generated Rust source markers, and writes a
   JSON source-map sidecar for Axiom file/line/column positions. It also writes
   a debug manifest sidecar that ties the native binary to the generated Rust,
-  the source map, and the hashed `.ax` source files. The manifest is an
-  explicit generated-Rust bridge: current DWARF still points at generated Rust,
-  and rustc path remapping cannot represent Axiom span rows or multiple
-  imported source files, so full Axiom-native debugger stepping remains a
-  direct-backend follow-on.
+  the source map, and the hashed `.ax` source files. `docs/stage1-debug-map.md`
+  documents how LLDB/GDB helpers translate generated Rust frame lines through
+  the sidecar map. The manifest is an explicit generated-Rust bridge: current
+  DWARF still points at generated Rust, and rustc path remapping cannot
+  represent Axiom span rows or multiple imported source files, so full
+  Axiom-native debugger stepping remains a direct-backend follow-on.
 - `axiomc fmt`, `axiomc bench`, `axiomc doc`, the stage1 scratch `repl`, and a
   bounded `axiomc lsp` analyzer now exist as bootstrap-grade toolchain
   commands. The LSP endpoint currently serves compiler-backed diagnostics over
