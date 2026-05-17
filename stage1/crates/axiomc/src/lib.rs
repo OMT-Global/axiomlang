@@ -1879,6 +1879,35 @@ let bad: u8 = byte.wrapping_add(1u16)
     }
 
     #[test]
+    fn build_project_keeps_private_const_array_lengths_per_module() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("const-array-module-namespaces");
+        create_project(&project, Some("const-array-module-namespaces-app"))
+            .expect("create project");
+        fs::write(
+            project.join("src/a.ax"),
+            "const WIDTH: int = 2\npub fn a_sum(values: [int; WIDTH]): int {\nreturn values[0] + values[1]\n}\n",
+        )
+        .expect("write module a");
+        fs::write(
+            project.join("src/b.ax"),
+            "const WIDTH: int = 3\npub fn b_sum(values: [int; WIDTH]): int {\nreturn values[0] + values[1] + values[2]\n}\n",
+        )
+        .expect("write module b");
+        fs::write(
+            project.join("src/main.ax"),
+            "import \"a.ax\"\nimport \"b.ax\"\n\nlet left: [int; 2] = [1, 2]\nlet right: [int; 3] = [1, 2, 3]\nprint a_sum(left)\nprint b_sum(right)\n",
+        )
+        .expect("write source");
+
+        let built = build_project(&project).expect("build project");
+        let output = compiled_binary_command(&built.binary)
+            .output()
+            .expect("run compiled binary");
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "3\n6\n");
+    }
+
+    #[test]
     fn build_project_emits_native_binary_with_array_slices() {
         let dir = tempdir().expect("tempdir");
         let project = dir.path().join("slices");
