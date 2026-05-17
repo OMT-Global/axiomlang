@@ -1,0 +1,10 @@
+fn pick(a: &[int], b: &[int], use_a: bool): &[int] {
+if use_a {
+return a[0:1]
+}
+return b[0:1]
+}
+
+let a: [int] = [1]
+let b: [int] = [2]
+print first(pick(a[:], b[:], true))
