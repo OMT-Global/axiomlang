@@ -85,6 +85,7 @@ pub struct Function {
     pub params: Vec<Param>,
     pub return_ty: TypeName,
     pub body: Vec<Stmt>,
+    pub is_const: bool,
     pub is_async: bool,
     pub is_extern: bool,
     pub extern_abi: Option<String>,
@@ -646,12 +647,15 @@ pub fn parse_program_with_recovery(source: &str, path: &Path) -> Result<Program,
             continue;
         }
         if trimmed.starts_with("fn ")
+            || trimmed.starts_with("const fn ")
             || trimmed.starts_with("async fn ")
             || trimmed.starts_with("extern fn ")
             || trimmed.starts_with("pub fn ")
+            || trimmed.starts_with("pub const fn ")
             || trimmed.starts_with("pub async fn ")
             || trimmed.starts_with("pub extern fn ")
             || trimmed.starts_with("pub(pkg) fn ")
+            || trimmed.starts_with("pub(pkg) const fn ")
             || trimmed.starts_with("pub(pkg) async fn ")
             || trimmed.starts_with("pub(pkg) extern fn ")
         {
@@ -1538,10 +1542,25 @@ fn parse_function_in_context(
     let line_no = *index + 1;
     let trimmed = lines[*index].trim();
     let (visibility, rest, visibility_column) = parse_visibility_prefix(trimmed);
+    let (is_const, rest, const_column) = if let Some(rest) = rest.strip_prefix("const ") {
+        (true, rest, visibility_column + 6)
+    } else {
+        (false, rest, visibility_column)
+    };
     let (is_async, is_extern, header, fn_column) =
         if let Some(rest) = rest.strip_prefix("async fn ") {
+            if is_const {
+                return Err(Diagnostic::new("parse", "const functions cannot be async")
+                    .with_path(path.display().to_string())
+                    .with_span(line_no, const_column));
+            }
             (true, false, rest, visibility_column + 6)
         } else if let Some(rest) = rest.strip_prefix("extern fn ") {
+            if is_const {
+                return Err(Diagnostic::new("parse", "const functions cannot be extern")
+                    .with_path(path.display().to_string())
+                    .with_span(line_no, const_column));
+            }
             (false, true, rest, visibility_column + 7)
         } else {
             let rest = rest.strip_prefix("fn ").ok_or_else(|| {
@@ -1549,7 +1568,7 @@ fn parse_function_in_context(
                     .with_path(path.display().to_string())
                     .with_span(line_no, 1)
             })?;
-            (false, false, rest, visibility_column)
+            (false, false, rest, const_column)
         };
     let open_paren = find_top_level_char(header, '(').ok_or_else(|| {
         Diagnostic::new("parse", "function declaration is missing '('")
@@ -1600,6 +1619,7 @@ fn parse_function_in_context(
             params,
             return_ty,
             body: Vec::new(),
+            is_const,
             is_async,
             is_extern,
             extern_abi: Some(String::from("C")),
@@ -1633,6 +1653,7 @@ fn parse_function_in_context(
         params,
         return_ty,
         body,
+        is_const,
         is_async,
         is_extern,
         extern_abi: None,
@@ -1850,12 +1871,15 @@ fn parse_impl(lines: &[&str], index: &mut usize, path: &Path) -> Result<Vec<Func
             return Ok(methods);
         }
         if trimmed.starts_with("fn ")
+            || trimmed.starts_with("const fn ")
             || trimmed.starts_with("async fn ")
             || trimmed.starts_with("extern fn ")
             || trimmed.starts_with("pub fn ")
+            || trimmed.starts_with("pub const fn ")
             || trimmed.starts_with("pub async fn ")
             || trimmed.starts_with("pub extern fn ")
             || trimmed.starts_with("pub(pkg) fn ")
+            || trimmed.starts_with("pub(pkg) const fn ")
             || trimmed.starts_with("pub(pkg) async fn ")
             || trimmed.starts_with("pub(pkg) extern fn ")
         {
