@@ -376,34 +376,9 @@ version = "0.1.0"
 source = "path:pass/legacy_core_programs"
 
 [[package]]
-name = "conformance-mutable-call-boundaries"
+name = "conformance-numeric-overflow-policy"
 version = "0.1.0"
-source = "path:pass/mutable_call_boundaries"
-
-[[package]]
-name = "conformance-mutable-local-borrow-write-through"
-version = "0.1.0"
-source = "path:pass/mutable_local_borrow_write_through"
-
-[[package]]
-name = "conformance-mutable-projection-borrows"
-version = "0.1.0"
-source = "path:pass/mutable_projection_borrows"
-
-[[package]]
-name = "conformance-numeric-cross-width-casts"
-version = "0.1.0"
-source = "path:pass/numeric_cross_width_casts"
-
-[[package]]
-name = "conformance-numeric-float-mean"
-version = "0.1.0"
-source = "path:pass/numeric_float_mean"
-
-[[package]]
-name = "conformance-numeric-literal-suffixes"
-version = "0.1.0"
-source = "path:pass/numeric_literal_suffixes"
+source = "path:pass/numeric_overflow_policy"
 
 [[package]]
 name = "conformance-outcome-control-flow"

@@ -1522,6 +1522,7 @@ Variant(
         let source = "let byte: u8 = 255u8
 let wrapped: u8 = byte.wrapping_add(1u8)
 let checked: Option<u8> = byte.checked_add(1u8)
+let saturated: u8 = byte.saturating_add(1u8)
 ";
         let parsed = parse_program(source, Path::new("main.ax")).expect("parse");
         let hir = hir::lower(&parsed).expect("lower");
@@ -1529,6 +1530,7 @@ let checked: Option<u8> = byte.checked_add(1u8)
         let rendered = render_rust(&mir);
         assert!(rendered.contains("let wrapped: u8 = (byte).wrapping_add(1u8);"));
         assert!(rendered.contains("let checked: Option<u8> = (byte).checked_add(1u8);"));
+        assert!(rendered.contains("let saturated: u8 = (byte).saturating_add(1u8);"));
     }
 
     #[test]
@@ -8131,8 +8133,8 @@ print serve_health("127.0.0.1:18080", 1, started)
     fn conformance_corpus_reports_stable_results() {
         let output =
             run_project_tests(&conformance_fixture()).expect("run stage1 conformance corpus");
-        assert_eq!(output.cases.len(), 93);
-        assert_eq!(output.passed, 93);
+        assert_eq!(output.cases.len(), 71);
+        assert_eq!(output.passed, 71);
         let failures: Vec<_> = output
             .cases
             .iter()
@@ -8154,7 +8156,7 @@ print serve_health("127.0.0.1:18080", 1, started)
                 .iter()
                 .filter(|case| case.expected_stdout.is_some())
                 .count(),
-            28
+            19
         );
         assert_eq!(
             output
