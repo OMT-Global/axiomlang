@@ -1,0 +1,8 @@
+{
+  "kind": "ownership",
+  "code": "mutable_borrow_while_mutable_live",
+  "message": "cannot create mutable borrow of value \"values\" while another mutable borrow is still live",
+  "path": "src/main.ax",
+  "line": 3,
+  "column": 1
+}

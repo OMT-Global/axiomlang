@@ -136,9 +136,34 @@ version = "0.1.0"
 source = "path:fail/move_while_mutably_borrowed"
 
 [[package]]
+name = "conformance-mutable-borrow-double-mut"
+version = "0.1.0"
+source = "path:fail/mutable_borrow_double_mut"
+
+[[package]]
+name = "conformance-mutable-borrow-mut-plus-shared"
+version = "0.1.0"
+source = "path:fail/mutable_borrow_mut_plus_shared"
+
+[[package]]
+name = "conformance-mutable-borrow-overlapping-slice-mut"
+version = "0.1.0"
+source = "path:fail/mutable_borrow_overlapping_slice_mut"
+
+[[package]]
+name = "conformance-mutable-borrow-use-after-borrow"
+version = "0.1.0"
+source = "path:fail/mutable_borrow_use_after_borrow"
+
+[[package]]
 name = "conformance-mutable-borrow-while-shared-live"
 version = "0.1.0"
 source = "path:fail/mutable_borrow_while_shared_live"
+
+[[package]]
+name = "conformance-mutable-borrow-whole-then-projection"
+version = "0.1.0"
+source = "path:fail/mutable_borrow_whole_then_projection"
 
 [[package]]
 name = "conformance-named-nested-match-pattern-not-supported"
@@ -359,4 +384,3 @@ source = "path:pass/struct_field_access"
 name = "conformance-type-system-aggregates"
 version = "0.1.0"
 source = "path:pass/type_system_aggregates"
-
