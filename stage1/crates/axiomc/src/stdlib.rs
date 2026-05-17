@@ -31,7 +31,7 @@
 //!   and `constant_time_eq_u8(left, right)` on top of `crypto_hmac_*` and
 //!   `crypto_constant_time_eq*` (crypto).
 //! * `std/crypto.ax` — umbrella re-export module for the stage1 crypto hash
-//!   and MAC helpers.
+//!   MAC, and random helpers.
 //!
 //! The seventh module shares an existing capability class with a peer
 //! wrapper, demonstrating that the `std.*` surface is not limited to one
@@ -174,6 +174,11 @@ pub fn verify_sha256(tag: string, key: string, message: string): bool {\nreturn 
 pub fn verify_sha512(tag: string, key: string, message: string): bool {\nreturn constant_time_eq(tag, hmac_sha512(key, message))\n}\n",
     ),
     (
+        "crypto_rand.ax",
+        "pub fn random_bytes(n: int): [u8] {\nreturn crypto_rand_bytes(n)\n}\n\
+pub fn random_u64(): u64 {\nreturn crypto_rand_u64()\n}\n",
+    ),
+    (
         "crypto.ax",
         "pub fn sha256(input: string): string {\nreturn crypto_sha256(input)\n}\n\
 pub fn hmac_sha256(key: string, message: string): string {\nreturn crypto_hmac_sha256(key, message)\n}\n\
@@ -181,7 +186,9 @@ pub fn hmac_sha512(key: string, message: string): string {\nreturn crypto_hmac_s
 pub fn constant_time_eq(left: string, right: string): bool {\nreturn crypto_constant_time_eq(left, right)\n}\n\
 pub fn constant_time_eq_u8(left: &[u8], right: &[u8]): bool {\nreturn crypto_constant_time_eq_u8(left, right)\n}\n\
 pub fn verify_sha256(tag: string, key: string, message: string): bool {\nreturn constant_time_eq(tag, hmac_sha256(key, message))\n}\n\
-pub fn verify_sha512(tag: string, key: string, message: string): bool {\nreturn constant_time_eq(tag, hmac_sha512(key, message))\n}\n",
+pub fn verify_sha512(tag: string, key: string, message: string): bool {\nreturn constant_time_eq(tag, hmac_sha512(key, message))\n}\n\
+pub fn random_bytes(n: int): [u8] {\nreturn crypto_rand_bytes(n)\n}\n\
+pub fn random_u64(): u64 {\nreturn crypto_rand_u64()\n}\n",
     ),
     (
         "io.ax",

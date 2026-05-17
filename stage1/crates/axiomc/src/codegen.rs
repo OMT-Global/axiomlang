@@ -2767,6 +2767,122 @@ fn axiom_crypto_constant_time_eq_u8(left: &[u8], right: &[u8]) -> bool {
     diff == 0
 }
 
+#[allow(dead_code)]
+fn axiom_crypto_fill_random_bytes(buffer: &mut [u8]) -> bool {
+    if buffer.is_empty() {
+        return true;
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "ios", target_os = "freebsd", target_os = "openbsd", target_os = "netbsd", target_os = "dragonfly"))]
+    {
+        unsafe extern "C" {
+            fn arc4random_buf(buf: *mut std::ffi::c_void, nbytes: usize);
+        }
+        unsafe {
+            arc4random_buf(buffer.as_mut_ptr().cast::<std::ffi::c_void>(), buffer.len());
+        }
+        true
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    {
+        unsafe extern "C" {
+            fn getrandom(buf: *mut std::ffi::c_void, buflen: usize, flags: u32) -> isize;
+        }
+        let mut filled = 0usize;
+        while filled < buffer.len() {
+            let result = unsafe {
+                getrandom(
+                    buffer[filled..].as_mut_ptr().cast::<std::ffi::c_void>(),
+                    buffer.len() - filled,
+                    0,
+                )
+            };
+            if result < 0 {
+                if std::io::Error::last_os_error().kind() == std::io::ErrorKind::Interrupted {
+                    continue;
+                }
+                return false;
+            }
+            if result == 0 {
+                return false;
+            }
+            filled += result as usize;
+        }
+        true
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        const BCRYPT_USE_SYSTEM_PREFERRED_RNG: u32 = 0x00000002;
+        unsafe extern "system" {
+            fn BCryptGenRandom(
+                h_algorithm: *mut std::ffi::c_void,
+                pb_buffer: *mut u8,
+                cb_buffer: u32,
+                dw_flags: u32,
+            ) -> i32;
+        }
+        if buffer.len() > u32::MAX as usize {
+            return false;
+        }
+        let status = unsafe {
+            BCryptGenRandom(
+                std::ptr::null_mut(),
+                buffer.as_mut_ptr(),
+                buffer.len() as u32,
+                BCRYPT_USE_SYSTEM_PREFERRED_RNG,
+            )
+        };
+        status >= 0
+    }
+
+    #[cfg(not(any(
+        target_os = "android",
+        target_os = "dragonfly",
+        target_os = "freebsd",
+        target_os = "ios",
+        target_os = "linux",
+        target_os = "macos",
+        target_os = "netbsd",
+        target_os = "openbsd",
+        target_os = "windows"
+    )))]
+    {
+        false
+    }
+}
+
+#[allow(dead_code)]
+fn axiom_crypto_rand_bytes(n: i64) -> Vec<u8> {
+    let arg_summary = format!("n={}", n);
+    if !(0..=65536).contains(&n) {
+        axiom_capability_audit("crypto_rand_bytes", "crypto", &arg_summary, "denied");
+        return Vec::new();
+    }
+    let mut output = vec![0u8; n as usize];
+    let status = if axiom_crypto_fill_random_bytes(&mut output) {
+        "ok"
+    } else {
+        output.clear();
+        "error"
+    };
+    axiom_capability_audit("crypto_rand_bytes", "crypto", &arg_summary, status);
+    output
+}
+
+#[allow(dead_code)]
+fn axiom_crypto_rand_u64() -> u64 {
+    let mut output = [0u8; 8];
+    if axiom_crypto_fill_random_bytes(&mut output) {
+        axiom_capability_audit("crypto_rand_u64", "crypto", "n=8", "ok");
+        u64::from_ne_bytes(output)
+    } else {
+        axiom_capability_audit("crypto_rand_u64", "crypto", "n=8", "error");
+        0
+    }
+}
+
 "#,
     );
     out.push_str("#[allow(dead_code)]\n");
