@@ -4459,6 +4459,110 @@ net = { hosts = ["localhost"], ports = [8080] }
     }
 
     #[test]
+    fn check_project_accepts_network_peers_matching_manifest_allowlist() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("net-peer-allowlisted");
+        create_project(&project, Some("net-peer-allowlisted-app")).expect("create project");
+        fs::write(
+            project.join("axiom.toml"),
+            r#"[package]
+name = "net-peer-allowlisted-app"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+net = { hosts = ["localhost"], ports = [8080] }
+"#,
+        )
+        .expect("write manifest");
+        fs::write(
+            project.join("src/main.ax"),
+            concat!(
+                "let tcp_response: Option<string> = net_tcp_dial(\"localhost\", 8080, \"ping\", 1000)\n",
+                "let udp_response: Option<string> = net_udp_send_recv(\"localhost\", 8080, \"ping\", 1000)\n",
+            ),
+        )
+        .expect("write source");
+
+        check_project(&project).expect("allowlisted TCP and UDP peers should check");
+    }
+
+    #[test]
+    fn check_project_rejects_udp_network_host_missing_from_manifest_allowlist() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("udp-host-not-allowlisted");
+        create_project(&project, Some("udp-host-not-allowlisted-app")).expect("create project");
+        fs::write(
+            project.join("axiom.toml"),
+            r#"[package]
+name = "udp-host-not-allowlisted-app"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+net = { hosts = ["localhost"], ports = [8080] }
+"#,
+        )
+        .expect("write manifest");
+        fs::write(
+            project.join("src/main.ax"),
+            "print net_udp_send_recv(\"example.com\", 8080, \"ping\", 1000)\n",
+        )
+        .expect("write source");
+
+        let error = check_project(&project).expect_err("unlisted UDP host should fail");
+        assert_eq!(error.kind, "capability");
+        assert!(
+            error
+                .message
+                .contains(r#"requires [capabilities].net.hosts to include "example.com""#),
+            "unexpected diagnostic: {error:?}",
+        );
+    }
+
+    #[test]
+    fn check_project_rejects_udp_network_port_missing_from_manifest_allowlist() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("udp-port-not-allowlisted");
+        create_project(&project, Some("udp-port-not-allowlisted-app")).expect("create project");
+        fs::write(
+            project.join("axiom.toml"),
+            r#"[package]
+name = "udp-port-not-allowlisted-app"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+net = { hosts = ["localhost"], ports = [8080] }
+"#,
+        )
+        .expect("write manifest");
+        fs::write(
+            project.join("src/main.ax"),
+            "print net_udp_send_recv(\"localhost\", 9090, \"ping\", 1000)\n",
+        )
+        .expect("write source");
+
+        let error = check_project(&project).expect_err("unlisted UDP port should fail");
+        assert_eq!(error.kind, "capability");
+        assert!(
+            error
+                .message
+                .contains("requires [capabilities].net.ports to include 9090"),
+            "unexpected diagnostic: {error:?}",
+        );
+    }
+
+    #[test]
     fn check_project_accepts_http_url_matching_network_allowlist() {
         let dir = tempdir().expect("tempdir");
         let project = dir.path().join("http-url-allowlisted");
