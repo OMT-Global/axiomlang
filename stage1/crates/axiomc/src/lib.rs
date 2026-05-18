@@ -8858,6 +8858,49 @@ print 0
     }
 
     #[test]
+    fn parser_accepts_const_fn_declarations() {
+        let source = "const fn compute(a: int, b: int): int {\nreturn a + b\n}\n";
+        let parsed = parse_program(source, Path::new("main.ax")).expect("parse const fn");
+        assert_eq!(parsed.functions.len(), 1);
+        assert_eq!(parsed.functions[0].name, "compute");
+        assert!(parsed.functions[0].is_const);
+    }
+
+    #[test]
+    fn check_project_rejects_const_fn_host_runtime_call() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("const-fn-host-runtime-call");
+        create_project(&project, Some("const-fn-host-runtime-call-app")).expect("create project");
+        fs::write(
+            project.join("axiom.toml"),
+            render_manifest_with_capabilities(
+                "const-fn-host-runtime-call-app",
+                false,
+                false,
+                false,
+                false,
+                true,
+                false,
+            ),
+        )
+        .expect("write manifest");
+        fs::write(
+            project.join("src/main.ax"),
+            "const fn now(): int {\nreturn clock_now_ms()\n}\n\nprint 1\n",
+        )
+        .expect("write source");
+        let error = check_project(&project).expect_err("const fn host runtime call should fail");
+        assert!(
+            error.message.contains("can only call other const fn"),
+            "unexpected diagnostic: {error:?}"
+        );
+        assert!(
+            error.message.contains("host runtime or non-const call"),
+            "unexpected diagnostic: {error:?}"
+        );
+    }
+
+    #[test]
     #[cfg_attr(not(feature = "run-native-tests"), ignore)]
     fn build_project_emits_native_binary_with_const_sized_arrays() {
         let dir = tempdir().expect("tempdir");
