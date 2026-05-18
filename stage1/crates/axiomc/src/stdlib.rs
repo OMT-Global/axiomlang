@@ -8,8 +8,8 @@
 //! enforcement continues to run against the importing package's manifest via
 //! `hir::lower_with_capabilities`.
 //!
-//! Today this provides twenty-two stdlib modules. Six are thin wrappers over
-//! single-intrinsic capability-gated surfaces, one per capability class:
+//! Today this provides twenty-three stdlib modules. The capability-gated
+//! wrappers include the six manifest capability classes:
 //!
 //! * `std/time.ax` — `Duration`, `Instant`, `now_ms()`, `now()`,
 //!   `elapsed_ms(start)`, and `sleep(duration)` on top of `clock_now_ms`,
@@ -19,6 +19,8 @@
 //! * `std/net.ax` — `resolve(host)` on top of `net_resolve`, plus a bounded
 //!   loopback-only TCP/UDP socket floor on top of `net_tcp_*` and `net_udp_*`
 //!   intrinsics (net).
+//! * `std/net_tcp.ax` — dedicated TCP wrappers over the current bounded
+//!   loopback-only `net_tcp_*` intrinsics (net).
 //! * `std/process.ax` — `run_status(command)` on top of `process_status`
 //!   (process).
 //! * `std/crypto_hash.ax` — `sha256(input)` on top of `crypto_sha256` (crypto).
@@ -33,9 +35,9 @@
 //! * `std/crypto.ax` — umbrella re-export module for the stage1 crypto hash
 //!   and MAC helpers.
 //!
-//! The seventh module shares an existing capability class with a peer
-//! wrapper, demonstrating that the `std.*` surface is not limited to one
-//! wrapper per capability:
+//! Additional modules share existing capability classes with peer wrappers,
+//! demonstrating that the `std.*` surface is not limited to one wrapper per
+//! capability:
 //!
 //! * `std/http.ax` — `get(url)`, `serve_once(bind, body)`, and the route-shaped
 //!   `serve(bind, route(path, body), max_requests)` helper on top of the new
@@ -155,6 +157,11 @@ pub fn tcp_listen_loopback_once(response: string, timeout_ms: int): Option<int> 
 pub fn tcp_dial(host: string, port: int, message: string, timeout_ms: int): Option<string> {\nreturn net_tcp_dial(host, port, message, timeout_ms)\n}\n\
 pub fn udp_bind_loopback_once(response: string, timeout_ms: int): Option<int> {\nreturn net_udp_bind_loopback_once(response, timeout_ms)\n}\n\
 pub fn udp_send_recv(host: string, port: int, message: string, timeout_ms: int): Option<string> {\nreturn net_udp_send_recv(host, port, message, timeout_ms)\n}\n",
+    ),
+    (
+        "net_tcp.ax",
+        "pub fn listen_loopback_once(response: string, timeout_ms: int): Option<int> {\nreturn net_tcp_listen_loopback_once(response, timeout_ms)\n}\n\
+pub fn dial(host: string, port: int, message: string, timeout_ms: int): Option<string> {\nreturn net_tcp_dial(host, port, message, timeout_ms)\n}\n",
     ),
     (
         "process.ax",
