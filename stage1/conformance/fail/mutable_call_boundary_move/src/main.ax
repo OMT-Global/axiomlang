@@ -1,0 +1,7 @@
+fn consume(view: &mut [string], values: [string]): string {
+print len(view)
+return first(values)
+}
+
+let values: [string] = ["alpha", "beta"]
+print consume(values[:], values)
