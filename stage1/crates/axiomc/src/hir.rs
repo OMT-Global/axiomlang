@@ -4801,6 +4801,12 @@ fn collect_trait_definitions(
                     .params
                     .iter()
                     .map(|param| {
+                        validate_trait_type_use_in_namespace(
+                            &param.ty,
+                            &names,
+                            param.line,
+                            param.column,
+                        )?;
                         lower_type(
                             &param.ty,
                             structs,
@@ -4812,6 +4818,12 @@ fn collect_trait_definitions(
                         )
                     })
                     .collect::<Result<Vec<_>, _>>()?;
+                validate_trait_type_use_in_namespace(
+                    &method.return_ty,
+                    &names,
+                    method.line,
+                    method.column,
+                )?;
                 let return_ty = lower_type(
                     &method.return_ty,
                     structs,
@@ -4983,6 +4995,7 @@ fn validate_trait_type_uses_in_stmts(
                 }
             }
             syntax::Stmt::Print { .. }
+            | syntax::Stmt::Assign { .. }
             | syntax::Stmt::Panic { .. }
             | syntax::Stmt::Defer { .. }
             | syntax::Stmt::Return { .. } => {}
@@ -4997,9 +5010,22 @@ fn validate_trait_type_use(
     line: usize,
     column: usize,
 ) -> Result<(), Diagnostic> {
+    let trait_names = traits
+        .keys()
+        .map(|name| (name.clone(), ()))
+        .collect::<HashMap<_, _>>();
+    validate_trait_type_use_in_namespace(ty, &trait_names, line, column)
+}
+
+fn validate_trait_type_use_in_namespace(
+    ty: &syntax::TypeName,
+    trait_names: &HashMap<String, ()>,
+    line: usize,
+    column: usize,
+) -> Result<(), Diagnostic> {
     match ty {
         syntax::TypeName::Named(name, args) => {
-            if traits.contains_key(name) {
+            if trait_names.contains_key(name) {
                 return Err(Diagnostic::new(
                     "type",
                     format!("trait dispatch is not yet implemented for trait {name:?}"),
@@ -5007,33 +5033,34 @@ fn validate_trait_type_use(
                 .with_span(line, column));
             }
             for arg in args {
-                validate_trait_type_use(arg, traits, line, column)?;
+                validate_trait_type_use_in_namespace(arg, trait_names, line, column)?;
             }
         }
         syntax::TypeName::Ptr(inner)
         | syntax::TypeName::MutPtr(inner)
+        | syntax::TypeName::MutRef(inner)
         | syntax::TypeName::Slice(inner)
         | syntax::TypeName::MutSlice(inner)
         | syntax::TypeName::LifetimeSlice(_, inner)
         | syntax::TypeName::LifetimeMutSlice(_, inner)
         | syntax::TypeName::Option(inner)
         | syntax::TypeName::Array(inner, _) => {
-            validate_trait_type_use(inner, traits, line, column)?;
+            validate_trait_type_use_in_namespace(inner, trait_names, line, column)?;
         }
         syntax::TypeName::Result(ok, err) | syntax::TypeName::Map(ok, err) => {
-            validate_trait_type_use(ok, traits, line, column)?;
-            validate_trait_type_use(err, traits, line, column)?;
+            validate_trait_type_use_in_namespace(ok, trait_names, line, column)?;
+            validate_trait_type_use_in_namespace(err, trait_names, line, column)?;
         }
         syntax::TypeName::Tuple(elements) => {
             for element in elements {
-                validate_trait_type_use(element, traits, line, column)?;
+                validate_trait_type_use_in_namespace(element, trait_names, line, column)?;
             }
         }
         syntax::TypeName::Fn(params, return_ty) => {
             for param in params {
-                validate_trait_type_use(param, traits, line, column)?;
+                validate_trait_type_use_in_namespace(param, trait_names, line, column)?;
             }
-            validate_trait_type_use(return_ty, traits, line, column)?;
+            validate_trait_type_use_in_namespace(return_ty, trait_names, line, column)?;
         }
         syntax::TypeName::Int
         | syntax::TypeName::Numeric(_)
@@ -12563,6 +12590,28 @@ return ""
         );
 
         let error = lower(&parsed).expect_err("trait type positions are intentionally gated");
+        assert_eq!(error.kind, "type");
+        assert!(
+            error
+                .message
+                .contains("trait dispatch is not yet implemented for trait \"Display\"")
+        );
+    }
+
+    #[test]
+    fn hir_rejects_trait_names_inside_trait_method_signatures_until_dispatch_lands() {
+        let parsed = parse(
+            r#"
+trait Display {
+fn render(self): string
+}
+trait Formatter {
+fn format(value: Display): string
+}
+"#,
+        );
+
+        let error = lower(&parsed).expect_err("trait method trait references are gated");
         assert_eq!(error.kind, "type");
         assert!(
             error
