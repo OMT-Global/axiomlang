@@ -1,6 +1,2 @@
-* @jmcte @pheidon
-/.github/workflows/ @jmcte @pheidon @scrappedcode
-/.githooks/ @jmcte @pheidon @scrappedcode
-/scripts/ @jmcte @pheidon @scrappedcode
-/project.bootstrap.yaml @jmcte @pheidon @scrappedcode
-/stage1/crates/axiomc/src/ @jmcte @pheidon @scrappedcode
+# Managed CODEOWNERS for OMT-Global native repos.
+* @pheidon @jmcte

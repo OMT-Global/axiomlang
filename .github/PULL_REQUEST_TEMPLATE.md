@@ -19,6 +19,14 @@
     - [ ] Auto-merge is enabled, or GitHub plan-limit evidence is recorded and the fallback merge-readiness policy applies
     - [ ] No real secrets, runtime auth, or machine-local env files are committed
 
+    ## Semantic Layer Checklist
+
+    - [ ] Semantic node types added/changed are listed, or this PR does not touch semantic-layer behavior
+    - [ ] Schemas added/changed are listed, or this PR does not touch schemas
+    - [ ] Evidence added/changed is listed, or this PR does not touch evidence
+    - [ ] Rust capture check is satisfied, or this PR is backend-only and marks backend-specific behavior
+    - [ ] Agent-facing inspection impact is described, or there is no inspection impact
+
 ## Flow Contract
 
 - Owner lane:

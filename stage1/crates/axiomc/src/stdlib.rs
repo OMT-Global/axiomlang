@@ -27,8 +27,9 @@
 //!   separator issues in the virtual stdlib table.)
 //! * `std/crypto_mac.ax` — `hmac_sha256(key, message)`,
 //!   `hmac_sha512(key, message)`, `verify_sha256(tag, key, message)`,
-//!   `verify_sha512(tag, key, message)`, and `constant_time_eq(left, right)`
-//!   on top of `crypto_hmac_*` and `crypto_constant_time_eq` (crypto).
+//!   `verify_sha512(tag, key, message)`, `constant_time_eq(left, right)`,
+//!   and `constant_time_eq_u8(left, right)` on top of `crypto_hmac_*` and
+//!   `crypto_constant_time_eq*` (crypto).
 //! * `std/crypto.ax` — umbrella re-export module for the stage1 crypto hash
 //!   and MAC helpers.
 //!
@@ -49,8 +50,8 @@
 //! The eighth through fifteenth modules are stdlib surfaces not tied to a
 //! capability flag, matching the ambient status of the `print` statement:
 //!
-//! * `std/io.ax` — `eprintln(text)` on top of the new ungated `io_eprintln`
-//!   intrinsic (writes a line to stderr and returns bytes written).
+//! * `std/io.ax` — `eprintln(text)`, `readline()`, and `read_to_string()`
+//!   on top of the new ungated `io_*` intrinsics.
 //! * `std/json.ax` — scalar/string JSON parsing plus first-class `JsonValue`
 //!   parsing, composition, nested field lookup, and serialization helpers on
 //!   top of ungated `json_parse_*` / `json_stringify_*` intrinsics.
@@ -168,6 +169,7 @@ pub fn udp_send_recv(host: string, port: int, message: string, timeout_ms: int):
         "pub fn hmac_sha256(key: string, message: string): string {\nreturn crypto_hmac_sha256(key, message)\n}\n\
 pub fn hmac_sha512(key: string, message: string): string {\nreturn crypto_hmac_sha512(key, message)\n}\n\
 pub fn constant_time_eq(left: string, right: string): bool {\nreturn crypto_constant_time_eq(left, right)\n}\n\
+pub fn constant_time_eq_u8(left: &[u8], right: &[u8]): bool {\nreturn crypto_constant_time_eq_u8(left, right)\n}\n\
 pub fn verify_sha256(tag: string, key: string, message: string): bool {\nreturn constant_time_eq(tag, hmac_sha256(key, message))\n}\n\
 pub fn verify_sha512(tag: string, key: string, message: string): bool {\nreturn constant_time_eq(tag, hmac_sha512(key, message))\n}\n",
     ),
@@ -177,12 +179,15 @@ pub fn verify_sha512(tag: string, key: string, message: string): bool {\nreturn 
 pub fn hmac_sha256(key: string, message: string): string {\nreturn crypto_hmac_sha256(key, message)\n}\n\
 pub fn hmac_sha512(key: string, message: string): string {\nreturn crypto_hmac_sha512(key, message)\n}\n\
 pub fn constant_time_eq(left: string, right: string): bool {\nreturn crypto_constant_time_eq(left, right)\n}\n\
+pub fn constant_time_eq_u8(left: &[u8], right: &[u8]): bool {\nreturn crypto_constant_time_eq_u8(left, right)\n}\n\
 pub fn verify_sha256(tag: string, key: string, message: string): bool {\nreturn constant_time_eq(tag, hmac_sha256(key, message))\n}\n\
 pub fn verify_sha512(tag: string, key: string, message: string): bool {\nreturn constant_time_eq(tag, hmac_sha512(key, message))\n}\n",
     ),
     (
         "io.ax",
-        "pub fn eprintln(text: string): int {\nreturn io_eprintln(text)\n}\n",
+        "pub fn eprintln(text: string): int {\nreturn io_eprintln(text)\n}\n\
+pub fn readline(): Option<string> {\nreturn io_readline()\n}\n\
+pub fn read_to_string(): string {\nreturn io_read_to_string()\n}\n",
     ),
     (
         "json.ax",

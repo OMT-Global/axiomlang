@@ -1,0 +1,8 @@
+{
+  "kind": "type",
+  "code": null,
+  "message": "match pattern \"read_y\" must name an uppercase int const",
+  "path": "src/main.ax",
+  "line": 3,
+  "column": 1
+}

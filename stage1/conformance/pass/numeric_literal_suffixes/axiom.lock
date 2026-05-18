@@ -1,0 +1,6 @@
+version = 1
+
+[[package]]
+name = "conformance-numeric-literal-suffixes"
+version = "0.1.0"
+source = "path"

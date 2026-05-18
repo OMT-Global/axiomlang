@@ -1,0 +1,4 @@
+import "std/io.ax"
+
+let content: string = read_to_string()
+print content

@@ -807,6 +807,7 @@ fn collect_discovered_tests(
         tests.push(crate::manifest::TestTarget {
             name: relative.with_extension("").display().to_string(),
             entry: relative.display().to_string(),
+            stdin: None,
             stdout,
             stderr,
             kind,
@@ -2114,6 +2115,9 @@ fn run_test_case(
     let build_output_dir = out_dir_path(project_root, manifest);
     let command_result = if test.http.is_some() {
         run_http_fixture_case(&binary, &build_output_dir, test)
+    } else if let Some(stdin) = &test.stdin {
+        command_for_build_output(&binary, &build_output_dir)
+            .and_then(|command| run_command_with_stdin(command, stdin))
     } else {
         command_for_build_output(&binary, &build_output_dir)
             .and_then(|mut command| command.output())
@@ -2230,6 +2234,18 @@ fn run_test_case(
             ),
         },
     }
+}
+
+fn run_command_with_stdin(mut command: Command, stdin: &str) -> io::Result<std::process::Output> {
+    command
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    let mut child = command.spawn()?;
+    if let Some(mut input) = child.stdin.take() {
+        input.write_all(stdin.as_bytes())?;
+    }
+    child.wait_with_output()
 }
 
 fn run_http_fixture_case(
@@ -2356,8 +2372,9 @@ fn run_manifest_compile_fail_case(
         expected_stderr: None,
         expected_error: Some(expected),
         duration_ms: started.elapsed().as_millis() as u64,
-        error: mismatch
-            .map(|message| Diagnostic::new("test", message).with_path(entry_path.display().to_string())),
+        error: mismatch.map(|message| {
+            Diagnostic::new("test", message).with_path(entry_path.display().to_string())
+        }),
     }
 }
 
@@ -2897,6 +2914,10 @@ fn collect_hir_stmt_intrinsic_use(
         | hir::Stmt::Return { expr, span } => {
             collect_hir_expr_intrinsic_use(module_path, expr, span.line, span.column, uses)
         }
+        hir::Stmt::Assign { target, expr, span } => {
+            collect_hir_expr_intrinsic_use(module_path, target, span.line, span.column, uses);
+            collect_hir_expr_intrinsic_use(module_path, expr, span.line, span.column, uses);
+        }
         hir::Stmt::Panic { message, span } => {
             collect_hir_expr_intrinsic_use(module_path, message, span.line, span.column, uses)
         }
@@ -2966,7 +2987,9 @@ fn collect_hir_expr_intrinsic_use(
         hir::Expr::Cast { expr, .. }
         | hir::Expr::Try { expr, .. }
         | hir::Expr::Await { expr, .. }
-        | hir::Expr::StringBorrow { expr, .. } => {
+        | hir::Expr::StringBorrow { expr, .. }
+        | hir::Expr::MutBorrow { expr, .. }
+        | hir::Expr::Deref { expr, .. } => {
             collect_hir_expr_intrinsic_use(module_path, expr, fallback_line, fallback_column, uses)
         }
         hir::Expr::StructLiteral { fields, .. } => {
@@ -3107,6 +3130,10 @@ fn validate_stmt_capabilities(
         | syntax::Stmt::Return { expr, .. } => {
             validate_expr_capabilities(module_path, expr, capabilities)?;
         }
+        syntax::Stmt::Assign { target, expr, .. } => {
+            validate_expr_capabilities(module_path, target, capabilities)?;
+            validate_expr_capabilities(module_path, expr, capabilities)?;
+        }
         syntax::Stmt::If {
             cond,
             then_block,
@@ -3215,7 +3242,10 @@ fn validate_expr_capabilities(
         syntax::Expr::Cast { expr, .. } => {
             validate_expr_capabilities(module_path, expr, capabilities)
         }
-        syntax::Expr::Try { expr, .. } | syntax::Expr::Await { expr, .. } => {
+        syntax::Expr::Try { expr, .. }
+        | syntax::Expr::Await { expr, .. }
+        | syntax::Expr::MutBorrow { expr, .. }
+        | syntax::Expr::Deref { expr, .. } => {
             validate_expr_capabilities(module_path, expr, capabilities)
         }
         syntax::Expr::StructLiteral { fields, .. } => {
@@ -3331,6 +3361,7 @@ fn intrinsic_capability(name: &str) -> Option<CapabilityKind> {
         "crypto_hmac_sha256" => Some(CapabilityKind::Crypto),
         "crypto_hmac_sha512" => Some(CapabilityKind::Crypto),
         "crypto_constant_time_eq" => Some(CapabilityKind::Crypto),
+        "crypto_constant_time_eq_u8" => Some(CapabilityKind::Crypto),
         _ => None,
     }
 }
@@ -3684,22 +3715,23 @@ fn flatten_modules(
                 &module.path,
                 &mut HashSet::new(),
             )?;
+            let mut rewritten = module_symbols
+                .consts
+                .get(&const_decl.name)
+                .cloned()
+                .unwrap_or_else(|| const_decl.clone());
+            rewritten.expr = resolved_expr;
             if const_decl.is_static {
-                let mut rewritten = module_symbols
-                    .consts
-                    .get(&const_decl.name)
-                    .cloned()
-                    .unwrap_or_else(|| const_decl.clone());
-                rewritten.expr = resolved_expr;
                 rewritten.name = format!("{}_{}", module_symbols.module_id, const_decl.name);
-                flattened_consts.push(rewritten);
             }
+            flattened_consts.push(rewritten);
         }
 
         for type_alias in &module.program.type_aliases {
             flattened_type_aliases.push(rewrite_type_alias(
                 type_alias,
                 module_symbols,
+                &visible_consts,
                 &visible_types,
                 &private_imported_types,
                 &module.path,
@@ -3710,6 +3742,7 @@ fn flatten_modules(
             flattened_structs.push(rewrite_struct(
                 struct_decl,
                 module_symbols,
+                &visible_consts,
                 &visible_types,
                 &private_imported_types,
                 &module.path,
@@ -3719,6 +3752,7 @@ fn flatten_modules(
             flattened_enums.push(rewrite_enum(
                 enum_decl,
                 module_symbols,
+                &visible_consts,
                 &visible_types,
                 &private_imported_types,
                 &module.path,
@@ -3999,6 +4033,7 @@ fn format_type_name(ty: &syntax::TypeName) -> String {
         ),
         syntax::TypeName::Ptr(inner) => format!("&{}", format_type_name(inner)),
         syntax::TypeName::MutPtr(inner) => format!("&mut {}", format_type_name(inner)),
+        syntax::TypeName::MutRef(inner) => format!("&mut {}", format_type_name(inner)),
         syntax::TypeName::Slice(inner) => format!("&[{}]", format_type_name(inner)),
         syntax::TypeName::MutSlice(inner) => format!("&mut [{}]", format_type_name(inner)),
         syntax::TypeName::LifetimeSlice(lifetime, inner) => {
@@ -4153,6 +4188,10 @@ fn build_module_symbols(module: &LoadedModule) -> Result<ModuleSymbols, Diagnost
         }
     }
     for const_decl in &module.program.consts {
+        let mut internal_decl = const_decl.clone();
+        if !const_decl.is_static {
+            internal_decl.name = format!("{module_id}_{}", const_decl.name);
+        }
         if functions.contains_key(&const_decl.name)
             || structs.contains_key(&const_decl.name)
             || enums.contains_key(&const_decl.name)
@@ -4164,7 +4203,7 @@ fn build_module_symbols(module: &LoadedModule) -> Result<ModuleSymbols, Diagnost
             );
         }
         if consts
-            .insert(const_decl.name.clone(), const_decl.clone())
+            .insert(const_decl.name.clone(), internal_decl.clone())
             .is_some()
         {
             return Err(
@@ -4175,10 +4214,10 @@ fn build_module_symbols(module: &LoadedModule) -> Result<ModuleSymbols, Diagnost
         }
         match const_decl.visibility {
             syntax::Visibility::Public => {
-                public_consts.insert(const_decl.name.clone(), const_decl.clone());
+                public_consts.insert(const_decl.name.clone(), internal_decl);
             }
             syntax::Visibility::Package => {
-                package_consts.insert(const_decl.name.clone(), const_decl.clone());
+                package_consts.insert(const_decl.name.clone(), internal_decl);
             }
             syntax::Visibility::Module => {
                 private_consts.insert(const_decl.name.clone());
@@ -4314,6 +4353,7 @@ fn visible_namespace_collision(
 fn rewrite_type_alias(
     type_alias: &syntax::TypeAliasDecl,
     module_symbols: &ModuleSymbols,
+    visible_consts: &HashMap<String, syntax::ConstDecl>,
     visible_types: &HashMap<String, String>,
     private_imported_types: &HashSet<String>,
     module_path: &Path,
@@ -4326,6 +4366,7 @@ fn rewrite_type_alias(
             .unwrap_or_else(|| format!("{}_{}", module_symbols.module_id, type_alias.name)),
         ty: rewrite_type_name(
             &type_alias.ty,
+            visible_consts,
             visible_types,
             private_imported_types,
             module_path,
@@ -4341,6 +4382,7 @@ fn rewrite_type_alias(
 fn rewrite_struct(
     struct_decl: &syntax::StructDecl,
     module_symbols: &ModuleSymbols,
+    visible_consts: &HashMap<String, syntax::ConstDecl>,
     visible_types: &HashMap<String, String>,
     private_imported_types: &HashSet<String>,
     module_path: &Path,
@@ -4359,6 +4401,7 @@ fn rewrite_struct(
                 name: field.name.clone(),
                 ty: rewrite_type_name(
                     &field.ty,
+                    visible_consts,
                     visible_types,
                     private_imported_types,
                     module_path,
@@ -4376,6 +4419,7 @@ fn rewrite_struct(
 fn rewrite_enum(
     enum_decl: &syntax::EnumDecl,
     module_symbols: &ModuleSymbols,
+    visible_consts: &HashMap<String, syntax::ConstDecl>,
     visible_types: &HashMap<String, String>,
     private_imported_types: &HashSet<String>,
     module_path: &Path,
@@ -4398,6 +4442,7 @@ fn rewrite_enum(
                     .map(|ty| {
                         rewrite_type_name(
                             ty,
+                            visible_consts,
                             visible_types,
                             private_imported_types,
                             module_path,
@@ -4458,6 +4503,7 @@ fn rewrite_function(
                 name: param.name.clone(),
                 ty: rewrite_type_name(
                     &param.ty,
+                    visible_consts,
                     visible_types,
                     private_imported_types,
                     module_path,
@@ -4471,6 +4517,7 @@ fn rewrite_function(
         .collect::<Result<Vec<_>, Diagnostic>>()?;
     rewritten.return_ty = rewrite_type_name(
         &function.return_ty,
+        visible_consts,
         visible_types,
         private_imported_types,
         module_path,
@@ -4480,6 +4527,7 @@ fn rewrite_function(
     if let Some(target) = &function.impl_target {
         let rewritten_target = rewrite_type_name(
             &syntax::TypeName::Named(target.clone(), Vec::new()),
+            visible_consts,
             visible_types,
             private_imported_types,
             module_path,
@@ -4525,6 +4573,7 @@ fn rewrite_stmt(
             name: name.clone(),
             ty: rewrite_type_name(
                 ty,
+                visible_consts,
                 visible_types,
                 private_imported_types,
                 module_path,
@@ -4546,6 +4595,37 @@ fn rewrite_stmt(
             column: *column,
         },
         syntax::Stmt::Print { expr, line, column } => syntax::Stmt::Print {
+            expr: rewrite_expr(
+                expr,
+                visible_functions,
+                visible_consts,
+                visible_structs,
+                visible_types,
+                private_imported,
+                private_imported_consts,
+                private_imported_types,
+                module_path,
+            )?,
+            line: *line,
+            column: *column,
+        },
+        syntax::Stmt::Assign {
+            target,
+            expr,
+            line,
+            column,
+        } => syntax::Stmt::Assign {
+            target: rewrite_expr(
+                target,
+                visible_functions,
+                visible_consts,
+                visible_structs,
+                visible_types,
+                private_imported,
+                private_imported_consts,
+                private_imported_types,
+                module_path,
+            )?,
             expr: rewrite_expr(
                 expr,
                 visible_functions,
@@ -4768,8 +4848,20 @@ fn rewrite_stmt(
             arms: arms
                 .iter()
                 .map(|arm| {
+                    let variant = rewrite_const_match_pattern(
+                        arm,
+                        visible_consts,
+                        visible_functions,
+                        visible_structs,
+                        visible_types,
+                        private_imported,
+                        private_imported_consts,
+                        private_imported_types,
+                        module_path,
+                    )?
+                    .unwrap_or_else(|| arm.variant.clone());
                     Ok(syntax::MatchArm {
-                        variant: arm.variant.clone(),
+                        variant,
                         bindings: arm.bindings.clone(),
                         is_named: arm.is_named,
                         body: arm
@@ -4878,6 +4970,7 @@ fn rewrite_expr(
                     .map(|type_arg| {
                         rewrite_type_name(
                             type_arg,
+                            visible_consts,
                             visible_types,
                             private_imported_types,
                             module_path,
@@ -4947,6 +5040,7 @@ fn rewrite_expr(
                     .map(|type_arg| {
                         rewrite_type_name(
                             type_arg,
+                            visible_consts,
                             visible_types,
                             private_imported_types,
                             module_path,
@@ -5058,6 +5152,7 @@ fn rewrite_expr(
             )?),
             ty: rewrite_type_name(
                 ty,
+                visible_consts,
                 visible_types,
                 private_imported_types,
                 module_path,
@@ -5068,6 +5163,36 @@ fn rewrite_expr(
             column: *column,
         },
         syntax::Expr::Try { expr, line, column } => syntax::Expr::Try {
+            expr: Box::new(rewrite_expr(
+                expr,
+                visible_functions,
+                visible_consts,
+                visible_structs,
+                visible_types,
+                private_imported,
+                private_imported_consts,
+                private_imported_types,
+                module_path,
+            )?),
+            line: *line,
+            column: *column,
+        },
+        syntax::Expr::MutBorrow { expr, line, column } => syntax::Expr::MutBorrow {
+            expr: Box::new(rewrite_expr(
+                expr,
+                visible_functions,
+                visible_consts,
+                visible_structs,
+                visible_types,
+                private_imported,
+                private_imported_consts,
+                private_imported_types,
+                module_path,
+            )?),
+            line: *line,
+            column: *column,
+        },
+        syntax::Expr::Deref { expr, line, column } => syntax::Expr::Deref {
             expr: Box::new(rewrite_expr(
                 expr,
                 visible_functions,
@@ -5371,6 +5496,7 @@ fn rewrite_expr(
                         name: param.name.clone(),
                         ty: rewrite_type_name(
                             &param.ty,
+                            visible_consts,
                             visible_types,
                             private_imported_types,
                             module_path,
@@ -5401,6 +5527,7 @@ fn rewrite_expr(
 
 fn rewrite_type_name(
     ty: &syntax::TypeName,
+    visible_consts: &HashMap<String, syntax::ConstDecl>,
     visible_types: &HashMap<String, String>,
     private_imported_types: &HashSet<String>,
     module_path: &Path,
@@ -5431,6 +5558,7 @@ fn rewrite_type_name(
                     .map(|arg| {
                         rewrite_type_name(
                             arg,
+                            visible_consts,
                             visible_types,
                             private_imported_types,
                             module_path,
@@ -5443,6 +5571,7 @@ fn rewrite_type_name(
         }
         syntax::TypeName::Ptr(inner) => Ok(syntax::TypeName::Ptr(Box::new(rewrite_type_name(
             inner,
+            visible_consts,
             visible_types,
             private_imported_types,
             module_path,
@@ -5452,6 +5581,18 @@ fn rewrite_type_name(
         syntax::TypeName::MutPtr(inner) => {
             Ok(syntax::TypeName::MutPtr(Box::new(rewrite_type_name(
                 inner,
+                visible_consts,
+                visible_types,
+                private_imported_types,
+                module_path,
+                line,
+                column,
+            )?)))
+        }
+        syntax::TypeName::MutRef(inner) => {
+            Ok(syntax::TypeName::MutRef(Box::new(rewrite_type_name(
+                inner,
+                visible_consts,
                 visible_types,
                 private_imported_types,
                 module_path,
@@ -5462,6 +5603,7 @@ fn rewrite_type_name(
         syntax::TypeName::Option(inner) => {
             Ok(syntax::TypeName::Option(Box::new(rewrite_type_name(
                 inner,
+                visible_consts,
                 visible_types,
                 private_imported_types,
                 module_path,
@@ -5471,6 +5613,7 @@ fn rewrite_type_name(
         }
         syntax::TypeName::Slice(inner) => Ok(syntax::TypeName::Slice(Box::new(rewrite_type_name(
             inner,
+            visible_consts,
             visible_types,
             private_imported_types,
             module_path,
@@ -5480,6 +5623,7 @@ fn rewrite_type_name(
         syntax::TypeName::MutSlice(inner) => {
             Ok(syntax::TypeName::MutSlice(Box::new(rewrite_type_name(
                 inner,
+                visible_consts,
                 visible_types,
                 private_imported_types,
                 module_path,
@@ -5491,6 +5635,7 @@ fn rewrite_type_name(
             lifetime.clone(),
             Box::new(rewrite_type_name(
                 inner,
+                visible_consts,
                 visible_types,
                 private_imported_types,
                 module_path,
@@ -5503,6 +5648,7 @@ fn rewrite_type_name(
                 lifetime.clone(),
                 Box::new(rewrite_type_name(
                     inner,
+                    visible_consts,
                     visible_types,
                     private_imported_types,
                     module_path,
@@ -5514,6 +5660,7 @@ fn rewrite_type_name(
         syntax::TypeName::Result(ok, err) => Ok(syntax::TypeName::Result(
             Box::new(rewrite_type_name(
                 ok,
+                visible_consts,
                 visible_types,
                 private_imported_types,
                 module_path,
@@ -5522,6 +5669,7 @@ fn rewrite_type_name(
             )?),
             Box::new(rewrite_type_name(
                 err,
+                visible_consts,
                 visible_types,
                 private_imported_types,
                 module_path,
@@ -5535,6 +5683,7 @@ fn rewrite_type_name(
                 .map(|element| {
                     rewrite_type_name(
                         element,
+                        visible_consts,
                         visible_types,
                         private_imported_types,
                         module_path,
@@ -5547,6 +5696,7 @@ fn rewrite_type_name(
         syntax::TypeName::Map(key, value) => Ok(syntax::TypeName::Map(
             Box::new(rewrite_type_name(
                 key,
+                visible_consts,
                 visible_types,
                 private_imported_types,
                 module_path,
@@ -5555,6 +5705,7 @@ fn rewrite_type_name(
             )?),
             Box::new(rewrite_type_name(
                 value,
+                visible_consts,
                 visible_types,
                 private_imported_types,
                 module_path,
@@ -5565,13 +5716,19 @@ fn rewrite_type_name(
         syntax::TypeName::Array(inner, len) => Ok(syntax::TypeName::Array(
             Box::new(rewrite_type_name(
                 inner,
+                visible_consts,
                 visible_types,
                 private_imported_types,
                 module_path,
                 line,
                 column,
             )?),
-            len.clone(),
+            len.as_ref().map(|raw| {
+                visible_consts
+                    .get(raw.trim())
+                    .map(|const_decl| const_decl.name.clone())
+                    .unwrap_or_else(|| raw.clone())
+            }),
         )),
         syntax::TypeName::Fn(params, return_ty) => Ok(syntax::TypeName::Fn(
             params
@@ -5579,6 +5736,7 @@ fn rewrite_type_name(
                 .map(|param| {
                     rewrite_type_name(
                         param,
+                        visible_consts,
                         visible_types,
                         private_imported_types,
                         module_path,
@@ -5589,6 +5747,7 @@ fn rewrite_type_name(
                 .collect::<Result<Vec<_>, _>>()?,
             Box::new(rewrite_type_name(
                 return_ty,
+                visible_consts,
                 visible_types,
                 private_imported_types,
                 module_path,
@@ -5596,6 +5755,56 @@ fn rewrite_type_name(
                 column,
             )?),
         )),
+    }
+}
+
+fn rewrite_const_match_pattern(
+    arm: &syntax::MatchArm,
+    visible_consts: &HashMap<String, syntax::ConstDecl>,
+    visible_functions: &HashMap<String, String>,
+    visible_structs: &HashMap<String, String>,
+    visible_types: &HashMap<String, String>,
+    private_imported: &HashSet<String>,
+    private_imported_consts: &HashSet<String>,
+    private_imported_types: &HashSet<String>,
+    module_path: &Path,
+) -> Result<Option<String>, Diagnostic> {
+    if arm.is_named || !arm.bindings.is_empty() {
+        return Ok(None);
+    }
+    if private_imported_consts.contains(&arm.variant) {
+        return Err(Diagnostic::new(
+            "import",
+            format!("const {:?} is not visible from this module", arm.variant),
+        )
+        .with_path(module_path.display().to_string())
+        .with_span(arm.line, arm.column));
+    }
+    let Some(const_decl) = visible_consts.get(&arm.variant) else {
+        return Ok(None);
+    };
+    let expr = resolve_const_decl(
+        const_decl,
+        visible_consts,
+        visible_functions,
+        visible_structs,
+        visible_types,
+        private_imported,
+        private_imported_consts,
+        private_imported_types,
+        module_path,
+        &mut HashSet::new(),
+    )?;
+    Ok(eval_syntax_const_int_expr(&expr).map(|value| value.to_string()))
+}
+
+fn eval_syntax_const_int_expr(expr: &syntax::Expr) -> Option<i64> {
+    match expr {
+        syntax::Expr::Literal(syntax::Literal::Int(value)) => Some(*value),
+        syntax::Expr::BinaryAdd { lhs, rhs, .. } => {
+            Some(eval_syntax_const_int_expr(lhs)? + eval_syntax_const_int_expr(rhs)?)
+        }
+        _ => None,
     }
 }
 
@@ -5956,8 +6165,6 @@ fn resolve_import_path(
                 .with_span(import.line, import.column));
             }
             if !candidate.exists() {
-                let relative =
-                    relative_diagnostic_path(&dependency.root, &candidate.display().to_string());
                 return Err(Diagnostic::new(
                     "import",
                     format!(
@@ -6150,6 +6357,7 @@ fn stmt_line(stmt: &syntax::Stmt) -> usize {
         | syntax::Stmt::IfLet { line, .. }
         | syntax::Stmt::While { line, .. }
         | syntax::Stmt::Match { line, .. }
+        | syntax::Stmt::Assign { line, .. }
         | syntax::Stmt::Return { line, .. } => *line,
     }
 }
@@ -6164,6 +6372,7 @@ fn stmt_column(stmt: &syntax::Stmt) -> usize {
         | syntax::Stmt::IfLet { column, .. }
         | syntax::Stmt::While { column, .. }
         | syntax::Stmt::Match { column, .. }
+        | syntax::Stmt::Assign { column, .. }
         | syntax::Stmt::Return { column, .. } => *column,
     }
 }
@@ -6452,6 +6661,7 @@ mod tests {
             crate::manifest::TestTarget {
                 name: "unit".to_string(),
                 entry: "src/unit_test.ax".to_string(),
+                stdin: None,
                 stdout: None,
                 stderr: None,
                 kind: TestKind::Unit,
@@ -6463,6 +6673,7 @@ mod tests {
             crate::manifest::TestTarget {
                 name: "bench".to_string(),
                 entry: "src/demo_bench.ax".to_string(),
+                stdin: None,
                 stdout: None,
                 stderr: None,
                 kind: TestKind::Benchmark,
@@ -6515,6 +6726,7 @@ mod tests {
         manifest.tests.push(crate::manifest::TestTarget {
             name: "manifest_bench".to_string(),
             entry: "src/manifest_bench.ax".to_string(),
+            stdin: None,
             stdout: None,
             stderr: None,
             kind: TestKind::Benchmark,

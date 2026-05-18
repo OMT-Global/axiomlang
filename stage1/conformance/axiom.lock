@@ -126,6 +126,11 @@ version = "0.1.0"
 source = "path:fail/import_unsupported_alias"
 
 [[package]]
+name = "conformance-lowercase-const-match-pattern"
+version = "0.1.0"
+source = "path:fail/lowercase_const_match_pattern"
+
+[[package]]
 name = "conformance-match-guard-not-supported"
 version = "0.1.0"
 source = "path:fail/match_guard_not_supported"
@@ -136,9 +141,59 @@ version = "0.1.0"
 source = "path:fail/move_while_mutably_borrowed"
 
 [[package]]
+name = "conformance-mutable-borrow-double-mut"
+version = "0.1.0"
+source = "path:fail/mutable_borrow_double_mut"
+
+[[package]]
+name = "conformance-mutable-borrow-mut-plus-shared"
+version = "0.1.0"
+source = "path:fail/mutable_borrow_mut_plus_shared"
+
+[[package]]
+name = "conformance-mutable-borrow-overlapping-slice-mut"
+version = "0.1.0"
+source = "path:fail/mutable_borrow_overlapping_slice_mut"
+
+[[package]]
+name = "conformance-mutable-borrow-use-after-borrow"
+version = "0.1.0"
+source = "path:fail/mutable_borrow_use_after_borrow"
+
+[[package]]
 name = "conformance-mutable-borrow-while-shared-live"
 version = "0.1.0"
 source = "path:fail/mutable_borrow_while_shared_live"
+
+[[package]]
+name = "conformance-mutable-borrow-whole-then-projection"
+version = "0.1.0"
+source = "path:fail/mutable_borrow_whole_then_projection"
+
+[[package]]
+name = "conformance-mutable-call-boundary-move"
+version = "0.1.0"
+source = "path:fail/mutable_call_boundary_move"
+
+[[package]]
+name = "conformance-mutable-local-borrow-copy-use-after-borrow"
+version = "0.1.0"
+source = "path:fail/mutable_local_borrow_copy_use_after_borrow"
+
+[[package]]
+name = "conformance-mutable-local-borrow-use-after-borrow"
+version = "0.1.0"
+source = "path:fail/mutable_local_borrow_use_after_borrow"
+
+[[package]]
+name = "conformance-mutable-projection-overlap"
+version = "0.1.0"
+source = "path:fail/mutable_projection_overlap"
+
+[[package]]
+name = "conformance-mutable-projection-whole-move"
+version = "0.1.0"
+source = "path:fail/mutable_projection_whole_move"
 
 [[package]]
 name = "conformance-named-nested-match-pattern-not-supported"
@@ -149,6 +204,11 @@ source = "path:fail/named_nested_match_pattern_not_supported"
 name = "conformance-nested-match-pattern-not-supported"
 version = "0.1.0"
 source = "path:fail/nested_match_pattern_not_supported"
+
+[[package]]
+name = "conformance-numeric-literal-suffix-mismatch"
+version = "0.1.0"
+source = "path:fail/numeric_literal_suffix_mismatch"
 
 [[package]]
 name = "conformance-ownership-across-dependency-boundary"
@@ -291,6 +351,16 @@ version = "0.1.0"
 source = "path:pass/comparison_strict_typing"
 
 [[package]]
+name = "conformance-const-match-patterns"
+version = "0.1.0"
+source = "path:pass/const_match_patterns"
+
+[[package]]
+name = "conformance-crypto-constant-time"
+version = "0.1.0"
+source = "path:pass/crypto_constant_time"
+
+[[package]]
 name = "conformance-functions-across-modules"
 version = "0.1.0"
 source = "path:pass/functions_across_modules"
@@ -301,9 +371,29 @@ version = "0.1.0"
 source = "path:pass/legacy_core_programs"
 
 [[package]]
+name = "conformance-mutable-call-boundaries"
+version = "0.1.0"
+source = "path:pass/mutable_call_boundaries"
+
+[[package]]
+name = "conformance-mutable-local-borrow-write-through"
+version = "0.1.0"
+source = "path:pass/mutable_local_borrow_write_through"
+
+[[package]]
+name = "conformance-mutable-projection-borrows"
+version = "0.1.0"
+source = "path:pass/mutable_projection_borrows"
+
+[[package]]
 name = "conformance-numeric-cross-width-casts"
 version = "0.1.0"
 source = "path:pass/numeric_cross_width_casts"
+
+[[package]]
+name = "conformance-numeric-literal-suffixes"
+version = "0.1.0"
+source = "path:pass/numeric_literal_suffixes"
 
 [[package]]
 name = "conformance-outcome-control-flow"
@@ -349,6 +439,11 @@ source = "path:pass/slice_type_alias_in_signature"
 name = "conformance-slice-type-alias-in-struct"
 version = "0.1.0"
 source = "path:pass/slice_type_alias_in_struct"
+
+[[package]]
+name = "conformance-stdlib-io-stdin"
+version = "0.1.0"
+source = "path:pass/stdlib_io_stdin"
 
 [[package]]
 name = "conformance-string-param-by-value"
