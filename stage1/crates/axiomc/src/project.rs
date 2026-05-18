@@ -4785,8 +4785,20 @@ fn rewrite_stmt(
             arms: arms
                 .iter()
                 .map(|arm| {
+                    let variant = rewrite_const_match_pattern(
+                        arm,
+                        visible_consts,
+                        visible_functions,
+                        visible_structs,
+                        visible_types,
+                        private_imported,
+                        private_imported_consts,
+                        private_imported_types,
+                        module_path,
+                    )?
+                    .unwrap_or_else(|| arm.variant.clone());
                     Ok(syntax::MatchArm {
-                        variant: arm.variant.clone(),
+                        variant,
                         bindings: arm.bindings.clone(),
                         is_named: arm.is_named,
                         body: arm
@@ -5639,6 +5651,56 @@ fn rewrite_type_name(
                 column,
             )?),
         )),
+    }
+}
+
+fn rewrite_const_match_pattern(
+    arm: &syntax::MatchArm,
+    visible_consts: &HashMap<String, syntax::ConstDecl>,
+    visible_functions: &HashMap<String, String>,
+    visible_structs: &HashMap<String, String>,
+    visible_types: &HashMap<String, String>,
+    private_imported: &HashSet<String>,
+    private_imported_consts: &HashSet<String>,
+    private_imported_types: &HashSet<String>,
+    module_path: &Path,
+) -> Result<Option<String>, Diagnostic> {
+    if arm.is_named || !arm.bindings.is_empty() {
+        return Ok(None);
+    }
+    if private_imported_consts.contains(&arm.variant) {
+        return Err(Diagnostic::new(
+            "import",
+            format!("const {:?} is not visible from this module", arm.variant),
+        )
+        .with_path(module_path.display().to_string())
+        .with_span(arm.line, arm.column));
+    }
+    let Some(const_decl) = visible_consts.get(&arm.variant) else {
+        return Ok(None);
+    };
+    let expr = resolve_const_decl(
+        const_decl,
+        visible_consts,
+        visible_functions,
+        visible_structs,
+        visible_types,
+        private_imported,
+        private_imported_consts,
+        private_imported_types,
+        module_path,
+        &mut HashSet::new(),
+    )?;
+    Ok(eval_syntax_const_int_expr(&expr).map(|value| value.to_string()))
+}
+
+fn eval_syntax_const_int_expr(expr: &syntax::Expr) -> Option<i64> {
+    match expr {
+        syntax::Expr::Literal(syntax::Literal::Int(value)) => Some(*value),
+        syntax::Expr::BinaryAdd { lhs, rhs, .. } => {
+            Some(eval_syntax_const_int_expr(lhs)? + eval_syntax_const_int_expr(rhs)?)
+        }
+        _ => None,
     }
 }
 

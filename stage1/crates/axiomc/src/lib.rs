@@ -7961,8 +7961,8 @@ print serve_health("127.0.0.1:18080", 1, started)
     fn conformance_corpus_reports_stable_results() {
         let output =
             run_project_tests(&conformance_fixture()).expect("run stage1 conformance corpus");
-        assert_eq!(output.cases.len(), 80);
-        assert_eq!(output.passed, 80);
+        assert_eq!(output.cases.len(), 82);
+        assert_eq!(output.passed, 82);
         let failures: Vec<_> = output
             .cases
             .iter()
@@ -7976,7 +7976,7 @@ print serve_health("127.0.0.1:18080", 1, started)
                 .iter()
                 .filter(|case| case.expected_error.is_some())
                 .count(),
-            58
+            59
         );
         assert_eq!(
             output
@@ -7984,7 +7984,7 @@ print serve_health("127.0.0.1:18080", 1, started)
                 .iter()
                 .filter(|case| case.expected_stdout.is_some())
                 .count(),
-            20
+            21
         );
         assert_eq!(
             output
@@ -10485,6 +10485,64 @@ print takes_two(three)
         let error = check_project(&project).expect_err("match should reject unknown variant");
         assert!(error.message.contains("has no variant \"Reday\""));
         assert!(error.message.contains("did you mean \"Ready\"?"));
+        assert_eq!(error.kind, "type");
+    }
+
+    #[test]
+    #[cfg_attr(not(feature = "run-native-tests"), ignore)]
+    fn build_project_matches_int_against_const_pattern() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("const-match-pattern");
+        create_project(&project, Some("const-match-pattern-app")).expect("create project");
+        fs::write(
+            project.join("src/main.ax"),
+            "const READY: int = 7\n\nlet status: int = 7\nmatch status {\nREADY {\nprint \"ready\"\n}\n}\n",
+        )
+        .expect("write source");
+
+        let built = build_project(&project).expect("build const match pattern project");
+        let output = compiled_binary_command(&built.binary)
+            .output()
+            .expect("run const match pattern binary");
+        assert!(output.status.success());
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "ready\n");
+    }
+
+    #[test]
+    #[cfg_attr(not(feature = "run-native-tests"), ignore)]
+    fn build_project_matches_imported_public_const_pattern() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("imported-const-match-pattern");
+        create_project(&project, Some("imported-const-match-pattern-app")).expect("create project");
+        fs::write(project.join("src/codes.ax"), "pub const READY: int = 7\n")
+            .expect("write imported source");
+        fs::write(
+            project.join("src/main.ax"),
+            "import \"codes.ax\"\n\nlet status: int = 7\nmatch status {\nREADY {\nprint \"imported\"\n}\n}\n",
+        )
+        .expect("write source");
+
+        let built = build_project(&project).expect("build imported const match pattern project");
+        let output = compiled_binary_command(&built.binary)
+            .output()
+            .expect("run imported const match pattern binary");
+        assert!(output.status.success());
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "imported\n");
+    }
+
+    #[test]
+    fn check_project_rejects_lowercase_const_match_pattern() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("lowercase-const-match-pattern");
+        create_project(&project, Some("lowercase-const-match-pattern-app"))
+            .expect("create project");
+        fs::write(
+            project.join("src/main.ax"),
+            "let status: int = 7\nmatch status {\nread_y {\nprint \"bad\"\n}\n}\n",
+        )
+        .expect("write source");
+        let error = check_project(&project).expect_err("match should reject lowercase pattern");
+        assert!(error.message.contains("uppercase int const"));
         assert_eq!(error.kind, "type");
     }
 
