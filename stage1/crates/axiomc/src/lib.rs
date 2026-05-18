@@ -6255,8 +6255,10 @@ true
         let generated = fs::read_to_string(&built.generated_rust).expect("read generated rust");
         assert!(generated.contains("axiom_task_deferred(move ||"));
         assert!(generated.contains("struct AxiomRuntimeScheduler"));
-        assert!(generated.contains("fn schedule<T>(&mut self, task: AxiomTask<T>)"));
-        assert!(generated.contains("fn join<T>(&mut self, mut handle: AxiomJoinHandle<T>)"));
+        assert!(generated.contains("fn schedule<T: Send + 'static>(&mut self, task: AxiomTask<T>)"));
+        assert!(
+            generated.contains("fn join<T: Send + 'static>(&mut self, mut handle: AxiomJoinHandle<T>)")
+        );
         assert!(!generated.contains("AXIOM_ASYNC_EXECUTOR"));
         assert!(!generated.contains("std::thread::JoinHandle"));
         assert!(
@@ -6290,6 +6292,44 @@ true
         let tests = run_project_tests(&project).expect("run tests");
         assert_eq!(tests.passed, 1);
         assert_eq!(tests.failed, 0);
+    }
+
+    #[test]
+    fn stage1_project_rejects_async_net_without_net_capability() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("stdlib-async-net-denied");
+        create_project(&project, Some("stdlib-async-net-denied")).expect("create project");
+        fs::write(
+            project.join("axiom.toml"),
+            render_manifest_with_capabilities(
+                "stdlib-async-net-denied",
+                false,
+                false,
+                false,
+                false,
+                true,
+                false,
+            )
+            .replace("async = false", "async = true"),
+        )
+        .expect("write manifest");
+        let manifest = load_manifest(&project).expect("load manifest");
+        fs::write(
+            project.join("axiom.lock"),
+            render_lockfile_for_project(&project, &manifest).expect("lockfile"),
+        )
+        .expect("write lockfile");
+        fs::write(
+            project.join("src/main.ax"),
+            "import \"std/async_net.ax\"\nlet missing_socket: Option<string> = await tcp_dial(\"127.0.0.1\", 1, \"ping\", 1)\nmatch missing_socket {\nSome(_reply) {\nprint \"unexpected\"\n}\nNone {\nprint \"net none\"\n}\n}\n",
+        )
+        .expect("write source");
+
+        let err = check_project(&project).expect_err("expected capability denial");
+        assert!(
+            err.message.contains("requires [capabilities].net = true"),
+            "unexpected diagnostic: {err:?}",
+        );
     }
 
     #[test]
