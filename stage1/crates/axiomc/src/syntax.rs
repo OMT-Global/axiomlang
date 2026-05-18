@@ -170,6 +170,12 @@ pub enum Stmt {
         line: usize,
         column: usize,
     },
+    Assign {
+        target: Expr,
+        expr: Expr,
+        line: usize,
+        column: usize,
+    },
     Print {
         expr: Expr,
         line: usize,
@@ -298,6 +304,7 @@ pub enum TypeName {
     Named(String, Vec<TypeName>),
     Ptr(Box<TypeName>),
     MutPtr(Box<TypeName>),
+    MutRef(Box<TypeName>),
     Slice(Box<TypeName>),
     MutSlice(Box<TypeName>),
     LifetimeSlice(String, Box<TypeName>),
@@ -349,6 +356,16 @@ pub enum Expr {
     Cast {
         expr: Box<Expr>,
         ty: TypeName,
+        line: usize,
+        column: usize,
+    },
+    MutBorrow {
+        expr: Box<Expr>,
+        line: usize,
+        column: usize,
+    },
+    Deref {
+        expr: Box<Expr>,
         line: usize,
         column: usize,
     },
@@ -513,6 +530,7 @@ impl Stmt {
     pub fn span_in(&self, file: &str) -> SourceSpan {
         let (line, column) = match self {
             Stmt::Let { line, column, .. }
+            | Stmt::Assign { line, column, .. }
             | Stmt::Print { line, column, .. }
             | Stmt::Panic { line, column, .. }
             | Stmt::Defer { line, column, .. }
@@ -540,6 +558,8 @@ impl Expr {
             | Expr::BinaryAdd { line, column, .. }
             | Expr::BinaryCompare { line, column, .. }
             | Expr::Cast { line, column, .. }
+            | Expr::MutBorrow { line, column, .. }
+            | Expr::Deref { line, column, .. }
             | Expr::Try { line, column, .. }
             | Expr::Await { line, column, .. }
             | Expr::StructLiteral { line, column, .. }
@@ -1472,6 +1492,28 @@ fn parse_stmt(
         let stmt = parse_let_stmt(rest, path, line_no)?;
         *index += 1;
         return Ok(stmt);
+    }
+    if trimmed.starts_with('*')
+        && let Some(equals) = find_top_level_char(trimmed, '=')
+    {
+        let target_raw = trimmed[..equals].trim();
+        let expr_raw = trimmed[equals + 1..].trim();
+        if target_raw.is_empty() || expr_raw.is_empty() {
+            return Err(
+                Diagnostic::new("parse", "assignment must use `target = value` syntax")
+                    .with_path(path.display().to_string())
+                    .with_span(line_no, 1),
+            );
+        }
+        let target = parse_expr(target_raw, path, line_no, 1)?;
+        let expr = parse_expr(expr_raw, path, line_no, equals + 2)?;
+        *index += 1;
+        return Ok(Stmt::Assign {
+            target,
+            expr,
+            line: line_no,
+            column: 1,
+        });
     }
     if let Some(rest) = trimmed.strip_prefix("print ") {
         let expr = parse_expr(rest, path, line_no, 7)?;
@@ -2487,6 +2529,23 @@ fn parse_type_name(
             column + 6,
         )?)));
     }
+    if let Some(inner) = raw.strip_prefix("&mut ") {
+        let inner = inner.trim();
+        if inner.is_empty() {
+            return Err(Diagnostic::new(
+                "parse",
+                "mutable reference type is missing an inner type",
+            )
+            .with_path(path.display().to_string())
+            .with_span(line_no, column));
+        }
+        return Ok(TypeName::MutRef(Box::new(parse_type_name(
+            inner,
+            path,
+            line_no,
+            column + 5,
+        )?)));
+    }
     if raw.starts_with("&[")
         && raw.ends_with(']')
         && matches!(find_matching_square(raw, 1), Some(close) if close == raw.len() - 1)
@@ -2998,6 +3057,36 @@ fn parse_term(raw: &str, path: &Path, line_no: usize, column: usize) -> Result<E
     }
     if let Ok(value) = raw.parse::<i64>() {
         return Ok(Expr::Literal(Literal::Int(value)));
+    }
+    if let Some(inner) = raw.strip_prefix("&mut ") {
+        let inner = inner.trim();
+        if inner.is_empty() {
+            return Err(
+                Diagnostic::new("parse", "mutable borrow expression is missing a target")
+                    .with_path(path.display().to_string())
+                    .with_span(line_no, column),
+            );
+        }
+        return Ok(Expr::MutBorrow {
+            expr: Box::new(parse_expr(inner, path, line_no, column + 5)?),
+            line: line_no,
+            column,
+        });
+    }
+    if let Some(inner) = raw.strip_prefix('*') {
+        let inner = inner.trim();
+        if inner.is_empty() {
+            return Err(
+                Diagnostic::new("parse", "dereference expression is missing a target")
+                    .with_path(path.display().to_string())
+                    .with_span(line_no, column),
+            );
+        }
+        return Ok(Expr::Deref {
+            expr: Box::new(parse_expr(inner, path, line_no, column + 1)?),
+            line: line_no,
+            column,
+        });
     }
     if raw.ends_with(')')
         && let Some(open_paren) = find_top_level_char(raw, '(')

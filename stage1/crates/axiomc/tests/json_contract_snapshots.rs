@@ -69,7 +69,9 @@ fn cli_json_outputs_validate_against_public_v1_schema() {
             "{label} payload missing required `ok` field"
         );
         assert_eq!(
-            output["command"].as_str().map(|s| s.split(' ').next().unwrap_or(s)),
+            output["command"]
+                .as_str()
+                .map(|s| s.split(' ').next().unwrap_or(s)),
             Some(label),
             "{label} payload command field drifted"
         );

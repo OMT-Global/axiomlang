@@ -754,8 +754,8 @@ mod tests {
         };
         publish_package(&project, &registry, &opts).expect("initial publish");
 
-        let error = publish_package(&project, &registry, &opts)
-            .expect_err("duplicate publish should fail");
+        let error =
+            publish_package(&project, &registry, &opts).expect_err("duplicate publish should fail");
 
         assert_eq!(error.kind, "publish");
         assert!(error.message.contains("already exists"));
@@ -793,16 +793,18 @@ mod tests {
         let signature = fs::read_to_string(release.join("package.axp.sig")).expect("read sig");
 
         let tampered = b"AXIOM_PACKAGE_ARCHIVE_V1\n--- file evil.ax 4 ---\nevil\n";
-        let error =
-            verify_archive_integrity("core", "1.0.0", tampered, &signature, "test-key")
-                .expect_err("tampered archive should fail");
+        let error = verify_archive_integrity("core", "1.0.0", tampered, &signature, "test-key")
+            .expect_err("tampered archive should fail");
         assert!(error.message.contains("archive hash mismatch"));
 
         let original = fs::read(release.join("package.axp")).expect("read archive");
-        let error =
-            verify_archive_integrity("core", "1.0.0", &original, &signature, "wrong-key")
-                .expect_err("wrong key should fail");
-        assert!(error.message.contains("does not match supplied signing key"));
+        let error = verify_archive_integrity("core", "1.0.0", &original, &signature, "wrong-key")
+            .expect_err("wrong key should fail");
+        assert!(
+            error
+                .message
+                .contains("does not match supplied signing key")
+        );
     }
 
     #[test]

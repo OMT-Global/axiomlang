@@ -2860,6 +2860,9 @@ fn stmt_uses_call(stmt: &Stmt, name: &str) -> bool {
                     .iter()
                     .any(|arm| arm.body.iter().any(|stmt| stmt_uses_call(stmt, name)))
         }
+        Stmt::Assign { target, expr, .. } => {
+            expr_uses_call(target, name) || expr_uses_call(expr, name)
+        }
     }
 }
 
@@ -2876,7 +2879,9 @@ fn expr_uses_call(expr: &Expr, name: &str) -> bool {
         Expr::Cast { expr, .. } => expr_uses_call(expr, name),
         Expr::Try { expr, .. }
         | Expr::Await { expr, .. }
-        | Expr::FieldAccess { base: expr, .. } => expr_uses_call(expr, name),
+        | Expr::FieldAccess { base: expr, .. }
+        | Expr::MutBorrow { expr, .. }
+        | Expr::Deref { expr, .. } => expr_uses_call(expr, name),
         Expr::StructLiteral { fields, .. } => {
             fields.iter().any(|field| expr_uses_call(&field.expr, name))
         }
@@ -2960,7 +2965,7 @@ impl<'a> TypeContext<'a> {
             | Type::Ptr(_)
             | Type::MutPtr(_) => false,
             Type::Str => true,
-            Type::Slice(_) | Type::MutSlice(_) => true,
+            Type::Slice(_) | Type::MutSlice(_) | Type::MutRef(_) => true,
             Type::Struct(name) => {
                 if !visiting_structs.insert(name.clone()) {
                     return false;
@@ -3311,6 +3316,7 @@ fn rust_ffi_type(ty: &Type, type_context: &TypeContext<'_>) -> String {
         Type::String => String::from("*const c_char"),
         Type::Ptr(inner) => format!("*const {}", rust_type(inner, type_context)),
         Type::MutPtr(inner) => format!("*mut {}", rust_type(inner, type_context)),
+        Type::MutRef(inner) => format!("&mut {}", rust_type(inner, type_context)),
         _ => rust_type(ty, type_context),
     }
 }
@@ -3344,6 +3350,7 @@ fn collect_mutably_borrowed_locals(stmts: &[Stmt]) -> HashSet<String> {
 fn collect_stmt_mutable_borrows(stmt: &Stmt, locals: &mut HashSet<String>) {
     match stmt {
         Stmt::Let { expr, .. }
+        | Stmt::Assign { expr, .. }
         | Stmt::Print { expr, .. }
         | Stmt::Defer { expr, .. }
         | Stmt::Return { expr, .. } => collect_expr_mutable_borrows(expr, locals),
@@ -3413,6 +3420,12 @@ fn collect_expr_mutable_borrows(expr: &Expr, locals: &mut HashSet<String>) {
                 collect_expr_mutable_borrows(end, locals);
             }
         }
+        Expr::MutBorrow { expr, .. } => {
+            if let Some(name) = mutable_borrow_root_name(expr) {
+                locals.insert(name.to_string());
+            }
+            collect_expr_mutable_borrows(expr, locals);
+        }
         Expr::Call { args, .. }
         | Expr::TupleLiteral { elements: args, .. }
         | Expr::ArrayLiteral { elements: args, .. } => {
@@ -3428,6 +3441,7 @@ fn collect_expr_mutable_borrows(expr: &Expr, locals: &mut HashSet<String>) {
         | Expr::Await { expr, .. }
         | Expr::Cast { expr, .. }
         | Expr::StringBorrow { expr, .. }
+        | Expr::Deref { expr, .. }
         | Expr::FieldAccess { base: expr, .. }
         | Expr::TupleIndex { base: expr, .. } => collect_expr_mutable_borrows(expr, locals),
         Expr::StructLiteral { fields, .. } => {
@@ -3530,6 +3544,14 @@ fn render_stmt(
                 "{pad}let {mutability}{name}: {} = {};
 ",
                 rust_type(ty, type_context),
+                render_expr(expr)
+            ));
+        }
+        Stmt::Assign { target, expr, span } => {
+            render_source_marker(source_path, *span, out, indent, debug);
+            out.push_str(&format!(
+                "{pad}{} = {};\n",
+                render_expr(target),
                 render_expr(expr)
             ));
         }
@@ -4195,7 +4217,11 @@ fn render_expr(expr: &Expr) -> String {
             Type::Bool => unreachable!("type checker rejects bool addition"),
             Type::Struct(_) => unreachable!("type checker rejects struct addition"),
             Type::Enum(_) => unreachable!("type checker rejects enum addition"),
-            Type::Ptr(_) | Type::MutPtr(_) | Type::Slice(_) | Type::MutSlice(_) => {
+            Type::Ptr(_)
+            | Type::MutPtr(_)
+            | Type::MutRef(_)
+            | Type::Slice(_)
+            | Type::MutSlice(_) => {
                 unreachable!("type checker rejects slice addition")
             }
             Type::Option(_) => unreachable!("type checker rejects option addition"),
@@ -4217,6 +4243,8 @@ fn render_expr(expr: &Expr) -> String {
             render_expr(expr),
             rust_type(ty, &TypeContext::empty())
         ),
+        Expr::MutBorrow { expr, .. } => format!("&mut {}", render_expr(expr)),
+        Expr::Deref { expr, .. } => format!("*{}", render_expr(expr)),
         Expr::Try { expr, .. } => format!("({})?", render_expr(expr)),
         Expr::Await { expr, .. } => format!("axiom_await({})", render_expr(expr)),
         Expr::StructLiteral { name, fields, .. } => {
@@ -4433,6 +4461,9 @@ fn rust_type_inner(ty: &Type, lifetime: Option<&str>, type_context: &TypeContext
         }
         Type::MutPtr(inner) => {
             format!("*mut {}", rust_type_inner(inner, lifetime, type_context))
+        }
+        Type::MutRef(inner) => {
+            format!("&mut {}", rust_type_inner(inner, lifetime, type_context))
         }
         Type::Slice(inner) => {
             let inner = rust_type_inner(inner, lifetime, type_context);

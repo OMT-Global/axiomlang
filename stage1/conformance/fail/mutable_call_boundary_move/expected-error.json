@@ -3,6 +3,6 @@
   "code": "move_while_borrowed",
   "message": "cannot move value \"values\" while borrowed slices are still live",
   "path": "src/main.ax",
-  "line": 0,
-  "column": 0
+  "line": 7,
+  "column": 7
 }

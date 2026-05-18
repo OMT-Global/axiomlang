@@ -1,0 +1,4 @@
+let value: int = 1
+let local: &mut int = &mut value
+print value
+print *local

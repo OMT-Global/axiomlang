@@ -2356,8 +2356,9 @@ fn run_manifest_compile_fail_case(
         expected_stderr: None,
         expected_error: Some(expected),
         duration_ms: started.elapsed().as_millis() as u64,
-        error: mismatch
-            .map(|message| Diagnostic::new("test", message).with_path(entry_path.display().to_string())),
+        error: mismatch.map(|message| {
+            Diagnostic::new("test", message).with_path(entry_path.display().to_string())
+        }),
     }
 }
 
@@ -2897,6 +2898,10 @@ fn collect_hir_stmt_intrinsic_use(
         | hir::Stmt::Return { expr, span } => {
             collect_hir_expr_intrinsic_use(module_path, expr, span.line, span.column, uses)
         }
+        hir::Stmt::Assign { target, expr, span } => {
+            collect_hir_expr_intrinsic_use(module_path, target, span.line, span.column, uses);
+            collect_hir_expr_intrinsic_use(module_path, expr, span.line, span.column, uses);
+        }
         hir::Stmt::Panic { message, span } => {
             collect_hir_expr_intrinsic_use(module_path, message, span.line, span.column, uses)
         }
@@ -2966,7 +2971,9 @@ fn collect_hir_expr_intrinsic_use(
         hir::Expr::Cast { expr, .. }
         | hir::Expr::Try { expr, .. }
         | hir::Expr::Await { expr, .. }
-        | hir::Expr::StringBorrow { expr, .. } => {
+        | hir::Expr::StringBorrow { expr, .. }
+        | hir::Expr::MutBorrow { expr, .. }
+        | hir::Expr::Deref { expr, .. } => {
             collect_hir_expr_intrinsic_use(module_path, expr, fallback_line, fallback_column, uses)
         }
         hir::Expr::StructLiteral { fields, .. } => {
@@ -3107,6 +3114,10 @@ fn validate_stmt_capabilities(
         | syntax::Stmt::Return { expr, .. } => {
             validate_expr_capabilities(module_path, expr, capabilities)?;
         }
+        syntax::Stmt::Assign { target, expr, .. } => {
+            validate_expr_capabilities(module_path, target, capabilities)?;
+            validate_expr_capabilities(module_path, expr, capabilities)?;
+        }
         syntax::Stmt::If {
             cond,
             then_block,
@@ -3215,7 +3226,10 @@ fn validate_expr_capabilities(
         syntax::Expr::Cast { expr, .. } => {
             validate_expr_capabilities(module_path, expr, capabilities)
         }
-        syntax::Expr::Try { expr, .. } | syntax::Expr::Await { expr, .. } => {
+        syntax::Expr::Try { expr, .. }
+        | syntax::Expr::Await { expr, .. }
+        | syntax::Expr::MutBorrow { expr, .. }
+        | syntax::Expr::Deref { expr, .. } => {
             validate_expr_capabilities(module_path, expr, capabilities)
         }
         syntax::Expr::StructLiteral { fields, .. } => {
@@ -4002,6 +4016,7 @@ fn format_type_name(ty: &syntax::TypeName) -> String {
         ),
         syntax::TypeName::Ptr(inner) => format!("&{}", format_type_name(inner)),
         syntax::TypeName::MutPtr(inner) => format!("&mut {}", format_type_name(inner)),
+        syntax::TypeName::MutRef(inner) => format!("&mut {}", format_type_name(inner)),
         syntax::TypeName::Slice(inner) => format!("&[{}]", format_type_name(inner)),
         syntax::TypeName::MutSlice(inner) => format!("&mut [{}]", format_type_name(inner)),
         syntax::TypeName::LifetimeSlice(lifetime, inner) => {
@@ -4577,6 +4592,37 @@ fn rewrite_stmt(
             line: *line,
             column: *column,
         },
+        syntax::Stmt::Assign {
+            target,
+            expr,
+            line,
+            column,
+        } => syntax::Stmt::Assign {
+            target: rewrite_expr(
+                target,
+                visible_functions,
+                visible_consts,
+                visible_structs,
+                visible_types,
+                private_imported,
+                private_imported_consts,
+                private_imported_types,
+                module_path,
+            )?,
+            expr: rewrite_expr(
+                expr,
+                visible_functions,
+                visible_consts,
+                visible_structs,
+                visible_types,
+                private_imported,
+                private_imported_consts,
+                private_imported_types,
+                module_path,
+            )?,
+            line: *line,
+            column: *column,
+        },
         syntax::Stmt::Panic { expr, line, column } => syntax::Stmt::Panic {
             expr: rewrite_expr(
                 expr,
@@ -5114,6 +5160,36 @@ fn rewrite_expr(
             line: *line,
             column: *column,
         },
+        syntax::Expr::MutBorrow { expr, line, column } => syntax::Expr::MutBorrow {
+            expr: Box::new(rewrite_expr(
+                expr,
+                visible_functions,
+                visible_consts,
+                visible_structs,
+                visible_types,
+                private_imported,
+                private_imported_consts,
+                private_imported_types,
+                module_path,
+            )?),
+            line: *line,
+            column: *column,
+        },
+        syntax::Expr::Deref { expr, line, column } => syntax::Expr::Deref {
+            expr: Box::new(rewrite_expr(
+                expr,
+                visible_functions,
+                visible_consts,
+                visible_structs,
+                visible_types,
+                private_imported,
+                private_imported_consts,
+                private_imported_types,
+                module_path,
+            )?),
+            line: *line,
+            column: *column,
+        },
         syntax::Expr::Await { expr, line, column } => syntax::Expr::Await {
             expr: Box::new(rewrite_expr(
                 expr,
@@ -5487,6 +5563,17 @@ fn rewrite_type_name(
         )?))),
         syntax::TypeName::MutPtr(inner) => {
             Ok(syntax::TypeName::MutPtr(Box::new(rewrite_type_name(
+                inner,
+                visible_consts,
+                visible_types,
+                private_imported_types,
+                module_path,
+                line,
+                column,
+            )?)))
+        }
+        syntax::TypeName::MutRef(inner) => {
+            Ok(syntax::TypeName::MutRef(Box::new(rewrite_type_name(
                 inner,
                 visible_consts,
                 visible_types,
@@ -6253,6 +6340,7 @@ fn stmt_line(stmt: &syntax::Stmt) -> usize {
         | syntax::Stmt::IfLet { line, .. }
         | syntax::Stmt::While { line, .. }
         | syntax::Stmt::Match { line, .. }
+        | syntax::Stmt::Assign { line, .. }
         | syntax::Stmt::Return { line, .. } => *line,
     }
 }
@@ -6267,6 +6355,7 @@ fn stmt_column(stmt: &syntax::Stmt) -> usize {
         | syntax::Stmt::IfLet { column, .. }
         | syntax::Stmt::While { column, .. }
         | syntax::Stmt::Match { column, .. }
+        | syntax::Stmt::Assign { column, .. }
         | syntax::Stmt::Return { column, .. } => *column,
     }
 }

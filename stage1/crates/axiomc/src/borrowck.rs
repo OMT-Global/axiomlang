@@ -214,7 +214,7 @@ fn contains_borrowed_slice_type_inner(
     visiting_enums: &mut HashSet<String>,
 ) -> bool {
     match ty {
-        Type::Slice(_) | Type::MutSlice(_) | Type::Str => true,
+        Type::Slice(_) | Type::MutSlice(_) | Type::MutRef(_) | Type::Str => true,
         Type::Option(inner) => contains_borrowed_slice_type_inner(
             inner,
             structs,
@@ -340,7 +340,7 @@ fn contains_mut_borrowed_slice_type_inner(
     visiting_enums: &mut HashSet<String>,
 ) -> bool {
     match ty {
-        Type::MutSlice(_) => true,
+        Type::MutSlice(_) | Type::MutRef(_) => true,
         Type::Slice(_)
         | Type::Error
         | Type::Int

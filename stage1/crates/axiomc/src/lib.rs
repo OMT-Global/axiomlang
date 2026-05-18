@@ -8001,8 +8001,8 @@ print serve_health("127.0.0.1:18080", 1, started)
     fn conformance_corpus_reports_stable_results() {
         let output =
             run_project_tests(&conformance_fixture()).expect("run stage1 conformance corpus");
-        assert_eq!(output.cases.len(), 82);
-        assert_eq!(output.passed, 82);
+        assert_eq!(output.cases.len(), 85);
+        assert_eq!(output.passed, 85);
         let failures: Vec<_> = output
             .cases
             .iter()
@@ -8016,7 +8016,7 @@ print serve_health("127.0.0.1:18080", 1, started)
                 .iter()
                 .filter(|case| case.expected_error.is_some())
                 .count(),
-            59
+            61
         );
         assert_eq!(
             output
@@ -8024,7 +8024,7 @@ print serve_health("127.0.0.1:18080", 1, started)
                 .iter()
                 .filter(|case| case.expected_stdout.is_some())
                 .count(),
-            21
+            22
         );
         assert_eq!(
             output
@@ -10001,11 +10001,33 @@ print takes_two(three)
     }
 
     #[test]
+    fn build_project_accepts_mutable_local_borrow_write_through() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("mut-local-borrow");
+        create_project(&project, Some("mut-local-borrow-app")).expect("create project");
+        fs::write(
+            project.join("src/main.ax"),
+            "let value: string = \"alpha\"\nlet local: &mut string = &mut value\n*local = \"beta\"\nprint *local\n",
+        )
+        .expect("write source");
+
+        let built = build_project(&project).expect("build project");
+        let generated = fs::read_to_string(&built.generated_rust).expect("read generated rust");
+        assert!(generated.contains("let mut value: String"));
+        assert!(generated.contains("let local: &mut String = &mut value;"));
+        assert!(generated.contains("*local = String::from(\"beta\");"));
+        let output = compiled_binary_command(&built.binary)
+            .output()
+            .expect("run compiled binary");
+        assert!(output.status.success());
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "beta\n");
+    }
+
+    #[test]
     fn build_project_accepts_mutable_slice_parameter_call_and_releases_owner() {
         let dir = tempdir().expect("tempdir");
         let project = dir.path().join("mut-slice-param-call-release");
-        create_project(&project, Some("mut-slice-param-call-release-app"))
-            .expect("create project");
+        create_project(&project, Some("mut-slice-param-call-release-app")).expect("create project");
         fs::write(
             project.join("src/main.ax"),
             "fn measure(values: &mut [int]): int {\nprint len(values)\nreturn first(values)\n}\nlet values: [int] = [5, 8, 13]\nprint measure(values[:])\nprint first(values)\n",
@@ -10018,6 +10040,26 @@ print takes_two(three)
             .expect("run compiled binary");
         assert!(output.status.success());
         assert_eq!(String::from_utf8_lossy(&output.stdout), "3\n5\n5\n");
+    }
+
+    #[test]
+    fn check_project_rejects_moving_owned_value_while_mutable_local_borrow_is_live() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("mut-local-borrow-move");
+        create_project(&project, Some("mut-local-borrow-move-app")).expect("create project");
+        fs::write(
+            project.join("src/main.ax"),
+            "let value: string = \"alpha\"\nlet local: &mut string = &mut value\nprint value\nprint *local\n",
+        )
+        .expect("write source");
+        let error =
+            check_project(&project).expect_err("moving a mutably borrowed value should fail");
+        assert!(
+            error
+                .message
+                .contains("cannot move value \"value\" while borrowed slices are still live")
+        );
+        assert_eq!(error.kind, "ownership");
     }
 
     #[test]
