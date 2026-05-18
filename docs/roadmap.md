@@ -1,7 +1,15 @@
 # Roadmap
 
-This file tracks the Rust compiler line under `stage1/`. New work should target
-the Rust-only `axiomc` workflow.
+This file tracks the Rust compiler line under `stage1/` and the emerging
+agent-native semantic layer above it. New implementation work should target the
+Rust-only `axiomc` workflow unless a linked issue explicitly defines another
+target.
+
+For the agent-native direction, see [vision.md](vision.md). For the boundary
+between Rust implementation details and Axiom semantics, see
+[rust-bootstrap-boundary.md](rust-bootstrap-boundary.md). For backend and
+implementation-language positioning, see
+[positioning/implementation-languages.md](positioning/implementation-languages.md).
 
 For issue-level roadmap disposition, current execution scope, and deferred
 ecosystem work, see the [Roadmap Status Ledger](roadmap-status.md).
@@ -30,6 +38,9 @@ implementation surfaces; see
   denials, module visibility, and cross-package behavior.
 - Improve diagnostics with richer spans, notes, and stable machine-readable
   error codes.
+- Introduce the agent-native semantic lane schema-first and fixture-backed:
+  Intent IR, effect graph, evidence model, artifact plan, provenance, and
+  structured repair plans.
 - Continue the agent-grade compiler milestone in
   [stage1-agent-grade-compiler.md](stage1-agent-grade-compiler.md).
 
@@ -38,3 +49,5 @@ implementation surfaces; see
 - Direct backend replacement for the generated-Rust path.
 - Formatter, benchmark harness, doc generator, publisher, and LSP support.
 - Service-grade async and I/O runtime surfaces.
+- Backend target interfaces for code, service contracts, policy bundles,
+  infrastructure modules, documentation, and runbooks.

@@ -1,7 +1,12 @@
 # Axiom
 
-Axiom is a small experimental programming language. The supported toolchain is
-the Rust bootstrap compiler in `stage1/`.
+Axiom is an agent-native typed intent and semantic construction system. It
+defines what must be true, which effects are allowed, what evidence proves a
+change, and which artifacts should be produced. The current implementation is a
+Rust-hosted stage1 compiler and generated-Rust backend, but Rust is a bootstrap
+host and backend target rather than the ontology of the language.
+
+The supported toolchain today is the Rust bootstrap compiler in `stage1/`.
 
 Python `stage0` and its bytecode VM are not supported execution paths; see
 [docs/python-exit-vm-disposition.md](docs/python-exit-vm-disposition.md) and
@@ -18,6 +23,12 @@ Axiom currently supports a Rust-only `axiomc` workflow with:
 - `check`, `build`, `run`, `test`, and capability inspection commands.
 - A stage1 conformance corpus under `stage1/conformance`.
 - Synthetic standard library modules under the `std/` import prefix.
+
+The semantic layer is being introduced incrementally. See
+[docs/vision.md](docs/vision.md), [docs/rust-bootstrap-boundary.md](docs/rust-bootstrap-boundary.md),
+and [docs/positioning/implementation-languages.md](docs/positioning/implementation-languages.md)
+for the agent-native direction and the boundary between Axiom semantics,
+compiler implementation layers, and backend targets.
 
 Use `cargo run --manifest-path stage1/Cargo.toml -p axiomc -- ...` or the Make
 targets below.
