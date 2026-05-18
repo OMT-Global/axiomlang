@@ -1,0 +1,8 @@
+fn measure(values: &mut [int]): int {
+print len(values)
+return first(values)
+}
+
+let values: [int] = [5, 8, 13]
+print measure(values[:])
+print first(values)
