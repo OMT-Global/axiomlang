@@ -617,6 +617,31 @@ fn axiom_async_recv<T: Send + 'static>(channel: AxiomChannel<T>) -> AxiomTask<Op
     out.push_str("        Err(_) => -1,\n");
     out.push_str("    }\n");
     out.push_str("}\n\n");
+    out.push_str("#[allow(dead_code)]\n");
+    out.push_str("fn axiom_io_readline() -> Option<String> {\n");
+    out.push_str("    let stdin = std::io::stdin();\n");
+    out.push_str("    let mut handle = stdin.lock();\n");
+    out.push_str("    let mut line = String::new();\n");
+    out.push_str("    match std::io::BufRead::read_line(&mut handle, &mut line) {\n");
+    out.push_str("        Ok(0) => None,\n");
+    out.push_str("        Ok(_) => {\n");
+    out.push_str("            if line.ends_with('\\n') { line.pop(); }\n");
+    out.push_str("            if line.ends_with('\\r') { line.pop(); }\n");
+    out.push_str("            Some(line)\n");
+    out.push_str("        }\n");
+    out.push_str("        Err(_) => None,\n");
+    out.push_str("    }\n");
+    out.push_str("}\n\n");
+    out.push_str("#[allow(dead_code)]\n");
+    out.push_str("fn axiom_io_read_to_string() -> String {\n");
+    out.push_str("    let stdin = std::io::stdin();\n");
+    out.push_str("    let mut handle = stdin.lock();\n");
+    out.push_str("    let mut content = String::new();\n");
+    out.push_str("    match std::io::Read::read_to_string(&mut handle, &mut content) {\n");
+    out.push_str("        Ok(_) => content,\n");
+    out.push_str("        Err(_) => String::new(),\n");
+    out.push_str("    }\n");
+    out.push_str("}\n\n");
     out.push_str(
         r##"#[allow(dead_code)]
 fn axiom_json_escape(value: &str) -> String {
@@ -3881,6 +3906,14 @@ fn render_expr(expr: &Expr) -> String {
         }
         Expr::Call { name, args, .. } if name == "io_eprintln" => {
             format!("axiom_io_eprintln({})", render_expr(&args[0]))
+        }
+        Expr::Call { name, args, .. } if name == "io_readline" => {
+            debug_assert!(args.is_empty());
+            String::from("axiom_io_readline()")
+        }
+        Expr::Call { name, args, .. } if name == "io_read_to_string" => {
+            debug_assert!(args.is_empty());
+            String::from("axiom_io_read_to_string()")
         }
         Expr::Call { name, args, .. } if name == "json_parse_int" => {
             format!("axiom_json_parse_int({})", render_expr(&args[0]))

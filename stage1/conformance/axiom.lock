@@ -421,6 +421,11 @@ version = "0.1.0"
 source = "path:pass/slice_type_alias_in_struct"
 
 [[package]]
+name = "conformance-stdlib-io-stdin"
+version = "0.1.0"
+source = "path:pass/stdlib_io_stdin"
+
+[[package]]
 name = "conformance-string-param-by-value"
 version = "0.1.0"
 source = "path:pass/string_param_by_value"

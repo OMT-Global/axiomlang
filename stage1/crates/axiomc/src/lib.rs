@@ -37,8 +37,9 @@ mod tests {
     use crate::syntax::{Stmt, TypeName, Visibility, parse_program, parse_program_with_recovery};
     use serde::Serialize;
     use std::fs;
+    use std::io::Write;
     use std::path::{Path, PathBuf};
-    use std::process::Command;
+    use std::process::{Command, Stdio};
     use tempfile::tempdir;
 
     #[cfg(unix)]
@@ -5705,6 +5706,104 @@ print "missing"
     }
 
     #[test]
+    #[cfg_attr(not(feature = "run-native-tests"), ignore)]
+    fn stage1_project_reads_lines_from_stdlib_io_module() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("stdlib-io-readline-app");
+        create_project(&project, Some("stdlib-io-readline-app")).expect("create project");
+        fs::write(
+            project.join("axiom.toml"),
+            render_manifest_with_capabilities(
+                "stdlib-io-readline-app",
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+            ),
+        )
+        .expect("write manifest");
+        let manifest = load_manifest(&project).expect("load manifest");
+        fs::write(
+            project.join("axiom.lock"),
+            render_lockfile_for_project(&project, &manifest).expect("lockfile"),
+        )
+        .expect("write lockfile");
+        fs::write(
+            project.join("src/main.ax"),
+            "import \"std/io.ax\"\nmatch readline() {\nSome(line) {\nprint line\n}\nNone {\nprint \"missing\"\n}\n}\nmatch readline() {\nSome(line) {\nprint line\n}\nNone {\nprint \"missing\"\n}\n}\n",
+        )
+        .expect("write source");
+
+        let built = build_project(&project).expect("build project");
+        let mut child = compiled_binary_command(&built.binary)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .spawn()
+            .expect("spawn compiled binary");
+        child
+            .stdin
+            .take()
+            .expect("stdin")
+            .write_all(b"alpha\nbeta\n")
+            .expect("write stdin");
+        let output = child.wait_with_output().expect("wait for binary");
+        assert!(output.status.success());
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "alpha\nbeta\n");
+    }
+
+    #[test]
+    #[cfg_attr(not(feature = "run-native-tests"), ignore)]
+    fn stage1_project_reports_eof_from_stdlib_readline() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("stdlib-io-readline-eof-app");
+        create_project(&project, Some("stdlib-io-readline-eof-app")).expect("create project");
+        fs::write(
+            project.join("src/main.ax"),
+            "import \"std/io.ax\"\nmatch readline() {\nSome(line) {\nprint line\n}\nNone {\nprint \"eof\"\n}\n}\n",
+        )
+        .expect("write source");
+
+        let built = build_project(&project).expect("build project");
+        let output = compiled_binary_command(&built.binary)
+            .stdin(Stdio::null())
+            .output()
+            .expect("run compiled binary");
+        assert!(output.status.success());
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "eof\n");
+    }
+
+    #[test]
+    #[cfg_attr(not(feature = "run-native-tests"), ignore)]
+    fn stage1_project_reads_stdin_to_string_from_stdlib_io_module() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("stdlib-io-read-to-string-app");
+        create_project(&project, Some("stdlib-io-read-to-string-app")).expect("create project");
+        fs::write(
+            project.join("src/main.ax"),
+            "import \"std/io.ax\"\nlet content: string = read_to_string()\nprint content\n",
+        )
+        .expect("write source");
+
+        let built = build_project(&project).expect("build project");
+        let mut child = compiled_binary_command(&built.binary)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .spawn()
+            .expect("spawn compiled binary");
+        child
+            .stdin
+            .take()
+            .expect("stdin")
+            .write_all(b"all stdin")
+            .expect("write stdin");
+        let output = child.wait_with_output().expect("wait for binary");
+        assert!(output.status.success());
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "all stdin\n");
+    }
+
+    #[test]
     fn stage1_project_imports_synthetic_stdlib_json_module() {
         // `std/json.ax` stays ungated in stage1: parsing and serialising scalar
         // JSON values does not cross a host capability boundary.
@@ -7123,7 +7222,7 @@ print serve_once("127.0.0.1:18080", "hello")
         fs::write(
             project.join("axiom.toml"),
             format!(
-                "{}\n[[tests]]\nname = \"math-smoke\"\nentry = \"src/math_test.ax\"\nstdout = \"42\\n\"\n",
+                "{}\n[[tests]]\nname = \"math-smoke\"\nentry = \"src/math_test.ax\"\nstdin = \"40\\n\"\nstdout = \"42\\n\"\n",
                 render_manifest("tests-app")
             ),
         )
@@ -7134,6 +7233,7 @@ print serve_once("127.0.0.1:18080", "hello")
             vec![TestTarget {
                 name: String::from("math-smoke"),
                 entry: String::from("src/math_test.ax"),
+                stdin: Some(String::from("40\n")),
                 stdout: Some(String::from("42\n")),
                 stderr: None,
                 kind: TestKind::Unit,
@@ -8001,8 +8101,8 @@ print serve_health("127.0.0.1:18080", 1, started)
     fn conformance_corpus_reports_stable_results() {
         let output =
             run_project_tests(&conformance_fixture()).expect("run stage1 conformance corpus");
-        assert_eq!(output.cases.len(), 85);
-        assert_eq!(output.passed, 85);
+        assert_eq!(output.cases.len(), 87);
+        assert_eq!(output.passed, 87);
         let failures: Vec<_> = output
             .cases
             .iter()
@@ -8024,7 +8124,7 @@ print serve_health("127.0.0.1:18080", 1, started)
                 .iter()
                 .filter(|case| case.expected_stdout.is_some())
                 .count(),
-            22
+            24
         );
         assert_eq!(
             output

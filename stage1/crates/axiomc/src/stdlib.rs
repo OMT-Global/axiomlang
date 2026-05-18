@@ -49,8 +49,8 @@
 //! The eighth through fifteenth modules are stdlib surfaces not tied to a
 //! capability flag, matching the ambient status of the `print` statement:
 //!
-//! * `std/io.ax` — `eprintln(text)` on top of the new ungated `io_eprintln`
-//!   intrinsic (writes a line to stderr and returns bytes written).
+//! * `std/io.ax` — `eprintln(text)`, `readline()`, and `read_to_string()`
+//!   on top of the new ungated `io_*` intrinsics.
 //! * `std/json.ax` — scalar/string JSON parsing plus first-class `JsonValue`
 //!   parsing, composition, nested field lookup, and serialization helpers on
 //!   top of ungated `json_parse_*` / `json_stringify_*` intrinsics.
@@ -182,7 +182,9 @@ pub fn verify_sha512(tag: string, key: string, message: string): bool {\nreturn 
     ),
     (
         "io.ax",
-        "pub fn eprintln(text: string): int {\nreturn io_eprintln(text)\n}\n",
+        "pub fn eprintln(text: string): int {\nreturn io_eprintln(text)\n}\n\
+pub fn readline(): Option<string> {\nreturn io_readline()\n}\n\
+pub fn read_to_string(): string {\nreturn io_read_to_string()\n}\n",
     ),
     (
         "json.ax",

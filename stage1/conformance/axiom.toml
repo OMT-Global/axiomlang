@@ -81,6 +81,7 @@ members = [
   "pass/slice_type_alias_in_option",
   "pass/slice_type_alias_in_signature",
   "pass/slice_type_alias_in_struct",
+  "pass/stdlib_io_stdin",
   "pass/string_param_by_value",
   "pass/struct_field_access",
   "pass/type_system_aggregates",

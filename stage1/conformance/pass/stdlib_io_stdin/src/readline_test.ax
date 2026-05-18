@@ -1,0 +1,19 @@
+import "std/io.ax"
+
+match readline() {
+Some(line) {
+print line
+}
+None {
+print "missing"
+}
+}
+
+match readline() {
+Some(line) {
+print line
+}
+None {
+print "missing"
+}
+}

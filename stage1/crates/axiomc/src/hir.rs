@@ -7168,6 +7168,46 @@ fn lower_expr_with_expected_inner(
                     ty: Type::Int,
                 });
             }
+            if name == "io_readline" {
+                // Ungated: stdin input is ambient, matching `print` and
+                // `io_eprintln` for stdio access. No capability check.
+                if !args.is_empty() {
+                    return Err(Diagnostic::new(
+                        "type",
+                        format!("io_readline expects 0 arguments, got {}", args.len()),
+                    )
+                    .with_span(*line, *column));
+                }
+                return Ok(Expr::Call {
+                    span: SourceSpan {
+                        line: *line,
+                        column: *column,
+                    },
+                    name: name.clone(),
+                    args: Vec::new(),
+                    ty: Type::Option(Box::new(Type::String)),
+                });
+            }
+            if name == "io_read_to_string" {
+                // Ungated: stdin input is ambient, matching `print` and
+                // `io_eprintln` for stdio access. No capability check.
+                if !args.is_empty() {
+                    return Err(Diagnostic::new(
+                        "type",
+                        format!("io_read_to_string expects 0 arguments, got {}", args.len()),
+                    )
+                    .with_span(*line, *column));
+                }
+                return Ok(Expr::Call {
+                    span: SourceSpan {
+                        line: *line,
+                        column: *column,
+                    },
+                    name: name.clone(),
+                    args: Vec::new(),
+                    ty: Type::String,
+                });
+            }
             if name == "json_parse_int" {
                 if args.len() != 1 {
                     return Err(Diagnostic::new(

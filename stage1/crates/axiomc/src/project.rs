@@ -807,6 +807,7 @@ fn collect_discovered_tests(
         tests.push(crate::manifest::TestTarget {
             name: relative.with_extension("").display().to_string(),
             entry: relative.display().to_string(),
+            stdin: None,
             stdout,
             stderr,
             kind,
@@ -2114,6 +2115,9 @@ fn run_test_case(
     let build_output_dir = out_dir_path(project_root, manifest);
     let command_result = if test.http.is_some() {
         run_http_fixture_case(&binary, &build_output_dir, test)
+    } else if let Some(stdin) = &test.stdin {
+        command_for_build_output(&binary, &build_output_dir)
+            .and_then(|command| run_command_with_stdin(command, stdin))
     } else {
         command_for_build_output(&binary, &build_output_dir)
             .and_then(|mut command| command.output())
@@ -2230,6 +2234,18 @@ fn run_test_case(
             ),
         },
     }
+}
+
+fn run_command_with_stdin(mut command: Command, stdin: &str) -> io::Result<std::process::Output> {
+    command
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    let mut child = command.spawn()?;
+    if let Some(mut input) = child.stdin.take() {
+        input.write_all(stdin.as_bytes())?;
+    }
+    child.wait_with_output()
 }
 
 fn run_http_fixture_case(
@@ -6644,6 +6660,7 @@ mod tests {
             crate::manifest::TestTarget {
                 name: "unit".to_string(),
                 entry: "src/unit_test.ax".to_string(),
+                stdin: None,
                 stdout: None,
                 stderr: None,
                 kind: TestKind::Unit,
@@ -6655,6 +6672,7 @@ mod tests {
             crate::manifest::TestTarget {
                 name: "bench".to_string(),
                 entry: "src/demo_bench.ax".to_string(),
+                stdin: None,
                 stdout: None,
                 stderr: None,
                 kind: TestKind::Benchmark,
@@ -6707,6 +6725,7 @@ mod tests {
         manifest.tests.push(crate::manifest::TestTarget {
             name: "manifest_bench".to_string(),
             entry: "src/manifest_bench.ax".to_string(),
+            stdin: None,
             stdout: None,
             stderr: None,
             kind: TestKind::Benchmark,
