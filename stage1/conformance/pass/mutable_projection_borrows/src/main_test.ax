@@ -1,0 +1,10 @@
+struct Pair {
+first: [int]
+second: [int]
+}
+
+let pair: Pair = Pair { first: [1, 2], second: [3, 4, 5] }
+let left: &mut [int] = (pair.first)[:]
+let right: &mut [int] = (pair.second)[:]
+print len(left)
+print len(right)

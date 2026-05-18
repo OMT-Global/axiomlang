@@ -1,0 +1,6 @@
+let status: int = 7
+match status {
+read_y {
+print "bad"
+}
+}

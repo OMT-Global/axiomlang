@@ -64,6 +64,7 @@ pub struct DependencySpec {
 pub struct TestTarget {
     pub name: String,
     pub entry: String,
+    pub stdin: Option<String>,
     pub stdout: Option<String>,
     pub stderr: Option<String>,
     pub kind: TestKind,
@@ -220,6 +221,7 @@ struct RawDependencyDetail {
 struct RawTestTarget {
     name: Option<String>,
     entry: Option<String>,
+    stdin: Option<String>,
     stdout: Option<String>,
     stderr: Option<String>,
     kind: Option<String>,
@@ -1149,6 +1151,7 @@ fn normalize_tests(
         tests.push(TestTarget {
             name,
             entry,
+            stdin: raw_test.stdin,
             stdout: raw_test.stdout,
             stderr: raw_test.stderr,
             kind: normalize_test_kind(raw_test.kind, path, &format!("{field_prefix}.kind"))?,

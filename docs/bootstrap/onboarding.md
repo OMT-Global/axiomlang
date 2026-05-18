@@ -23,6 +23,7 @@ Use this checklist after the first bootstrap render or whenever `project.bootstr
   - `## Governing Issue`
   - `## Validation`
   - `## Bootstrap Governance`
+  - `## Semantic Layer Checklist`
   - `## Notes`
 - Make sure the PR body links or closes the governing issue with an accepted form such as `Closes #262`, `Fixes #262`, `Resolves OMT-Global/axiom#262`, or a full GitHub issue URL.
 - Record the local validation you actually ran so `Validate PR Description` and `CI Gate` can pass cleanly.
@@ -31,6 +32,11 @@ Use this checklist after the first bootstrap render or whenever `project.bootstr
 - Capability manifest changes are checked by `scripts/ci/validate-capability-manifests.sh`
   in the fast lane; update that validator when new `[capabilities]` keys become
   part of the supported manifest contract.
+- Semantic-layer work should be schema-first and fixture-backed. Confirm that
+  PRs touching semantic IR, effects, evidence, artifacts, provenance, repair
+  plans, or backend target contracts list the changed semantic nodes, schema
+  impact, evidence impact, Rust capture check, and agent-facing inspection
+  impact in the PR body.
 
 ## Environments
 
@@ -50,6 +56,8 @@ Use this checklist after the first bootstrap render or whenever `project.bootstr
 
 - `CONTRIBUTING.md` defines the contributor workflow, branch expectations, validation expectations, and secret-handling baseline.
 - `.github/PULL_REQUEST_TEMPLATE.md` defines the standard PR shape: summary, governing issue link, validation notes, and bootstrap governance checklist.
+- `docs/vision.md` and `docs/rust-bootstrap-boundary.md` define the semantic
+  layer vocabulary and the Rust capture boundary for agent-native work.
 - To retrofit an existing bootstrapped repo, add `CONTRIBUTING.md` and `.github/PULL_REQUEST_TEMPLATE.md` to `repo.managedPaths` when that repo restricts managed paths, then run `bootstrap apply repo --manifest ./project.bootstrap.yaml`.
 - Keep these files repo-generic unless project metadata or the manifest requires a stricter local rule.
 

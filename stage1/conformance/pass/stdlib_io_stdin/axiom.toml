@@ -1,0 +1,27 @@
+[package]
+name = "conformance-stdlib-io-stdin"
+version = "0.1.0"
+
+[build]
+entry = "src/readline_test.ax"
+out_dir = "dist"
+
+[capabilities]
+fs = false
+net = false
+process = false
+env = false
+clock = false
+crypto = false
+
+[[tests]]
+name = "readline_echoes_piped_input"
+entry = "src/readline_test.ax"
+stdin = "first\nsecond\n"
+stdout = "first\nsecond\n"
+
+[[tests]]
+name = "read_to_string_reads_to_eof"
+entry = "src/read_to_string_test.ax"
+stdin = "all stdin"
+stdout = "all stdin\n"

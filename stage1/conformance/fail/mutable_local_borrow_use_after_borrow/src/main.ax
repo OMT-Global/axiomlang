@@ -1,0 +1,4 @@
+let value: string = "alpha"
+let local: &mut string = &mut value
+print value
+print *local

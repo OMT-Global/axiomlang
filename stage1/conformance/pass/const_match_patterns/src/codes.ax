@@ -1,0 +1,1 @@
+pub const READY: int = 7

@@ -1213,6 +1213,7 @@ fn render_type(ty: &axiomc::syntax::TypeName) -> String {
         ),
         TypeName::Ptr(inner) => format!("ptr<{}>", render_type(inner)),
         TypeName::MutPtr(inner) => format!("mut ptr<{}>", render_type(inner)),
+        TypeName::MutRef(inner) => format!("&mut {}", render_type(inner)),
         TypeName::Slice(inner) => format!("&[{}]", render_type(inner)),
         TypeName::MutSlice(inner) => format!("&mut [{}]", render_type(inner)),
         TypeName::LifetimeSlice(lifetime, inner) => {
@@ -1272,6 +1273,10 @@ fn collect_stmt_capabilities(stmt: &axiomc::syntax::Stmt, capabilities: &mut Vec
         | Stmt::Panic { expr, .. }
         | Stmt::Defer { expr, .. }
         | Stmt::Return { expr, .. } => collect_expr_capabilities(expr, capabilities),
+        Stmt::Assign { target, expr, .. } => {
+            collect_expr_capabilities(target, capabilities);
+            collect_expr_capabilities(expr, capabilities);
+        }
         Stmt::If {
             cond,
             then_block,
@@ -1338,7 +1343,11 @@ fn collect_expr_capabilities(expr: &axiomc::syntax::Expr, capabilities: &mut Vec
             collect_expr_capabilities(lhs, capabilities);
             collect_expr_capabilities(rhs, capabilities);
         }
-        Expr::Cast { expr, .. } | Expr::Try { expr, .. } | Expr::Await { expr, .. } => {
+        Expr::Cast { expr, .. }
+        | Expr::Try { expr, .. }
+        | Expr::Await { expr, .. }
+        | Expr::MutBorrow { expr, .. }
+        | Expr::Deref { expr, .. } => {
             collect_expr_capabilities(expr, capabilities);
         }
         Expr::StructLiteral { fields, .. } => {
@@ -1404,11 +1413,13 @@ fn capability_for_call(name: &str) -> Option<&'static str> {
         | "crypto_hmac_sha256"
         | "crypto_hmac_sha512"
         | "crypto_constant_time_eq"
+        | "crypto_constant_time_eq_u8"
         | "hmac_sha256"
         | "hmac_sha512"
         | "verify_sha256"
         | "verify_sha512"
-        | "constant_time_eq" => Some("crypto"),
+        | "constant_time_eq"
+        | "constant_time_eq_u8" => Some("crypto"),
         _ => None,
     }
 }

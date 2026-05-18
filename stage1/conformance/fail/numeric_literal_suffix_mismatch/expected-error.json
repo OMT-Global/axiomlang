@@ -1,0 +1,7 @@
+{
+  "kind": "type",
+  "message": "let binding \"x\" expects i64, got i32",
+  "path": "src/main.ax",
+  "line": 1,
+  "column": 1
+}

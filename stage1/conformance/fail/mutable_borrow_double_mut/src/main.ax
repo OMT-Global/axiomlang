@@ -1,0 +1,5 @@
+let values: [int] = [1, 2, 3]
+let first: &mut [int] = values[:]
+let second: &mut [int] = values[:]
+print len(first)
+print len(second)
