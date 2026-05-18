@@ -10,6 +10,7 @@ use crate::hir::{EnumDef, StructDef, Type};
 use std::collections::{HashMap, HashSet};
 
 pub(crate) const LOOP_MOVE_OUTER_NON_COPY: &str = "loop_move_outer_non_copy";
+pub(crate) const BORROW_RETURN_ORIGIN_AMBIGUOUS: &str = "borrow_return_origin_ambiguous";
 pub(crate) const BORROW_RETURN_REQUIRES_PARAM_ORIGIN: &str = "borrow_return_requires_param_origin";
 pub(crate) const MOVE_WHILE_BORROWED: &str = "move_while_borrowed";
 pub(crate) const USE_AFTER_MOVE: &str = "use_after_move";
@@ -177,6 +178,15 @@ pub(crate) fn classify_borrow_return(
             "type",
             "borrowed return functions must take at least one borrowed parameter in stage1",
         )
+        .with_span(line, column));
+    }
+    if matches.len() > 1 {
+        return Err(Diagnostic::new(
+            "type",
+            "cannot infer which parameter the returned borrow originates from; this case will require an explicit annotation when origin syntax lands",
+        )
+        .with_code(BORROW_RETURN_ORIGIN_AMBIGUOUS)
+        .with_help("return an owned value, reduce the borrowed parameters to a single origin, or wait for explicit origin annotation syntax")
         .with_span(line, column));
     }
     Ok(matches)

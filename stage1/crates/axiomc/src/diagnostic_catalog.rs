@@ -44,6 +44,14 @@ pub const STABLE_DIAGNOSTIC_CODES: &[DiagnosticCodeInfo] = &[
         suggested_fix: "Return owned data, or derive the borrowed return from a borrowed parameter.",
     },
     DiagnosticCodeInfo {
+        code: "borrow_return_origin_ambiguous",
+        kind: "type",
+        title: "Ambiguous borrowed return origin",
+        explanation: "A function returned a borrowed value while more than one borrowed parameter could be the origin.",
+        example: "fn pick(a: &[int], b: &[int], use_a: bool): &[int] {\n  if use_a { return a[0:1] }\n  return b[0:1]\n}",
+        suggested_fix: "Return an owned value, reduce the borrowed parameters to a single origin, or wait for explicit origin annotation syntax.",
+    },
+    DiagnosticCodeInfo {
         code: "mutable_borrow_while_shared_live",
         kind: "ownership",
         title: "Mutable borrow while shared borrow is live",
@@ -138,6 +146,7 @@ mod tests {
         assert!(codes.contains(&"move_while_borrowed"));
         assert!(codes.contains(&"loop_move_outer_non_copy"));
         assert!(codes.contains(&"borrow_return_requires_param_origin"));
+        assert!(codes.contains(&"borrow_return_origin_ambiguous"));
         assert!(codes.contains(&"mutable_borrow_while_shared_live"));
         assert!(codes.contains(&"shared_borrow_while_mutable_live"));
         assert!(codes.contains(&"mutable_borrow_while_mutable_live"));

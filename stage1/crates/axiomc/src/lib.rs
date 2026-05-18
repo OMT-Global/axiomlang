@@ -2027,7 +2027,7 @@ let bad: u8 = byte.wrapping_add(1u16)
     }
 
     #[test]
-    fn build_project_emits_native_binary_with_multi_param_borrow_returns() {
+    fn check_project_rejects_wrapped_multi_param_borrow_returns() {
         let dir = tempdir().expect("tempdir");
         let project = dir.path().join("multi-param-borrow-returns");
         create_project(&project, Some("multi-param-borrow-returns-app")).expect("create project");
@@ -2036,11 +2036,13 @@ let bad: u8 = byte.wrapping_add(1u16)
             "fn choose(left: &[int], right: &[int], pick_left: bool): Option<&[int]> {\nif pick_left {\nreturn Some(left[1:])\n}\nreturn Some(right[1:])\n}\n\nlet left: [int] = [3, 7, 9]\nlet right: [int] = [40, 42, 44]\nmatch choose(left[:], right[:], false) {\nSome(window) {\nprint first(window)\n}\nNone {\nprint 0\n}\n}\nprint first(left)\nprint first(right)\n",
         )
         .expect("write source");
-        let built = build_project(&project).expect("build project");
-        let output = compiled_binary_command(&built.binary)
-            .output()
-            .expect("run compiled binary");
-        assert_eq!(String::from_utf8_lossy(&output.stdout), "42\n3\n40\n");
+        let error =
+            check_project(&project).expect_err("wrapped multi-param borrow return should fail");
+        assert!(error.message.contains(
+            "cannot infer which parameter the returned borrow originates from; this case will require an explicit annotation when origin syntax lands"
+        ));
+        assert_eq!(error.code.as_deref(), Some("borrow_return_origin_ambiguous"));
+        assert_eq!(error.kind, "type");
     }
 
     #[test]
@@ -7909,49 +7911,62 @@ print false
     #[test]
     fn ownership_compile_fail_corpus_reports_stable_codes() {
         let cases = [
-            ("use_after_move", "use_after_move", "use of moved value"),
+            ("use_after_move", "ownership", "use_after_move", "use of moved value"),
             (
                 "borrow_return_requires_param_origin",
+                "ownership",
                 "borrow_return_requires_param_origin",
                 "returning borrowed values requires data derived from one of the borrowed parameters",
             ),
             (
+                "borrow_return_origin_ambiguous",
+                "type",
+                "borrow_return_origin_ambiguous",
+                "cannot infer which parameter the returned borrow originates from",
+            ),
+            (
                 "generic_borrow_return_requires_param_origin",
+                "ownership",
                 "borrow_return_requires_param_origin",
                 "returning borrowed values requires data derived from one of the borrowed parameters",
             ),
             (
                 "mutable_borrow_while_shared_live",
+                "ownership",
                 "mutable_borrow_while_shared_live",
                 "cannot create mutable borrow of value",
             ),
             (
                 "shared_borrow_while_mutable_live",
+                "ownership",
                 "shared_borrow_while_mutable_live",
                 "cannot create shared borrow of value",
             ),
             (
                 "double_mutable_borrow",
+                "ownership",
                 "mutable_borrow_while_mutable_live",
                 "cannot create mutable borrow of value",
             ),
             (
                 "move_string_while_str_borrow_live",
+                "ownership",
                 "move_while_borrowed",
                 "cannot move value",
             ),
             (
                 "loop_move_outer_non_copy",
+                "ownership",
                 "loop_move_outer_non_copy",
                 "cannot move non-copy value",
             ),
         ];
 
-        for (case, code, message) in cases {
+        for (case, kind, code, message) in cases {
             let project = ownership_failure_fixture(case);
             let error = check_project(&project)
                 .expect_err(&format!("ownership fixture {case} should fail"));
-            assert_eq!(error.kind, "ownership", "fixture {case}");
+            assert_eq!(error.kind, kind, "fixture {case}");
             assert_eq!(error.code.as_deref(), Some(code), "fixture {case}");
             assert!(
                 error.message.contains(message),
@@ -9880,6 +9895,26 @@ print takes_two(three)
                 .message
                 .contains("borrowed return functions must take at least one borrowed parameter")
         );
+        assert_eq!(error.kind, "type");
+    }
+
+    #[test]
+    fn check_project_rejects_ambiguous_multi_param_borrow_return() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("slice-return-ambiguous-origin");
+        create_project(&project, Some("slice-return-ambiguous-origin-app"))
+            .expect("create project");
+        fs::write(
+            project.join("src/main.ax"),
+            "fn pick(a: &[int], b: &[int], use_a: bool): &[int] {\nif use_a {\nreturn a[0:1]\n}\nreturn b[0:1]\n}\n\nlet a: [int] = [1]\nlet b: [int] = [2]\nprint first(pick(a[:], b[:], true))\n",
+        )
+        .expect("write source");
+        let error =
+            check_project(&project).expect_err("elided multi-param borrow return should fail");
+        assert!(error.message.contains(
+            "cannot infer which parameter the returned borrow originates from; this case will require an explicit annotation when origin syntax lands"
+        ));
+        assert_eq!(error.code.as_deref(), Some("borrow_return_origin_ambiguous"));
         assert_eq!(error.kind, "type");
     }
 
