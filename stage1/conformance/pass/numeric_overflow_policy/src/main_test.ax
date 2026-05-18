@@ -1,0 +1,16 @@
+let max_i8: i8 = 127i8
+let wrapped_i8: i8 = max_i8.wrapping_add(1i8)
+let saturated_i8: i8 = max_i8.saturating_add(1i8)
+let max_i32: i32 = 2147483647i32
+let checked_i32: Option<i32> = max_i32.checked_add(1i32)
+
+print wrapped_i8 as int
+match checked_i32 {
+None {
+print "none"
+}
+Some(value) {
+print value as int
+}
+}
+print saturated_i8 as int
