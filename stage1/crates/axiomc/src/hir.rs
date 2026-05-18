@@ -5384,16 +5384,19 @@ fn lower_match_stmt(
     if matches!(lowered_expr, Expr::VarRef { .. }) && !lowered_expr.ty().is_copy() {
         move_lowered_owner_value(&lowered_expr, env)?;
     }
-    let (enum_name, variant_defs) = match_variants(lowered_expr.ty(), ctx).ok_or_else(|| {
-        Diagnostic::new(
-            "type",
-            format!(
-                "match expects an enum-like value, got {}",
-                lowered_expr.ty()
-            ),
-        )
-        .with_span(line, column)
-    })?;
+    let Some((enum_name, variant_defs)) = match_variants(lowered_expr.ty(), ctx) else {
+        return lower_const_match_stmt(
+            lowered_expr,
+            arms,
+            line,
+            column,
+            env,
+            ctx,
+            match_borrow_kind,
+            match_borrowed_owners,
+            reuse_existing_match_binding,
+        );
+    };
     let before = env.clone();
     let mut seen = HashMap::new();
     let mut lowered_arms = Vec::new();
@@ -5613,6 +5616,121 @@ fn lower_match_stmt(
         arms: lowered_arms,
         span: SourceSpan { line, column },
     })
+}
+
+fn lower_const_match_stmt(
+    lowered_expr: Expr,
+    arms: Vec<MatchArmInput>,
+    line: usize,
+    column: usize,
+    env: &mut HashMap<String, Binding>,
+    ctx: &LowerContext<'_>,
+    match_borrow_kind: Option<BorrowKind>,
+    match_borrowed_owners: HashSet<BorrowedOwner>,
+    reuse_existing_match_binding: bool,
+) -> Result<Stmt, Diagnostic> {
+    if lowered_expr.ty() != &Type::Int {
+        return Err(Diagnostic::new(
+            "type",
+            format!(
+                "match expects an enum-like value or int const patterns, got {}",
+                lowered_expr.ty()
+            ),
+        )
+        .with_span(line, column));
+    }
+    let before = env.clone();
+    let mut seen = HashMap::new();
+    let mut lowered_arms = Vec::new();
+    let mut arm_states = Vec::new();
+    for arm in arms {
+        if arm.is_named || !arm.bindings.is_empty() || arm.ignore_payloads {
+            return Err(Diagnostic::new(
+                "type",
+                format!(
+                    "const match arm {:?} cannot bind payload values",
+                    arm.variant
+                ),
+            )
+            .with_span(arm.line, arm.column));
+        }
+        let value = resolve_const_match_int_pattern(&arm, ctx)?;
+        if seen.insert(value, ()).is_some() {
+            return Err(
+                Diagnostic::new("type", format!("duplicate match arm {:?}", arm.variant))
+                    .with_span(arm.line, arm.column),
+            );
+        }
+        let mut arm_env = before.clone();
+        let (body, after, returns) = lower_block(&arm.body, &mut arm_env, ctx)?;
+        lowered_arms.push(MatchArm {
+            enum_name: String::new(),
+            variant: value.to_string(),
+            bindings: Vec::new(),
+            is_named: false,
+            ignore_payloads: false,
+            body,
+        });
+        arm_states.push((after, returns));
+    }
+    merge_match_state(env, &before, &arm_states);
+    if let Some(borrow_kind) = match_borrow_kind
+        && !reuse_existing_match_binding
+    {
+        release_active_borrow_owners(&match_borrowed_owners, env, borrow_kind);
+    }
+    Ok(Stmt::Match {
+        expr: lowered_expr,
+        arms: lowered_arms,
+        span: SourceSpan { line, column },
+    })
+}
+
+fn resolve_const_match_int_pattern(
+    arm: &MatchArmInput,
+    ctx: &LowerContext<'_>,
+) -> Result<i64, Diagnostic> {
+    if let Ok(value) = arm.variant.parse::<i64>() {
+        return Ok(value);
+    }
+    if !starts_with_ascii_uppercase(&arm.variant) {
+        return Err(Diagnostic::new(
+            "type",
+            format!(
+                "match pattern {:?} must name an uppercase int const",
+                arm.variant
+            ),
+        )
+        .with_span(arm.line, arm.column));
+    }
+    let Some(const_decl) = ctx.consts.get(&arm.variant) else {
+        return Err(Diagnostic::new(
+            "type",
+            format!(
+                "match pattern {:?} must name a known int const",
+                arm.variant
+            ),
+        )
+        .with_span(arm.line, arm.column));
+    };
+    eval_const_int_expr(&const_decl.expr).ok_or_else(|| {
+        Diagnostic::new(
+            "type",
+            format!(
+                "match pattern const {:?} must evaluate to int",
+                const_decl.name
+            ),
+        )
+        .with_span(const_decl.line, const_decl.column)
+    })
+}
+
+fn starts_with_ascii_uppercase(value: &str) -> bool {
+    value
+        .chars()
+        .next()
+        .map(|ch| ch.is_ascii_uppercase())
+        .unwrap_or(false)
 }
 fn lower_stmt(
     stmt: &syntax::Stmt,

@@ -1,0 +1,17 @@
+import "codes.ax"
+
+const LOCAL_READY: int = 3 + 4
+
+let local: int = 7
+match local {
+LOCAL_READY {
+print "ready"
+}
+}
+
+let imported: int = 7
+match imported {
+READY {
+print "imported"
+}
+}
