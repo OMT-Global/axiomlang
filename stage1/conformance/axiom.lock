@@ -126,6 +126,11 @@ version = "0.1.0"
 source = "path:fail/import_unsupported_alias"
 
 [[package]]
+name = "conformance-lowercase-const-match-pattern"
+version = "0.1.0"
+source = "path:fail/lowercase_const_match_pattern"
+
+[[package]]
 name = "conformance-match-guard-not-supported"
 version = "0.1.0"
 source = "path:fail/match_guard_not_supported"
@@ -136,9 +141,49 @@ version = "0.1.0"
 source = "path:fail/move_while_mutably_borrowed"
 
 [[package]]
+name = "conformance-mutable-borrow-double-mut"
+version = "0.1.0"
+source = "path:fail/mutable_borrow_double_mut"
+
+[[package]]
+name = "conformance-mutable-borrow-mut-plus-shared"
+version = "0.1.0"
+source = "path:fail/mutable_borrow_mut_plus_shared"
+
+[[package]]
+name = "conformance-mutable-borrow-overlapping-slice-mut"
+version = "0.1.0"
+source = "path:fail/mutable_borrow_overlapping_slice_mut"
+
+[[package]]
+name = "conformance-mutable-borrow-use-after-borrow"
+version = "0.1.0"
+source = "path:fail/mutable_borrow_use_after_borrow"
+
+[[package]]
 name = "conformance-mutable-borrow-while-shared-live"
 version = "0.1.0"
 source = "path:fail/mutable_borrow_while_shared_live"
+
+[[package]]
+name = "conformance-mutable-borrow-whole-then-projection"
+version = "0.1.0"
+source = "path:fail/mutable_borrow_whole_then_projection"
+
+[[package]]
+name = "conformance-mutable-call-boundary-move"
+version = "0.1.0"
+source = "path:fail/mutable_call_boundary_move"
+
+[[package]]
+name = "conformance-mutable-projection-overlap"
+version = "0.1.0"
+source = "path:fail/mutable_projection_overlap"
+
+[[package]]
+name = "conformance-mutable-projection-whole-move"
+version = "0.1.0"
+source = "path:fail/mutable_projection_whole_move"
 
 [[package]]
 name = "conformance-named-nested-match-pattern-not-supported"
@@ -291,6 +336,11 @@ version = "0.1.0"
 source = "path:pass/comparison_strict_typing"
 
 [[package]]
+name = "conformance-const-match-patterns"
+version = "0.1.0"
+source = "path:pass/const_match_patterns"
+
+[[package]]
 name = "conformance-functions-across-modules"
 version = "0.1.0"
 source = "path:pass/functions_across_modules"
@@ -299,6 +349,16 @@ source = "path:pass/functions_across_modules"
 name = "conformance-legacy-core-programs"
 version = "0.1.0"
 source = "path:pass/legacy_core_programs"
+
+[[package]]
+name = "conformance-mutable-call-boundaries"
+version = "0.1.0"
+source = "path:pass/mutable_call_boundaries"
+
+[[package]]
+name = "conformance-mutable-projection-borrows"
+version = "0.1.0"
+source = "path:pass/mutable_projection_borrows"
 
 [[package]]
 name = "conformance-outcome-control-flow"
@@ -359,4 +419,3 @@ source = "path:pass/struct_field_access"
 name = "conformance-type-system-aggregates"
 version = "0.1.0"
 source = "path:pass/type_system_aggregates"
-
