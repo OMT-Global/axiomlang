@@ -3684,22 +3684,23 @@ fn flatten_modules(
                 &module.path,
                 &mut HashSet::new(),
             )?;
+            let mut rewritten = module_symbols
+                .consts
+                .get(&const_decl.name)
+                .cloned()
+                .unwrap_or_else(|| const_decl.clone());
+            rewritten.expr = resolved_expr;
             if const_decl.is_static {
-                let mut rewritten = module_symbols
-                    .consts
-                    .get(&const_decl.name)
-                    .cloned()
-                    .unwrap_or_else(|| const_decl.clone());
-                rewritten.expr = resolved_expr;
                 rewritten.name = format!("{}_{}", module_symbols.module_id, const_decl.name);
-                flattened_consts.push(rewritten);
             }
+            flattened_consts.push(rewritten);
         }
 
         for type_alias in &module.program.type_aliases {
             flattened_type_aliases.push(rewrite_type_alias(
                 type_alias,
                 module_symbols,
+                &visible_consts,
                 &visible_types,
                 &private_imported_types,
                 &module.path,
@@ -3710,6 +3711,7 @@ fn flatten_modules(
             flattened_structs.push(rewrite_struct(
                 struct_decl,
                 module_symbols,
+                &visible_consts,
                 &visible_types,
                 &private_imported_types,
                 &module.path,
@@ -3719,6 +3721,7 @@ fn flatten_modules(
             flattened_enums.push(rewrite_enum(
                 enum_decl,
                 module_symbols,
+                &visible_consts,
                 &visible_types,
                 &private_imported_types,
                 &module.path,
@@ -4153,6 +4156,10 @@ fn build_module_symbols(module: &LoadedModule) -> Result<ModuleSymbols, Diagnost
         }
     }
     for const_decl in &module.program.consts {
+        let mut internal_decl = const_decl.clone();
+        if !const_decl.is_static {
+            internal_decl.name = format!("{module_id}_{}", const_decl.name);
+        }
         if functions.contains_key(&const_decl.name)
             || structs.contains_key(&const_decl.name)
             || enums.contains_key(&const_decl.name)
@@ -4164,7 +4171,7 @@ fn build_module_symbols(module: &LoadedModule) -> Result<ModuleSymbols, Diagnost
             );
         }
         if consts
-            .insert(const_decl.name.clone(), const_decl.clone())
+            .insert(const_decl.name.clone(), internal_decl.clone())
             .is_some()
         {
             return Err(
@@ -4175,10 +4182,10 @@ fn build_module_symbols(module: &LoadedModule) -> Result<ModuleSymbols, Diagnost
         }
         match const_decl.visibility {
             syntax::Visibility::Public => {
-                public_consts.insert(const_decl.name.clone(), const_decl.clone());
+                public_consts.insert(const_decl.name.clone(), internal_decl);
             }
             syntax::Visibility::Package => {
-                package_consts.insert(const_decl.name.clone(), const_decl.clone());
+                package_consts.insert(const_decl.name.clone(), internal_decl);
             }
             syntax::Visibility::Module => {
                 private_consts.insert(const_decl.name.clone());
@@ -4314,6 +4321,7 @@ fn visible_namespace_collision(
 fn rewrite_type_alias(
     type_alias: &syntax::TypeAliasDecl,
     module_symbols: &ModuleSymbols,
+    visible_consts: &HashMap<String, syntax::ConstDecl>,
     visible_types: &HashMap<String, String>,
     private_imported_types: &HashSet<String>,
     module_path: &Path,
@@ -4326,6 +4334,7 @@ fn rewrite_type_alias(
             .unwrap_or_else(|| format!("{}_{}", module_symbols.module_id, type_alias.name)),
         ty: rewrite_type_name(
             &type_alias.ty,
+            visible_consts,
             visible_types,
             private_imported_types,
             module_path,
@@ -4341,6 +4350,7 @@ fn rewrite_type_alias(
 fn rewrite_struct(
     struct_decl: &syntax::StructDecl,
     module_symbols: &ModuleSymbols,
+    visible_consts: &HashMap<String, syntax::ConstDecl>,
     visible_types: &HashMap<String, String>,
     private_imported_types: &HashSet<String>,
     module_path: &Path,
@@ -4359,6 +4369,7 @@ fn rewrite_struct(
                 name: field.name.clone(),
                 ty: rewrite_type_name(
                     &field.ty,
+                    visible_consts,
                     visible_types,
                     private_imported_types,
                     module_path,
@@ -4376,6 +4387,7 @@ fn rewrite_struct(
 fn rewrite_enum(
     enum_decl: &syntax::EnumDecl,
     module_symbols: &ModuleSymbols,
+    visible_consts: &HashMap<String, syntax::ConstDecl>,
     visible_types: &HashMap<String, String>,
     private_imported_types: &HashSet<String>,
     module_path: &Path,
@@ -4398,6 +4410,7 @@ fn rewrite_enum(
                     .map(|ty| {
                         rewrite_type_name(
                             ty,
+                            visible_consts,
                             visible_types,
                             private_imported_types,
                             module_path,
@@ -4458,6 +4471,7 @@ fn rewrite_function(
                 name: param.name.clone(),
                 ty: rewrite_type_name(
                     &param.ty,
+                    visible_consts,
                     visible_types,
                     private_imported_types,
                     module_path,
@@ -4471,6 +4485,7 @@ fn rewrite_function(
         .collect::<Result<Vec<_>, Diagnostic>>()?;
     rewritten.return_ty = rewrite_type_name(
         &function.return_ty,
+        visible_consts,
         visible_types,
         private_imported_types,
         module_path,
@@ -4480,6 +4495,7 @@ fn rewrite_function(
     if let Some(target) = &function.impl_target {
         let rewritten_target = rewrite_type_name(
             &syntax::TypeName::Named(target.clone(), Vec::new()),
+            visible_consts,
             visible_types,
             private_imported_types,
             module_path,
@@ -4525,6 +4541,7 @@ fn rewrite_stmt(
             name: name.clone(),
             ty: rewrite_type_name(
                 ty,
+                visible_consts,
                 visible_types,
                 private_imported_types,
                 module_path,
@@ -4890,6 +4907,7 @@ fn rewrite_expr(
                     .map(|type_arg| {
                         rewrite_type_name(
                             type_arg,
+                            visible_consts,
                             visible_types,
                             private_imported_types,
                             module_path,
@@ -4959,6 +4977,7 @@ fn rewrite_expr(
                     .map(|type_arg| {
                         rewrite_type_name(
                             type_arg,
+                            visible_consts,
                             visible_types,
                             private_imported_types,
                             module_path,
@@ -5070,6 +5089,7 @@ fn rewrite_expr(
             )?),
             ty: rewrite_type_name(
                 ty,
+                visible_consts,
                 visible_types,
                 private_imported_types,
                 module_path,
@@ -5383,6 +5403,7 @@ fn rewrite_expr(
                         name: param.name.clone(),
                         ty: rewrite_type_name(
                             &param.ty,
+                            visible_consts,
                             visible_types,
                             private_imported_types,
                             module_path,
@@ -5413,6 +5434,7 @@ fn rewrite_expr(
 
 fn rewrite_type_name(
     ty: &syntax::TypeName,
+    visible_consts: &HashMap<String, syntax::ConstDecl>,
     visible_types: &HashMap<String, String>,
     private_imported_types: &HashSet<String>,
     module_path: &Path,
@@ -5443,6 +5465,7 @@ fn rewrite_type_name(
                     .map(|arg| {
                         rewrite_type_name(
                             arg,
+                            visible_consts,
                             visible_types,
                             private_imported_types,
                             module_path,
@@ -5455,6 +5478,7 @@ fn rewrite_type_name(
         }
         syntax::TypeName::Ptr(inner) => Ok(syntax::TypeName::Ptr(Box::new(rewrite_type_name(
             inner,
+            visible_consts,
             visible_types,
             private_imported_types,
             module_path,
@@ -5464,6 +5488,7 @@ fn rewrite_type_name(
         syntax::TypeName::MutPtr(inner) => {
             Ok(syntax::TypeName::MutPtr(Box::new(rewrite_type_name(
                 inner,
+                visible_consts,
                 visible_types,
                 private_imported_types,
                 module_path,
@@ -5474,6 +5499,7 @@ fn rewrite_type_name(
         syntax::TypeName::Option(inner) => {
             Ok(syntax::TypeName::Option(Box::new(rewrite_type_name(
                 inner,
+                visible_consts,
                 visible_types,
                 private_imported_types,
                 module_path,
@@ -5483,6 +5509,7 @@ fn rewrite_type_name(
         }
         syntax::TypeName::Slice(inner) => Ok(syntax::TypeName::Slice(Box::new(rewrite_type_name(
             inner,
+            visible_consts,
             visible_types,
             private_imported_types,
             module_path,
@@ -5492,6 +5519,7 @@ fn rewrite_type_name(
         syntax::TypeName::MutSlice(inner) => {
             Ok(syntax::TypeName::MutSlice(Box::new(rewrite_type_name(
                 inner,
+                visible_consts,
                 visible_types,
                 private_imported_types,
                 module_path,
@@ -5503,6 +5531,7 @@ fn rewrite_type_name(
             lifetime.clone(),
             Box::new(rewrite_type_name(
                 inner,
+                visible_consts,
                 visible_types,
                 private_imported_types,
                 module_path,
@@ -5515,6 +5544,7 @@ fn rewrite_type_name(
                 lifetime.clone(),
                 Box::new(rewrite_type_name(
                     inner,
+                    visible_consts,
                     visible_types,
                     private_imported_types,
                     module_path,
@@ -5526,6 +5556,7 @@ fn rewrite_type_name(
         syntax::TypeName::Result(ok, err) => Ok(syntax::TypeName::Result(
             Box::new(rewrite_type_name(
                 ok,
+                visible_consts,
                 visible_types,
                 private_imported_types,
                 module_path,
@@ -5534,6 +5565,7 @@ fn rewrite_type_name(
             )?),
             Box::new(rewrite_type_name(
                 err,
+                visible_consts,
                 visible_types,
                 private_imported_types,
                 module_path,
@@ -5547,6 +5579,7 @@ fn rewrite_type_name(
                 .map(|element| {
                     rewrite_type_name(
                         element,
+                        visible_consts,
                         visible_types,
                         private_imported_types,
                         module_path,
@@ -5559,6 +5592,7 @@ fn rewrite_type_name(
         syntax::TypeName::Map(key, value) => Ok(syntax::TypeName::Map(
             Box::new(rewrite_type_name(
                 key,
+                visible_consts,
                 visible_types,
                 private_imported_types,
                 module_path,
@@ -5567,6 +5601,7 @@ fn rewrite_type_name(
             )?),
             Box::new(rewrite_type_name(
                 value,
+                visible_consts,
                 visible_types,
                 private_imported_types,
                 module_path,
@@ -5577,13 +5612,19 @@ fn rewrite_type_name(
         syntax::TypeName::Array(inner, len) => Ok(syntax::TypeName::Array(
             Box::new(rewrite_type_name(
                 inner,
+                visible_consts,
                 visible_types,
                 private_imported_types,
                 module_path,
                 line,
                 column,
             )?),
-            len.clone(),
+            len.as_ref().map(|raw| {
+                visible_consts
+                    .get(raw.trim())
+                    .map(|const_decl| const_decl.name.clone())
+                    .unwrap_or_else(|| raw.clone())
+            }),
         )),
         syntax::TypeName::Fn(params, return_ty) => Ok(syntax::TypeName::Fn(
             params
@@ -5591,6 +5632,7 @@ fn rewrite_type_name(
                 .map(|param| {
                     rewrite_type_name(
                         param,
+                        visible_consts,
                         visible_types,
                         private_imported_types,
                         module_path,
@@ -5601,6 +5643,7 @@ fn rewrite_type_name(
                 .collect::<Result<Vec<_>, _>>()?,
             Box::new(rewrite_type_name(
                 return_ty,
+                visible_consts,
                 visible_types,
                 private_imported_types,
                 module_path,
@@ -6018,8 +6061,6 @@ fn resolve_import_path(
                 .with_span(import.line, import.column));
             }
             if !candidate.exists() {
-                let relative =
-                    relative_diagnostic_path(&dependency.root, &candidate.display().to_string());
                 return Err(Diagnostic::new(
                     "import",
                     format!(

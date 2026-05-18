@@ -1,0 +1,8 @@
+{
+  "kind": "type",
+  "code": null,
+  "message": "array literal length mismatch: declared 2, got 3",
+  "path": "src/main.ax",
+  "line": 2,
+  "column": 1
+}

@@ -1,0 +1,5 @@
+let values: [string] = ["alpha", "beta"]
+let view: &mut [string] = values[:]
+let moved: string = first(values)
+print len(view)
+print moved

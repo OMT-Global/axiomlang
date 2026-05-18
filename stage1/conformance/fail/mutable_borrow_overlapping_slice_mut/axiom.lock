@@ -1,0 +1,6 @@
+version = 1
+
+[[package]]
+name = "conformance-mutable-borrow-overlapping-slice-mut"
+version = "0.1.0"
+source = "path"

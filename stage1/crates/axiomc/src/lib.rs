@@ -1879,6 +1879,35 @@ let bad: u8 = byte.wrapping_add(1u16)
     }
 
     #[test]
+    fn build_project_keeps_private_const_array_lengths_per_module() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("const-array-module-namespaces");
+        create_project(&project, Some("const-array-module-namespaces-app"))
+            .expect("create project");
+        fs::write(
+            project.join("src/a.ax"),
+            "const WIDTH: int = 2\npub fn a_sum(values: [int; WIDTH]): int {\nreturn values[0] + values[1]\n}\n",
+        )
+        .expect("write module a");
+        fs::write(
+            project.join("src/b.ax"),
+            "const WIDTH: int = 3\npub fn b_sum(values: [int; WIDTH]): int {\nreturn values[0] + values[1] + values[2]\n}\n",
+        )
+        .expect("write module b");
+        fs::write(
+            project.join("src/main.ax"),
+            "import \"a.ax\"\nimport \"b.ax\"\n\nlet left: [int; 2] = [1, 2]\nlet right: [int; 3] = [1, 2, 3]\nprint a_sum(left)\nprint b_sum(right)\n",
+        )
+        .expect("write source");
+
+        let built = build_project(&project).expect("build project");
+        let output = compiled_binary_command(&built.binary)
+            .output()
+            .expect("run compiled binary");
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "3\n6\n");
+    }
+
+    #[test]
     fn build_project_emits_native_binary_with_array_slices() {
         let dir = tempdir().expect("tempdir");
         let project = dir.path().join("slices");
@@ -3704,9 +3733,11 @@ clock = false
         assert!(manifest.capabilities.process);
         assert!(manifest.capabilities.unsafe_rationale.is_none());
         assert!(
-            !manifest.capabilities.warnings().iter().any(|warning| {
-                warning.contains("unrestricted process execution")
-            })
+            !manifest
+                .capabilities
+                .warnings()
+                .iter()
+                .any(|warning| { warning.contains("unrestricted process execution") })
         );
     }
 
@@ -4449,6 +4480,110 @@ net = { hosts = ["localhost"], ports = [8080] }
         .expect("write source");
 
         let error = check_project(&project).expect_err("unlisted network port should fail");
+        assert_eq!(error.kind, "capability");
+        assert!(
+            error
+                .message
+                .contains("requires [capabilities].net.ports to include 9090"),
+            "unexpected diagnostic: {error:?}",
+        );
+    }
+
+    #[test]
+    fn check_project_accepts_network_peers_matching_manifest_allowlist() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("net-peer-allowlisted");
+        create_project(&project, Some("net-peer-allowlisted-app")).expect("create project");
+        fs::write(
+            project.join("axiom.toml"),
+            r#"[package]
+name = "net-peer-allowlisted-app"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+net = { hosts = ["localhost"], ports = [8080] }
+"#,
+        )
+        .expect("write manifest");
+        fs::write(
+            project.join("src/main.ax"),
+            concat!(
+                "let tcp_response: Option<string> = net_tcp_dial(\"localhost\", 8080, \"ping\", 1000)\n",
+                "let udp_response: Option<string> = net_udp_send_recv(\"localhost\", 8080, \"ping\", 1000)\n",
+            ),
+        )
+        .expect("write source");
+
+        check_project(&project).expect("allowlisted TCP and UDP peers should check");
+    }
+
+    #[test]
+    fn check_project_rejects_udp_network_host_missing_from_manifest_allowlist() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("udp-host-not-allowlisted");
+        create_project(&project, Some("udp-host-not-allowlisted-app")).expect("create project");
+        fs::write(
+            project.join("axiom.toml"),
+            r#"[package]
+name = "udp-host-not-allowlisted-app"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+net = { hosts = ["localhost"], ports = [8080] }
+"#,
+        )
+        .expect("write manifest");
+        fs::write(
+            project.join("src/main.ax"),
+            "print net_udp_send_recv(\"example.com\", 8080, \"ping\", 1000)\n",
+        )
+        .expect("write source");
+
+        let error = check_project(&project).expect_err("unlisted UDP host should fail");
+        assert_eq!(error.kind, "capability");
+        assert!(
+            error
+                .message
+                .contains(r#"requires [capabilities].net.hosts to include "example.com""#),
+            "unexpected diagnostic: {error:?}",
+        );
+    }
+
+    #[test]
+    fn check_project_rejects_udp_network_port_missing_from_manifest_allowlist() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("udp-port-not-allowlisted");
+        create_project(&project, Some("udp-port-not-allowlisted-app")).expect("create project");
+        fs::write(
+            project.join("axiom.toml"),
+            r#"[package]
+name = "udp-port-not-allowlisted-app"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+net = { hosts = ["localhost"], ports = [8080] }
+"#,
+        )
+        .expect("write manifest");
+        fs::write(
+            project.join("src/main.ax"),
+            "print net_udp_send_recv(\"localhost\", 9090, \"ping\", 1000)\n",
+        )
+        .expect("write source");
+
+        let error = check_project(&project).expect_err("unlisted UDP port should fail");
         assert_eq!(error.kind, "capability");
         assert!(
             error
@@ -7002,8 +7137,7 @@ print serve_once("127.0.0.1:18080", "hello")
     fn manifest_test_expected_error_passes_on_diagnostic_match() {
         let dir = tempdir().expect("tempdir");
         let project = dir.path().join("manifest-expected-error-pass");
-        create_project(&project, Some("manifest-expected-error-pass-app"))
-            .expect("create project");
+        create_project(&project, Some("manifest-expected-error-pass-app")).expect("create project");
         fs::write(
             project.join("src/broken_test.ax"),
             "let x: int = \"not an int\"\n",
@@ -7827,8 +7961,8 @@ print serve_health("127.0.0.1:18080", 1, started)
     fn conformance_corpus_reports_stable_results() {
         let output =
             run_project_tests(&conformance_fixture()).expect("run stage1 conformance corpus");
-        assert_eq!(output.cases.len(), 72);
-        assert_eq!(output.passed, 72);
+        assert_eq!(output.cases.len(), 82);
+        assert_eq!(output.passed, 82);
         let failures: Vec<_> = output
             .cases
             .iter()
@@ -7842,7 +7976,7 @@ print serve_health("127.0.0.1:18080", 1, started)
                 .iter()
                 .filter(|case| case.expected_error.is_some())
                 .count(),
-            51
+            59
         );
         assert_eq!(
             output
@@ -7850,7 +7984,7 @@ print serve_health("127.0.0.1:18080", 1, started)
                 .iter()
                 .filter(|case| case.expected_stdout.is_some())
                 .count(),
-            19
+            21
         );
         assert_eq!(
             output
@@ -9827,6 +9961,48 @@ print takes_two(three)
     }
 
     #[test]
+    fn build_project_accepts_mutable_slice_parameter_call_and_releases_owner() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("mut-slice-param-call-release");
+        create_project(&project, Some("mut-slice-param-call-release-app"))
+            .expect("create project");
+        fs::write(
+            project.join("src/main.ax"),
+            "fn measure(values: &mut [int]): int {\nprint len(values)\nreturn first(values)\n}\nlet values: [int] = [5, 8, 13]\nprint measure(values[:])\nprint first(values)\n",
+        )
+        .expect("write source");
+
+        let built = build_project(&project).expect("build project");
+        let output = compiled_binary_command(&built.binary)
+            .output()
+            .expect("run compiled binary");
+        assert!(output.status.success());
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "3\n5\n5\n");
+    }
+
+    #[test]
+    fn check_project_rejects_moving_owner_during_mutable_slice_call_argument() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("mut-slice-param-call-owner-move");
+        create_project(&project, Some("mut-slice-param-call-owner-move-app"))
+            .expect("create project");
+        fs::write(
+            project.join("src/main.ax"),
+            "fn consume(view: &mut [string], values: [string]): string {\nprint len(view)\nreturn first(values)\n}\nlet values: [string] = [\"alpha\", \"beta\"]\nprint consume(values[:], values)\n",
+        )
+        .expect("write source");
+
+        let error = check_project(&project)
+            .expect_err("moving owner while mutable call argument is active should fail");
+        assert!(
+            error
+                .message
+                .contains("cannot move value \"values\" while borrowed slices are still live")
+        );
+        assert_eq!(error.kind, "ownership");
+    }
+
+    #[test]
     fn build_project_accepts_mutable_slice_borrow_from_field_root() {
         let dir = tempdir().expect("tempdir");
         let project = dir.path().join("mut-field-slice-borrow");
@@ -9843,6 +10019,74 @@ print takes_two(three)
             .expect("run compiled binary");
         assert!(output.status.success());
         assert_eq!(String::from_utf8_lossy(&output.stdout), "3\n");
+    }
+
+    #[test]
+    fn build_project_accepts_disjoint_mutable_slice_borrows_from_projection_roots() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("mut-disjoint-projection-slice-borrows");
+        create_project(&project, Some("mut-disjoint-projection-slice-borrows-app"))
+            .expect("create project");
+        fs::write(
+            project.join("src/main.ax"),
+            "struct Pair {\nfirst: [int]\nsecond: [int]\n}\n\nlet pair: Pair = Pair { first: [1, 2], second: [3, 4, 5] }\nlet left: &mut [int] = (pair.first)[:]\nlet right: &mut [int] = (pair.second)[:]\nprint len(left)\nprint len(right)\n",
+        )
+        .expect("write source");
+
+        let built = build_project(&project).expect("build project");
+        let output = compiled_binary_command(&built.binary)
+            .output()
+            .expect("run compiled binary");
+        assert!(output.status.success());
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "2\n3\n");
+    }
+
+    #[test]
+    fn check_project_rejects_overlapping_mutable_slice_borrows_from_projection_roots() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("mut-overlapping-projection-slice-borrows");
+        create_project(
+            &project,
+            Some("mut-overlapping-projection-slice-borrows-app"),
+        )
+        .expect("create project");
+        fs::write(
+            project.join("src/main.ax"),
+            "struct Pair {\nfirst: [int]\nsecond: [int]\n}\n\nlet pair: Pair = Pair { first: [1, 2], second: [3, 4] }\nlet first: &mut [int] = (pair.first)[:]\nlet second: &mut [int] = (pair.first)[:]\nprint len(first)\nprint len(second)\n",
+        )
+        .expect("write source");
+        let error =
+            check_project(&project).expect_err("overlapping projection mutable borrow should fail");
+        assert_eq!(error.kind, "ownership");
+        assert_eq!(
+            error.code.as_deref(),
+            Some("mutable_borrow_while_mutable_live")
+        );
+        assert!(error.message.contains(
+            "cannot create mutable borrow of value \"pair.first\" while another mutable borrow is still live"
+        ));
+    }
+
+    #[test]
+    fn check_project_rejects_moving_whole_value_while_projection_mutably_borrowed() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("mut-projection-borrow-whole-move");
+        create_project(&project, Some("mut-projection-borrow-whole-move-app"))
+            .expect("create project");
+        fs::write(
+            project.join("src/main.ax"),
+            "struct Pair {\nfirst: [string]\nsecond: [string]\n}\n\nlet pair: Pair = Pair { first: [\"alpha\"], second: [\"beta\"] }\nlet first: &mut [string] = (pair.first)[:]\nlet moved: Pair = pair\nprint len(first)\nprint len(moved.second)\n",
+        )
+        .expect("write source");
+        let error =
+            check_project(&project).expect_err("whole move should fail while projection borrowed");
+        assert_eq!(error.kind, "ownership");
+        assert_eq!(error.code.as_deref(), Some("move_while_borrowed"));
+        assert!(
+            error
+                .message
+                .contains("cannot move value \"pair\" while borrowed slices are still live")
+        );
     }
 
     #[test]
