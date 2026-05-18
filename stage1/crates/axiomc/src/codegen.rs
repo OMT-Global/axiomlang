@@ -3675,6 +3675,9 @@ fn render_stmt(
                     mutable_locals,
                 );
             }
+            if arms.iter().all(|arm| arm.enum_name.is_empty()) {
+                out.push_str(&format!("{pad}    _ => {{}}\n"));
+            }
             out.push_str(&format!(
                 "{pad}}}
 "
@@ -3728,6 +3731,22 @@ fn render_match_arm(
     mutable_locals: &HashSet<String>,
 ) {
     let pad = "    ".repeat(indent);
+    if arm.enum_name.is_empty() {
+        out.push_str(&format!("{pad}{} => {{\n", arm.variant));
+        render_stmt_block(
+            &arm.body,
+            type_context,
+            out,
+            indent + 1,
+            source_path,
+            in_async_function,
+            debug,
+            active_defers,
+            mutable_locals,
+        );
+        out.push_str(&format!("{pad}}},\n"));
+        return;
+    }
     if arm.bindings.is_empty() {
         if arm.ignore_payloads {
             out.push_str(&format!(

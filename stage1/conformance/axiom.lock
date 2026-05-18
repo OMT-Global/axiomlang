@@ -126,6 +126,11 @@ version = "0.1.0"
 source = "path:fail/import_unsupported_alias"
 
 [[package]]
+name = "conformance-lowercase-const-match-pattern"
+version = "0.1.0"
+source = "path:fail/lowercase_const_match_pattern"
+
+[[package]]
 name = "conformance-match-guard-not-supported"
 version = "0.1.0"
 source = "path:fail/match_guard_not_supported"
@@ -339,6 +344,11 @@ source = "path:pass/comparison_package_resources"
 name = "conformance-comparison-strict-typing"
 version = "0.1.0"
 source = "path:pass/comparison_strict_typing"
+
+[[package]]
+name = "conformance-const-match-patterns"
+version = "0.1.0"
+source = "path:pass/const_match_patterns"
 
 [[package]]
 name = "conformance-functions-across-modules"
