@@ -4785,12 +4785,7 @@ fn collect_trait_definitions(
     for trait_decl in traits {
         for method in &trait_decl.methods {
             for param in &method.params {
-                validate_trait_type_use_in_namespace(
-                    &param.ty,
-                    &names,
-                    param.line,
-                    param.column,
-                )?;
+                validate_trait_type_use_in_namespace(&param.ty, &names, param.line, param.column)?;
             }
             validate_trait_type_use_in_namespace(
                 &method.return_ty,
