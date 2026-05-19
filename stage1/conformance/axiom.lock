@@ -311,6 +311,11 @@ version = "0.1.0"
 source = "path:fail/stdlib_clock_without_capability"
 
 [[package]]
+name = "conformance-stdlib-crypto-rand-without-capability"
+version = "0.1.0"
+source = "path:fail/stdlib_crypto_rand_without_capability"
+
+[[package]]
 name = "conformance-stdlib-fs-write-without-capability"
 version = "0.1.0"
 source = "path:fail/stdlib_fs_write_without_capability"

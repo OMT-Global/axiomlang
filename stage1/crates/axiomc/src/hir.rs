@@ -531,6 +531,7 @@ fn numeric_method_return_ty(receiver: &Type, method: &str) -> Option<Type> {
         "checked_add" | "checked_sub" | "checked_mul" | "checked_div" | "checked_rem" => {
             Some(Type::Option(Box::new(receiver.clone())))
         }
+        "saturating_add" | "saturating_sub" | "saturating_mul" => Some(receiver.clone()),
         _ => None,
     }
 }
