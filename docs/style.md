@@ -36,6 +36,7 @@ the parser and examples:
   `struct`, and `enum` headers.
 - Prefer one statement per line.
 - End files with a trailing newline.
+- Prefer explicit integer overflow helpers when wrap, checked, or saturating behavior is semantically important. `wrapping_add`, `checked_add`, and `saturating_add` make intent reviewable and avoid relying on ambient build-mode overflow behavior.
 
 ## Source shape
 
