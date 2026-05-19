@@ -13,6 +13,7 @@ item           := macro_item
                | type_item
                | struct_item
                | enum_item
+               | trait_item
                | fn_item ;
 
 macro_item     := "macro_rules!" IDENT "{" macro_arm "}" ;
@@ -24,6 +25,8 @@ const_item     := visibility? "const" IDENT ":" type "=" expr ;
 type_item      := visibility? "type" IDENT generic_params? "=" type ;
 struct_item    := visibility? "struct" IDENT generic_params? "{" fields? "}" ;
 enum_item      := visibility? "enum" IDENT generic_params? "{" variants? "}" ;
+trait_item     := visibility? "trait" IDENT "{" trait_method* "}" ;
+trait_method   := "fn" IDENT "(" params? ")" ":" type ";"? ;
 fn_item        := visibility? "fn" IDENT generic_params? "(" params? ")" ":" type block ;
 visibility     := "pub" | "pub(pkg)" ;
 lifetime       := "'" IDENT ;
@@ -82,3 +85,6 @@ bounded recursive expansion depth. Macro output may invoke other macros and the
 expander repeats until no invocations remain or the current hard cap of 64
 expansion passes is exceeded. Multi-line expansions must be invoked as a whole
 statement; single-line expansions can appear inside expressions.
+
+Trait declarations are currently parser and HIR contracts only. Trait names are
+rejected in type positions until bounded generics, impl blocks, and dispatch land.

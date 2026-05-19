@@ -3380,6 +3380,7 @@ fn flatten_modules(
     let mut flattened_type_aliases = Vec::new();
     let mut flattened_structs = Vec::new();
     let mut flattened_enums = Vec::new();
+    let mut flattened_traits = Vec::new();
     let mut flattened_stmts = Vec::new();
     for module in modules {
         let Some(module_symbols) = symbols.get(&module.path) else {
@@ -3758,6 +3759,7 @@ fn flatten_modules(
                 &module.path,
             )?);
         }
+        flattened_traits.extend(module.program.traits.clone());
         for function in &module.program.functions {
             flattened_functions.push(rewrite_function(
                 function,
@@ -3800,6 +3802,7 @@ fn flatten_modules(
         type_aliases: flattened_type_aliases,
         structs: flattened_structs,
         enums: flattened_enums,
+        traits: flattened_traits,
         functions: flattened_functions,
         stmts: flattened_stmts,
     })
@@ -6520,6 +6523,7 @@ mod tests {
             path: "src/main.ax".to_string(),
             structs: Vec::new(),
             enums: Vec::new(),
+            traits: Vec::new(),
             statics: vec![static_def],
             functions: Vec::new(),
             stmts: Vec::new(),

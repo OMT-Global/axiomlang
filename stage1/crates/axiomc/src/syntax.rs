@@ -46,6 +46,7 @@ pub struct Program {
     pub type_aliases: Vec<TypeAliasDecl>,
     pub structs: Vec<StructDecl>,
     pub enums: Vec<EnumDecl>,
+    pub traits: Vec<TraitDecl>,
     pub functions: Vec<Function>,
     pub stmts: Vec<Stmt>,
 }
@@ -150,6 +151,25 @@ pub struct EnumVariantDecl {
     pub name: String,
     pub payload_tys: Vec<TypeName>,
     pub payload_names: Vec<String>,
+    pub line: usize,
+    pub column: usize,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct TraitDecl {
+    pub name: String,
+    pub methods: Vec<TraitMethodDecl>,
+    pub visibility: Visibility,
+    pub line: usize,
+    pub column: usize,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct TraitMethodDecl {
+    pub name: String,
+    pub params: Vec<Param>,
+    pub return_ty: TypeName,
+    pub has_self: bool,
     pub line: usize,
     pub column: usize,
 }
@@ -536,6 +556,15 @@ impl EnumDecl {
     }
 }
 
+impl TraitDecl {
+    pub fn span_in(&self, file: &str) -> SourceSpan {
+        SourceSpan::new(file, self.line, self.column)
+    }
+    pub fn stable_id_in(&self, file: &str) -> AstNodeId {
+        self.span_in(file).stable_id("trait", Some(&self.name))
+    }
+}
+
 impl Stmt {
     pub fn span_in(&self, file: &str) -> SourceSpan {
         let (line, column) = match self {
@@ -614,6 +643,7 @@ pub fn parse_program_with_recovery(source: &str, path: &Path) -> Result<Program,
     let mut type_aliases = Vec::new();
     let mut structs = Vec::new();
     let mut enums = Vec::new();
+    let mut traits = Vec::new();
     let mut functions = Vec::new();
     let mut stmts = Vec::new();
     let mut diagnostics = Vec::new();
@@ -754,6 +784,21 @@ pub fn parse_program_with_recovery(source: &str, path: &Path) -> Result<Program,
             }
             continue;
         }
+        if trimmed.starts_with("trait ")
+            || trimmed.starts_with("pub trait ")
+            || trimmed.starts_with("pub(pkg) trait ")
+        {
+            let start_index = index;
+            match parse_trait(&lines, &mut index, path) {
+                Ok(trait_decl) => traits.push(trait_decl),
+                Err(error) => {
+                    push_diagnostic_with_related(&mut diagnostics, error);
+                    index = start_index;
+                    synchronize_top_level(&lines, &mut index);
+                }
+            }
+            continue;
+        }
         if trimmed.starts_with("impl ") {
             let start_index = index;
             match parse_impl(&lines, &mut index, path) {
@@ -786,6 +831,7 @@ pub fn parse_program_with_recovery(source: &str, path: &Path) -> Result<Program,
         type_aliases,
         structs,
         enums,
+        traits,
         functions,
         stmts,
     })
@@ -1241,6 +1287,9 @@ fn is_top_level_recovery_anchor(line: &str) -> bool {
         || trimmed.starts_with("enum ")
         || trimmed.starts_with("pub enum ")
         || trimmed.starts_with("pub(pkg) enum ")
+        || trimmed.starts_with("trait ")
+        || trimmed.starts_with("pub trait ")
+        || trimmed.starts_with("pub(pkg) trait ")
         || trimmed.starts_with("impl ")
 }
 
@@ -1392,6 +1441,17 @@ fn parse_stmt_list(
             return Err(Diagnostic::new(
                 "parse",
                 "stage1 bootstrap only supports top-level enum declarations",
+            )
+            .with_path(path.display().to_string())
+            .with_span(line_no, 1));
+        }
+        if trimmed.starts_with("trait ")
+            || trimmed.starts_with("pub trait ")
+            || trimmed.starts_with("pub(pkg) trait ")
+        {
+            return Err(Diagnostic::new(
+                "parse",
+                "stage1 bootstrap only supports top-level trait declarations",
             )
             .with_path(path.display().to_string())
             .with_span(line_no, 1));
@@ -1951,6 +2011,103 @@ fn parse_impl(lines: &[&str], index: &mut usize, path: &Path) -> Result<Vec<Func
         Diagnostic::new("parse", "impl block is missing closing '}'")
             .with_path(path.display().to_string())
             .with_span(line_no, 1),
+    )
+}
+
+fn parse_trait(lines: &[&str], index: &mut usize, path: &Path) -> Result<TraitDecl, Diagnostic> {
+    let line_no = *index + 1;
+    let trimmed = lines[*index].trim();
+    let (visibility, rest, visibility_column) = parse_visibility_prefix(trimmed);
+    let header = rest.strip_prefix("trait ").ok_or_else(|| {
+        Diagnostic::new("parse", "invalid trait declaration")
+            .with_path(path.display().to_string())
+            .with_span(line_no, 1)
+    })?;
+    let name = header.strip_suffix('{').map(str::trim).ok_or_else(|| {
+        Diagnostic::new("parse", "trait declaration must use `trait Name {` syntax")
+            .with_path(path.display().to_string())
+            .with_span(line_no, 1)
+    })?;
+    validate_ident(name, path, line_no, visibility_column + 7)?;
+    *index += 1;
+    let methods = parse_trait_methods(lines, index, path)?;
+    Ok(TraitDecl {
+        name: name.to_string(),
+        methods,
+        visibility,
+        line: line_no,
+        column: 1,
+    })
+}
+
+fn parse_trait_methods(
+    lines: &[&str],
+    index: &mut usize,
+    path: &Path,
+) -> Result<Vec<TraitMethodDecl>, Diagnostic> {
+    let mut methods = Vec::new();
+    while *index < lines.len() {
+        let line_no = *index + 1;
+        let trimmed = lines[*index].trim();
+        if trimmed.is_empty() {
+            *index += 1;
+            continue;
+        }
+        if trimmed == "}" {
+            *index += 1;
+            return Ok(methods);
+        }
+        let header = trimmed
+            .strip_prefix("fn ")
+            .and_then(|raw| raw.strip_suffix(';').or(Some(raw)))
+            .ok_or_else(|| {
+                Diagnostic::new(
+                    "parse",
+                    "trait declarations may only contain method signatures",
+                )
+                .with_path(path.display().to_string())
+                .with_span(line_no, 1)
+            })?;
+        let open_paren = find_top_level_char(header, '(').ok_or_else(|| {
+            Diagnostic::new("parse", "trait method declaration is missing '('")
+                .with_path(path.display().to_string())
+                .with_span(line_no, 1)
+        })?;
+        let close_paren = find_matching_paren(header, open_paren).ok_or_else(|| {
+            Diagnostic::new("parse", "trait method declaration is missing ')'")
+                .with_path(path.display().to_string())
+                .with_span(line_no, 1)
+        })?;
+        let name = header[..open_paren].trim();
+        validate_ident(name, path, line_no, 4)?;
+        let (receiver, params) =
+            parse_params(&header[open_paren + 1..close_paren], path, line_no, true)?;
+        let after_paren = header[close_paren + 1..].trim();
+        let return_text = after_paren
+            .strip_prefix(':')
+            .map(str::trim)
+            .ok_or_else(|| {
+                Diagnostic::new(
+                    "parse",
+                    "trait method declaration must include a return type",
+                )
+                .with_path(path.display().to_string())
+                .with_span(line_no, close_paren + 2)
+            })?;
+        methods.push(TraitMethodDecl {
+            name: name.to_string(),
+            params,
+            return_ty: parse_type_name(return_text, path, line_no, close_paren + 3)?,
+            has_self: receiver.is_some(),
+            line: line_no,
+            column: 1,
+        });
+        *index += 1;
+    }
+    Err(
+        Diagnostic::new("parse", "trait declaration is missing closing '}'")
+            .with_path(path.display().to_string())
+            .with_span(lines.len().max(1), 1),
     )
 }
 
