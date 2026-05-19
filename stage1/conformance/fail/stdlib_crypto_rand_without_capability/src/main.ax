@@ -1,0 +1,3 @@
+import "std/crypto_rand.ax"
+
+print len(random_bytes(32))
