@@ -546,6 +546,32 @@ print answer
     }
 
     #[test]
+    fn parser_expands_nested_declarative_macro_invocations_before_lowering() {
+        let source = r#"macro_rules! add_one {
+($value:expr) => {
+$value + 1
+}
+}
+
+macro_rules! add_two {
+($value:expr) => {
+add_one!(add_one!($value))
+}
+}
+
+let answer: int = add_two!(40)
+print answer
+"#;
+        let parsed = parse_program(source, Path::new("main.ax")).expect("parse");
+        let hir = hir::lower(&parsed).expect("lower");
+        let mir = mir::lower(&hir);
+        let rendered = render_rust(&mir);
+        assert!(rendered.contains("let answer: i64 = 40 + 1 + 1;"));
+        assert!(!rendered.contains("add_one!"));
+        assert!(!rendered.contains("add_two!"));
+    }
+
+    #[test]
     fn check_project_expands_declarative_macros_before_typecheck() {
         let dir = tempdir().expect("tempdir");
         fs::write(dir.path().join("axiom.toml"), render_manifest("macro-demo"))
@@ -723,6 +749,7 @@ spin!()
         let error = parse_program(source, Path::new("main.ax"))
             .expect_err("recursive macro expansion should be bounded");
         assert!(error.message.contains("exceeded bounded depth"));
+        assert!(error.message.contains("64"));
     }
 
     #[test]

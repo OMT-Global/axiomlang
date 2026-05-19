@@ -78,5 +78,7 @@ current stage1 parser.
 
 Declarative `macro_rules!` support is intentionally small in stage1: one arm per
 macro, explicit `$name` captures, textual expansion before type-check, and a
-bounded recursive expansion depth. Multi-line expansions must be invoked as a
-whole statement; single-line expansions can appear inside expressions.
+bounded recursive expansion depth. Macro output may invoke other macros and the
+expander repeats until no invocations remain or the current hard cap of 64
+expansion passes is exceeded. Multi-line expansions must be invoked as a whole
+statement; single-line expansions can appear inside expressions.
