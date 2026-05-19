@@ -1,0 +1,9 @@
+import "std/crypto_rand.ax"
+
+let first: [u8] = random_bytes(32)
+let second: [u8] = random_bytes(32)
+let _sample: u64 = random_u64()
+
+print len(first)
+print len(second)
+print first == second

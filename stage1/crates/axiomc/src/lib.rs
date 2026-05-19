@@ -1522,6 +1522,7 @@ Variant(
         let source = "let byte: u8 = 255u8
 let wrapped: u8 = byte.wrapping_add(1u8)
 let checked: Option<u8> = byte.checked_add(1u8)
+let saturated: u8 = byte.saturating_add(1u8)
 ";
         let parsed = parse_program(source, Path::new("main.ax")).expect("parse");
         let hir = hir::lower(&parsed).expect("lower");
@@ -1529,6 +1530,7 @@ let checked: Option<u8> = byte.checked_add(1u8)
         let rendered = render_rust(&mir);
         assert!(rendered.contains("let wrapped: u8 = (byte).wrapping_add(1u8);"));
         assert!(rendered.contains("let checked: Option<u8> = (byte).checked_add(1u8);"));
+        assert!(rendered.contains("let saturated: u8 = (byte).saturating_add(1u8);"));
     }
 
     #[test]
