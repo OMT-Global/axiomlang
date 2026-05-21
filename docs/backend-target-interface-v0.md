@@ -145,9 +145,9 @@ into generated Rust, and invokes `rustc`. In target-contract terms:
   ],
   "artifact_outputs": [
     {
-      "id": "axiom://target/stage1-generated-rust/artifact/binary",
-      "kind": "native_binary",
-      "path": "target/axiomc/<package>",
+      "id": "axiom://target/stage1-generated-rust/artifact/source",
+      "kind": "rust_source",
+      "path": "target/axiomc/<package>.rs",
       "generated_from": ["axiom://package/<package>"],
       "status": "planned"
     }

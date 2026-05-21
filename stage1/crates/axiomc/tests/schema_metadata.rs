@@ -163,6 +163,12 @@ fn backend_target_v0_schema_and_fixture_are_well_formed() {
         );
     }
 
+    assert_eq!(
+        schema["$defs"]["nodeId"]["pattern"],
+        "^axiom://[A-Za-z0-9._~:/#@!$&'()*+,;=%-]+$",
+        "target nodeId stays aligned with Intent IR nodeId characters"
+    );
+
     let fixture_path = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("..")
         .join("..")
@@ -188,5 +194,19 @@ fn backend_target_v0_schema_and_fixture_are_well_formed() {
     assert!(
         ids.contains(&"axiom://target/stage1-direct-native"),
         "fixture maps the direct-native backend roadmap"
+    );
+    let generated_rust = targets
+        .iter()
+        .find(|target| target["id"] == "axiom://target/stage1-generated-rust")
+        .expect("fixture includes generated-Rust target");
+    let artifacts = generated_rust["artifact_outputs"]
+        .as_array()
+        .expect("generated-Rust target artifact outputs");
+    assert!(
+        artifacts.iter().any(|artifact| {
+            artifact["id"] == "axiom://target/stage1-generated-rust/artifact/source"
+                && artifact["kind"] == "rust_source"
+        }),
+        "generated-Rust target emits a Rust source artifact"
     );
 }

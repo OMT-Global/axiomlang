@@ -43,9 +43,9 @@
       ],
       "artifact_outputs": [
         {
-          "id": "axiom://target/stage1-generated-rust/artifact/binary",
-          "kind": "native_binary",
-          "path": "target/axiomc/target-smoke",
+          "id": "axiom://target/stage1-generated-rust/artifact/source",
+          "kind": "rust_source",
+          "path": "target/axiomc/target-smoke.rs",
           "generated_from": ["axiom://package/target-smoke"],
           "status": "planned"
         }
