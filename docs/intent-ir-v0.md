@@ -99,3 +99,9 @@ Intent IR v0 does not require:
 
 Those behaviors should be added by later issues after the schema and smoke
 fixture are stable.
+
+## Related Schemas
+
+- [Backend Target Interface v0](backend-target-interface-v0.md) and
+  `stage1/schemas/axiom-target-v0.schema.json` describe the contract a
+  backend declares against the semantic graph defined here.

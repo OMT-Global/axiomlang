@@ -1,0 +1,218 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://axiom.omt.global/schemas/axiom-target-v0.schema.json",
+  "title": "Axiom Backend Target Interface v0",
+  "description": "Backend target contract used by Axiom backends that consume the semantic graph and produce artifacts. Descriptive in v0: no backend implementation changes are required for a contract to exist.",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/targetContract"
+    },
+    {
+      "$ref": "#/$defs/targetManifest"
+    }
+  ],
+  "$defs": {
+    "targetManifest": {
+      "type": "object",
+      "required": ["schema_version", "targets"],
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "axiom.target.v0"
+        },
+        "package": {
+          "$ref": "#/$defs/nodeId"
+        },
+        "targets": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/targetContract"
+          }
+        }
+      }
+    },
+    "targetContract": {
+      "type": "object",
+      "required": [
+        "id",
+        "class",
+        "input_node_kinds",
+        "supported_effect_kinds",
+        "supported_type_features",
+        "artifact_outputs",
+        "evidence_requirements",
+        "unsupported_feature_diagnostics"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "axiom.target.v0"
+        },
+        "id": {
+          "$ref": "#/$defs/nodeId"
+        },
+        "class": {
+          "$ref": "#/$defs/targetClass"
+        },
+        "description": {
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/$defs/targetStatus"
+        },
+        "input_node_kinds": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/nodeKind"
+          }
+        },
+        "supported_effect_kinds": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/effectKind"
+          }
+        },
+        "supported_type_features": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/typeFeature"
+          }
+        },
+        "artifact_outputs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/artifactOutput"
+          }
+        },
+        "evidence_requirements": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/evidenceKind"
+          }
+        },
+        "unsupported_feature_diagnostics": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/targetDiagnostic"
+          }
+        }
+      }
+    },
+    "targetClass": {
+      "enum": [
+        "native_binary",
+        "rust_source",
+        "zero_source",
+        "go_source",
+        "typescript_source",
+        "python_source",
+        "openapi_spec",
+        "sql_migration",
+        "terraform_module",
+        "policy_bundle",
+        "documentation",
+        "runbook"
+      ]
+    },
+    "targetStatus": {
+      "enum": ["experimental", "supported", "deprecated"]
+    },
+    "nodeKind": {
+      "enum": [
+        "Package",
+        "Module",
+        "Type",
+        "Function",
+        "Capability",
+        "Effect",
+        "Axiom",
+        "Evidence",
+        "Artifact",
+        "Decision",
+        "Dependency",
+        "RuntimeSurface"
+      ]
+    },
+    "effectKind": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$"
+    },
+    "typeFeature": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$"
+    },
+    "evidenceKind": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[a-z][a-z0-9_]*$"
+    },
+    "artifactStatus": {
+      "enum": ["planned", "generated", "verified"]
+    },
+    "artifactOutput": {
+      "type": "object",
+      "required": ["id", "kind", "path", "generated_from", "status"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/nodeId"
+        },
+        "kind": {
+          "$ref": "#/$defs/targetClass"
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "generated_from": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/nodeId"
+          }
+        },
+        "status": {
+          "$ref": "#/$defs/artifactStatus"
+        }
+      }
+    },
+    "targetDiagnostic": {
+      "type": "object",
+      "required": ["target_id", "unsupported_kind", "semantic_node"],
+      "additionalProperties": false,
+      "properties": {
+        "target_id": {
+          "$ref": "#/$defs/nodeId"
+        },
+        "unsupported_kind": {
+          "enum": [
+            "input_node_kind",
+            "effect_kind",
+            "type_feature",
+            "artifact_output",
+            "evidence_requirement"
+          ]
+        },
+        "semantic_node": {
+          "type": "string",
+          "minLength": 1
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    },
+    "nodeId": {
+      "type": "string",
+      "pattern": "^axiom://[A-Za-z0-9._~:/#@!$&'()*+,;=%<>-]+$"
+    }
+  }
+}

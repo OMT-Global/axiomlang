@@ -48,7 +48,7 @@ canonical issue has already shipped or has an active PR.
 | Artifact plan | #783 | #785, #787 | keep open | Represent existing build/test/doc outputs before adding new generators. |
 | Repair-plan protocol | #784 | #782, #778 | defer until evidence model shape exists | Emit plans only; no auto-fixer or LLM invocation. |
 | Provenance / trace | #785 | #783, #778 | defer until artifact plan and Intent IR shape exist | Connect source spans, semantic nodes, generated artifacts, and evidence. |
-| Backend target interface | #786 | #105, #777, #783 | keep open | Define target contracts before expanding non-Rust artifact targets. |
+| Backend target interface | #786 | #105, #777, #783 | shipped as docs + schema | `docs/backend-target-interface-v0.md` and `stage1/schemas/axiom-target-v0.schema.json` define target classes, contract slots, and the generated-Rust and direct-native backend mappings; non-Rust artifact targets must declare contracts in this shape before they ship. |
 | Agent-native proof demo | #787 | #777, #778, #779, #780, #781, #782, #783 | defer until component APIs exist | Demo should prove intent -> graph -> effects -> evidence -> artifacts. |
 | Agent execution contract | #788 | #774, #775, #776 | keep open until merged | Keep AGENTS and PR guidance aligned with semantic-layer governance. |
 

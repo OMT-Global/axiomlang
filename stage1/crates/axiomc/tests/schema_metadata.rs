@@ -106,3 +106,87 @@ fn editor_metadata_schemas_are_parseable_and_current() {
         );
     }
 }
+
+#[test]
+fn backend_target_v0_schema_and_fixture_are_well_formed() {
+    let schema: Value = serde_json::from_str(
+        &fs::read_to_string(schema_dir().join("axiom-target-v0.schema.json"))
+            .expect("read backend target schema"),
+    )
+    .expect("backend target schema is valid JSON");
+    assert_eq!(
+        schema["$id"],
+        "https://axiom.omt.global/schemas/axiom-target-v0.schema.json"
+    );
+    assert_eq!(schema["title"], "Axiom Backend Target Interface v0");
+
+    let contract = &schema["$defs"]["targetContract"];
+    let required = contract["required"]
+        .as_array()
+        .expect("targetContract required list");
+    for field in [
+        "id",
+        "class",
+        "input_node_kinds",
+        "supported_effect_kinds",
+        "supported_type_features",
+        "artifact_outputs",
+        "evidence_requirements",
+        "unsupported_feature_diagnostics",
+    ] {
+        assert!(
+            required.iter().any(|value| value == field),
+            "targetContract requires {field}"
+        );
+    }
+
+    let classes = schema["$defs"]["targetClass"]["enum"]
+        .as_array()
+        .expect("target class enum");
+    for class in [
+        "native_binary",
+        "rust_source",
+        "zero_source",
+        "go_source",
+        "typescript_source",
+        "python_source",
+        "openapi_spec",
+        "sql_migration",
+        "terraform_module",
+        "policy_bundle",
+        "documentation",
+        "runbook",
+    ] {
+        assert!(
+            classes.iter().any(|value| value == class),
+            "target class enum includes {class}"
+        );
+    }
+
+    let fixture_path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("..")
+        .join("examples")
+        .join("target_smoke")
+        .join("targets.json");
+    let fixture: Value = serde_json::from_str(
+        &fs::read_to_string(&fixture_path).expect("read backend target smoke fixture"),
+    )
+    .expect("backend target smoke fixture is valid JSON");
+    assert_eq!(fixture["schema_version"], "axiom.target.v0");
+    let targets = fixture["targets"]
+        .as_array()
+        .expect("smoke fixture targets array");
+    let ids: Vec<&str> = targets
+        .iter()
+        .map(|t| t["id"].as_str().expect("target id"))
+        .collect();
+    assert!(
+        ids.contains(&"axiom://target/stage1-generated-rust"),
+        "fixture maps the current generated-Rust backend"
+    );
+    assert!(
+        ids.contains(&"axiom://target/stage1-direct-native"),
+        "fixture maps the direct-native backend roadmap"
+    );
+}

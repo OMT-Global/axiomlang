@@ -1,0 +1,108 @@
+{
+  "schema_version": "axiom.target.v0",
+  "package": "axiom://package/target-smoke",
+  "targets": [
+    {
+      "id": "axiom://target/stage1-generated-rust",
+      "class": "rust_source",
+      "description": "Stage 1 generated-Rust backend compiled by rustc into a native binary.",
+      "status": "supported",
+      "input_node_kinds": [
+        "Package",
+        "Module",
+        "Type",
+        "Function",
+        "Capability",
+        "Effect"
+      ],
+      "supported_effect_kinds": [
+        "clock.now",
+        "clock.sleep",
+        "env.read",
+        "fs.read",
+        "fs.write",
+        "network.dns.resolve",
+        "network.http.get",
+        "network.tcp.bind",
+        "network.tcp.connect",
+        "network.udp.send",
+        "process.status",
+        "crypto.hash",
+        "crypto.mac",
+        "crypto.rand",
+        "crypto.sign"
+      ],
+      "supported_type_features": [
+        "numeric.signed",
+        "numeric.unsigned",
+        "numeric.float",
+        "aggregate.struct",
+        "aggregate.enum",
+        "borrow.mutable",
+        "async.task"
+      ],
+      "artifact_outputs": [
+        {
+          "id": "axiom://target/stage1-generated-rust/artifact/binary",
+          "kind": "native_binary",
+          "path": "target/axiomc/target-smoke",
+          "generated_from": ["axiom://package/target-smoke"],
+          "status": "planned"
+        }
+      ],
+      "evidence_requirements": ["unit_test", "conformance"],
+      "unsupported_feature_diagnostics": []
+    },
+    {
+      "id": "axiom://target/stage1-direct-native",
+      "class": "native_binary",
+      "description": "Direct MIR-to-native backend with no generated-Rust intermediate.",
+      "status": "experimental",
+      "input_node_kinds": [
+        "Package",
+        "Module",
+        "Type",
+        "Function",
+        "Capability",
+        "Effect"
+      ],
+      "supported_effect_kinds": [
+        "clock.now",
+        "clock.sleep",
+        "env.read",
+        "fs.read",
+        "fs.write",
+        "network.dns.resolve",
+        "network.tcp.bind",
+        "network.tcp.connect",
+        "process.status",
+        "crypto.hash",
+        "crypto.rand"
+      ],
+      "supported_type_features": [
+        "numeric.signed",
+        "numeric.unsigned",
+        "aggregate.struct",
+        "aggregate.enum"
+      ],
+      "artifact_outputs": [
+        {
+          "id": "axiom://target/stage1-direct-native/artifact/binary",
+          "kind": "native_binary",
+          "path": "target/axiomc-native/target-smoke",
+          "generated_from": ["axiom://package/target-smoke"],
+          "status": "planned"
+        }
+      ],
+      "evidence_requirements": ["unit_test", "conformance"],
+      "unsupported_feature_diagnostics": [
+        {
+          "target_id": "axiom://target/stage1-direct-native",
+          "unsupported_kind": "effect_kind",
+          "semantic_node": "axiom://package/target-smoke/effect/network.http.get",
+          "message": "network.http.get is not yet implemented on the direct native backend."
+        }
+      ]
+    }
+  ]
+}
