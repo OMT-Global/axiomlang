@@ -31,6 +31,7 @@ ci_gate_needs_validate=$(awk '
   in_job && /validate-pr-description/ { found=1 }
   END { if (found) print "yes" }
 ' "$workflow")
+benchmark_gate_reference=$(grep -nE 'check-stage1-benchmarks\.py|stage1-comparison-report\.json' "$workflow" || true)
 
 if [[ -z "$checkout_line" ]]; then
   echo "validate-pr-description job must checkout the repo before running validation" >&2
@@ -54,6 +55,12 @@ fi
 
 if [[ "$ci_gate_needs_validate" != "yes" ]]; then
   echo "ci-gate must depend on validate-pr-description so PR body failures block the workflow" >&2
+  exit 1
+fi
+
+if [[ -n "$benchmark_gate_reference" ]]; then
+  echo "pr-fast-ci must not run the Stage 1 comparison benchmark gate; keep it in extended, nightly, or manual validation" >&2
+  printf '%s\n' "$benchmark_gate_reference" >&2
   exit 1
 fi
 
