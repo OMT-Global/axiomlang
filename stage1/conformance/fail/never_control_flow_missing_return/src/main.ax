@@ -1,0 +1,9 @@
+fn choose(flag: bool): string {
+if flag {
+return "ok"
+} else {
+print "still running"
+}
+}
+
+print choose(true)

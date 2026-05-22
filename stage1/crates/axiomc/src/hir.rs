@@ -285,6 +285,7 @@ pub enum Expr {
 #[derive(Debug, Clone, Serialize, Eq)]
 pub enum Type {
     Error,
+    Never,
     Int,
     Numeric(syntax::NumericType),
     Bool,
@@ -313,6 +314,7 @@ impl PartialEq for Type {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
             (Type::Error, Type::Error)
+            | (Type::Never, Type::Never)
             | (Type::Int, Type::Int)
             | (Type::Bool, Type::Bool)
             | (Type::String, Type::String)
@@ -349,7 +351,7 @@ impl PartialEq for Type {
 
 fn type_assignable_to(actual: &Type, expected: &Type) -> bool {
     match (actual, expected) {
-        (_, Type::Error) | (Type::Error, _) => true,
+        (Type::Never, _) | (_, Type::Error) | (Type::Error, _) => true,
         (Type::Array(actual_inner, actual_len), Type::Array(expected_inner, expected_len)) => {
             type_assignable_to(actual_inner, expected_inner)
                 && match expected_len {
@@ -954,6 +956,7 @@ fn type_has_unboxed_recursive_path(
 ) -> bool {
     match ty {
         Type::Error
+        | Type::Never
         | Type::Int
         | Type::Numeric(_)
         | Type::Bool
@@ -4639,6 +4642,7 @@ impl Type {
     pub fn is_copy(&self) -> bool {
         match self {
             Type::Error
+            | Type::Never
             | Type::Int
             | Type::Numeric(_)
             | Type::Bool
@@ -4668,6 +4672,7 @@ impl Type {
             Type::Int | Type::Numeric(_) | Type::Bool | Type::String | Type::Str => true,
             Type::Tuple(elements) => elements.iter().all(Type::supports_map_key),
             Type::Error
+            | Type::Never
             | Type::Struct(_)
             | Type::Enum(_)
             | Type::Ptr(_)
@@ -7316,6 +7321,39 @@ fn lower_expr_with_expected_inner(
             ) {
                 return lower_map_lookup_intrinsic(name, type_args, args, *line, *column, env, ctx);
             }
+            if name == "panic" {
+                if !type_args.is_empty() {
+                    return Err(
+                        Diagnostic::new("type", "panic does not accept type arguments")
+                            .with_span(*line, *column),
+                    );
+                }
+                if args.len() != 1 {
+                    return Err(Diagnostic::new(
+                        "type",
+                        format!("panic expects 1 argument, got {}", args.len()),
+                    )
+                    .with_span(*line, *column));
+                }
+                let message = lower_expr_with_expected(&args[0], Some(&Type::String), env, ctx)?;
+                if message.ty() != &Type::String {
+                    return Err(Diagnostic::new(
+                        "type",
+                        format!("panic expects a string argument, got {}", message.ty()),
+                    )
+                    .with_span(args[0].line(), args[0].column()));
+                }
+                move_lowered_value(&message, env)?;
+                return Ok(Expr::Call {
+                    span: SourceSpan {
+                        line: *line,
+                        column: *column,
+                    },
+                    name: name.clone(),
+                    args: vec![message],
+                    ty: Type::Never,
+                });
+            }
             if !type_args.is_empty() {
                 return Err(
                     Diagnostic::new("type", format!("function {name:?} is not generic"))
@@ -7339,6 +7377,11 @@ fn lower_expr_with_expected_inner(
                     .with_span(args[0].line(), args[0].column()));
                 }
                 move_lowered_value(&lowered, env)?;
+                let ty = if static_bool_value(&lowered) == Some(false) {
+                    Type::Never
+                } else {
+                    Type::Int
+                };
                 return Ok(Expr::Call {
                     span: SourceSpan {
                         line: *line,
@@ -7346,7 +7389,7 @@ fn lower_expr_with_expected_inner(
                     },
                     name: name.clone(),
                     args: with_assert_location(vec![lowered], *line, *column),
-                    ty: Type::Int,
+                    ty,
                 });
             }
             if name == "assert_property" {
@@ -11887,6 +11930,7 @@ fn contains_borrowed_slice_type_inner(
             contains
         }
         Type::Error
+        | Type::Never
         | Type::Int
         | Type::Numeric(_)
         | Type::Bool
@@ -11906,6 +11950,7 @@ fn contains_mut_borrowed_slice_type_inner(
     match ty {
         Type::MutSlice(_) | Type::MutRef(_) => true,
         Type::Error
+        | Type::Never
         | Type::Slice(_)
         | Type::Int
         | Type::Numeric(_)
@@ -12806,6 +12851,7 @@ impl std::fmt::Display for Type {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Type::Error => write!(f, "<type-error>"),
+            Type::Never => write!(f, "never"),
             Type::Int => write!(f, "int"),
             Type::Numeric(numeric) => write!(f, "{}", numeric.as_str()),
             Type::Bool => write!(f, "bool"),

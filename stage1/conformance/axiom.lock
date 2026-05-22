@@ -206,6 +206,11 @@ version = "0.1.0"
 source = "path:fail/nested_match_pattern_not_supported"
 
 [[package]]
+name = "conformance-never-control-flow-missing-return"
+version = "0.1.0"
+source = "path:fail/never_control_flow_missing_return"
+
+[[package]]
 name = "conformance-numeric-float-mixed-width-add"
 version = "0.1.0"
 source = "path:fail/numeric_float_mixed_width_add"
@@ -394,6 +399,11 @@ source = "path:pass/mutable_local_borrow_write_through"
 name = "conformance-mutable-projection-borrows"
 version = "0.1.0"
 source = "path:pass/mutable_projection_borrows"
+
+[[package]]
+name = "conformance-never-control-flow"
+version = "0.1.0"
+source = "path:pass/never_control_flow"
 
 [[package]]
 name = "conformance-numeric-cross-width-casts"
