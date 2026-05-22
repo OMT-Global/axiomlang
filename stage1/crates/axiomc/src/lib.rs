@@ -2396,6 +2396,55 @@ let now: int = clock_now_ms()
     }
 
     #[test]
+    fn async_timeout_returns_without_joining_slow_host_task() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("async-timeout-bound");
+        create_project(&project, Some("async-timeout-bound-app")).expect("create project");
+        fs::write(
+            project.join("axiom.toml"),
+            render_manifest("async-timeout-bound-app")
+                .replace("async = false", "async = true")
+                .replace("clock = false", "clock = true"),
+        )
+        .expect("write async clock-enabled manifest");
+        fs::write(
+            project.join("src/main.ax"),
+            r#"import "std/async.ax"
+import "std/time.ax"
+
+async fn slow_host_task(): int {
+let slept: int = sleep(duration_ms(500))
+return slept + 99
+}
+
+let maybe: Option<int> = await timeout<int>(slow_host_task(), 25)
+match maybe {
+Some(value) {
+print value
+}
+None {
+print 0
+}
+}
+"#,
+        )
+        .expect("write source");
+
+        let built = build_project(&project).expect("build async timeout project");
+        let started = std::time::Instant::now();
+        let output = compiled_binary_command(&built.binary)
+            .output()
+            .expect("run compiled binary");
+        let elapsed = started.elapsed();
+        assert!(output.status.success(), "binary failed: {output:?}");
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "0\n");
+        assert!(
+            elapsed < std::time::Duration::from_millis(250),
+            "timeout waited for slow host task: elapsed={elapsed:?}"
+        );
+    }
+
+    #[test]
     fn package_visibility_rejects_cross_package_imports() {
         let dir = tempdir().expect("tempdir");
         let project = dir.path().join("package-visible-dependency");
