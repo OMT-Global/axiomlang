@@ -6484,6 +6484,7 @@ mod tests {
             name: "pair".to_string(),
             ty: hir::Type::Tuple(vec![hir::Type::Int, hir::Type::Int]),
             expr,
+            borrow_region_facts: Vec::new(),
             span: hir::SourceSpan { line: 7, column: 1 },
         };
         let mut uses = BTreeSet::new();

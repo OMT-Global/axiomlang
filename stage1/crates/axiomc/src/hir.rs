@@ -96,6 +96,8 @@ pub enum Stmt {
         name: String,
         ty: Type,
         expr: Expr,
+        #[serde(skip)]
+        borrow_region_facts: Vec<BorrowRegionFact>,
         span: SourceSpan,
     },
     Assign {
@@ -280,6 +282,30 @@ pub enum Expr {
         expr: Box<Expr>,
         ty: Type,
     },
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct BorrowRegionFact {
+    pub binding: String,
+    pub origin: BorrowRegionOrigin,
+    pub scope: BorrowRegionScope,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct BorrowRegionOrigin {
+    pub name: String,
+    pub projection: Vec<BorrowRegionProjection>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub enum BorrowRegionProjection {
+    Field(String),
+    TupleIndex(usize),
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub enum BorrowRegionScope {
+    Binding(String),
 }
 
 #[derive(Debug, Clone, Serialize, Eq)]
@@ -6590,6 +6616,8 @@ fn lower_stmt(
             }
             let borrowed_owners =
                 binding_borrowed_owners_from_expr(&expected, &lowered_expr, env, ctx);
+            let borrow_region_facts =
+                borrow_region_facts_for_binding(name, &expected, &borrowed_owners);
             if let Some(borrow_kind) = borrow_kind_for_type(&expected, ctx.structs, ctx.enums) {
                 increment_active_borrows(&borrowed_owners, env, borrow_kind, *line, *column)?;
             }
@@ -6619,6 +6647,7 @@ fn lower_stmt(
                 name: name.clone(),
                 ty: expected,
                 expr: lowered_expr,
+                borrow_region_facts,
                 span: SourceSpan {
                     line: *line,
                     column: *column,
@@ -11719,6 +11748,52 @@ fn binding_borrowed_owners_from_expr(
     expr_borrowed_owners(expr, env, ctx)
 }
 
+fn borrow_region_facts_for_binding(
+    binding: &str,
+    ty: &Type,
+    borrowed_owners: &HashSet<BorrowedOwner>,
+) -> Vec<BorrowRegionFact> {
+    if !matches!(ty, Type::Slice(_) | Type::MutSlice(_)) {
+        return Vec::new();
+    }
+    let mut owners = borrowed_owners.iter().collect::<Vec<_>>();
+    owners.sort_by(|left, right| {
+        left.name
+            .cmp(&right.name)
+            .then_with(|| format!("{:?}", left.projection).cmp(&format!("{:?}", right.projection)))
+    });
+    owners
+        .into_iter()
+        .map(|owner| BorrowRegionFact {
+            binding: binding.to_string(),
+            origin: BorrowRegionOrigin::from(owner),
+            scope: BorrowRegionScope::Binding(binding.to_string()),
+        })
+        .collect()
+}
+
+impl From<&BorrowedOwner> for BorrowRegionOrigin {
+    fn from(owner: &BorrowedOwner) -> Self {
+        Self {
+            name: owner.name.clone(),
+            projection: owner
+                .projection
+                .iter()
+                .map(BorrowRegionProjection::from)
+                .collect(),
+        }
+    }
+}
+
+impl From<&ProjectionSegment> for BorrowRegionProjection {
+    fn from(segment: &ProjectionSegment) -> Self {
+        match segment {
+            ProjectionSegment::Field(field) => Self::Field(field.clone()),
+            ProjectionSegment::TupleIndex(index) => Self::TupleIndex(*index),
+        }
+    }
+}
+
 fn expr_borrow_origin(
     expr: &Expr,
     env: &HashMap<String, Binding>,
@@ -12703,6 +12778,65 @@ mod boundary_tests {
 
     fn parse(source: &str) -> syntax::Program {
         syntax::parse_program(source, Path::new("main.ax")).expect("parse fixture")
+    }
+
+    fn collect_borrow_region_facts(stmts: &[Stmt]) -> Vec<BorrowRegionFact> {
+        let mut facts = Vec::new();
+        for stmt in stmts {
+            match stmt {
+                Stmt::Let {
+                    borrow_region_facts,
+                    ..
+                } => facts.extend(borrow_region_facts.iter().cloned()),
+                Stmt::If {
+                    then_block,
+                    else_block,
+                    ..
+                } => {
+                    facts.extend(collect_borrow_region_facts(then_block));
+                    if let Some(else_block) = else_block {
+                        facts.extend(collect_borrow_region_facts(else_block));
+                    }
+                }
+                Stmt::While { body, .. } => facts.extend(collect_borrow_region_facts(body)),
+                Stmt::Match { arms, .. } => {
+                    for arm in arms {
+                        facts.extend(collect_borrow_region_facts(&arm.body));
+                    }
+                }
+                Stmt::Assign { .. }
+                | Stmt::Print { .. }
+                | Stmt::Panic { .. }
+                | Stmt::Defer { .. }
+                | Stmt::Return { .. } => {}
+            }
+        }
+        facts
+    }
+
+    #[test]
+    fn hir_records_borrow_region_fact_for_borrowed_slice_binding() {
+        let parsed = parse(
+            r#"
+let arr: [int] = [1, 2, 3]
+let s: &[int] = arr[:]
+"#,
+        );
+
+        let lowered = lower(&parsed).expect("HIR lowering should accept borrowed array slice");
+        let facts = collect_borrow_region_facts(&lowered.stmts);
+
+        assert_eq!(
+            facts,
+            vec![BorrowRegionFact {
+                binding: "s".to_string(),
+                origin: BorrowRegionOrigin {
+                    name: "arr".to_string(),
+                    projection: Vec::new(),
+                },
+                scope: BorrowRegionScope::Binding("s".to_string()),
+            }]
+        );
     }
 
     #[test]
