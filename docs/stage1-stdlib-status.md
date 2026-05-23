@@ -18,7 +18,7 @@ complete.
 | Issue | Current state | Reason it remains open |
 | --- | --- | --- |
 | #233 fs write-side | Only `std/fs.ax read_file` is supported, behind the existing read capability. | Write APIs need a separate capability and path policy. |
-| #234 net sockets | Only DNS resolution and HTTP client GET exist. | Raw sockets need host:port capability policy and async integration. |
+| #234 net sockets | `std/net.ax` supports DNS resolution, HTTP client GET exists in `std/http.ax`, and `std/net_tcp.ax` exposes blocking loopback TCP listener/stream handles with read/write/close operations. | UDP raw sockets, host:port capability policy for raw sockets, and deeper async runtime integration remain open. |
 | #236 crypto | `std/crypto_hash.ax` exposes `sha256`, `std/crypto_mac.ax` exposes SHA-256/SHA-512 HMAC plus constant-time string and byte-slice comparison helpers, and `std/crypto.ax` re-exports the landed crypto surface. | AEAD, Ed25519, RNG, and broader audited crypto coverage remain open. |
 | #240 richer testing | `axiomc test` discovers `*_test.ax`, golden stdout, assertion helpers, and `std/testing.ax` table/property/snapshot helpers; `axiomc bench` is the benchmark harness. | Richer randomized generation and benchmark CI policy remain future harness design work. |
 | #240 richer testing | `axiomc test` discovers `*_test.ax`, golden stdout, assertion helpers, and `std/testing.ax` table/property/snapshot helpers; `axiomc bench` is the benchmark harness. | Richer randomized generation and benchmark CI policy remain future harness design work. |

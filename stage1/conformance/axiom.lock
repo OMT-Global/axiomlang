@@ -321,6 +321,11 @@ version = "0.1.0"
 source = "path:fail/stdlib_fs_write_without_capability"
 
 [[package]]
+name = "conformance-stdlib-net-tcp-without-capability"
+version = "0.1.0"
+source = "path:fail/stdlib_net_tcp_without_capability"
+
+[[package]]
 name = "conformance-string-borrow-local-return"
 version = "0.1.0"
 source = "path:fail/string_borrow_local_return"
@@ -394,6 +399,11 @@ source = "path:pass/mutable_local_borrow_write_through"
 name = "conformance-mutable-projection-borrows"
 version = "0.1.0"
 source = "path:pass/mutable_projection_borrows"
+
+[[package]]
+name = "conformance-net-tcp-echo"
+version = "0.1.0"
+source = "path:pass/net_tcp_echo"
 
 [[package]]
 name = "conformance-numeric-cross-width-casts"
