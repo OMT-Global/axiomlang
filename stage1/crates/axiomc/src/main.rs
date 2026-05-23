@@ -5,7 +5,10 @@ use axiomc::diagnostics::Diagnostic;
 use axiomc::json_contract;
 use axiomc::lockfile::{expected_lockfile_for_project, validate_lockfile};
 use axiomc::lsp;
-use axiomc::manifest::{CapabilityDescriptor, entry_path, load_manifest, manifest_path};
+use axiomc::manifest::{
+    CapabilityDescriptor, TestKind, binary_path, entry_path, generated_rust_path, load_manifest,
+    manifest_path, out_dir_path,
+};
 #[cfg(test)]
 use axiomc::new_project::create_project;
 use axiomc::new_project::{WorkloadTemplate, create_project_with_template};
@@ -233,6 +236,12 @@ enum InspectCommand {
     },
     /// Emit package and module dependency graph details.
     Graph {
+        path: PathBuf,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Emit planned and generated package artifacts.
+    Artifacts {
         path: PathBuf,
         #[arg(long)]
         json: bool,
@@ -566,6 +575,26 @@ fn main() {
                     0
                 }
                 Err(error) => print_error("inspect graph", error, json),
+            },
+            InspectCommand::Artifacts { path, json } => match inspect_artifacts(&path) {
+                Ok(report) => {
+                    if json {
+                        println!(
+                            "{}",
+                            json_contract::to_pretty_string(&report)
+                                .unwrap_or_else(|_| String::from("{}"))
+                        );
+                    } else {
+                        for artifact in &report.artifacts {
+                            println!(
+                                "{} {} {} ({})",
+                                artifact.kind, artifact.id, artifact.path, artifact.status
+                            );
+                        }
+                    }
+                    0
+                }
+                Err(error) => print_error("inspect artifacts", error, json),
             },
         },
         Command::Pkg { command } => match command {
@@ -1074,6 +1103,25 @@ struct SymbolSpan {
     column: usize,
 }
 
+#[derive(Debug, Clone, Serialize)]
+struct InspectArtifactsReport {
+    schema_version: &'static str,
+    ok: bool,
+    command: &'static str,
+    project: String,
+    package: String,
+    artifacts: Vec<ArtifactRecord>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct ArtifactRecord {
+    id: String,
+    kind: &'static str,
+    path: String,
+    generated_from: Vec<String>,
+    status: &'static str,
+}
+
 fn inspect_symbols(path: &Path) -> Result<InspectSymbolsReport, Diagnostic> {
     let files = axiom_files(path)?;
     let mut symbols = Vec::new();
@@ -1172,6 +1220,137 @@ fn inspect_symbols(path: &Path) -> Result<InspectSymbolsReport, Diagnostic> {
         project: path.display().to_string(),
         symbols,
     })
+}
+
+fn inspect_artifacts(project: &Path) -> Result<InspectArtifactsReport, Diagnostic> {
+    let manifest = load_manifest(project)?;
+    let package = manifest.package.as_ref().ok_or_else(|| {
+        Diagnostic::new(
+            "inspect",
+            "inspect artifacts requires a package manifest, not a workspace-only root",
+        )
+        .with_path(project.display().to_string())
+    })?;
+    let package_name = package.name.clone();
+    let package_component = artifact_id_component(&package_name);
+    let source_entry = source_node_id(&package_component, &manifest.build.entry);
+    let mut artifacts = Vec::new();
+
+    artifacts.push(artifact_record(
+        project,
+        format!("axiom://package/{package_component}/artifact/binary"),
+        "native_binary",
+        &binary_path(project, &manifest),
+        vec![source_entry.clone()],
+    ));
+    artifacts.push(artifact_record(
+        project,
+        format!("axiom://package/{package_component}/artifact/generated-rust"),
+        "generated_rust",
+        &generated_rust_path(project, &manifest),
+        vec![source_entry.clone()],
+    ));
+    artifacts.push(artifact_record(
+        project,
+        format!("axiom://package/{package_component}/artifact/docs"),
+        "docs",
+        &project.join("docs").join("axiom").join("index.md"),
+        vec![source_entry.clone()],
+    ));
+
+    for test in &manifest.tests {
+        let test_component = artifact_id_component(&test.name);
+        let test_source = source_node_id(&package_component, &test.entry);
+        artifacts.push(artifact_record(
+            project,
+            format!("axiom://package/{package_component}/artifact/test-report/{test_component}"),
+            "test_report",
+            &out_dir_path(project, &manifest)
+                .join("tests")
+                .join(format!("{test_component}.json")),
+            vec![test_source.clone()],
+        ));
+        if test.kind == TestKind::Benchmark {
+            artifacts.push(artifact_record(
+                project,
+                format!(
+                    "axiom://package/{package_component}/artifact/benchmark-report/{test_component}"
+                ),
+                "benchmark_report",
+                &out_dir_path(project, &manifest)
+                    .join("benchmarks")
+                    .join(format!("{test_component}.json")),
+                vec![test_source],
+            ));
+        }
+    }
+
+    Ok(InspectArtifactsReport {
+        schema_version: "axiom.artifacts.v0",
+        ok: true,
+        command: "inspect artifacts",
+        project: project.display().to_string(),
+        package: package_name,
+        artifacts,
+    })
+}
+
+fn artifact_record(
+    project: &Path,
+    id: String,
+    kind: &'static str,
+    path: &Path,
+    generated_from: Vec<String>,
+) -> ArtifactRecord {
+    ArtifactRecord {
+        id,
+        kind,
+        path: relative_path_string(project, path),
+        generated_from,
+        status: if path.exists() {
+            "generated"
+        } else {
+            "planned"
+        },
+    }
+}
+
+fn source_node_id(package_component: &str, entry: &str) -> String {
+    format!(
+        "axiom://package/{package_component}/source/{}",
+        entry
+            .split('/')
+            .map(artifact_id_component)
+            .collect::<Vec<_>>()
+            .join("/")
+    )
+}
+
+fn artifact_id_component(value: &str) -> String {
+    let mut out = String::new();
+    let mut last_dash = false;
+    for ch in value.chars() {
+        if ch.is_ascii_alphanumeric() {
+            out.push(ch.to_ascii_lowercase());
+            last_dash = false;
+        } else if !last_dash {
+            out.push('-');
+            last_dash = true;
+        }
+    }
+    let trimmed = out.trim_matches('-');
+    if trimmed.is_empty() {
+        String::from("unnamed")
+    } else {
+        trimmed.to_string()
+    }
+}
+
+fn relative_path_string(project: &Path, path: &Path) -> String {
+    path.strip_prefix(project)
+        .unwrap_or(path)
+        .display()
+        .to_string()
 }
 
 fn symbol_span(path: &Path, line: usize, column: usize) -> SymbolSpan {
@@ -3031,6 +3210,81 @@ mod tests {
                 .symbols
                 .iter()
                 .any(|symbol| symbol.name == "private_helper")
+        );
+    }
+
+    #[test]
+    fn inspect_artifacts_reports_planned_and_generated_outputs() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let project = dir.path().join("artifact-demo");
+        fs::create_dir_all(project.join("src")).expect("create src");
+        fs::create_dir_all(project.join("dist").join("tests")).expect("create dist tests");
+        fs::create_dir_all(project.join("docs").join("axiom")).expect("create docs");
+        fs::write(
+            project.join("axiom.toml"),
+            "[package]\nname = \"artifact-demo\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[[tests]]\nname = \"unit smoke\"\nentry = \"src/main_test.ax\"\nkind = \"unit\"\n\n[[tests]]\nname = \"latency bench\"\nentry = \"src/latency_bench.ax\"\nkind = \"benchmark\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n",
+        )
+        .expect("write manifest");
+        fs::write(
+            project.join("src").join("main.ax"),
+            "pub fn main(): int {\nreturn 0\n}\n",
+        )
+        .expect("write main");
+        fs::write(project.join("dist").join("artifact-demo"), "").expect("write binary");
+        fs::write(
+            project.join("dist").join("tests").join("unit-smoke.json"),
+            "{}\n",
+        )
+        .expect("write test report");
+        fs::write(
+            project.join("docs").join("axiom").join("index.md"),
+            "# API\n",
+        )
+        .expect("write docs");
+
+        let report = inspect_artifacts(&project).expect("inspect artifacts");
+
+        assert_eq!(report.schema_version, "axiom.artifacts.v0");
+        assert_eq!(report.command, "inspect artifacts");
+        assert_eq!(report.package, "artifact-demo");
+        assert_eq!(report.artifacts.len(), 6);
+        let binary = report
+            .artifacts
+            .iter()
+            .find(|artifact| artifact.kind == "native_binary")
+            .expect("binary artifact");
+        assert_eq!(binary.path, "dist/artifact-demo");
+        assert_eq!(binary.status, "generated");
+        assert_eq!(
+            binary.generated_from,
+            vec![String::from(
+                "axiom://package/artifact-demo/source/src/main-ax"
+            )]
+        );
+        let generated_rust = report
+            .artifacts
+            .iter()
+            .find(|artifact| artifact.kind == "generated_rust")
+            .expect("generated rust artifact");
+        assert_eq!(generated_rust.status, "planned");
+        let test_report = report
+            .artifacts
+            .iter()
+            .find(|artifact| artifact.id.ends_with("/test-report/unit-smoke"))
+            .expect("test report artifact");
+        assert_eq!(test_report.status, "generated");
+        assert!(
+            report
+                .artifacts
+                .iter()
+                .any(|artifact| artifact.kind == "benchmark_report"
+                    && artifact.path == "dist/benchmarks/latency-bench.json")
+        );
+        assert!(
+            report
+                .artifacts
+                .iter()
+                .any(|artifact| artifact.kind == "docs" && artifact.status == "generated")
         );
     }
 
