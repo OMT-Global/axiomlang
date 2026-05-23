@@ -331,6 +331,11 @@ version = "0.1.0"
 source = "path:fail/string_use_after_move"
 
 [[package]]
+name = "conformance-borrow-return-elision"
+version = "0.1.0"
+source = "path:pass/borrow_return_elision"
+
+[[package]]
 name = "conformance-closures"
 version = "0.1.0"
 source = "path:pass/closures"
