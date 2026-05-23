@@ -9867,6 +9867,79 @@ fn lower_expr_with_expected_inner(
                     ty: Type::Numeric(syntax::NumericType::U64),
                 });
             }
+            if name == "crypto_aead_seal" || name == "crypto_aead_open" {
+                require_capability(
+                    ctx.capabilities,
+                    CapabilityKind::Crypto,
+                    name,
+                    *line,
+                    *column,
+                )?;
+                if args.len() != 5 {
+                    return Err(Diagnostic::new(
+                        "type",
+                        format!("{name} expects 5 arguments, got {}", args.len()),
+                    )
+                    .with_span(*line, *column));
+                }
+                let alg = lower_expr_with_expected(&args[0], Some(&Type::String), env, ctx)?;
+                if alg.ty() != &Type::String {
+                    return Err(Diagnostic::new(
+                        "type",
+                        format!("{name} expects a string algorithm, got {}", alg.ty()),
+                    )
+                    .with_span(args[0].line(), args[0].column()));
+                }
+                move_lowered_value(&alg, env)?;
+                let byte_slice = Type::Slice(Box::new(Type::Numeric(syntax::NumericType::U8)));
+                let key = lower_expr_with_expected(&args[1], Some(&byte_slice), env, ctx)?;
+                if key.ty() != &byte_slice {
+                    return Err(Diagnostic::new(
+                        "type",
+                        format!("{name} expects a &[u8] key, got {}", key.ty()),
+                    )
+                    .with_span(args[1].line(), args[1].column()));
+                }
+                let nonce = lower_expr_with_expected(&args[2], Some(&byte_slice), env, ctx)?;
+                if nonce.ty() != &byte_slice {
+                    return Err(Diagnostic::new(
+                        "type",
+                        format!("{name} expects a &[u8] nonce, got {}", nonce.ty()),
+                    )
+                    .with_span(args[2].line(), args[2].column()));
+                }
+                let aad = lower_expr_with_expected(&args[3], Some(&byte_slice), env, ctx)?;
+                if aad.ty() != &byte_slice {
+                    return Err(Diagnostic::new(
+                        "type",
+                        format!("{name} expects a &[u8] aad, got {}", aad.ty()),
+                    )
+                    .with_span(args[3].line(), args[3].column()));
+                }
+                let payload = lower_expr_with_expected(&args[4], Some(&byte_slice), env, ctx)?;
+                if payload.ty() != &byte_slice {
+                    return Err(Diagnostic::new(
+                        "type",
+                        format!("{name} expects a &[u8] payload, got {}", payload.ty()),
+                    )
+                    .with_span(args[4].line(), args[4].column()));
+                }
+                let bytes = Type::Array(Box::new(Type::Numeric(syntax::NumericType::U8)), None);
+                let ty = if name == "crypto_aead_open" {
+                    Type::Option(Box::new(bytes))
+                } else {
+                    bytes
+                };
+                return Ok(Expr::Call {
+                    span: SourceSpan {
+                        line: *line,
+                        column: *column,
+                    },
+                    name: name.clone(),
+                    args: vec![alg, key, nonce, aad, payload],
+                    ty,
+                });
+            }
             if name == "first" || name == "last" {
                 if args.len() != 1 {
                     return Err(Diagnostic::new(

@@ -1,0 +1,8 @@
+{
+  "kind": "capability",
+  "code": null,
+  "message": "call to \"crypto_aead_seal\" requires [capabilities].crypto = true",
+  "path": "src/main.ax",
+  "line": 20,
+  "column": 8
+}
