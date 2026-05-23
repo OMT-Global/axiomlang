@@ -2664,20 +2664,27 @@ fn parse_match_expr(
     column: usize,
 ) -> Result<Expr, Diagnostic> {
     let body_open = find_top_level_char(raw, '{').ok_or_else(|| {
-        Diagnostic::new("parse", "match expression must use `match <expr> { ... }` syntax")
-            .with_path(path.display().to_string())
-            .with_span(line_no, column)
+        Diagnostic::new(
+            "parse",
+            "match expression must use `match <expr> { ... }` syntax",
+        )
+        .with_path(path.display().to_string())
+        .with_span(line_no, column)
     })?;
     if !matches!(find_matching_brace(raw, body_open), Some(close) if close == raw.len() - 1) {
-        return Err(Diagnostic::new("parse", "match expression body is incomplete")
-            .with_path(path.display().to_string())
-            .with_span(line_no, column));
+        return Err(
+            Diagnostic::new("parse", "match expression body is incomplete")
+                .with_path(path.display().to_string())
+                .with_span(line_no, column),
+        );
     }
     let expr_raw = raw["match ".len()..body_open].trim();
     if expr_raw.is_empty() {
-        return Err(Diagnostic::new("parse", "match expression is missing a scrutinee")
-            .with_path(path.display().to_string())
-            .with_span(line_no, column));
+        return Err(
+            Diagnostic::new("parse", "match expression is missing a scrutinee")
+                .with_path(path.display().to_string())
+                .with_span(line_no, column),
+        );
     }
     let inner = &raw[body_open + 1..raw.len() - 1];
     let mut arms = Vec::new();
@@ -2720,12 +2727,11 @@ fn parse_match_expr(
         });
     }
     if arms.is_empty() {
-        return Err(Diagnostic::new(
-            "parse",
-            "match expression must contain at least one arm",
-        )
-        .with_path(path.display().to_string())
-        .with_span(line_no, column + body_open + 1));
+        return Err(
+            Diagnostic::new("parse", "match expression must contain at least one arm")
+                .with_path(path.display().to_string())
+                .with_span(line_no, column + body_open + 1),
+        );
     }
     Ok(Expr::Match {
         expr: Box::new(parse_expr(

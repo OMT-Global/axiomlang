@@ -26,6 +26,7 @@ members = [
   "fail/import_reserved_namespace",
   "fail/import_unsupported_alias",
   "fail/lowercase_const_match_pattern",
+  "fail/match_expression_arm_move_state",
   "fail/match_expression_arm_type_mismatch",
   "fail/match_expression_non_exhaustive",
   "fail/match_guard_not_supported",

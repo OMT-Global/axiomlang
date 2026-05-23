@@ -6464,6 +6464,7 @@ fn lower_match_expr(
     let before = env.clone();
     let mut seen = HashMap::new();
     let mut lowered_arms = Vec::new();
+    let mut arm_states = Vec::new();
     let mut result_ty = expected.cloned();
     for arm in arms {
         let variant_def = variant_defs
@@ -6481,11 +6482,10 @@ fn lower_match_expr(
                 .with_span(arm.line, arm.column)
             })?;
         if seen.insert(arm.variant.clone(), ()).is_some() {
-            return Err(Diagnostic::new(
-                "type",
-                format!("duplicate match arm {:?}", arm.variant),
-            )
-            .with_span(arm.line, arm.column));
+            return Err(
+                Diagnostic::new("type", format!("duplicate match arm {:?}", arm.variant))
+                    .with_span(arm.line, arm.column),
+            );
         }
         let mut arm_env = before.clone();
         let binding_tys = match_match_arm_binding_types(
@@ -6563,6 +6563,9 @@ fn lower_match_expr(
         } else {
             result_ty = Some(lowered_arm_expr.ty().clone());
         }
+        if !lowered_arm_expr.ty().is_copy() {
+            move_lowered_owner_value(&lowered_arm_expr, &mut arm_env)?;
+        }
         lowered_arms.push(MatchExprArm {
             enum_name: enum_name.clone(),
             variant: arm.variant,
@@ -6570,6 +6573,7 @@ fn lower_match_expr(
             is_named: arm.is_named,
             expr: lowered_arm_expr,
         });
+        arm_states.push((arm_env, false));
     }
     let missing = variant_defs
         .iter()
@@ -6587,6 +6591,7 @@ fn lower_match_expr(
         )
         .with_span(line, column));
     }
+    merge_match_state(env, &before, &arm_states);
     if let Some(borrow_kind) = match_borrow_kind
         && !reuse_existing_match_binding
     {

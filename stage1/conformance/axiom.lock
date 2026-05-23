@@ -131,6 +131,11 @@ version = "0.1.0"
 source = "path:fail/lowercase_const_match_pattern"
 
 [[package]]
+name = "conformance-match-expression-arm-move-state"
+version = "0.1.0"
+source = "path:fail/match_expression_arm_move_state"
+
+[[package]]
 name = "conformance-match-expression-arm-type-mismatch"
 version = "0.1.0"
 source = "path:fail/match_expression_arm_type_mismatch"
