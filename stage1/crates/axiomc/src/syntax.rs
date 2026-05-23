@@ -1582,6 +1582,11 @@ fn parse_stmt(
         return parse_match_stmt(lines, index, path);
     }
     if let Some(rest) = trimmed.strip_prefix("let ") {
+        if let Some((combined, next)) = collect_multiline_let_match(lines, *index, path)? {
+            let stmt = parse_let_stmt(&combined, path, line_no)?;
+            *index = next;
+            return Ok(stmt);
+        }
         let stmt = parse_let_stmt(rest, path, line_no)?;
         *index += 1;
         return Ok(stmt);
@@ -2688,7 +2693,7 @@ fn parse_match_expr(
     }
     let inner = &raw[body_open + 1..raw.len() - 1];
     let mut arms = Vec::new();
-    for (arm_offset, arm_raw) in split_top_level_with_offsets(inner, ',') {
+    for (arm_offset, arm_raw) in split_match_expr_arms(inner) {
         let arm_raw = arm_raw.trim();
         if arm_raw.is_empty() {
             continue;
@@ -2744,6 +2749,86 @@ fn parse_match_expr(
         line: line_no,
         column,
     })
+}
+
+fn split_match_expr_arms(inner: &str) -> Vec<(usize, String)> {
+    if !inner.contains('\n') {
+        return split_top_level_with_offsets(inner, ',')
+            .into_iter()
+            .map(|(offset, raw)| (offset, raw.to_string()))
+            .collect();
+    }
+
+    let mut arms = Vec::new();
+    let mut offset = 0usize;
+    for line in inner.split_inclusive('\n') {
+        let raw_line = line.trim_end_matches('\n');
+        let leading_ws = raw_line.len().saturating_sub(raw_line.trim_start().len());
+        let arm = raw_line.trim().trim_end_matches(',').trim_end();
+        if !arm.is_empty() {
+            arms.push((offset + leading_ws, arm.to_string()));
+        }
+        offset += line.len();
+    }
+    arms
+}
+
+fn let_match_expr_complete(rest: &str) -> bool {
+    let Some(eq) = find_top_level_char(rest, '=') else {
+        return false;
+    };
+    let expr_text = rest[eq + 1..].trim();
+    if !expr_text.starts_with("match ") {
+        return false;
+    }
+    let Some(body_open) = find_top_level_char(expr_text, '{') else {
+        return false;
+    };
+    matches!(
+        find_matching_brace(expr_text, body_open),
+        Some(close) if expr_text[close + 1..].trim().is_empty()
+    )
+}
+
+fn let_match_expr_needs_more(rest: &str) -> bool {
+    let Some(eq) = find_top_level_char(rest, '=') else {
+        return false;
+    };
+    let expr_text = rest[eq + 1..].trim();
+    expr_text.starts_with("match ")
+        && find_top_level_char(expr_text, '{').is_some()
+        && !let_match_expr_complete(rest)
+}
+
+fn collect_multiline_let_match(
+    lines: &[&str],
+    index: usize,
+    path: &Path,
+) -> Result<Option<(String, usize)>, Diagnostic> {
+    let line_no = index + 1;
+    let Some(rest) = lines[index].trim().strip_prefix("let ") else {
+        return Ok(None);
+    };
+    if !let_match_expr_needs_more(rest) {
+        return Ok(None);
+    }
+
+    let mut combined = rest.to_string();
+    let mut next = index + 1;
+    while next < lines.len() {
+        combined.push('\n');
+        combined.push_str(lines[next].trim());
+        next += 1;
+        if let_match_expr_complete(&combined) {
+            return Ok(Some((combined, next)));
+        }
+    }
+
+    Err(
+        Diagnostic::new("parse", "match expression body is incomplete")
+            .with_path(path.display().to_string())
+            .with_span(line_no, 1),
+    )
 }
 
 fn parse_let_stmt(rest: &str, path: &Path, line_no: usize) -> Result<Stmt, Diagnostic> {

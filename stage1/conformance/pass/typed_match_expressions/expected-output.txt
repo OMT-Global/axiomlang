@@ -2,3 +2,5 @@ ready
 missing
 ok
 failed
+8
+2

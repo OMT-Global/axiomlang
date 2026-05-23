@@ -6,12 +6,27 @@ fn describe_result(value: Result<int, string>): string {
 return match value { Ok(count) => "ok", Err(message) => message }
 }
 
+enum Signal {
+Red
+Yellow
+Green
+}
+
+fn signal_priority(signal: Signal): int {
+return match signal { Red => 3, Yellow => 2, Green => 1 }
+}
+
 let present: string = describe_option(Some("ready"))
 let missing: string = describe_option(None)
 let ok: string = describe_result(Ok(7))
 let err: string = describe_result(Err("failed"))
+let score: int = match Some(7) {
+Some(value) => value + 1
+None => 0
+}
 print present
 print missing
 print ok
 print err
-
+print score
+print signal_priority(Yellow)
