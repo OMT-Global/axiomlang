@@ -118,6 +118,12 @@ enum Command {
         #[command(subcommand)]
         command: Option<CapsCommand>,
     },
+    /// Emit a structured repair plan for diagnostics and missing evidence.
+    RepairPlan {
+        path: PathBuf,
+        #[arg(long)]
+        json: bool,
+    },
     /// Inspect project metadata for agent tooling.
     Inspect {
         #[command(subcommand)]
@@ -525,6 +531,24 @@ fn main() {
                 Diagnostic::new("diagnostic", format!("unknown diagnostic code {code:?}")),
                 json,
             ),
+        },
+        Command::RepairPlan { path, json } => match repair_plan(&path) {
+            Ok(report) => {
+                if json {
+                    println!(
+                        "{}",
+                        json_contract::to_pretty_string(&report)
+                            .unwrap_or_else(|_| String::from("{}"))
+                    );
+                } else {
+                    println!("tasks={}", report.tasks.len());
+                    for task in &report.tasks {
+                        println!("{} {} {}", task.id, task.reason, task.target_node);
+                    }
+                }
+                0
+            }
+            Err(error) => print_error("repair-plan", error, json),
         },
         Command::Inspect { command } => match command {
             InspectCommand::Symbols { path, json } => match inspect_symbols(&path) {
@@ -1049,6 +1073,25 @@ struct FormatEdit {
 }
 
 #[derive(Debug, Clone, Serialize)]
+struct RepairPlanReport {
+    schema_version: &'static str,
+    ok: bool,
+    command: &'static str,
+    project: String,
+    tasks: Vec<RepairTask>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct RepairTask {
+    id: String,
+    reason: String,
+    target_node: String,
+    allowed_files: Vec<String>,
+    required_evidence: Vec<&'static str>,
+    diagnostics: Vec<Diagnostic>,
+}
+
+#[derive(Debug, Clone, Serialize)]
 struct InspectSymbolsReport {
     schema_version: &'static str,
     ok: bool,
@@ -1072,6 +1115,146 @@ struct SymbolSpan {
     path: String,
     line: usize,
     column: usize,
+}
+
+fn repair_plan(path: &Path) -> Result<RepairPlanReport, Diagnostic> {
+    let mut tasks = Vec::new();
+    match check_project_with_options(path, &CheckOptions::default()) {
+        Ok(output) => {
+            if !repair_tests_discoverable(path)? {
+                tasks.push(missing_evidence_task(
+                    "repair-001",
+                    package_node_for_path(path),
+                    repair_allowed_files(path)?,
+                ));
+            }
+            for warning in output.warnings {
+                tasks.push(diagnostic_repair_task(
+                    tasks.len() + 1,
+                    package_node_for_path(path),
+                    Diagnostic::new("warning", warning).normalized_for_json(),
+                ));
+            }
+        }
+        Err(error) => {
+            tasks.push(diagnostic_repair_task(
+                tasks.len() + 1,
+                package_node_for_path(path),
+                error.normalized_for_json(),
+            ));
+        }
+    }
+    Ok(RepairPlanReport {
+        schema_version: "axiom.repair.v0",
+        ok: true,
+        command: "repair-plan",
+        project: path.display().to_string(),
+        tasks,
+    })
+}
+
+fn diagnostic_repair_task(
+    index: usize,
+    fallback_target: String,
+    diagnostic: Diagnostic,
+) -> RepairTask {
+    let allowed_files = diagnostic
+        .path
+        .as_ref()
+        .map(|path| vec![path.clone()])
+        .unwrap_or_default();
+    let target_node = diagnostic
+        .path
+        .as_ref()
+        .map(|path| {
+            format!(
+                "{}/diagnostic/{}",
+                package_node_component(path),
+                repair_component(diagnostic.code.as_deref().unwrap_or(&diagnostic.kind))
+            )
+        })
+        .unwrap_or(fallback_target);
+    RepairTask {
+        id: format!("repair-{index:03}"),
+        reason: diagnostic
+            .code
+            .clone()
+            .unwrap_or_else(|| repair_component(&diagnostic.kind)),
+        target_node,
+        allowed_files,
+        required_evidence: vec!["unit_test"],
+        diagnostics: vec![diagnostic],
+    }
+}
+
+fn missing_evidence_task(id: &str, target_node: String, allowed_files: Vec<String>) -> RepairTask {
+    RepairTask {
+        id: id.to_string(),
+        reason: String::from("missing_evidence"),
+        target_node,
+        allowed_files,
+        required_evidence: vec!["unit_test"],
+        diagnostics: Vec::new(),
+    }
+}
+
+fn repair_tests_discoverable(path: &Path) -> Result<bool, Diagnostic> {
+    if load_manifest(path)
+        .map(|manifest| !manifest.tests.is_empty())
+        .unwrap_or(false)
+    {
+        return Ok(true);
+    }
+    Ok(axiom_files(path)?.iter().any(|path| {
+        path.file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| name.ends_with("_test.ax") || name.ends_with("_bench.ax"))
+    }))
+}
+
+fn repair_allowed_files(path: &Path) -> Result<Vec<String>, Diagnostic> {
+    Ok(axiom_files(path)?
+        .into_iter()
+        .map(|path| path.display().to_string())
+        .collect())
+}
+
+fn package_node_for_path(path: &Path) -> String {
+    let name = load_manifest(path)
+        .ok()
+        .and_then(|manifest| manifest.package.map(|package| package.name))
+        .unwrap_or_else(|| {
+            path.file_stem()
+                .or_else(|| path.file_name())
+                .and_then(|name| name.to_str())
+                .unwrap_or("package")
+                .to_string()
+        });
+    format!("axiom://package/{}", repair_component(&name))
+}
+
+fn package_node_component(path: &str) -> String {
+    format!("axiom://package/{}", repair_component(path))
+}
+
+fn repair_component(value: &str) -> String {
+    let mut out = String::new();
+    let mut last_dash = false;
+    for ch in value.chars() {
+        if ch.is_ascii_alphanumeric() {
+            out.push(ch.to_ascii_lowercase());
+            last_dash = false;
+        } else if !last_dash {
+            out.push('-');
+            last_dash = true;
+        }
+    }
+    let trimmed = out.trim_matches('-');
+    if trimmed.is_empty() {
+        String::from("node")
+    } else {
+        trimmed.to_string()
+    }
 }
 
 fn inspect_symbols(path: &Path) -> Result<InspectSymbolsReport, Diagnostic> {
@@ -3032,6 +3215,87 @@ mod tests {
                 .iter()
                 .any(|symbol| symbol.name == "private_helper")
         );
+    }
+
+    #[test]
+    fn repair_plan_reports_type_diagnostic_task() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let project = dir.path().join("repair-type");
+        fs::create_dir_all(project.join("src")).expect("create src");
+        write_minimal_manifest(&project, "repair-type");
+        fs::write(
+            project.join("src").join("main.ax"),
+            "pub fn main(): int {\nreturn \"wrong\"\n}\n",
+        )
+        .expect("write source");
+
+        let report = repair_plan(&project).expect("repair plan");
+        let payload = serde_json::to_value(&report).expect("serialize repair plan");
+        validate_repair_plan_schema(&payload);
+
+        assert_eq!(report.schema_version, "axiom.repair.v0");
+        assert_eq!(report.command, "repair-plan");
+        assert_eq!(report.tasks.len(), 1);
+        assert!(report.tasks[0].reason.starts_with("type"));
+        assert_eq!(report.tasks[0].required_evidence, vec!["unit_test"]);
+        assert_eq!(report.tasks[0].diagnostics.len(), 1);
+        assert_eq!(report.tasks[0].diagnostics[0].kind, "type");
+        assert!(report.tasks[0].diagnostics[0].line.is_some());
+    }
+
+    #[test]
+    fn repair_plan_reports_missing_evidence_task_for_testless_package() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let project = dir.path().join("repair-evidence");
+        fs::create_dir_all(project.join("src")).expect("create src");
+        write_minimal_manifest(&project, "repair-evidence");
+        fs::write(
+            project.join("src").join("main.ax"),
+            "pub fn main(): int {\nreturn 0\n}\n",
+        )
+        .expect("write source");
+
+        let report = repair_plan(&project).expect("repair plan");
+        let payload = serde_json::to_value(&report).expect("serialize repair plan");
+        validate_repair_plan_schema(&payload);
+
+        assert_eq!(report.tasks.len(), 1);
+        assert_eq!(report.tasks[0].reason, "missing_evidence");
+        assert_eq!(report.tasks[0].required_evidence, vec!["unit_test"]);
+        assert!(report.tasks[0].diagnostics.is_empty());
+        assert!(
+            report.tasks[0]
+                .allowed_files
+                .iter()
+                .any(|path| path.ends_with("src/main.ax"))
+        );
+    }
+
+    fn write_minimal_manifest(project: &Path, name: &str) {
+        fs::write(
+            project.join("axiom.toml"),
+            format!(
+                "[package]\nname = \"{name}\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n"
+            ),
+        )
+        .expect("write manifest");
+        fs::write(
+            project.join("axiom.lock"),
+            format!("version = 1\n\n[[package]]\nname = \"{name}\"\nversion = \"0.1.0\"\nsource = \"path\"\n"),
+        )
+        .expect("write lockfile");
+    }
+
+    fn validate_repair_plan_schema(payload: &serde_json::Value) {
+        let schema_path =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schemas/axiom-repair-v0.schema.json");
+        let schema: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(schema_path).expect("read schema"))
+                .expect("schema json");
+        let validator = jsonschema::validator_for(&schema).expect("compile schema");
+        validator
+            .validate(payload)
+            .expect("repair plan matches schema");
     }
 
     #[test]
