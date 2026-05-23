@@ -1,0 +1,5 @@
+let pair: ([int], [int]) = ([1, 2], [3, 4, 5])
+let left: &mut [int] = (pair.0)[:]
+let right: &mut [int] = (pair.1)[:]
+print len(left)
+print len(right)
