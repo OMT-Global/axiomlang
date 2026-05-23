@@ -1845,6 +1845,120 @@ fn axiom_net_tcp_close_listener(listener: i64) -> i64 {
 }
 
 #[allow(dead_code)]
+struct AxiomUdpRegistry {
+    next_handle: i64,
+    sockets: HashMap<i64, std::net::UdpSocket>,
+}
+
+#[allow(dead_code)]
+impl AxiomUdpRegistry {
+    fn new() -> Self {
+        Self {
+            next_handle: 1,
+            sockets: HashMap::new(),
+        }
+    }
+
+    fn allocate(&mut self) -> i64 {
+        let handle = self.next_handle;
+        self.next_handle = self.next_handle.saturating_add(1).max(1);
+        handle
+    }
+}
+
+#[allow(dead_code)]
+fn axiom_udp_registry() -> &'static Mutex<AxiomUdpRegistry> {
+    static REGISTRY: std::sync::OnceLock<Mutex<AxiomUdpRegistry>> = std::sync::OnceLock::new();
+    REGISTRY.get_or_init(|| Mutex::new(AxiomUdpRegistry::new()))
+}
+
+#[allow(dead_code)]
+fn axiom_parse_udp_addr(addr: &str) -> Option<std::net::SocketAddr> {
+    axiom_parse_tcp_bind(addr)
+}
+
+#[allow(dead_code)]
+fn axiom_net_udp_bind(bind: String) -> i64 {
+    let args = axiom_host_arg_summary(&[("bind", format!("string:{}", bind.len()))]);
+    let result = (|| {
+        let addr = axiom_parse_udp_addr(bind.as_str())?;
+        let socket = std::net::UdpSocket::bind(addr).ok()?;
+        let timeout = std::time::Duration::from_secs(30);
+        socket.set_read_timeout(Some(timeout)).ok()?;
+        socket.set_write_timeout(Some(timeout)).ok()?;
+        let mut registry = axiom_udp_registry().lock().ok()?;
+        let handle = registry.allocate();
+        registry.sockets.insert(handle, socket);
+        Some(handle)
+    })();
+    axiom_host_audit("net_udp_bind", args, if result.is_some() { "ok" } else { "denied" });
+    result.unwrap_or_else(|| axiom_runtime_error("runtime", "net_udp_bind failed"))
+}
+
+#[allow(dead_code)]
+fn axiom_net_udp_local_addr(socket: i64) -> String {
+    let args = axiom_host_arg_summary(&[("socket", format!("handle:{}", socket))]);
+    let result = axiom_udp_registry()
+        .lock()
+        .ok()
+        .and_then(|registry| registry.sockets.get(&socket).and_then(|socket| socket.local_addr().ok()))
+        .map(|addr| addr.to_string());
+    axiom_host_audit("net_udp_local_addr", args, if result.is_some() { "ok" } else { "denied" });
+    result.unwrap_or_default()
+}
+
+#[allow(dead_code)]
+fn axiom_net_udp_local_port(socket: i64) -> i64 {
+    let args = axiom_host_arg_summary(&[("socket", format!("handle:{}", socket))]);
+    let result = axiom_udp_registry()
+        .lock()
+        .ok()
+        .and_then(|registry| registry.sockets.get(&socket).and_then(|socket| socket.local_addr().ok()))
+        .map(|addr| i64::from(addr.port()));
+    axiom_host_audit("net_udp_local_port", args, if result.is_some() { "ok" } else { "denied" });
+    result.unwrap_or(-1)
+}
+
+#[allow(dead_code)]
+fn axiom_net_udp_send_to(socket: i64, buf: &[u8], peer: String) -> i64 {
+    let args = axiom_host_arg_summary(&[("socket", format!("handle:{}", socket)), ("buf", format!("bytes:{}", buf.len())), ("peer", format!("string:{}", peer.len()))]);
+    let peer_addr = axiom_parse_udp_addr(peer.as_str());
+    let result = peer_addr.and_then(|peer_addr| {
+        axiom_udp_registry()
+            .lock()
+            .ok()
+            .and_then(|registry| registry.sockets.get(&socket).and_then(|socket| socket.send_to(buf, peer_addr).ok()))
+            .map(|written| written as i64)
+    });
+    axiom_host_audit("net_udp_send_to", args, if result.is_some() { "ok" } else { "denied" });
+    result.unwrap_or(-1)
+}
+
+#[allow(dead_code)]
+fn axiom_net_udp_recv_from(socket: i64, buf: &mut [u8]) -> (i64, String) {
+    let args = axiom_host_arg_summary(&[("socket", format!("handle:{}", socket)), ("buf", format!("bytes:{}", buf.len()))]);
+    let result = axiom_udp_registry()
+        .lock()
+        .ok()
+        .and_then(|registry| registry.sockets.get(&socket).and_then(|socket| socket.recv_from(buf).ok()))
+        .map(|(read, peer)| (read as i64, peer.to_string()));
+    axiom_host_audit("net_udp_recv_from", args, if result.is_some() { "ok" } else { "denied" });
+    result.unwrap_or((-1, String::new()))
+}
+
+#[allow(dead_code)]
+fn axiom_net_udp_close(socket: i64) -> i64 {
+    let args = axiom_host_arg_summary(&[("socket", format!("handle:{}", socket))]);
+    let closed = axiom_udp_registry()
+        .lock()
+        .ok()
+        .and_then(|mut registry| registry.sockets.remove(&socket))
+        .is_some();
+    axiom_host_audit("net_udp_close", args, if closed { "ok" } else { "denied" });
+    if closed { 0 } else { -1 }
+}
+
+#[allow(dead_code)]
 fn axiom_net_tcp_listen_loopback_once(response: String, timeout_ms: i64) -> Option<i64> {
     use std::io::{Read, Write};
     let args = axiom_host_arg_summary(&[("response", format!("string:{}", response.len())), ("timeout_ms", format!("int:{}", timeout_ms))]);
@@ -4931,6 +5045,33 @@ fn render_expr(expr: &Expr) -> String {
         }
         Expr::Call { name, args, .. } if name == "net_tcp_close_listener" => {
             format!("axiom_net_tcp_close_listener({})", render_expr(&args[0]))
+        }
+        Expr::Call { name, args, .. } if name == "net_udp_bind" => {
+            format!("axiom_net_udp_bind({})", render_expr(&args[0]))
+        }
+        Expr::Call { name, args, .. } if name == "net_udp_local_addr" => {
+            format!("axiom_net_udp_local_addr({})", render_expr(&args[0]))
+        }
+        Expr::Call { name, args, .. } if name == "net_udp_local_port" => {
+            format!("axiom_net_udp_local_port({})", render_expr(&args[0]))
+        }
+        Expr::Call { name, args, .. } if name == "net_udp_send_to" => {
+            format!(
+                "axiom_net_udp_send_to({}, {}, {})",
+                render_expr(&args[0]),
+                render_expr(&args[1]),
+                render_expr(&args[2])
+            )
+        }
+        Expr::Call { name, args, .. } if name == "net_udp_recv_from" => {
+            format!(
+                "axiom_net_udp_recv_from({}, {})",
+                render_expr(&args[0]),
+                render_expr(&args[1])
+            )
+        }
+        Expr::Call { name, args, .. } if name == "net_udp_close" => {
+            format!("axiom_net_udp_close({})", render_expr(&args[0]))
         }
         Expr::Call { name, args, .. } if name == "net_tcp_listen_loopback_once" => {
             format!(

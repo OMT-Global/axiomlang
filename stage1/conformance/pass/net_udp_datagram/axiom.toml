@@ -1,0 +1,15 @@
+[package]
+name = "conformance-net-udp-datagram"
+version = "0.1.0"
+
+[build]
+entry = "src/main_test.ax"
+out_dir = "dist"
+
+[capabilities]
+fs = false
+net = true
+process = false
+env = false
+clock = false
+crypto = false
