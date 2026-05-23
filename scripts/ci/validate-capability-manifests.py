@@ -16,7 +16,6 @@ except ModuleNotFoundError:  # pragma: no cover - exercised on Python < 3.11.
 BOOL_KEYS = {
     "fs",
     "fs:write",
-    "net",
     "process",
     "env_unrestricted",
     "clock",
@@ -24,7 +23,7 @@ BOOL_KEYS = {
     "ffi",
     "async",
 }
-KNOWN_KEYS = BOOL_KEYS | {"fs_root", "env", "unsafe_rationale"}
+KNOWN_KEYS = BOOL_KEYS | {"fs_root", "env", "net", "unsafe_rationale"}
 
 
 def iter_manifests(root: Path) -> list[Path]:
@@ -57,6 +56,8 @@ def validate_manifest(path: Path) -> list[str]:
             validate_fs_root(path, value, errors)
         elif key == "env":
             validate_env(path, value, errors)
+        elif key == "net":
+            validate_net(path, value, errors)
         elif key == "unsafe_rationale" and (not isinstance(value, str) or not value.strip()):
             errors.append(f"{path}: [capabilities].unsafe_rationale must be a non-empty string")
     return errors
@@ -105,6 +106,57 @@ def validate_env(path: Path, value: object, errors: list[str]) -> None:
         if item in seen:
             errors.append(f"{path}: duplicate environment allowlist entry at {field}")
         seen.add(item)
+
+
+def validate_net(path: Path, value: object, errors: list[str]) -> None:
+    if isinstance(value, bool):
+        return
+    if not isinstance(value, dict):
+        errors.append(f"{path}: [capabilities].net must be a boolean or allowlist table")
+        return
+
+    for key in value:
+        if key not in {"hosts", "ports"}:
+            errors.append(f"{path}: unknown [capabilities].net key {key!r}")
+
+    hosts = value.get("hosts", [])
+    if hosts is not None:
+        if not isinstance(hosts, list):
+            errors.append(f"{path}: [capabilities].net.hosts must be a string list")
+        else:
+            seen_hosts: set[str] = set()
+            for index, item in enumerate(hosts):
+                field = f"[capabilities].net.hosts[{index}]"
+                if not isinstance(item, str) or not item.strip():
+                    errors.append(f"{path}: {field} must be a non-empty string")
+                    continue
+                normalized = item.strip().lower()
+                if normalized in seen_hosts:
+                    errors.append(f"{path}: duplicate network host allowlist entry at {field}")
+                seen_hosts.add(normalized)
+
+    ports = value.get("ports", [])
+    if ports is not None:
+        if not isinstance(ports, list):
+            errors.append(f"{path}: [capabilities].net.ports must be an integer list")
+        else:
+            seen_ports: set[int] = set()
+            for index, item in enumerate(ports):
+                field = f"[capabilities].net.ports[{index}]"
+                if not isinstance(item, int) or isinstance(item, bool):
+                    errors.append(f"{path}: {field} must be an integer")
+                    continue
+                if item < 1 or item > 65535:
+                    errors.append(f"{path}: {field} must be between 1 and 65535")
+                    continue
+                if item in seen_ports:
+                    errors.append(f"{path}: duplicate network port allowlist entry at {field}")
+                seen_ports.add(item)
+
+    if hosts == [] and ports == []:
+        errors.append(
+            f"{path}: [capabilities].net must include at least one host or port, or use false"
+        )
 
 
 def main() -> int:

@@ -5,7 +5,7 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 tmpdir="$(mktemp -d)"
 trap 'rm -rf "$tmpdir"' EXIT
 
-mkdir -p "$tmpdir/good" "$tmpdir/bad-key" "$tmpdir/bad-env" "$tmpdir/bad-fs"
+mkdir -p "$tmpdir/good" "$tmpdir/bad-key" "$tmpdir/bad-env" "$tmpdir/bad-fs" "$tmpdir/bad-net"
 
 cat > "$tmpdir/good/axiom.toml" <<'TOML'
 [package]
@@ -19,7 +19,7 @@ fs_root = 'data'
 env = [
   "LOG_LEVEL",
 ]
-net = false
+net = { hosts = ["127.0.0.1"], ports = [8080] }
 process = false
 clock = false
 crypto = false
@@ -76,5 +76,21 @@ if python3 "$repo_root/scripts/ci/validate-capability-manifests.py" --root "$tmp
   exit 1
 fi
 grep -F "fs_root must not use parent traversal" "$tmpdir/bad-fs.err" >/dev/null
+rm "$tmpdir/bad-fs/axiom.toml"
+
+cat > "$tmpdir/bad-net/axiom.toml" <<'TOML'
+[package]
+name = "bad-net"
+version = "0.1.0"
+
+[capabilities]
+net = { ports = [0] }
+TOML
+
+if python3 "$repo_root/scripts/ci/validate-capability-manifests.py" --root "$tmpdir" 2> "$tmpdir/bad-net.err"; then
+  echo "validator accepted an out-of-range network port allowlist entry" >&2
+  exit 1
+fi
+grep -F "net.ports[0] must be between 1 and 65535" "$tmpdir/bad-net.err" >/dev/null
 
 echo "capability manifest validator tests passed"
