@@ -326,6 +326,11 @@ version = "0.1.0"
 source = "path:fail/stdlib_net_tcp_without_capability"
 
 [[package]]
+name = "conformance-stdlib-net-udp-without-capability"
+version = "0.1.0"
+source = "path:fail/stdlib_net_udp_without_capability"
+
+[[package]]
 name = "conformance-string-borrow-local-return"
 version = "0.1.0"
 source = "path:fail/string_borrow_local_return"
@@ -404,6 +409,11 @@ source = "path:pass/mutable_projection_borrows"
 name = "conformance-net-tcp-echo"
 version = "0.1.0"
 source = "path:pass/net_tcp_echo"
+
+[[package]]
+name = "conformance-net-udp-datagram"
+version = "0.1.0"
+source = "path:pass/net_udp_datagram"
 
 [[package]]
 name = "conformance-numeric-cross-width-casts"

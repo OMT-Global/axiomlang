@@ -1,0 +1,13 @@
+import "std/net_udp.ax"
+
+let socket: UdpSocket = bind("127.0.0.1:0")
+let peer: string = local_addr(socket)
+let message: [u8] = [112u8, 105u8, 110u8, 103u8]
+let sent: int = send_to(socket, message[:], peer)
+let buffer: [u8] = [0u8, 0u8, 0u8, 0u8]
+let received: (int, string) = recv_from(socket, buffer[:])
+let _closed: int = close(socket)
+
+print sent
+print received.0
+print received.1 != ""

@@ -8372,6 +8372,143 @@ fn lower_expr_with_expected_inner(
                     ty: Type::Int,
                 });
             }
+            if name == "net_udp_bind" {
+                require_capability(ctx.capabilities, CapabilityKind::Net, name, *line, *column)?;
+                if args.len() != 1 {
+                    return Err(Diagnostic::new(
+                        "type",
+                        format!("net_udp_bind expects 1 argument, got {}", args.len()),
+                    )
+                    .with_span(*line, *column));
+                }
+                let bind = lower_expr_with_expected(&args[0], Some(&Type::String), env, ctx)?;
+                if bind.ty() != &Type::String {
+                    return Err(Diagnostic::new(
+                        "type",
+                        format!(
+                            "net_udp_bind expects argument 1 type string, got {}",
+                            bind.ty()
+                        ),
+                    )
+                    .with_span(args[0].line(), args[0].column()));
+                }
+                move_lowered_value(&bind, env)?;
+                return Ok(Expr::Call {
+                    span: SourceSpan {
+                        line: *line,
+                        column: *column,
+                    },
+                    name: name.clone(),
+                    args: vec![bind],
+                    ty: Type::Int,
+                });
+            }
+            if matches!(
+                name.as_str(),
+                "net_udp_local_addr" | "net_udp_local_port" | "net_udp_close"
+            ) {
+                require_capability(ctx.capabilities, CapabilityKind::Net, name, *line, *column)?;
+                if args.len() != 1 {
+                    return Err(Diagnostic::new(
+                        "type",
+                        format!("{name} expects 1 argument, got {}", args.len()),
+                    )
+                    .with_span(*line, *column));
+                }
+                let handle = lower_expr_with_expected(&args[0], Some(&Type::Int), env, ctx)?;
+                if handle.ty() != &Type::Int {
+                    return Err(Diagnostic::new(
+                        "type",
+                        format!("{name} expects argument 1 type int, got {}", handle.ty()),
+                    )
+                    .with_span(args[0].line(), args[0].column()));
+                }
+                let ty = if name == "net_udp_local_addr" {
+                    Type::String
+                } else {
+                    Type::Int
+                };
+                return Ok(Expr::Call {
+                    span: SourceSpan {
+                        line: *line,
+                        column: *column,
+                    },
+                    name: name.clone(),
+                    args: vec![handle],
+                    ty,
+                });
+            }
+            if name == "net_udp_send_to" || name == "net_udp_recv_from" {
+                require_capability(ctx.capabilities, CapabilityKind::Net, name, *line, *column)?;
+                let expected_len = if name == "net_udp_send_to" { 3 } else { 2 };
+                if args.len() != expected_len {
+                    return Err(Diagnostic::new(
+                        "type",
+                        format!(
+                            "{name} expects {expected_len} arguments, got {}",
+                            args.len()
+                        ),
+                    )
+                    .with_span(*line, *column));
+                }
+                let socket = lower_expr_with_expected(&args[0], Some(&Type::Int), env, ctx)?;
+                if socket.ty() != &Type::Int {
+                    return Err(Diagnostic::new(
+                        "type",
+                        format!("{name} expects argument 1 type int, got {}", socket.ty()),
+                    )
+                    .with_span(args[0].line(), args[0].column()));
+                }
+                let byte_ty = Type::Numeric(syntax::NumericType::U8);
+                let buffer_ty = if name == "net_udp_recv_from" {
+                    Type::MutSlice(Box::new(byte_ty))
+                } else {
+                    Type::Slice(Box::new(byte_ty))
+                };
+                let buffer = lower_expr_with_expected(&args[1], Some(&buffer_ty), env, ctx)?;
+                if buffer.ty() != &buffer_ty {
+                    return Err(Diagnostic::new(
+                        "type",
+                        format!(
+                            "{name} expects argument 2 type {buffer_ty}, got {}",
+                            buffer.ty()
+                        ),
+                    )
+                    .with_span(args[1].line(), args[1].column()));
+                }
+                if name == "net_udp_send_to" {
+                    let peer = lower_expr_with_expected(&args[2], Some(&Type::String), env, ctx)?;
+                    if peer.ty() != &Type::String {
+                        return Err(Diagnostic::new(
+                            "type",
+                            format!(
+                                "net_udp_send_to expects argument 3 type string, got {}",
+                                peer.ty()
+                            ),
+                        )
+                        .with_span(args[2].line(), args[2].column()));
+                    }
+                    move_lowered_value(&peer, env)?;
+                    return Ok(Expr::Call {
+                        span: SourceSpan {
+                            line: *line,
+                            column: *column,
+                        },
+                        name: name.clone(),
+                        args: vec![socket, buffer, peer],
+                        ty: Type::Int,
+                    });
+                }
+                return Ok(Expr::Call {
+                    span: SourceSpan {
+                        line: *line,
+                        column: *column,
+                    },
+                    name: name.clone(),
+                    args: vec![socket, buffer],
+                    ty: Type::Tuple(vec![Type::Int, Type::String]),
+                });
+            }
             if name == "net_tcp_listen_loopback_once" {
                 require_capability(ctx.capabilities, CapabilityKind::Net, name, *line, *column)?;
                 if args.len() != 2 {
