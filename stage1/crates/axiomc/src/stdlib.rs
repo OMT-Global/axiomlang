@@ -36,8 +36,6 @@
 //!   `crypto_constant_time_eq*` (crypto).
 //! * `std/crypto_rand.ax` — `random_bytes(n)` and `random_u64()` on top of
 //!   `crypto_rand_*` intrinsics (crypto).
-//! * `std/crypto_sign.ax` — Ed25519 key generation, signing, and verification
-//!   helpers on top of `crypto_ed25519_*` intrinsics (crypto).
 //! * `std/crypto.ax` — umbrella re-export module for the stage1 crypto hash
 //!   MAC, random, and Ed25519 signing helpers.
 //!

@@ -5014,24 +5014,6 @@ fn render_expr(expr: &Expr) -> String {
         Expr::Call { name, .. } if name == "crypto_rand_u64" => {
             String::from("axiom_crypto_rand_u64()")
         }
-        Expr::Call { name, .. } if name == "crypto_ed25519_keygen" => {
-            String::from("axiom_crypto_ed25519_keygen()")
-        }
-        Expr::Call { name, args, .. } if name == "crypto_ed25519_sign" => {
-            format!(
-                "axiom_crypto_ed25519_sign({}, {})",
-                render_expr(&args[0]),
-                render_expr(&args[1])
-            )
-        }
-        Expr::Call { name, args, .. } if name == "crypto_ed25519_verify" => {
-            format!(
-                "axiom_crypto_ed25519_verify({}, {}, {})",
-                render_expr(&args[0]),
-                render_expr(&args[1]),
-                render_expr(&args[2])
-            )
-        }
         Expr::Call { name, args, .. } if name == "async_ready" => {
             format!("axiom_task_ready({})", render_expr(&args[0]))
         }

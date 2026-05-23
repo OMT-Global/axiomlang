@@ -3830,9 +3830,6 @@ fn intrinsic_capability(name: &str) -> Option<CapabilityKind> {
         "crypto_constant_time_eq_u8" => Some(CapabilityKind::Crypto),
         "crypto_rand_bytes" => Some(CapabilityKind::Crypto),
         "crypto_rand_u64" => Some(CapabilityKind::Crypto),
-        "crypto_ed25519_keygen" => Some(CapabilityKind::Crypto),
-        "crypto_ed25519_sign" => Some(CapabilityKind::Crypto),
-        "crypto_ed25519_verify" => Some(CapabilityKind::Crypto),
         _ => None,
     }
 }
