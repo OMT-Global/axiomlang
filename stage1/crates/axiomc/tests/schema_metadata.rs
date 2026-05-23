@@ -1,4 +1,5 @@
 use axiomc::{json_contract, manifest::KNOWN_CAPABILITIES};
+use jsonschema::Validator;
 use serde_json::Value;
 use std::fs;
 use std::path::Path;
@@ -8,6 +9,10 @@ fn schema_dir() -> std::path::PathBuf {
         .join("..")
         .join("..")
         .join("schemas")
+}
+
+fn compile_validator(schema: &Value) -> Validator {
+    jsonschema::validator_for(schema).expect("compile JSON schema")
 }
 
 #[test]
@@ -22,6 +27,11 @@ fn editor_metadata_schemas_are_parseable_and_current() {
             .expect("read manifest JSON schema"),
     )
     .expect("manifest schema is valid JSON");
+    let inspect_schema: Value = serde_json::from_str(
+        &fs::read_to_string(schema_dir().join("axiom-inspect-v0.schema.json"))
+            .expect("read inspect JSON schema"),
+    )
+    .expect("inspect schema is valid JSON");
 
     assert_eq!(
         compiler_schema["properties"]["schema_version"]["const"],
@@ -43,6 +53,77 @@ fn editor_metadata_schemas_are_parseable_and_current() {
         manifest_schema["$id"],
         "https://axiom.omt.global/schemas/axiom.toml.schema.json"
     );
+    assert_eq!(
+        inspect_schema["$id"],
+        "https://axiom.omt.global/schemas/axiom-inspect-v0.schema.json"
+    );
+    assert_eq!(
+        inspect_schema["properties"]["schema_version"]["const"],
+        json_contract::JSON_SCHEMA_VERSION
+    );
+    let inspect_commands = inspect_schema["properties"]["command"]["enum"]
+        .as_array()
+        .expect("inspect command enum");
+    for command in [
+        "inspect graph",
+        "inspect symbols",
+        "inspect effects",
+        "inspect evidence",
+        "inspect artifacts",
+    ] {
+        assert!(
+            inspect_commands.iter().any(|value| value == command),
+            "inspect schema includes {command}"
+        );
+    }
+    let inspect_validator = compile_validator(&inspect_schema);
+    for sample in [
+        serde_json::json!({
+            "schema_version": json_contract::JSON_SCHEMA_VERSION,
+            "schema": "stage1/schemas/axiom-inspect-v0.schema.json",
+            "ok": true,
+            "command": "inspect graph",
+            "project": "example",
+            "packages": [],
+            "modules": []
+        }),
+        serde_json::json!({
+            "schema_version": json_contract::JSON_SCHEMA_VERSION,
+            "schema": "stage1/schemas/axiom-inspect-v0.schema.json",
+            "ok": true,
+            "command": "inspect symbols",
+            "project": "example",
+            "symbols": []
+        }),
+        serde_json::json!({
+            "schema_version": json_contract::JSON_SCHEMA_VERSION,
+            "schema": "stage1/schemas/axiom-inspect-v0.schema.json",
+            "ok": true,
+            "command": "inspect effects",
+            "project": "example",
+            "effects": []
+        }),
+        serde_json::json!({
+            "schema_version": json_contract::JSON_SCHEMA_VERSION,
+            "schema": "stage1/schemas/axiom-inspect-v0.schema.json",
+            "ok": true,
+            "command": "inspect evidence",
+            "project": "example",
+            "evidence": []
+        }),
+        serde_json::json!({
+            "schema_version": json_contract::JSON_SCHEMA_VERSION,
+            "schema": "stage1/schemas/axiom-inspect-v0.schema.json",
+            "ok": true,
+            "command": "inspect artifacts",
+            "project": "example",
+            "artifacts": []
+        }),
+    ] {
+        inspect_validator
+            .validate(&sample)
+            .expect("inspect sample validates against inspect schema");
+    }
     assert!(manifest_schema["properties"]["capabilities"]["properties"]["env"]["oneOf"].is_array());
 
     let test_target = &manifest_schema["properties"]["tests"]["items"]["properties"];
@@ -164,8 +245,7 @@ fn backend_target_v0_schema_and_fixture_are_well_formed() {
     }
 
     assert_eq!(
-        schema["$defs"]["nodeId"]["pattern"],
-        "^axiom://[A-Za-z0-9._~:/#@!$&'()*+,;=%-]+$",
+        schema["$defs"]["nodeId"]["pattern"], "^axiom://[A-Za-z0-9._~:/#@!$&'()*+,;=%-]+$",
         "target nodeId stays aligned with Intent IR nodeId characters"
     );
 
