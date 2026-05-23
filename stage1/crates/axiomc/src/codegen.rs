@@ -1683,10 +1683,18 @@ fn axiom_parse_tcp_bind(bind: &str) -> Option<std::net::SocketAddr> {
 }
 
 #[allow(dead_code)]
+fn axiom_net_socket_addr_allowed(addr: &std::net::SocketAddr) -> bool {
+    axiom_net_host_allowed(&addr.ip().to_string()) && axiom_net_port_allowed(addr.port())
+}
+
+#[allow(dead_code)]
 fn axiom_net_tcp_listen(bind: String) -> i64 {
     let args = axiom_host_arg_summary(&[("bind", format!("string:{}", bind.len()))]);
     let result = (|| {
         let addr = axiom_parse_tcp_bind(bind.as_str())?;
+        if !axiom_net_socket_addr_allowed(&addr) {
+            return None;
+        }
         let listener = std::net::TcpListener::bind(addr).ok()?;
         listener.set_nonblocking(false).ok()?;
         let mut registry = axiom_tcp_registry().lock().ok()?;
@@ -1812,6 +1820,9 @@ fn axiom_net_udp_bind(bind: String) -> i64 {
     let args = axiom_host_arg_summary(&[("bind", format!("string:{}", bind.len()))]);
     let result = (|| {
         let addr = axiom_parse_udp_addr(bind.as_str())?;
+        if !axiom_net_socket_addr_allowed(&addr) {
+            return None;
+        }
         let socket = std::net::UdpSocket::bind(addr).ok()?;
         let timeout = std::time::Duration::from_secs(30);
         socket.set_read_timeout(Some(timeout)).ok()?;
@@ -1854,6 +1865,9 @@ fn axiom_net_udp_send_to(socket: i64, buf: &[u8], peer: String) -> i64 {
     let args = axiom_host_arg_summary(&[("socket", format!("handle:{}", socket)), ("buf", format!("bytes:{}", buf.len())), ("peer", format!("string:{}", peer.len()))]);
     let peer_addr = axiom_parse_udp_addr(peer.as_str());
     let result = peer_addr.and_then(|peer_addr| {
+        if !axiom_net_socket_addr_allowed(&peer_addr) {
+            return None;
+        }
         axiom_udp_registry()
             .lock()
             .ok()

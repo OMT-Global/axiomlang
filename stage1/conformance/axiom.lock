@@ -206,6 +206,16 @@ version = "0.1.0"
 source = "path:fail/nested_match_pattern_not_supported"
 
 [[package]]
+name = "conformance-net-socket-host-allowlist-rejects-peer"
+version = "0.1.0"
+source = "path:fail/net_socket_host_allowlist_rejects_peer"
+
+[[package]]
+name = "conformance-net-socket-port-allowlist-rejects-bind"
+version = "0.1.0"
+source = "path:fail/net_socket_port_allowlist_rejects_bind"
+
+[[package]]
 name = "conformance-numeric-float-mixed-width-add"
 version = "0.1.0"
 source = "path:fail/numeric_float_mixed_width_add"

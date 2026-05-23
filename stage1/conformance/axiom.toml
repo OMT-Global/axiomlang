@@ -41,6 +41,8 @@ members = [
   "fail/mutable_borrow_while_shared_live",
   "fail/named_nested_match_pattern_not_supported",
   "fail/nested_match_pattern_not_supported",
+  "fail/net_socket_host_allowlist_rejects_peer",
+  "fail/net_socket_port_allowlist_rejects_bind",
   "fail/numeric_float_mixed_width_add",
   "fail/numeric_literal_suffix_mismatch",
   "fail/ownership_across_dependency_boundary",

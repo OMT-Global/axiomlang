@@ -27,5 +27,6 @@ public API.
 
 `bind` and `send_to` currently accept loopback addresses such as `127.0.0.1:0`,
 `[::1]:0`, and `localhost:0`. Non-loopback addresses are rejected by the
-generated runtime. Host and port allowlist policy for raw TCP and UDP sockets is
-tracked by #737.
+generated runtime. When `[capabilities].net.hosts` or
+`[capabilities].net.ports` is set, bind and peer literals must match those
+allowlists.

@@ -28,8 +28,8 @@ through the public API.
 
 `listen` currently accepts loopback bind addresses such as `127.0.0.1:0`,
 `[::1]:0`, and `localhost:0`. Non-loopback binds are rejected by the generated
-runtime. Host and port allowlist policy for raw TCP and UDP sockets is tracked by
-#737.
+runtime. When `[capabilities].net.hosts` or `[capabilities].net.ports` is set,
+bind literals must match those allowlists.
 
 The calls are blocking. Async integration beyond spawning an async task around a
 blocking call remains tracked by #738.

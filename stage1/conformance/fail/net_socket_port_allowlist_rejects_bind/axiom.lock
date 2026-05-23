@@ -1,0 +1,6 @@
+version = 1
+
+[[package]]
+name = "conformance-net-socket-port-allowlist-rejects-bind"
+version = "0.1.0"
+source = "path"
