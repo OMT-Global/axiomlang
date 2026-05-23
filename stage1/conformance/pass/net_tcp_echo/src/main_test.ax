@@ -1,0 +1,28 @@
+import "std/async.ax"
+import "std/net_tcp.ax"
+
+async fn serve(listener: TcpListener): int {
+let stream: TcpStream = accept(listener)
+let buf: [u8] = [0u8, 0u8, 0u8, 0u8]
+let read_count: int = read(stream, buf[:])
+let response: [u8] = [112u8, 111u8, 110u8, 103u8]
+let write_count: int = write(stream, response[:])
+let _closed: int = close(stream)
+let _listener_closed: int = close_listener(listener)
+return read_count + write_count
+}
+
+let listener: TcpListener = listen("127.0.0.1:0")
+let port: int = local_port(listener)
+let server: JoinHandle<int> = spawn<int>(serve(listener))
+
+match dial("127.0.0.1", port, "ping", 1000) {
+Some(reply) {
+print reply
+}
+None {
+print "tcp none"
+}
+}
+
+print await join<int>(server)

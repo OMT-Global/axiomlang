@@ -1714,6 +1714,137 @@ fn axiom_loopback_socket_addr(host: String, port: i64) -> Option<std::net::Socke
 }
 
 #[allow(dead_code)]
+struct AxiomTcpRegistry {
+    next_handle: i64,
+    listeners: HashMap<i64, std::net::TcpListener>,
+    streams: HashMap<i64, std::net::TcpStream>,
+}
+
+#[allow(dead_code)]
+impl AxiomTcpRegistry {
+    fn new() -> Self {
+        Self {
+            next_handle: 1,
+            listeners: HashMap::new(),
+            streams: HashMap::new(),
+        }
+    }
+
+    fn allocate(&mut self) -> i64 {
+        let handle = self.next_handle;
+        self.next_handle = self.next_handle.saturating_add(1).max(1);
+        handle
+    }
+}
+
+#[allow(dead_code)]
+fn axiom_tcp_registry() -> &'static Mutex<AxiomTcpRegistry> {
+    static REGISTRY: std::sync::OnceLock<Mutex<AxiomTcpRegistry>> = std::sync::OnceLock::new();
+    REGISTRY.get_or_init(|| Mutex::new(AxiomTcpRegistry::new()))
+}
+
+#[allow(dead_code)]
+fn axiom_parse_tcp_bind(bind: &str) -> Option<std::net::SocketAddr> {
+    if let Ok(addr) = bind.parse::<std::net::SocketAddr>() {
+        return addr.ip().is_loopback().then_some(addr);
+    }
+    let port = bind.strip_prefix("localhost:")?.parse::<u16>().ok()?;
+    Some(std::net::SocketAddr::new(std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST), port))
+}
+
+#[allow(dead_code)]
+fn axiom_net_tcp_listen(bind: String) -> i64 {
+    let args = axiom_host_arg_summary(&[("bind", format!("string:{}", bind.len()))]);
+    let result = (|| {
+        let addr = axiom_parse_tcp_bind(bind.as_str())?;
+        let listener = std::net::TcpListener::bind(addr).ok()?;
+        listener.set_nonblocking(false).ok()?;
+        let mut registry = axiom_tcp_registry().lock().ok()?;
+        let handle = registry.allocate();
+        registry.listeners.insert(handle, listener);
+        Some(handle)
+    })();
+    axiom_host_audit("net_tcp_listen", args, if result.is_some() { "ok" } else { "denied" });
+    result.unwrap_or_else(|| axiom_runtime_error("runtime", "net_tcp_listen failed"))
+}
+
+#[allow(dead_code)]
+fn axiom_net_tcp_listener_port(listener: i64) -> i64 {
+    let args = axiom_host_arg_summary(&[("listener", format!("handle:{}", listener))]);
+    let result = axiom_tcp_registry()
+        .lock()
+        .ok()
+        .and_then(|registry| registry.listeners.get(&listener).and_then(|listener| listener.local_addr().ok()))
+        .map(|addr| i64::from(addr.port()));
+    axiom_host_audit("net_tcp_listener_port", args, if result.is_some() { "ok" } else { "denied" });
+    result.unwrap_or(-1)
+}
+
+#[allow(dead_code)]
+fn axiom_net_tcp_accept(listener: i64) -> i64 {
+    let args = axiom_host_arg_summary(&[("listener", format!("handle:{}", listener))]);
+    let result = (|| {
+        let mut registry = axiom_tcp_registry().lock().ok()?;
+        let (stream, _peer) = registry.listeners.get(&listener)?.accept().ok()?;
+        let handle = registry.allocate();
+        registry.streams.insert(handle, stream);
+        Some(handle)
+    })();
+    axiom_host_audit("net_tcp_accept", args, if result.is_some() { "ok" } else { "denied" });
+    result.unwrap_or_else(|| axiom_runtime_error("runtime", "net_tcp_accept failed"))
+}
+
+#[allow(dead_code)]
+fn axiom_net_tcp_read(stream: i64, buf: &mut [u8]) -> i64 {
+    use std::io::Read;
+    let args = axiom_host_arg_summary(&[("stream", format!("handle:{}", stream)), ("buf", format!("bytes:{}", buf.len()))]);
+    let result = axiom_tcp_registry()
+        .lock()
+        .ok()
+        .and_then(|mut registry| registry.streams.get_mut(&stream).and_then(|stream| stream.read(buf).ok()))
+        .map(|read| read as i64);
+    axiom_host_audit("net_tcp_read", args, if result.is_some() { "ok" } else { "denied" });
+    result.unwrap_or(-1)
+}
+
+#[allow(dead_code)]
+fn axiom_net_tcp_write(stream: i64, buf: &[u8]) -> i64 {
+    use std::io::Write;
+    let args = axiom_host_arg_summary(&[("stream", format!("handle:{}", stream)), ("buf", format!("bytes:{}", buf.len()))]);
+    let result = axiom_tcp_registry()
+        .lock()
+        .ok()
+        .and_then(|mut registry| registry.streams.get_mut(&stream).and_then(|stream| stream.write(buf).ok()))
+        .map(|written| written as i64);
+    axiom_host_audit("net_tcp_write", args, if result.is_some() { "ok" } else { "denied" });
+    result.unwrap_or(-1)
+}
+
+#[allow(dead_code)]
+fn axiom_net_tcp_close(stream: i64) -> i64 {
+    let args = axiom_host_arg_summary(&[("stream", format!("handle:{}", stream))]);
+    let closed = axiom_tcp_registry()
+        .lock()
+        .ok()
+        .and_then(|mut registry| registry.streams.remove(&stream))
+        .is_some();
+    axiom_host_audit("net_tcp_close", args, if closed { "ok" } else { "denied" });
+    if closed { 0 } else { -1 }
+}
+
+#[allow(dead_code)]
+fn axiom_net_tcp_close_listener(listener: i64) -> i64 {
+    let args = axiom_host_arg_summary(&[("listener", format!("handle:{}", listener))]);
+    let closed = axiom_tcp_registry()
+        .lock()
+        .ok()
+        .and_then(|mut registry| registry.listeners.remove(&listener))
+        .is_some();
+    axiom_host_audit("net_tcp_close_listener", args, if closed { "ok" } else { "denied" });
+    if closed { 0 } else { -1 }
+}
+
+#[allow(dead_code)]
 fn axiom_net_tcp_listen_loopback_once(response: String, timeout_ms: i64) -> Option<i64> {
     use std::io::{Read, Write};
     let args = axiom_host_arg_summary(&[("response", format!("string:{}", response.len())), ("timeout_ms", format!("int:{}", timeout_ms))]);
@@ -4771,6 +4902,35 @@ fn render_expr(expr: &Expr) -> String {
         }
         Expr::Call { name, args, .. } if name == "net_resolve" => {
             format!("axiom_net_resolve({})", render_expr(&args[0]))
+        }
+        Expr::Call { name, args, .. } if name == "net_tcp_listen" => {
+            format!("axiom_net_tcp_listen({})", render_expr(&args[0]))
+        }
+        Expr::Call { name, args, .. } if name == "net_tcp_listener_port" => {
+            format!("axiom_net_tcp_listener_port({})", render_expr(&args[0]))
+        }
+        Expr::Call { name, args, .. } if name == "net_tcp_accept" => {
+            format!("axiom_net_tcp_accept({})", render_expr(&args[0]))
+        }
+        Expr::Call { name, args, .. } if name == "net_tcp_read" => {
+            format!(
+                "axiom_net_tcp_read({}, {})",
+                render_expr(&args[0]),
+                render_expr(&args[1])
+            )
+        }
+        Expr::Call { name, args, .. } if name == "net_tcp_write" => {
+            format!(
+                "axiom_net_tcp_write({}, {})",
+                render_expr(&args[0]),
+                render_expr(&args[1])
+            )
+        }
+        Expr::Call { name, args, .. } if name == "net_tcp_close" => {
+            format!("axiom_net_tcp_close({})", render_expr(&args[0]))
+        }
+        Expr::Call { name, args, .. } if name == "net_tcp_close_listener" => {
+            format!("axiom_net_tcp_close_listener({})", render_expr(&args[0]))
         }
         Expr::Call { name, args, .. } if name == "net_tcp_listen_loopback_once" => {
             format!(

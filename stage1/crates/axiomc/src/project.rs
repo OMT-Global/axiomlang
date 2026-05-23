@@ -3804,6 +3804,13 @@ fn intrinsic_capability(name: &str) -> Option<CapabilityKind> {
         "fs_write" | "fs_create" | "fs_append" | "fs_mkdir" | "fs_mkdir_all" | "fs_remove_file"
         | "fs_remove_dir" | "fs_replace" => Some(CapabilityKind::FsWrite),
         "net_resolve" => Some(CapabilityKind::Net),
+        "net_tcp_listen" => Some(CapabilityKind::Net),
+        "net_tcp_listener_port" => Some(CapabilityKind::Net),
+        "net_tcp_accept" => Some(CapabilityKind::Net),
+        "net_tcp_read" => Some(CapabilityKind::Net),
+        "net_tcp_write" => Some(CapabilityKind::Net),
+        "net_tcp_close" => Some(CapabilityKind::Net),
+        "net_tcp_close_listener" => Some(CapabilityKind::Net),
         "net_tcp_listen_loopback_once" => Some(CapabilityKind::Net),
         "net_tcp_dial" => Some(CapabilityKind::Net),
         "net_udp_bind_loopback_once" => Some(CapabilityKind::Net),
