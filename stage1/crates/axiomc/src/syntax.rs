@@ -42,6 +42,9 @@ impl SourceSpan {
 pub struct Program {
     pub path: String,
     pub imports: Vec<Import>,
+    pub axioms: Vec<AxiomDecl>,
+    pub semantic_capabilities: Vec<SemanticCapabilityDecl>,
+    pub evidence: Vec<EvidenceDecl>,
     pub consts: Vec<ConstDecl>,
     pub type_aliases: Vec<TypeAliasDecl>,
     pub structs: Vec<StructDecl>,
@@ -73,6 +76,59 @@ impl Visibility {
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct Import {
     pub path: String,
+    pub line: usize,
+    pub column: usize,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct AxiomDecl {
+    pub name: String,
+    pub scope: Option<String>,
+    pub severity: Option<String>,
+    pub description: Option<String>,
+    pub assertion: Option<String>,
+    pub line: usize,
+    pub column: usize,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct SemanticCapabilityDecl {
+    pub name: String,
+    pub inputs: Vec<CapabilityInput>,
+    pub effects: Vec<CapabilityEffect>,
+    pub preserves: Vec<SemanticReference>,
+    pub evidence: Vec<SemanticReference>,
+    pub line: usize,
+    pub column: usize,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct CapabilityInput {
+    pub name: String,
+    pub ty: TypeName,
+    pub line: usize,
+    pub column: usize,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct CapabilityEffect {
+    pub kind: String,
+    pub target: String,
+    pub line: usize,
+    pub column: usize,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct SemanticReference {
+    pub name: String,
+    pub line: usize,
+    pub column: usize,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct EvidenceDecl {
+    pub name: String,
+    pub description: Option<String>,
     pub line: usize,
     pub column: usize,
 }
@@ -639,6 +695,9 @@ pub fn parse_program_with_recovery(source: &str, path: &Path) -> Result<Program,
     let lines: Vec<&str> = source.lines().collect();
     let mut index = 0;
     let mut imports = Vec::new();
+    let mut axioms = Vec::new();
+    let mut semantic_capabilities = Vec::new();
+    let mut evidence = Vec::new();
     let mut consts = Vec::new();
     let mut type_aliases = Vec::new();
     let mut structs = Vec::new();
@@ -703,6 +762,42 @@ pub fn parse_program_with_recovery(source: &str, path: &Path) -> Result<Program,
                 .with_span(line_no, 1),
             );
             index += 1;
+            continue;
+        }
+        if trimmed.starts_with("axiom ") {
+            let start_index = index;
+            match parse_axiom_decl(&lines, &mut index, path) {
+                Ok(decl) => axioms.push(decl),
+                Err(error) => {
+                    diagnostics.push(error);
+                    index = start_index;
+                    synchronize_top_level(&lines, &mut index);
+                }
+            }
+            continue;
+        }
+        if trimmed.starts_with("capability ") {
+            let start_index = index;
+            match parse_semantic_capability_decl(&lines, &mut index, path) {
+                Ok(decl) => semantic_capabilities.push(decl),
+                Err(error) => {
+                    diagnostics.push(error);
+                    index = start_index;
+                    synchronize_top_level(&lines, &mut index);
+                }
+            }
+            continue;
+        }
+        if trimmed.starts_with("evidence ") {
+            let start_index = index;
+            match parse_evidence_decl(&lines, &mut index, path) {
+                Ok(decl) => evidence.push(decl),
+                Err(error) => {
+                    diagnostics.push(error);
+                    index = start_index;
+                    synchronize_top_level(&lines, &mut index);
+                }
+            }
             continue;
         }
         if trimmed.starts_with("fn ")
@@ -827,6 +922,9 @@ pub fn parse_program_with_recovery(source: &str, path: &Path) -> Result<Program,
     Ok(Program {
         path: path.display().to_string(),
         imports,
+        axioms,
+        semantic_capabilities,
+        evidence,
         consts,
         type_aliases,
         structs,
@@ -1881,6 +1979,303 @@ fn parse_const_or_static_decl(
         line: line_no,
         column: 1,
     })
+}
+
+fn parse_axiom_decl(
+    lines: &[&str],
+    index: &mut usize,
+    path: &Path,
+) -> Result<AxiomDecl, Diagnostic> {
+    let decl_line = *index + 1;
+    let name = semantic_block_name(lines[*index].trim(), "axiom", path, decl_line)?;
+    *index += 1;
+    let mut scope = None;
+    let mut severity = None;
+    let mut description = None;
+    let mut assertion = None;
+    while *index < lines.len() {
+        let line_no = *index + 1;
+        let trimmed = lines[*index].trim();
+        if trimmed.is_empty() {
+            *index += 1;
+            continue;
+        }
+        if trimmed == "}" {
+            *index += 1;
+            return Ok(AxiomDecl {
+                name,
+                scope,
+                severity,
+                description,
+                assertion,
+                line: decl_line,
+                column: 1,
+            });
+        }
+        if let Some(value) = trimmed.strip_prefix("scope ") {
+            let value = value.trim();
+            validate_ident(value, path, line_no, 7)?;
+            scope = Some(value.to_string());
+        } else if let Some(value) = trimmed.strip_prefix("severity ") {
+            let value = value.trim();
+            validate_ident(value, path, line_no, 10)?;
+            severity = Some(value.to_string());
+        } else if let Some(value) = trimmed.strip_prefix("description ") {
+            description = Some(parse_semantic_string(value.trim(), path, line_no, 13)?);
+        } else if let Some(value) = trimmed.strip_prefix("assert ") {
+            let value = value.trim();
+            if value.is_empty() {
+                return Err(Diagnostic::new("parse", "axiom assert clause is empty")
+                    .with_path(path.display().to_string())
+                    .with_span(line_no, 8));
+            }
+            assertion = Some(value.to_string());
+        } else {
+            return Err(Diagnostic::new(
+                "parse",
+                "axiom declarations support scope, severity, description, and assert clauses",
+            )
+            .with_path(path.display().to_string())
+            .with_span(line_no, 1));
+        }
+        *index += 1;
+    }
+    Err(Diagnostic::new("parse", "missing closing brace for axiom")
+        .with_path(path.display().to_string())
+        .with_span(decl_line, 1))
+}
+
+fn parse_semantic_capability_decl(
+    lines: &[&str],
+    index: &mut usize,
+    path: &Path,
+) -> Result<SemanticCapabilityDecl, Diagnostic> {
+    let decl_line = *index + 1;
+    let name = semantic_block_name(lines[*index].trim(), "capability", path, decl_line)?;
+    *index += 1;
+    let mut inputs = Vec::new();
+    let mut effects = Vec::new();
+    let mut preserves = Vec::new();
+    let mut evidence = Vec::new();
+    while *index < lines.len() {
+        let line_no = *index + 1;
+        let trimmed = lines[*index].trim();
+        if trimmed.is_empty() {
+            *index += 1;
+            continue;
+        }
+        if trimmed == "}" {
+            *index += 1;
+            return Ok(SemanticCapabilityDecl {
+                name,
+                inputs,
+                effects,
+                preserves,
+                evidence,
+                line: decl_line,
+                column: 1,
+            });
+        }
+        if let Some(value) = trimmed.strip_prefix("input ") {
+            inputs.push(parse_capability_input(value.trim(), path, line_no)?);
+            *index += 1;
+            continue;
+        }
+        if trimmed == "effects {" {
+            *index += 1;
+            effects.extend(parse_capability_effects(lines, index, path)?);
+            continue;
+        }
+        if let Some(value) = trimmed.strip_prefix("preserves ") {
+            preserves.push(parse_semantic_reference(value.trim(), path, line_no, 11)?);
+            *index += 1;
+            continue;
+        }
+        if let Some(value) = trimmed.strip_prefix("requires evidence ") {
+            evidence.push(parse_semantic_reference(value.trim(), path, line_no, 18)?);
+            *index += 1;
+            continue;
+        }
+        return Err(Diagnostic::new(
+            "parse",
+            "capability declarations support input, effects, preserves, and requires evidence clauses",
+        )
+        .with_path(path.display().to_string())
+        .with_span(line_no, 1));
+    }
+    Err(
+        Diagnostic::new("parse", "missing closing brace for capability")
+            .with_path(path.display().to_string())
+            .with_span(decl_line, 1),
+    )
+}
+
+fn parse_evidence_decl(
+    lines: &[&str],
+    index: &mut usize,
+    path: &Path,
+) -> Result<EvidenceDecl, Diagnostic> {
+    let decl_line = *index + 1;
+    let name = semantic_block_name(lines[*index].trim(), "evidence", path, decl_line)?;
+    *index += 1;
+    let mut description = None;
+    while *index < lines.len() {
+        let line_no = *index + 1;
+        let trimmed = lines[*index].trim();
+        if trimmed.is_empty() {
+            *index += 1;
+            continue;
+        }
+        if trimmed == "}" {
+            *index += 1;
+            return Ok(EvidenceDecl {
+                name,
+                description,
+                line: decl_line,
+                column: 1,
+            });
+        }
+        if let Some(value) = trimmed.strip_prefix("description ") {
+            description = Some(parse_semantic_string(value.trim(), path, line_no, 13)?);
+            *index += 1;
+            continue;
+        }
+        return Err(Diagnostic::new(
+            "parse",
+            "evidence declarations support only description clauses in v0",
+        )
+        .with_path(path.display().to_string())
+        .with_span(line_no, 1));
+    }
+    Err(
+        Diagnostic::new("parse", "missing closing brace for evidence")
+            .with_path(path.display().to_string())
+            .with_span(decl_line, 1),
+    )
+}
+
+fn semantic_block_name(
+    trimmed: &str,
+    keyword: &'static str,
+    path: &Path,
+    line_no: usize,
+) -> Result<String, Diagnostic> {
+    let prefix = format!("{keyword} ");
+    let name = trimmed
+        .strip_prefix(&prefix)
+        .and_then(|rest| rest.strip_suffix('{'))
+        .map(str::trim)
+        .ok_or_else(|| {
+            Diagnostic::new(
+                "parse",
+                format!("{keyword} declaration must use `{keyword} Name {{` syntax"),
+            )
+            .with_path(path.display().to_string())
+            .with_span(line_no, 1)
+        })?;
+    validate_ident(name, path, line_no, keyword.len() + 2)?;
+    Ok(name.to_string())
+}
+
+fn parse_capability_input(
+    raw: &str,
+    path: &Path,
+    line_no: usize,
+) -> Result<CapabilityInput, Diagnostic> {
+    let colon = find_top_level_char(raw, ':').ok_or_else(|| {
+        Diagnostic::new("parse", "capability input is missing ':'")
+            .with_path(path.display().to_string())
+            .with_span(line_no, 7)
+    })?;
+    let name = raw[..colon].trim();
+    validate_ident(name, path, line_no, 7)?;
+    Ok(CapabilityInput {
+        name: name.to_string(),
+        ty: parse_type_name(raw[colon + 1..].trim(), path, line_no, colon + 8)?,
+        line: line_no,
+        column: 1,
+    })
+}
+
+fn parse_capability_effects(
+    lines: &[&str],
+    index: &mut usize,
+    path: &Path,
+) -> Result<Vec<CapabilityEffect>, Diagnostic> {
+    let mut effects = Vec::new();
+    while *index < lines.len() {
+        let line_no = *index + 1;
+        let trimmed = lines[*index].trim();
+        if trimmed.is_empty() {
+            *index += 1;
+            continue;
+        }
+        if trimmed == "}" {
+            *index += 1;
+            return Ok(effects);
+        }
+        let Some((kind, target)) = trimmed.split_once(' ') else {
+            return Err(Diagnostic::new(
+                "parse",
+                "capability effect must use `read Target`, `write Target`, or `emit Target`",
+            )
+            .with_path(path.display().to_string())
+            .with_span(line_no, 1));
+        };
+        if !matches!(kind, "read" | "write" | "emit") {
+            return Err(Diagnostic::new(
+                "parse",
+                "capability effect kind must be read, write, or emit",
+            )
+            .with_path(path.display().to_string())
+            .with_span(line_no, 1));
+        }
+        let target = target.trim();
+        validate_ident(target, path, line_no, kind.len() + 2)?;
+        effects.push(CapabilityEffect {
+            kind: kind.to_string(),
+            target: target.to_string(),
+            line: line_no,
+            column: 1,
+        });
+        *index += 1;
+    }
+    Err(
+        Diagnostic::new("parse", "missing closing brace for capability effects")
+            .with_path(path.display().to_string())
+            .with_span(lines.len().max(1), 1),
+    )
+}
+
+fn parse_semantic_reference(
+    value: &str,
+    path: &Path,
+    line_no: usize,
+    column: usize,
+) -> Result<SemanticReference, Diagnostic> {
+    validate_ident(value, path, line_no, column)?;
+    Ok(SemanticReference {
+        name: value.to_string(),
+        line: line_no,
+        column,
+    })
+}
+
+fn parse_semantic_string(
+    value: &str,
+    path: &Path,
+    line_no: usize,
+    column: usize,
+) -> Result<String, Diagnostic> {
+    value
+        .strip_prefix('"')
+        .and_then(|value| value.strip_suffix('"'))
+        .map(str::to_string)
+        .ok_or_else(|| {
+            Diagnostic::new("parse", "semantic description must be a quoted string")
+                .with_path(path.display().to_string())
+                .with_span(line_no, column)
+        })
 }
 
 fn parse_struct(lines: &[&str], index: &mut usize, path: &Path) -> Result<StructDecl, Diagnostic> {

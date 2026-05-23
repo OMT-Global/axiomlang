@@ -1221,6 +1221,7 @@ fn analyze_entry(
 ) -> Result<AnalyzedProject, Diagnostic> {
     let modules = load_modules(graph, package_root, &entry)?;
     validate_module_capabilities(graph, &modules)?;
+    validate_semantic_declarations(&modules)?;
     let flattened = flatten_modules(graph, &modules)?;
     let hir = hir::lower_with_capabilities(&flattened, &manifest.capabilities)
         .map_err(|error| diagnostic_with_default_path(error, &entry))?;
@@ -1240,6 +1241,120 @@ fn analyze_entry(
 pub fn lower_project_to_mir(project_root: &Path) -> Result<mir::Program, Diagnostic> {
     let graph = load_package_graph(project_root)?;
     Ok(analyze_package(&graph, project_root)?.mir)
+}
+
+fn validate_semantic_declarations(modules: &[LoadedModule]) -> Result<(), Diagnostic> {
+    let mut axioms = HashMap::<String, (&Path, usize, usize)>::new();
+    let mut capabilities = HashMap::<String, (&Path, usize, usize)>::new();
+    let mut evidence = HashMap::<String, (&Path, usize, usize)>::new();
+
+    for module in modules {
+        for axiom in &module.program.axioms {
+            if let Some((path, line, column)) =
+                axioms.insert(axiom.name.clone(), (&module.path, axiom.line, axiom.column))
+            {
+                return Err(duplicate_semantic_decl(
+                    "axiom",
+                    &axiom.name,
+                    &module.path,
+                    axiom.line,
+                    axiom.column,
+                    path,
+                    line,
+                    column,
+                ));
+            }
+        }
+        for capability in &module.program.semantic_capabilities {
+            if let Some((path, line, column)) = capabilities.insert(
+                capability.name.clone(),
+                (&module.path, capability.line, capability.column),
+            ) {
+                return Err(duplicate_semantic_decl(
+                    "capability",
+                    &capability.name,
+                    &module.path,
+                    capability.line,
+                    capability.column,
+                    path,
+                    line,
+                    column,
+                ));
+            }
+        }
+        for evidence_decl in &module.program.evidence {
+            if let Some((path, line, column)) = evidence.insert(
+                evidence_decl.name.clone(),
+                (&module.path, evidence_decl.line, evidence_decl.column),
+            ) {
+                return Err(duplicate_semantic_decl(
+                    "evidence",
+                    &evidence_decl.name,
+                    &module.path,
+                    evidence_decl.line,
+                    evidence_decl.column,
+                    path,
+                    line,
+                    column,
+                ));
+            }
+        }
+    }
+
+    let validate_evidence_refs = !evidence.is_empty();
+    for module in modules {
+        for capability in &module.program.semantic_capabilities {
+            for reference in &capability.preserves {
+                if !axioms.contains_key(&reference.name) {
+                    return Err(Diagnostic::new(
+                        "semantic",
+                        format!(
+                            "capability {:?} preserves unknown axiom {:?}",
+                            capability.name, reference.name
+                        ),
+                    )
+                    .with_path(module.path.display().to_string())
+                    .with_span(reference.line, reference.column));
+                }
+            }
+            if validate_evidence_refs {
+                for reference in &capability.evidence {
+                    if !evidence.contains_key(&reference.name) {
+                        return Err(Diagnostic::new(
+                            "semantic",
+                            format!(
+                                "capability {:?} requires unknown evidence {:?}",
+                                capability.name, reference.name
+                            ),
+                        )
+                        .with_path(module.path.display().to_string())
+                        .with_span(reference.line, reference.column));
+                    }
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+fn duplicate_semantic_decl(
+    kind: &'static str,
+    name: &str,
+    path: &Path,
+    line: usize,
+    column: usize,
+    existing_path: &Path,
+    existing_line: usize,
+    existing_column: usize,
+) -> Diagnostic {
+    Diagnostic::new("semantic", format!("duplicate {kind} declaration {name:?}"))
+        .with_path(path.display().to_string())
+        .with_span(line, column)
+        .with_related(vec![
+            Diagnostic::new("semantic", format!("previous {kind} declaration is here"))
+                .with_path(existing_path.display().to_string())
+                .with_span(existing_line, existing_column),
+        ])
 }
 
 fn validate_workspace_root_lockfile(
@@ -3798,6 +3913,18 @@ fn flatten_modules(
             .map(|module| module.path.display().to_string())
             .unwrap_or_default(),
         imports: Vec::new(),
+        axioms: modules
+            .iter()
+            .flat_map(|module| module.program.axioms.clone())
+            .collect(),
+        semantic_capabilities: modules
+            .iter()
+            .flat_map(|module| module.program.semantic_capabilities.clone())
+            .collect(),
+        evidence: modules
+            .iter()
+            .flat_map(|module| module.program.evidence.clone())
+            .collect(),
         consts: flattened_consts,
         type_aliases: flattened_type_aliases,
         structs: flattened_structs,

@@ -243,7 +243,7 @@ enum InspectCommand {
         #[arg(long)]
         json: bool,
     },
-    /// Emit package and module dependency graph details.
+    /// Emit package, module, and semantic declaration graph details.
     Graph {
         path: PathBuf,
         #[arg(long)]
@@ -609,9 +609,11 @@ fn main() {
                         );
                     } else {
                         println!(
-                            "packages={} modules={} import_errors={}",
+                            "packages={} modules={} semantic_nodes={} semantic_edges={} import_errors={}",
                             report.packages.len(),
                             report.modules.len(),
+                            report.nodes.len(),
+                            report.edges.len(),
                             report.import_errors.len()
                         );
                     }
@@ -1434,6 +1436,47 @@ fn normalized_id_component(value: &str, fallback: &str) -> String {
     }
 }
 
+#[derive(Debug, Clone, Serialize)]
+struct SemanticGraphNode {
+    id: String,
+    kind: &'static str,
+    name: String,
+    span: SymbolSpan,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    scope: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    severity: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    description: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    assertion: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    inputs: Vec<SemanticGraphInput>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    effects: Vec<SemanticGraphEffect>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    evidence: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct SemanticGraphInput {
+    name: String,
+    ty: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct SemanticGraphEffect {
+    kind: String,
+    target: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct SemanticGraphEdge {
+    from: String,
+    kind: &'static str,
+    to: String,
+}
+
 fn inspect_symbols(path: &Path) -> Result<InspectSymbolsReport, Diagnostic> {
     let files = axiom_files(path)?;
     let mut symbols = Vec::new();
@@ -1532,6 +1575,134 @@ fn inspect_symbols(path: &Path) -> Result<InspectSymbolsReport, Diagnostic> {
         project: path.display().to_string(),
         symbols,
     })
+}
+
+fn inspect_semantic_graph(
+    path: &Path,
+) -> Result<(Vec<SemanticGraphNode>, Vec<SemanticGraphEdge>), Diagnostic> {
+    let files = axiom_files(path)?;
+    let mut nodes = Vec::new();
+    let mut edges = Vec::new();
+    for file in files {
+        let source = fs::read_to_string(&file).map_err(|err| {
+            Diagnostic::new(
+                "inspect",
+                format!("failed to read {}: {err}", file.display()),
+            )
+            .with_path(file.display().to_string())
+        })?;
+        let program = parse_program(&source, &file)?;
+        for axiom in &program.axioms {
+            nodes.push(SemanticGraphNode {
+                id: semantic_node_id("axiom", &axiom.name),
+                kind: "axiom",
+                name: axiom.name.clone(),
+                span: symbol_span(&file, axiom.line, axiom.column),
+                scope: axiom.scope.clone(),
+                severity: axiom.severity.clone(),
+                description: axiom.description.clone(),
+                assertion: axiom.assertion.clone(),
+                inputs: Vec::new(),
+                effects: Vec::new(),
+                evidence: Vec::new(),
+            });
+        }
+        for evidence in &program.evidence {
+            nodes.push(SemanticGraphNode {
+                id: semantic_node_id("evidence", &evidence.name),
+                kind: "evidence",
+                name: evidence.name.clone(),
+                span: symbol_span(&file, evidence.line, evidence.column),
+                scope: None,
+                severity: None,
+                description: evidence.description.clone(),
+                assertion: None,
+                inputs: Vec::new(),
+                effects: Vec::new(),
+                evidence: Vec::new(),
+            });
+        }
+        for capability in &program.semantic_capabilities {
+            let capability_id = semantic_node_id("capability", &capability.name);
+            nodes.push(SemanticGraphNode {
+                id: capability_id.clone(),
+                kind: "capability",
+                name: capability.name.clone(),
+                span: symbol_span(&file, capability.line, capability.column),
+                scope: None,
+                severity: None,
+                description: None,
+                assertion: None,
+                inputs: capability
+                    .inputs
+                    .iter()
+                    .map(|input| SemanticGraphInput {
+                        name: input.name.clone(),
+                        ty: render_type(&input.ty),
+                    })
+                    .collect(),
+                effects: capability
+                    .effects
+                    .iter()
+                    .map(|effect| SemanticGraphEffect {
+                        kind: effect.kind.clone(),
+                        target: effect.target.clone(),
+                    })
+                    .collect(),
+                evidence: capability
+                    .evidence
+                    .iter()
+                    .map(|reference| reference.name.clone())
+                    .collect(),
+            });
+            for reference in &capability.preserves {
+                edges.push(SemanticGraphEdge {
+                    from: capability_id.clone(),
+                    kind: "preserves",
+                    to: semantic_node_id("axiom", &reference.name),
+                });
+            }
+            for reference in &capability.evidence {
+                edges.push(SemanticGraphEdge {
+                    from: capability_id.clone(),
+                    kind: "requires_evidence",
+                    to: semantic_node_id("evidence", &reference.name),
+                });
+            }
+        }
+    }
+    nodes.sort_by(|left, right| left.id.cmp(&right.id));
+    edges.sort_by(|left, right| {
+        left.from
+            .cmp(&right.from)
+            .then_with(|| left.kind.cmp(right.kind))
+            .then_with(|| left.to.cmp(&right.to))
+    });
+    Ok((nodes, edges))
+}
+
+fn semantic_node_id(kind: &str, name: &str) -> String {
+    format!("axiom://semantic/{kind}/{}", semantic_id_segment(name))
+}
+
+fn semantic_id_segment(value: &str) -> String {
+    let mut out = String::new();
+    let mut last_dash = false;
+    for ch in value.chars() {
+        if ch.is_ascii_alphanumeric() || matches!(ch, '.' | '_' | '~') {
+            out.push(ch);
+            last_dash = false;
+        } else if !last_dash {
+            out.push('-');
+            last_dash = true;
+        }
+    }
+    let trimmed = out.trim_matches('-');
+    if trimmed.is_empty() {
+        String::from("node")
+    } else {
+        trimmed.to_string()
+    }
 }
 
 fn symbol_span(path: &Path, line: usize, column: usize) -> SymbolSpan {
@@ -2612,6 +2783,8 @@ struct InspectGraphReport {
     stdlib_modules: Vec<&'static str>,
     cycles: Vec<Vec<String>>,
     import_errors: Vec<ImportErrorReport>,
+    nodes: Vec<SemanticGraphNode>,
+    edges: Vec<SemanticGraphEdge>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -2674,6 +2847,7 @@ fn inspect_graph(project: &Path) -> Result<InspectGraphReport, Diagnostic> {
     let packages = inspect_package_nodes(project, &manifest);
     let (modules, import_errors) = inspect_module_nodes(project, &manifest)?;
     let cycles = inspect_module_cycles(&modules);
+    let (nodes, edges) = inspect_semantic_graph(project)?;
 
     Ok(InspectGraphReport {
         schema_version: json_contract::JSON_SCHEMA_VERSION,
@@ -2702,6 +2876,8 @@ fn inspect_graph(project: &Path) -> Result<InspectGraphReport, Diagnostic> {
         ],
         cycles,
         import_errors,
+        nodes,
+        edges,
     })
 }
 
@@ -3553,6 +3729,88 @@ mod tests {
         assert_eq!(report.evidence[0].evidence_type, "unit_test");
         assert_eq!(report.evidence[0].status, "failing");
         assert_eq!(report.evidence[0].path.as_deref(), Some("src/main_test.ax"));
+    }
+
+    #[test]
+    fn inspect_graph_reports_semantic_axiom_and_capability_edges() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        write_semantic_project(
+            dir.path(),
+            "axiom NoNegativeBalance {\nscope Authorization\nseverity fatal\n}\n\ncapability AuthorizePayment {\ninput account: AccountRef\neffects {\nread AccountStore\nemit PaymentAuthorized\n}\npreserves NoNegativeBalance\nrequires evidence PaymentAuthorizationEvidence\n}\n\nevidence PaymentAuthorizationEvidence {\ndescription \"request evidence\"\n}\n\nfn main(): int {\nreturn 0\n}\n",
+        );
+
+        let report = inspect_graph(dir.path()).expect("inspect graph");
+
+        assert_eq!(report.command, "inspect graph");
+        assert!(report.nodes.iter().any(|node| {
+            node.id == "axiom://semantic/axiom/NoNegativeBalance" && node.kind == "axiom"
+        }));
+        assert!(report.nodes.iter().any(|node| {
+            node.id == "axiom://semantic/capability/AuthorizePayment"
+                && node.kind == "capability"
+                && node.inputs.len() == 1
+                && node.effects.len() == 2
+        }));
+        assert!(report.edges.iter().any(|edge| {
+            edge.from == "axiom://semantic/capability/AuthorizePayment"
+                && edge.kind == "preserves"
+                && edge.to == "axiom://semantic/axiom/NoNegativeBalance"
+        }));
+    }
+
+    fn write_semantic_project(root: &Path, source: &str) {
+        fs::create_dir_all(root.join("src")).expect("create src");
+        fs::write(
+            root.join("axiom.toml"),
+            "[package]\nname = \"demo\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n",
+        )
+        .expect("write manifest");
+        fs::write(
+            root.join("axiom.lock"),
+            "version = 1\n\n[[package]]\nname = \"demo\"\nversion = \"0.1.0\"\nsource = \"path\"\n",
+        )
+        .expect("write lockfile");
+        fs::write(root.join("src/main.ax"), source).expect("write source");
+    }
+
+    #[test]
+    fn semantic_declarations_allow_axiom_capability_and_evidence_metadata() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        write_semantic_project(
+            dir.path(),
+            "axiom NoNegativeBalance {\nscope Authorization\nseverity fatal\ndescription \"Authorization must not go negative.\"\n}\n\nevidence PaymentAuthorizationEvidence {\ndescription \"request evidence\"\n}\n\ncapability AuthorizePayment {\ninput account: AccountRef\ninput amount: Money\neffects {\nread AccountStore\nwrite AuthorizationStore\nemit PaymentAuthorized\n}\npreserves NoNegativeBalance\nrequires evidence PaymentAuthorizationEvidence\n}\n\nfn main(): int {\nreturn 0\n}\n",
+        );
+
+        check_project_with_options(dir.path(), &CheckOptions::default())
+            .expect("semantic declarations should check");
+    }
+
+    #[test]
+    fn semantic_declarations_reject_duplicate_axiom_names() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        write_semantic_project(
+            dir.path(),
+            "axiom NoNegativeBalance {\nseverity fatal\n}\n\naxiom NoNegativeBalance {\nseverity fatal\n}\n\nfn main(): int {\nreturn 0\n}\n",
+        );
+
+        let error = check_project_with_options(dir.path(), &CheckOptions::default())
+            .expect_err("duplicate axiom should fail");
+        assert_eq!(error.kind, "semantic");
+        assert!(error.message.contains("duplicate axiom declaration"));
+    }
+
+    #[test]
+    fn semantic_capabilities_reject_missing_preserved_axioms() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        write_semantic_project(
+            dir.path(),
+            "capability AuthorizePayment {\npreserves NoNegativeBalance\n}\n\nfn main(): int {\nreturn 0\n}\n",
+        );
+
+        let error = check_project_with_options(dir.path(), &CheckOptions::default())
+            .expect_err("missing axiom should fail");
+        assert_eq!(error.kind, "semantic");
+        assert!(error.message.contains("preserves unknown axiom"));
     }
 
     #[test]
