@@ -416,6 +416,11 @@ version = "0.1.0"
 source = "path:pass/mutable_projection_borrows"
 
 [[package]]
+name = "conformance-net-socket-localhost-allowlist"
+version = "0.1.0"
+source = "path:pass/net_socket_localhost_allowlist"
+
+[[package]]
 name = "conformance-net-tcp-echo"
 version = "0.1.0"
 source = "path:pass/net_tcp_echo"

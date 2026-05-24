@@ -86,6 +86,7 @@ members = [
   "pass/numeric_cross_width_casts",
   "pass/numeric_float_mean",
   "pass/numeric_literal_suffixes",
+  "pass/net_socket_localhost_allowlist",
   "pass/net_tcp_echo",
   "pass/net_udp_datagram",
   "pass/ownership_borrowing",

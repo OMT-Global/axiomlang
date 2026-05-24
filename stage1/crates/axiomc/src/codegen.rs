@@ -1674,28 +1674,42 @@ fn axiom_tcp_registry() -> &'static Mutex<AxiomTcpRegistry> {
 }
 
 #[allow(dead_code)]
-fn axiom_parse_tcp_bind(bind: &str) -> Option<std::net::SocketAddr> {
-    if let Ok(addr) = bind.parse::<std::net::SocketAddr>() {
-        return addr.ip().is_loopback().then_some(addr);
-    }
-    let port = bind.strip_prefix("localhost:")?.parse::<u16>().ok()?;
-    Some(std::net::SocketAddr::new(std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST), port))
+struct AxiomParsedSocketAddr {
+    addr: std::net::SocketAddr,
+    host: String,
 }
 
 #[allow(dead_code)]
-fn axiom_net_socket_addr_allowed(addr: &std::net::SocketAddr) -> bool {
-    axiom_net_host_allowed(&addr.ip().to_string()) && axiom_net_port_allowed(addr.port())
+fn axiom_parse_tcp_bind(bind: &str) -> Option<AxiomParsedSocketAddr> {
+    if let Ok(addr) = bind.parse::<std::net::SocketAddr>() {
+        return addr.ip().is_loopback().then(|| AxiomParsedSocketAddr {
+            addr,
+            host: addr.ip().to_string(),
+        });
+    }
+    let port = bind.strip_prefix("localhost:")?.parse::<u16>().ok()?;
+    Some(AxiomParsedSocketAddr {
+        addr: std::net::SocketAddr::new(std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST), port),
+        host: String::from("localhost"),
+    })
+}
+
+#[allow(dead_code)]
+fn axiom_net_socket_addr_allowed(parsed: &AxiomParsedSocketAddr) -> bool {
+    let ip = parsed.addr.ip().to_string();
+    (axiom_net_host_allowed(parsed.host.as_str()) || axiom_net_host_allowed(ip.as_str()))
+        && axiom_net_port_allowed(parsed.addr.port())
 }
 
 #[allow(dead_code)]
 fn axiom_net_tcp_listen(bind: String) -> i64 {
     let args = axiom_host_arg_summary(&[("bind", format!("string:{}", bind.len()))]);
     let result = (|| {
-        let addr = axiom_parse_tcp_bind(bind.as_str())?;
-        if !axiom_net_socket_addr_allowed(&addr) {
+        let parsed = axiom_parse_tcp_bind(bind.as_str())?;
+        if !axiom_net_socket_addr_allowed(&parsed) {
             return None;
         }
-        let listener = std::net::TcpListener::bind(addr).ok()?;
+        let listener = std::net::TcpListener::bind(parsed.addr).ok()?;
         listener.set_nonblocking(false).ok()?;
         let mut registry = axiom_tcp_registry().lock().ok()?;
         let handle = registry.allocate();
@@ -1811,7 +1825,7 @@ fn axiom_udp_registry() -> &'static Mutex<AxiomUdpRegistry> {
 }
 
 #[allow(dead_code)]
-fn axiom_parse_udp_addr(addr: &str) -> Option<std::net::SocketAddr> {
+fn axiom_parse_udp_addr(addr: &str) -> Option<AxiomParsedSocketAddr> {
     axiom_parse_tcp_bind(addr)
 }
 
@@ -1819,11 +1833,11 @@ fn axiom_parse_udp_addr(addr: &str) -> Option<std::net::SocketAddr> {
 fn axiom_net_udp_bind(bind: String) -> i64 {
     let args = axiom_host_arg_summary(&[("bind", format!("string:{}", bind.len()))]);
     let result = (|| {
-        let addr = axiom_parse_udp_addr(bind.as_str())?;
-        if !axiom_net_socket_addr_allowed(&addr) {
+        let parsed = axiom_parse_udp_addr(bind.as_str())?;
+        if !axiom_net_socket_addr_allowed(&parsed) {
             return None;
         }
-        let socket = std::net::UdpSocket::bind(addr).ok()?;
+        let socket = std::net::UdpSocket::bind(parsed.addr).ok()?;
         let timeout = std::time::Duration::from_secs(30);
         socket.set_read_timeout(Some(timeout)).ok()?;
         socket.set_write_timeout(Some(timeout)).ok()?;
@@ -1871,7 +1885,7 @@ fn axiom_net_udp_send_to(socket: i64, buf: &[u8], peer: String) -> i64 {
         axiom_udp_registry()
             .lock()
             .ok()
-            .and_then(|registry| registry.sockets.get(&socket).and_then(|socket| socket.send_to(buf, peer_addr).ok()))
+            .and_then(|registry| registry.sockets.get(&socket).and_then(|socket| socket.send_to(buf, peer_addr.addr).ok()))
             .map(|written| written as i64)
     });
     axiom_host_audit("net_udp_send_to", args, if result.is_some() { "ok" } else { "denied" });
