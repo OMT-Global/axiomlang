@@ -411,6 +411,11 @@ version = "0.1.0"
 source = "path:pass/numeric_literal_suffixes"
 
 [[package]]
+name = "conformance-numeric-overflow-policy"
+version = "0.1.0"
+source = "path:pass/numeric_overflow_policy"
+
+[[package]]
 name = "conformance-outcome-control-flow"
 version = "0.1.0"
 source = "path:pass/outcome_control_flow"
