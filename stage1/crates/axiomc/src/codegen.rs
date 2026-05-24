@@ -2487,12 +2487,11 @@ fn axiom_http_response(body: &str) -> Vec<u8> {
 
 #[allow(dead_code)]
 fn axiom_http_loopback_bind_addr(bind: &str) -> Option<std::net::SocketAddr> {
-    use std::net::ToSocketAddrs;
-    let addrs: Vec<std::net::SocketAddr> = bind.to_socket_addrs().ok()?.collect();
-    if addrs.is_empty() || addrs.iter().any(|addr| !addr.ip().is_loopback()) {
+    let parsed = axiom_parse_tcp_bind(bind)?;
+    if !axiom_net_socket_addr_allowed(&parsed) {
         return None;
     }
-    addrs.into_iter().next()
+    Some(parsed.addr)
 }
 
 #[allow(dead_code)]
