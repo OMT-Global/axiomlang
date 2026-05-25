@@ -226,9 +226,14 @@ version = "0.1.0"
 source = "path:fail/nested_match_pattern_not_supported"
 
 [[package]]
-name = "conformance-never-control-flow-missing-return"
+name = "conformance-net-socket-host-allowlist-rejects-peer"
 version = "0.1.0"
-source = "path:fail/never_control_flow_missing_return"
+source = "path:fail/net_socket_host_allowlist_rejects_peer"
+
+[[package]]
+name = "conformance-net-socket-port-allowlist-rejects-bind"
+version = "0.1.0"
+source = "path:fail/net_socket_port_allowlist_rejects_bind"
 
 [[package]]
 name = "conformance-numeric-float-mixed-width-add"
@@ -469,6 +474,11 @@ source = "path:pass/mutable_match_expression_bindings"
 name = "conformance-mutable-projection-borrows"
 version = "0.1.0"
 source = "path:pass/mutable_projection_borrows"
+
+[[package]]
+name = "conformance-net-socket-localhost-allowlist"
+version = "0.1.0"
+source = "path:pass/net_socket_localhost_allowlist"
 
 [[package]]
 name = "conformance-net-tcp-echo"

@@ -1,0 +1,16 @@
+[package]
+name = "conformance-net-socket-localhost-allowlist"
+version = "0.1.0"
+
+[build]
+entry = "src/main_test.ax"
+out_dir = "dist"
+
+[capabilities]
+fs = false
+net = { hosts = ["localhost"] }
+process = false
+env = false
+clock = false
+crypto = false
+async = false
