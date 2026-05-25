@@ -7,7 +7,8 @@ entry = "src/main.ax"
 out_dir = "dist"
 
 [capabilities]
-fs = false
+fs = true
+"fs:write" = true
 net = false
 process = false
 env = ["AXIOM_STAGE1_WORKER"]
