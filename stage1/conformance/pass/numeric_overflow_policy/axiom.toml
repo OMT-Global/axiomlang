@@ -13,3 +13,8 @@ process = false
 env = false
 clock = false
 crypto = false
+
+[[tests]]
+name = "numeric_overflow_helpers"
+entry = "src/main_test.ax"
+stdout = "-128\nnone\n127\n"

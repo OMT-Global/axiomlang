@@ -84,6 +84,7 @@ members = [
   "pass/numeric_cross_width_casts",
   "pass/numeric_float_mean",
   "pass/numeric_literal_suffixes",
+  "pass/numeric_overflow_policy",
   "pass/ownership_borrowing",
   "pass/package_local_modules",
   "pass/package_visibility",
