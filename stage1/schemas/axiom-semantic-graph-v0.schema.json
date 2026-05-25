@@ -3,7 +3,21 @@
   "$id": "https://axiom-lang.dev/schemas/axiom-semantic-graph-v0.schema.json",
   "title": "Axiom Semantic Graph v0",
   "type": "object",
-  "required": ["schema_version", "ok", "command", "project", "nodes", "edges"],
+  "required": [
+    "schema_version",
+    "ok",
+    "command",
+    "project",
+    "lockfile_status",
+    "lockfile_packages",
+    "packages",
+    "modules",
+    "stdlib_modules",
+    "cycles",
+    "import_errors",
+    "nodes",
+    "edges"
+  ],
   "additionalProperties": false,
   "properties": {
     "schema_version": {
@@ -19,6 +33,53 @@
       "type": "string",
       "minLength": 1
     },
+    "lockfile_status": {
+      "enum": [
+        "valid",
+        "invalid"
+      ]
+    },
+    "lockfile_packages": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/lockfilePackage"
+      }
+    },
+    "packages": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/package"
+      }
+    },
+    "modules": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/module"
+      }
+    },
+    "stdlib_modules": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "cycles": {
+      "type": "array",
+      "items": {
+        "type": "array",
+        "items": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "import_errors": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/importError"
+      }
+    },
     "nodes": {
       "type": "array",
       "items": {
@@ -33,20 +94,179 @@
     }
   },
   "$defs": {
+    "lockfilePackage": {
+      "type": "object",
+      "required": [
+        "name",
+        "version",
+        "source"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "source": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "package": {
+      "type": "object",
+      "required": [
+        "name",
+        "root",
+        "manifest",
+        "dependencies",
+        "workspace_members"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "root": {
+          "type": "string",
+          "minLength": 1
+        },
+        "manifest": {
+          "type": "string",
+          "minLength": 1
+        },
+        "dependencies": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/packageDependency"
+          }
+        },
+        "workspace_members": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "packageDependency": {
+      "type": "object",
+      "required": [
+        "name",
+        "path"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "module": {
+      "type": "object",
+      "required": [
+        "path",
+        "imports"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "imports": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/moduleImport"
+          }
+        }
+      }
+    },
+    "moduleImport": {
+      "type": "object",
+      "required": [
+        "path",
+        "resolved",
+        "is_stdlib"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "resolved": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "is_stdlib": {
+          "type": "boolean"
+        }
+      }
+    },
+    "importError": {
+      "type": "object",
+      "required": [
+        "module",
+        "import",
+        "message"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "module": {
+          "type": "string",
+          "minLength": 1
+        },
+        "import": {
+          "type": "string",
+          "minLength": 1
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
     "nodeId": {
       "type": "string",
       "pattern": "^axiom://[A-Za-z0-9._~:/#@!$&'()*+,;=%-]+$"
     },
     "node": {
       "type": "object",
-      "required": ["id", "kind", "name", "span"],
+      "required": [
+        "id",
+        "kind",
+        "name",
+        "span"
+      ],
       "additionalProperties": false,
       "properties": {
         "id": {
           "$ref": "#/$defs/nodeId"
         },
         "kind": {
-          "enum": ["axiom", "capability", "evidence"]
+          "enum": [
+            "axiom",
+            "capability",
+            "evidence"
+          ]
         },
         "name": {
           "type": "string",
@@ -93,14 +313,21 @@
     },
     "edge": {
       "type": "object",
-      "required": ["from", "kind", "to"],
+      "required": [
+        "from",
+        "kind",
+        "to"
+      ],
       "additionalProperties": false,
       "properties": {
         "from": {
           "$ref": "#/$defs/nodeId"
         },
         "kind": {
-          "enum": ["preserves", "requires_evidence"]
+          "enum": [
+            "preserves",
+            "requires_evidence"
+          ]
         },
         "to": {
           "$ref": "#/$defs/nodeId"
@@ -109,7 +336,11 @@
     },
     "span": {
       "type": "object",
-      "required": ["path", "line", "column"],
+      "required": [
+        "path",
+        "line",
+        "column"
+      ],
       "additionalProperties": false,
       "properties": {
         "path": {
@@ -128,7 +359,10 @@
     },
     "input": {
       "type": "object",
-      "required": ["name", "ty"],
+      "required": [
+        "name",
+        "ty"
+      ],
       "additionalProperties": false,
       "properties": {
         "name": {
@@ -143,11 +377,18 @@
     },
     "effect": {
       "type": "object",
-      "required": ["kind", "target"],
+      "required": [
+        "kind",
+        "target"
+      ],
       "additionalProperties": false,
       "properties": {
         "kind": {
-          "enum": ["read", "write", "emit"]
+          "enum": [
+            "read",
+            "write",
+            "emit"
+          ]
         },
         "target": {
           "type": "string",
