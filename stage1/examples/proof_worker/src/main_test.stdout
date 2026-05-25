@@ -1,4 +1,8 @@
-{"workload":"proof-worker","worker":"worker","queue":"default","job":"reconcile","result":"handled reconcile","processed":1}
+{"workload":"proof-worker","worker":"worker","queue":"default","job":"ingest","result":"handled ingest","processed":1}
+{"workload":"proof-worker","worker":"worker","queue":"default","job":"validate","result":"handled validate","processed":2}
+{"workload":"proof-worker","worker":"worker","queue":"default","job":"transform","result":"handled transform","processed":3}
+{"workload":"proof-worker","worker":"worker","queue":"default","job":"reconcile","result":"handled reconcile","processed":4}
+{"workload":"proof-worker","worker":"worker","queue":"default","job":"publish","result":"handled publish","processed":5}
 true
 default
-1
+5
