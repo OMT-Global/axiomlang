@@ -6398,6 +6398,15 @@ fn starts_with_ascii_uppercase(value: &str) -> bool {
         .map(|ch| ch.is_ascii_uppercase())
         .unwrap_or(false)
 }
+
+fn is_assignment_target(expr: &Expr) -> bool {
+    match expr {
+        Expr::Deref { .. } => true,
+        Expr::Index { base, .. } => matches!(base.ty(), Type::MutSlice(_)),
+        _ => false,
+    }
+}
+
 fn lower_stmt(
     stmt: &syntax::Stmt,
     env: &mut HashMap<String, Binding>,
@@ -6512,11 +6521,11 @@ fn lower_stmt(
             column,
         } => {
             let lowered_target = lower_expr(target, env, ctx)?;
-            if !matches!(lowered_target, Expr::Deref { .. }) {
+            if !is_assignment_target(&lowered_target) {
                 return Err(Diagnostic::new(
                     "type",
                     format!(
-                        "assignment target must dereference a mutable reference, got {}",
+                        "assignment target must dereference a mutable reference or index a mutable slice, got {}",
                         lowered_target.ty()
                     ),
                 )

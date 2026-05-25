@@ -1,0 +1,4 @@
+let values: [int] = [1, 2, 3]
+let view: &[int] = values[:]
+view[0] = 9
+print view[0]

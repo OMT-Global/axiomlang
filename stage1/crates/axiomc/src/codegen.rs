@@ -537,6 +537,20 @@ fn axiom_async_recv<T: Send + 'static>(channel: AxiomChannel<T>) -> AxiomTask<Op
     out.push_str("    }\n");
     out.push_str("}\n\n");
     out.push_str("#[allow(dead_code)]\n");
+    out.push_str("fn axiom_array_set<T>(value: T, values: &mut [T], index: i64) {\n");
+    out.push_str("    if index < 0 {\n");
+    out.push_str(
+        "        axiom_runtime_error(\"runtime\", \"array index must be non-negative\");\n",
+    );
+    out.push_str("    }\n");
+    out.push_str("    match values.get_mut(index as usize) {\n");
+    out.push_str("        Some(slot) => *slot = value,\n");
+    out.push_str(
+        "        None => axiom_runtime_error(\"runtime\", \"array index out of bounds\"),\n",
+    );
+    out.push_str("    }\n");
+    out.push_str("}\n\n");
+    out.push_str("#[allow(dead_code)]\n");
     out.push_str("fn axiom_array_take<T>(values: Vec<T>, index: i64) -> T {\n");
     out.push_str("    if index < 0 {\n");
     out.push_str(
@@ -3709,11 +3723,23 @@ fn render_stmt(
         }
         Stmt::Assign { target, expr, span } => {
             render_source_marker(source_path, *span, out, indent, debug);
-            out.push_str(&format!(
-                "{pad}{} = {};\n",
-                render_expr(target),
-                render_expr(expr)
-            ));
+            match target {
+                Expr::Index { base, index, .. } if matches!(base.ty(), Type::MutSlice(_)) => {
+                    out.push_str(&format!(
+                        "{pad}axiom_array_set({}, {}, {});\n",
+                        render_expr(expr),
+                        render_expr(base),
+                        render_expr(index)
+                    ));
+                }
+                _ => {
+                    out.push_str(&format!(
+                        "{pad}{} = {};\n",
+                        render_expr(target),
+                        render_expr(expr)
+                    ));
+                }
+            }
         }
         Stmt::Print { expr, span } => {
             render_source_marker(source_path, *span, out, indent, debug);

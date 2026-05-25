@@ -1,0 +1,8 @@
+let values: [int] = [5, 8, 13]
+let view: &mut [int] = values[:]
+view[0] = view[0] + 1
+view[1] = view[1] + 2
+print len(view)
+print values[0]
+print values[1]
+print values[2]
