@@ -8815,6 +8815,7 @@ fn lower_expr_with_expected_inner(
                     )
                     .with_span(args[1].line(), args[1].column()));
                 }
+                validate_net_socket_allowlist_hir(ctx.capabilities, name, &bind, *line, *column)?;
                 move_lowered_value(&bind, env)?;
                 move_lowered_value(&body, env)?;
                 return Ok(Expr::Call {
@@ -8882,6 +8883,7 @@ fn lower_expr_with_expected_inner(
                     )
                     .with_span(args[3].line(), args[3].column()));
                 }
+                validate_net_socket_allowlist_hir(ctx.capabilities, name, &bind, *line, *column)?;
                 move_lowered_value(&bind, env)?;
                 move_lowered_value(&route_path, env)?;
                 move_lowered_value(&body, env)?;
