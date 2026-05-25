@@ -158,6 +158,20 @@ Stable diagnostic codes can be queried with `axiomc explain <code>` in text or
 JSON form; the current catalog covers the stable ownership codes emitted by the
 stage1 checker.
 
+## Numeric Overflow Policy
+
+Stage1 follows explicit, reviewable numeric overflow semantics. In debug builds,
+ambient signed integer `+` checks overflow and reports a runtime diagnostic such
+as `numeric overflow: i32 addition`; in release builds the same signed operation
+wraps. Ambient unsigned integer `+` wraps in both debug and release builds.
+Floating-point `+` follows the target platform's IEEE behavior.
+
+Use numeric helper methods when overflow behavior is part of the program
+contract: `wrapping_add` wraps, `checked_add` returns `None` on overflow, and
+`saturating_add` clamps at the type bounds. These helpers are available on the
+supported integer widths and should be preferred over ambient arithmetic when
+reviewers need to see the intended overflow behavior at the call site.
+
 Stable ownership diagnostic codes:
 
 | Code | Meaning | Sample diagnostic |

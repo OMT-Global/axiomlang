@@ -310,6 +310,7 @@ pub fn render_rust_for_package_with_capabilities(
         "const AXIOM_ASYNC_CAPABILITY: bool = {};\n",
         capabilities.async_runtime
     ));
+    out.push_str(&format!("const AXIOM_DEBUG_BUILD: bool = {debug};\n"));
     out.push_str("const AXIOM_ENV_ALLOWLIST: &[&str] = &[\n");
     for name in deterministic_strings(&capabilities.env_vars) {
         out.push_str(&format!("    {name:?},\n"));
@@ -522,6 +523,61 @@ fn axiom_async_recv<T: Send + 'static>(channel: AxiomChannel<T>) -> AxiomTask<Op
 }
 
 "#);
+    out.push_str("#[allow(dead_code)]\n");
+    out.push_str("fn axiom_numeric_checked_add_i8(left: i8, right: i8) -> i8 {\n");
+    out.push_str("    if AXIOM_DEBUG_BUILD {\n");
+    out.push_str("        match left.checked_add(right) {\n");
+    out.push_str("            Some(value) => value,\n");
+    out.push_str("            None => axiom_runtime_error(\"runtime\", \"numeric overflow: i8 addition\"),\n");
+    out.push_str("        }\n");
+    out.push_str("    } else {\n");
+    out.push_str("        left.wrapping_add(right)\n");
+    out.push_str("    }\n");
+    out.push_str("}\n\n");
+    out.push_str("#[allow(dead_code)]\n");
+    out.push_str("fn axiom_numeric_checked_add_i16(left: i16, right: i16) -> i16 {\n");
+    out.push_str("    if AXIOM_DEBUG_BUILD {\n");
+    out.push_str("        match left.checked_add(right) {\n");
+    out.push_str("            Some(value) => value,\n");
+    out.push_str("            None => axiom_runtime_error(\"runtime\", \"numeric overflow: i16 addition\"),\n");
+    out.push_str("        }\n");
+    out.push_str("    } else {\n");
+    out.push_str("        left.wrapping_add(right)\n");
+    out.push_str("    }\n");
+    out.push_str("}\n\n");
+    out.push_str("#[allow(dead_code)]\n");
+    out.push_str("fn axiom_numeric_checked_add_i32(left: i32, right: i32) -> i32 {\n");
+    out.push_str("    if AXIOM_DEBUG_BUILD {\n");
+    out.push_str("        match left.checked_add(right) {\n");
+    out.push_str("            Some(value) => value,\n");
+    out.push_str("            None => axiom_runtime_error(\"runtime\", \"numeric overflow: i32 addition\"),\n");
+    out.push_str("        }\n");
+    out.push_str("    } else {\n");
+    out.push_str("        left.wrapping_add(right)\n");
+    out.push_str("    }\n");
+    out.push_str("}\n\n");
+    out.push_str("#[allow(dead_code)]\n");
+    out.push_str("fn axiom_numeric_checked_add_i64(left: i64, right: i64) -> i64 {\n");
+    out.push_str("    if AXIOM_DEBUG_BUILD {\n");
+    out.push_str("        match left.checked_add(right) {\n");
+    out.push_str("            Some(value) => value,\n");
+    out.push_str("            None => axiom_runtime_error(\"runtime\", \"numeric overflow: i64 addition\"),\n");
+    out.push_str("        }\n");
+    out.push_str("    } else {\n");
+    out.push_str("        left.wrapping_add(right)\n");
+    out.push_str("    }\n");
+    out.push_str("}\n\n");
+    out.push_str("#[allow(dead_code)]\n");
+    out.push_str("fn axiom_numeric_checked_add_isize(left: isize, right: isize) -> isize {\n");
+    out.push_str("    if AXIOM_DEBUG_BUILD {\n");
+    out.push_str("        match left.checked_add(right) {\n");
+    out.push_str("            Some(value) => value,\n");
+    out.push_str("            None => axiom_runtime_error(\"runtime\", \"numeric overflow: isize addition\"),\n");
+    out.push_str("        }\n");
+    out.push_str("    } else {\n");
+    out.push_str("        left.wrapping_add(right)\n");
+    out.push_str("    }\n");
+    out.push_str("}\n\n");
     out.push_str("#[allow(dead_code)]\n");
     out.push_str("fn axiom_array_get<T: Copy>(values: &[T], index: i64) -> T {\n");
     out.push_str("    if index < 0 {\n");
@@ -4382,14 +4438,7 @@ fn render_expr(expr: &Expr) -> String {
             format!("{name}({rendered_args})")
         }
         Expr::BinaryAdd { op, lhs, rhs, ty } => match ty {
-            Type::Int | Type::Numeric(_) => {
-                format!(
-                    "{} {} {}",
-                    render_binary_operand(lhs),
-                    op.lexeme(),
-                    render_binary_operand(rhs)
-                )
-            }
+            Type::Int | Type::Numeric(_) => render_numeric_binary(op, lhs, rhs, ty),
             Type::String | Type::Str => format!(
                 "format!(\"{{}}{{}}\", {}, {})",
                 render_expr(lhs),
@@ -4594,6 +4643,48 @@ fn render_expr(expr: &Expr) -> String {
             }
             _ => unreachable!("type checker rejects indexing non-collection values"),
         },
+    }
+}
+
+fn render_numeric_binary(
+    op: &crate::mir::ArithmeticOp,
+    lhs: &Expr,
+    rhs: &Expr,
+    ty: &Type,
+) -> String {
+    let left = render_binary_operand(lhs);
+    let right = render_binary_operand(rhs);
+    if !matches!(op, crate::mir::ArithmeticOp::Add) {
+        return format!("{} {} {}", left, op.lexeme(), right);
+    }
+    match ty {
+        Type::Int => format!("axiom_numeric_checked_add_i64({left}, {right})"),
+        Type::Numeric(crate::syntax::NumericType::I8) => {
+            format!("axiom_numeric_checked_add_i8({left}, {right})")
+        }
+        Type::Numeric(crate::syntax::NumericType::I16) => {
+            format!("axiom_numeric_checked_add_i16({left}, {right})")
+        }
+        Type::Numeric(crate::syntax::NumericType::I32) => {
+            format!("axiom_numeric_checked_add_i32({left}, {right})")
+        }
+        Type::Numeric(crate::syntax::NumericType::I64) => {
+            format!("axiom_numeric_checked_add_i64({left}, {right})")
+        }
+        Type::Numeric(crate::syntax::NumericType::Isize) => {
+            format!("axiom_numeric_checked_add_isize({left}, {right})")
+        }
+        Type::Numeric(
+            crate::syntax::NumericType::U8
+            | crate::syntax::NumericType::U16
+            | crate::syntax::NumericType::U32
+            | crate::syntax::NumericType::U64
+            | crate::syntax::NumericType::Usize,
+        ) => format!("({left}).wrapping_add({right})"),
+        Type::Numeric(crate::syntax::NumericType::F32 | crate::syntax::NumericType::F64) => {
+            format!("{left} + {right}")
+        }
+        _ => unreachable!("type checker rejects non-numeric binary arithmetic"),
     }
 }
 
