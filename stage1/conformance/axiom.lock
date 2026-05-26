@@ -386,14 +386,14 @@ version = "0.1.0"
 source = "path:pass/comparison_strict_typing"
 
 [[package]]
-name = "conformance-const-match-patterns"
-version = "0.1.0"
-source = "path:pass/const_match_patterns"
-
-[[package]]
 name = "conformance-const-fn-array-length"
 version = "0.1.0"
 source = "path:pass/const_fn_array_length"
+
+[[package]]
+name = "conformance-const-match-patterns"
+version = "0.1.0"
+source = "path:pass/const_match_patterns"
 
 [[package]]
 name = "conformance-crypto-constant-time"
