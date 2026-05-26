@@ -5,7 +5,7 @@ use axiomc::diagnostics::Diagnostic;
 use axiomc::json_contract;
 use axiomc::lockfile::{expected_lockfile_for_project, validate_lockfile};
 use axiomc::lsp;
-use axiomc::manifest::{CapabilityDescriptor, entry_path, load_manifest, manifest_path};
+use axiomc::manifest::{CapabilityDescriptor, TestKind, entry_path, load_manifest, manifest_path};
 #[cfg(test)]
 use axiomc::new_project::create_project;
 use axiomc::new_project::{WorkloadTemplate, create_project_with_template};
@@ -117,6 +117,12 @@ enum Command {
         format: Option<CapsFormat>,
         #[command(subcommand)]
         command: Option<CapsCommand>,
+    },
+    /// Emit semantic evidence requirements and observed test evidence.
+    Evidence {
+        path: PathBuf,
+        #[arg(long)]
+        json: bool,
     },
     /// Inspect project metadata for agent tooling.
     Inspect {
@@ -525,6 +531,28 @@ fn main() {
                 Diagnostic::new("diagnostic", format!("unknown diagnostic code {code:?}")),
                 json,
             ),
+        },
+        Command::Evidence { path, json } => match evidence_report(&path) {
+            Ok(report) => {
+                if json {
+                    println!(
+                        "{}",
+                        json_contract::to_pretty_string(&report)
+                            .unwrap_or_else(|_| String::from("{}"))
+                    );
+                } else {
+                    println!(
+                        "package={} evidence={} passing={} failing={} missing={}",
+                        report.package,
+                        report.evidence.len(),
+                        report.summary.passing,
+                        report.summary.failing,
+                        report.summary.missing
+                    );
+                }
+                0
+            }
+            Err(error) => print_error("evidence", error, json),
         },
         Command::Inspect { command } => match command {
             InspectCommand::Symbols { path, json } => match inspect_symbols(&path) {
@@ -1072,6 +1100,167 @@ struct SymbolSpan {
     path: String,
     line: usize,
     column: usize,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct EvidenceReport {
+    schema_version: &'static str,
+    ok: bool,
+    command: &'static str,
+    project: String,
+    package: String,
+    validation_status: &'static str,
+    summary: EvidenceSummary,
+    evidence: Vec<EvidenceItem>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct EvidenceSummary {
+    passing: usize,
+    failing: usize,
+    missing: usize,
+    provided: usize,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct EvidenceItem {
+    id: String,
+    evidence_type: &'static str,
+    status: &'static str,
+    target: String,
+    path: Option<String>,
+    diagnostics: Vec<String>,
+}
+
+fn evidence_report(project: &Path) -> Result<EvidenceReport, Diagnostic> {
+    let manifest = load_manifest(project)?;
+    let package_name = manifest
+        .package
+        .as_ref()
+        .map(|package| package.name.clone())
+        .unwrap_or_else(|| String::from("workspace"));
+    let package_component = evidence_id_component(&package_name);
+    let package_target = format!("axiom://package/{package_component}");
+    let mut evidence = Vec::new();
+    if evidence_tests_discoverable(project, &manifest)? {
+        let test_output = run_project_tests_with_options(
+            project,
+            &TestOptions {
+                filter: None,
+                package: None,
+                include_benchmarks: true,
+            },
+        )?;
+        for case in &test_output.cases {
+            let evidence_type = evidence_type_for_test_kind(case.kind);
+            let status = if case.ok { "passing" } else { "failing" };
+            let diagnostics = case
+                .error
+                .as_ref()
+                .map(|error| vec![error.to_string()])
+                .unwrap_or_default();
+            evidence.push(EvidenceItem {
+                id: format!(
+                    "axiom://package/{package_component}/evidence/{}",
+                    evidence_id_component(&case.name)
+                ),
+                evidence_type,
+                status,
+                target: package_target.clone(),
+                path: Some(case.entry.clone()),
+                diagnostics,
+            });
+        }
+    }
+    if evidence.is_empty() {
+        evidence.push(EvidenceItem {
+            id: format!("axiom://package/{package_component}/evidence/unit-test-required"),
+            evidence_type: "unit_test",
+            status: "missing",
+            target: package_target,
+            path: None,
+            diagnostics: vec![String::from("no manifest test targets were discovered")],
+        });
+    }
+    let summary = EvidenceSummary {
+        passing: evidence
+            .iter()
+            .filter(|item| item.status == "passing")
+            .count(),
+        failing: evidence
+            .iter()
+            .filter(|item| item.status == "failing")
+            .count(),
+        missing: evidence
+            .iter()
+            .filter(|item| item.status == "missing")
+            .count(),
+        provided: evidence
+            .iter()
+            .filter(|item| matches!(item.status, "passing" | "failing" | "provided"))
+            .count(),
+    };
+    let validation_status = if summary.failing > 0 {
+        "failing"
+    } else if summary.missing > 0 {
+        "missing"
+    } else {
+        "passing"
+    };
+
+    Ok(EvidenceReport {
+        schema_version: "axiom.evidence.v0",
+        ok: summary.failing == 0,
+        command: "evidence",
+        project: project.display().to_string(),
+        package: package_name,
+        validation_status,
+        summary,
+        evidence,
+    })
+}
+
+fn evidence_tests_discoverable(
+    project: &Path,
+    manifest: &axiomc::manifest::Manifest,
+) -> Result<bool, Diagnostic> {
+    if !manifest.tests.is_empty() {
+        return Ok(true);
+    }
+    Ok(axiom_files(project)?.iter().any(|path| {
+        path.file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| name.ends_with("_test.ax") || name.ends_with("_bench.ax"))
+    }))
+}
+
+fn evidence_type_for_test_kind(kind: TestKind) -> &'static str {
+    match kind {
+        TestKind::Unit | TestKind::Table => "unit_test",
+        TestKind::Property => "property_test",
+        TestKind::Snapshot => "golden_output",
+        TestKind::Benchmark => "benchmark_baseline",
+    }
+}
+
+fn evidence_id_component(value: &str) -> String {
+    let mut out = String::new();
+    let mut last_dash = false;
+    for ch in value.chars() {
+        if ch.is_ascii_alphanumeric() {
+            out.push(ch.to_ascii_lowercase());
+            last_dash = false;
+        } else if !last_dash {
+            out.push('-');
+            last_dash = true;
+        }
+    }
+    let trimmed = out.trim_matches('-');
+    if trimmed.is_empty() {
+        String::from("unnamed")
+    } else {
+        trimmed.to_string()
+    }
 }
 
 fn inspect_symbols(path: &Path) -> Result<InspectSymbolsReport, Diagnostic> {
@@ -3032,6 +3221,86 @@ mod tests {
                 .iter()
                 .any(|symbol| symbol.name == "private_helper")
         );
+    }
+
+    #[test]
+    fn evidence_report_emits_missing_placeholder_for_packages_without_tests() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let project = dir.path().join("evidence-empty");
+        fs::create_dir_all(project.join("src")).expect("create src");
+        fs::write(
+            project.join("axiom.toml"),
+            "[package]\nname = \"evidence-empty\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n",
+        )
+        .expect("write manifest");
+        fs::write(
+            project.join("axiom.lock"),
+            "version = 1\n\n[[package]]\nname = \"evidence-empty\"\nversion = \"0.1.0\"\nsource = \"path\"\n",
+        )
+        .expect("write lockfile");
+        fs::write(
+            project.join("src").join("main.ax"),
+            "pub fn main(): int {\nreturn 0\n}\n",
+        )
+        .expect("write main");
+
+        let report = evidence_report(&project).expect("evidence report");
+        let payload = serde_json::to_value(&report).expect("serialize evidence report");
+        let schema_path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../schemas/axiom-evidence-v0.schema.json");
+        let schema: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(schema_path).expect("read schema"))
+                .expect("schema json");
+        let validator = jsonschema::validator_for(&schema).expect("compile schema");
+        validator
+            .validate(&payload)
+            .expect("evidence report matches schema");
+
+        assert_eq!(report.schema_version, "axiom.evidence.v0");
+        assert_eq!(report.command, "evidence");
+        assert_eq!(report.validation_status, "missing");
+        assert_eq!(report.summary.missing, 1);
+        assert_eq!(report.evidence[0].evidence_type, "unit_test");
+        assert_eq!(report.evidence[0].status, "missing");
+    }
+
+    #[test]
+    fn evidence_report_marks_failing_manifest_tests() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let project = dir.path().join("evidence-failing");
+        fs::create_dir_all(project.join("src")).expect("create src");
+        fs::write(
+            project.join("axiom.toml"),
+            "[package]\nname = \"evidence-failing\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[[tests]]\nname = \"stdout mismatch\"\nentry = \"src/main_test.ax\"\nstdout = \"src/main_test.stdout\"\nkind = \"unit\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n",
+        )
+        .expect("write manifest");
+        fs::write(
+            project.join("axiom.lock"),
+            "version = 1\n\n[[package]]\nname = \"evidence-failing\"\nversion = \"0.1.0\"\nsource = \"path\"\n",
+        )
+        .expect("write lockfile");
+        fs::write(
+            project.join("src").join("main.ax"),
+            "pub fn main(): int {\nreturn 0\n}\n",
+        )
+        .expect("write main");
+        fs::write(
+            project.join("src").join("main_test.ax"),
+            "pub fn main(): int {\nprint \"actual\"\nreturn 0\n}\n",
+        )
+        .expect("write test");
+        fs::write(project.join("src").join("main_test.stdout"), "expected\n")
+            .expect("write stdout fixture");
+
+        let report = evidence_report(&project).expect("evidence report");
+
+        assert!(!report.ok);
+        assert_eq!(report.validation_status, "failing");
+        assert_eq!(report.summary.failing, 1);
+        assert_eq!(report.summary.provided, 1);
+        assert_eq!(report.evidence[0].evidence_type, "unit_test");
+        assert_eq!(report.evidence[0].status, "failing");
+        assert_eq!(report.evidence[0].path.as_deref(), Some("src/main_test.ax"));
     }
 
     #[test]

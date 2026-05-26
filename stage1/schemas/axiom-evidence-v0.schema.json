@@ -1,0 +1,121 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://axiom.dev/schemas/axiom-evidence-v0.schema.json",
+  "title": "Axiom Evidence Report v0",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "ok",
+    "command",
+    "project",
+    "package",
+    "validation_status",
+    "summary",
+    "evidence"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "axiom.evidence.v0"
+    },
+    "ok": {
+      "type": "boolean"
+    },
+    "command": {
+      "const": "evidence"
+    },
+    "project": {
+      "type": "string",
+      "minLength": 1
+    },
+    "package": {
+      "type": "string",
+      "minLength": 1
+    },
+    "validation_status": {
+      "enum": ["passing", "failing", "missing"]
+    },
+    "summary": {
+      "$ref": "#/$defs/summary"
+    },
+    "evidence": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/evidence"
+      }
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "summary": {
+      "type": "object",
+      "required": ["passing", "failing", "missing", "provided"],
+      "properties": {
+        "passing": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "failing": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "missing": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "provided": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false
+    },
+    "evidence": {
+      "type": "object",
+      "required": [
+        "id",
+        "evidence_type",
+        "status",
+        "target",
+        "path",
+        "diagnostics"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^axiom://package/[A-Za-z0-9._~:/#@!$&'()*+,;=%-]+$"
+        },
+        "evidence_type": {
+          "enum": [
+            "unit_test",
+            "property_test",
+            "conformance_fixture",
+            "capability_denial_test",
+            "golden_output",
+            "schema_validation",
+            "security_fixture",
+            "benchmark_baseline",
+            "manual_review",
+            "risk_note"
+          ]
+        },
+        "status": {
+          "enum": ["required", "provided", "passing", "failing", "missing", "waived"]
+        },
+        "target": {
+          "type": "string",
+          "pattern": "^axiom://package/[A-Za-z0-9._~:/#@!$&'()*+,;=%-]+$"
+        },
+        "path": {
+          "type": ["string", "null"]
+        },
+        "diagnostics": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}
