@@ -1,0 +1,9 @@
+fn middle(values: &[int], offset: int): &[int] {
+return values[offset:]
+}
+
+let values: [int] = [2, 5, 8]
+let window: &[int] = middle(values[:], 1)
+print first(window)
+print last(window)
+print len(window)

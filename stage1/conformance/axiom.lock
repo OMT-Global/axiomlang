@@ -331,6 +331,11 @@ version = "0.1.0"
 source = "path:fail/string_use_after_move"
 
 [[package]]
+name = "conformance-borrow-return-elision"
+version = "0.1.0"
+source = "path:pass/borrow_return_elision"
+
+[[package]]
 name = "conformance-closures"
 version = "0.1.0"
 source = "path:pass/closures"
@@ -394,6 +399,11 @@ source = "path:pass/mutable_local_borrow_write_through"
 name = "conformance-mutable-projection-borrows"
 version = "0.1.0"
 source = "path:pass/mutable_projection_borrows"
+
+[[package]]
+name = "conformance-mutable-slice-write-through"
+version = "0.1.0"
+source = "path:pass/mutable_slice_write_through"
 
 [[package]]
 name = "conformance-numeric-cross-width-casts"

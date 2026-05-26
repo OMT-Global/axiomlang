@@ -1,12 +1,9 @@
 import "std/http.ax"
-import "std/encoding.ax"
 import "response.ax"
 
 pub fn health_route(started: bool): HttpRoute {
-let path: string = path_join_segment("", "health")
-let req: HttpRequest = request("GET", "/" + path, "")
-let selected_response: HttpResponse = json_response(req, started)
-return route_response(req.path, selected_response)
+let selected_response: HttpResponse = response(200, body("/health", started), [header("content-type", "application/json")])
+return route_response("/health", selected_response)
 }
 
 pub fn serve_health(bind: string, max_requests: int, started: bool): bool {

@@ -285,6 +285,7 @@ pub enum Expr {
 #[derive(Debug, Clone, Serialize, Eq)]
 pub enum Type {
     Error,
+    Never,
     Int,
     Numeric(syntax::NumericType),
     Bool,
@@ -313,6 +314,7 @@ impl PartialEq for Type {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
             (Type::Error, Type::Error)
+            | (Type::Never, Type::Never)
             | (Type::Int, Type::Int)
             | (Type::Bool, Type::Bool)
             | (Type::String, Type::String)
@@ -350,6 +352,7 @@ impl PartialEq for Type {
 fn type_assignable_to(actual: &Type, expected: &Type) -> bool {
     match (actual, expected) {
         (_, Type::Error) | (Type::Error, _) => true,
+        (Type::Never, _) => true,
         (Type::Array(actual_inner, actual_len), Type::Array(expected_inner, expected_len)) => {
             type_assignable_to(actual_inner, expected_inner)
                 && match expected_len {
@@ -389,7 +392,17 @@ fn type_assignable_to(actual: &Type, expected: &Type) -> bool {
                     .all(|(actual, expected)| type_assignable_to(actual, expected))
                 && type_assignable_to(actual_return, expected_return)
         }
-        _ => actual == expected,
+        _ => unify_types(actual, expected).is_some_and(|ty| ty == *expected),
+    }
+}
+
+pub(crate) fn unify_types(left: &Type, right: &Type) -> Option<Type> {
+    match (left, right) {
+        (Type::Never, Type::Never) => Some(Type::Never),
+        (Type::Never, other) | (other, Type::Never) => Some(other.clone()),
+        (Type::Error, other) | (other, Type::Error) => Some(other.clone()),
+        _ if left == right => Some(left.clone()),
+        _ => None,
     }
 }
 
@@ -954,6 +967,7 @@ fn type_has_unboxed_recursive_path(
 ) -> bool {
     match ty {
         Type::Error
+        | Type::Never
         | Type::Int
         | Type::Numeric(_)
         | Type::Bool
@@ -4639,6 +4653,7 @@ impl Type {
     pub fn is_copy(&self) -> bool {
         match self {
             Type::Error
+            | Type::Never
             | Type::Int
             | Type::Numeric(_)
             | Type::Bool
@@ -4668,6 +4683,7 @@ impl Type {
             Type::Int | Type::Numeric(_) | Type::Bool | Type::String | Type::Str => true,
             Type::Tuple(elements) => elements.iter().all(Type::supports_map_key),
             Type::Error
+            | Type::Never
             | Type::Struct(_)
             | Type::Enum(_)
             | Type::Ptr(_)
@@ -6439,11 +6455,15 @@ fn lower_stmt(
             column,
         } => {
             let lowered_target = lower_expr(target, env, ctx)?;
-            if !matches!(lowered_target, Expr::Deref { .. }) {
+            let target_is_mutable_slice_element = matches!(
+                &lowered_target,
+                Expr::Index { base, .. } if matches!(base.ty(), Type::MutSlice(_))
+            );
+            if !matches!(lowered_target, Expr::Deref { .. }) && !target_is_mutable_slice_element {
                 return Err(Diagnostic::new(
                     "type",
                     format!(
-                        "assignment target must dereference a mutable reference, got {}",
+                        "assignment target must dereference a mutable reference or index a mutable slice, got {}",
                         lowered_target.ty()
                     ),
                 )
@@ -11887,6 +11907,7 @@ fn contains_borrowed_slice_type_inner(
             contains
         }
         Type::Error
+        | Type::Never
         | Type::Int
         | Type::Numeric(_)
         | Type::Bool
@@ -11906,6 +11927,7 @@ fn contains_mut_borrowed_slice_type_inner(
     match ty {
         Type::MutSlice(_) | Type::MutRef(_) => true,
         Type::Error
+        | Type::Never
         | Type::Slice(_)
         | Type::Int
         | Type::Numeric(_)
@@ -12625,6 +12647,24 @@ fn format(value: Display): string
     }
 
     #[test]
+    fn never_type_is_assignable_to_concrete_types() {
+        assert!(type_assignable_to(&Type::Never, &Type::Int));
+        assert!(type_assignable_to(
+            &Type::Never,
+            &Type::Option(Box::new(Type::String))
+        ));
+        assert!(!type_assignable_to(&Type::Int, &Type::Never));
+    }
+
+    #[test]
+    fn never_type_unifies_to_the_other_side() {
+        assert_eq!(unify_types(&Type::Never, &Type::Int), Some(Type::Int));
+        assert_eq!(unify_types(&Type::Bool, &Type::Never), Some(Type::Bool));
+        assert_eq!(unify_types(&Type::Never, &Type::Never), Some(Type::Never));
+        assert_eq!(unify_types(&Type::Int, &Type::Bool), None);
+    }
+
+    #[test]
     fn hir_lowering_owns_ownership_validation() {
         let parsed = parse(
             r#"
@@ -12806,6 +12846,7 @@ impl std::fmt::Display for Type {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Type::Error => write!(f, "<type-error>"),
+            Type::Never => write!(f, "!"),
             Type::Int => write!(f, "int"),
             Type::Numeric(numeric) => write!(f, "{}", numeric.as_str()),
             Type::Bool => write!(f, "bool"),
