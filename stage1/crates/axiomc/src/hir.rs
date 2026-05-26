@@ -6455,11 +6455,15 @@ fn lower_stmt(
             column,
         } => {
             let lowered_target = lower_expr(target, env, ctx)?;
-            if !matches!(lowered_target, Expr::Deref { .. }) {
+            let target_is_mutable_slice_element = matches!(
+                &lowered_target,
+                Expr::Index { base, .. } if matches!(base.ty(), Type::MutSlice(_))
+            );
+            if !matches!(lowered_target, Expr::Deref { .. }) && !target_is_mutable_slice_element {
                 return Err(Diagnostic::new(
                     "type",
                     format!(
-                        "assignment target must dereference a mutable reference, got {}",
+                        "assignment target must dereference a mutable reference or index a mutable slice, got {}",
                         lowered_target.ty()
                     ),
                 )

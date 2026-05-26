@@ -401,6 +401,11 @@ version = "0.1.0"
 source = "path:pass/mutable_projection_borrows"
 
 [[package]]
+name = "conformance-mutable-slice-write-through"
+version = "0.1.0"
+source = "path:pass/mutable_slice_write_through"
+
+[[package]]
 name = "conformance-numeric-cross-width-casts"
 version = "0.1.0"
 source = "path:pass/numeric_cross_width_casts"

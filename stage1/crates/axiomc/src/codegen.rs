@@ -593,6 +593,20 @@ fn axiom_async_recv<T: Send + 'static>(channel: AxiomChannel<T>) -> AxiomTask<Op
     out.push_str("    }\n");
     out.push_str("}\n\n");
     out.push_str("#[allow(dead_code)]\n");
+    out.push_str("fn axiom_array_get_mut<T>(values: &mut [T], index: i64) -> &mut T {\n");
+    out.push_str("    if index < 0 {\n");
+    out.push_str(
+        "        axiom_runtime_error(\"runtime\", \"array index must be non-negative\");\n",
+    );
+    out.push_str("    }\n");
+    out.push_str("    match values.get_mut(index as usize) {\n");
+    out.push_str("        Some(value) => value,\n");
+    out.push_str(
+        "        None => axiom_runtime_error(\"runtime\", \"array index out of bounds\"),\n",
+    );
+    out.push_str("    }\n");
+    out.push_str("}\n\n");
+    out.push_str("#[allow(dead_code)]\n");
     out.push_str("fn axiom_array_take<T>(values: Vec<T>, index: i64) -> T {\n");
     out.push_str("    if index < 0 {\n");
     out.push_str(
@@ -3766,7 +3780,7 @@ fn render_stmt(
             render_source_marker(source_path, *span, out, indent, debug);
             out.push_str(&format!(
                 "{pad}{} = {};\n",
-                render_expr(target),
+                render_assignment_target(target),
                 render_expr(expr)
             ));
         }
@@ -4619,9 +4633,16 @@ fn render_expr(expr: &Expr) -> String {
                     )
                 }
             }
-            Type::Slice(_) | Type::MutSlice(_) => {
+            Type::Slice(_) => {
                 format!(
                     "axiom_array_get({}, {})",
+                    render_expr(base),
+                    render_expr(index)
+                )
+            }
+            Type::MutSlice(_) => {
+                format!(
+                    "axiom_array_get(&*{}, {})",
                     render_expr(base),
                     render_expr(index)
                 )
@@ -4643,6 +4664,19 @@ fn render_expr(expr: &Expr) -> String {
             }
             _ => unreachable!("type checker rejects indexing non-collection values"),
         },
+    }
+}
+
+fn render_assignment_target(expr: &Expr) -> String {
+    match expr {
+        Expr::Index { base, index, .. } if matches!(base.ty(), Type::MutSlice(_)) => {
+            format!(
+                "*axiom_array_get_mut({}, {})",
+                render_expr(base),
+                render_expr(index)
+            )
+        }
+        _ => render_expr(expr),
     }
 }
 
@@ -4835,7 +4869,7 @@ fn render_collection_edge(collection: &Expr, result_ty: &Type, from_end: bool) -
     match collection.ty() {
         Type::Array(_, _) => {
             if result_ty.is_copy() {
-                format!("{{ let values = {rendered}; axiom_array_get(&values, {index}) }}")
+                format!("{{ let values = &{rendered}; axiom_array_get(values, {index}) }}")
             } else {
                 format!(
                     "{{ let values = {rendered}; let index = {index}; axiom_array_take(values, index) }}"
@@ -4843,7 +4877,7 @@ fn render_collection_edge(collection: &Expr, result_ty: &Type, from_end: bool) -
             }
         }
         Type::Slice(_) | Type::MutSlice(_) => format!(
-            "{{ let values = {rendered}; let index = {index}; axiom_array_get(values, index) }}"
+            "{{ let values = &*{rendered}; let index = {index}; axiom_array_get(values, index) }}"
         ),
         _ => unreachable!("type checker rejects first/last on non-collection values"),
     }
