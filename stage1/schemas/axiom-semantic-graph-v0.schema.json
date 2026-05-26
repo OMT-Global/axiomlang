@@ -24,7 +24,7 @@
       "const": "axiom.stage1.v1"
     },
     "ok": {
-      "const": true
+      "type": "boolean"
     },
     "command": {
       "const": "inspect graph"

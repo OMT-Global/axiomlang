@@ -101,6 +101,32 @@ fn inspect_graph_json_validates_against_semantic_graph_schema() {
     assert_payload_matches_schema(&validator, "inspect graph", &output);
 }
 
+#[test]
+fn inspect_graph_json_schema_accepts_full_report_failures() {
+    let schema = read_json(&semantic_graph_schema_path());
+    let validator = jsonschema::validator_for(&schema).expect("compile semantic graph schema");
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("semantic-graph-invalid-lockfile-app");
+
+    run_axiomc(&[
+        "new",
+        project.to_str().expect("project path"),
+        "--name",
+        "semantic-graph-invalid-lockfile-app",
+    ]);
+    fs::write(project.join("axiom.lock"), "invalid lockfile\n").expect("write invalid lockfile");
+
+    let output = run_axiomc_json(&[
+        "inspect",
+        "graph",
+        project.to_str().expect("project path"),
+        "--json",
+    ]);
+    assert_eq!(output["ok"], false);
+    assert_eq!(output["lockfile_status"], "invalid");
+    assert_payload_matches_schema(&validator, "inspect graph", &output);
+}
+
 fn public_v1_schema_path() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../../schemas/axiom.stage1.v1.schema.json")
