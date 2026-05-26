@@ -17,6 +17,7 @@ pub mod syntax;
 
 #[cfg(test)]
 mod tests {
+    use crate::borrowck;
     use crate::codegen::{NativeBackendKind, render_rust, render_rust_with_debug};
     use crate::hir;
     use crate::json_contract;
@@ -36,6 +37,7 @@ mod tests {
     };
     use crate::syntax::{Stmt, TypeName, Visibility, parse_program, parse_program_with_recovery};
     use serde::Serialize;
+    use std::collections::HashMap;
     use std::fs;
     use std::io::Write;
     use std::path::{Path, PathBuf};
@@ -10259,6 +10261,20 @@ print takes_two(three)
             Some("borrow_return_origin_ambiguous")
         );
         assert_eq!(error.kind, "type");
+    }
+
+    #[test]
+    fn borrow_return_classification_infers_single_borrowed_param_origin() {
+        let structs = HashMap::new();
+        let enums = HashMap::new();
+        let params = vec![hir::Type::Slice(Box::new(hir::Type::Int)), hir::Type::Int];
+        let return_ty = hir::Type::Slice(Box::new(hir::Type::Int));
+
+        let inferred =
+            borrowck::classify_borrow_return(&params, &return_ty, &structs, &enums, 1, 1)
+                .expect("single borrowed parameter should infer return origin");
+
+        assert_eq!(inferred, vec![0]);
     }
 
     #[test]
