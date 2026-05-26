@@ -5850,17 +5850,27 @@ fn resolve_const_decl(
         resolving,
     )?;
     resolving.remove(&const_decl.name);
-    let actual = const_expr_type(&rewritten).ok_or_else(|| {
-        Diagnostic::new(
-            "type",
-            format!(
-                "{kind} {:?} requires a compile-time scalar expression",
-                const_decl.name
-            ),
-        )
-        .with_path(module_path.display().to_string())
-        .with_span(const_decl.line, const_decl.column)
-    })?;
+    let actual = const_expr_type(&rewritten)
+        .or_else(|| {
+            if matches!(const_decl.ty, syntax::TypeName::Int)
+                && matches!(rewritten, syntax::Expr::Call { .. })
+            {
+                Some(ConstValueType::Int)
+            } else {
+                None
+            }
+        })
+        .ok_or_else(|| {
+            Diagnostic::new(
+                "type",
+                format!(
+                    "{kind} {:?} requires a compile-time scalar expression",
+                    const_decl.name
+                ),
+            )
+            .with_path(module_path.display().to_string())
+            .with_span(const_decl.line, const_decl.column)
+        })?;
     let expected = const_type_name(&const_decl.ty).ok_or_else(|| {
         Diagnostic::new(
             "type",

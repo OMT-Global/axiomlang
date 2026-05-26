@@ -1,8 +1,9 @@
-fn measure(values: &mut [int]): int {
-print len(values)
+fn bump_first(values: &mut [int]): int {
+values[0] = first(values) + 1
 return first(values)
 }
 
 let values: [int] = [5, 8, 13]
-print measure(values[:])
+print bump_first(values[:])
 print first(values)
+print last(values)

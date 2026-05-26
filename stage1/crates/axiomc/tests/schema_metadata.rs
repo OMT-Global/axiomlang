@@ -164,8 +164,7 @@ fn backend_target_v0_schema_and_fixture_are_well_formed() {
     }
 
     assert_eq!(
-        schema["$defs"]["nodeId"]["pattern"],
-        "^axiom://[A-Za-z0-9._~:/#@!$&'()*+,;=%-]+$",
+        schema["$defs"]["nodeId"]["pattern"], "^axiom://[A-Za-z0-9._~:/#@!$&'()*+,;=%-]+$",
         "target nodeId stays aligned with Intent IR nodeId characters"
     );
 

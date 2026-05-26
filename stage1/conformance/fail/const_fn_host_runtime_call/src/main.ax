@@ -1,0 +1,5 @@
+const fn now(): int {
+return clock_now_ms()
+}
+
+print 1

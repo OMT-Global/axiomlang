@@ -1,5 +1,5 @@
 [package]
-name = "proof-worker"
+name = "conformance-const-fn-host-runtime-call"
 version = "0.1.0"
 
 [build]
@@ -7,12 +7,9 @@ entry = "src/main.ax"
 out_dir = "dist"
 
 [capabilities]
-fs = true
-"fs:write" = true
+fs = false
 net = false
 process = false
-env = ["AXIOM_STAGE1_WORKER"]
+env = false
 clock = true
 crypto = false
-ffi = false
-async = true
