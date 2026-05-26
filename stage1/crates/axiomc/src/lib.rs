@@ -7792,8 +7792,16 @@ print serve_once("127.0.0.1:18080", "hello")
         fs::write(
             project.join("axiom.toml"),
             format!(
-                "{}\n[[tests]]\nname = \"service-smoke\"\nentry = \"src/service_test.ax\"\nstdout = \"true\\n\"\ncapabilities = [\"net\", \"env\"]\nhttp = {{ path = \"/health\", expected_body = \"ok\" }}\n",
-                render_manifest("service-runner-app")
+                "{}\n[[tests]]\nname = \"service-smoke\"\nentry = \"src/service_test.ax\"\nstdout = \"true\\n\"\nhttp = {{ path = \"/health\", expected_body = \"ok\" }}\n",
+                render_manifest_with_capabilities(
+                    "service-runner-app",
+                    false,
+                    true,
+                    false,
+                    true,
+                    false,
+                    false,
+                )
             ),
         )
         .expect("write manifest");
@@ -8403,6 +8411,7 @@ print serve_health("127.0.0.1:18080", 1, started)
                         .expect("test checked-in proof workload example");
                     let expected_passed = match example {
                         "proof_cli" => 2,
+                        "proof_http_service" => 2,
                         _ => 1,
                     };
                     assert_eq!(tests.passed, expected_passed, "example {example}");
