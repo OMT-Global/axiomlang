@@ -1,0 +1,15 @@
+[package]
+name = "conformance-net-socket-port-allowlist-rejects-bind"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+fs = false
+net = { ports = [8080] }
+process = false
+env = false
+clock = false
+crypto = false

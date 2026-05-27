@@ -4792,6 +4792,72 @@ net = { hosts = ["example.com"], ports = [443] }
     }
 
     #[test]
+    fn http_server_bind_accepts_network_allowlist() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("http-server-bind-allowlisted");
+        create_project(&project, Some("http-server-bind-allowlisted-app")).expect("create project");
+        fs::write(
+            project.join("axiom.toml"),
+            r#"[package]
+name = "http-server-bind-allowlisted-app"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+net = { hosts = ["127.0.0.1"], ports = [8080] }
+"#,
+        )
+        .expect("write manifest");
+        fs::write(
+            project.join("src/main.ax"),
+            "print http_serve_once(\"127.0.0.1:8080\", \"ok\")\n",
+        )
+        .expect("write source");
+
+        check_project(&project).expect("allowlisted HTTP server bind should check");
+    }
+
+    #[test]
+    fn http_server_bind_rejects_network_port_missing_from_allowlist() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("http-server-bind-port-not-allowlisted");
+        create_project(&project, Some("http-server-bind-port-not-allowlisted-app"))
+            .expect("create project");
+        fs::write(
+            project.join("axiom.toml"),
+            r#"[package]
+name = "http-server-bind-port-not-allowlisted-app"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+net = { hosts = ["127.0.0.1"], ports = [8080] }
+"#,
+        )
+        .expect("write manifest");
+        fs::write(
+            project.join("src/main.ax"),
+            "print http_serve_once(\"127.0.0.1:9090\", \"ok\")\n",
+        )
+        .expect("write source");
+
+        let error = check_project(&project).expect_err("unlisted HTTP bind port should fail");
+        assert_eq!(error.kind, "capability");
+        assert!(
+            error
+                .message
+                .contains("requires [capabilities].net.ports to include 9090"),
+            "unexpected diagnostic: {error:?}",
+        );
+    }
+
+    #[test]
     fn check_project_rejects_crypto_intrinsic_without_capability() {
         let dir = tempdir().expect("tempdir");
         let project = dir.path().join("crypto-denied");

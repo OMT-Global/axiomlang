@@ -1,0 +1,8 @@
+{
+  "kind": "capability",
+  "code": null,
+  "message": "call to \"net_udp_bind\" requires [capabilities].net = true",
+  "path": "src/main.ax",
+  "line": 3,
+  "column": 8
+}
