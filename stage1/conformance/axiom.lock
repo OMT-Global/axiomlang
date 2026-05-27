@@ -211,6 +211,11 @@ version = "0.1.0"
 source = "path:fail/nested_match_pattern_not_supported"
 
 [[package]]
+name = "conformance-never-control-flow-missing-return"
+version = "0.1.0"
+source = "path:fail/never_control_flow_missing_return"
+
+[[package]]
 name = "conformance-numeric-float-mixed-width-add"
 version = "0.1.0"
 source = "path:fail/numeric_float_mixed_width_add"
@@ -371,14 +376,14 @@ version = "0.1.0"
 source = "path:pass/comparison_strict_typing"
 
 [[package]]
-name = "conformance-const-match-patterns"
-version = "0.1.0"
-source = "path:pass/const_match_patterns"
-
-[[package]]
 name = "conformance-const-fn-array-length"
 version = "0.1.0"
 source = "path:pass/const_fn_array_length"
+
+[[package]]
+name = "conformance-const-match-patterns"
+version = "0.1.0"
+source = "path:pass/const_match_patterns"
 
 [[package]]
 name = "conformance-crypto-constant-time"
@@ -414,6 +419,11 @@ source = "path:pass/mutable_projection_borrows"
 name = "conformance-mutable-slice-write-through"
 version = "0.1.0"
 source = "path:pass/mutable_slice_write_through"
+
+[[package]]
+name = "conformance-never-control-flow"
+version = "0.1.0"
+source = "path:pass/never_control_flow"
 
 [[package]]
 name = "conformance-numeric-cross-width-casts"

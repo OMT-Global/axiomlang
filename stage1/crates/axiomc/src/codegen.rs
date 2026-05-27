@@ -3175,7 +3175,8 @@ impl<'a> TypeContext<'a> {
         visiting_enums: &mut HashSet<String>,
     ) -> bool {
         match ty {
-            Type::Int
+            Type::Never
+            | Type::Int
             | Type::Numeric(_)
             | Type::Bool
             | Type::String
@@ -4041,6 +4042,9 @@ fn render_expr(expr: &Expr) -> String {
         Expr::StringBorrow { expr, .. } => format!("{}.as_str()", render_expr(expr)),
         Expr::VarRef { name, .. } if name == "self" => String::from("self_"),
         Expr::VarRef { name, .. } => name.clone(),
+        Expr::Call { name, args, .. } if name == "panic" => {
+            format!("axiom_panic({})", render_expr(&args[0]))
+        }
         Expr::Call { name, args, .. } if name == "assert_true" => {
             format!(
                 "{{ let condition = {}; if condition {{ 0i64 }} else {{ axiom_assert_fail(String::from(\"expected condition to be true\"), {}, {}) }} }}",
@@ -4458,6 +4462,7 @@ fn render_expr(expr: &Expr) -> String {
                 render_expr(lhs),
                 render_expr(rhs)
             ),
+            Type::Never => unreachable!("type checker rejects never addition"),
             Type::Bool => unreachable!("type checker rejects bool addition"),
             Type::Struct(_) => unreachable!("type checker rejects struct addition"),
             Type::Enum(_) => unreachable!("type checker rejects enum addition"),
@@ -4747,6 +4752,7 @@ fn rust_type_in_signature(
 
 fn rust_type_inner(ty: &Type, lifetime: Option<&str>, type_context: &TypeContext<'_>) -> String {
     match ty {
+        Type::Never => String::from("!"),
         Type::Int => String::from("i64"),
         Type::Numeric(numeric) => numeric.as_str().to_string(),
         Type::Bool => String::from("bool"),
