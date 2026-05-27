@@ -19,8 +19,8 @@
 //! * `std/net.ax` — `resolve(host)` on top of `net_resolve`, plus a bounded
 //!   loopback-only TCP/UDP socket floor on top of `net_tcp_*` and `net_udp_*`
 //!   intrinsics (net).
-//! * `std/net_tcp.ax` — dedicated TCP wrappers over the current bounded
-//!   loopback-only `net_tcp_*` intrinsics (net).
+//! * `std/net_tcp.ax` — dedicated TCP wrappers over blocking listener/stream
+//!   host intrinsics plus the current bounded loopback helpers (net).
 //! * `std/net_udp.ax` — dedicated UDP loopback helpers on top of `net_udp_*`
 //!   intrinsics (net).
 //! * `std/process.ax` — `run_status(command)` on top of `process_status`
@@ -166,7 +166,16 @@ pub fn udp_send_recv(host: string, port: int, message: string, timeout_ms: int):
     ),
     (
         "net_tcp.ax",
-        "pub fn listen_loopback_once(response: string, timeout_ms: int): Option<int> {\nreturn net_tcp_listen_loopback_once(response, timeout_ms)\n}\n\
+        "pub type TcpListener = int\n\
+pub type TcpStream = int\n\
+pub fn listen(bind: string): TcpListener {\nreturn net_tcp_listen(bind)\n}\n\
+pub fn local_port(listener: TcpListener): int {\nreturn net_tcp_listener_port(listener)\n}\n\
+pub fn accept(listener: TcpListener): TcpStream {\nreturn net_tcp_accept(listener)\n}\n\
+pub fn read(stream: TcpStream, buf: &mut [u8]): int {\nreturn net_tcp_read(stream, buf)\n}\n\
+pub fn write(stream: TcpStream, buf: &[u8]): int {\nreturn net_tcp_write(stream, buf)\n}\n\
+pub fn close(stream: TcpStream): int {\nreturn net_tcp_close(stream)\n}\n\
+pub fn close_listener(listener: TcpListener): int {\nreturn net_tcp_close_listener(listener)\n}\n\
+pub fn listen_loopback_once(response: string, timeout_ms: int): Option<int> {\nreturn net_tcp_listen_loopback_once(response, timeout_ms)\n}\n\
 pub fn dial(host: string, port: int, message: string, timeout_ms: int): Option<string> {\nreturn net_tcp_dial(host, port, message, timeout_ms)\n}\n",
     ),
     (
