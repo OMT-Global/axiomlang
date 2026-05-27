@@ -1,0 +1,6 @@
+version = 1
+
+[[package]]
+name = "conformance-net-socket-host-allowlist-rejects-peer"
+version = "0.1.0"
+source = "path"

@@ -21,8 +21,8 @@
 //!   intrinsics (net).
 //! * `std/net_tcp.ax` — dedicated TCP wrappers over blocking listener/stream
 //!   host intrinsics plus the current bounded loopback helpers (net).
-//! * `std/net_udp.ax` — dedicated UDP loopback helpers on top of `net_udp_*`
-//!   intrinsics (net).
+//! * `std/net_udp.ax` — dedicated UDP socket wrappers plus loopback helpers on
+//!   top of `net_udp_*` intrinsics (net).
 //! * `std/process.ax` — `run_status(command)` on top of `process_status`
 //!   (process).
 //! * `std/crypto_hash.ax` — `sha256(input)` on top of `crypto_sha256` (crypto).
@@ -180,7 +180,14 @@ pub fn dial(host: string, port: int, message: string, timeout_ms: int): Option<s
     ),
     (
         "net_udp.ax",
-        "pub fn bind_loopback_once(response: string, timeout_ms: int): Option<int> {\nreturn net_udp_bind_loopback_once(response, timeout_ms)\n}\n\
+        "pub type UdpSocket = int\n\
+pub fn bind(bind: string): UdpSocket {\nreturn net_udp_bind(bind)\n}\n\
+pub fn local_addr(socket: UdpSocket): string {\nreturn net_udp_local_addr(socket)\n}\n\
+pub fn local_port(socket: UdpSocket): int {\nreturn net_udp_local_port(socket)\n}\n\
+pub fn send_to(socket: UdpSocket, buf: &[u8], peer: string): int {\nreturn net_udp_send_to(socket, buf, peer)\n}\n\
+pub fn recv_from(socket: UdpSocket, buf: &mut [u8]): (int, string) {\nreturn net_udp_recv_from(socket, buf)\n}\n\
+pub fn close(socket: UdpSocket): int {\nreturn net_udp_close(socket)\n}\n\
+pub fn bind_loopback_once(response: string, timeout_ms: int): Option<int> {\nreturn net_udp_bind_loopback_once(response, timeout_ms)\n}\n\
 pub fn send_recv(host: string, port: int, message: string, timeout_ms: int): Option<string> {\nreturn net_udp_send_recv(host, port, message, timeout_ms)\n}\n",
     ),
     (

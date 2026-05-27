@@ -1,0 +1,15 @@
+[package]
+name = "conformance-net-socket-host-allowlist-rejects-peer"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+fs = false
+net = { hosts = ["127.0.0.1"] }
+process = false
+env = false
+clock = false
+crypto = false

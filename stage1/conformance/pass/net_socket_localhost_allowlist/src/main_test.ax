@@ -1,0 +1,3 @@
+let listener: int = net_tcp_listen("localhost:0")
+print net_tcp_listener_port(listener) > 0
+print net_tcp_close_listener(listener) == 0
