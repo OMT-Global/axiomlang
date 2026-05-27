@@ -1,0 +1,120 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://axiom.dev/schemas/axiom-repair-v0.schema.json",
+  "title": "Axiom Repair Plan v0",
+  "type": "object",
+  "required": ["schema_version", "ok", "command", "project", "tasks"],
+  "properties": {
+    "schema_version": {
+      "const": "axiom.repair.v0"
+    },
+    "ok": {
+      "type": "boolean"
+    },
+    "command": {
+      "const": "repair-plan"
+    },
+    "project": {
+      "type": "string",
+      "minLength": 1
+    },
+    "tasks": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/task"
+      }
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "task": {
+      "type": "object",
+      "required": [
+        "id",
+        "reason",
+        "target_node",
+        "allowed_files",
+        "required_evidence",
+        "diagnostics"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^repair-[0-9]{3}$"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1
+        },
+        "target_node": {
+          "type": "string",
+          "pattern": "^axiom://package/[A-Za-z0-9._~:/#@!$&'()*+,;=%-]+$"
+        },
+        "allowed_files": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required_evidence": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "unit_test",
+              "property_test",
+              "conformance_fixture",
+              "capability_denial_test",
+              "golden_output",
+              "schema_validation",
+              "security_fixture",
+              "benchmark_baseline",
+              "manual_review",
+              "risk_note"
+            ]
+          }
+        },
+        "diagnostics": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["kind", "message"],
+            "properties": {
+              "kind": {
+                "type": "string"
+              },
+              "code": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              },
+              "help": {
+                "type": "string"
+              },
+              "path": {
+                "type": "string"
+              },
+              "line": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "column": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "related": {
+                "type": "array"
+              },
+              "repair": {
+                "type": "object"
+              }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

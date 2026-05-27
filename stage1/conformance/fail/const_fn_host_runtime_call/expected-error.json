@@ -1,0 +1,8 @@
+{
+  "kind": "type",
+  "code": null,
+  "message": "const fn \"conformance_const_fn_host_runtime_call_main_now\" can only call other const fn; \"clock_now_ms\" is a host runtime or non-const call",
+  "path": "src/main.ax",
+  "line": 2,
+  "column": 8
+}

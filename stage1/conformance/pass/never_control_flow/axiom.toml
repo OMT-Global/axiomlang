@@ -1,5 +1,5 @@
 [package]
-name = "conformance-numeric-overflow-policy"
+name = "conformance-never-control-flow"
 version = "0.1.0"
 
 [build]
@@ -13,8 +13,3 @@ process = false
 env = false
 clock = false
 crypto = false
-
-[[tests]]
-name = "numeric_overflow_helpers"
-entry = "src/main_test.ax"
-stdout = "-128\nnone\n127\n"

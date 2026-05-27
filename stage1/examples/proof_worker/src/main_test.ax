@@ -1,26 +1,90 @@
 import "std/async.ax"
 import "std/env.ax"
+import "std/fs.ax"
 import "std/json.ax"
 import "std/time.ax"
 import "jobs.ax"
 import "state.ax"
 
-async fn process(queue: string, worker: string, processed: int): string {
-return "{" + field_string("workload", "proof-worker") + "," + field_string("worker", worker) + "," + field_string("queue", queue) + "," + field_string("job", "reconcile") + "," + field_string("result", handle("reconcile")) + "," + field_int("processed", processed) + "}"
+async fn process(queue: string, worker: string, job: string, result: string, processed: int): string {
+return "{" + field_string("workload", "proof-worker") + "," + field_string("worker", worker) + "," + field_string("queue", queue) + "," + field_string("job", job) + "," + field_string("result", result) + "," + field_int("processed", processed) + "}"
 }
 
-let worker: string = worker_name(get_env("AXIOM_STAGE1_WORKER"))
-let queue: AsyncChannel<string> = channel<string>()
-let queued: AsyncChannel<string> = await send<string>(queue, "reconcile")
-let job: Option<string> = await recv<string>(queued)
+let output_dir: int = mkdir_all("scratch/proof_worker")
 
-match queue_name() {
-Some(queue_name) {
-match job {
-Some(payload) {
-let processed: int = processed_count()
-let handle: JoinHandle<string> = spawn<string>(process(queue_name, worker, processed))
-print await join<string>(handle)
+let queue_one: AsyncChannel<string> = channel<string>()
+let queued_one: AsyncChannel<string> = await send<string>(queue_one, "ingest")
+let job_one: Option<string> = await recv<string>(queued_one)
+match job_one {
+Some(payload_one) {
+let handle_one: JoinHandle<string> = spawn<string>(process("default", worker_name(get_env("AXIOM_STAGE1_WORKER")), payload_one, handle("ingest"), 1))
+let output_one: string = await join<string>(handle_one)
+let write_one: int = write_file("scratch/proof_worker/results.txt", output_one)
+}
+None {
+print "idle"
+}
+}
+let queue_two: AsyncChannel<string> = channel<string>()
+let queued_two: AsyncChannel<string> = await send<string>(queue_two, "validate")
+let job_two: Option<string> = await recv<string>(queued_two)
+match job_two {
+Some(payload_two) {
+let handle_two: JoinHandle<string> = spawn<string>(process("default", worker_name(get_env("AXIOM_STAGE1_WORKER")), payload_two, handle("validate"), 2))
+let output_two: string = await join<string>(handle_two)
+let write_two: int = append_file("scratch/proof_worker/results.txt", "\n" + output_two)
+}
+None {
+print "idle"
+}
+}
+let queue_three: AsyncChannel<string> = channel<string>()
+let queued_three: AsyncChannel<string> = await send<string>(queue_three, "transform")
+let job_three: Option<string> = await recv<string>(queued_three)
+match job_three {
+Some(payload_three) {
+let handle_three: JoinHandle<string> = spawn<string>(process("default", worker_name(get_env("AXIOM_STAGE1_WORKER")), payload_three, handle("transform"), 3))
+let output_three: string = await join<string>(handle_three)
+let write_three: int = append_file("scratch/proof_worker/results.txt", "\n" + output_three)
+}
+None {
+print "idle"
+}
+}
+let queue_four: AsyncChannel<string> = channel<string>()
+let queued_four: AsyncChannel<string> = await send<string>(queue_four, "reconcile")
+let job_four: Option<string> = await recv<string>(queued_four)
+match job_four {
+Some(payload_four) {
+let handle_four: JoinHandle<string> = spawn<string>(process("default", worker_name(get_env("AXIOM_STAGE1_WORKER")), payload_four, handle("reconcile"), 4))
+let output_four: string = await join<string>(handle_four)
+let write_four: int = append_file("scratch/proof_worker/results.txt", "\n" + output_four)
+}
+None {
+print "idle"
+}
+}
+let queue_five: AsyncChannel<string> = channel<string>()
+let queued_five: AsyncChannel<string> = await send<string>(queue_five, "publish")
+let job_five: Option<string> = await recv<string>(queued_five)
+match job_five {
+Some(payload_five) {
+let handle_five: JoinHandle<string> = spawn<string>(process("default", worker_name(get_env("AXIOM_STAGE1_WORKER")), payload_five, handle("publish"), 5))
+let output_five: string = await join<string>(handle_five)
+let write_five: int = append_file("scratch/proof_worker/results.txt", "\n" + output_five)
+}
+None {
+print "idle"
+}
+}
+match read_file("scratch/proof_worker/results.txt") {
+Some(results) {
+print results
+}
+None {
+print "missing"
+}
+}
 print sleep(duration_ms(0)) == 0
 match queue_name() {
 Some(value) {
@@ -30,14 +94,4 @@ None {
 print "missing"
 }
 }
-print processed_count()
-}
-None {
-print "idle"
-}
-}
-}
-None {
-print "unconfigured"
-}
-}
+print processed_count() + 4

@@ -56,6 +56,11 @@ version = "0.1.0"
 source = "path:fail/comparison_strict_type_mismatch"
 
 [[package]]
+name = "conformance-const-fn-host-runtime-call"
+version = "0.1.0"
+source = "path:fail/const_fn_host_runtime_call"
+
+[[package]]
 name = "conformance-double-mutable-borrow"
 version = "0.1.0"
 source = "path:fail/double_mutable_borrow"
@@ -206,6 +211,11 @@ version = "0.1.0"
 source = "path:fail/nested_match_pattern_not_supported"
 
 [[package]]
+name = "conformance-never-control-flow-missing-return"
+version = "0.1.0"
+source = "path:fail/never_control_flow_missing_return"
+
+[[package]]
 name = "conformance-numeric-float-mixed-width-add"
 version = "0.1.0"
 source = "path:fail/numeric_float_mixed_width_add"
@@ -331,6 +341,11 @@ version = "0.1.0"
 source = "path:fail/string_use_after_move"
 
 [[package]]
+name = "conformance-borrow-return-elision"
+version = "0.1.0"
+source = "path:pass/borrow_return_elision"
+
+[[package]]
 name = "conformance-closures"
 version = "0.1.0"
 source = "path:pass/closures"
@@ -359,6 +374,11 @@ source = "path:pass/comparison_package_resources"
 name = "conformance-comparison-strict-typing"
 version = "0.1.0"
 source = "path:pass/comparison_strict_typing"
+
+[[package]]
+name = "conformance-const-fn-array-length"
+version = "0.1.0"
+source = "path:pass/const_fn_array_length"
 
 [[package]]
 name = "conformance-const-match-patterns"
@@ -396,6 +416,16 @@ version = "0.1.0"
 source = "path:pass/mutable_projection_borrows"
 
 [[package]]
+name = "conformance-mutable-slice-write-through"
+version = "0.1.0"
+source = "path:pass/mutable_slice_write_through"
+
+[[package]]
+name = "conformance-never-control-flow"
+version = "0.1.0"
+source = "path:pass/never_control_flow"
+
+[[package]]
 name = "conformance-numeric-cross-width-casts"
 version = "0.1.0"
 source = "path:pass/numeric_cross_width_casts"
@@ -409,6 +439,11 @@ source = "path:pass/numeric_float_mean"
 name = "conformance-numeric-literal-suffixes"
 version = "0.1.0"
 source = "path:pass/numeric_literal_suffixes"
+
+[[package]]
+name = "conformance-numeric-overflow-policy"
+version = "0.1.0"
+source = "path:pass/numeric_overflow_policy"
 
 [[package]]
 name = "conformance-outcome-control-flow"

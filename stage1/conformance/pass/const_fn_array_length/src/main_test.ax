@@ -1,0 +1,8 @@
+const fn add(left: int, right: int): int {
+let total: int = left + right
+return total
+}
+
+const WIDTH: int = add(3, 4)
+let values: [int; WIDTH] = [1, 2, 3, 4, 5, 6, 7]
+print len(values)
