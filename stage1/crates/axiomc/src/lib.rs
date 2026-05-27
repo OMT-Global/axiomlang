@@ -8445,7 +8445,7 @@ print serve_health("127.0.0.1:18080", 1, started)
                 .iter()
                 .filter(|case| case.expected_error.is_some())
                 .count(),
-            64
+            65
         );
         assert_eq!(
             output
