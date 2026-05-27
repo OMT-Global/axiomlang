@@ -1,0 +1,7 @@
+{
+  "kind": "control",
+  "message": "function \"conformance_never_control_flow_missing_return_main_choose\" does not return along all paths",
+  "path": "src/main.ax",
+  "line": 1,
+  "column": 1
+}
