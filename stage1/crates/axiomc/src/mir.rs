@@ -232,6 +232,20 @@ pub enum Expr {
         expr: Box<Expr>,
         ty: Type,
     },
+    Match {
+        expr: Box<Expr>,
+        arms: Vec<MatchExprArm>,
+        ty: Type,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct MatchExprArm {
+    pub enum_name: String,
+    pub variant: String,
+    pub bindings: Vec<String>,
+    pub is_named: bool,
+    pub expr: Expr,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -266,6 +280,7 @@ pub enum ArithmeticOp {
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub enum Type {
+    Never,
     Int,
     Numeric(crate::syntax::NumericType),
     Bool,
@@ -293,7 +308,8 @@ pub enum Type {
 impl Type {
     pub fn is_copy(&self) -> bool {
         match self {
-            Type::Int
+            Type::Never
+            | Type::Int
             | Type::Numeric(_)
             | Type::Bool
             | Type::Str
@@ -381,6 +397,7 @@ impl Expr {
             Expr::StringBorrow { ty, .. } => ty.clone(),
             Expr::MutBorrow { ty, .. } => ty.clone(),
             Expr::Deref { ty, .. } => ty.clone(),
+            Expr::Match { ty, .. } => ty.clone(),
         }
     }
 }
@@ -679,12 +696,27 @@ fn lower_expr(expr: &hir::Expr) -> Expr {
             expr: Box::new(lower_expr(expr)),
             ty: lower_type(ty),
         },
+        hir::Expr::Match { expr, arms, ty } => Expr::Match {
+            expr: Box::new(lower_expr(expr)),
+            arms: arms
+                .iter()
+                .map(|arm| MatchExprArm {
+                    enum_name: arm.enum_name.clone(),
+                    variant: arm.variant.clone(),
+                    bindings: arm.bindings.clone(),
+                    is_named: arm.is_named,
+                    expr: lower_expr(&arm.expr),
+                })
+                .collect(),
+            ty: lower_type(ty),
+        },
     }
 }
 
 fn lower_type(ty: &hir::Type) -> Type {
     match ty {
         hir::Type::Error => unreachable!("type-error sentinel must not reach MIR lowering"),
+        hir::Type::Never => Type::Never,
         hir::Type::Int => Type::Int,
         hir::Type::Numeric(numeric) => Type::Numeric(*numeric),
         hir::Type::Bool => Type::Bool,

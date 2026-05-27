@@ -1,0 +1,9 @@
+{
+  "kind": "type",
+  "code": null,
+  "message": "match on \"Result\" is not exhaustive; missing Err",
+  "path": "src/main.ax",
+  "line": 2,
+  "column": 8
+}
+

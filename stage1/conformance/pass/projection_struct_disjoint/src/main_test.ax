@@ -1,0 +1,10 @@
+struct Pair {
+first: string
+second: string
+}
+
+let pair: Pair = Pair { first: "alpha", second: "beta" }
+let moved: string = pair.first
+let sibling: &str = pair.second
+print sibling
+print moved

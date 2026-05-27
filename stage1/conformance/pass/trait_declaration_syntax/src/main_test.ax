@@ -1,0 +1,5 @@
+trait Display {
+fn render(self): string
+}
+
+print "trait parsed"

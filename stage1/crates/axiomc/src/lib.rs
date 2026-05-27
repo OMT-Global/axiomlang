@@ -17,6 +17,7 @@ pub mod syntax;
 
 #[cfg(test)]
 mod tests {
+    use crate::borrowck;
     use crate::codegen::{NativeBackendKind, render_rust, render_rust_with_debug};
     use crate::hir;
     use crate::json_contract;
@@ -36,6 +37,7 @@ mod tests {
     };
     use crate::syntax::{Stmt, TypeName, Visibility, parse_program, parse_program_with_recovery};
     use serde::Serialize;
+    use std::collections::HashMap;
     use std::fs;
     use std::io::Write;
     use std::path::{Path, PathBuf};
@@ -7500,6 +7502,54 @@ print serve_once("127.0.0.1:18080", "hello")
     }
 
     #[test]
+    fn stage1_numeric_overflow_policy_checks_signed_debug_and_wraps_release() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("numeric-overflow-policy");
+        create_project(&project, Some("numeric-overflow-policy")).expect("create project");
+        fs::write(
+            project.join("src/main.ax"),
+            "let max_i32: i32 = 2147483647i32\nprint max_i32 + 1i32\n",
+        )
+        .expect("write source");
+
+        let debug = build_project_with_options(
+            &project,
+            &BuildOptions {
+                debug: true,
+                ..BuildOptions::default()
+            },
+        )
+        .expect("debug build");
+        let debug_output = compiled_binary_command(&debug.binary)
+            .output()
+            .expect("run debug binary");
+        assert!(!debug_output.status.success());
+        let debug_stderr = String::from_utf8_lossy(&debug_output.stderr);
+        assert!(
+            debug_stderr
+                .contains("{\"kind\":\"runtime\",\"message\":\"numeric overflow: i32 addition\"}"),
+            "unexpected stderr: {debug_stderr}"
+        );
+
+        let release = build_project_with_options(
+            &project,
+            &BuildOptions {
+                debug: false,
+                ..BuildOptions::default()
+            },
+        )
+        .expect("release build");
+        let release_output = compiled_binary_command(&release.binary)
+            .output()
+            .expect("run release binary");
+        assert!(release_output.status.success());
+        assert_eq!(
+            String::from_utf8_lossy(&release_output.stdout),
+            "-2147483648\n"
+        );
+    }
+
+    #[test]
     fn stage1_project_rejects_unknown_stdlib_module() {
         let dir = tempdir().expect("tempdir");
         let project = dir.path().join("stdlib-unknown");
@@ -7812,8 +7862,16 @@ print serve_once("127.0.0.1:18080", "hello")
         fs::write(
             project.join("axiom.toml"),
             format!(
-                "{}\n[[tests]]\nname = \"service-smoke\"\nentry = \"src/service_test.ax\"\nstdout = \"true\\n\"\ncapabilities = [\"net\", \"env\"]\nhttp = {{ path = \"/health\", expected_body = \"ok\" }}\n",
-                render_manifest("service-runner-app")
+                "{}\n[[tests]]\nname = \"service-smoke\"\nentry = \"src/service_test.ax\"\nstdout = \"true\\n\"\nhttp = {{ path = \"/health\", expected_body = \"ok\" }}\n",
+                render_manifest_with_capabilities(
+                    "service-runner-app",
+                    false,
+                    true,
+                    false,
+                    true,
+                    false,
+                    false,
+                )
             ),
         )
         .expect("write manifest");
@@ -8423,6 +8481,7 @@ print serve_health("127.0.0.1:18080", 1, started)
                         .expect("test checked-in proof workload example");
                     let expected_passed = match example {
                         "proof_cli" => 2,
+                        "proof_http_service" => 2,
                         _ => 1,
                     };
                     assert_eq!(tests.passed, expected_passed, "example {example}");
@@ -8439,8 +8498,8 @@ print serve_health("127.0.0.1:18080", 1, started)
     fn conformance_corpus_reports_stable_results() {
         let output =
             run_project_tests(&conformance_fixture()).expect("run stage1 conformance corpus");
-        assert_eq!(output.cases.len(), 94);
-        assert_eq!(output.passed, 94);
+        assert_eq!(output.cases.len(), 114);
+        assert_eq!(output.passed, 114);
         let failures: Vec<_> = output
             .cases
             .iter()
@@ -8454,7 +8513,7 @@ print serve_health("127.0.0.1:18080", 1, started)
                 .iter()
                 .filter(|case| case.expected_error.is_some())
                 .count(),
-            64
+            73
         );
         assert_eq!(
             output
@@ -8462,7 +8521,7 @@ print serve_health("127.0.0.1:18080", 1, started)
                 .iter()
                 .filter(|case| case.expected_stdout.is_some())
                 .count(),
-            28
+            39
         );
         assert_eq!(
             output
@@ -10270,6 +10329,20 @@ print takes_two(three)
             Some("borrow_return_origin_ambiguous")
         );
         assert_eq!(error.kind, "type");
+    }
+
+    #[test]
+    fn borrow_return_classification_infers_single_borrowed_param_origin() {
+        let structs = HashMap::new();
+        let enums = HashMap::new();
+        let params = vec![hir::Type::Slice(Box::new(hir::Type::Int)), hir::Type::Int];
+        let return_ty = hir::Type::Slice(Box::new(hir::Type::Int));
+
+        let inferred =
+            borrowck::classify_borrow_return(&params, &return_ty, &structs, &enums, 1, 1)
+                .expect("single borrowed parameter should infer return origin");
+
+        assert_eq!(inferred, vec![0]);
     }
 
     #[test]

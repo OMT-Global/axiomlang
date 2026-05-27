@@ -1,0 +1,15 @@
+fn measure(values: &mut [int]): int {
+return len(values)
+}
+
+enum Payload {
+Items([int])
+Empty
+}
+
+let payload: Payload = Items([1, 2, 3])
+let result: int = match payload {
+Items(values) => measure(values[:])
+Empty => 0
+}
+print result

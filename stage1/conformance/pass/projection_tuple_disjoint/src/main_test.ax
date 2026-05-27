@@ -1,0 +1,5 @@
+let pair: (string, string) = ("alpha", "beta")
+let moved: string = pair.0
+let sibling: &str = pair.1
+print sibling
+print moved

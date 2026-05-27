@@ -1,0 +1,9 @@
+struct Pair {
+first: string
+second: string
+}
+
+let pair: Pair = Pair { first: "alpha", second: "beta" }
+let moved: string = pair.first
+let borrowed: &str = pair.first
+print borrowed

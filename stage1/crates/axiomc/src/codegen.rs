@@ -310,6 +310,7 @@ pub fn render_rust_for_package_with_capabilities(
         "const AXIOM_ASYNC_CAPABILITY: bool = {};\n",
         capabilities.async_runtime
     ));
+    out.push_str(&format!("const AXIOM_DEBUG_BUILD: bool = {debug};\n"));
     out.push_str("const AXIOM_ENV_ALLOWLIST: &[&str] = &[\n");
     for name in deterministic_strings(&capabilities.env_vars) {
         out.push_str(&format!("    {name:?},\n"));
@@ -523,6 +524,61 @@ fn axiom_async_recv<T: Send + 'static>(channel: AxiomChannel<T>) -> AxiomTask<Op
 
 "#);
     out.push_str("#[allow(dead_code)]\n");
+    out.push_str("fn axiom_numeric_checked_add_i8(left: i8, right: i8) -> i8 {\n");
+    out.push_str("    if AXIOM_DEBUG_BUILD {\n");
+    out.push_str("        match left.checked_add(right) {\n");
+    out.push_str("            Some(value) => value,\n");
+    out.push_str("            None => axiom_runtime_error(\"runtime\", \"numeric overflow: i8 addition\"),\n");
+    out.push_str("        }\n");
+    out.push_str("    } else {\n");
+    out.push_str("        left.wrapping_add(right)\n");
+    out.push_str("    }\n");
+    out.push_str("}\n\n");
+    out.push_str("#[allow(dead_code)]\n");
+    out.push_str("fn axiom_numeric_checked_add_i16(left: i16, right: i16) -> i16 {\n");
+    out.push_str("    if AXIOM_DEBUG_BUILD {\n");
+    out.push_str("        match left.checked_add(right) {\n");
+    out.push_str("            Some(value) => value,\n");
+    out.push_str("            None => axiom_runtime_error(\"runtime\", \"numeric overflow: i16 addition\"),\n");
+    out.push_str("        }\n");
+    out.push_str("    } else {\n");
+    out.push_str("        left.wrapping_add(right)\n");
+    out.push_str("    }\n");
+    out.push_str("}\n\n");
+    out.push_str("#[allow(dead_code)]\n");
+    out.push_str("fn axiom_numeric_checked_add_i32(left: i32, right: i32) -> i32 {\n");
+    out.push_str("    if AXIOM_DEBUG_BUILD {\n");
+    out.push_str("        match left.checked_add(right) {\n");
+    out.push_str("            Some(value) => value,\n");
+    out.push_str("            None => axiom_runtime_error(\"runtime\", \"numeric overflow: i32 addition\"),\n");
+    out.push_str("        }\n");
+    out.push_str("    } else {\n");
+    out.push_str("        left.wrapping_add(right)\n");
+    out.push_str("    }\n");
+    out.push_str("}\n\n");
+    out.push_str("#[allow(dead_code)]\n");
+    out.push_str("fn axiom_numeric_checked_add_i64(left: i64, right: i64) -> i64 {\n");
+    out.push_str("    if AXIOM_DEBUG_BUILD {\n");
+    out.push_str("        match left.checked_add(right) {\n");
+    out.push_str("            Some(value) => value,\n");
+    out.push_str("            None => axiom_runtime_error(\"runtime\", \"numeric overflow: i64 addition\"),\n");
+    out.push_str("        }\n");
+    out.push_str("    } else {\n");
+    out.push_str("        left.wrapping_add(right)\n");
+    out.push_str("    }\n");
+    out.push_str("}\n\n");
+    out.push_str("#[allow(dead_code)]\n");
+    out.push_str("fn axiom_numeric_checked_add_isize(left: isize, right: isize) -> isize {\n");
+    out.push_str("    if AXIOM_DEBUG_BUILD {\n");
+    out.push_str("        match left.checked_add(right) {\n");
+    out.push_str("            Some(value) => value,\n");
+    out.push_str("            None => axiom_runtime_error(\"runtime\", \"numeric overflow: isize addition\"),\n");
+    out.push_str("        }\n");
+    out.push_str("    } else {\n");
+    out.push_str("        left.wrapping_add(right)\n");
+    out.push_str("    }\n");
+    out.push_str("}\n\n");
+    out.push_str("#[allow(dead_code)]\n");
     out.push_str("fn axiom_array_get<T: Copy>(values: &[T], index: i64) -> T {\n");
     out.push_str("    if index < 0 {\n");
     out.push_str(
@@ -531,6 +587,20 @@ fn axiom_async_recv<T: Send + 'static>(channel: AxiomChannel<T>) -> AxiomTask<Op
     out.push_str("    }\n");
     out.push_str("    match values.get(index as usize) {\n");
     out.push_str("        Some(value) => *value,\n");
+    out.push_str(
+        "        None => axiom_runtime_error(\"runtime\", \"array index out of bounds\"),\n",
+    );
+    out.push_str("    }\n");
+    out.push_str("}\n\n");
+    out.push_str("#[allow(dead_code)]\n");
+    out.push_str("fn axiom_array_get_mut<T>(values: &mut [T], index: i64) -> &mut T {\n");
+    out.push_str("    if index < 0 {\n");
+    out.push_str(
+        "        axiom_runtime_error(\"runtime\", \"array index must be non-negative\");\n",
+    );
+    out.push_str("    }\n");
+    out.push_str("    match values.get_mut(index as usize) {\n");
+    out.push_str("        Some(value) => value,\n");
     out.push_str(
         "        None => axiom_runtime_error(\"runtime\", \"array index out of bounds\"),\n",
     );
@@ -3501,6 +3571,9 @@ fn expr_uses_call(expr: &Expr, name: &str) -> bool {
             expr_uses_call(base, name) || expr_uses_call(index, name)
         }
         Expr::Closure { body, .. } => expr_uses_call(body, name),
+        Expr::Match { expr, arms, .. } => {
+            expr_uses_call(expr, name) || arms.iter().any(|arm| expr_uses_call(&arm.expr, name))
+        }
         Expr::Literal(_) | Expr::VarRef { .. } => false,
         Expr::StringBorrow { expr, .. } => expr_uses_call(expr, name),
     }
@@ -3553,7 +3626,8 @@ impl<'a> TypeContext<'a> {
         visiting_enums: &mut HashSet<String>,
     ) -> bool {
         match ty {
-            Type::Int
+            Type::Never
+            | Type::Int
             | Type::Numeric(_)
             | Type::Bool
             | Type::String
@@ -4072,6 +4146,12 @@ fn collect_expr_mutable_borrows(expr: &Expr, locals: &mut HashSet<String>) {
             collect_expr_mutable_borrows(index, locals);
         }
         Expr::Closure { body, .. } => collect_expr_mutable_borrows(body, locals),
+        Expr::Match { expr, arms, .. } => {
+            collect_expr_mutable_borrows(expr, locals);
+            for arm in arms {
+                collect_expr_mutable_borrows(&arm.expr, locals);
+            }
+        }
         Expr::Literal(_) | Expr::VarRef { .. } => {}
     }
 }
@@ -4158,7 +4238,7 @@ fn render_stmt(
             render_source_marker(source_path, *span, out, indent, debug);
             out.push_str(&format!(
                 "{pad}{} = {};\n",
-                render_expr(target),
+                render_assignment_target(target),
                 render_expr(expr)
             ));
         }
@@ -4419,6 +4499,9 @@ fn render_expr(expr: &Expr) -> String {
         Expr::StringBorrow { expr, .. } => format!("{}.as_str()", render_expr(expr)),
         Expr::VarRef { name, .. } if name == "self" => String::from("self_"),
         Expr::VarRef { name, .. } => name.clone(),
+        Expr::Call { name, args, .. } if name == "panic" => {
+            format!("axiom_panic({})", render_expr(&args[0]))
+        }
         Expr::Call { name, args, .. } if name == "assert_true" => {
             format!(
                 "{{ let condition = {}; if condition {{ 0i64 }} else {{ axiom_assert_fail(String::from(\"expected condition to be true\"), {}, {}) }} }}",
@@ -4854,19 +4937,13 @@ fn render_expr(expr: &Expr) -> String {
             format!("{name}({rendered_args})")
         }
         Expr::BinaryAdd { op, lhs, rhs, ty } => match ty {
-            Type::Int | Type::Numeric(_) => {
-                format!(
-                    "{} {} {}",
-                    render_binary_operand(lhs),
-                    op.lexeme(),
-                    render_binary_operand(rhs)
-                )
-            }
+            Type::Int | Type::Numeric(_) => render_numeric_binary(op, lhs, rhs, ty),
             Type::String | Type::Str => format!(
                 "format!(\"{{}}{{}}\", {}, {})",
                 render_expr(lhs),
                 render_expr(rhs)
             ),
+            Type::Never => unreachable!("type checker rejects never addition"),
             Type::Bool => unreachable!("type checker rejects bool addition"),
             Type::Struct(_) => unreachable!("type checker rejects struct addition"),
             Type::Enum(_) => unreachable!("type checker rejects enum addition"),
@@ -5042,9 +5119,16 @@ fn render_expr(expr: &Expr) -> String {
                     )
                 }
             }
-            Type::Slice(_) | Type::MutSlice(_) => {
+            Type::Slice(_) => {
                 format!(
                     "axiom_array_get({}, {})",
+                    render_expr(base),
+                    render_expr(index)
+                )
+            }
+            Type::MutSlice(_) => {
+                format!(
+                    "axiom_array_get(&*{}, {})",
                     render_expr(base),
                     render_expr(index)
                 )
@@ -5066,6 +5150,94 @@ fn render_expr(expr: &Expr) -> String {
             }
             _ => unreachable!("type checker rejects indexing non-collection values"),
         },
+        Expr::Match { expr, arms, .. } => {
+            let mut rendered = format!("match {} {{ ", render_expr(expr));
+            for arm in arms {
+                let mut arm_mutable_locals = HashSet::new();
+                collect_expr_mutable_borrows(&arm.expr, &mut arm_mutable_locals);
+                if arm.bindings.is_empty() {
+                    rendered.push_str(&format!(
+                        "{}::{} => {}, ",
+                        arm.enum_name,
+                        arm.variant,
+                        render_expr(&arm.expr)
+                    ));
+                } else if arm.is_named {
+                    rendered.push_str(&format!(
+                        "{}::{} {{ {} }} => {}, ",
+                        arm.enum_name,
+                        arm.variant,
+                        render_match_bindings(&arm.bindings, &arm_mutable_locals),
+                        render_expr(&arm.expr)
+                    ));
+                } else {
+                    rendered.push_str(&format!(
+                        "{}::{}({}) => {}, ",
+                        arm.enum_name,
+                        arm.variant,
+                        render_match_bindings(&arm.bindings, &arm_mutable_locals),
+                        render_expr(&arm.expr)
+                    ));
+                }
+            }
+            rendered.push('}');
+            rendered
+        }
+    }
+}
+
+fn render_assignment_target(expr: &Expr) -> String {
+    match expr {
+        Expr::Index { base, index, .. } if matches!(base.ty(), Type::MutSlice(_)) => {
+            format!(
+                "*axiom_array_get_mut({}, {})",
+                render_expr(base),
+                render_expr(index)
+            )
+        }
+        _ => render_expr(expr),
+    }
+}
+
+fn render_numeric_binary(
+    op: &crate::mir::ArithmeticOp,
+    lhs: &Expr,
+    rhs: &Expr,
+    ty: &Type,
+) -> String {
+    let left = render_binary_operand(lhs);
+    let right = render_binary_operand(rhs);
+    if !matches!(op, crate::mir::ArithmeticOp::Add) {
+        return format!("{} {} {}", left, op.lexeme(), right);
+    }
+    match ty {
+        Type::Int => format!("axiom_numeric_checked_add_i64({left}, {right})"),
+        Type::Numeric(crate::syntax::NumericType::I8) => {
+            format!("axiom_numeric_checked_add_i8({left}, {right})")
+        }
+        Type::Numeric(crate::syntax::NumericType::I16) => {
+            format!("axiom_numeric_checked_add_i16({left}, {right})")
+        }
+        Type::Numeric(crate::syntax::NumericType::I32) => {
+            format!("axiom_numeric_checked_add_i32({left}, {right})")
+        }
+        Type::Numeric(crate::syntax::NumericType::I64) => {
+            format!("axiom_numeric_checked_add_i64({left}, {right})")
+        }
+        Type::Numeric(crate::syntax::NumericType::Isize) => {
+            format!("axiom_numeric_checked_add_isize({left}, {right})")
+        }
+        Type::Numeric(
+            crate::syntax::NumericType::U8
+            | crate::syntax::NumericType::U16
+            | crate::syntax::NumericType::U32
+            | crate::syntax::NumericType::U64
+            | crate::syntax::NumericType::Usize,
+        ) => format!("({left}).wrapping_add({right})"),
+        Type::Numeric(crate::syntax::NumericType::F32 | crate::syntax::NumericType::F64) => {
+            format!("{left} + {right}")
+        }
+        _ => unreachable!("type checker rejects non-numeric binary arithmetic"),
     }
 }
 
@@ -5094,6 +5266,7 @@ fn rust_type_in_signature(
 
 fn rust_type_inner(ty: &Type, lifetime: Option<&str>, type_context: &TypeContext<'_>) -> String {
     match ty {
+        Type::Never => String::from("!"),
         Type::Int => String::from("i64"),
         Type::Numeric(numeric) => numeric.as_str().to_string(),
         Type::Bool => String::from("bool"),
@@ -5216,7 +5389,7 @@ fn render_collection_edge(collection: &Expr, result_ty: &Type, from_end: bool) -
     match collection.ty() {
         Type::Array(_, _) => {
             if result_ty.is_copy() {
-                format!("{{ let values = {rendered}; axiom_array_get(&values, {index}) }}")
+                format!("{{ let values = &{rendered}; axiom_array_get(values, {index}) }}")
             } else {
                 format!(
                     "{{ let values = {rendered}; let index = {index}; axiom_array_take(values, index) }}"
@@ -5224,7 +5397,7 @@ fn render_collection_edge(collection: &Expr, result_ty: &Type, from_end: bool) -
             }
         }
         Type::Slice(_) | Type::MutSlice(_) => format!(
-            "{{ let values = {rendered}; let index = {index}; axiom_array_get(values, index) }}"
+            "{{ let values = &*{rendered}; let index = {index}; axiom_array_get(values, index) }}"
         ),
         _ => unreachable!("type checker rejects first/last on non-collection values"),
     }

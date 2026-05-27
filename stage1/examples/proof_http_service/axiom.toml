@@ -10,6 +10,12 @@ out_dir = "dist"
 fs = false
 net = true
 process = false
-env = ["REQUEST_METHOD", "REQUEST_PATH"]
+env = ["REQUEST_METHOD", "REQUEST_PATH", "AXIOM_TEST_BIND"]
 clock = true
 crypto = false
+
+[[tests]]
+name = "http-service-health"
+entry = "src/server_test.ax"
+stdout = "true\n"
+http = { path = "/health", expected_body = "{\"path\":\"/health\",\"ok\":true}" }

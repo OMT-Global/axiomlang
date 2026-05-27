@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://axiom-lang.dev/schemas/axiom-trace-v0.schema.json",
+  "title": "Axiom Trace v0",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "ok",
+    "command",
+    "query",
+    "provenance",
+    "nodes",
+    "artifacts",
+    "relationships"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "axiom.trace.v0"
+    },
+    "ok": {
+      "const": true
+    },
+    "command": {
+      "const": "trace"
+    },
+    "query": {
+      "type": "string",
+      "minLength": 1
+    },
+    "provenance": {
+      "type": "string",
+      "minLength": 1
+    },
+    "nodes": {
+      "type": "array",
+      "items": {
+        "$ref": "axiom-provenance-v0.schema.json#/$defs/node"
+      }
+    },
+    "artifacts": {
+      "type": "array",
+      "items": {
+        "$ref": "axiom-provenance-v0.schema.json#/$defs/artifact"
+      }
+    },
+    "relationships": {
+      "type": "array",
+      "items": {
+        "$ref": "axiom-provenance-v0.schema.json#/$defs/relationship"
+      }
+    }
+  }
+}
