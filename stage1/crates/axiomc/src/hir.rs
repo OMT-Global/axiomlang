@@ -12446,10 +12446,13 @@ fn mark_projection_moved(
             format!("internal error: missing binding for moved value {name:?}"),
         )
     })?;
-    if binding.active_borrow_count > 0 {
+    if moved_projection_conflicts_with_active_borrow(binding, &projection) {
         return Err(ownership_error(
             OWNERSHIP_MOVE_WHILE_BORROWED,
-            format!("cannot move value {name:?} while borrowed slices are still live"),
+            format!(
+                "cannot move value {:?} while borrowed slices are still live",
+                format_projected_name(name, &projection)
+            ),
         ));
     }
     if projection_is_unavailable(binding, &projection) {
@@ -12467,6 +12470,22 @@ fn mark_projection_moved(
         binding.moved_projections.insert(projection);
     }
     Ok(())
+}
+
+fn moved_projection_conflicts_with_active_borrow(
+    binding: &Binding,
+    projection: &[ProjectionSegment],
+) -> bool {
+    if binding.active_borrow_count == 0 {
+        return false;
+    }
+    if projection.is_empty() || binding.active_borrows.is_empty() {
+        return true;
+    }
+    binding
+        .active_borrows
+        .keys()
+        .any(|active_projection| projection_conflicts(active_projection, projection))
 }
 
 fn ensure_lowered_projection_traversable(
