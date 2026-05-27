@@ -351,8 +351,7 @@ impl PartialEq for Type {
 
 fn type_assignable_to(actual: &Type, expected: &Type) -> bool {
     match (actual, expected) {
-        (_, Type::Error) | (Type::Error, _) => true,
-        (Type::Never, _) => true,
+        (Type::Never, _) | (_, Type::Error) | (Type::Error, _) => true,
         (Type::Array(actual_inner, actual_len), Type::Array(expected_inner, expected_len)) => {
             type_assignable_to(actual_inner, expected_inner)
                 && match expected_len {
@@ -7513,6 +7512,39 @@ fn lower_expr_with_expected_inner(
             ) {
                 return lower_map_lookup_intrinsic(name, type_args, args, *line, *column, env, ctx);
             }
+            if name == "panic" {
+                if !type_args.is_empty() {
+                    return Err(
+                        Diagnostic::new("type", "panic does not accept type arguments")
+                            .with_span(*line, *column),
+                    );
+                }
+                if args.len() != 1 {
+                    return Err(Diagnostic::new(
+                        "type",
+                        format!("panic expects 1 argument, got {}", args.len()),
+                    )
+                    .with_span(*line, *column));
+                }
+                let message = lower_expr_with_expected(&args[0], Some(&Type::String), env, ctx)?;
+                if message.ty() != &Type::String {
+                    return Err(Diagnostic::new(
+                        "type",
+                        format!("panic expects a string argument, got {}", message.ty()),
+                    )
+                    .with_span(args[0].line(), args[0].column()));
+                }
+                move_lowered_value(&message, env)?;
+                return Ok(Expr::Call {
+                    span: SourceSpan {
+                        line: *line,
+                        column: *column,
+                    },
+                    name: name.clone(),
+                    args: vec![message],
+                    ty: Type::Never,
+                });
+            }
             if !type_args.is_empty() {
                 return Err(
                     Diagnostic::new("type", format!("function {name:?} is not generic"))
@@ -7536,6 +7568,11 @@ fn lower_expr_with_expected_inner(
                     .with_span(args[0].line(), args[0].column()));
                 }
                 move_lowered_value(&lowered, env)?;
+                let ty = if static_bool_value(&lowered) == Some(false) {
+                    Type::Never
+                } else {
+                    Type::Int
+                };
                 return Ok(Expr::Call {
                     span: SourceSpan {
                         line: *line,
@@ -7543,7 +7580,7 @@ fn lower_expr_with_expected_inner(
                     },
                     name: name.clone(),
                     args: with_assert_location(vec![lowered], *line, *column),
-                    ty: Type::Int,
+                    ty,
                 });
             }
             if name == "assert_property" {
