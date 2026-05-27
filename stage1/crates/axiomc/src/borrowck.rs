@@ -333,6 +333,7 @@ fn contains_borrowed_slice_type_inner(
             contains
         }
         Type::Error
+        | Type::Never
         | Type::Int
         | Type::Numeric(_)
         | Type::Bool
@@ -353,6 +354,7 @@ fn contains_mut_borrowed_slice_type_inner(
         Type::MutSlice(_) | Type::MutRef(_) => true,
         Type::Slice(_)
         | Type::Error
+        | Type::Never
         | Type::Int
         | Type::Numeric(_)
         | Type::Bool

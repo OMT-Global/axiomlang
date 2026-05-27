@@ -1569,28 +1569,6 @@ fn parse_stmt(
         *index += 1;
         return Ok(stmt);
     }
-    if trimmed.starts_with('*')
-        && let Some(equals) = find_top_level_char(trimmed, '=')
-    {
-        let target_raw = trimmed[..equals].trim();
-        let expr_raw = trimmed[equals + 1..].trim();
-        if target_raw.is_empty() || expr_raw.is_empty() {
-            return Err(
-                Diagnostic::new("parse", "assignment must use `target = value` syntax")
-                    .with_path(path.display().to_string())
-                    .with_span(line_no, 1),
-            );
-        }
-        let target = parse_expr(target_raw, path, line_no, 1)?;
-        let expr = parse_expr(expr_raw, path, line_no, equals + 2)?;
-        *index += 1;
-        return Ok(Stmt::Assign {
-            target,
-            expr,
-            line: line_no,
-            column: 1,
-        });
-    }
     if let Some(rest) = trimmed.strip_prefix("print ") {
         let expr = parse_expr(rest, path, line_no, 7)?;
         *index += 1;
@@ -1628,6 +1606,26 @@ fn parse_stmt(
         let expr = parse_expr(rest, path, line_no, 8)?;
         *index += 1;
         return Ok(Stmt::Return {
+            expr,
+            line: line_no,
+            column: 1,
+        });
+    }
+    if let Some(equals) = find_top_level_char(trimmed, '=') {
+        let target_raw = trimmed[..equals].trim();
+        let expr_raw = trimmed[equals + 1..].trim();
+        if target_raw.is_empty() || expr_raw.is_empty() {
+            return Err(
+                Diagnostic::new("parse", "assignment must use `target = value` syntax")
+                    .with_path(path.display().to_string())
+                    .with_span(line_no, 1),
+            );
+        }
+        let target = parse_expr(target_raw, path, line_no, 1)?;
+        let expr = parse_expr(expr_raw, path, line_no, equals + 2)?;
+        *index += 1;
+        return Ok(Stmt::Assign {
+            target,
             expr,
             line: line_no,
             column: 1,
