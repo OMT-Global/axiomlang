@@ -96,6 +96,8 @@ pub enum Stmt {
         name: String,
         ty: Type,
         expr: Expr,
+        #[serde(skip)]
+        borrow_region_facts: Vec<BorrowRegionFact>,
         span: SourceSpan,
     },
     Assign {
@@ -144,6 +146,8 @@ pub struct MatchArm {
     pub bindings: Vec<String>,
     pub is_named: bool,
     pub ignore_payloads: bool,
+    #[serde(skip)]
+    pub borrow_region_facts: Vec<BorrowRegionFact>,
     pub body: Vec<Stmt>,
 }
 
@@ -317,6 +321,41 @@ pub struct MatchExprArm {
     pub bindings: Vec<String>,
     pub is_named: bool,
     pub expr: Expr,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct BorrowRegionFact {
+    pub binding: String,
+    pub origin: BorrowRegionOrigin,
+    pub scope: BorrowRegionScope,
+    pub source: BorrowRegionSource,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct BorrowRegionOrigin {
+    pub name: String,
+    pub projection: Vec<BorrowRegionProjection>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub enum BorrowRegionProjection {
+    Field(String),
+    TupleIndex(usize),
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub enum BorrowRegionScope {
+    Binding(String),
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub enum BorrowRegionSource {
+    Direct,
+    EnumPayload {
+        enum_origin: BorrowRegionOrigin,
+        variant: String,
+        payload_index: usize,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Eq)]
@@ -6457,9 +6496,19 @@ fn lower_match_stmt(
                 variant_def.payload_tys.clone()
             }
         };
+        let mut arm_borrow_region_facts = Vec::new();
         for (binding_index, (binding, payload_ty)) in
             arm.bindings.iter().zip(binding_tys.iter()).enumerate()
         {
+            let payload_index = if arm.is_named {
+                variant_def
+                    .payload_names
+                    .iter()
+                    .position(|name| name == binding)
+                    .expect("named match binding already validated")
+            } else {
+                binding_index
+            };
             if ctx.functions.contains_key(binding) {
                 return Err(Diagnostic::new(
                     "type",
@@ -6476,6 +6525,23 @@ fn lower_match_stmt(
                 )
                 .with_span(arm.line, arm.column));
             }
+            let borrowed_owners = match_binding_borrowed_owners(
+                &lowered_expr,
+                &arm.variant,
+                binding,
+                binding_index,
+                payload_ty,
+                &before,
+                ctx,
+            );
+            arm_borrow_region_facts.extend(borrow_region_facts_for_enum_payload_binding(
+                binding,
+                payload_ty,
+                &borrowed_owners,
+                &lowered_expr,
+                &arm.variant,
+                payload_index,
+            ));
             arm_env.insert(
                 binding.clone(),
                 Binding {
@@ -6492,15 +6558,7 @@ fn lower_match_stmt(
                         &before,
                         ctx,
                     ),
-                    borrowed_owners: match_binding_borrowed_owners(
-                        &lowered_expr,
-                        &arm.variant,
-                        binding,
-                        binding_index,
-                        payload_ty,
-                        &before,
-                        ctx,
-                    ),
+                    borrowed_owners,
                     active_borrow_count: 0,
                     active_mut_borrow_count: 0,
                     active_borrows: HashMap::new(),
@@ -6525,6 +6583,7 @@ fn lower_match_stmt(
             bindings: arm.bindings.clone(),
             is_named: arm.is_named,
             ignore_payloads: arm.ignore_payloads,
+            borrow_region_facts: arm_borrow_region_facts,
             body,
         });
         arm_states.push((after, returns));
@@ -6609,6 +6668,7 @@ fn lower_const_match_stmt(
             bindings: Vec::new(),
             is_named: false,
             ignore_payloads: false,
+            borrow_region_facts: Vec::new(),
             body,
         });
         arm_states.push((after, returns));
@@ -6991,6 +7051,8 @@ fn lower_stmt(
             }
             let borrowed_owners =
                 binding_borrowed_owners_from_expr(&expected, &lowered_expr, env, ctx);
+            let borrow_region_facts =
+                borrow_region_facts_for_binding(name, &expected, &borrowed_owners);
             if let Some(borrow_kind) = borrow_kind_for_type(&expected, ctx.structs, ctx.enums) {
                 increment_active_borrows(&borrowed_owners, env, borrow_kind, *line, *column)?;
             }
@@ -7020,6 +7082,7 @@ fn lower_stmt(
                 name: name.clone(),
                 ty: expected,
                 expr: lowered_expr,
+                borrow_region_facts,
                 span: SourceSpan {
                     line: *line,
                     column: *column,
@@ -12380,6 +12443,77 @@ fn binding_borrowed_owners_from_expr(
     expr_borrowed_owners(expr, env, ctx)
 }
 
+fn borrow_region_facts_for_binding(
+    binding: &str,
+    ty: &Type,
+    borrowed_owners: &HashSet<BorrowedOwner>,
+) -> Vec<BorrowRegionFact> {
+    if !matches!(ty, Type::Slice(_) | Type::MutSlice(_)) {
+        return Vec::new();
+    }
+    let mut owners = borrowed_owners.iter().collect::<Vec<_>>();
+    owners.sort_by(|left, right| {
+        left.name
+            .cmp(&right.name)
+            .then_with(|| format!("{:?}", left.projection).cmp(&format!("{:?}", right.projection)))
+    });
+    owners
+        .into_iter()
+        .map(|owner| BorrowRegionFact {
+            binding: binding.to_string(),
+            origin: BorrowRegionOrigin::from(owner),
+            scope: BorrowRegionScope::Binding(binding.to_string()),
+            source: BorrowRegionSource::Direct,
+        })
+        .collect()
+}
+
+fn borrow_region_facts_for_enum_payload_binding(
+    binding: &str,
+    payload_ty: &Type,
+    borrowed_owners: &HashSet<BorrowedOwner>,
+    matched_expr: &Expr,
+    variant: &str,
+    payload_index: usize,
+) -> Vec<BorrowRegionFact> {
+    let Some(enum_origin) =
+        owned_borrow_owner(matched_expr).map(|owner| BorrowRegionOrigin::from(&owner))
+    else {
+        return Vec::new();
+    };
+    let mut facts = borrow_region_facts_for_binding(binding, payload_ty, borrowed_owners);
+    for fact in &mut facts {
+        fact.source = BorrowRegionSource::EnumPayload {
+            enum_origin: enum_origin.clone(),
+            variant: variant.to_string(),
+            payload_index,
+        };
+    }
+    facts
+}
+
+impl From<&BorrowedOwner> for BorrowRegionOrigin {
+    fn from(owner: &BorrowedOwner) -> Self {
+        Self {
+            name: owner.name.clone(),
+            projection: owner
+                .projection
+                .iter()
+                .map(BorrowRegionProjection::from)
+                .collect(),
+        }
+    }
+}
+
+impl From<&ProjectionSegment> for BorrowRegionProjection {
+    fn from(segment: &ProjectionSegment) -> Self {
+        match segment {
+            ProjectionSegment::Field(field) => Self::Field(field.clone()),
+            ProjectionSegment::TupleIndex(index) => Self::TupleIndex(*index),
+        }
+    }
+}
+
 fn expr_borrow_origin(
     expr: &Expr,
     env: &HashMap<String, Binding>,
@@ -13375,6 +13509,112 @@ mod boundary_tests {
 
     fn parse(source: &str) -> syntax::Program {
         syntax::parse_program(source, Path::new("main.ax")).expect("parse fixture")
+    }
+
+    fn collect_borrow_region_facts(stmts: &[Stmt]) -> Vec<BorrowRegionFact> {
+        let mut facts = Vec::new();
+        for stmt in stmts {
+            match stmt {
+                Stmt::Let {
+                    borrow_region_facts,
+                    ..
+                } => facts.extend(borrow_region_facts.iter().cloned()),
+                Stmt::If {
+                    then_block,
+                    else_block,
+                    ..
+                } => {
+                    facts.extend(collect_borrow_region_facts(then_block));
+                    if let Some(else_block) = else_block {
+                        facts.extend(collect_borrow_region_facts(else_block));
+                    }
+                }
+                Stmt::While { body, .. } => facts.extend(collect_borrow_region_facts(body)),
+                Stmt::Match { arms, .. } => {
+                    for arm in arms {
+                        facts.extend(arm.borrow_region_facts.iter().cloned());
+                        facts.extend(collect_borrow_region_facts(&arm.body));
+                    }
+                }
+                Stmt::Assign { .. }
+                | Stmt::Print { .. }
+                | Stmt::Panic { .. }
+                | Stmt::Defer { .. }
+                | Stmt::Return { .. } => {}
+            }
+        }
+        facts
+    }
+
+    #[test]
+    fn hir_records_borrow_region_fact_for_borrowed_slice_binding() {
+        let parsed = parse(
+            r#"
+let arr: [int] = [1, 2, 3]
+let s: &[int] = arr[:]
+"#,
+        );
+
+        let lowered = lower(&parsed).expect("HIR lowering should accept borrowed array slice");
+        let facts = collect_borrow_region_facts(&lowered.stmts);
+
+        assert_eq!(
+            facts,
+            vec![BorrowRegionFact {
+                binding: "s".to_string(),
+                origin: BorrowRegionOrigin {
+                    name: "arr".to_string(),
+                    projection: Vec::new(),
+                },
+                scope: BorrowRegionScope::Binding("s".to_string()),
+                source: BorrowRegionSource::Direct,
+            }]
+        );
+    }
+
+    #[test]
+    fn hir_records_borrow_region_fact_for_enum_payload_binding() {
+        let parsed = parse(
+            r#"
+let values: [int] = [1, 2, 3]
+let opt: Option<&[int]> = Some(values[:])
+match opt {
+Some(view) {
+print len(view)
+}
+None {
+print 0
+}
+}
+"#,
+        );
+
+        let lowered = lower(&parsed).expect("HIR lowering should accept borrowed enum payload");
+        let facts = collect_borrow_region_facts(&lowered.stmts);
+        let enum_payload_facts = facts
+            .into_iter()
+            .filter(|fact| fact.binding == "view")
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            enum_payload_facts,
+            vec![BorrowRegionFact {
+                binding: "view".to_string(),
+                origin: BorrowRegionOrigin {
+                    name: "values".to_string(),
+                    projection: Vec::new(),
+                },
+                scope: BorrowRegionScope::Binding("view".to_string()),
+                source: BorrowRegionSource::EnumPayload {
+                    enum_origin: BorrowRegionOrigin {
+                        name: "opt".to_string(),
+                        projection: Vec::new(),
+                    },
+                    variant: "Some".to_string(),
+                    payload_index: 0,
+                },
+            }]
+        );
     }
 
     #[test]
