@@ -1,5 +1,5 @@
 axiom cli
-mode=status plan=inspect queue
+mode=status profile=audit plan=inspect queue
 {"workload":"proof-cli","command":"status","code":3,"mode":"status"}
 {"workload":"proof-cli","command":"run","code":7,"mode":"status"}
 true
