@@ -7730,7 +7730,10 @@ fn coerce_expr_to_expected(
 }
 
 fn is_stable_string_borrow_owner(expr: &Expr) -> bool {
-    matches!(expr, Expr::VarRef { .. } | Expr::FieldAccess { .. })
+    matches!(
+        expr,
+        Expr::VarRef { .. } | Expr::FieldAccess { .. } | Expr::TupleIndex { .. }
+    )
 }
 
 fn lower_expr_with_expected(
@@ -9627,6 +9630,65 @@ fn lower_expr_with_expected_inner(
                     name: name.clone(),
                     args: vec![left, right],
                     ty: Type::Bool,
+                });
+            }
+            if name == "crypto_rand_bytes" {
+                require_capability(
+                    ctx.capabilities,
+                    CapabilityKind::Crypto,
+                    name,
+                    *line,
+                    *column,
+                )?;
+                if args.len() != 1 {
+                    return Err(Diagnostic::new(
+                        "type",
+                        format!("crypto_rand_bytes expects 1 argument, got {}", args.len()),
+                    )
+                    .with_span(*line, *column));
+                }
+                let n = lower_expr_with_expected(&args[0], Some(&Type::Int), env, ctx)?;
+                if n.ty() != &Type::Int {
+                    return Err(Diagnostic::new(
+                        "type",
+                        format!("crypto_rand_bytes expects an int argument, got {}", n.ty()),
+                    )
+                    .with_span(args[0].line(), args[0].column()));
+                }
+                move_lowered_value(&n, env)?;
+                return Ok(Expr::Call {
+                    span: SourceSpan {
+                        line: *line,
+                        column: *column,
+                    },
+                    name: name.clone(),
+                    args: vec![n],
+                    ty: Type::Array(Box::new(Type::Numeric(syntax::NumericType::U8)), None),
+                });
+            }
+            if name == "crypto_rand_u64" {
+                require_capability(
+                    ctx.capabilities,
+                    CapabilityKind::Crypto,
+                    name,
+                    *line,
+                    *column,
+                )?;
+                if !args.is_empty() {
+                    return Err(Diagnostic::new(
+                        "type",
+                        format!("crypto_rand_u64 expects 0 arguments, got {}", args.len()),
+                    )
+                    .with_span(*line, *column));
+                }
+                return Ok(Expr::Call {
+                    span: SourceSpan {
+                        line: *line,
+                        column: *column,
+                    },
+                    name: name.clone(),
+                    args: vec![],
+                    ty: Type::Numeric(syntax::NumericType::U64),
                 });
             }
             if name == "first" || name == "last" {

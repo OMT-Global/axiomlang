@@ -291,6 +291,21 @@ version = "0.1.0"
 source = "path:fail/panic_requires_string_argument"
 
 [[package]]
+name = "conformance-projection-overlap-struct-field"
+version = "0.1.0"
+source = "path:fail/projection_overlap_struct_field"
+
+[[package]]
+name = "conformance-projection-overlap-tuple"
+version = "0.1.0"
+source = "path:fail/projection_overlap_tuple"
+
+[[package]]
+name = "conformance-projection-overlap-via-whole-value"
+version = "0.1.0"
+source = "path:fail/projection_overlap_via_whole_value"
+
+[[package]]
 name = "conformance-rebind-owned-value-not-supported"
 version = "0.1.0"
 source = "path:fail/rebind_owned_value_not_supported"
@@ -494,6 +509,16 @@ source = "path:pass/package_local_modules"
 name = "conformance-package-visibility"
 version = "0.1.0"
 source = "path:pass/package_visibility"
+
+[[package]]
+name = "conformance-projection-struct-disjoint"
+version = "0.1.0"
+source = "path:pass/projection_struct_disjoint"
+
+[[package]]
+name = "conformance-projection-tuple-disjoint"
+version = "0.1.0"
+source = "path:pass/projection_tuple_disjoint"
 
 [[package]]
 name = "conformance-runtime-negative-diagnostics"

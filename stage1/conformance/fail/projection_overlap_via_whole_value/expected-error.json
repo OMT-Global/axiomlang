@@ -1,0 +1,8 @@
+{
+  "kind": "ownership",
+  "code": "use_after_move",
+  "message": "use of moved value \"pair\"",
+  "path": "src/main.ax",
+  "line": 8,
+  "column": 17
+}

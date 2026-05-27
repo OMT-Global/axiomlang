@@ -4399,6 +4399,12 @@ fn render_expr(expr: &Expr) -> String {
                 render_expr(&args[1])
             )
         }
+        Expr::Call { name, args, .. } if name == "crypto_rand_bytes" => {
+            format!("axiom_crypto_rand_bytes({})", render_expr(&args[0]))
+        }
+        Expr::Call { name, args, .. } if name == "crypto_rand_u64" => {
+            "axiom_crypto_rand_u64()".to_string()
+        }
         Expr::Call { name, args, .. } if name == "async_ready" => {
             format!("axiom_task_ready({})", render_expr(&args[0]))
         }
