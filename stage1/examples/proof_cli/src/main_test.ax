@@ -1,14 +1,30 @@
 import "std/env.ax"
+import "std/fs.ax"
 import "std/time.ax"
 import "core/command.ax"
 import "core/render.ax"
 import "ui/render.ax"
 
+fn configured_profile(raw: Option<string>): string {
+match raw {
+Some(value) {
+if value == "audit\n" {
+return "audit"
+}
+return value
+}
+None {
+return "default"
+}
+}
+}
+
+let configured: string = configured_profile(read_file("src/config.txt"))
 let mode_for_plan: string = requested_mode(get_env("AXIOM_STAGE1_CLI_MODE"))
 let mode_for_status: string = requested_mode(get_env("AXIOM_STAGE1_CLI_MODE"))
 let mode_for_run: string = requested_mode(get_env("AXIOM_STAGE1_CLI_MODE"))
 print headline("axiom")
-print describe(mode_for_plan, plan(requested_mode(get_env("AXIOM_STAGE1_CLI_MODE"))))
+print describe(mode_for_plan, configured, plan(requested_mode(get_env("AXIOM_STAGE1_CLI_MODE"))))
 print render_command("status", 3, mode_for_status)
 print render_command("run", 7, mode_for_run)
 print now_ms() > 0

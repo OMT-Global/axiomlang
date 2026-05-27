@@ -211,6 +211,11 @@ version = "0.1.0"
 source = "path:fail/nested_match_pattern_not_supported"
 
 [[package]]
+name = "conformance-never-control-flow-missing-return"
+version = "0.1.0"
+source = "path:fail/never_control_flow_missing_return"
+
+[[package]]
 name = "conformance-numeric-float-mixed-width-add"
 version = "0.1.0"
 source = "path:fail/numeric_float_mixed_width_add"
@@ -351,6 +356,11 @@ version = "0.1.0"
 source = "path:fail/string_use_after_move"
 
 [[package]]
+name = "conformance-trait-type-position-not-supported"
+version = "0.1.0"
+source = "path:fail/trait_type_position_not_supported"
+
+[[package]]
 name = "conformance-borrow-return-elision"
 version = "0.1.0"
 source = "path:pass/borrow_return_elision"
@@ -429,6 +439,11 @@ source = "path:pass/mutable_projection_borrows"
 name = "conformance-mutable-slice-write-through"
 version = "0.1.0"
 source = "path:pass/mutable_slice_write_through"
+
+[[package]]
+name = "conformance-never-control-flow"
+version = "0.1.0"
+source = "path:pass/never_control_flow"
 
 [[package]]
 name = "conformance-numeric-cross-width-casts"
@@ -519,6 +534,11 @@ source = "path:pass/string_param_by_value"
 name = "conformance-struct-field-access"
 version = "0.1.0"
 source = "path:pass/struct_field_access"
+
+[[package]]
+name = "conformance-trait-declaration-syntax"
+version = "0.1.0"
+source = "path:pass/trait_declaration_syntax"
 
 [[package]]
 name = "conformance-type-system-aggregates"
