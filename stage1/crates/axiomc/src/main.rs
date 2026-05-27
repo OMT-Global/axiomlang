@@ -16,7 +16,7 @@ use axiomc::project::{
     BuildOptions, BuildOutput, CheckOptions, RunOptions, TestOptions, build_project_with_options,
     capability_sbom, check_project_with_options, list_project_tests_with_options,
     package_graph_metadata, project_capabilities, run_project_tests_with_options,
-    run_project_with_options,
+    run_project_with_options, trace_provenance,
 };
 use axiomc::registry::{
     PublishOptions, load_registry_index, publish_package, render_registry_index,
@@ -96,6 +96,13 @@ enum Command {
         package: Option<String>,
         #[arg(last = true)]
         args: Vec<String>,
+    },
+    /// Trace package intent-to-artifact provenance emitted by `axiomc build`.
+    Trace {
+        /// Project path to trace, or an axiom:// node or artifact id to trace in the current project.
+        query: String,
+        #[arg(long)]
+        json: bool,
     },
     /// Discover, build, and run package test entrypoints.
     Test {
@@ -399,6 +406,29 @@ fn main() {
             Ok(code) => code,
             Err(error) => print_error("run", error, false),
         },
+        Command::Trace { query, json } => {
+            let (project, node_query) = trace_project_and_query(&query);
+            match trace_provenance(&project, node_query.as_deref()) {
+                Ok(report) => {
+                    if json {
+                        println!(
+                            "{}",
+                            json_contract::to_pretty_string(&report)
+                                .unwrap_or_else(|_| String::from("{}"))
+                        );
+                    } else {
+                        println!(
+                            "nodes={} artifacts={} relationships={}",
+                            report.nodes.len(),
+                            report.artifacts.len(),
+                            report.relationships.len()
+                        );
+                    }
+                    0
+                }
+                Err(error) => print_error("trace", error, json),
+            }
+        }
         Command::Test {
             path,
             json,
@@ -3392,6 +3422,14 @@ fn normalize_for_graph(path: &Path) -> String {
         .to_string()
 }
 
+fn trace_project_and_query(query: &str) -> (PathBuf, Option<String>) {
+    if query.starts_with("axiom://") {
+        (PathBuf::from("."), Some(query.to_string()))
+    } else {
+        (PathBuf::from(query), None)
+    }
+}
+
 fn axiom_files(path: &Path) -> Result<Vec<PathBuf>, Diagnostic> {
     if path.is_file() {
         return if path.extension().is_some_and(|ext| ext == "ax") {
@@ -3541,6 +3579,26 @@ mod tests {
             }
             other => panic!("expected build command, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn trace_cli_accepts_project_paths_and_node_ids() {
+        let cli = Cli::parse_from(["axiomc", "trace", ".", "--json"]);
+        match cli.command {
+            Command::Trace { query, json } => {
+                assert_eq!(query, ".");
+                assert!(json);
+            }
+            other => panic!("expected trace command, got {other:?}"),
+        }
+
+        let (project, query) =
+            trace_project_and_query("axiom://package/demo/function/src/main.ax/main");
+        assert_eq!(project, PathBuf::from("."));
+        assert_eq!(
+            query.as_deref(),
+            Some("axiom://package/demo/function/src/main.ax/main")
+        );
     }
 
     #[test]

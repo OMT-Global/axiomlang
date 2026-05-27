@@ -1,0 +1,117 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://axiom-lang.dev/schemas/axiom-provenance-v0.schema.json",
+  "title": "Axiom Provenance v0",
+  "type": "object",
+  "required": ["schema_version", "package", "nodes", "artifacts", "relationships"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "axiom.provenance.v0"
+    },
+    "package": {
+      "$ref": "#/$defs/node"
+    },
+    "nodes": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/node"
+      }
+    },
+    "artifacts": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/artifact"
+      }
+    },
+    "relationships": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/relationship"
+      }
+    }
+  },
+  "$defs": {
+    "nodeId": {
+      "type": "string",
+      "pattern": "^axiom://[A-Za-z0-9._~:/#@!$&'()*+,;=%-]+$"
+    },
+    "node": {
+      "type": "object",
+      "required": ["id", "kind", "name"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/nodeId"
+        },
+        "kind": {
+          "enum": ["package", "source", "function"]
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "source_span": {
+          "$ref": "#/$defs/sourceSpan"
+        }
+      }
+    },
+    "artifact": {
+      "type": "object",
+      "required": ["id", "kind", "path", "hash"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/nodeId"
+        },
+        "kind": {
+          "enum": ["rust_source", "native_binary"]
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "hash": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{16}$"
+        }
+      }
+    },
+    "relationship": {
+      "type": "object",
+      "required": ["from", "kind", "to"],
+      "additionalProperties": false,
+      "properties": {
+        "from": {
+          "$ref": "#/$defs/nodeId"
+        },
+        "kind": {
+          "enum": ["declares", "emits"]
+        },
+        "to": {
+          "$ref": "#/$defs/nodeId"
+        }
+      }
+    },
+    "sourceSpan": {
+      "type": "object",
+      "required": ["path", "line", "column"],
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "line": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "column": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    }
+  }
+}
