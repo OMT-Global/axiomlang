@@ -34,8 +34,12 @@
 //!   `verify_sha512(tag, key, message)`, `constant_time_eq(left, right)`,
 //!   and `constant_time_eq_u8(left, right)` on top of `crypto_hmac_*` and
 //!   `crypto_constant_time_eq*` (crypto).
+//! * `std/crypto_rand.ax` — `random_bytes(n)` and `random_u64()` on top of
+//!   `crypto_rand_*` intrinsics (crypto).
+//! * `std/crypto_sign.ax` — Ed25519 key generation, signing, and verification
+//!   helpers on top of `crypto_ed25519_*` intrinsics (crypto).
 //! * `std/crypto.ax` — umbrella re-export module for the stage1 crypto hash
-//!   MAC, and random helpers.
+//!   MAC, random, and Ed25519 signing helpers.
 //!
 //! Additional modules share existing capability classes with peer wrappers,
 //! demonstrating that the `std.*` surface is not limited to one wrapper per
@@ -193,6 +197,12 @@ pub fn verify_sha512(tag: string, key: string, message: string): bool {\nreturn 
 pub fn random_u64(): u64 {\nreturn crypto_rand_u64()\n}\n",
     ),
     (
+        "crypto_sign.ax",
+        "pub fn ed25519_keygen(): ([u8], [u8]) {\nreturn crypto_ed25519_keygen()\n}\n\
+pub fn ed25519_sign(secret_key: &[u8], message: &[u8]): [u8] {\nreturn crypto_ed25519_sign(secret_key, message)\n}\n\
+pub fn ed25519_verify(public_key: &[u8], message: &[u8], signature: &[u8]): bool {\nreturn crypto_ed25519_verify(public_key, message, signature)\n}\n",
+    ),
+    (
         "crypto.ax",
         "pub fn sha256(input: string): string {\nreturn crypto_sha256(input)\n}\n\
 pub fn hmac_sha256(key: string, message: string): string {\nreturn crypto_hmac_sha256(key, message)\n}\n\
@@ -202,7 +212,10 @@ pub fn constant_time_eq_u8(left: &[u8], right: &[u8]): bool {\nreturn crypto_con
 pub fn verify_sha256(tag: string, key: string, message: string): bool {\nreturn constant_time_eq(tag, hmac_sha256(key, message))\n}\n\
 pub fn verify_sha512(tag: string, key: string, message: string): bool {\nreturn constant_time_eq(tag, hmac_sha512(key, message))\n}\n\
 pub fn random_bytes(n: int): [u8] {\nreturn crypto_rand_bytes(n)\n}\n\
-pub fn random_u64(): u64 {\nreturn crypto_rand_u64()\n}\n",
+pub fn random_u64(): u64 {\nreturn crypto_rand_u64()\n}\n\
+pub fn ed25519_keygen(): ([u8], [u8]) {\nreturn crypto_ed25519_keygen()\n}\n\
+pub fn ed25519_sign(secret_key: &[u8], message: &[u8]): [u8] {\nreturn crypto_ed25519_sign(secret_key, message)\n}\n\
+pub fn ed25519_verify(public_key: &[u8], message: &[u8], signature: &[u8]): bool {\nreturn crypto_ed25519_verify(public_key, message, signature)\n}\n",
     ),
     (
         "io.ax",

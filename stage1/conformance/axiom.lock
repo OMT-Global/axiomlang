@@ -426,6 +426,11 @@ version = "0.1.0"
 source = "path:pass/crypto_constant_time"
 
 [[package]]
+name = "conformance-crypto-ed25519-sign-verify"
+version = "0.1.0"
+source = "path:pass/crypto_ed25519_sign_verify"
+
+[[package]]
 name = "conformance-functions-across-modules"
 version = "0.1.0"
 source = "path:pass/functions_across_modules"

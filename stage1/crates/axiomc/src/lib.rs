@@ -5644,6 +5644,36 @@ print "missing"
     }
 
     #[test]
+    fn stage1_project_imports_synthetic_stdlib_crypto_sign_module() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("stdlib-crypto-sign-app");
+        create_project(&project, Some("stdlib-crypto-sign-app")).expect("create project");
+        fs::write(
+            project.join("axiom.toml"),
+            render_manifest_with_capabilities(
+                "stdlib-crypto-sign-app",
+                false,
+                false,
+                false,
+                false,
+                false,
+                true,
+            ),
+        )
+        .expect("write manifest");
+        let manifest = load_manifest(&project).expect("load manifest");
+        fs::write(
+            project.join("axiom.lock"),
+            render_lockfile_for_project(&project, &manifest).expect("lockfile"),
+        )
+        .expect("write lockfile");
+        let source = "import \"std/crypto_sign.ax\"\nlet message: [u8] = [104u8, 101u8, 108u8, 108u8, 111u8]\nlet keys: ([u8], [u8]) = ed25519_keygen()\nlet public_key: [u8] = keys.0\nlet secret_key: [u8] = keys.1\nlet signature: [u8] = ed25519_sign(secret_key[:], message[:])\nprint ed25519_verify(public_key[:], message[:], signature[:])\n";
+        fs::write(project.join("src/main.ax"), source).expect("write source");
+
+        check_project(&project).expect("check project");
+    }
+
+    #[test]
     fn stage1_project_rejects_stdlib_crypto_mac_without_crypto_capability() {
         let dir = tempdir().expect("tempdir");
         let project = dir.path().join("stdlib-crypto-mac-denied");
@@ -5670,6 +5700,44 @@ print "missing"
         fs::write(
             project.join("src/main.ax"),
             "import \"std/crypto_mac.ax\"\nlet left: [u8] = [1u8]\nprint constant_time_eq_u8(left[:], left[:])\n",
+        )
+        .expect("write source");
+
+        let err = check_project(&project).expect_err("expected capability denial");
+        assert!(
+            err.message
+                .contains("requires [capabilities].crypto = true"),
+            "unexpected diagnostic: {err:?}",
+        );
+    }
+
+    #[test]
+    fn stage1_project_rejects_stdlib_crypto_sign_without_crypto_capability() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("stdlib-crypto-sign-denied");
+        create_project(&project, Some("stdlib-crypto-sign-denied")).expect("create project");
+        fs::write(
+            project.join("axiom.toml"),
+            render_manifest_with_capabilities(
+                "stdlib-crypto-sign-denied",
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+            ),
+        )
+        .expect("write manifest");
+        let manifest = load_manifest(&project).expect("load manifest");
+        fs::write(
+            project.join("axiom.lock"),
+            render_lockfile_for_project(&project, &manifest).expect("lockfile"),
+        )
+        .expect("write lockfile");
+        fs::write(
+            project.join("src/main.ax"),
+            "import \"std/crypto_sign.ax\"\nlet keys: ([u8], [u8]) = ed25519_keygen()\nprint len(keys.0)\n",
         )
         .expect("write source");
 
@@ -8430,8 +8498,8 @@ print serve_health("127.0.0.1:18080", 1, started)
     fn conformance_corpus_reports_stable_results() {
         let output =
             run_project_tests(&conformance_fixture()).expect("run stage1 conformance corpus");
-        assert_eq!(output.cases.len(), 108);
-        assert_eq!(output.passed, 108);
+        assert_eq!(output.cases.len(), 114);
+        assert_eq!(output.passed, 114);
         let failures: Vec<_> = output
             .cases
             .iter()
@@ -8445,7 +8513,7 @@ print serve_health("127.0.0.1:18080", 1, started)
                 .iter()
                 .filter(|case| case.expected_error.is_some())
                 .count(),
-            70
+            73
         );
         assert_eq!(
             output
@@ -8453,7 +8521,7 @@ print serve_health("127.0.0.1:18080", 1, started)
                 .iter()
                 .filter(|case| case.expected_stdout.is_some())
                 .count(),
-            36
+            39
         );
         assert_eq!(
             output

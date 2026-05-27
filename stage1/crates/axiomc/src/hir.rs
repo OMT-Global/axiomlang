@@ -9691,6 +9691,148 @@ fn lower_expr_with_expected_inner(
                     ty: Type::Numeric(syntax::NumericType::U64),
                 });
             }
+            if name == "crypto_ed25519_keygen" {
+                require_capability(
+                    ctx.capabilities,
+                    CapabilityKind::Crypto,
+                    name,
+                    *line,
+                    *column,
+                )?;
+                if !args.is_empty() {
+                    return Err(Diagnostic::new(
+                        "type",
+                        format!(
+                            "crypto_ed25519_keygen expects 0 arguments, got {}",
+                            args.len()
+                        ),
+                    )
+                    .with_span(*line, *column));
+                }
+                let bytes = Type::Array(Box::new(Type::Numeric(syntax::NumericType::U8)), None);
+                return Ok(Expr::Call {
+                    span: SourceSpan {
+                        line: *line,
+                        column: *column,
+                    },
+                    name: name.clone(),
+                    args: Vec::new(),
+                    ty: Type::Tuple(vec![bytes.clone(), bytes]),
+                });
+            }
+            if name == "crypto_ed25519_sign" {
+                require_capability(
+                    ctx.capabilities,
+                    CapabilityKind::Crypto,
+                    name,
+                    *line,
+                    *column,
+                )?;
+                if args.len() != 2 {
+                    return Err(Diagnostic::new(
+                        "type",
+                        format!(
+                            "crypto_ed25519_sign expects 2 arguments, got {}",
+                            args.len()
+                        ),
+                    )
+                    .with_span(*line, *column));
+                }
+                let byte_slice = Type::Slice(Box::new(Type::Numeric(syntax::NumericType::U8)));
+                let secret_key = lower_expr_with_expected(&args[0], Some(&byte_slice), env, ctx)?;
+                if secret_key.ty() != &byte_slice {
+                    return Err(Diagnostic::new(
+                        "type",
+                        format!(
+                            "crypto_ed25519_sign expects a &[u8] secret key, got {}",
+                            secret_key.ty()
+                        ),
+                    )
+                    .with_span(args[0].line(), args[0].column()));
+                }
+                let message = lower_expr_with_expected(&args[1], Some(&byte_slice), env, ctx)?;
+                if message.ty() != &byte_slice {
+                    return Err(Diagnostic::new(
+                        "type",
+                        format!(
+                            "crypto_ed25519_sign expects a &[u8] message, got {}",
+                            message.ty()
+                        ),
+                    )
+                    .with_span(args[1].line(), args[1].column()));
+                }
+                return Ok(Expr::Call {
+                    span: SourceSpan {
+                        line: *line,
+                        column: *column,
+                    },
+                    name: name.clone(),
+                    args: vec![secret_key, message],
+                    ty: Type::Array(Box::new(Type::Numeric(syntax::NumericType::U8)), None),
+                });
+            }
+            if name == "crypto_ed25519_verify" {
+                require_capability(
+                    ctx.capabilities,
+                    CapabilityKind::Crypto,
+                    name,
+                    *line,
+                    *column,
+                )?;
+                if args.len() != 3 {
+                    return Err(Diagnostic::new(
+                        "type",
+                        format!(
+                            "crypto_ed25519_verify expects 3 arguments, got {}",
+                            args.len()
+                        ),
+                    )
+                    .with_span(*line, *column));
+                }
+                let byte_slice = Type::Slice(Box::new(Type::Numeric(syntax::NumericType::U8)));
+                let public_key = lower_expr_with_expected(&args[0], Some(&byte_slice), env, ctx)?;
+                if public_key.ty() != &byte_slice {
+                    return Err(Diagnostic::new(
+                        "type",
+                        format!(
+                            "crypto_ed25519_verify expects a &[u8] public key, got {}",
+                            public_key.ty()
+                        ),
+                    )
+                    .with_span(args[0].line(), args[0].column()));
+                }
+                let message = lower_expr_with_expected(&args[1], Some(&byte_slice), env, ctx)?;
+                if message.ty() != &byte_slice {
+                    return Err(Diagnostic::new(
+                        "type",
+                        format!(
+                            "crypto_ed25519_verify expects a &[u8] message, got {}",
+                            message.ty()
+                        ),
+                    )
+                    .with_span(args[1].line(), args[1].column()));
+                }
+                let signature = lower_expr_with_expected(&args[2], Some(&byte_slice), env, ctx)?;
+                if signature.ty() != &byte_slice {
+                    return Err(Diagnostic::new(
+                        "type",
+                        format!(
+                            "crypto_ed25519_verify expects a &[u8] signature, got {}",
+                            signature.ty()
+                        ),
+                    )
+                    .with_span(args[2].line(), args[2].column()));
+                }
+                return Ok(Expr::Call {
+                    span: SourceSpan {
+                        line: *line,
+                        column: *column,
+                    },
+                    name: name.clone(),
+                    args: vec![public_key, message, signature],
+                    ty: Type::Bool,
+                });
+            }
             if name == "first" || name == "last" {
                 if args.len() != 1 {
                     return Err(Diagnostic::new(
