@@ -1,0 +1,13 @@
+fn choose(flag: bool): string {
+if flag {
+return "ok"
+} else {
+return panic("failed")
+}
+}
+
+fn impossible_assert(): int {
+return assert_true(false)
+}
+
+print choose(true)

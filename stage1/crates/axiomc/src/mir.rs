@@ -266,6 +266,7 @@ pub enum ArithmeticOp {
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub enum Type {
+    Never,
     Int,
     Numeric(crate::syntax::NumericType),
     Bool,
@@ -293,7 +294,8 @@ pub enum Type {
 impl Type {
     pub fn is_copy(&self) -> bool {
         match self {
-            Type::Int
+            Type::Never
+            | Type::Int
             | Type::Numeric(_)
             | Type::Bool
             | Type::Str
@@ -686,7 +688,7 @@ fn lower_expr(expr: &hir::Expr) -> Expr {
 fn lower_type(ty: &hir::Type) -> Type {
     match ty {
         hir::Type::Error => unreachable!("type-error sentinel must not reach MIR lowering"),
-        hir::Type::Never => unreachable!("never type must not reach MIR lowering"),
+        hir::Type::Never => Type::Never,
         hir::Type::Int => Type::Int,
         hir::Type::Numeric(numeric) => Type::Numeric(*numeric),
         hir::Type::Bool => Type::Bool,
