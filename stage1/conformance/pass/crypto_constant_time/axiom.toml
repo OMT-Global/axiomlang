@@ -17,4 +17,4 @@ crypto = true
 [[tests]]
 name = "crypto_constant_time_helpers"
 entry = "src/main.ax"
-stdout = "true\nfalse\ntrue\nfalse\n"
+stdout = "true\nfalse\ntrue\nfalse\n32\nfalse\n"

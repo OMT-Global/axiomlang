@@ -1,0 +1,306 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://axiom.omt.global/schemas/axiom-inspect-v0.schema.json",
+  "title": "Axiom Inspect API v0",
+  "description": "Versioned agent-facing envelopes emitted by axiomc inspect command families.",
+  "type": "object",
+  "required": ["schema_version", "schema", "ok", "command", "project"],
+  "properties": {
+    "schema_version": {
+      "const": "axiom.stage1.v1"
+    },
+    "schema": {
+      "const": "stage1/schemas/axiom-inspect-v0.schema.json"
+    },
+    "ok": {
+      "type": "boolean"
+    },
+    "command": {
+      "enum": [
+        "inspect graph",
+        "inspect symbols",
+        "inspect effects",
+        "inspect evidence",
+        "inspect artifacts"
+      ]
+    },
+    "project": {
+      "type": "string",
+      "minLength": 1
+    },
+    "symbols": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/symbol"
+      }
+    },
+    "packages": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/packageNode"
+      }
+    },
+    "modules": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/moduleNode"
+      }
+    },
+    "effects": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/effectNode"
+      }
+    },
+    "evidence": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/evidenceNode"
+      }
+    },
+    "artifacts": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/artifactNode"
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "command": {
+            "const": "inspect symbols"
+          }
+        }
+      },
+      "then": {
+        "required": ["symbols"]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "command": {
+            "const": "inspect graph"
+          }
+        }
+      },
+      "then": {
+        "required": ["packages", "modules"]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "command": {
+            "const": "inspect effects"
+          }
+        }
+      },
+      "then": {
+        "required": ["effects"]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "command": {
+            "const": "inspect evidence"
+          }
+        }
+      },
+      "then": {
+        "required": ["evidence"]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "command": {
+            "const": "inspect artifacts"
+          }
+        }
+      },
+      "then": {
+        "required": ["artifacts"]
+      }
+    }
+  ],
+  "$defs": {
+    "span": {
+      "type": "object",
+      "required": ["path", "line", "column"],
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "line": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "column": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "additionalProperties": false
+    },
+    "symbol": {
+      "type": "object",
+      "required": ["name", "kind", "signature", "span", "imports", "capabilities"],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "signature": {
+          "type": "string"
+        },
+        "span": {
+          "$ref": "#/$defs/span"
+        },
+        "imports": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "capabilities": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "packageNode": {
+      "type": "object",
+      "required": ["name", "root", "manifest", "dependencies", "workspace_members"],
+      "properties": {
+        "name": {
+          "type": ["string", "null"]
+        },
+        "root": {
+          "type": "string"
+        },
+        "manifest": {
+          "type": "string"
+        },
+        "dependencies": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        },
+        "workspace_members": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "moduleNode": {
+      "type": "object",
+      "required": ["path", "imports", "functions", "type_refs", "capabilities"],
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "imports": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        },
+        "functions": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        },
+        "type_refs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "capabilities": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "effectNode": {
+      "type": "object",
+      "required": ["name", "enabled", "resource", "allowed", "source"],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "resource": {
+          "type": "string"
+        },
+        "allowed": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "source": {
+          "const": "manifest"
+        }
+      }
+    },
+    "evidenceNode": {
+      "type": "object",
+      "required": ["kind", "name", "path", "package", "status"],
+      "properties": {
+        "kind": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "package": {
+          "type": ["string", "null"]
+        },
+        "status": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "artifactNode": {
+      "type": "object",
+      "required": ["kind", "path", "exists", "source"],
+      "properties": {
+        "kind": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "exists": {
+          "type": "boolean"
+        },
+        "source": {
+          "enum": ["configured", "available"]
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

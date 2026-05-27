@@ -94,6 +94,58 @@ pub struct BuildMetadata {
     pub source_hash: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SourceSpan {
+    pub path: String,
+    pub line: usize,
+    pub column: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ProvenanceReport {
+    pub schema_version: String,
+    pub package: ProvenanceNode,
+    pub nodes: Vec<ProvenanceNode>,
+    pub artifacts: Vec<ProvenanceArtifact>,
+    pub relationships: Vec<ProvenanceRelationship>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ProvenanceNode {
+    pub id: String,
+    pub kind: String,
+    pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_span: Option<SourceSpan>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ProvenanceArtifact {
+    pub id: String,
+    pub kind: String,
+    pub path: String,
+    pub hash: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ProvenanceRelationship {
+    pub from: String,
+    pub kind: String,
+    pub to: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct TraceReport {
+    pub schema_version: String,
+    pub ok: bool,
+    pub command: String,
+    pub query: String,
+    pub provenance: String,
+    pub nodes: Vec<ProvenanceNode>,
+    pub artifacts: Vec<ProvenanceArtifact>,
+    pub relationships: Vec<ProvenanceRelationship>,
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct BuiltPackage {
     pub backend: NativeBackendKind,
@@ -1221,6 +1273,7 @@ fn analyze_entry(
 ) -> Result<AnalyzedProject, Diagnostic> {
     let modules = load_modules(graph, package_root, &entry)?;
     validate_module_capabilities(graph, &modules)?;
+    validate_semantic_declarations(&modules)?;
     let flattened = flatten_modules(graph, &modules)?;
     let hir = hir::lower_with_capabilities(&flattened, &manifest.capabilities)
         .map_err(|error| diagnostic_with_default_path(error, &entry))?;
@@ -1240,6 +1293,120 @@ fn analyze_entry(
 pub fn lower_project_to_mir(project_root: &Path) -> Result<mir::Program, Diagnostic> {
     let graph = load_package_graph(project_root)?;
     Ok(analyze_package(&graph, project_root)?.mir)
+}
+
+fn validate_semantic_declarations(modules: &[LoadedModule]) -> Result<(), Diagnostic> {
+    let mut axioms = HashMap::<String, (&Path, usize, usize)>::new();
+    let mut capabilities = HashMap::<String, (&Path, usize, usize)>::new();
+    let mut evidence = HashMap::<String, (&Path, usize, usize)>::new();
+
+    for module in modules {
+        for axiom in &module.program.axioms {
+            if let Some((path, line, column)) =
+                axioms.insert(axiom.name.clone(), (&module.path, axiom.line, axiom.column))
+            {
+                return Err(duplicate_semantic_decl(
+                    "axiom",
+                    &axiom.name,
+                    &module.path,
+                    axiom.line,
+                    axiom.column,
+                    path,
+                    line,
+                    column,
+                ));
+            }
+        }
+        for capability in &module.program.semantic_capabilities {
+            if let Some((path, line, column)) = capabilities.insert(
+                capability.name.clone(),
+                (&module.path, capability.line, capability.column),
+            ) {
+                return Err(duplicate_semantic_decl(
+                    "capability",
+                    &capability.name,
+                    &module.path,
+                    capability.line,
+                    capability.column,
+                    path,
+                    line,
+                    column,
+                ));
+            }
+        }
+        for evidence_decl in &module.program.evidence {
+            if let Some((path, line, column)) = evidence.insert(
+                evidence_decl.name.clone(),
+                (&module.path, evidence_decl.line, evidence_decl.column),
+            ) {
+                return Err(duplicate_semantic_decl(
+                    "evidence",
+                    &evidence_decl.name,
+                    &module.path,
+                    evidence_decl.line,
+                    evidence_decl.column,
+                    path,
+                    line,
+                    column,
+                ));
+            }
+        }
+    }
+
+    let validate_evidence_refs = !evidence.is_empty();
+    for module in modules {
+        for capability in &module.program.semantic_capabilities {
+            for reference in &capability.preserves {
+                if !axioms.contains_key(&reference.name) {
+                    return Err(Diagnostic::new(
+                        "semantic",
+                        format!(
+                            "capability {:?} preserves unknown axiom {:?}",
+                            capability.name, reference.name
+                        ),
+                    )
+                    .with_path(module.path.display().to_string())
+                    .with_span(reference.line, reference.column));
+                }
+            }
+            if validate_evidence_refs {
+                for reference in &capability.evidence {
+                    if !evidence.contains_key(&reference.name) {
+                        return Err(Diagnostic::new(
+                            "semantic",
+                            format!(
+                                "capability {:?} requires unknown evidence {:?}",
+                                capability.name, reference.name
+                            ),
+                        )
+                        .with_path(module.path.display().to_string())
+                        .with_span(reference.line, reference.column));
+                    }
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+fn duplicate_semantic_decl(
+    kind: &'static str,
+    name: &str,
+    path: &Path,
+    line: usize,
+    column: usize,
+    existing_path: &Path,
+    existing_line: usize,
+    existing_column: usize,
+) -> Diagnostic {
+    Diagnostic::new("semantic", format!("duplicate {kind} declaration {name:?}"))
+        .with_path(path.display().to_string())
+        .with_span(line, column)
+        .with_related(vec![
+            Diagnostic::new("semantic", format!("previous {kind} declaration is here"))
+                .with_path(existing_path.display().to_string())
+                .with_span(existing_line, existing_column),
+        ])
 }
 
 fn validate_workspace_root_lockfile(
@@ -1635,6 +1802,7 @@ fn build_artifacts(
         if options.debug {
             write_debug_artifacts(generated_rust, binary, analyzed)?;
         }
+        write_provenance_artifact(package_root, analyzed, generated_rust, binary)?;
         return Ok(BuildArtifactReport {
             metadata: build_metadata(package_root, &cache),
             cache_status: BuildCacheStatus::Hit,
@@ -1663,12 +1831,284 @@ fn build_artifacts(
     let mut cache = cache;
     cache.binary_hash = Some(hash_file_bytes(binary)?);
     write_build_cache(&cache_path, &cache)?;
+    write_provenance_artifact(package_root, analyzed, generated_rust, binary)?;
     Ok(BuildArtifactReport {
         metadata: build_metadata(package_root, &cache),
         cache_status: BuildCacheStatus::Miss,
         cache_key: build_cache_metadata(&cache),
         compile_ms,
     })
+}
+
+pub fn provenance_path_for_project(project_root: &Path) -> Result<PathBuf, Diagnostic> {
+    let normalized = normalize_path(project_root);
+    let project_root = if normalized.as_os_str().is_empty() {
+        PathBuf::from(".")
+    } else {
+        normalized
+    };
+    let project_root = canonicalize_existing_path(&project_root, "project root")?;
+    let manifest = load_manifest(&project_root)?;
+    Ok(provenance_path(&project_root, &manifest))
+}
+
+pub fn trace_provenance(
+    project_root: &Path,
+    query: Option<&str>,
+) -> Result<TraceReport, Diagnostic> {
+    let path = provenance_path_for_project(project_root)?;
+    if !path.exists() {
+        return Err(Diagnostic::new(
+            "trace",
+            format!(
+                "provenance file not found at {}; run `axiomc build {}` first",
+                path.display(),
+                project_root.display()
+            ),
+        )
+        .with_path(path.display().to_string()));
+    }
+    let content = fs::read_to_string(&path).map_err(|err| {
+        Diagnostic::new(
+            "trace",
+            format!("failed to read provenance {}: {err}", path.display()),
+        )
+        .with_path(path.display().to_string())
+    })?;
+    let provenance: ProvenanceReport = serde_json::from_str(&content).map_err(|err| {
+        Diagnostic::new(
+            "trace",
+            format!("failed to parse provenance {}: {err}", path.display()),
+        )
+        .with_path(path.display().to_string())
+    })?;
+    let query = query.unwrap_or("*");
+    let (nodes, artifacts, relationships) = if query == "*" {
+        (
+            provenance.nodes.clone(),
+            provenance.artifacts.clone(),
+            provenance.relationships.clone(),
+        )
+    } else {
+        let relationships = provenance
+            .relationships
+            .iter()
+            .filter(|relationship| relationship.from == query || relationship.to == query)
+            .cloned()
+            .collect::<Vec<_>>();
+        let mut ids = BTreeSet::new();
+        ids.insert(query.to_string());
+        for relationship in &relationships {
+            ids.insert(relationship.from.clone());
+            ids.insert(relationship.to.clone());
+        }
+        let nodes = provenance
+            .nodes
+            .iter()
+            .filter(|node| ids.contains(&node.id))
+            .cloned()
+            .collect();
+        let artifacts = provenance
+            .artifacts
+            .iter()
+            .filter(|artifact| ids.contains(&artifact.id))
+            .cloned()
+            .collect();
+        (nodes, artifacts, relationships)
+    };
+    Ok(TraceReport {
+        schema_version: String::from("axiom.trace.v0"),
+        ok: true,
+        command: String::from("trace"),
+        query: query.to_string(),
+        provenance: path.display().to_string(),
+        nodes,
+        artifacts,
+        relationships,
+    })
+}
+
+fn write_provenance_artifact(
+    package_root: &Path,
+    analyzed: &AnalyzedProject,
+    generated_rust: &Path,
+    binary: &Path,
+) -> Result<(), Diagnostic> {
+    let path = provenance_path(package_root, &analyzed.manifest);
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|err| {
+            Diagnostic::new(
+                "build",
+                format!("failed to create {}: {err}", parent.display()),
+            )
+        })?;
+    }
+    let report = provenance_report(package_root, analyzed, generated_rust, binary)?;
+    let content = serde_json::to_string_pretty(&report)
+        .map_err(|err| Diagnostic::new("build", format!("failed to render provenance: {err}")))?;
+    fs::write(&path, format!("{content}\n")).map_err(|err| {
+        Diagnostic::new(
+            "build",
+            format!("failed to write {}: {err}", path.display()),
+        )
+    })
+}
+
+fn provenance_path(package_root: &Path, manifest: &Manifest) -> PathBuf {
+    out_dir_path(package_root, manifest)
+        .join(".axiom")
+        .join("provenance.json")
+}
+
+fn provenance_report(
+    package_root: &Path,
+    analyzed: &AnalyzedProject,
+    generated_rust: &Path,
+    binary: &Path,
+) -> Result<ProvenanceReport, Diagnostic> {
+    let package_name = package_name_for_manifest(package_root, &analyzed.manifest)?;
+    let package_id = format!("axiom://package/{}", slug_node_segment(&package_name));
+    let package = ProvenanceNode {
+        id: package_id.clone(),
+        kind: String::from("package"),
+        name: package_name.clone(),
+        source_span: None,
+    };
+    let mut nodes = vec![package.clone()];
+    let mut relationships = Vec::new();
+    for module in analyzed
+        .modules
+        .iter()
+        .filter(|module| module.package_root == package_root)
+    {
+        let module_path = provenance_path_display(package_root, &module.path);
+        let module_id = format!("{}/source/{}", package_id, slug_path_segment(&module_path));
+        nodes.push(ProvenanceNode {
+            id: module_id.clone(),
+            kind: String::from("source"),
+            name: module_path.clone(),
+            source_span: Some(SourceSpan {
+                path: module_path.clone(),
+                line: 1,
+                column: 1,
+            }),
+        });
+        relationships.push(ProvenanceRelationship {
+            from: package_id.clone(),
+            kind: String::from("declares"),
+            to: module_id.clone(),
+        });
+        for function in &module.program.functions {
+            let function_id = format!(
+                "{}/function/{}/{}",
+                package_id,
+                slug_path_segment(&module_path),
+                slug_node_segment(&function.source_name)
+            );
+            nodes.push(ProvenanceNode {
+                id: function_id.clone(),
+                kind: String::from("function"),
+                name: function.source_name.clone(),
+                source_span: Some(SourceSpan {
+                    path: module_path.clone(),
+                    line: function.line,
+                    column: function.column,
+                }),
+            });
+            relationships.push(ProvenanceRelationship {
+                from: module_id.clone(),
+                kind: String::from("declares"),
+                to: function_id,
+            });
+        }
+    }
+    let artifacts = vec![
+        ProvenanceArtifact {
+            id: format!("{package_id}/artifact/generated-rust"),
+            kind: String::from("rust_source"),
+            path: provenance_path_display(package_root, generated_rust),
+            hash: hash_file(generated_rust)?,
+        },
+        ProvenanceArtifact {
+            id: format!("{package_id}/artifact/native-binary"),
+            kind: String::from("native_binary"),
+            path: provenance_path_display(package_root, binary),
+            hash: hash_file_bytes(binary)?,
+        },
+    ];
+    for node in nodes
+        .iter()
+        .filter(|node| node.kind == "source" || node.kind == "function")
+    {
+        for artifact in &artifacts {
+            relationships.push(ProvenanceRelationship {
+                from: node.id.clone(),
+                kind: String::from("emits"),
+                to: artifact.id.clone(),
+            });
+        }
+    }
+    nodes.sort_by(|left, right| left.id.cmp(&right.id));
+    relationships.sort_by(|left, right| {
+        left.from
+            .cmp(&right.from)
+            .then_with(|| left.kind.cmp(&right.kind))
+            .then_with(|| left.to.cmp(&right.to))
+    });
+    Ok(ProvenanceReport {
+        schema_version: String::from("axiom.provenance.v0"),
+        package,
+        nodes,
+        artifacts,
+        relationships,
+    })
+}
+
+fn package_name_for_manifest(
+    package_root: &Path,
+    manifest: &Manifest,
+) -> Result<String, Diagnostic> {
+    package_section(
+        manifest,
+        "provenance requires a package manifest",
+        &manifest_path(package_root),
+    )
+    .map(|package| package.name.clone())
+}
+
+fn provenance_path_display(package_root: &Path, path: &Path) -> String {
+    path.strip_prefix(package_root)
+        .unwrap_or(path)
+        .display()
+        .to_string()
+}
+
+fn slug_path_segment(value: &str) -> String {
+    value
+        .split('/')
+        .map(slug_node_segment)
+        .collect::<Vec<_>>()
+        .join("/")
+}
+
+fn slug_node_segment(value: &str) -> String {
+    let mut out = String::new();
+    let mut last_dash = false;
+    for ch in value.chars() {
+        if ch.is_ascii_alphanumeric() || matches!(ch, '.' | '_' | '~') {
+            out.push(ch);
+            last_dash = false;
+        } else if !last_dash {
+            out.push('-');
+            last_dash = true;
+        }
+    }
+    let trimmed = out.trim_matches('-');
+    if trimmed.is_empty() {
+        String::from("node")
+    } else {
+        trimmed.to_string()
+    }
 }
 
 fn build_cache_metadata(cache: &BuildCacheFile) -> BuildCacheMetadata {
@@ -3082,6 +3522,18 @@ fn collect_hir_expr_intrinsic_use(
         hir::Expr::Closure { body, .. } => {
             collect_hir_expr_intrinsic_use(module_path, body, fallback_line, fallback_column, uses);
         }
+        hir::Expr::Match { expr, arms, .. } => {
+            collect_hir_expr_intrinsic_use(module_path, expr, fallback_line, fallback_column, uses);
+            for arm in arms {
+                collect_hir_expr_intrinsic_use(
+                    module_path,
+                    &arm.expr,
+                    fallback_line,
+                    fallback_column,
+                    uses,
+                );
+            }
+        }
         hir::Expr::Literal { .. } | hir::Expr::VarRef { .. } => {}
     }
 }
@@ -3290,6 +3742,13 @@ fn validate_expr_capabilities(
         syntax::Expr::Closure { body, .. } => {
             validate_expr_capabilities(module_path, body, capabilities)
         }
+        syntax::Expr::Match { expr, arms, .. } => {
+            validate_expr_capabilities(module_path, expr, capabilities)?;
+            for arm in arms {
+                validate_expr_capabilities(module_path, &arm.expr, capabilities)?;
+            }
+            Ok(())
+        }
     }
 }
 
@@ -3362,6 +3821,11 @@ fn intrinsic_capability(name: &str) -> Option<CapabilityKind> {
         "crypto_hmac_sha512" => Some(CapabilityKind::Crypto),
         "crypto_constant_time_eq" => Some(CapabilityKind::Crypto),
         "crypto_constant_time_eq_u8" => Some(CapabilityKind::Crypto),
+        "crypto_rand_bytes" => Some(CapabilityKind::Crypto),
+        "crypto_rand_u64" => Some(CapabilityKind::Crypto),
+        "crypto_ed25519_keygen" => Some(CapabilityKind::Crypto),
+        "crypto_ed25519_sign" => Some(CapabilityKind::Crypto),
+        "crypto_ed25519_verify" => Some(CapabilityKind::Crypto),
         _ => None,
     }
 }
@@ -3798,6 +4262,18 @@ fn flatten_modules(
             .map(|module| module.path.display().to_string())
             .unwrap_or_default(),
         imports: Vec::new(),
+        axioms: modules
+            .iter()
+            .flat_map(|module| module.program.axioms.clone())
+            .collect(),
+        semantic_capabilities: modules
+            .iter()
+            .flat_map(|module| module.program.semantic_capabilities.clone())
+            .collect(),
+        evidence: modules
+            .iter()
+            .flat_map(|module| module.program.evidence.clone())
+            .collect(),
         consts: flattened_consts,
         type_aliases: flattened_type_aliases,
         structs: flattened_structs,
@@ -5527,6 +6003,49 @@ fn rewrite_expr(
             line: *line,
             column: *column,
         },
+        syntax::Expr::Match {
+            expr,
+            arms,
+            line,
+            column,
+        } => syntax::Expr::Match {
+            expr: Box::new(rewrite_expr(
+                expr,
+                visible_functions,
+                visible_consts,
+                visible_structs,
+                visible_types,
+                private_imported,
+                private_imported_consts,
+                private_imported_types,
+                module_path,
+            )?),
+            arms: arms
+                .iter()
+                .map(|arm| {
+                    Ok(syntax::MatchExprArm {
+                        variant: arm.variant.clone(),
+                        bindings: arm.bindings.clone(),
+                        is_named: arm.is_named,
+                        expr: rewrite_expr(
+                            &arm.expr,
+                            visible_functions,
+                            visible_consts,
+                            visible_structs,
+                            visible_types,
+                            private_imported,
+                            private_imported_consts,
+                            private_imported_types,
+                            module_path,
+                        )?,
+                        line: arm.line,
+                        column: arm.column,
+                    })
+                })
+                .collect::<Result<Vec<_>, Diagnostic>>()?,
+            line: *line,
+            column: *column,
+        },
     })
 }
 
@@ -6431,6 +6950,52 @@ mod tests {
             tests: Vec::new(),
             capabilities: CapabilityConfig::default(),
         }
+    }
+
+    #[test]
+    fn provenance_artifact_links_source_functions_to_outputs() {
+        let dir = tempdir().unwrap_or_else(|err| panic!("tempdir: {err}"));
+        let root = dir.path();
+        fs::create_dir_all(root.join("src")).expect("create src");
+        fs::write(
+            root.join("axiom.toml"),
+            "[package]\nname = \"demo\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n",
+        )
+        .expect("write manifest");
+        fs::write(
+            root.join("axiom.lock"),
+            crate::lockfile::render_lockfile(&package_manifest()).expect("render lockfile"),
+        )
+        .expect("write lockfile");
+        fs::write(root.join("src/main.ax"), "fn main(): int {\nreturn 0\n}\n")
+            .expect("write source");
+
+        let graph = load_package_graph(root).expect("load graph");
+        let package_root =
+            canonicalize_existing_path(root, "project root").expect("canonical root");
+        let analyzed = analyze_package(&graph, &package_root).expect("analyze package");
+        let generated_rust = generated_rust_path(&package_root, &analyzed.manifest);
+        let binary = binary_path_for_target(&package_root, &analyzed.manifest, None);
+        fs::create_dir_all(generated_rust.parent().expect("generated parent"))
+            .expect("create dist");
+        fs::write(&generated_rust, "fn main() {}\n").expect("write generated rust");
+        fs::write(&binary, b"binary").expect("write binary");
+
+        write_provenance_artifact(&package_root, &analyzed, &generated_rust, &binary)
+            .expect("write provenance");
+        let path = provenance_path_for_project(root).expect("provenance path");
+        assert!(path.exists());
+
+        let trace = trace_provenance(root, Some("axiom://package/demo/function/src/main.ax/main"))
+            .expect("trace function");
+        assert_eq!(trace.schema_version, "axiom.trace.v0");
+        assert_eq!(trace.artifacts.len(), 2);
+        assert!(trace.nodes.iter().any(|node| node.kind == "function"));
+        assert!(trace.relationships.iter().any(|relationship| {
+            relationship.kind == "emits"
+                && relationship.from == "axiom://package/demo/function/src/main.ax/main"
+                && relationship.to == "axiom://package/demo/artifact/generated-rust"
+        }));
     }
 
     #[test]

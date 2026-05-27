@@ -42,6 +42,9 @@ impl SourceSpan {
 pub struct Program {
     pub path: String,
     pub imports: Vec<Import>,
+    pub axioms: Vec<AxiomDecl>,
+    pub semantic_capabilities: Vec<SemanticCapabilityDecl>,
+    pub evidence: Vec<EvidenceDecl>,
     pub consts: Vec<ConstDecl>,
     pub type_aliases: Vec<TypeAliasDecl>,
     pub structs: Vec<StructDecl>,
@@ -73,6 +76,59 @@ impl Visibility {
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct Import {
     pub path: String,
+    pub line: usize,
+    pub column: usize,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct AxiomDecl {
+    pub name: String,
+    pub scope: Option<String>,
+    pub severity: Option<String>,
+    pub description: Option<String>,
+    pub assertion: Option<String>,
+    pub line: usize,
+    pub column: usize,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct SemanticCapabilityDecl {
+    pub name: String,
+    pub inputs: Vec<CapabilityInput>,
+    pub effects: Vec<CapabilityEffect>,
+    pub preserves: Vec<SemanticReference>,
+    pub evidence: Vec<SemanticReference>,
+    pub line: usize,
+    pub column: usize,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct CapabilityInput {
+    pub name: String,
+    pub ty: TypeName,
+    pub line: usize,
+    pub column: usize,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct CapabilityEffect {
+    pub kind: String,
+    pub target: String,
+    pub line: usize,
+    pub column: usize,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct SemanticReference {
+    pub name: String,
+    pub line: usize,
+    pub column: usize,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct EvidenceDecl {
+    pub name: String,
+    pub description: Option<String>,
     pub line: usize,
     pub column: usize,
 }
@@ -254,6 +310,16 @@ pub struct MatchArm {
     pub bindings: Vec<String>,
     pub is_named: bool,
     pub body: Vec<Stmt>,
+    pub line: usize,
+    pub column: usize,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct MatchExprArm {
+    pub variant: String,
+    pub bindings: Vec<String>,
+    pub is_named: bool,
+    pub expr: Expr,
     pub line: usize,
     pub column: usize,
 }
@@ -454,6 +520,12 @@ pub enum Expr {
         line: usize,
         column: usize,
     },
+    Match {
+        expr: Box<Expr>,
+        arms: Vec<MatchExprArm>,
+        line: usize,
+        column: usize,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -609,7 +681,8 @@ impl Expr {
             | Expr::ArrayLiteral { line, column, .. }
             | Expr::Slice { line, column, .. }
             | Expr::Index { line, column, .. }
-            | Expr::Closure { line, column, .. } => (*line, *column),
+            | Expr::Closure { line, column, .. }
+            | Expr::Match { line, column, .. } => (*line, *column),
         };
         Some(SourceSpan::new(file, line, column))
     }
@@ -639,6 +712,9 @@ pub fn parse_program_with_recovery(source: &str, path: &Path) -> Result<Program,
     let lines: Vec<&str> = source.lines().collect();
     let mut index = 0;
     let mut imports = Vec::new();
+    let mut axioms = Vec::new();
+    let mut semantic_capabilities = Vec::new();
+    let mut evidence = Vec::new();
     let mut consts = Vec::new();
     let mut type_aliases = Vec::new();
     let mut structs = Vec::new();
@@ -703,6 +779,42 @@ pub fn parse_program_with_recovery(source: &str, path: &Path) -> Result<Program,
                 .with_span(line_no, 1),
             );
             index += 1;
+            continue;
+        }
+        if trimmed.starts_with("axiom ") {
+            let start_index = index;
+            match parse_axiom_decl(&lines, &mut index, path) {
+                Ok(decl) => axioms.push(decl),
+                Err(error) => {
+                    diagnostics.push(error);
+                    index = start_index;
+                    synchronize_top_level(&lines, &mut index);
+                }
+            }
+            continue;
+        }
+        if trimmed.starts_with("capability ") {
+            let start_index = index;
+            match parse_semantic_capability_decl(&lines, &mut index, path) {
+                Ok(decl) => semantic_capabilities.push(decl),
+                Err(error) => {
+                    diagnostics.push(error);
+                    index = start_index;
+                    synchronize_top_level(&lines, &mut index);
+                }
+            }
+            continue;
+        }
+        if trimmed.starts_with("evidence ") {
+            let start_index = index;
+            match parse_evidence_decl(&lines, &mut index, path) {
+                Ok(decl) => evidence.push(decl),
+                Err(error) => {
+                    diagnostics.push(error);
+                    index = start_index;
+                    synchronize_top_level(&lines, &mut index);
+                }
+            }
             continue;
         }
         if trimmed.starts_with("fn ")
@@ -827,6 +939,9 @@ pub fn parse_program_with_recovery(source: &str, path: &Path) -> Result<Program,
     Ok(Program {
         path: path.display().to_string(),
         imports,
+        axioms,
+        semantic_capabilities,
+        evidence,
         consts,
         type_aliases,
         structs,
@@ -1565,6 +1680,11 @@ fn parse_stmt(
         return parse_match_stmt(lines, index, path);
     }
     if let Some(rest) = trimmed.strip_prefix("let ") {
+        if let Some((combined, next)) = collect_multiline_let_match(lines, *index, path)? {
+            let stmt = parse_let_stmt(&combined, path, line_no)?;
+            *index = next;
+            return Ok(stmt);
+        }
         let stmt = parse_let_stmt(rest, path, line_no)?;
         *index += 1;
         return Ok(stmt);
@@ -1881,6 +2001,303 @@ fn parse_const_or_static_decl(
         line: line_no,
         column: 1,
     })
+}
+
+fn parse_axiom_decl(
+    lines: &[&str],
+    index: &mut usize,
+    path: &Path,
+) -> Result<AxiomDecl, Diagnostic> {
+    let decl_line = *index + 1;
+    let name = semantic_block_name(lines[*index].trim(), "axiom", path, decl_line)?;
+    *index += 1;
+    let mut scope = None;
+    let mut severity = None;
+    let mut description = None;
+    let mut assertion = None;
+    while *index < lines.len() {
+        let line_no = *index + 1;
+        let trimmed = lines[*index].trim();
+        if trimmed.is_empty() {
+            *index += 1;
+            continue;
+        }
+        if trimmed == "}" {
+            *index += 1;
+            return Ok(AxiomDecl {
+                name,
+                scope,
+                severity,
+                description,
+                assertion,
+                line: decl_line,
+                column: 1,
+            });
+        }
+        if let Some(value) = trimmed.strip_prefix("scope ") {
+            let value = value.trim();
+            validate_ident(value, path, line_no, 7)?;
+            scope = Some(value.to_string());
+        } else if let Some(value) = trimmed.strip_prefix("severity ") {
+            let value = value.trim();
+            validate_ident(value, path, line_no, 10)?;
+            severity = Some(value.to_string());
+        } else if let Some(value) = trimmed.strip_prefix("description ") {
+            description = Some(parse_semantic_string(value.trim(), path, line_no, 13)?);
+        } else if let Some(value) = trimmed.strip_prefix("assert ") {
+            let value = value.trim();
+            if value.is_empty() {
+                return Err(Diagnostic::new("parse", "axiom assert clause is empty")
+                    .with_path(path.display().to_string())
+                    .with_span(line_no, 8));
+            }
+            assertion = Some(value.to_string());
+        } else {
+            return Err(Diagnostic::new(
+                "parse",
+                "axiom declarations support scope, severity, description, and assert clauses",
+            )
+            .with_path(path.display().to_string())
+            .with_span(line_no, 1));
+        }
+        *index += 1;
+    }
+    Err(Diagnostic::new("parse", "missing closing brace for axiom")
+        .with_path(path.display().to_string())
+        .with_span(decl_line, 1))
+}
+
+fn parse_semantic_capability_decl(
+    lines: &[&str],
+    index: &mut usize,
+    path: &Path,
+) -> Result<SemanticCapabilityDecl, Diagnostic> {
+    let decl_line = *index + 1;
+    let name = semantic_block_name(lines[*index].trim(), "capability", path, decl_line)?;
+    *index += 1;
+    let mut inputs = Vec::new();
+    let mut effects = Vec::new();
+    let mut preserves = Vec::new();
+    let mut evidence = Vec::new();
+    while *index < lines.len() {
+        let line_no = *index + 1;
+        let trimmed = lines[*index].trim();
+        if trimmed.is_empty() {
+            *index += 1;
+            continue;
+        }
+        if trimmed == "}" {
+            *index += 1;
+            return Ok(SemanticCapabilityDecl {
+                name,
+                inputs,
+                effects,
+                preserves,
+                evidence,
+                line: decl_line,
+                column: 1,
+            });
+        }
+        if let Some(value) = trimmed.strip_prefix("input ") {
+            inputs.push(parse_capability_input(value.trim(), path, line_no)?);
+            *index += 1;
+            continue;
+        }
+        if trimmed == "effects {" {
+            *index += 1;
+            effects.extend(parse_capability_effects(lines, index, path)?);
+            continue;
+        }
+        if let Some(value) = trimmed.strip_prefix("preserves ") {
+            preserves.push(parse_semantic_reference(value.trim(), path, line_no, 11)?);
+            *index += 1;
+            continue;
+        }
+        if let Some(value) = trimmed.strip_prefix("requires evidence ") {
+            evidence.push(parse_semantic_reference(value.trim(), path, line_no, 18)?);
+            *index += 1;
+            continue;
+        }
+        return Err(Diagnostic::new(
+            "parse",
+            "capability declarations support input, effects, preserves, and requires evidence clauses",
+        )
+        .with_path(path.display().to_string())
+        .with_span(line_no, 1));
+    }
+    Err(
+        Diagnostic::new("parse", "missing closing brace for capability")
+            .with_path(path.display().to_string())
+            .with_span(decl_line, 1),
+    )
+}
+
+fn parse_evidence_decl(
+    lines: &[&str],
+    index: &mut usize,
+    path: &Path,
+) -> Result<EvidenceDecl, Diagnostic> {
+    let decl_line = *index + 1;
+    let name = semantic_block_name(lines[*index].trim(), "evidence", path, decl_line)?;
+    *index += 1;
+    let mut description = None;
+    while *index < lines.len() {
+        let line_no = *index + 1;
+        let trimmed = lines[*index].trim();
+        if trimmed.is_empty() {
+            *index += 1;
+            continue;
+        }
+        if trimmed == "}" {
+            *index += 1;
+            return Ok(EvidenceDecl {
+                name,
+                description,
+                line: decl_line,
+                column: 1,
+            });
+        }
+        if let Some(value) = trimmed.strip_prefix("description ") {
+            description = Some(parse_semantic_string(value.trim(), path, line_no, 13)?);
+            *index += 1;
+            continue;
+        }
+        return Err(Diagnostic::new(
+            "parse",
+            "evidence declarations support only description clauses in v0",
+        )
+        .with_path(path.display().to_string())
+        .with_span(line_no, 1));
+    }
+    Err(
+        Diagnostic::new("parse", "missing closing brace for evidence")
+            .with_path(path.display().to_string())
+            .with_span(decl_line, 1),
+    )
+}
+
+fn semantic_block_name(
+    trimmed: &str,
+    keyword: &'static str,
+    path: &Path,
+    line_no: usize,
+) -> Result<String, Diagnostic> {
+    let prefix = format!("{keyword} ");
+    let name = trimmed
+        .strip_prefix(&prefix)
+        .and_then(|rest| rest.strip_suffix('{'))
+        .map(str::trim)
+        .ok_or_else(|| {
+            Diagnostic::new(
+                "parse",
+                format!("{keyword} declaration must use `{keyword} Name {{` syntax"),
+            )
+            .with_path(path.display().to_string())
+            .with_span(line_no, 1)
+        })?;
+    validate_ident(name, path, line_no, keyword.len() + 2)?;
+    Ok(name.to_string())
+}
+
+fn parse_capability_input(
+    raw: &str,
+    path: &Path,
+    line_no: usize,
+) -> Result<CapabilityInput, Diagnostic> {
+    let colon = find_top_level_char(raw, ':').ok_or_else(|| {
+        Diagnostic::new("parse", "capability input is missing ':'")
+            .with_path(path.display().to_string())
+            .with_span(line_no, 7)
+    })?;
+    let name = raw[..colon].trim();
+    validate_ident(name, path, line_no, 7)?;
+    Ok(CapabilityInput {
+        name: name.to_string(),
+        ty: parse_type_name(raw[colon + 1..].trim(), path, line_no, colon + 8)?,
+        line: line_no,
+        column: 1,
+    })
+}
+
+fn parse_capability_effects(
+    lines: &[&str],
+    index: &mut usize,
+    path: &Path,
+) -> Result<Vec<CapabilityEffect>, Diagnostic> {
+    let mut effects = Vec::new();
+    while *index < lines.len() {
+        let line_no = *index + 1;
+        let trimmed = lines[*index].trim();
+        if trimmed.is_empty() {
+            *index += 1;
+            continue;
+        }
+        if trimmed == "}" {
+            *index += 1;
+            return Ok(effects);
+        }
+        let Some((kind, target)) = trimmed.split_once(' ') else {
+            return Err(Diagnostic::new(
+                "parse",
+                "capability effect must use `read Target`, `write Target`, or `emit Target`",
+            )
+            .with_path(path.display().to_string())
+            .with_span(line_no, 1));
+        };
+        if !matches!(kind, "read" | "write" | "emit") {
+            return Err(Diagnostic::new(
+                "parse",
+                "capability effect kind must be read, write, or emit",
+            )
+            .with_path(path.display().to_string())
+            .with_span(line_no, 1));
+        }
+        let target = target.trim();
+        validate_ident(target, path, line_no, kind.len() + 2)?;
+        effects.push(CapabilityEffect {
+            kind: kind.to_string(),
+            target: target.to_string(),
+            line: line_no,
+            column: 1,
+        });
+        *index += 1;
+    }
+    Err(
+        Diagnostic::new("parse", "missing closing brace for capability effects")
+            .with_path(path.display().to_string())
+            .with_span(lines.len().max(1), 1),
+    )
+}
+
+fn parse_semantic_reference(
+    value: &str,
+    path: &Path,
+    line_no: usize,
+    column: usize,
+) -> Result<SemanticReference, Diagnostic> {
+    validate_ident(value, path, line_no, column)?;
+    Ok(SemanticReference {
+        name: value.to_string(),
+        line: line_no,
+        column,
+    })
+}
+
+fn parse_semantic_string(
+    value: &str,
+    path: &Path,
+    line_no: usize,
+    column: usize,
+) -> Result<String, Diagnostic> {
+    value
+        .strip_prefix('"')
+        .and_then(|value| value.strip_suffix('"'))
+        .map(str::to_string)
+        .ok_or_else(|| {
+            Diagnostic::new("parse", "semantic description must be a quoted string")
+                .with_path(path.display().to_string())
+                .with_span(line_no, column)
+        })
 }
 
 fn parse_struct(lines: &[&str], index: &mut usize, path: &Path) -> Result<StructDecl, Diagnostic> {
@@ -2638,6 +3055,180 @@ fn parse_match_arms(
         .with_span(lines.len().max(1), 1))
 }
 
+fn parse_match_expr(
+    raw: &str,
+    path: &Path,
+    line_no: usize,
+    column: usize,
+) -> Result<Expr, Diagnostic> {
+    let body_open = find_top_level_char(raw, '{').ok_or_else(|| {
+        Diagnostic::new(
+            "parse",
+            "match expression must use `match <expr> { ... }` syntax",
+        )
+        .with_path(path.display().to_string())
+        .with_span(line_no, column)
+    })?;
+    if !matches!(find_matching_brace(raw, body_open), Some(close) if close == raw.len() - 1) {
+        return Err(
+            Diagnostic::new("parse", "match expression body is incomplete")
+                .with_path(path.display().to_string())
+                .with_span(line_no, column),
+        );
+    }
+    let expr_raw = raw["match ".len()..body_open].trim();
+    if expr_raw.is_empty() {
+        return Err(
+            Diagnostic::new("parse", "match expression is missing a scrutinee")
+                .with_path(path.display().to_string())
+                .with_span(line_no, column),
+        );
+    }
+    let inner = &raw[body_open + 1..raw.len() - 1];
+    let mut arms = Vec::new();
+    for (arm_offset, arm_raw) in split_match_expr_arms(inner) {
+        let arm_raw = arm_raw.trim();
+        if arm_raw.is_empty() {
+            continue;
+        }
+        let arm_source_offset = body_open + 1 + arm_offset;
+        let (arm_line, arm_column) =
+            source_position_for_offset(line_no, column, raw, arm_source_offset);
+        let Some(arrow) = find_top_level_arrow(arm_raw) else {
+            return Err(Diagnostic::new(
+                "parse",
+                "match expression arm must use `Pattern => expr` syntax",
+            )
+            .with_path(path.display().to_string())
+            .with_span(arm_line, arm_column));
+        };
+        let pattern = arm_raw[..arrow].trim();
+        let expr_raw = &arm_raw[arrow + 2..];
+        let expr_leading_ws = expr_raw.len().saturating_sub(expr_raw.trim_start().len());
+        let expr_offset = arm_source_offset + arrow + 2 + expr_leading_ws;
+        let (expr_line, expr_column) =
+            source_position_for_offset(line_no, column, raw, expr_offset);
+        let expr_text = expr_raw.trim();
+        if expr_text.is_empty() {
+            return Err(Diagnostic::new(
+                "parse",
+                "match expression arm is missing a result expression",
+            )
+            .with_path(path.display().to_string())
+            .with_span(expr_line, expr_column));
+        }
+        let (variant, bindings, is_named) = parse_match_pattern(pattern, path, arm_line)?;
+        arms.push(MatchExprArm {
+            variant,
+            bindings,
+            is_named,
+            expr: parse_expr(expr_text, path, expr_line, expr_column)?,
+            line: arm_line,
+            column: arm_column,
+        });
+    }
+    if arms.is_empty() {
+        let (body_line, body_column) =
+            source_position_for_offset(line_no, column, raw, body_open + 1);
+        return Err(
+            Diagnostic::new("parse", "match expression must contain at least one arm")
+                .with_path(path.display().to_string())
+                .with_span(body_line, body_column),
+        );
+    }
+    Ok(Expr::Match {
+        expr: Box::new(parse_expr(
+            expr_raw,
+            path,
+            line_no,
+            column + "match ".len(),
+        )?),
+        arms,
+        line: line_no,
+        column,
+    })
+}
+
+fn split_match_expr_arms(inner: &str) -> Vec<(usize, String)> {
+    if !inner.contains('\n') {
+        return split_top_level_with_offsets(inner, ',')
+            .into_iter()
+            .map(|(offset, raw)| (offset, raw.to_string()))
+            .collect();
+    }
+
+    let mut arms = Vec::new();
+    let mut offset = 0usize;
+    for line in inner.split_inclusive('\n') {
+        let raw_line = line.trim_end_matches('\n');
+        let leading_ws = raw_line.len().saturating_sub(raw_line.trim_start().len());
+        let arm = raw_line.trim().trim_end_matches(',').trim_end();
+        if !arm.is_empty() {
+            arms.push((offset + leading_ws, arm.to_string()));
+        }
+        offset += line.len();
+    }
+    arms
+}
+
+fn let_match_expr_complete(rest: &str) -> bool {
+    let Some(eq) = find_top_level_char(rest, '=') else {
+        return false;
+    };
+    let expr_text = rest[eq + 1..].trim();
+    if !expr_text.starts_with("match ") {
+        return false;
+    }
+    let Some(body_open) = find_top_level_char(expr_text, '{') else {
+        return false;
+    };
+    matches!(
+        find_matching_brace(expr_text, body_open),
+        Some(close) if expr_text[close + 1..].trim().is_empty()
+    )
+}
+
+fn let_match_expr_needs_more(rest: &str) -> bool {
+    let Some(eq) = find_top_level_char(rest, '=') else {
+        return false;
+    };
+    let expr_text = rest[eq + 1..].trim();
+    expr_text.starts_with("match ")
+        && find_top_level_char(expr_text, '{').is_some()
+        && !let_match_expr_complete(rest)
+}
+
+fn collect_multiline_let_match(
+    lines: &[&str],
+    index: usize,
+    path: &Path,
+) -> Result<Option<(String, usize)>, Diagnostic> {
+    let line_no = index + 1;
+    let Some(rest) = lines[index].trim().strip_prefix("let ") else {
+        return Ok(None);
+    };
+    if !let_match_expr_needs_more(rest) {
+        return Ok(None);
+    }
+
+    let mut combined = rest.to_string();
+    let mut next = index + 1;
+    while next < lines.len() {
+        combined.push('\n');
+        combined.push_str(lines[next].trim());
+        next += 1;
+        if let_match_expr_complete(&combined) {
+            return Ok(Some((combined, next)));
+        }
+    }
+
+    Err(
+        Diagnostic::new("parse", "match expression body is incomplete")
+            .with_path(path.display().to_string())
+            .with_span(line_no, 1),
+    )
+}
+
 fn parse_let_stmt(rest: &str, path: &Path, line_no: usize) -> Result<Stmt, Diagnostic> {
     let colon = find_top_level_char(rest, ':').ok_or_else(|| {
         Diagnostic::new("parse", "let binding is missing ':'")
@@ -2960,10 +3551,32 @@ fn parse_type_name(
     }
 }
 
+fn source_position_for_offset(
+    line_no: usize,
+    column: usize,
+    raw: &str,
+    offset: usize,
+) -> (usize, usize) {
+    let mut line = line_no;
+    let mut current_column = column;
+    for ch in raw[..offset.min(raw.len())].chars() {
+        if ch == '\n' {
+            line += 1;
+            current_column = 1;
+        } else {
+            current_column += 1;
+        }
+    }
+    (line, current_column)
+}
+
 fn parse_expr(raw: &str, path: &Path, line_no: usize, column: usize) -> Result<Expr, Diagnostic> {
     let raw = raw.trim();
     if raw.starts_with('|') {
         return parse_term(raw, path, line_no, column);
+    }
+    if raw.starts_with("match ") {
+        return parse_match_expr(raw, path, line_no, column);
     }
     if let Some(split_index) = find_top_level_as(raw) {
         let lhs_raw = raw[..split_index].trim();
@@ -4208,6 +4821,47 @@ fn find_top_level_char(raw: &str, target: char) -> Option<usize> {
                 && angle_depth == 0 =>
             {
                 return Some(index);
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+fn find_top_level_arrow(raw: &str) -> Option<usize> {
+    let mut in_string = false;
+    let mut escaped = false;
+    let mut paren_depth = 0usize;
+    let mut brace_depth = 0usize;
+    let mut bracket_depth = 0usize;
+    let mut chars = raw.char_indices().peekable();
+    while let Some((index, ch)) = chars.next() {
+        if escaped {
+            escaped = false;
+            continue;
+        }
+        if ch == '\\' && in_string {
+            escaped = true;
+            continue;
+        }
+        if ch == '"' {
+            in_string = !in_string;
+            continue;
+        }
+        if in_string {
+            continue;
+        }
+        match ch {
+            '(' => paren_depth += 1,
+            ')' => paren_depth = paren_depth.saturating_sub(1),
+            '{' => brace_depth += 1,
+            '}' => brace_depth = brace_depth.saturating_sub(1),
+            '[' => bracket_depth += 1,
+            ']' => bracket_depth = bracket_depth.saturating_sub(1),
+            '=' if paren_depth == 0 && brace_depth == 0 && bracket_depth == 0 => {
+                if chars.peek().is_some_and(|(_, next)| *next == '>') {
+                    return Some(index);
+                }
             }
             _ => {}
         }

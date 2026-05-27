@@ -1,0 +1,4 @@
+let pair: (string, string) = ("alpha", "beta")
+let moved: string = pair.0
+let borrowed: &str = pair.0
+print borrowed

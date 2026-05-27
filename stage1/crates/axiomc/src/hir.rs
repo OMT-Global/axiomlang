@@ -162,6 +162,16 @@ struct MatchArmInput {
     column: usize,
 }
 
+#[derive(Debug, Clone)]
+struct MatchExprArmInput {
+    variant: String,
+    bindings: Vec<String>,
+    is_named: bool,
+    expr: syntax::Expr,
+    line: usize,
+    column: usize,
+}
+
 impl From<&syntax::MatchArm> for MatchArmInput {
     fn from(arm: &syntax::MatchArm) -> Self {
         Self {
@@ -170,6 +180,19 @@ impl From<&syntax::MatchArm> for MatchArmInput {
             is_named: arm.is_named,
             ignore_payloads: false,
             body: arm.body.clone(),
+            line: arm.line,
+            column: arm.column,
+        }
+    }
+}
+
+impl From<&syntax::MatchExprArm> for MatchExprArmInput {
+    fn from(arm: &syntax::MatchExprArm) -> Self {
+        Self {
+            variant: arm.variant.clone(),
+            bindings: arm.bindings.clone(),
+            is_named: arm.is_named,
+            expr: arm.expr.clone(),
             line: arm.line,
             column: arm.column,
         }
@@ -284,6 +307,20 @@ pub enum Expr {
         expr: Box<Expr>,
         ty: Type,
     },
+    Match {
+        expr: Box<Expr>,
+        arms: Vec<MatchExprArm>,
+        ty: Type,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct MatchExprArm {
+    pub enum_name: String,
+    pub variant: String,
+    pub bindings: Vec<String>,
+    pub is_named: bool,
+    pub expr: Expr,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -927,6 +964,12 @@ fn collect_expr_calls(expr: &syntax::Expr, calls: &mut VecDeque<String>) {
         }
         syntax::Expr::Closure { body, .. } => {
             collect_expr_calls(body, calls);
+        }
+        syntax::Expr::Match { expr, arms, .. } => {
+            collect_expr_calls(expr, calls);
+            for arm in arms {
+                collect_expr_calls(&arm.expr, calls);
+            }
         }
     }
 }
@@ -1703,6 +1746,39 @@ fn infer_generic_calls_in_expr(
             line: *line,
             column: *column,
         },
+        syntax::Expr::Match {
+            expr,
+            arms,
+            line,
+            column,
+        } => syntax::Expr::Match {
+            expr: Box::new(infer_generic_calls_in_expr(
+                expr,
+                None,
+                env,
+                generic_functions,
+            )?),
+            arms: arms
+                .iter()
+                .map(|arm| {
+                    Ok(syntax::MatchExprArm {
+                        variant: arm.variant.clone(),
+                        bindings: arm.bindings.clone(),
+                        is_named: arm.is_named,
+                        expr: infer_generic_calls_in_expr(
+                            &arm.expr,
+                            expected,
+                            env,
+                            generic_functions,
+                        )?,
+                        line: arm.line,
+                        column: arm.column,
+                    })
+                })
+                .collect::<Result<Vec<_>, Diagnostic>>()?,
+            line: *line,
+            column: *column,
+        },
         syntax::Expr::Literal(_) | syntax::Expr::VarRef { .. } => expr.clone(),
     })
 }
@@ -2178,6 +2254,9 @@ fn monomorphize_program(program: &syntax::Program) -> Result<syntax::Program, Di
     monomorphize_aggregates(syntax::Program {
         path: program.path.clone(),
         imports: program.imports.clone(),
+        axioms: program.axioms.clone(),
+        semantic_capabilities: program.semantic_capabilities.clone(),
+        evidence: program.evidence.clone(),
         consts: program.consts.clone(),
         type_aliases: program.type_aliases.clone(),
         structs: program.structs.clone(),
@@ -2385,6 +2464,9 @@ fn monomorphize_aggregates(program: syntax::Program) -> Result<syntax::Program, 
     Ok(syntax::Program {
         path: program.path,
         imports: program.imports,
+        axioms: program.axioms,
+        semantic_capabilities: program.semantic_capabilities,
+        evidence: program.evidence,
         consts,
         type_aliases,
         structs,
@@ -3745,6 +3827,41 @@ fn rewrite_expr_aggregate_types(
             line: *line,
             column: *column,
         },
+        syntax::Expr::Match {
+            expr,
+            arms,
+            line,
+            column,
+        } => syntax::Expr::Match {
+            expr: Box::new(rewrite_expr_aggregate_types(
+                expr,
+                generic_structs,
+                generic_enums,
+                queue,
+                queued,
+            )?),
+            arms: arms
+                .iter()
+                .map(|arm| {
+                    Ok(syntax::MatchExprArm {
+                        variant: arm.variant.clone(),
+                        bindings: arm.bindings.clone(),
+                        is_named: arm.is_named,
+                        expr: rewrite_expr_aggregate_types(
+                            &arm.expr,
+                            generic_structs,
+                            generic_enums,
+                            queue,
+                            queued,
+                        )?,
+                        line: arm.line,
+                        column: arm.column,
+                    })
+                })
+                .collect::<Result<Vec<_>, Diagnostic>>()?,
+            line: *line,
+            column: *column,
+        },
     })
 }
 
@@ -4472,6 +4589,41 @@ fn rewrite_expr_generic_calls(
                 queue,
                 queued,
             )?),
+            line: *line,
+            column: *column,
+        },
+        syntax::Expr::Match {
+            expr,
+            arms,
+            line,
+            column,
+        } => syntax::Expr::Match {
+            expr: Box::new(rewrite_expr_generic_calls(
+                expr,
+                type_bindings,
+                generic_functions,
+                queue,
+                queued,
+            )?),
+            arms: arms
+                .iter()
+                .map(|arm| {
+                    Ok(syntax::MatchExprArm {
+                        variant: arm.variant.clone(),
+                        bindings: arm.bindings.clone(),
+                        is_named: arm.is_named,
+                        expr: rewrite_expr_generic_calls(
+                            &arm.expr,
+                            type_bindings,
+                            generic_functions,
+                            queue,
+                            queued,
+                        )?,
+                        line: arm.line,
+                        column: arm.column,
+                    })
+                })
+                .collect::<Result<Vec<_>, Diagnostic>>()?,
             line: *line,
             column: *column,
         },
@@ -6534,6 +6686,256 @@ fn lower_const_match_stmt(
     })
 }
 
+fn lower_match_expr(
+    expr: &syntax::Expr,
+    arms: Vec<MatchExprArmInput>,
+    expected: Option<&Type>,
+    line: usize,
+    column: usize,
+    env: &mut HashMap<String, Binding>,
+    ctx: &LowerContext<'_>,
+) -> Result<Expr, Diagnostic> {
+    let lowered_expr = lower_expr(expr, env, ctx)?;
+    let Some((enum_name, variant_defs)) = match_variants(lowered_expr.ty(), ctx) else {
+        return Err(Diagnostic::new(
+            "type",
+            format!(
+                "match expression expects an enum-like value, got {}",
+                lowered_expr.ty()
+            ),
+        )
+        .with_span(line, column));
+    };
+    let match_borrowed_owners = expr_borrowed_owners(&lowered_expr, env, ctx);
+    let match_borrow_kind = borrow_kind_for_type(lowered_expr.ty(), ctx.structs, ctx.enums);
+    let reuse_existing_match_binding =
+        matches!(lowered_expr, Expr::VarRef { .. }) && !match_borrowed_owners.is_empty();
+    if let Some(borrow_kind) = match_borrow_kind
+        && !reuse_existing_match_binding
+    {
+        increment_active_borrows(&match_borrowed_owners, env, borrow_kind, line, column)?;
+    }
+    if matches!(lowered_expr, Expr::VarRef { .. }) && !lowered_expr.ty().is_copy() {
+        move_lowered_owner_value(&lowered_expr, env)?;
+    }
+
+    let before = env.clone();
+    let mut seen = HashMap::new();
+    let mut lowered_arms = Vec::new();
+    let mut arm_states = Vec::new();
+    let mut result_ty = expected.cloned();
+    for arm in arms {
+        let variant_def = variant_defs
+            .iter()
+            .find(|variant| variant.name == arm.variant)
+            .ok_or_else(|| {
+                Diagnostic::new(
+                    "type",
+                    message_with_suggestion(
+                        format!("enum {enum_name:?} has no variant {:?}", arm.variant),
+                        &arm.variant,
+                        variant_defs.iter().map(|variant| variant.name.as_str()),
+                    ),
+                )
+                .with_span(arm.line, arm.column)
+            })?;
+        if seen.insert(arm.variant.clone(), ()).is_some() {
+            return Err(
+                Diagnostic::new("type", format!("duplicate match arm {:?}", arm.variant))
+                    .with_span(arm.line, arm.column),
+            );
+        }
+        let mut arm_env = before.clone();
+        let binding_tys = match_match_arm_binding_types(
+            &arm.variant,
+            &arm.bindings,
+            arm.is_named,
+            variant_def,
+            arm.line,
+            arm.column,
+        )?;
+        for (binding_index, (binding, payload_ty)) in
+            arm.bindings.iter().zip(binding_tys.iter()).enumerate()
+        {
+            if ctx.functions.contains_key(binding) {
+                return Err(Diagnostic::new(
+                    "type",
+                    format!("match binding {binding:?} conflicts with a function name"),
+                )
+                .with_span(arm.line, arm.column));
+            }
+            if arm_env.contains_key(binding) {
+                return Err(Diagnostic::new(
+                    "type",
+                    format!(
+                        "match binding {binding:?} reuses an existing name in the current scope"
+                    ),
+                )
+                .with_span(arm.line, arm.column));
+            }
+            arm_env.insert(
+                binding.clone(),
+                Binding {
+                    ty: payload_ty.clone(),
+                    moved: false,
+                    moved_projections: HashSet::new(),
+                    borrow_kind: borrow_kind_for_type(payload_ty, ctx.structs, ctx.enums),
+                    borrow_origin: match_binding_borrow_origin(
+                        &lowered_expr,
+                        &arm.variant,
+                        binding,
+                        binding_index,
+                        payload_ty,
+                        &before,
+                        ctx,
+                    ),
+                    borrowed_owners: match_binding_borrowed_owners(
+                        &lowered_expr,
+                        &arm.variant,
+                        binding,
+                        binding_index,
+                        payload_ty,
+                        &before,
+                        ctx,
+                    ),
+                    active_borrow_count: 0,
+                    active_mut_borrow_count: 0,
+                    active_borrows: HashMap::new(),
+                },
+            );
+        }
+        let lowered_arm_expr =
+            lower_expr_with_expected(&arm.expr, result_ty.as_ref(), &mut arm_env, ctx)?;
+        if let Some(expected_ty) = result_ty.as_ref() {
+            if !type_assignable_to(lowered_arm_expr.ty(), expected_ty) {
+                return Err(Diagnostic::new(
+                    "type",
+                    format!(
+                        "match expression arm {:?} expects {expected_ty}, got {}",
+                        arm.variant,
+                        lowered_arm_expr.ty()
+                    ),
+                )
+                .with_span(arm.line, arm.column));
+            }
+        } else {
+            result_ty = Some(lowered_arm_expr.ty().clone());
+        }
+        if !lowered_arm_expr.ty().is_copy() {
+            move_lowered_owner_value(&lowered_arm_expr, &mut arm_env)?;
+        }
+        lowered_arms.push(MatchExprArm {
+            enum_name: enum_name.clone(),
+            variant: arm.variant,
+            bindings: arm.bindings,
+            is_named: arm.is_named,
+            expr: lowered_arm_expr,
+        });
+        arm_states.push((arm_env, false));
+    }
+    let missing = variant_defs
+        .iter()
+        .filter(|variant| !seen.contains_key(&variant.name))
+        .map(|variant| variant.name.clone())
+        .collect::<Vec<_>>();
+    if !missing.is_empty() {
+        return Err(Diagnostic::new(
+            "type",
+            format!(
+                "match on {:?} is not exhaustive; missing {}",
+                enum_name,
+                missing.join(", ")
+            ),
+        )
+        .with_span(line, column));
+    }
+    merge_match_state(env, &before, &arm_states);
+    if let Some(borrow_kind) = match_borrow_kind
+        && !reuse_existing_match_binding
+    {
+        release_active_borrow_owners(&match_borrowed_owners, env, borrow_kind);
+    }
+    Ok(Expr::Match {
+        expr: Box::new(lowered_expr),
+        arms: lowered_arms,
+        ty: result_ty.unwrap_or(Type::Error),
+    })
+}
+
+fn match_match_arm_binding_types(
+    variant: &str,
+    bindings: &[String],
+    is_named: bool,
+    variant_def: &EnumVariantDef,
+    line: usize,
+    column: usize,
+) -> Result<Vec<Type>, Diagnostic> {
+    if is_named {
+        if variant_def.payload_names.is_empty() {
+            return Err(Diagnostic::new(
+                "type",
+                format!("match arm {variant:?} uses named bindings, but variant {variant:?} is positional"),
+            )
+            .with_span(line, column));
+        }
+        if bindings.len() != variant_def.payload_names.len() {
+            return Err(Diagnostic::new(
+                "type",
+                format!(
+                    "match arm {variant:?} expects {} named bindings, got {}",
+                    variant_def.payload_names.len(),
+                    bindings.len()
+                ),
+            )
+            .with_span(line, column));
+        }
+        let mut seen_named = HashMap::new();
+        let mut payload_tys = Vec::new();
+        for binding in bindings {
+            let Some(position) = variant_def
+                .payload_names
+                .iter()
+                .position(|name| name == binding)
+            else {
+                return Err(Diagnostic::new(
+                    "type",
+                    format!("match arm {variant:?} has no named payload {binding:?}"),
+                )
+                .with_span(line, column));
+            };
+            if seen_named.insert(binding.clone(), ()).is_some() {
+                return Err(Diagnostic::new(
+                    "type",
+                    format!("match arm {variant:?} repeats named payload {binding:?}"),
+                )
+                .with_span(line, column));
+            }
+            payload_tys.push(variant_def.payload_tys[position].clone());
+        }
+        Ok(payload_tys)
+    } else {
+        if !variant_def.payload_names.is_empty() {
+            return Err(Diagnostic::new(
+                "type",
+                format!("match arm {variant:?} must use named bindings for variant {variant:?}"),
+            )
+            .with_span(line, column));
+        }
+        if bindings.len() != variant_def.payload_tys.len() {
+            return Err(Diagnostic::new(
+                "type",
+                format!(
+                    "match arm {variant:?} expects {} bindings, got {}",
+                    variant_def.payload_tys.len(),
+                    bindings.len()
+                ),
+            )
+            .with_span(line, column));
+        }
+        Ok(variant_def.payload_tys.clone())
+    }
+}
+
 fn resolve_const_match_int_pattern(
     arm: &MatchArmInput,
     ctx: &LowerContext<'_>,
@@ -7397,7 +7799,10 @@ fn coerce_expr_to_expected(
 }
 
 fn is_stable_string_borrow_owner(expr: &Expr) -> bool {
-    matches!(expr, Expr::VarRef { .. } | Expr::FieldAccess { .. })
+    matches!(
+        expr,
+        Expr::VarRef { .. } | Expr::FieldAccess { .. } | Expr::TupleIndex { .. }
+    )
 }
 
 fn lower_expr_with_expected(
@@ -7499,6 +7904,15 @@ fn lower_expr_with_expected_inner(
                 message_with_suggestion(format!("undefined variable {name:?}"), name, env.keys()),
             )
             .with_span(*line, *column))
+        }
+        syntax::Expr::Match {
+            expr,
+            arms,
+            line,
+            column,
+        } => {
+            let arms = arms.iter().map(MatchExprArmInput::from).collect();
+            lower_match_expr(expr, arms, expected, *line, *column, env, ctx)
         }
         syntax::Expr::MutBorrow { expr, line, column } => {
             let syntax::Expr::VarRef { name, .. } = expr.as_ref() else {
@@ -9287,6 +9701,207 @@ fn lower_expr_with_expected_inner(
                     ty: Type::Bool,
                 });
             }
+            if name == "crypto_rand_bytes" {
+                require_capability(
+                    ctx.capabilities,
+                    CapabilityKind::Crypto,
+                    name,
+                    *line,
+                    *column,
+                )?;
+                if args.len() != 1 {
+                    return Err(Diagnostic::new(
+                        "type",
+                        format!("crypto_rand_bytes expects 1 argument, got {}", args.len()),
+                    )
+                    .with_span(*line, *column));
+                }
+                let n = lower_expr_with_expected(&args[0], Some(&Type::Int), env, ctx)?;
+                if n.ty() != &Type::Int {
+                    return Err(Diagnostic::new(
+                        "type",
+                        format!("crypto_rand_bytes expects an int argument, got {}", n.ty()),
+                    )
+                    .with_span(args[0].line(), args[0].column()));
+                }
+                move_lowered_value(&n, env)?;
+                return Ok(Expr::Call {
+                    span: SourceSpan {
+                        line: *line,
+                        column: *column,
+                    },
+                    name: name.clone(),
+                    args: vec![n],
+                    ty: Type::Array(Box::new(Type::Numeric(syntax::NumericType::U8)), None),
+                });
+            }
+            if name == "crypto_rand_u64" {
+                require_capability(
+                    ctx.capabilities,
+                    CapabilityKind::Crypto,
+                    name,
+                    *line,
+                    *column,
+                )?;
+                if !args.is_empty() {
+                    return Err(Diagnostic::new(
+                        "type",
+                        format!("crypto_rand_u64 expects 0 arguments, got {}", args.len()),
+                    )
+                    .with_span(*line, *column));
+                }
+                return Ok(Expr::Call {
+                    span: SourceSpan {
+                        line: *line,
+                        column: *column,
+                    },
+                    name: name.clone(),
+                    args: vec![],
+                    ty: Type::Numeric(syntax::NumericType::U64),
+                });
+            }
+            if name == "crypto_ed25519_keygen" {
+                require_capability(
+                    ctx.capabilities,
+                    CapabilityKind::Crypto,
+                    name,
+                    *line,
+                    *column,
+                )?;
+                if !args.is_empty() {
+                    return Err(Diagnostic::new(
+                        "type",
+                        format!(
+                            "crypto_ed25519_keygen expects 0 arguments, got {}",
+                            args.len()
+                        ),
+                    )
+                    .with_span(*line, *column));
+                }
+                let bytes = Type::Array(Box::new(Type::Numeric(syntax::NumericType::U8)), None);
+                return Ok(Expr::Call {
+                    span: SourceSpan {
+                        line: *line,
+                        column: *column,
+                    },
+                    name: name.clone(),
+                    args: Vec::new(),
+                    ty: Type::Tuple(vec![bytes.clone(), bytes]),
+                });
+            }
+            if name == "crypto_ed25519_sign" {
+                require_capability(
+                    ctx.capabilities,
+                    CapabilityKind::Crypto,
+                    name,
+                    *line,
+                    *column,
+                )?;
+                if args.len() != 2 {
+                    return Err(Diagnostic::new(
+                        "type",
+                        format!(
+                            "crypto_ed25519_sign expects 2 arguments, got {}",
+                            args.len()
+                        ),
+                    )
+                    .with_span(*line, *column));
+                }
+                let byte_slice = Type::Slice(Box::new(Type::Numeric(syntax::NumericType::U8)));
+                let secret_key = lower_expr_with_expected(&args[0], Some(&byte_slice), env, ctx)?;
+                if secret_key.ty() != &byte_slice {
+                    return Err(Diagnostic::new(
+                        "type",
+                        format!(
+                            "crypto_ed25519_sign expects a &[u8] secret key, got {}",
+                            secret_key.ty()
+                        ),
+                    )
+                    .with_span(args[0].line(), args[0].column()));
+                }
+                let message = lower_expr_with_expected(&args[1], Some(&byte_slice), env, ctx)?;
+                if message.ty() != &byte_slice {
+                    return Err(Diagnostic::new(
+                        "type",
+                        format!(
+                            "crypto_ed25519_sign expects a &[u8] message, got {}",
+                            message.ty()
+                        ),
+                    )
+                    .with_span(args[1].line(), args[1].column()));
+                }
+                return Ok(Expr::Call {
+                    span: SourceSpan {
+                        line: *line,
+                        column: *column,
+                    },
+                    name: name.clone(),
+                    args: vec![secret_key, message],
+                    ty: Type::Array(Box::new(Type::Numeric(syntax::NumericType::U8)), None),
+                });
+            }
+            if name == "crypto_ed25519_verify" {
+                require_capability(
+                    ctx.capabilities,
+                    CapabilityKind::Crypto,
+                    name,
+                    *line,
+                    *column,
+                )?;
+                if args.len() != 3 {
+                    return Err(Diagnostic::new(
+                        "type",
+                        format!(
+                            "crypto_ed25519_verify expects 3 arguments, got {}",
+                            args.len()
+                        ),
+                    )
+                    .with_span(*line, *column));
+                }
+                let byte_slice = Type::Slice(Box::new(Type::Numeric(syntax::NumericType::U8)));
+                let public_key = lower_expr_with_expected(&args[0], Some(&byte_slice), env, ctx)?;
+                if public_key.ty() != &byte_slice {
+                    return Err(Diagnostic::new(
+                        "type",
+                        format!(
+                            "crypto_ed25519_verify expects a &[u8] public key, got {}",
+                            public_key.ty()
+                        ),
+                    )
+                    .with_span(args[0].line(), args[0].column()));
+                }
+                let message = lower_expr_with_expected(&args[1], Some(&byte_slice), env, ctx)?;
+                if message.ty() != &byte_slice {
+                    return Err(Diagnostic::new(
+                        "type",
+                        format!(
+                            "crypto_ed25519_verify expects a &[u8] message, got {}",
+                            message.ty()
+                        ),
+                    )
+                    .with_span(args[1].line(), args[1].column()));
+                }
+                let signature = lower_expr_with_expected(&args[2], Some(&byte_slice), env, ctx)?;
+                if signature.ty() != &byte_slice {
+                    return Err(Diagnostic::new(
+                        "type",
+                        format!(
+                            "crypto_ed25519_verify expects a &[u8] signature, got {}",
+                            signature.ty()
+                        ),
+                    )
+                    .with_span(args[2].line(), args[2].column()));
+                }
+                return Ok(Expr::Call {
+                    span: SourceSpan {
+                        line: *line,
+                        column: *column,
+                    },
+                    name: name.clone(),
+                    args: vec![public_key, message, signature],
+                    ty: Type::Bool,
+                });
+            }
             if name == "first" || name == "last" {
                 if args.len() != 1 {
                     return Err(Diagnostic::new(
@@ -10786,6 +11401,15 @@ fn collect_var_refs(expr: &syntax::Expr, refs: &mut HashSet<String>) {
                 refs.remove(&param.name);
             }
         }
+        syntax::Expr::Match { expr, arms, .. } => {
+            collect_var_refs(expr, refs);
+            for arm in arms {
+                collect_var_refs(&arm.expr, refs);
+                for binding in &arm.bindings {
+                    refs.remove(binding);
+                }
+            }
+        }
         syntax::Expr::Literal(_) => {}
     }
 }
@@ -11956,6 +12580,10 @@ fn expr_borrow_origin(
         ),
         Expr::Index { base, .. } => expr_borrow_origin(base, env, ctx),
         Expr::Closure { .. } => None,
+        Expr::Match { arms, .. } => merge_borrow_origins(
+            arms.iter()
+                .map(|arm| expr_borrow_origin(&arm.expr, env, ctx)),
+        ),
         Expr::Literal { .. } | Expr::BinaryAdd { .. } | Expr::BinaryCompare { .. } => None,
         Expr::StringBorrow { expr, .. } => expr_borrow_origin(expr, env, ctx)
             .or_else(|| owned_borrow_owner(expr).map(|_| BorrowOrigin::Local)),
@@ -12093,6 +12721,13 @@ fn expr_borrowed_owners(
         Expr::FieldAccess { base, .. } => expr_borrowed_owners(base, env, ctx),
         Expr::Index { base, .. } => expr_borrowed_owners(base, env, ctx),
         Expr::Closure { .. } => HashSet::new(),
+        Expr::Match { arms, .. } => {
+            let mut owners = HashSet::new();
+            for arm in arms {
+                owners.extend(expr_borrowed_owners(&arm.expr, env, ctx));
+            }
+            owners
+        }
         Expr::Literal { .. } | Expr::BinaryAdd { .. } | Expr::BinaryCompare { .. } => {
             HashSet::new()
         }
@@ -13161,6 +13796,7 @@ impl Expr {
             Expr::Slice { ty, .. } => ty,
             Expr::Index { ty, .. } => ty,
             Expr::StringBorrow { ty, .. } => ty,
+            Expr::Match { ty, .. } => ty,
         }
     }
 }
@@ -13253,7 +13889,8 @@ impl syntax::Expr {
             | syntax::Expr::Index { line, .. }
             | syntax::Expr::MutBorrow { line, .. }
             | syntax::Expr::Deref { line, .. }
-            | syntax::Expr::Closure { line, .. } => *line,
+            | syntax::Expr::Closure { line, .. }
+            | syntax::Expr::Match { line, .. } => *line,
         }
     }
 
@@ -13278,7 +13915,8 @@ impl syntax::Expr {
             | syntax::Expr::Index { column, .. }
             | syntax::Expr::MutBorrow { column, .. }
             | syntax::Expr::Deref { column, .. }
-            | syntax::Expr::Closure { column, .. } => *column,
+            | syntax::Expr::Closure { column, .. }
+            | syntax::Expr::Match { column, .. } => *column,
         }
     }
 }

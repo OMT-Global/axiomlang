@@ -136,6 +136,21 @@ version = "0.1.0"
 source = "path:fail/lowercase_const_match_pattern"
 
 [[package]]
+name = "conformance-match-expression-arm-move-state"
+version = "0.1.0"
+source = "path:fail/match_expression_arm_move_state"
+
+[[package]]
+name = "conformance-match-expression-arm-type-mismatch"
+version = "0.1.0"
+source = "path:fail/match_expression_arm_type_mismatch"
+
+[[package]]
+name = "conformance-match-expression-non-exhaustive"
+version = "0.1.0"
+source = "path:fail/match_expression_non_exhaustive"
+
+[[package]]
 name = "conformance-match-guard-not-supported"
 version = "0.1.0"
 source = "path:fail/match_guard_not_supported"
@@ -276,6 +291,21 @@ version = "0.1.0"
 source = "path:fail/panic_requires_string_argument"
 
 [[package]]
+name = "conformance-projection-overlap-struct-field"
+version = "0.1.0"
+source = "path:fail/projection_overlap_struct_field"
+
+[[package]]
+name = "conformance-projection-overlap-tuple"
+version = "0.1.0"
+source = "path:fail/projection_overlap_tuple"
+
+[[package]]
+name = "conformance-projection-overlap-via-whole-value"
+version = "0.1.0"
+source = "path:fail/projection_overlap_via_whole_value"
+
+[[package]]
 name = "conformance-rebind-owned-value-not-supported"
 version = "0.1.0"
 source = "path:fail/rebind_owned_value_not_supported"
@@ -341,6 +371,11 @@ version = "0.1.0"
 source = "path:fail/string_use_after_move"
 
 [[package]]
+name = "conformance-trait-type-position-not-supported"
+version = "0.1.0"
+source = "path:fail/trait_type_position_not_supported"
+
+[[package]]
 name = "conformance-borrow-return-elision"
 version = "0.1.0"
 source = "path:pass/borrow_return_elision"
@@ -391,6 +426,11 @@ version = "0.1.0"
 source = "path:pass/crypto_constant_time"
 
 [[package]]
+name = "conformance-crypto-ed25519-sign-verify"
+version = "0.1.0"
+source = "path:pass/crypto_ed25519_sign_verify"
+
+[[package]]
 name = "conformance-functions-across-modules"
 version = "0.1.0"
 source = "path:pass/functions_across_modules"
@@ -409,6 +449,11 @@ source = "path:pass/mutable_call_boundaries"
 name = "conformance-mutable-local-borrow-write-through"
 version = "0.1.0"
 source = "path:pass/mutable_local_borrow_write_through"
+
+[[package]]
+name = "conformance-mutable-match-expression-bindings"
+version = "0.1.0"
+source = "path:pass/mutable_match_expression_bindings"
 
 [[package]]
 name = "conformance-mutable-projection-borrows"
@@ -471,6 +516,16 @@ version = "0.1.0"
 source = "path:pass/package_visibility"
 
 [[package]]
+name = "conformance-projection-struct-disjoint"
+version = "0.1.0"
+source = "path:pass/projection_struct_disjoint"
+
+[[package]]
+name = "conformance-projection-tuple-disjoint"
+version = "0.1.0"
+source = "path:pass/projection_tuple_disjoint"
+
+[[package]]
 name = "conformance-runtime-negative-diagnostics"
 version = "0.1.0"
 source = "path:pass/runtime_negative_diagnostics"
@@ -506,6 +561,16 @@ version = "0.1.0"
 source = "path:pass/struct_field_access"
 
 [[package]]
+name = "conformance-trait-declaration-syntax"
+version = "0.1.0"
+source = "path:pass/trait_declaration_syntax"
+
+[[package]]
 name = "conformance-type-system-aggregates"
 version = "0.1.0"
 source = "path:pass/type_system_aggregates"
+
+[[package]]
+name = "conformance-typed-match-expressions"
+version = "0.1.0"
+source = "path:pass/typed_match_expressions"

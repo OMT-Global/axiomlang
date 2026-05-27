@@ -1,0 +1,7 @@
+trait Display {
+fn render(self): string
+}
+fn show(value: Display): string {
+return ""
+}
+print show("x")
