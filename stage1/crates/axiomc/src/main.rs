@@ -5,7 +5,10 @@ use axiomc::diagnostics::Diagnostic;
 use axiomc::json_contract;
 use axiomc::lockfile::{expected_lockfile_for_project, validate_lockfile};
 use axiomc::lsp;
-use axiomc::manifest::{CapabilityDescriptor, TestKind, entry_path, load_manifest, manifest_path};
+use axiomc::manifest::{
+    CapabilityDescriptor, TestKind, binary_path, entry_path, generated_rust_path, load_manifest,
+    lockfile_path, manifest_path, out_dir_path,
+};
 #[cfg(test)]
 use axiomc::new_project::create_project;
 use axiomc::new_project::{WorkloadTemplate, create_project_with_template};
@@ -245,6 +248,24 @@ enum InspectCommand {
     },
     /// Emit package and module dependency graph details.
     Graph {
+        path: PathBuf,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Emit manifest capability effects for agent tooling.
+    Effects {
+        path: PathBuf,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Emit available verification evidence such as lockfile and test metadata.
+    Evidence {
+        path: PathBuf,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Emit configured and currently available build, test, and docs artifacts.
+    Artifacts {
         path: PathBuf,
         #[arg(long)]
         json: bool,
@@ -618,6 +639,63 @@ fn main() {
                     0
                 }
                 Err(error) => print_error("inspect graph", error, json),
+            },
+            InspectCommand::Effects { path, json } => match inspect_effects(&path) {
+                Ok(report) => {
+                    if json {
+                        println!(
+                            "{}",
+                            json_contract::to_pretty_string(&report)
+                                .unwrap_or_else(|_| String::from("{}"))
+                        );
+                    } else {
+                        for effect in &report.effects {
+                            println!(
+                                "{} enabled={} resource={}",
+                                effect.name, effect.enabled, effect.resource
+                            );
+                        }
+                    }
+                    0
+                }
+                Err(error) => print_error("inspect effects", error, json),
+            },
+            InspectCommand::Evidence { path, json } => match inspect_evidence(&path) {
+                Ok(report) => {
+                    if json {
+                        println!(
+                            "{}",
+                            json_contract::to_pretty_string(&report)
+                                .unwrap_or_else(|_| String::from("{}"))
+                        );
+                    } else {
+                        for item in &report.evidence {
+                            println!("{} {} {}", item.kind, item.name, item.status);
+                        }
+                    }
+                    0
+                }
+                Err(error) => print_error("inspect evidence", error, json),
+            },
+            InspectCommand::Artifacts { path, json } => match inspect_artifacts(&path) {
+                Ok(report) => {
+                    if json {
+                        println!(
+                            "{}",
+                            json_contract::to_pretty_string(&report)
+                                .unwrap_or_else(|_| String::from("{}"))
+                        );
+                    } else {
+                        for artifact in &report.artifacts {
+                            println!(
+                                "{} {} exists={}",
+                                artifact.kind, artifact.path, artifact.exists
+                            );
+                        }
+                    }
+                    0
+                }
+                Err(error) => print_error("inspect artifacts", error, json),
             },
         },
         Command::Pkg { command } => match command {
@@ -1122,6 +1200,7 @@ struct RepairTask {
 #[derive(Debug, Clone, Serialize)]
 struct InspectSymbolsReport {
     schema_version: &'static str,
+    schema: &'static str,
     ok: bool,
     command: &'static str,
     project: String,
@@ -1527,12 +1606,15 @@ fn inspect_symbols(path: &Path) -> Result<InspectSymbolsReport, Diagnostic> {
     });
     Ok(InspectSymbolsReport {
         schema_version: json_contract::JSON_SCHEMA_VERSION,
+        schema: INSPECT_SCHEMA_PATH,
         ok: true,
         command: "inspect symbols",
         project: path.display().to_string(),
         symbols,
     })
 }
+
+const INSPECT_SCHEMA_PATH: &str = "stage1/schemas/axiom-inspect-v0.schema.json";
 
 fn symbol_span(path: &Path, line: usize, column: usize) -> SymbolSpan {
     SymbolSpan {
@@ -2602,6 +2684,7 @@ fn validate_repl_program(source: &str) -> Result<usize, Diagnostic> {
 #[derive(Debug, Clone, Serialize)]
 struct InspectGraphReport {
     schema_version: &'static str,
+    schema: &'static str,
     ok: bool,
     command: &'static str,
     project: String,
@@ -2640,6 +2723,9 @@ struct PackageEdge {
 struct ModuleNode {
     path: String,
     imports: Vec<ModuleImport>,
+    functions: Vec<GraphFunctionNode>,
+    type_refs: Vec<String>,
+    capabilities: Vec<&'static str>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -2647,6 +2733,14 @@ struct ModuleImport {
     path: String,
     resolved: Option<String>,
     is_stdlib: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct GraphFunctionNode {
+    name: String,
+    signature: String,
+    span: SymbolSpan,
+    capabilities: Vec<&'static str>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -2677,6 +2771,7 @@ fn inspect_graph(project: &Path) -> Result<InspectGraphReport, Diagnostic> {
 
     Ok(InspectGraphReport {
         schema_version: json_contract::JSON_SCHEMA_VERSION,
+        schema: INSPECT_SCHEMA_PATH,
         ok: import_errors.is_empty() && cycles.is_empty() && lockfile_status == "valid",
         command: "inspect graph",
         project: project.display().to_string(),
@@ -2767,7 +2862,7 @@ fn inspect_module_nodes(
         })?;
         let program = parse_program(&source, &file)?;
         let mut imports = Vec::new();
-        for import in program.imports {
+        for import in &program.imports {
             if import.path.starts_with("std/") {
                 let exists = stdlib.contains(import.path.as_str());
                 if !exists {
@@ -2778,7 +2873,7 @@ fn inspect_module_nodes(
                     });
                 }
                 imports.push(ModuleImport {
-                    path: import.path,
+                    path: import.path.clone(),
                     resolved: None,
                     is_stdlib: true,
                 });
@@ -2799,18 +2894,399 @@ fn inspect_module_nodes(
                 });
             }
             imports.push(ModuleImport {
-                path: import.path,
+                path: import.path.clone(),
                 resolved: Some(resolved),
                 is_stdlib: false,
             });
         }
+        let functions = program
+            .functions
+            .iter()
+            .map(|function| GraphFunctionNode {
+                name: function.source_name.clone(),
+                signature: function_signature(function),
+                span: symbol_span(&file, function.line, function.column),
+                capabilities: capabilities_in_stmts(&function.body),
+            })
+            .collect::<Vec<_>>();
+        let type_refs = collect_program_type_refs(&program);
+        let mut capabilities = program
+            .consts
+            .iter()
+            .flat_map(|decl| capabilities_in_expr(&decl.expr))
+            .chain(
+                program
+                    .functions
+                    .iter()
+                    .flat_map(|function| capabilities_in_stmts(&function.body)),
+            )
+            .collect::<Vec<_>>();
+        capabilities.sort_unstable();
+        capabilities.dedup();
         modules.push(ModuleNode {
             path: normalize_for_graph(&file),
             imports,
+            functions,
+            type_refs,
+            capabilities,
         });
     }
     modules.sort_by(|left, right| left.path.cmp(&right.path));
     Ok((modules, errors))
+}
+
+fn collect_program_type_refs(program: &axiomc::syntax::Program) -> Vec<String> {
+    let mut refs = BTreeSet::new();
+    for decl in &program.consts {
+        refs.insert(render_type(&decl.ty));
+    }
+    for decl in &program.type_aliases {
+        refs.insert(render_type(&decl.ty));
+    }
+    for decl in &program.structs {
+        for field in &decl.fields {
+            refs.insert(render_type(&field.ty));
+        }
+    }
+    for decl in &program.enums {
+        for variant in &decl.variants {
+            for ty in &variant.payload_tys {
+                refs.insert(render_type(ty));
+            }
+        }
+    }
+    for function in &program.functions {
+        for param in &function.params {
+            refs.insert(render_type(&param.ty));
+        }
+        refs.insert(render_type(&function.return_ty));
+    }
+    refs.into_iter().collect()
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct InspectEffectsReport {
+    schema_version: &'static str,
+    schema: &'static str,
+    ok: bool,
+    command: &'static str,
+    project: String,
+    effects: Vec<EffectNode>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct EffectNode {
+    name: String,
+    enabled: bool,
+    resource: &'static str,
+    allowed: Vec<String>,
+    source: &'static str,
+    deny_by_default: bool,
+    unsafe_opt_in: bool,
+    owner: Option<String>,
+    rationale: Option<String>,
+}
+
+fn inspect_effects(project: &Path) -> Result<InspectEffectsReport, Diagnostic> {
+    let effects = project_capabilities(project)?
+        .into_iter()
+        .map(|descriptor| EffectNode {
+            resource: capability_resource(&descriptor.name),
+            name: descriptor.name,
+            enabled: descriptor.enabled,
+            allowed: descriptor.allowed,
+            source: "manifest",
+            deny_by_default: descriptor.deny_by_default,
+            unsafe_opt_in: descriptor.unsafe_opt_in || descriptor.unsafe_unrestricted,
+            owner: descriptor.owner,
+            rationale: descriptor.rationale.or(descriptor.unsafe_rationale),
+        })
+        .collect::<Vec<_>>();
+    Ok(InspectEffectsReport {
+        schema_version: json_contract::JSON_SCHEMA_VERSION,
+        schema: INSPECT_SCHEMA_PATH,
+        ok: true,
+        command: "inspect effects",
+        project: project.display().to_string(),
+        effects,
+    })
+}
+
+fn capability_resource(name: &str) -> &'static str {
+    match name {
+        "fs" | "fs:write" => "filesystem",
+        "net" => "network",
+        "process" => "process",
+        "env" => "environment",
+        "clock" => "time",
+        "crypto" => "cryptography",
+        "ffi" => "foreign_function_interface",
+        "async" => "runtime",
+        _ => "capability",
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct InspectEvidenceReport {
+    schema_version: &'static str,
+    schema: &'static str,
+    ok: bool,
+    command: &'static str,
+    project: String,
+    evidence: Vec<EvidenceNode>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct EvidenceNode {
+    kind: &'static str,
+    name: String,
+    path: String,
+    package: Option<String>,
+    status: String,
+}
+
+fn inspect_evidence(project: &Path) -> Result<InspectEvidenceReport, Diagnostic> {
+    let manifest = load_manifest(project)?;
+    let lockfile_status = match validate_lockfile(project, &manifest) {
+        Ok(()) => "valid".to_string(),
+        Err(error) => format!("invalid: {error}"),
+    };
+    let mut evidence = vec![EvidenceNode {
+        kind: "lockfile",
+        name: "axiom.lock".to_string(),
+        path: lockfile_path(project).display().to_string(),
+        package: manifest
+            .package
+            .as_ref()
+            .map(|package| package.name.clone()),
+        status: lockfile_status,
+    }];
+
+    let test_options = TestOptions {
+        filter: None,
+        package: None,
+        include_benchmarks: true,
+    };
+    match list_project_tests_with_options(project, &test_options) {
+        Ok(list) => {
+            for test in list.tests {
+                evidence.push(EvidenceNode {
+                    kind: "test",
+                    name: test.name,
+                    path: Path::new(&test.package_root)
+                        .join(&test.entry)
+                        .display()
+                        .to_string(),
+                    package: test.package,
+                    status: format!("configured:{:?}", test.kind),
+                });
+            }
+        }
+        Err(error) if error.to_string().contains("no tests discovered") => {}
+        Err(error) => evidence.push(EvidenceNode {
+            kind: "test",
+            name: "test-discovery".to_string(),
+            path: manifest_path(project).display().to_string(),
+            package: manifest
+                .package
+                .as_ref()
+                .map(|package| package.name.clone()),
+            status: format!("unavailable: {error}"),
+        }),
+    }
+
+    Ok(InspectEvidenceReport {
+        schema_version: json_contract::JSON_SCHEMA_VERSION,
+        schema: INSPECT_SCHEMA_PATH,
+        ok: evidence
+            .iter()
+            .all(|item| !item.status.starts_with("invalid")),
+        command: "inspect evidence",
+        project: project.display().to_string(),
+        evidence,
+    })
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct InspectArtifactsReport {
+    schema_version: &'static str,
+    schema: &'static str,
+    ok: bool,
+    command: &'static str,
+    project: String,
+    artifacts: Vec<ArtifactNode>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct ArtifactNode {
+    kind: &'static str,
+    path: String,
+    exists: bool,
+    source: &'static str,
+}
+
+fn inspect_artifacts(project: &Path) -> Result<InspectArtifactsReport, Diagnostic> {
+    let manifest = load_manifest(project)?;
+    let mut artifacts = Vec::new();
+    push_artifact(
+        &mut artifacts,
+        "manifest",
+        manifest_path(project),
+        "configured",
+    );
+    push_artifact(
+        &mut artifacts,
+        "lockfile",
+        lockfile_path(project),
+        "configured",
+    );
+    push_artifact(
+        &mut artifacts,
+        "build_entry",
+        entry_path(project, &manifest),
+        "configured",
+    );
+    push_artifact(
+        &mut artifacts,
+        "build_output_dir",
+        out_dir_path(project, &manifest),
+        "configured",
+    );
+    if manifest.package.is_some() {
+        push_artifact(
+            &mut artifacts,
+            "generated_rust",
+            generated_rust_path(project, &manifest),
+            "configured",
+        );
+        push_artifact(
+            &mut artifacts,
+            "native_binary",
+            binary_path(project, &manifest),
+            "configured",
+        );
+    }
+    for test in &manifest.tests {
+        push_artifact(
+            &mut artifacts,
+            "test_entry",
+            project.join(&test.entry),
+            "configured",
+        );
+        if let Some(stdout) = &test.stdout {
+            push_artifact(
+                &mut artifacts,
+                "test_stdout_golden",
+                project.join(stdout),
+                "configured",
+            );
+        }
+        if let Some(stderr) = &test.stderr {
+            push_artifact(
+                &mut artifacts,
+                "test_stderr_golden",
+                project.join(stderr),
+                "configured",
+            );
+        }
+    }
+    let test_options = TestOptions {
+        filter: None,
+        package: None,
+        include_benchmarks: true,
+    };
+    if let Ok(list) = list_project_tests_with_options(project, &test_options) {
+        for test in list.tests {
+            push_artifact(
+                &mut artifacts,
+                "test_entry",
+                Path::new(&test.package_root).join(&test.entry),
+                "configured",
+            );
+        }
+    }
+    let docs_dir = project.join("docs/axiom");
+    if docs_dir.exists() {
+        push_artifact(&mut artifacts, "docs", docs_dir, "available");
+    }
+    inspect_existing_output_artifacts(&mut artifacts, &out_dir_path(project, &manifest))?;
+    artifacts.sort_by(|left, right| {
+        left.kind
+            .cmp(right.kind)
+            .then_with(|| left.path.cmp(&right.path))
+    });
+    artifacts.dedup_by(|left, right| left.kind == right.kind && left.path == right.path);
+
+    Ok(InspectArtifactsReport {
+        schema_version: json_contract::JSON_SCHEMA_VERSION,
+        schema: INSPECT_SCHEMA_PATH,
+        ok: true,
+        command: "inspect artifacts",
+        project: project.display().to_string(),
+        artifacts,
+    })
+}
+
+fn push_artifact(
+    artifacts: &mut Vec<ArtifactNode>,
+    kind: &'static str,
+    path: PathBuf,
+    source: &'static str,
+) {
+    artifacts.push(ArtifactNode {
+        kind,
+        exists: path.exists(),
+        path: path.display().to_string(),
+        source,
+    });
+}
+
+fn inspect_existing_output_artifacts(
+    artifacts: &mut Vec<ArtifactNode>,
+    out_dir: &Path,
+) -> Result<(), Diagnostic> {
+    if !out_dir.is_dir() {
+        return Ok(());
+    }
+    for entry in fs::read_dir(out_dir).map_err(|err| {
+        Diagnostic::new(
+            "inspect",
+            format!(
+                "failed to read build output directory {}: {err}",
+                out_dir.display()
+            ),
+        )
+    })? {
+        let entry = entry.map_err(|err| {
+            Diagnostic::new(
+                "inspect",
+                format!(
+                    "failed to inspect build output directory {}: {err}",
+                    out_dir.display()
+                ),
+            )
+        })?;
+        let path = entry.path();
+        if !path.is_file() {
+            continue;
+        }
+        let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
+            continue;
+        };
+        let kind = if name.ends_with(".generated.rs") {
+            "generated_rust"
+        } else if name.ends_with(".debug-map.json") {
+            "debug_map"
+        } else if name.ends_with(".debug-manifest.json") {
+            "debug_manifest"
+        } else if name.ends_with(".build-cache.toml") {
+            "build_cache"
+        } else {
+            "build_output"
+        };
+        push_artifact(artifacts, kind, path, "available");
+    }
+    Ok(())
 }
 
 fn inspect_dependency_import_candidate(
@@ -3682,6 +4158,22 @@ mod tests {
                 .as_deref()
                 .is_some_and(|path| path.ends_with("deps/core/src/math.ax"))
         );
+        let math = report
+            .modules
+            .iter()
+            .find(|module| {
+                module
+                    .functions
+                    .iter()
+                    .any(|function| function.name == "value")
+            })
+            .expect("math module");
+        assert!(
+            math.functions
+                .iter()
+                .any(|function| function.name == "value")
+        );
+        assert!(math.type_refs.contains(&String::from("int")));
     }
 
     #[test]
@@ -3696,6 +4188,83 @@ mod tests {
         let report = inspect_graph(&project).expect("inspect graph");
 
         assert!(!report.cycles.is_empty());
+    }
+
+    #[test]
+    fn inspect_effects_evidence_and_artifacts_report_agent_shapes() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let project = dir.path().join("inspect");
+        create_project(&project, Some("inspect-app")).expect("create project");
+        fs::write(
+            project.join("axiom.toml"),
+            "[package]\nname = \"inspect-app\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = true\n\"fs:write\" = false\nnet = false\nprocess = false\nenv = false\nclock = true\ncrypto = false\nffi = false\nasync = false\n",
+        )
+        .expect("write manifest");
+        fs::write(
+            project.join("src/main.ax"),
+            "import \"std/time.ax\"\n\npub fn now(): int {\nreturn clock_now_ms()\n}\n\nprint now()\n",
+        )
+        .expect("write main source");
+        fs::write(project.join("src/main_test.ax"), "print 1\n").expect("write test source");
+        let manifest = load_manifest(&project).expect("load manifest");
+        fs::write(
+            project.join("axiom.lock"),
+            axiomc::lockfile::render_lockfile_for_project(&project, &manifest)
+                .expect("render lockfile"),
+        )
+        .expect("write lockfile");
+
+        let effects = inspect_effects(&project).expect("inspect effects");
+        assert_eq!(effects.command, "inspect effects");
+        assert_eq!(effects.schema, INSPECT_SCHEMA_PATH);
+        assert!(effects.effects.iter().any(|effect| {
+            effect.name == "clock" && effect.enabled && effect.resource == "time"
+        }));
+        assert!(effects.effects.iter().any(|effect| {
+            effect.name == "fs" && effect.enabled && effect.resource == "filesystem"
+        }));
+
+        let evidence = inspect_evidence(&project).expect("inspect evidence");
+        assert_eq!(evidence.command, "inspect evidence");
+        assert!(
+            evidence
+                .evidence
+                .iter()
+                .any(|item| item.kind == "lockfile" && item.status == "valid")
+        );
+        assert!(
+            evidence
+                .evidence
+                .iter()
+                .any(|item| item.kind == "test" && item.name.ends_with("src/main_test"))
+        );
+
+        fs::create_dir_all(project.join("dist")).expect("create dist");
+        fs::write(
+            project.join("dist/inspect-app.generated.rs"),
+            "// generated\n",
+        )
+        .expect("write generated artifact");
+        let artifacts = inspect_artifacts(&project).expect("inspect artifacts");
+        assert_eq!(artifacts.command, "inspect artifacts");
+        assert!(
+            artifacts
+                .artifacts
+                .iter()
+                .any(|artifact| artifact.kind == "build_entry" && artifact.exists)
+        );
+        assert!(
+            artifacts
+                .artifacts
+                .iter()
+                .any(|artifact| artifact.kind == "generated_rust" && artifact.exists)
+        );
+        assert!(
+            artifacts
+                .artifacts
+                .iter()
+                .any(|artifact| artifact.kind == "test_entry" && artifact.exists)
+        );
     }
 
     #[test]
