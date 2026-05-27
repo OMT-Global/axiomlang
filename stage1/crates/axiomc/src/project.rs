@@ -3407,6 +3407,18 @@ fn collect_hir_expr_intrinsic_use(
         hir::Expr::Closure { body, .. } => {
             collect_hir_expr_intrinsic_use(module_path, body, fallback_line, fallback_column, uses);
         }
+        hir::Expr::Match { expr, arms, .. } => {
+            collect_hir_expr_intrinsic_use(module_path, expr, fallback_line, fallback_column, uses);
+            for arm in arms {
+                collect_hir_expr_intrinsic_use(
+                    module_path,
+                    &arm.expr,
+                    fallback_line,
+                    fallback_column,
+                    uses,
+                );
+            }
+        }
         hir::Expr::Literal { .. } | hir::Expr::VarRef { .. } => {}
     }
 }
@@ -3614,6 +3626,13 @@ fn validate_expr_capabilities(
         }
         syntax::Expr::Closure { body, .. } => {
             validate_expr_capabilities(module_path, body, capabilities)
+        }
+        syntax::Expr::Match { expr, arms, .. } => {
+            validate_expr_capabilities(module_path, expr, capabilities)?;
+            for arm in arms {
+                validate_expr_capabilities(module_path, &arm.expr, capabilities)?;
+            }
+            Ok(())
         }
     }
 }
@@ -5849,6 +5868,49 @@ fn rewrite_expr(
                 private_imported_types,
                 module_path,
             )?),
+            line: *line,
+            column: *column,
+        },
+        syntax::Expr::Match {
+            expr,
+            arms,
+            line,
+            column,
+        } => syntax::Expr::Match {
+            expr: Box::new(rewrite_expr(
+                expr,
+                visible_functions,
+                visible_consts,
+                visible_structs,
+                visible_types,
+                private_imported,
+                private_imported_consts,
+                private_imported_types,
+                module_path,
+            )?),
+            arms: arms
+                .iter()
+                .map(|arm| {
+                    Ok(syntax::MatchExprArm {
+                        variant: arm.variant.clone(),
+                        bindings: arm.bindings.clone(),
+                        is_named: arm.is_named,
+                        expr: rewrite_expr(
+                            &arm.expr,
+                            visible_functions,
+                            visible_consts,
+                            visible_structs,
+                            visible_types,
+                            private_imported,
+                            private_imported_consts,
+                            private_imported_types,
+                            module_path,
+                        )?,
+                        line: arm.line,
+                        column: arm.column,
+                    })
+                })
+                .collect::<Result<Vec<_>, Diagnostic>>()?,
             line: *line,
             column: *column,
         },

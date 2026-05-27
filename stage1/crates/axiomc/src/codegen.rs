@@ -3123,6 +3123,9 @@ fn expr_uses_call(expr: &Expr, name: &str) -> bool {
             expr_uses_call(base, name) || expr_uses_call(index, name)
         }
         Expr::Closure { body, .. } => expr_uses_call(body, name),
+        Expr::Match { expr, arms, .. } => {
+            expr_uses_call(expr, name) || arms.iter().any(|arm| expr_uses_call(&arm.expr, name))
+        }
         Expr::Literal(_) | Expr::VarRef { .. } => false,
         Expr::StringBorrow { expr, .. } => expr_uses_call(expr, name),
     }
@@ -3695,6 +3698,12 @@ fn collect_expr_mutable_borrows(expr: &Expr, locals: &mut HashSet<String>) {
             collect_expr_mutable_borrows(index, locals);
         }
         Expr::Closure { body, .. } => collect_expr_mutable_borrows(body, locals),
+        Expr::Match { expr, arms, .. } => {
+            collect_expr_mutable_borrows(expr, locals);
+            for arm in arms {
+                collect_expr_mutable_borrows(&arm.expr, locals);
+            }
+        }
         Expr::Literal(_) | Expr::VarRef { .. } => {}
     }
 }
@@ -4669,6 +4678,39 @@ fn render_expr(expr: &Expr) -> String {
             }
             _ => unreachable!("type checker rejects indexing non-collection values"),
         },
+        Expr::Match { expr, arms, .. } => {
+            let mut rendered = format!("match {} {{ ", render_expr(expr));
+            for arm in arms {
+                let mut arm_mutable_locals = HashSet::new();
+                collect_expr_mutable_borrows(&arm.expr, &mut arm_mutable_locals);
+                if arm.bindings.is_empty() {
+                    rendered.push_str(&format!(
+                        "{}::{} => {}, ",
+                        arm.enum_name,
+                        arm.variant,
+                        render_expr(&arm.expr)
+                    ));
+                } else if arm.is_named {
+                    rendered.push_str(&format!(
+                        "{}::{} {{ {} }} => {}, ",
+                        arm.enum_name,
+                        arm.variant,
+                        render_match_bindings(&arm.bindings, &arm_mutable_locals),
+                        render_expr(&arm.expr)
+                    ));
+                } else {
+                    rendered.push_str(&format!(
+                        "{}::{}({}) => {}, ",
+                        arm.enum_name,
+                        arm.variant,
+                        render_match_bindings(&arm.bindings, &arm_mutable_locals),
+                        render_expr(&arm.expr)
+                    ));
+                }
+            }
+            rendered.push('}');
+            rendered
+        }
     }
 }
 

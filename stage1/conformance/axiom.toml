@@ -27,6 +27,9 @@ members = [
   "fail/import_reserved_namespace",
   "fail/import_unsupported_alias",
   "fail/lowercase_const_match_pattern",
+  "fail/match_expression_arm_move_state",
+  "fail/match_expression_arm_type_mismatch",
+  "fail/match_expression_non_exhaustive",
   "fail/match_guard_not_supported",
   "fail/move_while_mutably_borrowed",
   "fail/mutable_borrow_double_mut",
@@ -81,6 +84,7 @@ members = [
   "pass/legacy_core_programs",
   "pass/mutable_local_borrow_write_through",
   "pass/mutable_call_boundaries",
+  "pass/mutable_match_expression_bindings",
   "pass/mutable_projection_borrows",
   "pass/never_control_flow",
   "pass/mutable_slice_write_through",
@@ -101,4 +105,5 @@ members = [
   "pass/struct_field_access",
   "pass/trait_declaration_syntax",
   "pass/type_system_aggregates",
+  "pass/typed_match_expressions",
 ]

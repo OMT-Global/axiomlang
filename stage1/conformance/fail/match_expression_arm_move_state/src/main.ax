@@ -1,0 +1,5 @@
+let owned: string = "ready"
+let maybe: Option<int> = Some(1)
+let out: string = match maybe { Some(count) => owned, None => "fallback" }
+print owned
+print out

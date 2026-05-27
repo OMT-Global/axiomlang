@@ -136,6 +136,21 @@ version = "0.1.0"
 source = "path:fail/lowercase_const_match_pattern"
 
 [[package]]
+name = "conformance-match-expression-arm-move-state"
+version = "0.1.0"
+source = "path:fail/match_expression_arm_move_state"
+
+[[package]]
+name = "conformance-match-expression-arm-type-mismatch"
+version = "0.1.0"
+source = "path:fail/match_expression_arm_type_mismatch"
+
+[[package]]
+name = "conformance-match-expression-non-exhaustive"
+version = "0.1.0"
+source = "path:fail/match_expression_non_exhaustive"
+
+[[package]]
 name = "conformance-match-guard-not-supported"
 version = "0.1.0"
 source = "path:fail/match_guard_not_supported"
@@ -416,6 +431,11 @@ version = "0.1.0"
 source = "path:pass/mutable_local_borrow_write_through"
 
 [[package]]
+name = "conformance-mutable-match-expression-bindings"
+version = "0.1.0"
+source = "path:pass/mutable_match_expression_bindings"
+
+[[package]]
 name = "conformance-mutable-projection-borrows"
 version = "0.1.0"
 source = "path:pass/mutable_projection_borrows"
@@ -519,3 +539,8 @@ source = "path:pass/trait_declaration_syntax"
 name = "conformance-type-system-aggregates"
 version = "0.1.0"
 source = "path:pass/type_system_aggregates"
+
+[[package]]
+name = "conformance-typed-match-expressions"
+version = "0.1.0"
+source = "path:pass/typed_match_expressions"

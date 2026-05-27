@@ -1,0 +1,6 @@
+fn render(value: Result<int, string>): string {
+return match value { Ok(count) => "ok" }
+}
+
+print render(Ok(7))
+

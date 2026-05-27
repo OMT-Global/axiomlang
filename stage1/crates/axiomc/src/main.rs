@@ -1857,6 +1857,12 @@ fn collect_expr_capabilities(expr: &axiomc::syntax::Expr, capabilities: &mut Vec
             collect_expr_capabilities(index, capabilities);
         }
         Expr::Closure { body, .. } => collect_expr_capabilities(body, capabilities),
+        Expr::Match { expr, arms, .. } => {
+            collect_expr_capabilities(expr, capabilities);
+            for arm in arms {
+                collect_expr_capabilities(&arm.expr, capabilities);
+            }
+        }
         Expr::Literal(_) | Expr::VarRef { .. } => {}
     }
 }
