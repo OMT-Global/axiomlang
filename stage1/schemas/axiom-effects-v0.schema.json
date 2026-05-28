@@ -1,0 +1,118 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://axiom.dev/schemas/axiom-effects-v0.schema.json",
+  "title": "Axiom Effects v0",
+  "type": "object",
+  "required": ["schema_version", "ok", "command", "project", "effects"],
+  "properties": {
+    "schema_version": {
+      "const": "axiom.effects.v0"
+    },
+    "ok": {
+      "type": "boolean"
+    },
+    "command": {
+      "const": "inspect effects"
+    },
+    "project": {
+      "type": "string",
+      "minLength": 1
+    },
+    "effects": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/effect"
+      }
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "effect": {
+      "type": "object",
+      "required": [
+        "id",
+        "kind",
+        "resource",
+        "operation",
+        "capability_gate",
+        "source_span",
+        "policy"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^axiom://package/[A-Za-z0-9._~:/#@!$&'()*+,;=%-]+$"
+        },
+        "kind": {
+          "enum": [
+            "clock.now",
+            "clock.sleep",
+            "env.read",
+            "fs.read",
+            "fs.write",
+            "network.dns.resolve",
+            "network.http.get",
+            "network.tcp.bind",
+            "network.tcp.connect",
+            "network.udp.send",
+            "process.status",
+            "crypto.hash",
+            "crypto.mac",
+            "crypto.rand",
+            "crypto.sign"
+          ]
+        },
+        "resource": {
+          "type": "string"
+        },
+        "operation": {
+          "type": "string",
+          "minLength": 1
+        },
+        "capability_gate": {
+          "type": "string",
+          "minLength": 1
+        },
+        "source_span": {
+          "$ref": "#/$defs/source_span"
+        },
+        "policy": {
+          "$ref": "#/$defs/policy"
+        }
+      },
+      "additionalProperties": false
+    },
+    "source_span": {
+      "type": "object",
+      "required": ["path", "line", "column"],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "line": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "column": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "additionalProperties": false
+    },
+    "policy": {
+      "type": "object",
+      "required": ["host_allowed", "port_allowed"],
+      "properties": {
+        "host_allowed": {
+          "type": "boolean"
+        },
+        "port_allowed": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}
