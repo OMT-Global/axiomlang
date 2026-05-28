@@ -491,6 +491,7 @@ fn lower_stmt(stmt: &hir::Stmt) -> Stmt {
             ty,
             expr,
             span,
+            ..
         } => Stmt::Let {
             name: name.clone(),
             ty: lower_type(ty),

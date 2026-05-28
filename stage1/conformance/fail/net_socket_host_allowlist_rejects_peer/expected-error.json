@@ -1,0 +1,8 @@
+{
+  "kind": "capability",
+  "code": null,
+  "message": "call to \"net_udp_send_to\" requires [capabilities].net.hosts to include \"192.0.2.1\"",
+  "path": "src/main.ax",
+  "line": 4,
+  "column": 7
+}

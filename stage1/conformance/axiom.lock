@@ -226,9 +226,14 @@ version = "0.1.0"
 source = "path:fail/nested_match_pattern_not_supported"
 
 [[package]]
-name = "conformance-never-control-flow-missing-return"
+name = "conformance-net-socket-host-allowlist-rejects-peer"
 version = "0.1.0"
-source = "path:fail/never_control_flow_missing_return"
+source = "path:fail/net_socket_host_allowlist_rejects_peer"
+
+[[package]]
+name = "conformance-net-socket-port-allowlist-rejects-bind"
+version = "0.1.0"
+source = "path:fail/net_socket_port_allowlist_rejects_bind"
 
 [[package]]
 name = "conformance-numeric-float-mixed-width-add"
@@ -351,6 +356,11 @@ version = "0.1.0"
 source = "path:fail/stdlib_clock_without_capability"
 
 [[package]]
+name = "conformance-stdlib-crypto-aead-without-capability"
+version = "0.1.0"
+source = "path:fail/stdlib_crypto_aead_without_capability"
+
+[[package]]
 name = "conformance-stdlib-crypto-rand-without-capability"
 version = "0.1.0"
 source = "path:fail/stdlib_crypto_rand_without_capability"
@@ -359,6 +369,16 @@ source = "path:fail/stdlib_crypto_rand_without_capability"
 name = "conformance-stdlib-fs-write-without-capability"
 version = "0.1.0"
 source = "path:fail/stdlib_fs_write_without_capability"
+
+[[package]]
+name = "conformance-stdlib-net-tcp-without-capability"
+version = "0.1.0"
+source = "path:fail/stdlib_net_tcp_without_capability"
+
+[[package]]
+name = "conformance-stdlib-net-udp-without-capability"
+version = "0.1.0"
+source = "path:fail/stdlib_net_udp_without_capability"
 
 [[package]]
 name = "conformance-string-borrow-local-return"
@@ -421,6 +441,11 @@ version = "0.1.0"
 source = "path:pass/const_match_patterns"
 
 [[package]]
+name = "conformance-crypto-aead-roundtrip"
+version = "0.1.0"
+source = "path:pass/crypto_aead_roundtrip"
+
+[[package]]
 name = "conformance-crypto-constant-time"
 version = "0.1.0"
 source = "path:pass/crypto_constant_time"
@@ -461,14 +486,19 @@ version = "0.1.0"
 source = "path:pass/mutable_projection_borrows"
 
 [[package]]
-name = "conformance-mutable-slice-write-through"
+name = "conformance-net-socket-localhost-allowlist"
 version = "0.1.0"
-source = "path:pass/mutable_slice_write_through"
+source = "path:pass/net_socket_localhost_allowlist"
 
 [[package]]
-name = "conformance-never-control-flow"
+name = "conformance-net-tcp-echo"
 version = "0.1.0"
-source = "path:pass/never_control_flow"
+source = "path:pass/net_tcp_echo"
+
+[[package]]
+name = "conformance-net-udp-datagram"
+version = "0.1.0"
+source = "path:pass/net_udp_datagram"
 
 [[package]]
 name = "conformance-numeric-cross-width-casts"

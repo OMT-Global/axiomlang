@@ -3804,6 +3804,19 @@ fn intrinsic_capability(name: &str) -> Option<CapabilityKind> {
         "fs_write" | "fs_create" | "fs_append" | "fs_mkdir" | "fs_mkdir_all" | "fs_remove_file"
         | "fs_remove_dir" | "fs_replace" => Some(CapabilityKind::FsWrite),
         "net_resolve" => Some(CapabilityKind::Net),
+        "net_tcp_listen" => Some(CapabilityKind::Net),
+        "net_tcp_listener_port" => Some(CapabilityKind::Net),
+        "net_tcp_accept" => Some(CapabilityKind::Net),
+        "net_tcp_read" => Some(CapabilityKind::Net),
+        "net_tcp_write" => Some(CapabilityKind::Net),
+        "net_tcp_close" => Some(CapabilityKind::Net),
+        "net_tcp_close_listener" => Some(CapabilityKind::Net),
+        "net_udp_bind" => Some(CapabilityKind::Net),
+        "net_udp_local_addr" => Some(CapabilityKind::Net),
+        "net_udp_local_port" => Some(CapabilityKind::Net),
+        "net_udp_send_to" => Some(CapabilityKind::Net),
+        "net_udp_recv_from" => Some(CapabilityKind::Net),
+        "net_udp_close" => Some(CapabilityKind::Net),
         "net_tcp_listen_loopback_once" => Some(CapabilityKind::Net),
         "net_tcp_dial" => Some(CapabilityKind::Net),
         "net_udp_bind_loopback_once" => Some(CapabilityKind::Net),
@@ -3823,9 +3836,8 @@ fn intrinsic_capability(name: &str) -> Option<CapabilityKind> {
         "crypto_constant_time_eq_u8" => Some(CapabilityKind::Crypto),
         "crypto_rand_bytes" => Some(CapabilityKind::Crypto),
         "crypto_rand_u64" => Some(CapabilityKind::Crypto),
-        "crypto_ed25519_keygen" => Some(CapabilityKind::Crypto),
-        "crypto_ed25519_sign" => Some(CapabilityKind::Crypto),
-        "crypto_ed25519_verify" => Some(CapabilityKind::Crypto),
+        "crypto_aead_seal" => Some(CapabilityKind::Crypto),
+        "crypto_aead_open" => Some(CapabilityKind::Crypto),
         _ => None,
     }
 }
@@ -7049,6 +7061,7 @@ mod tests {
             name: "pair".to_string(),
             ty: hir::Type::Tuple(vec![hir::Type::Int, hir::Type::Int]),
             expr,
+            borrow_region_facts: Vec::new(),
             span: hir::SourceSpan { line: 7, column: 1 },
         };
         let mut uses = BTreeSet::new();

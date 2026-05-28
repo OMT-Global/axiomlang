@@ -2049,6 +2049,19 @@ fn capability_for_call(name: &str) -> Option<&'static str> {
         | "http_get"
         | "http_serve_once"
         | "http_serve_route"
+        | "net_tcp_listen"
+        | "net_tcp_listener_port"
+        | "net_tcp_accept"
+        | "net_tcp_read"
+        | "net_tcp_write"
+        | "net_tcp_close"
+        | "net_tcp_close_listener"
+        | "net_udp_bind"
+        | "net_udp_local_addr"
+        | "net_udp_local_port"
+        | "net_udp_send_to"
+        | "net_udp_recv_from"
+        | "net_udp_close"
         | "net_tcp_listen_loopback_once"
         | "tcp_listen_loopback_once"
         | "net_tcp_dial"
@@ -2065,9 +2078,8 @@ fn capability_for_call(name: &str) -> Option<&'static str> {
         | "crypto_constant_time_eq_u8"
         | "crypto_rand_bytes"
         | "crypto_rand_u64"
-        | "crypto_ed25519_keygen"
-        | "crypto_ed25519_sign"
-        | "crypto_ed25519_verify"
+        | "crypto_aead_seal"
+        | "crypto_aead_open"
         | "hmac_sha256"
         | "hmac_sha512"
         | "verify_sha256"
@@ -2075,7 +2087,9 @@ fn capability_for_call(name: &str) -> Option<&'static str> {
         | "constant_time_eq"
         | "constant_time_eq_u8"
         | "random_bytes"
-        | "random_u64" => Some("crypto"),
+        | "random_u64"
+        | "aead_seal"
+        | "aead_open" => Some("crypto"),
         _ => None,
     }
 }

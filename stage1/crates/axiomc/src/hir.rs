@@ -96,6 +96,8 @@ pub enum Stmt {
         name: String,
         ty: Type,
         expr: Expr,
+        #[serde(skip)]
+        borrow_region_facts: Vec<BorrowRegionFact>,
         span: SourceSpan,
     },
     Assign {
@@ -144,6 +146,8 @@ pub struct MatchArm {
     pub bindings: Vec<String>,
     pub is_named: bool,
     pub ignore_payloads: bool,
+    #[serde(skip)]
+    pub borrow_region_facts: Vec<BorrowRegionFact>,
     pub body: Vec<Stmt>,
 }
 
@@ -317,6 +321,41 @@ pub struct MatchExprArm {
     pub bindings: Vec<String>,
     pub is_named: bool,
     pub expr: Expr,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct BorrowRegionFact {
+    pub binding: String,
+    pub origin: BorrowRegionOrigin,
+    pub scope: BorrowRegionScope,
+    pub source: BorrowRegionSource,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct BorrowRegionOrigin {
+    pub name: String,
+    pub projection: Vec<BorrowRegionProjection>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub enum BorrowRegionProjection {
+    Field(String),
+    TupleIndex(usize),
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub enum BorrowRegionScope {
+    Binding(String),
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub enum BorrowRegionSource {
+    Direct,
+    EnumPayload {
+        enum_origin: BorrowRegionOrigin,
+        variant: String,
+        payload_index: usize,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Eq)]
@@ -6457,9 +6496,19 @@ fn lower_match_stmt(
                 variant_def.payload_tys.clone()
             }
         };
+        let mut arm_borrow_region_facts = Vec::new();
         for (binding_index, (binding, payload_ty)) in
             arm.bindings.iter().zip(binding_tys.iter()).enumerate()
         {
+            let payload_index = if arm.is_named {
+                variant_def
+                    .payload_names
+                    .iter()
+                    .position(|name| name == binding)
+                    .expect("named match binding already validated")
+            } else {
+                binding_index
+            };
             if ctx.functions.contains_key(binding) {
                 return Err(Diagnostic::new(
                     "type",
@@ -6476,6 +6525,23 @@ fn lower_match_stmt(
                 )
                 .with_span(arm.line, arm.column));
             }
+            let borrowed_owners = match_binding_borrowed_owners(
+                &lowered_expr,
+                &arm.variant,
+                binding,
+                binding_index,
+                payload_ty,
+                &before,
+                ctx,
+            );
+            arm_borrow_region_facts.extend(borrow_region_facts_for_enum_payload_binding(
+                binding,
+                payload_ty,
+                &borrowed_owners,
+                &lowered_expr,
+                &arm.variant,
+                payload_index,
+            ));
             arm_env.insert(
                 binding.clone(),
                 Binding {
@@ -6492,15 +6558,7 @@ fn lower_match_stmt(
                         &before,
                         ctx,
                     ),
-                    borrowed_owners: match_binding_borrowed_owners(
-                        &lowered_expr,
-                        &arm.variant,
-                        binding,
-                        binding_index,
-                        payload_ty,
-                        &before,
-                        ctx,
-                    ),
+                    borrowed_owners,
                     active_borrow_count: 0,
                     active_mut_borrow_count: 0,
                     active_borrows: HashMap::new(),
@@ -6525,6 +6583,7 @@ fn lower_match_stmt(
             bindings: arm.bindings.clone(),
             is_named: arm.is_named,
             ignore_payloads: arm.ignore_payloads,
+            borrow_region_facts: arm_borrow_region_facts,
             body,
         });
         arm_states.push((after, returns));
@@ -6609,6 +6668,7 @@ fn lower_const_match_stmt(
             bindings: Vec::new(),
             is_named: false,
             ignore_payloads: false,
+            borrow_region_facts: Vec::new(),
             body,
         });
         arm_states.push((after, returns));
@@ -6991,6 +7051,8 @@ fn lower_stmt(
             }
             let borrowed_owners =
                 binding_borrowed_owners_from_expr(&expected, &lowered_expr, env, ctx);
+            let borrow_region_facts =
+                borrow_region_facts_for_binding(name, &expected, &borrowed_owners);
             if let Some(borrow_kind) = borrow_kind_for_type(&expected, ctx.structs, ctx.enums) {
                 increment_active_borrows(&borrowed_owners, env, borrow_kind, *line, *column)?;
             }
@@ -7020,6 +7082,7 @@ fn lower_stmt(
                 name: name.clone(),
                 ty: expected,
                 expr: lowered_expr,
+                borrow_region_facts,
                 span: SourceSpan {
                     line: *line,
                     column: *column,
@@ -8912,6 +8975,260 @@ fn lower_expr_with_expected_inner(
                     ty: Type::Option(Box::new(Type::String)),
                 });
             }
+            if name == "net_tcp_listen" {
+                require_capability(ctx.capabilities, CapabilityKind::Net, name, *line, *column)?;
+                if args.len() != 1 {
+                    return Err(Diagnostic::new(
+                        "type",
+                        format!("net_tcp_listen expects 1 argument, got {}", args.len()),
+                    )
+                    .with_span(*line, *column));
+                }
+                let bind = lower_expr_with_expected(&args[0], Some(&Type::String), env, ctx)?;
+                if bind.ty() != &Type::String {
+                    return Err(Diagnostic::new(
+                        "type",
+                        format!(
+                            "net_tcp_listen expects argument 1 type string, got {}",
+                            bind.ty()
+                        ),
+                    )
+                    .with_span(args[0].line(), args[0].column()));
+                }
+                validate_net_socket_allowlist_hir(ctx.capabilities, name, &bind, *line, *column)?;
+                move_lowered_value(&bind, env)?;
+                return Ok(Expr::Call {
+                    span: SourceSpan {
+                        line: *line,
+                        column: *column,
+                    },
+                    name: name.clone(),
+                    args: vec![bind],
+                    ty: Type::Int,
+                });
+            }
+            if matches!(
+                name.as_str(),
+                "net_tcp_listener_port"
+                    | "net_tcp_accept"
+                    | "net_tcp_close"
+                    | "net_tcp_close_listener"
+            ) {
+                require_capability(ctx.capabilities, CapabilityKind::Net, name, *line, *column)?;
+                if args.len() != 1 {
+                    return Err(Diagnostic::new(
+                        "type",
+                        format!("{name} expects 1 argument, got {}", args.len()),
+                    )
+                    .with_span(*line, *column));
+                }
+                let handle = lower_expr_with_expected(&args[0], Some(&Type::Int), env, ctx)?;
+                if handle.ty() != &Type::Int {
+                    return Err(Diagnostic::new(
+                        "type",
+                        format!("{name} expects argument 1 type int, got {}", handle.ty()),
+                    )
+                    .with_span(args[0].line(), args[0].column()));
+                }
+                return Ok(Expr::Call {
+                    span: SourceSpan {
+                        line: *line,
+                        column: *column,
+                    },
+                    name: name.clone(),
+                    args: vec![handle],
+                    ty: Type::Int,
+                });
+            }
+            if name == "net_tcp_read" || name == "net_tcp_write" {
+                require_capability(ctx.capabilities, CapabilityKind::Net, name, *line, *column)?;
+                if args.len() != 2 {
+                    return Err(Diagnostic::new(
+                        "type",
+                        format!("{name} expects 2 arguments, got {}", args.len()),
+                    )
+                    .with_span(*line, *column));
+                }
+                let stream = lower_expr_with_expected(&args[0], Some(&Type::Int), env, ctx)?;
+                if stream.ty() != &Type::Int {
+                    return Err(Diagnostic::new(
+                        "type",
+                        format!("{name} expects argument 1 type int, got {}", stream.ty()),
+                    )
+                    .with_span(args[0].line(), args[0].column()));
+                }
+                let byte_ty = Type::Numeric(syntax::NumericType::U8);
+                let buffer_ty = if name == "net_tcp_read" {
+                    Type::MutSlice(Box::new(byte_ty))
+                } else {
+                    Type::Slice(Box::new(byte_ty))
+                };
+                let buffer = lower_expr_with_expected(&args[1], Some(&buffer_ty), env, ctx)?;
+                if buffer.ty() != &buffer_ty {
+                    return Err(Diagnostic::new(
+                        "type",
+                        format!(
+                            "{name} expects argument 2 type {buffer_ty}, got {}",
+                            buffer.ty()
+                        ),
+                    )
+                    .with_span(args[1].line(), args[1].column()));
+                }
+                return Ok(Expr::Call {
+                    span: SourceSpan {
+                        line: *line,
+                        column: *column,
+                    },
+                    name: name.clone(),
+                    args: vec![stream, buffer],
+                    ty: Type::Int,
+                });
+            }
+            if name == "net_udp_bind" {
+                require_capability(ctx.capabilities, CapabilityKind::Net, name, *line, *column)?;
+                if args.len() != 1 {
+                    return Err(Diagnostic::new(
+                        "type",
+                        format!("net_udp_bind expects 1 argument, got {}", args.len()),
+                    )
+                    .with_span(*line, *column));
+                }
+                let bind = lower_expr_with_expected(&args[0], Some(&Type::String), env, ctx)?;
+                if bind.ty() != &Type::String {
+                    return Err(Diagnostic::new(
+                        "type",
+                        format!(
+                            "net_udp_bind expects argument 1 type string, got {}",
+                            bind.ty()
+                        ),
+                    )
+                    .with_span(args[0].line(), args[0].column()));
+                }
+                validate_net_socket_allowlist_hir(ctx.capabilities, name, &bind, *line, *column)?;
+                move_lowered_value(&bind, env)?;
+                return Ok(Expr::Call {
+                    span: SourceSpan {
+                        line: *line,
+                        column: *column,
+                    },
+                    name: name.clone(),
+                    args: vec![bind],
+                    ty: Type::Int,
+                });
+            }
+            if matches!(
+                name.as_str(),
+                "net_udp_local_addr" | "net_udp_local_port" | "net_udp_close"
+            ) {
+                require_capability(ctx.capabilities, CapabilityKind::Net, name, *line, *column)?;
+                if args.len() != 1 {
+                    return Err(Diagnostic::new(
+                        "type",
+                        format!("{name} expects 1 argument, got {}", args.len()),
+                    )
+                    .with_span(*line, *column));
+                }
+                let handle = lower_expr_with_expected(&args[0], Some(&Type::Int), env, ctx)?;
+                if handle.ty() != &Type::Int {
+                    return Err(Diagnostic::new(
+                        "type",
+                        format!("{name} expects argument 1 type int, got {}", handle.ty()),
+                    )
+                    .with_span(args[0].line(), args[0].column()));
+                }
+                let ty = if name == "net_udp_local_addr" {
+                    Type::String
+                } else {
+                    Type::Int
+                };
+                return Ok(Expr::Call {
+                    span: SourceSpan {
+                        line: *line,
+                        column: *column,
+                    },
+                    name: name.clone(),
+                    args: vec![handle],
+                    ty,
+                });
+            }
+            if name == "net_udp_send_to" || name == "net_udp_recv_from" {
+                require_capability(ctx.capabilities, CapabilityKind::Net, name, *line, *column)?;
+                let expected_len = if name == "net_udp_send_to" { 3 } else { 2 };
+                if args.len() != expected_len {
+                    return Err(Diagnostic::new(
+                        "type",
+                        format!(
+                            "{name} expects {expected_len} arguments, got {}",
+                            args.len()
+                        ),
+                    )
+                    .with_span(*line, *column));
+                }
+                let socket = lower_expr_with_expected(&args[0], Some(&Type::Int), env, ctx)?;
+                if socket.ty() != &Type::Int {
+                    return Err(Diagnostic::new(
+                        "type",
+                        format!("{name} expects argument 1 type int, got {}", socket.ty()),
+                    )
+                    .with_span(args[0].line(), args[0].column()));
+                }
+                let byte_ty = Type::Numeric(syntax::NumericType::U8);
+                let buffer_ty = if name == "net_udp_recv_from" {
+                    Type::MutSlice(Box::new(byte_ty))
+                } else {
+                    Type::Slice(Box::new(byte_ty))
+                };
+                let buffer = lower_expr_with_expected(&args[1], Some(&buffer_ty), env, ctx)?;
+                if buffer.ty() != &buffer_ty {
+                    return Err(Diagnostic::new(
+                        "type",
+                        format!(
+                            "{name} expects argument 2 type {buffer_ty}, got {}",
+                            buffer.ty()
+                        ),
+                    )
+                    .with_span(args[1].line(), args[1].column()));
+                }
+                if name == "net_udp_send_to" {
+                    let peer = lower_expr_with_expected(&args[2], Some(&Type::String), env, ctx)?;
+                    if peer.ty() != &Type::String {
+                        return Err(Diagnostic::new(
+                            "type",
+                            format!(
+                                "net_udp_send_to expects argument 3 type string, got {}",
+                                peer.ty()
+                            ),
+                        )
+                        .with_span(args[2].line(), args[2].column()));
+                    }
+                    validate_net_socket_allowlist_hir(
+                        ctx.capabilities,
+                        name,
+                        &peer,
+                        *line,
+                        *column,
+                    )?;
+                    move_lowered_value(&peer, env)?;
+                    return Ok(Expr::Call {
+                        span: SourceSpan {
+                            line: *line,
+                            column: *column,
+                        },
+                        name: name.clone(),
+                        args: vec![socket, buffer, peer],
+                        ty: Type::Int,
+                    });
+                }
+                return Ok(Expr::Call {
+                    span: SourceSpan {
+                        line: *line,
+                        column: *column,
+                    },
+                    name: name.clone(),
+                    args: vec![socket, buffer],
+                    ty: Type::Tuple(vec![Type::Int, Type::String]),
+                });
+            }
             if name == "net_tcp_listen_loopback_once" {
                 require_capability(ctx.capabilities, CapabilityKind::Net, name, *line, *column)?;
                 if args.len() != 2 {
@@ -9209,6 +9526,7 @@ fn lower_expr_with_expected_inner(
                     )
                     .with_span(args[1].line(), args[1].column()));
                 }
+                validate_net_socket_allowlist_hir(ctx.capabilities, name, &bind, *line, *column)?;
                 move_lowered_value(&bind, env)?;
                 move_lowered_value(&body, env)?;
                 return Ok(Expr::Call {
@@ -9276,6 +9594,7 @@ fn lower_expr_with_expected_inner(
                     )
                     .with_span(args[3].line(), args[3].column()));
                 }
+                validate_net_socket_allowlist_hir(ctx.capabilities, name, &bind, *line, *column)?;
                 move_lowered_value(&bind, env)?;
                 move_lowered_value(&route_path, env)?;
                 move_lowered_value(&body, env)?;
@@ -9653,15 +9972,14 @@ fn lower_expr_with_expected_inner(
                     )
                     .with_span(*line, *column));
                 }
-                let n = lower_expr_with_expected(&args[0], Some(&Type::Int), env, ctx)?;
+                let n = lower_expr(&args[0], env, ctx)?;
                 if n.ty() != &Type::Int {
                     return Err(Diagnostic::new(
                         "type",
-                        format!("crypto_rand_bytes expects an int argument, got {}", n.ty()),
+                        format!("crypto_rand_bytes expects an int length, got {}", n.ty()),
                     )
                     .with_span(args[0].line(), args[0].column()));
                 }
-                move_lowered_value(&n, env)?;
                 return Ok(Expr::Call {
                     span: SourceSpan {
                         line: *line,
@@ -9693,11 +10011,11 @@ fn lower_expr_with_expected_inner(
                         column: *column,
                     },
                     name: name.clone(),
-                    args: vec![],
+                    args: Vec::new(),
                     ty: Type::Numeric(syntax::NumericType::U64),
                 });
             }
-            if name == "crypto_ed25519_keygen" {
+            if name == "crypto_aead_seal" || name == "crypto_aead_open" {
                 require_capability(
                     ctx.capabilities,
                     CapabilityKind::Crypto,
@@ -9705,138 +10023,69 @@ fn lower_expr_with_expected_inner(
                     *line,
                     *column,
                 )?;
-                if !args.is_empty() {
+                if args.len() != 5 {
                     return Err(Diagnostic::new(
                         "type",
-                        format!(
-                            "crypto_ed25519_keygen expects 0 arguments, got {}",
-                            args.len()
-                        ),
+                        format!("{name} expects 5 arguments, got {}", args.len()),
                     )
                     .with_span(*line, *column));
                 }
-                let bytes = Type::Array(Box::new(Type::Numeric(syntax::NumericType::U8)), None);
-                return Ok(Expr::Call {
-                    span: SourceSpan {
-                        line: *line,
-                        column: *column,
-                    },
-                    name: name.clone(),
-                    args: Vec::new(),
-                    ty: Type::Tuple(vec![bytes.clone(), bytes]),
-                });
-            }
-            if name == "crypto_ed25519_sign" {
-                require_capability(
-                    ctx.capabilities,
-                    CapabilityKind::Crypto,
-                    name,
-                    *line,
-                    *column,
-                )?;
-                if args.len() != 2 {
+                let alg = lower_expr_with_expected(&args[0], Some(&Type::String), env, ctx)?;
+                if alg.ty() != &Type::String {
                     return Err(Diagnostic::new(
                         "type",
-                        format!(
-                            "crypto_ed25519_sign expects 2 arguments, got {}",
-                            args.len()
-                        ),
-                    )
-                    .with_span(*line, *column));
-                }
-                let byte_slice = Type::Slice(Box::new(Type::Numeric(syntax::NumericType::U8)));
-                let secret_key = lower_expr_with_expected(&args[0], Some(&byte_slice), env, ctx)?;
-                if secret_key.ty() != &byte_slice {
-                    return Err(Diagnostic::new(
-                        "type",
-                        format!(
-                            "crypto_ed25519_sign expects a &[u8] secret key, got {}",
-                            secret_key.ty()
-                        ),
+                        format!("{name} expects a string algorithm, got {}", alg.ty()),
                     )
                     .with_span(args[0].line(), args[0].column()));
                 }
-                let message = lower_expr_with_expected(&args[1], Some(&byte_slice), env, ctx)?;
-                if message.ty() != &byte_slice {
-                    return Err(Diagnostic::new(
-                        "type",
-                        format!(
-                            "crypto_ed25519_sign expects a &[u8] message, got {}",
-                            message.ty()
-                        ),
-                    )
-                    .with_span(args[1].line(), args[1].column()));
-                }
-                return Ok(Expr::Call {
-                    span: SourceSpan {
-                        line: *line,
-                        column: *column,
-                    },
-                    name: name.clone(),
-                    args: vec![secret_key, message],
-                    ty: Type::Array(Box::new(Type::Numeric(syntax::NumericType::U8)), None),
-                });
-            }
-            if name == "crypto_ed25519_verify" {
-                require_capability(
-                    ctx.capabilities,
-                    CapabilityKind::Crypto,
-                    name,
-                    *line,
-                    *column,
-                )?;
-                if args.len() != 3 {
-                    return Err(Diagnostic::new(
-                        "type",
-                        format!(
-                            "crypto_ed25519_verify expects 3 arguments, got {}",
-                            args.len()
-                        ),
-                    )
-                    .with_span(*line, *column));
-                }
+                move_lowered_value(&alg, env)?;
                 let byte_slice = Type::Slice(Box::new(Type::Numeric(syntax::NumericType::U8)));
-                let public_key = lower_expr_with_expected(&args[0], Some(&byte_slice), env, ctx)?;
-                if public_key.ty() != &byte_slice {
+                let key = lower_expr_with_expected(&args[1], Some(&byte_slice), env, ctx)?;
+                if key.ty() != &byte_slice {
                     return Err(Diagnostic::new(
                         "type",
-                        format!(
-                            "crypto_ed25519_verify expects a &[u8] public key, got {}",
-                            public_key.ty()
-                        ),
-                    )
-                    .with_span(args[0].line(), args[0].column()));
-                }
-                let message = lower_expr_with_expected(&args[1], Some(&byte_slice), env, ctx)?;
-                if message.ty() != &byte_slice {
-                    return Err(Diagnostic::new(
-                        "type",
-                        format!(
-                            "crypto_ed25519_verify expects a &[u8] message, got {}",
-                            message.ty()
-                        ),
+                        format!("{name} expects a &[u8] key, got {}", key.ty()),
                     )
                     .with_span(args[1].line(), args[1].column()));
                 }
-                let signature = lower_expr_with_expected(&args[2], Some(&byte_slice), env, ctx)?;
-                if signature.ty() != &byte_slice {
+                let nonce = lower_expr_with_expected(&args[2], Some(&byte_slice), env, ctx)?;
+                if nonce.ty() != &byte_slice {
                     return Err(Diagnostic::new(
                         "type",
-                        format!(
-                            "crypto_ed25519_verify expects a &[u8] signature, got {}",
-                            signature.ty()
-                        ),
+                        format!("{name} expects a &[u8] nonce, got {}", nonce.ty()),
                     )
                     .with_span(args[2].line(), args[2].column()));
                 }
+                let aad = lower_expr_with_expected(&args[3], Some(&byte_slice), env, ctx)?;
+                if aad.ty() != &byte_slice {
+                    return Err(Diagnostic::new(
+                        "type",
+                        format!("{name} expects a &[u8] aad, got {}", aad.ty()),
+                    )
+                    .with_span(args[3].line(), args[3].column()));
+                }
+                let payload = lower_expr_with_expected(&args[4], Some(&byte_slice), env, ctx)?;
+                if payload.ty() != &byte_slice {
+                    return Err(Diagnostic::new(
+                        "type",
+                        format!("{name} expects a &[u8] payload, got {}", payload.ty()),
+                    )
+                    .with_span(args[4].line(), args[4].column()));
+                }
+                let bytes = Type::Array(Box::new(Type::Numeric(syntax::NumericType::U8)), None);
+                let ty = if name == "crypto_aead_open" {
+                    Type::Option(Box::new(bytes))
+                } else {
+                    bytes
+                };
                 return Ok(Expr::Call {
                     span: SourceSpan {
                         line: *line,
                         column: *column,
                     },
                     name: name.clone(),
-                    args: vec![public_key, message, signature],
-                    ty: Type::Bool,
+                    args: vec![alg, key, nonce, aad, payload],
+                    ty,
                 });
             }
             if name == "first" || name == "last" {
@@ -11935,6 +12184,71 @@ fn split_http_url_literal(url: &str) -> Option<(&str, &str, u16, &str)> {
     Some((scheme, host, port, path))
 }
 
+fn validate_net_socket_allowlist_hir(
+    capabilities: &CapabilityConfig,
+    intrinsic_name: &str,
+    socket_addr: &Expr,
+    line: usize,
+    column: usize,
+) -> Result<(), Diagnostic> {
+    if capabilities.net_hosts.is_empty() && capabilities.net_ports.is_empty() {
+        return Ok(());
+    }
+    match socket_addr {
+        Expr::Literal {
+            value: LiteralValue::String(value),
+            ..
+        } => {
+            let Some((host, port)) = split_socket_addr_literal(value) else {
+                return Err(Diagnostic::new(
+                    "capability",
+                    format!(
+                        "call to {intrinsic_name:?} requires a static host:port literal when [capabilities].net host or port allowlists are configured"
+                    ),
+                )
+                .with_span(line, column));
+            };
+            if !capabilities.net_hosts.is_empty()
+                && !capabilities
+                    .net_hosts
+                    .iter()
+                    .any(|allowed| allowed.eq_ignore_ascii_case(host))
+            {
+                return Err(Diagnostic::new(
+                    "capability",
+                    format!(
+                        "call to {intrinsic_name:?} requires [capabilities].net.hosts to include {host:?}"
+                    ),
+                )
+                .with_span(line, column));
+            }
+            if !capabilities.net_ports.is_empty() && !capabilities.net_ports.contains(&port) {
+                return Err(Diagnostic::new(
+                    "capability",
+                    format!(
+                        "call to {intrinsic_name:?} requires [capabilities].net.ports to include {port}"
+                    ),
+                )
+                .with_span(line, column));
+            }
+            Ok(())
+        }
+        _ => Ok(()),
+    }
+}
+
+fn split_socket_addr_literal(value: &str) -> Option<(&str, u16)> {
+    if let Some(rest) = value.strip_prefix('[') {
+        let (host, port) = rest.split_once("]:")?;
+        return Some((host, port.parse::<u16>().ok()?));
+    }
+    let (host, port) = value.rsplit_once(':')?;
+    if host.is_empty() {
+        return None;
+    }
+    Some((host, port.parse::<u16>().ok()?))
+}
+
 fn validate_net_port_allowlist_hir(
     capabilities: &CapabilityConfig,
     intrinsic_name: &str,
@@ -12378,6 +12692,77 @@ fn binding_borrowed_owners_from_expr(
         return HashSet::new();
     }
     expr_borrowed_owners(expr, env, ctx)
+}
+
+fn borrow_region_facts_for_binding(
+    binding: &str,
+    ty: &Type,
+    borrowed_owners: &HashSet<BorrowedOwner>,
+) -> Vec<BorrowRegionFact> {
+    if !matches!(ty, Type::Slice(_) | Type::MutSlice(_)) {
+        return Vec::new();
+    }
+    let mut owners = borrowed_owners.iter().collect::<Vec<_>>();
+    owners.sort_by(|left, right| {
+        left.name
+            .cmp(&right.name)
+            .then_with(|| format!("{:?}", left.projection).cmp(&format!("{:?}", right.projection)))
+    });
+    owners
+        .into_iter()
+        .map(|owner| BorrowRegionFact {
+            binding: binding.to_string(),
+            origin: BorrowRegionOrigin::from(owner),
+            scope: BorrowRegionScope::Binding(binding.to_string()),
+            source: BorrowRegionSource::Direct,
+        })
+        .collect()
+}
+
+fn borrow_region_facts_for_enum_payload_binding(
+    binding: &str,
+    payload_ty: &Type,
+    borrowed_owners: &HashSet<BorrowedOwner>,
+    matched_expr: &Expr,
+    variant: &str,
+    payload_index: usize,
+) -> Vec<BorrowRegionFact> {
+    let Some(enum_origin) =
+        owned_borrow_owner(matched_expr).map(|owner| BorrowRegionOrigin::from(&owner))
+    else {
+        return Vec::new();
+    };
+    let mut facts = borrow_region_facts_for_binding(binding, payload_ty, borrowed_owners);
+    for fact in &mut facts {
+        fact.source = BorrowRegionSource::EnumPayload {
+            enum_origin: enum_origin.clone(),
+            variant: variant.to_string(),
+            payload_index,
+        };
+    }
+    facts
+}
+
+impl From<&BorrowedOwner> for BorrowRegionOrigin {
+    fn from(owner: &BorrowedOwner) -> Self {
+        Self {
+            name: owner.name.clone(),
+            projection: owner
+                .projection
+                .iter()
+                .map(BorrowRegionProjection::from)
+                .collect(),
+        }
+    }
+}
+
+impl From<&ProjectionSegment> for BorrowRegionProjection {
+    fn from(segment: &ProjectionSegment) -> Self {
+        match segment {
+            ProjectionSegment::Field(field) => Self::Field(field.clone()),
+            ProjectionSegment::TupleIndex(index) => Self::TupleIndex(*index),
+        }
+    }
 }
 
 fn expr_borrow_origin(
@@ -13375,6 +13760,112 @@ mod boundary_tests {
 
     fn parse(source: &str) -> syntax::Program {
         syntax::parse_program(source, Path::new("main.ax")).expect("parse fixture")
+    }
+
+    fn collect_borrow_region_facts(stmts: &[Stmt]) -> Vec<BorrowRegionFact> {
+        let mut facts = Vec::new();
+        for stmt in stmts {
+            match stmt {
+                Stmt::Let {
+                    borrow_region_facts,
+                    ..
+                } => facts.extend(borrow_region_facts.iter().cloned()),
+                Stmt::If {
+                    then_block,
+                    else_block,
+                    ..
+                } => {
+                    facts.extend(collect_borrow_region_facts(then_block));
+                    if let Some(else_block) = else_block {
+                        facts.extend(collect_borrow_region_facts(else_block));
+                    }
+                }
+                Stmt::While { body, .. } => facts.extend(collect_borrow_region_facts(body)),
+                Stmt::Match { arms, .. } => {
+                    for arm in arms {
+                        facts.extend(arm.borrow_region_facts.iter().cloned());
+                        facts.extend(collect_borrow_region_facts(&arm.body));
+                    }
+                }
+                Stmt::Assign { .. }
+                | Stmt::Print { .. }
+                | Stmt::Panic { .. }
+                | Stmt::Defer { .. }
+                | Stmt::Return { .. } => {}
+            }
+        }
+        facts
+    }
+
+    #[test]
+    fn hir_records_borrow_region_fact_for_borrowed_slice_binding() {
+        let parsed = parse(
+            r#"
+let arr: [int] = [1, 2, 3]
+let s: &[int] = arr[:]
+"#,
+        );
+
+        let lowered = lower(&parsed).expect("HIR lowering should accept borrowed array slice");
+        let facts = collect_borrow_region_facts(&lowered.stmts);
+
+        assert_eq!(
+            facts,
+            vec![BorrowRegionFact {
+                binding: "s".to_string(),
+                origin: BorrowRegionOrigin {
+                    name: "arr".to_string(),
+                    projection: Vec::new(),
+                },
+                scope: BorrowRegionScope::Binding("s".to_string()),
+                source: BorrowRegionSource::Direct,
+            }]
+        );
+    }
+
+    #[test]
+    fn hir_records_borrow_region_fact_for_enum_payload_binding() {
+        let parsed = parse(
+            r#"
+let values: [int] = [1, 2, 3]
+let opt: Option<&[int]> = Some(values[:])
+match opt {
+Some(view) {
+print len(view)
+}
+None {
+print 0
+}
+}
+"#,
+        );
+
+        let lowered = lower(&parsed).expect("HIR lowering should accept borrowed enum payload");
+        let facts = collect_borrow_region_facts(&lowered.stmts);
+        let enum_payload_facts = facts
+            .into_iter()
+            .filter(|fact| fact.binding == "view")
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            enum_payload_facts,
+            vec![BorrowRegionFact {
+                binding: "view".to_string(),
+                origin: BorrowRegionOrigin {
+                    name: "values".to_string(),
+                    projection: Vec::new(),
+                },
+                scope: BorrowRegionScope::Binding("view".to_string()),
+                source: BorrowRegionSource::EnumPayload {
+                    enum_origin: BorrowRegionOrigin {
+                        name: "opt".to_string(),
+                        projection: Vec::new(),
+                    },
+                    variant: "Some".to_string(),
+                    payload_index: 0,
+                },
+            }]
+        );
     }
 
     #[test]

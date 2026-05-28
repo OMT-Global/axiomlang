@@ -1,0 +1,4 @@
+import "std/net_udp.ax"
+
+let socket: UdpSocket = bind("127.0.0.1:0")
+print local_port(socket)

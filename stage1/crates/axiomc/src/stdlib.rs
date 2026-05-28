@@ -19,10 +19,10 @@
 //! * `std/net.ax` — `resolve(host)` on top of `net_resolve`, plus a bounded
 //!   loopback-only TCP/UDP socket floor on top of `net_tcp_*` and `net_udp_*`
 //!   intrinsics (net).
-//! * `std/net_tcp.ax` — dedicated TCP wrappers over the current bounded
-//!   loopback-only `net_tcp_*` intrinsics (net).
-//! * `std/net_udp.ax` — dedicated UDP loopback helpers on top of `net_udp_*`
-//!   intrinsics (net).
+//! * `std/net_tcp.ax` — dedicated TCP wrappers over blocking listener/stream
+//!   host intrinsics plus the current bounded loopback helpers (net).
+//! * `std/net_udp.ax` — dedicated UDP socket wrappers plus loopback helpers on
+//!   top of `net_udp_*` intrinsics (net).
 //! * `std/process.ax` — `run_status(command)` on top of `process_status`
 //!   (process).
 //! * `std/crypto_hash.ax` — `sha256(input)` on top of `crypto_sha256` (crypto).
@@ -36,10 +36,10 @@
 //!   `crypto_constant_time_eq*` (crypto).
 //! * `std/crypto_rand.ax` — `random_bytes(n)` and `random_u64()` on top of
 //!   `crypto_rand_*` intrinsics (crypto).
-//! * `std/crypto_sign.ax` — Ed25519 key generation, signing, and verification
-//!   helpers on top of `crypto_ed25519_*` intrinsics (crypto).
+//! * `std/crypto_aead.ax` — typed AEAD algorithm wrappers for AES-GCM and
+//!   ChaCha20-Poly1305 on top of `crypto_aead_*` intrinsics (crypto).
 //! * `std/crypto.ax` — umbrella re-export module for the stage1 crypto hash
-//!   MAC, random, and Ed25519 signing helpers.
+//!   MAC, random, and AEAD helpers.
 //!
 //! Additional modules share existing capability classes with peer wrappers,
 //! demonstrating that the `std.*` surface is not limited to one wrapper per
@@ -166,12 +166,28 @@ pub fn udp_send_recv(host: string, port: int, message: string, timeout_ms: int):
     ),
     (
         "net_tcp.ax",
-        "pub fn listen_loopback_once(response: string, timeout_ms: int): Option<int> {\nreturn net_tcp_listen_loopback_once(response, timeout_ms)\n}\n\
+        "pub type TcpListener = int\n\
+pub type TcpStream = int\n\
+pub fn listen(bind: string): TcpListener {\nreturn net_tcp_listen(bind)\n}\n\
+pub fn local_port(listener: TcpListener): int {\nreturn net_tcp_listener_port(listener)\n}\n\
+pub fn accept(listener: TcpListener): TcpStream {\nreturn net_tcp_accept(listener)\n}\n\
+pub fn read(stream: TcpStream, buf: &mut [u8]): int {\nreturn net_tcp_read(stream, buf)\n}\n\
+pub fn write(stream: TcpStream, buf: &[u8]): int {\nreturn net_tcp_write(stream, buf)\n}\n\
+pub fn close(stream: TcpStream): int {\nreturn net_tcp_close(stream)\n}\n\
+pub fn close_listener(listener: TcpListener): int {\nreturn net_tcp_close_listener(listener)\n}\n\
+pub fn listen_loopback_once(response: string, timeout_ms: int): Option<int> {\nreturn net_tcp_listen_loopback_once(response, timeout_ms)\n}\n\
 pub fn dial(host: string, port: int, message: string, timeout_ms: int): Option<string> {\nreturn net_tcp_dial(host, port, message, timeout_ms)\n}\n",
     ),
     (
         "net_udp.ax",
-        "pub fn bind_loopback_once(response: string, timeout_ms: int): Option<int> {\nreturn net_udp_bind_loopback_once(response, timeout_ms)\n}\n\
+        "pub type UdpSocket = int\n\
+pub fn bind(bind: string): UdpSocket {\nreturn net_udp_bind(bind)\n}\n\
+pub fn local_addr(socket: UdpSocket): string {\nreturn net_udp_local_addr(socket)\n}\n\
+pub fn local_port(socket: UdpSocket): int {\nreturn net_udp_local_port(socket)\n}\n\
+pub fn send_to(socket: UdpSocket, buf: &[u8], peer: string): int {\nreturn net_udp_send_to(socket, buf, peer)\n}\n\
+pub fn recv_from(socket: UdpSocket, buf: &mut [u8]): (int, string) {\nreturn net_udp_recv_from(socket, buf)\n}\n\
+pub fn close(socket: UdpSocket): int {\nreturn net_udp_close(socket)\n}\n\
+pub fn bind_loopback_once(response: string, timeout_ms: int): Option<int> {\nreturn net_udp_bind_loopback_once(response, timeout_ms)\n}\n\
 pub fn send_recv(host: string, port: int, message: string, timeout_ms: int): Option<string> {\nreturn net_udp_send_recv(host, port, message, timeout_ms)\n}\n",
     ),
     (
@@ -197,14 +213,17 @@ pub fn verify_sha512(tag: string, key: string, message: string): bool {\nreturn 
 pub fn random_u64(): u64 {\nreturn crypto_rand_u64()\n}\n",
     ),
     (
-        "crypto_sign.ax",
-        "pub fn ed25519_keygen(): ([u8], [u8]) {\nreturn crypto_ed25519_keygen()\n}\n\
-pub fn ed25519_sign(secret_key: &[u8], message: &[u8]): [u8] {\nreturn crypto_ed25519_sign(secret_key, message)\n}\n\
-pub fn ed25519_verify(public_key: &[u8], message: &[u8], signature: &[u8]): bool {\nreturn crypto_ed25519_verify(public_key, message, signature)\n}\n",
+        "crypto_aead.ax",
+        "pub enum AeadAlgorithm {\nAes128Gcm\nAes256Gcm\nChaCha20Poly1305\n}\n\
+pub fn aead_algorithm_name(alg: AeadAlgorithm): string {\nmatch alg {\nAes128Gcm {\nreturn \"AES-128-GCM\"\n}\nAes256Gcm {\nreturn \"AES-256-GCM\"\n}\nChaCha20Poly1305 {\nreturn \"CHACHA20-POLY1305\"\n}\n}\n}\n\
+pub fn aead_seal(alg: AeadAlgorithm, key: &[u8], nonce: &[u8], aad: &[u8], plaintext: &[u8]): [u8] {\nreturn crypto_aead_seal(aead_algorithm_name(alg), key, nonce, aad, plaintext)\n}\n\
+pub fn aead_open(alg: AeadAlgorithm, key: &[u8], nonce: &[u8], aad: &[u8], ciphertext: &[u8]): Option<[u8]> {\nreturn crypto_aead_open(aead_algorithm_name(alg), key, nonce, aad, ciphertext)\n}\n",
     ),
     (
         "crypto.ax",
-        "pub fn sha256(input: string): string {\nreturn crypto_sha256(input)\n}\n\
+        "pub enum AeadAlgorithm {\nAes128Gcm\nAes256Gcm\nChaCha20Poly1305\n}\n\
+pub fn aead_algorithm_name(alg: AeadAlgorithm): string {\nmatch alg {\nAes128Gcm {\nreturn \"AES-128-GCM\"\n}\nAes256Gcm {\nreturn \"AES-256-GCM\"\n}\nChaCha20Poly1305 {\nreturn \"CHACHA20-POLY1305\"\n}\n}\n}\n\
+pub fn sha256(input: string): string {\nreturn crypto_sha256(input)\n}\n\
 pub fn hmac_sha256(key: string, message: string): string {\nreturn crypto_hmac_sha256(key, message)\n}\n\
 pub fn hmac_sha512(key: string, message: string): string {\nreturn crypto_hmac_sha512(key, message)\n}\n\
 pub fn constant_time_eq(left: string, right: string): bool {\nreturn crypto_constant_time_eq(left, right)\n}\n\
@@ -213,9 +232,8 @@ pub fn verify_sha256(tag: string, key: string, message: string): bool {\nreturn 
 pub fn verify_sha512(tag: string, key: string, message: string): bool {\nreturn constant_time_eq(tag, hmac_sha512(key, message))\n}\n\
 pub fn random_bytes(n: int): [u8] {\nreturn crypto_rand_bytes(n)\n}\n\
 pub fn random_u64(): u64 {\nreturn crypto_rand_u64()\n}\n\
-pub fn ed25519_keygen(): ([u8], [u8]) {\nreturn crypto_ed25519_keygen()\n}\n\
-pub fn ed25519_sign(secret_key: &[u8], message: &[u8]): [u8] {\nreturn crypto_ed25519_sign(secret_key, message)\n}\n\
-pub fn ed25519_verify(public_key: &[u8], message: &[u8], signature: &[u8]): bool {\nreturn crypto_ed25519_verify(public_key, message, signature)\n}\n",
+pub fn aead_seal(alg: AeadAlgorithm, key: &[u8], nonce: &[u8], aad: &[u8], plaintext: &[u8]): [u8] {\nreturn crypto_aead_seal(aead_algorithm_name(alg), key, nonce, aad, plaintext)\n}\n\
+pub fn aead_open(alg: AeadAlgorithm, key: &[u8], nonce: &[u8], aad: &[u8], ciphertext: &[u8]): Option<[u8]> {\nreturn crypto_aead_open(aead_algorithm_name(alg), key, nonce, aad, ciphertext)\n}\n",
     ),
     (
         "io.ax",
