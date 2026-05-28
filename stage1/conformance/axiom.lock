@@ -356,6 +356,11 @@ version = "0.1.0"
 source = "path:fail/stdlib_clock_without_capability"
 
 [[package]]
+name = "conformance-stdlib-crypto-aead-without-capability"
+version = "0.1.0"
+source = "path:fail/stdlib_crypto_aead_without_capability"
+
+[[package]]
 name = "conformance-stdlib-crypto-rand-without-capability"
 version = "0.1.0"
 source = "path:fail/stdlib_crypto_rand_without_capability"
@@ -434,6 +439,11 @@ source = "path:pass/const_fn_array_length"
 name = "conformance-const-match-patterns"
 version = "0.1.0"
 source = "path:pass/const_match_patterns"
+
+[[package]]
+name = "conformance-crypto-aead-roundtrip"
+version = "0.1.0"
+source = "path:pass/crypto_aead_roundtrip"
 
 [[package]]
 name = "conformance-crypto-constant-time"

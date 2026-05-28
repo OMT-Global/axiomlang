@@ -2159,9 +2159,8 @@ fn capability_for_call(name: &str) -> Option<&'static str> {
         | "crypto_constant_time_eq_u8"
         | "crypto_rand_bytes"
         | "crypto_rand_u64"
-        | "crypto_ed25519_keygen"
-        | "crypto_ed25519_sign"
-        | "crypto_ed25519_verify"
+        | "crypto_aead_seal"
+        | "crypto_aead_open"
         | "hmac_sha256"
         | "hmac_sha512"
         | "verify_sha256"
@@ -2169,7 +2168,9 @@ fn capability_for_call(name: &str) -> Option<&'static str> {
         | "constant_time_eq"
         | "constant_time_eq_u8"
         | "random_bytes"
-        | "random_u64" => Some("crypto"),
+        | "random_u64"
+        | "aead_seal"
+        | "aead_open" => Some("crypto"),
         _ => None,
     }
 }
