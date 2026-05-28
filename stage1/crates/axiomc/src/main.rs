@@ -7,7 +7,7 @@ use axiomc::lockfile::{expected_lockfile_for_project, validate_lockfile};
 use axiomc::lsp;
 use axiomc::manifest::{
     CapabilityDescriptor, TestKind, binary_path, entry_path, generated_rust_path, load_manifest,
-    lockfile_path, manifest_path, out_dir_path,
+    manifest_path, out_dir_path,
 };
 #[cfg(test)]
 use axiomc::new_project::create_project;
@@ -259,19 +259,7 @@ enum InspectCommand {
         #[arg(long)]
         json: bool,
     },
-    /// Emit manifest capability effects for agent tooling.
-    Effects {
-        path: PathBuf,
-        #[arg(long)]
-        json: bool,
-    },
-    /// Emit available verification evidence such as lockfile and test metadata.
-    Evidence {
-        path: PathBuf,
-        #[arg(long)]
-        json: bool,
-    },
-    /// Emit configured and currently available build, test, and docs artifacts.
+    /// Emit planned and generated package artifacts.
     Artifacts {
         path: PathBuf,
         #[arg(long)]
@@ -672,43 +660,6 @@ fn main() {
                 }
                 Err(error) => print_error("inspect graph", error, json),
             },
-            InspectCommand::Effects { path, json } => match inspect_effects(&path) {
-                Ok(report) => {
-                    if json {
-                        println!(
-                            "{}",
-                            json_contract::to_pretty_string(&report)
-                                .unwrap_or_else(|_| String::from("{}"))
-                        );
-                    } else {
-                        for effect in &report.effects {
-                            println!(
-                                "{} enabled={} resource={}",
-                                effect.name, effect.enabled, effect.resource
-                            );
-                        }
-                    }
-                    0
-                }
-                Err(error) => print_error("inspect effects", error, json),
-            },
-            InspectCommand::Evidence { path, json } => match inspect_evidence(&path) {
-                Ok(report) => {
-                    if json {
-                        println!(
-                            "{}",
-                            json_contract::to_pretty_string(&report)
-                                .unwrap_or_else(|_| String::from("{}"))
-                        );
-                    } else {
-                        for item in &report.evidence {
-                            println!("{} {} {}", item.kind, item.name, item.status);
-                        }
-                    }
-                    0
-                }
-                Err(error) => print_error("inspect evidence", error, json),
-            },
             InspectCommand::Artifacts { path, json } => match inspect_artifacts(&path) {
                 Ok(report) => {
                     if json {
@@ -720,8 +671,8 @@ fn main() {
                     } else {
                         for artifact in &report.artifacts {
                             println!(
-                                "{} {} exists={}",
-                                artifact.kind, artifact.path, artifact.exists
+                                "{} {} {} ({})",
+                                artifact.kind, artifact.id, artifact.path, artifact.status
                             );
                         }
                     }
@@ -1256,334 +1207,23 @@ struct SymbolSpan {
     column: usize,
 }
 
-fn repair_plan(path: &Path) -> Result<RepairPlanReport, Diagnostic> {
-    let mut tasks = Vec::new();
-    match check_project_with_options(path, &CheckOptions::default()) {
-        Ok(output) => {
-            if !repair_tests_discoverable(path)? {
-                tasks.push(missing_evidence_task(
-                    "repair-001",
-                    package_node_for_path(path),
-                    repair_allowed_files(path)?,
-                ));
-            }
-            for warning in output.warnings {
-                tasks.push(diagnostic_repair_task(
-                    tasks.len() + 1,
-                    package_node_for_path(path),
-                    Diagnostic::new("warning", warning).normalized_for_json(),
-                ));
-            }
-        }
-        Err(error) => {
-            tasks.push(diagnostic_repair_task(
-                tasks.len() + 1,
-                package_node_for_path(path),
-                error.normalized_for_json(),
-            ));
-        }
-    }
-    Ok(RepairPlanReport {
-        schema_version: "axiom.repair.v0",
-        ok: true,
-        command: "repair-plan",
-        project: path.display().to_string(),
-        tasks,
-    })
-}
-
-fn diagnostic_repair_task(
-    index: usize,
-    fallback_target: String,
-    diagnostic: Diagnostic,
-) -> RepairTask {
-    let allowed_files = diagnostic
-        .path
-        .as_ref()
-        .map(|path| vec![path.clone()])
-        .unwrap_or_default();
-    let target_node = diagnostic
-        .path
-        .as_ref()
-        .map(|path| {
-            format!(
-                "{}/diagnostic/{}",
-                package_node_component(path),
-                repair_component(diagnostic.code.as_deref().unwrap_or(&diagnostic.kind))
-            )
-        })
-        .unwrap_or(fallback_target);
-    RepairTask {
-        id: format!("repair-{index:03}"),
-        reason: diagnostic
-            .code
-            .clone()
-            .unwrap_or_else(|| repair_component(&diagnostic.kind)),
-        target_node,
-        allowed_files,
-        required_evidence: vec!["unit_test"],
-        diagnostics: vec![diagnostic],
-    }
-}
-
-fn missing_evidence_task(id: &str, target_node: String, allowed_files: Vec<String>) -> RepairTask {
-    RepairTask {
-        id: id.to_string(),
-        reason: String::from("missing_evidence"),
-        target_node,
-        allowed_files,
-        required_evidence: vec!["unit_test"],
-        diagnostics: Vec::new(),
-    }
-}
-
-fn repair_tests_discoverable(path: &Path) -> Result<bool, Diagnostic> {
-    if load_manifest(path)
-        .map(|manifest| !manifest.tests.is_empty())
-        .unwrap_or(false)
-    {
-        return Ok(true);
-    }
-    Ok(axiom_files(path)?.iter().any(|path| {
-        path.file_name()
-            .and_then(|name| name.to_str())
-            .is_some_and(|name| name.ends_with("_test.ax") || name.ends_with("_bench.ax"))
-    }))
-}
-
 #[derive(Debug, Clone, Serialize)]
-struct EvidenceReport {
+struct InspectArtifactsReport {
     schema_version: &'static str,
     ok: bool,
     command: &'static str,
     project: String,
     package: String,
-    validation_status: &'static str,
-    summary: EvidenceSummary,
-    evidence: Vec<EvidenceItem>,
+    artifacts: Vec<ArtifactRecord>,
 }
 
 #[derive(Debug, Clone, Serialize)]
-struct EvidenceSummary {
-    passing: usize,
-    failing: usize,
-    missing: usize,
-    provided: usize,
-}
-
-#[derive(Debug, Clone, Serialize)]
-struct EvidenceItem {
+struct ArtifactRecord {
     id: String,
-    evidence_type: &'static str,
+    kind: &'static str,
+    path: String,
+    generated_from: Vec<String>,
     status: &'static str,
-    target: String,
-    path: Option<String>,
-    diagnostics: Vec<String>,
-}
-
-fn evidence_report(project: &Path) -> Result<EvidenceReport, Diagnostic> {
-    let manifest = load_manifest(project)?;
-    let package_name = manifest
-        .package
-        .as_ref()
-        .map(|package| package.name.clone())
-        .unwrap_or_else(|| String::from("workspace"));
-    let package_component = evidence_id_component(&package_name);
-    let package_target = format!("axiom://package/{package_component}");
-    let mut evidence = Vec::new();
-    if evidence_tests_discoverable(project, &manifest)? {
-        let test_output = run_project_tests_with_options(
-            project,
-            &TestOptions {
-                filter: None,
-                package: None,
-                include_benchmarks: true,
-            },
-        )?;
-        for case in &test_output.cases {
-            let evidence_type = evidence_type_for_test_kind(case.kind);
-            let status = if case.ok { "passing" } else { "failing" };
-            let diagnostics = case
-                .error
-                .as_ref()
-                .map(|error| vec![error.to_string()])
-                .unwrap_or_default();
-            evidence.push(EvidenceItem {
-                id: format!(
-                    "axiom://package/{package_component}/evidence/{}",
-                    evidence_id_component(&case.name)
-                ),
-                evidence_type,
-                status,
-                target: package_target.clone(),
-                path: Some(case.entry.clone()),
-                diagnostics,
-            });
-        }
-    }
-    if evidence.is_empty() {
-        evidence.push(EvidenceItem {
-            id: format!("axiom://package/{package_component}/evidence/unit-test-required"),
-            evidence_type: "unit_test",
-            status: "missing",
-            target: package_target,
-            path: None,
-            diagnostics: vec![String::from("no manifest test targets were discovered")],
-        });
-    }
-    let summary = EvidenceSummary {
-        passing: evidence
-            .iter()
-            .filter(|item| item.status == "passing")
-            .count(),
-        failing: evidence
-            .iter()
-            .filter(|item| item.status == "failing")
-            .count(),
-        missing: evidence
-            .iter()
-            .filter(|item| item.status == "missing")
-            .count(),
-        provided: evidence
-            .iter()
-            .filter(|item| matches!(item.status, "passing" | "failing" | "provided"))
-            .count(),
-    };
-    let validation_status = if summary.failing > 0 {
-        "failing"
-    } else if summary.missing > 0 {
-        "missing"
-    } else {
-        "passing"
-    };
-
-    Ok(EvidenceReport {
-        schema_version: "axiom.evidence.v0",
-        ok: summary.failing == 0,
-        command: "evidence",
-        project: project.display().to_string(),
-        package: package_name,
-        validation_status,
-        summary,
-        evidence,
-    })
-}
-
-fn evidence_tests_discoverable(
-    project: &Path,
-    manifest: &axiomc::manifest::Manifest,
-) -> Result<bool, Diagnostic> {
-    if !manifest.tests.is_empty() {
-        return Ok(true);
-    }
-    Ok(axiom_files(project)?.iter().any(|path| {
-        path.file_name()
-            .and_then(|name| name.to_str())
-            .is_some_and(|name| name.ends_with("_test.ax") || name.ends_with("_bench.ax"))
-    }))
-}
-
-fn repair_allowed_files(path: &Path) -> Result<Vec<String>, Diagnostic> {
-    Ok(axiom_files(path)?
-        .into_iter()
-        .map(|path| path.display().to_string())
-        .collect())
-}
-
-fn package_node_for_path(path: &Path) -> String {
-    let name = load_manifest(path)
-        .ok()
-        .and_then(|manifest| manifest.package.map(|package| package.name))
-        .unwrap_or_else(|| {
-            path.file_stem()
-                .or_else(|| path.file_name())
-                .and_then(|name| name.to_str())
-                .unwrap_or("package")
-                .to_string()
-        });
-    format!("axiom://package/{}", repair_component(&name))
-}
-
-fn package_node_component(path: &str) -> String {
-    format!("axiom://package/{}", repair_component(path))
-}
-
-fn repair_component(value: &str) -> String {
-    normalized_id_component(value, "node")
-}
-
-fn evidence_type_for_test_kind(kind: TestKind) -> &'static str {
-    match kind {
-        TestKind::Unit | TestKind::Table => "unit_test",
-        TestKind::Property => "property_test",
-        TestKind::Snapshot => "golden_output",
-        TestKind::Benchmark => "benchmark_baseline",
-    }
-}
-
-fn evidence_id_component(value: &str) -> String {
-    normalized_id_component(value, "unnamed")
-}
-
-fn normalized_id_component(value: &str, fallback: &str) -> String {
-    let mut out = String::new();
-    let mut last_dash = false;
-    for ch in value.chars() {
-        if ch.is_ascii_alphanumeric() {
-            out.push(ch.to_ascii_lowercase());
-            last_dash = false;
-        } else if !last_dash {
-            out.push('-');
-            last_dash = true;
-        }
-    }
-    let trimmed = out.trim_matches('-');
-    if trimmed.is_empty() {
-        String::from(fallback)
-    } else {
-        trimmed.to_string()
-    }
-}
-
-#[derive(Debug, Clone, Serialize)]
-struct SemanticGraphNode {
-    id: String,
-    kind: &'static str,
-    name: String,
-    span: SymbolSpan,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    scope: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    severity: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    description: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    assertion: Option<String>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    inputs: Vec<SemanticGraphInput>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    effects: Vec<SemanticGraphEffect>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    evidence: Vec<String>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-struct SemanticGraphInput {
-    name: String,
-    ty: String,
-}
-
-#[derive(Debug, Clone, Serialize)]
-struct SemanticGraphEffect {
-    kind: String,
-    target: String,
-}
-
-#[derive(Debug, Clone, Serialize)]
-struct SemanticGraphEdge {
-    from: String,
-    kind: &'static str,
-    to: String,
 }
 
 fn inspect_symbols(path: &Path) -> Result<InspectSymbolsReport, Diagnostic> {
@@ -1687,122 +1327,116 @@ fn inspect_symbols(path: &Path) -> Result<InspectSymbolsReport, Diagnostic> {
     })
 }
 
-const INSPECT_SCHEMA_PATH: &str = "stage1/schemas/axiom-inspect-v0.schema.json";
+fn inspect_artifacts(project: &Path) -> Result<InspectArtifactsReport, Diagnostic> {
+    let manifest = load_manifest(project)?;
+    let package = manifest.package.as_ref().ok_or_else(|| {
+        Diagnostic::new(
+            "inspect",
+            "inspect artifacts requires a package manifest, not a workspace-only root",
+        )
+        .with_path(project.display().to_string())
+    })?;
+    let package_name = package.name.clone();
+    let package_component = artifact_id_component(&package_name);
+    let source_entry = source_node_id(&package_component, &manifest.build.entry);
+    let mut artifacts = Vec::new();
 
-fn inspect_semantic_graph(
-    path: &Path,
-) -> Result<(Vec<SemanticGraphNode>, Vec<SemanticGraphEdge>), Diagnostic> {
-    let files = axiom_files(path)?;
-    let mut nodes = Vec::new();
-    let mut edges = Vec::new();
-    for file in files {
-        let source = fs::read_to_string(&file).map_err(|err| {
-            Diagnostic::new(
-                "inspect",
-                format!("failed to read {}: {err}", file.display()),
-            )
-            .with_path(file.display().to_string())
-        })?;
-        let program = parse_program(&source, &file)?;
-        for axiom in &program.axioms {
-            nodes.push(SemanticGraphNode {
-                id: semantic_node_id("axiom", &axiom.name),
-                kind: "axiom",
-                name: axiom.name.clone(),
-                span: symbol_span(&file, axiom.line, axiom.column),
-                scope: axiom.scope.clone(),
-                severity: axiom.severity.clone(),
-                description: axiom.description.clone(),
-                assertion: axiom.assertion.clone(),
-                inputs: Vec::new(),
-                effects: Vec::new(),
-                evidence: Vec::new(),
-            });
-        }
-        for evidence in &program.evidence {
-            nodes.push(SemanticGraphNode {
-                id: semantic_node_id("evidence", &evidence.name),
-                kind: "evidence",
-                name: evidence.name.clone(),
-                span: symbol_span(&file, evidence.line, evidence.column),
-                scope: None,
-                severity: None,
-                description: evidence.description.clone(),
-                assertion: None,
-                inputs: Vec::new(),
-                effects: Vec::new(),
-                evidence: Vec::new(),
-            });
-        }
-        for capability in &program.semantic_capabilities {
-            let capability_id = semantic_node_id("capability", &capability.name);
-            nodes.push(SemanticGraphNode {
-                id: capability_id.clone(),
-                kind: "capability",
-                name: capability.name.clone(),
-                span: symbol_span(&file, capability.line, capability.column),
-                scope: None,
-                severity: None,
-                description: None,
-                assertion: None,
-                inputs: capability
-                    .inputs
-                    .iter()
-                    .map(|input| SemanticGraphInput {
-                        name: input.name.clone(),
-                        ty: render_type(&input.ty),
-                    })
-                    .collect(),
-                effects: capability
-                    .effects
-                    .iter()
-                    .map(|effect| SemanticGraphEffect {
-                        kind: effect.kind.clone(),
-                        target: effect.target.clone(),
-                    })
-                    .collect(),
-                evidence: capability
-                    .evidence
-                    .iter()
-                    .map(|reference| reference.name.clone())
-                    .collect(),
-            });
-            for reference in &capability.preserves {
-                edges.push(SemanticGraphEdge {
-                    from: capability_id.clone(),
-                    kind: "preserves",
-                    to: semantic_node_id("axiom", &reference.name),
-                });
-            }
-            for reference in &capability.evidence {
-                edges.push(SemanticGraphEdge {
-                    from: capability_id.clone(),
-                    kind: "requires_evidence",
-                    to: semantic_node_id("evidence", &reference.name),
-                });
-            }
+    artifacts.push(artifact_record(
+        project,
+        format!("axiom://package/{package_component}/artifact/binary"),
+        "native_binary",
+        &binary_path(project, &manifest),
+        vec![source_entry.clone()],
+    ));
+    artifacts.push(artifact_record(
+        project,
+        format!("axiom://package/{package_component}/artifact/generated-rust"),
+        "generated_rust",
+        &generated_rust_path(project, &manifest),
+        vec![source_entry.clone()],
+    ));
+    artifacts.push(artifact_record(
+        project,
+        format!("axiom://package/{package_component}/artifact/docs"),
+        "docs",
+        &project.join("docs").join("axiom").join("index.md"),
+        vec![source_entry.clone()],
+    ));
+
+    for test in &manifest.tests {
+        let test_component = artifact_id_component(&test.name);
+        let test_source = source_node_id(&package_component, &test.entry);
+        artifacts.push(artifact_record(
+            project,
+            format!("axiom://package/{package_component}/artifact/test-report/{test_component}"),
+            "test_report",
+            &out_dir_path(project, &manifest)
+                .join("tests")
+                .join(format!("{test_component}.json")),
+            vec![test_source.clone()],
+        ));
+        if test.kind == TestKind::Benchmark {
+            artifacts.push(artifact_record(
+                project,
+                format!(
+                    "axiom://package/{package_component}/artifact/benchmark-report/{test_component}"
+                ),
+                "benchmark_report",
+                &out_dir_path(project, &manifest)
+                    .join("benchmarks")
+                    .join(format!("{test_component}.json")),
+                vec![test_source],
+            ));
         }
     }
-    nodes.sort_by(|left, right| left.id.cmp(&right.id));
-    edges.sort_by(|left, right| {
-        left.from
-            .cmp(&right.from)
-            .then_with(|| left.kind.cmp(right.kind))
-            .then_with(|| left.to.cmp(&right.to))
-    });
-    Ok((nodes, edges))
+
+    Ok(InspectArtifactsReport {
+        schema_version: "axiom.artifacts.v0",
+        ok: true,
+        command: "inspect artifacts",
+        project: project.display().to_string(),
+        package: package_name,
+        artifacts,
+    })
 }
 
-fn semantic_node_id(kind: &str, name: &str) -> String {
-    format!("axiom://semantic/{kind}/{}", semantic_id_segment(name))
+fn artifact_record(
+    project: &Path,
+    id: String,
+    kind: &'static str,
+    path: &Path,
+    generated_from: Vec<String>,
+) -> ArtifactRecord {
+    ArtifactRecord {
+        id,
+        kind,
+        path: relative_path_string(project, path),
+        generated_from,
+        status: if path.exists() {
+            "generated"
+        } else {
+            "planned"
+        },
+    }
 }
 
-fn semantic_id_segment(value: &str) -> String {
+fn source_node_id(package_component: &str, entry: &str) -> String {
+    format!(
+        "axiom://package/{package_component}/source/{}",
+        entry
+            .split('/')
+            .map(artifact_id_component)
+            .collect::<Vec<_>>()
+            .join("/")
+    )
+}
+
+fn artifact_id_component(value: &str) -> String {
     let mut out = String::new();
     let mut last_dash = false;
     for ch in value.chars() {
-        if ch.is_ascii_alphanumeric() || matches!(ch, '.' | '_' | '~') {
-            out.push(ch);
+        if ch.is_ascii_alphanumeric() {
+            out.push(ch.to_ascii_lowercase());
             last_dash = false;
         } else if !last_dash {
             out.push('-');
@@ -1811,10 +1445,17 @@ fn semantic_id_segment(value: &str) -> String {
     }
     let trimmed = out.trim_matches('-');
     if trimmed.is_empty() {
-        String::from("node")
+        String::from("unnamed")
     } else {
         trimmed.to_string()
     }
+}
+
+fn relative_path_string(project: &Path, path: &Path) -> String {
+    path.strip_prefix(project)
+        .unwrap_or(path)
+        .display()
+        .to_string()
 }
 
 fn symbol_span(path: &Path, line: usize, column: usize) -> SymbolSpan {
@@ -4132,246 +3773,78 @@ mod tests {
     }
 
     #[test]
-    fn repair_plan_reports_type_diagnostic_task() {
+    fn inspect_artifacts_reports_planned_and_generated_outputs() {
         let dir = tempfile::tempdir().expect("tempdir");
-        let project = dir.path().join("repair-type");
+        let project = dir.path().join("artifact-demo");
         fs::create_dir_all(project.join("src")).expect("create src");
-        write_minimal_manifest(&project, "repair-type");
+        fs::create_dir_all(project.join("dist").join("tests")).expect("create dist tests");
+        fs::create_dir_all(project.join("docs").join("axiom")).expect("create docs");
         fs::write(
-            project.join("src").join("main.ax"),
-            "pub fn main(): int {\nreturn \"wrong\"\n}\n",
+            project.join("axiom.toml"),
+            "[package]\nname = \"artifact-demo\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[[tests]]\nname = \"unit smoke\"\nentry = \"src/main_test.ax\"\nkind = \"unit\"\n\n[[tests]]\nname = \"latency bench\"\nentry = \"src/latency_bench.ax\"\nkind = \"benchmark\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n",
         )
-        .expect("write source");
-
-        let report = repair_plan(&project).expect("repair plan");
-        let payload = serde_json::to_value(&report).expect("serialize repair plan");
-        validate_repair_plan_schema(&payload);
-
-        assert_eq!(report.schema_version, "axiom.repair.v0");
-        assert_eq!(report.command, "repair-plan");
-        assert_eq!(report.tasks.len(), 1);
-        assert!(report.tasks[0].reason.starts_with("type"));
-        assert_eq!(report.tasks[0].required_evidence, vec!["unit_test"]);
-        assert_eq!(report.tasks[0].diagnostics.len(), 1);
-        assert_eq!(report.tasks[0].diagnostics[0].kind, "type");
-        assert!(report.tasks[0].diagnostics[0].line.is_some());
-    }
-
-    #[test]
-    fn repair_plan_reports_missing_evidence_task_for_testless_package() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let project = dir.path().join("repair-evidence");
-        fs::create_dir_all(project.join("src")).expect("create src");
-        write_minimal_manifest(&project, "repair-evidence");
+        .expect("write manifest");
         fs::write(
             project.join("src").join("main.ax"),
             "pub fn main(): int {\nreturn 0\n}\n",
         )
-        .expect("write source");
+        .expect("write main");
+        fs::write(project.join("dist").join("artifact-demo"), "").expect("write binary");
+        fs::write(
+            project.join("dist").join("tests").join("unit-smoke.json"),
+            "{}\n",
+        )
+        .expect("write test report");
+        fs::write(
+            project.join("docs").join("axiom").join("index.md"),
+            "# API\n",
+        )
+        .expect("write docs");
 
-        let report = repair_plan(&project).expect("repair plan");
-        let payload = serde_json::to_value(&report).expect("serialize repair plan");
-        validate_repair_plan_schema(&payload);
+        let report = inspect_artifacts(&project).expect("inspect artifacts");
 
-        assert_eq!(report.tasks.len(), 1);
-        assert_eq!(report.tasks[0].reason, "missing_evidence");
-        assert_eq!(report.tasks[0].required_evidence, vec!["unit_test"]);
-        assert!(report.tasks[0].diagnostics.is_empty());
+        assert_eq!(report.schema_version, "axiom.artifacts.v0");
+        assert_eq!(report.command, "inspect artifacts");
+        assert_eq!(report.package, "artifact-demo");
+        assert_eq!(report.artifacts.len(), 6);
+        let binary = report
+            .artifacts
+            .iter()
+            .find(|artifact| artifact.kind == "native_binary")
+            .expect("binary artifact");
+        assert_eq!(binary.path, "dist/artifact-demo");
+        assert_eq!(binary.status, "generated");
+        assert_eq!(
+            binary.generated_from,
+            vec![String::from(
+                "axiom://package/artifact-demo/source/src/main-ax"
+            )]
+        );
+        let generated_rust = report
+            .artifacts
+            .iter()
+            .find(|artifact| artifact.kind == "generated_rust")
+            .expect("generated rust artifact");
+        assert_eq!(generated_rust.status, "planned");
+        let test_report = report
+            .artifacts
+            .iter()
+            .find(|artifact| artifact.id.ends_with("/test-report/unit-smoke"))
+            .expect("test report artifact");
+        assert_eq!(test_report.status, "generated");
         assert!(
-            report.tasks[0]
-                .allowed_files
+            report
+                .artifacts
                 .iter()
-                .any(|path| path.ends_with("src/main.ax"))
+                .any(|artifact| artifact.kind == "benchmark_report"
+                    && artifact.path == "dist/benchmarks/latency-bench.json")
         );
-    }
-
-    fn write_minimal_manifest(project: &Path, name: &str) {
-        fs::write(
-            project.join("axiom.toml"),
-            format!(
-                "[package]\nname = \"{name}\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n"
-            ),
-        )
-        .expect("write manifest");
-        fs::write(
-            project.join("axiom.lock"),
-            format!("version = 1\n\n[[package]]\nname = \"{name}\"\nversion = \"0.1.0\"\nsource = \"path\"\n"),
-        )
-        .expect("write lockfile");
-    }
-
-    fn validate_repair_plan_schema(payload: &serde_json::Value) {
-        let schema_path =
-            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schemas/axiom-repair-v0.schema.json");
-        let schema: serde_json::Value =
-            serde_json::from_str(&fs::read_to_string(schema_path).expect("read schema"))
-                .expect("schema json");
-        let validator = jsonschema::validator_for(&schema).expect("compile schema");
-        validator
-            .validate(payload)
-            .expect("repair plan matches schema");
-    }
-
-    #[test]
-    fn evidence_report_emits_missing_placeholder_for_packages_without_tests() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let project = dir.path().join("evidence-empty");
-        fs::create_dir_all(project.join("src")).expect("create src");
-        fs::write(
-            project.join("axiom.toml"),
-            "[package]\nname = \"evidence-empty\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n",
-        )
-        .expect("write manifest");
-        fs::write(
-            project.join("axiom.lock"),
-            "version = 1\n\n[[package]]\nname = \"evidence-empty\"\nversion = \"0.1.0\"\nsource = \"path\"\n",
-        )
-        .expect("write lockfile");
-        fs::write(
-            project.join("src").join("main.ax"),
-            "pub fn main(): int {\nreturn 0\n}\n",
-        )
-        .expect("write main");
-
-        let report = evidence_report(&project).expect("evidence report");
-        let payload = serde_json::to_value(&report).expect("serialize evidence report");
-        let schema_path = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../schemas/axiom-evidence-v0.schema.json");
-        let schema: serde_json::Value =
-            serde_json::from_str(&fs::read_to_string(schema_path).expect("read schema"))
-                .expect("schema json");
-        let validator = jsonschema::validator_for(&schema).expect("compile schema");
-        validator
-            .validate(&payload)
-            .expect("evidence report matches schema");
-
-        assert_eq!(report.schema_version, "axiom.evidence.v0");
-        assert_eq!(report.command, "evidence");
-        assert_eq!(report.validation_status, "missing");
-        assert_eq!(report.summary.missing, 1);
-        assert_eq!(report.evidence[0].evidence_type, "unit_test");
-        assert_eq!(report.evidence[0].status, "missing");
-    }
-
-    #[test]
-    fn evidence_report_marks_failing_manifest_tests() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let project = dir.path().join("evidence-failing");
-        fs::create_dir_all(project.join("src")).expect("create src");
-        fs::write(
-            project.join("axiom.toml"),
-            "[package]\nname = \"evidence-failing\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[[tests]]\nname = \"stdout mismatch\"\nentry = \"src/main_test.ax\"\nstdout = \"src/main_test.stdout\"\nkind = \"unit\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n",
-        )
-        .expect("write manifest");
-        fs::write(
-            project.join("axiom.lock"),
-            "version = 1\n\n[[package]]\nname = \"evidence-failing\"\nversion = \"0.1.0\"\nsource = \"path\"\n",
-        )
-        .expect("write lockfile");
-        fs::write(
-            project.join("src").join("main.ax"),
-            "pub fn main(): int {\nreturn 0\n}\n",
-        )
-        .expect("write main");
-        fs::write(
-            project.join("src").join("main_test.ax"),
-            "pub fn main(): int {\nprint \"actual\"\nreturn 0\n}\n",
-        )
-        .expect("write test");
-        fs::write(project.join("src").join("main_test.stdout"), "expected\n")
-            .expect("write stdout fixture");
-
-        let report = evidence_report(&project).expect("evidence report");
-
-        assert!(!report.ok);
-        assert_eq!(report.validation_status, "failing");
-        assert_eq!(report.summary.failing, 1);
-        assert_eq!(report.summary.provided, 1);
-        assert_eq!(report.evidence[0].evidence_type, "unit_test");
-        assert_eq!(report.evidence[0].status, "failing");
-        assert_eq!(report.evidence[0].path.as_deref(), Some("src/main_test.ax"));
-    }
-
-    #[test]
-    fn inspect_graph_reports_semantic_axiom_and_capability_edges() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        write_semantic_project(
-            dir.path(),
-            "axiom NoNegativeBalance {\nscope Authorization\nseverity fatal\n}\n\ncapability AuthorizePayment {\ninput account: AccountRef\neffects {\nread AccountStore\nemit PaymentAuthorized\n}\npreserves NoNegativeBalance\nrequires evidence PaymentAuthorizationEvidence\n}\n\nevidence PaymentAuthorizationEvidence {\ndescription \"request evidence\"\n}\n\nfn main(): int {\nreturn 0\n}\n",
+        assert!(
+            report
+                .artifacts
+                .iter()
+                .any(|artifact| artifact.kind == "docs" && artifact.status == "generated")
         );
-
-        let report = inspect_graph(dir.path()).expect("inspect graph");
-
-        assert_eq!(report.command, "inspect graph");
-        assert!(report.nodes.iter().any(|node| {
-            node.id == "axiom://semantic/axiom/NoNegativeBalance" && node.kind == "axiom"
-        }));
-        assert!(report.nodes.iter().any(|node| {
-            node.id == "axiom://semantic/capability/AuthorizePayment"
-                && node.kind == "capability"
-                && node.inputs.len() == 1
-                && node.effects.len() == 2
-        }));
-        assert!(report.edges.iter().any(|edge| {
-            edge.from == "axiom://semantic/capability/AuthorizePayment"
-                && edge.kind == "preserves"
-                && edge.to == "axiom://semantic/axiom/NoNegativeBalance"
-        }));
-    }
-
-    fn write_semantic_project(root: &Path, source: &str) {
-        fs::create_dir_all(root.join("src")).expect("create src");
-        fs::write(
-            root.join("axiom.toml"),
-            "[package]\nname = \"demo\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n",
-        )
-        .expect("write manifest");
-        fs::write(
-            root.join("axiom.lock"),
-            "version = 1\n\n[[package]]\nname = \"demo\"\nversion = \"0.1.0\"\nsource = \"path\"\n",
-        )
-        .expect("write lockfile");
-        fs::write(root.join("src/main.ax"), source).expect("write source");
-    }
-
-    #[test]
-    fn semantic_declarations_allow_axiom_capability_and_evidence_metadata() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        write_semantic_project(
-            dir.path(),
-            "axiom NoNegativeBalance {\nscope Authorization\nseverity fatal\ndescription \"Authorization must not go negative.\"\n}\n\nevidence PaymentAuthorizationEvidence {\ndescription \"request evidence\"\n}\n\ncapability AuthorizePayment {\ninput account: AccountRef\ninput amount: Money\neffects {\nread AccountStore\nwrite AuthorizationStore\nemit PaymentAuthorized\n}\npreserves NoNegativeBalance\nrequires evidence PaymentAuthorizationEvidence\n}\n\nfn main(): int {\nreturn 0\n}\n",
-        );
-
-        check_project_with_options(dir.path(), &CheckOptions::default())
-            .expect("semantic declarations should check");
-    }
-
-    #[test]
-    fn semantic_declarations_reject_duplicate_axiom_names() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        write_semantic_project(
-            dir.path(),
-            "axiom NoNegativeBalance {\nseverity fatal\n}\n\naxiom NoNegativeBalance {\nseverity fatal\n}\n\nfn main(): int {\nreturn 0\n}\n",
-        );
-
-        let error = check_project_with_options(dir.path(), &CheckOptions::default())
-            .expect_err("duplicate axiom should fail");
-        assert_eq!(error.kind, "semantic");
-        assert!(error.message.contains("duplicate axiom declaration"));
-    }
-
-    #[test]
-    fn semantic_capabilities_reject_missing_preserved_axioms() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        write_semantic_project(
-            dir.path(),
-            "capability AuthorizePayment {\npreserves NoNegativeBalance\n}\n\nfn main(): int {\nreturn 0\n}\n",
-        );
-
-        let error = check_project_with_options(dir.path(), &CheckOptions::default())
-            .expect_err("missing axiom should fail");
-        assert_eq!(error.kind, "semantic");
-        assert!(error.message.contains("preserves unknown axiom"));
     }
 
     #[test]
