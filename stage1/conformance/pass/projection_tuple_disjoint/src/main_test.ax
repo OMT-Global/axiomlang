@@ -1,5 +1,5 @@
-let pair: (string, string) = ("alpha", "beta")
-let moved: string = pair.0
-let sibling: &str = pair.1
-print sibling
-print moved
+let pair: ([string], [int]) = (["alpha", "beta"], [3, 4, 5])
+let second: &mut [int] = (pair.1)[:]
+let moved: [string] = pair.0
+print len(moved)
+print len(second)

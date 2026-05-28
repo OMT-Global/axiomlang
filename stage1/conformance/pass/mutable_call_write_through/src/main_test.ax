@@ -1,0 +1,11 @@
+fn bump(values: &mut [int]): int {
+values[0] = values[0] + 1
+values[1] = values[1] + 2
+return len(values)
+}
+
+let values: [int] = [5, 8, 13]
+print bump(values[:])
+print values[0]
+print values[1]
+print values[2]

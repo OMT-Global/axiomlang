@@ -135,6 +135,8 @@ pub enum Stmt {
     },
     Return {
         expr: Expr,
+        #[serde(skip)]
+        borrow_region_facts: Vec<BorrowRegionFact>,
         span: SourceSpan,
     },
 }
@@ -346,6 +348,10 @@ pub enum BorrowRegionProjection {
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub enum BorrowRegionScope {
     Binding(String),
+    Return {
+        function: String,
+        projection: Vec<BorrowRegionProjection>,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -356,6 +362,7 @@ pub enum BorrowRegionSource {
         variant: String,
         payload_index: usize,
     },
+    AggregateReturn,
 }
 
 #[derive(Debug, Clone, Serialize, Eq)]
@@ -579,6 +586,7 @@ struct LowerContext<'a> {
     methods: &'a HashMap<String, HashMap<String, MethodSig>>,
     capabilities: &'a CapabilityConfig,
     current_return: Option<Type>,
+    current_function: Option<String>,
     current_borrow_return_params: HashSet<String>,
 }
 
@@ -754,6 +762,7 @@ fn lower_with_capabilities_impl(
         methods: &methods,
         capabilities,
         current_return: None,
+        current_function: None,
         current_borrow_return_params: HashSet::new(),
     };
     let statics = match lower_static_decls(&program.consts, &structs, &enums, &aliases, &ctx) {
@@ -5888,6 +5897,7 @@ fn lower_function(
         methods,
         capabilities,
         current_return: Some(return_ty.clone()),
+        current_function: Some(function.source_name.clone()),
         current_borrow_return_params: signature
             .borrow_return_params
             .iter()
@@ -6982,6 +6992,15 @@ fn starts_with_ascii_uppercase(value: &str) -> bool {
         .map(|ch| ch.is_ascii_uppercase())
         .unwrap_or(false)
 }
+
+fn is_assignment_target(expr: &Expr) -> bool {
+    match expr {
+        Expr::Deref { .. } => true,
+        Expr::Index { base, .. } => matches!(base.ty(), Type::MutSlice(_)),
+        _ => false,
+    }
+}
+
 fn lower_stmt(
     stmt: &syntax::Stmt,
     env: &mut HashMap<String, Binding>,
@@ -7096,11 +7115,7 @@ fn lower_stmt(
             column,
         } => {
             let lowered_target = lower_expr(target, env, ctx)?;
-            let target_is_mutable_slice_element = matches!(
-                &lowered_target,
-                Expr::Index { base, .. } if matches!(base.ty(), Type::MutSlice(_))
-            );
-            if !matches!(lowered_target, Expr::Deref { .. }) && !target_is_mutable_slice_element {
+            if !is_assignment_target(&lowered_target) {
                 return Err(Diagnostic::new(
                     "type",
                     format!(
@@ -7509,8 +7524,16 @@ fn lower_stmt(
                     }
                 }
             }
+            let borrow_region_facts = ctx
+                .current_function
+                .as_ref()
+                .map(|function| {
+                    borrow_region_facts_for_return_expr(function, &lowered_expr, env, ctx)
+                })
+                .unwrap_or_default();
             Ok(Stmt::Return {
                 expr: lowered_expr,
+                borrow_region_facts,
                 span: SourceSpan {
                     line: *line,
                     column: *column,
@@ -12536,10 +12559,13 @@ fn mark_projection_moved(
             format!("internal error: missing binding for moved value {name:?}"),
         )
     })?;
-    if binding.active_borrow_count > 0 {
+    if moved_projection_conflicts_with_active_borrow(binding, &projection) {
         return Err(ownership_error(
             OWNERSHIP_MOVE_WHILE_BORROWED,
-            format!("cannot move value {name:?} while borrowed slices are still live"),
+            format!(
+                "cannot move value {:?} while borrowed slices are still live",
+                format_projected_name(name, &projection)
+            ),
         ));
     }
     if projection_is_unavailable(binding, &projection) {
@@ -12557,6 +12583,22 @@ fn mark_projection_moved(
         binding.moved_projections.insert(projection);
     }
     Ok(())
+}
+
+fn moved_projection_conflicts_with_active_borrow(
+    binding: &Binding,
+    projection: &[ProjectionSegment],
+) -> bool {
+    if binding.active_borrow_count == 0 {
+        return false;
+    }
+    if projection.is_empty() || binding.active_borrows.is_empty() {
+        return true;
+    }
+    binding
+        .active_borrows
+        .keys()
+        .any(|active_projection| projection_conflicts(active_projection, projection))
 }
 
 fn ensure_lowered_projection_traversable(
@@ -12741,6 +12783,108 @@ fn borrow_region_facts_for_enum_payload_binding(
         };
     }
     facts
+}
+
+fn borrow_region_facts_for_return_expr(
+    function: &str,
+    expr: &Expr,
+    env: &HashMap<String, Binding>,
+    ctx: &LowerContext<'_>,
+) -> Vec<BorrowRegionFact> {
+    let mut facts = Vec::new();
+    collect_return_borrow_region_facts(function, expr, Vec::new(), env, ctx, &mut facts);
+    facts
+}
+
+fn collect_return_borrow_region_facts(
+    function: &str,
+    expr: &Expr,
+    projection: Vec<BorrowRegionProjection>,
+    env: &HashMap<String, Binding>,
+    ctx: &LowerContext<'_>,
+    facts: &mut Vec<BorrowRegionFact>,
+) {
+    if !contains_borrowed_slice_type(expr.ty(), ctx.structs, ctx.enums) {
+        return;
+    }
+    match expr {
+        Expr::TupleLiteral { elements, .. } => {
+            for (index, element) in elements.iter().enumerate() {
+                let mut child_projection = projection.clone();
+                child_projection.push(BorrowRegionProjection::TupleIndex(index));
+                collect_return_borrow_region_facts(
+                    function,
+                    element,
+                    child_projection,
+                    env,
+                    ctx,
+                    facts,
+                );
+            }
+        }
+        Expr::StructLiteral { fields, .. } => {
+            for field in fields {
+                let mut child_projection = projection.clone();
+                child_projection.push(BorrowRegionProjection::Field(field.name.clone()));
+                collect_return_borrow_region_facts(
+                    function,
+                    &field.expr,
+                    child_projection,
+                    env,
+                    ctx,
+                    facts,
+                );
+            }
+        }
+        Expr::EnumVariant {
+            field_names,
+            payloads,
+            ..
+        } => {
+            for (index, payload) in payloads.iter().enumerate() {
+                let mut child_projection = projection.clone();
+                if let Some(field_name) = field_names.get(index).filter(|name| !name.is_empty()) {
+                    child_projection.push(BorrowRegionProjection::Field(field_name.clone()));
+                } else {
+                    child_projection.push(BorrowRegionProjection::TupleIndex(index));
+                }
+                collect_return_borrow_region_facts(
+                    function,
+                    payload,
+                    child_projection,
+                    env,
+                    ctx,
+                    facts,
+                );
+            }
+        }
+        _ => {
+            let mut owners = expr_borrowed_owners(expr, env, ctx);
+            if owners.is_empty()
+                && let Some(BorrowOrigin::Param(origin)) = expr_borrow_origin(expr, env, ctx)
+            {
+                owners.insert(BorrowedOwner {
+                    name: origin,
+                    projection: Vec::new(),
+                });
+            }
+            let mut owners = owners.into_iter().collect::<Vec<_>>();
+            owners.sort_by(|left, right| {
+                left.name.cmp(&right.name).then_with(|| {
+                    format!("{:?}", left.projection).cmp(&format!("{:?}", right.projection))
+                })
+            });
+            facts.extend(owners.iter().map(|owner| BorrowRegionFact {
+                binding: "return".to_string(),
+                origin: BorrowRegionOrigin::from(owner),
+                scope: BorrowRegionScope::Return {
+                    function: function.to_string(),
+                    projection: projection.clone(),
+                },
+                source: BorrowRegionSource::AggregateReturn,
+            }));
+        }
+    }
 }
 
 impl From<&BorrowedOwner> for BorrowRegionOrigin {
@@ -13787,11 +13931,14 @@ mod boundary_tests {
                         facts.extend(collect_borrow_region_facts(&arm.body));
                     }
                 }
+                Stmt::Return {
+                    borrow_region_facts,
+                    ..
+                } => facts.extend(borrow_region_facts.iter().cloned()),
                 Stmt::Assign { .. }
                 | Stmt::Print { .. }
                 | Stmt::Panic { .. }
-                | Stmt::Defer { .. }
-                | Stmt::Return { .. } => {}
+                | Stmt::Defer { .. } => {}
             }
         }
         facts
@@ -13864,6 +14011,36 @@ print 0
                     variant: "Some".to_string(),
                     payload_index: 0,
                 },
+            }]
+        );
+    }
+
+    #[test]
+    fn hir_records_borrow_region_fact_for_aggregate_return() {
+        let parsed = parse(
+            r#"
+fn pair(s: &[int]): (&[int], int) {
+return (s, len(s))
+}
+"#,
+        );
+
+        let lowered = lower(&parsed).expect("HIR lowering should accept aggregate borrow return");
+        let facts = collect_borrow_region_facts(&lowered.functions[0].body);
+
+        assert_eq!(
+            facts,
+            vec![BorrowRegionFact {
+                binding: "return".to_string(),
+                origin: BorrowRegionOrigin {
+                    name: "s".to_string(),
+                    projection: Vec::new(),
+                },
+                scope: BorrowRegionScope::Return {
+                    function: "pair".to_string(),
+                    projection: vec![BorrowRegionProjection::TupleIndex(0)],
+                },
+                source: BorrowRegionSource::AggregateReturn,
             }]
         );
     }

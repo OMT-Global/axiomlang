@@ -1689,6 +1689,42 @@ fn parse_stmt(
         *index += 1;
         return Ok(stmt);
     }
+    if !trimmed.starts_with("print ")
+        && !trimmed.starts_with("panic ")
+        && !trimmed.starts_with("return ")
+        && let Some(equals) = find_top_level_char(trimmed, '=')
+    {
+        let target_raw = trimmed[..equals].trim();
+        if !target_raw.starts_with('*') && !target_raw.contains('[') {
+            return Err(Diagnostic::new(
+                "parse",
+                if in_block {
+                    "stage1 bootstrap currently supports let, print, panic, defer, if/else, while, match, and return statements inside blocks"
+                } else {
+                    "stage1 bootstrap currently supports top-level import, const, static, type, struct, enum, fn, let, print, panic, defer, if/else, while, and match statements"
+                },
+            )
+            .with_path(path.display().to_string())
+            .with_span(line_no, 1));
+        }
+        let expr_raw = trimmed[equals + 1..].trim();
+        if target_raw.is_empty() || expr_raw.is_empty() {
+            return Err(
+                Diagnostic::new("parse", "assignment must use `target = value` syntax")
+                    .with_path(path.display().to_string())
+                    .with_span(line_no, 1),
+            );
+        }
+        let target = parse_expr(target_raw, path, line_no, 1)?;
+        let expr = parse_expr(expr_raw, path, line_no, equals + 2)?;
+        *index += 1;
+        return Ok(Stmt::Assign {
+            target,
+            expr,
+            line: line_no,
+            column: 1,
+        });
+    }
     if let Some(rest) = trimmed.strip_prefix("print ") {
         let expr = parse_expr(rest, path, line_no, 7)?;
         *index += 1;

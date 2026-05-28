@@ -548,7 +548,7 @@ fn lower_stmt(stmt: &hir::Stmt) -> Stmt {
                 .collect(),
             span: lower_source_span(span),
         },
-        hir::Stmt::Return { expr, span } => Stmt::Return {
+        hir::Stmt::Return { expr, span, .. } => Stmt::Return {
             expr: lower_expr(expr),
             span: lower_source_span(span),
         },

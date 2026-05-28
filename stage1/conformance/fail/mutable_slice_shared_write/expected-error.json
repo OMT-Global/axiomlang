@@ -1,0 +1,7 @@
+{
+  "kind": "type",
+  "message": "assignment target must dereference a mutable reference or index a mutable slice, got int",
+  "path": "src/main.ax",
+  "line": 3,
+  "column": 1
+}

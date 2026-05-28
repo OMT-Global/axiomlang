@@ -1,6 +1,8 @@
-let values: [int] = [1, 2, 3]
-let slice: &mut [int] = values[:]
-slice[0] = 7
-slice[2] = first(slice) + last(slice)
-print first(slice)
-print last(slice)
+let values: [int] = [5, 8, 13]
+let view: &mut [int] = values[:]
+view[0] = view[0] + 1
+view[1] = view[1] + 2
+print len(view)
+print values[0]
+print values[1]
+print values[2]
