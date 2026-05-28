@@ -1,0 +1,69 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://axiom.dev/schemas/axiom-artifacts-v0.schema.json",
+  "title": "Axiom Artifact Plan v0",
+  "type": "object",
+  "required": ["schema_version", "ok", "command", "project", "package", "artifacts"],
+  "properties": {
+    "schema_version": {
+      "const": "axiom.artifacts.v0"
+    },
+    "ok": {
+      "type": "boolean"
+    },
+    "command": {
+      "const": "inspect artifacts"
+    },
+    "project": {
+      "type": "string",
+      "minLength": 1
+    },
+    "package": {
+      "type": "string",
+      "minLength": 1
+    },
+    "artifacts": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/artifact"
+      }
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "artifact": {
+      "type": "object",
+      "required": ["id", "kind", "path", "generated_from", "status"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^axiom://package/[A-Za-z0-9._~:/#@!$&'()*+,;=%-]+$"
+        },
+        "kind": {
+          "enum": [
+            "native_binary",
+            "generated_rust",
+            "test_report",
+            "benchmark_report",
+            "docs"
+          ]
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "generated_from": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^axiom://package/[A-Za-z0-9._~:/#@!$&'()*+,;=%-]+$"
+          }
+        },
+        "status": {
+          "enum": ["planned", "generated", "verified"]
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}
