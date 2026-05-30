@@ -5,11 +5,16 @@ use crate::mir::{
     StructDef, StructField, Type,
 };
 use serde::{Deserialize, Serialize};
+use std::any::Any;
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::fmt;
+use std::panic::{self, AssertUnwindSafe};
 use std::path::Path;
 use std::process::Command;
 use std::str::FromStr;
+
+pub const INTERNAL_COMPILER_ERROR_CODE: &str = "ICE-001";
+const INTERNAL_CODEGEN_ERROR_SENTINEL: &str = "__AXIOM_INTERNAL_CODEGEN_ERROR__:";
 
 /// Preparatory selector for native-build backend plumbing.
 ///
@@ -52,10 +57,11 @@ impl FromStr for NativeBackendKind {
 #[cfg(test)]
 mod tests {
     use super::{
-        GeneratedRustBackendInput, NativeBackendKind, deterministic_numbers, deterministic_strings,
-        render_generated_rust,
+        GeneratedRustBackendInput, INTERNAL_COMPILER_ERROR_CODE, NativeBackendKind,
+        deterministic_numbers, deterministic_strings, render_generated_rust,
+        try_render_generated_rust,
     };
-    use crate::mir::{Function, Program, Type};
+    use crate::mir::{ArithmeticOp, Expr, Function, LiteralValue, Program, SourceSpan, Stmt, Type};
     use std::str::FromStr;
 
     #[test]
@@ -104,6 +110,33 @@ mod tests {
         let rendered = render_generated_rust(&GeneratedRustBackendInput::from_mir(program));
 
         assert!(rendered.contains("fn main()"));
+    }
+
+    #[test]
+    fn generated_rust_backend_reports_internal_diagnostic_for_invalid_mir_shape() {
+        let program = Program {
+            path: String::from("invalid-mir"),
+            functions: vec![],
+            structs: vec![],
+            enums: vec![],
+            statics: vec![],
+            stmts: vec![Stmt::Print {
+                expr: Expr::BinaryAdd {
+                    op: ArithmeticOp::Add,
+                    lhs: Box::new(Expr::Literal(LiteralValue::Bool(true))),
+                    rhs: Box::new(Expr::Literal(LiteralValue::Bool(false))),
+                    ty: Type::Bool,
+                },
+                span: SourceSpan { line: 2, column: 5 },
+            }],
+        };
+
+        let error = try_render_generated_rust(&GeneratedRustBackendInput::from_mir(program))
+            .expect_err("invalid MIR should become an internal diagnostic");
+
+        assert_eq!(error.kind, "internal");
+        assert_eq!(error.code.as_deref(), Some(INTERNAL_COMPILER_ERROR_CODE));
+        assert!(error.message.contains("type checker rejects bool addition"));
     }
 
     #[test]
@@ -183,6 +216,77 @@ pub fn render_generated_rust(input: &GeneratedRustBackendInput) -> String {
         &input.fs_root,
         &input.capabilities,
     )
+}
+
+pub fn try_render_generated_rust(input: &GeneratedRustBackendInput) -> Result<String, Diagnostic> {
+    let previous_hook = panic::take_hook();
+    panic::set_hook(Box::new(|_| {}));
+    let result = panic::catch_unwind(AssertUnwindSafe(|| render_generated_rust(input)));
+    panic::set_hook(previous_hook);
+    let rendered = result.map_err(codegen_internal_panic_diagnostic)?;
+    if let Some(error) = codegen_internal_render_diagnostic(&rendered) {
+        return Err(error);
+    }
+    Ok(rendered)
+}
+
+fn codegen_internal_panic_diagnostic(payload: Box<dyn Any + Send>) -> Diagnostic {
+    codegen_internal_diagnostic(&panic_payload_message(&payload))
+}
+
+fn codegen_internal_render_diagnostic(rendered: &str) -> Option<Diagnostic> {
+    let start = rendered.find(INTERNAL_CODEGEN_ERROR_SENTINEL)?;
+    let rest = &rendered[start + INTERNAL_CODEGEN_ERROR_SENTINEL.len()..];
+    let message_end = rest.find('"').unwrap_or(rest.len());
+    Some(codegen_internal_diagnostic(rest[..message_end].trim()))
+}
+
+fn codegen_internal_diagnostic(message: &str) -> Diagnostic {
+    Diagnostic::new(
+        "internal",
+        format!(
+            "internal compiler error while rendering generated Rust: {}",
+            message
+        ),
+    )
+    .with_code(INTERNAL_COMPILER_ERROR_CODE)
+    .with_help(
+        "This indicates an invalid compiler-internal shape reached codegen; please file the source package and command that triggered it.",
+    )
+}
+
+fn panic_payload_message(payload: &Box<dyn Any + Send>) -> String {
+    if let Some(message) = payload.downcast_ref::<&'static str>() {
+        return (*message).to_string();
+    }
+    if let Some(message) = payload.downcast_ref::<String>() {
+        return message.clone();
+    }
+    String::from("unknown panic payload")
+}
+
+fn render_internal_codegen_error(message: &str) -> String {
+    format!(
+        "compile_error!(\"{} {}\")",
+        INTERNAL_CODEGEN_ERROR_SENTINEL,
+        rust_string_literal_content(message)
+    )
+}
+
+fn rust_string_literal_content(value: &str) -> String {
+    let mut escaped = String::new();
+    for ch in value.chars() {
+        match ch {
+            '\\' => escaped.push_str("\\\\"),
+            '"' => escaped.push_str("\\\""),
+            '\n' => escaped.push_str("\\n"),
+            '\r' => escaped.push_str("\\r"),
+            '\t' => escaped.push_str("\\t"),
+            ch if ch.is_control() => escaped.push_str(&format!("\\u{{{:x}}}", ch as u32)),
+            ch => escaped.push(ch),
+        }
+    }
+    escaped
 }
 
 pub fn render_rust(program: &Program) -> String {
@@ -5313,27 +5417,43 @@ fn render_expr(expr: &Expr) -> String {
                 render_expr(lhs),
                 render_expr(rhs)
             ),
-            Type::Never => unreachable!("type checker rejects never addition"),
-            Type::Bool => unreachable!("type checker rejects bool addition"),
-            Type::Struct(_) => unreachable!("type checker rejects struct addition"),
-            Type::Enum(_) => unreachable!("type checker rejects enum addition"),
+            Type::Never => render_internal_codegen_error("type checker rejects never addition"),
+            Type::Bool => render_internal_codegen_error("type checker rejects bool addition"),
+            Type::Struct(_) => {
+                render_internal_codegen_error("type checker rejects struct addition")
+            }
+            Type::Enum(_) => render_internal_codegen_error("type checker rejects enum addition"),
             Type::Ptr(_)
             | Type::MutPtr(_)
             | Type::MutRef(_)
             | Type::Slice(_)
             | Type::MutSlice(_) => {
-                unreachable!("type checker rejects slice addition")
+                render_internal_codegen_error("type checker rejects slice addition")
             }
-            Type::Option(_) => unreachable!("type checker rejects option addition"),
-            Type::Result(_, _) => unreachable!("type checker rejects result addition"),
-            Type::Tuple(_) => unreachable!("type checker rejects tuple addition"),
-            Type::Map(_, _) => unreachable!("type checker rejects map addition"),
-            Type::Array(_, _) => unreachable!("type checker rejects array addition"),
-            Type::Task(_) => unreachable!("type checker rejects task addition"),
-            Type::JoinHandle(_) => unreachable!("type checker rejects join handle addition"),
-            Type::AsyncChannel(_) => unreachable!("type checker rejects async channel addition"),
-            Type::SelectResult(_) => unreachable!("type checker rejects select result addition"),
-            Type::Fn(_, _) => unreachable!("type checker rejects function addition"),
+            Type::Option(_) => {
+                render_internal_codegen_error("type checker rejects option addition")
+            }
+            Type::Result(_, _) => {
+                render_internal_codegen_error("type checker rejects result addition")
+            }
+            Type::Tuple(_) => render_internal_codegen_error("type checker rejects tuple addition"),
+            Type::Map(_, _) => render_internal_codegen_error("type checker rejects map addition"),
+            Type::Array(_, _) => {
+                render_internal_codegen_error("type checker rejects array addition")
+            }
+            Type::Task(_) => render_internal_codegen_error("type checker rejects task addition"),
+            Type::JoinHandle(_) => {
+                render_internal_codegen_error("type checker rejects join handle addition")
+            }
+            Type::AsyncChannel(_) => {
+                render_internal_codegen_error("type checker rejects async channel addition")
+            }
+            Type::SelectResult(_) => {
+                render_internal_codegen_error("type checker rejects select result addition")
+            }
+            Type::Fn(_, _) => {
+                render_internal_codegen_error("type checker rejects function addition")
+            }
         },
         Expr::BinaryCompare { op, lhs, rhs, .. } => {
             format!("{} {} {}", render_expr(lhs), op.lexeme(), render_expr(rhs))
@@ -5470,7 +5590,7 @@ fn render_expr(expr: &Expr) -> String {
                         )
                     }
                 }
-                _ => unreachable!("type checker rejects slicing non-array values"),
+                _ => render_internal_codegen_error("type checker rejects slicing non-array values"),
             }
         }
         Expr::Index { base, index, ty } => match base.ty() {
@@ -5518,7 +5638,9 @@ fn render_expr(expr: &Expr) -> String {
                     )
                 }
             }
-            _ => unreachable!("type checker rejects indexing non-collection values"),
+            _ => {
+                render_internal_codegen_error("type checker rejects indexing non-collection values")
+            }
         },
         Expr::Match { expr, arms, .. } => {
             let mut rendered = format!("match {} {{ ", render_expr(expr));
@@ -5607,7 +5729,7 @@ fn render_numeric_binary(
         Type::Numeric(crate::syntax::NumericType::F32 | crate::syntax::NumericType::F64) => {
             format!("{left} + {right}")
         }
-        _ => unreachable!("type checker rejects non-numeric binary arithmetic"),
+        _ => render_internal_codegen_error("type checker rejects non-numeric binary arithmetic"),
     }
 }
 
@@ -5769,7 +5891,9 @@ fn render_collection_edge(collection: &Expr, result_ty: &Type, from_end: bool) -
         Type::Slice(_) | Type::MutSlice(_) => format!(
             "{{ let values = &*{rendered}; let index = {index}; axiom_array_get(values, index) }}"
         ),
-        _ => unreachable!("type checker rejects first/last on non-collection values"),
+        _ => render_internal_codegen_error(
+            "type checker rejects first/last on non-collection values",
+        ),
     }
 }
 

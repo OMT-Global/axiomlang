@@ -156,7 +156,7 @@ package-local module imports, stdlib module names, detected local import cycles,
 and import errors for agent dependency-graph checks.
 Stable diagnostic codes can be queried with `axiomc explain <code>` in text or
 JSON form; the current catalog covers the stable ownership codes emitted by the
-stage1 checker.
+stage1 checker plus the structured generated-Rust backend failure codes.
 
 ## Numeric Overflow Policy
 
@@ -172,7 +172,7 @@ contract: `wrapping_add` wraps, `checked_add` returns `None` on overflow, and
 supported integer widths and should be preferred over ambient arithmetic when
 reviewers need to see the intended overflow behavior at the call site.
 
-Stable ownership diagnostic codes:
+Stable diagnostic codes:
 
 | Code | Meaning | Sample diagnostic |
 | --- | --- | --- |
@@ -186,6 +186,8 @@ Stable ownership diagnostic codes:
 | `mutable_borrow_while_mutable_live` | A mutable borrowed slice was created while another mutable borrowed slice of the same owner was live. | `cannot create mutable borrow of value "values" while another mutable borrow is still live`. |
 | `closure_move_captured_non_copy` | A closure body moved a captured non-`Copy` value. | `closure cannot move captured non-copy value`. |
 | `closure_borrowed_slice_return` | A closure returned a borrowed slice whose lifetime cannot be tied to a safe parameter origin. | `closure fn values cannot return borrowed slice types in stage1`. |
+| `generated_rust_compilation_failed` | rustc rejected generated Rust while building a stage1 artifact. | `generated Rust compilation failed`. |
+| `ICE-001` | An invalid compiler-internal shape reached generated-Rust codegen. | `internal compiler error while rendering generated Rust`. |
 
 Checked-in `check --json` contract fixtures live under
 `stage1/json-fixtures/check/` and cover success, parse, type, ownership, and
