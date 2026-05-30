@@ -15,6 +15,8 @@ their contracts using the same shape before they ship.
 The first implemented non-source artifact target is
 [OpenAPI Target v0](openapi-target-v0.md), which emits an `openapi_spec`
 artifact from HTTP-serving semantic routes.
+[Policy Bundle Target v0](policy-bundle-target-v0.md) emits a
+`policy_bundle` artifact from manifest capabilities and effect records.
 
 ## Where It Fits
 
@@ -238,8 +240,10 @@ expressive enough for non-source targets:
   data); artifacts are forward and rollback SQL files.
 - `terraform_module`: input node kinds include `Capability` and
   `RuntimeSurface`; artifacts are HCL modules.
-- `policy_bundle`: input node kinds include `Capability` and `Effect`;
-  artifacts are policy files consumed by allowlist gates.
+- `policy_bundle`: implemented for stage1 as
+  [Policy Bundle Target v0](policy-bundle-target-v0.md). Input node kinds
+  include `Package`, `Capability`, and `Effect`; artifacts are deterministic
+  JSON policy files consumed by allowlist gates.
 
 These sketches share the same contract shape. Adding them does not require
 inventing a new schema.

@@ -288,6 +288,14 @@ enum GenerateCommand {
         #[arg(long)]
         json: bool,
     },
+    /// Generate a deterministic policy allowlist bundle from manifest capabilities and effects.
+    Policy {
+        path: PathBuf,
+        #[arg(long)]
+        out: PathBuf,
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -744,6 +752,21 @@ fn main() {
                     0
                 }
                 Err(error) => print_error("generate openapi", error, json),
+            },
+            GenerateCommand::Policy { path, out, json } => match generate_policy(&path, &out) {
+                Ok(report) => {
+                    if json {
+                        println!(
+                            "{}",
+                            json_contract::to_pretty_string(&report)
+                                .unwrap_or_else(|_| String::from("{}"))
+                        );
+                    } else {
+                        eprintln!("wrote {}", report.artifact.path);
+                    }
+                    0
+                }
+                Err(error) => print_error("generate policy", error, json),
             },
         },
         Command::Pkg { command } => match command {
@@ -1874,6 +1897,7 @@ fn inspect_effects(path: &Path) -> Result<InspectEffectsReport, Diagnostic> {
         for decl in &program.consts {
             collect_effects_in_expr(&decl.expr, &file, &mut effects);
         }
+        collect_effects_in_stmts(&program.stmts, &file, &mut effects);
         for function in &program.functions {
             collect_effects_in_stmts(&function.body, &file, &mut effects);
         }
@@ -2051,12 +2075,17 @@ fn collect_effects_in_expr(
 
 fn effect_for_call(name: &str) -> Option<(&'static str, &'static str, &'static str)> {
     match name {
-        "clock_now_ms" | "clock_elapsed_ms" => Some(("clock.now", "read", "clock")),
-        "clock_sleep_ms" => Some(("clock.sleep", "sleep", "clock")),
-        "env_get" => Some(("env.read", "read", "env")),
-        "fs_read" => Some(("fs.read", "read", "fs")),
+        "clock_now_ms" | "clock_elapsed_ms" | "now_ms" | "now" | "elapsed_ms" => {
+            Some(("clock.now", "read", "clock"))
+        }
+        "clock_sleep_ms" | "sleep" => Some(("clock.sleep", "sleep", "clock")),
+        "env_get" | "get_env" => Some(("env.read", "read", "env")),
+        "fs_read" | "read_file" => Some(("fs.read", "read", "fs")),
         "fs_write" | "fs_create" | "fs_append" | "fs_mkdir" | "fs_mkdir_all" | "fs_remove_file"
-        | "fs_remove_dir" | "fs_replace" => Some(("fs.write", "write", "fs:write")),
+        | "fs_remove_dir" | "fs_replace" | "write_file" | "create_file" | "append_file"
+        | "mkdir" | "mkdir_all" | "remove_file" | "remove_dir" | "replace_file" => {
+            Some(("fs.write", "write", "fs:write"))
+        }
         "net_resolve" => Some(("network.dns.resolve", "resolve", "net")),
         "http_get" => Some(("network.http.get", "get", "net")),
         "http_serve_once"
@@ -2838,6 +2867,256 @@ fn openapi_operation_id(path: &str) -> String {
     out
 }
 
+const POLICY_TARGET_ID: &str = "axiom://target/stage1-policy-bundle-v0";
+const POLICY_ARTIFACT_KIND: &str = "policy_bundle";
+const POLICY_SCHEMA_VERSION: &str = "axiom.policy_bundle.v0";
+const GENERATE_POLICY_SCHEMA_VERSION: &str = "axiom.generate.policy.v0";
+
+#[derive(Debug, Clone, Serialize)]
+struct GeneratePolicyReport {
+    schema_version: &'static str,
+    ok: bool,
+    command: &'static str,
+    project: String,
+    target_contract: TargetContract,
+    artifact: GeneratedArtifact,
+    allowed_effect_kinds: Vec<String>,
+    observed_effects: Vec<PolicyObservedEffect>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct PolicyBundle {
+    schema_version: &'static str,
+    package: String,
+    target_id: &'static str,
+    generated_from: Vec<String>,
+    capabilities: Vec<PolicyCapability>,
+    allowed_effect_kinds: Vec<String>,
+    allowed_effects: Vec<PolicyEffectAllowance>,
+    observed_effects: Vec<PolicyObservedEffect>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+struct PolicyCapability {
+    name: String,
+    enabled: bool,
+    description: &'static str,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    allowed: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    configured_root: Option<String>,
+    #[serde(skip_serializing_if = "is_false_bool")]
+    deny_by_default: bool,
+    #[serde(skip_serializing_if = "is_false_bool")]
+    unsafe_unrestricted: bool,
+    #[serde(skip_serializing_if = "is_false_bool")]
+    unsafe_opt_in: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    unsafe_rationale: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    owner: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    rationale: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+struct PolicyEffectAllowance {
+    kind: String,
+    capability_gate: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct PolicyObservedEffect {
+    kind: String,
+    resource: String,
+    operation: &'static str,
+    capability_gate: &'static str,
+    source_span: SymbolSpan,
+}
+
+fn generate_policy(project: &Path, out: &Path) -> Result<GeneratePolicyReport, Diagnostic> {
+    let manifest = load_manifest(project)?;
+    let _package = manifest.package.as_ref().ok_or_else(|| {
+        Diagnostic::new(
+            "policy",
+            "policy bundle generation requires a package manifest with [package].",
+        )
+    })?;
+    let output_path = if out.is_absolute() {
+        out.to_path_buf()
+    } else {
+        project.join(out)
+    };
+    let capabilities = project_capabilities(project)?;
+    let allowed_effects = policy_allowed_effects(&capabilities);
+    let allowed_effect_kinds = allowed_effects
+        .iter()
+        .map(|effect| effect.kind.clone())
+        .collect::<Vec<_>>();
+    let observed_effects = inspect_effects(project)?
+        .effects
+        .iter()
+        .map(policy_observed_effect)
+        .collect::<Vec<_>>();
+    let package_id = package_node_for_path(project);
+    let bundle = PolicyBundle {
+        schema_version: POLICY_SCHEMA_VERSION,
+        package: package_id.clone(),
+        target_id: POLICY_TARGET_ID,
+        generated_from: vec![package_id.clone()],
+        capabilities: policy_capabilities(&capabilities),
+        allowed_effect_kinds: allowed_effect_kinds.clone(),
+        allowed_effects: allowed_effects.clone(),
+        observed_effects: observed_effects.clone(),
+    };
+    if let Some(parent) = output_path.parent() {
+        fs::create_dir_all(parent).map_err(|err| {
+            Diagnostic::new(
+                "policy",
+                format!("failed to create {}: {err}", parent.display()),
+            )
+        })?;
+    }
+    let body = serde_json::to_string_pretty(&bundle)
+        .map_err(|err| Diagnostic::new("json", format!("failed to serialize policy: {err}")))?;
+    fs::write(&output_path, format!("{body}\n")).map_err(|err| {
+        Diagnostic::new(
+            "policy",
+            format!("failed to write {}: {err}", output_path.display()),
+        )
+    })?;
+    let artifact = policy_artifact(project, &output_path, &package_id, "generated");
+    Ok(GeneratePolicyReport {
+        schema_version: GENERATE_POLICY_SCHEMA_VERSION,
+        ok: true,
+        command: "generate policy",
+        project: project.display().to_string(),
+        target_contract: policy_target_contract(artifact.clone()),
+        artifact,
+        allowed_effect_kinds,
+        observed_effects,
+    })
+}
+
+fn policy_target_contract(artifact: GeneratedArtifact) -> TargetContract {
+    TargetContract {
+        id: POLICY_TARGET_ID,
+        target_class: POLICY_ARTIFACT_KIND,
+        description: "Stage 1 policy bundle generator for manifest capabilities and effect allowlists.",
+        status: "experimental",
+        input_node_kinds: vec!["Package", "Capability", "Effect"],
+        supported_effect_kinds: policy_known_effect_kinds(),
+        supported_type_features: Vec::new(),
+        artifact_outputs: vec![artifact],
+        evidence_requirements: vec!["unit_test", "fixture"],
+        unsupported_feature_diagnostics: Vec::new(),
+    }
+}
+
+fn policy_artifact(
+    project: &Path,
+    output_path: &Path,
+    package_id: &str,
+    status: &'static str,
+) -> GeneratedArtifact {
+    GeneratedArtifact {
+        id: format!("{package_id}/artifact/policy-bundle"),
+        kind: POLICY_ARTIFACT_KIND,
+        path: project_relative_path(project, output_path),
+        generated_from: vec![package_id.to_string()],
+        status,
+    }
+}
+
+fn policy_allowed_effects(capabilities: &[CapabilityDescriptor]) -> Vec<PolicyEffectAllowance> {
+    let enabled = capabilities
+        .iter()
+        .filter(|capability| capability.enabled)
+        .map(|capability| capability.name.as_str())
+        .collect::<BTreeSet<_>>();
+    let mut effects = Vec::new();
+    for (capability, kinds) in policy_effects_by_capability() {
+        if enabled.contains(capability) {
+            for kind in kinds {
+                effects.push(PolicyEffectAllowance {
+                    kind: (*kind).to_string(),
+                    capability_gate: capability.to_string(),
+                });
+            }
+        }
+    }
+    effects.sort_by(|left, right| {
+        left.kind
+            .cmp(&right.kind)
+            .then_with(|| left.capability_gate.cmp(&right.capability_gate))
+    });
+    effects
+}
+
+fn policy_capabilities(capabilities: &[CapabilityDescriptor]) -> Vec<PolicyCapability> {
+    capabilities
+        .iter()
+        .map(|capability| PolicyCapability {
+            name: capability.name.clone(),
+            enabled: capability.enabled,
+            description: capability.description,
+            allowed: capability.allowed.clone(),
+            configured_root: capability.configured_root.clone(),
+            deny_by_default: capability.deny_by_default,
+            unsafe_unrestricted: capability.unsafe_unrestricted,
+            unsafe_opt_in: capability.unsafe_opt_in,
+            unsafe_rationale: capability.unsafe_rationale.clone(),
+            owner: capability.owner.clone(),
+            rationale: capability.rationale.clone(),
+        })
+        .collect()
+}
+
+fn is_false_bool(value: &bool) -> bool {
+    !*value
+}
+
+fn policy_known_effect_kinds() -> Vec<&'static str> {
+    let mut kinds = policy_effects_by_capability()
+        .iter()
+        .flat_map(|(_, kinds)| kinds.iter().copied())
+        .collect::<Vec<_>>();
+    kinds.sort_unstable();
+    kinds.dedup();
+    kinds
+}
+
+fn policy_effects_by_capability() -> Vec<(&'static str, Vec<&'static str>)> {
+    vec![
+        ("clock", vec!["clock.now", "clock.sleep"]),
+        ("env", vec!["env.read"]),
+        ("fs", vec!["fs.read"]),
+        ("fs:write", vec!["fs.write"]),
+        (
+            "net",
+            vec![
+                "network.dns.resolve",
+                "network.http.get",
+                "network.tcp.bind",
+                "network.tcp.connect",
+                "network.udp.send",
+            ],
+        ),
+        ("process", vec!["process.status"]),
+        ("crypto", vec!["crypto.hash", "crypto.mac"]),
+    ]
+}
+
+fn policy_observed_effect(effect: &EffectNode) -> PolicyObservedEffect {
+    PolicyObservedEffect {
+        kind: effect.kind.to_string(),
+        resource: effect.resource.clone(),
+        operation: effect.operation,
+        capability_gate: effect.capability_gate,
+        source_span: effect.source_span.clone(),
+    }
+}
+
 fn symbol_span(path: &Path, line: usize, column: usize) -> SymbolSpan {
     SymbolSpan {
         path: path.display().to_string(),
@@ -3061,11 +3340,13 @@ fn collect_expr_capabilities(expr: &axiomc::syntax::Expr, capabilities: &mut Vec
 
 fn capability_for_call(name: &str) -> Option<&'static str> {
     match name {
-        "clock_now_ms" | "clock_elapsed_ms" | "clock_sleep_ms" => Some("clock"),
-        "env_get" => Some("env"),
-        "fs_read" => Some("fs"),
+        "clock_now_ms" | "clock_elapsed_ms" | "clock_sleep_ms" | "now_ms" | "now"
+        | "elapsed_ms" | "sleep" => Some("clock"),
+        "env_get" | "get_env" => Some("env"),
+        "fs_read" | "read_file" => Some("fs"),
         "fs_write" | "fs_create" | "fs_append" | "fs_mkdir" | "fs_mkdir_all" | "fs_remove_file"
-        | "fs_remove_dir" | "fs_replace" => Some("fs:write"),
+        | "fs_remove_dir" | "fs_replace" | "write_file" | "create_file" | "append_file"
+        | "mkdir" | "mkdir_all" | "remove_file" | "remove_dir" | "replace_file" => Some("fs:write"),
         "net_resolve"
         | "http_get"
         | "http_serve_once"
@@ -4359,6 +4640,13 @@ fn inspect_artifacts(project: &Path) -> Result<InspectArtifactsReport, Diagnosti
         out_dir_path(project, &manifest).join("openapi.json"),
         "target_contract",
     );
+    push_artifact(
+        &mut artifacts,
+        &package_id,
+        POLICY_ARTIFACT_KIND,
+        out_dir_path(project, &manifest).join("policy-bundle.json"),
+        "target_contract",
+    );
     if manifest.package.is_some() {
         push_artifact(
             &mut artifacts,
@@ -4508,7 +4796,9 @@ fn inspect_existing_output_artifacts(
         let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
             continue;
         };
-        let kind = if name == "openapi.json" || name.ends_with(".openapi.json") {
+        let kind = if name == "policy-bundle.json" || name.ends_with(".policy-bundle.json") {
+            POLICY_ARTIFACT_KIND
+        } else if name == "openapi.json" || name.ends_with(".openapi.json") {
             OPENAPI_ARTIFACT_KIND
         } else if name.ends_with(".generated.rs") {
             "generated_rust"
@@ -4777,6 +5067,29 @@ mod tests {
                 assert!(json);
             }
             other => panic!("expected generate openapi command, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn generate_policy_cli_parses_output_path_and_json_flag() {
+        let cli = Cli::parse_from([
+            "axiomc",
+            "generate",
+            "policy",
+            ".",
+            "--out",
+            "dist/policy-bundle.json",
+            "--json",
+        ]);
+        match cli.command {
+            Command::Generate {
+                command: GenerateCommand::Policy { path, out, json },
+            } => {
+                assert_eq!(path, PathBuf::from("."));
+                assert_eq!(out, PathBuf::from("dist/policy-bundle.json"));
+                assert!(json);
+            }
+            other => panic!("expected generate policy command, got {other:?}"),
         }
     }
 
@@ -5612,6 +5925,11 @@ mod tests {
                 && artifact.source == "target_contract"
                 && artifact.status == "planned"
         }));
+        assert!(artifacts.artifacts.iter().any(|artifact| {
+            artifact.kind == POLICY_ARTIFACT_KIND
+                && artifact.source == "target_contract"
+                && artifact.status == "planned"
+        }));
     }
 
     #[test]
@@ -5698,6 +6016,93 @@ mod tests {
         .expect("spec json");
         assert_eq!(spec["openapi"], OPENAPI_SPEC_VERSION);
         assert!(spec["paths"].as_object().expect("paths object").is_empty());
+    }
+
+    #[test]
+    fn generate_policy_writes_manifest_effect_allowlist() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let project = dir.path().join("policy-service");
+        create_project(&project, Some("policy-service")).expect("create project");
+        fs::write(
+            project.join("axiom.toml"),
+            "[package]\nname = \"policy-service\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = true\n\"fs:write\" = false\nnet = false\nprocess = false\nenv = [\"POLICY_MODE\"]\nclock = true\ncrypto = false\nffi = false\nasync = false\n",
+        )
+        .expect("write manifest");
+        fs::write(
+            project.join("src/main.ax"),
+            "import \"std/env.ax\"\nimport \"std/fs.ax\"\nimport \"std/time.ax\"\n\nlet now: int = now_ms()\nlet mode: Option<string> = get_env(\"POLICY_MODE\")\nlet contents: Option<string> = read_file(\"policy-input.txt\")\nprint now > 0\n",
+        )
+        .expect("write source");
+
+        let report =
+            generate_policy(&project, Path::new("dist/policy-bundle.json")).expect("policy");
+
+        assert_eq!(report.schema_version, GENERATE_POLICY_SCHEMA_VERSION);
+        assert_eq!(report.target_contract.id, POLICY_TARGET_ID);
+        assert_eq!(report.target_contract.target_class, POLICY_ARTIFACT_KIND);
+        let target_payload =
+            serde_json::to_value(&report.target_contract).expect("serialize target contract");
+        let target_schema_path =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schemas/axiom-target-v0.schema.json");
+        let target_schema: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(target_schema_path).expect("read schema"))
+                .expect("target schema json");
+        jsonschema::validator_for(&target_schema)
+            .expect("compile target schema")
+            .validate(&target_payload)
+            .expect("policy target contract matches target schema");
+        assert_eq!(report.artifact.status, "generated");
+        assert_eq!(
+            report.allowed_effect_kinds,
+            vec!["clock.now", "clock.sleep", "env.read", "fs.read"]
+        );
+        let observed = report
+            .observed_effects
+            .iter()
+            .map(|effect| effect.kind.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(observed, vec!["clock.now", "env.read", "fs.read"]);
+
+        let bundle: serde_json::Value = serde_json::from_str(
+            &fs::read_to_string(project.join("dist/policy-bundle.json")).expect("read bundle"),
+        )
+        .expect("bundle json");
+        assert_eq!(bundle["schema_version"], POLICY_SCHEMA_VERSION);
+        assert_eq!(bundle["target_id"], POLICY_TARGET_ID);
+        assert_eq!(
+            bundle["allowed_effect_kinds"],
+            serde_json::json!(["clock.now", "clock.sleep", "env.read", "fs.read"])
+        );
+    }
+
+    #[test]
+    fn generate_policy_reflects_removed_manifest_capability() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let project = dir.path().join("policy-drift");
+        create_project(&project, Some("policy-drift")).expect("create project");
+        let manifest = |clock: bool| {
+            format!(
+                "[package]\nname = \"policy-drift\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = {clock}\ncrypto = false\n"
+            )
+        };
+        fs::write(project.join("axiom.toml"), manifest(true)).expect("write manifest");
+        fs::write(
+            project.join("src/main.ax"),
+            "let now: int = clock_now_ms()\nprint now > 0\n",
+        )
+        .expect("write source");
+
+        let with_clock =
+            generate_policy(&project, Path::new("dist/policy-bundle.json")).expect("policy");
+        fs::write(project.join("axiom.toml"), manifest(false)).expect("rewrite manifest");
+        let without_clock =
+            generate_policy(&project, Path::new("dist/policy-bundle.json")).expect("policy");
+
+        assert_eq!(
+            with_clock.allowed_effect_kinds,
+            vec!["clock.now", "clock.sleep"]
+        );
+        assert!(without_clock.allowed_effect_kinds.is_empty());
     }
 
     #[test]
