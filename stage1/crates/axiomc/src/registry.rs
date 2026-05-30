@@ -1217,6 +1217,28 @@ mod tests {
     }
 
     #[test]
+    fn rejects_invalid_archive_attestation_payload() {
+        let dir = tempdir().expect("tempdir");
+        let release = write_release(
+            dir.path(),
+            "core",
+            "1.0.0",
+            "[package]\nname = \"core\"\nversion = \"1.0.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n",
+        );
+        fs::write(release.join("package.axp"), "archive").expect("write archive");
+        fs::write(
+            release.join("package.axp.sig"),
+            "axiom-integrity-v1\npackage=core\nversion=1.0.0\narchive_hash=deadbeef\nintegrity=ignored\n",
+        )
+        .expect("write signature");
+
+        let error = build_registry_index(dir.path(), "https://packages.example.test")
+            .expect_err("mismatched archive hash should fail");
+        assert_eq!(error.kind, "registry");
+        assert!(error.message.contains("archive hash does not match"));
+    }
+
+    #[test]
     fn rejects_yank_reason_without_yanked_metadata() {
         let dir = tempdir().expect("tempdir");
         let release = write_release(
