@@ -15,6 +15,7 @@ use std::str::FromStr;
 
 pub const INTERNAL_COMPILER_ERROR_CODE: &str = "ICE-001";
 const INTERNAL_CODEGEN_ERROR_SENTINEL: &str = "__AXIOM_INTERNAL_CODEGEN_ERROR__:";
+const INTERNAL_CODEGEN_ERROR_PREFIX: &str = "compile_error!(\"__AXIOM_INTERNAL_CODEGEN_ERROR__:";
 
 /// Preparatory selector for native-build backend plumbing.
 ///
@@ -57,8 +58,8 @@ impl FromStr for NativeBackendKind {
 #[cfg(test)]
 mod tests {
     use super::{
-        GeneratedRustBackendInput, INTERNAL_COMPILER_ERROR_CODE, NativeBackendKind,
-        deterministic_numbers, deterministic_strings, render_generated_rust,
+        GeneratedRustBackendInput, INTERNAL_CODEGEN_ERROR_SENTINEL, INTERNAL_COMPILER_ERROR_CODE,
+        NativeBackendKind, deterministic_numbers, deterministic_strings, render_generated_rust,
         try_render_generated_rust,
     };
     use crate::mir::{ArithmeticOp, Expr, Function, LiteralValue, Program, SourceSpan, Stmt, Type};
@@ -137,6 +138,28 @@ mod tests {
         assert_eq!(error.kind, "internal");
         assert_eq!(error.code.as_deref(), Some(INTERNAL_COMPILER_ERROR_CODE));
         assert!(error.message.contains("type checker rejects bool addition"));
+    }
+
+    #[test]
+    fn generated_rust_backend_ignores_user_text_that_mentions_internal_sentinel() {
+        let program = Program {
+            path: String::from("user-sentinel"),
+            functions: vec![],
+            structs: vec![],
+            enums: vec![],
+            statics: vec![],
+            stmts: vec![Stmt::Print {
+                expr: Expr::Literal(LiteralValue::String(format!(
+                    "user text mentions compile_error!(\"{INTERNAL_CODEGEN_ERROR_SENTINEL} not an ICE\")"
+                ))),
+                span: SourceSpan { line: 1, column: 1 },
+            }],
+        };
+
+        let rendered = try_render_generated_rust(&GeneratedRustBackendInput::from_mir(program))
+            .expect("user-controlled text should not trigger ICE diagnostics");
+
+        assert!(rendered.contains(INTERNAL_CODEGEN_ERROR_SENTINEL));
     }
 
     #[test]
@@ -235,8 +258,8 @@ fn codegen_internal_panic_diagnostic(payload: Box<dyn Any + Send>) -> Diagnostic
 }
 
 fn codegen_internal_render_diagnostic(rendered: &str) -> Option<Diagnostic> {
-    let start = rendered.find(INTERNAL_CODEGEN_ERROR_SENTINEL)?;
-    let rest = &rendered[start + INTERNAL_CODEGEN_ERROR_SENTINEL.len()..];
+    let start = rendered.find(INTERNAL_CODEGEN_ERROR_PREFIX)?;
+    let rest = &rendered[start + INTERNAL_CODEGEN_ERROR_PREFIX.len()..];
     let message_end = rest.find('"').unwrap_or(rest.len());
     Some(codegen_internal_diagnostic(rest[..message_end].trim()))
 }
