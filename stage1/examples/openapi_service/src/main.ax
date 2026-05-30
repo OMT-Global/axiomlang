@@ -1,0 +1,6 @@
+import "std/http.ax"
+
+let selected_response: HttpResponse = response(200, "ready", [header("content-type", "application/json")])
+let selected_route: HttpRoute = route_response("/ready", selected_response)
+
+print serve("127.0.0.1:0", selected_route, 1)

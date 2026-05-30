@@ -34,9 +34,13 @@ For a buildable package, the artifact plan includes:
 
 - the native binary at the manifest build output directory,
 - generated Rust beside the binary,
+- the OpenAPI target artifact at `<out_dir>/openapi.json`,
 - docs at `docs/axiom/index.md`,
 - one test report for each manifest test target,
 - one benchmark report for each manifest benchmark target.
 
-The command does not generate files and does not replace `axiomc build`,
-`axiomc test`, `axiomc doc`, or `axiomc bench`.
+`openapi_spec` records move from `planned` to `generated` after
+`axiomc generate openapi <path> --out <out_dir>/openapi.json` writes the
+document. The inspect command does not generate files and does not replace
+`axiomc build`, `axiomc test`, `axiomc doc`, `axiomc bench`, or target
+generators.

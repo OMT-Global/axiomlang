@@ -43,6 +43,7 @@
           "enum": [
             "native_binary",
             "generated_rust",
+            "openapi_spec",
             "test_report",
             "benchmark_report",
             "docs"

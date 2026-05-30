@@ -290,3 +290,33 @@ fn backend_target_v0_schema_and_fixture_are_well_formed() {
         "generated-Rust target emits a Rust source artifact"
     );
 }
+
+#[test]
+fn openapi_service_fixture_is_deterministic() {
+    let fixture_path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("..")
+        .join("examples")
+        .join("openapi_service")
+        .join("dist")
+        .join("openapi.json");
+    let fixture: Value =
+        serde_json::from_str(&fs::read_to_string(&fixture_path).expect("read OpenAPI fixture"))
+            .expect("OpenAPI fixture is valid JSON");
+
+    assert_eq!(fixture["openapi"], "3.1.0");
+    assert_eq!(fixture["info"]["title"], "openapi-service");
+    assert_eq!(
+        fixture["paths"]["/ready"]["get"]["operationId"],
+        "get_ready"
+    );
+    assert_eq!(
+        fixture["paths"]["/ready"]["get"]["responses"]["200"]["content"]["application/json"]["schema"]
+            ["type"],
+        "string"
+    );
+    assert_eq!(
+        fixture["paths"]["/ready"]["get"]["x-axiom"]["target_id"],
+        "axiom://target/stage1-openapi-v0"
+    );
+}

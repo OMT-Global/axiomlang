@@ -145,6 +145,11 @@ enum Command {
         #[command(subcommand)]
         command: InspectCommand,
     },
+    /// Generate target artifacts from stage1 semantic intent.
+    Generate {
+        #[command(subcommand)]
+        command: GenerateCommand,
+    },
     /// Inspect local package graph metadata.
     Pkg {
         #[command(subcommand)]
@@ -262,6 +267,24 @@ enum InspectCommand {
     /// Emit semantic effect nodes for known runtime and stdlib surfaces.
     Effects {
         path: PathBuf,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Emit planned and generated artifact records for a package.
+    Artifacts {
+        path: PathBuf,
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum GenerateCommand {
+    /// Generate an OpenAPI 3.1 document from HTTP-serving routes.
+    Openapi {
+        path: PathBuf,
+        #[arg(long)]
+        out: PathBuf,
         #[arg(long)]
         json: bool,
     },
@@ -682,6 +705,45 @@ fn main() {
                     0
                 }
                 Err(error) => print_error("inspect effects", error, json),
+            },
+            InspectCommand::Artifacts { path, json } => match inspect_artifacts(&path) {
+                Ok(report) => {
+                    if json {
+                        println!(
+                            "{}",
+                            json_contract::to_pretty_string(&report)
+                                .unwrap_or_else(|_| String::from("{}"))
+                        );
+                    } else {
+                        for artifact in &report.artifacts {
+                            println!("{} {} {}", artifact.kind, artifact.status, artifact.path);
+                        }
+                    }
+                    0
+                }
+                Err(error) => print_error("inspect artifacts", error, json),
+            },
+        },
+        Command::Generate { command } => match command {
+            GenerateCommand::Openapi { path, out, json } => match generate_openapi(&path, &out) {
+                Ok(report) => {
+                    if json {
+                        println!(
+                            "{}",
+                            json_contract::to_pretty_string(&report)
+                                .unwrap_or_else(|_| String::from("{}"))
+                        );
+                    } else {
+                        eprintln!("wrote {}", report.artifact.path);
+                        if !report.diagnostics.is_empty() {
+                            for diagnostic in &report.diagnostics {
+                                eprintln!("{}", diagnostic.message);
+                            }
+                        }
+                    }
+                    0
+                }
+                Err(error) => print_error("generate openapi", error, json),
             },
         },
         Command::Pkg { command } => match command {
@@ -2073,6 +2135,707 @@ fn effect_id_component(value: &str) -> String {
     } else {
         trimmed.to_string()
     }
+}
+
+const OPENAPI_TARGET_ID: &str = "axiom://target/stage1-openapi-v0";
+const OPENAPI_ARTIFACT_KIND: &str = "openapi_spec";
+const OPENAPI_SCHEMA_VERSION: &str = "axiom.generate.openapi.v0";
+const OPENAPI_SPEC_VERSION: &str = "3.1.0";
+
+#[derive(Debug, Clone, Serialize)]
+struct GenerateOpenApiReport {
+    schema_version: &'static str,
+    ok: bool,
+    command: &'static str,
+    project: String,
+    target_contract: TargetContract,
+    artifact: GeneratedArtifact,
+    routes: Vec<OpenApiRouteReport>,
+    diagnostics: Vec<Diagnostic>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct TargetContract {
+    id: &'static str,
+    #[serde(rename = "class")]
+    target_class: &'static str,
+    description: &'static str,
+    status: &'static str,
+    input_node_kinds: Vec<&'static str>,
+    supported_effect_kinds: Vec<&'static str>,
+    supported_type_features: Vec<&'static str>,
+    artifact_outputs: Vec<GeneratedArtifact>,
+    evidence_requirements: Vec<&'static str>,
+    unsupported_feature_diagnostics: Vec<serde_json::Value>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct GeneratedArtifact {
+    id: String,
+    kind: &'static str,
+    path: String,
+    generated_from: Vec<String>,
+    status: &'static str,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct OpenApiRouteReport {
+    path: String,
+    method: &'static str,
+    operation_id: String,
+    response_status: u16,
+    content_type: String,
+    effect_kind: &'static str,
+    capability_gate: &'static str,
+    source_span: SymbolSpan,
+}
+
+#[derive(Debug, Clone)]
+struct OpenApiRoute {
+    path: String,
+    status: u16,
+    content_type: String,
+    source_span: SymbolSpan,
+}
+
+#[derive(Debug, Clone)]
+struct OpenApiResponse {
+    status: u16,
+    content_type: String,
+}
+
+#[derive(Debug, Default)]
+struct OpenApiRouteContext {
+    route_vars: BTreeMap<String, OpenApiRoute>,
+    response_vars: BTreeMap<String, OpenApiResponse>,
+}
+
+fn generate_openapi(project: &Path, out: &Path) -> Result<GenerateOpenApiReport, Diagnostic> {
+    let manifest = load_manifest(project)?;
+    let package = manifest.package.as_ref().ok_or_else(|| {
+        Diagnostic::new(
+            "openapi",
+            "OpenAPI generation requires a package manifest with [package].",
+        )
+    })?;
+    let output_path = if out.is_absolute() {
+        out.to_path_buf()
+    } else {
+        project.join(out)
+    };
+    let mut routes = collect_openapi_routes(project)?;
+    sort_dedup_openapi_routes(&mut routes);
+    let document = render_openapi_document(&package.name, &package.version, &routes);
+    if let Some(parent) = output_path.parent() {
+        fs::create_dir_all(parent).map_err(|err| {
+            Diagnostic::new(
+                "openapi",
+                format!("failed to create {}: {err}", parent.display()),
+            )
+        })?;
+    }
+    let body = serde_json::to_string_pretty(&document)
+        .map_err(|err| Diagnostic::new("json", format!("failed to serialize OpenAPI: {err}")))?;
+    fs::write(&output_path, format!("{body}\n")).map_err(|err| {
+        Diagnostic::new(
+            "openapi",
+            format!("failed to write {}: {err}", output_path.display()),
+        )
+    })?;
+    let package_id = package_node_for_path(project);
+    let artifact = openapi_artifact(project, &output_path, &package_id, "generated");
+    let diagnostics = if routes.is_empty() {
+        vec![
+            Diagnostic::new(
+                "openapi",
+                "no HTTP-serving routes discovered for OpenAPI generation",
+            )
+            .with_help(
+                "The generated document is valid and intentionally contains an empty paths object.",
+            )
+            .normalized_for_json(),
+        ]
+    } else {
+        Vec::new()
+    };
+    Ok(GenerateOpenApiReport {
+        schema_version: OPENAPI_SCHEMA_VERSION,
+        ok: true,
+        command: "generate openapi",
+        project: project.display().to_string(),
+        target_contract: openapi_target_contract(artifact.clone()),
+        artifact,
+        routes: routes.iter().map(openapi_route_report).collect(),
+        diagnostics,
+    })
+}
+
+fn openapi_target_contract(artifact: GeneratedArtifact) -> TargetContract {
+    TargetContract {
+        id: OPENAPI_TARGET_ID,
+        target_class: OPENAPI_ARTIFACT_KIND,
+        description: "Stage 1 OpenAPI generator for HTTP-serving semantic routes.",
+        status: "experimental",
+        input_node_kinds: vec![
+            "Package",
+            "Module",
+            "Function",
+            "Capability",
+            "Effect",
+            "Type",
+        ],
+        supported_effect_kinds: vec!["network.http.get", "network.tcp.bind"],
+        supported_type_features: vec!["aggregate.struct", "aggregate.enum"],
+        artifact_outputs: vec![artifact],
+        evidence_requirements: vec!["unit_test", "fixture"],
+        unsupported_feature_diagnostics: Vec::new(),
+    }
+}
+
+fn openapi_artifact(
+    project: &Path,
+    output_path: &Path,
+    package_id: &str,
+    status: &'static str,
+) -> GeneratedArtifact {
+    GeneratedArtifact {
+        id: format!("{package_id}/artifact/openapi-spec"),
+        kind: OPENAPI_ARTIFACT_KIND,
+        path: project_relative_path(project, output_path),
+        generated_from: vec![package_id.to_string()],
+        status,
+    }
+}
+
+fn project_relative_path(project: &Path, path: &Path) -> String {
+    path.strip_prefix(project)
+        .unwrap_or(path)
+        .display()
+        .to_string()
+}
+
+fn collect_openapi_routes(project: &Path) -> Result<Vec<OpenApiRoute>, Diagnostic> {
+    let files = axiom_files(project)?;
+    let mut routes = Vec::new();
+    for file in files {
+        let source = fs::read_to_string(&file).map_err(|err| {
+            Diagnostic::new(
+                "openapi",
+                format!("failed to read {}: {err}", file.display()),
+            )
+            .with_path(file.display().to_string())
+        })?;
+        let program = parse_program(&source, &file)?;
+        let http_imported = program
+            .imports
+            .iter()
+            .any(|import| import.path == "std/http.ax");
+        let mut top_level = OpenApiRouteContext::default();
+        for decl in &program.consts {
+            collect_openapi_routes_in_expr(
+                &decl.expr,
+                &file,
+                http_imported,
+                &mut top_level,
+                &mut routes,
+            );
+        }
+        collect_openapi_routes_in_stmts(
+            &program.stmts,
+            &file,
+            http_imported,
+            &mut top_level,
+            &mut routes,
+        );
+        for function in &program.functions {
+            let mut function_context = OpenApiRouteContext::default();
+            collect_openapi_routes_in_stmts(
+                &function.body,
+                &file,
+                http_imported,
+                &mut function_context,
+                &mut routes,
+            );
+        }
+    }
+    Ok(routes)
+}
+
+fn collect_openapi_routes_in_stmts(
+    stmts: &[axiomc::syntax::Stmt],
+    file: &Path,
+    http_imported: bool,
+    context: &mut OpenApiRouteContext,
+    routes: &mut Vec<OpenApiRoute>,
+) {
+    use axiomc::syntax::Stmt;
+    for stmt in stmts {
+        match stmt {
+            Stmt::Let { name, expr, .. } => {
+                collect_openapi_routes_in_expr(expr, file, http_imported, context, routes);
+                if let Some(response) = openapi_response_from_expr(expr, context) {
+                    context.response_vars.insert(name.clone(), response);
+                }
+                if let Some(route) = openapi_route_from_expr(expr, file, http_imported, context) {
+                    context.route_vars.insert(name.clone(), route);
+                }
+            }
+            Stmt::Print { expr, .. }
+            | Stmt::Panic { expr, .. }
+            | Stmt::Defer { expr, .. }
+            | Stmt::Return { expr, .. } => {
+                collect_openapi_routes_in_expr(expr, file, http_imported, context, routes)
+            }
+            Stmt::Assign { target, expr, .. } => {
+                collect_openapi_routes_in_expr(target, file, http_imported, context, routes);
+                collect_openapi_routes_in_expr(expr, file, http_imported, context, routes);
+            }
+            Stmt::If {
+                cond,
+                then_block,
+                else_block,
+                ..
+            } => {
+                collect_openapi_routes_in_expr(cond, file, http_imported, context, routes);
+                collect_openapi_routes_in_stmts(then_block, file, http_imported, context, routes);
+                for block in else_block.iter().flatten() {
+                    collect_openapi_routes_in_stmts(
+                        std::slice::from_ref(block),
+                        file,
+                        http_imported,
+                        context,
+                        routes,
+                    );
+                }
+            }
+            Stmt::IfLet {
+                expr,
+                then_block,
+                else_block,
+                ..
+            } => {
+                collect_openapi_routes_in_expr(expr, file, http_imported, context, routes);
+                collect_openapi_routes_in_stmts(then_block, file, http_imported, context, routes);
+                for block in else_block.iter().flatten() {
+                    collect_openapi_routes_in_stmts(
+                        std::slice::from_ref(block),
+                        file,
+                        http_imported,
+                        context,
+                        routes,
+                    );
+                }
+            }
+            Stmt::While { cond, body, .. } => {
+                collect_openapi_routes_in_expr(cond, file, http_imported, context, routes);
+                collect_openapi_routes_in_stmts(body, file, http_imported, context, routes);
+            }
+            Stmt::Match { expr, arms, .. } => {
+                collect_openapi_routes_in_expr(expr, file, http_imported, context, routes);
+                for arm in arms {
+                    collect_openapi_routes_in_stmts(
+                        &arm.body,
+                        file,
+                        http_imported,
+                        context,
+                        routes,
+                    );
+                }
+            }
+        }
+    }
+}
+
+fn collect_openapi_routes_in_expr(
+    expr: &axiomc::syntax::Expr,
+    file: &Path,
+    http_imported: bool,
+    context: &mut OpenApiRouteContext,
+    routes: &mut Vec<OpenApiRoute>,
+) {
+    use axiomc::syntax::Expr;
+    if let Some(route) = openapi_route_from_expr(expr, file, http_imported, context) {
+        routes.push(route);
+    }
+    match expr {
+        Expr::Call { args, .. } => {
+            for arg in args {
+                collect_openapi_routes_in_expr(arg, file, http_imported, context, routes);
+            }
+        }
+        Expr::MethodCall { base, args, .. } => {
+            collect_openapi_routes_in_expr(base, file, http_imported, context, routes);
+            for arg in args {
+                collect_openapi_routes_in_expr(arg, file, http_imported, context, routes);
+            }
+        }
+        Expr::BinaryAdd { lhs, rhs, .. } | Expr::BinaryCompare { lhs, rhs, .. } => {
+            collect_openapi_routes_in_expr(lhs, file, http_imported, context, routes);
+            collect_openapi_routes_in_expr(rhs, file, http_imported, context, routes);
+        }
+        Expr::Cast { expr, .. }
+        | Expr::Try { expr, .. }
+        | Expr::Await { expr, .. }
+        | Expr::MutBorrow { expr, .. }
+        | Expr::Deref { expr, .. } => {
+            collect_openapi_routes_in_expr(expr, file, http_imported, context, routes)
+        }
+        Expr::StructLiteral { fields, .. } => {
+            for field in fields {
+                collect_openapi_routes_in_expr(&field.expr, file, http_imported, context, routes);
+            }
+        }
+        Expr::FieldAccess { base, .. } | Expr::TupleIndex { base, .. } => {
+            collect_openapi_routes_in_expr(base, file, http_imported, context, routes);
+        }
+        Expr::Slice {
+            base, start, end, ..
+        } => {
+            collect_openapi_routes_in_expr(base, file, http_imported, context, routes);
+            if let Some(start) = start {
+                collect_openapi_routes_in_expr(start, file, http_imported, context, routes);
+            }
+            if let Some(end) = end {
+                collect_openapi_routes_in_expr(end, file, http_imported, context, routes);
+            }
+        }
+        Expr::TupleLiteral { elements, .. } | Expr::ArrayLiteral { elements, .. } => {
+            for element in elements {
+                collect_openapi_routes_in_expr(element, file, http_imported, context, routes);
+            }
+        }
+        Expr::MapLiteral { entries, .. } => {
+            for entry in entries {
+                collect_openapi_routes_in_expr(&entry.key, file, http_imported, context, routes);
+                collect_openapi_routes_in_expr(&entry.value, file, http_imported, context, routes);
+            }
+        }
+        Expr::Index { base, index, .. } => {
+            collect_openapi_routes_in_expr(base, file, http_imported, context, routes);
+            collect_openapi_routes_in_expr(index, file, http_imported, context, routes);
+        }
+        Expr::Closure { body, .. } => {
+            collect_openapi_routes_in_expr(body, file, http_imported, context, routes)
+        }
+        Expr::Match { expr, arms, .. } => {
+            collect_openapi_routes_in_expr(expr, file, http_imported, context, routes);
+            for arm in arms {
+                collect_openapi_routes_in_expr(&arm.expr, file, http_imported, context, routes);
+            }
+        }
+        Expr::Literal(_) | Expr::VarRef { .. } => {}
+    }
+}
+
+fn openapi_route_from_expr(
+    expr: &axiomc::syntax::Expr,
+    file: &Path,
+    http_imported: bool,
+    context: &OpenApiRouteContext,
+) -> Option<OpenApiRoute> {
+    use axiomc::syntax::Expr;
+    match expr {
+        Expr::Call {
+            name,
+            args,
+            line,
+            column,
+            ..
+        } if name == "http_serve_route" => {
+            let path = args.get(1).and_then(literal_string)?;
+            Some(openapi_route(
+                file,
+                *line,
+                *column,
+                path,
+                default_openapi_response(),
+            ))
+        }
+        Expr::Call {
+            name,
+            args,
+            line,
+            column,
+            ..
+        } if http_imported && name == "route" => {
+            let path = args.first().and_then(literal_string)?;
+            Some(openapi_route(
+                file,
+                *line,
+                *column,
+                path,
+                default_openapi_response(),
+            ))
+        }
+        Expr::Call {
+            name,
+            args,
+            line,
+            column,
+            ..
+        } if http_imported && name == "route_response" => {
+            let path = args.first().and_then(literal_string)?;
+            let response = args
+                .get(1)
+                .and_then(|expr| openapi_response_from_expr(expr, context))
+                .unwrap_or_else(default_openapi_response);
+            Some(openapi_route(file, *line, *column, path, response))
+        }
+        Expr::Call {
+            name,
+            args,
+            line,
+            column,
+            ..
+        } if http_imported && name == "serve" => {
+            let mut route = args
+                .get(1)
+                .and_then(|expr| openapi_route_from_expr(expr, file, http_imported, context))?;
+            route.source_span = symbol_span(file, *line, *column);
+            Some(route)
+        }
+        Expr::StructLiteral {
+            name,
+            fields,
+            line,
+            column,
+            ..
+        } if http_imported && name == "HttpRoute" => {
+            let path = struct_field_expr(fields, "path").and_then(literal_string)?;
+            let response = struct_field_expr(fields, "response")
+                .and_then(|expr| openapi_response_from_expr(expr, context))
+                .unwrap_or_else(default_openapi_response);
+            Some(openapi_route(file, *line, *column, path, response))
+        }
+        Expr::VarRef { name, .. } => context.route_vars.get(name).cloned(),
+        _ => None,
+    }
+}
+
+fn openapi_response_from_expr(
+    expr: &axiomc::syntax::Expr,
+    context: &OpenApiRouteContext,
+) -> Option<OpenApiResponse> {
+    use axiomc::syntax::Expr;
+    match expr {
+        Expr::Call { name, args, .. } if name == "text_response" => Some(OpenApiResponse {
+            status: args.first().and_then(literal_u16).unwrap_or(200),
+            content_type: String::from("text/plain; charset=utf-8"),
+        }),
+        Expr::Call { name, args, .. } if name == "response" => Some(OpenApiResponse {
+            status: args.first().and_then(literal_u16).unwrap_or(200),
+            content_type: args
+                .get(2)
+                .and_then(content_type_from_headers)
+                .unwrap_or_else(|| String::from("application/octet-stream")),
+        }),
+        Expr::StructLiteral { name, fields, .. } if name == "HttpResponse" => {
+            Some(OpenApiResponse {
+                status: struct_field_expr(fields, "status")
+                    .and_then(literal_u16)
+                    .unwrap_or(200),
+                content_type: struct_field_expr(fields, "headers")
+                    .and_then(content_type_from_headers)
+                    .unwrap_or_else(|| String::from("application/octet-stream")),
+            })
+        }
+        Expr::VarRef { name, .. } => context.response_vars.get(name).cloned(),
+        _ => None,
+    }
+}
+
+fn default_openapi_response() -> OpenApiResponse {
+    OpenApiResponse {
+        status: 200,
+        content_type: String::from("text/plain; charset=utf-8"),
+    }
+}
+
+fn openapi_route(
+    file: &Path,
+    line: usize,
+    column: usize,
+    path: &str,
+    response: OpenApiResponse,
+) -> OpenApiRoute {
+    OpenApiRoute {
+        path: normalize_openapi_path(path),
+        status: response.status,
+        content_type: response.content_type,
+        source_span: symbol_span(file, line, column),
+    }
+}
+
+fn struct_field_expr<'a>(
+    fields: &'a [axiomc::syntax::StructFieldValue],
+    name: &str,
+) -> Option<&'a axiomc::syntax::Expr> {
+    fields
+        .iter()
+        .find(|field| field.name == name)
+        .map(|field| &field.expr)
+}
+
+fn literal_string(expr: &axiomc::syntax::Expr) -> Option<&str> {
+    match expr {
+        axiomc::syntax::Expr::Literal(axiomc::syntax::Literal::String(value)) => Some(value),
+        _ => None,
+    }
+}
+
+fn literal_u16(expr: &axiomc::syntax::Expr) -> Option<u16> {
+    match expr {
+        axiomc::syntax::Expr::Literal(axiomc::syntax::Literal::Int(value)) => {
+            u16::try_from(*value).ok()
+        }
+        axiomc::syntax::Expr::Literal(axiomc::syntax::Literal::Numeric { raw, .. }) => {
+            raw.parse::<u16>().ok()
+        }
+        _ => None,
+    }
+}
+
+fn content_type_from_headers(expr: &axiomc::syntax::Expr) -> Option<String> {
+    match expr {
+        axiomc::syntax::Expr::ArrayLiteral { elements, .. } => {
+            elements.iter().find_map(content_type_from_header_expr)
+        }
+        _ => None,
+    }
+}
+
+fn content_type_from_header_expr(expr: &axiomc::syntax::Expr) -> Option<String> {
+    match expr {
+        axiomc::syntax::Expr::Call { name, args, .. } if name == "header" => {
+            let key = args.first().and_then(literal_string)?;
+            if key.eq_ignore_ascii_case("content-type") {
+                args.get(1).and_then(literal_string).map(str::to_string)
+            } else {
+                None
+            }
+        }
+        axiomc::syntax::Expr::StructLiteral { name, fields, .. } if name == "HttpHeader" => {
+            let key = struct_field_expr(fields, "name").and_then(literal_string)?;
+            if key.eq_ignore_ascii_case("content-type") {
+                struct_field_expr(fields, "value")
+                    .and_then(literal_string)
+                    .map(str::to_string)
+            } else {
+                None
+            }
+        }
+        _ => None,
+    }
+}
+
+fn normalize_openapi_path(path: &str) -> String {
+    if path.is_empty() {
+        String::from("/")
+    } else if path.starts_with('/') {
+        path.to_string()
+    } else {
+        format!("/{path}")
+    }
+}
+
+fn sort_dedup_openapi_routes(routes: &mut Vec<OpenApiRoute>) {
+    routes.sort_by(|left, right| {
+        left.path
+            .cmp(&right.path)
+            .then_with(|| left.status.cmp(&right.status))
+            .then_with(|| left.content_type.cmp(&right.content_type))
+            .then_with(|| left.source_span.path.cmp(&right.source_span.path))
+            .then_with(|| left.source_span.line.cmp(&right.source_span.line))
+            .then_with(|| left.source_span.column.cmp(&right.source_span.column))
+    });
+    routes.dedup_by(|left, right| {
+        left.path == right.path
+            && left.status == right.status
+            && left.content_type == right.content_type
+    });
+}
+
+fn render_openapi_document(
+    package_name: &str,
+    package_version: &str,
+    routes: &[OpenApiRoute],
+) -> serde_json::Value {
+    let mut grouped: BTreeMap<String, Vec<&OpenApiRoute>> = BTreeMap::new();
+    for route in routes {
+        grouped.entry(route.path.clone()).or_default().push(route);
+    }
+    let mut paths = serde_json::Map::new();
+    for (path, path_routes) in grouped {
+        let mut responses = serde_json::Map::new();
+        for route in path_routes {
+            let mut content = serde_json::Map::new();
+            content.insert(
+                route.content_type.clone(),
+                serde_json::json!({
+                    "schema": {
+                        "type": "string"
+                    }
+                }),
+            );
+            responses.insert(
+                route.status.to_string(),
+                serde_json::json!({
+                    "description": "Generated from an Axiom HTTP route.",
+                    "content": content
+                }),
+            );
+        }
+        let operation_id = openapi_operation_id(&path);
+        paths.insert(
+            path.clone(),
+            serde_json::json!({
+                "get": {
+                    "operationId": operation_id,
+                    "summary": format!("GET {path}"),
+                    "description": "Generated from Axiom HTTP-serving semantic routes.",
+                    "responses": responses,
+                    "x-axiom": {
+                        "target_id": OPENAPI_TARGET_ID,
+                        "effect_kind": "network.tcp.bind",
+                        "capability_gate": "net"
+                    }
+                }
+            }),
+        );
+    }
+    serde_json::json!({
+        "openapi": OPENAPI_SPEC_VERSION,
+        "info": {
+            "title": package_name,
+            "version": package_version
+        },
+        "paths": paths,
+        "components": {
+            "schemas": {}
+        }
+    })
+}
+
+fn openapi_route_report(route: &OpenApiRoute) -> OpenApiRouteReport {
+    OpenApiRouteReport {
+        path: route.path.clone(),
+        method: "get",
+        operation_id: openapi_operation_id(&route.path),
+        response_status: route.status,
+        content_type: route.content_type.clone(),
+        effect_kind: "network.tcp.bind",
+        capability_gate: "net",
+        source_span: route.source_span.clone(),
+    }
+}
+
+fn openapi_operation_id(path: &str) -> String {
+    let mut out = String::from("get");
+    for segment in path.split('/').filter(|segment| !segment.is_empty()) {
+        out.push('_');
+        out.push_str(&normalized_id_component(segment, "path"));
+    }
+    out
 }
 
 fn symbol_span(path: &Path, line: usize, column: usize) -> SymbolSpan {
@@ -3548,48 +4311,65 @@ struct InspectArtifactsReport {
 
 #[derive(Debug, Clone, Serialize)]
 struct ArtifactNode {
+    id: String,
     kind: &'static str,
     path: String,
     exists: bool,
     source: &'static str,
+    generated_from: Vec<String>,
+    status: &'static str,
 }
 
 fn inspect_artifacts(project: &Path) -> Result<InspectArtifactsReport, Diagnostic> {
     let manifest = load_manifest(project)?;
+    let package_id = package_node_for_path(project);
     let mut artifacts = Vec::new();
     push_artifact(
         &mut artifacts,
+        &package_id,
         "manifest",
         manifest_path(project),
         "configured",
     );
     push_artifact(
         &mut artifacts,
+        &package_id,
         "lockfile",
         lockfile_path(project),
         "configured",
     );
     push_artifact(
         &mut artifacts,
+        &package_id,
         "build_entry",
         entry_path(project, &manifest),
         "configured",
     );
     push_artifact(
         &mut artifacts,
+        &package_id,
         "build_output_dir",
         out_dir_path(project, &manifest),
         "configured",
     );
+    push_artifact(
+        &mut artifacts,
+        &package_id,
+        OPENAPI_ARTIFACT_KIND,
+        out_dir_path(project, &manifest).join("openapi.json"),
+        "target_contract",
+    );
     if manifest.package.is_some() {
         push_artifact(
             &mut artifacts,
+            &package_id,
             "generated_rust",
             generated_rust_path(project, &manifest),
             "configured",
         );
         push_artifact(
             &mut artifacts,
+            &package_id,
             "native_binary",
             binary_path(project, &manifest),
             "configured",
@@ -3598,6 +4378,7 @@ fn inspect_artifacts(project: &Path) -> Result<InspectArtifactsReport, Diagnosti
     for test in &manifest.tests {
         push_artifact(
             &mut artifacts,
+            &package_id,
             "test_entry",
             project.join(&test.entry),
             "configured",
@@ -3605,6 +4386,7 @@ fn inspect_artifacts(project: &Path) -> Result<InspectArtifactsReport, Diagnosti
         if let Some(stdout) = &test.stdout {
             push_artifact(
                 &mut artifacts,
+                &package_id,
                 "test_stdout_golden",
                 project.join(stdout),
                 "configured",
@@ -3613,6 +4395,7 @@ fn inspect_artifacts(project: &Path) -> Result<InspectArtifactsReport, Diagnosti
         if let Some(stderr) = &test.stderr {
             push_artifact(
                 &mut artifacts,
+                &package_id,
                 "test_stderr_golden",
                 project.join(stderr),
                 "configured",
@@ -3628,6 +4411,7 @@ fn inspect_artifacts(project: &Path) -> Result<InspectArtifactsReport, Diagnosti
         for test in list.tests {
             push_artifact(
                 &mut artifacts,
+                &package_id,
                 "test_entry",
                 Path::new(&test.package_root).join(&test.entry),
                 "configured",
@@ -3636,9 +4420,13 @@ fn inspect_artifacts(project: &Path) -> Result<InspectArtifactsReport, Diagnosti
     }
     let docs_dir = project.join("docs/axiom");
     if docs_dir.exists() {
-        push_artifact(&mut artifacts, "docs", docs_dir, "available");
+        push_artifact(&mut artifacts, &package_id, "docs", docs_dir, "available");
     }
-    inspect_existing_output_artifacts(&mut artifacts, &out_dir_path(project, &manifest))?;
+    inspect_existing_output_artifacts(
+        &mut artifacts,
+        &package_id,
+        &out_dir_path(project, &manifest),
+    )?;
     artifacts.sort_by(|left, right| {
         left.kind
             .cmp(right.kind)
@@ -3658,20 +4446,38 @@ fn inspect_artifacts(project: &Path) -> Result<InspectArtifactsReport, Diagnosti
 
 fn push_artifact(
     artifacts: &mut Vec<ArtifactNode>,
+    package_id: &str,
     kind: &'static str,
     path: PathBuf,
     source: &'static str,
 ) {
+    let status = if path.exists() {
+        "generated"
+    } else {
+        "planned"
+    };
     artifacts.push(ArtifactNode {
+        id: artifact_node_id(package_id, kind, &path),
         kind,
         exists: path.exists(),
         path: path.display().to_string(),
         source,
+        generated_from: vec![package_id.to_string()],
+        status,
     });
+}
+
+fn artifact_node_id(package_id: &str, kind: &str, path: &Path) -> String {
+    format!(
+        "{package_id}/artifact/{}/{}",
+        normalized_id_component(kind, "artifact"),
+        normalized_id_component(&path.display().to_string(), "path")
+    )
 }
 
 fn inspect_existing_output_artifacts(
     artifacts: &mut Vec<ArtifactNode>,
+    package_id: &str,
     out_dir: &Path,
 ) -> Result<(), Diagnostic> {
     if !out_dir.is_dir() {
@@ -3702,7 +4508,9 @@ fn inspect_existing_output_artifacts(
         let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
             continue;
         };
-        let kind = if name.ends_with(".generated.rs") {
+        let kind = if name == "openapi.json" || name.ends_with(".openapi.json") {
+            OPENAPI_ARTIFACT_KIND
+        } else if name.ends_with(".generated.rs") {
             "generated_rust"
         } else if name.ends_with(".debug-map.json") {
             "debug_map"
@@ -3713,7 +4521,7 @@ fn inspect_existing_output_artifacts(
         } else {
             "build_output"
         };
-        push_artifact(artifacts, kind, path, "available");
+        push_artifact(artifacts, package_id, kind, path, "available");
     }
     Ok(())
 }
@@ -3922,6 +4730,7 @@ mod tests {
         assert!(help.contains("Discover, build, and run package test entrypoints"));
         assert!(help.contains("Inspect manifest capability requirements"));
         assert!(help.contains("Inspect project metadata for agent tooling"));
+        assert!(help.contains("Generate target artifacts from stage1 semantic intent"));
         assert!(help.contains("Inspect local package graph metadata"));
         assert!(help.contains("Explain a stable diagnostic code"));
         assert!(help.contains("Report local stage1 project and toolchain health"));
@@ -3945,6 +4754,29 @@ mod tests {
                 assert!(json);
             }
             other => panic!("expected pkg graph command, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn generate_openapi_cli_parses_output_path_and_json_flag() {
+        let cli = Cli::parse_from([
+            "axiomc",
+            "generate",
+            "openapi",
+            ".",
+            "--out",
+            "dist/openapi.json",
+            "--json",
+        ]);
+        match cli.command {
+            Command::Generate {
+                command: GenerateCommand::Openapi { path, out, json },
+            } => {
+                assert_eq!(path, PathBuf::from("."));
+                assert_eq!(out, PathBuf::from("dist/openapi.json"));
+                assert!(json);
+            }
+            other => panic!("expected generate openapi command, got {other:?}"),
         }
     }
 
@@ -4775,6 +5607,97 @@ mod tests {
                 .iter()
                 .any(|artifact| artifact.kind == "test_entry" && artifact.exists)
         );
+        assert!(artifacts.artifacts.iter().any(|artifact| {
+            artifact.kind == OPENAPI_ARTIFACT_KIND
+                && artifact.source == "target_contract"
+                && artifact.status == "planned"
+        }));
+    }
+
+    #[test]
+    fn generate_openapi_writes_deterministic_route_artifact() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let project = dir.path().join("openapi-service");
+        create_project(&project, Some("openapi-service")).expect("create project");
+        fs::write(
+            project.join("axiom.toml"),
+            "[package]\nname = \"openapi-service\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = true\nprocess = false\nenv = false\nclock = false\ncrypto = false\n",
+        )
+        .expect("write manifest");
+        fs::write(
+            project.join("src/main.ax"),
+            "import \"std/http.ax\"\n\nlet selected_response: HttpResponse = response(202, \"ready\", [header(\"content-type\", \"application/json\")])\nlet selected_route: HttpRoute = route_response(\"/ready\", selected_response)\nprint serve(\"127.0.0.1:0\", selected_route, 1)\n",
+        )
+        .expect("write source");
+
+        let report =
+            generate_openapi(&project, Path::new("dist/openapi.json")).expect("generate openapi");
+
+        assert_eq!(report.schema_version, OPENAPI_SCHEMA_VERSION);
+        assert_eq!(report.target_contract.id, OPENAPI_TARGET_ID);
+        assert_eq!(report.target_contract.target_class, OPENAPI_ARTIFACT_KIND);
+        let target_payload =
+            serde_json::to_value(&report.target_contract).expect("serialize target contract");
+        let target_schema_path =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schemas/axiom-target-v0.schema.json");
+        let target_schema: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(target_schema_path).expect("read schema"))
+                .expect("target schema json");
+        jsonschema::validator_for(&target_schema)
+            .expect("compile target schema")
+            .validate(&target_payload)
+            .expect("OpenAPI target contract matches target schema");
+        assert_eq!(report.artifact.status, "generated");
+        assert_eq!(report.routes.len(), 1);
+        assert_eq!(report.routes[0].path, "/ready");
+        assert_eq!(report.routes[0].response_status, 202);
+        assert_eq!(report.routes[0].content_type, "application/json");
+        assert!(report.diagnostics.is_empty());
+
+        let spec: serde_json::Value = serde_json::from_str(
+            &fs::read_to_string(project.join("dist/openapi.json")).expect("read spec"),
+        )
+        .expect("spec json");
+        assert_eq!(spec["openapi"], OPENAPI_SPEC_VERSION);
+        assert_eq!(spec["info"]["title"], "openapi-service");
+        assert_eq!(spec["paths"]["/ready"]["get"]["operationId"], "get_ready");
+        assert_eq!(
+            spec["paths"]["/ready"]["get"]["responses"]["202"]["content"]["application/json"]["schema"]
+                ["type"],
+            "string"
+        );
+
+        let artifacts = inspect_artifacts(&project).expect("inspect artifacts");
+        assert!(artifacts.artifacts.iter().any(|artifact| {
+            artifact.kind == OPENAPI_ARTIFACT_KIND
+                && artifact.path.ends_with("dist/openapi.json")
+                && artifact.status == "generated"
+        }));
+    }
+
+    #[test]
+    fn generate_openapi_empty_service_emits_valid_empty_spec_with_diagnostic() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let project = dir.path().join("no-http-service");
+        create_project(&project, Some("no-http-service")).expect("create project");
+        fs::write(project.join("src/main.ax"), "print \"hello\"\n").expect("write source");
+
+        let report =
+            generate_openapi(&project, Path::new("dist/openapi.json")).expect("generate openapi");
+
+        assert_eq!(report.routes.len(), 0);
+        assert_eq!(report.diagnostics.len(), 1);
+        assert!(
+            report.diagnostics[0]
+                .message
+                .contains("no HTTP-serving routes")
+        );
+        let spec: serde_json::Value = serde_json::from_str(
+            &fs::read_to_string(project.join("dist/openapi.json")).expect("read spec"),
+        )
+        .expect("spec json");
+        assert_eq!(spec["openapi"], OPENAPI_SPEC_VERSION);
+        assert!(spec["paths"].as_object().expect("paths object").is_empty());
     }
 
     #[test]

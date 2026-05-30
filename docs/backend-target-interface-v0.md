@@ -12,6 +12,10 @@ The current generated-Rust backend and the planned direct native backend are
 both describable using this schema. New non-Rust artifact targets must declare
 their contracts using the same shape before they ship.
 
+The first implemented non-source artifact target is
+[OpenAPI Target v0](openapi-target-v0.md), which emits an `openapi_spec`
+artifact from HTTP-serving semantic routes.
+
 ## Where It Fits
 
 ```text
@@ -225,9 +229,11 @@ this contract, not by editing the generated-Rust contract.
 These sketches are not part of stage1 work. They illustrate that the schema is
 expressive enough for non-source targets:
 
-- `openapi_spec`: input node kinds include `Capability`, `Function`, `Type`;
-  effect kinds describe `network.http.*`; artifacts are YAML or JSON OpenAPI
-  documents.
+- `openapi_spec`: implemented for stage1 as
+  [OpenAPI Target v0](openapi-target-v0.md). Input node kinds include
+  `Package`, `Module`, `Function`, `Capability`, `Effect`, and `Type`; effect
+  kinds describe `network.http.*` and `network.tcp.bind`; artifacts are JSON
+  OpenAPI 3.1 documents.
 - `sql_migration`: input node kinds include `Type` and `Axiom` (invariants on
   data); artifacts are forward and rollback SQL files.
 - `terraform_module`: input node kinds include `Capability` and
