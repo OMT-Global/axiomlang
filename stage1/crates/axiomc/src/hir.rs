@@ -88,6 +88,28 @@ pub struct Param {
 pub struct SourceSpan {
     pub line: usize,
     pub column: usize,
+    pub end_line: usize,
+    pub end_column: usize,
+}
+
+impl SourceSpan {
+    pub const fn point(line: usize, column: usize) -> Self {
+        Self {
+            line,
+            column,
+            end_line: line,
+            end_column: column + 1,
+        }
+    }
+
+    pub const fn range(line: usize, column: usize, end_line: usize, end_column: usize) -> Self {
+        Self {
+            line,
+            column,
+            end_line,
+            end_column,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -6623,7 +6645,7 @@ fn lower_match_stmt(
     Ok(Stmt::Match {
         expr: lowered_expr,
         arms: lowered_arms,
-        span: SourceSpan { line, column },
+        span: SourceSpan::point(line, column),
     })
 }
 
@@ -6692,7 +6714,7 @@ fn lower_const_match_stmt(
     Ok(Stmt::Match {
         expr: lowered_expr,
         arms: lowered_arms,
-        span: SourceSpan { line, column },
+        span: SourceSpan::point(line, column),
     })
 }
 
@@ -7102,10 +7124,7 @@ fn lower_stmt(
                 ty: expected,
                 expr: lowered_expr,
                 borrow_region_facts,
-                span: SourceSpan {
-                    line: *line,
-                    column: *column,
-                },
+                span: SourceSpan::point(*line, *column),
             })
         }
         syntax::Stmt::Assign {
@@ -7143,10 +7162,7 @@ fn lower_stmt(
             Ok(Stmt::Assign {
                 target: lowered_target,
                 expr: lowered_expr,
-                span: SourceSpan {
-                    line: *line,
-                    column: *column,
-                },
+                span: SourceSpan::point(*line, *column),
             })
         }
         syntax::Stmt::Print { expr, line, column } => {
@@ -7166,10 +7182,7 @@ fn lower_stmt(
             }
             Ok(Stmt::Print {
                 expr: lowered,
-                span: SourceSpan {
-                    line: *line,
-                    column: *column,
-                },
+                span: SourceSpan::point(*line, *column),
             })
         }
         syntax::Stmt::Panic { expr, line, column } => {
@@ -7217,10 +7230,7 @@ fn lower_stmt(
             move_lowered_value(&message, env)?;
             Ok(Stmt::Panic {
                 message,
-                span: SourceSpan {
-                    line: *line,
-                    column: *column,
-                },
+                span: SourceSpan::point(*line, *column),
             })
         }
         syntax::Stmt::If {
@@ -7247,10 +7257,7 @@ fn lower_stmt(
                         cond: lowered_cond,
                         then_block,
                         else_block: else_block.as_ref().map(|_| Vec::new()),
-                        span: SourceSpan {
-                            line: *line,
-                            column: *column,
-                        },
+                        span: SourceSpan::point(*line, *column),
                     });
                 }
                 if let Some(else_block) = else_block {
@@ -7261,20 +7268,14 @@ fn lower_stmt(
                         cond: lowered_cond,
                         then_block: Vec::new(),
                         else_block: Some(block),
-                        span: SourceSpan {
-                            line: *line,
-                            column: *column,
-                        },
+                        span: SourceSpan::point(*line, *column),
                     });
                 }
                 return Ok(Stmt::If {
                     cond: lowered_cond,
                     then_block: Vec::new(),
                     else_block: None,
-                    span: SourceSpan {
-                        line: *line,
-                        column: *column,
-                    },
+                    span: SourceSpan::point(*line, *column),
                 });
             }
             let before = env.clone();
@@ -7300,10 +7301,7 @@ fn lower_stmt(
                 cond: lowered_cond,
                 then_block,
                 else_block,
-                span: SourceSpan {
-                    line: *line,
-                    column: *column,
-                },
+                span: SourceSpan::point(*line, *column),
             })
         }
         syntax::Stmt::While {
@@ -7324,10 +7322,7 @@ fn lower_stmt(
                 return Ok(Stmt::While {
                     cond: lowered_cond,
                     body: Vec::new(),
-                    span: SourceSpan {
-                        line: *line,
-                        column: *column,
-                    },
+                    span: SourceSpan::point(*line, *column),
                 });
             }
             let before = env.clone();
@@ -7363,10 +7358,7 @@ fn lower_stmt(
             Ok(Stmt::While {
                 cond: lowered_cond,
                 body,
-                span: SourceSpan {
-                    line: *line,
-                    column: *column,
-                },
+                span: SourceSpan::point(*line, *column),
             })
         }
         syntax::Stmt::IfLet {
@@ -7484,10 +7476,7 @@ fn lower_stmt(
             }
             Ok(Stmt::Defer {
                 expr: lowered_expr,
-                span: SourceSpan {
-                    line: *line,
-                    column: *column,
-                },
+                span: SourceSpan::point(*line, *column),
             })
         }
         syntax::Stmt::Return { expr, line, column } => {
@@ -7534,10 +7523,7 @@ fn lower_stmt(
             Ok(Stmt::Return {
                 expr: lowered_expr,
                 borrow_region_facts,
-                span: SourceSpan {
-                    line: *line,
-                    column: *column,
-                },
+                span: SourceSpan::point(*line, *column),
             })
         }
     }
@@ -7866,7 +7852,7 @@ fn lower_expr_with_expected_inner(
                         format!("use of moved value {name:?}"),
                     )
                     .with_help("consider restructuring to avoid the move, or ensure the value is only used once")
-                    .with_span(*line, *column));
+                    .with_span_extent(*line, *column, name.chars().count()));
                 }
                 if !binding.moved_projections.is_empty() {
                     return Err(ownership_error(
@@ -7874,7 +7860,7 @@ fn lower_expr_with_expected_inner(
                         format!("use of partially moved value {name:?}"),
                     )
                     .with_help("consider restructuring to avoid the move, or ensure the value is only used once")
-                    .with_span(*line, *column));
+                    .with_span_extent(*line, *column, name.chars().count()));
                 }
                 if binding.active_mut_borrow_count > 0 {
                     return Err(ownership_error(
@@ -7961,7 +7947,7 @@ fn lower_expr_with_expected_inner(
                     OWNERSHIP_USE_AFTER_MOVE,
                     format!("use of moved value {name:?}"),
                 )
-                .with_span(*line, *column));
+                .with_span_extent(*line, *column, name.chars().count()));
             }
             Ok(Expr::MutBorrow {
                 expr: Box::new(Expr::VarRef {
@@ -8036,10 +8022,7 @@ fn lower_expr_with_expected_inner(
                 }
                 move_lowered_value(&message, env)?;
                 return Ok(Expr::Call {
-                    span: SourceSpan {
-                        line: *line,
-                        column: *column,
-                    },
+                    span: SourceSpan::point(*line, *column),
                     name: name.clone(),
                     args: vec![message],
                     ty: Type::Never,
@@ -8074,10 +8057,7 @@ fn lower_expr_with_expected_inner(
                     Type::Int
                 };
                 return Ok(Expr::Call {
-                    span: SourceSpan {
-                        line: *line,
-                        column: *column,
-                    },
+                    span: SourceSpan::point(*line, *column),
                     name: name.clone(),
                     args: with_assert_location(vec![lowered], *line, *column),
                     ty,
@@ -8113,10 +8093,7 @@ fn lower_expr_with_expected_inner(
                 move_lowered_value(&label, env)?;
                 move_lowered_value(&holds, env)?;
                 return Ok(Expr::Call {
-                    span: SourceSpan {
-                        line: *line,
-                        column: *column,
-                    },
+                    span: SourceSpan::point(*line, *column),
                     name: name.clone(),
                     args: with_assert_location(vec![label, holds], *line, *column),
                     ty: Type::Int,
@@ -8150,10 +8127,7 @@ fn lower_expr_with_expected_inner(
                 move_lowered_value(&actual, env)?;
                 move_lowered_value(&expected, env)?;
                 return Ok(Expr::Call {
-                    span: SourceSpan {
-                        line: *line,
-                        column: *column,
-                    },
+                    span: SourceSpan::point(*line, *column),
                     name: name.clone(),
                     args: with_assert_location(vec![label, actual, expected], *line, *column),
                     ty: Type::Int,
@@ -8192,10 +8166,7 @@ fn lower_expr_with_expected_inner(
                 move_lowered_value(&haystack, env)?;
                 move_lowered_value(&needle, env)?;
                 return Ok(Expr::Call {
-                    span: SourceSpan {
-                        line: *line,
-                        column: *column,
-                    },
+                    span: SourceSpan::point(*line, *column),
                     name: name.clone(),
                     args: with_assert_location(vec![haystack, needle], *line, *column),
                     ty: Type::Int,
@@ -8255,10 +8226,7 @@ fn lower_expr_with_expected_inner(
                 lowered_args.push(lhs);
                 lowered_args.push(rhs);
                 return Ok(Expr::Call {
-                    span: SourceSpan {
-                        line: *line,
-                        column: *column,
-                    },
+                    span: SourceSpan::point(*line, *column),
                     name: name.clone(),
                     args: with_assert_location(lowered_args, *line, *column),
                     ty: Type::Int,
@@ -8284,10 +8252,7 @@ fn lower_expr_with_expected_inner(
                     .with_span(args[0].line(), args[0].column()));
                 }
                 return Ok(Expr::Call {
-                    span: SourceSpan {
-                        line: *line,
-                        column: *column,
-                    },
+                    span: SourceSpan::point(*line, *column),
                     name: name.clone(),
                     args: vec![lowered],
                     ty: Type::Int,
@@ -8316,10 +8281,7 @@ fn lower_expr_with_expected_inner(
                 }
                 move_lowered_value(&lowered, env)?;
                 return Ok(Expr::Call {
-                    span: SourceSpan {
-                        line: *line,
-                        column: *column,
-                    },
+                    span: SourceSpan::point(*line, *column),
                     name: name.clone(),
                     args: vec![lowered],
                     ty: Type::Int,
@@ -8336,10 +8298,7 @@ fn lower_expr_with_expected_inner(
                     .with_span(*line, *column));
                 }
                 return Ok(Expr::Call {
-                    span: SourceSpan {
-                        line: *line,
-                        column: *column,
-                    },
+                    span: SourceSpan::point(*line, *column),
                     name: name.clone(),
                     args: Vec::new(),
                     ty: Type::Option(Box::new(Type::String)),
@@ -8356,10 +8315,7 @@ fn lower_expr_with_expected_inner(
                     .with_span(*line, *column));
                 }
                 return Ok(Expr::Call {
-                    span: SourceSpan {
-                        line: *line,
-                        column: *column,
-                    },
+                    span: SourceSpan::point(*line, *column),
                     name: name.clone(),
                     args: Vec::new(),
                     ty: Type::String,
@@ -8386,10 +8342,7 @@ fn lower_expr_with_expected_inner(
                 }
                 move_lowered_value(&lowered, env)?;
                 return Ok(Expr::Call {
-                    span: SourceSpan {
-                        line: *line,
-                        column: *column,
-                    },
+                    span: SourceSpan::point(*line, *column),
                     name: name.clone(),
                     args: vec![lowered],
                     ty: Type::Option(Box::new(Type::Int)),
@@ -8416,10 +8369,7 @@ fn lower_expr_with_expected_inner(
                 }
                 move_lowered_value(&lowered, env)?;
                 return Ok(Expr::Call {
-                    span: SourceSpan {
-                        line: *line,
-                        column: *column,
-                    },
+                    span: SourceSpan::point(*line, *column),
                     name: name.clone(),
                     args: vec![lowered],
                     ty: Type::Option(Box::new(Type::Bool)),
@@ -8447,10 +8397,7 @@ fn lower_expr_with_expected_inner(
                 validate_net_host_allowlist_hir(ctx.capabilities, name, &lowered, *line, *column)?;
                 move_lowered_value(&lowered, env)?;
                 return Ok(Expr::Call {
-                    span: SourceSpan {
-                        line: *line,
-                        column: *column,
-                    },
+                    span: SourceSpan::point(*line, *column),
                     name: name.clone(),
                     args: vec![lowered],
                     ty: Type::Option(Box::new(Type::String)),
@@ -8492,10 +8439,7 @@ fn lower_expr_with_expected_inner(
                     _ => unreachable!(),
                 };
                 return Ok(Expr::Call {
-                    span: SourceSpan {
-                        line: *line,
-                        column: *column,
-                    },
+                    span: SourceSpan::point(*line, *column),
                     name: name.clone(),
                     args: vec![text, key],
                     ty,
@@ -8523,10 +8467,7 @@ fn lower_expr_with_expected_inner(
                 validate_net_host_allowlist_hir(ctx.capabilities, name, &lowered, *line, *column)?;
                 move_lowered_value(&lowered, env)?;
                 return Ok(Expr::Call {
-                    span: SourceSpan {
-                        line: *line,
-                        column: *column,
-                    },
+                    span: SourceSpan::point(*line, *column),
                     name: name.clone(),
                     args: vec![lowered],
                     ty: Type::String,
@@ -8554,10 +8495,7 @@ fn lower_expr_with_expected_inner(
                 validate_net_host_allowlist_hir(ctx.capabilities, name, &lowered, *line, *column)?;
                 move_lowered_value(&lowered, env)?;
                 return Ok(Expr::Call {
-                    span: SourceSpan {
-                        line: *line,
-                        column: *column,
-                    },
+                    span: SourceSpan::point(*line, *column),
                     name: name.clone(),
                     args: vec![lowered],
                     ty: Type::String,
@@ -8588,10 +8526,7 @@ fn lower_expr_with_expected_inner(
                 validate_net_host_allowlist_hir(ctx.capabilities, name, &lowered, *line, *column)?;
                 move_lowered_value(&lowered, env)?;
                 return Ok(Expr::Call {
-                    span: SourceSpan {
-                        line: *line,
-                        column: *column,
-                    },
+                    span: SourceSpan::point(*line, *column),
                     name: name.clone(),
                     args: vec![lowered],
                     ty: Type::String,
@@ -8619,10 +8554,7 @@ fn lower_expr_with_expected_inner(
                 validate_net_host_allowlist_hir(ctx.capabilities, name, &lowered, *line, *column)?;
                 move_lowered_value(&lowered, env)?;
                 return Ok(Expr::Call {
-                    span: SourceSpan {
-                        line: *line,
-                        column: *column,
-                    },
+                    span: SourceSpan::point(*line, *column),
                     name: name.clone(),
                     args: vec![lowered],
                     ty: Type::Option(Box::new(Type::String)),
@@ -8653,10 +8585,7 @@ fn lower_expr_with_expected_inner(
                 validate_net_host_allowlist_hir(ctx.capabilities, name, &lowered, *line, *column)?;
                 move_lowered_value(&lowered, env)?;
                 return Ok(Expr::Call {
-                    span: SourceSpan {
-                        line: *line,
-                        column: *column,
-                    },
+                    span: SourceSpan::point(*line, *column),
                     name: name.clone(),
                     args: vec![lowered],
                     ty: Type::String,
@@ -8698,10 +8627,7 @@ fn lower_expr_with_expected_inner(
                 move_lowered_value(&text, env)?;
                 move_lowered_value(&key, env)?;
                 return Ok(Expr::Call {
-                    span: SourceSpan {
-                        line: *line,
-                        column: *column,
-                    },
+                    span: SourceSpan::point(*line, *column),
                     name: name.clone(),
                     args: vec![text, key],
                     ty: Type::Option(Box::new(Type::String)),
@@ -8744,10 +8670,7 @@ fn lower_expr_with_expected_inner(
                     Type::String
                 };
                 return Ok(Expr::Call {
-                    span: SourceSpan {
-                        line: *line,
-                        column: *column,
-                    },
+                    span: SourceSpan::point(*line, *column),
                     name: name.clone(),
                     args: lowered_args,
                     ty,
@@ -8793,10 +8716,7 @@ fn lower_expr_with_expected_inner(
                     lowered_args.push(lowered);
                 }
                 return Ok(Expr::Call {
-                    span: SourceSpan {
-                        line: *line,
-                        column: *column,
-                    },
+                    span: SourceSpan::point(*line, *column),
                     name: name.clone(),
                     args: lowered_args,
                     ty: if name == "encoding_url_component_decode" {
@@ -8815,10 +8735,7 @@ fn lower_expr_with_expected_inner(
                     .with_span(*line, *column));
                 }
                 return Ok(Expr::Call {
-                    span: SourceSpan {
-                        line: *line,
-                        column: *column,
-                    },
+                    span: SourceSpan::point(*line, *column),
                     name: name.clone(),
                     args: Vec::new(),
                     ty: if name == "cli_args" {
@@ -8845,10 +8762,7 @@ fn lower_expr_with_expected_inner(
                     .with_span(args[0].line(), args[0].column()));
                 }
                 return Ok(Expr::Call {
-                    span: SourceSpan {
-                        line: *line,
-                        column: *column,
-                    },
+                    span: SourceSpan::point(*line, *column),
                     name: name.clone(),
                     args: vec![lowered],
                     ty: Type::Option(Box::new(Type::String)),
@@ -8874,10 +8788,7 @@ fn lower_expr_with_expected_inner(
                 validate_net_host_allowlist_hir(ctx.capabilities, name, &lowered, *line, *column)?;
                 move_lowered_value(&lowered, env)?;
                 return Ok(Expr::Call {
-                    span: SourceSpan {
-                        line: *line,
-                        column: *column,
-                    },
+                    span: SourceSpan::point(*line, *column),
                     name: name.clone(),
                     args: vec![lowered],
                     ty: Type::Option(Box::new(Type::String)),
@@ -8920,10 +8831,7 @@ fn lower_expr_with_expected_inner(
                 move_lowered_value(&path, env)?;
                 move_lowered_value(&content, env)?;
                 return Ok(Expr::Call {
-                    span: SourceSpan {
-                        line: *line,
-                        column: *column,
-                    },
+                    span: SourceSpan::point(*line, *column),
                     name: name.clone(),
                     args: vec![path, content],
                     ty: Type::Int,
@@ -8957,10 +8865,7 @@ fn lower_expr_with_expected_inner(
                 }
                 move_lowered_value(&path, env)?;
                 return Ok(Expr::Call {
-                    span: SourceSpan {
-                        line: *line,
-                        column: *column,
-                    },
+                    span: SourceSpan::point(*line, *column),
                     name: name.clone(),
                     args: vec![path],
                     ty: Type::Int,
@@ -8989,10 +8894,7 @@ fn lower_expr_with_expected_inner(
                 validate_net_host_allowlist_hir(ctx.capabilities, name, &lowered, *line, *column)?;
                 move_lowered_value(&lowered, env)?;
                 return Ok(Expr::Call {
-                    span: SourceSpan {
-                        line: *line,
-                        column: *column,
-                    },
+                    span: SourceSpan::point(*line, *column),
                     name: name.clone(),
                     args: vec![lowered],
                     ty: Type::Option(Box::new(Type::String)),
@@ -9021,10 +8923,7 @@ fn lower_expr_with_expected_inner(
                 validate_net_socket_allowlist_hir(ctx.capabilities, name, &bind, *line, *column)?;
                 move_lowered_value(&bind, env)?;
                 return Ok(Expr::Call {
-                    span: SourceSpan {
-                        line: *line,
-                        column: *column,
-                    },
+                    span: SourceSpan::point(*line, *column),
                     name: name.clone(),
                     args: vec![bind],
                     ty: Type::Int,
@@ -9054,10 +8953,7 @@ fn lower_expr_with_expected_inner(
                     .with_span(args[0].line(), args[0].column()));
                 }
                 return Ok(Expr::Call {
-                    span: SourceSpan {
-                        line: *line,
-                        column: *column,
-                    },
+                    span: SourceSpan::point(*line, *column),
                     name: name.clone(),
                     args: vec![handle],
                     ty: Type::Int,
@@ -9098,10 +8994,7 @@ fn lower_expr_with_expected_inner(
                     .with_span(args[1].line(), args[1].column()));
                 }
                 return Ok(Expr::Call {
-                    span: SourceSpan {
-                        line: *line,
-                        column: *column,
-                    },
+                    span: SourceSpan::point(*line, *column),
                     name: name.clone(),
                     args: vec![stream, buffer],
                     ty: Type::Int,
@@ -9130,10 +9023,7 @@ fn lower_expr_with_expected_inner(
                 validate_net_socket_allowlist_hir(ctx.capabilities, name, &bind, *line, *column)?;
                 move_lowered_value(&bind, env)?;
                 return Ok(Expr::Call {
-                    span: SourceSpan {
-                        line: *line,
-                        column: *column,
-                    },
+                    span: SourceSpan::point(*line, *column),
                     name: name.clone(),
                     args: vec![bind],
                     ty: Type::Int,
@@ -9165,10 +9055,7 @@ fn lower_expr_with_expected_inner(
                     Type::Int
                 };
                 return Ok(Expr::Call {
-                    span: SourceSpan {
-                        line: *line,
-                        column: *column,
-                    },
+                    span: SourceSpan::point(*line, *column),
                     name: name.clone(),
                     args: vec![handle],
                     ty,
@@ -9233,20 +9120,14 @@ fn lower_expr_with_expected_inner(
                     )?;
                     move_lowered_value(&peer, env)?;
                     return Ok(Expr::Call {
-                        span: SourceSpan {
-                            line: *line,
-                            column: *column,
-                        },
+                        span: SourceSpan::point(*line, *column),
                         name: name.clone(),
                         args: vec![socket, buffer, peer],
                         ty: Type::Int,
                     });
                 }
                 return Ok(Expr::Call {
-                    span: SourceSpan {
-                        line: *line,
-                        column: *column,
-                    },
+                    span: SourceSpan::point(*line, *column),
                     name: name.clone(),
                     args: vec![socket, buffer],
                     ty: Type::Tuple(vec![Type::Int, Type::String]),
@@ -9288,10 +9169,7 @@ fn lower_expr_with_expected_inner(
                 }
                 move_lowered_value(&response, env)?;
                 return Ok(Expr::Call {
-                    span: SourceSpan {
-                        line: *line,
-                        column: *column,
-                    },
+                    span: SourceSpan::point(*line, *column),
                     name: name.clone(),
                     args: vec![response, timeout],
                     ty: Type::Option(Box::new(Type::Int)),
@@ -9355,10 +9233,7 @@ fn lower_expr_with_expected_inner(
                 move_lowered_value(&host, env)?;
                 move_lowered_value(&message, env)?;
                 return Ok(Expr::Call {
-                    span: SourceSpan {
-                        line: *line,
-                        column: *column,
-                    },
+                    span: SourceSpan::point(*line, *column),
                     name: name.clone(),
                     args: vec![host, port, message, timeout],
                     ty: Type::Option(Box::new(Type::String)),
@@ -9400,10 +9275,7 @@ fn lower_expr_with_expected_inner(
                 }
                 move_lowered_value(&response, env)?;
                 return Ok(Expr::Call {
-                    span: SourceSpan {
-                        line: *line,
-                        column: *column,
-                    },
+                    span: SourceSpan::point(*line, *column),
                     name: name.clone(),
                     args: vec![response, timeout],
                     ty: Type::Option(Box::new(Type::Int)),
@@ -9467,10 +9339,7 @@ fn lower_expr_with_expected_inner(
                 move_lowered_value(&host, env)?;
                 move_lowered_value(&message, env)?;
                 return Ok(Expr::Call {
-                    span: SourceSpan {
-                        line: *line,
-                        column: *column,
-                    },
+                    span: SourceSpan::point(*line, *column),
                     name: name.clone(),
                     args: vec![host, port, message, timeout],
                     ty: Type::Option(Box::new(Type::String)),
@@ -9506,10 +9375,7 @@ fn lower_expr_with_expected_inner(
                 )?;
                 move_lowered_value(&lowered, env)?;
                 return Ok(Expr::Call {
-                    span: SourceSpan {
-                        line: *line,
-                        column: *column,
-                    },
+                    span: SourceSpan::point(*line, *column),
                     name: name.clone(),
                     args: vec![lowered],
                     ty: Type::Option(Box::new(Type::String)),
@@ -9553,10 +9419,7 @@ fn lower_expr_with_expected_inner(
                 move_lowered_value(&bind, env)?;
                 move_lowered_value(&body, env)?;
                 return Ok(Expr::Call {
-                    span: SourceSpan {
-                        line: *line,
-                        column: *column,
-                    },
+                    span: SourceSpan::point(*line, *column),
                     name: name.clone(),
                     args: vec![bind, body],
                     ty: Type::Bool,
@@ -9622,10 +9485,7 @@ fn lower_expr_with_expected_inner(
                 move_lowered_value(&route_path, env)?;
                 move_lowered_value(&body, env)?;
                 return Ok(Expr::Call {
-                    span: SourceSpan {
-                        line: *line,
-                        column: *column,
-                    },
+                    span: SourceSpan::point(*line, *column),
                     name: name.clone(),
                     args: vec![bind, route_path, body, max_requests],
                     ty: Type::Bool,
@@ -9661,10 +9521,7 @@ fn lower_expr_with_expected_inner(
                 validate_net_host_allowlist_hir(ctx.capabilities, name, &lowered, *line, *column)?;
                 move_lowered_value(&lowered, env)?;
                 return Ok(Expr::Call {
-                    span: SourceSpan {
-                        line: *line,
-                        column: *column,
-                    },
+                    span: SourceSpan::point(*line, *column),
                     name: name.clone(),
                     args: vec![lowered],
                     ty: Type::Int,
@@ -9686,10 +9543,7 @@ fn lower_expr_with_expected_inner(
                     .with_span(*line, *column));
                 }
                 return Ok(Expr::Call {
-                    span: SourceSpan {
-                        line: *line,
-                        column: *column,
-                    },
+                    span: SourceSpan::point(*line, *column),
                     name: name.clone(),
                     args: Vec::new(),
                     ty: Type::Int,
@@ -9722,10 +9576,7 @@ fn lower_expr_with_expected_inner(
                     .with_span(args[0].line(), args[0].column()));
                 }
                 return Ok(Expr::Call {
-                    span: SourceSpan {
-                        line: *line,
-                        column: *column,
-                    },
+                    span: SourceSpan::point(*line, *column),
                     name: name.clone(),
                     args: vec![lowered],
                     ty: Type::Int,
@@ -9758,10 +9609,7 @@ fn lower_expr_with_expected_inner(
                     .with_span(args[0].line(), args[0].column()));
                 }
                 return Ok(Expr::Call {
-                    span: SourceSpan {
-                        line: *line,
-                        column: *column,
-                    },
+                    span: SourceSpan::point(*line, *column),
                     name: name.clone(),
                     args: vec![lowered],
                     ty: Type::Int,
@@ -9787,10 +9635,7 @@ fn lower_expr_with_expected_inner(
                 validate_net_host_allowlist_hir(ctx.capabilities, name, &lowered, *line, *column)?;
                 move_lowered_value(&lowered, env)?;
                 return Ok(Expr::Call {
-                    span: SourceSpan {
-                        line: *line,
-                        column: *column,
-                    },
+                    span: SourceSpan::point(*line, *column),
                     name: name.clone(),
                     args: vec![lowered],
                     ty: Type::Option(Box::new(Type::String)),
@@ -9825,10 +9670,7 @@ fn lower_expr_with_expected_inner(
                 validate_net_host_allowlist_hir(ctx.capabilities, name, &lowered, *line, *column)?;
                 move_lowered_value(&lowered, env)?;
                 return Ok(Expr::Call {
-                    span: SourceSpan {
-                        line: *line,
-                        column: *column,
-                    },
+                    span: SourceSpan::point(*line, *column),
                     name: name.clone(),
                     args: vec![lowered],
                     ty: Type::String,
@@ -9868,10 +9710,7 @@ fn lower_expr_with_expected_inner(
                 }
                 move_lowered_value(&message, env)?;
                 return Ok(Expr::Call {
-                    span: SourceSpan {
-                        line: *line,
-                        column: *column,
-                    },
+                    span: SourceSpan::point(*line, *column),
                     name: name.clone(),
                     args: vec![key, message],
                     ty: Type::String,
@@ -9920,10 +9759,7 @@ fn lower_expr_with_expected_inner(
                 }
                 move_lowered_value(&right, env)?;
                 return Ok(Expr::Call {
-                    span: SourceSpan {
-                        line: *line,
-                        column: *column,
-                    },
+                    span: SourceSpan::point(*line, *column),
                     name: name.clone(),
                     args: vec![left, right],
                     ty: Type::Bool,
@@ -9971,10 +9807,7 @@ fn lower_expr_with_expected_inner(
                     .with_span(args[1].line(), args[1].column()));
                 }
                 return Ok(Expr::Call {
-                    span: SourceSpan {
-                        line: *line,
-                        column: *column,
-                    },
+                    span: SourceSpan::point(*line, *column),
                     name: name.clone(),
                     args: vec![left, right],
                     ty: Type::Bool,
@@ -10004,10 +9837,7 @@ fn lower_expr_with_expected_inner(
                     .with_span(args[0].line(), args[0].column()));
                 }
                 return Ok(Expr::Call {
-                    span: SourceSpan {
-                        line: *line,
-                        column: *column,
-                    },
+                    span: SourceSpan::point(*line, *column),
                     name: name.clone(),
                     args: vec![n],
                     ty: Type::Array(Box::new(Type::Numeric(syntax::NumericType::U8)), None),
@@ -10029,10 +9859,7 @@ fn lower_expr_with_expected_inner(
                     .with_span(*line, *column));
                 }
                 return Ok(Expr::Call {
-                    span: SourceSpan {
-                        line: *line,
-                        column: *column,
-                    },
+                    span: SourceSpan::point(*line, *column),
                     name: name.clone(),
                     args: Vec::new(),
                     ty: Type::Numeric(syntax::NumericType::U64),
@@ -10102,10 +9929,7 @@ fn lower_expr_with_expected_inner(
                     bytes
                 };
                 return Ok(Expr::Call {
-                    span: SourceSpan {
-                        line: *line,
-                        column: *column,
-                    },
+                    span: SourceSpan::point(*line, *column),
                     name: name.clone(),
                     args: vec![alg, key, nonce, aad, payload],
                     ty,
@@ -10150,10 +9974,7 @@ fn lower_expr_with_expected_inner(
                     move_lowered_owner_value(&lowered, env)?;
                 }
                 return Ok(Expr::Call {
-                    span: SourceSpan {
-                        line: *line,
-                        column: *column,
-                    },
+                    span: SourceSpan::point(*line, *column),
                     name: name.clone(),
                     args: vec![lowered],
                     ty: element_ty,
@@ -10166,14 +9987,22 @@ fn lower_expr_with_expected_inner(
                             OWNERSHIP_USE_AFTER_MOVE,
                             format!("use of moved value {name:?}"),
                         )
-                        .with_span(*line, *column));
+                        .with_span_extent(
+                            *line,
+                            *column,
+                            name.chars().count(),
+                        ));
                     }
                     if !binding.moved_projections.is_empty() {
                         return Err(ownership_error(
                             OWNERSHIP_USE_AFTER_MOVE,
                             format!("use of partially moved value {name:?}"),
                         )
-                        .with_span(*line, *column));
+                        .with_span_extent(
+                            *line,
+                            *column,
+                            name.chars().count(),
+                        ));
                     }
                     if args.len() != param_tys.len() {
                         return Err(Diagnostic::new(
@@ -10205,10 +10034,7 @@ fn lower_expr_with_expected_inner(
                         lowered_args.push(lowered);
                     }
                     return Ok(Expr::Call {
-                        span: SourceSpan {
-                            line: *line,
-                            column: *column,
-                        },
+                        span: SourceSpan::point(*line, *column),
                         name: name.clone(),
                         args: lowered_args,
                         ty: (*return_ty).clone(),
@@ -10267,10 +10093,7 @@ fn lower_expr_with_expected_inner(
                 }
                 release_temporary_borrows(&temporary_borrows, env);
                 return Ok(Expr::Call {
-                    span: SourceSpan {
-                        line: *line,
-                        column: *column,
-                    },
+                    span: SourceSpan::point(*line, *column),
                     name: name.clone(),
                     args: lowered_args,
                     ty: signature.return_ty.clone(),
@@ -10476,10 +10299,7 @@ fn lower_expr_with_expected_inner(
                 }
                 release_temporary_borrows(&temporary_borrows, env);
                 return Ok(Expr::Call {
-                    span: SourceSpan {
-                        line: *line,
-                        column: *column,
-                    },
+                    span: SourceSpan::point(*line, *column),
                     name: signature.function_name.clone(),
                     args: lowered_args,
                     ty: signature.return_ty.clone(),
@@ -10510,10 +10330,7 @@ fn lower_expr_with_expected_inner(
                     .with_span(args[0].line(), args[0].column()));
                 }
                 return Ok(Expr::Call {
-                    span: SourceSpan {
-                        line: *line,
-                        column: *column,
-                    },
+                    span: SourceSpan::point(*line, *column),
                     name: format!("__axiom_numeric_{method}"),
                     args: vec![lowered_base, lowered_arg],
                     ty: return_ty,
@@ -10613,10 +10430,7 @@ fn lower_expr_with_expected_inner(
             }
             release_temporary_borrows(&temporary_borrows, env);
             Ok(Expr::Call {
-                span: SourceSpan {
-                    line: *line,
-                    column: *column,
-                },
+                span: SourceSpan::point(*line, *column),
                 name: signature.function_name.clone(),
                 args: lowered_args,
                 ty: signature.return_ty.clone(),
@@ -11803,7 +11617,7 @@ fn lower_async_runtime_intrinsic(
         _ => unreachable!("async runtime intrinsic checked before lowering"),
     };
     Ok(Expr::Call {
-        span: SourceSpan { line, column },
+        span: SourceSpan::point(line, column),
         name: name.to_string(),
         args: lowered_args,
         ty,
@@ -11889,10 +11703,7 @@ fn lower_map_lookup_intrinsic(
     if matches!(name, "map_keys" | "keys") {
         move_lowered_value(&lowered_map, env)?;
         return Ok(Expr::Call {
-            span: SourceSpan {
-                line: line,
-                column: column,
-            },
+            span: SourceSpan::point(line, column),
             name: name.to_string(),
             args: vec![lowered_map],
             ty: Type::Array(Box::new(key_ty), None),
@@ -11925,7 +11736,7 @@ fn lower_map_lookup_intrinsic(
     move_lowered_value(&lowered_args[0], env)?;
     move_lowered_value(&lowered_args[1], env)?;
     Ok(Expr::Call {
-        span: SourceSpan { line, column },
+        span: SourceSpan::point(line, column),
         name: name.to_string(),
         args: lowered_args,
         ty: match name {
@@ -11951,7 +11762,7 @@ fn lower_projection_base_expr(
                     OWNERSHIP_USE_AFTER_MOVE,
                     format!("use of moved value {name:?}"),
                 )
-                .with_span(*line, *column));
+                .with_span_extent(*line, *column, name.chars().count()));
             }
             Ok(Expr::VarRef {
                 name: name.clone(),

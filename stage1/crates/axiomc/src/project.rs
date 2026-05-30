@@ -7040,19 +7040,13 @@ mod tests {
                     name: "clock_now_ms".to_string(),
                     args: Vec::new(),
                     ty: hir::Type::Int,
-                    span: hir::SourceSpan {
-                        line: 7,
-                        column: 21,
-                    },
+                    span: hir::SourceSpan::point(7, 21),
                 },
                 hir::Expr::Call {
                     name: "clock_now_ms".to_string(),
                     args: Vec::new(),
                     ty: hir::Type::Int,
-                    span: hir::SourceSpan {
-                        line: 7,
-                        column: 38,
-                    },
+                    span: hir::SourceSpan::point(7, 38),
                 },
             ],
             ty: hir::Type::Tuple(vec![hir::Type::Int, hir::Type::Int]),
@@ -7062,7 +7056,7 @@ mod tests {
             ty: hir::Type::Tuple(vec![hir::Type::Int, hir::Type::Int]),
             expr,
             borrow_region_facts: Vec::new(),
-            span: hir::SourceSpan { line: 7, column: 1 },
+            span: hir::SourceSpan::point(7, 1),
         };
         let mut uses = BTreeSet::new();
 
@@ -7089,19 +7083,13 @@ mod tests {
                         name: "clock_now_ms".to_string(),
                         args: Vec::new(),
                         ty: hir::Type::Int,
-                        span: hir::SourceSpan {
-                            line: 3,
-                            column: 22,
-                        },
+                        span: hir::SourceSpan::point(3, 22),
                     },
                     hir::Expr::Call {
                         name: "clock_now_ms".to_string(),
                         args: Vec::new(),
                         ty: hir::Type::Int,
-                        span: hir::SourceSpan {
-                            line: 3,
-                            column: 38,
-                        },
+                        span: hir::SourceSpan::point(3, 38),
                     },
                 ],
                 ty: hir::Type::Tuple(vec![hir::Type::Int, hir::Type::Int]),

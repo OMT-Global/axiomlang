@@ -145,6 +145,9 @@ cache.
 Parser diagnostics now preserve additional recovered top-level parse errors in
 the error payload's `related` array when possible, so editor tooling can show
 more than the first syntax error without waiting for full checker recovery.
+Diagnostics may include additive `end_line` and `end_column` fields when the
+compiler can report a full source range; existing `line` and `column` start
+positions remain the compatibility contract.
 `axiomc doctor --json` reports local `rustc` and `cargo` availability, the host
 target triple, lockfile status, package/workspace graph summary, manifest
 capabilities, and known unsupported feature buckets for agent preflight checks.

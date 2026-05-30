@@ -8,6 +8,8 @@
     "message": "use of moved value \"greeting\"",
     "path": "/workspace/axiom/stage1/conformance/fail/ownership_use_after_move/src/main.ax",
     "line": 4,
-    "column": 7
+    "column": 7,
+    "end_line": 4,
+    "end_column": 15
   }
 }
