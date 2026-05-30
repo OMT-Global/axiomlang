@@ -70,7 +70,9 @@
               "security_fixture",
               "benchmark_baseline",
               "manual_review",
-              "risk_note"
+              "risk_note",
+              "ci_status",
+              "review_state"
             ]
           }
         },
