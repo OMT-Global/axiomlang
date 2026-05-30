@@ -187,6 +187,28 @@ pub struct BuildOutput {
     pub packages: Vec<BuiltPackage>,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum RunResult {
+    Success,
+    Failure,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct RunOutput {
+    pub manifest: String,
+    pub entry: String,
+    pub binary: String,
+    pub generated_rust: String,
+    pub package: Option<String>,
+    pub args: Vec<String>,
+    pub exit_code: i32,
+    pub result: RunResult,
+    pub stdout: String,
+    pub stderr: String,
+    pub duration_ms: u64,
+}
+
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct BuildCacheMetadata {
     pub version: u32,
@@ -559,6 +581,50 @@ pub fn run_project_with_options(
     project_root: &Path,
     options: &RunOptions,
 ) -> Result<i32, Diagnostic> {
+    let (_, built, build_output_dir) = prepare_run_project(project_root, options)?;
+    let status = command_for_build_output(&built.binary, build_output_dir)
+        .and_then(|mut command| command.args(&options.args).status())
+        .map_err(|err| {
+            Diagnostic::new("run", format!("failed to execute {}: {err}", built.binary))
+        })?;
+    Ok(status.code().unwrap_or(1))
+}
+
+pub fn run_project_report_with_options(
+    project_root: &Path,
+    options: &RunOptions,
+) -> Result<RunOutput, Diagnostic> {
+    let started = Instant::now();
+    let (_, built, build_output_dir) = prepare_run_project(project_root, options)?;
+    let output = command_for_build_output(&built.binary, build_output_dir)
+        .and_then(|mut command| command.args(&options.args).output())
+        .map_err(|err| {
+            Diagnostic::new("run", format!("failed to execute {}: {err}", built.binary))
+        })?;
+    let exit_code = output.status.code().unwrap_or(1);
+    Ok(RunOutput {
+        manifest: built.manifest,
+        entry: built.entry,
+        binary: built.binary,
+        generated_rust: built.generated_rust,
+        package: options.package.clone(),
+        args: options.args.clone(),
+        exit_code,
+        result: if exit_code == 0 {
+            RunResult::Success
+        } else {
+            RunResult::Failure
+        },
+        stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
+        stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+        duration_ms: started.elapsed().as_millis() as u64,
+    })
+}
+
+fn prepare_run_project(
+    project_root: &Path,
+    options: &RunOptions,
+) -> Result<(PathBuf, BuildOutput, PathBuf), Diagnostic> {
     let project_root = canonicalize_existing_path(&normalize_path(project_root), "project root")?;
     let graph = load_package_graph(&project_root)?;
     if options.package.is_none() && graph.context(&project_root)?.manifest.is_workspace_only() {
@@ -592,12 +658,8 @@ pub fn run_project_with_options(
             ),
         )
     })?;
-    let status = command_for_build_output(&built.binary, build_output_dir)
-        .and_then(|mut command| command.args(&options.args).status())
-        .map_err(|err| {
-            Diagnostic::new("run", format!("failed to execute {}: {err}", built.binary))
-        })?;
-    Ok(status.code().unwrap_or(1))
+    let build_output_dir = build_output_dir.to_path_buf();
+    Ok((project_root, built, build_output_dir))
 }
 
 pub fn run_project_tests(project_root: &Path) -> Result<TestOutput, Diagnostic> {
