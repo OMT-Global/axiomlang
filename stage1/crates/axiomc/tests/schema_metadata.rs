@@ -320,3 +320,34 @@ fn openapi_service_fixture_is_deterministic() {
         "axiom://target/stage1-openapi-v0"
     );
 }
+
+#[test]
+fn policy_bundle_service_fixture_is_deterministic() {
+    let fixture_path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("..")
+        .join("examples")
+        .join("policy_bundle_service")
+        .join("dist")
+        .join("policy-bundle.json");
+    let fixture: Value =
+        serde_json::from_str(&fs::read_to_string(&fixture_path).expect("read policy fixture"))
+            .expect("policy fixture is valid JSON");
+
+    assert_eq!(fixture["schema_version"], "axiom.policy_bundle.v0");
+    assert_eq!(
+        fixture["target_id"],
+        "axiom://target/stage1-policy-bundle-v0"
+    );
+    assert_eq!(
+        fixture["allowed_effect_kinds"],
+        serde_json::json!(["clock.now", "clock.sleep", "env.read", "fs.read"])
+    );
+    assert_eq!(
+        fixture["observed_effects"]
+            .as_array()
+            .expect("effects")
+            .len(),
+        3
+    );
+}

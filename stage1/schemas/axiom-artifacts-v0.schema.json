@@ -44,6 +44,7 @@
             "native_binary",
             "generated_rust",
             "openapi_spec",
+            "policy_bundle",
             "test_report",
             "benchmark_report",
             "docs"
