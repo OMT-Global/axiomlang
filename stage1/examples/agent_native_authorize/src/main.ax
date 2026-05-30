@@ -1,5 +1,6 @@
 import "std/env.ax"
 import "std/time.ax"
+import "authorize.ax"
 
 axiom AuthorizationDecisionAuditable {
     scope security
@@ -22,8 +23,8 @@ capability AuthorizeToken {
     requires evidence AuthorizeTokenSmokeTest
 }
 
-let _token: Option<string> = get_env("AUTH_TOKEN")
+let token: Option<string> = get_env("AUTH_TOKEN")
 let observed_at: int = now_ms()
-let authorized: bool = observed_at > 0
+let authorized: bool = authorize_token(token, observed_at)
 
 print authorized

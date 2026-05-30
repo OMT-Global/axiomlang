@@ -23,6 +23,28 @@
   ],
   "modules": [
     {
+      "path": "stage1/examples/agent_native_authorize/src/authorize.ax",
+      "imports": [],
+      "functions": [
+        {
+          "name": "authorize_token",
+          "signature": "pub fn authorize_token(raw: Option<string>, observed_at: int): bool",
+          "span": {
+            "path": "stage1/examples/agent_native_authorize/src/authorize.ax",
+            "line": 1,
+            "column": 1
+          },
+          "capabilities": []
+        }
+      ],
+      "type_refs": [
+        "Option<string>",
+        "bool",
+        "int"
+      ],
+      "capabilities": []
+    },
+    {
       "path": "stage1/examples/agent_native_authorize/src/main.ax",
       "imports": [
         {
@@ -34,15 +56,29 @@
           "path": "std/time.ax",
           "resolved": null,
           "is_stdlib": true
+        },
+        {
+          "path": "authorize.ax",
+          "resolved": "stage1/examples/agent_native_authorize/src/authorize.ax",
+          "is_stdlib": false
         }
       ],
       "functions": [],
       "type_refs": [],
-      "capabilities": []
+      "capabilities": [
+        "clock",
+        "env"
+      ]
     },
     {
       "path": "stage1/examples/agent_native_authorize/src/main_test.ax",
-      "imports": [],
+      "imports": [
+        {
+          "path": "authorize.ax",
+          "resolved": "stage1/examples/agent_native_authorize/src/authorize.ax",
+          "is_stdlib": false
+        }
+      ],
       "functions": [],
       "type_refs": [],
       "capabilities": []
@@ -73,7 +109,7 @@
       "name": "AuthorizationDecisionAuditable",
       "span": {
         "path": "stage1/examples/agent_native_authorize/src/main.ax",
-        "line": 4,
+        "line": 5,
         "column": 1
       },
       "scope": "security",
@@ -87,7 +123,7 @@
       "name": "AuthorizeToken",
       "span": {
         "path": "stage1/examples/agent_native_authorize/src/main.ax",
-        "line": 15,
+        "line": 16,
         "column": 1
       },
       "inputs": [
@@ -116,7 +152,7 @@
       "name": "AuthorizeTokenSmokeTest",
       "span": {
         "path": "stage1/examples/agent_native_authorize/src/main.ax",
-        "line": 11,
+        "line": 12,
         "column": 1
       },
       "description": "Manifest unit test exercises the authorization decision path."

@@ -12,8 +12,8 @@
       "capability_gate": "env",
       "source_span": {
         "path": "stage1/examples/agent_native_authorize/src/main.ax",
-        "line": 25,
-        "column": 25
+        "line": 26,
+        "column": 24
       },
       "policy": {
         "host_allowed": true,
@@ -28,7 +28,7 @@
       "capability_gate": "clock",
       "source_span": {
         "path": "stage1/examples/agent_native_authorize/src/main.ax",
-        "line": 26,
+        "line": 27,
         "column": 19
       },
       "policy": {

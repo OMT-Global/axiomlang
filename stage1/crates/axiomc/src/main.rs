@@ -4921,6 +4921,7 @@ fn inspect_module_nodes(
                     .iter()
                     .flat_map(|function| capabilities_in_stmts(&function.body)),
             )
+            .chain(capabilities_in_stmts(&program.stmts))
             .collect::<Vec<_>>();
         capabilities.sort_unstable();
         capabilities.dedup();

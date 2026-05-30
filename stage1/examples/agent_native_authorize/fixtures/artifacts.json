@@ -114,6 +114,17 @@
         "axiom://package/agent-native-authorize"
       ],
       "status": "generated"
+    },
+    {
+      "id": "axiom://package/agent-native-authorize/artifact/test-stdout-golden/stage1-examples-agent-native-authorize-src-main-test-stdout",
+      "kind": "test_stdout_golden",
+      "path": "stage1/examples/agent_native_authorize/src/main_test.stdout",
+      "exists": true,
+      "source": "configured",
+      "generated_from": [
+        "axiom://package/agent-native-authorize"
+      ],
+      "status": "generated"
     }
   ]
 }
