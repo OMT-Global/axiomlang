@@ -1,0 +1,29 @@
+import "std/env.ax"
+import "std/time.ax"
+
+axiom AuthorizationDecisionAuditable {
+    scope security
+    severity info
+    description "Token authorization decisions are observable by agents."
+    assert authorization_decision_has_evidence
+}
+
+evidence AuthorizeTokenSmokeTest {
+    description "Manifest unit test exercises the authorization decision path."
+}
+
+capability AuthorizeToken {
+    input token: string
+    effects {
+        read AuthTokenEnv
+        read RuntimeClock
+    }
+    preserves AuthorizationDecisionAuditable
+    requires evidence AuthorizeTokenSmokeTest
+}
+
+let _token: Option<string> = get_env("AUTH_TOKEN")
+let observed_at: int = now_ms()
+let authorized: bool = observed_at > 0
+
+print authorized

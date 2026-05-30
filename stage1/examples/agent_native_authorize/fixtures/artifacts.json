@@ -1,0 +1,119 @@
+{
+  "schema_version": "axiom.stage1.v1",
+  "schema": "stage1/schemas/axiom-inspect-v0.schema.json",
+  "ok": true,
+  "command": "inspect artifacts",
+  "project": "stage1/examples/agent_native_authorize",
+  "artifacts": [
+    {
+      "id": "axiom://package/agent-native-authorize/artifact/build-entry/stage1-examples-agent-native-authorize-src-main-ax",
+      "kind": "build_entry",
+      "path": "stage1/examples/agent_native_authorize/src/main.ax",
+      "exists": true,
+      "source": "configured",
+      "generated_from": [
+        "axiom://package/agent-native-authorize"
+      ],
+      "status": "generated"
+    },
+    {
+      "id": "axiom://package/agent-native-authorize/artifact/build-output-dir/stage1-examples-agent-native-authorize-dist",
+      "kind": "build_output_dir",
+      "path": "stage1/examples/agent_native_authorize/dist",
+      "exists": false,
+      "source": "configured",
+      "generated_from": [
+        "axiom://package/agent-native-authorize"
+      ],
+      "status": "planned"
+    },
+    {
+      "id": "axiom://package/agent-native-authorize/artifact/generated-rust/stage1-examples-agent-native-authorize-dist-agent-native-authorize-generated-rs",
+      "kind": "generated_rust",
+      "path": "stage1/examples/agent_native_authorize/dist/agent-native-authorize.generated.rs",
+      "exists": false,
+      "source": "configured",
+      "generated_from": [
+        "axiom://package/agent-native-authorize"
+      ],
+      "status": "planned"
+    },
+    {
+      "id": "axiom://package/agent-native-authorize/artifact/lockfile/stage1-examples-agent-native-authorize-axiom-lock",
+      "kind": "lockfile",
+      "path": "stage1/examples/agent_native_authorize/axiom.lock",
+      "exists": true,
+      "source": "configured",
+      "generated_from": [
+        "axiom://package/agent-native-authorize"
+      ],
+      "status": "generated"
+    },
+    {
+      "id": "axiom://package/agent-native-authorize/artifact/manifest/stage1-examples-agent-native-authorize-axiom-toml",
+      "kind": "manifest",
+      "path": "stage1/examples/agent_native_authorize/axiom.toml",
+      "exists": true,
+      "source": "configured",
+      "generated_from": [
+        "axiom://package/agent-native-authorize"
+      ],
+      "status": "generated"
+    },
+    {
+      "id": "axiom://package/agent-native-authorize/artifact/native-binary/stage1-examples-agent-native-authorize-dist-agent-native-authorize",
+      "kind": "native_binary",
+      "path": "stage1/examples/agent_native_authorize/dist/agent-native-authorize",
+      "exists": false,
+      "source": "configured",
+      "generated_from": [
+        "axiom://package/agent-native-authorize"
+      ],
+      "status": "planned"
+    },
+    {
+      "id": "axiom://package/agent-native-authorize/artifact/openapi-spec/stage1-examples-agent-native-authorize-dist-openapi-json",
+      "kind": "openapi_spec",
+      "path": "stage1/examples/agent_native_authorize/dist/openapi.json",
+      "exists": false,
+      "source": "target_contract",
+      "generated_from": [
+        "axiom://package/agent-native-authorize"
+      ],
+      "status": "planned"
+    },
+    {
+      "id": "axiom://package/agent-native-authorize/artifact/policy-bundle/stage1-examples-agent-native-authorize-dist-policy-bundle-json",
+      "kind": "policy_bundle",
+      "path": "stage1/examples/agent_native_authorize/dist/policy-bundle.json",
+      "exists": false,
+      "source": "target_contract",
+      "generated_from": [
+        "axiom://package/agent-native-authorize"
+      ],
+      "status": "planned"
+    },
+    {
+      "id": "axiom://package/agent-native-authorize/artifact/runbook/stage1-examples-agent-native-authorize-dist-runbook-md",
+      "kind": "runbook",
+      "path": "stage1/examples/agent_native_authorize/dist/runbook.md",
+      "exists": false,
+      "source": "target_contract",
+      "generated_from": [
+        "axiom://package/agent-native-authorize"
+      ],
+      "status": "planned"
+    },
+    {
+      "id": "axiom://package/agent-native-authorize/artifact/test-entry/stage1-examples-agent-native-authorize-src-main-test-ax",
+      "kind": "test_entry",
+      "path": "stage1/examples/agent_native_authorize/src/main_test.ax",
+      "exists": true,
+      "source": "configured",
+      "generated_from": [
+        "axiom://package/agent-native-authorize"
+      ],
+      "status": "generated"
+    }
+  ]
+}

@@ -1,0 +1,40 @@
+{
+  "schema_version": "axiom.effects.v0",
+  "ok": true,
+  "command": "inspect effects",
+  "project": "stage1/examples/agent_native_authorize",
+  "effects": [
+    {
+      "id": "axiom://package/stage1-examples-agent-native-authorize-src-main-ax/effect/env-read-1",
+      "kind": "env.read",
+      "resource": "AUTH_TOKEN",
+      "operation": "read",
+      "capability_gate": "env",
+      "source_span": {
+        "path": "stage1/examples/agent_native_authorize/src/main.ax",
+        "line": 25,
+        "column": 25
+      },
+      "policy": {
+        "host_allowed": true,
+        "port_allowed": true
+      }
+    },
+    {
+      "id": "axiom://package/stage1-examples-agent-native-authorize-src-main-ax/effect/clock-now-2",
+      "kind": "clock.now",
+      "resource": "*",
+      "operation": "read",
+      "capability_gate": "clock",
+      "source_span": {
+        "path": "stage1/examples/agent_native_authorize/src/main.ax",
+        "line": 26,
+        "column": 19
+      },
+      "policy": {
+        "host_allowed": true,
+        "port_allowed": true
+      }
+    }
+  ]
+}

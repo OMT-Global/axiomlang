@@ -2379,6 +2379,23 @@ fn project_relative_path(project: &Path, path: &Path) -> String {
     path.display().to_string()
 }
 
+fn workspace_relative_path(path: &Path) -> String {
+    if let Ok(cwd) = std::env::current_dir() {
+        if let Ok(stripped) = path.strip_prefix(&cwd) {
+            return stripped.display().to_string();
+        }
+        if let (Ok(canonical_path), Ok(canonical_cwd)) =
+            (fs::canonicalize(path), fs::canonicalize(cwd))
+        {
+            if let Ok(stripped) = canonical_path.strip_prefix(canonical_cwd) {
+                return stripped.display().to_string();
+            }
+            return canonical_path.display().to_string();
+        }
+    }
+    path.display().to_string()
+}
+
 fn collect_openapi_routes(project: &Path) -> Result<Vec<OpenApiRoute>, Diagnostic> {
     let files = axiom_files(project)?;
     let mut routes = Vec::new();
@@ -3568,7 +3585,7 @@ fn markdown_cell(value: &str) -> String {
 
 fn symbol_span(path: &Path, line: usize, column: usize) -> SymbolSpan {
     SymbolSpan {
-        path: path.display().to_string(),
+        path: workspace_relative_path(path),
         line,
         column,
     }
@@ -4851,7 +4868,7 @@ fn inspect_module_nodes(
                 let exists = stdlib.contains(import.path.as_str());
                 if !exists {
                     errors.push(ImportErrorReport {
-                        module: file.display().to_string(),
+                        module: workspace_relative_path(&file),
                         import: import.path.clone(),
                         message: "unknown stdlib module".to_string(),
                     });
@@ -4872,14 +4889,14 @@ fn inspect_module_nodes(
             let resolved = normalize_for_graph(&candidate);
             if !known.contains(&resolved) {
                 errors.push(ImportErrorReport {
-                    module: file.display().to_string(),
+                    module: workspace_relative_path(&file),
                     import: import.path.clone(),
                     message: format!("missing import {}", candidate.display()),
                 });
             }
             imports.push(ModuleImport {
                 path: import.path.clone(),
-                resolved: Some(resolved),
+                resolved: Some(workspace_relative_path(&candidate)),
                 is_stdlib: false,
             });
         }
@@ -4908,7 +4925,7 @@ fn inspect_module_nodes(
         capabilities.sort_unstable();
         capabilities.dedup();
         modules.push(ModuleNode {
-            path: normalize_for_graph(&file),
+            path: workspace_relative_path(&file),
             imports,
             functions,
             type_refs,
@@ -4976,7 +4993,7 @@ fn inspect_evidence(project: &Path) -> Result<InspectEvidenceReport, Diagnostic>
     let mut evidence = vec![EvidenceNode {
         kind: "lockfile",
         name: "axiom.lock".to_string(),
-        path: lockfile_path(project).display().to_string(),
+        path: workspace_relative_path(&lockfile_path(project)),
         package: manifest
             .package
             .as_ref()
@@ -4995,10 +5012,7 @@ fn inspect_evidence(project: &Path) -> Result<InspectEvidenceReport, Diagnostic>
                 evidence.push(EvidenceNode {
                     kind: "test",
                     name: test.name,
-                    path: Path::new(&test.package_root)
-                        .join(&test.entry)
-                        .display()
-                        .to_string(),
+                    path: workspace_relative_path(&Path::new(&test.package_root).join(&test.entry)),
                     package: test.package,
                     status: format!("configured:{:?}", test.kind),
                 });
@@ -5008,7 +5022,7 @@ fn inspect_evidence(project: &Path) -> Result<InspectEvidenceReport, Diagnostic>
         Err(error) => evidence.push(EvidenceNode {
             kind: "test",
             name: "test-discovery".to_string(),
-            path: manifest_path(project).display().to_string(),
+            path: workspace_relative_path(&manifest_path(project)),
             package: manifest
                 .package
                 .as_ref()
@@ -5200,22 +5214,23 @@ fn push_artifact(
     } else {
         "planned"
     };
+    let display_path = workspace_relative_path(&path);
     artifacts.push(ArtifactNode {
-        id: artifact_node_id(package_id, kind, &path),
+        id: artifact_node_id(package_id, kind, &display_path),
         kind,
         exists: path.exists(),
-        path: path.display().to_string(),
+        path: display_path,
         source,
         generated_from: vec![package_id.to_string()],
         status,
     });
 }
 
-fn artifact_node_id(package_id: &str, kind: &str, path: &Path) -> String {
+fn artifact_node_id(package_id: &str, kind: &str, path: &str) -> String {
     format!(
         "{package_id}/artifact/{}/{}",
         normalized_id_component(kind, "artifact"),
-        normalized_id_component(&path.display().to_string(), "path")
+        normalized_id_component(path, "path")
     )
 }
 
