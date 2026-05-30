@@ -64,7 +64,9 @@ The command writes:
 
 Relative `--out` paths are resolved inside the package path. The JSON report
 includes the target contract, generated artifact records, previous schema,
-current schema, a byte-change flag, and advisory diagnostics.
+current schema, and a byte-change flag. If any schema field uses an unsupported
+type, or if a projected table does not declare a non-null `id: int` primary key,
+the command fails before writing migration artifacts.
 
 ## Diff Model
 

@@ -3390,6 +3390,14 @@ fn collect_sql_schema(
     }
     tables.sort_by(|left, right| left.name.cmp(&right.name));
     tables.dedup_by(|left, right| left.name == right.name);
+    if !diagnostics.is_empty() {
+        return Err(Diagnostic::new(
+            "sql",
+            "SQL migration generation requires complete schema structs with supported fields and a non-null `id: int` primary key",
+        )
+        .with_related(diagnostics)
+        .normalized_for_json());
+    }
     Ok((
         SqlSchemaSnapshot {
             schema_version: SQL_SCHEMA_VERSION.to_string(),
@@ -7514,6 +7522,57 @@ mod tests {
 
         let unchanged = generate_sql(&project, Path::new("dist/sql")).expect("rerun sql");
         assert!(!unchanged.changed);
+    }
+
+    #[test]
+    fn generate_sql_rejects_unsupported_schema_fields() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let project = dir.path().join("sql-service");
+        create_project(&project, Some("sql-service")).expect("create project");
+        fs::write(
+            project.join("src/schema.ax"),
+            "pub struct Customer {\nid: int\nmetadata: [string]\n}\n",
+        )
+        .expect("write schema source");
+
+        let error = generate_sql(&project, Path::new("dist/sql")).expect_err("schema should fail");
+
+        assert_eq!(error.kind, "sql");
+        assert!(
+            error
+                .message
+                .contains("requires complete schema structs with supported fields")
+        );
+        assert_eq!(error.related.len(), 1);
+        assert!(
+            error.related[0]
+                .message
+                .contains("field Customer.metadata uses unsupported SQL migration type")
+        );
+        assert!(!project.join("dist/sql/001_schema_forward.sql").exists());
+    }
+
+    #[test]
+    fn generate_sql_rejects_schema_tables_without_primary_key() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let project = dir.path().join("sql-service");
+        create_project(&project, Some("sql-service")).expect("create project");
+        fs::write(
+            project.join("src/schema.ax"),
+            "pub struct Customer {\nname: string\n}\n",
+        )
+        .expect("write schema source");
+
+        let error = generate_sql(&project, Path::new("dist/sql")).expect_err("schema should fail");
+
+        assert_eq!(error.kind, "sql");
+        assert_eq!(error.related.len(), 1);
+        assert!(
+            error.related[0]
+                .message
+                .contains("schema table customer has no `id: int` primary key field")
+        );
+        assert!(!project.join("dist/sql/schema.snapshot.json").exists());
     }
 
     #[test]
