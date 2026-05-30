@@ -5,6 +5,7 @@
   "type": "object",
   "required": [
     "schema_version",
+    "schema",
     "ok",
     "command",
     "project",
@@ -22,6 +23,10 @@
   "properties": {
     "schema_version": {
       "const": "axiom.stage1.v1"
+    },
+    "schema": {
+      "type": "string",
+      "minLength": 1
     },
     "ok": {
       "type": "boolean"
@@ -193,6 +198,26 @@
           "items": {
             "$ref": "#/$defs/moduleImport"
           }
+        },
+        "functions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/function"
+          }
+        },
+        "type_refs": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "capabilities": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
         }
       }
     },
@@ -244,6 +269,36 @@
         }
       }
     },
+    "function": {
+      "type": "object",
+      "required": [
+        "name",
+        "signature",
+        "span",
+        "capabilities"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "signature": {
+          "type": "string",
+          "minLength": 1
+        },
+        "span": {
+          "$ref": "#/$defs/span"
+        },
+        "capabilities": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
     "nodeId": {
       "type": "string",
       "pattern": "^axiom://[A-Za-z0-9._~:/#@!$&'()*+,;=%-]+$"
@@ -265,7 +320,8 @@
           "enum": [
             "axiom",
             "capability",
-            "evidence"
+            "evidence",
+            "decision"
           ]
         },
         "name": {
@@ -282,6 +338,14 @@
         "severity": {
           "type": "string",
           "minLength": 1
+        },
+        "status": {
+          "enum": [
+            "proposed",
+            "accepted",
+            "superseded",
+            "rejected"
+          ]
         },
         "description": {
           "type": "string"
@@ -326,7 +390,10 @@
         "kind": {
           "enum": [
             "preserves",
-            "requires_evidence"
+            "requires_evidence",
+            "verified_by",
+            "violates",
+            "depends_on"
           ]
         },
         "to": {

@@ -1,0 +1,323 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://axiom.omt.global/schemas/axiom-verify-v0.schema.json",
+  "title": "Axiom Verification Verdict v0",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "ok",
+    "command",
+    "project",
+    "package",
+    "validation_status",
+    "summary",
+    "axioms",
+    "target_contracts",
+    "diagnostics",
+    "edges"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "axiom.verify.v0"
+    },
+    "ok": {
+      "type": "boolean"
+    },
+    "command": {
+      "const": "verify"
+    },
+    "project": {
+      "type": "string",
+      "minLength": 1
+    },
+    "package": {
+      "type": "string",
+      "minLength": 1
+    },
+    "validation_status": {
+      "enum": [
+        "verified",
+        "unverified",
+        "violated"
+      ]
+    },
+    "summary": {
+      "$ref": "#/$defs/summary"
+    },
+    "axioms": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/axiom"
+      }
+    },
+    "target_contracts": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/targetContract"
+      }
+    },
+    "diagnostics": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/diagnostic"
+      }
+    },
+    "edges": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/edge"
+      }
+    }
+  },
+  "$defs": {
+    "nodeId": {
+      "type": "string",
+      "pattern": "^axiom://[A-Za-z0-9._~:/#@!$&'()*+,;=%-]+$"
+    },
+    "summary": {
+      "type": "object",
+      "required": [
+        "verified",
+        "unverified",
+        "violated",
+        "target_requirements",
+        "passing_target_requirements",
+        "missing_target_requirements",
+        "failing_target_requirements"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "verified": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "unverified": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "violated": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "target_requirements": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "passing_target_requirements": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "missing_target_requirements": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "failing_target_requirements": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "axiom": {
+      "type": "object",
+      "required": [
+        "id",
+        "name",
+        "status",
+        "backing_evidence"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/nodeId"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "status": {
+          "enum": [
+            "verified",
+            "unverified",
+            "violated"
+          ]
+        },
+        "backing_evidence": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/backingEvidence"
+          }
+        }
+      }
+    },
+    "backingEvidence": {
+      "type": "object",
+      "required": [
+        "name",
+        "semantic_node",
+        "observed_evidence",
+        "evidence_type",
+        "status",
+        "path",
+        "diagnostics"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "semantic_node": {
+          "$ref": "#/$defs/nodeId"
+        },
+        "observed_evidence": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "evidence_type": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "status": {
+          "enum": [
+            "passing",
+            "failing",
+            "missing",
+            "undeclared"
+          ]
+        },
+        "path": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "diagnostics": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "targetContract": {
+      "type": "object",
+      "required": [
+        "target_id",
+        "status",
+        "requirements"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "target_id": {
+          "$ref": "#/$defs/nodeId"
+        },
+        "status": {
+          "enum": [
+            "verified",
+            "unverified"
+          ]
+        },
+        "requirements": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/targetRequirement"
+          }
+        }
+      }
+    },
+    "targetRequirement": {
+      "type": "object",
+      "required": [
+        "evidence_type",
+        "status",
+        "observed_evidence"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "evidence_type": {
+          "type": "string",
+          "minLength": 1
+        },
+        "status": {
+          "enum": [
+            "passing",
+            "failing",
+            "missing"
+          ]
+        },
+        "observed_evidence": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "diagnostic": {
+      "type": "object",
+      "required": [
+        "id",
+        "severity",
+        "kind",
+        "node",
+        "message"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "severity": {
+          "enum": [
+            "error",
+            "warning"
+          ]
+        },
+        "kind": {
+          "type": "string",
+          "minLength": 1
+        },
+        "node": {
+          "type": "string",
+          "minLength": 1
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "edge": {
+      "type": "object",
+      "required": [
+        "from",
+        "kind",
+        "to"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "from": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "enum": [
+            "verified_by",
+            "violates"
+          ]
+        },
+        "to": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    }
+  }
+}
