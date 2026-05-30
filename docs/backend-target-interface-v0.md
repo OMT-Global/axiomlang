@@ -17,6 +17,8 @@ The first implemented non-source artifact target is
 artifact from HTTP-serving semantic routes.
 [Policy Bundle Target v0](policy-bundle-target-v0.md) emits a
 `policy_bundle` artifact from manifest capabilities and effect records.
+[Runbook Target v0](runbook-target-v0.md) emits a `runbook` artifact from
+capability, effect, evidence, and artifact inspection records.
 
 ## Where It Fits
 
@@ -244,6 +246,10 @@ expressive enough for non-source targets:
   [Policy Bundle Target v0](policy-bundle-target-v0.md). Input node kinds
   include `Package`, `Capability`, and `Effect`; artifacts are deterministic
   JSON policy files consumed by allowlist gates.
+- `runbook`: implemented for stage1 as [Runbook Target v0](runbook-target-v0.md).
+  Input node kinds include `Package`, `Capability`, `Effect`,
+  `RuntimeSurface`, `Evidence`, and `Artifact`; artifacts are deterministic
+  Markdown operator runbooks.
 
 These sketches share the same contract shape. Adding them does not require
 inventing a new schema.
