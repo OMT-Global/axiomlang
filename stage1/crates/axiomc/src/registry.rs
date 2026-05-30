@@ -485,6 +485,84 @@ pub fn validate_registry_index(
     Ok(())
 }
 
+/// Verify local release archives listed by a registry index against their
+/// `axiom-integrity-v1` sidecars using the supplied stage1 integrity key.
+pub fn verify_registry_index_integrity(
+    index: &RegistryIndex,
+    packages_root: &Path,
+    signing_key: &str,
+) -> Result<(), Diagnostic> {
+    if signing_key.trim().is_empty() {
+        return Err(Diagnostic::new(
+            "registry",
+            "--signing-key must not be empty when verifying registry integrity",
+        ));
+    }
+    validate_registry_index(index, None)?;
+
+    for (package, releases) in &index.packages {
+        let package_segment = safe_registry_lookup_segment("package name", package)?;
+        for release in releases {
+            let Some(archive_location) = release.archive.as_deref() else {
+                continue;
+            };
+            let signature_location = release.signature.as_deref().ok_or_else(|| {
+                Diagnostic::new(
+                    "registry",
+                    format!(
+                        "package {package:?} version {:?} declares an archive without a signature",
+                        release.version
+                    ),
+                )
+            })?;
+            let version_segment =
+                safe_registry_lookup_segment("package version", &release.version)?;
+            let archive_file = registry_artifact_file_name("archive file name", archive_location)?;
+            let signature_file =
+                registry_artifact_file_name("signature file name", signature_location)?;
+            let release_dir = packages_root.join(&package_segment).join(version_segment);
+            let archive_path = release_dir.join(archive_file);
+            let signature_path = release_dir.join(signature_file);
+            let archive_bytes = fs::read(&archive_path).map_err(|err| {
+                registry_error(
+                    Some(&archive_path),
+                    format!(
+                        "failed to read registry archive for {package}@{}: {err}",
+                        release.version
+                    ),
+                )
+            })?;
+            let signature_payload = fs::read_to_string(&signature_path).map_err(|err| {
+                registry_error(
+                    Some(&signature_path),
+                    format!(
+                        "failed to read registry signature for {package}@{}: {err}",
+                        release.version
+                    ),
+                )
+            })?;
+            verify_archive_integrity(
+                package,
+                &release.version,
+                &archive_bytes,
+                &signature_payload,
+                signing_key,
+            )
+            .map_err(|error| {
+                registry_error(
+                    Some(&signature_path),
+                    format!(
+                        "registry release {package}@{} failed integrity verification: {}",
+                        release.version, error.message
+                    ),
+                )
+            })?;
+        }
+    }
+
+    Ok(())
+}
+
 fn load_release(
     package_name: &str,
     version_dir: &Path,
@@ -639,7 +717,44 @@ fn normalize_base_url(base_url: &str, packages_root: &Path) -> Result<String, Di
 
 fn safe_registry_path_segment(kind: &str, value: &str) -> Result<String, Diagnostic> {
     let trimmed = value.trim();
-    let invalid = trimmed.is_empty()
+    if is_unsafe_registry_path_segment(value) {
+        return Err(Diagnostic::new(
+            "publish",
+            format!("registry {kind} must be a safe path segment: {value:?}"),
+        ));
+    }
+    Ok(trimmed.to_string())
+}
+
+fn safe_registry_lookup_segment(kind: &str, value: &str) -> Result<String, Diagnostic> {
+    let trimmed = value.trim();
+    if is_unsafe_registry_path_segment(value) {
+        return Err(Diagnostic::new(
+            "registry",
+            format!("registry {kind} must be a safe path segment: {value:?}"),
+        ));
+    }
+    Ok(trimmed.to_string())
+}
+
+fn registry_artifact_file_name(kind: &str, location: &str) -> Result<String, Diagnostic> {
+    let file_name = location.rsplit('/').next().unwrap_or_default();
+    if file_name.is_empty()
+        || file_name
+            .chars()
+            .any(|ch| matches!(ch, '?' | '#' | ':' | '\0'))
+    {
+        return Err(Diagnostic::new(
+            "registry",
+            format!("registry {kind} must be a safe file name: {location:?}"),
+        ));
+    }
+    safe_registry_lookup_segment(kind, file_name)
+}
+
+fn is_unsafe_registry_path_segment(value: &str) -> bool {
+    let trimmed = value.trim();
+    trimmed.is_empty()
         || trimmed != value
         || trimmed == "."
         || trimmed == ".."
@@ -647,14 +762,7 @@ fn safe_registry_path_segment(kind: &str, value: &str) -> Result<String, Diagnos
         || trimmed.contains('\\')
         || Path::new(trimmed)
             .components()
-            .any(|component| !matches!(component, Component::Normal(_)));
-    if invalid {
-        return Err(Diagnostic::new(
-            "publish",
-            format!("registry {kind} must be a safe path segment: {value:?}"),
-        ));
-    }
-    Ok(trimmed.to_string())
+            .any(|component| !matches!(component, Component::Normal(_)))
 }
 
 fn registry_error(path: Option<&Path>, message: impl Into<String>) -> Diagnostic {
@@ -805,6 +913,96 @@ mod tests {
                 .message
                 .contains("does not match supplied signing key")
         );
+    }
+
+    #[test]
+    fn verifies_registry_index_integrity_for_local_release_artifacts() {
+        let dir = tempdir().expect("tempdir");
+        let project = write_publishable_project(dir.path(), "core", "1.0.0");
+        let registry = dir.path().join("registry");
+        publish_package(
+            &project,
+            &registry,
+            &PublishOptions {
+                signing_key: Some(String::from("test-key")),
+                allow_overwrite: false,
+            },
+        )
+        .expect("publish package");
+        let index = build_registry_index(&registry, "https://packages.example.test")
+            .expect("build registry index");
+
+        verify_registry_index_integrity(&index, &registry, "test-key")
+            .expect("registry release artifacts verify");
+    }
+
+    #[test]
+    fn registry_index_integrity_rejects_tampered_local_archive() {
+        let dir = tempdir().expect("tempdir");
+        let project = write_publishable_project(dir.path(), "core", "1.0.0");
+        let registry = dir.path().join("registry");
+        publish_package(
+            &project,
+            &registry,
+            &PublishOptions {
+                signing_key: Some(String::from("test-key")),
+                allow_overwrite: false,
+            },
+        )
+        .expect("publish package");
+        let index = build_registry_index(&registry, "https://packages.example.test")
+            .expect("build registry index");
+        fs::write(
+            registry.join("core").join("1.0.0").join("package.axp"),
+            b"AXIOM_PACKAGE_ARCHIVE_V1\n--- file tampered.ax 9 ---\ntampered\n",
+        )
+        .expect("tamper archive");
+
+        let error = verify_registry_index_integrity(&index, &registry, "test-key")
+            .expect_err("tampered archive should fail registry integrity validation");
+
+        assert_eq!(error.kind, "registry");
+        assert!(
+            error
+                .message
+                .contains("failed integrity verification: archive hash mismatch")
+        );
+        assert!(
+            error
+                .path
+                .as_deref()
+                .is_some_and(|path| path.ends_with("package.axp.sig"))
+        );
+    }
+
+    #[test]
+    fn registry_index_integrity_rejects_unsafe_artifact_locations() {
+        let index = RegistryIndex {
+            version: 1,
+            packages: BTreeMap::from([(
+                String::from("core"),
+                vec![RegistryRelease {
+                    version: String::from("1.0.0"),
+                    source: String::from("registry+https://packages.example.test/core/1.0.0"),
+                    manifest: String::from("https://packages.example.test/core/1.0.0/axiom.toml"),
+                    archive: Some(String::from(
+                        "https://packages.example.test/core/1.0.0/package.axp?download=1",
+                    )),
+                    signature: Some(String::from(
+                        "https://packages.example.test/core/1.0.0/package.axp.sig",
+                    )),
+                    yanked: false,
+                    yank_reason: None,
+                    capabilities: Vec::new(),
+                }],
+            )]),
+        };
+
+        let error = verify_registry_index_integrity(&index, Path::new("."), "test-key")
+            .expect_err("unsafe artifact location should fail before filesystem access");
+
+        assert_eq!(error.kind, "registry");
+        assert!(error.message.contains("archive file name"));
     }
 
     #[test]
