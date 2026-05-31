@@ -1,0 +1,22 @@
+[package]
+name = "runbook-service"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[[tests]]
+name = "runbook-smoke"
+entry = "src/main_test.ax"
+kind = "unit"
+
+[capabilities]
+fs = false
+net = false
+process = false
+env = ["RUNBOOK_MODE"]
+clock = true
+crypto = false
+ffi = false
+async = false

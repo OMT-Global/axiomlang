@@ -285,8 +285,11 @@
     },
     "artifactNode": {
       "type": "object",
-      "required": ["kind", "path", "exists", "source"],
+      "required": ["id", "kind", "path", "exists", "source", "generated_from", "status"],
       "properties": {
+        "id": {
+          "type": "string"
+        },
         "kind": {
           "type": "string"
         },
@@ -297,7 +300,16 @@
           "type": "boolean"
         },
         "source": {
-          "enum": ["configured", "available"]
+          "enum": ["configured", "available", "target_contract"]
+        },
+        "generated_from": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "status": {
+          "enum": ["planned", "generated", "verified"]
         }
       },
       "additionalProperties": false

@@ -806,6 +806,18 @@ fn collect_test_targets(
     include_benchmarks: bool,
 ) -> Result<Vec<crate::manifest::TestTarget>, Diagnostic> {
     let mut tests = manifest.tests.clone();
+    for test in &mut tests {
+        if let Some(expected_stdout) =
+            load_manifest_test_stream(project_root, test.stdout.as_deref(), "stdout")?
+        {
+            test.stdout = Some(expected_stdout);
+        }
+        if let Some(expected_stderr) =
+            load_manifest_test_stream(project_root, test.stderr.as_deref(), "stderr")?
+        {
+            test.stderr = Some(expected_stderr);
+        }
+    }
     if !include_benchmarks {
         tests.retain(|test| test.kind != TestKind::Benchmark);
     }
@@ -829,6 +841,27 @@ fn collect_test_targets(
         tests.retain(|test| test_matches_filter(test, filter));
     }
     Ok(tests)
+}
+
+fn load_manifest_test_stream(
+    project_root: &Path,
+    configured: Option<&str>,
+    stream: &str,
+) -> Result<Option<String>, Diagnostic> {
+    let Some(configured) = configured else {
+        return Ok(None);
+    };
+    let path = project_root.join(configured);
+    if !path.exists() {
+        return Ok(None);
+    }
+    fs::read_to_string(&path).map(Some).map_err(|err| {
+        Diagnostic::new(
+            "test",
+            format!("failed to read {stream} fixture {}: {err}", path.display()),
+        )
+        .with_path(path.display().to_string())
+    })
 }
 
 fn discover_test_targets(

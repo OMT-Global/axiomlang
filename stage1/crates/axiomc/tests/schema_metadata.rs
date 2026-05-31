@@ -292,6 +292,189 @@ fn backend_target_v0_schema_and_fixture_are_well_formed() {
 }
 
 #[test]
+fn openapi_service_fixture_is_deterministic() {
+    let fixture_path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("..")
+        .join("examples")
+        .join("openapi_service")
+        .join("dist")
+        .join("openapi.json");
+    let fixture: Value =
+        serde_json::from_str(&fs::read_to_string(&fixture_path).expect("read OpenAPI fixture"))
+            .expect("OpenAPI fixture is valid JSON");
+
+    assert_eq!(fixture["openapi"], "3.1.0");
+    assert_eq!(fixture["info"]["title"], "openapi-service");
+    assert_eq!(
+        fixture["paths"]["/ready"]["get"]["operationId"],
+        "get_ready"
+    );
+    assert_eq!(
+        fixture["paths"]["/ready"]["get"]["responses"]["200"]["content"]["text/plain; charset=utf-8"]
+            ["schema"]["type"],
+        "string"
+    );
+    assert_eq!(
+        fixture["paths"]["/ready"]["get"]["x-axiom"]["target_id"],
+        "axiom://target/stage1-openapi-v0"
+    );
+}
+
+#[test]
+fn policy_bundle_service_fixture_is_deterministic() {
+    let fixture_path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("..")
+        .join("examples")
+        .join("policy_bundle_service")
+        .join("dist")
+        .join("policy-bundle.json");
+    let fixture: Value =
+        serde_json::from_str(&fs::read_to_string(&fixture_path).expect("read policy fixture"))
+            .expect("policy fixture is valid JSON");
+
+    assert_eq!(fixture["schema_version"], "axiom.policy_bundle.v0");
+    assert_eq!(
+        fixture["target_id"],
+        "axiom://target/stage1-policy-bundle-v0"
+    );
+    assert_eq!(
+        fixture["allowed_effect_kinds"],
+        serde_json::json!(["clock.now", "clock.sleep", "env.read", "fs.read"])
+    );
+    assert_eq!(
+        fixture["observed_effects"]
+            .as_array()
+            .expect("effects")
+            .len(),
+        3
+    );
+}
+
+#[test]
+fn runbook_service_fixture_is_deterministic() {
+    let fixture_path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("..")
+        .join("examples")
+        .join("runbook_service")
+        .join("dist")
+        .join("runbook.md");
+    let fixture = fs::read_to_string(&fixture_path).expect("read runbook fixture");
+
+    assert!(fixture.contains("# Operator Runbook: runbook-service"));
+    assert!(fixture.contains("axiom://target/stage1-runbook-v0"));
+    assert!(fixture.contains("DescribeOperatorMode"));
+    assert!(fixture.contains("RunbookSmokeTest"));
+    assert!(fixture.contains("env.read"));
+    assert!(fixture.contains("1 passing, 0 failing, 0 missing, 1 provided"));
+    assert!(!fixture.contains(env!("CARGO_MANIFEST_DIR")));
+    assert!(!fixture.contains("/Users/"));
+    assert!(!fixture.contains("/home/"));
+}
+
+#[test]
+fn agent_native_authorize_fixtures_prove_semantic_evidence_artifact_flow() {
+    let fixture_dir = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("..")
+        .join("examples")
+        .join("agent_native_authorize")
+        .join("fixtures");
+    let graph: Value =
+        serde_json::from_str(&fs::read_to_string(fixture_dir.join("graph.json")).expect("graph"))
+            .expect("graph fixture is valid JSON");
+    let effects: Value = serde_json::from_str(
+        &fs::read_to_string(fixture_dir.join("effects.json")).expect("effects"),
+    )
+    .expect("effects fixture is valid JSON");
+    let evidence: Value = serde_json::from_str(
+        &fs::read_to_string(fixture_dir.join("evidence.json")).expect("evidence"),
+    )
+    .expect("evidence fixture is valid JSON");
+    let artifacts: Value = serde_json::from_str(
+        &fs::read_to_string(fixture_dir.join("artifacts.json")).expect("artifacts"),
+    )
+    .expect("artifacts fixture is valid JSON");
+
+    assert_eq!(graph["command"], "inspect graph");
+    assert_eq!(effects["command"], "inspect effects");
+    assert_eq!(evidence["command"], "evidence");
+    assert_eq!(artifacts["command"], "inspect artifacts");
+
+    let nodes = graph["nodes"].as_array().expect("graph nodes");
+    assert!(
+        nodes
+            .iter()
+            .any(|node| { node["kind"] == "capability" && node["name"] == "AuthorizeToken" })
+    );
+    assert!(nodes.iter().any(|node| {
+        node["kind"] == "axiom" && node["name"] == "AuthorizationDecisionAuditable"
+    }));
+    assert!(
+        nodes.iter().any(|node| {
+            node["kind"] == "evidence" && node["name"] == "AuthorizeTokenSmokeTest"
+        })
+    );
+    assert!(
+        graph["edges"]
+            .as_array()
+            .expect("graph edges")
+            .iter()
+            .any(|edge| edge["kind"] == "requires_evidence"
+                && edge["from"] == "axiom://semantic/capability/AuthorizeToken"
+                && edge["to"] == "axiom://semantic/evidence/AuthorizeTokenSmokeTest")
+    );
+
+    assert_eq!(
+        effects["effects"]
+            .as_array()
+            .expect("effects")
+            .iter()
+            .map(|effect| effect["kind"].as_str().expect("effect kind"))
+            .collect::<Vec<_>>(),
+        vec!["env.read", "clock.now"]
+    );
+    assert_eq!(evidence["summary"]["passing"], 1);
+    assert_eq!(evidence["summary"]["missing"], 0);
+
+    let artifact_kinds = artifacts["artifacts"]
+        .as_array()
+        .expect("artifacts")
+        .iter()
+        .map(|artifact| artifact["kind"].as_str().expect("artifact kind"))
+        .collect::<std::collections::BTreeSet<_>>();
+    for kind in [
+        "manifest",
+        "lockfile",
+        "build_entry",
+        "test_entry",
+        "openapi_spec",
+        "policy_bundle",
+        "runbook",
+    ] {
+        assert!(
+            artifact_kinds.contains(kind),
+            "artifact fixture includes {kind}"
+        );
+    }
+
+    for fixture_name in [
+        "graph.json",
+        "effects.json",
+        "evidence.json",
+        "artifacts.json",
+    ] {
+        let fixture = fs::read_to_string(fixture_dir.join(fixture_name)).expect("fixture text");
+        assert!(!fixture.contains("/Users/"));
+        assert!(!fixture.contains("/home/"));
+        assert!(!fixture.contains("/private/"));
+        assert!(!fixture.contains("codex/worktrees"));
+    }
+}
+
+#[test]
 fn semantic_verification_schemas_and_fixtures_are_well_formed() {
     let decision_schema: Value = serde_json::from_str(
         &fs::read_to_string(schema_dir().join("axiom-decision-record-v0.schema.json"))
