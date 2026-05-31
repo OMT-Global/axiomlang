@@ -7,6 +7,7 @@ cd "$repo_root"
 bash scripts/ci/check-python-exit-docs.sh
 bash scripts/ci/test-pr-fast-ci-workflow.sh
 bash scripts/ci/test-validate-capability-manifests.sh
+python3 scripts/ci/test-issue-pr-traceability.py
 bash scripts/ci/validate-capability-manifests.sh
 
 if [[ "${AXIOM_FAST_CI_PROOF_WORKLOADS:-1}" != "1" ]]; then
