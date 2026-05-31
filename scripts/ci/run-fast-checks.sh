@@ -11,6 +11,7 @@ export CARGO_TARGET_DIR="$target_dir"
 bash scripts/ci/check-python-exit-docs.sh
 bash scripts/ci/test-pr-fast-ci-workflow.sh
 python3 scripts/ci/test-pr-queue-remediation.py
+python3 scripts/ci/test-report-delivery-signals.py
 bash scripts/ci/test-validate-capability-manifests.sh
 bash scripts/ci/validate-capability-manifests.sh
 

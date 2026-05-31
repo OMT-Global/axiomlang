@@ -32,6 +32,10 @@ Use this checklist after the first bootstrap render or whenever `project.bootstr
 - Use `scripts/ci/pr-queue-remediation.py --json` for queue-wide repair passes.
   It classifies live PR state into a deterministic worklist and must be rerun
   after any branch repair so terminal state comes from a fresh GitHub fetch.
+- Use `python3 scripts/ci/report-delivery-signals.py` when triaging open PRs or
+  issue closure. It reports governing issue links, changed files, semantic-node
+  hints, fresh `CI Gate` state, and review state without adding a required
+  status check.
 - Capability manifest changes are checked by `scripts/ci/validate-capability-manifests.sh`
   in the fast lane; update that validator when new `[capabilities]` keys become
   part of the supported manifest contract.
