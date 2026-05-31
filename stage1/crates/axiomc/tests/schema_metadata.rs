@@ -351,3 +351,25 @@ fn policy_bundle_service_fixture_is_deterministic() {
         3
     );
 }
+
+#[test]
+fn runbook_service_fixture_is_deterministic() {
+    let fixture_path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("..")
+        .join("examples")
+        .join("runbook_service")
+        .join("dist")
+        .join("runbook.md");
+    let fixture = fs::read_to_string(&fixture_path).expect("read runbook fixture");
+
+    assert!(fixture.contains("# Operator Runbook: runbook-service"));
+    assert!(fixture.contains("axiom://target/stage1-runbook-v0"));
+    assert!(fixture.contains("DescribeOperatorMode"));
+    assert!(fixture.contains("RunbookSmokeTest"));
+    assert!(fixture.contains("env.read"));
+    assert!(fixture.contains("1 passing, 0 failing, 0 missing, 1 provided"));
+    assert!(!fixture.contains(env!("CARGO_MANIFEST_DIR")));
+    assert!(!fixture.contains("/Users/"));
+    assert!(!fixture.contains("/home/"));
+}

@@ -296,6 +296,14 @@ enum GenerateCommand {
         #[arg(long)]
         json: bool,
     },
+    /// Generate a deterministic operator runbook from semantic intent and evidence.
+    Runbook {
+        path: PathBuf,
+        #[arg(long)]
+        out: PathBuf,
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -767,6 +775,26 @@ fn main() {
                     0
                 }
                 Err(error) => print_error("generate policy", error, json),
+            },
+            GenerateCommand::Runbook { path, out, json } => match generate_runbook(&path, &out) {
+                Ok(report) => {
+                    if json {
+                        println!(
+                            "{}",
+                            json_contract::to_pretty_string(&report)
+                                .unwrap_or_else(|_| String::from("{}"))
+                        );
+                    } else {
+                        eprintln!("wrote {}", report.artifact.path);
+                        if !report.diagnostics.is_empty() {
+                            for diagnostic in &report.diagnostics {
+                                eprintln!("{}", diagnostic.message);
+                            }
+                        }
+                    }
+                    0
+                }
+                Err(error) => print_error("generate runbook", error, json),
             },
         },
         Command::Pkg { command } => match command {
@@ -2381,10 +2409,18 @@ fn openapi_artifact(
 }
 
 fn project_relative_path(project: &Path, path: &Path) -> String {
-    path.strip_prefix(project)
-        .unwrap_or(path)
-        .display()
-        .to_string()
+    if let Ok(stripped) = path.strip_prefix(project) {
+        return stripped.display().to_string();
+    }
+    if !project.is_absolute() {
+        if let Ok(cwd) = std::env::current_dir() {
+            let absolute_project = cwd.join(project);
+            if let Ok(stripped) = path.strip_prefix(&absolute_project) {
+                return stripped.display().to_string();
+            }
+        }
+    }
+    path.display().to_string()
 }
 
 fn collect_openapi_routes(project: &Path) -> Result<Vec<OpenApiRoute>, Diagnostic> {
@@ -2873,6 +2909,9 @@ const POLICY_TARGET_ID: &str = "axiom://target/stage1-policy-bundle-v0";
 const POLICY_ARTIFACT_KIND: &str = "policy_bundle";
 const POLICY_SCHEMA_VERSION: &str = "axiom.policy_bundle.v0";
 const GENERATE_POLICY_SCHEMA_VERSION: &str = "axiom.generate.policy.v0";
+const RUNBOOK_TARGET_ID: &str = "axiom://target/stage1-runbook-v0";
+const RUNBOOK_ARTIFACT_KIND: &str = "runbook";
+const GENERATE_RUNBOOK_SCHEMA_VERSION: &str = "axiom.generate.runbook.v0";
 
 #[derive(Debug, Clone, Serialize)]
 struct GeneratePolicyReport {
@@ -3117,6 +3156,416 @@ fn policy_observed_effect(effect: &EffectNode) -> PolicyObservedEffect {
         capability_gate: effect.capability_gate,
         source_span: effect.source_span.clone(),
     }
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct GenerateRunbookReport {
+    schema_version: &'static str,
+    ok: bool,
+    command: &'static str,
+    project: String,
+    target_contract: TargetContract,
+    artifact: GeneratedArtifact,
+    semantic_capabilities: Vec<SemanticGraphNode>,
+    observed_effects: Vec<EffectNode>,
+    evidence_summary: EvidenceSummary,
+    evidence: Vec<EvidenceItem>,
+    artifacts: Vec<ArtifactNode>,
+    diagnostics: Vec<Diagnostic>,
+}
+
+fn generate_runbook(project: &Path, out: &Path) -> Result<GenerateRunbookReport, Diagnostic> {
+    let manifest = load_manifest(project)?;
+    let _package = manifest.package.as_ref().ok_or_else(|| {
+        Diagnostic::new(
+            "runbook",
+            "runbook generation requires a package manifest with [package].",
+        )
+    })?;
+    let output_path = if out.is_absolute() {
+        out.to_path_buf()
+    } else {
+        project.join(out)
+    };
+    let package_id = package_node_for_path(project);
+    let capabilities = project_capabilities(project)?;
+    let (semantic_nodes, _) = inspect_semantic_graph(project)?;
+    let mut semantic_capabilities = semantic_nodes
+        .iter()
+        .filter(|node| node.kind == "capability")
+        .cloned()
+        .collect::<Vec<_>>();
+    semantic_capabilities.sort_by(|left, right| left.name.cmp(&right.name));
+    let mut semantic_evidence = semantic_nodes
+        .iter()
+        .filter(|node| node.kind == "evidence")
+        .cloned()
+        .collect::<Vec<_>>();
+    semantic_evidence.sort_by(|left, right| left.name.cmp(&right.name));
+    let effects = inspect_effects(project)?.effects;
+    let evidence = evidence_report(project)?;
+    let diagnostics = runbook_diagnostics(project)?;
+    let artifact = runbook_artifact(project, &output_path, &package_id, "generated");
+    let artifacts = runbook_artifacts_with_generated_output(
+        project,
+        inspect_artifacts(project)?.artifacts,
+        &artifact,
+    );
+    let target_contract = runbook_target_contract(artifact.clone());
+    let markdown = render_runbook_markdown(
+        project,
+        &manifest,
+        &package_id,
+        &artifact,
+        &target_contract,
+        &capabilities,
+        &semantic_capabilities,
+        &semantic_evidence,
+        &effects,
+        &evidence,
+        &artifacts,
+        &diagnostics,
+    );
+    if let Some(parent) = output_path.parent() {
+        fs::create_dir_all(parent).map_err(|err| {
+            Diagnostic::new(
+                "runbook",
+                format!("failed to create {}: {err}", parent.display()),
+            )
+        })?;
+    }
+    fs::write(&output_path, markdown).map_err(|err| {
+        Diagnostic::new(
+            "runbook",
+            format!("failed to write {}: {err}", output_path.display()),
+        )
+    })?;
+    Ok(GenerateRunbookReport {
+        schema_version: GENERATE_RUNBOOK_SCHEMA_VERSION,
+        ok: true,
+        command: "generate runbook",
+        project: project.display().to_string(),
+        target_contract,
+        artifact,
+        semantic_capabilities,
+        observed_effects: effects,
+        evidence_summary: evidence.summary.clone(),
+        evidence: evidence.evidence,
+        artifacts,
+        diagnostics,
+    })
+}
+
+fn runbook_target_contract(artifact: GeneratedArtifact) -> TargetContract {
+    TargetContract {
+        id: RUNBOOK_TARGET_ID,
+        target_class: RUNBOOK_ARTIFACT_KIND,
+        description: "Stage 1 operator runbook generator for capabilities, effects, evidence, and artifacts.",
+        status: "experimental",
+        input_node_kinds: vec![
+            "Package",
+            "Capability",
+            "Effect",
+            "RuntimeSurface",
+            "Evidence",
+            "Artifact",
+        ],
+        supported_effect_kinds: policy_known_effect_kinds(),
+        supported_type_features: Vec::new(),
+        artifact_outputs: vec![artifact],
+        evidence_requirements: vec!["unit_test", "fixture"],
+        unsupported_feature_diagnostics: Vec::new(),
+    }
+}
+
+fn runbook_artifact(
+    project: &Path,
+    output_path: &Path,
+    package_id: &str,
+    status: &'static str,
+) -> GeneratedArtifact {
+    GeneratedArtifact {
+        id: format!("{package_id}/artifact/operator-runbook"),
+        kind: RUNBOOK_ARTIFACT_KIND,
+        path: project_relative_path(project, output_path),
+        generated_from: vec![package_id.to_string()],
+        status,
+    }
+}
+
+fn runbook_artifacts_with_generated_output(
+    project: &Path,
+    mut artifacts: Vec<ArtifactNode>,
+    artifact: &GeneratedArtifact,
+) -> Vec<ArtifactNode> {
+    let mut found = false;
+    for item in &mut artifacts {
+        if item.kind == RUNBOOK_ARTIFACT_KIND
+            && project_relative_path(project, Path::new(&item.path)) == artifact.path
+        {
+            item.exists = true;
+            item.status = "generated";
+            found = true;
+        }
+    }
+    if !found {
+        artifacts.push(ArtifactNode {
+            id: artifact.id.clone(),
+            kind: RUNBOOK_ARTIFACT_KIND,
+            path: artifact.path.clone(),
+            exists: true,
+            source: "target_contract",
+            generated_from: artifact.generated_from.clone(),
+            status: "generated",
+        });
+    }
+    artifacts.sort_by(|left, right| {
+        left.kind
+            .cmp(right.kind)
+            .then_with(|| left.path.cmp(&right.path))
+    });
+    artifacts
+}
+
+fn runbook_diagnostics(project: &Path) -> Result<Vec<Diagnostic>, Diagnostic> {
+    match check_project_with_options(project, &CheckOptions::default()) {
+        Ok(output) => Ok(output
+            .warnings
+            .into_iter()
+            .map(|warning| Diagnostic::new("warning", warning).normalized_for_json())
+            .collect()),
+        Err(error) => Ok(vec![error.normalized_for_json()]),
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn render_runbook_markdown(
+    project: &Path,
+    manifest: &axiomc::manifest::Manifest,
+    package_id: &str,
+    artifact: &GeneratedArtifact,
+    target_contract: &TargetContract,
+    capabilities: &[CapabilityDescriptor],
+    semantic_capabilities: &[SemanticGraphNode],
+    semantic_evidence: &[SemanticGraphNode],
+    effects: &[EffectNode],
+    evidence: &EvidenceReport,
+    artifacts: &[ArtifactNode],
+    diagnostics: &[Diagnostic],
+) -> String {
+    let package = manifest
+        .package
+        .as_ref()
+        .expect("runbook generation already checked package manifest");
+    let entry = project_relative_path(project, &entry_path(project, manifest));
+    let evidence_refs = runbook_evidence_refs(&evidence.evidence);
+    let evidence_by_id = semantic_evidence
+        .iter()
+        .map(|node| (node.id.as_str(), node))
+        .collect::<BTreeMap<_, _>>();
+    let mut out = String::new();
+    out.push_str(&format!("# Operator Runbook: {}\n\n", package.name));
+    out.push_str("## Package\n\n");
+    out.push_str(&format!("- Package: `{}`\n", package.name));
+    out.push_str(&format!("- Version: `{}`\n", package.version));
+    out.push_str(&format!("- Package node: `{package_id}`\n"));
+    out.push_str(&format!("- Build entry: `{entry}`\n"));
+    out.push_str(&format!("- Target: `{}`\n", target_contract.id));
+    out.push_str(&format!("- Artifact: `{}`\n\n", artifact.path));
+
+    out.push_str("## Capability Gates\n\n");
+    out.push_str("| Capability | Enabled | Allowed Values | Unsafe | Owner | Rationale |\n");
+    out.push_str("|---|---|---|---|---|---|\n");
+    for capability in capabilities {
+        let allowed = if capability.allowed.is_empty() {
+            String::from("-")
+        } else {
+            capability.allowed.join(", ")
+        };
+        let unsafe_state = if capability.unsafe_unrestricted {
+            "unrestricted"
+        } else if capability.unsafe_opt_in {
+            "opt-in"
+        } else {
+            "-"
+        };
+        out.push_str(&format!(
+            "| `{}` | {} | {} | {} | {} | {} |\n",
+            markdown_cell(&capability.name),
+            yes_no(capability.enabled),
+            markdown_cell(&allowed),
+            unsafe_state,
+            markdown_cell(capability.owner.as_deref().unwrap_or("-")),
+            markdown_cell(
+                capability
+                    .unsafe_rationale
+                    .as_deref()
+                    .or(capability.rationale.as_deref())
+                    .unwrap_or("-")
+            )
+        ));
+    }
+    out.push('\n');
+
+    out.push_str("## Semantic Capabilities\n\n");
+    if semantic_capabilities.is_empty() {
+        out.push_str("- No semantic capability declarations were found.\n\n");
+    } else {
+        for capability in semantic_capabilities {
+            out.push_str(&format!("### {}\n\n", capability.name));
+            out.push_str(&format!("- Node: `{}`\n", capability.id));
+            out.push_str(&format!(
+                "- Source: `{}`:{}:{}\n",
+                capability.span.path, capability.span.line, capability.span.column
+            ));
+            out.push_str("- Inputs: ");
+            if capability.inputs.is_empty() {
+                out.push_str("none\n");
+            } else {
+                out.push_str(
+                    &capability
+                        .inputs
+                        .iter()
+                        .map(|input| format!("`{}: {}`", input.name, input.ty))
+                        .collect::<Vec<_>>()
+                        .join(", "),
+                );
+                out.push('\n');
+            }
+            out.push_str("- Declared effects: ");
+            if capability.effects.is_empty() {
+                out.push_str("none\n");
+            } else {
+                out.push_str(
+                    &capability
+                        .effects
+                        .iter()
+                        .map(|effect| format!("`{} {}`", effect.kind, effect.target))
+                        .collect::<Vec<_>>()
+                        .join(", "),
+                );
+                out.push('\n');
+            }
+            out.push_str("- Backing evidence: ");
+            if capability.evidence.is_empty() {
+                out.push_str("missing evidence\n\n");
+            } else {
+                let refs = capability
+                    .evidence
+                    .iter()
+                    .map(|id| {
+                        evidence_by_id
+                            .get(id.as_str())
+                            .map(|node| format!("`{}` (`{}`)", node.name, node.id))
+                            .unwrap_or_else(|| format!("`{id}`"))
+                    })
+                    .collect::<Vec<_>>();
+                out.push_str(&refs.join(", "));
+                out.push_str("\n\n");
+            }
+        }
+    }
+
+    out.push_str("## Observed Runtime Effects\n\n");
+    if effects.is_empty() {
+        out.push_str("- No runtime effects were observed.\n\n");
+    } else {
+        out.push_str("| Effect | Operation | Resource | Capability Gate | Source | Evidence |\n");
+        out.push_str("|---|---|---|---|---|---|\n");
+        for effect in effects {
+            out.push_str(&format!(
+                "| `{}` | `{}` | {} | `{}` | `{}`:{}:{} | {} |\n",
+                effect.kind,
+                effect.operation,
+                markdown_cell(&effect.resource),
+                effect.capability_gate,
+                markdown_cell(&effect.source_span.path),
+                effect.source_span.line,
+                effect.source_span.column,
+                markdown_cell(&evidence_refs)
+            ));
+        }
+        out.push('\n');
+    }
+
+    out.push_str("## Evidence\n\n");
+    out.push_str(&format!(
+        "- Validation status: `{}`\n",
+        evidence.validation_status
+    ));
+    out.push_str(&format!(
+        "- Summary: {} passing, {} failing, {} missing, {} provided\n\n",
+        evidence.summary.passing,
+        evidence.summary.failing,
+        evidence.summary.missing,
+        evidence.summary.provided
+    ));
+    out.push_str("| Evidence | Type | Status | Target | Path |\n");
+    out.push_str("|---|---|---|---|---|\n");
+    for item in &evidence.evidence {
+        out.push_str(&format!(
+            "| `{}` | `{}` | `{}` | `{}` | {} |\n",
+            markdown_cell(&item.id),
+            item.evidence_type,
+            item.status,
+            markdown_cell(&item.target),
+            markdown_cell(item.path.as_deref().unwrap_or("-"))
+        ));
+    }
+    out.push('\n');
+
+    out.push_str("## Artifacts\n\n");
+    out.push_str("| Kind | Status | Source | Path |\n");
+    out.push_str("|---|---|---|---|\n");
+    let mut rendered_artifacts = BTreeSet::new();
+    for item in artifacts {
+        let path = project_relative_path(project, Path::new(&item.path));
+        if !rendered_artifacts.insert((item.kind, path.clone())) {
+            continue;
+        }
+        out.push_str(&format!(
+            "| `{}` | `{}` | `{}` | `{}` |\n",
+            item.kind,
+            item.status,
+            item.source,
+            markdown_cell(&path)
+        ));
+    }
+    out.push('\n');
+
+    out.push_str("## Unsupported Feature Diagnostics\n\n");
+    if diagnostics.is_empty() {
+        out.push_str("- None.\n");
+    } else {
+        for diagnostic in diagnostics {
+            let code = diagnostic.code.as_deref().unwrap_or(&diagnostic.kind);
+            out.push_str(&format!(
+                "- `{}`: {}\n",
+                markdown_cell(code),
+                markdown_cell(&diagnostic.message)
+            ));
+        }
+    }
+    out
+}
+
+fn runbook_evidence_refs(evidence: &[EvidenceItem]) -> String {
+    if evidence.is_empty() {
+        return String::from("missing evidence");
+    }
+    evidence
+        .iter()
+        .map(|item| format!("{} ({})", item.id, item.status))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+fn yes_no(value: bool) -> &'static str {
+    if value { "yes" } else { "no" }
+}
+
+fn markdown_cell(value: &str) -> String {
+    value.replace('\n', " ").replace('|', "\\|")
 }
 
 fn symbol_span(path: &Path, line: usize, column: usize) -> SymbolSpan {
@@ -4649,6 +5098,13 @@ fn inspect_artifacts(project: &Path) -> Result<InspectArtifactsReport, Diagnosti
         out_dir_path(project, &manifest).join("policy-bundle.json"),
         "target_contract",
     );
+    push_artifact(
+        &mut artifacts,
+        &package_id,
+        RUNBOOK_ARTIFACT_KIND,
+        out_dir_path(project, &manifest).join("runbook.md"),
+        "target_contract",
+    );
     if manifest.package.is_some() {
         push_artifact(
             &mut artifacts,
@@ -5092,6 +5548,29 @@ mod tests {
                 assert!(json);
             }
             other => panic!("expected generate policy command, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn generate_runbook_cli_parses_output_path_and_json_flag() {
+        let cli = Cli::parse_from([
+            "axiomc",
+            "generate",
+            "runbook",
+            ".",
+            "--out",
+            "dist/runbook.md",
+            "--json",
+        ]);
+        match cli.command {
+            Command::Generate {
+                command: GenerateCommand::Runbook { path, out, json },
+            } => {
+                assert_eq!(path, PathBuf::from("."));
+                assert_eq!(out, PathBuf::from("dist/runbook.md"));
+                assert!(json);
+            }
+            other => panic!("expected generate runbook command, got {other:?}"),
         }
     }
 
@@ -5932,6 +6411,11 @@ mod tests {
                 && artifact.source == "target_contract"
                 && artifact.status == "planned"
         }));
+        assert!(artifacts.artifacts.iter().any(|artifact| {
+            artifact.kind == RUNBOOK_ARTIFACT_KIND
+                && artifact.source == "target_contract"
+                && artifact.status == "planned"
+        }));
     }
 
     #[test]
@@ -6306,6 +6790,74 @@ print serve("127.0.0.1:0", selected_route, 1)
             vec!["clock.now", "clock.sleep"]
         );
         assert!(without_clock.allowed_effect_kinds.is_empty());
+    }
+
+    #[test]
+    fn generate_runbook_writes_operator_markdown_from_semantic_evidence() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let project = dir.path().join("runbook-service");
+        create_project(&project, Some("runbook-service")).expect("create project");
+        fs::write(
+            project.join("axiom.toml"),
+            "[package]\nname = \"runbook-service\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[[tests]]\nname = \"runbook-smoke\"\nentry = \"src/main_test.ax\"\nkind = \"unit\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = [\"RUNBOOK_MODE\"]\nclock = true\ncrypto = false\nffi = false\nasync = false\n",
+        )
+        .expect("write manifest");
+        fs::write(
+            project.join("src/main.ax"),
+            "import \"std/env.ax\"\nimport \"std/time.ax\"\n\naxiom OperatorModeVisible {\n    scope operations\n    severity info\n    description \"Operators can inspect the configured mode.\"\n    assert mode_is_documented\n}\n\nevidence RunbookSmokeTest {\n    description \"Manifest unit test exercises the runbook package.\"\n}\n\ncapability DescribeOperatorMode {\n    input mode: string\n    effects {\n        read OperatorEnv\n        read RuntimeClock\n    }\n    preserves OperatorModeVisible\n    requires evidence RunbookSmokeTest\n}\n\nlet _mode: Option<string> = get_env(\"RUNBOOK_MODE\")\nlet now: int = now_ms()\nprint now > 0\n",
+        )
+        .expect("write source");
+        fs::write(project.join("src/main_test.ax"), "print \"runbook\"\n").expect("write test");
+        let manifest = load_manifest(&project).expect("load manifest");
+        fs::write(
+            project.join("axiom.lock"),
+            axiomc::lockfile::render_lockfile_for_project(&project, &manifest)
+                .expect("render lockfile"),
+        )
+        .expect("write lockfile");
+
+        let report =
+            generate_runbook(&project, Path::new("dist/runbook.md")).expect("generate runbook");
+
+        assert_eq!(report.schema_version, GENERATE_RUNBOOK_SCHEMA_VERSION);
+        assert_eq!(report.target_contract.id, RUNBOOK_TARGET_ID);
+        assert_eq!(report.target_contract.target_class, RUNBOOK_ARTIFACT_KIND);
+        let target_payload =
+            serde_json::to_value(&report.target_contract).expect("serialize target contract");
+        let target_schema_path =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schemas/axiom-target-v0.schema.json");
+        let target_schema: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(target_schema_path).expect("read schema"))
+                .expect("target schema json");
+        jsonschema::validator_for(&target_schema)
+            .expect("compile target schema")
+            .validate(&target_payload)
+            .expect("runbook target contract matches target schema");
+        assert_eq!(report.artifact.status, "generated");
+        assert_eq!(report.semantic_capabilities.len(), 1);
+        assert_eq!(report.semantic_capabilities[0].name, "DescribeOperatorMode");
+        assert_eq!(report.evidence_summary.passing, 1);
+        let observed = report
+            .observed_effects
+            .iter()
+            .map(|effect| effect.kind)
+            .collect::<Vec<_>>();
+        assert_eq!(observed, vec!["env.read", "clock.now"]);
+
+        let runbook =
+            fs::read_to_string(project.join("dist/runbook.md")).expect("read generated runbook");
+        assert!(runbook.contains("# Operator Runbook: runbook-service"));
+        assert!(runbook.contains("DescribeOperatorMode"));
+        assert!(runbook.contains("RunbookSmokeTest"));
+        assert!(runbook.contains("env.read"));
+        assert!(runbook.contains("dist/runbook.md"));
+
+        let artifacts = inspect_artifacts(&project).expect("inspect artifacts");
+        assert!(artifacts.artifacts.iter().any(|artifact| {
+            artifact.kind == RUNBOOK_ARTIFACT_KIND
+                && artifact.path.ends_with("dist/runbook.md")
+                && artifact.status == "generated"
+        }));
     }
 
     #[test]

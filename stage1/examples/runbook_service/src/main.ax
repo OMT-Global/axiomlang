@@ -1,0 +1,28 @@
+import "std/env.ax"
+import "std/time.ax"
+
+axiom OperatorModeVisible {
+    scope operations
+    severity info
+    description "Operators can inspect the configured mode."
+    assert mode_is_documented
+}
+
+evidence RunbookSmokeTest {
+    description "Manifest unit test exercises the runbook package."
+}
+
+capability DescribeOperatorMode {
+    input mode: string
+    effects {
+        read OperatorEnv
+        read RuntimeClock
+    }
+    preserves OperatorModeVisible
+    requires evidence RunbookSmokeTest
+}
+
+let _mode: Option<string> = get_env("RUNBOOK_MODE")
+let started: int = now_ms()
+
+print started > 0
