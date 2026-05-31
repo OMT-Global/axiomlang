@@ -22,8 +22,7 @@ complete.
 | #236 crypto | `std/crypto_hash.ax` exposes `sha256`, `std/crypto_mac.ax` exposes SHA-256/SHA-512 HMAC plus constant-time string and byte-slice comparison helpers, `std/crypto_rand.ax` exposes random byte/u64 helpers, `std/crypto_aead.ax` exposes AES-GCM and ChaCha20-Poly1305 seal/open helpers, and `std/crypto.ax` re-exports the landed crypto surface. | Ed25519 and broader audited crypto coverage remain open. |
 | #240 richer testing | `axiomc test` discovers `*_test.ax`, golden stdout, assertion helpers, and `std/testing.ax` table/property/snapshot helpers; `axiomc bench` is the benchmark harness. | Richer randomized generation and benchmark CI policy remain future harness design work. |
 | #240 richer testing | `axiomc test` discovers `*_test.ax`, golden stdout, assertion helpers, and `std/testing.ax` table/property/snapshot helpers; `axiomc bench` is the benchmark harness. | Richer randomized generation and benchmark CI policy remain future harness design work. |
-| #97 HTTP server | `std/http.ax` includes `get`, loopback-only blocking `serve_once(bind, body)`, and bounded route-shaped `route(path, body)` / `serve(bind, route, max_requests)` primitives behind `[capabilities].net`; the routed helper covers simple path routing, fixed-count lifecycle exit, loopback bind enforcement, and native threaded fan-out. | Final async-runtime listen/accept/respond API shape, richer lifecycle controls, and dedicated server capability policy remain AG4.3 work. |
-
+| #97 HTTP server | `std/http.ax` includes `get`, loopback-only `listen`/`accept`/`route`/`respond`/`close`, blocking `serve_once(bind, body)`, and bounded `fixed_route` / `serve(bind, route, max_requests)` primitives behind `[capabilities].net`; `std/http_async.ax` adds async-gated bounded route serving. | Landed for the current stage1 route-shaped handler model; richer production lifecycle controls remain future runtime design work. |
 
 ## Verification handles
 

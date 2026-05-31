@@ -47,14 +47,15 @@
 //! demonstrating that the `std.*` surface is not limited to one wrapper per
 //! capability:
 //!
-//! * `std/http.ax` — `get(url)`, `serve_once(bind, body)`, and the route-shaped
-//!   `serve(bind, route(path, body), max_requests)` helper on top of the new
-//!   `http_get`, `http_serve_once`, and `http_serve_route` intrinsics. HTTP
-//!   shares the `net` capability surface because any code that can open a raw
-//!   TCP socket could implement HTTP itself, so a separate `http` manifest flag
-//!   would not add meaningful isolation in stage1. The stage1 client supports
-//!   both http:// and https:// URLs; the server helpers bind loopback-only
-//!   sockets and serve blocking HTTP/1.0 responses.
+//! * `std/http.ax` — `get(url)`, explicit loopback-only server handles
+//!   (`listen`, `accept`, `route`, `respond`, and `close`), and route-shaped
+//!   compatibility helpers on top of the `http_*` intrinsics. `std/http_async.ax`
+//!   carries async route serving so plain HTTP imports do not require the async
+//!   capability. HTTP shares the `net` capability surface because any code that
+//!   can open a raw TCP socket could implement HTTP itself, so a separate `http`
+//!   manifest flag would not add meaningful isolation in stage1. The stage1
+//!   client supports both http:// and https:// URLs; the server helpers bind
+//!   loopback-only sockets and serve HTTP/1.0 responses.
 
 //!
 //! The eighth through fifteenth modules are stdlib surfaces not tied to a
@@ -78,6 +79,7 @@
 //!   wrappers over the stage1 async runtime values.
 //! * `std/async_time.ax` and `std/async_net.ax` — async task wrappers around
 //!   `std/time` timer and `std/net` loopback socket primitives.
+//! * `std/http_async.ax` — async task wrapper around bounded HTTP route serving.
 //! * `std/regex.ax` — linear-time regular-expression helpers (`is_match`,
 //!   `find`, `replace_all`) over a stage1-safe NFA engine.
 //! * `std/testing.ax` — table-case, property, and snapshot assertion helpers
@@ -388,11 +390,13 @@ pub async fn udp_send_recv(host: string, port: int, message: string, timeout_ms:
     ("testing.ax", include_str!("../../../stdlib/std/testing.ax")),
     (
         "http.ax",
-        "pub struct HttpHeader {
+        "pub type Server = int
+pub struct HttpHeader {
 name: string
 value: string
 }
 pub struct HttpRequest {
+stream: int
 method: string
 path: string
 body: string
@@ -409,11 +413,21 @@ response: HttpResponse
 pub fn get(url: string): Option<string> {
 return http_get(url)
 }
+pub fn listen(bind: string): Server {
+return http_server_listen(bind)
+}
+pub fn local_port(server: Server): int {
+return http_server_local_port(server)
+}
+pub fn accept(server: Server): HttpRequest {
+let stream: int = http_server_accept(server)
+return HttpRequest { stream: stream, method: http_request_method(stream), path: http_request_path(stream), body: http_request_body(stream) }
+}
 pub fn header(name: string, value: string): HttpHeader {
 return HttpHeader { name: name, value: value }
 }
 pub fn request(method: string, path: string, body: string): HttpRequest {
-return HttpRequest { method: method, path: path, body: body }
+return HttpRequest { stream: -1, method: method, path: path, body: body }
 }
 pub fn response(status: int, body: string, headers: [HttpHeader]): HttpResponse {
 return HttpResponse { status: status, body: body, headers: headers }
@@ -421,14 +435,17 @@ return HttpResponse { status: status, body: body, headers: headers }
 pub fn text_response(status: int, body: string): HttpResponse {
 return response(status, body, [header(\"content-type\", \"text/plain; charset=utf-8\")])
 }
-pub fn route(path: string, body: string): HttpRoute {
+pub fn route(request: HttpRequest): string {
+return request.path
+}
+pub fn fixed_route(path: string, body: string): HttpRoute {
 return HttpRoute { path: path, response: text_response(200, body) }
 }
 pub fn route_response(path: string, selected_response: HttpResponse): HttpRoute {
 return HttpRoute { path: path, response: selected_response }
 }
-pub fn respond(body: string): HttpRoute {
-return route(\"/\", body)
+pub fn respond(request: HttpRequest, status: int, body: string): bool {
+return http_response_write(request.stream, status, body)
 }
 pub fn serve(bind: string, selected_route: HttpRoute, max_requests: int): bool {
 return http_serve_route(bind, selected_route.path, selected_route.response.body, max_requests)
@@ -436,7 +453,14 @@ return http_serve_route(bind, selected_route.path, selected_route.response.body,
 pub fn serve_once(bind: string, body: string): bool {
 return http_serve_once(bind, body)
 }
+pub fn close(server: Server): bool {
+return http_server_close(server)
+}
 ",
+    ),
+    (
+        "http_async.ax",
+        "pub fn async_serve_route(server: int, path: string, body: string, max_requests: int): Task<bool> {\nreturn http_async_serve_route(server, path, body, max_requests)\n}\n",
     ),
     (
         "regex.ax",
