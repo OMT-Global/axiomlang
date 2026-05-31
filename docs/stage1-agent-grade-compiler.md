@@ -362,10 +362,13 @@ Work packages:
     Axiom without host-thread capabilities. The stage1 channel is single-slot
     and nonblocking. Covered by `stage1/examples/stdlib_sync` and one Rust test
     (`stage1_project_imports_synthetic_stdlib_sync_module`).
-- `AG4.2`: async runtime — **landed for deterministic stage1 execution** with
+- `AG4.2`: async runtime — **landed for host-backed stage1 execution** with
   `async fn`, `await`, `Task<T>`, `JoinHandle<T>`, `AsyncChannel<T>`,
-  cancellation, timeouts, and `select` exposed by `std/async.ax`. Stage1 still
-  does not provide host-thread scheduling, blocking wakeups, or real timers.
+  cancellation, timeouts, and `select` exposed by `std/async.ax`. Spawned tasks
+  run through a shared scheduler pool sized by `[runtime].max_threads`, or by
+  `std::thread::available_parallelism()` when unset. `std/time` sleep,
+  `std/async_time` sleep, and `std/async` timeout share one generated timer
+  wheel, and channel send/recv use condvar wakeups.
   Covered by `stage1/examples/stdlib_async` and one Rust integration test
   (`stage1_project_supports_async_runtime_surface`).
 - `AG4.3`: HTTP service support — **partial / intermediate** via the loopback-only blocking `std/http.ax::serve_once(bind, body)` smoke primitive and bounded `std/http.ax::serve(bind, route, max_requests)` helper. This does **not** close #97; full service support still needs the async-runtime listen/accept/respond API shape, richer lifecycle controls, and acceptance coverage.

@@ -54,6 +54,16 @@
       },
       "additionalProperties": false
     },
+    "runtime": {
+      "type": "object",
+      "properties": {
+        "max_threads": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "additionalProperties": false
+    },
     "dependencies": {
       "type": "object",
       "additionalProperties": {

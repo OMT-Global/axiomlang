@@ -141,6 +141,7 @@ pub struct GeneratedRustBackendInput {
     pub package_root: std::path::PathBuf,
     pub fs_root: std::path::PathBuf,
     pub capabilities: CapabilityConfig,
+    pub runtime_max_threads: Option<usize>,
 }
 
 impl GeneratedRustBackendInput {
@@ -151,6 +152,7 @@ impl GeneratedRustBackendInput {
             package_root: std::path::PathBuf::from("."),
             fs_root: std::path::PathBuf::from("."),
             capabilities: CapabilityConfig::default(),
+            runtime_max_threads: None,
         }
     }
 
@@ -173,15 +175,21 @@ impl GeneratedRustBackendInput {
         self.capabilities = capabilities;
         self
     }
+
+    pub fn with_runtime_max_threads(mut self, max_threads: Option<usize>) -> Self {
+        self.runtime_max_threads = max_threads;
+        self
+    }
 }
 
 pub fn render_generated_rust(input: &GeneratedRustBackendInput) -> String {
-    render_rust_for_package_with_capabilities(
+    render_rust_for_package_with_backend_context(
         &input.program,
         input.debug,
         &input.package_root,
         &input.fs_root,
         &input.capabilities,
+        input.runtime_max_threads,
     )
 }
 
@@ -242,6 +250,24 @@ pub fn render_rust_for_package_with_capabilities(
     fs_root: &Path,
     capabilities: &CapabilityConfig,
 ) -> String {
+    render_rust_for_package_with_backend_context(
+        program,
+        debug,
+        package_root,
+        fs_root,
+        capabilities,
+        None,
+    )
+}
+
+fn render_rust_for_package_with_backend_context(
+    program: &Program,
+    debug: bool,
+    package_root: &Path,
+    fs_root: &Path,
+    capabilities: &CapabilityConfig,
+    runtime_max_threads: Option<usize>,
+) -> String {
     let type_context = TypeContext::new(program);
     let uses_http_get = program_uses_call(program, "http_get");
     let uses_http_serve_once = program_uses_call(program, "http_serve_once");
@@ -295,7 +321,7 @@ pub fn render_rust_for_package_with_capabilities(
     }
     out.push_str("use std::panic;\n");
     out.push_str("use std::thread;\n");
-    out.push_str("use std::sync::{Arc, Condvar, Mutex, Once};\n\n");
+    out.push_str("use std::sync::{Arc, Condvar, Mutex, Once, OnceLock};\n\n");
     let package_root = rust_path_literal(package_root);
     let fs_root = rust_path_literal(fs_root);
     out.push_str(&format!(
@@ -309,6 +335,10 @@ pub fn render_rust_for_package_with_capabilities(
     out.push_str(&format!(
         "const AXIOM_ASYNC_CAPABILITY: bool = {};\n",
         capabilities.async_runtime
+    ));
+    out.push_str(&format!(
+        "const AXIOM_RUNTIME_MAX_THREADS_CONFIG: usize = {};\n",
+        runtime_max_threads.unwrap_or(0)
     ));
     out.push_str(&format!("const AXIOM_DEBUG_BUILD: bool = {debug};\n"));
     out.push_str("const AXIOM_ENV_ALLOWLIST: &[&str] = &[\n");
@@ -338,7 +368,7 @@ pub fn render_rust_for_package_with_capabilities(
     out.push_str("}\n\n");
     out.push_str("#[allow(dead_code)]\n");
     out.push_str("struct AxiomJoinHandle<T> {\n");
-    out.push_str("    handle: Option<thread::JoinHandle<T>>,\n");
+    out.push_str("    receiver: Option<std::sync::mpsc::Receiver<T>>,\n");
     out.push_str("}\n\n");
     out.push_str("#[allow(dead_code)]\n");
     out.push_str("#[derive(Clone)]\n");
@@ -398,6 +428,219 @@ pub fn render_rust_for_package_with_capabilities(
     out.push_str("    }\n");
     out.push_str("}\n\n");
     out.push_str(r#"#[allow(dead_code)]
+type AxiomRuntimeJob = Box<dyn FnOnce() + Send + 'static>;
+
+#[allow(dead_code)]
+struct AxiomRuntimePool {
+    state: Arc<(Mutex<AxiomRuntimePoolState>, Condvar)>,
+    _workers: Vec<thread::JoinHandle<()>>,
+}
+
+#[allow(dead_code)]
+struct AxiomRuntimePoolState {
+    jobs: std::collections::VecDeque<AxiomRuntimeJob>,
+}
+
+thread_local! {
+    static AXIOM_RUNTIME_WORKER_ACTIVE: std::cell::Cell<bool> = std::cell::Cell::new(false);
+}
+
+#[allow(dead_code)]
+struct AxiomRuntimeWorkerGuard {
+    previous: bool,
+}
+
+#[allow(dead_code)]
+impl AxiomRuntimeWorkerGuard {
+    fn enter() -> Self {
+        AXIOM_RUNTIME_WORKER_ACTIVE.with(|active| {
+            let previous = active.get();
+            active.set(true);
+            Self { previous }
+        })
+    }
+}
+
+impl Drop for AxiomRuntimeWorkerGuard {
+    fn drop(&mut self) {
+        AXIOM_RUNTIME_WORKER_ACTIVE.with(|active| active.set(self.previous));
+    }
+}
+
+#[allow(dead_code)]
+fn axiom_runtime_in_worker() -> bool {
+    AXIOM_RUNTIME_WORKER_ACTIVE.with(|active| active.get())
+}
+
+#[allow(dead_code)]
+impl AxiomRuntimePool {
+    fn new(worker_count: usize) -> Self {
+        let state = Arc::new((
+            Mutex::new(AxiomRuntimePoolState {
+                jobs: std::collections::VecDeque::new(),
+            }),
+            Condvar::new(),
+        ));
+        let mut workers = Vec::new();
+        for _ in 0..worker_count.max(1) {
+            let worker_state = Arc::clone(&state);
+            workers.push(thread::spawn(move || loop {
+                let job = {
+                    let (lock, wakeup) = &*worker_state;
+                    let mut state = lock.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+                    loop {
+                        if let Some(job) = state.jobs.pop_front() {
+                            break job;
+                        }
+                        state = wakeup.wait(state).unwrap_or_else(|poisoned| poisoned.into_inner());
+                    }
+                };
+                let _worker_guard = AxiomRuntimeWorkerGuard::enter();
+                let _ = panic::catch_unwind(panic::AssertUnwindSafe(job));
+            }));
+        }
+        Self { state, _workers: workers }
+    }
+
+    fn schedule(&self, job: AxiomRuntimeJob) {
+        let (lock, wakeup) = &*self.state;
+        let mut state = lock.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        state.jobs.push_back(job);
+        wakeup.notify_one();
+    }
+
+    fn try_run_one(&self) -> bool {
+        let job = {
+            let (lock, _) = &*self.state;
+            let mut state = lock.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+            state.jobs.pop_front()
+        };
+        if let Some(job) = job {
+            let _worker_guard = AxiomRuntimeWorkerGuard::enter();
+            let _ = panic::catch_unwind(panic::AssertUnwindSafe(job));
+            true
+        } else {
+            false
+        }
+    }
+}
+
+#[allow(dead_code)]
+fn axiom_runtime_max_threads() -> usize {
+    if AXIOM_RUNTIME_MAX_THREADS_CONFIG > 0 {
+        AXIOM_RUNTIME_MAX_THREADS_CONFIG
+    } else {
+        std::thread::available_parallelism()
+            .map(|parallelism| parallelism.get())
+            .unwrap_or(1)
+            .max(1)
+    }
+}
+
+#[allow(dead_code)]
+fn axiom_runtime_pool() -> &'static AxiomRuntimePool {
+    static AXIOM_RUNTIME_POOL: OnceLock<AxiomRuntimePool> = OnceLock::new();
+    AXIOM_RUNTIME_POOL.get_or_init(|| AxiomRuntimePool::new(axiom_runtime_max_threads()))
+}
+
+#[allow(dead_code)]
+fn axiom_runtime_recv<T>(
+    receiver: std::sync::mpsc::Receiver<T>,
+    failure_message: &str,
+) -> T {
+    if !axiom_runtime_in_worker() {
+        return receiver
+            .recv()
+            .unwrap_or_else(|_| axiom_runtime_error("async", failure_message));
+    }
+    loop {
+        match receiver.try_recv() {
+            Ok(value) => return value,
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                axiom_runtime_error("async", failure_message)
+            }
+            Err(std::sync::mpsc::TryRecvError::Empty) => {}
+        }
+        if !axiom_runtime_pool().try_run_one() {
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+    }
+}
+
+#[allow(dead_code)]
+struct AxiomTimerRequest {
+    deadline: std::time::Instant,
+    action: AxiomRuntimeJob,
+}
+
+#[allow(dead_code)]
+struct AxiomTimerWheel {
+    sender: std::sync::mpsc::Sender<AxiomTimerRequest>,
+}
+
+#[allow(dead_code)]
+impl AxiomTimerWheel {
+    fn new() -> Self {
+        let (sender, receiver) = std::sync::mpsc::channel::<AxiomTimerRequest>();
+        thread::spawn(move || {
+            let mut timers: Vec<AxiomTimerRequest> = Vec::new();
+            loop {
+                timers.sort_by_key(|timer| timer.deadline);
+                let now = std::time::Instant::now();
+                let ready_count = timers.partition_point(|timer| timer.deadline <= now);
+                if ready_count > 0 {
+                    let ready = timers.drain(..ready_count).collect::<Vec<_>>();
+                    for timer in ready {
+                        (timer.action)();
+                    }
+                    continue;
+                }
+                if let Some(next) = timers.first() {
+                    let wait = next.deadline.saturating_duration_since(now);
+                    match receiver.recv_timeout(wait) {
+                        Ok(timer) => timers.push(timer),
+                        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
+                        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+                    }
+                } else {
+                    match receiver.recv() {
+                        Ok(timer) => timers.push(timer),
+                        Err(_) => break,
+                    }
+                }
+            }
+        });
+        Self { sender }
+    }
+
+    fn after_ms(&self, milliseconds: i64, action: AxiomRuntimeJob) {
+        let delay_ms = milliseconds.clamp(0, 30_000) as u64;
+        let deadline = std::time::Instant::now() + std::time::Duration::from_millis(delay_ms);
+        self.sender
+            .send(AxiomTimerRequest { deadline, action })
+            .unwrap_or_else(|_| axiom_runtime_error("async", "timer wheel stopped"));
+    }
+}
+
+#[allow(dead_code)]
+fn axiom_timer_wheel() -> &'static AxiomTimerWheel {
+    static AXIOM_TIMER_WHEEL: OnceLock<AxiomTimerWheel> = OnceLock::new();
+    AXIOM_TIMER_WHEEL.get_or_init(AxiomTimerWheel::new)
+}
+
+#[allow(dead_code)]
+fn axiom_timer_sleep_ms(milliseconds: i64) {
+    let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+    axiom_timer_wheel().after_ms(
+        milliseconds,
+        Box::new(move || {
+            let _ = sender.try_send(());
+        }),
+    );
+    let _ = receiver.recv();
+}
+
+#[allow(dead_code)]
 struct AxiomRuntimeScheduler {
     scheduled: usize,
     completed: usize,
@@ -411,19 +654,20 @@ impl AxiomRuntimeScheduler {
 
     fn schedule<T: Send + 'static>(&mut self, task: AxiomTask<T>) -> AxiomJoinHandle<T> {
         self.scheduled += 1;
-        AxiomJoinHandle {
-            handle: Some(thread::spawn(move || axiom_await(task))),
-        }
+        let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+        axiom_runtime_pool().schedule(Box::new(move || {
+            let value = axiom_await(task);
+            let _ = sender.try_send(value);
+        }));
+        AxiomJoinHandle { receiver: Some(receiver) }
     }
 
     fn join<T: Send + 'static>(&mut self, mut handle: AxiomJoinHandle<T>) -> AxiomTask<T> {
-        match handle.handle.take() {
-            Some(join_handle) => {
+        match handle.receiver.take() {
+            Some(receiver) => {
                 self.completed += 1;
                 axiom_task_deferred(move || {
-                    join_handle
-                        .join()
-                        .unwrap_or_else(|_| axiom_runtime_error("async", "joined task panicked"))
+                    axiom_runtime_recv(receiver, "joined task panicked")
                 })
             }
             None => axiom_runtime_error("async", "invalid join handle state"),
@@ -455,20 +699,31 @@ fn axiom_async_timeout<T: Send + 'static>(task: AxiomTask<T>, timeout_ms: i64) -
         if task.canceled {
             return None;
         }
-        let timeout = std::time::Duration::from_millis(timeout_ms.clamp(0, 30_000) as u64);
+        enum AxiomTimeoutEvent<T> {
+            Value(T),
+            TimedOut,
+            Panicked,
+        }
         let (sender, receiver) = std::sync::mpsc::sync_channel(1);
-        let worker = std::thread::spawn(move || {
-            let value = axiom_await(task);
-            let _ = sender.send(value);
-        });
-        match receiver.recv_timeout(timeout) {
-            Ok(value) => {
-                let _ = worker.join();
-                Some(value)
+        let worker_sender = sender.clone();
+        axiom_runtime_pool().schedule(Box::new(move || {
+            let result = panic::catch_unwind(panic::AssertUnwindSafe(|| axiom_await(task)));
+            match result {
+                Ok(value) => {
+                    let _ = worker_sender.try_send(AxiomTimeoutEvent::Value(value));
+                }
+                Err(_) => {
+                    let _ = worker_sender.try_send(AxiomTimeoutEvent::Panicked);
+                }
             }
-            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => None,
-            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
-                let _ = worker.join();
+        }));
+        axiom_timer_wheel().after_ms(timeout_ms, Box::new(move || {
+            let _ = sender.try_send(AxiomTimeoutEvent::TimedOut);
+        }));
+        match axiom_runtime_recv(receiver, "timed task panicked") {
+            AxiomTimeoutEvent::Value(value) => Some(value),
+            AxiomTimeoutEvent::TimedOut => None,
+            AxiomTimeoutEvent::Panicked => {
                 axiom_runtime_error("async", "timed task panicked")
             }
         }
@@ -2717,9 +2972,7 @@ fn axiom_http_serve_once(bind: String, body: String) -> bool {
     out.push_str("    if milliseconds < 0 {\n");
     out.push_str("        return -1;\n");
     out.push_str("    }\n");
-    out.push_str(
-        "    std::thread::sleep(std::time::Duration::from_millis(milliseconds as u64));\n",
-    );
+    out.push_str("    axiom_timer_sleep_ms(milliseconds);\n");
     out.push_str("    0\n");
     out.push_str("}\n\n");
     out.push_str("#[allow(dead_code)]\n");
