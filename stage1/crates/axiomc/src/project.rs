@@ -7,8 +7,8 @@ use crate::json_contract;
 use crate::lockfile::validate_lockfile;
 use crate::manifest::{
     BuildSection, CapabilityConfig, CapabilityDescriptor, CapabilityKind, Manifest, PackageSection,
-    TestKind, binary_path_for_target, capability_descriptors, entry_path, generated_rust_path,
-    load_manifest, manifest_path, out_dir_path,
+    ProcessCommandPolicy, TestKind, binary_path_for_target, capability_descriptors, entry_path,
+    generated_rust_path, load_manifest, manifest_path, out_dir_path,
 };
 use crate::mir;
 use crate::stdlib;
@@ -185,6 +185,28 @@ pub struct BuildOutput {
     pub cache_misses: usize,
     pub duration_ms: u64,
     pub packages: Vec<BuiltPackage>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum RunResult {
+    Success,
+    Failure,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct RunOutput {
+    pub manifest: String,
+    pub entry: String,
+    pub binary: String,
+    pub generated_rust: String,
+    pub package: Option<String>,
+    pub args: Vec<String>,
+    pub exit_code: i32,
+    pub result: RunResult,
+    pub stdout: String,
+    pub stderr: String,
+    pub duration_ms: u64,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -559,6 +581,50 @@ pub fn run_project_with_options(
     project_root: &Path,
     options: &RunOptions,
 ) -> Result<i32, Diagnostic> {
+    let (_, built, build_output_dir) = prepare_run_project(project_root, options)?;
+    let status = command_for_build_output(&built.binary, build_output_dir)
+        .and_then(|mut command| command.args(&options.args).status())
+        .map_err(|err| {
+            Diagnostic::new("run", format!("failed to execute {}: {err}", built.binary))
+        })?;
+    Ok(status.code().unwrap_or(1))
+}
+
+pub fn run_project_report_with_options(
+    project_root: &Path,
+    options: &RunOptions,
+) -> Result<RunOutput, Diagnostic> {
+    let started = Instant::now();
+    let (_, built, build_output_dir) = prepare_run_project(project_root, options)?;
+    let output = command_for_build_output(&built.binary, build_output_dir)
+        .and_then(|mut command| command.args(&options.args).output())
+        .map_err(|err| {
+            Diagnostic::new("run", format!("failed to execute {}: {err}", built.binary))
+        })?;
+    let exit_code = output.status.code().unwrap_or(1);
+    Ok(RunOutput {
+        manifest: built.manifest,
+        entry: built.entry,
+        binary: built.binary,
+        generated_rust: built.generated_rust,
+        package: options.package.clone(),
+        args: options.args.clone(),
+        exit_code,
+        result: if exit_code == 0 {
+            RunResult::Success
+        } else {
+            RunResult::Failure
+        },
+        stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
+        stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+        duration_ms: started.elapsed().as_millis() as u64,
+    })
+}
+
+fn prepare_run_project(
+    project_root: &Path,
+    options: &RunOptions,
+) -> Result<(PathBuf, BuildOutput, PathBuf), Diagnostic> {
     let project_root = canonicalize_existing_path(&normalize_path(project_root), "project root")?;
     let graph = load_package_graph(&project_root)?;
     if options.package.is_none() && graph.context(&project_root)?.manifest.is_workspace_only() {
@@ -592,12 +658,8 @@ pub fn run_project_with_options(
             ),
         )
     })?;
-    let status = command_for_build_output(&built.binary, build_output_dir)
-        .and_then(|mut command| command.args(&options.args).status())
-        .map_err(|err| {
-            Diagnostic::new("run", format!("failed to execute {}: {err}", built.binary))
-        })?;
-    Ok(status.code().unwrap_or(1))
+    let build_output_dir = build_output_dir.to_path_buf();
+    Ok((project_root, built, build_output_dir))
 }
 
 pub fn run_project_tests(project_root: &Path) -> Result<TestOutput, Diagnostic> {
@@ -958,7 +1020,10 @@ pub fn capability_sbom(project_root: &Path) -> Result<CapabilitySbomOutput, Diag
                     grants.push(CapabilitySbomUnsafeGrant {
                         capability: capability.name.clone(),
                         kind: String::from("unsafe_unrestricted"),
-                        rationale: capability.rationale.clone(),
+                        rationale: capability
+                            .unsafe_rationale
+                            .clone()
+                            .or_else(|| capability.rationale.clone()),
                     });
                 }
                 if capability.unsafe_opt_in {
@@ -1186,7 +1251,7 @@ fn audit_capabilities_for_sbom(manifest_capabilities: &CapabilityConfig) -> Capa
     capabilities.net_hosts.clear();
     capabilities.net_ports.clear();
     capabilities.process = true;
-    capabilities.process_commands.clear();
+    capabilities.process_commands = ProcessCommandPolicy::Unrestricted;
     capabilities.env = true;
     capabilities.env_vars.clear();
     capabilities.env_unrestricted = true;
@@ -1462,7 +1527,7 @@ fn register_stdlib_package(graph: &mut PackageGraph) {
             net_hosts: Vec::new(),
             net_ports: Vec::new(),
             process: true,
-            process_commands: Vec::new(),
+            process_commands: ProcessCommandPolicy::Unrestricted,
             env: true,
             env_vars: Vec::new(),
             env_unrestricted: true,
@@ -3790,15 +3855,20 @@ fn validate_process_command_allowlist(
     line: usize,
     column: usize,
 ) -> Result<(), Diagnostic> {
-    if capabilities.process_commands.is_empty() {
+    let Some(allowed_commands) = capabilities.process_commands.allowed_commands() else {
         return Ok(());
+    };
+    if allowed_commands.is_empty() {
+        return Err(Diagnostic::new(
+            "capability",
+            "internal error: process command allowlist must not be empty",
+        )
+        .with_path(module_path.display().to_string())
+        .with_span(line, column));
     }
     match args.first() {
         Some(syntax::Expr::Literal(syntax::Literal::String(command)))
-            if capabilities
-                .process_commands
-                .iter()
-                .any(|allowed| allowed == command) =>
+            if allowed_commands.iter().any(|allowed| allowed == command) =>
         {
             Ok(())
         }
