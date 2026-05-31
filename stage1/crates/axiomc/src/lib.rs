@@ -1372,7 +1372,7 @@ Variant(
 
     #[test]
     fn render_rust_restricts_http_server_binds_to_loopback() {
-        let source = "print http_serve_once(\"127.0.0.1:0\", \"ok\")\nprint http_serve_route(\"127.0.0.1:0\", \"/\", \"ok\", 1)\n";
+        let source = "print http_serve_once(\"127.0.0.1:0\", \"ok\")\nprint http_serve_route(\"127.0.0.1:0\", \"/\", \"ok\", 1)\nprint http_server_listen(\"127.0.0.1:0\")\n";
         let parsed = parse_program(source, Path::new("main.ax")).expect("parse");
         let hir = hir::lower_with_capabilities(
             &parsed,
@@ -1386,12 +1386,15 @@ Variant(
         let rendered = render_rust(&mir);
         assert!(rendered.contains("fn axiom_http_loopback_bind_addr("));
         assert!(rendered.contains("addr.ip().is_loopback()"));
-        assert_eq!(
+        assert!(
             rendered
                 .matches("axiom_http_loopback_bind_addr(bind.as_str())")
-                .count(),
-            2
+                .count()
+                >= 3
         );
+        assert!(rendered.contains("fn axiom_http_server_listen("));
+        assert!(rendered.contains("registry.listeners.get(&server)?.try_clone().ok()?"));
+        assert!(rendered.contains("let (mut stream, _peer) = listener.accept().ok()?;"));
     }
 
     #[test]
@@ -7513,7 +7516,7 @@ print serve_once("0.0.0.0:18080", "hello")
         fs::write(
             project.join("src/main.ax"),
             r#"import "std/http.ax"
-let selected_route: HttpRoute = route("/ready", "hello")
+let selected_route: HttpRoute = fixed_route("/ready", "hello")
 print serve("0.0.0.0:18080", selected_route, 1)
 "#,
         )
@@ -7573,7 +7576,7 @@ print serve("0.0.0.0:18080", selected_route, 1)
             format!(
                 r#"import "std/http.ax"
 
-let selected_route: HttpRoute = route("/ready", "routed response")
+let selected_route: HttpRoute = fixed_route("/ready", "routed response")
 print serve("127.0.0.1:{port}", selected_route, 2)
 "#
             ),
@@ -7633,6 +7636,283 @@ print serve("127.0.0.1:{port}", selected_route, 2)
         assert!(output.status.success(), "server process failed: {output:?}");
         assert_eq!(String::from_utf8_lossy(&output.stdout), "true\n");
         assert_eq!(String::from_utf8_lossy(&output.stderr), "");
+    }
+
+    #[test]
+    fn stage1_stdlib_http_listen_accept_route_and_respond_surface() {
+        use std::io::{Read, Write};
+        use std::net::TcpStream;
+        use std::thread;
+        use std::time::{Duration, Instant};
+
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("stdlib-http-listen-accept-respond");
+        create_project(&project, Some("stdlib-http-listen-accept-respond"))
+            .expect("create project");
+        fs::write(
+            project.join("axiom.toml"),
+            render_manifest_with_capabilities(
+                "stdlib-http-listen-accept-respond",
+                false,
+                true,
+                false,
+                false,
+                false,
+                false,
+            ),
+        )
+        .expect("write manifest");
+        let manifest = load_manifest(&project).expect("load manifest");
+        fs::write(
+            project.join("axiom.lock"),
+            render_lockfile_for_project(&project, &manifest).expect("lockfile"),
+        )
+        .expect("write lockfile");
+        let Some(port) = find_free_loopback_port() else {
+            return;
+        };
+        fs::write(
+            project.join("src/main.ax"),
+            format!(
+                r#"import "std/http.ax"
+
+let server: Server = listen("127.0.0.1:{port}")
+print local_port(server) > 0
+print route(request("GET", "/synthetic", ""))
+let request: HttpRequest = accept(server)
+print respond(request, 201, "POST payload")
+print close(server)
+"#
+            ),
+        )
+        .expect("write source");
+
+        let built = build_project(&project).expect("build project");
+        let child = compiled_binary_command(&built.binary)
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .expect("spawn compiled binary");
+
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let mut stream = loop {
+            match TcpStream::connect(("127.0.0.1", port)) {
+                Ok(stream) => break stream,
+                Err(err) if Instant::now() < deadline => {
+                    let _ = err;
+                    thread::sleep(Duration::from_millis(25));
+                }
+                Err(err) => panic!("server never became ready: {err}"),
+            }
+        };
+        stream
+            .write_all(
+                b"POST /submit HTTP/1.0\r\nHost: 127.0.0.1\r\nContent-Length: 7\r\n\r\npayload",
+            )
+            .expect("write request");
+        let mut response = String::new();
+        stream.read_to_string(&mut response).expect("read response");
+        assert!(
+            response.starts_with("HTTP/1.0 201 Created\r\n"),
+            "unexpected response: {response:?}"
+        );
+        assert!(
+            response.ends_with("POST payload"),
+            "unexpected response body: {response:?}"
+        );
+
+        let output = child.wait_with_output().expect("wait for server exit");
+        assert!(output.status.success(), "server process failed: {output:?}");
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout),
+            "true\n/synthetic\ntrue\ntrue\n"
+        );
+        assert_eq!(String::from_utf8_lossy(&output.stderr), "");
+    }
+
+    #[test]
+    fn stage1_stdlib_http_async_serve_routes_concurrent_requests() {
+        use std::io::{Read, Write};
+        use std::net::TcpStream;
+        use std::thread;
+        use std::time::{Duration, Instant};
+
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("stdlib-http-async-serve");
+        create_project(&project, Some("stdlib-http-async-serve")).expect("create project");
+        let manifest_source = render_manifest_with_capabilities(
+            "stdlib-http-async-serve",
+            false,
+            true,
+            false,
+            false,
+            false,
+            false,
+        )
+        .replace("async = false", "async = true");
+        fs::write(project.join("axiom.toml"), manifest_source).expect("write manifest");
+        let manifest = load_manifest(&project).expect("load manifest");
+        fs::write(
+            project.join("axiom.lock"),
+            render_lockfile_for_project(&project, &manifest).expect("lockfile"),
+        )
+        .expect("write lockfile");
+        let Some(port) = find_free_loopback_port() else {
+            return;
+        };
+        fs::write(
+            project.join("src/main.ax"),
+            format!(
+                r#"import "std/http.ax"
+import "std/http_async.ax"
+
+let server: Server = listen("127.0.0.1:{port}")
+let served: Task<bool> = async_serve_route(server, "/ready", "async routed", 2)
+print await served
+print close(server)
+"#
+            ),
+        )
+        .expect("write source");
+
+        let built = build_project(&project).expect("build project");
+        let child = compiled_binary_command(&built.binary)
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .expect("spawn compiled binary");
+
+        let connect = || {
+            let deadline = Instant::now() + Duration::from_secs(5);
+            loop {
+                match TcpStream::connect(("127.0.0.1", port)) {
+                    Ok(stream) => break stream,
+                    Err(err) if Instant::now() < deadline => {
+                        let _ = err;
+                        thread::sleep(Duration::from_millis(25));
+                    }
+                    Err(err) => panic!("server never became ready: {err}"),
+                }
+            }
+        };
+        let mut first = connect();
+        let mut second = connect();
+        first
+            .write_all(b"GET /ready HTTP/1.0\r\nHost: 127.0.0.1\r\n\r\n")
+            .expect("write first request");
+        second
+            .write_all(b"GET /missing HTTP/1.0\r\nHost: 127.0.0.1\r\n\r\n")
+            .expect("write second request");
+        let mut first_response = String::new();
+        let mut second_response = String::new();
+        first
+            .read_to_string(&mut first_response)
+            .expect("read first response");
+        second
+            .read_to_string(&mut second_response)
+            .expect("read second response");
+        assert!(
+            first_response.starts_with("HTTP/1.0 200 OK\r\n"),
+            "unexpected first response: {first_response:?}"
+        );
+        assert!(
+            first_response.ends_with("async routed"),
+            "unexpected first body: {first_response:?}"
+        );
+        assert!(
+            second_response.starts_with("HTTP/1.0 404 Not Found\r\n"),
+            "unexpected second response: {second_response:?}"
+        );
+
+        let output = child.wait_with_output().expect("wait for server exit");
+        assert!(output.status.success(), "server process failed: {output:?}");
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "true\ntrue\n");
+        assert_eq!(String::from_utf8_lossy(&output.stderr), "");
+    }
+
+    #[test]
+    fn stage1_project_rejects_stdlib_http_listener_without_net_capability() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("stdlib-http-listener-denied");
+        create_project(&project, Some("stdlib-http-listener-denied")).expect("create project");
+        fs::write(
+            project.join("axiom.toml"),
+            render_manifest_with_capabilities(
+                "stdlib-http-listener-denied",
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+            ),
+        )
+        .expect("write manifest");
+        let manifest = load_manifest(&project).expect("load manifest");
+        fs::write(
+            project.join("axiom.lock"),
+            render_lockfile_for_project(&project, &manifest).expect("lockfile"),
+        )
+        .expect("write lockfile");
+        fs::write(
+            project.join("src/main.ax"),
+            r#"import "std/http.ax"
+let server: Server = listen("127.0.0.1:18080")
+let request: HttpRequest = accept(server)
+print respond(request, 200, "hello")
+"#,
+        )
+        .expect("write source");
+
+        let err = check_project(&project).expect_err("expected capability denial");
+        assert_eq!(err.kind, "capability");
+        assert!(
+            err.message.contains("requires [capabilities].net = true"),
+            "unexpected diagnostic: {err:?}",
+        );
+    }
+
+    #[test]
+    fn stage1_project_rejects_stdlib_http_async_serve_without_async_capability() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("stdlib-http-async-serve-denied");
+        create_project(&project, Some("stdlib-http-async-serve-denied")).expect("create project");
+        fs::write(
+            project.join("axiom.toml"),
+            render_manifest_with_capabilities(
+                "stdlib-http-async-serve-denied",
+                false,
+                true,
+                false,
+                false,
+                false,
+                false,
+            ),
+        )
+        .expect("write manifest");
+        let manifest = load_manifest(&project).expect("load manifest");
+        fs::write(
+            project.join("axiom.lock"),
+            render_lockfile_for_project(&project, &manifest).expect("lockfile"),
+        )
+        .expect("write lockfile");
+        fs::write(
+            project.join("src/main.ax"),
+            r#"import "std/http.ax"
+import "std/http_async.ax"
+let server: Server = listen("127.0.0.1:18080")
+let served: Task<bool> = async_serve_route(server, "/ready", "hello", 1)
+print await served
+"#,
+        )
+        .expect("write source");
+
+        let err = check_project(&project).expect_err("expected async capability denial");
+        assert_eq!(err.kind, "capability");
+        assert!(
+            err.message.contains("requires [capabilities].async = true"),
+            "unexpected diagnostic: {err:?}",
+        );
     }
 
     #[test]
