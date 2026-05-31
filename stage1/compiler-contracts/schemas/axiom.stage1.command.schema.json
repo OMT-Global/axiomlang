@@ -137,6 +137,12 @@
           "items": {
             "type": "string"
           }
+        },
+        "macro_expansions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/macroExpansion"
+          }
         }
       }
     },
@@ -354,6 +360,12 @@
           "type": "array",
           "items": {
             "type": "string"
+          }
+        },
+        "macro_expansions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/macroExpansion"
           }
         }
       }
@@ -872,6 +884,54 @@
             "string",
             "null"
           ]
+        }
+      }
+    },
+    "macroExpansion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "macro_name",
+        "call_site",
+        "definition_site",
+        "depth"
+      ],
+      "properties": {
+        "macro_name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "call_site": {
+          "$ref": "#/$defs/macroSpan"
+        },
+        "definition_site": {
+          "$ref": "#/$defs/macroSpan"
+        },
+        "depth": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "macroSpan": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "line",
+        "column"
+      ],
+      "properties": {
+        "path": {
+          "$ref": "#/$defs/path"
+        },
+        "line": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "column": {
+          "type": "integer",
+          "minimum": 1
         }
       }
     }

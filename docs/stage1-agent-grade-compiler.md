@@ -146,7 +146,8 @@ Deliberate exclusions:
 - no trait bounds
 - no methods
 - no higher-kinded abstractions
-- no macros
+- no generic metaprogramming requirement; the narrower stage1 declarative macro
+  subset is tracked separately under #223
 - no requirement for user-defined closures at this milestone
 - no broad const-evaluation expansion beyond the current scalar `const` floor and
   scalar module-scope `static` declarations; `const fn`, array-size constants,

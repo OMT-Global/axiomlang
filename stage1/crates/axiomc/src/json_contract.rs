@@ -22,6 +22,9 @@ pub fn check_success(project: &Path, output: &CheckOutput) -> Value {
         "warnings": output.warnings,
         "packages": output.packages,
     });
+    if !output.macro_expansions.is_empty() {
+        payload["macro_expansions"] = json!(output.macro_expansions);
+    }
     if let Some(debug_symbols) = &output.debug_symbols {
         payload["debug_symbols"] = json!(debug_symbols);
     }

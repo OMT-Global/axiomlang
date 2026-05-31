@@ -23,6 +23,10 @@
     "schema_version": {
       "const": "axiom.stage1.v1"
     },
+    "schema": {
+      "type": "string",
+      "minLength": 1
+    },
     "ok": {
       "type": "boolean"
     },
@@ -180,7 +184,10 @@
       "type": "object",
       "required": [
         "path",
-        "imports"
+        "imports",
+        "functions",
+        "type_refs",
+        "capabilities"
       ],
       "additionalProperties": false,
       "properties": {
@@ -192,6 +199,56 @@
           "type": "array",
           "items": {
             "$ref": "#/$defs/moduleImport"
+          }
+        },
+        "functions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/function"
+          }
+        },
+        "type_refs": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "capabilities": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "function": {
+      "type": "object",
+      "required": [
+        "name",
+        "signature",
+        "span",
+        "capabilities"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "signature": {
+          "type": "string",
+          "minLength": 1
+        },
+        "span": {
+          "$ref": "#/$defs/span"
+        },
+        "capabilities": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
           }
         }
       }

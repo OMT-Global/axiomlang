@@ -63,6 +63,11 @@ enum Command {
         exports: bool,
         #[arg(long = "debug-symbols")]
         debug_symbols: bool,
+        #[arg(
+            long = "macro-recursion-limit",
+            default_value_t = axiomc::syntax::DEFAULT_MACRO_RECURSION_LIMIT
+        )]
+        macro_recursion_limit: usize,
         #[arg(short = 'p', long = "package")]
         package: Option<String>,
     },
@@ -323,6 +328,7 @@ fn main() {
             json,
             exports,
             debug_symbols,
+            macro_recursion_limit,
             package,
         } => match check_project_with_options(
             &path,
@@ -330,6 +336,7 @@ fn main() {
                 package: package.clone(),
                 include_exports: exports,
                 include_debug_symbols: debug_symbols,
+                macro_recursion_limit,
             },
         ) {
             Ok(output) => {
@@ -1713,6 +1720,16 @@ fn inspect_symbols(path: &Path) -> Result<InspectSymbolsReport, Diagnostic> {
             .iter()
             .map(|import| import.path.clone())
             .collect::<Vec<_>>();
+        for decl in &program.macros {
+            symbols.push(InspectedSymbol {
+                name: decl.name.clone(),
+                kind: "macro",
+                signature: format!("macro {}({})", decl.name, decl.params.join(", ")),
+                span: symbol_span(&file, decl.line, decl.column),
+                imports: imports.clone(),
+                capabilities: Vec::new(),
+            });
+        }
         for decl in &program.consts {
             if decl.visibility.is_public() {
                 symbols.push(InspectedSymbol {
@@ -4255,7 +4272,7 @@ mod tests {
         fs::create_dir_all(&source_dir).expect("create source dir");
         fs::write(
             source_dir.join("main.ax"),
-            "import \"time.ax\"\n\npub const LIMIT: int = 3\n\npub struct Job {\nname: string\n}\n\npub fn now(): int {\nreturn clock_now_ms()\n}\n\npub fn dial(): int {\nreturn net_tcp_dial(\"127.0.0.1\", 80)\n}\n\npub fn write_file_cap(): int {\nreturn fs_write(\"tmp.txt\", \"ok\")\n}\n\npub fn create_file_cap(): int {\nreturn fs_create(\"tmp.txt\")\n}\n\npub fn serve_once_cap(): bool {\nreturn http_serve_once(\"127.0.0.1:0\", \"ok\")\n}\n\npub fn serve_route_cap(): bool {\nreturn http_serve_route(\"127.0.0.1:0\", \"/\", \"ok\", 1)\n}\n\npub fn mac(): string {\nreturn hmac_sha256(\"key\", \"message\")\n}\n\npub fn safe_eq(): bool {\nreturn constant_time_eq(\"left\", \"right\")\n}\n\npub fn slice_time(values: [int]): [int] {\nreturn values[0:clock_now_ms()]\n}\n\nfn private_helper(): int {\nreturn 1\n}\n",
+            "import \"time.ax\"\n\nmacro add_one {\n($value:expr) => ($value + 1);\n}\n\npub const LIMIT: int = 3\n\npub struct Job {\nname: string\n}\n\npub fn now(): int {\nreturn clock_now_ms()\n}\n\npub fn dial(): int {\nreturn net_tcp_dial(\"127.0.0.1\", 80)\n}\n\npub fn write_file_cap(): int {\nreturn fs_write(\"tmp.txt\", \"ok\")\n}\n\npub fn create_file_cap(): int {\nreturn fs_create(\"tmp.txt\")\n}\n\npub fn serve_once_cap(): bool {\nreturn http_serve_once(\"127.0.0.1:0\", \"ok\")\n}\n\npub fn serve_route_cap(): bool {\nreturn http_serve_route(\"127.0.0.1:0\", \"/\", \"ok\", 1)\n}\n\npub fn mac(): string {\nreturn hmac_sha256(\"key\", \"message\")\n}\n\npub fn safe_eq(): bool {\nreturn constant_time_eq(\"left\", \"right\")\n}\n\npub fn slice_time(values: [int]): [int] {\nreturn values[0:clock_now_ms()]\n}\n\nfn private_helper(): int {\nreturn 1\n}\n",
         )
         .expect("write main source");
         fs::write(
@@ -4267,7 +4284,14 @@ mod tests {
         let report = inspect_symbols(dir.path()).expect("inspect symbols");
 
         assert_eq!(report.command, "inspect symbols");
-        assert_eq!(report.symbols.len(), 12);
+        assert_eq!(report.symbols.len(), 13);
+        let macro_symbol = report
+            .symbols
+            .iter()
+            .find(|symbol| symbol.name == "add_one")
+            .expect("macro symbol");
+        assert_eq!(macro_symbol.kind, "macro");
+        assert_eq!(macro_symbol.signature, "macro add_one(value)");
         let now = report
             .symbols
             .iter()
