@@ -1,0 +1,3 @@
+property fn broken(input: [int]): bool {
+return input != input
+}

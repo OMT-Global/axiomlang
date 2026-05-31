@@ -3420,7 +3420,9 @@ fn collect_hir_expr_intrinsic_use(
                 collect_hir_expr_intrinsic_use(module_path, arg, line, column, uses);
             }
         }
-        hir::Expr::BinaryAdd { lhs, rhs, .. } | hir::Expr::BinaryCompare { lhs, rhs, .. } => {
+        hir::Expr::BinaryAdd { lhs, rhs, .. }
+        | hir::Expr::BinaryCompare { lhs, rhs, .. }
+        | hir::Expr::BinaryLogic { lhs, rhs, .. } => {
             collect_hir_expr_intrinsic_use(module_path, lhs, fallback_line, fallback_column, uses);
             collect_hir_expr_intrinsic_use(module_path, rhs, fallback_line, fallback_column, uses);
         }
@@ -3687,7 +3689,9 @@ fn validate_expr_capabilities(
             }
             Ok(())
         }
-        syntax::Expr::BinaryAdd { lhs, rhs, .. } | syntax::Expr::BinaryCompare { lhs, rhs, .. } => {
+        syntax::Expr::BinaryAdd { lhs, rhs, .. }
+        | syntax::Expr::BinaryCompare { lhs, rhs, .. }
+        | syntax::Expr::BinaryLogic { lhs, rhs, .. } => {
             validate_expr_capabilities(module_path, lhs, capabilities)?;
             validate_expr_capabilities(module_path, rhs, capabilities)
         }
@@ -5600,6 +5604,39 @@ fn rewrite_expr(
             line,
             column,
         } => syntax::Expr::BinaryCompare {
+            op: *op,
+            lhs: Box::new(rewrite_expr(
+                lhs,
+                visible_functions,
+                visible_consts,
+                visible_structs,
+                visible_types,
+                private_imported,
+                private_imported_consts,
+                private_imported_types,
+                module_path,
+            )?),
+            rhs: Box::new(rewrite_expr(
+                rhs,
+                visible_functions,
+                visible_consts,
+                visible_structs,
+                visible_types,
+                private_imported,
+                private_imported_consts,
+                private_imported_types,
+                module_path,
+            )?),
+            line: *line,
+            column: *column,
+        },
+        syntax::Expr::BinaryLogic {
+            op,
+            lhs,
+            rhs,
+            line,
+            column,
+        } => syntax::Expr::BinaryLogic {
             op: *op,
             lhs: Box::new(rewrite_expr(
                 lhs,

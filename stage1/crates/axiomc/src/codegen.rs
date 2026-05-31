@@ -88,6 +88,7 @@ mod tests {
                 params: vec![],
                 return_ty: Type::Int,
                 body: vec![],
+                is_property: false,
                 is_async: false,
                 is_extern: false,
                 extern_abi: None,
@@ -3837,7 +3838,9 @@ fn expr_uses_call(expr: &Expr, name: &str) -> bool {
             args,
             ..
         } => call_name == name || args.iter().any(|arg| expr_uses_call(arg, name)),
-        Expr::BinaryAdd { lhs, rhs, .. } | Expr::BinaryCompare { lhs, rhs, .. } => {
+        Expr::BinaryAdd { lhs, rhs, .. }
+        | Expr::BinaryCompare { lhs, rhs, .. }
+        | Expr::BinaryLogic { lhs, rhs, .. } => {
             expr_uses_call(lhs, name) || expr_uses_call(rhs, name)
         }
         Expr::Cast { expr, .. } => expr_uses_call(expr, name),
@@ -4413,7 +4416,9 @@ fn collect_expr_mutable_borrows(expr: &Expr, locals: &mut HashSet<String>) {
                 collect_expr_mutable_borrows(arg, locals);
             }
         }
-        Expr::BinaryAdd { lhs, rhs, .. } | Expr::BinaryCompare { lhs, rhs, .. } => {
+        Expr::BinaryAdd { lhs, rhs, .. }
+        | Expr::BinaryCompare { lhs, rhs, .. }
+        | Expr::BinaryLogic { lhs, rhs, .. } => {
             collect_expr_mutable_borrows(lhs, locals);
             collect_expr_mutable_borrows(rhs, locals);
         }
@@ -5336,7 +5341,20 @@ fn render_expr(expr: &Expr) -> String {
             Type::Fn(_, _) => unreachable!("type checker rejects function addition"),
         },
         Expr::BinaryCompare { op, lhs, rhs, .. } => {
-            format!("{} {} {}", render_expr(lhs), op.lexeme(), render_expr(rhs))
+            format!(
+                "{} {} {}",
+                render_compare_operand(lhs),
+                op.lexeme(),
+                render_compare_operand(rhs)
+            )
+        }
+        Expr::BinaryLogic { op, lhs, rhs, .. } => {
+            format!(
+                "{} {} {}",
+                render_logic_operand(lhs),
+                op.lexeme(),
+                render_logic_operand(rhs)
+            )
         }
         Expr::Cast { expr, ty } => format!(
             "({}) as {}",
@@ -5618,6 +5636,20 @@ fn render_binary_operand(expr: &Expr) -> String {
     }
 }
 
+fn render_compare_operand(expr: &Expr) -> String {
+    match expr {
+        Expr::BinaryCompare { .. } | Expr::BinaryLogic { .. } => format!("({})", render_expr(expr)),
+        _ => render_expr(expr),
+    }
+}
+
+fn render_logic_operand(expr: &Expr) -> String {
+    match expr {
+        Expr::BinaryLogic { .. } => format!("({})", render_expr(expr)),
+        _ => render_expr(expr),
+    }
+}
+
 fn rust_type(ty: &Type, type_context: &TypeContext<'_>) -> String {
     rust_type_inner(ty, None, type_context)
 }
@@ -5782,6 +5814,15 @@ impl crate::mir::CompareOp {
             crate::mir::CompareOp::Le => "<=",
             crate::mir::CompareOp::Gt => ">",
             crate::mir::CompareOp::Ge => ">=",
+        }
+    }
+}
+
+impl crate::mir::LogicOp {
+    fn lexeme(self) -> &'static str {
+        match self {
+            crate::mir::LogicOp::And => "&&",
+            crate::mir::LogicOp::Or => "||",
         }
     }
 }

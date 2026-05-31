@@ -51,6 +51,7 @@ pub struct Function {
     pub params: Vec<Param>,
     pub return_ty: Type,
     pub body: Vec<Stmt>,
+    pub is_property: bool,
     pub is_async: bool,
     pub is_extern: bool,
     pub extern_abi: Option<String>,
@@ -154,6 +155,12 @@ pub enum Expr {
     },
     BinaryCompare {
         op: CompareOp,
+        lhs: Box<Expr>,
+        rhs: Box<Expr>,
+        ty: Type,
+    },
+    BinaryLogic {
+        op: LogicOp,
         lhs: Box<Expr>,
         rhs: Box<Expr>,
         ty: Type,
@@ -271,6 +278,12 @@ pub enum CompareOp {
 }
 
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+pub enum LogicOp {
+    And,
+    Or,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
 pub enum ArithmeticOp {
     Add,
     Sub,
@@ -381,6 +394,7 @@ impl Expr {
             Expr::Call { ty, .. } => ty.clone(),
             Expr::BinaryAdd { ty, .. } => ty.clone(),
             Expr::BinaryCompare { ty, .. } => ty.clone(),
+            Expr::BinaryLogic { ty, .. } => ty.clone(),
             Expr::Cast { ty, .. } => ty.clone(),
             Expr::Try { ty, .. } => ty.clone(),
             Expr::Await { ty, .. } => ty.clone(),
@@ -439,6 +453,7 @@ fn lower_function(function: &hir::Function) -> Function {
         params: function.params.iter().map(lower_param).collect(),
         return_ty: lower_type(&function.return_ty),
         body: function.body.iter().map(lower_stmt).collect(),
+        is_property: function.is_property,
         is_async: function.is_async,
         is_extern: function.is_extern,
         extern_abi: function.extern_abi.clone(),
@@ -596,6 +611,12 @@ fn lower_expr(expr: &hir::Expr) -> Expr {
         },
         hir::Expr::BinaryCompare { op, lhs, rhs, ty } => Expr::BinaryCompare {
             op: lower_compare_op(*op),
+            lhs: Box::new(lower_expr(lhs)),
+            rhs: Box::new(lower_expr(rhs)),
+            ty: lower_type(ty),
+        },
+        hir::Expr::BinaryLogic { op, lhs, rhs, ty } => Expr::BinaryLogic {
+            op: lower_logic_op(*op),
             lhs: Box::new(lower_expr(lhs)),
             rhs: Box::new(lower_expr(rhs)),
             ty: lower_type(ty),
@@ -758,6 +779,13 @@ fn lower_compare_op(op: hir::CompareOp) -> CompareOp {
         hir::CompareOp::Le => CompareOp::Le,
         hir::CompareOp::Gt => CompareOp::Gt,
         hir::CompareOp::Ge => CompareOp::Ge,
+    }
+}
+
+fn lower_logic_op(op: hir::LogicOp) -> LogicOp {
+    match op {
+        hir::LogicOp::And => LogicOp::And,
+        hir::LogicOp::Or => LogicOp::Or,
     }
 }
 
