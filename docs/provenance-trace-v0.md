@@ -23,6 +23,13 @@ Source spans are best-effort parser spans from the stage1 source model. Artifact
 
 If the provenance file is missing, run `axiomc build <path>` first.
 
+## GitHub delivery edge
+
+Issue-to-PR traceability is tracked separately from build provenance. The
+advisory report described in [Issue-to-PR Traceability v0](issue-pr-traceability.md)
+links GitHub issues to pull requests, changed files, and coarse semantic hints.
+Build provenance still owns source-to-artifact relationships inside a package.
+
 ## Rust capture risk
 
 The only Rust-specific node in v0 is the `rust_source` artifact. Rust source remains an implementation artifact; source functions and package nodes remain Axiom-level provenance nodes.
