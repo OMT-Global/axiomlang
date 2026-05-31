@@ -2080,6 +2080,9 @@ fn effect_for_call(name: &str) -> Option<(&'static str, &'static str, &'static s
         | "crypto_constant_time_eq_u8"
         | "constant_time_eq"
         | "constant_time_eq_u8" => Some(("crypto.mac", "authenticate", "crypto")),
+        "crypto_ed25519_keygen" | "ed25519_keygen" => Some(("crypto.sign", "generate", "crypto")),
+        "crypto_ed25519_sign" | "ed25519_sign" => Some(("crypto.sign", "sign", "crypto")),
+        "crypto_ed25519_verify" | "ed25519_verify" => Some(("crypto.sign", "verify", "crypto")),
         _ => None,
     }
 }
@@ -2093,12 +2096,18 @@ fn effect_resource(name: &str, args: &[axiomc::syntax::Expr]) -> String {
         | "crypto_hmac_sha512"
         | "crypto_constant_time_eq"
         | "crypto_constant_time_eq_u8"
+        | "crypto_ed25519_keygen"
+        | "crypto_ed25519_sign"
+        | "crypto_ed25519_verify"
         | "hmac_sha256"
         | "hmac_sha512"
         | "verify_sha256"
         | "verify_sha512"
         | "constant_time_eq"
-        | "constant_time_eq_u8" => String::from("runtime_crypto"),
+        | "constant_time_eq_u8"
+        | "ed25519_keygen"
+        | "ed25519_sign"
+        | "ed25519_verify" => String::from("runtime_crypto"),
         _ => args
             .first()
             .map(effect_literal_resource)
@@ -2400,6 +2409,9 @@ fn capability_for_call(name: &str) -> Option<&'static str> {
         | "crypto_rand_u64"
         | "crypto_aead_seal"
         | "crypto_aead_open"
+        | "crypto_ed25519_keygen"
+        | "crypto_ed25519_sign"
+        | "crypto_ed25519_verify"
         | "hmac_sha256"
         | "hmac_sha512"
         | "verify_sha256"
@@ -2409,7 +2421,10 @@ fn capability_for_call(name: &str) -> Option<&'static str> {
         | "random_bytes"
         | "random_u64"
         | "aead_seal"
-        | "aead_open" => Some("crypto"),
+        | "aead_open"
+        | "ed25519_keygen"
+        | "ed25519_sign"
+        | "ed25519_verify" => Some("crypto"),
         _ => None,
     }
 }
