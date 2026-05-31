@@ -12,6 +12,18 @@ The current generated-Rust backend and the planned direct native backend are
 both describable using this schema. New non-Rust artifact targets must declare
 their contracts using the same shape before they ship.
 
+The first implemented non-source artifact target is
+[OpenAPI Target v0](openapi-target-v0.md), which emits an `openapi_spec`
+artifact from HTTP-serving semantic routes.
+[Policy Bundle Target v0](policy-bundle-target-v0.md) emits a
+`policy_bundle` artifact from manifest capabilities and effect records.
+[SQL Migration Target v0](sql-migration-target-v0.md) emits
+`sql_migration` artifacts from declared schema structs and schema axioms.
+[Terraform/OpenTofu Target v0](terraform-target-v0.md) emits a
+`terraform_module` artifact from capability and runtime-effect surfaces.
+[Runbook Target v0](runbook-target-v0.md) emits a `runbook` artifact from
+capability, effect, evidence, and artifact inspection records.
+
 ## Where It Fits
 
 ```text
@@ -225,15 +237,27 @@ this contract, not by editing the generated-Rust contract.
 These sketches are not part of stage1 work. They illustrate that the schema is
 expressive enough for non-source targets:
 
-- `openapi_spec`: input node kinds include `Capability`, `Function`, `Type`;
-  effect kinds describe `network.http.*`; artifacts are YAML or JSON OpenAPI
-  documents.
-- `sql_migration`: input node kinds include `Type` and `Axiom` (invariants on
-  data); artifacts are forward and rollback SQL files.
-- `terraform_module`: input node kinds include `Capability` and
-  `RuntimeSurface`; artifacts are HCL modules.
-- `policy_bundle`: input node kinds include `Capability` and `Effect`;
-  artifacts are policy files consumed by allowlist gates.
+- `openapi_spec`: implemented for stage1 as
+  [OpenAPI Target v0](openapi-target-v0.md). Input node kinds include
+  `Package`, `Module`, `Function`, `Capability`, `Effect`, and `Type`; effect
+  kinds describe `network.http.*` and `network.tcp.bind`; artifacts are JSON
+  OpenAPI 3.1 documents.
+- `sql_migration`: implemented for stage1 as
+  [SQL Migration Target v0](sql-migration-target-v0.md). Input node kinds
+  include `Package`, `Module`, `Type`, and `Axiom`; artifacts are deterministic
+  PostgreSQL-compatible forward and rollback SQL files plus a schema snapshot.
+- `terraform_module`: implemented for stage1 as
+  [Terraform/OpenTofu Target v0](terraform-target-v0.md). Input node kinds
+  include `Package`, `Capability`, `Effect`, and `RuntimeSurface`; artifacts are
+  provider-neutral HCL modules.
+- `policy_bundle`: implemented for stage1 as
+  [Policy Bundle Target v0](policy-bundle-target-v0.md). Input node kinds
+  include `Package`, `Capability`, and `Effect`; artifacts are deterministic
+  JSON policy files consumed by allowlist gates.
+- `runbook`: implemented for stage1 as [Runbook Target v0](runbook-target-v0.md).
+  Input node kinds include `Package`, `Capability`, `Effect`,
+  `RuntimeSurface`, `Evidence`, and `Artifact`; artifacts are deterministic
+  Markdown operator runbooks.
 
 These sketches share the same contract shape. Adding them does not require
 inventing a new schema.
@@ -251,7 +275,7 @@ Target interface v0 does not require:
 
 - A new backend implementation.
 - Renaming or restructuring the current generated-Rust pipeline.
-- Implementing Zero, Go, TypeScript, OpenAPI, SQL, Terraform, or policy
+- Implementing Zero, Go, TypeScript, or provider-specific infrastructure
   generation.
 - Runtime sandboxing or new capability gates.
 

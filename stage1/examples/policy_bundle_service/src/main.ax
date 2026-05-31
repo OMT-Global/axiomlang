@@ -1,0 +1,9 @@
+import "std/env.ax"
+import "std/fs.ax"
+import "std/time.ax"
+
+let started: int = now_ms()
+let _mode: Option<string> = get_env("POLICY_MODE")
+let _contents: Option<string> = read_file("policy-input.txt")
+
+print started > 0

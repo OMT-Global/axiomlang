@@ -1,0 +1,18 @@
+[package]
+name = "terraform-runtime-service"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+fs = false
+"fs:write" = false
+net = { hosts = ["api.internal"], ports = [443] }
+process = false
+env = ["SERVICE_MODE"]
+clock = false
+crypto = false
+ffi = false
+async = false

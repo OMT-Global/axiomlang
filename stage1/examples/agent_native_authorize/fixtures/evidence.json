@@ -1,0 +1,24 @@
+{
+  "schema_version": "axiom.evidence.v0",
+  "ok": true,
+  "command": "evidence",
+  "project": "stage1/examples/agent_native_authorize",
+  "package": "agent-native-authorize",
+  "validation_status": "passing",
+  "summary": {
+    "passing": 1,
+    "failing": 0,
+    "missing": 0,
+    "provided": 1
+  },
+  "evidence": [
+    {
+      "id": "axiom://package/agent-native-authorize/evidence/authorize-token-smoke",
+      "evidence_type": "unit_test",
+      "status": "passing",
+      "target": "axiom://package/agent-native-authorize",
+      "path": "src/main_test.ax",
+      "diagnostics": []
+    }
+  ]
+}

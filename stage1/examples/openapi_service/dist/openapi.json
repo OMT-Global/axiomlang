@@ -1,0 +1,36 @@
+{
+  "components": {
+    "schemas": {}
+  },
+  "info": {
+    "title": "openapi-service",
+    "version": "0.1.0"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/ready": {
+      "get": {
+        "description": "Generated from Axiom HTTP-serving semantic routes.",
+        "operationId": "get_ready",
+        "responses": {
+          "200": {
+            "content": {
+              "text/plain; charset=utf-8": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Generated from an Axiom HTTP route."
+          }
+        },
+        "summary": "GET /ready",
+        "x-axiom": {
+          "capability_gate": "net",
+          "effect_kind": "network.tcp.bind",
+          "target_id": "axiom://target/stage1-openapi-v0"
+        }
+      }
+    }
+  }
+}

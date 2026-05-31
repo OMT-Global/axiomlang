@@ -1,0 +1,6 @@
+import "authorize.ax"
+
+print authorize_token(Some("agent-native-demo-token"), 1)
+print authorize_token(Some("wrong-token"), 1)
+print authorize_token(None, 1)
+print authorize_token(Some("agent-native-demo-token"), 0)
