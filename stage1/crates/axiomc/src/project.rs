@@ -7,8 +7,8 @@ use crate::json_contract;
 use crate::lockfile::validate_lockfile;
 use crate::manifest::{
     BuildSection, CapabilityConfig, CapabilityDescriptor, CapabilityKind, Manifest, PackageSection,
-    ProcessCommandPolicy, TestKind, binary_path_for_target, capability_descriptors, entry_path,
-    generated_rust_path, load_manifest, manifest_path, out_dir_path,
+    ProcessCommandPolicy, RuntimeConfig, TestKind, binary_path_for_target, capability_descriptors,
+    entry_path, generated_rust_path, load_manifest, manifest_path, out_dir_path,
 };
 use crate::mir;
 use crate::stdlib;
@@ -1561,6 +1561,7 @@ fn register_stdlib_package(graph: &mut PackageGraph) {
             entry: String::from("lib.ax"),
             out_dir: String::from("dist"),
         },
+        runtime: RuntimeConfig::default(),
         tests: Vec::new(),
         capabilities: CapabilityConfig {
             fs: true,
@@ -1921,7 +1922,8 @@ fn build_artifacts(
         &GeneratedRustBackendInput::from_mir(analyzed.mir.clone())
             .with_debug(options.debug)
             .with_paths(package_root, fs_root)
-            .with_capabilities(analyzed.manifest.capabilities.clone()),
+            .with_capabilities(analyzed.manifest.capabilities.clone())
+            .with_runtime_max_threads(analyzed.manifest.runtime.max_threads),
     )?;
     let cache = build_cache_file(
         graph,
@@ -7135,6 +7137,7 @@ mod tests {
                 entry: "src/main.ax".to_string(),
                 out_dir: "dist".to_string(),
             },
+            runtime: RuntimeConfig::default(),
             tests: Vec::new(),
             capabilities: CapabilityConfig::default(),
         }
@@ -7153,6 +7156,7 @@ mod tests {
                 entry: "src/main.ax".to_string(),
                 out_dir: "dist".to_string(),
             },
+            runtime: RuntimeConfig::default(),
             tests: Vec::new(),
             capabilities: CapabilityConfig::default(),
         }

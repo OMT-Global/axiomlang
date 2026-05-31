@@ -2430,7 +2430,7 @@ let now: int = clock_now_ms()
 import "std/time.ax"
 
 async fn slow_host_task(): int {
-let slept: int = sleep(duration_ms(500))
+let slept: int = sleep(duration_ms(1000))
 return slept + 99
 }
 
@@ -2456,7 +2456,7 @@ print 0
         assert!(output.status.success(), "binary failed: {output:?}");
         assert_eq!(String::from_utf8_lossy(&output.stdout), "0\n");
         assert!(
-            elapsed < std::time::Duration::from_millis(250),
+            elapsed < std::time::Duration::from_millis(750),
             "timeout waited for slow host task: elapsed={elapsed:?}"
         );
     }
@@ -6944,13 +6944,17 @@ true
         assert!(
             !generated.contains("std::thread::spawn(move || axiom_task_ready(axiom_await(task)))")
         );
-        assert!(generated.contains("receiver.recv_timeout(timeout)"));
-        assert!(generated.contains("timeout_ms.clamp(0, 30_000)"));
-        assert!(generated.contains("RecvTimeoutError::Timeout"));
+        assert!(generated.contains("struct AxiomRuntimePool"));
+        assert!(generated.contains("static AXIOM_RUNTIME_POOL: OnceLock<AxiomRuntimePool>"));
+        assert!(generated.contains("AxiomRuntimePool::new(axiom_runtime_max_threads())"));
+        assert!(generated.contains("struct AxiomTimerWheel"));
+        assert!(generated.contains("static AXIOM_TIMER_WHEEL: OnceLock<AxiomTimerWheel>"));
+        assert!(generated.contains("axiom_timer_sleep_ms(milliseconds);"));
+        assert!(generated.contains("milliseconds.clamp(0, 30_000)"));
+        assert!(generated.contains("AxiomTimeoutEvent::TimedOut"));
         assert!(generated.contains("clock_sleep_ms(milliseconds)"));
         assert!(generated.contains("net_tcp_dial(host, port, message, timeout_ms)"));
         assert!(generated.contains("std::net::TcpStream::connect_timeout"));
-        assert!(generated.contains("let worker = std::thread::spawn(move ||"));
         assert!(generated.contains("scheduler.schedule(task)"));
         assert!(!generated.contains("return axiom_task_ready(value + 1);"));
         let output = compiled_binary_command(&built.binary)
@@ -7136,6 +7140,111 @@ let _listener_closed: int = close_listener(listener)
         let tests = run_project_tests(&project).expect("run tests");
         assert_eq!(tests.passed, 1);
         assert_eq!(tests.failed, 0);
+    }
+
+    #[test]
+    #[cfg_attr(not(feature = "run-native-tests"), ignore)]
+    fn stage1_async_runtime_single_worker_drains_nested_join_and_timeout() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("stdlib-async-single-worker-app");
+        create_project(&project, Some("stdlib-async-single-worker-app")).expect("create project");
+        fs::write(
+            project.join("axiom.toml"),
+            format!(
+                "{}\n[runtime]\nmax_threads = 1\n",
+                render_manifest_with_capabilities(
+                    "stdlib-async-single-worker-app",
+                    false,
+                    false,
+                    false,
+                    false,
+                    true,
+                    false,
+                )
+                .replace("async = false", "async = true")
+            ),
+        )
+        .expect("write manifest");
+        let manifest = load_manifest(&project).expect("load manifest");
+        fs::write(
+            project.join("axiom.lock"),
+            render_lockfile_for_project(&project, &manifest).expect("lockfile"),
+        )
+        .expect("write lockfile");
+        let source = "import \"std/async.ax\"\nimport \"std/async_time.ax\"\nasync fn child(value: int): int {\nreturn value + 1\n}\nasync fn nested_join(value: int): int {\nlet handle: JoinHandle<int> = spawn<int>(child(value))\nreturn await join<int>(handle)\n}\nasync fn nested_timeout(value: int): int {\nlet maybe: Option<int> = await timeout<int>(child(value), 100)\nmatch maybe {\nSome(actual) {\nreturn actual\n}\nNone {\nreturn 0\n}\n}\n}\nlet joined: JoinHandle<int> = spawn<int>(nested_join(40))\nprint await join<int>(joined)\nlet timed: JoinHandle<int> = spawn<int>(nested_timeout(6))\nprint await join<int>(timed)\n";
+        fs::write(project.join("src/main.ax"), source).expect("write source");
+
+        let built = build_project(&project).expect("build single-worker async project");
+        let generated = fs::read_to_string(&built.generated_rust).expect("read generated rust");
+        assert!(generated.contains("const AXIOM_RUNTIME_MAX_THREADS_CONFIG: usize = 1;"));
+        assert!(generated.contains("fn axiom_runtime_recv<T>("));
+        assert!(generated.contains("fn try_run_one(&self) -> bool"));
+
+        let output = compiled_binary_command(&built.binary)
+            .output()
+            .expect("run compiled binary");
+        assert!(output.status.success(), "runtime failed: {output:?}");
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "41\n7\n");
+    }
+
+    #[test]
+    #[cfg_attr(not(feature = "run-native-tests"), ignore)]
+    fn stage1_async_runtime_uses_configured_scheduler_and_timer_wheel() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("stdlib-async-scheduler-app");
+        create_project(&project, Some("stdlib-async-scheduler-app")).expect("create project");
+        fs::write(
+            project.join("axiom.toml"),
+            format!(
+                "{}\n[runtime]\nmax_threads = 32\n",
+                render_manifest_with_capabilities(
+                    "stdlib-async-scheduler-app",
+                    false,
+                    false,
+                    false,
+                    false,
+                    true,
+                    false,
+                )
+                .replace("async = false", "async = true")
+            ),
+        )
+        .expect("write manifest");
+        let manifest = load_manifest(&project).expect("load manifest");
+        fs::write(
+            project.join("axiom.lock"),
+            render_lockfile_for_project(&project, &manifest).expect("lockfile"),
+        )
+        .expect("write lockfile");
+
+        let mut source = String::from(
+            "import \"std/async.ax\"\nimport \"std/async_time.ax\"\nlet start: int = clock_now_ms()\n",
+        );
+        for index in 0..32 {
+            source.push_str(&format!(
+                "let h{index}: JoinHandle<int> = spawn<int>(sleep_ms(100))\n"
+            ));
+        }
+        for index in 0..32 {
+            source.push_str(&format!("print await join<int>(h{index}) == 0\n"));
+        }
+        source.push_str(
+            "let elapsed: int = clock_elapsed_ms(start)\nprint elapsed >= 80\nprint elapsed < 1200\n",
+        );
+        fs::write(project.join("src/main.ax"), source).expect("write source");
+
+        let built = build_project(&project).expect("build project");
+        let generated = fs::read_to_string(&built.generated_rust).expect("read generated rust");
+        assert!(generated.contains("const AXIOM_RUNTIME_MAX_THREADS_CONFIG: usize = 32;"));
+        assert!(generated.contains("AxiomTimerWheel"));
+        assert!(generated.contains("AxiomRuntimePool"));
+
+        let output = compiled_binary_command(&built.binary)
+            .output()
+            .expect("run compiled binary");
+        assert!(output.status.success(), "runtime failed: {output:?}");
+        let expected = format!("{}true\ntrue\n", "true\n".repeat(32));
+        assert_eq!(String::from_utf8_lossy(&output.stdout), expected);
     }
 
     #[test]

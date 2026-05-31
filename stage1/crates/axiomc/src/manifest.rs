@@ -24,6 +24,7 @@ pub struct Manifest {
     pub dependencies: BTreeMap<String, DependencySpec>,
     pub workspace: Option<WorkspaceSection>,
     pub build: BuildSection,
+    pub runtime: RuntimeConfig,
     pub tests: Vec<TestTarget>,
     pub capabilities: CapabilityConfig,
 }
@@ -51,6 +52,12 @@ pub struct WorkspaceSection {
 pub struct BuildSection {
     pub entry: String,
     pub out_dir: String,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq, Default)]
+pub struct RuntimeConfig {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_threads: Option<usize>,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -228,6 +235,7 @@ struct RawManifest {
     dependencies: Option<BTreeMap<String, RawDependencySpec>>,
     workspace: Option<RawWorkspaceSection>,
     build: Option<RawBuildSection>,
+    runtime: Option<RawRuntimeConfig>,
     tests: Option<Vec<RawTestTarget>>,
     capabilities: Option<RawCapabilityConfig>,
     registry: Option<toml::Value>,
@@ -252,6 +260,11 @@ struct RawWorkspaceSection {
 struct RawBuildSection {
     entry: Option<String>,
     out_dir: Option<String>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct RawRuntimeConfig {
+    max_threads: Option<usize>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -562,6 +575,7 @@ fn normalize_manifest(raw: RawManifest, path: &Path) -> Result<Manifest, Diagnos
     let out_dir = required_field(build.out_dir, path, "build.out_dir")?;
     validate_relative_path(path, "build.entry", &entry)?;
     validate_relative_path(path, "build.out_dir", &out_dir)?;
+    let runtime = normalize_runtime(raw.runtime, path)?;
     let dependencies = normalize_dependencies(raw.dependencies.unwrap_or_default(), path)?;
     let tests = normalize_tests(raw.tests.unwrap_or_default(), path)?;
     let capabilities = raw.capabilities.unwrap_or_default();
@@ -600,6 +614,7 @@ fn normalize_manifest(raw: RawManifest, path: &Path) -> Result<Manifest, Diagnos
         dependencies,
         workspace,
         build: BuildSection { entry, out_dir },
+        runtime,
         tests,
         capabilities: CapabilityConfig {
             fs: capabilities.fs.unwrap_or(false),
@@ -624,6 +639,22 @@ fn normalize_manifest(raw: RawManifest, path: &Path) -> Result<Manifest, Diagnos
             owners,
             rationale,
         },
+    })
+}
+
+fn normalize_runtime(
+    raw: Option<RawRuntimeConfig>,
+    path: &Path,
+) -> Result<RuntimeConfig, Diagnostic> {
+    let raw = raw.unwrap_or_default();
+    if raw.max_threads == Some(0) {
+        return Err(
+            Diagnostic::new("manifest", "runtime.max_threads must be greater than 0")
+                .with_path(path.display().to_string()),
+        );
+    }
+    Ok(RuntimeConfig {
+        max_threads: raw.max_threads,
     })
 }
 
@@ -1473,6 +1504,38 @@ exclude = ["dist/**"]
         assert_eq!(publish.registry, "https://registry.example.test/index");
         assert_eq!(publish.include, vec!["src/**", "axiom.toml"]);
         assert_eq!(publish.exclude, vec!["dist/**"]);
+    }
+
+    #[test]
+    fn accepts_runtime_max_threads() {
+        let dir = write_manifest(
+            r#"
+[package]
+name = "demo"
+version = "0.1.0"
+
+[runtime]
+max_threads = 32
+"#,
+        );
+        let manifest = load_manifest(dir.path()).expect("manifest should load");
+        assert_eq!(manifest.runtime.max_threads, Some(32));
+    }
+
+    #[test]
+    fn rejects_zero_runtime_max_threads() {
+        let dir = write_manifest(
+            r#"
+[package]
+name = "demo"
+version = "0.1.0"
+
+[runtime]
+max_threads = 0
+"#,
+        );
+        let error = load_manifest(dir.path()).expect_err("max_threads should be rejected");
+        assert!(error.message.contains("runtime.max_threads"));
     }
 
     #[test]
