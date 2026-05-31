@@ -9,7 +9,7 @@ complete.
 | Issue | Current stage1 support | Still out of scope |
 | --- | --- | --- |
 | #232 generic collections | `std/collections.ax` has generic borrowed-slice helpers, and `std/string_builder.ax` now provides an owned string accumulator. | Growable `Vec<T>`, maps, sets, traits, and mutable-borrow-backed collection mutation. |
-| #237 structured JSON | `std/json.ax` supports scalar parse/stringify, typed top-level object field extraction with `parse_field_*`, manual `field_*` / `object*` builders, and small JSON Schema object helpers. | Derived struct encode/decode, streaming parse, full JSON Schema coverage, and macros. |
+| #237 structured JSON | `std/json.ax` supports scalar parse/stringify, typed top-level object field extraction with `parse_field_*`, manual `field_*` / `object*` builders, and small JSON Schema object helpers. `std/serdes.ax` adds a native `Value` union with `to_json({string: Value})`, `stringify(Value)`, and `from_json(text)` for object/array/scalar round trips. | Derived struct encode/decode, streaming parse, full JSON Schema coverage, and macros. |
 | #238 regex | `std/regex.ax` supports `is_match`, `find`, and `replace_all` over a deterministic NFA-state engine with anchors, `.`, `?`, `*`, `+`, escaped literals, and character classes/ranges. | Captures, alternation/grouping, Unicode character properties, and precompiled regex values. |
 | #239 structured logging | `std/log.ax` supports deterministic JSON-line event formatting, levels, key-value attributes, and ambient stderr emission. | Host log sinks, replay buffers, filtering, and runtime logger configuration. |
 
@@ -28,6 +28,7 @@ complete.
 
 - `stage1/examples/stdlib_string_builder`
 - `stage1/examples/stdlib_json`
+- `stage1/examples/stdlib_serdes`
 - `stage1/examples/stdlib_regex`
 - `stage1/examples/stdlib_log`
 - `cargo test --manifest-path stage1/Cargo.toml -p axiomc`

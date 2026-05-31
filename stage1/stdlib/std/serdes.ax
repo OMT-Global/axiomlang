@@ -1,0 +1,29 @@
+pub struct ParseError {
+message: string
+}
+
+pub enum Value {
+Null
+Bool(bool)
+Int(int)
+Float(f64)
+Text(string)
+Array([Value])
+Object({string: Value})
+}
+
+pub fn to_json(value: {string: Value}): string {
+return json_serdes_to_json(value)
+}
+
+pub fn stringify(value: Value): string {
+return json_serdes_value_to_json(value)
+}
+
+pub fn from_json(text: string): Result<Value, ParseError> {
+return json_serdes_parse(text)
+}
+
+pub fn parse_error_message(error: ParseError): string {
+return error.message
+}

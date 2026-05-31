@@ -8,7 +8,7 @@
 //! enforcement continues to run against the importing package's manifest via
 //! `hir::lower_with_capabilities`.
 //!
-//! Today this provides twenty-nine stdlib modules. The capability-gated
+//! Today this provides thirty stdlib modules. The capability-gated
 //! wrappers include the six manifest capability classes:
 //!
 //! * `std/time.ax` — `Duration`, `Instant`, `now_ms()`, `now()`,
@@ -67,6 +67,8 @@
 //! * `std/json.ax` — scalar/string JSON parsing plus first-class `JsonValue`
 //!   parsing, composition, nested field lookup, and serialization helpers on
 //!   top of ungated `json_parse_*` / `json_stringify_*` intrinsics.
+//! * `std/serdes.ax` — an Axiom `Value` union plus map-to-JSON and JSON-to-value
+//!   helpers on top of ungated `json_serdes_*` bootstrap intrinsics.
 //! * `std/collections.ax` — generic borrowed-slice helpers built on the
 //!   existing polymorphic collection primitives and AG2 generic functions.
 //! * `std/string_builder.ax` — an owned string accumulator implemented with
@@ -300,6 +302,7 @@ pub fn array1(first: JsonValue): JsonValue {\nreturn JsonValue { source: \"[\" +
 pub fn array2(first: JsonValue, second: JsonValue): JsonValue {\nreturn JsonValue { source: \"[\" + json_stringify_value(first.source) + \",\" + json_stringify_value(second.source) + \"]\" }\n}\n\
 pub fn array3(first: JsonValue, second: JsonValue, third: JsonValue): JsonValue {\nreturn JsonValue { source: \"[\" + json_stringify_value(first.source) + \",\" + json_stringify_value(second.source) + \",\" + json_stringify_value(third.source) + \"]\" }\n}\n",
     ),
+    ("serdes.ax", include_str!("../../../stdlib/std/serdes.ax")),
     (
         "collections.ax",
         "pub fn count<T>(values: &[T]): int {\nreturn len(values)\n}\n\

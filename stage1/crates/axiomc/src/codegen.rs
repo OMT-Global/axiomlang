@@ -463,6 +463,13 @@ fn render_rust_for_package_with_backend_context(
     ]
     .iter()
     .any(|name| program_uses_call(program, name));
+    let uses_json_serdes = [
+        "json_serdes_parse",
+        "json_serdes_value_to_json",
+        "json_serdes_to_json",
+    ]
+    .iter()
+    .any(|name| program_uses_call(program, name));
     let uses_ffi = program.functions.iter().any(|function| function.is_extern);
     let uses_ffi_cstring = program
         .functions
@@ -1426,6 +1433,9 @@ fn axiom_capability_audit(intrinsic: &str, capability: &str, arg_summary: &str, 
     out.push_str("fn axiom_json_stringify_value(value: String) -> String {\n");
     out.push_str("    axiom_json_parse_value(value.clone()).unwrap_or(value)\n");
     out.push_str("}\n\n");
+    if uses_json_serdes {
+        render_json_serdes_support(&mut out);
+    }
     out.push_str(r#"#[derive(Clone, Debug, PartialEq, Eq)]
 enum AxiomRegexAtom {
     Literal(char),
@@ -4921,6 +4931,344 @@ unsafe extern "C" {
     out
 }
 
+fn render_json_serdes_support(out: &mut String) {
+    out.push_str(
+        r##"#[allow(dead_code)]
+fn axiom_json_serdes_float_to_json(value: f64) -> String {
+    if !value.is_finite() {
+        return String::from("null");
+    }
+    let mut rendered = value.to_string();
+    if !rendered.contains('.') && !rendered.contains('e') && !rendered.contains('E') {
+        rendered.push_str(".0");
+    }
+    rendered
+}
+
+#[allow(dead_code)]
+fn axiom_json_serdes_string_to_json(value: String) -> String {
+    let mut out = String::from("\"");
+    for ch in value.chars() {
+        match ch {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            '\u{0008}' => out.push_str("\\b"),
+            '\u{000C}' => out.push_str("\\f"),
+            ch if ch.is_control() => out.push_str(&format!("\\u{:04x}", ch as u32)),
+            ch if (ch as u32) <= 0x7f => out.push(ch),
+            ch if (ch as u32) <= 0xffff => out.push_str(&format!("\\u{:04x}", ch as u32)),
+            ch => {
+                let scalar = (ch as u32) - 0x10000;
+                let high = 0xd800 + (scalar >> 10);
+                let low = 0xdc00 + (scalar & 0x3ff);
+                out.push_str(&format!("\\u{high:04x}\\u{low:04x}"));
+            }
+        }
+    }
+    out.push('"');
+    out
+}
+
+#[allow(dead_code)]
+fn axiom_json_serdes_value_to_json(value: std_serdes_Value) -> String {
+    match value {
+        std_serdes_Value::Null => String::from("null"),
+        std_serdes_Value::Bool(value) => axiom_json_stringify_bool(value),
+        std_serdes_Value::Int(value) => axiom_json_stringify_int(value),
+        std_serdes_Value::Float(value) => axiom_json_serdes_float_to_json(value),
+        std_serdes_Value::Text(value) => axiom_json_serdes_string_to_json(value),
+        std_serdes_Value::Array(values) => {
+            let rendered = values
+                .into_iter()
+                .map(axiom_json_serdes_value_to_json)
+                .collect::<Vec<_>>()
+                .join(",");
+            format!("[{rendered}]")
+        }
+        std_serdes_Value::Object(values) => axiom_json_serdes_to_json_object(values),
+    }
+}
+
+#[allow(dead_code)]
+fn axiom_json_serdes_to_json_object(values: HashMap<String, std_serdes_Value>) -> String {
+    let mut entries = values.into_iter().collect::<Vec<_>>();
+    entries.sort_by(|left, right| left.0.cmp(&right.0));
+    let rendered = entries
+        .into_iter()
+        .map(|(key, value)| {
+            format!(
+                "{}:{}",
+                axiom_json_serdes_string_to_json(key),
+                axiom_json_serdes_value_to_json(value)
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(",");
+    format!("{{{rendered}}}")
+}
+
+#[allow(dead_code)]
+struct AxiomJsonSerdesParser<'a> {
+    text: &'a str,
+    index: usize,
+}
+
+#[allow(dead_code)]
+impl<'a> AxiomJsonSerdesParser<'a> {
+    fn new(text: &'a str) -> Self {
+        Self { text, index: 0 }
+    }
+
+    fn is_end(&self) -> bool {
+        self.index >= self.text.len()
+    }
+
+    fn peek_byte(&self) -> Option<u8> {
+        self.text.as_bytes().get(self.index).copied()
+    }
+
+    fn next_byte(&mut self) -> Option<u8> {
+        let byte = self.peek_byte()?;
+        self.index += 1;
+        Some(byte)
+    }
+
+    fn skip_ws(&mut self) {
+        while matches!(self.peek_byte(), Some(b' ' | b'\n' | b'\r' | b'\t')) {
+            self.index += 1;
+        }
+    }
+
+    fn consume_literal(&mut self, literal: &str) -> bool {
+        if self.text[self.index..].starts_with(literal) {
+            self.index += literal.len();
+            true
+        } else {
+            false
+        }
+    }
+
+    fn parse_value(&mut self) -> Result<std_serdes_Value, String> {
+        self.skip_ws();
+        match self.peek_byte() {
+            Some(b'n') if self.consume_literal("null") => Ok(std_serdes_Value::Null),
+            Some(b't') if self.consume_literal("true") => Ok(std_serdes_Value::Bool(true)),
+            Some(b'f') if self.consume_literal("false") => Ok(std_serdes_Value::Bool(false)),
+            Some(b'"') => Ok(std_serdes_Value::Text(self.parse_string()?)),
+            Some(b'[') => self.parse_array(),
+            Some(b'{') => self.parse_object(),
+            Some(b'-' | b'0'..=b'9') => self.parse_number(),
+            Some(_) => Err(String::from("unexpected JSON token")),
+            None => Err(String::from("empty JSON input")),
+        }
+    }
+
+    fn parse_array(&mut self) -> Result<std_serdes_Value, String> {
+        self.expect_byte(b'[', "array")?;
+        self.skip_ws();
+        let mut values = Vec::new();
+        if self.peek_byte() == Some(b']') {
+            self.index += 1;
+            return Ok(std_serdes_Value::Array(values));
+        }
+        loop {
+            values.push(self.parse_value()?);
+            self.skip_ws();
+            match self.next_byte() {
+                Some(b',') => {
+                    self.skip_ws();
+                }
+                Some(b']') => return Ok(std_serdes_Value::Array(values)),
+                _ => return Err(String::from("array expects ',' or ']'")),
+            }
+        }
+    }
+
+    fn parse_object(&mut self) -> Result<std_serdes_Value, String> {
+        self.expect_byte(b'{', "object")?;
+        self.skip_ws();
+        let mut values = HashMap::new();
+        if self.peek_byte() == Some(b'}') {
+            self.index += 1;
+            return Ok(std_serdes_Value::Object(values));
+        }
+        loop {
+            self.skip_ws();
+            let key = self.parse_string()?;
+            self.skip_ws();
+            self.expect_byte(b':', "object field")?;
+            let value = self.parse_value()?;
+            values.insert(key, value);
+            self.skip_ws();
+            match self.next_byte() {
+                Some(b',') => {
+                    self.skip_ws();
+                }
+                Some(b'}') => return Ok(std_serdes_Value::Object(values)),
+                _ => return Err(String::from("object expects ',' or '}'")),
+            }
+        }
+    }
+
+    fn parse_number(&mut self) -> Result<std_serdes_Value, String> {
+        let start = self.index;
+        if self.peek_byte() == Some(b'-') {
+            self.index += 1;
+        }
+        match self.peek_byte() {
+            Some(b'0') => {
+                self.index += 1;
+            }
+            Some(b'1'..=b'9') => {
+                self.index += 1;
+                self.consume_digits();
+            }
+            _ => return Err(String::from("invalid JSON number")),
+        }
+        let mut is_float = false;
+        if self.peek_byte() == Some(b'.') {
+            is_float = true;
+            self.index += 1;
+            if self.consume_digits() == 0 {
+                return Err(String::from("invalid JSON fraction"));
+            }
+        }
+        if matches!(self.peek_byte(), Some(b'e' | b'E')) {
+            is_float = true;
+            self.index += 1;
+            if matches!(self.peek_byte(), Some(b'+' | b'-')) {
+                self.index += 1;
+            }
+            if self.consume_digits() == 0 {
+                return Err(String::from("invalid JSON exponent"));
+            }
+        }
+        let raw = &self.text[start..self.index];
+        if is_float {
+            let value = raw
+                .parse::<f64>()
+                .map_err(|_| String::from("invalid JSON float"))?;
+            if !value.is_finite() {
+                return Err(String::from("non-finite JSON float"));
+            }
+            Ok(std_serdes_Value::Float(value))
+        } else {
+            raw.parse::<i64>()
+                .map(std_serdes_Value::Int)
+                .map_err(|_| String::from("invalid JSON int"))
+        }
+    }
+
+    fn parse_string(&mut self) -> Result<String, String> {
+        self.expect_byte(b'"', "string")?;
+        let mut value = String::new();
+        loop {
+            let Some(ch) = self.text[self.index..].chars().next() else {
+                return Err(String::from("unterminated JSON string"));
+            };
+            self.index += ch.len_utf8();
+            match ch {
+                '"' => return Ok(value),
+                '\\' => self.parse_escape(&mut value)?,
+                ch if ch <= '\u{1f}' => return Err(String::from("control character in JSON string")),
+                ch => value.push(ch),
+            }
+        }
+    }
+
+    fn parse_escape(&mut self, value: &mut String) -> Result<(), String> {
+        match self.next_byte() {
+            Some(b'"') => value.push('"'),
+            Some(b'\\') => value.push('\\'),
+            Some(b'/') => value.push('/'),
+            Some(b'b') => value.push('\u{0008}'),
+            Some(b'f') => value.push('\u{000C}'),
+            Some(b'n') => value.push('\n'),
+            Some(b'r') => value.push('\r'),
+            Some(b't') => value.push('\t'),
+            Some(b'u') => {
+                let high = self.parse_hex4()?;
+                if (0xD800..=0xDBFF).contains(&high) {
+                    if self.next_byte() != Some(b'\\') || self.next_byte() != Some(b'u') {
+                        return Err(String::from("missing low surrogate escape"));
+                    }
+                    let low = self.parse_hex4()?;
+                    if !(0xDC00..=0xDFFF).contains(&low) {
+                        return Err(String::from("invalid low surrogate escape"));
+                    }
+                    let scalar =
+                        0x10000 + (((high as u32) - 0xD800) << 10) + ((low as u32) - 0xDC00);
+                    value.push(
+                        char::from_u32(scalar)
+                            .ok_or_else(|| String::from("invalid unicode scalar"))?,
+                    );
+                } else if (0xDC00..=0xDFFF).contains(&high) {
+                    return Err(String::from("unpaired low surrogate escape"));
+                } else {
+                    value.push(
+                        char::from_u32(high as u32)
+                            .ok_or_else(|| String::from("invalid unicode escape"))?,
+                    );
+                }
+            }
+            _ => return Err(String::from("invalid JSON string escape")),
+        }
+        Ok(())
+    }
+
+    fn parse_hex4(&mut self) -> Result<u16, String> {
+        let mut value = 0u16;
+        for _ in 0..4 {
+            let digit = self
+                .next_byte()
+                .and_then(|byte| (byte as char).to_digit(16))
+                .ok_or_else(|| String::from("invalid unicode escape"))?;
+            value = (value << 4) + digit as u16;
+        }
+        Ok(value)
+    }
+
+    fn expect_byte(&mut self, expected: u8, context: &str) -> Result<(), String> {
+        match self.next_byte() {
+            Some(actual) if actual == expected => Ok(()),
+            _ => Err(format!("{context} expects '{}'", expected as char)),
+        }
+    }
+
+    fn consume_digits(&mut self) -> usize {
+        let start = self.index;
+        while matches!(self.peek_byte(), Some(b'0'..=b'9')) {
+            self.index += 1;
+        }
+        self.index - start
+    }
+}
+
+#[allow(dead_code)]
+fn axiom_json_serdes_parse(text: String) -> Result<std_serdes_Value, std_serdes_ParseError> {
+    let mut parser = AxiomJsonSerdesParser::new(text.as_str());
+    match parser.parse_value() {
+        Ok(value) => {
+            parser.skip_ws();
+            if parser.is_end() {
+                Ok(value)
+            } else {
+                Err(std_serdes_ParseError {
+                    message: String::from("trailing characters after JSON value"),
+                })
+            }
+        }
+        Err(message) => Err(std_serdes_ParseError { message }),
+    }
+}
+
+"##,
+    );
+}
+
 fn rust_path_literal(path: &Path) -> String {
     path.to_string_lossy().into_owned()
 }
@@ -6084,6 +6432,18 @@ fn render_expr(expr: &Expr) -> String {
         }
         Expr::Call { name, args, .. } if name == "json_stringify_value" => {
             format!("axiom_json_stringify_value({})", render_expr(&args[0]))
+        }
+        Expr::Call { name, args, .. } if name == "json_serdes_parse" => {
+            format!("axiom_json_serdes_parse({})", render_expr(&args[0]))
+        }
+        Expr::Call { name, args, .. } if name == "json_serdes_value_to_json" => {
+            format!("axiom_json_serdes_value_to_json({})", render_expr(&args[0]))
+        }
+        Expr::Call { name, args, .. } if name == "json_serdes_to_json" => {
+            format!(
+                "axiom_json_serdes_to_json_object({})",
+                render_expr(&args[0])
+            )
         }
         Expr::Call { name, .. } if name == "cli_args" => String::from("axiom_cli_args()"),
         Expr::Call { name, .. } if name == "cli_arg_count" => String::from("axiom_cli_arg_count()"),

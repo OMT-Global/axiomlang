@@ -1,0 +1,57 @@
+import "std/serdes.ax"
+import "std/testing.ax"
+
+fn roundtrip_object(): int {
+let actual: {string: Value} = {"name": Text("agent"), "ready": Bool(true), "count": Int(3), "ratio": Float(1.5f64), "tags": Array([Text("cli"), Text("worker")]), "meta": Object({"kind": Text("job")})}
+let expected: {string: Value} = {"name": Text("agent"), "ready": Bool(true), "count": Int(3), "ratio": Float(1.5f64), "tags": Array([Text("cli"), Text("worker")]), "meta": Object({"kind": Text("job")})}
+match from_json(to_json(actual)) {
+Ok(value) {
+return assert_true(value == Object(expected))
+}
+Err(error) {
+print parse_error_message(error)
+return 1
+}
+}
+}
+
+fn parses_surrogate_pair(): int {
+match from_json("\"\\uD834\\uDD1E\"") {
+Ok(value) {
+return assert_eq_string(stringify(value), "\"\\ud834\\udd1e\"")
+}
+Err(error) {
+print parse_error_message(error)
+return 1
+}
+}
+}
+
+fn parses_scientific_with_trailing_ws(): int {
+match from_json("6.022e3  ") {
+Ok(value) {
+return assert_eq_string(stringify(value), "6022.0")
+}
+Err(error) {
+print parse_error_message(error)
+return 1
+}
+}
+}
+
+fn rejects_invalid_json(): int {
+match from_json("{\"bad\": [1,}") {
+Ok(_value) {
+return 1
+}
+Err(_error) {
+return assert_true(true)
+}
+}
+}
+
+print roundtrip_object()
+print parses_surrogate_pair()
+print parses_scientific_with_trailing_ws()
+print rejects_invalid_json()
+print to_json({"b": Int(2), "a": Text("alpha")})

@@ -6565,6 +6565,26 @@ print "none"
     }
 
     #[test]
+    fn stage1_project_imports_synthetic_stdlib_serdes_module() {
+        // `std/serdes.ax` stays ungated in stage1: JSON serialization runs in
+        // the generated runtime and exposes an Axiom-neutral `Value` enum.
+        let project = checked_in_example_fixture("stdlib_serdes");
+        check_project(&project).expect("check stdlib serdes example");
+        let built = build_project(&project).expect("build stdlib serdes example");
+        let output = compiled_binary_command(&built.binary)
+            .output()
+            .expect("run compiled binary");
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout),
+            "0\n0\n0\n0\n{\"a\":\"alpha\",\"b\":2}\n"
+        );
+
+        let tests = run_project_tests(&project).expect("run stdlib serdes tests");
+        assert_eq!(tests.passed, 2);
+        assert_eq!(tests.failed, 0);
+    }
+
+    #[test]
     fn stage1_project_imports_synthetic_stdlib_regex_module() {
         // `std/regex.ax` stays ungated in stage1: matching runs inside the
         // deterministic generated runtime and does not cross a host capability
