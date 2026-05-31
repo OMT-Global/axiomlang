@@ -42,6 +42,8 @@ impl SourceSpan {
 pub struct Program {
     pub path: String,
     pub imports: Vec<Import>,
+    pub macros: Vec<MacroDecl>,
+    pub macro_expansions: Vec<MacroExpansion>,
     pub axioms: Vec<AxiomDecl>,
     pub semantic_capabilities: Vec<SemanticCapabilityDecl>,
     pub evidence: Vec<EvidenceDecl>,
@@ -52,6 +54,21 @@ pub struct Program {
     pub traits: Vec<TraitDecl>,
     pub functions: Vec<Function>,
     pub stmts: Vec<Stmt>,
+}
+
+pub const DEFAULT_MACRO_RECURSION_LIMIT: usize = 64;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ParseOptions {
+    pub macro_recursion_limit: usize,
+}
+
+impl Default for ParseOptions {
+    fn default() -> Self {
+        Self {
+            macro_recursion_limit: DEFAULT_MACRO_RECURSION_LIMIT,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
@@ -75,6 +92,37 @@ impl Visibility {
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct Import {
+    pub path: String,
+    pub line: usize,
+    pub column: usize,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct MacroDecl {
+    pub name: String,
+    pub style: MacroStyle,
+    pub params: Vec<String>,
+    pub line: usize,
+    pub column: usize,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum MacroStyle {
+    Macro,
+    MacroRules,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct MacroExpansion {
+    pub macro_name: String,
+    pub call_site: MacroSpan,
+    pub definition_site: MacroSpan,
+    pub depth: usize,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct MacroSpan {
     pub path: String,
     pub line: usize,
     pub column: usize,
@@ -695,8 +743,45 @@ impl Expr {
 #[derive(Debug, Clone)]
 struct MacroRule {
     name: String,
-    params: Vec<String>,
+    style: MacroStyle,
+    arms: Vec<MacroArm>,
+    line: usize,
+    column: usize,
+}
+
+#[derive(Debug, Clone)]
+struct MacroArm {
+    params: Vec<MacroParam>,
     template: String,
+}
+
+#[derive(Debug, Clone)]
+enum MacroParam {
+    Single(String),
+    Repeat {
+        name: String,
+        separator: Option<char>,
+    },
+}
+
+impl MacroParam {
+    fn name(&self) -> &str {
+        match self {
+            MacroParam::Single(name) | MacroParam::Repeat { name, .. } => name,
+        }
+    }
+}
+
+struct ExpandedSource {
+    source: String,
+    macros: Vec<MacroDecl>,
+    expansions: Vec<MacroExpansion>,
+}
+
+#[derive(Clone)]
+struct ExpandedSourceLine {
+    text: String,
+    original_line: usize,
 }
 
 pub fn parse_program(source: &str, path: &Path) -> Result<Program, Diagnostic> {
@@ -708,8 +793,28 @@ pub fn parse_program(source: &str, path: &Path) -> Result<Program, Diagnostic> {
 }
 
 pub fn parse_program_with_recovery(source: &str, path: &Path) -> Result<Program, Vec<Diagnostic>> {
-    let source = expand_declarative_macros(source, path)?;
-    let lines: Vec<&str> = source.lines().collect();
+    parse_program_with_options_and_recovery(source, path, &ParseOptions::default())
+}
+
+pub fn parse_program_with_options(
+    source: &str,
+    path: &Path,
+    options: &ParseOptions,
+) -> Result<Program, Diagnostic> {
+    parse_program_with_options_and_recovery(source, path, options).map_err(|mut diagnostics| {
+        let mut first = diagnostics.remove(0);
+        first.related = diagnostics;
+        first
+    })
+}
+
+pub fn parse_program_with_options_and_recovery(
+    source: &str,
+    path: &Path,
+    options: &ParseOptions,
+) -> Result<Program, Vec<Diagnostic>> {
+    let expanded_source = expand_declarative_macros(source, path, options)?;
+    let lines: Vec<&str> = expanded_source.source.lines().collect();
     let mut index = 0;
     let mut imports = Vec::new();
     let mut axioms = Vec::new();
@@ -939,6 +1044,8 @@ pub fn parse_program_with_recovery(source: &str, path: &Path) -> Result<Program,
     Ok(Program {
         path: path.display().to_string(),
         imports,
+        macros: expanded_source.macros,
+        macro_expansions: expanded_source.expansions,
         axioms,
         semantic_capabilities,
         evidence,
@@ -952,36 +1059,109 @@ pub fn parse_program_with_recovery(source: &str, path: &Path) -> Result<Program,
     })
 }
 
-fn expand_declarative_macros(source: &str, path: &Path) -> Result<String, Vec<Diagnostic>> {
-    let (macros, mut expanded) = collect_macro_rules(source, path)?;
+fn expand_declarative_macros(
+    source: &str,
+    path: &Path,
+    options: &ParseOptions,
+) -> Result<ExpandedSource, Vec<Diagnostic>> {
+    if options.macro_recursion_limit == 0 {
+        return Err(vec![
+            Diagnostic::new("parse", "macro recursion limit must be at least 1")
+                .with_path(path.display().to_string())
+                .with_span(1, 1),
+        ]);
+    }
+    let (macros, mut expanded_lines) = collect_macro_rules(source, path)?;
+    let declarations = macro_declarations(&macros);
     if macros.is_empty() {
-        return Ok(expanded);
+        return Ok(ExpandedSource {
+            source: expanded_lines_to_source(&expanded_lines),
+            macros: declarations,
+            expansions: Vec::new(),
+        });
     }
-    const MAX_MACRO_EXPANSION_DEPTH: usize = 64;
-    for pass in 0..=MAX_MACRO_EXPANSION_DEPTH {
-        let (next, changed) = expand_macro_invocations_once(&expanded, &macros, path)?;
-        expanded = next;
+    let mut expansions = Vec::new();
+    let mut invocation_chain = Vec::new();
+    for pass in 0..options.macro_recursion_limit {
+        let pass_depth = pass + 1;
+        let (next, line_expansions) =
+            expand_macro_invocations_once(&expanded_lines, &macros, path, pass_depth)?;
+        let changed = !line_expansions.is_empty();
+        for expansion in &line_expansions {
+            invocation_chain.push(format!("{}!", expansion.macro_name));
+        }
+        expansions.extend(line_expansions);
+        expanded_lines = next;
         if !changed {
-            return Ok(expanded);
-        }
-        if pass >= MAX_MACRO_EXPANSION_DEPTH {
-            return Err(vec![Diagnostic::new(
-                "parse",
-                format!(
-                    "declarative macro expansion exceeded bounded depth of {MAX_MACRO_EXPANSION_DEPTH}; check for recursive macro invocation"
-                ),
-            )
-            .with_path(path.display().to_string())
-            .with_span(1, 1)]);
+            return Ok(ExpandedSource {
+                source: expanded_lines_to_source(&expanded_lines),
+                macros: declarations,
+                expansions,
+            });
         }
     }
-    Ok(expanded)
+    if source_has_macro_invocation(&expanded_lines, &macros) {
+        let chain = if invocation_chain.is_empty() {
+            String::from("<unknown>")
+        } else {
+            invocation_chain
+                .iter()
+                .rev()
+                .take(8)
+                .cloned()
+                .collect::<Vec<_>>()
+                .into_iter()
+                .rev()
+                .collect::<Vec<_>>()
+                .join(" -> ")
+        };
+        return Err(vec![Diagnostic::new(
+            "parse",
+            format!(
+                "declarative macro expansion exceeded bounded depth of {}; invocation chain: {chain}",
+                options.macro_recursion_limit
+            ),
+        )
+        .with_path(path.display().to_string())
+        .with_span(1, 1)]);
+    }
+    Ok(ExpandedSource {
+        source: expanded_lines_to_source(&expanded_lines),
+        macros: declarations,
+        expansions,
+    })
+}
+
+fn source_has_macro_invocation(
+    source: &[ExpandedSourceLine],
+    macros: &std::collections::HashMap<String, MacroRule>,
+) -> bool {
+    source.iter().any(|line| {
+        macros.values().any(|rule| {
+            let needle = format!("{}!(", rule.name);
+            find_macro_invocation(&line.text, &needle).is_some()
+        })
+    })
+}
+
+fn expanded_lines_to_source(lines: &[ExpandedSourceLine]) -> String {
+    lines
+        .iter()
+        .map(|line| line.text.as_str())
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 fn collect_macro_rules(
     source: &str,
     path: &Path,
-) -> Result<(std::collections::HashMap<String, MacroRule>, String), Vec<Diagnostic>> {
+) -> Result<
+    (
+        std::collections::HashMap<String, MacroRule>,
+        Vec<ExpandedSourceLine>,
+    ),
+    Vec<Diagnostic>,
+> {
     let lines: Vec<&str> = source.lines().collect();
     let mut macros = std::collections::HashMap::new();
     let mut kept = Vec::new();
@@ -989,18 +1169,22 @@ fn collect_macro_rules(
     let mut top_level_depth = 0i32;
     while index < lines.len() {
         let trimmed = lines[index].trim_start();
-        if !trimmed.starts_with("macro_rules! ") {
-            kept.push(lines[index].to_string());
+        if !starts_macro_definition(trimmed) {
+            kept.push(ExpandedSourceLine {
+                text: lines[index].to_string(),
+                original_line: index + 1,
+            });
             top_level_depth += brace_delta(lines[index]);
             index += 1;
             continue;
         }
         let start_line = index + 1;
+        let style = macro_style_for_definition(trimmed).expect("recognized macro definition");
         if top_level_depth != 0 {
             return Err(vec![
                 Diagnostic::new(
                     "parse",
-                    "macro_rules! definitions are only supported at top level",
+                    "declarative macro definitions are only supported at top level",
                 )
                 .with_path(path.display().to_string())
                 .with_span(start_line, 1),
@@ -1011,7 +1195,7 @@ fn collect_macro_rules(
         loop {
             let line = lines.get(index).ok_or_else(|| {
                 vec![
-                    Diagnostic::new("parse", "unterminated macro_rules! definition")
+                    Diagnostic::new("parse", "unterminated declarative macro definition")
                         .with_path(path.display().to_string())
                         .with_span(start_line, 1),
                 ]
@@ -1026,67 +1210,152 @@ fn collect_macro_rules(
                 break;
             }
         }
-        let rule = parse_macro_rule(&definition, path, start_line)?;
+        let rule = parse_macro_rule(&definition, style, path, start_line)?;
         if macros.insert(rule.name.clone(), rule).is_some() {
             return Err(vec![
-                Diagnostic::new("parse", "duplicate macro_rules! definition")
+                Diagnostic::new("parse", "duplicate declarative macro definition")
                     .with_path(path.display().to_string())
                     .with_span(start_line, 1),
             ]);
         }
     }
-    Ok((macros, kept.join("\n")))
+    Ok((macros, kept))
+}
+
+fn starts_macro_definition(trimmed: &str) -> bool {
+    macro_style_for_definition(trimmed).is_some()
+}
+
+fn macro_style_for_definition(trimmed: &str) -> Option<MacroStyle> {
+    if trimmed.starts_with("macro_rules! ") {
+        Some(MacroStyle::MacroRules)
+    } else if trimmed.starts_with("macro ") {
+        Some(MacroStyle::Macro)
+    } else {
+        None
+    }
+}
+
+fn macro_declarations(macros: &std::collections::HashMap<String, MacroRule>) -> Vec<MacroDecl> {
+    let mut declarations = macros
+        .values()
+        .map(|rule| {
+            let params = rule
+                .arms
+                .iter()
+                .flat_map(|arm| arm.params.iter().map(|param| param.name().to_string()))
+                .collect::<std::collections::BTreeSet<_>>()
+                .into_iter()
+                .collect();
+            MacroDecl {
+                name: rule.name.clone(),
+                style: rule.style,
+                params,
+                line: rule.line,
+                column: rule.column,
+            }
+        })
+        .collect::<Vec<_>>();
+    declarations.sort_by(|left, right| left.line.cmp(&right.line).then(left.name.cmp(&right.name)));
+    declarations
 }
 
 fn parse_macro_rule(
     definition: &str,
+    style: MacroStyle,
     path: &Path,
     line_no: usize,
 ) -> Result<MacroRule, Vec<Diagnostic>> {
     let trimmed = definition.trim();
-    let Some(rest) = trimmed.strip_prefix("macro_rules! ") else {
-        return Err(vec![
-            Diagnostic::new("parse", "invalid macro_rules! definition")
-                .with_path(path.display().to_string())
-                .with_span(line_no, 1),
-        ]);
+    let (rest, name_column) = match style {
+        MacroStyle::MacroRules => {
+            let Some(rest) = trimmed.strip_prefix("macro_rules! ") else {
+                return Err(vec![
+                    Diagnostic::new("parse", "invalid macro_rules! definition")
+                        .with_path(path.display().to_string())
+                        .with_span(line_no, 1),
+                ]);
+            };
+            (rest, 14)
+        }
+        MacroStyle::Macro => {
+            let Some(rest) = trimmed.strip_prefix("macro ") else {
+                return Err(vec![
+                    Diagnostic::new("parse", "invalid macro definition")
+                        .with_path(path.display().to_string())
+                        .with_span(line_no, 1),
+                ]);
+            };
+            (rest, 7)
+        }
     };
     let Some(open_brace) = find_top_level_char(rest, '{') else {
         return Err(vec![
-            Diagnostic::new("parse", "macro_rules! definition is missing '{'")
+            Diagnostic::new("parse", "declarative macro definition is missing '{'")
                 .with_path(path.display().to_string())
                 .with_span(line_no, 1),
         ]);
     };
     let name = rest[..open_brace].trim();
-    validate_ident(name, path, line_no, 14).map_err(|error| vec![error])?;
+    validate_ident(name, path, line_no, name_column).map_err(|error| vec![error])?;
     let Some(close_brace) = find_matching_brace(rest, open_brace) else {
-        return Err(vec![
-            Diagnostic::new("parse", "macro_rules! definition is missing closing '}'")
-                .with_path(path.display().to_string())
-                .with_span(line_no, 1),
-        ]);
-    };
-    if !rest[close_brace + 1..].trim().is_empty() {
-        return Err(vec![
-            Diagnostic::new("parse", "unexpected tokens after macro_rules! definition")
-                .with_path(path.display().to_string())
-                .with_span(line_no, close_brace + 1),
-        ]);
-    }
-    let body = rest[open_brace + 1..close_brace].trim();
-    let Some(arrow) = body.find("=>") else {
         return Err(vec![
             Diagnostic::new(
                 "parse",
-                "macro_rules! definition must contain a single `=>` arm",
+                "declarative macro definition is missing closing '}'",
             )
             .with_path(path.display().to_string())
             .with_span(line_no, 1),
         ]);
     };
-    let pattern = body[..arrow].trim().trim_end_matches(';').trim();
-    let template = body[arrow + 2..].trim().trim_end_matches(';').trim();
+    if !rest[close_brace + 1..].trim().is_empty() {
+        return Err(vec![
+            Diagnostic::new(
+                "parse",
+                "unexpected tokens after declarative macro definition",
+            )
+            .with_path(path.display().to_string())
+            .with_span(line_no, close_brace + 1),
+        ]);
+    }
+    let body = rest[open_brace + 1..close_brace].trim();
+    let mut arms = Vec::new();
+    for arm in split_top_level(body, ';') {
+        let arm = arm.trim();
+        if arm.is_empty() {
+            continue;
+        }
+        arms.push(parse_macro_arm(arm, path, line_no)?);
+    }
+    if arms.is_empty() {
+        return Err(vec![
+            Diagnostic::new(
+                "parse",
+                "declarative macro definition must contain at least one arm",
+            )
+            .with_path(path.display().to_string())
+            .with_span(line_no, 1),
+        ]);
+    }
+    Ok(MacroRule {
+        name: name.to_string(),
+        style,
+        arms,
+        line: line_no,
+        column: name_column,
+    })
+}
+
+fn parse_macro_arm(arm: &str, path: &Path, line_no: usize) -> Result<MacroArm, Vec<Diagnostic>> {
+    let Some(arrow) = arm.find("=>") else {
+        return Err(vec![
+            Diagnostic::new("parse", "declarative macro arm must contain `=>`")
+                .with_path(path.display().to_string())
+                .with_span(line_no, 1),
+        ]);
+    };
+    let pattern = arm[..arrow].trim();
+    let template = arm[arrow + 2..].trim();
     if !pattern.starts_with('(')
         || !pattern.ends_with(')')
         || find_matching_paren(pattern, 0) != Some(pattern.len() - 1)
@@ -1094,72 +1363,169 @@ fn parse_macro_rule(
         return Err(vec![
             Diagnostic::new(
                 "parse",
-                "macro_rules! pattern must use `($name:fragment, ...)` syntax",
+                "declarative macro pattern must use `($name:fragment, ...)` syntax",
             )
             .with_path(path.display().to_string())
             .with_span(line_no, 1),
         ]);
     }
-    if !template.starts_with('{')
-        || !template.ends_with('}')
-        || find_matching_brace(template, 0) != Some(template.len() - 1)
-    {
+    let Some(template) = strip_macro_template_delimiters(template) else {
         return Err(vec![
-            Diagnostic::new("parse", "macro_rules! expansion must be enclosed in braces")
-                .with_path(path.display().to_string())
-                .with_span(line_no, 1),
+            Diagnostic::new(
+                "parse",
+                "declarative macro expansion must be enclosed in braces or parentheses",
+            )
+            .with_path(path.display().to_string())
+            .with_span(line_no, 1),
         ]);
-    }
-    let mut params = Vec::new();
-    let params_raw = pattern[1..pattern.len() - 1].trim();
-    if !params_raw.is_empty() {
-        for part in split_top_level(params_raw, ',') {
-            let part = part.trim();
-            let Some(part) = part.strip_prefix('$') else {
-                return Err(vec![
-                    Diagnostic::new("parse", "macro parameter must start with `$`")
-                        .with_path(path.display().to_string())
-                        .with_span(line_no, 1),
-                ]);
-            };
-            let name = part
-                .split_once(':')
-                .map(|(name, _)| name)
-                .unwrap_or(part)
-                .trim();
-            validate_ident(name, path, line_no, 1).map_err(|error| vec![error])?;
-            if params.iter().any(|existing| existing == name) {
-                return Err(vec![
-                    Diagnostic::new("parse", format!("duplicate macro parameter {name:?}"))
-                        .with_path(path.display().to_string())
-                        .with_span(line_no, 1),
-                ]);
-            }
-            params.push(name.to_string());
-        }
-    }
-    Ok(MacroRule {
-        name: name.to_string(),
+    };
+    let params = parse_macro_params(pattern, path, line_no)?;
+    Ok(MacroArm {
         params,
-        template: template[1..template.len() - 1]
-            .trim_matches('\n')
-            .to_string(),
+        template: template.trim_matches('\n').to_string(),
     })
 }
 
+fn strip_macro_template_delimiters(template: &str) -> Option<&str> {
+    if template.starts_with('{')
+        && template.ends_with('}')
+        && find_matching_brace(template, 0) == Some(template.len() - 1)
+    {
+        Some(&template[1..template.len() - 1])
+    } else if template.starts_with('(')
+        && template.ends_with(')')
+        && find_matching_paren(template, 0) == Some(template.len() - 1)
+    {
+        Some(&template[1..template.len() - 1])
+    } else {
+        None
+    }
+}
+
+fn parse_macro_params(
+    pattern: &str,
+    path: &Path,
+    line_no: usize,
+) -> Result<Vec<MacroParam>, Vec<Diagnostic>> {
+    let params_raw = pattern[1..pattern.len() - 1].trim();
+    if params_raw.is_empty() {
+        return Ok(Vec::new());
+    }
+    if params_raw.contains("$(") {
+        return parse_repetition_macro_param(params_raw, path, line_no).map(|param| vec![param]);
+    }
+    let mut params = Vec::new();
+    for part in split_top_level(params_raw, ',') {
+        let part = part.trim();
+        let Some(part) = part.strip_prefix('$') else {
+            return Err(vec![
+                Diagnostic::new("parse", "macro parameter must start with `$`")
+                    .with_path(path.display().to_string())
+                    .with_span(line_no, 1),
+            ]);
+        };
+        let name = part
+            .split_once(':')
+            .map(|(name, _)| name)
+            .unwrap_or(part)
+            .trim();
+        validate_ident(name, path, line_no, 1).map_err(|error| vec![error])?;
+        if params
+            .iter()
+            .any(|existing: &MacroParam| existing.name() == name)
+        {
+            return Err(vec![
+                Diagnostic::new("parse", format!("duplicate macro parameter {name:?}"))
+                    .with_path(path.display().to_string())
+                    .with_span(line_no, 1),
+            ]);
+        }
+        params.push(MacroParam::Single(name.to_string()));
+    }
+    Ok(params)
+}
+
+fn parse_repetition_macro_param(
+    raw: &str,
+    path: &Path,
+    line_no: usize,
+) -> Result<MacroParam, Vec<Diagnostic>> {
+    let Some(start) = raw.find("$(") else {
+        return Err(vec![
+            Diagnostic::new(
+                "parse",
+                "macro repetition must use `$($name:fragment)*` syntax",
+            )
+            .with_path(path.display().to_string())
+            .with_span(line_no, 1),
+        ]);
+    };
+    if raw[..start].trim().is_empty() {
+        let open = start + 1;
+        let Some(close) = find_matching_paren(raw, open) else {
+            return Err(vec![
+                Diagnostic::new("parse", "macro repetition is missing closing `)`")
+                    .with_path(path.display().to_string())
+                    .with_span(line_no, 1),
+            ]);
+        };
+        if !raw[close + 1..].trim().ends_with('*') {
+            return Err(vec![
+                Diagnostic::new("parse", "macro repetition must end with `*`")
+                    .with_path(path.display().to_string())
+                    .with_span(line_no, 1),
+            ]);
+        }
+        let separator = raw[close + 1..]
+            .trim()
+            .strip_suffix('*')
+            .and_then(|prefix| prefix.trim().chars().next());
+        let inner = raw[open + 1..close].trim();
+        let Some(inner) = inner.strip_prefix('$') else {
+            return Err(vec![
+                Diagnostic::new("parse", "macro repetition parameter must start with `$`")
+                    .with_path(path.display().to_string())
+                    .with_span(line_no, 1),
+            ]);
+        };
+        let name = inner
+            .split_once(':')
+            .map(|(name, _)| name)
+            .unwrap_or(inner)
+            .trim();
+        validate_ident(name, path, line_no, 1).map_err(|error| vec![error])?;
+        return Ok(MacroParam::Repeat {
+            name: name.to_string(),
+            separator,
+        });
+    }
+    Err(vec![
+        Diagnostic::new(
+            "parse",
+            "stage1 macro repetition supports a single repeated parameter per arm",
+        )
+        .with_path(path.display().to_string())
+        .with_span(line_no, 1),
+    ])
+}
+
 fn expand_macro_invocations_once(
-    source: &str,
+    source: &[ExpandedSourceLine],
     macros: &std::collections::HashMap<String, MacroRule>,
     path: &Path,
-) -> Result<(String, bool), Vec<Diagnostic>> {
-    let mut changed = false;
+    depth: usize,
+) -> Result<(Vec<ExpandedSourceLine>, Vec<MacroExpansion>), Vec<Diagnostic>> {
+    let mut expansions = Vec::new();
     let mut output = Vec::new();
-    for (line_index, line) in source.lines().enumerate() {
-        let (expanded, line_changed) = expand_macro_line_once(line, macros, path, line_index + 1)?;
-        changed |= line_changed;
+    for line in source {
+        let (expanded, line_expansion) =
+            expand_macro_line_once(&line.text, macros, path, line.original_line, depth)?;
+        if let Some(expansion) = line_expansion {
+            expansions.push(expansion);
+        }
         output.extend(expanded);
     }
-    Ok((output.join("\n"), changed))
+    Ok((output, expansions))
 }
 
 fn expand_macro_line_once(
@@ -1167,7 +1533,8 @@ fn expand_macro_line_once(
     macros: &std::collections::HashMap<String, MacroRule>,
     path: &Path,
     line_no: usize,
-) -> Result<(Vec<String>, bool), Vec<Diagnostic>> {
+    depth: usize,
+) -> Result<(Vec<ExpandedSourceLine>, Option<MacroExpansion>), Vec<Diagnostic>> {
     let mut first_match: Option<(usize, usize, &MacroRule)> = None;
     for rule in macros.values() {
         let needle = format!("{}!(", rule.name);
@@ -1187,7 +1554,13 @@ fn expand_macro_line_once(
         }
     }
     let Some((start, close, rule)) = first_match else {
-        return Ok((vec![line.to_string()], false));
+        return Ok((
+            vec![ExpandedSourceLine {
+                text: line.to_string(),
+                original_line: line_no,
+            }],
+            None,
+        ));
     };
     let args_raw = &line[start + rule.name.len() + 2..close];
     let args: Vec<&str> = if args_raw.trim().is_empty() {
@@ -1198,38 +1571,57 @@ fn expand_macro_line_once(
             .map(str::trim)
             .collect()
     };
-    if args.len() != rule.params.len() {
+    let Some(arm) = select_macro_arm(rule, &args) else {
         return Err(vec![
             Diagnostic::new(
                 "parse",
                 format!(
-                    "macro {}! expects {} argument(s), got {}",
+                    "macro {}! does not have a matching arm for {} argument(s)",
                     rule.name,
-                    rule.params.len(),
                     args.len()
                 ),
             )
             .with_path(path.display().to_string())
             .with_span(line_no, start + 1),
         ]);
-    }
-    let expansion = render_macro_expansion(&rule.template, &rule.params, &args);
+    };
+    let hygiene_prefix = format!("__axiom_macro_{}_{}_{}_", rule.name, line_no, start + 1);
+    let template = rename_introduced_bindings(&arm.template, &arm.params, &hygiene_prefix);
+    let expansion = render_macro_expansion(&template, &arm.params, &args);
     let before = &line[..start];
     let after = &line[close + 1..];
     let invocation_is_statement = before.trim().is_empty() && after.trim().is_empty();
+    let metadata = MacroExpansion {
+        macro_name: rule.name.clone(),
+        call_site: MacroSpan {
+            path: path.display().to_string(),
+            line: line_no,
+            column: start + 1,
+        },
+        definition_site: MacroSpan {
+            path: path.display().to_string(),
+            line: rule.line,
+            column: rule.column,
+        },
+        depth,
+    };
     if invocation_is_statement {
         let indent = before;
         let lines = expansion
             .lines()
             .map(|expanded_line| {
-                if expanded_line.trim().is_empty() {
+                let text = if expanded_line.trim().is_empty() {
                     String::new()
                 } else {
                     format!("{indent}{}", expanded_line.trim())
+                };
+                ExpandedSourceLine {
+                    text,
+                    original_line: line_no,
                 }
             })
             .collect();
-        return Ok((lines, true));
+        return Ok((lines, Some(metadata)));
     }
     if expansion.lines().count() > 1 {
         return Err(vec![
@@ -1245,9 +1637,22 @@ fn expand_macro_line_once(
         ]);
     }
     Ok((
-        vec![format!("{}{}{}", before, expansion.trim(), after)],
-        true,
+        vec![ExpandedSourceLine {
+            text: format!("{}{}{}", before, expansion.trim(), after),
+            original_line: line_no,
+        }],
+        Some(metadata),
     ))
+}
+
+fn select_macro_arm<'a>(rule: &'a MacroRule, args: &[&str]) -> Option<&'a MacroArm> {
+    rule.arms.iter().find(|arm| {
+        if arm.params.len() == 1 && matches!(arm.params[0], MacroParam::Repeat { .. }) {
+            true
+        } else {
+            arm.params.len() == args.len()
+        }
+    })
 }
 
 fn find_macro_invocation(line: &str, needle: &str) -> Option<usize> {
@@ -1288,7 +1693,13 @@ fn is_identifier_char(ch: char) -> bool {
     ch.is_ascii_alphanumeric() || ch == '_'
 }
 
-fn render_macro_expansion(template: &str, params: &[String], args: &[&str]) -> String {
+fn render_macro_expansion(template: &str, params: &[MacroParam], args: &[&str]) -> String {
+    if let Some(MacroParam::Repeat { name, separator }) = params
+        .iter()
+        .find(|param| matches!(param, MacroParam::Repeat { .. }))
+    {
+        return render_repetition_macro_expansion(template, name, *separator, args);
+    }
     let mut output = String::new();
     let mut chars = template.char_indices().peekable();
     let mut in_string = false;
@@ -1342,12 +1753,124 @@ fn render_macro_expansion(template: &str, params: &[String], args: &[&str]) -> S
             }
         }
         let name = &template[name_start..name_end];
-        if let Some(position) = params.iter().position(|param| param == name) {
+        if let Some(position) = params.iter().position(|param| param.name() == name) {
             output.push_str(args[position]);
         } else {
             output.push('$');
             output.push_str(name);
         }
+    }
+    output
+}
+
+fn render_repetition_macro_expansion(
+    template: &str,
+    name: &str,
+    separator: Option<char>,
+    args: &[&str],
+) -> String {
+    let mut output = template.to_string();
+    let joined = args.join(&separator.map(|ch| ch.to_string()).unwrap_or_default());
+    let compact_comma = format!("$(${name}),*");
+    let spaced_comma = format!("$(${name}), *");
+    let compact = format!("$(${name})*");
+    output = output.replace(&compact_comma, &joined);
+    output = output.replace(&spaced_comma, &joined);
+    output.replace(&compact, &joined)
+}
+
+fn rename_introduced_bindings(
+    template: &str,
+    params: &[MacroParam],
+    hygiene_prefix: &str,
+) -> String {
+    let param_names = params
+        .iter()
+        .map(MacroParam::name)
+        .collect::<std::collections::BTreeSet<_>>();
+    let mut introduced = std::collections::BTreeSet::new();
+    for line in template.lines() {
+        let trimmed = line.trim_start();
+        let Some(rest) = trimmed.strip_prefix("let ") else {
+            continue;
+        };
+        let name = rest
+            .chars()
+            .take_while(|ch| is_identifier_char(*ch))
+            .collect::<String>();
+        if !name.is_empty() && !param_names.contains(name.as_str()) {
+            introduced.insert(name);
+        }
+    }
+    let mut renamed = template.to_string();
+    for name in introduced {
+        renamed = replace_identifier_outside_strings(
+            &renamed,
+            &name,
+            &format!("{hygiene_prefix}{name}"),
+            true,
+        );
+    }
+    renamed
+}
+
+fn replace_identifier_outside_strings(
+    source: &str,
+    needle: &str,
+    replacement: &str,
+    skip_macro_parameter: bool,
+) -> String {
+    let mut output = String::new();
+    let mut index = 0usize;
+    let mut in_string = false;
+    let mut escaped = false;
+    while index < source.len() {
+        let ch = source[index..].chars().next().expect("valid char boundary");
+        if in_string {
+            output.push(ch);
+            index += ch.len_utf8();
+            if escaped {
+                escaped = false;
+                continue;
+            }
+            match ch {
+                '\\' => escaped = true,
+                '"' => in_string = false,
+                _ => {}
+            }
+            continue;
+        }
+        if ch == '"' {
+            in_string = true;
+            output.push(ch);
+            index += ch.len_utf8();
+            continue;
+        }
+        if ch == '#' {
+            output.push_str(&source[index..]);
+            break;
+        }
+        if source[index..].starts_with(needle)
+            && source[..index]
+                .chars()
+                .next_back()
+                .is_none_or(|previous| !is_identifier_char(previous))
+            && source[index + needle.len()..]
+                .chars()
+                .next()
+                .is_none_or(|next| !is_identifier_char(next))
+            && (!skip_macro_parameter
+                || source[..index]
+                    .chars()
+                    .next_back()
+                    .is_none_or(|previous| previous != '$'))
+        {
+            output.push_str(replacement);
+            index += needle.len();
+            continue;
+        }
+        output.push(ch);
+        index += ch.len_utf8();
     }
     output
 }

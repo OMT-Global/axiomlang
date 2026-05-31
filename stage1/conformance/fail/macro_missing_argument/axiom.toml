@@ -1,0 +1,22 @@
+[package]
+name = "conformance-macro-missing-argument"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+fs = false
+net = false
+process = false
+env = false
+clock = false
+crypto = false
+
+[expected_error]
+kind = "parse"
+message = "macro add_one! does not have a matching arm for 0 argument(s)"
+path = "src/main.ax"
+line = 5
+column = 7
