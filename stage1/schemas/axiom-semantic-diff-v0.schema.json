@@ -1,0 +1,135 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://axiom.omt.global/schemas/axiom-semantic-diff-v0.schema.json",
+  "title": "Axiom Semantic Diff v0",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "ok",
+    "command",
+    "old",
+    "new",
+    "summary",
+    "changes"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "axiom.semantic_diff.v0"
+    },
+    "ok": {
+      "type": "boolean"
+    },
+    "command": {
+      "const": "semantic-diff"
+    },
+    "old": {
+      "type": "string",
+      "minLength": 1
+    },
+    "new": {
+      "type": "string",
+      "minLength": 1
+    },
+    "summary": {
+      "$ref": "#/$defs/summary"
+    },
+    "changes": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/change"
+      }
+    }
+  },
+  "$defs": {
+    "summary": {
+      "type": "object",
+      "required": [
+        "breaking",
+        "additive",
+        "informational"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "breaking": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "additive": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "informational": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "change": {
+      "type": "object",
+      "required": [
+        "change",
+        "severity",
+        "node_kind",
+        "node_id",
+        "description"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "change": {
+          "enum": [
+            "added",
+            "removed",
+            "modified"
+          ]
+        },
+        "severity": {
+          "enum": [
+            "breaking",
+            "additive",
+            "informational"
+          ]
+        },
+        "node_kind": {
+          "type": "string",
+          "minLength": 1
+        },
+        "node_id": {
+          "$ref": "#/$defs/nodeId"
+        },
+        "edge_kind": {
+          "$ref": "#/$defs/edgeKind"
+        },
+        "edge_from": {
+          "$ref": "#/$defs/nodeId"
+        },
+        "edge_to": {
+          "$ref": "#/$defs/nodeId"
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "nodeId": {
+      "type": "string",
+      "pattern": "^axiom://[A-Za-z0-9._~:/#@!$&'()*+,;=%-]+$"
+    },
+    "edgeKind": {
+      "enum": [
+        "declares",
+        "uses",
+        "requires",
+        "preserves",
+        "allows_effect",
+        "emits",
+        "verified_by",
+        "generated_from",
+        "depends_on",
+        "implements",
+        "violates"
+      ]
+    }
+  }
+}

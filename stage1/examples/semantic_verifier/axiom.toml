@@ -1,0 +1,27 @@
+[package]
+name = "semantic-verifier"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+fs = false
+net = false
+process = false
+env = false
+clock = false
+crypto = false
+ffi = false
+async = false
+
+[[tests]]
+name = "PassingEvidence"
+entry = "src/passing_test.ax"
+stdout = "1\n"
+
+[[tests]]
+name = "FailingEvidence"
+entry = "src/failing_test.ax"
+stdout = "1\n"
