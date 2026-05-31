@@ -161,10 +161,10 @@ def classify_pr(pr: dict[str, Any]) -> dict[str, Any]:
         state = "review_blocked"
     elif checks["state"] == "pending":
         state = "ci_pending"
-    elif review_decision in {"REVIEW_REQUIRED", ""}:
-        state = "awaiting_review"
     elif checks["state"] == "missing" or mergeable == "UNKNOWN":
         state = "needs_recheck"
+    elif review_decision in {"REVIEW_REQUIRED", ""}:
+        state = "awaiting_review"
     elif review_decision == "APPROVED" and checks["state"] == "passing":
         state = "merge_ready"
     else:

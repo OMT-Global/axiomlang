@@ -42,7 +42,9 @@ def pr(
         "isDraft": is_draft,
         "mergeable": mergeable,
         "reviewDecision": review_decision,
-        "statusCheckRollup": checks or [check("CI Gate", "COMPLETED", "SUCCESS")],
+        "statusCheckRollup": checks
+        if checks is not None
+        else [check("CI Gate", "COMPLETED", "SUCCESS")],
     }
 
 
@@ -77,6 +79,18 @@ class PrQueueRemediationTests(unittest.TestCase):
             },
         )
         self.assertEqual([item["number"] for item in report["worklist"]], [1, 2, 3, 4, 5, 6])
+
+    def test_missing_check_rollup_requires_recheck_before_review_wait(self) -> None:
+        report = queue.build_report(
+            repo="OMT-Global/axiom",
+            rechecked_at="2026-05-31T14:00:00Z",
+            source="fixture",
+            prs=[pr(10, checks=[])],
+        )
+
+        item = report["pull_requests"][0]
+        self.assertEqual(item["checks"]["state"], "missing")
+        self.assertEqual(item["classification"], "needs_recheck")
 
     def test_repeated_classification_is_deterministic_for_same_snapshot(self) -> None:
         snapshot = [
