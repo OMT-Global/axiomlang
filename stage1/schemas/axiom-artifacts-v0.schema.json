@@ -45,6 +45,7 @@
             "generated_rust",
             "openapi_spec",
             "policy_bundle",
+            "runbook",
             "test_report",
             "benchmark_report",
             "docs"

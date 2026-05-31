@@ -36,6 +36,7 @@ For a buildable package, the artifact plan includes:
 - generated Rust beside the binary,
 - the OpenAPI target artifact at `<out_dir>/openapi.json`,
 - the policy bundle target artifact at `<out_dir>/policy-bundle.json`,
+- the runbook target artifact at `<out_dir>/runbook.md`,
 - docs at `docs/axiom/index.md`,
 - one test report for each manifest test target,
 - one benchmark report for each manifest benchmark target.
@@ -44,6 +45,8 @@ For a buildable package, the artifact plan includes:
 `axiomc generate openapi <path> --out <out_dir>/openapi.json` writes the
 document. `policy_bundle` records move from `planned` to `generated` after
 `axiomc generate policy <path> --out <out_dir>/policy-bundle.json` writes the
-allowlist. The inspect command does not generate files and does not replace
-`axiomc build`, `axiomc test`, `axiomc doc`, `axiomc bench`, or target
+allowlist. `runbook` records move from `planned` to `generated` after
+`axiomc generate runbook <path> --out <out_dir>/runbook.md` writes the
+operator document. The inspect command does not generate files and does not
+replace `axiomc build`, `axiomc test`, `axiomc doc`, `axiomc bench`, or target
 generators.
