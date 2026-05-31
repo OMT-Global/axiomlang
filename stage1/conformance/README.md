@@ -63,6 +63,9 @@ Packages under `fail/` are compile-fail fixtures. Each package is a complete
 stage1 project with `axiom.toml`, `axiom.lock`, source, and
 `expected-error.json`. The conformance runner checks the diagnostic kind, code,
 message, relative path, line, and column.
+Load-time manifest fixtures that cannot be listed in the aggregate workspace,
+such as `dependency_path_escape`, are kept under `fail/` and exercised by
+focused Rust tests.
 
 Current compile-fail fixtures cover:
 
@@ -86,6 +89,8 @@ Current compile-fail fixtures cover:
   diagnostic for predictable error message shape.
 - `comparison_strict_type_mismatch`: Axiom-owned Go/Rust-style comparison
   diagnostic for strict struct field typing.
+- `dependency_path_escape`: manifest diagnostics for dependency paths that
+  resolve outside the current package or declared workspace members.
 - `parser_type_return_mismatch`: migrated parser/type diagnostic coverage for
   return expressions whose parsed value type disagrees with the declared
   function return type.

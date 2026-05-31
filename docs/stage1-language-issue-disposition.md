@@ -16,9 +16,11 @@ not sufficient closure evidence by itself.
 
 - Stage1 already supports explicit generic functions, generic structs and
   enums, borrowed slices, aggregate borrowed returns, owned `string`, scalar
-  `int` / `bool`, top-level scalar `const`, statement-level `match`,
-  `Option<T>` / `Result<T, E>`, package-local imports, local dependency graphs,
-  capability-gated stdlib modules, and generated-Rust native builds.
+  `int` / `bool`, first-class signed, unsigned, and floating numeric widths,
+  explicit numeric casts, suffixed numeric literals, top-level scalar `const`,
+  statement-level `match`, `Option<T>` / `Result<T, E>`, package-local imports,
+  local dependency graphs, capability-gated stdlib modules, and generated-Rust
+  native builds.
 - Stage1 still has no trait system, no generic type inference at call sites, no
   exposed lifetime parameter syntax, no `String` / `&str` split, no declarative
   macro expander, and no operator overloading protocol.
@@ -39,7 +41,7 @@ not sufficient closure evidence by itself.
 | [#217](https://github.com/OMT-Global/axiom/issues/217) Generic type inference | Keep open until scoped | The current AG2 contract deliberately uses explicit type arguments and monomorphized generics. Inference depends on a constraint model and eventual trait bounds, so implementation should wait for a focused inference RFC after the trait decision. |
 | [#218](https://github.com/OMT-Global/axiom/issues/218) Mutable references | Keep open as active AG1 follow-up | This maps to AG1.2. The current compiler has borrowed slices and some mutable-slice plumbing, but not the full exposed `&mut T` aliasing and lifetime contract requested by the issue. |
 | [#219](https://github.com/OMT-Global/axiom/issues/219) Explicit lifetimes | Partial implementation landed | Stage1 now accepts explicit lifetime annotations on borrowed slice and mutable borrowed slice function signatures, preserving them through project rewriting and using the return lifetime to restrict which borrowed parameters may feed a borrowed return. Broader lifetime parameters on aggregate declarations, traits, and the final syntax-versus-elision policy still need RFC follow-up. |
-| [#220](https://github.com/OMT-Global/axiom/issues/220) Full numeric tower | Keep open or split | The current language still only exposes scalar `int` and `bool` as first-class numerics. This is real product work, but the issue should be split before implementation into integer widths, float support, casts, overflow policy, and literal suffixes. |
+| [#220](https://github.com/OMT-Global/axiom/issues/220) Full numeric tower | Implementation slices landed | The numeric tower has been split into independently testable issue slices covering signed widths, unsigned widths, floats, explicit cross-width casts, and literal suffixes. `docs/stage1.md` records overflow and floating-point behavior, while focused unit tests and conformance fixtures cover the shipped surface. Keep future numeric work as separate follow-up issues instead of reopening the broad umbrella. |
 | [#221](https://github.com/OMT-Global/axiom/issues/221) Owned `String` and borrowed `&str` | Keep open or split after lifetime policy | Stage1 has owned `string` and borrowed slices, but not a user-facing string view model. This depends on the lifetime and reference decisions, so it should remain deferred rather than be treated as complete. |
 | [#222](https://github.com/OMT-Global/axiom/issues/222) Const / static evaluation | Keep open as partially landed | Top-level scalar `const` evaluation has landed, including local and imported public constants plus const-sized array lengths. Module-scope `static` now covers scalar values, strings, and small tuples. Match-pattern constants and `const fn` remain outside the current bootstrap contract, so the current evidence is partial only. |
 | [#223](https://github.com/OMT-Global/axiom/issues/223) Declarative macros | Keep open pending RFC | Macros are explicitly beyond the agent-grade compiler bar. They need an RFC covering hygiene and expansion boundaries before implementation issues are useful. |
