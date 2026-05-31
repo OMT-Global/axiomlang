@@ -3144,6 +3144,9 @@ fn effect_for_call(name: &str) -> Option<(&'static str, &'static str, &'static s
         | "net_tcp_listen_loopback_once"
         | "tcp_listen_loopback_once" => Some(("network.tcp.bind", "bind", "net")),
         "net_tcp_dial" | "tcp_dial" => Some(("network.tcp.connect", "connect", "net")),
+        "net_tcp_accept" => Some(("network.tcp.accept", "accept", "net")),
+        "net_tcp_read" | "net_tcp_read_string" => Some(("network.tcp.recv", "recv", "net")),
+        "net_tcp_write" | "net_tcp_write_string" => Some(("network.tcp.send", "send", "net")),
         "net_udp_bind_loopback_once"
         | "udp_bind_loopback_once"
         | "net_udp_send_recv"
@@ -5571,7 +5574,9 @@ fn capability_for_call(name: &str) -> Option<&'static str> {
         | "net_tcp_listener_port"
         | "net_tcp_accept"
         | "net_tcp_read"
+        | "net_tcp_read_string"
         | "net_tcp_write"
+        | "net_tcp_write_string"
         | "net_tcp_close"
         | "net_tcp_close_listener"
         | "net_udp_bind"

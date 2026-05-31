@@ -9000,6 +9000,53 @@ fn lower_expr_with_expected_inner(
                     ty: Type::Int,
                 });
             }
+            if name == "net_tcp_read_string" || name == "net_tcp_write_string" {
+                require_capability(ctx.capabilities, CapabilityKind::Net, name, *line, *column)?;
+                if args.len() != 2 {
+                    return Err(Diagnostic::new(
+                        "type",
+                        format!("{name} expects 2 arguments, got {}", args.len()),
+                    )
+                    .with_span(*line, *column));
+                }
+                let stream = lower_expr_with_expected(&args[0], Some(&Type::Int), env, ctx)?;
+                if stream.ty() != &Type::Int {
+                    return Err(Diagnostic::new(
+                        "type",
+                        format!("{name} expects argument 1 type int, got {}", stream.ty()),
+                    )
+                    .with_span(args[0].line(), args[0].column()));
+                }
+                let expected = if name == "net_tcp_read_string" {
+                    Type::Int
+                } else {
+                    Type::String
+                };
+                let value = lower_expr_with_expected(&args[1], Some(&expected), env, ctx)?;
+                if value.ty() != &expected {
+                    return Err(Diagnostic::new(
+                        "type",
+                        format!(
+                            "{name} expects argument 2 type {expected}, got {}",
+                            value.ty()
+                        ),
+                    )
+                    .with_span(args[1].line(), args[1].column()));
+                }
+                if name == "net_tcp_write_string" {
+                    move_lowered_value(&value, env)?;
+                }
+                return Ok(Expr::Call {
+                    span: SourceSpan::point(*line, *column),
+                    name: name.clone(),
+                    args: vec![stream, value],
+                    ty: if name == "net_tcp_read_string" {
+                        Type::String
+                    } else {
+                        Type::Int
+                    },
+                });
+            }
             if name == "net_udp_bind" {
                 require_capability(ctx.capabilities, CapabilityKind::Net, name, *line, *column)?;
                 if args.len() != 1 {

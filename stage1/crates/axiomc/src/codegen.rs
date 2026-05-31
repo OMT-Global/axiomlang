@@ -1975,6 +1975,24 @@ fn axiom_net_tcp_read(stream: i64, buf: &mut [u8]) -> i64 {
 }
 
 #[allow(dead_code)]
+fn axiom_net_tcp_read_string(stream: i64, max_bytes: i64) -> String {
+    use std::io::Read;
+    let bounded = max_bytes.clamp(0, 64 * 1024) as u64;
+    let args = axiom_host_arg_summary(&[("stream", format!("handle:{}", stream)), ("max_bytes", format!("int:{}", max_bytes))]);
+    let result = (|| {
+        let cloned = {
+            let registry = axiom_tcp_registry().lock().ok()?;
+            registry.streams.get(&stream)?.try_clone().ok()?
+        };
+        let mut response = Vec::new();
+        cloned.take(bounded).read_to_end(&mut response).ok()?;
+        String::from_utf8(response).ok()
+    })();
+    axiom_host_audit("net_tcp_read_string", args, if result.is_some() { "ok" } else { "denied" });
+    result.unwrap_or_default()
+}
+
+#[allow(dead_code)]
 fn axiom_net_tcp_write(stream: i64, buf: &[u8]) -> i64 {
     use std::io::Write;
     let args = axiom_host_arg_summary(&[("stream", format!("handle:{}", stream)), ("buf", format!("bytes:{}", buf.len()))]);
@@ -1984,6 +2002,23 @@ fn axiom_net_tcp_write(stream: i64, buf: &[u8]) -> i64 {
         .and_then(|mut registry| registry.streams.get_mut(&stream).and_then(|stream| stream.write(buf).ok()))
         .map(|written| written as i64);
     axiom_host_audit("net_tcp_write", args, if result.is_some() { "ok" } else { "denied" });
+    result.unwrap_or(-1)
+}
+
+#[allow(dead_code)]
+fn axiom_net_tcp_write_string(stream: i64, message: String) -> i64 {
+    use std::io::Write;
+    let args = axiom_host_arg_summary(&[("stream", format!("handle:{}", stream)), ("message", format!("string:{}", message.len()))]);
+    let result = (|| {
+        let mut cloned = {
+            let registry = axiom_tcp_registry().lock().ok()?;
+            registry.streams.get(&stream)?.try_clone().ok()?
+        };
+        cloned.write_all(message.as_bytes()).ok()?;
+        cloned.flush().ok()?;
+        Some(message.len() as i64)
+    })();
+    axiom_host_audit("net_tcp_write_string", args, if result.is_some() { "ok" } else { "denied" });
     result.unwrap_or(-1)
 }
 
@@ -5657,9 +5692,23 @@ fn render_expr(expr: &Expr) -> String {
                 render_expr(&args[1])
             )
         }
+        Expr::Call { name, args, .. } if name == "net_tcp_read_string" => {
+            format!(
+                "axiom_net_tcp_read_string({}, {})",
+                render_expr(&args[0]),
+                render_expr(&args[1])
+            )
+        }
         Expr::Call { name, args, .. } if name == "net_tcp_write" => {
             format!(
                 "axiom_net_tcp_write({}, {})",
+                render_expr(&args[0]),
+                render_expr(&args[1])
+            )
+        }
+        Expr::Call { name, args, .. } if name == "net_tcp_write_string" => {
+            format!(
+                "axiom_net_tcp_write_string({}, {})",
                 render_expr(&args[0]),
                 render_expr(&args[1])
             )
