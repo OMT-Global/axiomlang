@@ -1,0 +1,6 @@
+import "std/env.ax"
+import "std/net.ax"
+
+let _mode: Option<string> = get_env("SERVICE_MODE")
+let _reply: Option<string> = tcp_dial("api.internal", 443, "ping", 100)
+print "terraform runtime service"

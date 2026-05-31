@@ -1,0 +1,118 @@
+{
+  "schema_version": "axiom.policy_bundle.v0",
+  "package": "axiom://package/policy-bundle-service",
+  "target_id": "axiom://target/stage1-policy-bundle-v0",
+  "generated_from": [
+    "axiom://package/policy-bundle-service"
+  ],
+  "capabilities": [
+    {
+      "name": "fs",
+      "enabled": true,
+      "description": "filesystem read access",
+      "configured_root": "."
+    },
+    {
+      "name": "fs:write",
+      "enabled": false,
+      "description": "filesystem write access"
+    },
+    {
+      "name": "net",
+      "enabled": false,
+      "description": "network access"
+    },
+    {
+      "name": "process",
+      "enabled": false,
+      "description": "child process execution"
+    },
+    {
+      "name": "env",
+      "enabled": true,
+      "description": "environment variable access",
+      "allowed": [
+        "POLICY_MODE"
+      ]
+    },
+    {
+      "name": "clock",
+      "enabled": true,
+      "description": "wall-clock time access"
+    },
+    {
+      "name": "crypto",
+      "enabled": false,
+      "description": "hashing and cryptography primitives"
+    },
+    {
+      "name": "ffi",
+      "enabled": false,
+      "description": "foreign function interface access"
+    },
+    {
+      "name": "async",
+      "enabled": false,
+      "description": "host async runtime access"
+    }
+  ],
+  "allowed_effect_kinds": [
+    "clock.now",
+    "clock.sleep",
+    "env.read",
+    "fs.read"
+  ],
+  "allowed_effects": [
+    {
+      "kind": "clock.now",
+      "capability_gate": "clock"
+    },
+    {
+      "kind": "clock.sleep",
+      "capability_gate": "clock"
+    },
+    {
+      "kind": "env.read",
+      "capability_gate": "env"
+    },
+    {
+      "kind": "fs.read",
+      "capability_gate": "fs"
+    }
+  ],
+  "observed_effects": [
+    {
+      "kind": "clock.now",
+      "resource": "*",
+      "operation": "read",
+      "capability_gate": "clock",
+      "source_span": {
+        "path": "stage1/examples/policy_bundle_service/src/main.ax",
+        "line": 5,
+        "column": 15
+      }
+    },
+    {
+      "kind": "env.read",
+      "resource": "POLICY_MODE",
+      "operation": "read",
+      "capability_gate": "env",
+      "source_span": {
+        "path": "stage1/examples/policy_bundle_service/src/main.ax",
+        "line": 6,
+        "column": 24
+      }
+    },
+    {
+      "kind": "fs.read",
+      "resource": "policy-input.txt",
+      "operation": "read",
+      "capability_gate": "fs",
+      "source_span": {
+        "path": "stage1/examples/policy_bundle_service/src/main.ax",
+        "line": 7,
+        "column": 28
+      }
+    }
+  ]
+}
