@@ -3654,7 +3654,9 @@ fn collect_openapi_served_routes_in_expr(
                 collect_openapi_served_routes_in_expr(arg, file, http_imported, context, routes);
             }
         }
-        Expr::BinaryAdd { lhs, rhs, .. } | Expr::BinaryCompare { lhs, rhs, .. } => {
+        Expr::BinaryAdd { lhs, rhs, .. }
+        | Expr::BinaryCompare { lhs, rhs, .. }
+        | Expr::BinaryLogic { lhs, rhs, .. } => {
             collect_openapi_served_routes_in_expr(lhs, file, http_imported, context, routes);
             collect_openapi_served_routes_in_expr(rhs, file, http_imported, context, routes);
         }

@@ -65,7 +65,9 @@ mod tests {
         deterministic_numbers, deterministic_strings, render_generated_rust,
         try_render_generated_rust,
     };
-    use crate::mir::{ArithmeticOp, Expr, Function, LiteralValue, Program, SourceSpan, Stmt, Type};
+    use crate::mir::{
+        ArithmeticOp, Expr, Function, LiteralValue, LogicOp, Program, SourceSpan, Stmt, Type,
+    };
     use std::str::FromStr;
 
     #[test]
@@ -164,6 +166,36 @@ mod tests {
             .expect("user-controlled text should not trigger ICE diagnostics");
 
         assert!(rendered.contains("__AXIOM_INTERNAL_CODEGEN_ERROR__"));
+    }
+
+    #[test]
+    fn generated_rust_backend_preserves_nested_boolean_logic_grouping() {
+        let program = Program {
+            path: String::from("logic-grouping"),
+            functions: vec![],
+            structs: vec![],
+            enums: vec![],
+            statics: vec![],
+            stmts: vec![Stmt::Print {
+                expr: Expr::BinaryLogic {
+                    op: LogicOp::And,
+                    lhs: Box::new(Expr::Literal(LiteralValue::Bool(true))),
+                    rhs: Box::new(Expr::BinaryLogic {
+                        op: LogicOp::Or,
+                        lhs: Box::new(Expr::Literal(LiteralValue::Bool(false))),
+                        rhs: Box::new(Expr::Literal(LiteralValue::Bool(true))),
+                        ty: Type::Bool,
+                    }),
+                    ty: Type::Bool,
+                },
+                span: SourceSpan { line: 1, column: 1 },
+            }],
+        };
+
+        let rendered = render_generated_rust(&GeneratedRustBackendInput::from_mir(program));
+
+        assert!(rendered.contains("true && (false || true)"));
+        assert!(!rendered.contains("true && false || true"));
     }
 
     #[test]
