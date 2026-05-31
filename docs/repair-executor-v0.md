@@ -78,6 +78,17 @@ evidence passes. The model never decides whether publishing is allowed.
 
 No implementation may silently switch between these modes.
 
+Mode and delivery boundaries are therefore independent:
+
+- local-only deterministic or assisted runs may reach `edited`,
+  `evidence_running`, `evidence_failed`, or `delivery_recheck_failed`, but not
+  `resolved` when a PR branch must advance;
+- publish-capable deterministic or assisted runs may reach `resolved` only
+  after the executor-created commit is pushed, fresh delivery state is fetched
+  for that exact head SHA, and review/mergeability signals are satisfactory;
+- dry-run never reaches `resolved` because it intentionally performs no write,
+  commit, or push.
+
 ## Execution States
 
 Task states are:
