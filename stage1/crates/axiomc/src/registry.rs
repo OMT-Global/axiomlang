@@ -1,7 +1,7 @@
 use crate::diagnostics::Diagnostic;
 use crate::lockfile::validate_lockfile;
 use crate::manifest::{
-    capability_descriptors, load_manifest, manifest_path, LOCK_FILENAME, MANIFEST_FILENAME,
+    LOCK_FILENAME, MANIFEST_FILENAME, capability_descriptors, load_manifest, manifest_path,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -1088,9 +1088,11 @@ mod tests {
         let original = fs::read(release.join("package.axp")).expect("read archive");
         let error = verify_archive_integrity("core", "1.0.0", &original, &signature, "wrong-key")
             .expect_err("wrong key should fail");
-        assert!(error
-            .message
-            .contains("does not match supplied signing key"));
+        assert!(
+            error
+                .message
+                .contains("does not match supplied signing key")
+        );
     }
 
     #[test]
@@ -1333,10 +1335,12 @@ integrity=ignored
             release.yank_reason.as_deref(),
             Some("security fix required")
         );
-        assert!(release
-            .capabilities
-            .iter()
-            .any(|cap| cap.name == "net" && cap.enabled));
+        assert!(
+            release
+                .capabilities
+                .iter()
+                .any(|cap| cap.name == "net" && cap.enabled)
+        );
         let env = release
             .capabilities
             .iter()
@@ -1453,10 +1457,12 @@ integrity=ignored
             .expect_err("yank_reason without yanked should fail");
         assert_eq!(error.kind, "registry");
         assert!(error.message.contains("yank_reason but is not yanked"));
-        assert!(error
-            .path
-            .as_deref()
-            .is_some_and(|path| path.ends_with("axiom-registry.toml")));
+        assert!(
+            error
+                .path
+                .as_deref()
+                .is_some_and(|path| path.ends_with("axiom-registry.toml"))
+        );
     }
 
     #[test]
