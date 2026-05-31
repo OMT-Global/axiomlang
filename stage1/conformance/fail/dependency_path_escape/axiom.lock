@@ -1,0 +1,11 @@
+version = 1
+
+[[package]]
+name = "conformance-dependency-path-escape"
+version = "0.1.0"
+source = "path"
+
+[[package]]
+name = "hello-stage1"
+version = "0.1.0"
+source = "path:../../../examples/hello"
