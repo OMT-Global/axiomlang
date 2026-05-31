@@ -70,6 +70,7 @@ pub struct Function {
     pub params: Vec<Param>,
     pub return_ty: Type,
     pub body: Vec<Stmt>,
+    pub is_property: bool,
     pub is_async: bool,
     pub is_extern: bool,
     pub extern_abi: Option<String>,
@@ -253,6 +254,12 @@ pub enum Expr {
     },
     BinaryCompare {
         op: CompareOp,
+        lhs: Box<Expr>,
+        rhs: Box<Expr>,
+        ty: Type,
+    },
+    BinaryLogic {
+        op: LogicOp,
         lhs: Box<Expr>,
         rhs: Box<Expr>,
         ty: Type,
@@ -532,6 +539,12 @@ pub enum CompareOp {
 }
 
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+pub enum LogicOp {
+    And,
+    Or,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
 pub enum ArithmeticOp {
     Add,
     Sub,
@@ -609,6 +622,7 @@ struct LowerContext<'a> {
     capabilities: &'a CapabilityConfig,
     current_return: Option<Type>,
     current_function: Option<String>,
+    current_property: bool,
     current_borrow_return_params: HashSet<String>,
 }
 
@@ -796,6 +810,7 @@ fn lower_with_capabilities_impl(
         capabilities,
         current_return: None,
         current_function: None,
+        current_property: false,
         current_borrow_return_params: HashSet::new(),
     };
     let statics = match lower_static_decls(&program.consts, &structs, &enums, &aliases, &ctx) {
@@ -958,7 +973,9 @@ fn collect_expr_calls(expr: &syntax::Expr, calls: &mut VecDeque<String>) {
                 collect_expr_calls(arg, calls);
             }
         }
-        syntax::Expr::BinaryAdd { lhs, rhs, .. } | syntax::Expr::BinaryCompare { lhs, rhs, .. } => {
+        syntax::Expr::BinaryAdd { lhs, rhs, .. }
+        | syntax::Expr::BinaryCompare { lhs, rhs, .. }
+        | syntax::Expr::BinaryLogic { lhs, rhs, .. } => {
             collect_expr_calls(lhs, calls);
             collect_expr_calls(rhs, calls);
         }
@@ -1541,6 +1558,29 @@ fn infer_generic_calls_in_expr(
             rhs: Box::new(infer_generic_calls_in_expr(
                 rhs,
                 None,
+                env,
+                generic_functions,
+            )?),
+            line: *line,
+            column: *column,
+        },
+        syntax::Expr::BinaryLogic {
+            op,
+            lhs,
+            rhs,
+            line,
+            column,
+        } => syntax::Expr::BinaryLogic {
+            op: *op,
+            lhs: Box::new(infer_generic_calls_in_expr(
+                lhs,
+                Some(&syntax::TypeName::Bool),
+                env,
+                generic_functions,
+            )?),
+            rhs: Box::new(infer_generic_calls_in_expr(
+                rhs,
+                Some(&syntax::TypeName::Bool),
                 env,
                 generic_functions,
             )?),
@@ -3370,6 +3410,7 @@ fn rewrite_function_aggregate_types(
                 rewrite_stmt_aggregate_types(stmt, generic_structs, generic_enums, queue, queued)
             })
             .collect::<Result<Vec<_>, _>>()?,
+        is_property: function.is_property,
         is_const: function.is_const,
         is_async: function.is_async,
         is_extern: function.is_extern,
@@ -4045,6 +4086,31 @@ fn rewrite_expr_aggregate_types(
             line,
             column,
         } => syntax::Expr::BinaryCompare {
+            op: *op,
+            lhs: Box::new(rewrite_expr_aggregate_types(
+                lhs,
+                generic_structs,
+                generic_enums,
+                queue,
+                queued,
+            )?),
+            rhs: Box::new(rewrite_expr_aggregate_types(
+                rhs,
+                generic_structs,
+                generic_enums,
+                queue,
+                queued,
+            )?),
+            line: *line,
+            column: *column,
+        },
+        syntax::Expr::BinaryLogic {
+            op,
+            lhs,
+            rhs,
+            line,
+            column,
+        } => syntax::Expr::BinaryLogic {
             op: *op,
             lhs: Box::new(rewrite_expr_aggregate_types(
                 lhs,
@@ -4875,6 +4941,31 @@ fn rewrite_expr_generic_calls(
             line,
             column,
         } => syntax::Expr::BinaryCompare {
+            op: *op,
+            lhs: Box::new(rewrite_expr_generic_calls(
+                lhs,
+                type_bindings,
+                generic_functions,
+                queue,
+                queued,
+            )?),
+            rhs: Box::new(rewrite_expr_generic_calls(
+                rhs,
+                type_bindings,
+                generic_functions,
+                queue,
+                queued,
+            )?),
+            line: *line,
+            column: *column,
+        },
+        syntax::Expr::BinaryLogic {
+            op,
+            lhs,
+            rhs,
+            line,
+            column,
+        } => syntax::Expr::BinaryLogic {
             op: *op,
             lhs: Box::new(rewrite_expr_generic_calls(
                 lhs,
@@ -6624,6 +6715,9 @@ fn lower_function(
         function.line,
         function.column,
     )?;
+    if function.is_property {
+        validate_property_signature(function, &return_ty)?;
+    }
     if function.is_async {
         require_capability(
             capabilities,
@@ -6744,6 +6838,7 @@ fn lower_function(
         capabilities,
         current_return: Some(return_ty.clone()),
         current_function: Some(function.source_name.clone()),
+        current_property: function.is_property,
         current_borrow_return_params: signature
             .borrow_return_params
             .iter()
@@ -6770,6 +6865,9 @@ fn lower_function(
         )
         .with_span(function.line, function.column));
     }
+    if function.is_property {
+        validate_property_verdict(function, &params, &body)?;
+    }
     Ok(Function {
         name: symbol_name,
         source_name: function.source_name.clone(),
@@ -6780,6 +6878,7 @@ fn lower_function(
         } else {
             return_ty
         },
+        is_property: function.is_property,
         body,
         is_async: function.is_async,
         is_extern: function.is_extern,
@@ -6788,6 +6887,168 @@ fn lower_function(
         line: function.line,
         column: function.column,
     })
+}
+
+fn validate_property_signature(
+    function: &syntax::Function,
+    return_ty: &Type,
+) -> Result<(), Diagnostic> {
+    if function.type_params.is_empty() && function.params.len() == 1 && return_ty == &Type::Bool {
+        return Ok(());
+    }
+    if !function.type_params.is_empty() {
+        return Err(Diagnostic::new(
+            "property",
+            format!(
+                "property function {:?} cannot be generic in phase H.1",
+                function.source_name
+            ),
+        )
+        .with_path(function.path.clone())
+        .with_span(function.line, function.column));
+    }
+    if function.params.len() != 1 {
+        return Err(Diagnostic::new(
+            "property",
+            format!(
+                "property function {:?} must declare exactly one input parameter",
+                function.source_name
+            ),
+        )
+        .with_path(function.path.clone())
+        .with_span(function.line, function.column));
+    }
+    Err(Diagnostic::new(
+        "property",
+        format!(
+            "property function {:?} must return bool",
+            function.source_name
+        ),
+    )
+    .with_path(function.path.clone())
+    .with_span(function.line, function.column))
+}
+
+fn validate_property_verdict(
+    function: &syntax::Function,
+    params: &[Param],
+    body: &[Stmt],
+) -> Result<(), Diagnostic> {
+    let Some(input) = params.first() else {
+        return Ok(());
+    };
+    if let Some((span, expr)) = property_failing_return(body) {
+        return Err(Diagnostic::new(
+            "property",
+            format!(
+                "property {:?} failed for {}",
+                function.source_name,
+                property_sample_input(input)
+            ),
+        )
+        .with_code("property_failed")
+        .with_path(function.path.clone())
+        .with_span(span.line, span.column)
+        .with_help(format!(
+            "the property return expression is statically false: {}",
+            property_expr_summary(expr)
+        )));
+    }
+    Ok(())
+}
+
+fn property_failing_return(stmts: &[Stmt]) -> Option<(SourceSpan, &Expr)> {
+    for stmt in stmts {
+        match stmt {
+            Stmt::Return { expr, span, .. } if property_bool_value(expr) == Some(false) => {
+                return Some((*span, expr));
+            }
+            Stmt::If {
+                then_block,
+                else_block,
+                ..
+            } => {
+                if let Some(failure) = property_failing_return(then_block) {
+                    return Some(failure);
+                }
+                if let Some(else_block) = else_block
+                    && let Some(failure) = property_failing_return(else_block)
+                {
+                    return Some(failure);
+                }
+            }
+            Stmt::Match { arms, .. } => {
+                for arm in arms {
+                    if let Some(failure) = property_failing_return(&arm.body) {
+                        return Some(failure);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+fn property_bool_value(expr: &Expr) -> Option<bool> {
+    match expr {
+        Expr::Literal {
+            value: LiteralValue::Bool(value),
+            ..
+        } => Some(*value),
+        Expr::BinaryCompare { op, lhs, rhs, .. } if lhs == rhs => Some(match op {
+            CompareOp::Eq | CompareOp::Le | CompareOp::Ge => true,
+            CompareOp::Ne | CompareOp::Lt | CompareOp::Gt => false,
+        }),
+        Expr::BinaryCompare { .. } => static_bool_value(expr),
+        Expr::BinaryLogic { op, lhs, rhs, .. } => {
+            let lhs = property_bool_value(lhs)?;
+            let rhs = property_bool_value(rhs)?;
+            Some(match op {
+                LogicOp::And => lhs && rhs,
+                LogicOp::Or => lhs || rhs,
+            })
+        }
+        _ => None,
+    }
+}
+
+fn property_sample_input(param: &Param) -> String {
+    format!("{} = {}", param.name, property_sample_value(&param.ty))
+}
+
+fn property_sample_value(ty: &Type) -> String {
+    match ty {
+        Type::Int | Type::Numeric(_) => String::from("0"),
+        Type::Bool => String::from("false"),
+        Type::String | Type::Str => String::from("\"\""),
+        Type::Array(_, _) | Type::Slice(_) | Type::MutSlice(_) => String::from("[]"),
+        Type::Option(_) => String::from("None"),
+        Type::Tuple(elements) if elements.is_empty() => String::from("()"),
+        Type::Tuple(elements) => format!(
+            "({})",
+            elements
+                .iter()
+                .map(property_sample_value)
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+        other => format!("<sample {other}>"),
+    }
+}
+
+fn property_expr_summary(expr: &Expr) -> String {
+    match expr {
+        Expr::Literal {
+            value: LiteralValue::Bool(value),
+            ..
+        } => value.to_string(),
+        Expr::BinaryCompare { op, lhs, rhs, .. } if lhs == rhs => {
+            format!("<input> {} <input>", op.lexeme())
+        }
+        Expr::BinaryLogic { op, .. } => format!("boolean expression using {}", op.lexeme()),
+        _ => String::from("boolean expression"),
+    }
 }
 
 fn lower_block(
@@ -8926,6 +9187,9 @@ fn lower_expr_with_expected_inner(
                         format!("assert_true expects a bool argument, got {}", lowered.ty()),
                     )
                     .with_span(args[0].line(), args[0].column()));
+                }
+                if ctx.current_property && matches!(expected, Some(Type::Bool)) {
+                    return Ok(lowered);
                 }
                 move_lowered_value(&lowered, env)?;
                 let ty = if static_bool_value(&lowered) == Some(false) {
@@ -11673,6 +11937,44 @@ fn lower_expr_with_expected_inner(
                 ty: Type::Bool,
             })
         }
+        syntax::Expr::BinaryLogic {
+            op,
+            lhs,
+            rhs,
+            line,
+            column,
+        } => {
+            let lhs = lower_expr_with_expected(lhs, Some(&Type::Bool), env, ctx)?;
+            if lhs.ty() != &Type::Bool {
+                return Err(Diagnostic::new(
+                    "type",
+                    format!(
+                        "operator '{}' expects bool operands, got {}",
+                        op.lexeme(),
+                        lhs.ty()
+                    ),
+                )
+                .with_span(*line, *column));
+            }
+            let rhs = lower_expr_with_expected(rhs, Some(&Type::Bool), env, ctx)?;
+            if rhs.ty() != &Type::Bool {
+                return Err(Diagnostic::new(
+                    "type",
+                    format!(
+                        "operator '{}' expects bool operands, got {}",
+                        op.lexeme(),
+                        rhs.ty()
+                    ),
+                )
+                .with_span(*line, *column));
+            }
+            Ok(Expr::BinaryLogic {
+                op: lower_logic_op(*op),
+                lhs: Box::new(lhs),
+                rhs: Box::new(rhs),
+                ty: Type::Bool,
+            })
+        }
         syntax::Expr::Cast {
             expr,
             ty,
@@ -12529,6 +12831,7 @@ fn collect_var_refs(expr: &syntax::Expr, refs: &mut HashSet<String>) {
         }
         syntax::Expr::BinaryAdd { lhs, rhs, .. }
         | syntax::Expr::BinaryCompare { lhs, rhs, .. }
+        | syntax::Expr::BinaryLogic { lhs, rhs, .. }
         | syntax::Expr::Index {
             base: lhs,
             index: rhs,
@@ -13975,7 +14278,10 @@ fn expr_borrow_origin(
             arms.iter()
                 .map(|arm| expr_borrow_origin(&arm.expr, env, ctx)),
         ),
-        Expr::Literal { .. } | Expr::BinaryAdd { .. } | Expr::BinaryCompare { .. } => None,
+        Expr::Literal { .. }
+        | Expr::BinaryAdd { .. }
+        | Expr::BinaryCompare { .. }
+        | Expr::BinaryLogic { .. } => None,
         Expr::StringBorrow { expr, .. } => expr_borrow_origin(expr, env, ctx)
             .or_else(|| owned_borrow_owner(expr).map(|_| BorrowOrigin::Local)),
     }
@@ -14119,9 +14425,10 @@ fn expr_borrowed_owners(
             }
             owners
         }
-        Expr::Literal { .. } | Expr::BinaryAdd { .. } | Expr::BinaryCompare { .. } => {
-            HashSet::new()
-        }
+        Expr::Literal { .. }
+        | Expr::BinaryAdd { .. }
+        | Expr::BinaryCompare { .. }
+        | Expr::BinaryLogic { .. } => HashSet::new(),
         Expr::StringBorrow { expr, .. } => owned_borrow_owner(expr).into_iter().collect(),
         Expr::StructLiteral { fields, .. } => {
             let mut owners = HashSet::new();
@@ -14829,6 +15136,13 @@ fn lower_compare_op(op: syntax::CompareOp) -> CompareOp {
     }
 }
 
+fn lower_logic_op(op: syntax::LogicOp) -> LogicOp {
+    match op {
+        syntax::LogicOp::And => LogicOp::And,
+        syntax::LogicOp::Or => LogicOp::Or,
+    }
+}
+
 fn lower_arithmetic_op(op: syntax::ArithmeticOp) -> ArithmeticOp {
     match op {
         syntax::ArithmeticOp::Add => ArithmeticOp::Add,
@@ -14880,6 +15194,14 @@ fn static_bool_value(expr: &Expr) -> Option<bool> {
                     _ => return None,
                 },
                 _ => return None,
+            })
+        }
+        Expr::BinaryLogic { op, lhs, rhs, .. } => {
+            let lhs = static_bool_value(lhs)?;
+            let rhs = static_bool_value(rhs)?;
+            Some(match op {
+                LogicOp::And => lhs && rhs,
+                LogicOp::Or => lhs || rhs,
             })
         }
         _ => None,
@@ -15429,6 +15751,86 @@ let second: int = consume(value)
         assert_eq!(error.kind, "ownership");
         assert!(error.message.contains("use of moved value") || error.message.contains("moved"));
     }
+
+    #[test]
+    fn hir_lowers_property_clause_with_bool_logic() {
+        let parsed = parse(
+            r#"
+property fn reverse_double_returns_original(input: [int]): bool {
+return input == input && true && true
+}
+"#,
+        );
+
+        let lowered = lower(&parsed).expect("HIR lowering should accept property clauses");
+        let property = &lowered.functions[0];
+
+        assert!(property.is_property);
+        assert_eq!(property.return_ty, Type::Bool);
+        match &property.body[0] {
+            Stmt::Return { expr, .. } => match expr {
+                Expr::BinaryLogic { op, ty, .. } => {
+                    assert_eq!(*op, LogicOp::And);
+                    assert_eq!(ty, &Type::Bool);
+                }
+                other => panic!("expected boolean property verdict, got {other:?}"),
+            },
+            other => panic!("expected property return, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn hir_lowers_assert_true_as_property_verdict() {
+        let parsed = parse(
+            r#"
+property fn assertion_form(input: int): bool {
+return assert_true(false || input == input || false)
+}
+"#,
+        );
+
+        let lowered =
+            lower(&parsed).expect("property clauses should accept assert_true verdict syntax");
+        let property = &lowered.functions[0];
+
+        match &property.body[0] {
+            Stmt::Return { expr, .. } => {
+                assert_eq!(expr.ty(), &Type::Bool);
+                assert!(
+                    matches!(
+                        expr,
+                        Expr::BinaryLogic {
+                            op: LogicOp::Or,
+                            ..
+                        }
+                    ),
+                    "assert_true should lower to the inner boolean verdict"
+                );
+            }
+            other => panic!("expected property return, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn hir_rejects_statically_false_property_verdict() {
+        let parsed = parse(
+            r#"
+property fn broken(input: [int]): bool {
+return input != input
+}
+"#,
+        );
+
+        let error = lower(&parsed).expect_err("property lowering should reject false verdicts");
+
+        assert_eq!(error.kind, "property");
+        assert_eq!(error.code.as_deref(), Some("property_failed"));
+        assert!(error.message.contains("property \"broken\" failed"));
+        assert!(error.message.contains("input = []"));
+        assert_eq!(error.path.as_deref(), Some("main.ax"));
+        assert_eq!(error.line, Some(3));
+        assert_eq!(error.column, Some(1));
+    }
 }
 
 impl Expr {
@@ -15439,6 +15841,7 @@ impl Expr {
             Expr::Call { ty, .. } => ty,
             Expr::BinaryAdd { ty, .. } => ty,
             Expr::BinaryCompare { ty, .. } => ty,
+            Expr::BinaryLogic { ty, .. } => ty,
             Expr::Cast { ty, .. } => ty,
             Expr::MutBorrow { ty, .. } => ty,
             Expr::Deref { ty, .. } => ty,
@@ -15535,6 +15938,7 @@ impl syntax::Expr {
             | syntax::Expr::MethodCall { line, .. }
             | syntax::Expr::BinaryAdd { line, .. }
             | syntax::Expr::BinaryCompare { line, .. }
+            | syntax::Expr::BinaryLogic { line, .. }
             | syntax::Expr::Cast { line, .. }
             | syntax::Expr::Try { line, .. }
             | syntax::Expr::Await { line, .. }
@@ -15561,6 +15965,7 @@ impl syntax::Expr {
             | syntax::Expr::MethodCall { column, .. }
             | syntax::Expr::BinaryAdd { column, .. }
             | syntax::Expr::BinaryCompare { column, .. }
+            | syntax::Expr::BinaryLogic { column, .. }
             | syntax::Expr::Cast { column, .. }
             | syntax::Expr::Try { column, .. }
             | syntax::Expr::Await { column, .. }
@@ -15589,6 +15994,15 @@ impl CompareOp {
             CompareOp::Le => "<=",
             CompareOp::Gt => ">",
             CompareOp::Ge => ">=",
+        }
+    }
+}
+
+impl LogicOp {
+    pub fn lexeme(self) -> &'static str {
+        match self {
+            LogicOp::And => "&&",
+            LogicOp::Or => "||",
         }
     }
 }

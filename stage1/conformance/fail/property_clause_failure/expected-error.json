@@ -1,0 +1,9 @@
+{
+  "kind": "property",
+  "code": "property_failed",
+  "message": "property \"broken\" failed for input = []",
+  "help": "the property return expression is statically false: <input> != <input>",
+  "path": "src/main.ax",
+  "line": 2,
+  "column": 1
+}

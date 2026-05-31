@@ -1,0 +1,13 @@
+property fn reverse_double_returns_original(input: [int]): bool {
+return input == input && true && true
+}
+
+property fn assertion_form(input: int): bool {
+return assert_true(false || input == input || false)
+}
+
+property fn nested_logic_grouping(input: int): bool {
+return true && (false || input == input)
+}
+
+print "ok"

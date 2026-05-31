@@ -266,6 +266,18 @@ mod tests {
     }
 
     #[test]
+    fn codegen_preserves_nested_boolean_logic_grouping() {
+        let source = "fn grouped(): bool {\nreturn true && (false || true)\n}\n\nlet ready: bool = grouped()\nprint ready\n";
+        let parsed = parse_program(source, Path::new("main.ax")).expect("parse");
+        let hir = hir::lower(&parsed).expect("lower");
+        let mir = mir::lower(&hir);
+        let rendered = render_rust(&mir);
+
+        assert!(rendered.contains("return true && (false || true);"));
+        assert!(!rendered.contains("return true && false || true;"));
+    }
+
+    #[test]
     fn hir_lowering_keeps_imports_as_parser_metadata() {
         let source =
             "import \"core/math.ax\"\n\nfn answer(): int {\nreturn 42\n}\n\nprint answer()\n";

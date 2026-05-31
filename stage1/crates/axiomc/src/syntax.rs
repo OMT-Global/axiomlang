@@ -191,6 +191,7 @@ pub struct Function {
     pub params: Vec<Param>,
     pub return_ty: TypeName,
     pub body: Vec<Stmt>,
+    pub is_property: bool,
     pub is_const: bool,
     pub is_async: bool,
     pub is_extern: bool,
@@ -503,6 +504,13 @@ pub enum Expr {
         line: usize,
         column: usize,
     },
+    BinaryLogic {
+        op: LogicOp,
+        lhs: Box<Expr>,
+        rhs: Box<Expr>,
+        line: usize,
+        column: usize,
+    },
     Cast {
         expr: Box<Expr>,
         ty: TypeName,
@@ -625,6 +633,12 @@ pub enum CompareOp {
 }
 
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+pub enum LogicOp {
+    And,
+    Or,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
 pub enum ArithmeticOp {
     Add,
     Sub,
@@ -730,6 +744,7 @@ impl Expr {
             | Expr::MethodCall { line, column, .. }
             | Expr::BinaryAdd { line, column, .. }
             | Expr::BinaryCompare { line, column, .. }
+            | Expr::BinaryLogic { line, column, .. }
             | Expr::Cast { line, column, .. }
             | Expr::MutBorrow { line, column, .. }
             | Expr::Deref { line, column, .. }
@@ -940,14 +955,17 @@ pub fn parse_program_with_options_and_recovery(
             || trimmed.starts_with("const fn ")
             || trimmed.starts_with("async fn ")
             || trimmed.starts_with("extern fn ")
+            || trimmed.starts_with("property ")
             || trimmed.starts_with("pub fn ")
             || trimmed.starts_with("pub const fn ")
             || trimmed.starts_with("pub async fn ")
             || trimmed.starts_with("pub extern fn ")
+            || trimmed.starts_with("pub property ")
             || trimmed.starts_with("pub(pkg) fn ")
             || trimmed.starts_with("pub(pkg) const fn ")
             || trimmed.starts_with("pub(pkg) async fn ")
             || trimmed.starts_with("pub(pkg) extern fn ")
+            || trimmed.starts_with("pub(pkg) property ")
         {
             let start_index = index;
             match parse_function(&lines, &mut index, path) {
@@ -2348,13 +2366,32 @@ fn parse_function_in_context(
     let line_no = *index + 1;
     let trimmed = lines[*index].trim();
     let (visibility, rest, visibility_column) = parse_visibility_prefix(trimmed);
+    let (is_property, rest, property_column) = if let Some(rest) = rest.strip_prefix("property ") {
+        (true, rest, visibility_column + 9)
+    } else {
+        (false, rest, visibility_column)
+    };
     let (is_const, rest, const_column) = if let Some(rest) = rest.strip_prefix("const ") {
+        if is_property {
+            return Err(
+                Diagnostic::new("parse", "property functions cannot be const")
+                    .with_path(path.display().to_string())
+                    .with_span(line_no, property_column),
+            );
+        }
         (true, rest, visibility_column + 6)
     } else {
         (false, rest, visibility_column)
     };
     let (is_async, is_extern, header, fn_column) =
         if let Some(rest) = rest.strip_prefix("async fn ") {
+            if is_property {
+                return Err(
+                    Diagnostic::new("parse", "property functions cannot be async")
+                        .with_path(path.display().to_string())
+                        .with_span(line_no, property_column),
+                );
+            }
             if is_const {
                 return Err(Diagnostic::new("parse", "const functions cannot be async")
                     .with_path(path.display().to_string())
@@ -2362,6 +2399,13 @@ fn parse_function_in_context(
             }
             (true, false, rest, visibility_column + 6)
         } else if let Some(rest) = rest.strip_prefix("extern fn ") {
+            if is_property {
+                return Err(
+                    Diagnostic::new("parse", "property functions cannot be extern")
+                        .with_path(path.display().to_string())
+                        .with_span(line_no, property_column),
+                );
+            }
             if is_const {
                 return Err(Diagnostic::new("parse", "const functions cannot be extern")
                     .with_path(path.display().to_string())
@@ -2427,6 +2471,7 @@ fn parse_function_in_context(
             params,
             return_ty,
             body: Vec::new(),
+            is_property,
             is_const,
             is_async,
             is_extern,
@@ -2463,6 +2508,7 @@ fn parse_function_in_context(
         params,
         return_ty,
         body,
+        is_property,
         is_const,
         is_async,
         is_extern,
@@ -4214,6 +4260,75 @@ fn source_position_for_offset(
 
 fn parse_expr(raw: &str, path: &Path, line_no: usize, column: usize) -> Result<Expr, Diagnostic> {
     let raw = raw.trim();
+    parse_logic_or(raw, path, line_no, column)
+}
+
+fn parse_logic_or(
+    raw: &str,
+    path: &Path,
+    line_no: usize,
+    column: usize,
+) -> Result<Expr, Diagnostic> {
+    if let Some(split_index) = find_top_level_logical_operator(raw, "||") {
+        let lhs_raw = raw[..split_index].trim();
+        let rhs_raw = raw[split_index + 2..].trim();
+        if lhs_raw.is_empty() || rhs_raw.is_empty() {
+            return Err(Diagnostic::new("parse", "logical expression is incomplete")
+                .with_path(path.display().to_string())
+                .with_span(line_no, column));
+        }
+        return Ok(Expr::BinaryLogic {
+            op: LogicOp::Or,
+            lhs: Box::new(parse_logic_or(lhs_raw, path, line_no, column)?),
+            rhs: Box::new(parse_logic_and(
+                rhs_raw,
+                path,
+                line_no,
+                column + split_index + 3,
+            )?),
+            line: line_no,
+            column,
+        });
+    }
+    parse_logic_and(raw, path, line_no, column)
+}
+
+fn parse_logic_and(
+    raw: &str,
+    path: &Path,
+    line_no: usize,
+    column: usize,
+) -> Result<Expr, Diagnostic> {
+    if let Some(split_index) = find_top_level_logical_operator(raw, "&&") {
+        let lhs_raw = raw[..split_index].trim();
+        let rhs_raw = raw[split_index + 2..].trim();
+        if lhs_raw.is_empty() || rhs_raw.is_empty() {
+            return Err(Diagnostic::new("parse", "logical expression is incomplete")
+                .with_path(path.display().to_string())
+                .with_span(line_no, column));
+        }
+        return Ok(Expr::BinaryLogic {
+            op: LogicOp::And,
+            lhs: Box::new(parse_logic_and(lhs_raw, path, line_no, column)?),
+            rhs: Box::new(parse_compare(
+                rhs_raw,
+                path,
+                line_no,
+                column + split_index + 3,
+            )?),
+            line: line_no,
+            column,
+        });
+    }
+    parse_compare(raw, path, line_no, column)
+}
+
+fn parse_compare(
+    raw: &str,
+    path: &Path,
+    line_no: usize,
+    column: usize,
+) -> Result<Expr, Diagnostic> {
     if raw.starts_with('|') {
         return parse_term(raw, path, line_no, column);
     }
@@ -5873,6 +5988,57 @@ fn find_compare_operator(raw: &str) -> Option<(CompareOp, usize)> {
     None
 }
 
+fn find_top_level_logical_operator(raw: &str, token: &str) -> Option<usize> {
+    let mut in_string = false;
+    let mut escaped = false;
+    let mut paren_depth = 0usize;
+    let mut brace_depth = 0usize;
+    let mut bracket_depth = 0usize;
+    let mut found = None;
+    let chars: Vec<(usize, char)> = raw.char_indices().collect();
+    let mut cursor = 0;
+    while cursor < chars.len() {
+        let (index, ch) = chars[cursor];
+        if escaped {
+            escaped = false;
+            cursor += 1;
+            continue;
+        }
+        if ch == '\\' && in_string {
+            escaped = true;
+            cursor += 1;
+            continue;
+        }
+        if ch == '"' {
+            in_string = !in_string;
+            cursor += 1;
+            continue;
+        }
+        if in_string {
+            cursor += 1;
+            continue;
+        }
+        match ch {
+            '(' => paren_depth += 1,
+            ')' => paren_depth = paren_depth.saturating_sub(1),
+            '{' => brace_depth += 1,
+            '}' => brace_depth = brace_depth.saturating_sub(1),
+            '[' => bracket_depth += 1,
+            ']' => bracket_depth = bracket_depth.saturating_sub(1),
+            _ => {}
+        }
+        if paren_depth == 0
+            && brace_depth == 0
+            && bracket_depth == 0
+            && raw[index..].starts_with(token)
+        {
+            found = Some(index);
+        }
+        cursor += 1;
+    }
+    found
+}
+
 fn skip_blank_lines(lines: &[&str], index: &mut usize) {
     while *index < lines.len() && lines[*index].trim().is_empty() {
         *index += 1;
@@ -5888,6 +6054,15 @@ impl CompareOp {
             CompareOp::Le => "<=",
             CompareOp::Gt => ">",
             CompareOp::Ge => ">=",
+        }
+    }
+}
+
+impl LogicOp {
+    pub fn lexeme(self) -> &'static str {
+        match self {
+            LogicOp::And => "&&",
+            LogicOp::Or => "||",
         }
     }
 }

@@ -3115,7 +3115,9 @@ fn collect_effects_in_expr(
                 collect_effects_in_expr(arg, file, effects);
             }
         }
-        Expr::BinaryAdd { lhs, rhs, .. } | Expr::BinaryCompare { lhs, rhs, .. } => {
+        Expr::BinaryAdd { lhs, rhs, .. }
+        | Expr::BinaryCompare { lhs, rhs, .. }
+        | Expr::BinaryLogic { lhs, rhs, .. } => {
             collect_effects_in_expr(lhs, file, effects);
             collect_effects_in_expr(rhs, file, effects);
         }
@@ -3707,7 +3709,9 @@ fn collect_openapi_served_routes_in_expr(
                 collect_openapi_served_routes_in_expr(arg, file, http_imported, context, routes);
             }
         }
-        Expr::BinaryAdd { lhs, rhs, .. } | Expr::BinaryCompare { lhs, rhs, .. } => {
+        Expr::BinaryAdd { lhs, rhs, .. }
+        | Expr::BinaryCompare { lhs, rhs, .. }
+        | Expr::BinaryLogic { lhs, rhs, .. } => {
             collect_openapi_served_routes_in_expr(lhs, file, http_imported, context, routes);
             collect_openapi_served_routes_in_expr(rhs, file, http_imported, context, routes);
         }
@@ -5553,7 +5557,9 @@ fn collect_expr_capabilities(expr: &axiomc::syntax::Expr, capabilities: &mut Vec
                 collect_expr_capabilities(arg, capabilities);
             }
         }
-        Expr::BinaryAdd { lhs, rhs, .. } | Expr::BinaryCompare { lhs, rhs, .. } => {
+        Expr::BinaryAdd { lhs, rhs, .. }
+        | Expr::BinaryCompare { lhs, rhs, .. }
+        | Expr::BinaryLogic { lhs, rhs, .. } => {
             collect_expr_capabilities(lhs, capabilities);
             collect_expr_capabilities(rhs, capabilities);
         }
