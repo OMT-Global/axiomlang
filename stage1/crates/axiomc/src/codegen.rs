@@ -424,6 +424,19 @@ pub fn render_rust_for_package_with_capabilities(
     let uses_http_get = program_uses_call(program, "http_get");
     let uses_http_serve_once = program_uses_call(program, "http_serve_once");
     let uses_http_serve_route = program_uses_call(program, "http_serve_route");
+    let uses_http_server = [
+        "http_server_listen",
+        "http_server_local_port",
+        "http_server_accept",
+        "http_request_method",
+        "http_request_path",
+        "http_request_body",
+        "http_response_write",
+        "http_async_serve_route",
+        "http_server_close",
+    ]
+    .iter()
+    .any(|name| program_uses_call(program, name));
     let uses_ffi = program.functions.iter().any(|function| function.is_extern);
     let uses_ffi_cstring = program
         .functions
@@ -1984,8 +1997,12 @@ fn axiom_net_tcp_listener_port(listener: i64) -> i64 {
 fn axiom_net_tcp_accept(listener: i64) -> i64 {
     let args = axiom_host_arg_summary(&[("listener", format!("handle:{}", listener))]);
     let result = (|| {
+        let listener = {
+            let registry = axiom_tcp_registry().lock().ok()?;
+            registry.listeners.get(&listener)?.try_clone().ok()?
+        };
+        let (stream, _peer) = listener.accept().ok()?;
         let mut registry = axiom_tcp_registry().lock().ok()?;
-        let (stream, _peer) = registry.listeners.get(&listener)?.accept().ok()?;
         let handle = registry.allocate();
         registry.streams.insert(handle, stream);
         Some(handle)
@@ -2008,6 +2025,24 @@ fn axiom_net_tcp_read(stream: i64, buf: &mut [u8]) -> i64 {
 }
 
 #[allow(dead_code)]
+fn axiom_net_tcp_read_string(stream: i64, max_bytes: i64) -> String {
+    use std::io::Read;
+    let bounded = max_bytes.clamp(0, 64 * 1024) as u64;
+    let args = axiom_host_arg_summary(&[("stream", format!("handle:{}", stream)), ("max_bytes", format!("int:{}", max_bytes))]);
+    let result = (|| {
+        let cloned = {
+            let registry = axiom_tcp_registry().lock().ok()?;
+            registry.streams.get(&stream)?.try_clone().ok()?
+        };
+        let mut response = Vec::new();
+        cloned.take(bounded).read_to_end(&mut response).ok()?;
+        String::from_utf8(response).ok()
+    })();
+    axiom_host_audit("net_tcp_read_string", args, if result.is_some() { "ok" } else { "denied" });
+    result.unwrap_or_default()
+}
+
+#[allow(dead_code)]
 fn axiom_net_tcp_write(stream: i64, buf: &[u8]) -> i64 {
     use std::io::Write;
     let args = axiom_host_arg_summary(&[("stream", format!("handle:{}", stream)), ("buf", format!("bytes:{}", buf.len()))]);
@@ -2017,6 +2052,23 @@ fn axiom_net_tcp_write(stream: i64, buf: &[u8]) -> i64 {
         .and_then(|mut registry| registry.streams.get_mut(&stream).and_then(|stream| stream.write(buf).ok()))
         .map(|written| written as i64);
     axiom_host_audit("net_tcp_write", args, if result.is_some() { "ok" } else { "denied" });
+    result.unwrap_or(-1)
+}
+
+#[allow(dead_code)]
+fn axiom_net_tcp_write_string(stream: i64, message: String) -> i64 {
+    use std::io::Write;
+    let args = axiom_host_arg_summary(&[("stream", format!("handle:{}", stream)), ("message", format!("string:{}", message.len()))]);
+    let result = (|| {
+        let mut cloned = {
+            let registry = axiom_tcp_registry().lock().ok()?;
+            registry.streams.get(&stream)?.try_clone().ok()?
+        };
+        cloned.write_all(message.as_bytes()).ok()?;
+        cloned.flush().ok()?;
+        Some(message.len() as i64)
+    })();
+    axiom_host_audit("net_tcp_write_string", args, if result.is_some() { "ok" } else { "denied" });
     result.unwrap_or(-1)
 }
 
@@ -2275,7 +2327,7 @@ fn axiom_net_udp_send_recv(host: String, port: i64, message: String, timeout_ms:
 
 "#,
     );
-    if uses_http_get || uses_http_serve_once || uses_http_serve_route {
+    if uses_http_get || uses_http_serve_once || uses_http_serve_route || uses_http_server {
         out.push_str(
             r#"#[allow(dead_code)]
 fn axiom_http_strip_crlf(value: &str) -> String {
@@ -2689,31 +2741,82 @@ fn axiom_http_get(url: String) -> Option<String> {
 }
 
 #[allow(dead_code)]
-fn axiom_http_read_request<R: std::io::Read>(reader: &mut R) -> Option<String> {
+#[derive(Clone)]
+struct AxiomHttpRequestParts {
+    method: String,
+    path: String,
+    body: String,
+}
+
+#[allow(dead_code)]
+fn axiom_http_request_registry() -> &'static Mutex<HashMap<i64, AxiomHttpRequestParts>> {
+    static REGISTRY: std::sync::OnceLock<Mutex<HashMap<i64, AxiomHttpRequestParts>>> = std::sync::OnceLock::new();
+    REGISTRY.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+#[allow(dead_code)]
+fn axiom_http_read_request_parts<R: std::io::Read>(reader: &mut R) -> Option<AxiomHttpRequestParts> {
     const MAX_HEADER_BYTES: usize = 64 * 1024;
+    const MAX_BODY_BYTES: usize = 64 * 1024;
     let mut raw = Vec::new();
     let mut buf = [0u8; 4096];
-    loop {
+    let header_end = loop {
         let n = reader.read(&mut buf).ok()?;
         if n == 0 {
             return None;
         }
         raw.extend_from_slice(&buf[..n]);
-        if raw.windows(4).any(|w| w == b"\r\n\r\n") {
-            let request = String::from_utf8_lossy(&raw);
-            let request_line = request.lines().next()?;
-            let mut parts = request_line.split_whitespace();
-            let method = parts.next()?;
-            let path = parts.next()?;
-            if method != "GET" && method != "HEAD" {
-                return Some(String::from(""));
-            }
-            return Some(axiom_http_strip_crlf(path));
+        if let Some(index) = raw.windows(4).position(|w| w == b"\r\n\r\n") {
+            break index + 4;
         }
         if raw.len() > MAX_HEADER_BYTES {
             return None;
         }
+    };
+
+    let request = String::from_utf8_lossy(&raw[..header_end]);
+    let mut lines = request.lines();
+    let request_line = lines.next()?;
+    let mut parts = request_line.split_whitespace();
+    let method = axiom_http_strip_crlf(parts.next()?);
+    let path = axiom_http_strip_crlf(parts.next()?);
+    if !matches!(method.as_str(), "GET" | "HEAD" | "POST") {
+        return Some(AxiomHttpRequestParts {
+            method,
+            path,
+            body: String::new(),
+        });
     }
+    let mut content_length = 0usize;
+    for line in lines {
+        let Some((name, value)) = line.split_once(':') else {
+            continue;
+        };
+        if name.trim().eq_ignore_ascii_case("content-length") {
+            content_length = value.trim().parse::<usize>().ok()?;
+            if content_length > MAX_BODY_BYTES {
+                return None;
+            }
+        }
+    }
+    while raw.len() < header_end.saturating_add(content_length) {
+        let n = reader.read(&mut buf).ok()?;
+        if n == 0 {
+            break;
+        }
+        raw.extend_from_slice(&buf[..n]);
+        if raw.len() > header_end.saturating_add(MAX_BODY_BYTES) {
+            return None;
+        }
+    }
+    let body_end = raw.len().min(header_end.saturating_add(content_length));
+    let body = String::from_utf8_lossy(&raw[header_end..body_end]).into_owned();
+    Some(AxiomHttpRequestParts { method, path, body })
+}
+
+#[allow(dead_code)]
+fn axiom_http_read_request<R: std::io::Read>(reader: &mut R) -> Option<String> {
+    axiom_http_read_request_parts(reader).map(|request| request.path)
 }
 
 #[allow(dead_code)]
@@ -2734,6 +2837,22 @@ fn axiom_http_response(body: &str) -> Vec<u8> {
 }
 
 #[allow(dead_code)]
+fn axiom_http_status_line(status: i64) -> String {
+    match status {
+        200 => String::from("200 OK"),
+        201 => String::from("201 Created"),
+        202 => String::from("202 Accepted"),
+        204 => String::from("204 No Content"),
+        400 => String::from("400 Bad Request"),
+        404 => String::from("404 Not Found"),
+        405 => String::from("405 Method Not Allowed"),
+        500 => String::from("500 Internal Server Error"),
+        code if (100..=999).contains(&code) => format!("{code} OK"),
+        _ => String::from("500 Internal Server Error"),
+    }
+}
+
+#[allow(dead_code)]
 fn axiom_http_loopback_bind_addr(bind: &str) -> Option<std::net::SocketAddr> {
     let parsed = axiom_parse_tcp_bind(bind)?;
     if !axiom_net_socket_addr_allowed(&parsed) {
@@ -2743,28 +2862,134 @@ fn axiom_http_loopback_bind_addr(bind: &str) -> Option<std::net::SocketAddr> {
 }
 
 #[allow(dead_code)]
-fn axiom_http_serve_route(bind: String, route_path: String, body: String, max_requests: i64) -> bool {
-    let args = axiom_host_arg_summary(&[("bind", format!("string:{}", bind.len())), ("route_path", format!("string:{}", route_path.len())), ("body", format!("string:{}", body.len())), ("max_requests", format!("int:{max_requests}"))]);
-    let result = (|| -> bool {
+fn axiom_http_server_listen(bind: String) -> i64 {
+    let args = axiom_host_arg_summary(&[("bind", format!("string:{}", bind.len()))]);
+    let result = (|| {
+        let addr = axiom_http_loopback_bind_addr(bind.as_str())?;
+        let listener = std::net::TcpListener::bind(addr).ok()?;
+        listener.set_nonblocking(false).ok()?;
+        let mut registry = axiom_tcp_registry().lock().ok()?;
+        let handle = registry.allocate();
+        registry.listeners.insert(handle, listener);
+        Some(handle)
+    })();
+    axiom_host_audit("http_server_listen", args, if result.is_some() { "ok" } else { "denied" });
+    result.unwrap_or_else(|| axiom_runtime_error("runtime", "http_server_listen failed"))
+}
+
+#[allow(dead_code)]
+fn axiom_http_server_local_port(server: i64) -> i64 {
+    let args = axiom_host_arg_summary(&[("server", format!("handle:{server}"))]);
+    let result = axiom_tcp_registry()
+        .lock()
+        .ok()
+        .and_then(|registry| registry.listeners.get(&server).and_then(|listener| listener.local_addr().ok()))
+        .map(|addr| i64::from(addr.port()));
+    axiom_host_audit("http_server_local_port", args, if result.is_some() { "ok" } else { "denied" });
+    result.unwrap_or(-1)
+}
+
+#[allow(dead_code)]
+fn axiom_http_server_accept(server: i64) -> i64 {
+    let args = axiom_host_arg_summary(&[("server", format!("handle:{server}"))]);
+    let result = (|| {
+        let listener = {
+            let registry = axiom_tcp_registry().lock().ok()?;
+            registry.listeners.get(&server)?.try_clone().ok()?
+        };
+        let (mut stream, _peer) = listener.accept().ok()?;
+        stream.set_read_timeout(Some(std::time::Duration::from_secs(5))).ok()?;
+        stream.set_write_timeout(Some(std::time::Duration::from_secs(5))).ok()?;
+        let request = axiom_http_read_request_parts(&mut stream)?;
+        let mut registry = axiom_tcp_registry().lock().ok()?;
+        let handle = registry.allocate();
+        registry.streams.insert(handle, stream);
+        drop(registry);
+        axiom_http_request_registry().lock().ok()?.insert(handle, request);
+        Some(handle)
+    })();
+    axiom_host_audit("http_server_accept", args, if result.is_some() { "ok" } else { "denied" });
+    result.unwrap_or_else(|| axiom_runtime_error("runtime", "http_server_accept failed"))
+}
+
+#[allow(dead_code)]
+fn axiom_http_request_part(stream: i64, part: &str) -> String {
+    axiom_http_request_registry()
+        .lock()
+        .ok()
+        .and_then(|registry| registry.get(&stream).cloned())
+        .map(|request| match part {
+            "method" => request.method,
+            "path" => request.path,
+            "body" => request.body,
+            _ => String::new(),
+        })
+        .unwrap_or_default()
+}
+
+#[allow(dead_code)]
+fn axiom_http_request_method(stream: i64) -> String {
+    let args = axiom_host_arg_summary(&[("stream", format!("handle:{stream}"))]);
+    let value = axiom_http_request_part(stream, "method");
+    axiom_host_audit("http_request_method", args, if value.is_empty() { "denied" } else { "ok" });
+    value
+}
+
+#[allow(dead_code)]
+fn axiom_http_request_path(stream: i64) -> String {
+    let args = axiom_host_arg_summary(&[("stream", format!("handle:{stream}"))]);
+    let value = axiom_http_request_part(stream, "path");
+    axiom_host_audit("http_request_path", args, if value.is_empty() { "denied" } else { "ok" });
+    value
+}
+
+#[allow(dead_code)]
+fn axiom_http_request_body(stream: i64) -> String {
+    let args = axiom_host_arg_summary(&[("stream", format!("handle:{stream}"))]);
+    let value = axiom_http_request_part(stream, "body");
+    axiom_host_audit("http_request_body", args, "ok");
+    value
+}
+
+#[allow(dead_code)]
+fn axiom_http_response_write(stream: i64, status: i64, body: String) -> bool {
     use std::io::Write;
-    use std::net::TcpListener;
+    let args = axiom_host_arg_summary(&[("stream", format!("handle:{stream}")), ("status", format!("int:{status}")), ("body", format!("string:{}", body.len()))]);
+    let result = (|| {
+        let stream_handle = stream;
+        let mut stream = axiom_tcp_registry().lock().ok()?.streams.remove(&stream_handle)?;
+        let _ = axiom_http_request_registry().lock().ok()?.remove(&stream_handle);
+        stream.set_write_timeout(Some(std::time::Duration::from_secs(5))).ok()?;
+        let response = axiom_http_response_with_status(axiom_http_status_line(status).as_str(), body.as_str());
+        stream.write_all(&response).ok()?;
+        stream.flush().ok()?;
+        Some(())
+    })();
+    axiom_host_audit("http_response_write", args, if result.is_some() { "ok" } else { "denied" });
+    result.is_some()
+}
+
+#[allow(dead_code)]
+fn axiom_http_server_close(server: i64) -> bool {
+    let args = axiom_host_arg_summary(&[("server", format!("handle:{server}"))]);
+    let closed = axiom_tcp_registry()
+        .lock()
+        .ok()
+        .and_then(|mut registry| registry.listeners.remove(&server))
+        .is_some();
+    axiom_host_audit("http_server_close", args, if closed { "ok" } else { "denied" });
+    closed
+}
+
+#[allow(dead_code)]
+fn axiom_http_serve_route_on_listener(listener: std::net::TcpListener, route_path: String, body: String, max_requests: i64) -> bool {
+    use std::io::Write;
     use std::time::Duration;
 
     if max_requests <= 0 || max_requests > 1024 {
         axiom_runtime_report("net", "http server max_requests must be between 1 and 1024");
         return false;
     }
-    let Some(addr) = axiom_http_loopback_bind_addr(bind.as_str()) else {
-        axiom_runtime_report("net", "http server bind address must resolve only to loopback");
-        return false;
-    };
-    let listener = match TcpListener::bind(addr) {
-        Ok(listener) => listener,
-        Err(err) => {
-            axiom_runtime_report("net", &format!("http server bind failed: {err}"));
-            return false;
-        }
-    };
     let mut handles = Vec::new();
     for _ in 0..max_requests {
         let (mut stream, _) = match listener.accept() {
@@ -2800,9 +3025,43 @@ fn axiom_http_serve_route(bind: String, route_path: String, body: String, max_re
         ok = handle.join().unwrap_or(false) && ok;
     }
     ok
+}
+
+#[allow(dead_code)]
+fn axiom_http_serve_route(bind: String, route_path: String, body: String, max_requests: i64) -> bool {
+    let args = axiom_host_arg_summary(&[("bind", format!("string:{}", bind.len())), ("route_path", format!("string:{}", route_path.len())), ("body", format!("string:{}", body.len())), ("max_requests", format!("int:{max_requests}"))]);
+    let result = (|| -> bool {
+    let Some(addr) = axiom_http_loopback_bind_addr(bind.as_str()) else {
+        axiom_runtime_report("net", "http server bind address must resolve only to loopback");
+        return false;
+    };
+    let listener = match std::net::TcpListener::bind(addr) {
+        Ok(listener) => listener,
+        Err(err) => {
+            axiom_runtime_report("net", &format!("http server bind failed: {err}"));
+            return false;
+        }
+    };
+    axiom_http_serve_route_on_listener(listener, route_path, body, max_requests)
     })();
     axiom_host_audit("http_serve_route", args, if result { "ok" } else { "denied" });
     result
+}
+
+#[allow(dead_code)]
+fn axiom_http_async_serve_route(server: i64, route_path: String, body: String, max_requests: i64) -> AxiomTask<bool> {
+    let args = axiom_host_arg_summary(&[("server", format!("handle:{server}")), ("route_path", format!("string:{}", route_path.len())), ("body", format!("string:{}", body.len())), ("max_requests", format!("int:{max_requests}"))]);
+    let listener = axiom_tcp_registry()
+        .lock()
+        .ok()
+        .and_then(|registry| registry.listeners.get(&server).and_then(|listener| listener.try_clone().ok()));
+    axiom_host_audit("http_async_serve_route", args, if listener.is_some() { "ok" } else { "denied" });
+    match listener {
+        Some(listener) => axiom_task_deferred(move || {
+            axiom_http_serve_route_on_listener(listener, route_path, body, max_requests)
+        }),
+        None => axiom_task_ready(false),
+    }
 }
 
 #[allow(dead_code)]
@@ -5675,6 +5934,44 @@ fn render_expr(expr: &Expr) -> String {
                 render_expr(&args[3])
             )
         }
+        Expr::Call { name, args, .. } if name == "http_server_listen" => {
+            format!("axiom_http_server_listen({})", render_expr(&args[0]))
+        }
+        Expr::Call { name, args, .. } if name == "http_server_local_port" => {
+            format!("axiom_http_server_local_port({})", render_expr(&args[0]))
+        }
+        Expr::Call { name, args, .. } if name == "http_server_accept" => {
+            format!("axiom_http_server_accept({})", render_expr(&args[0]))
+        }
+        Expr::Call { name, args, .. } if name == "http_request_method" => {
+            format!("axiom_http_request_method({})", render_expr(&args[0]))
+        }
+        Expr::Call { name, args, .. } if name == "http_request_path" => {
+            format!("axiom_http_request_path({})", render_expr(&args[0]))
+        }
+        Expr::Call { name, args, .. } if name == "http_request_body" => {
+            format!("axiom_http_request_body({})", render_expr(&args[0]))
+        }
+        Expr::Call { name, args, .. } if name == "http_response_write" => {
+            format!(
+                "axiom_http_response_write({}, {}, {})",
+                render_expr(&args[0]),
+                render_expr(&args[1]),
+                render_expr(&args[2])
+            )
+        }
+        Expr::Call { name, args, .. } if name == "http_async_serve_route" => {
+            format!(
+                "axiom_http_async_serve_route({}, {}, {}, {})",
+                render_expr(&args[0]),
+                render_expr(&args[1]),
+                render_expr(&args[2]),
+                render_expr(&args[3])
+            )
+        }
+        Expr::Call { name, args, .. } if name == "http_server_close" => {
+            format!("axiom_http_server_close({})", render_expr(&args[0]))
+        }
         Expr::Call { name, args, .. } if name == "net_resolve" => {
             format!("axiom_net_resolve({})", render_expr(&args[0]))
         }
@@ -5694,9 +5991,23 @@ fn render_expr(expr: &Expr) -> String {
                 render_expr(&args[1])
             )
         }
+        Expr::Call { name, args, .. } if name == "net_tcp_read_string" => {
+            format!(
+                "axiom_net_tcp_read_string({}, {})",
+                render_expr(&args[0]),
+                render_expr(&args[1])
+            )
+        }
         Expr::Call { name, args, .. } if name == "net_tcp_write" => {
             format!(
                 "axiom_net_tcp_write({}, {})",
+                render_expr(&args[0]),
+                render_expr(&args[1])
+            )
+        }
+        Expr::Call { name, args, .. } if name == "net_tcp_write_string" => {
+            format!(
+                "axiom_net_tcp_write_string({}, {})",
                 render_expr(&args[0]),
                 render_expr(&args[1])
             )

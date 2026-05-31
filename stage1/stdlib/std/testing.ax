@@ -1,0 +1,43 @@
+pub fn assert_true(value: bool): int {
+return assert_case_eq("assert_true", value, true)
+}
+
+pub fn assert_true_case(value: bool): int {
+return assert_true(value)
+}
+
+pub fn assert_eq<T>(left: T, right: T): int {
+return assert_case_eq("assert_eq", left, right)
+}
+
+pub fn assert_eq_int(left: int, right: int): int {
+return assert_case_eq("assert_eq_int", left, right)
+}
+
+pub fn assert_eq_bool(left: bool, right: bool): int {
+return assert_case_eq("assert_eq_bool", left, right)
+}
+
+pub fn assert_eq_string(left: string, right: string): int {
+return assert_case_eq("assert_eq_string", left, right)
+}
+
+pub fn table_int(name: string, actual: int, expected: int): int {
+return assert_case_eq(name, actual, expected)
+}
+
+pub fn table_bool(name: string, actual: bool, expected: bool): int {
+return assert_case_eq(name, actual, expected)
+}
+
+pub fn table_string(name: string, actual: string, expected: string): int {
+return assert_case_eq(name, actual, expected)
+}
+
+pub fn property(name: string, holds: bool): int {
+return assert_property(name, holds)
+}
+
+pub fn snapshot(name: string, actual: string, expected: string): int {
+return assert_snapshot(name, actual, expected)
+}

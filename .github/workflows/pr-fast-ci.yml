@@ -25,7 +25,7 @@ defaults:
 jobs:
   changes:
     name: Detect Relevant Changes
-    runs-on: ['self-hosted', 'synology', 'shell-only', 'public']
+    runs-on: ['self-hosted', 'linux', 'shell-only', 'public']
     outputs:
       app: ${{ steps.filter.outputs.app }}
       ci: ${{ steps.filter.outputs.ci }}
@@ -61,12 +61,14 @@ jobs:
 
   fast-checks:
     name: Fast Checks
-    runs-on: ['self-hosted', 'synology', 'shell-only', 'public']
+    runs-on: ['self-hosted', 'linux', 'shell-only', 'public']
     timeout-minutes: 15
     needs: changes
     if: >-
       github.event.pull_request.draft == false &&
       (needs.changes.outputs.app == 'true' || needs.changes.outputs.ci == 'true')
+    env:
+      GITHUB_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4 pinned 2026-05-30
         with:
@@ -137,7 +139,7 @@ jobs:
 
   validate-pr-description:
     name: Validate PR Description
-    runs-on: ['self-hosted', 'synology', 'shell-only', 'public']
+    runs-on: ['self-hosted', 'linux', 'shell-only', 'public']
     timeout-minutes: 5
     if: github.event.pull_request.draft == false
     env:
@@ -159,7 +161,7 @@ jobs:
 
   validate-secrets:
     name: Validate Secrets
-    runs-on: ['self-hosted', 'synology', 'shell-only', 'public']
+    runs-on: ['self-hosted', 'linux', 'shell-only', 'public']
     timeout-minutes: 10
     if: github.event.pull_request.draft == false
     steps:
@@ -171,7 +173,7 @@ jobs:
 
   ci-gate:
     name: CI Gate
-    runs-on: ['self-hosted', 'synology', 'shell-only', 'public']
+    runs-on: ['self-hosted', 'linux', 'shell-only', 'public']
     if: always()
     needs:
       - changes

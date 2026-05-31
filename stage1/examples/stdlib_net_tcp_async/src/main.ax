@@ -1,0 +1,38 @@
+import "std/async.ax"
+import "std/async_net.ax"
+
+async fn echo_once(listener: TcpListener): int {
+let stream: TcpStream = await accept(listener)
+let received: string = await recv_text(stream, 64)
+let _written: int = await send_text(stream, received)
+return close(stream)
+}
+
+let listener: TcpListener = await listen("127.0.0.1:0")
+let port: int = local_port(listener)
+let first_handler: JoinHandle<int> = spawn<int>(echo_once(listener))
+let second_handler: JoinHandle<int> = spawn<int>(echo_once(listener))
+let first_client: JoinHandle<Option<string>> = spawn<Option<string>>(tcp_dial("127.0.0.1", port, "alpha", 1000))
+let second_client: JoinHandle<Option<string>> = spawn<Option<string>>(tcp_dial("127.0.0.1", port, "beta", 1000))
+
+match await join<Option<string>>(first_client) {
+Some(reply) {
+print reply
+}
+None {
+print "first none"
+}
+}
+
+match await join<Option<string>>(second_client) {
+Some(reply) {
+print reply
+}
+None {
+print "second none"
+}
+}
+
+let _first_done: int = await join<int>(first_handler)
+let _second_done: int = await join<int>(second_handler)
+let _listener_closed: int = close_listener(listener)

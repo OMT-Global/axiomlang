@@ -1384,7 +1384,7 @@ Variant(
 
     #[test]
     fn render_rust_restricts_http_server_binds_to_loopback() {
-        let source = "print http_serve_once(\"127.0.0.1:0\", \"ok\")\nprint http_serve_route(\"127.0.0.1:0\", \"/\", \"ok\", 1)\n";
+        let source = "print http_serve_once(\"127.0.0.1:0\", \"ok\")\nprint http_serve_route(\"127.0.0.1:0\", \"/\", \"ok\", 1)\nprint http_server_listen(\"127.0.0.1:0\")\n";
         let parsed = parse_program(source, Path::new("main.ax")).expect("parse");
         let hir = hir::lower_with_capabilities(
             &parsed,
@@ -1398,12 +1398,15 @@ Variant(
         let rendered = render_rust(&mir);
         assert!(rendered.contains("fn axiom_http_loopback_bind_addr("));
         assert!(rendered.contains("addr.ip().is_loopback()"));
-        assert_eq!(
+        assert!(
             rendered
                 .matches("axiom_http_loopback_bind_addr(bind.as_str())")
-                .count(),
-            2
+                .count()
+                >= 3
         );
+        assert!(rendered.contains("fn axiom_http_server_listen("));
+        assert!(rendered.contains("registry.listeners.get(&server)?.try_clone().ok()?"));
+        assert!(rendered.contains("let (mut stream, _peer) = listener.accept().ok()?;"));
     }
 
     #[test]
@@ -2784,6 +2787,7 @@ print 0
                 filter: None,
                 package: Some(String::from("workspace-app")),
                 include_benchmarks: false,
+                properties_only: false,
             },
         )
         .expect("test selected workspace package");
@@ -7009,6 +7013,85 @@ true
     }
 
     #[test]
+    #[cfg_attr(not(feature = "run-native-tests"), ignore)]
+    fn stage1_async_net_accepts_two_raw_tcp_clients() {
+        if !loopback_socket_bind_available() {
+            return;
+        }
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("stdlib-async-net-raw");
+        create_project(&project, Some("stdlib-async-net-raw")).expect("create project");
+        fs::write(
+            project.join("axiom.toml"),
+            render_manifest_with_capabilities(
+                "stdlib-async-net-raw",
+                false,
+                true,
+                false,
+                false,
+                false,
+                false,
+            )
+            .replace("async = false", "async = true"),
+        )
+        .expect("write manifest");
+        let manifest = load_manifest(&project).expect("load manifest");
+        fs::write(
+            project.join("axiom.lock"),
+            render_lockfile_for_project(&project, &manifest).expect("lockfile"),
+        )
+        .expect("write lockfile");
+        let source = r#"import "std/async.ax"
+import "std/async_net.ax"
+
+async fn echo_once(listener: TcpListener): int {
+let stream: TcpStream = await accept(listener)
+let received: string = await recv_text(stream, 64)
+let _written: int = await send_text(stream, received)
+return close(stream)
+}
+
+let listener: TcpListener = await listen("127.0.0.1:0")
+let port: int = local_port(listener)
+let first_handler: JoinHandle<int> = spawn<int>(echo_once(listener))
+let second_handler: JoinHandle<int> = spawn<int>(echo_once(listener))
+let first_client: JoinHandle<Option<string>> = spawn<Option<string>>(tcp_dial("127.0.0.1", port, "alpha", 1000))
+let second_client: JoinHandle<Option<string>> = spawn<Option<string>>(tcp_dial("127.0.0.1", port, "beta", 1000))
+match await join<Option<string>>(first_client) {
+Some(reply) {
+print reply
+}
+None {
+print "first none"
+}
+}
+match await join<Option<string>>(second_client) {
+Some(reply) {
+print reply
+}
+None {
+print "second none"
+}
+}
+let _first_done: int = await join<int>(first_handler)
+let _second_done: int = await join<int>(second_handler)
+let _listener_closed: int = close_listener(listener)
+"#;
+        fs::write(project.join("src/main.ax"), source).expect("write source");
+
+        let built = build_project(&project).expect("build project");
+        let generated = fs::read_to_string(&built.generated_rust).expect("read generated rust");
+        assert!(generated.contains("axiom_net_tcp_read_string"));
+        assert!(generated.contains("axiom_net_tcp_write_string"));
+        assert!(generated.contains("net_tcp_accept(listener)"));
+        let output = compiled_binary_command(&built.binary)
+            .output()
+            .expect("run compiled binary");
+        assert!(output.status.success());
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "alpha\nbeta\n");
+    }
+
+    #[test]
     fn stage1_async_timeout_uses_real_elapsed_timer_and_returns_none() {
         let dir = tempdir().expect("tempdir");
         let project = dir.path().join("stdlib-async-timeout-app");
@@ -7445,7 +7528,7 @@ print serve_once("0.0.0.0:18080", "hello")
         fs::write(
             project.join("src/main.ax"),
             r#"import "std/http.ax"
-let selected_route: HttpRoute = route("/ready", "hello")
+let selected_route: HttpRoute = fixed_route("/ready", "hello")
 print serve("0.0.0.0:18080", selected_route, 1)
 "#,
         )
@@ -7505,7 +7588,7 @@ print serve("0.0.0.0:18080", selected_route, 1)
             format!(
                 r#"import "std/http.ax"
 
-let selected_route: HttpRoute = route("/ready", "routed response")
+let selected_route: HttpRoute = fixed_route("/ready", "routed response")
 print serve("127.0.0.1:{port}", selected_route, 2)
 "#
             ),
@@ -7565,6 +7648,283 @@ print serve("127.0.0.1:{port}", selected_route, 2)
         assert!(output.status.success(), "server process failed: {output:?}");
         assert_eq!(String::from_utf8_lossy(&output.stdout), "true\n");
         assert_eq!(String::from_utf8_lossy(&output.stderr), "");
+    }
+
+    #[test]
+    fn stage1_stdlib_http_listen_accept_route_and_respond_surface() {
+        use std::io::{Read, Write};
+        use std::net::TcpStream;
+        use std::thread;
+        use std::time::{Duration, Instant};
+
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("stdlib-http-listen-accept-respond");
+        create_project(&project, Some("stdlib-http-listen-accept-respond"))
+            .expect("create project");
+        fs::write(
+            project.join("axiom.toml"),
+            render_manifest_with_capabilities(
+                "stdlib-http-listen-accept-respond",
+                false,
+                true,
+                false,
+                false,
+                false,
+                false,
+            ),
+        )
+        .expect("write manifest");
+        let manifest = load_manifest(&project).expect("load manifest");
+        fs::write(
+            project.join("axiom.lock"),
+            render_lockfile_for_project(&project, &manifest).expect("lockfile"),
+        )
+        .expect("write lockfile");
+        let Some(port) = find_free_loopback_port() else {
+            return;
+        };
+        fs::write(
+            project.join("src/main.ax"),
+            format!(
+                r#"import "std/http.ax"
+
+let server: Server = listen("127.0.0.1:{port}")
+print local_port(server) > 0
+print route(request("GET", "/synthetic", ""))
+let request: HttpRequest = accept(server)
+print respond(request, 201, "POST payload")
+print close(server)
+"#
+            ),
+        )
+        .expect("write source");
+
+        let built = build_project(&project).expect("build project");
+        let child = compiled_binary_command(&built.binary)
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .expect("spawn compiled binary");
+
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let mut stream = loop {
+            match TcpStream::connect(("127.0.0.1", port)) {
+                Ok(stream) => break stream,
+                Err(err) if Instant::now() < deadline => {
+                    let _ = err;
+                    thread::sleep(Duration::from_millis(25));
+                }
+                Err(err) => panic!("server never became ready: {err}"),
+            }
+        };
+        stream
+            .write_all(
+                b"POST /submit HTTP/1.0\r\nHost: 127.0.0.1\r\nContent-Length: 7\r\n\r\npayload",
+            )
+            .expect("write request");
+        let mut response = String::new();
+        stream.read_to_string(&mut response).expect("read response");
+        assert!(
+            response.starts_with("HTTP/1.0 201 Created\r\n"),
+            "unexpected response: {response:?}"
+        );
+        assert!(
+            response.ends_with("POST payload"),
+            "unexpected response body: {response:?}"
+        );
+
+        let output = child.wait_with_output().expect("wait for server exit");
+        assert!(output.status.success(), "server process failed: {output:?}");
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout),
+            "true\n/synthetic\ntrue\ntrue\n"
+        );
+        assert_eq!(String::from_utf8_lossy(&output.stderr), "");
+    }
+
+    #[test]
+    fn stage1_stdlib_http_async_serve_routes_concurrent_requests() {
+        use std::io::{Read, Write};
+        use std::net::TcpStream;
+        use std::thread;
+        use std::time::{Duration, Instant};
+
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("stdlib-http-async-serve");
+        create_project(&project, Some("stdlib-http-async-serve")).expect("create project");
+        let manifest_source = render_manifest_with_capabilities(
+            "stdlib-http-async-serve",
+            false,
+            true,
+            false,
+            false,
+            false,
+            false,
+        )
+        .replace("async = false", "async = true");
+        fs::write(project.join("axiom.toml"), manifest_source).expect("write manifest");
+        let manifest = load_manifest(&project).expect("load manifest");
+        fs::write(
+            project.join("axiom.lock"),
+            render_lockfile_for_project(&project, &manifest).expect("lockfile"),
+        )
+        .expect("write lockfile");
+        let Some(port) = find_free_loopback_port() else {
+            return;
+        };
+        fs::write(
+            project.join("src/main.ax"),
+            format!(
+                r#"import "std/http.ax"
+import "std/http_async.ax"
+
+let server: Server = listen("127.0.0.1:{port}")
+let served: Task<bool> = async_serve_route(server, "/ready", "async routed", 2)
+print await served
+print close(server)
+"#
+            ),
+        )
+        .expect("write source");
+
+        let built = build_project(&project).expect("build project");
+        let child = compiled_binary_command(&built.binary)
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .expect("spawn compiled binary");
+
+        let connect = || {
+            let deadline = Instant::now() + Duration::from_secs(5);
+            loop {
+                match TcpStream::connect(("127.0.0.1", port)) {
+                    Ok(stream) => break stream,
+                    Err(err) if Instant::now() < deadline => {
+                        let _ = err;
+                        thread::sleep(Duration::from_millis(25));
+                    }
+                    Err(err) => panic!("server never became ready: {err}"),
+                }
+            }
+        };
+        let mut first = connect();
+        let mut second = connect();
+        first
+            .write_all(b"GET /ready HTTP/1.0\r\nHost: 127.0.0.1\r\n\r\n")
+            .expect("write first request");
+        second
+            .write_all(b"GET /missing HTTP/1.0\r\nHost: 127.0.0.1\r\n\r\n")
+            .expect("write second request");
+        let mut first_response = String::new();
+        let mut second_response = String::new();
+        first
+            .read_to_string(&mut first_response)
+            .expect("read first response");
+        second
+            .read_to_string(&mut second_response)
+            .expect("read second response");
+        assert!(
+            first_response.starts_with("HTTP/1.0 200 OK\r\n"),
+            "unexpected first response: {first_response:?}"
+        );
+        assert!(
+            first_response.ends_with("async routed"),
+            "unexpected first body: {first_response:?}"
+        );
+        assert!(
+            second_response.starts_with("HTTP/1.0 404 Not Found\r\n"),
+            "unexpected second response: {second_response:?}"
+        );
+
+        let output = child.wait_with_output().expect("wait for server exit");
+        assert!(output.status.success(), "server process failed: {output:?}");
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "true\ntrue\n");
+        assert_eq!(String::from_utf8_lossy(&output.stderr), "");
+    }
+
+    #[test]
+    fn stage1_project_rejects_stdlib_http_listener_without_net_capability() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("stdlib-http-listener-denied");
+        create_project(&project, Some("stdlib-http-listener-denied")).expect("create project");
+        fs::write(
+            project.join("axiom.toml"),
+            render_manifest_with_capabilities(
+                "stdlib-http-listener-denied",
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+            ),
+        )
+        .expect("write manifest");
+        let manifest = load_manifest(&project).expect("load manifest");
+        fs::write(
+            project.join("axiom.lock"),
+            render_lockfile_for_project(&project, &manifest).expect("lockfile"),
+        )
+        .expect("write lockfile");
+        fs::write(
+            project.join("src/main.ax"),
+            r#"import "std/http.ax"
+let server: Server = listen("127.0.0.1:18080")
+let request: HttpRequest = accept(server)
+print respond(request, 200, "hello")
+"#,
+        )
+        .expect("write source");
+
+        let err = check_project(&project).expect_err("expected capability denial");
+        assert_eq!(err.kind, "capability");
+        assert!(
+            err.message.contains("requires [capabilities].net = true"),
+            "unexpected diagnostic: {err:?}",
+        );
+    }
+
+    #[test]
+    fn stage1_project_rejects_stdlib_http_async_serve_without_async_capability() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("stdlib-http-async-serve-denied");
+        create_project(&project, Some("stdlib-http-async-serve-denied")).expect("create project");
+        fs::write(
+            project.join("axiom.toml"),
+            render_manifest_with_capabilities(
+                "stdlib-http-async-serve-denied",
+                false,
+                true,
+                false,
+                false,
+                false,
+                false,
+            ),
+        )
+        .expect("write manifest");
+        let manifest = load_manifest(&project).expect("load manifest");
+        fs::write(
+            project.join("axiom.lock"),
+            render_lockfile_for_project(&project, &manifest).expect("lockfile"),
+        )
+        .expect("write lockfile");
+        fs::write(
+            project.join("src/main.ax"),
+            r#"import "std/http.ax"
+import "std/http_async.ax"
+let server: Server = listen("127.0.0.1:18080")
+let served: Task<bool> = async_serve_route(server, "/ready", "hello", 1)
+print await served
+"#,
+        )
+        .expect("write source");
+
+        let err = check_project(&project).expect_err("expected async capability denial");
+        assert_eq!(err.kind, "capability");
+        assert!(
+            err.message.contains("requires [capabilities].async = true"),
+            "unexpected diagnostic: {err:?}",
+        );
     }
 
     #[test]
@@ -8312,7 +8672,7 @@ print false
         create_project(&project, Some("runner-std-testing-app")).expect("create project");
         fs::write(
             project.join("src/main_test.ax"),
-            "import \"std/testing.ax\"\nlet int_case: int = table_int(\"double two\", 2 + 2, 4)\nlet bool_case: int = table_bool(\"bool equality\", true, true)\nlet string_case: int = table_string(\"greeting\", \"hello\" + \" world\", \"hello world\")\nlet property_case: int = property(\"addition identity\", 40 + 2 == 42)\nlet snapshot_case: int = snapshot(\"json line\", \"{\\\"ok\\\":true}\", \"{\\\"ok\\\":true}\")\nprint int_case + bool_case + string_case + property_case + snapshot_case\n",
+            "import \"std/testing.ax\"\nlet true_case: int = assert_true_case(42 == 42)\nlet assert_int: int = assert_eq_int(40 + 2, 42)\nlet assert_bool: int = assert_eq_bool(true, true)\nlet assert_string: int = assert_eq_string(\"hello\" + \" world\", \"hello world\")\nlet int_case: int = table_int(\"double two\", 2 + 2, 4)\nlet bool_case: int = table_bool(\"bool equality\", true, true)\nlet string_case: int = table_string(\"greeting\", \"hello\" + \" world\", \"hello world\")\nlet property_case: int = property(\"addition identity\", 40 + 2 == 42)\nlet snapshot_case: int = snapshot(\"json line\", \"{\\\"ok\\\":true}\", \"{\\\"ok\\\":true}\")\nprint true_case + assert_int + assert_bool + assert_string + int_case + bool_case + string_case + property_case + snapshot_case\n",
         )
         .expect("write std testing test");
         fs::write(project.join("src/main_test.stdout"), "0\n").expect("write golden");
@@ -8323,6 +8683,44 @@ print false
         let case = output.cases.first().expect("test case");
         assert_eq!(case.stdout, "0\n");
         assert!(case.ok);
+    }
+
+    #[test]
+    fn std_testing_source_file_backs_virtual_module() {
+        let virtual_path = crate::stdlib::stdlib_source_path("testing.ax");
+        let virtual_source =
+            crate::stdlib::stdlib_source_for(&virtual_path).expect("testing stdlib source");
+
+        assert_eq!(
+            virtual_source,
+            include_str!("../../../stdlib/std/testing.ax")
+        );
+        assert!(virtual_source.contains("pub fn assert_true(value: bool): int"));
+        assert!(virtual_source.contains("pub fn assert_eq<T>(left: T, right: T): int"));
+        assert!(virtual_source.contains("pub fn property(name: string, holds: bool): int"));
+    }
+
+    #[test]
+    fn run_project_tests_reports_std_testing_helper_failure_details() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("runner-std-testing-fail");
+        create_project(&project, Some("runner-std-testing-fail-app")).expect("create project");
+        fs::write(
+            project.join("src/main_test.ax"),
+            "import \"std/testing.ax\"\nlet failed: int = assert_eq_int(41, 42)\nprint failed\n",
+        )
+        .expect("write failing std testing test");
+        fs::remove_file(project.join("src/main_test.stdout")).expect("remove default golden");
+
+        let output = run_project_tests(&project).expect("run tests");
+
+        assert_eq!(output.passed, 0);
+        assert_eq!(output.failed, 1);
+        let case = output.cases.first().expect("test case");
+        assert!(!case.ok);
+        assert!(case.stderr.contains(
+            "{\"kind\":\"assertion\",\"message\":\"table case \\\"assert_eq_int\\\" failed: expected 42, got 41\"}"
+        ));
     }
 
     #[test]
@@ -8429,6 +8827,40 @@ print false
     }
 
     #[test]
+    fn run_project_tests_properties_only_filters_to_property_cases() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("runner-property-only");
+        create_project(&project, Some("runner-property-only-app")).expect("create project");
+        fs::write(project.join("src/main_test.ax"), "print \"unit\"\n").expect("write unit test");
+        fs::write(project.join("src/main_test.stdout"), "unit\n").expect("write unit golden");
+        fs::write(
+            project.join("src/addition_property.ax"),
+            "import \"std/testing.ax\"\nlet ok: int = property(\"addition identity\", 40 + 2 == 42)\nprint ok\n",
+        )
+        .expect("write property test");
+        fs::write(project.join("src/addition_property.stdout"), "0\n")
+            .expect("write property golden");
+
+        let output = run_project_tests_with_options(
+            &project,
+            &TestOptions {
+                filter: None,
+                package: None,
+                include_benchmarks: false,
+                properties_only: true,
+            },
+        )
+        .expect("run property-only tests");
+
+        assert_eq!(output.failed, 0);
+        assert_eq!(output.cases.len(), 1);
+        assert_eq!(output.cases[0].kind, TestKind::Property);
+        assert_eq!(output.cases[0].entry, "src/addition_property.ax");
+        assert_eq!(output.kinds.get(&TestKind::Property), Some(&1));
+        assert_eq!(output.kinds.get(&TestKind::Unit), None);
+    }
+
+    #[test]
     fn list_project_tests_reports_stable_names_paths_and_package_membership() {
         let dir = tempdir().expect("tempdir");
         let project = dir.path().join("list-tests-discovery");
@@ -8502,6 +8934,7 @@ print false
                 filter: None,
                 package: None,
                 include_benchmarks: true,
+                properties_only: false,
             },
         )
         .expect("run benchmark smoke tests");
@@ -12205,6 +12638,7 @@ print takes_two(three)
                 filter: Some(String::from("math")),
                 package: None,
                 include_benchmarks: false,
+                properties_only: false,
             },
         )
         .expect("run filtered tests");
@@ -12455,10 +12889,11 @@ print main_value()
                 filter: Some(String::from("main")),
                 package: None,
                 include_benchmarks: false,
+                properties_only: false,
             },
         )
         .expect("test project");
-        let payload = json_contract::test_success(&project, Some("main"), &output);
+        let payload = json_contract::test_success(&project, Some("main"), false, &output);
 
         assert_eq!(
             payload["schema_version"],
@@ -12466,9 +12901,13 @@ print main_value()
         );
         assert_eq!(payload["command"], "test");
         assert_eq!(payload["filter"], "main");
+        assert_eq!(payload["properties_only"], false);
         assert_eq!(payload["skipped"], 0);
         assert_eq!(payload["cases"][0]["kind"], "unit");
         assert_eq!(payload["kinds"]["unit"], 1);
+        assert_eq!(payload["properties"]["total"], 0);
+        assert_eq!(payload["properties"]["passed"], 0);
+        assert_eq!(payload["properties"]["failed"], 0);
         assert!(payload["duration_ms"].is_u64());
     }
 

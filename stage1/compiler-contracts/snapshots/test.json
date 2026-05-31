@@ -31,6 +31,12 @@
   ],
   "passed": 1,
   "project": "<project>",
+  "properties": {
+    "failed": 0,
+    "passed": 0,
+    "total": 0
+  },
+  "properties_only": false,
   "schema_version": "axiom.stage1.v1",
   "skipped": 0
 }

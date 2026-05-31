@@ -1,0 +1,4 @@
+import "std/testing.ax"
+
+let ok: int = property("addition identity", 40 + 2 == 42)
+print ok

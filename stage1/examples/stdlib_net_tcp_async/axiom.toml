@@ -1,0 +1,18 @@
+[package]
+name = "stdlib-net-tcp-async"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+fs = false
+"fs:write" = false
+net = true
+process = false
+env = false
+clock = false
+crypto = false
+ffi = false
+async = true

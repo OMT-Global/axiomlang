@@ -141,17 +141,20 @@ states_json = os.environ.get("AXIOM_PYTHON_EXIT_ISSUE_STATES_JSON")
 if states_json:
     states = {int(k): str(v).lower() for k, v in json.loads(states_json).items()}
 else:
+    token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN") or ""
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "User-Agent": "axiom-python-exit-readiness-check",
+    }
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
     states = {}
     try:
-        token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
-        headers = {
-            "Accept": "application/vnd.github+json",
-            "User-Agent": "axiom-python-exit-readiness-check",
-        }
-        if token:
-            headers["Authorization"] = f"Bearer {token}"
         for issue in required_issues:
-            req = urllib.request.Request(f"https://api.github.com/repos/OMT-Global/axiom/issues/{issue}", headers=headers)
+            req = urllib.request.Request(
+                f"https://api.github.com/repos/OMT-Global/axiom/issues/{issue}",
+                headers=headers,
+            )
             with urllib.request.urlopen(req, timeout=20) as response:
                 item = json.load(response)
             states[issue] = str(item.get("state", "")).lower()

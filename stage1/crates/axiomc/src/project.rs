@@ -407,6 +407,7 @@ pub struct TestOptions {
     pub filter: Option<String>,
     pub package: Option<String>,
     pub include_benchmarks: bool,
+    pub properties_only: bool,
 }
 
 pub fn check_project(project_root: &Path) -> Result<CheckOutput, Diagnostic> {
@@ -688,6 +689,7 @@ pub fn list_project_tests_with_options(
                 &manifest,
                 options.filter.as_deref(),
                 options.include_benchmarks,
+                options.properties_only,
             )?
         };
         if discovered.is_empty() {
@@ -737,7 +739,7 @@ pub fn run_project_tests_with_options(
     {
         let manifest = graph.context(&package_root)?.manifest.clone();
         validate_lockfile(&package_root, &manifest)?;
-        if expected_error_path(&package_root).exists() {
+        if expected_error_path(&package_root).exists() && !options.properties_only {
             let case_name = manifest
                 .package
                 .as_ref()
@@ -765,6 +767,7 @@ pub fn run_project_tests_with_options(
             &manifest,
             options.filter.as_deref(),
             options.include_benchmarks,
+            options.properties_only,
         )?;
         if tests.is_empty() {
             continue;
@@ -804,6 +807,7 @@ fn collect_test_targets(
     manifest: &Manifest,
     filter: Option<&str>,
     include_benchmarks: bool,
+    properties_only: bool,
 ) -> Result<Vec<crate::manifest::TestTarget>, Diagnostic> {
     let mut tests = manifest.tests.clone();
     for test in &mut tests {
@@ -821,6 +825,9 @@ fn collect_test_targets(
     if !include_benchmarks {
         tests.retain(|test| test.kind != TestKind::Benchmark);
     }
+    if properties_only {
+        tests.retain(|test| test.kind == TestKind::Property);
+    }
     if let Some(expected_stdout) = load_package_expected_output(project_root)? {
         for test in &mut tests {
             if test.kind != TestKind::Benchmark && test.stdout.is_none() {
@@ -836,6 +843,9 @@ fn collect_test_targets(
         if seen_entries.insert(discovered.entry.clone()) {
             tests.push(discovered);
         }
+    }
+    if properties_only {
+        tests.retain(|test| test.kind == TestKind::Property);
     }
     if let Some(filter) = filter {
         tests.retain(|test| test_matches_filter(test, filter));
@@ -3945,7 +3955,9 @@ fn intrinsic_capability(name: &str) -> Option<CapabilityKind> {
         "net_tcp_listener_port" => Some(CapabilityKind::Net),
         "net_tcp_accept" => Some(CapabilityKind::Net),
         "net_tcp_read" => Some(CapabilityKind::Net),
+        "net_tcp_read_string" => Some(CapabilityKind::Net),
         "net_tcp_write" => Some(CapabilityKind::Net),
+        "net_tcp_write_string" => Some(CapabilityKind::Net),
         "net_tcp_close" => Some(CapabilityKind::Net),
         "net_tcp_close_listener" => Some(CapabilityKind::Net),
         "net_udp_bind" => Some(CapabilityKind::Net),
@@ -3961,6 +3973,15 @@ fn intrinsic_capability(name: &str) -> Option<CapabilityKind> {
         "http_get" => Some(CapabilityKind::Net),
         "http_serve_once" => Some(CapabilityKind::Net),
         "http_serve_route" => Some(CapabilityKind::Net),
+        "http_server_listen" => Some(CapabilityKind::Net),
+        "http_server_local_port" => Some(CapabilityKind::Net),
+        "http_server_accept" => Some(CapabilityKind::Net),
+        "http_request_method" => Some(CapabilityKind::Net),
+        "http_request_path" => Some(CapabilityKind::Net),
+        "http_request_body" => Some(CapabilityKind::Net),
+        "http_response_write" => Some(CapabilityKind::Net),
+        "http_async_serve_route" => Some(CapabilityKind::Net),
+        "http_server_close" => Some(CapabilityKind::Net),
         "process_status" => Some(CapabilityKind::Process),
         "clock_now_ms" => Some(CapabilityKind::Clock),
         "clock_elapsed_ms" => Some(CapabilityKind::Clock),
@@ -7441,7 +7462,7 @@ mod tests {
             },
         ];
 
-        let default_tests = collect_test_targets(root, &manifest, None, false)
+        let default_tests = collect_test_targets(root, &manifest, None, false, false)
             .unwrap_or_else(|err| panic!("collect default tests: {err:?}"));
         assert_eq!(
             default_tests
@@ -7451,7 +7472,7 @@ mod tests {
             vec!["unit"]
         );
 
-        let benchmark_tests = collect_test_targets(root, &manifest, None, true)
+        let benchmark_tests = collect_test_targets(root, &manifest, None, true, false)
             .unwrap_or_else(|err| panic!("collect benchmark tests: {err:?}"));
         assert_eq!(
             benchmark_tests
@@ -7493,7 +7514,7 @@ mod tests {
             package: None,
         });
 
-        let tests = collect_test_targets(root, &manifest, None, true)
+        let tests = collect_test_targets(root, &manifest, None, true, false)
             .unwrap_or_else(|err| panic!("collect benchmark tests: {err:?}"));
         let stdout_by_name = tests
             .iter()
