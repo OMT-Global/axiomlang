@@ -100,8 +100,9 @@ pub(crate) const STDLIB_PACKAGE_NAME: &str = "std";
 pub(crate) const STDLIB_PACKAGE_VERSION: &str = "0.0.0";
 
 /// Compile-time table of stdlib module sources keyed by their path relative to
-/// the stdlib import prefix. Keeping stage1 stdlib sources in-tree as `&str`
-/// avoids any filesystem lookup and keeps the bootstrap hermetic.
+/// the stdlib import prefix. The bootstrap remains hermetic because the compiler
+/// embeds sources at compile time; Phase-H modules may live as `.ax` files and
+/// enter this table through `include_str!`.
 const STDLIB_SOURCES: &[(&str, &str)] = &[
     (
         "time.ax",
@@ -361,18 +362,7 @@ pub async fn tcp_dial(host: string, port: int, message: string, timeout_ms: int)
 pub async fn udp_bind_loopback_once(response: string, timeout_ms: int): Option<int> {\nreturn net_udp_bind_loopback_once(response, timeout_ms)\n}\n\
 pub async fn udp_send_recv(host: string, port: int, message: string, timeout_ms: int): Option<string> {\nreturn net_udp_send_recv(host, port, message, timeout_ms)\n}\n",
     ),
-    (
-        "testing.ax",
-        "pub fn assert_true_case(value: bool): int {\nreturn assert_true(value)\n}\n\
-pub fn assert_eq_int(left: int, right: int): int {\nreturn assert_eq(left, right)\n}\n\
-pub fn assert_eq_bool(left: bool, right: bool): int {\nreturn assert_eq(left, right)\n}\n\
-pub fn assert_eq_string(left: string, right: string): int {\nreturn assert_eq(left, right)\n}\n\
-pub fn table_int(name: string, actual: int, expected: int): int {\nreturn assert_case_eq(name, actual, expected)\n}\n\
-pub fn table_bool(name: string, actual: bool, expected: bool): int {\nreturn assert_case_eq(name, actual, expected)\n}\n\
-pub fn table_string(name: string, actual: string, expected: string): int {\nreturn assert_case_eq(name, actual, expected)\n}\n\
-pub fn property(name: string, holds: bool): int {\nreturn assert_property(name, holds)\n}\n\
-pub fn snapshot(name: string, actual: string, expected: string): int {\nreturn assert_snapshot(name, actual, expected)\n}\n",
-    ),
+    ("testing.ax", include_str!("../../../stdlib/std/testing.ax")),
     (
         "http.ax",
         "pub struct HttpHeader {

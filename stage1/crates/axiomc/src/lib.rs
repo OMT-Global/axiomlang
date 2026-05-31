@@ -8255,6 +8255,44 @@ print false
     }
 
     #[test]
+    fn std_testing_source_file_backs_virtual_module() {
+        let virtual_path = crate::stdlib::stdlib_source_path("testing.ax");
+        let virtual_source =
+            crate::stdlib::stdlib_source_for(&virtual_path).expect("testing stdlib source");
+
+        assert_eq!(
+            virtual_source,
+            include_str!("../../../stdlib/std/testing.ax")
+        );
+        assert!(virtual_source.contains("pub fn assert_true(value: bool): int"));
+        assert!(virtual_source.contains("pub fn assert_eq<T>(left: T, right: T): int"));
+        assert!(virtual_source.contains("pub fn property(name: string, holds: bool): int"));
+    }
+
+    #[test]
+    fn run_project_tests_reports_std_testing_helper_failure_details() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("runner-std-testing-fail");
+        create_project(&project, Some("runner-std-testing-fail-app")).expect("create project");
+        fs::write(
+            project.join("src/main_test.ax"),
+            "import \"std/testing.ax\"\nlet failed: int = assert_eq_int(41, 42)\nprint failed\n",
+        )
+        .expect("write failing std testing test");
+        fs::remove_file(project.join("src/main_test.stdout")).expect("remove default golden");
+
+        let output = run_project_tests(&project).expect("run tests");
+
+        assert_eq!(output.passed, 0);
+        assert_eq!(output.failed, 1);
+        let case = output.cases.first().expect("test case");
+        assert!(!case.ok);
+        assert!(case.stderr.contains(
+            "{\"kind\":\"assertion\",\"message\":\"table case \\\"assert_eq_int\\\" failed: expected 42, got 41\"}"
+        ));
+    }
+
+    #[test]
     fn run_project_tests_reports_assertion_failure_details() {
         let dir = tempdir().expect("tempdir");
         let project = dir.path().join("runner-assertion-fail");

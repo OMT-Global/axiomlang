@@ -107,7 +107,9 @@ fixtures once so benchmark code participates in functional gates. The command
 also accepts `--filter <pattern>` to run a subset of discovered tests by test
 name or entry path. `axiomc test --properties` narrows discovery to property
 fixtures and prints an explicit `N/N properties passed` summary for Phase-H
-property gates. The default CLI summary prints `passed` / `failed` / `skipped`
+property gates. The `std/testing.ax` helper surface is backed by
+`stage1/stdlib/std/testing.ax` and embedded into the virtual stdlib at compiler
+build time. The default CLI summary prints `passed` / `failed` / `skipped`
 counts. `axiomc test --list` exposes the same discovery pass without building or
 running the tests; text output emits package, test name, and entry path columns,
 while `--json` adds stable package membership plus golden-output and compile-fail
