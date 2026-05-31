@@ -1,0 +1,23 @@
+[package]
+name = "agent-native-authorize"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[[tests]]
+name = "authorize-token-smoke"
+entry = "src/main_test.ax"
+stdout = "src/main_test.stdout"
+kind = "unit"
+
+[capabilities]
+fs = false
+net = false
+process = false
+env = ["AUTH_TOKEN"]
+clock = true
+crypto = false
+ffi = false
+async = false

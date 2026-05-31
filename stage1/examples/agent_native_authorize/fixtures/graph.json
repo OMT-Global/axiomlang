@@ -1,0 +1,173 @@
+{
+  "schema_version": "axiom.stage1.v1",
+  "schema": "stage1/schemas/axiom-inspect-v0.schema.json",
+  "ok": true,
+  "command": "inspect graph",
+  "project": "stage1/examples/agent_native_authorize",
+  "lockfile_status": "valid",
+  "lockfile_packages": [
+    {
+      "name": "agent-native-authorize",
+      "version": "0.1.0",
+      "source": "path"
+    }
+  ],
+  "packages": [
+    {
+      "name": "agent-native-authorize",
+      "root": "stage1/examples/agent_native_authorize",
+      "manifest": "stage1/examples/agent_native_authorize/axiom.toml",
+      "dependencies": [],
+      "workspace_members": []
+    }
+  ],
+  "modules": [
+    {
+      "path": "stage1/examples/agent_native_authorize/src/authorize.ax",
+      "imports": [],
+      "functions": [
+        {
+          "name": "authorize_token",
+          "signature": "pub fn authorize_token(raw: Option<string>, observed_at: int): bool",
+          "span": {
+            "path": "stage1/examples/agent_native_authorize/src/authorize.ax",
+            "line": 1,
+            "column": 1
+          },
+          "capabilities": []
+        }
+      ],
+      "type_refs": [
+        "Option<string>",
+        "bool",
+        "int"
+      ],
+      "capabilities": []
+    },
+    {
+      "path": "stage1/examples/agent_native_authorize/src/main.ax",
+      "imports": [
+        {
+          "path": "std/env.ax",
+          "resolved": null,
+          "is_stdlib": true
+        },
+        {
+          "path": "std/time.ax",
+          "resolved": null,
+          "is_stdlib": true
+        },
+        {
+          "path": "authorize.ax",
+          "resolved": "stage1/examples/agent_native_authorize/src/authorize.ax",
+          "is_stdlib": false
+        }
+      ],
+      "functions": [],
+      "type_refs": [],
+      "capabilities": [
+        "clock",
+        "env"
+      ]
+    },
+    {
+      "path": "stage1/examples/agent_native_authorize/src/main_test.ax",
+      "imports": [
+        {
+          "path": "authorize.ax",
+          "resolved": "stage1/examples/agent_native_authorize/src/authorize.ax",
+          "is_stdlib": false
+        }
+      ],
+      "functions": [],
+      "type_refs": [],
+      "capabilities": []
+    }
+  ],
+  "stdlib_modules": [
+    "std/async.ax",
+    "std/collections.ax",
+    "std/crypto_hash.ax",
+    "std/env.ax",
+    "std/fs.ax",
+    "std/http.ax",
+    "std/io.ax",
+    "std/json.ax",
+    "std/log.ax",
+    "std/net.ax",
+    "std/process.ax",
+    "std/string_builder.ax",
+    "std/sync.ax",
+    "std/time.ax"
+  ],
+  "cycles": [],
+  "import_errors": [],
+  "nodes": [
+    {
+      "id": "axiom://semantic/axiom/AuthorizationDecisionAuditable",
+      "kind": "axiom",
+      "name": "AuthorizationDecisionAuditable",
+      "span": {
+        "path": "stage1/examples/agent_native_authorize/src/main.ax",
+        "line": 5,
+        "column": 1
+      },
+      "scope": "security",
+      "severity": "info",
+      "description": "Token authorization decisions are observable by agents.",
+      "assertion": "authorization_decision_has_evidence"
+    },
+    {
+      "id": "axiom://semantic/capability/AuthorizeToken",
+      "kind": "capability",
+      "name": "AuthorizeToken",
+      "span": {
+        "path": "stage1/examples/agent_native_authorize/src/main.ax",
+        "line": 16,
+        "column": 1
+      },
+      "inputs": [
+        {
+          "name": "token",
+          "ty": "string"
+        }
+      ],
+      "effects": [
+        {
+          "kind": "read",
+          "target": "AuthTokenEnv"
+        },
+        {
+          "kind": "read",
+          "target": "RuntimeClock"
+        }
+      ],
+      "evidence": [
+        "AuthorizeTokenSmokeTest"
+      ]
+    },
+    {
+      "id": "axiom://semantic/evidence/AuthorizeTokenSmokeTest",
+      "kind": "evidence",
+      "name": "AuthorizeTokenSmokeTest",
+      "span": {
+        "path": "stage1/examples/agent_native_authorize/src/main.ax",
+        "line": 12,
+        "column": 1
+      },
+      "description": "Manifest unit test exercises the authorization decision path."
+    }
+  ],
+  "edges": [
+    {
+      "from": "axiom://semantic/capability/AuthorizeToken",
+      "kind": "preserves",
+      "to": "axiom://semantic/axiom/AuthorizationDecisionAuditable"
+    },
+    {
+      "from": "axiom://semantic/capability/AuthorizeToken",
+      "kind": "requires_evidence",
+      "to": "axiom://semantic/evidence/AuthorizeTokenSmokeTest"
+    }
+  ]
+}

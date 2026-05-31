@@ -1,0 +1,6 @@
+pub struct Customer {
+id: int
+name: string
+email: Option<string>
+active: bool
+}

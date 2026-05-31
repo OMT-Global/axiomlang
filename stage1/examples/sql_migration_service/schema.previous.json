@@ -1,0 +1,25 @@
+{
+  "schema_version": "axiom.sql_schema.v0",
+  "package": "axiom://package/sql-migration-service",
+  "tables": [
+    {
+      "name": "customer",
+      "columns": [
+        {
+          "name": "id",
+          "axiom_type": "int",
+          "sql_type": "BIGINT",
+          "nullable": false,
+          "primary_key": true
+        },
+        {
+          "name": "name",
+          "axiom_type": "string",
+          "sql_type": "TEXT",
+          "nullable": false,
+          "primary_key": false
+        }
+      ]
+    }
+  ]
+}
