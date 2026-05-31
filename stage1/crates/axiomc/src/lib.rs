@@ -2936,8 +2936,8 @@ print first(values)\n",
     fn build_locked_offline_accepts_local_path_graph() {
         let dir = tempdir().expect("tempdir");
         let project = dir.path().join("offline-root");
-        let dependency = dir.path().join("offline-dep");
         create_project(&project, Some("offline-root")).expect("create root project");
+        let dependency = project.join("deps/offline-dep");
         create_project(&dependency, Some("offline-dep")).expect("create dependency project");
 
         fs::write(
@@ -2951,7 +2951,7 @@ entry = "src/main.ax"
 out_dir = "dist"
 
 [dependencies]
-dep = { path = "../offline-dep" }
+dep = { path = "deps/offline-dep" }
 
 [capabilities]
 fs = false
@@ -3094,6 +3094,123 @@ crypto = false
         let error = check_project(&project).expect_err("workspace member traversal should fail");
         assert_eq!(error.kind, "manifest");
         assert!(error.message.contains("must not use parent traversal"));
+    }
+
+    #[test]
+    fn dependency_paths_must_stay_inside_workspace_boundary() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("dependency-boundary-root");
+        let outside = dir.path().join("outside-dependency");
+        create_project(&project, Some("dependency-boundary-root")).expect("create project");
+        create_project(&outside, Some("outside-dependency")).expect("create outside dependency");
+        fs::write(
+            project.join("axiom.toml"),
+            format!(
+                "{}\n[dependencies]\noutside = {{ path = \"../outside-dependency\" }}\n",
+                render_manifest("dependency-boundary-root")
+            ),
+        )
+        .expect("write manifest");
+
+        let error = check_project(&project).expect_err("dependency path escape should fail");
+
+        assert_eq!(error.kind, "manifest");
+        assert!(
+            error
+                .message
+                .contains("dependency path must stay inside the workspace")
+        );
+        assert!(
+            error
+                .path
+                .as_deref()
+                .is_some_and(|path| path.ends_with("axiom.toml"))
+        );
+    }
+
+    #[test]
+    fn dependency_path_escape_conformance_fixture_reports_manifest_error() {
+        let fixture = conformance_fixture().join("fail/dependency_path_escape");
+
+        let error = check_project(&fixture).expect_err("conformance fixture should fail");
+
+        assert_eq!(error.kind, "manifest");
+        assert!(
+            error
+                .message
+                .contains("dependency path must stay inside the workspace")
+        );
+        assert!(
+            error
+                .path
+                .as_deref()
+                .is_some_and(|path| path.ends_with("axiom.toml"))
+        );
+    }
+
+    #[test]
+    fn dependency_paths_can_target_declared_workspace_members() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("dependency-boundary-workspace");
+        let app = project.join("members/app");
+        let core = project.join("members/core");
+        fs::create_dir_all(project.join("members")).expect("create workspace members dir");
+        create_project(&app, Some("dependency-boundary-app")).expect("create app member");
+        create_project(&core, Some("dependency-boundary-core")).expect("create core member");
+        fs::write(
+            core.join("src/math.ax"),
+            "pub fn answer(): int {\nreturn 42\n}\n",
+        )
+        .expect("write core source");
+        let core_manifest = load_manifest(&core).expect("load core manifest");
+        fs::write(
+            core.join("axiom.lock"),
+            render_lockfile_for_project(&core, &core_manifest).expect("core lockfile"),
+        )
+        .expect("write core lockfile");
+        fs::write(
+            app.join("axiom.toml"),
+            format!(
+                "{}\n[dependencies]\ncore = {{ path = \"../core\" }}\n",
+                render_manifest("dependency-boundary-app")
+            ),
+        )
+        .expect("write app manifest");
+        fs::write(
+            app.join("src/main.ax"),
+            "import \"core/math.ax\"\nprint answer()\n",
+        )
+        .expect("write app source");
+        let app_manifest = load_manifest(&app).expect("load app manifest");
+        fs::write(
+            app.join("axiom.lock"),
+            render_lockfile_for_project(&app, &app_manifest).expect("app lockfile"),
+        )
+        .expect("write app lockfile");
+        fs::write(
+            project.join("axiom.toml"),
+            "[workspace]\nmembers = [\"members/app\", \"members/core\"]\n",
+        )
+        .expect("write workspace manifest");
+        let root_manifest = load_manifest(&project).expect("load root manifest");
+        fs::write(
+            project.join("axiom.lock"),
+            render_lockfile_for_project(&project, &root_manifest).expect("root lockfile"),
+        )
+        .expect("write root lockfile");
+
+        let checked = check_project_with_options(
+            &project,
+            &CheckOptions {
+                package: Some(String::from("dependency-boundary-app")),
+                include_exports: false,
+                include_debug_symbols: false,
+            },
+        )
+        .expect("declared workspace sibling dependency should check");
+
+        assert_eq!(checked.packages.len(), 1);
+        assert!(checked.manifest.ends_with("members/app/axiom.toml"));
     }
 
     #[test]

@@ -1423,7 +1423,7 @@ fn validate_workspace_root_lockfile(
 fn load_package_graph(project_root: &Path) -> Result<PackageGraph, Diagnostic> {
     let mut graph = PackageGraph::default();
     let mut visiting = Vec::new();
-    load_package_graph_recursive(project_root, &mut graph, &mut visiting)?;
+    load_package_graph_recursive(project_root, &mut graph, &mut visiting, &BTreeSet::new())?;
     register_stdlib_package(&mut graph);
     Ok(graph)
 }
@@ -1494,6 +1494,7 @@ fn load_package_graph_recursive(
     project_root: &Path,
     graph: &mut PackageGraph,
     visiting: &mut Vec<PathBuf>,
+    allowed_workspace_members: &BTreeSet<PathBuf>,
 ) -> Result<(), Diagnostic> {
     let project_root = normalize_path(project_root);
     let project_root = canonicalize_existing_path(&project_root, "project root")?;
@@ -1509,6 +1510,8 @@ fn load_package_graph_recursive(
     }
     let manifest = load_manifest(&project_root)?;
     let workspace_members = resolve_workspace_members(&project_root, &manifest)?;
+    let mut dependency_allowed_members = allowed_workspace_members.clone();
+    dependency_allowed_members.extend(workspace_members.iter().cloned());
     let source_root = if manifest.package.is_some() {
         entry_path(&project_root, &manifest)
             .parent()
@@ -1547,7 +1550,17 @@ fn load_package_graph_recursive(
             .with_path(manifest_path(&project_root).display().to_string()));
         }
         let dependency_root = canonicalize_existing_path(&dependency_root, "dependency path")?;
-        load_package_graph_recursive(&dependency_root, graph, visiting)?;
+        validate_dependency_root_boundary(
+            &project_root,
+            &dependency_root,
+            &dependency_allowed_members,
+        )?;
+        load_package_graph_recursive(
+            &dependency_root,
+            graph,
+            visiting,
+            &dependency_allowed_members,
+        )?;
         validate_dependency_version(
             &manifest_path(&project_root),
             name,
@@ -1558,7 +1571,7 @@ fn load_package_graph_recursive(
         dependencies.insert(name.clone(), dependency_root);
     }
     for member_root in &workspace_members {
-        load_package_graph_recursive(member_root, graph, visiting)?;
+        load_package_graph_recursive(member_root, graph, visiting, &dependency_allowed_members)?;
     }
     visiting.pop();
     graph.packages.insert(
@@ -1572,6 +1585,23 @@ fn load_package_graph_recursive(
         },
     );
     Ok(())
+}
+
+fn validate_dependency_root_boundary(
+    package_root: &Path,
+    dependency_root: &Path,
+    allowed_workspace_members: &BTreeSet<PathBuf>,
+) -> Result<(), Diagnostic> {
+    if dependency_root.starts_with(package_root)
+        || allowed_workspace_members.contains(dependency_root)
+    {
+        return Ok(());
+    }
+    Err(Diagnostic::new(
+        "manifest",
+        "dependency path must stay inside the workspace or package root; declare sibling packages as workspace members before depending on them",
+    )
+    .with_path(manifest_path(package_root).display().to_string()))
 }
 
 fn validate_dependency_version(
