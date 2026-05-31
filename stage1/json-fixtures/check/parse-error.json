@@ -7,6 +7,8 @@
     "message": "nested match patterns are not supported yet",
     "path": "/workspace/axiom/stage1/conformance/fail/nested_match_pattern_not_supported/src/main.ax",
     "line": 6,
-    "column": 6
+    "column": 6,
+    "end_line": 6,
+    "end_column": 19
   }
 }

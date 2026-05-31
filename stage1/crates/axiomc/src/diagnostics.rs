@@ -20,6 +20,10 @@ pub struct Diagnostic {
     pub path: Option<String>,
     pub line: Option<usize>,
     pub column: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub end_line: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub end_column: Option<usize>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub related: Vec<Diagnostic>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -36,6 +40,8 @@ impl Diagnostic {
             path: None,
             line: None,
             column: None,
+            end_line: None,
+            end_column: None,
             related: Vec::new(),
             repair: None,
         }
@@ -60,6 +66,29 @@ impl Diagnostic {
         self.line = Some(line);
         self.column = Some(column);
         self
+    }
+
+    pub fn with_span_range(
+        mut self,
+        line: usize,
+        column: usize,
+        end_line: usize,
+        end_column: usize,
+    ) -> Self {
+        self.line = Some(line);
+        self.column = Some(column);
+        self.end_line = Some(end_line);
+        self.end_column = Some(end_column);
+        self
+    }
+
+    pub fn with_span_extent(self, line: usize, column: usize, column_width: usize) -> Self {
+        self.with_span_range(
+            line,
+            column,
+            line,
+            column.saturating_add(column_width.max(1)),
+        )
     }
 
     pub fn with_related(mut self, related: Vec<Diagnostic>) -> Self {
