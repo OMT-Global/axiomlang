@@ -24,7 +24,6 @@ complete.
 | #240 richer testing | `axiomc test` discovers `*_test.ax`, golden stdout, assertion helpers, and `std/testing.ax` table/property/snapshot helpers; `axiomc bench` is the benchmark harness. | Richer randomized generation and benchmark CI policy remain future harness design work. |
 | #97 HTTP server | `std/http.ax` includes `get`, loopback-only `listen`/`accept`/`route`/`respond`/`close`, blocking `serve_once(bind, body)`, and bounded `fixed_route` / `serve(bind, route, max_requests)` primitives behind `[capabilities].net`; `std/http_async.ax` adds async-gated bounded route serving. | Landed for the current stage1 route-shaped handler model; richer production lifecycle controls remain future runtime design work. |
 
-
 ## Verification handles
 
 - `stage1/examples/stdlib_string_builder`
