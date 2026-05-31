@@ -10,11 +10,11 @@ concurrency:
 
 permissions:
   contents: read
+  issues: read
 
 env:
   NODE_VERSION: '20'
   PYTHON_VERSION: '3.12'
-  AXIOM_PYTHON_EXIT_ISSUE_STATES_JSON: '{"266":"closed","267":"closed","268":"closed","269":"closed","270":"closed","271":"closed"}'
 
 defaults:
   run:
@@ -129,6 +129,8 @@ jobs:
           exit 1
 
       - name: Run fast checks
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: bash scripts/ci/run-fast-checks.sh
 
   validate-pr-description:
