@@ -1,0 +1,41 @@
+axiom VerifiedInvariant {
+  scope SemanticVerifier
+  severity fatal
+  description "The verified branch must be backed by passing evidence."
+  assert evidence(PassingEvidence)
+}
+
+axiom ViolatedInvariant {
+  scope SemanticVerifier
+  severity fatal
+  description "The violated branch is backed by failing evidence."
+  assert evidence(FailingEvidence)
+}
+
+axiom UnbackedInvariant {
+  scope SemanticVerifier
+  severity warning
+  description "The unbacked branch has no verified_by evidence."
+}
+
+evidence PassingEvidence {
+  description "A manifest unit test that passes."
+}
+
+evidence FailingEvidence {
+  description "A manifest unit test that fails."
+}
+
+capability VerifiedOperation {
+  preserves VerifiedInvariant
+  requires evidence PassingEvidence
+}
+
+capability ViolatingOperation {
+  preserves ViolatedInvariant
+  requires evidence FailingEvidence
+}
+
+pub fn main(): int {
+return 0
+}

@@ -473,3 +473,80 @@ fn agent_native_authorize_fixtures_prove_semantic_evidence_artifact_flow() {
         assert!(!fixture.contains("codex/worktrees"));
     }
 }
+
+#[test]
+fn semantic_verification_schemas_and_fixtures_are_well_formed() {
+    let decision_schema: Value = serde_json::from_str(
+        &fs::read_to_string(schema_dir().join("axiom-decision-record-v0.schema.json"))
+            .expect("read decision record schema"),
+    )
+    .expect("decision record schema is valid JSON");
+    assert_eq!(
+        decision_schema["$id"],
+        "https://axiom.omt.global/schemas/axiom-decision-record-v0.schema.json"
+    );
+    let decision_validator = compile_validator(&decision_schema);
+    let decision_dir = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("..")
+        .join("examples")
+        .join("decision_records")
+        .join("decisions");
+    for entry in fs::read_dir(&decision_dir).expect("read decision fixtures") {
+        let path = entry.expect("decision fixture entry").path();
+        if path.extension().and_then(|value| value.to_str()) != Some("json") {
+            continue;
+        }
+        let fixture: Value =
+            serde_json::from_str(&fs::read_to_string(&path).expect("read decision record fixture"))
+                .expect("decision record fixture is valid JSON");
+        decision_validator
+            .validate(&fixture)
+            .expect("decision record fixture matches schema");
+    }
+
+    let verify_schema: Value = serde_json::from_str(
+        &fs::read_to_string(schema_dir().join("axiom-verify-v0.schema.json"))
+            .expect("read verify schema"),
+    )
+    .expect("verify schema is valid JSON");
+    assert_eq!(
+        verify_schema["$id"],
+        "https://axiom.omt.global/schemas/axiom-verify-v0.schema.json"
+    );
+    assert_eq!(verify_schema["properties"]["command"]["const"], "verify");
+
+    let diff_schema: Value = serde_json::from_str(
+        &fs::read_to_string(schema_dir().join("axiom-semantic-diff-v0.schema.json"))
+            .expect("read semantic diff schema"),
+    )
+    .expect("semantic diff schema is valid JSON");
+    assert_eq!(
+        diff_schema["$id"],
+        "https://axiom.omt.global/schemas/axiom-semantic-diff-v0.schema.json"
+    );
+    let diff_validator = compile_validator(&diff_schema);
+    diff_validator
+        .validate(&serde_json::json!({
+            "schema_version": "axiom.semantic_diff.v0",
+            "ok": true,
+            "command": "semantic-diff",
+            "old": "base.json",
+            "new": "breaking.json",
+            "summary": {
+                "breaking": 1,
+                "additive": 0,
+                "informational": 0
+            },
+            "changes": [
+                {
+                    "change": "added",
+                    "severity": "breaking",
+                    "node_kind": "Capability",
+                    "node_id": "axiom://package/demo/capability/network",
+                    "description": "added Capability network"
+                }
+            ]
+        }))
+        .expect("semantic diff sample validates");
+}
