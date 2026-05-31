@@ -1358,7 +1358,8 @@ integrity=ignored
         let error = build_registry_index(dir.path(), "https://packages.example.test")
             .expect_err("unsigned archive should fail");
         assert_eq!(error.kind, "registry");
-        assert!(error.message.contains("archive but no signature"));
+        assert!(error.message.contains("archive"));
+        assert!(error.message.contains("signature sidecars"));
     }
 
     #[test]
