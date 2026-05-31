@@ -1,0 +1,3 @@
+[package]
+name = "conformance-trait-aggregate-missing-impl"
+version = "0.1.0"

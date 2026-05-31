@@ -66,6 +66,11 @@ version = "0.1.0"
 source = "path:fail/double_mutable_borrow"
 
 [[package]]
+name = "conformance-dyn-trait-not-supported"
+version = "0.1.0"
+source = "path:fail/dyn_trait_not_supported"
+
+[[package]]
 name = "conformance-for-loop-requires-iteration-protocol"
 version = "0.1.0"
 source = "path:fail/for_loop_requires_iteration_protocol"
@@ -401,9 +406,49 @@ version = "0.1.0"
 source = "path:fail/string_use_after_move"
 
 [[package]]
+name = "conformance-trait-aggregate-missing-impl"
+version = "0.1.0"
+source = "path:fail/trait_aggregate_missing_impl"
+
+[[package]]
+name = "conformance-trait-duplicate-impl"
+version = "0.1.0"
+source = "path:fail/trait_duplicate_impl"
+
+[[package]]
+name = "conformance-trait-missing-impl"
+version = "0.1.0"
+source = "path:fail/trait_missing_impl"
+
+[[package]]
+name = "conformance-trait-missing-method"
+version = "0.1.0"
+source = "path:fail/trait_missing_method"
+
+[[package]]
+name = "conformance-trait-signature-mismatch"
+version = "0.1.0"
+source = "path:fail/trait_signature_mismatch"
+
+[[package]]
 name = "conformance-trait-type-position-not-supported"
 version = "0.1.0"
 source = "path:fail/trait_type_position_not_supported"
+
+[[package]]
+name = "conformance-trait-unbound-local-method-call"
+version = "0.1.0"
+source = "path:fail/trait_unbound_local_method_call"
+
+[[package]]
+name = "conformance-trait-unbound-method-call"
+version = "0.1.0"
+source = "path:fail/trait_unbound_method_call"
+
+[[package]]
+name = "conformance-trait-unbound-projected-method-call"
+version = "0.1.0"
+source = "path:fail/trait_unbound_projected_method_call"
 
 [[package]]
 name = "conformance-borrow-return-elision"
@@ -606,9 +651,24 @@ version = "0.1.0"
 source = "path:pass/struct_field_access"
 
 [[package]]
+name = "conformance-trait-bounded-aggregate"
+version = "0.1.0"
+source = "path:pass/trait_bounded_aggregate"
+
+[[package]]
 name = "conformance-trait-declaration-syntax"
 version = "0.1.0"
 source = "path:pass/trait_declaration_syntax"
+
+[[package]]
+name = "conformance-trait-eq-user-type"
+version = "0.1.0"
+source = "path:pass/trait_eq_user_type"
+
+[[package]]
+name = "conformance-trait-multibound"
+version = "0.1.0"
+source = "path:pass/trait_multibound"
 
 [[package]]
 name = "conformance-type-system-aggregates"

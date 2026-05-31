@@ -1,0 +1,3 @@
+[package]
+name = "conformance-trait-bounded-aggregate"
+version = "0.1.0"

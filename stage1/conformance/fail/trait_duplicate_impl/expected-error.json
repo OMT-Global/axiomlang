@@ -1,0 +1,7 @@
+{
+  "kind": "type",
+  "message": "duplicate impl method \"eq\" for \"Point\"",
+  "path": "src/main.ax",
+  "line": 14,
+  "column": 1
+}

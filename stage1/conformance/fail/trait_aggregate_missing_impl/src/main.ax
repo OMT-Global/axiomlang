@@ -1,0 +1,13 @@
+import "std/traits.ax"
+
+struct Point {
+x: int
+}
+
+struct Box<T: Eq> {
+item: T
+}
+
+let point: Point = Point { x: 3 }
+let boxed: Box<Point> = Box { item: point }
+print boxed.item.x

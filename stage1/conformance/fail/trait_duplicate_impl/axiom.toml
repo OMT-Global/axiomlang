@@ -1,0 +1,22 @@
+[package]
+name = "conformance-trait-duplicate-impl"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+fs = false
+net = false
+process = false
+env = false
+clock = false
+crypto = false
+
+[expected_error]
+kind = "type"
+message = "duplicate impl method \"eq\" for \"conformance_trait_duplicate_impl_main_Point\""
+path = "src/main.ax"
+line = 17
+column = 1

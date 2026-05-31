@@ -1,0 +1,7 @@
+{
+  "kind": "type",
+  "message": "method call \"eq\" on generic parameter \"T\" requires an explicit trait bound",
+  "path": "src/main.ax",
+  "line": 15,
+  "column": 8
+}

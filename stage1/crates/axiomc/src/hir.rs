@@ -50,8 +50,8 @@ pub struct TraitDef {
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct TraitMethodDef {
     pub name: String,
-    pub params: Vec<Type>,
-    pub return_ty: Type,
+    pub params: Vec<syntax::TypeName>,
+    pub return_ty: syntax::TypeName,
     pub has_self: bool,
 }
 
@@ -732,6 +732,7 @@ fn lower_with_capabilities_impl(
             .map_err(single_diagnostic)?;
     let traits = collect_trait_definitions(&program.traits, &struct_names, &enum_names, &aliases)
         .map_err(single_diagnostic)?;
+    validate_trait_bounds_in_program(&program, &traits).map_err(single_diagnostic)?;
     validate_trait_type_uses_in_program(&program, &traits).map_err(single_diagnostic)?;
     let (enums, variants) = collect_enum_definitions(
         &program.enums,
@@ -759,6 +760,16 @@ fn lower_with_capabilities_impl(
     let methods =
         collect_method_signatures(&program.functions, &structs, &enums, &aliases, &consts)
             .map_err(single_diagnostic)?;
+    validate_trait_impls(
+        &program.functions,
+        &traits,
+        &structs,
+        &enums,
+        &aliases,
+        &consts,
+        &methods,
+    )
+    .map_err(single_diagnostic)?;
     let mut diagnostics = Vec::new();
     let mut lowered_structs = structs.values().cloned().collect::<Vec<_>>();
     lowered_structs.sort_by(|lhs, rhs| lhs.name.cmp(&rhs.name));
@@ -2226,12 +2237,514 @@ fn unify_generic_type_name(
     }
 }
 
+fn validate_syntax_trait_bounds(program: &syntax::Program) -> Result<(), Diagnostic> {
+    let trait_names = program
+        .traits
+        .iter()
+        .map(|trait_decl| trait_decl.name.clone())
+        .collect::<HashSet<_>>();
+    for type_alias in &program.type_aliases {
+        validate_syntax_type_param_bounds(&type_alias.type_param_bounds, &trait_names)?;
+    }
+    for struct_decl in &program.structs {
+        validate_syntax_type_param_bounds(&struct_decl.type_param_bounds, &trait_names)?;
+    }
+    for enum_decl in &program.enums {
+        validate_syntax_type_param_bounds(&enum_decl.type_param_bounds, &trait_names)?;
+    }
+    for function in &program.functions {
+        validate_syntax_type_param_bounds(&function.type_param_bounds, &trait_names)?;
+    }
+    Ok(())
+}
+
+fn validate_syntax_type_param_bounds(
+    bounds: &[syntax::TypeParamBound],
+    trait_names: &HashSet<String>,
+) -> Result<(), Diagnostic> {
+    for bound in bounds {
+        for trait_name in &bound.traits {
+            if !trait_names.contains(trait_name) {
+                return Err(Diagnostic::new(
+                    "type",
+                    format!(
+                        "unknown trait bound {trait_name:?} on type parameter {:?}",
+                        bound.param
+                    ),
+                )
+                .with_span(bound.line, bound.column));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn collect_syntax_trait_impl_pairs(functions: &[syntax::Function]) -> HashSet<(String, String)> {
+    functions
+        .iter()
+        .filter_map(|function| {
+            Some((
+                function.impl_trait.as_ref()?.clone(),
+                function.impl_target.as_ref()?.clone(),
+            ))
+        })
+        .collect()
+}
+
+fn collect_syntax_trait_method_names(
+    traits: &[syntax::TraitDecl],
+) -> HashMap<String, HashSet<String>> {
+    traits
+        .iter()
+        .map(|trait_decl| {
+            (
+                trait_decl.name.clone(),
+                trait_decl
+                    .methods
+                    .iter()
+                    .map(|method| method.name.clone())
+                    .collect(),
+            )
+        })
+        .collect()
+}
+
+fn validate_generic_function_trait_method_calls(
+    function: &syntax::Function,
+    trait_methods: &HashMap<String, HashSet<String>>,
+    structs: &HashMap<String, syntax::StructDecl>,
+) -> Result<(), Diagnostic> {
+    let type_params = function.type_params.iter().cloned().collect::<HashSet<_>>();
+    let param_bounds = function
+        .type_param_bounds
+        .iter()
+        .map(|bound| (bound.param.clone(), bound.traits.clone()))
+        .collect::<HashMap<_, _>>();
+    let mut env = HashMap::new();
+    for param in &function.params {
+        if contains_generic_type_param(&param.ty, &type_params) {
+            env.insert(param.name.clone(), param.ty.clone());
+        }
+    }
+    validate_generic_trait_method_calls_in_stmts(
+        &function.body,
+        env,
+        &type_params,
+        &param_bounds,
+        trait_methods,
+        structs,
+    )
+}
+
+fn generic_type_param_binding(
+    ty: &syntax::TypeName,
+    type_params: &HashSet<String>,
+) -> Option<String> {
+    if let syntax::TypeName::Named(name, args) = ty
+        && args.is_empty()
+        && type_params.contains(name)
+    {
+        return Some(name.clone());
+    }
+    None
+}
+
+fn validate_generic_trait_method_calls_in_stmts(
+    stmts: &[syntax::Stmt],
+    mut env: HashMap<String, syntax::TypeName>,
+    type_params: &HashSet<String>,
+    param_bounds: &HashMap<String, Vec<String>>,
+    trait_methods: &HashMap<String, HashSet<String>>,
+    structs: &HashMap<String, syntax::StructDecl>,
+) -> Result<(), Diagnostic> {
+    for stmt in stmts {
+        match stmt {
+            syntax::Stmt::Let { name, ty, expr, .. } => {
+                validate_generic_trait_method_calls_in_expr(
+                    expr,
+                    &env,
+                    type_params,
+                    param_bounds,
+                    trait_methods,
+                    structs,
+                )?;
+                if contains_generic_type_param(ty, type_params) {
+                    env.insert(name.clone(), ty.clone());
+                } else {
+                    env.remove(name);
+                }
+            }
+            syntax::Stmt::Assign { expr, .. }
+            | syntax::Stmt::Print { expr, .. }
+            | syntax::Stmt::Panic { expr, .. }
+            | syntax::Stmt::Defer { expr, .. }
+            | syntax::Stmt::Return { expr, .. } => {
+                validate_generic_trait_method_calls_in_expr(
+                    expr,
+                    &env,
+                    type_params,
+                    param_bounds,
+                    trait_methods,
+                    structs,
+                )?;
+            }
+            syntax::Stmt::If {
+                cond,
+                then_block,
+                else_block,
+                ..
+            } => {
+                validate_generic_trait_method_calls_in_expr(
+                    cond,
+                    &env,
+                    type_params,
+                    param_bounds,
+                    trait_methods,
+                    structs,
+                )?;
+                validate_generic_trait_method_calls_in_stmts(
+                    then_block,
+                    env.clone(),
+                    type_params,
+                    param_bounds,
+                    trait_methods,
+                    structs,
+                )?;
+                if let Some(else_block) = else_block {
+                    validate_generic_trait_method_calls_in_stmts(
+                        else_block,
+                        env.clone(),
+                        type_params,
+                        param_bounds,
+                        trait_methods,
+                        structs,
+                    )?;
+                }
+            }
+            syntax::Stmt::IfLet {
+                expr,
+                then_block,
+                else_block,
+                ..
+            } => {
+                validate_generic_trait_method_calls_in_expr(
+                    expr,
+                    &env,
+                    type_params,
+                    param_bounds,
+                    trait_methods,
+                    structs,
+                )?;
+                validate_generic_trait_method_calls_in_stmts(
+                    then_block,
+                    env.clone(),
+                    type_params,
+                    param_bounds,
+                    trait_methods,
+                    structs,
+                )?;
+                if let Some(else_block) = else_block {
+                    validate_generic_trait_method_calls_in_stmts(
+                        else_block,
+                        env.clone(),
+                        type_params,
+                        param_bounds,
+                        trait_methods,
+                        structs,
+                    )?;
+                }
+            }
+            syntax::Stmt::While { cond, body, .. } => {
+                validate_generic_trait_method_calls_in_expr(
+                    cond,
+                    &env,
+                    type_params,
+                    param_bounds,
+                    trait_methods,
+                    structs,
+                )?;
+                validate_generic_trait_method_calls_in_stmts(
+                    body,
+                    env.clone(),
+                    type_params,
+                    param_bounds,
+                    trait_methods,
+                    structs,
+                )?;
+            }
+            syntax::Stmt::Match { expr, arms, .. } => {
+                validate_generic_trait_method_calls_in_expr(
+                    expr,
+                    &env,
+                    type_params,
+                    param_bounds,
+                    trait_methods,
+                    structs,
+                )?;
+                for arm in arms {
+                    validate_generic_trait_method_calls_in_stmts(
+                        &arm.body,
+                        env.clone(),
+                        type_params,
+                        param_bounds,
+                        trait_methods,
+                        structs,
+                    )?;
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+fn validate_generic_trait_method_calls_in_expr(
+    expr: &syntax::Expr,
+    env: &HashMap<String, syntax::TypeName>,
+    type_params: &HashSet<String>,
+    param_bounds: &HashMap<String, Vec<String>>,
+    trait_methods: &HashMap<String, HashSet<String>>,
+    structs: &HashMap<String, syntax::StructDecl>,
+) -> Result<(), Diagnostic> {
+    if let syntax::Expr::MethodCall {
+        base,
+        method,
+        args: _,
+        line,
+        column,
+        ..
+    } = expr
+        && let Some(type_param) = generic_type_param_for_expr(base, env, type_params, structs)
+    {
+        let available = param_bounds
+            .get(&type_param)
+            .into_iter()
+            .flatten()
+            .any(|trait_name| {
+                trait_methods
+                    .get(trait_name)
+                    .is_some_and(|methods| methods.contains(method))
+            });
+        if !available {
+            return Err(Diagnostic::new(
+                "type",
+                format!(
+                    "method call {method:?} on generic parameter {type_param:?} requires an explicit trait bound"
+                ),
+            )
+            .with_span(*line, *column));
+        }
+    }
+    for child in syntax_expr_children(expr) {
+        validate_generic_trait_method_calls_in_expr(
+            child,
+            env,
+            type_params,
+            param_bounds,
+            trait_methods,
+            structs,
+        )?;
+    }
+    Ok(())
+}
+
+fn generic_type_param_for_expr(
+    expr: &syntax::Expr,
+    env: &HashMap<String, syntax::TypeName>,
+    type_params: &HashSet<String>,
+    structs: &HashMap<String, syntax::StructDecl>,
+) -> Option<String> {
+    let ty = generic_type_for_expr(expr, env, structs)?;
+    generic_type_param_binding(&ty, type_params)
+}
+
+fn generic_type_for_expr(
+    expr: &syntax::Expr,
+    env: &HashMap<String, syntax::TypeName>,
+    structs: &HashMap<String, syntax::StructDecl>,
+) -> Option<syntax::TypeName> {
+    match expr {
+        syntax::Expr::VarRef { name, .. } => env.get(name).cloned(),
+        syntax::Expr::FieldAccess { base, field, .. } => {
+            let base_ty = generic_type_for_expr(base, env, structs)?;
+            generic_field_type(&base_ty, field, structs)
+        }
+        syntax::Expr::TupleIndex { base, index, .. } => {
+            let base_ty = generic_type_for_expr(base, env, structs)?;
+            match base_ty {
+                syntax::TypeName::Tuple(elements) => elements.get(*index).cloned(),
+                _ => None,
+            }
+        }
+        syntax::Expr::Deref { expr, .. }
+        | syntax::Expr::MutBorrow { expr, .. }
+        | syntax::Expr::Try { expr, .. }
+        | syntax::Expr::Await { expr, .. }
+        | syntax::Expr::Cast { expr, .. } => generic_type_for_expr(expr, env, structs),
+        _ => None,
+    }
+}
+
+fn generic_field_type(
+    base_ty: &syntax::TypeName,
+    field_name: &str,
+    structs: &HashMap<String, syntax::StructDecl>,
+) -> Option<syntax::TypeName> {
+    let syntax::TypeName::Named(name, args) = base_ty else {
+        return None;
+    };
+    let struct_decl = structs.get(name)?;
+    if struct_decl.type_params.len() != args.len() {
+        return None;
+    }
+    let type_bindings = struct_decl
+        .type_params
+        .iter()
+        .cloned()
+        .zip(args.iter().cloned())
+        .collect::<HashMap<_, _>>();
+    let field = struct_decl
+        .fields
+        .iter()
+        .find(|field| field.name == field_name)?;
+    Some(substitute_type_name(&field.ty, &type_bindings))
+}
+
+fn syntax_expr_children(expr: &syntax::Expr) -> Vec<&syntax::Expr> {
+    match expr {
+        syntax::Expr::Call { args, .. } => args.iter().collect(),
+        syntax::Expr::MethodCall { base, args, .. } => {
+            let mut children = vec![base.as_ref()];
+            children.extend(args.iter());
+            children
+        }
+        syntax::Expr::BinaryAdd { lhs, rhs, .. }
+        | syntax::Expr::BinaryCompare { lhs, rhs, .. }
+        | syntax::Expr::BinaryLogic { lhs, rhs, .. } => vec![lhs.as_ref(), rhs.as_ref()],
+        syntax::Expr::Cast { expr, .. }
+        | syntax::Expr::Try { expr, .. }
+        | syntax::Expr::MutBorrow { expr, .. }
+        | syntax::Expr::Deref { expr, .. }
+        | syntax::Expr::Await { expr, .. }
+        | syntax::Expr::FieldAccess { base: expr, .. }
+        | syntax::Expr::TupleIndex { base: expr, .. } => vec![expr.as_ref()],
+        syntax::Expr::StructLiteral { fields, .. } => {
+            fields.iter().map(|field| &field.expr).collect()
+        }
+        syntax::Expr::TupleLiteral { elements, .. }
+        | syntax::Expr::ArrayLiteral { elements, .. } => elements.iter().collect(),
+        syntax::Expr::MapLiteral { entries, .. } => entries
+            .iter()
+            .flat_map(|entry| [&entry.key, &entry.value])
+            .collect(),
+        syntax::Expr::Closure { body, .. } => vec![body.as_ref()],
+        syntax::Expr::Slice {
+            base, start, end, ..
+        } => {
+            let mut children = vec![base.as_ref()];
+            if let Some(start) = start {
+                children.push(start.as_ref());
+            }
+            if let Some(end) = end {
+                children.push(end.as_ref());
+            }
+            children
+        }
+        syntax::Expr::Index { base, index, .. } => vec![base.as_ref(), index.as_ref()],
+        syntax::Expr::Match { expr, arms, .. } => {
+            let mut children = vec![expr.as_ref()];
+            children.extend(arms.iter().map(|arm| &arm.expr));
+            children
+        }
+        syntax::Expr::Literal(_) | syntax::Expr::VarRef { .. } => Vec::new(),
+    }
+}
+
+fn validate_generic_trait_bounds(
+    template: &syntax::Function,
+    type_args: &[syntax::TypeName],
+    trait_impls: &HashSet<(String, String)>,
+) -> Result<(), Diagnostic> {
+    validate_type_param_trait_bounds(
+        &template.name,
+        &template.type_params,
+        &template.type_param_bounds,
+        type_args,
+        trait_impls,
+        template.line,
+        template.column,
+    )
+}
+
+fn validate_type_param_trait_bounds(
+    owner: &str,
+    type_params: &[String],
+    type_param_bounds: &[syntax::TypeParamBound],
+    type_args: &[syntax::TypeName],
+    trait_impls: &HashSet<(String, String)>,
+    line: usize,
+    column: usize,
+) -> Result<(), Diagnostic> {
+    if type_param_bounds.is_empty() {
+        return Ok(());
+    }
+    let type_bindings = generic_decl_type_bindings(owner, type_params, type_args, line, column)?;
+    for bound in type_param_bounds {
+        let Some(type_arg) = type_bindings.get(&bound.param) else {
+            continue;
+        };
+        let Some(type_name) = simple_trait_impl_type_name(type_arg) else {
+            return Err(trait_bound_not_satisfied(
+                type_arg,
+                &bound.traits[0],
+                line,
+                column,
+            ));
+        };
+        for trait_name in &bound.traits {
+            if !trait_impls.contains(&(trait_name.clone(), type_name.clone())) {
+                return Err(trait_bound_not_satisfied(
+                    type_arg, trait_name, line, column,
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn simple_trait_impl_type_name(ty: &syntax::TypeName) -> Option<String> {
+    match ty {
+        syntax::TypeName::Named(name, args) if args.is_empty() => Some(name.clone()),
+        _ => None,
+    }
+}
+
+fn trait_bound_not_satisfied(
+    ty: &syntax::TypeName,
+    trait_name: &str,
+    line: usize,
+    column: usize,
+) -> Diagnostic {
+    Diagnostic::new(
+        "type",
+        format!("trait bound not satisfied: type {ty:?} does not implement {trait_name:?}"),
+    )
+    .with_span(line, column)
+}
+
 fn monomorphize_program(program: &syntax::Program) -> Result<syntax::Program, Diagnostic> {
+    validate_syntax_trait_bounds(program)?;
+    let trait_impls = collect_syntax_trait_impl_pairs(&program.functions);
+    let trait_methods = collect_syntax_trait_method_names(&program.traits);
+    let syntax_structs = program
+        .structs
+        .iter()
+        .map(|struct_decl| (struct_decl.name.clone(), struct_decl.clone()))
+        .collect::<HashMap<_, _>>();
     let mut generic_functions = HashMap::new();
     let mut seen_function_names = HashSet::new();
 
     for function in &program.functions {
-        if !seen_function_names.insert(function.name.clone()) {
+        if function.impl_target.is_none() && !seen_function_names.insert(function.name.clone()) {
             return Err(
                 Diagnostic::new("type", format!("duplicate function {:?}", function.name))
                     .with_span(function.line, function.column),
@@ -2239,6 +2752,11 @@ fn monomorphize_program(program: &syntax::Program) -> Result<syntax::Program, Di
         }
         if !function.type_params.is_empty() {
             validate_generic_function(function)?;
+            validate_generic_function_trait_method_calls(
+                function,
+                &trait_methods,
+                &syntax_structs,
+            )?;
             generic_functions.insert(function.name.clone(), function.clone());
         }
     }
@@ -2291,10 +2809,12 @@ fn monomorphize_program(program: &syntax::Program) -> Result<syntax::Program, Di
         let template = generic_functions
             .get(&instantiation.name)
             .expect("queued generic instantiations must reference templates");
+        validate_generic_trait_bounds(template, &instantiation.type_args, &trait_impls)?;
         let type_bindings = generic_type_bindings(template, &instantiation.type_args)?;
         let mut function = template.clone();
         function.name = monomorphized_function_name(&template.name, &instantiation.type_args);
         function.type_params = Vec::new();
+        function.type_param_bounds = Vec::new();
         function.params = template
             .params
             .iter()
@@ -2322,25 +2842,31 @@ fn monomorphize_program(program: &syntax::Program) -> Result<syntax::Program, Di
         lowered_functions.push(function);
     }
 
-    monomorphize_aggregates(syntax::Program {
-        path: program.path.clone(),
-        imports: program.imports.clone(),
-        macros: program.macros.clone(),
-        macro_expansions: program.macro_expansions.clone(),
-        axioms: program.axioms.clone(),
-        semantic_capabilities: program.semantic_capabilities.clone(),
-        evidence: program.evidence.clone(),
-        consts: program.consts.clone(),
-        type_aliases: program.type_aliases.clone(),
-        structs: program.structs.clone(),
-        enums: program.enums.clone(),
-        traits: program.traits.clone(),
-        functions: lowered_functions,
-        stmts,
-    })
+    monomorphize_aggregates(
+        syntax::Program {
+            path: program.path.clone(),
+            imports: program.imports.clone(),
+            macros: program.macros.clone(),
+            macro_expansions: program.macro_expansions.clone(),
+            axioms: program.axioms.clone(),
+            semantic_capabilities: program.semantic_capabilities.clone(),
+            evidence: program.evidence.clone(),
+            consts: program.consts.clone(),
+            type_aliases: program.type_aliases.clone(),
+            structs: program.structs.clone(),
+            enums: program.enums.clone(),
+            traits: program.traits.clone(),
+            functions: lowered_functions,
+            stmts,
+        },
+        &trait_impls,
+    )
 }
 
-fn monomorphize_aggregates(program: syntax::Program) -> Result<syntax::Program, Diagnostic> {
+fn monomorphize_aggregates(
+    program: syntax::Program,
+    trait_impls: &HashSet<(String, String)>,
+) -> Result<syntax::Program, Diagnostic> {
     let mut generic_structs = HashMap::new();
     let mut concrete_structs = Vec::new();
     let mut seen_struct_names = HashSet::new();
@@ -2384,6 +2910,8 @@ fn monomorphize_aggregates(program: syntax::Program) -> Result<syntax::Program, 
     for alias in &program.type_aliases {
         type_aliases.push(syntax::TypeAliasDecl {
             name: alias.name.clone(),
+            type_params: alias.type_params.clone(),
+            type_param_bounds: alias.type_param_bounds.clone(),
             ty: rewrite_aggregate_type_name(
                 &alias.ty,
                 &generic_structs,
@@ -2492,6 +3020,15 @@ fn monomorphize_aggregates(program: syntax::Program) -> Result<syntax::Program, 
             continue;
         }
         if let Some(template) = generic_structs.get(&instantiation.name) {
+            validate_type_param_trait_bounds(
+                &template.name,
+                &template.type_params,
+                &template.type_param_bounds,
+                &instantiation.type_args,
+                trait_impls,
+                template.line,
+                template.column,
+            )?;
             let type_bindings = generic_decl_type_bindings(
                 &template.name,
                 &template.type_params,
@@ -2509,10 +3046,20 @@ fn monomorphize_aggregates(program: syntax::Program) -> Result<syntax::Program, 
             )?;
             lowered.name = monomorphized_type_name(&template.name, &instantiation.type_args);
             lowered.type_params = Vec::new();
+            lowered.type_param_bounds = Vec::new();
             structs.push(lowered);
             continue;
         }
         if let Some(template) = generic_enums.get(&instantiation.name) {
+            validate_type_param_trait_bounds(
+                &template.name,
+                &template.type_params,
+                &template.type_param_bounds,
+                &instantiation.type_args,
+                trait_impls,
+                template.line,
+                template.column,
+            )?;
             let type_bindings = generic_decl_type_bindings(
                 &template.name,
                 &template.type_params,
@@ -2530,6 +3077,7 @@ fn monomorphize_aggregates(program: syntax::Program) -> Result<syntax::Program, 
             )?;
             lowered.name = monomorphized_type_name(&template.name, &instantiation.type_args);
             lowered.type_params = Vec::new();
+            lowered.type_param_bounds = Vec::new();
             enums.push(lowered);
         }
     }
@@ -2741,6 +3289,7 @@ fn rewrite_struct_decl_aggregate_types(
     Ok(syntax::StructDecl {
         name: struct_decl.name.clone(),
         type_params: struct_decl.type_params.clone(),
+        type_param_bounds: struct_decl.type_param_bounds.clone(),
         fields: struct_decl
             .fields
             .iter()
@@ -2778,6 +3327,7 @@ fn rewrite_enum_decl_aggregate_types(
     Ok(syntax::EnumDecl {
         name: enum_decl.name.clone(),
         type_params: enum_decl.type_params.clone(),
+        type_param_bounds: enum_decl.type_param_bounds.clone(),
         variants: enum_decl
             .variants
             .iter()
@@ -2823,6 +3373,7 @@ fn rewrite_function_aggregate_types(
         source_name: function.source_name.clone(),
         path: function.path.clone(),
         type_params: function.type_params.clone(),
+        type_param_bounds: function.type_param_bounds.clone(),
         params: function
             .params
             .iter()
@@ -2868,6 +3419,7 @@ fn rewrite_function_aggregate_types(
         visibility: function.visibility,
         receiver: function.receiver,
         impl_target: function.impl_target.clone(),
+        impl_trait: function.impl_trait.clone(),
         line: function.line,
         column: function.column,
     })
@@ -4830,6 +5382,77 @@ fn substitute_type_name(
     }
 }
 
+fn substitute_self_type_name(
+    ty: &syntax::TypeName,
+    self_ty: &syntax::TypeName,
+) -> syntax::TypeName {
+    match ty {
+        syntax::TypeName::Named(name, args) if name == "Self" && args.is_empty() => self_ty.clone(),
+        syntax::TypeName::Named(name, args) => syntax::TypeName::Named(
+            name.clone(),
+            args.iter()
+                .map(|arg| substitute_self_type_name(arg, self_ty))
+                .collect(),
+        ),
+        syntax::TypeName::Ptr(inner) => {
+            syntax::TypeName::Ptr(Box::new(substitute_self_type_name(inner, self_ty)))
+        }
+        syntax::TypeName::MutPtr(inner) => {
+            syntax::TypeName::MutPtr(Box::new(substitute_self_type_name(inner, self_ty)))
+        }
+        syntax::TypeName::MutRef(inner) => {
+            syntax::TypeName::MutRef(Box::new(substitute_self_type_name(inner, self_ty)))
+        }
+        syntax::TypeName::Slice(inner) => {
+            syntax::TypeName::Slice(Box::new(substitute_self_type_name(inner, self_ty)))
+        }
+        syntax::TypeName::MutSlice(inner) => {
+            syntax::TypeName::MutSlice(Box::new(substitute_self_type_name(inner, self_ty)))
+        }
+        syntax::TypeName::LifetimeSlice(lifetime, inner) => syntax::TypeName::LifetimeSlice(
+            lifetime.clone(),
+            Box::new(substitute_self_type_name(inner, self_ty)),
+        ),
+        syntax::TypeName::LifetimeMutSlice(lifetime, inner) => syntax::TypeName::LifetimeMutSlice(
+            lifetime.clone(),
+            Box::new(substitute_self_type_name(inner, self_ty)),
+        ),
+        syntax::TypeName::Option(inner) => {
+            syntax::TypeName::Option(Box::new(substitute_self_type_name(inner, self_ty)))
+        }
+        syntax::TypeName::Result(ok, err) => syntax::TypeName::Result(
+            Box::new(substitute_self_type_name(ok, self_ty)),
+            Box::new(substitute_self_type_name(err, self_ty)),
+        ),
+        syntax::TypeName::Tuple(elements) => syntax::TypeName::Tuple(
+            elements
+                .iter()
+                .map(|element| substitute_self_type_name(element, self_ty))
+                .collect(),
+        ),
+        syntax::TypeName::Map(key, value) => syntax::TypeName::Map(
+            Box::new(substitute_self_type_name(key, self_ty)),
+            Box::new(substitute_self_type_name(value, self_ty)),
+        ),
+        syntax::TypeName::Array(inner, len) => syntax::TypeName::Array(
+            Box::new(substitute_self_type_name(inner, self_ty)),
+            len.clone(),
+        ),
+        syntax::TypeName::Fn(params, return_ty) => syntax::TypeName::Fn(
+            params
+                .iter()
+                .map(|param| substitute_self_type_name(param, self_ty))
+                .collect(),
+            Box::new(substitute_self_type_name(return_ty, self_ty)),
+        ),
+        syntax::TypeName::Int => syntax::TypeName::Int,
+        syntax::TypeName::Numeric(numeric) => syntax::TypeName::Numeric(*numeric),
+        syntax::TypeName::Bool => syntax::TypeName::Bool,
+        syntax::TypeName::String => syntax::TypeName::String,
+        syntax::TypeName::Str => syntax::TypeName::Str,
+    }
+}
+
 fn monomorphized_function_name(name: &str, type_args: &[syntax::TypeName]) -> String {
     monomorphized_name(name, type_args)
 }
@@ -5151,34 +5774,10 @@ fn collect_trait_definitions(
                     )
                     .with_span(method.line, method.column));
                 }
-                let params = method
-                    .params
-                    .iter()
-                    .map(|param| {
-                        lower_type(
-                            &param.ty,
-                            structs,
-                            enums,
-                            aliases,
-                            &HashMap::new(),
-                            param.line,
-                            param.column,
-                        )
-                    })
-                    .collect::<Result<Vec<_>, _>>()?;
-                let return_ty = lower_type(
-                    &method.return_ty,
-                    structs,
-                    enums,
-                    aliases,
-                    &HashMap::new(),
-                    method.line,
-                    method.column,
-                )?;
                 Ok(TraitMethodDef {
                     name: method.name.clone(),
-                    params,
-                    return_ty,
+                    params: method.params.iter().map(|param| param.ty.clone()).collect(),
+                    return_ty: method.return_ty.clone(),
                     has_self: method.has_self,
                 })
             })
@@ -5597,10 +6196,15 @@ fn collect_function_signatures(
             )
             .is_some()
         {
-            return Err(
-                Diagnostic::new("type", format!("duplicate function {:?}", function.name))
-                    .with_span(function.line, function.column),
-            );
+            let message = if let Some(target) = &function.impl_target {
+                format!(
+                    "duplicate impl method {:?} for {:?}",
+                    function.source_name, target
+                )
+            } else {
+                format!("duplicate function {:?}", function.name)
+            };
+            return Err(Diagnostic::new("type", message).with_span(function.line, function.column));
         }
     }
     Ok(signatures)
@@ -5698,6 +6302,222 @@ fn collect_method_signatures(
         }
     }
     Ok(methods)
+}
+
+fn validate_trait_bounds_in_program(
+    program: &syntax::Program,
+    traits: &HashMap<String, TraitDef>,
+) -> Result<(), Diagnostic> {
+    for type_alias in &program.type_aliases {
+        validate_type_param_bounds(&type_alias.type_param_bounds, traits)?;
+    }
+    for struct_decl in &program.structs {
+        validate_type_param_bounds(&struct_decl.type_param_bounds, traits)?;
+    }
+    for enum_decl in &program.enums {
+        validate_type_param_bounds(&enum_decl.type_param_bounds, traits)?;
+    }
+    for function in &program.functions {
+        validate_type_param_bounds(&function.type_param_bounds, traits)?;
+    }
+    Ok(())
+}
+
+fn validate_type_param_bounds(
+    bounds: &[syntax::TypeParamBound],
+    traits: &HashMap<String, TraitDef>,
+) -> Result<(), Diagnostic> {
+    for bound in bounds {
+        for trait_name in &bound.traits {
+            if !traits.contains_key(trait_name) {
+                return Err(Diagnostic::new(
+                    "type",
+                    format!(
+                        "unknown trait bound {trait_name:?} on type parameter {:?}",
+                        bound.param
+                    ),
+                )
+                .with_span(bound.line, bound.column));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn validate_trait_impls(
+    functions: &[syntax::Function],
+    traits: &HashMap<String, TraitDef>,
+    structs: &HashMap<String, StructDef>,
+    enums: &HashMap<String, EnumDef>,
+    aliases: &HashMap<String, syntax::TypeAliasDecl>,
+    consts: &HashMap<String, syntax::ConstDecl>,
+    methods: &HashMap<String, HashMap<String, MethodSig>>,
+) -> Result<(), Diagnostic> {
+    let mut impls: HashMap<(String, String), Vec<&syntax::Function>> = HashMap::new();
+    for function in functions {
+        let Some(trait_name) = &function.impl_trait else {
+            continue;
+        };
+        let Some(target_name) = &function.impl_target else {
+            continue;
+        };
+        if !traits.contains_key(trait_name) {
+            return Err(Diagnostic::new(
+                "type",
+                format!("impl references unknown trait {trait_name:?}"),
+            )
+            .with_span(function.line, function.column));
+        }
+        let target_ty = lower_type(
+            &syntax::TypeName::Named(target_name.clone(), Vec::new()),
+            structs,
+            enums,
+            aliases,
+            consts,
+            function.line,
+            function.column,
+        )?;
+        if !matches!(target_ty, Type::Struct(_) | Type::Enum(_)) {
+            return Err(Diagnostic::new(
+                "type",
+                format!("impl target {target_name:?} must be a local struct or enum"),
+            )
+            .with_span(function.line, function.column));
+        }
+        impls
+            .entry((trait_name.clone(), target_name.clone()))
+            .or_default()
+            .push(function);
+    }
+
+    for ((trait_name, target_name), impl_functions) in impls {
+        let trait_def = traits
+            .get(&trait_name)
+            .expect("trait impl keys are validated while grouping");
+        let method_sigs = methods.get(&target_name).ok_or_else(|| {
+            Diagnostic::new(
+                "type",
+                format!("impl {trait_name} for {target_name} does not define any methods"),
+            )
+            .with_span(impl_functions[0].line, impl_functions[0].column)
+        })?;
+        for required in &trait_def.methods {
+            let implementation = impl_functions
+                .iter()
+                .find(|function| function.source_name == required.name)
+                .ok_or_else(|| {
+                    Diagnostic::new(
+                        "type",
+                        format!(
+                            "impl {trait_name} for {target_name} is missing required method {:?}",
+                            required.name
+                        ),
+                    )
+                    .with_span(impl_functions[0].line, impl_functions[0].column)
+                })?;
+            validate_trait_method_signature(
+                required,
+                implementation,
+                &trait_name,
+                &target_name,
+                structs,
+                enums,
+                aliases,
+                consts,
+                method_sigs,
+            )?;
+        }
+    }
+    Ok(())
+}
+
+fn validate_trait_method_signature(
+    required: &TraitMethodDef,
+    implementation: &syntax::Function,
+    trait_name: &str,
+    target_name: &str,
+    structs: &HashMap<String, StructDef>,
+    enums: &HashMap<String, EnumDef>,
+    aliases: &HashMap<String, syntax::TypeAliasDecl>,
+    consts: &HashMap<String, syntax::ConstDecl>,
+    method_sigs: &HashMap<String, MethodSig>,
+) -> Result<(), Diagnostic> {
+    if required.has_self != implementation.receiver.is_some() {
+        return Err(Diagnostic::new(
+            "type",
+            format!(
+                "impl {trait_name} for {target_name} method {:?} has an incompatible self receiver",
+                required.name
+            ),
+        )
+        .with_span(implementation.line, implementation.column));
+    }
+    if required.params.len() != implementation.params.len() {
+        return Err(Diagnostic::new(
+            "type",
+            format!(
+                "impl {trait_name} for {target_name} method {:?} expects {} parameters, got {}",
+                required.name,
+                required.params.len(),
+                implementation.params.len()
+            ),
+        )
+        .with_span(implementation.line, implementation.column));
+    }
+    let target_ty = syntax::TypeName::Named(target_name.to_string(), Vec::new());
+    for (expected, actual) in required.params.iter().zip(&implementation.params) {
+        let expected = lower_type(
+            &substitute_self_type_name(expected, &target_ty),
+            structs,
+            enums,
+            aliases,
+            consts,
+            actual.line,
+            actual.column,
+        )?;
+        let actual = lower_type(
+            &actual.ty,
+            structs,
+            enums,
+            aliases,
+            consts,
+            actual.line,
+            actual.column,
+        )?;
+        if expected != actual {
+            return Err(Diagnostic::new(
+                "type",
+                format!(
+                    "impl {trait_name} for {target_name} method {:?} has parameter type {}, expected {}",
+                    required.name, actual, expected
+                ),
+            )
+            .with_span(implementation.line, implementation.column));
+        }
+    }
+    let expected_return = lower_type(
+        &substitute_self_type_name(&required.return_ty, &target_ty),
+        structs,
+        enums,
+        aliases,
+        consts,
+        implementation.line,
+        implementation.column,
+    )?;
+    let method_sig = method_sigs
+        .get(&implementation.source_name)
+        .expect("method signature should be collected before trait impl validation");
+    if expected_return != method_sig.return_ty {
+        return Err(Diagnostic::new(
+            "type",
+            format!(
+                "impl {trait_name} for {target_name} method {:?} returns {}, expected {}",
+                required.name, method_sig.return_ty, expected_return
+            ),
+        )
+        .with_span(implementation.line, implementation.column));
+    }
+    Ok(())
 }
 
 fn lower_static_decls(
@@ -14614,7 +15434,10 @@ fn render(self): string
         assert_eq!(lowered.traits.len(), 1);
         assert_eq!(lowered.traits[0].name, "Display");
         assert_eq!(lowered.traits[0].methods[0].name, "render");
-        assert_eq!(lowered.traits[0].methods[0].return_ty, Type::String);
+        assert_eq!(
+            lowered.traits[0].methods[0].return_ty,
+            syntax::TypeName::String
+        );
     }
 
     #[test]
@@ -14658,6 +15481,238 @@ fn format(value: Display): string
             error
                 .message
                 .contains("trait dispatch is not yet implemented for trait \"Display\"")
+        );
+    }
+
+    #[test]
+    fn hir_lowers_static_trait_impl_and_bounded_generic_call() {
+        let parsed = parse(
+            r#"
+trait Eq {
+fn eq(self, other: Self): bool
+}
+struct Point {
+x: int
+y: int
+}
+impl Eq for Point {
+fn eq(self, other: Point): bool {
+return self.x == other.x
+}
+}
+fn same<T: Eq>(left: T, right: T): bool {
+return left.eq(right)
+}
+let a: Point = Point { x: 1, y: 2 }
+let b: Point = Point { x: 1, y: 3 }
+print same<Point>(a, b)
+"#,
+        );
+
+        let lowered = lower(&parsed).expect("static trait impl should lower");
+        assert!(
+            lowered
+                .functions
+                .iter()
+                .any(|function| function.name == "same__Point")
+        );
+        assert!(
+            lowered
+                .functions
+                .iter()
+                .any(|function| function.name == "Point__eq")
+        );
+    }
+
+    #[test]
+    fn hir_rejects_unsatisfied_trait_bound_on_generic_instantiation() {
+        let parsed = parse(
+            r#"
+trait Eq {
+fn eq(self, other: Self): bool
+}
+struct Point {
+x: int
+}
+fn same<T: Eq>(left: T, right: T): bool {
+return left.eq(right)
+}
+let a: Point = Point { x: 1 }
+let b: Point = Point { x: 1 }
+print same<Point>(a, b)
+"#,
+        );
+
+        let error = lower(&parsed).expect_err("missing trait impl should fail");
+        assert_eq!(error.kind, "type");
+        assert!(error.message.contains(
+            "trait bound not satisfied: type Named(\"Point\", []) does not implement \"Eq\""
+        ));
+    }
+
+    #[test]
+    fn hir_rejects_unbounded_generic_method_call_before_instantiation() {
+        let parsed = parse(
+            r#"
+trait Eq {
+fn eq(self, other: Self): bool
+}
+struct Point {
+x: int
+}
+impl Eq for Point {
+fn eq(self, other: Point): bool {
+return self.x == other.x
+}
+}
+fn same<T>(left: T, right: T): bool {
+return left.eq(right)
+}
+"#,
+        );
+
+        let error = lower(&parsed).expect_err("generic method call requires a bound");
+        assert_eq!(error.kind, "type");
+        assert!(error.message.contains(
+            "method call \"eq\" on generic parameter \"T\" requires an explicit trait bound"
+        ));
+    }
+
+    #[test]
+    fn hir_rejects_unbounded_generic_method_call_through_local() {
+        let parsed = parse(
+            r#"
+trait Eq {
+fn eq(self, other: Self): bool
+}
+struct Point {
+x: int
+}
+impl Eq for Point {
+fn eq(self, other: Point): bool {
+return self.x == other.x
+}
+}
+fn same<T>(left: T, right: T): bool {
+let tmp: T = left
+return tmp.eq(right)
+}
+"#,
+        );
+
+        let error = lower(&parsed).expect_err("generic local method call requires a bound");
+        assert_eq!(error.kind, "type");
+        assert!(error.message.contains(
+            "method call \"eq\" on generic parameter \"T\" requires an explicit trait bound"
+        ));
+    }
+
+    #[test]
+    fn hir_rejects_unbounded_generic_method_call_through_projected_field() {
+        let parsed = parse(
+            r#"
+trait Eq {
+fn eq(self, other: Self): bool
+}
+struct Point {
+x: int
+}
+struct Box<T> {
+item: T
+}
+impl Eq for Point {
+fn eq(self, other: Point): bool {
+return self.x == other.x
+}
+}
+fn same<T>(holder: Box<T>, right: T): bool {
+return holder.item.eq(right)
+}
+"#,
+        );
+
+        let error =
+            lower(&parsed).expect_err("generic field method call requires an explicit bound");
+        assert_eq!(error.kind, "type");
+        assert!(error.message.contains(
+            "method call \"eq\" on generic parameter \"T\" requires an explicit trait bound"
+        ));
+    }
+
+    #[test]
+    fn hir_rejects_trait_impl_missing_required_method() {
+        let parsed = parse(
+            r#"
+trait Eq {
+fn eq(self, other: Self): bool
+}
+struct Point {
+x: int
+}
+impl Eq for Point {
+fn same(self, other: Point): bool {
+return self.x == other.x
+}
+}
+"#,
+        );
+
+        let error = lower(&parsed).expect_err("wrong trait method should fail");
+        assert_eq!(error.kind, "type");
+        assert!(
+            error
+                .message
+                .contains("impl Eq for Point is missing required method \"eq\"")
+        );
+    }
+
+    #[test]
+    fn hir_rejects_trait_impl_signature_mismatch() {
+        let parsed = parse(
+            r#"
+trait Eq {
+fn eq(self, other: Self): bool
+}
+struct Point {
+x: int
+}
+impl Eq for Point {
+fn eq(self, other: int): bool {
+return true
+}
+}
+"#,
+        );
+
+        let error = lower(&parsed).expect_err("trait method signature mismatch should fail");
+        assert_eq!(error.kind, "type");
+        assert!(
+            error
+                .message
+                .contains("method \"eq\" has parameter type int, expected Point")
+        );
+    }
+
+    #[test]
+    fn parser_rejects_dyn_trait_type_with_explicit_diagnostic() {
+        let error = syntax::parse_program(
+            r#"
+trait Display {
+fn render(self): string
+}
+fn show(value: dyn Display): string {
+return ""
+}
+"#,
+            Path::new("main.ax"),
+        )
+        .expect_err("dyn Trait should stay gated");
+
+        assert_eq!(error.kind, "parse");
+        assert!(
+            error
+                .message
+                .contains("dyn Trait type expressions require an accepted dynamic-dispatch design")
         );
     }
 

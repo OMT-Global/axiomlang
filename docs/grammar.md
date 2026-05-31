@@ -14,6 +14,7 @@ item           := macro_item
                | struct_item
                | enum_item
                | trait_item
+               | impl_item
                | fn_item ;
 
 macro_item     := ("macro" | "macro_rules!") IDENT "{" macro_arm (";" macro_arm)* "}" ;
@@ -25,11 +26,15 @@ macro_param    := "$" IDENT (":" IDENT)?
 separator      := "," ;
 import_item    := "import" STRING ;
 const_item     := visibility? "const" IDENT ":" type "=" expr ;
+generic_params := "<" type_param ("," type_param)* ">" ;
+type_param     := IDENT (":" IDENT ("+" IDENT)*)? ;
 type_item      := visibility? "type" IDENT generic_params? "=" type ;
 struct_item    := visibility? "struct" IDENT generic_params? "{" fields? "}" ;
 enum_item      := visibility? "enum" IDENT generic_params? "{" variants? "}" ;
 trait_item     := visibility? "trait" IDENT "{" trait_method* "}" ;
 trait_method   := "fn" IDENT "(" params? ")" ":" type ";"? ;
+impl_item      := "impl" IDENT "for" IDENT "{" fn_item* "}"
+               | "impl" IDENT "{" fn_item* "}" ;
 fn_item        := visibility? "fn" IDENT generic_params? "(" params? ")" ":" type block ;
 visibility     := "pub" | "pub(pkg)" ;
 lifetime       := "'" IDENT ;
@@ -92,5 +97,8 @@ limit of 64. Multi-line expansions must be invoked as a whole statement;
 single-line expansions can appear inside expressions. `axiomc check --json`
 includes `macro_expansions` metadata when a checked package expands macros.
 
-Trait declarations are currently parser and HIR contracts only. Trait names are
-rejected in type positions until bounded generics, impl blocks, and dispatch land.
+Trait declarations support required method signatures, explicit generic bounds
+such as `<T: Eq + Tagged>`, `impl Trait for Type` blocks, and static method
+dispatch from bounded generic functions. Trait default bodies, supertraits,
+generic impl headers, blanket impls, trait type positions, and `dyn Trait`
+dynamic dispatch are rejected in stage1.
