@@ -1,0 +1,8 @@
+{
+  "kind": "manifest",
+  "code": null,
+  "message": "dependency path must stay inside the workspace or package root; declare sibling packages as workspace members before depending on them",
+  "path": "axiom.toml",
+  "line": null,
+  "column": null
+}
