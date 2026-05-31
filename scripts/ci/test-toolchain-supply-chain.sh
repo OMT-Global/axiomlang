@@ -23,6 +23,11 @@ grep -Fq 'node-version: 20' "$workflow" || {
   exit 1
 }
 
+grep -Fq "hashFiles('package-lock.json') != ''" "$workflow" || {
+  echo "workflow must skip Node.js setup when no package-lock.json is present" >&2
+  exit 1
+}
+
 grep -Fq 'bash scripts/ci/run-toolchain-supply-chain.sh' "$workflow" || {
   echo "workflow must run the supply-chain validation script" >&2
   exit 1

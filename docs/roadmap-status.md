@@ -37,7 +37,9 @@ issue scopes them with testable acceptance criteria and owner approval:
 
 - Hosted package registry service design or operation.
 - Hosted package upload workflows beyond local static registry publishing.
-- Signed third-party packages, SBOM emission, and registry trust roots beyond the stage1 archive-signature sidecar.
+- Hosted registry trust roots and package-authenticity services beyond local
+  static publishing, npm audit signatures when a root `package-lock.json`
+  exists, cargo-vet, and the stage1 SBOM gate.
 - Direct-native backend replacement.
 - Post-agent-grade ecosystem services.
 
@@ -48,7 +50,7 @@ issue scopes them with testable acceptance criteria and owner approval:
 | [#264](https://github.com/OMT-Global/axiom/issues/264) Roadmap parity and agentic-native lead | Complete with this ledger | Close as completed when this PR lands | The broad roadmap is now represented by `docs/roadmap.md`, this ledger, and the AG0-AG5 execution contract. Future work should use scoped child issues rather than keeping the umbrella issue open as an implicit backlog. |
 | [#263](https://github.com/OMT-Global/axiom/issues/263) Hosted package registry | Deferred outside current bar | Keep open until implemented or formally descoped | A hosted registry depends on publish, signed packages, trust roots, and service ownership. The current repo has no registry service and the agent-grade bar explicitly excludes registry publishing. |
 | [#245](https://github.com/OMT-Global/axiom/issues/245) `axiomc publish` and package registry | Implemented as local static registry publishing | Close as completed when this PR lands | `axiomc publish` now validates the lockfile, packs a deterministic `package.axp`, writes an `axiom-integrity-v1` sidecar (tamper-detection tag bound to a required `--signing-key`, not authenticity proof), and stages releases for `axiomc registry-index`. Hosted registry operation remains covered by #263. |
-| [#248](https://github.com/OMT-Global/axiom/issues/248) Lockfile integrity and signed packages | Deferred outside current bar | Keep open until implemented or formally descoped | Stage1 lockfiles are deterministic for local path graphs, but signed packages, SBOMs, and offline verification require a registry and trust model that do not exist in the current execution scope. |
+| [#248](https://github.com/OMT-Global/axiom/issues/248) Lockfile integrity and signed packages | Implemented as the stage1 supply-chain gate | Close as completed when this PR lands | `make supply-chain` runs the pinned cargo-vet policy under `stage1/supply-chain`, verifies locked offline Cargo metadata, performs a locked release build with deterministic path/time inputs, verifies signed npm packages when a root `package-lock.json` exists, and emits `stage1/target/sbom/stage1.spdx.json`. `docs/supply-chain.md` records the operator contract and the workflow skips Node setup when no npm lockfile exists, preserving the signed-package check without forcing unused Node extraction on self-hosted runners. Hosted registry trust roots remain covered by #263. |
 | [#101](https://github.com/OMT-Global/axiom/issues/101) AG5.3 proof workload fixtures | Open, blocked | Keep open | The issue requires CLI, worker, and HTTP service proof workloads. AG4.3 HTTP server support remains open, so the HTTP service fixture cannot honestly close yet. |
 | [#102](https://github.com/OMT-Global/axiom/issues/102) AG5.4 CI closure | Open, blocked | Keep open | CI can only make proof workloads blocking after #101 exists. This remains blocked on AG5.3 and AG4.3. |
 | [#397](https://github.com/OMT-Global/axiom/issues/397) Runtime: HTTP server runtime surface | Implemented as the current stage1 HTTP server slice | Close as completed when this PR lands | `std/http.ax` exposes loopback-only `listen`/`accept`/`respond`, `serve_once(bind, body)`, and route-shaped `fixed_route(path, body)` / `serve(bind, route, max_requests)` over `http_server_*`, `http_response_write`, `http_serve_once`, and `http_serve_route`; `std/http_async.ax` adds async-gated bounded route serving. Capability-denied programs fail before native execution via the shared `net` or `async` gates, and Rust integration coverage proves deterministic local request handling plus non-loopback bind rejection. |
@@ -59,7 +61,7 @@ issue scopes them with testable acceptance criteria and owner approval:
 
 ## Reopening Rule
 
-Deferred registry, publish, and supply-chain work should remain open until the
+Deferred registry and hosted publish work should remain open until the
 agent-grade bar is met or until an explicit owner decision creates an ecosystem
 milestone. A scoped implementation issue must name:
 
