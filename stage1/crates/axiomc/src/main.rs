@@ -2231,7 +2231,57 @@ struct OpenApiRoute {
 
 #[derive(Debug, Default)]
 struct OpenApiRouteContext {
-    route_vars: BTreeMap<String, OpenApiRoute>,
+    route_var_scopes: Vec<BTreeMap<String, OpenApiRoute>>,
+    functions: BTreeMap<String, Vec<axiomc::syntax::Stmt>>,
+    active_functions: BTreeSet<String>,
+}
+
+impl OpenApiRouteContext {
+    fn new(functions: &[axiomc::syntax::Function]) -> Self {
+        Self {
+            route_var_scopes: vec![BTreeMap::new()],
+            functions: functions
+                .iter()
+                .map(|function| (function.name.clone(), function.body.clone()))
+                .collect(),
+            active_functions: BTreeSet::new(),
+        }
+    }
+
+    fn push_scope(&mut self) {
+        self.route_var_scopes.push(BTreeMap::new());
+    }
+
+    fn pop_scope(&mut self) {
+        if self.route_var_scopes.len() > 1 {
+            self.route_var_scopes.pop();
+        }
+    }
+
+    fn insert_route_var(&mut self, name: String, route: OpenApiRoute) {
+        if let Some(scope) = self.route_var_scopes.last_mut() {
+            scope.insert(name, route);
+        }
+    }
+
+    fn route_var(&self, name: &str) -> Option<&OpenApiRoute> {
+        self.route_var_scopes
+            .iter()
+            .rev()
+            .find_map(|scope| scope.get(name))
+    }
+
+    fn function_body(&self, name: &str) -> Option<Vec<axiomc::syntax::Stmt>> {
+        self.functions.get(name).cloned()
+    }
+
+    fn enter_function(&mut self, name: &str) -> bool {
+        self.active_functions.insert(name.to_string())
+    }
+
+    fn exit_function(&mut self, name: &str) {
+        self.active_functions.remove(name);
+    }
 }
 
 fn generate_openapi(project: &Path, out: &Path) -> Result<GenerateOpenApiReport, Diagnostic> {
@@ -2353,7 +2403,7 @@ fn collect_openapi_routes(project: &Path) -> Result<Vec<OpenApiRoute>, Diagnosti
             .imports
             .iter()
             .any(|import| import.path == "std/http.ax");
-        let mut top_level = OpenApiRouteContext::default();
+        let mut top_level = OpenApiRouteContext::new(&program.functions);
         for decl in &program.consts {
             collect_openapi_served_routes_in_expr(
                 &decl.expr,
@@ -2387,7 +2437,7 @@ fn collect_openapi_routes_in_stmts(
             Stmt::Let { name, expr, .. } => {
                 collect_openapi_served_routes_in_expr(expr, file, http_imported, context, routes);
                 if let Some(route) = openapi_route_from_expr(expr, file, http_imported, context) {
-                    context.route_vars.insert(name.clone(), route);
+                    context.insert_route_var(name.clone(), route);
                 }
             }
             Stmt::Print { expr, .. }
@@ -2407,10 +2457,10 @@ fn collect_openapi_routes_in_stmts(
                 ..
             } => {
                 collect_openapi_served_routes_in_expr(cond, file, http_imported, context, routes);
-                collect_openapi_routes_in_stmts(then_block, file, http_imported, context, routes);
-                for block in else_block.iter().flatten() {
-                    collect_openapi_routes_in_stmts(
-                        std::slice::from_ref(block),
+                collect_openapi_routes_in_block(then_block, file, http_imported, context, routes);
+                if let Some(else_block) = else_block {
+                    collect_openapi_routes_in_block(
+                        else_block,
                         file,
                         http_imported,
                         context,
@@ -2425,10 +2475,10 @@ fn collect_openapi_routes_in_stmts(
                 ..
             } => {
                 collect_openapi_served_routes_in_expr(expr, file, http_imported, context, routes);
-                collect_openapi_routes_in_stmts(then_block, file, http_imported, context, routes);
-                for block in else_block.iter().flatten() {
-                    collect_openapi_routes_in_stmts(
-                        std::slice::from_ref(block),
+                collect_openapi_routes_in_block(then_block, file, http_imported, context, routes);
+                if let Some(else_block) = else_block {
+                    collect_openapi_routes_in_block(
+                        else_block,
                         file,
                         http_imported,
                         context,
@@ -2438,12 +2488,12 @@ fn collect_openapi_routes_in_stmts(
             }
             Stmt::While { cond, body, .. } => {
                 collect_openapi_served_routes_in_expr(cond, file, http_imported, context, routes);
-                collect_openapi_routes_in_stmts(body, file, http_imported, context, routes);
+                collect_openapi_routes_in_block(body, file, http_imported, context, routes);
             }
             Stmt::Match { expr, arms, .. } => {
                 collect_openapi_served_routes_in_expr(expr, file, http_imported, context, routes);
                 for arm in arms {
-                    collect_openapi_routes_in_stmts(
+                    collect_openapi_routes_in_block(
                         &arm.body,
                         file,
                         http_imported,
@@ -2454,6 +2504,35 @@ fn collect_openapi_routes_in_stmts(
             }
         }
     }
+}
+
+fn collect_openapi_routes_in_block(
+    stmts: &[axiomc::syntax::Stmt],
+    file: &Path,
+    http_imported: bool,
+    context: &mut OpenApiRouteContext,
+    routes: &mut Vec<OpenApiRoute>,
+) {
+    context.push_scope();
+    collect_openapi_routes_in_stmts(stmts, file, http_imported, context, routes);
+    context.pop_scope();
+}
+
+fn collect_openapi_routes_in_called_function(
+    name: &str,
+    file: &Path,
+    http_imported: bool,
+    context: &mut OpenApiRouteContext,
+    routes: &mut Vec<OpenApiRoute>,
+) {
+    let Some(body) = context.function_body(name) else {
+        return;
+    };
+    if !context.enter_function(name) {
+        return;
+    }
+    collect_openapi_routes_in_block(&body, file, http_imported, context, routes);
+    context.exit_function(name);
 }
 
 fn collect_openapi_served_routes_in_expr(
@@ -2471,6 +2550,15 @@ fn collect_openapi_served_routes_in_expr(
         Expr::Call { args, .. } => {
             for arg in args {
                 collect_openapi_served_routes_in_expr(arg, file, http_imported, context, routes);
+            }
+            if let Expr::Call { name, .. } = expr {
+                collect_openapi_routes_in_called_function(
+                    name,
+                    file,
+                    http_imported,
+                    context,
+                    routes,
+                );
             }
         }
         Expr::MethodCall { base, args, .. } => {
@@ -2640,7 +2728,7 @@ fn openapi_route_from_expr(
             let path = struct_field_expr(fields, "path").and_then(literal_string)?;
             Some(openapi_route(file, *line, *column, path))
         }
-        Expr::VarRef { name, .. } => context.route_vars.get(name).cloned(),
+        Expr::VarRef { name, .. } => context.route_var(name).cloned(),
         _ => None,
     }
 }
@@ -6019,6 +6107,118 @@ print "hello"
         )
         .expect("spec json");
         assert!(spec["paths"].as_object().expect("paths object").is_empty());
+    }
+
+    #[test]
+    fn generate_openapi_projects_routes_from_called_functions_only() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let project = dir.path().join("openapi-called-functions");
+        create_project(&project, Some("openapi-called-functions")).expect("create project");
+        fs::write(
+            project.join("axiom.toml"),
+            r#"[package]
+name = "openapi-called-functions"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+fs = false
+net = true
+process = false
+env = false
+clock = false
+crypto = false
+"#,
+        )
+        .expect("write manifest");
+        fs::write(
+            project.join("src/main.ax"),
+            r#"import "std/http.ax"
+
+fn served_from_helper(): bool {
+    let selected_route: HttpRoute = route("/from-helper", "ready")
+    return serve("127.0.0.1:0", selected_route, 1)
+}
+
+fn unused_helper(): bool {
+    return serve("127.0.0.1:0", route("/unused-helper", "debug"), 1)
+}
+
+print served_from_helper()
+"#,
+        )
+        .expect("write source");
+
+        let report =
+            generate_openapi(&project, Path::new("dist/openapi.json")).expect("generate openapi");
+
+        assert_eq!(report.routes.len(), 1);
+        assert_eq!(report.routes[0].path, "/from-helper");
+        let spec: serde_json::Value = serde_json::from_str(
+            &fs::read_to_string(project.join("dist/openapi.json")).expect("read spec"),
+        )
+        .expect("spec json");
+        let paths = spec["paths"].as_object().expect("paths object");
+        assert!(paths.contains_key("/from-helper"));
+        assert!(!paths.contains_key("/unused-helper"));
+    }
+
+    #[test]
+    fn generate_openapi_preserves_route_bindings_across_nested_scopes() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let project = dir.path().join("openapi-scoped-routes");
+        create_project(&project, Some("openapi-scoped-routes")).expect("create project");
+        fs::write(
+            project.join("axiom.toml"),
+            r#"[package]
+name = "openapi-scoped-routes"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+fs = false
+net = true
+process = false
+env = false
+clock = false
+crypto = false
+"#,
+        )
+        .expect("write manifest");
+        fs::write(
+            project.join("src/main.ax"),
+            r#"import "std/http.ax"
+
+let selected_route: HttpRoute = route("/outer", "ready")
+
+if true {
+    let selected_route: HttpRoute = route("/inner", "debug")
+    print "shadowed"
+}
+
+print serve("127.0.0.1:0", selected_route, 1)
+"#,
+        )
+        .expect("write source");
+
+        let report =
+            generate_openapi(&project, Path::new("dist/openapi.json")).expect("generate openapi");
+
+        assert_eq!(report.routes.len(), 1);
+        assert_eq!(report.routes[0].path, "/outer");
+        let spec: serde_json::Value = serde_json::from_str(
+            &fs::read_to_string(project.join("dist/openapi.json")).expect("read spec"),
+        )
+        .expect("spec json");
+        let paths = spec["paths"].as_object().expect("paths object");
+        assert!(paths.contains_key("/outer"));
+        assert!(!paths.contains_key("/inner"));
     }
 
     #[test]
