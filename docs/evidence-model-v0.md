@@ -28,6 +28,8 @@ V0 supports:
 - `benchmark_baseline`
 - `manual_review`
 - `risk_note`
+- `ci_status`
+- `review_state`
 
 The stage1 implementation maps manifest test targets as follows:
 
@@ -55,3 +57,10 @@ When no manifest tests are discovered, the report includes a missing
 This command does not replace CI. It gives agents a stable semantic report they
 can attach to PR descriptions and later connect to property tests, capability
 denial fixtures, artifact verification, and repository policy checks.
+
+Delivery signals are evidence records about the change delivery path rather
+than package behavior. `ci_status` records the fresh `CI Gate` state for a PR
+head commit. `review_state` records the fresh review decision for that same PR
+head commit. Both include the collection timestamp and whether the signal was
+collected for the current commit. These signals are advisory in v0 and do not
+add a second required status check.
