@@ -1,0 +1,74 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://axiom.omt.global/schemas/axiom-decision-record-v0.schema.json",
+  "title": "Axiom Decision Record v0",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "id",
+    "title",
+    "status",
+    "context",
+    "decision",
+    "governs"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "axiom.decision_record.v0"
+    },
+    "id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1
+    },
+    "status": {
+      "enum": [
+        "proposed",
+        "accepted",
+        "superseded",
+        "rejected"
+      ]
+    },
+    "context": {
+      "type": "string",
+      "minLength": 1
+    },
+    "decision": {
+      "type": "string",
+      "minLength": 1
+    },
+    "governs": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/governedNode"
+      }
+    }
+  },
+  "$defs": {
+    "governedNode": {
+      "type": "object",
+      "required": [
+        "relationship",
+        "target"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "relationship": {
+          "enum": [
+            "preserves",
+            "violates",
+            "depends_on"
+          ]
+        },
+        "target": {
+          "type": "string",
+          "pattern": "^axiom://[A-Za-z0-9._~:/#@!$&'()*+,;=%-]+$"
+        }
+      }
+    }
+  }
+}
