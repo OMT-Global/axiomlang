@@ -10,6 +10,7 @@ concurrency:
 
 permissions:
   contents: read
+  issues: read
 
 env:
   NODE_VERSION: '20'
@@ -128,6 +129,8 @@ jobs:
           exit 1
 
       - name: Run fast checks
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: bash scripts/ci/run-fast-checks.sh
 
   validate-pr-description:
