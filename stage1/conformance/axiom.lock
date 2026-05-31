@@ -426,9 +426,19 @@ version = "0.1.0"
 source = "path:fail/trait_type_position_not_supported"
 
 [[package]]
+name = "conformance-trait-unbound-local-method-call"
+version = "0.1.0"
+source = "path:fail/trait_unbound_local_method_call"
+
+[[package]]
 name = "conformance-trait-unbound-method-call"
 version = "0.1.0"
 source = "path:fail/trait_unbound_method_call"
+
+[[package]]
+name = "conformance-trait-unbound-projected-method-call"
+version = "0.1.0"
+source = "path:fail/trait_unbound_projected_method_call"
 
 [[package]]
 name = "conformance-borrow-return-elision"

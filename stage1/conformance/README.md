@@ -135,6 +135,9 @@ Current compile-fail fixtures cover:
   diverges from the trait contract after `Self` substitution.
 - `trait_unbound_method_call`: type diagnostics for generic method calls that
   lack an active trait bound exposing the method.
+- `trait_unbound_local_method_call` and `trait_unbound_projected_method_call`:
+  type diagnostics for generic method calls through local aliases and projected
+  aggregate fields that lack an active trait bound.
 - `stdlib_clock_without_capability`: capability diagnostics for clock
   intrinsics without the manifest opt-in.
 - `stdlib_fs_write_without_capability`: capability diagnostics for write-side

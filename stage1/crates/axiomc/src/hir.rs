@@ -2250,6 +2250,7 @@ fn collect_syntax_trait_method_names(
 fn validate_generic_function_trait_method_calls(
     function: &syntax::Function,
     trait_methods: &HashMap<String, HashSet<String>>,
+    structs: &HashMap<String, syntax::StructDecl>,
 ) -> Result<(), Diagnostic> {
     let type_params = function.type_params.iter().cloned().collect::<HashSet<_>>();
     let param_bounds = function
@@ -2259,8 +2260,8 @@ fn validate_generic_function_trait_method_calls(
         .collect::<HashMap<_, _>>();
     let mut env = HashMap::new();
     for param in &function.params {
-        if let Some(type_param) = generic_type_param_binding(&param.ty, &type_params) {
-            env.insert(param.name.clone(), type_param);
+        if contains_generic_type_param(&param.ty, &type_params) {
+            env.insert(param.name.clone(), param.ty.clone());
         }
     }
     validate_generic_trait_method_calls_in_stmts(
@@ -2269,6 +2270,7 @@ fn validate_generic_function_trait_method_calls(
         &type_params,
         &param_bounds,
         trait_methods,
+        structs,
     )
 }
 
@@ -2287,10 +2289,11 @@ fn generic_type_param_binding(
 
 fn validate_generic_trait_method_calls_in_stmts(
     stmts: &[syntax::Stmt],
-    mut env: HashMap<String, String>,
+    mut env: HashMap<String, syntax::TypeName>,
     type_params: &HashSet<String>,
     param_bounds: &HashMap<String, Vec<String>>,
     trait_methods: &HashMap<String, HashSet<String>>,
+    structs: &HashMap<String, syntax::StructDecl>,
 ) -> Result<(), Diagnostic> {
     for stmt in stmts {
         match stmt {
@@ -2298,11 +2301,13 @@ fn validate_generic_trait_method_calls_in_stmts(
                 validate_generic_trait_method_calls_in_expr(
                     expr,
                     &env,
+                    type_params,
                     param_bounds,
                     trait_methods,
+                    structs,
                 )?;
-                if let Some(type_param) = generic_type_param_binding(ty, type_params) {
-                    env.insert(name.clone(), type_param);
+                if contains_generic_type_param(ty, type_params) {
+                    env.insert(name.clone(), ty.clone());
                 } else {
                     env.remove(name);
                 }
@@ -2315,8 +2320,10 @@ fn validate_generic_trait_method_calls_in_stmts(
                 validate_generic_trait_method_calls_in_expr(
                     expr,
                     &env,
+                    type_params,
                     param_bounds,
                     trait_methods,
+                    structs,
                 )?;
             }
             syntax::Stmt::If {
@@ -2328,8 +2335,10 @@ fn validate_generic_trait_method_calls_in_stmts(
                 validate_generic_trait_method_calls_in_expr(
                     cond,
                     &env,
+                    type_params,
                     param_bounds,
                     trait_methods,
+                    structs,
                 )?;
                 validate_generic_trait_method_calls_in_stmts(
                     then_block,
@@ -2337,6 +2346,7 @@ fn validate_generic_trait_method_calls_in_stmts(
                     type_params,
                     param_bounds,
                     trait_methods,
+                    structs,
                 )?;
                 if let Some(else_block) = else_block {
                     validate_generic_trait_method_calls_in_stmts(
@@ -2345,6 +2355,7 @@ fn validate_generic_trait_method_calls_in_stmts(
                         type_params,
                         param_bounds,
                         trait_methods,
+                        structs,
                     )?;
                 }
             }
@@ -2357,8 +2368,10 @@ fn validate_generic_trait_method_calls_in_stmts(
                 validate_generic_trait_method_calls_in_expr(
                     expr,
                     &env,
+                    type_params,
                     param_bounds,
                     trait_methods,
+                    structs,
                 )?;
                 validate_generic_trait_method_calls_in_stmts(
                     then_block,
@@ -2366,6 +2379,7 @@ fn validate_generic_trait_method_calls_in_stmts(
                     type_params,
                     param_bounds,
                     trait_methods,
+                    structs,
                 )?;
                 if let Some(else_block) = else_block {
                     validate_generic_trait_method_calls_in_stmts(
@@ -2374,6 +2388,7 @@ fn validate_generic_trait_method_calls_in_stmts(
                         type_params,
                         param_bounds,
                         trait_methods,
+                        structs,
                     )?;
                 }
             }
@@ -2381,8 +2396,10 @@ fn validate_generic_trait_method_calls_in_stmts(
                 validate_generic_trait_method_calls_in_expr(
                     cond,
                     &env,
+                    type_params,
                     param_bounds,
                     trait_methods,
+                    structs,
                 )?;
                 validate_generic_trait_method_calls_in_stmts(
                     body,
@@ -2390,14 +2407,17 @@ fn validate_generic_trait_method_calls_in_stmts(
                     type_params,
                     param_bounds,
                     trait_methods,
+                    structs,
                 )?;
             }
             syntax::Stmt::Match { expr, arms, .. } => {
                 validate_generic_trait_method_calls_in_expr(
                     expr,
                     &env,
+                    type_params,
                     param_bounds,
                     trait_methods,
+                    structs,
                 )?;
                 for arm in arms {
                     validate_generic_trait_method_calls_in_stmts(
@@ -2406,6 +2426,7 @@ fn validate_generic_trait_method_calls_in_stmts(
                         type_params,
                         param_bounds,
                         trait_methods,
+                        structs,
                     )?;
                 }
             }
@@ -2416,23 +2437,24 @@ fn validate_generic_trait_method_calls_in_stmts(
 
 fn validate_generic_trait_method_calls_in_expr(
     expr: &syntax::Expr,
-    env: &HashMap<String, String>,
+    env: &HashMap<String, syntax::TypeName>,
+    type_params: &HashSet<String>,
     param_bounds: &HashMap<String, Vec<String>>,
     trait_methods: &HashMap<String, HashSet<String>>,
+    structs: &HashMap<String, syntax::StructDecl>,
 ) -> Result<(), Diagnostic> {
     if let syntax::Expr::MethodCall {
         base,
         method,
-        args,
+        args: _,
         line,
         column,
         ..
     } = expr
-        && let syntax::Expr::VarRef { name, .. } = base.as_ref()
-        && let Some(type_param) = env.get(name)
+        && let Some(type_param) = generic_type_param_for_expr(base, env, type_params, structs)
     {
         let available = param_bounds
-            .get(type_param)
+            .get(&type_param)
             .into_iter()
             .flatten()
             .any(|trait_name| {
@@ -2449,15 +2471,80 @@ fn validate_generic_trait_method_calls_in_expr(
             )
             .with_span(*line, *column));
         }
-        for arg in args {
-            validate_generic_trait_method_calls_in_expr(arg, env, param_bounds, trait_methods)?;
-        }
-        return Ok(());
     }
     for child in syntax_expr_children(expr) {
-        validate_generic_trait_method_calls_in_expr(child, env, param_bounds, trait_methods)?;
+        validate_generic_trait_method_calls_in_expr(
+            child,
+            env,
+            type_params,
+            param_bounds,
+            trait_methods,
+            structs,
+        )?;
     }
     Ok(())
+}
+
+fn generic_type_param_for_expr(
+    expr: &syntax::Expr,
+    env: &HashMap<String, syntax::TypeName>,
+    type_params: &HashSet<String>,
+    structs: &HashMap<String, syntax::StructDecl>,
+) -> Option<String> {
+    let ty = generic_type_for_expr(expr, env, structs)?;
+    generic_type_param_binding(&ty, type_params)
+}
+
+fn generic_type_for_expr(
+    expr: &syntax::Expr,
+    env: &HashMap<String, syntax::TypeName>,
+    structs: &HashMap<String, syntax::StructDecl>,
+) -> Option<syntax::TypeName> {
+    match expr {
+        syntax::Expr::VarRef { name, .. } => env.get(name).cloned(),
+        syntax::Expr::FieldAccess { base, field, .. } => {
+            let base_ty = generic_type_for_expr(base, env, structs)?;
+            generic_field_type(&base_ty, field, structs)
+        }
+        syntax::Expr::TupleIndex { base, index, .. } => {
+            let base_ty = generic_type_for_expr(base, env, structs)?;
+            match base_ty {
+                syntax::TypeName::Tuple(elements) => elements.get(*index).cloned(),
+                _ => None,
+            }
+        }
+        syntax::Expr::Deref { expr, .. }
+        | syntax::Expr::MutBorrow { expr, .. }
+        | syntax::Expr::Try { expr, .. }
+        | syntax::Expr::Await { expr, .. }
+        | syntax::Expr::Cast { expr, .. } => generic_type_for_expr(expr, env, structs),
+        _ => None,
+    }
+}
+
+fn generic_field_type(
+    base_ty: &syntax::TypeName,
+    field_name: &str,
+    structs: &HashMap<String, syntax::StructDecl>,
+) -> Option<syntax::TypeName> {
+    let syntax::TypeName::Named(name, args) = base_ty else {
+        return None;
+    };
+    let struct_decl = structs.get(name)?;
+    if struct_decl.type_params.len() != args.len() {
+        return None;
+    }
+    let type_bindings = struct_decl
+        .type_params
+        .iter()
+        .cloned()
+        .zip(args.iter().cloned())
+        .collect::<HashMap<_, _>>();
+    let field = struct_decl
+        .fields
+        .iter()
+        .find(|field| field.name == field_name)?;
+    Some(substitute_type_name(&field.ty, &type_bindings))
 }
 
 fn syntax_expr_children(expr: &syntax::Expr) -> Vec<&syntax::Expr> {
@@ -2586,6 +2673,11 @@ fn monomorphize_program(program: &syntax::Program) -> Result<syntax::Program, Di
     validate_syntax_trait_bounds(program)?;
     let trait_impls = collect_syntax_trait_impl_pairs(&program.functions);
     let trait_methods = collect_syntax_trait_method_names(&program.traits);
+    let syntax_structs = program
+        .structs
+        .iter()
+        .map(|struct_decl| (struct_decl.name.clone(), struct_decl.clone()))
+        .collect::<HashMap<_, _>>();
     let mut generic_functions = HashMap::new();
     let mut seen_function_names = HashSet::new();
 
@@ -2598,7 +2690,11 @@ fn monomorphize_program(program: &syntax::Program) -> Result<syntax::Program, Di
         }
         if !function.type_params.is_empty() {
             validate_generic_function(function)?;
-            validate_generic_function_trait_method_calls(function, &trait_methods)?;
+            validate_generic_function_trait_method_calls(
+                function,
+                &trait_methods,
+                &syntax_structs,
+            )?;
             generic_functions.insert(function.name.clone(), function.clone());
         }
     }

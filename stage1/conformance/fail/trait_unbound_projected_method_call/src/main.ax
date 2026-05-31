@@ -1,0 +1,19 @@
+import "std/traits.ax"
+
+struct Box<T> {
+item: T
+}
+
+struct Point {
+x: int
+}
+
+impl Eq for Point {
+fn eq(self, other: Point): bool {
+return self.x == other.x
+}
+}
+
+fn same<T>(wrapped: Box<T>, right: T): bool {
+return wrapped.item.eq(right)
+}
