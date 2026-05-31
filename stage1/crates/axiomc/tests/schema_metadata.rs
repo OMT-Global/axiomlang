@@ -373,3 +373,103 @@ fn runbook_service_fixture_is_deterministic() {
     assert!(!fixture.contains("/Users/"));
     assert!(!fixture.contains("/home/"));
 }
+
+#[test]
+fn agent_native_authorize_fixtures_prove_semantic_evidence_artifact_flow() {
+    let fixture_dir = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("..")
+        .join("examples")
+        .join("agent_native_authorize")
+        .join("fixtures");
+    let graph: Value =
+        serde_json::from_str(&fs::read_to_string(fixture_dir.join("graph.json")).expect("graph"))
+            .expect("graph fixture is valid JSON");
+    let effects: Value = serde_json::from_str(
+        &fs::read_to_string(fixture_dir.join("effects.json")).expect("effects"),
+    )
+    .expect("effects fixture is valid JSON");
+    let evidence: Value = serde_json::from_str(
+        &fs::read_to_string(fixture_dir.join("evidence.json")).expect("evidence"),
+    )
+    .expect("evidence fixture is valid JSON");
+    let artifacts: Value = serde_json::from_str(
+        &fs::read_to_string(fixture_dir.join("artifacts.json")).expect("artifacts"),
+    )
+    .expect("artifacts fixture is valid JSON");
+
+    assert_eq!(graph["command"], "inspect graph");
+    assert_eq!(effects["command"], "inspect effects");
+    assert_eq!(evidence["command"], "evidence");
+    assert_eq!(artifacts["command"], "inspect artifacts");
+
+    let nodes = graph["nodes"].as_array().expect("graph nodes");
+    assert!(
+        nodes
+            .iter()
+            .any(|node| { node["kind"] == "capability" && node["name"] == "AuthorizeToken" })
+    );
+    assert!(nodes.iter().any(|node| {
+        node["kind"] == "axiom" && node["name"] == "AuthorizationDecisionAuditable"
+    }));
+    assert!(
+        nodes.iter().any(|node| {
+            node["kind"] == "evidence" && node["name"] == "AuthorizeTokenSmokeTest"
+        })
+    );
+    assert!(
+        graph["edges"]
+            .as_array()
+            .expect("graph edges")
+            .iter()
+            .any(|edge| edge["kind"] == "requires_evidence"
+                && edge["from"] == "axiom://semantic/capability/AuthorizeToken"
+                && edge["to"] == "axiom://semantic/evidence/AuthorizeTokenSmokeTest")
+    );
+
+    assert_eq!(
+        effects["effects"]
+            .as_array()
+            .expect("effects")
+            .iter()
+            .map(|effect| effect["kind"].as_str().expect("effect kind"))
+            .collect::<Vec<_>>(),
+        vec!["env.read", "clock.now"]
+    );
+    assert_eq!(evidence["summary"]["passing"], 1);
+    assert_eq!(evidence["summary"]["missing"], 0);
+
+    let artifact_kinds = artifacts["artifacts"]
+        .as_array()
+        .expect("artifacts")
+        .iter()
+        .map(|artifact| artifact["kind"].as_str().expect("artifact kind"))
+        .collect::<std::collections::BTreeSet<_>>();
+    for kind in [
+        "manifest",
+        "lockfile",
+        "build_entry",
+        "test_entry",
+        "openapi_spec",
+        "policy_bundle",
+        "runbook",
+    ] {
+        assert!(
+            artifact_kinds.contains(kind),
+            "artifact fixture includes {kind}"
+        );
+    }
+
+    for fixture_name in [
+        "graph.json",
+        "effects.json",
+        "evidence.json",
+        "artifacts.json",
+    ] {
+        let fixture = fs::read_to_string(fixture_dir.join(fixture_name)).expect("fixture text");
+        assert!(!fixture.contains("/Users/"));
+        assert!(!fixture.contains("/home/"));
+        assert!(!fixture.contains("/private/"));
+        assert!(!fixture.contains("codex/worktrees"));
+    }
+}
