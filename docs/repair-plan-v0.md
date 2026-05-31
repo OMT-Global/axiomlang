@@ -4,6 +4,11 @@ Repair Plan v0 is a read-only planning API for agents. It does not edit source
 files, invoke a model, create branches, or open pull requests. It turns current
 package diagnostics and missing validation evidence into structured tasks.
 
+Closed-loop repair is intentionally out of scope for this command. The proposed
+successor boundary is documented separately in
+[Repair Executor v0](repair-executor-v0.md), which requires owner approval
+before any executor implementation can land.
+
 ## Command
 
 ```bash
