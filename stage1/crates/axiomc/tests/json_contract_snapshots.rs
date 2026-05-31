@@ -19,11 +19,27 @@ fn cli_json_outputs_match_checked_in_contract_snapshots() {
         "contract-app",
     ]);
 
-    for command in ["check", "build", "test", "caps"] {
-        let mut args = vec![command, project.to_str().expect("project path"), "--json"];
-        if command == "caps" {
-            args = vec![command, project.to_str().expect("project path"), "--json"];
-        }
+    let mutation_input = temp.path().join("mutation-survivors.json");
+    fs::write(
+        &mutation_input,
+        r#"{"survivors":[{"id":"m1","file":"src/main.ax","function":"main","line":1,"mutator":"replace_literal","description":"changed greeting","status":"survived"}]}"#,
+    )
+    .expect("write mutation input");
+    let project_str = project.to_str().expect("project path");
+    let mutation_input_str = mutation_input.to_str().expect("mutation input path");
+    let invocations: [(&str, Vec<&str>); 6] = [
+        ("check", vec!["check", project_str, "--json"]),
+        ("build", vec!["build", project_str, "--json"]),
+        ("test", vec!["test", project_str, "--json"]),
+        ("caps", vec!["caps", project_str, "--json"]),
+        ("run", vec!["run", project_str, "--json"]),
+        (
+            "mutation-report",
+            vec!["mutation-report", mutation_input_str, "--json"],
+        ),
+    ];
+
+    for (command, args) in invocations {
         let output = run_axiomc_json(&args);
         assert_payload_matches_schema(&validator, command, &output);
 
@@ -87,13 +103,25 @@ fn cli_json_outputs_validate_against_public_v1_schema() {
     ]);
 
     let project_str = project.to_str().expect("project path");
-    let invocations: [(&str, Vec<&str>); 6] = [
+    let mutation_input = temp.path().join("mutation-survivors.json");
+    fs::write(
+        &mutation_input,
+        r#"{"survivors":[{"id":"m1","file":"src/main.ax","function":"main","line":1,"mutator":"replace_literal","description":"changed greeting","status":"survived"}]}"#,
+    )
+    .expect("write mutation input");
+    let mutation_input_str = mutation_input.to_str().expect("mutation input path");
+    let invocations: [(&str, Vec<&str>); 8] = [
         ("check", vec!["check", project_str, "--json"]),
         ("build", vec!["build", project_str, "--json"]),
         ("test", vec!["test", project_str, "--json"]),
         ("caps", vec!["caps", project_str, "--json"]),
         ("parse", vec!["parse", project_str, "--json"]),
         ("fmt", vec!["fmt", project_str, "--check", "--json"]),
+        ("run", vec!["run", project_str, "--json"]),
+        (
+            "mutation-report",
+            vec!["mutation-report", mutation_input_str, "--json"],
+        ),
     ];
 
     for (label, args) in invocations {

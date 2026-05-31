@@ -1,0 +1,21 @@
+{
+  "command": "mutation-report",
+  "groups": [
+    {
+      "file": "src/main.ax",
+      "function": "main",
+      "recommended_fixture": "mutation_main_main_survivors",
+      "survivors": [
+        {
+          "description": "changed greeting",
+          "id": "m1",
+          "line": 1,
+          "mutator": "replace_literal"
+        }
+      ]
+    }
+  ],
+  "ok": true,
+  "schema_version": "axiom.stage1.v1",
+  "survivor_count": 1
+}

@@ -204,7 +204,7 @@
         "functions": {
           "type": "array",
           "items": {
-            "$ref": "#/$defs/graphFunction"
+            "$ref": "#/$defs/moduleFunction"
           }
         },
         "type_refs": {
@@ -223,7 +223,7 @@
         }
       }
     },
-    "graphFunction": {
+    "moduleFunction": {
       "type": "object",
       "required": [
         "name",
