@@ -122,6 +122,41 @@
       "type": "integer",
       "minimum": 0
     },
+    "package": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "args": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "exit_code": {
+      "type": "integer"
+    },
+    "result": {
+      "type": "string",
+      "enum": [
+        "success",
+        "failure"
+      ]
+    },
+    "stdout": {
+      "type": "string"
+    },
+    "stderr": {
+      "type": "string"
+    },
+    "survivor_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "groups": {
+      "type": "array"
+    },
     "filter": {
       "type": [
         "string",

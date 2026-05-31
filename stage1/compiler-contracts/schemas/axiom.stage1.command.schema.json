@@ -11,10 +11,16 @@
       "$ref": "#/$defs/build"
     },
     {
+      "$ref": "#/$defs/run"
+    },
+    {
       "$ref": "#/$defs/test"
     },
     {
       "$ref": "#/$defs/caps"
+    },
+    {
+      "$ref": "#/$defs/mutationReport"
     }
   ],
   "$defs": {
@@ -294,6 +300,67 @@
         }
       }
     },
+    "mutationSurvivor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "mutator",
+        "line",
+        "description"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "mutator": {
+          "type": "string",
+          "minLength": 1
+        },
+        "line": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "mutationGroup": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "file",
+        "function",
+        "recommended_fixture",
+        "survivors"
+      ],
+      "properties": {
+        "file": {
+          "type": "string",
+          "minLength": 1
+        },
+        "function": {
+          "type": "string",
+          "minLength": 1
+        },
+        "recommended_fixture": {
+          "type": "string",
+          "minLength": 1
+        },
+        "survivors": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/mutationSurvivor"
+          }
+        }
+      }
+    },
     "check": {
       "type": "object",
       "additionalProperties": false,
@@ -469,6 +536,83 @@
         }
       }
     },
+    "run": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "ok",
+        "command",
+        "project",
+        "manifest",
+        "entry",
+        "binary",
+        "generated_rust",
+        "package",
+        "args",
+        "exit_code",
+        "result",
+        "stdout",
+        "stderr",
+        "duration_ms"
+      ],
+      "properties": {
+        "schema_version": {
+          "$ref": "#/$defs/schemaVersion"
+        },
+        "project": {
+          "$ref": "#/$defs/path"
+        },
+        "ok": {
+          "type": "boolean"
+        },
+        "command": {
+          "const": "run"
+        },
+        "manifest": {
+          "$ref": "#/$defs/path"
+        },
+        "entry": {
+          "$ref": "#/$defs/path"
+        },
+        "binary": {
+          "$ref": "#/$defs/path"
+        },
+        "generated_rust": {
+          "$ref": "#/$defs/path"
+        },
+        "package": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "args": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "exit_code": {
+          "type": "integer"
+        },
+        "result": {
+          "enum": [
+            "success",
+            "failure"
+          ]
+        },
+        "stdout": {
+          "type": "string"
+        },
+        "stderr": {
+          "type": "string"
+        },
+        "duration_ms": {
+          "$ref": "#/$defs/durationMs"
+        }
+      }
+    },
     "test": {
       "type": "object",
       "additionalProperties": false,
@@ -569,6 +713,38 @@
           "type": "array",
           "items": {
             "$ref": "#/$defs/testCase"
+          }
+        }
+      }
+    },
+    "mutationReport": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "ok",
+        "command",
+        "survivor_count",
+        "groups"
+      ],
+      "properties": {
+        "schema_version": {
+          "$ref": "#/$defs/schemaVersion"
+        },
+        "ok": {
+          "const": true
+        },
+        "command": {
+          "const": "mutation-report"
+        },
+        "survivor_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "groups": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/mutationGroup"
           }
         }
       }

@@ -5,6 +5,7 @@
   "type": "object",
   "required": [
     "schema_version",
+    "schema",
     "ok",
     "command",
     "project",
@@ -22,6 +23,9 @@
   "properties": {
     "schema_version": {
       "const": "axiom.stage1.v1"
+    },
+    "schema": {
+      "const": "stage1/schemas/axiom-inspect-v0.schema.json"
     },
     "ok": {
       "type": "boolean"
@@ -184,7 +188,10 @@
       "type": "object",
       "required": [
         "path",
-        "imports"
+        "imports",
+        "functions",
+        "type_refs",
+        "capabilities"
       ],
       "additionalProperties": false,
       "properties": {

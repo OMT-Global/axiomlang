@@ -15,8 +15,8 @@ use axiomc::new_project::{WorkloadTemplate, create_project_with_template};
 use axiomc::project::{
     BuildOptions, BuildOutput, CheckOptions, RunOptions, TestOptions, build_project_with_options,
     capability_sbom, check_project_with_options, list_project_tests_with_options,
-    package_graph_metadata, project_capabilities, run_project_tests_with_options,
-    run_project_with_options, trace_provenance,
+    package_graph_metadata, project_capabilities, run_project_report_with_options,
+    run_project_tests_with_options, run_project_with_options, trace_provenance,
 };
 use axiomc::registry::{
     PublishOptions, load_registry_index, publish_package, render_registry_index,
@@ -93,6 +93,9 @@ enum Command {
     /// Build and run a stage1 package through the current generated-Rust backend path.
     Run {
         path: PathBuf,
+        /// Emit an axiom.stage1.v1 JSON envelope; see stage1/compiler-contracts/schemas/axiom.stage1.command.schema.json.
+        #[arg(long)]
+        json: bool,
         #[arg(short = 'p', long = "package")]
         package: Option<String>,
         #[arg(last = true)]
@@ -195,7 +198,7 @@ enum Command {
     MutationReport {
         /// JSON mutation output from tools such as cargo-mutants.
         input: PathBuf,
-        /// Emit the normalized machine-readable report instead of Markdown.
+        /// Emit an axiom.stage1.v1 JSON envelope; see stage1/compiler-contracts/schemas/axiom.stage1.command.schema.json.
         #[arg(long)]
         json: bool,
     },
@@ -394,18 +397,29 @@ fn main() {
         }
         Command::Run {
             path,
+            json,
             package,
             args,
-        } => match run_project_with_options(
-            &path,
-            &RunOptions {
+        } => {
+            let options = RunOptions {
                 package: package.clone(),
                 args: args.clone(),
-            },
-        ) {
-            Ok(code) => code,
-            Err(error) => print_error("run", error, false),
-        },
+            };
+            if json {
+                match run_project_report_with_options(&path, &options) {
+                    Ok(output) => {
+                        println!("{}", json_contract::run_success(&path, &output));
+                        output.exit_code
+                    }
+                    Err(error) => print_error("run", error, true),
+                }
+            } else {
+                match run_project_with_options(&path, &options) {
+                    Ok(code) => code,
+                    Err(error) => print_error("run", error, false),
+                }
+            }
+        }
         Command::Trace { query, json } => {
             let (project, node_query) = trace_project_and_query(&query);
             match trace_provenance(&project, node_query.as_deref()) {
@@ -2912,6 +2926,8 @@ fn run_benchmarks(
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 struct MutationIssueReport {
     schema_version: &'static str,
+    ok: bool,
+    command: &'static str,
     survivor_count: usize,
     groups: Vec<MutationSurvivorGroup>,
 }
@@ -3012,7 +3028,9 @@ fn mutation_report_from_json_str_with_base_dir(
     }
     let survivor_count = groups.iter().map(|group| group.survivors.len()).sum();
     Ok(MutationIssueReport {
-        schema_version: "axiom.stage1.mutation-issue-report.v1",
+        schema_version: json_contract::JSON_SCHEMA_VERSION,
+        ok: true,
+        command: "mutation-report",
         survivor_count,
         groups,
     })

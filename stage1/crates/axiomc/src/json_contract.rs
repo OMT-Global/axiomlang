@@ -1,6 +1,8 @@
 use crate::diagnostics::Diagnostic;
 use crate::manifest::{CapabilityDescriptor, TestKind};
-use crate::project::{BuildOutput, CapabilitySbomOutput, CheckOutput, TestListOutput, TestOutput};
+use crate::project::{
+    BuildOutput, CapabilitySbomOutput, CheckOutput, RunOutput, TestListOutput, TestOutput,
+};
 use serde::Serialize;
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet};
@@ -54,6 +56,26 @@ pub fn build_success(project: &Path, output: &BuildOutput) -> Value {
         "packages": output.packages,
     });
     payload
+}
+
+pub fn run_success(project: &Path, output: &RunOutput) -> Value {
+    json!({
+        "schema_version": JSON_SCHEMA_VERSION,
+        "ok": output.exit_code == 0,
+        "command": "run",
+        "project": project.display().to_string(),
+        "manifest": output.manifest,
+        "entry": output.entry,
+        "binary": output.binary,
+        "generated_rust": output.generated_rust,
+        "package": output.package,
+        "args": output.args,
+        "exit_code": output.exit_code,
+        "result": output.result,
+        "stdout": output.stdout,
+        "stderr": output.stderr,
+        "duration_ms": output.duration_ms,
+    })
 }
 
 pub fn test_list_success(
