@@ -112,6 +112,13 @@ Treat the repo as a staged bootstrap:
 - Language behavior should be proven with Rust crate tests, `stage1/conformance`,
   and `axiomc test` package fixtures.
 
+## Workflow supply chain
+
+All GitHub Actions `uses:` entries in `.github/workflows/` must be pinned to a
+full commit SHA, including first-party `actions/*` actions. Keep a trailing
+comment with the readable upstream version, such as `# v4 pinned YYYY-MM-DD`,
+so Dependabot SHA-bump PRs are reviewable without returning to mutable tags.
+
 ### Ownership and borrowing changes
 
 If you touch ownership, borrowing, projection rules, or diagnostics:
