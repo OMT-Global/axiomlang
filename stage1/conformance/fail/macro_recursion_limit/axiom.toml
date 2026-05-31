@@ -1,0 +1,22 @@
+[package]
+name = "conformance-macro-recursion-limit"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+fs = false
+net = false
+process = false
+env = false
+clock = false
+crypto = false
+
+[expected_error]
+kind = "parse"
+message = "declarative macro expansion exceeded bounded depth of 64; invocation chain: spin! -> spin! -> spin! -> spin! -> spin! -> spin! -> spin! -> spin!"
+path = "src/main.ax"
+line = 1
+column = 1

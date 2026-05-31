@@ -57,7 +57,7 @@ canonical issue has already shipped or has an active PR.
 | Decision records | #857 | #777, #778 | defer until Intent IR v0 lands | Make the `Decision` node kind reachable, schema-first and fixture-backed. Do not auto-generate decisions; link existing decisions/RFCs into the graph. |
 | PR queue remediation | #853 | #854, #858 | shipped as read-only operator worklist | `scripts/ci/pr-queue-remediation.py` classifies open PRs into deterministic remediation states with a fresh recheck timestamp. It does not auto-merge, rerun workflows, or force-push. |
 | CI / review delivery evidence | #854 | #782 | keep open | Record live `CI Gate` and review state as evidence kinds with recheck timestamps. Records the signal only; does not add a required check or auto-merge. |
-| Repair executor | #858 | #784, #782, #854 | needs human approval | Crosses the repair-plan "emit plans only" boundary. Requires a design doc and owner sign-off before any executor code; edits confined to `allowed_files`, no auto-merge, no force-push, fresh evidence + CI recheck before a task is resolved. |
+| Repair executor | #858 | #784, #782, #854 | needs human approval | `docs/repair-executor-v0.md` defines the proposed closed-loop contract. Do not implement executor code until an owner accepts that design or a later revision; edits must stay confined to `allowed_files`, no auto-merge, no force-push, fresh evidence + CI recheck before a task is resolved. |
 | Agent execution contract | #788 | #774, #775, #776 | keep open until merged | Keep AGENTS and PR guidance aligned with semantic-layer governance. |
 
 ## Standing Agent Rules

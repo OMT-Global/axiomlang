@@ -35,7 +35,10 @@ mod tests {
         package_graph_metadata, project_capabilities, run_project_tests,
         run_project_tests_with_options, run_project_with_options,
     };
-    use crate::syntax::{Stmt, TypeName, Visibility, parse_program, parse_program_with_recovery};
+    use crate::syntax::{
+        MacroStyle, ParseOptions, Stmt, TypeName, Visibility, parse_program,
+        parse_program_with_options, parse_program_with_recovery,
+    };
     use serde::Serialize;
     use std::collections::HashMap;
     use std::fs;
@@ -525,7 +528,7 @@ print compute()
         let hir = hir::lower(&parsed).expect("lower");
         let mir = mir::lower(&hir);
         let rendered = render_rust(&mir);
-        assert!(rendered.contains("return 41 + 1;"));
+        assert!(rendered.contains("return axiom_numeric_checked_add_i64(41, 1);"));
         assert!(!rendered.contains("answer!"));
     }
 
@@ -544,7 +547,32 @@ print answer
         let hir = hir::lower(&parsed).expect("lower");
         let mir = mir::lower(&hir);
         let rendered = render_rust(&mir);
-        assert!(rendered.contains("let answer: i64 = 41 + 1;"));
+        assert!(rendered.contains("let answer: i64 = axiom_numeric_checked_add_i64(41, 1);"));
+        assert!(!rendered.contains("add_one!"));
+    }
+
+    #[test]
+    fn parser_expands_macro_keyword_syntax_and_records_sites() {
+        let source = r#"macro add_one {
+($value:expr) => ($value + 1);
+}
+
+let answer: int = add_one!(41)
+print answer
+"#;
+        let parsed = parse_program(source, Path::new("main.ax")).expect("parse");
+        assert_eq!(parsed.macros.len(), 1);
+        assert_eq!(parsed.macros[0].name, "add_one");
+        assert_eq!(parsed.macros[0].style, MacroStyle::Macro);
+        assert_eq!(parsed.macro_expansions.len(), 1);
+        assert_eq!(parsed.macro_expansions[0].macro_name, "add_one");
+        assert_eq!(parsed.macro_expansions[0].call_site.line, 5);
+        assert!(parsed.macro_expansions[0].call_site.column >= 1);
+        let hir = hir::lower(&parsed).expect("lower");
+        let mir = mir::lower(&hir);
+        let rendered = render_rust(&mir);
+        assert!(rendered.contains("axiom_numeric_checked_add_i64(41, 1)"));
+        assert!(!rendered.contains("add_one!"));
     }
 
     #[test]
@@ -568,9 +596,31 @@ print answer
         let hir = hir::lower(&parsed).expect("lower");
         let mir = mir::lower(&hir);
         let rendered = render_rust(&mir);
-        assert!(rendered.contains("let answer: i64 = 40 + 1 + 1;"));
+        assert!(
+            rendered.contains(
+                "axiom_numeric_checked_add_i64((axiom_numeric_checked_add_i64(40, 1)), 1)"
+            )
+        );
         assert!(!rendered.contains("add_one!"));
         assert!(!rendered.contains("add_two!"));
+    }
+
+    #[test]
+    fn parser_expands_repetition_macros() {
+        let source = r#"macro vec_values {
+($($value:expr),*) => ([$($value),*]);
+}
+
+let values: [int] = vec_values!(1, 2, 3)
+print values[1]
+"#;
+        let parsed = parse_program(source, Path::new("main.ax")).expect("parse");
+        assert_eq!(parsed.macros[0].params, vec!["value"]);
+        let hir = hir::lower(&parsed).expect("lower");
+        let mir = mir::lower(&hir);
+        let rendered = render_rust(&mir);
+        assert!(rendered.contains("vec![1, 2, 3]"));
+        assert!(!rendered.contains("vec_values!"));
     }
 
     #[test]
@@ -618,7 +668,7 @@ print "add_one!(41)"
         let mir = mir::lower(&hir);
         let rendered = render_rust(&mir);
         assert!(rendered.contains("add_one!(41)"));
-        assert!(!rendered.contains("41 + 1"));
+        assert!(!rendered.contains("axiom_numeric_checked_add_i64(41, 1)"));
     }
 
     #[test]
@@ -696,7 +746,7 @@ label!(41)
         let mir = mir::lower(&hir);
         let rendered = render_rust(&mir);
         assert!(rendered.contains("$value"));
-        assert!(!rendered.contains("41"));
+        assert!(!rendered.contains("label!"));
     }
 
     #[test]
@@ -715,7 +765,7 @@ let answer: int = add_one!(41)
         let hir = hir::lower(&parsed).expect("lower");
         let mir = mir::lower(&hir);
         let rendered = render_rust(&mir);
-        assert!(rendered.contains("let answer: i64 = 41 + 1;"));
+        assert!(rendered.contains("axiom_numeric_checked_add_i64(41, 1)"));
     }
 
     #[test]
@@ -752,6 +802,26 @@ spin!()
             .expect_err("recursive macro expansion should be bounded");
         assert!(error.message.contains("exceeded bounded depth"));
         assert!(error.message.contains("64"));
+        assert!(error.message.contains("invocation chain"));
+    }
+
+    #[test]
+    fn parser_honors_macro_recursion_limit_option() {
+        let source = r#"macro spin {
+() => (spin!());
+}
+
+spin!()
+"#;
+        let error = parse_program_with_options(
+            source,
+            Path::new("main.ax"),
+            &ParseOptions {
+                macro_recursion_limit: 3,
+            },
+        )
+        .expect_err("custom recursion limit should be enforced");
+        assert!(error.message.contains("bounded depth of 3"));
     }
 
     #[test]
@@ -2746,6 +2816,7 @@ print 0
                 package: Some(String::from("workspace-app")),
                 include_exports: false,
                 include_debug_symbols: false,
+                ..CheckOptions::default()
             },
         )
         .expect("check selected workspace package");
@@ -3209,6 +3280,7 @@ crypto = false
                 package: Some(String::from("dependency-boundary-app")),
                 include_exports: false,
                 include_debug_symbols: false,
+                ..CheckOptions::default()
             },
         )
         .expect("declared workspace sibling dependency should check");
@@ -12765,6 +12837,26 @@ print takes_two(three)
     }
 
     #[test]
+    fn json_contract_check_payload_lists_macro_expansions() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("json-check-macros");
+        create_project(&project, Some("json-check-macros")).expect("create project");
+        fs::write(
+            project.join("src/main.ax"),
+            "macro keep {\n($value:expr) => ($value);\n}\n\nlet answer: int = keep!(42)\nprint answer\n",
+        )
+        .expect("write macro source");
+        let output = check_project(&project).expect("check macro project");
+        let payload = json_contract::check_success(&project, &output);
+        let expansions = payload["macro_expansions"]
+            .as_array()
+            .expect("macro expansions array");
+        assert_eq!(expansions.len(), 1);
+        assert_eq!(expansions[0]["macro_name"], "keep");
+        assert_eq!(expansions[0]["depth"], 1);
+    }
+
+    #[test]
     fn check_json_can_include_package_public_api_exports() {
         let dir = tempdir().expect("tempdir");
         let project = dir.path().join("public-api-workspace");
@@ -12807,6 +12899,7 @@ print takes_two(three)
                 package: None,
                 include_exports: true,
                 include_debug_symbols: false,
+                ..CheckOptions::default()
             },
         )
         .expect("check public api workspace");
@@ -12893,6 +12986,7 @@ print main_value()
                 package: None,
                 include_exports: false,
                 include_debug_symbols: true,
+                ..CheckOptions::default()
             },
         )
         .expect("check with debug symbols");

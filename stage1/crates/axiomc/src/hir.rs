@@ -2285,6 +2285,8 @@ fn monomorphize_program(program: &syntax::Program) -> Result<syntax::Program, Di
     monomorphize_aggregates(syntax::Program {
         path: program.path.clone(),
         imports: program.imports.clone(),
+        macros: program.macros.clone(),
+        macro_expansions: program.macro_expansions.clone(),
         axioms: program.axioms.clone(),
         semantic_capabilities: program.semantic_capabilities.clone(),
         evidence: program.evidence.clone(),
@@ -2495,6 +2497,8 @@ fn monomorphize_aggregates(program: syntax::Program) -> Result<syntax::Program, 
     Ok(syntax::Program {
         path: program.path,
         imports: program.imports,
+        macros: program.macros,
+        macro_expansions: program.macro_expansions,
         axioms: program.axioms,
         semantic_capabilities: program.semantic_capabilities,
         evidence: program.evidence,
