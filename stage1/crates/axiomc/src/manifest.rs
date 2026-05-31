@@ -110,7 +110,7 @@ pub struct CapabilityConfig {
     pub net_hosts: Vec<String>,
     pub net_ports: Vec<u16>,
     pub process: bool,
-    pub process_commands: Vec<String>,
+    pub process_commands: ProcessCommandPolicy,
     pub env: bool,
     pub env_vars: Vec<String>,
     pub env_unrestricted: bool,
@@ -126,6 +126,59 @@ pub struct CapabilityConfig {
     pub unsafe_opt_ins: Vec<String>,
     pub owners: BTreeMap<String, String>,
     pub rationale: BTreeMap<String, String>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum ProcessCommandPolicy {
+    #[default]
+    Unrestricted,
+    Allowlist(ProcessCommandAllowlist),
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct ProcessCommandAllowlist {
+    commands: Vec<String>,
+}
+
+impl ProcessCommandAllowlist {
+    pub fn new(commands: Vec<String>) -> Option<Self> {
+        if commands.is_empty() {
+            None
+        } else {
+            Some(Self { commands })
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn new_unchecked_for_test(commands: Vec<String>) -> Self {
+        Self { commands }
+    }
+
+    pub fn commands(&self) -> &[String] {
+        &self.commands
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.commands.is_empty()
+    }
+}
+
+impl ProcessCommandPolicy {
+    pub fn allowlist(commands: Vec<String>) -> Option<Self> {
+        ProcessCommandAllowlist::new(commands).map(Self::Allowlist)
+    }
+
+    pub fn allowed_commands(&self) -> Option<&[String]> {
+        match self {
+            Self::Unrestricted => None,
+            Self::Allowlist(allowlist) => Some(allowlist.commands()),
+        }
+    }
+
+    pub fn is_unrestricted(&self) -> bool {
+        matches!(self, Self::Unrestricted)
+    }
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
@@ -363,7 +416,11 @@ pub fn capability_descriptors(config: &CapabilityConfig) -> Vec<CapabilityDescri
             deny_by_default: config.deny_by_default,
             allowed: match *kind {
                 CapabilityKind::Env => config.env_vars.clone(),
-                CapabilityKind::Process => config.process_commands.clone(),
+                CapabilityKind::Process => config
+                    .process_commands
+                    .allowed_commands()
+                    .map(<[String]>::to_vec)
+                    .unwrap_or_default(),
                 CapabilityKind::Net => {
                     let mut allowed = config
                         .net_hosts
@@ -378,11 +435,23 @@ pub fn capability_descriptors(config: &CapabilityConfig) -> Vec<CapabilityDescri
             configured_root: None,
             effective_root: None,
             package_root: None,
-            unsafe_unrestricted: *kind == CapabilityKind::Env && config.env_unrestricted,
+            unsafe_unrestricted: match *kind {
+                CapabilityKind::Env => config.env_unrestricted,
+                CapabilityKind::Process => {
+                    config.process && config.process_commands.is_unrestricted()
+                }
+                _ => false,
+            },
             unsafe_opt_in: config.unsafe_opt_ins.iter().any(|name| name == kind.name()),
-            unsafe_rationale: (*kind == CapabilityKind::Env && config.env_unrestricted)
-                .then(|| config.unsafe_rationale.clone())
-                .flatten(),
+            unsafe_rationale: match *kind {
+                CapabilityKind::Env if config.env_unrestricted => config.unsafe_rationale.clone(),
+                CapabilityKind::Process
+                    if config.process && config.process_commands.is_unrestricted() =>
+                {
+                    config.unsafe_rationale.clone()
+                }
+                _ => None,
+            },
             owner: config.owners.get(kind.name()).cloned(),
             rationale: config.rationale.get(kind.name()).cloned(),
         })
@@ -421,7 +490,7 @@ impl CapabilityConfig {
                 "warning: [capabilities].env_unrestricted = true grants unrestricted environment access and bypasses the env allowlist",
             ));
         }
-        if self.process && self.process_commands.is_empty() {
+        if self.process && self.process_commands.is_unrestricted() {
             warnings.push(String::from(
                 "warning: [capabilities].process = true grants unrestricted process execution; prefer process = [\"COMMAND\"] to declare an allowlist",
             ));
@@ -500,7 +569,7 @@ fn normalize_manifest(raw: RawManifest, path: &Path) -> Result<Manifest, Diagnos
         normalize_optional_relative_path(path, "capabilities.fs_root", capabilities.fs_root)?;
     let (net, net_hosts, net_ports) = normalize_net_capability(path, capabilities.net)?;
     let (process, process_commands) = normalize_process_capability(path, capabilities.process)?;
-    let process_unrestricted = process && process_commands.is_empty();
+    let process_unrestricted = process && process_commands.is_unrestricted();
     let explicit_env_unrestricted = capabilities.env_unrestricted.unwrap_or(false);
     let (env, env_vars, env_unrestricted, env_legacy_unrestricted) =
         normalize_env_capability(path, capabilities.env, explicit_env_unrestricted)?;
@@ -801,14 +870,25 @@ fn normalize_net_port_allowlist(path: &Path, values: Vec<u16>) -> Result<Vec<u16
 fn normalize_process_capability(
     path: &Path,
     raw_process: Option<RawProcessCapability>,
-) -> Result<(bool, Vec<String>), Diagnostic> {
+) -> Result<(bool, ProcessCommandPolicy), Diagnostic> {
     match raw_process {
-        Some(RawProcessCapability::LegacyBool(enabled)) => Ok((enabled, Vec::new())),
+        Some(RawProcessCapability::LegacyBool(enabled)) => {
+            Ok((enabled, ProcessCommandPolicy::Unrestricted))
+        }
         Some(RawProcessCapability::AllowList(values)) => {
             let commands = normalize_process_allowlist(path, values)?;
-            Ok((true, commands))
+            Ok((
+                true,
+                ProcessCommandPolicy::allowlist(commands).ok_or_else(|| {
+                    Diagnostic::new(
+                        "manifest",
+                        "internal error: normalized process allowlist must not be empty",
+                    )
+                    .with_path(path.display().to_string())
+                })?,
+            ))
         }
-        None => Ok((false, Vec::new())),
+        None => Ok((false, ProcessCommandPolicy::Unrestricted)),
     }
 }
 

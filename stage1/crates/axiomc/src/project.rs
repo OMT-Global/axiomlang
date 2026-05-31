@@ -7,8 +7,8 @@ use crate::json_contract;
 use crate::lockfile::validate_lockfile;
 use crate::manifest::{
     BuildSection, CapabilityConfig, CapabilityDescriptor, CapabilityKind, Manifest, PackageSection,
-    TestKind, binary_path_for_target, capability_descriptors, entry_path, generated_rust_path,
-    load_manifest, manifest_path, out_dir_path,
+    ProcessCommandPolicy, TestKind, binary_path_for_target, capability_descriptors, entry_path,
+    generated_rust_path, load_manifest, manifest_path, out_dir_path,
 };
 use crate::mir;
 use crate::stdlib;
@@ -1020,7 +1020,10 @@ pub fn capability_sbom(project_root: &Path) -> Result<CapabilitySbomOutput, Diag
                     grants.push(CapabilitySbomUnsafeGrant {
                         capability: capability.name.clone(),
                         kind: String::from("unsafe_unrestricted"),
-                        rationale: capability.rationale.clone(),
+                        rationale: capability
+                            .unsafe_rationale
+                            .clone()
+                            .or_else(|| capability.rationale.clone()),
                     });
                 }
                 if capability.unsafe_opt_in {
@@ -1248,7 +1251,7 @@ fn audit_capabilities_for_sbom(manifest_capabilities: &CapabilityConfig) -> Capa
     capabilities.net_hosts.clear();
     capabilities.net_ports.clear();
     capabilities.process = true;
-    capabilities.process_commands.clear();
+    capabilities.process_commands = ProcessCommandPolicy::Unrestricted;
     capabilities.env = true;
     capabilities.env_vars.clear();
     capabilities.env_unrestricted = true;
@@ -1524,7 +1527,7 @@ fn register_stdlib_package(graph: &mut PackageGraph) {
             net_hosts: Vec::new(),
             net_ports: Vec::new(),
             process: true,
-            process_commands: Vec::new(),
+            process_commands: ProcessCommandPolicy::Unrestricted,
             env: true,
             env_vars: Vec::new(),
             env_unrestricted: true,
@@ -3852,15 +3855,20 @@ fn validate_process_command_allowlist(
     line: usize,
     column: usize,
 ) -> Result<(), Diagnostic> {
-    if capabilities.process_commands.is_empty() {
+    let Some(allowed_commands) = capabilities.process_commands.allowed_commands() else {
         return Ok(());
+    };
+    if allowed_commands.is_empty() {
+        return Err(Diagnostic::new(
+            "capability",
+            "internal error: process command allowlist must not be empty",
+        )
+        .with_path(module_path.display().to_string())
+        .with_span(line, column));
     }
     match args.first() {
         Some(syntax::Expr::Literal(syntax::Literal::String(command)))
-            if capabilities
-                .process_commands
-                .iter()
-                .any(|allowed| allowed == command) =>
+            if allowed_commands.iter().any(|allowed| allowed == command) =>
         {
             Ok(())
         }
