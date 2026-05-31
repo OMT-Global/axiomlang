@@ -1,0 +1,49 @@
+{
+  "schema_version": "axiom.intent_ir.v0",
+  "graph_id": "axiom://graph/semantic-diff-edge-base",
+  "package": "axiom://package/semantic-diff",
+  "nodes": [
+    {
+      "id": "axiom://package/semantic-diff",
+      "kind": "Package",
+      "name": "semantic-diff"
+    },
+    {
+      "id": "axiom://package/semantic-diff/function/read",
+      "kind": "Function",
+      "name": "read"
+    },
+    {
+      "id": "axiom://package/semantic-diff/capability/network",
+      "kind": "Capability",
+      "name": "network"
+    },
+    {
+      "id": "axiom://package/semantic-diff/effect/network.tcp.connect",
+      "kind": "Effect",
+      "name": "network.tcp.connect"
+    },
+    {
+      "id": "axiom://package/semantic-diff/axiom/no-network",
+      "kind": "Axiom",
+      "name": "no-network"
+    },
+    {
+      "id": "axiom://package/semantic-diff/evidence/read-test",
+      "kind": "Evidence",
+      "name": "read-test"
+    }
+  ],
+  "edges": [
+    {
+      "from": "axiom://package/semantic-diff",
+      "kind": "declares",
+      "to": "axiom://package/semantic-diff/function/read"
+    },
+    {
+      "from": "axiom://package/semantic-diff/function/read",
+      "kind": "verified_by",
+      "to": "axiom://package/semantic-diff/evidence/read-test"
+    }
+  ]
+}

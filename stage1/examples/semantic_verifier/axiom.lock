@@ -1,0 +1,6 @@
+version = 1
+
+[[package]]
+name = "semantic-verifier"
+version = "0.1.0"
+source = "path"
