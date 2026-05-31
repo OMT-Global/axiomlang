@@ -20,6 +20,7 @@ use axiomc::project::{
 };
 use axiomc::registry::{
     PublishOptions, load_registry_index, publish_package, render_registry_index,
+    verify_registry_index_integrity,
 };
 use axiomc::syntax::parse_program;
 use clap::{Parser, Subcommand, ValueEnum};
@@ -227,7 +228,16 @@ enum Command {
         out: Option<PathBuf>,
     },
     /// Validate a static package-registry index JSON file.
-    RegistryValidate { index: PathBuf },
+    ///
+    /// Pass --packages-dir with --signing-key to also verify local archive
+    /// integrity sidecars for every indexed release with an archive.
+    RegistryValidate {
+        index: PathBuf,
+        #[arg(long = "packages-dir")]
+        packages_dir: Option<PathBuf>,
+        #[arg(long = "signing-key")]
+        signing_key: Option<String>,
+    },
     /// Start the bounded axiom-analyzer Language Server Protocol endpoint.
     Lsp,
     /// Start the bounded axiom-debug Debug Adapter Protocol endpoint.
@@ -872,8 +882,29 @@ fn main() {
             }
             Err(error) => print_error("registry-index", error, false),
         },
-        Command::RegistryValidate { index } => match load_registry_index(&index) {
-            Ok(_) => {
+        Command::RegistryValidate {
+            index,
+            packages_dir,
+            signing_key,
+        } => match load_registry_index(&index).and_then(|registry_index| {
+            if packages_dir.is_some() || signing_key.is_some() {
+                let packages_dir = packages_dir.as_deref().ok_or_else(|| {
+                    Diagnostic::new(
+                        "registry",
+                        "registry-validate integrity checks require --packages-dir and --signing-key",
+                    )
+                })?;
+                let signing_key = signing_key.as_deref().ok_or_else(|| {
+                    Diagnostic::new(
+                        "registry",
+                        "registry-validate integrity checks require --packages-dir and --signing-key",
+                    )
+                })?;
+                verify_registry_index_integrity(&registry_index, packages_dir, signing_key)?;
+            }
+            Ok(())
+        }) {
+            Ok(()) => {
                 eprintln!("OK");
                 0
             }
@@ -3937,6 +3968,31 @@ mod tests {
         assert!(help.contains("Pack and publish a stage1 package into a local registry tree"));
         assert!(help.contains("Build a static package-registry index"));
         assert!(help.contains("Validate a static package-registry index JSON file"));
+    }
+
+    #[test]
+    fn registry_validate_cli_parses_integrity_options() {
+        let cli = Cli::parse_from([
+            "axiomc",
+            "registry-validate",
+            "registry/index.json",
+            "--packages-dir",
+            "registry/packages",
+            "--signing-key",
+            "dev-key",
+        ]);
+        match cli.command {
+            Command::RegistryValidate {
+                index,
+                packages_dir,
+                signing_key,
+            } => {
+                assert_eq!(index, PathBuf::from("registry/index.json"));
+                assert_eq!(packages_dir, Some(PathBuf::from("registry/packages")));
+                assert_eq!(signing_key.as_deref(), Some("dev-key"));
+            }
+            other => panic!("expected registry validate command, got {other:?}"),
+        }
     }
 
     #[test]
