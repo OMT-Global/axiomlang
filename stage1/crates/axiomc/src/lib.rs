@@ -6998,6 +6998,85 @@ true
     }
 
     #[test]
+    #[cfg_attr(not(feature = "run-native-tests"), ignore)]
+    fn stage1_async_net_accepts_two_raw_tcp_clients() {
+        if !loopback_socket_bind_available() {
+            return;
+        }
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("stdlib-async-net-raw");
+        create_project(&project, Some("stdlib-async-net-raw")).expect("create project");
+        fs::write(
+            project.join("axiom.toml"),
+            render_manifest_with_capabilities(
+                "stdlib-async-net-raw",
+                false,
+                true,
+                false,
+                false,
+                false,
+                false,
+            )
+            .replace("async = false", "async = true"),
+        )
+        .expect("write manifest");
+        let manifest = load_manifest(&project).expect("load manifest");
+        fs::write(
+            project.join("axiom.lock"),
+            render_lockfile_for_project(&project, &manifest).expect("lockfile"),
+        )
+        .expect("write lockfile");
+        let source = r#"import "std/async.ax"
+import "std/async_net.ax"
+
+async fn echo_once(listener: TcpListener): int {
+let stream: TcpStream = await accept(listener)
+let received: string = await recv_text(stream, 64)
+let _written: int = await send_text(stream, received)
+return close(stream)
+}
+
+let listener: TcpListener = await listen("127.0.0.1:0")
+let port: int = local_port(listener)
+let first_handler: JoinHandle<int> = spawn<int>(echo_once(listener))
+let second_handler: JoinHandle<int> = spawn<int>(echo_once(listener))
+let first_client: JoinHandle<Option<string>> = spawn<Option<string>>(tcp_dial("127.0.0.1", port, "alpha", 1000))
+let second_client: JoinHandle<Option<string>> = spawn<Option<string>>(tcp_dial("127.0.0.1", port, "beta", 1000))
+match await join<Option<string>>(first_client) {
+Some(reply) {
+print reply
+}
+None {
+print "first none"
+}
+}
+match await join<Option<string>>(second_client) {
+Some(reply) {
+print reply
+}
+None {
+print "second none"
+}
+}
+let _first_done: int = await join<int>(first_handler)
+let _second_done: int = await join<int>(second_handler)
+let _listener_closed: int = close_listener(listener)
+"#;
+        fs::write(project.join("src/main.ax"), source).expect("write source");
+
+        let built = build_project(&project).expect("build project");
+        let generated = fs::read_to_string(&built.generated_rust).expect("read generated rust");
+        assert!(generated.contains("axiom_net_tcp_read_string"));
+        assert!(generated.contains("axiom_net_tcp_write_string"));
+        assert!(generated.contains("net_tcp_accept(listener)"));
+        let output = compiled_binary_command(&built.binary)
+            .output()
+            .expect("run compiled binary");
+        assert!(output.status.success());
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "alpha\nbeta\n");
+    }
+
+    #[test]
     fn stage1_async_timeout_uses_real_elapsed_timer_and_returns_none() {
         let dir = tempdir().expect("tempdir");
         let project = dir.path().join("stdlib-async-timeout-app");

@@ -30,7 +30,7 @@ defaults:
 jobs:
   supply-chain:
     name: Lockfile Integrity, Vetting, and SBOM
-    runs-on: ubuntu-latest
+    runs-on: ['self-hosted', 'linux', 'shell-only', 'public']
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v4 pinned 2026-04-19

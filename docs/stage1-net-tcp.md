@@ -22,7 +22,9 @@ through the public API.
 - `local_port(listener: TcpListener): int`
 - `accept(listener: TcpListener): TcpStream`
 - `read(stream: TcpStream, buf: &mut [u8]): int`
+- `read_string(stream: TcpStream, max_bytes: int): string`
 - `write(stream: TcpStream, buf: &[u8]): int`
+- `write_string(stream: TcpStream, message: string): int`
 - `close(stream: TcpStream): int`
 - `close_listener(listener: TcpListener): int`
 
@@ -31,5 +33,9 @@ through the public API.
 runtime. When `[capabilities].net.hosts` or `[capabilities].net.ports` is set,
 bind literals must match those allowlists.
 
-The calls are blocking. Async integration beyond spawning an async task around a
-blocking call remains tracked by #738.
+The raw byte-slice `read` and `write` calls are blocking and remain the
+low-level API for caller-owned buffers. `std/async_net.ax` exposes
+`listen`, `accept`, `recv_text`, and `send_text` as `Task`-returning helpers for
+connection-per-task services; the text helpers use owned strings so spawned
+tasks do not carry borrowed buffers across host-thread boundaries. See
+`stage1/examples/stdlib_net_tcp_async` for a two-client loopback echo fixture.

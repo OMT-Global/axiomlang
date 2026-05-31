@@ -175,7 +175,9 @@ pub fn listen(bind: string): TcpListener {\nreturn net_tcp_listen(bind)\n}\n\
 pub fn local_port(listener: TcpListener): int {\nreturn net_tcp_listener_port(listener)\n}\n\
 pub fn accept(listener: TcpListener): TcpStream {\nreturn net_tcp_accept(listener)\n}\n\
 pub fn read(stream: TcpStream, buf: &mut [u8]): int {\nreturn net_tcp_read(stream, buf)\n}\n\
+pub fn read_string(stream: TcpStream, max_bytes: int): string {\nreturn net_tcp_read_string(stream, max_bytes)\n}\n\
 pub fn write(stream: TcpStream, buf: &[u8]): int {\nreturn net_tcp_write(stream, buf)\n}\n\
+pub fn write_string(stream: TcpStream, message: string): int {\nreturn net_tcp_write_string(stream, message)\n}\n\
 pub fn close(stream: TcpStream): int {\nreturn net_tcp_close(stream)\n}\n\
 pub fn close_listener(listener: TcpListener): int {\nreturn net_tcp_close_listener(listener)\n}\n\
 pub fn listen_loopback_once(response: string, timeout_ms: int): Option<int> {\nreturn net_tcp_listen_loopback_once(response, timeout_ms)\n}\n\
@@ -368,7 +370,17 @@ pub async fn sleep_duration_ms(milliseconds: int): int {\nreturn clock_sleep_ms(
     ),
     (
         "async_net.ax",
-        "pub async fn tcp_listen_loopback_once(response: string, timeout_ms: int): Option<int> {\nreturn net_tcp_listen_loopback_once(response, timeout_ms)\n}\n\
+        "pub type TcpListener = int\n\
+pub type TcpStream = int\n\
+pub type UdpSocket = int\n\
+pub async fn listen(bind: string): TcpListener {\nreturn net_tcp_listen(bind)\n}\n\
+pub fn local_port(listener: TcpListener): int {\nreturn net_tcp_listener_port(listener)\n}\n\
+pub async fn accept(listener: TcpListener): TcpStream {\nreturn net_tcp_accept(listener)\n}\n\
+pub async fn recv_text(stream: TcpStream, max_bytes: int): string {\nreturn net_tcp_read_string(stream, max_bytes)\n}\n\
+pub async fn send_text(stream: TcpStream, message: string): int {\nreturn net_tcp_write_string(stream, message)\n}\n\
+pub fn close(stream: TcpStream): int {\nreturn net_tcp_close(stream)\n}\n\
+pub fn close_listener(listener: TcpListener): int {\nreturn net_tcp_close_listener(listener)\n}\n\
+pub async fn tcp_listen_loopback_once(response: string, timeout_ms: int): Option<int> {\nreturn net_tcp_listen_loopback_once(response, timeout_ms)\n}\n\
 pub async fn tcp_dial(host: string, port: int, message: string, timeout_ms: int): Option<string> {\nreturn net_tcp_dial(host, port, message, timeout_ms)\n}\n\
 pub async fn udp_bind_loopback_once(response: string, timeout_ms: int): Option<int> {\nreturn net_udp_bind_loopback_once(response, timeout_ms)\n}\n\
 pub async fn udp_send_recv(host: string, port: int, message: string, timeout_ms: int): Option<string> {\nreturn net_udp_send_recv(host, port, message, timeout_ms)\n}\n",

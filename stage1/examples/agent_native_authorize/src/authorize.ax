@@ -1,0 +1,13 @@
+pub fn authorize_token(raw: Option<string>, observed_at: int): bool {
+match raw {
+Some(token) {
+if token == "agent-native-demo-token" {
+return observed_at > 0
+}
+return false
+}
+None {
+return false
+}
+}
+}
