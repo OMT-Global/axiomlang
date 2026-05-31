@@ -14,7 +14,7 @@ cargo run --manifest-path stage1/Cargo.toml -p axiomc -- caps stage1/examples/he
 cargo run --manifest-path stage1/Cargo.toml -p axiomc -- publish stage1/examples/hello --registry-dir ./registry/packages --signing-key dev-key
 cargo run --manifest-path stage1/Cargo.toml -p axiomc -- pkg graph stage1/examples/workspace_only --json
 cargo run --manifest-path stage1/Cargo.toml -p axiomc -- registry-index ./registry/packages --base-url https://packages.example.test --out ./registry/index.json
-cargo run --manifest-path stage1/Cargo.toml -p axiomc -- registry-validate ./registry/index.json
+cargo run --manifest-path stage1/Cargo.toml -p axiomc -- registry-validate ./registry/index.json --packages-dir ./registry/packages --signing-key dev-key
 ```
 
 ## Manifest Shape
@@ -80,7 +80,7 @@ analysis.
 - `axiom-registry.toml` with `yanked = true` and optional `yank_reason`
 
 The generated index records per-release capability manifests, archive/signature URLs,
-and yanked status so a simple static host can serve lockfile-friendly package metadata. This is publish and registry-index groundwork for a future hosted registry service, not the hosted service itself.
+and yanked status so a simple static host can serve lockfile-friendly package metadata. `axiomc registry-validate` checks the index contract by default; when passed `--packages-dir` and `--signing-key`, it also reads every indexed local archive plus sidecar and rejects tampered archives or mismatched integrity keys. This is publish and registry-index groundwork for a future hosted registry service, not the hosted service itself.
 
 ## Registry And Publish Contract
 
