@@ -196,6 +196,10 @@ fn check_error_fixtures_cover_required_diagnostic_classes() {
         assert!(payload["error"]["path"].is_string());
         assert!(payload["error"]["line"].is_u64());
         assert!(payload["error"]["column"].is_u64());
+        if matches!(name, "parse-error.json" | "borrow-error.json") {
+            assert!(payload["error"]["end_line"].is_u64());
+            assert!(payload["error"]["end_column"].is_u64());
+        }
         if let Some(code) = code {
             assert_eq!(payload["error"]["code"], code);
         }
