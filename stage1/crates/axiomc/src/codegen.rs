@@ -6,6 +6,7 @@ use crate::mir::{
 };
 use serde::{Deserialize, Serialize};
 use std::any::Any;
+use std::cell::RefCell;
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::fmt;
 use std::panic::{self, AssertUnwindSafe};
@@ -14,8 +15,10 @@ use std::process::Command;
 use std::str::FromStr;
 
 pub const INTERNAL_COMPILER_ERROR_CODE: &str = "ICE-001";
-const INTERNAL_CODEGEN_ERROR_SENTINEL: &str = "__AXIOM_INTERNAL_CODEGEN_ERROR__:";
-const INTERNAL_CODEGEN_ERROR_PREFIX: &str = "compile_error!(\"__AXIOM_INTERNAL_CODEGEN_ERROR__:";
+
+thread_local! {
+    static CODEGEN_INTERNAL_ERRORS: RefCell<Vec<String>> = RefCell::new(Vec::new());
+}
 
 /// Preparatory selector for native-build backend plumbing.
 ///
@@ -58,8 +61,8 @@ impl FromStr for NativeBackendKind {
 #[cfg(test)]
 mod tests {
     use super::{
-        GeneratedRustBackendInput, INTERNAL_CODEGEN_ERROR_SENTINEL, INTERNAL_COMPILER_ERROR_CODE,
-        NativeBackendKind, deterministic_numbers, deterministic_strings, render_generated_rust,
+        GeneratedRustBackendInput, INTERNAL_COMPILER_ERROR_CODE, NativeBackendKind,
+        deterministic_numbers, deterministic_strings, render_generated_rust,
         try_render_generated_rust,
     };
     use crate::mir::{ArithmeticOp, Expr, Function, LiteralValue, Program, SourceSpan, Stmt, Type};
@@ -150,7 +153,7 @@ mod tests {
             statics: vec![],
             stmts: vec![Stmt::Print {
                 expr: Expr::Literal(LiteralValue::String(format!(
-                    "user text mentions compile_error!(\"{INTERNAL_CODEGEN_ERROR_SENTINEL} not an ICE\")"
+                    "user text mentions compile_error!(\"__AXIOM_INTERNAL_CODEGEN_ERROR__: not an ICE\")"
                 ))),
                 span: SourceSpan { line: 1, column: 1 },
             }],
@@ -159,7 +162,7 @@ mod tests {
         let rendered = try_render_generated_rust(&GeneratedRustBackendInput::from_mir(program))
             .expect("user-controlled text should not trigger ICE diagnostics");
 
-        assert!(rendered.contains(INTERNAL_CODEGEN_ERROR_SENTINEL));
+        assert!(rendered.contains("__AXIOM_INTERNAL_CODEGEN_ERROR__"));
     }
 
     #[test]
@@ -242,12 +245,19 @@ pub fn render_generated_rust(input: &GeneratedRustBackendInput) -> String {
 }
 
 pub fn try_render_generated_rust(input: &GeneratedRustBackendInput) -> Result<String, Diagnostic> {
+    clear_codegen_internal_errors();
     let previous_hook = panic::take_hook();
     panic::set_hook(Box::new(|_| {}));
     let result = panic::catch_unwind(AssertUnwindSafe(|| render_generated_rust(input)));
     panic::set_hook(previous_hook);
-    let rendered = result.map_err(codegen_internal_panic_diagnostic)?;
-    if let Some(error) = codegen_internal_render_diagnostic(&rendered) {
+    let rendered = match result {
+        Ok(rendered) => rendered,
+        Err(payload) => {
+            clear_codegen_internal_errors();
+            return Err(codegen_internal_panic_diagnostic(payload));
+        }
+    };
+    if let Some(error) = codegen_internal_render_diagnostic() {
         return Err(error);
     }
     Ok(rendered)
@@ -257,11 +267,19 @@ fn codegen_internal_panic_diagnostic(payload: Box<dyn Any + Send>) -> Diagnostic
     codegen_internal_diagnostic(&panic_payload_message(&payload))
 }
 
-fn codegen_internal_render_diagnostic(rendered: &str) -> Option<Diagnostic> {
-    let start = rendered.find(INTERNAL_CODEGEN_ERROR_PREFIX)?;
-    let rest = &rendered[start + INTERNAL_CODEGEN_ERROR_PREFIX.len()..];
-    let message_end = rest.find('"').unwrap_or(rest.len());
-    Some(codegen_internal_diagnostic(rest[..message_end].trim()))
+fn clear_codegen_internal_errors() {
+    CODEGEN_INTERNAL_ERRORS.with(|errors| errors.borrow_mut().clear());
+}
+
+fn codegen_internal_render_diagnostic() -> Option<Diagnostic> {
+    CODEGEN_INTERNAL_ERRORS.with(|errors| {
+        let mut errors = errors.borrow_mut();
+        if errors.is_empty() {
+            None
+        } else {
+            Some(codegen_internal_diagnostic(&errors.remove(0)))
+        }
+    })
 }
 
 fn codegen_internal_diagnostic(message: &str) -> Diagnostic {
@@ -289,10 +307,10 @@ fn panic_payload_message(payload: &Box<dyn Any + Send>) -> String {
 }
 
 fn render_internal_codegen_error(message: &str) -> String {
+    CODEGEN_INTERNAL_ERRORS.with(|errors| errors.borrow_mut().push(message.to_string()));
     format!(
-        "compile_error!(\"{} {}\")",
-        INTERNAL_CODEGEN_ERROR_SENTINEL,
-        rust_string_literal_content(message)
+        "compile_error!(\"{}\")",
+        rust_string_literal_content("internal compiler error while rendering generated Rust")
     )
 }
 
