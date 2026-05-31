@@ -1,5 +1,5 @@
 use crate::codegen::{
-    GeneratedRustBackendInput, NativeBackendKind, compile_native, render_generated_rust,
+    GeneratedRustBackendInput, NativeBackendKind, compile_native, try_render_generated_rust,
 };
 use crate::diagnostics::Diagnostic;
 use crate::hir;
@@ -1874,12 +1874,12 @@ fn build_artifacts(
         })?;
     }
     let fs_root = fs_root_path_for_package(package_root, &analyzed.manifest)?;
-    let rust_source = render_generated_rust(
+    let rust_source = try_render_generated_rust(
         &GeneratedRustBackendInput::from_mir(analyzed.mir.clone())
             .with_debug(options.debug)
             .with_paths(package_root, fs_root)
             .with_capabilities(analyzed.manifest.capabilities.clone()),
-    );
+    )?;
     let cache = build_cache_file(
         graph,
         package_root,
