@@ -9885,10 +9885,7 @@ fn lower_expr_with_expected_inner(
                 }
                 let bytes = Type::Array(Box::new(Type::Numeric(syntax::NumericType::U8)), None);
                 return Ok(Expr::Call {
-                    span: SourceSpan {
-                        line: *line,
-                        column: *column,
-                    },
+                    span: SourceSpan::point(*line, *column),
                     name: name.clone(),
                     args: Vec::new(),
                     ty: Type::Tuple(vec![bytes.clone(), bytes]),
@@ -9937,10 +9934,7 @@ fn lower_expr_with_expected_inner(
                 }
                 if name == "crypto_ed25519_sign" {
                     return Ok(Expr::Call {
-                        span: SourceSpan {
-                            line: *line,
-                            column: *column,
-                        },
+                        span: SourceSpan::point(*line, *column),
                         name: name.clone(),
                         args: vec![first, message],
                         ty: Type::Array(Box::new(Type::Numeric(syntax::NumericType::U8)), None),
@@ -9955,10 +9949,7 @@ fn lower_expr_with_expected_inner(
                     .with_span(args[2].line(), args[2].column()));
                 }
                 return Ok(Expr::Call {
-                    span: SourceSpan {
-                        line: *line,
-                        column: *column,
-                    },
+                    span: SourceSpan::point(*line, *column),
                     name: name.clone(),
                     args: vec![first, message, signature],
                     ty: Type::Bool,
