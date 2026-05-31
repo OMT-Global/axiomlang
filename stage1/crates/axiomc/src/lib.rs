@@ -3946,6 +3946,10 @@ clock = false
 
         let manifest = load_manifest(&project).expect("allowlisted process should load");
         assert!(manifest.capabilities.process);
+        assert_eq!(
+            manifest.capabilities.process_commands.allowed_commands(),
+            Some(&[String::from("/bin/echo")][..])
+        );
         assert!(manifest.capabilities.unsafe_rationale.is_none());
         assert!(
             !manifest
@@ -3969,6 +3973,7 @@ clock = false
 
         let manifest = load_manifest(&project).expect("load manifest with rationale");
         let warnings = manifest.capabilities.warnings();
+        assert!(manifest.capabilities.process_commands.is_unrestricted());
         assert!(
             warnings
                 .iter()
@@ -3978,6 +3983,61 @@ clock = false
         assert_eq!(
             manifest.capabilities.unsafe_rationale.as_deref(),
             Some("smoke test spawns a single audited helper")
+        );
+    }
+
+    #[test]
+    fn capability_sbom_preserves_unrestricted_process_unsafe_rationale() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("caps-process-sbom");
+        create_project(&project, Some("caps-process-sbom-app")).expect("create project");
+        fs::write(
+            project.join("axiom.toml"),
+            "[package]\nname = \"caps-process-sbom-app\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nprocess = true\nunsafe_rationale = \"operator-approved helper execution\"\n",
+        )
+        .expect("write manifest");
+        let manifest = load_manifest(&project).expect("load manifest");
+        fs::write(
+            project.join("axiom.lock"),
+            render_lockfile_for_project(&project, &manifest).expect("lockfile"),
+        )
+        .expect("write lockfile");
+
+        let caps = project_capabilities(&project).expect("project capabilities");
+        let process = caps
+            .iter()
+            .find(|cap| cap.name == "process")
+            .expect("process capability");
+        assert!(process.unsafe_unrestricted);
+        assert_eq!(
+            process.unsafe_rationale.as_deref(),
+            Some("operator-approved helper execution")
+        );
+
+        let sbom = capability_sbom(&project).expect("capability sbom");
+        let package = sbom.packages.first().expect("sbom package");
+        let process_grant = package
+            .unsafe_grants
+            .iter()
+            .find(|grant| grant.capability == "process" && grant.kind == "unsafe_unrestricted")
+            .expect("unsafe process grant");
+        assert_eq!(
+            process_grant.rationale.as_deref(),
+            Some("operator-approved helper execution")
+        );
+
+        let payload = json_contract::caps_manifest_success(&project, &caps, &sbom);
+        let process_unsafe = payload["unsafe"]
+            .as_array()
+            .expect("unsafe caps entries")
+            .iter()
+            .find(|entry| {
+                entry["capability"] == "process" && entry["kind"] == "unsafe_unrestricted"
+            })
+            .expect("unsafe process caps entry");
+        assert_eq!(
+            process_unsafe["rationale"],
+            "operator-approved helper execution"
         );
     }
 
