@@ -1485,7 +1485,7 @@ Variant(
         assert!(rendered.contains("fn widen(value: u8) -> u32 {"));
         assert!(rendered.contains("return (value) as u32;"));
         assert!(rendered.contains("let byte: u8 = 255u8;"));
-        assert!(rendered.contains("let word: u32 = widen(byte) + 1u32;"));
+        assert!(rendered.contains("let word: u32 = (widen(byte)).wrapping_add(1u32);"));
         assert!(rendered.contains("let signed: i16 = -1i16;"));
         assert!(rendered.contains("let same: i16 = signed;"));
         assert!(!rendered.contains("let same: i16 = (signed) as i16;"));

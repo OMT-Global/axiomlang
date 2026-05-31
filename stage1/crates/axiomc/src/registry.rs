@@ -278,8 +278,27 @@ fn normalize_archive_path(path: &Path) -> Result<String, Diagnostic> {
     let mut out = Vec::new();
     for component in path.components() {
         match component {
-            Component::Normal(value) => out.push(value.to_string_lossy().to_string()),
-            Component::CurDir => {}
+            Component::Normal(value) => {
+                let value = value.to_str().ok_or_else(|| {
+                    Diagnostic::new(
+                        "publish",
+                        format!(
+                            "archive path component is not valid UTF-8 in {}",
+                            path.display()
+                        ),
+                    )
+                })?;
+                if !is_safe_archive_component(value) {
+                    return Err(Diagnostic::new(
+                        "publish",
+                        format!(
+                            "unsafe archive path component {value:?} in {}",
+                            path.display()
+                        ),
+                    ));
+                }
+                out.push(value.to_string());
+            }
             _ => {
                 return Err(Diagnostic::new(
                     "publish",
@@ -288,7 +307,31 @@ fn normalize_archive_path(path: &Path) -> Result<String, Diagnostic> {
             }
         }
     }
+    if out.is_empty() {
+        return Err(Diagnostic::new(
+            "publish",
+            format!(
+                "archive path must name a descendant file: {}",
+                path.display()
+            ),
+        ));
+    }
     Ok(out.join("/"))
+}
+
+fn is_safe_archive_component(value: &str) -> bool {
+    !value.is_empty()
+        && value != "."
+        && value != ".."
+        && !value.contains('\0')
+        && !value.contains('/')
+        && !value.contains('\\')
+        && !looks_like_windows_drive_component(value)
+}
+
+fn looks_like_windows_drive_component(value: &str) -> bool {
+    let bytes = value.as_bytes();
+    bytes.len() >= 2 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':'
 }
 
 fn render_archive_signature(
@@ -833,6 +876,42 @@ mod tests {
 
         assert_eq!(error.kind, "publish");
         assert!(error.message.contains("symlinked"));
+    }
+
+    #[test]
+    fn archive_path_normalization_accepts_safe_descendant_paths() {
+        assert_eq!(
+            normalize_archive_path(Path::new("src/main.ax")).expect("safe archive path"),
+            "src/main.ax"
+        );
+        assert_eq!(
+            normalize_archive_path(Path::new("axiom.lock")).expect("safe archive path"),
+            "axiom.lock"
+        );
+    }
+
+    #[test]
+    fn archive_path_normalization_rejects_unsafe_components() {
+        for path in [
+            "dir/../etc/passwd",
+            "./foo",
+            "/abs/path",
+            "C:\\bad",
+            "C:bad",
+            "link/../escape",
+            "bad\0name.ax",
+            ".",
+        ] {
+            let error = normalize_archive_path(Path::new(path))
+                .expect_err("unsafe archive path should fail");
+            assert_eq!(error.kind, "publish");
+            assert!(
+                error.message.contains("archive path")
+                    || error.message.contains("archive path component"),
+                "unexpected error for {path:?}: {}",
+                error.message
+            );
+        }
     }
 
     #[test]
