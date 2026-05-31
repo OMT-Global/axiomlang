@@ -77,12 +77,22 @@ fn diagnostic_with_default_path(mut diagnostic: Diagnostic, path: &Path) -> Diag
 }
 
 fn lsp_diagnostic(diagnostic: Diagnostic) -> Value {
-    let line = diagnostic.line.unwrap_or(1).saturating_sub(1);
-    let column = diagnostic.column.unwrap_or(1).saturating_sub(1);
+    let start_line = diagnostic.line.unwrap_or(1);
+    let start_column = diagnostic.column.unwrap_or(1);
+    let end_line = diagnostic.end_line.unwrap_or(start_line);
+    let end_column = diagnostic
+        .end_column
+        .unwrap_or_else(|| start_column.saturating_add(1));
     json!({
         "range": {
-            "start": { "line": line, "character": column },
-            "end": { "line": line, "character": column.saturating_add(1) }
+            "start": {
+                "line": start_line.saturating_sub(1),
+                "character": start_column.saturating_sub(1)
+            },
+            "end": {
+                "line": end_line.saturating_sub(1),
+                "character": end_column.saturating_sub(1)
+            }
         },
         "severity": 1,
         "source": "axiomc",
@@ -274,6 +284,23 @@ mod tests {
                 .as_str()
                 .unwrap()
                 .contains("undefined variable")
+        );
+    }
+
+    #[test]
+    fn lsp_diagnostic_uses_explicit_diagnostic_end_range() {
+        let diagnostic = Diagnostic::new("ownership", "use of moved value")
+            .with_code("use_after_move")
+            .with_span_range(2, 7, 2, 15);
+
+        let payload = lsp_diagnostic(diagnostic);
+
+        assert_eq!(
+            payload["range"],
+            json!({
+                "start": { "line": 1, "character": 6 },
+                "end": { "line": 1, "character": 14 }
+            })
         );
     }
 

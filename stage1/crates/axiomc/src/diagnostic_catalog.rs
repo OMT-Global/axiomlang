@@ -124,6 +124,14 @@ pub const STABLE_DIAGNOSTIC_CODES: &[DiagnosticCodeInfo] = &[
         suggested_fix: "Read the embedded rustc stderr, minimize the Axiom source that triggered it, and fix the backend lowering or source program as appropriate.",
     },
     DiagnosticCodeInfo {
+        code: "ICE-001",
+        kind: "internal",
+        title: "Internal compiler error",
+        explanation: "An invalid compiler-internal shape reached generated-Rust codegen and was reported as a structured diagnostic instead of unwinding.",
+        example: "axiomc build . --backend generated-rust",
+        suggested_fix: "File the source package and command that triggered the diagnostic so the compiler invariant can be fixed.",
+    },
+    DiagnosticCodeInfo {
         code: "type.mismatch",
         kind: "type",
         title: "Type mismatch",
@@ -284,6 +292,7 @@ mod tests {
         assert!(codes.contains(&"import_cycle"));
         assert!(codes.contains(&"import_cycle_member"));
         assert!(codes.contains(&"generated_rust_compilation_failed"));
+        assert!(codes.contains(&"ICE-001"));
         assert!(codes.contains(&"type.mismatch"));
         assert!(codes.contains(&"parse.unexpected_token"));
         assert!(codes.contains(&"parse.invalid_syntax"));
