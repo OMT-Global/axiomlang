@@ -326,7 +326,8 @@
           "enum": [
             "axiom",
             "capability",
-            "evidence"
+            "evidence",
+            "decision"
           ]
         },
         "name": {
@@ -343,6 +344,14 @@
         "severity": {
           "type": "string",
           "minLength": 1
+        },
+        "status": {
+          "enum": [
+            "proposed",
+            "accepted",
+            "superseded",
+            "rejected"
+          ]
         },
         "description": {
           "type": "string"
@@ -387,7 +396,10 @@
         "kind": {
           "enum": [
             "preserves",
-            "requires_evidence"
+            "requires_evidence",
+            "verified_by",
+            "violates",
+            "depends_on"
           ]
         },
         "to": {

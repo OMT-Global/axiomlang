@@ -1,0 +1,26 @@
+{
+  "schema_version": "axiom.target.v0",
+  "package": "axiom://package/semantic-verifier",
+  "targets": [
+    {
+      "id": "axiom://target/semantic-verifier/runbook",
+      "class": "runbook",
+      "description": "Fixture target requiring observed unit-test evidence.",
+      "status": "experimental",
+      "input_node_kinds": ["Package", "Capability", "Axiom", "Evidence"],
+      "supported_effect_kinds": [],
+      "supported_type_features": [],
+      "artifact_outputs": [
+        {
+          "id": "axiom://target/semantic-verifier/runbook/artifact",
+          "kind": "runbook",
+          "path": "dist/runbook.md",
+          "generated_from": ["axiom://package/semantic-verifier"],
+          "status": "planned"
+        }
+      ],
+      "evidence_requirements": ["unit_test"],
+      "unsupported_feature_diagnostics": []
+    }
+  ]
+}

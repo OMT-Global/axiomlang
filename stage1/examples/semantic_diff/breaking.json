@@ -1,0 +1,28 @@
+{
+  "schema_version": "axiom.intent_ir.v0",
+  "graph_id": "axiom://graph/semantic-diff-breaking",
+  "package": "axiom://package/semantic-diff",
+  "nodes": [
+    {
+      "id": "axiom://package/semantic-diff",
+      "kind": "Package",
+      "name": "semantic-diff"
+    },
+    {
+      "id": "axiom://package/semantic-diff/function/read",
+      "kind": "Function",
+      "name": "read"
+    },
+    {
+      "id": "axiom://package/semantic-diff/capability/network",
+      "kind": "Capability",
+      "name": "network"
+    },
+    {
+      "id": "axiom://package/semantic-diff/effect/network.tcp.connect",
+      "kind": "Effect",
+      "name": "network.tcp.connect"
+    }
+  ],
+  "edges": []
+}

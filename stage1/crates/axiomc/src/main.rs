@@ -146,6 +146,19 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    /// Verify declared axioms and target evidence requirements.
+    Verify {
+        path: PathBuf,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Diff two Intent IR snapshots for product-facing semantic drift.
+    SemanticDiff {
+        old: PathBuf,
+        new: PathBuf,
+        #[arg(long)]
+        json: bool,
+    },
     /// Inspect project metadata for agent tooling.
     Inspect {
         #[command(subcommand)]
@@ -667,6 +680,57 @@ fn main() {
                 0
             }
             Err(error) => print_error("evidence", error, json),
+        },
+        Command::Verify { path, json } => match verify_project(&path) {
+            Ok(report) => {
+                if json {
+                    println!(
+                        "{}",
+                        json_contract::to_pretty_string(&report)
+                            .unwrap_or_else(|_| String::from("{}"))
+                    );
+                } else {
+                    println!(
+                        "package={} axioms={} verified={} unverified={} violated={} target_requirements={} failing={}",
+                        report.package,
+                        report.axioms.len(),
+                        report.summary.verified,
+                        report.summary.unverified,
+                        report.summary.violated,
+                        report.summary.target_requirements,
+                        report.summary.failing_target_requirements
+                            + report.summary.missing_target_requirements
+                    );
+                }
+                if report.ok { 0 } else { 1 }
+            }
+            Err(error) => print_error("verify", error, json),
+        },
+        Command::SemanticDiff { old, new, json } => match semantic_diff_report(&old, &new) {
+            Ok(report) => {
+                if json {
+                    println!(
+                        "{}",
+                        json_contract::to_pretty_string(&report)
+                            .unwrap_or_else(|_| String::from("{}"))
+                    );
+                } else {
+                    println!(
+                        "changes={} breaking={} additive={}",
+                        report.changes.len(),
+                        report.summary.breaking,
+                        report.summary.additive
+                    );
+                    for change in &report.changes {
+                        println!(
+                            "{} {} {} {}",
+                            change.severity, change.change, change.node_kind, change.node_id
+                        );
+                    }
+                }
+                0
+            }
+            Err(error) => print_error("semantic-diff", error, json),
         },
         Command::Inspect { command } => match command {
             InspectCommand::Symbols { path, json } => match inspect_symbols(&path) {
@@ -1552,6 +1616,715 @@ fn evidence_id_component(value: &str) -> String {
     normalized_id_component(value, "unnamed")
 }
 
+#[derive(Debug, Clone)]
+struct SemanticDeclarations {
+    axioms: Vec<DeclaredAxiom>,
+    capabilities: Vec<DeclaredSemanticCapability>,
+    evidence: Vec<DeclaredEvidence>,
+}
+
+#[derive(Debug, Clone)]
+struct DeclaredAxiom {
+    id: String,
+    name: String,
+}
+
+#[derive(Debug, Clone)]
+struct DeclaredSemanticCapability {
+    preserves: Vec<String>,
+    evidence: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+struct DeclaredEvidence {
+    name: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct VerificationReport {
+    schema_version: &'static str,
+    ok: bool,
+    command: &'static str,
+    project: String,
+    package: String,
+    validation_status: &'static str,
+    summary: VerificationSummary,
+    axioms: Vec<AxiomVerification>,
+    target_contracts: Vec<TargetContractVerification>,
+    diagnostics: Vec<VerificationDiagnostic>,
+    edges: Vec<VerificationEdge>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct VerificationSummary {
+    verified: usize,
+    unverified: usize,
+    violated: usize,
+    target_requirements: usize,
+    passing_target_requirements: usize,
+    missing_target_requirements: usize,
+    failing_target_requirements: usize,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct AxiomVerification {
+    id: String,
+    name: String,
+    status: &'static str,
+    backing_evidence: Vec<BackingEvidence>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct BackingEvidence {
+    name: String,
+    semantic_node: String,
+    observed_evidence: Option<String>,
+    evidence_type: Option<String>,
+    status: String,
+    path: Option<String>,
+    diagnostics: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct TargetContractVerification {
+    target_id: String,
+    status: &'static str,
+    requirements: Vec<TargetEvidenceRequirement>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct TargetEvidenceRequirement {
+    evidence_type: String,
+    status: &'static str,
+    observed_evidence: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct VerificationDiagnostic {
+    id: String,
+    severity: &'static str,
+    kind: &'static str,
+    node: String,
+    message: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct VerificationEdge {
+    from: String,
+    kind: &'static str,
+    to: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct TargetManifest {
+    #[serde(default)]
+    targets: Vec<TargetContract>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct TargetContract {
+    id: String,
+    #[serde(default)]
+    evidence_requirements: Vec<String>,
+}
+
+fn verify_project(project: &Path) -> Result<VerificationReport, Diagnostic> {
+    let manifest = load_manifest(project)?;
+    let package = manifest
+        .package
+        .as_ref()
+        .map(|package| package.name.clone())
+        .unwrap_or_else(|| String::from("workspace"));
+    let declarations = collect_semantic_declarations(project)?;
+    let evidence = evidence_report(project)?;
+    let targets = load_target_contracts(project)?;
+    let observed_by_name = observed_evidence_by_name(&evidence.evidence);
+    let declared_evidence = declarations
+        .evidence
+        .iter()
+        .map(|evidence| evidence.name.clone())
+        .collect::<BTreeSet<_>>();
+
+    let mut axiom_reports = Vec::new();
+    let mut diagnostics = Vec::new();
+    let mut edges = Vec::new();
+    for axiom in declarations.axioms {
+        let mut backing = Vec::new();
+        let mut required = BTreeSet::new();
+        for capability in &declarations.capabilities {
+            if capability.preserves.iter().any(|name| name == &axiom.name) {
+                required.extend(capability.evidence.iter().cloned());
+            }
+        }
+        if required.is_empty() {
+            let diagnostic_id = format!("{}/diagnostic/unverified", axiom.id);
+            diagnostics.push(VerificationDiagnostic {
+                id: diagnostic_id.clone(),
+                severity: "error",
+                kind: "missing_verified_by",
+                node: axiom.id.clone(),
+                message: format!("axiom {} has no preserving capability evidence", axiom.name),
+            });
+            edges.push(VerificationEdge {
+                from: diagnostic_id,
+                kind: "violates",
+                to: axiom.id.clone(),
+            });
+            axiom_reports.push(AxiomVerification {
+                id: axiom.id,
+                name: axiom.name,
+                status: "unverified",
+                backing_evidence: backing,
+            });
+            continue;
+        }
+
+        for evidence_name in required {
+            let semantic_node = semantic_node_id("evidence", &evidence_name);
+            edges.push(VerificationEdge {
+                from: axiom.id.clone(),
+                kind: "verified_by",
+                to: semantic_node.clone(),
+            });
+            let observed = observed_by_name.get(&evidence_id_component(&evidence_name));
+            let declared = declared_evidence.contains(&evidence_name);
+            match observed {
+                Some(item) => backing.push(BackingEvidence {
+                    name: evidence_name.clone(),
+                    semantic_node,
+                    observed_evidence: Some(item.id.clone()),
+                    evidence_type: Some(item.evidence_type.to_string()),
+                    status: item.status.to_string(),
+                    path: item.path.clone(),
+                    diagnostics: item.diagnostics.clone(),
+                }),
+                None => backing.push(BackingEvidence {
+                    name: evidence_name.clone(),
+                    semantic_node,
+                    observed_evidence: None,
+                    evidence_type: None,
+                    status: if declared { "missing" } else { "undeclared" }.to_string(),
+                    path: None,
+                    diagnostics: vec![if declared {
+                        String::from("declared evidence has no passing observed test evidence")
+                    } else {
+                        String::from("evidence reference is not declared")
+                    }],
+                }),
+            }
+        }
+
+        let status = if backing.iter().any(|item| item.status == "failing") {
+            "violated"
+        } else if backing.iter().all(|item| item.status == "passing") {
+            "verified"
+        } else {
+            "unverified"
+        };
+        if status != "verified" {
+            let diagnostic_id = format!("{}/diagnostic/{status}", axiom.id);
+            diagnostics.push(VerificationDiagnostic {
+                id: diagnostic_id.clone(),
+                severity: "error",
+                kind: if status == "violated" {
+                    "failing_evidence"
+                } else {
+                    "missing_evidence"
+                },
+                node: axiom.id.clone(),
+                message: format!("axiom {} is {status}", axiom.name),
+            });
+            edges.push(VerificationEdge {
+                from: diagnostic_id,
+                kind: "violates",
+                to: axiom.id.clone(),
+            });
+        }
+        axiom_reports.push(AxiomVerification {
+            id: axiom.id,
+            name: axiom.name,
+            status,
+            backing_evidence: backing,
+        });
+    }
+
+    let mut target_reports = Vec::new();
+    for target in targets {
+        let mut requirements = Vec::new();
+        for requirement in target.evidence_requirements {
+            let observed = evidence
+                .evidence
+                .iter()
+                .filter(|item| item.evidence_type == requirement.as_str())
+                .collect::<Vec<_>>();
+            let status = if observed.is_empty() {
+                "missing"
+            } else if observed.iter().all(|item| item.status == "passing") {
+                "passing"
+            } else if observed.iter().any(|item| item.status == "failing") {
+                "failing"
+            } else {
+                "missing"
+            };
+            requirements.push(TargetEvidenceRequirement {
+                evidence_type: requirement,
+                status,
+                observed_evidence: observed.iter().map(|item| item.id.clone()).collect(),
+            });
+        }
+        let status = if requirements.iter().all(|item| item.status == "passing") {
+            "verified"
+        } else {
+            "unverified"
+        };
+        if status != "verified" {
+            diagnostics.push(VerificationDiagnostic {
+                id: format!("{}/diagnostic/evidence-requirements", target.id),
+                severity: "error",
+                kind: "target_evidence_requirement",
+                node: target.id.clone(),
+                message: format!("target {} has non-passing evidence requirements", target.id),
+            });
+        }
+        target_reports.push(TargetContractVerification {
+            target_id: target.id,
+            status,
+            requirements,
+        });
+    }
+
+    let summary = VerificationSummary {
+        verified: axiom_reports
+            .iter()
+            .filter(|axiom| axiom.status == "verified")
+            .count(),
+        unverified: axiom_reports
+            .iter()
+            .filter(|axiom| axiom.status == "unverified")
+            .count(),
+        violated: axiom_reports
+            .iter()
+            .filter(|axiom| axiom.status == "violated")
+            .count(),
+        target_requirements: target_reports
+            .iter()
+            .map(|target| target.requirements.len())
+            .sum(),
+        passing_target_requirements: target_reports
+            .iter()
+            .flat_map(|target| &target.requirements)
+            .filter(|requirement| requirement.status == "passing")
+            .count(),
+        missing_target_requirements: target_reports
+            .iter()
+            .flat_map(|target| &target.requirements)
+            .filter(|requirement| requirement.status == "missing")
+            .count(),
+        failing_target_requirements: target_reports
+            .iter()
+            .flat_map(|target| &target.requirements)
+            .filter(|requirement| requirement.status == "failing")
+            .count(),
+    };
+    let ok = summary.unverified == 0
+        && summary.violated == 0
+        && summary.missing_target_requirements == 0
+        && summary.failing_target_requirements == 0;
+    let validation_status = if summary.violated > 0 || summary.failing_target_requirements > 0 {
+        "violated"
+    } else if summary.unverified > 0 || summary.missing_target_requirements > 0 {
+        "unverified"
+    } else {
+        "verified"
+    };
+
+    Ok(VerificationReport {
+        schema_version: "axiom.verify.v0",
+        ok,
+        command: "verify",
+        project: project.display().to_string(),
+        package,
+        validation_status,
+        summary,
+        axioms: axiom_reports,
+        target_contracts: target_reports,
+        diagnostics,
+        edges,
+    })
+}
+
+fn collect_semantic_declarations(project: &Path) -> Result<SemanticDeclarations, Diagnostic> {
+    let mut axioms = Vec::new();
+    let mut capabilities = Vec::new();
+    let mut evidence = Vec::new();
+    for file in axiom_files(project)? {
+        let source = fs::read_to_string(&file).map_err(|err| {
+            Diagnostic::new(
+                "verify",
+                format!("failed to read {}: {err}", file.display()),
+            )
+            .with_path(file.display().to_string())
+        })?;
+        let program = parse_program(&source, &file)?;
+        axioms.extend(program.axioms.iter().map(|axiom| DeclaredAxiom {
+            id: semantic_node_id("axiom", &axiom.name),
+            name: axiom.name.clone(),
+        }));
+        capabilities.extend(program.semantic_capabilities.iter().map(|capability| {
+            DeclaredSemanticCapability {
+                preserves: capability
+                    .preserves
+                    .iter()
+                    .map(|reference| reference.name.clone())
+                    .collect(),
+                evidence: capability
+                    .evidence
+                    .iter()
+                    .map(|reference| reference.name.clone())
+                    .collect(),
+            }
+        }));
+        evidence.extend(program.evidence.iter().map(|evidence| DeclaredEvidence {
+            name: evidence.name.clone(),
+        }));
+    }
+    axioms.sort_by(|left, right| left.id.cmp(&right.id));
+    capabilities.sort_by(|left, right| {
+        left.preserves
+            .cmp(&right.preserves)
+            .then_with(|| left.evidence.cmp(&right.evidence))
+    });
+    evidence.sort_by(|left, right| left.name.cmp(&right.name));
+    Ok(SemanticDeclarations {
+        axioms,
+        capabilities,
+        evidence,
+    })
+}
+
+fn observed_evidence_by_name(evidence: &[EvidenceItem]) -> BTreeMap<String, EvidenceItem> {
+    evidence
+        .iter()
+        .map(|item| {
+            let key = item
+                .id
+                .rsplit('/')
+                .next()
+                .map(|value| value.to_string())
+                .unwrap_or_else(|| evidence_id_component(&item.id));
+            (key, item.clone())
+        })
+        .collect()
+}
+
+fn load_target_contracts(project: &Path) -> Result<Vec<TargetContract>, Diagnostic> {
+    let path = project.join("targets.json");
+    if !path.exists() {
+        return Ok(Vec::new());
+    }
+    let content = fs::read_to_string(&path).map_err(|err| {
+        Diagnostic::new(
+            "verify",
+            format!("failed to read target contracts {}: {err}", path.display()),
+        )
+        .with_path(path.display().to_string())
+    })?;
+    let value: serde_json::Value = serde_json::from_str(&content).map_err(|err| {
+        Diagnostic::new(
+            "verify",
+            format!("failed to parse target contracts {}: {err}", path.display()),
+        )
+        .with_path(path.display().to_string())
+    })?;
+    if value.get("targets").is_some() {
+        let manifest: TargetManifest = serde_json::from_value(value).map_err(|err| {
+            Diagnostic::new(
+                "verify",
+                format!("failed to parse target manifest {}: {err}", path.display()),
+            )
+            .with_path(path.display().to_string())
+        })?;
+        Ok(manifest.targets)
+    } else {
+        let contract: TargetContract = serde_json::from_value(value).map_err(|err| {
+            Diagnostic::new(
+                "verify",
+                format!("failed to parse target contract {}: {err}", path.display()),
+            )
+            .with_path(path.display().to_string())
+        })?;
+        Ok(vec![contract])
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct SemanticDiffReport {
+    schema_version: &'static str,
+    ok: bool,
+    command: &'static str,
+    old: String,
+    new: String,
+    summary: SemanticDiffSummary,
+    changes: Vec<SemanticChange>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct SemanticDiffSummary {
+    breaking: usize,
+    additive: usize,
+    informational: usize,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct SemanticChange {
+    change: &'static str,
+    severity: &'static str,
+    node_kind: String,
+    node_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    edge_kind: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    edge_from: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    edge_to: Option<String>,
+    description: String,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq)]
+struct IntentIrSnapshot {
+    schema_version: String,
+    nodes: Vec<IntentIrNode>,
+    edges: Vec<IntentIrEdge>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
+struct IntentIrNode {
+    id: String,
+    kind: String,
+    name: String,
+    #[serde(flatten)]
+    extra: BTreeMap<String, serde_json::Value>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
+struct IntentIrEdge {
+    from: String,
+    kind: String,
+    to: String,
+    #[serde(flatten)]
+    extra: BTreeMap<String, serde_json::Value>,
+}
+
+fn semantic_diff_report(old: &Path, new: &Path) -> Result<SemanticDiffReport, Diagnostic> {
+    let old_snapshot = read_intent_ir_snapshot(old)?;
+    let new_snapshot = read_intent_ir_snapshot(new)?;
+    let old_nodes = old_snapshot
+        .nodes
+        .into_iter()
+        .map(|node| (node.id.clone(), node))
+        .collect::<BTreeMap<_, _>>();
+    let new_nodes = new_snapshot
+        .nodes
+        .into_iter()
+        .map(|node| (node.id.clone(), node))
+        .collect::<BTreeMap<_, _>>();
+    let old_edges = old_snapshot
+        .edges
+        .into_iter()
+        .map(|edge| (semantic_edge_key(&edge), edge))
+        .collect::<BTreeMap<_, _>>();
+    let new_edges = new_snapshot
+        .edges
+        .into_iter()
+        .map(|edge| (semantic_edge_key(&edge), edge))
+        .collect::<BTreeMap<_, _>>();
+    let mut changes = Vec::new();
+    for (id, node) in &new_nodes {
+        if !old_nodes.contains_key(id) {
+            let severity = semantic_added_severity(&node.kind);
+            changes.push(SemanticChange {
+                change: "added",
+                severity,
+                node_kind: node.kind.clone(),
+                node_id: id.clone(),
+                edge_kind: None,
+                edge_from: None,
+                edge_to: None,
+                description: format!("added {} {}", node.kind, node.name),
+            });
+        }
+    }
+    for (id, node) in &old_nodes {
+        if !new_nodes.contains_key(id) {
+            let severity = semantic_removed_severity(&node.kind);
+            changes.push(SemanticChange {
+                change: "removed",
+                severity,
+                node_kind: node.kind.clone(),
+                node_id: id.clone(),
+                edge_kind: None,
+                edge_from: None,
+                edge_to: None,
+                description: format!("removed {} {}", node.kind, node.name),
+            });
+        }
+    }
+    for (id, old_node) in &old_nodes {
+        if let Some(new_node) = new_nodes.get(id) {
+            if old_node != new_node {
+                let severity = semantic_modified_severity(&old_node.kind);
+                changes.push(SemanticChange {
+                    change: "modified",
+                    severity,
+                    node_kind: old_node.kind.clone(),
+                    node_id: id.clone(),
+                    edge_kind: None,
+                    edge_from: None,
+                    edge_to: None,
+                    description: format!("modified {} {}", old_node.kind, old_node.name),
+                });
+            }
+        }
+    }
+    for (key, edge) in &new_edges {
+        if !old_edges.contains_key(key) {
+            changes.push(semantic_edge_change("added", edge));
+        }
+    }
+    for (key, edge) in &old_edges {
+        if !new_edges.contains_key(key) {
+            changes.push(semantic_edge_change("removed", edge));
+        }
+    }
+    for (key, old_edge) in &old_edges {
+        if let Some(new_edge) = new_edges.get(key) {
+            if old_edge != new_edge {
+                changes.push(semantic_edge_change("modified", old_edge));
+            }
+        }
+    }
+    changes.sort_by(|left, right| {
+        semantic_severity_rank(left.severity)
+            .cmp(&semantic_severity_rank(right.severity))
+            .then_with(|| left.node_kind.cmp(&right.node_kind))
+            .then_with(|| left.node_id.cmp(&right.node_id))
+            .then_with(|| left.change.cmp(right.change))
+    });
+    let summary = SemanticDiffSummary {
+        breaking: changes
+            .iter()
+            .filter(|change| change.severity == "breaking")
+            .count(),
+        additive: changes
+            .iter()
+            .filter(|change| change.severity == "additive")
+            .count(),
+        informational: changes
+            .iter()
+            .filter(|change| change.severity == "informational")
+            .count(),
+    };
+    Ok(SemanticDiffReport {
+        schema_version: "axiom.semantic_diff.v0",
+        ok: true,
+        command: "semantic-diff",
+        old: old.display().to_string(),
+        new: new.display().to_string(),
+        summary,
+        changes,
+    })
+}
+
+fn read_intent_ir_snapshot(path: &Path) -> Result<IntentIrSnapshot, Diagnostic> {
+    let content = fs::read_to_string(path).map_err(|err| {
+        Diagnostic::new(
+            "semantic-diff",
+            format!(
+                "failed to read Intent IR snapshot {}: {err}",
+                path.display()
+            ),
+        )
+        .with_path(path.display().to_string())
+    })?;
+    let snapshot: IntentIrSnapshot = serde_json::from_str(&content).map_err(|err| {
+        Diagnostic::new(
+            "semantic-diff",
+            format!(
+                "failed to parse Intent IR snapshot {}: {err}",
+                path.display()
+            ),
+        )
+        .with_path(path.display().to_string())
+    })?;
+    if snapshot.schema_version != "axiom.intent_ir.v0" {
+        return Err(Diagnostic::new(
+            "semantic-diff",
+            format!(
+                "snapshot {} uses unsupported schema_version {:?}",
+                path.display(),
+                snapshot.schema_version
+            ),
+        )
+        .with_path(path.display().to_string()));
+    }
+    Ok(snapshot)
+}
+
+fn semantic_edge_key(edge: &IntentIrEdge) -> (String, String, String) {
+    (edge.from.clone(), edge.kind.clone(), edge.to.clone())
+}
+
+fn semantic_edge_change(change: &'static str, edge: &IntentIrEdge) -> SemanticChange {
+    SemanticChange {
+        change,
+        severity: "breaking",
+        node_kind: "Edge".to_string(),
+        node_id: semantic_edge_id(edge),
+        edge_kind: Some(edge.kind.clone()),
+        edge_from: Some(edge.from.clone()),
+        edge_to: Some(edge.to.clone()),
+        description: format!("{change} {} edge {} -> {}", edge.kind, edge.from, edge.to),
+    }
+}
+
+fn semantic_edge_id(edge: &IntentIrEdge) -> String {
+    format!(
+        "axiom://edge/{}/{}/{}",
+        edge.kind,
+        edge.from.trim_start_matches("axiom://"),
+        edge.to.trim_start_matches("axiom://")
+    )
+}
+
+fn semantic_added_severity(kind: &str) -> &'static str {
+    match kind {
+        "Capability" | "Effect" | "RuntimeSurface" => "breaking",
+        _ => "additive",
+    }
+}
+
+fn semantic_removed_severity(kind: &str) -> &'static str {
+    match kind {
+        "Module" | "Type" | "Function" => "informational",
+        _ => "breaking",
+    }
+}
+
+fn semantic_modified_severity(kind: &str) -> &'static str {
+    match kind {
+        "Capability" | "Effect" | "Axiom" | "Artifact" | "RuntimeSurface" => "breaking",
+        _ => "informational",
+    }
+}
+
+fn semantic_severity_rank(severity: &str) -> usize {
+    match severity {
+        "breaking" => 0,
+        "additive" => 1,
+        _ => 2,
+    }
+}
+
 fn normalized_id_component(value: &str, fallback: &str) -> String {
     let mut out = String::new();
     let mut last_dash = false;
@@ -1583,6 +2356,8 @@ struct SemanticGraphNode {
     #[serde(skip_serializing_if = "Option::is_none")]
     severity: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    status: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     description: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     assertion: Option<String>,
@@ -1609,8 +2384,26 @@ struct SemanticGraphEffect {
 #[derive(Debug, Clone, Serialize)]
 struct SemanticGraphEdge {
     from: String,
-    kind: &'static str,
+    kind: String,
     to: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct DecisionRecord {
+    schema_version: String,
+    id: String,
+    title: String,
+    status: String,
+    context: String,
+    decision: String,
+    #[serde(default)]
+    governs: Vec<DecisionRecordEdge>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct DecisionRecordEdge {
+    relationship: String,
+    target: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -1664,6 +2457,7 @@ fn inspect_semantic_graph(
                 span: symbol_span(&file, axiom.line, axiom.column),
                 scope: axiom.scope.clone(),
                 severity: axiom.severity.clone(),
+                status: None,
                 description: axiom.description.clone(),
                 assertion: axiom.assertion.clone(),
                 inputs: Vec::new(),
@@ -1679,6 +2473,7 @@ fn inspect_semantic_graph(
                 span: symbol_span(&file, evidence.line, evidence.column),
                 scope: None,
                 severity: None,
+                status: None,
                 description: evidence.description.clone(),
                 assertion: None,
                 inputs: Vec::new(),
@@ -1695,6 +2490,7 @@ fn inspect_semantic_graph(
                 span: symbol_span(&file, capability.line, capability.column),
                 scope: None,
                 severity: None,
+                status: None,
                 description: None,
                 assertion: None,
                 inputs: capability
@@ -1722,27 +2518,151 @@ fn inspect_semantic_graph(
             for reference in &capability.preserves {
                 edges.push(SemanticGraphEdge {
                     from: capability_id.clone(),
-                    kind: "preserves",
+                    kind: String::from("preserves"),
                     to: semantic_node_id("axiom", &reference.name),
                 });
             }
             for reference in &capability.evidence {
                 edges.push(SemanticGraphEdge {
                     from: capability_id.clone(),
-                    kind: "requires_evidence",
+                    kind: String::from("requires_evidence"),
                     to: semantic_node_id("evidence", &reference.name),
                 });
             }
         }
     }
+    append_decision_records(path, &mut nodes, &mut edges)?;
     nodes.sort_by(|left, right| left.id.cmp(&right.id));
     edges.sort_by(|left, right| {
         left.from
             .cmp(&right.from)
-            .then_with(|| left.kind.cmp(right.kind))
+            .then_with(|| left.kind.cmp(&right.kind))
             .then_with(|| left.to.cmp(&right.to))
     });
     Ok((nodes, edges))
+}
+
+fn append_decision_records(
+    project: &Path,
+    nodes: &mut Vec<SemanticGraphNode>,
+    edges: &mut Vec<SemanticGraphEdge>,
+) -> Result<(), Diagnostic> {
+    for path in decision_record_paths(project)? {
+        let record = read_decision_record(&path)?;
+        let node_id = decision_record_node_id(&record.id);
+        nodes.push(SemanticGraphNode {
+            id: node_id.clone(),
+            kind: "decision",
+            name: record.title.clone(),
+            span: symbol_span(&path, 1, 1),
+            scope: None,
+            severity: None,
+            status: Some(record.status.clone()),
+            description: Some(format!("{} Decision: {}", record.context, record.decision)),
+            assertion: None,
+            inputs: Vec::new(),
+            effects: Vec::new(),
+            evidence: Vec::new(),
+        });
+        for governed in record.governs {
+            if !matches!(
+                governed.relationship.as_str(),
+                "preserves" | "violates" | "depends_on"
+            ) {
+                return Err(Diagnostic::new(
+                    "decision",
+                    format!(
+                        "decision {} uses unsupported relationship {:?}",
+                        record.id, governed.relationship
+                    ),
+                )
+                .with_path(path.display().to_string()));
+            }
+            edges.push(SemanticGraphEdge {
+                from: node_id.clone(),
+                kind: governed.relationship,
+                to: governed.target,
+            });
+        }
+    }
+    Ok(())
+}
+
+fn decision_record_paths(project: &Path) -> Result<Vec<PathBuf>, Diagnostic> {
+    let dir = project.join("decisions");
+    if !dir.exists() {
+        return Ok(Vec::new());
+    }
+    let mut paths = Vec::new();
+    for entry in fs::read_dir(&dir).map_err(|err| {
+        Diagnostic::new(
+            "decision",
+            format!("failed to read decision directory {}: {err}", dir.display()),
+        )
+    })? {
+        let entry = entry.map_err(|err| {
+            Diagnostic::new(
+                "decision",
+                format!("failed to read decision directory {}: {err}", dir.display()),
+            )
+        })?;
+        let path = entry.path();
+        if path.extension().and_then(|value| value.to_str()) == Some("json") {
+            paths.push(path);
+        }
+    }
+    paths.sort();
+    Ok(paths)
+}
+
+fn read_decision_record(path: &Path) -> Result<DecisionRecord, Diagnostic> {
+    let content = fs::read_to_string(path).map_err(|err| {
+        Diagnostic::new(
+            "decision",
+            format!("failed to read decision record {}: {err}", path.display()),
+        )
+        .with_path(path.display().to_string())
+    })?;
+    let record: DecisionRecord = serde_json::from_str(&content).map_err(|err| {
+        Diagnostic::new(
+            "decision",
+            format!("failed to parse decision record {}: {err}", path.display()),
+        )
+        .with_path(path.display().to_string())
+    })?;
+    if record.schema_version != "axiom.decision_record.v0" {
+        return Err(Diagnostic::new(
+            "decision",
+            format!(
+                "decision record {} uses unsupported schema_version {:?}",
+                path.display(),
+                record.schema_version
+            ),
+        )
+        .with_path(path.display().to_string()));
+    }
+    if !matches!(
+        record.status.as_str(),
+        "proposed" | "accepted" | "superseded" | "rejected"
+    ) {
+        return Err(Diagnostic::new(
+            "decision",
+            format!(
+                "decision record {} uses unsupported status {:?}",
+                record.id, record.status
+            ),
+        )
+        .with_path(path.display().to_string()));
+    }
+    Ok(record)
+}
+
+fn decision_record_node_id(id: &str) -> String {
+    if id.starts_with("axiom://") {
+        id.to_string()
+    } else {
+        semantic_node_id("decision", id)
+    }
 }
 
 fn semantic_node_id(kind: &str, name: &str) -> String {
@@ -4033,6 +4953,8 @@ mod tests {
         assert!(help.contains("Pack and publish a stage1 package into a local registry tree"));
         assert!(help.contains("Build a static package-registry index"));
         assert!(help.contains("Validate a static package-registry index JSON file"));
+        assert!(help.contains("Verify declared axioms and target evidence requirements"));
+        assert!(help.contains("Diff two Intent IR snapshots"));
     }
 
     #[test]
@@ -4083,6 +5005,28 @@ mod tests {
                 assert!(json);
             }
             other => panic!("expected test command, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn semantic_verifier_commands_parse_json_flags() {
+        let verify = Cli::parse_from(["axiomc", "verify", ".", "--json"]);
+        match verify.command {
+            Command::Verify { path, json } => {
+                assert_eq!(path, PathBuf::from("."));
+                assert!(json);
+            }
+            other => panic!("expected verify command, got {other:?}"),
+        }
+
+        let diff = Cli::parse_from(["axiomc", "semantic-diff", "old.json", "new.json", "--json"]);
+        match diff.command {
+            Command::SemanticDiff { old, new, json } => {
+                assert_eq!(old, PathBuf::from("old.json"));
+                assert_eq!(new, PathBuf::from("new.json"));
+                assert!(json);
+            }
+            other => panic!("expected semantic-diff command, got {other:?}"),
         }
     }
 
@@ -4507,6 +5451,138 @@ mod tests {
         );
     }
 
+    #[test]
+    fn verify_reports_verified_unverified_and_violated_axioms() {
+        let project = fixture_path("semantic_verifier");
+
+        let report = verify_project(&project).expect("verify project");
+        let payload = serde_json::to_value(&report).expect("serialize verify report");
+        validate_schema(&payload, "axiom-verify-v0.schema.json");
+
+        assert!(!report.ok);
+        assert_eq!(report.validation_status, "violated");
+        assert_eq!(report.summary.verified, 1);
+        assert_eq!(report.summary.unverified, 1);
+        assert_eq!(report.summary.violated, 1);
+        assert!(report.edges.iter().any(|edge| edge.kind == "verified_by"));
+        assert!(report.edges.iter().any(|edge| edge.kind == "violates"));
+        let verified = report
+            .axioms
+            .iter()
+            .find(|axiom| axiom.name == "VerifiedInvariant")
+            .expect("verified axiom");
+        assert_eq!(verified.status, "verified");
+        assert!(
+            verified
+                .backing_evidence
+                .iter()
+                .any(|evidence| evidence.status == "passing")
+        );
+        let target = report
+            .target_contracts
+            .iter()
+            .find(|target| target.target_id == "axiom://target/semantic-verifier/runbook")
+            .expect("target verification");
+        assert_eq!(target.status, "unverified");
+        assert!(
+            target
+                .requirements
+                .iter()
+                .any(|requirement| requirement.status == "failing")
+        );
+    }
+
+    #[test]
+    fn inspect_graph_loads_decision_records_as_semantic_nodes() {
+        let project = fixture_path("decision_records");
+
+        let report = inspect_graph(&project).expect("inspect graph");
+        let payload = serde_json::to_value(&report).expect("serialize inspect graph");
+        validate_schema(&payload, "axiom-semantic-graph-v0.schema.json");
+
+        assert!(report.nodes.iter().any(|node| {
+            node.kind == "decision"
+                && node.name == "Python-exit VM disposition"
+                && node.status.as_deref() == Some("accepted")
+        }));
+        assert!(report.nodes.iter().any(|node| {
+            node.kind == "decision"
+                && node.name == "Legacy Python-exit threshold"
+                && node.status.as_deref() == Some("superseded")
+        }));
+        assert!(report.edges.iter().any(|edge| {
+            edge.kind == "preserves"
+                && edge.from == "axiom://semantic/decision/python-exit-vm-disposition"
+                && edge.to == "axiom://semantic/axiom/PythonExitParityGate"
+        }));
+        assert!(report.edges.iter().any(|edge| edge.kind == "violates"));
+    }
+
+    #[test]
+    fn semantic_diff_classifies_breaking_and_additive_changes() {
+        let fixtures = fixture_path("semantic_diff");
+        let breaking =
+            semantic_diff_report(&fixtures.join("base.json"), &fixtures.join("breaking.json"))
+                .expect("breaking semantic diff");
+        let breaking_payload =
+            serde_json::to_value(&breaking).expect("serialize breaking semantic diff");
+        validate_schema(&breaking_payload, "axiom-semantic-diff-v0.schema.json");
+        assert_eq!(breaking.summary.breaking, 3);
+        assert!(breaking.changes.iter().any(|change| {
+            change.change == "added"
+                && change.severity == "breaking"
+                && change.node_kind == "Capability"
+        }));
+        assert!(breaking.changes.iter().any(|change| {
+            change.change == "removed"
+                && change.severity == "breaking"
+                && change.node_kind == "Axiom"
+        }));
+
+        let additive =
+            semantic_diff_report(&fixtures.join("base.json"), &fixtures.join("additive.json"))
+                .expect("additive semantic diff");
+        let additive_payload =
+            serde_json::to_value(&additive).expect("serialize additive semantic diff");
+        validate_schema(&additive_payload, "axiom-semantic-diff-v0.schema.json");
+        assert_eq!(additive.summary.breaking, 0);
+        assert_eq!(additive.summary.additive, 1);
+        assert_eq!(additive.changes[0].node_kind, "Function");
+
+        let edge_drift = semantic_diff_report(
+            &fixtures.join("edge_base.json"),
+            &fixtures.join("edge_drift.json"),
+        )
+        .expect("edge-only semantic diff");
+        let edge_drift_payload =
+            serde_json::to_value(&edge_drift).expect("serialize edge semantic diff");
+        validate_schema(&edge_drift_payload, "axiom-semantic-diff-v0.schema.json");
+        assert_eq!(edge_drift.summary.breaking, 4);
+        assert!(
+            edge_drift
+                .changes
+                .iter()
+                .all(|change| change.node_kind == "Edge")
+        );
+        assert!(edge_drift.changes.iter().any(|change| {
+            change.change == "added"
+                && change.edge_kind.as_deref() == Some("requires")
+                && change.edge_from.as_deref()
+                    == Some("axiom://package/semantic-diff/function/read")
+                && change.edge_to.as_deref()
+                    == Some("axiom://package/semantic-diff/capability/network")
+        }));
+        assert!(edge_drift.changes.iter().any(|change| {
+            change.change == "added" && change.edge_kind.as_deref() == Some("allows_effect")
+        }));
+        assert!(edge_drift.changes.iter().any(|change| {
+            change.change == "added" && change.edge_kind.as_deref() == Some("preserves")
+        }));
+        assert!(edge_drift.changes.iter().any(|change| {
+            change.change == "removed" && change.edge_kind.as_deref() == Some("verified_by")
+        }));
+    }
+
     fn write_minimal_manifest(project: &Path, name: &str) {
         fs::write(
             project.join("axiom.toml"),
@@ -4522,16 +5598,29 @@ mod tests {
         .expect("write lockfile");
     }
 
+    fn fixture_path(name: &str) -> PathBuf {
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .join("..")
+            .join("examples")
+            .join(name)
+    }
+
     fn validate_repair_plan_schema(payload: &serde_json::Value) {
-        let schema_path =
-            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schemas/axiom-repair-v0.schema.json");
+        validate_schema(payload, "axiom-repair-v0.schema.json");
+    }
+
+    fn validate_schema(payload: &serde_json::Value, schema_name: &str) {
+        let schema_path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .join("..")
+            .join("schemas")
+            .join(schema_name);
         let schema: serde_json::Value =
             serde_json::from_str(&fs::read_to_string(schema_path).expect("read schema"))
                 .expect("schema json");
         let validator = jsonschema::validator_for(&schema).expect("compile schema");
-        validator
-            .validate(payload)
-            .expect("repair plan matches schema");
+        validator.validate(payload).expect("payload matches schema");
     }
 
     #[test]
