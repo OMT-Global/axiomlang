@@ -2,7 +2,7 @@ use crate::diagnostics::Diagnostic;
 use crate::lockfile::render_lockfile;
 use crate::manifest::{
     BuildSection, CapabilityConfig, LOCK_FILENAME, MANIFEST_FILENAME, Manifest, PackageSection,
-    render_manifest,
+    RuntimeConfig, render_manifest,
 };
 use std::collections::BTreeMap;
 use std::fs;
@@ -89,6 +89,7 @@ pub fn create_project_with_template(
             entry: String::from("src/main.ax"),
             out_dir: String::from("dist"),
         },
+        runtime: RuntimeConfig::default(),
         tests: Vec::new(),
         capabilities: CapabilityConfig::default(),
     };
