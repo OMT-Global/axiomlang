@@ -1,0 +1,13 @@
+axiom PythonExitParityGate {
+  scope BootstrapExit
+  severity fatal
+  description "Python-exit deletion remains gated by VM parity evidence."
+}
+
+capability PythonExitDisposition {
+  preserves PythonExitParityGate
+}
+
+pub fn main(): int {
+return 0
+}

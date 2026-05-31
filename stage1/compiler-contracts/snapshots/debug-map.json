@@ -1,0 +1,24 @@
+{
+  "schema_version": "axiom.stage1.debug_map.v1",
+  "generated_rust": "<project>/dist/debug-map-contract.generated.rs",
+  "mappings": [
+    {
+      "generated_line": 2835,
+      "source": "<project>/src/helper.ax",
+      "line": 2,
+      "column": 1
+    },
+    {
+      "generated_line": 2842,
+      "source": "<project>/src/main.ax",
+      "line": 2,
+      "column": 1
+    },
+    {
+      "generated_line": 2844,
+      "source": "<project>/src/main.ax",
+      "line": 3,
+      "column": 1
+    }
+  ]
+}

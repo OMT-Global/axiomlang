@@ -1,0 +1,28 @@
+{
+  "schema_version": "axiom.intent_ir.v0",
+  "graph_id": "axiom://graph/semantic-diff-additive",
+  "package": "axiom://package/semantic-diff",
+  "nodes": [
+    {
+      "id": "axiom://package/semantic-diff",
+      "kind": "Package",
+      "name": "semantic-diff"
+    },
+    {
+      "id": "axiom://package/semantic-diff/function/read",
+      "kind": "Function",
+      "name": "read"
+    },
+    {
+      "id": "axiom://package/semantic-diff/function/render",
+      "kind": "Function",
+      "name": "render"
+    },
+    {
+      "id": "axiom://package/semantic-diff/axiom/no-network",
+      "kind": "Axiom",
+      "name": "no-network"
+    }
+  ],
+  "edges": []
+}

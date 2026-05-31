@@ -50,6 +50,45 @@ fn cli_json_outputs_match_checked_in_contract_snapshots() {
 }
 
 #[test]
+fn debug_map_sidecar_matches_checked_in_contract_snapshot() {
+    let contracts = contract_root();
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("debug-map-contract");
+
+    run_axiomc(&[
+        "new",
+        project.to_str().expect("project path"),
+        "--name",
+        "debug-map-contract",
+    ]);
+    fs::write(
+        project.join("src/helper.ax"),
+        "pub fn helper(): int {\nreturn 7\n}\n",
+    )
+    .expect("write helper source");
+    fs::write(
+        project.join("src/main.ax"),
+        "import \"helper.ax\"\nlet answer: int = helper()\nprint answer\n",
+    )
+    .expect("write main source");
+
+    let build = run_axiomc_json(&[
+        "build",
+        project.to_str().expect("project path"),
+        "--debug",
+        "--json",
+    ]);
+    let debug_map_path = build["debug_map"]
+        .as_str()
+        .expect("build payload debug_map path");
+    let debug_map = read_json(Path::new(debug_map_path));
+    let normalized = normalize_payload(debug_map, &project);
+    let snapshot = read_json(&contracts.join("snapshots/debug-map.json"));
+
+    assert_eq!(normalized, snapshot, "debug map sidecar drifted");
+}
+
+#[test]
 fn cli_json_outputs_validate_against_public_v1_schema() {
     let schema = read_json(&public_v1_schema_path());
     let validator = jsonschema::validator_for(&schema).expect("compile public v1 schema");

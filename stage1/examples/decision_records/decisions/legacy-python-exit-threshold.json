@@ -1,0 +1,14 @@
+{
+  "schema_version": "axiom.decision_record.v0",
+  "id": "legacy-python-exit-threshold",
+  "title": "Legacy Python-exit threshold",
+  "status": "superseded",
+  "context": "Earlier bootstrap work used a looser readiness threshold.",
+  "decision": "Superseded by the Python-exit VM disposition decision record.",
+  "governs": [
+    {
+      "relationship": "violates",
+      "target": "axiom://semantic/axiom/PythonExitParityGate"
+    }
+  ]
+}
