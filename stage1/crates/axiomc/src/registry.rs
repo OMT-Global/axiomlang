@@ -727,11 +727,11 @@ fn load_release(
                 .then(|| format!("{archive}.sig"))
         }),
     };
-    if archive_file.is_some() && signature_file.is_none() {
+    if archive_file.is_some() ^ signature_file.is_some() {
         return Err(Diagnostic::new(
             "registry",
             format!(
-                "registry release {package_name}@{version} includes an archive but no signature"
+                "registry release {package_name} must include both archive and signature sidecars"
             ),
         )
         .with_path(version_dir.display().to_string()));
