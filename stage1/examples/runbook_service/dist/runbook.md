@@ -63,6 +63,10 @@
 | `openapi_spec` | `planned` | `target_contract` | `dist/openapi.json` |
 | `policy_bundle` | `planned` | `target_contract` | `dist/policy-bundle.json` |
 | `runbook` | `generated` | `target_contract` | `dist/runbook.md` |
+| `sql_migration` | `planned` | `target_contract` | `dist/001_schema_forward.sql` |
+| `sql_migration` | `planned` | `target_contract` | `dist/001_schema_rollback.sql` |
+| `sql_migration` | `planned` | `target_contract` | `dist/schema.snapshot.json` |
+| `terraform_module` | `planned` | `target_contract` | `dist/main.tf` |
 | `test_entry` | `generated` | `configured` | `src/main_test.ax` |
 
 ## Unsupported Feature Diagnostics
