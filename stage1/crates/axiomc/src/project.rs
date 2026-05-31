@@ -37,6 +37,8 @@ pub struct CheckedPackage {
     pub exports: Vec<ApiExport>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub debug_symbols: Option<DebugSymbolTable>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub macro_expansions: Vec<syntax::MacroExpansion>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -50,6 +52,8 @@ pub struct CheckOutput {
     pub exports: Vec<ApiExport>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub debug_symbols: Option<DebugSymbolTable>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub macro_expansions: Vec<syntax::MacroExpansion>,
     pub packages: Vec<CheckedPackage>,
 }
 
@@ -376,11 +380,23 @@ pub struct CapabilitySbomUnsafeGrant {
     pub rationale: Option<String>,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct CheckOptions {
     pub package: Option<String>,
     pub include_exports: bool,
     pub include_debug_symbols: bool,
+    pub macro_recursion_limit: usize,
+}
+
+impl Default for CheckOptions {
+    fn default() -> Self {
+        Self {
+            package: None,
+            include_exports: false,
+            include_debug_symbols: false,
+            macro_recursion_limit: syntax::DEFAULT_MACRO_RECURSION_LIMIT,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default)]
@@ -424,7 +440,8 @@ pub fn check_project_with_options(
     let mut packages = Vec::new();
     for package_root in workspace_package_roots(&graph, &project_root, options.package.as_deref())?
     {
-        let analyzed = analyze_package(&graph, &package_root)?;
+        let analyzed =
+            analyze_package_with_macro_limit(&graph, &package_root, options.macro_recursion_limit)?;
         let exports = if options.include_exports {
             public_api_exports(&analyzed.modules, &package_root)
         } else {
@@ -433,6 +450,7 @@ pub fn check_project_with_options(
         let debug_symbols = options
             .include_debug_symbols
             .then(|| debug_symbol_table(&analyzed.modules, &package_root));
+        let macro_expansions = macro_expansions_for_package(&analyzed.modules, &package_root);
         packages.push(CheckedPackage {
             package_root: package_root.display().to_string(),
             manifest: manifest_path(&package_root).display().to_string(),
@@ -442,6 +460,7 @@ pub fn check_project_with_options(
             warnings: analyzed.manifest.capabilities.warnings(),
             exports,
             debug_symbols,
+            macro_expansions,
         });
     }
     let root = packages.first().cloned().ok_or_else(|| {
@@ -461,6 +480,7 @@ pub fn check_project_with_options(
         warnings: root.warnings,
         exports: root.exports,
         debug_symbols: root.debug_symbols,
+        macro_expansions: root.macro_expansions,
         packages,
     })
 }
@@ -1330,7 +1350,12 @@ fn analyze_package_for_capability_sbom(
         "manifest",
         "build.entry resolves outside the package",
     )?;
-    let modules = load_modules(graph, &package_root, &entry)?;
+    let modules = load_modules(
+        graph,
+        &package_root,
+        &entry,
+        syntax::DEFAULT_MACRO_RECURSION_LIMIT,
+    )?;
     let flattened = flatten_modules(graph, &modules)?;
     manifest.capabilities = audit_capabilities_for_sbom(&manifest.capabilities);
     let hir = hir::lower_with_capabilities(&flattened, &manifest.capabilities)
@@ -1348,6 +1373,14 @@ fn analyze_package_for_capability_sbom(
 fn analyze_package(
     graph: &PackageGraph,
     package_root: &Path,
+) -> Result<AnalyzedProject, Diagnostic> {
+    analyze_package_with_macro_limit(graph, package_root, syntax::DEFAULT_MACRO_RECURSION_LIMIT)
+}
+
+fn analyze_package_with_macro_limit(
+    graph: &PackageGraph,
+    package_root: &Path,
+    macro_recursion_limit: usize,
 ) -> Result<AnalyzedProject, Diagnostic> {
     let package_root = normalize_path(package_root);
     let package_root = canonicalize_existing_path(&package_root, "package root")?;
@@ -1370,7 +1403,7 @@ fn analyze_package(
         "manifest",
         "build.entry resolves outside the package",
     )?;
-    analyze_entry(graph, &package_root, manifest, entry)
+    analyze_entry(graph, &package_root, manifest, entry, macro_recursion_limit)
 }
 
 fn analyze_entry(
@@ -1378,8 +1411,9 @@ fn analyze_entry(
     package_root: &Path,
     manifest: Manifest,
     entry: PathBuf,
+    macro_recursion_limit: usize,
 ) -> Result<AnalyzedProject, Diagnostic> {
-    let modules = load_modules(graph, package_root, &entry)?;
+    let modules = load_modules(graph, package_root, &entry, macro_recursion_limit)?;
     validate_module_capabilities(graph, &modules)?;
     validate_semantic_declarations(&modules)?;
     let flattened = flatten_modules(graph, &modules)?;
@@ -2658,7 +2692,13 @@ fn run_test_case(
             );
         }
     };
-    let analyzed = match analyze_entry(graph, project_root, manifest.clone(), entry_path.clone()) {
+    let analyzed = match analyze_entry(
+        graph,
+        project_root,
+        manifest.clone(),
+        entry_path.clone(),
+        syntax::DEFAULT_MACRO_RECURSION_LIMIT,
+    ) {
         Ok(analyzed) => analyzed,
         Err(error) => {
             return failed_test_case_result(project_root, test, &started, error, None, None);
@@ -2905,7 +2945,13 @@ fn run_manifest_compile_fail_case(
         column: manifest_expected.column,
     };
     let entry_path = project_root.join(&test.entry);
-    let actual = match analyze_entry(graph, project_root, manifest.clone(), entry_path.clone()) {
+    let actual = match analyze_entry(
+        graph,
+        project_root,
+        manifest.clone(),
+        entry_path.clone(),
+        syntax::DEFAULT_MACRO_RECURSION_LIMIT,
+    ) {
         Ok(_) => {
             return TestCaseResult {
                 package_root: project_root.display().to_string(),
@@ -2988,7 +3034,13 @@ fn run_compile_fail_case(
         }
     };
     let entry_path = project_root.join(&manifest.build.entry);
-    let actual = match analyze_entry(graph, project_root, manifest.clone(), entry_path.clone()) {
+    let actual = match analyze_entry(
+        graph,
+        project_root,
+        manifest.clone(),
+        entry_path.clone(),
+        syntax::DEFAULT_MACRO_RECURSION_LIMIT,
+    ) {
         Ok(_) => {
             return TestCaseResult {
                 package_root: project_root.display().to_string(),
@@ -3320,6 +3372,7 @@ fn load_modules(
     graph: &PackageGraph,
     package_root: &Path,
     entry_path: &Path,
+    macro_recursion_limit: usize,
 ) -> Result<Vec<LoadedModule>, Diagnostic> {
     let mut ordered = Vec::new();
     let mut loaded = HashMap::new();
@@ -3329,6 +3382,7 @@ fn load_modules(
         package_root,
         entry_path,
         true,
+        macro_recursion_limit,
         &mut ordered,
         &mut loaded,
         &mut visiting,
@@ -3341,6 +3395,7 @@ fn load_module_recursive(
     package_root: &Path,
     module_path: &Path,
     is_entry: bool,
+    macro_recursion_limit: usize,
     ordered: &mut Vec<LoadedModule>,
     loaded: &mut HashMap<PathBuf, ()>,
     visiting: &mut Vec<PathBuf>,
@@ -3396,7 +3451,13 @@ fn load_module_recursive(
             .with_path(module_path.display().to_string())
         })?
     };
-    let program = syntax::parse_program(&source, &module_path)?;
+    let program = syntax::parse_program_with_options(
+        &source,
+        &module_path,
+        &syntax::ParseOptions {
+            macro_recursion_limit,
+        },
+    )?;
     if !is_entry && !program.stmts.is_empty() {
         let stmt = &program.stmts[0];
         return Err(Diagnostic::new(
@@ -3416,6 +3477,7 @@ fn load_module_recursive(
             &import_package_root,
             &import_path,
             false,
+            macro_recursion_limit,
             ordered,
             loaded,
             visiting,
@@ -4433,6 +4495,14 @@ fn flatten_modules(
             .map(|module| module.path.display().to_string())
             .unwrap_or_default(),
         imports: Vec::new(),
+        macros: modules
+            .iter()
+            .flat_map(|module| module.program.macros.clone())
+            .collect(),
+        macro_expansions: modules
+            .iter()
+            .flat_map(|module| module.program.macro_expansions.clone())
+            .collect(),
         axioms: modules
             .iter()
             .flat_map(|module| module.program.axioms.clone())
@@ -4462,6 +4532,20 @@ fn debug_symbol_table(modules: &[LoadedModule], package_root: &Path) -> DebugSym
         .filter(|module| module.package_root == package_root)
     {
         let mut symbols = Vec::new();
+        for macro_decl in &module.program.macros {
+            symbols.push(DebugSymbol {
+                kind: String::from("macro"),
+                name: macro_decl.name.clone(),
+                visibility: String::from("module"),
+                signature: format!(
+                    "macro {}({})",
+                    macro_decl.name,
+                    macro_decl.params.join(", ")
+                ),
+                line: macro_decl.line,
+                column: macro_decl.column,
+            });
+        }
         for alias in &module.program.type_aliases {
             symbols.push(DebugSymbol {
                 kind: String::from("type_alias"),
@@ -4543,6 +4627,26 @@ fn debug_symbol_table(modules: &[LoadedModule], package_root: &Path) -> DebugSym
         schema_version: "axiom.stage1.debug_symbols.v1",
         modules: module_symbols,
     }
+}
+
+fn macro_expansions_for_package(
+    modules: &[LoadedModule],
+    package_root: &Path,
+) -> Vec<syntax::MacroExpansion> {
+    let mut expansions = modules
+        .iter()
+        .filter(|module| module.package_root == package_root)
+        .flat_map(|module| module.program.macro_expansions.clone())
+        .collect::<Vec<_>>();
+    expansions.sort_by(|left, right| {
+        left.call_site
+            .path
+            .cmp(&right.call_site.path)
+            .then_with(|| left.call_site.line.cmp(&right.call_site.line))
+            .then_with(|| left.call_site.column.cmp(&right.call_site.column))
+            .then_with(|| left.macro_name.cmp(&right.macro_name))
+    });
+    expansions
 }
 
 fn visibility_name(visibility: syntax::Visibility) -> &'static str {
@@ -7336,6 +7440,7 @@ mod tests {
             &root,
             &entry,
             true,
+            syntax::DEFAULT_MACRO_RECURSION_LIMIT,
             &mut Vec::new(),
             &mut HashMap::new(),
             &mut Vec::new(),
@@ -7537,6 +7642,7 @@ mod tests {
             &root,
             &entry,
             true,
+            syntax::DEFAULT_MACRO_RECURSION_LIMIT,
             &mut Vec::new(),
             &mut HashMap::new(),
             &mut Vec::new(),

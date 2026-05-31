@@ -52,6 +52,8 @@ Current executable fixtures cover:
   return-type checking through parsed control flow.
 - `runtime_negative_diagnostics`: executable negative runtime coverage for
   structured `panic(...)` diagnostics and array bounds runtime diagnostics.
+- `declarative_macros`: macro keyword syntax, nested expansion, repeated
+  expression captures, and introduced-local hygiene before type-check.
 
 Packages under `fail/` are compile-fail fixtures. Each package is a complete
 stage1 project with `axiom.toml`, `axiom.lock`, source, and
@@ -136,6 +138,10 @@ Current compile-fail fixtures cover:
   self-recursive enum payloads without an indirection boundary.
 - `match_guard_not_supported`: parse diagnostics for unsupported `if` guard
   clauses on match arms.
+- `macro_missing_argument`: parse diagnostics for a macro call that omits a
+  required captured argument.
+- `macro_recursion_limit`: parse diagnostics for recursive declarative macro
+  expansion bounded by the default recursion limit.
 - `named_nested_match_pattern_not_supported`: parse diagnostics for
   unsupported nested destructuring inside named match patterns.
 - `nested_match_pattern_not_supported`: parse diagnostics for unsupported

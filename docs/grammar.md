@@ -16,10 +16,13 @@ item           := macro_item
                | trait_item
                | fn_item ;
 
-macro_item     := "macro_rules!" IDENT "{" macro_arm "}" ;
-macro_arm      := "(" macro_param_list? ")" "=>" "{" source_text "}" ;
+macro_item     := ("macro" | "macro_rules!") IDENT "{" macro_arm (";" macro_arm)* "}" ;
+macro_arm      := "(" macro_param_list? ")" "=>" macro_template ;
+macro_template := "{" source_text "}" | "(" source_text ")" ;
 macro_param_list := macro_param ("," macro_param)* ;
-macro_param    := "$" IDENT (":" IDENT)? ;
+macro_param    := "$" IDENT (":" IDENT)?
+               | "$(" "$" IDENT (":" IDENT)? ")" separator? "*" ;
+separator      := "," ;
 import_item    := "import" STRING ;
 const_item     := visibility? "const" IDENT ":" type "=" expr ;
 type_item      := visibility? "type" IDENT generic_params? "=" type ;
@@ -79,12 +82,15 @@ Comments start with `#` and run to end-of-line. See
 Pattern guards and nested destructuring patterns are not supported in the
 current stage1 parser.
 
-Declarative `macro_rules!` support is intentionally small in stage1: one arm per
-macro, explicit `$name` captures, textual expansion before type-check, and a
-bounded recursive expansion depth. Macro output may invoke other macros and the
-expander repeats until no invocations remain or the current hard cap of 64
-expansion passes is exceeded. Multi-line expansions must be invoked as a whole
-statement; single-line expansions can appear inside expressions.
+Declarative `macro` and compatibility `macro_rules!` support is intentionally
+small in stage1: top-level definitions, explicit `$name` captures, one repeated
+`$($name:fragment),*` capture per arm, textual expansion before type-check, and
+a bounded recursive expansion depth. Macro output may invoke other macros and
+the expander repeats until no invocations remain or the active recursion limit
+is exceeded. `axiomc check --macro-recursion-limit <n>` adjusts the default
+limit of 64. Multi-line expansions must be invoked as a whole statement;
+single-line expansions can appear inside expressions. `axiomc check --json`
+includes `macro_expansions` metadata when a checked package expands macros.
 
 Trait declarations are currently parser and HIR contracts only. Trait names are
 rejected in type positions until bounded generics, impl blocks, and dispatch land.
