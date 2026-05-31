@@ -1,5 +1,5 @@
 use crate::diagnostics::Diagnostic;
-use crate::manifest::CapabilityDescriptor;
+use crate::manifest::{CapabilityDescriptor, TestKind};
 use crate::project::{
     BuildOutput, CapabilitySbomOutput, CheckOutput, RunOutput, TestListOutput, TestOutput,
 };
@@ -81,7 +81,12 @@ pub fn run_success(project: &Path, output: &RunOutput) -> Value {
     })
 }
 
-pub fn test_list_success(project: &Path, filter: Option<&str>, output: &TestListOutput) -> Value {
+pub fn test_list_success(
+    project: &Path,
+    filter: Option<&str>,
+    properties_only: bool,
+    output: &TestListOutput,
+) -> Value {
     json!({
         "schema_version": JSON_SCHEMA_VERSION,
         "ok": true,
@@ -91,11 +96,32 @@ pub fn test_list_success(project: &Path, filter: Option<&str>, output: &TestList
         "manifest": output.manifest,
         "packages": output.packages,
         "filter": filter,
+        "properties_only": properties_only,
         "tests": output.tests,
     })
 }
 
-pub fn test_success(project: &Path, filter: Option<&str>, output: &TestOutput) -> Value {
+pub fn test_success(
+    project: &Path,
+    filter: Option<&str>,
+    properties_only: bool,
+    output: &TestOutput,
+) -> Value {
+    let property_total = output
+        .cases
+        .iter()
+        .filter(|case| case.kind == TestKind::Property)
+        .count();
+    let property_passed = output
+        .cases
+        .iter()
+        .filter(|case| case.kind == TestKind::Property && case.ok)
+        .count();
+    let property_failed = output
+        .cases
+        .iter()
+        .filter(|case| case.kind == TestKind::Property && !case.ok)
+        .count();
     json!({
         "schema_version": JSON_SCHEMA_VERSION,
         "ok": output.failed == 0,
@@ -104,10 +130,16 @@ pub fn test_success(project: &Path, filter: Option<&str>, output: &TestOutput) -
         "manifest": output.manifest,
         "packages": output.packages,
         "filter": filter,
+        "properties_only": properties_only,
         "passed": output.passed,
         "failed": output.failed,
         "skipped": output.skipped,
         "kinds": output.kinds,
+        "properties": {
+            "passed": property_passed,
+            "failed": property_failed,
+            "total": property_total,
+        },
         "duration_ms": output.duration_ms,
         "cases": output.cases,
     })

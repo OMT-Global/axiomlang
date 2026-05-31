@@ -67,6 +67,8 @@ jobs:
     if: >-
       github.event.pull_request.draft == false &&
       (needs.changes.outputs.app == 'true' || needs.changes.outputs.ci == 'true')
+    env:
+      GITHUB_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4 pinned 2026-05-30
         with:
