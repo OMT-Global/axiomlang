@@ -95,14 +95,41 @@
           "minLength": 1
         },
         "node_id": {
-          "type": "string",
-          "pattern": "^axiom://[A-Za-z0-9._~:/#@!$&'()*+,;=%-]+$"
+          "$ref": "#/$defs/nodeId"
+        },
+        "edge_kind": {
+          "$ref": "#/$defs/edgeKind"
+        },
+        "edge_from": {
+          "$ref": "#/$defs/nodeId"
+        },
+        "edge_to": {
+          "$ref": "#/$defs/nodeId"
         },
         "description": {
           "type": "string",
           "minLength": 1
         }
       }
+    },
+    "nodeId": {
+      "type": "string",
+      "pattern": "^axiom://[A-Za-z0-9._~:/#@!$&'()*+,;=%-]+$"
+    },
+    "edgeKind": {
+      "enum": [
+        "declares",
+        "uses",
+        "requires",
+        "preserves",
+        "allows_effect",
+        "emits",
+        "verified_by",
+        "generated_from",
+        "depends_on",
+        "implements",
+        "violates"
+      ]
     }
   }
 }

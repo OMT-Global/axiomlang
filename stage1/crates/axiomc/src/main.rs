@@ -2008,6 +2008,12 @@ struct SemanticChange {
     severity: &'static str,
     node_kind: String,
     node_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    edge_kind: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    edge_from: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    edge_to: Option<String>,
     description: String,
 }
 
@@ -2015,6 +2021,7 @@ struct SemanticChange {
 struct IntentIrSnapshot {
     schema_version: String,
     nodes: Vec<IntentIrNode>,
+    edges: Vec<IntentIrEdge>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
@@ -2022,6 +2029,15 @@ struct IntentIrNode {
     id: String,
     kind: String,
     name: String,
+    #[serde(flatten)]
+    extra: BTreeMap<String, serde_json::Value>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
+struct IntentIrEdge {
+    from: String,
+    kind: String,
+    to: String,
     #[serde(flatten)]
     extra: BTreeMap<String, serde_json::Value>,
 }
@@ -2039,6 +2055,16 @@ fn semantic_diff_report(old: &Path, new: &Path) -> Result<SemanticDiffReport, Di
         .into_iter()
         .map(|node| (node.id.clone(), node))
         .collect::<BTreeMap<_, _>>();
+    let old_edges = old_snapshot
+        .edges
+        .into_iter()
+        .map(|edge| (semantic_edge_key(&edge), edge))
+        .collect::<BTreeMap<_, _>>();
+    let new_edges = new_snapshot
+        .edges
+        .into_iter()
+        .map(|edge| (semantic_edge_key(&edge), edge))
+        .collect::<BTreeMap<_, _>>();
     let mut changes = Vec::new();
     for (id, node) in &new_nodes {
         if !old_nodes.contains_key(id) {
@@ -2048,6 +2074,9 @@ fn semantic_diff_report(old: &Path, new: &Path) -> Result<SemanticDiffReport, Di
                 severity,
                 node_kind: node.kind.clone(),
                 node_id: id.clone(),
+                edge_kind: None,
+                edge_from: None,
+                edge_to: None,
                 description: format!("added {} {}", node.kind, node.name),
             });
         }
@@ -2060,6 +2089,9 @@ fn semantic_diff_report(old: &Path, new: &Path) -> Result<SemanticDiffReport, Di
                 severity,
                 node_kind: node.kind.clone(),
                 node_id: id.clone(),
+                edge_kind: None,
+                edge_from: None,
+                edge_to: None,
                 description: format!("removed {} {}", node.kind, node.name),
             });
         }
@@ -2073,8 +2105,28 @@ fn semantic_diff_report(old: &Path, new: &Path) -> Result<SemanticDiffReport, Di
                     severity,
                     node_kind: old_node.kind.clone(),
                     node_id: id.clone(),
+                    edge_kind: None,
+                    edge_from: None,
+                    edge_to: None,
                     description: format!("modified {} {}", old_node.kind, old_node.name),
                 });
+            }
+        }
+    }
+    for (key, edge) in &new_edges {
+        if !old_edges.contains_key(key) {
+            changes.push(semantic_edge_change("added", edge));
+        }
+    }
+    for (key, edge) in &old_edges {
+        if !new_edges.contains_key(key) {
+            changes.push(semantic_edge_change("removed", edge));
+        }
+    }
+    for (key, old_edge) in &old_edges {
+        if let Some(new_edge) = new_edges.get(key) {
+            if old_edge != new_edge {
+                changes.push(semantic_edge_change("modified", old_edge));
             }
         }
     }
@@ -2143,6 +2195,32 @@ fn read_intent_ir_snapshot(path: &Path) -> Result<IntentIrSnapshot, Diagnostic> 
         .with_path(path.display().to_string()));
     }
     Ok(snapshot)
+}
+
+fn semantic_edge_key(edge: &IntentIrEdge) -> (String, String, String) {
+    (edge.from.clone(), edge.kind.clone(), edge.to.clone())
+}
+
+fn semantic_edge_change(change: &'static str, edge: &IntentIrEdge) -> SemanticChange {
+    SemanticChange {
+        change,
+        severity: "breaking",
+        node_kind: "Edge".to_string(),
+        node_id: semantic_edge_id(edge),
+        edge_kind: Some(edge.kind.clone()),
+        edge_from: Some(edge.from.clone()),
+        edge_to: Some(edge.to.clone()),
+        description: format!("{change} {} edge {} -> {}", edge.kind, edge.from, edge.to),
+    }
+}
+
+fn semantic_edge_id(edge: &IntentIrEdge) -> String {
+    format!(
+        "axiom://edge/{}/{}/{}",
+        edge.kind,
+        edge.from.trim_start_matches("axiom://"),
+        edge.to.trim_start_matches("axiom://")
+    )
 }
 
 fn semantic_added_severity(kind: &str) -> &'static str {
@@ -5344,6 +5422,39 @@ mod tests {
         assert_eq!(additive.summary.breaking, 0);
         assert_eq!(additive.summary.additive, 1);
         assert_eq!(additive.changes[0].node_kind, "Function");
+
+        let edge_drift = semantic_diff_report(
+            &fixtures.join("edge_base.json"),
+            &fixtures.join("edge_drift.json"),
+        )
+        .expect("edge-only semantic diff");
+        let edge_drift_payload =
+            serde_json::to_value(&edge_drift).expect("serialize edge semantic diff");
+        validate_schema(&edge_drift_payload, "axiom-semantic-diff-v0.schema.json");
+        assert_eq!(edge_drift.summary.breaking, 4);
+        assert!(
+            edge_drift
+                .changes
+                .iter()
+                .all(|change| change.node_kind == "Edge")
+        );
+        assert!(edge_drift.changes.iter().any(|change| {
+            change.change == "added"
+                && change.edge_kind.as_deref() == Some("requires")
+                && change.edge_from.as_deref()
+                    == Some("axiom://package/semantic-diff/function/read")
+                && change.edge_to.as_deref()
+                    == Some("axiom://package/semantic-diff/capability/network")
+        }));
+        assert!(edge_drift.changes.iter().any(|change| {
+            change.change == "added" && change.edge_kind.as_deref() == Some("allows_effect")
+        }));
+        assert!(edge_drift.changes.iter().any(|change| {
+            change.change == "added" && change.edge_kind.as_deref() == Some("preserves")
+        }));
+        assert!(edge_drift.changes.iter().any(|change| {
+            change.change == "removed" && change.edge_kind.as_deref() == Some("verified_by")
+        }));
     }
 
     fn write_minimal_manifest(project: &Path, name: &str) {
