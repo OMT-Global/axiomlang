@@ -10858,6 +10858,105 @@ fn lower_expr_with_expected_inner(
                     ty: Type::Numeric(syntax::NumericType::U64),
                 });
             }
+            if name == "crypto_ed25519_keygen" {
+                require_capability(
+                    ctx.capabilities,
+                    CapabilityKind::Crypto,
+                    name,
+                    *line,
+                    *column,
+                )?;
+                if !args.is_empty() {
+                    return Err(Diagnostic::new(
+                        "type",
+                        format!(
+                            "crypto_ed25519_keygen expects 0 arguments, got {}",
+                            args.len()
+                        ),
+                    )
+                    .with_span(*line, *column));
+                }
+                let bytes = Type::Array(Box::new(Type::Numeric(syntax::NumericType::U8)), None);
+                return Ok(Expr::Call {
+                    span: SourceSpan {
+                        line: *line,
+                        column: *column,
+                    },
+                    name: name.clone(),
+                    args: Vec::new(),
+                    ty: Type::Tuple(vec![bytes.clone(), bytes]),
+                });
+            }
+            if name == "crypto_ed25519_sign" || name == "crypto_ed25519_verify" {
+                require_capability(
+                    ctx.capabilities,
+                    CapabilityKind::Crypto,
+                    name,
+                    *line,
+                    *column,
+                )?;
+                let expected_len = if name == "crypto_ed25519_sign" { 2 } else { 3 };
+                if args.len() != expected_len {
+                    return Err(Diagnostic::new(
+                        "type",
+                        format!(
+                            "{name} expects {expected_len} arguments, got {}",
+                            args.len()
+                        ),
+                    )
+                    .with_span(*line, *column));
+                }
+                let byte_slice = Type::Slice(Box::new(Type::Numeric(syntax::NumericType::U8)));
+                let first = lower_expr_with_expected(&args[0], Some(&byte_slice), env, ctx)?;
+                if first.ty() != &byte_slice {
+                    let label = if name == "crypto_ed25519_sign" {
+                        "secret_key"
+                    } else {
+                        "public_key"
+                    };
+                    return Err(Diagnostic::new(
+                        "type",
+                        format!("{name} expects a &[u8] {label}, got {}", first.ty()),
+                    )
+                    .with_span(args[0].line(), args[0].column()));
+                }
+                let message = lower_expr_with_expected(&args[1], Some(&byte_slice), env, ctx)?;
+                if message.ty() != &byte_slice {
+                    return Err(Diagnostic::new(
+                        "type",
+                        format!("{name} expects a &[u8] message, got {}", message.ty()),
+                    )
+                    .with_span(args[1].line(), args[1].column()));
+                }
+                if name == "crypto_ed25519_sign" {
+                    return Ok(Expr::Call {
+                        span: SourceSpan {
+                            line: *line,
+                            column: *column,
+                        },
+                        name: name.clone(),
+                        args: vec![first, message],
+                        ty: Type::Array(Box::new(Type::Numeric(syntax::NumericType::U8)), None),
+                    });
+                }
+                let signature = lower_expr_with_expected(&args[2], Some(&byte_slice), env, ctx)?;
+                if signature.ty() != &byte_slice {
+                    return Err(Diagnostic::new(
+                        "type",
+                        format!("{name} expects a &[u8] signature, got {}", signature.ty()),
+                    )
+                    .with_span(args[2].line(), args[2].column()));
+                }
+                return Ok(Expr::Call {
+                    span: SourceSpan {
+                        line: *line,
+                        column: *column,
+                    },
+                    name: name.clone(),
+                    args: vec![first, message, signature],
+                    ty: Type::Bool,
+                });
+            }
             if name == "crypto_aead_seal" || name == "crypto_aead_open" {
                 require_capability(
                     ctx.capabilities,

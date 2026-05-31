@@ -8,7 +8,7 @@
 //! enforcement continues to run against the importing package's manifest via
 //! `hir::lower_with_capabilities`.
 //!
-//! Today this provides twenty-eight stdlib modules. The capability-gated
+//! Today this provides twenty-nine stdlib modules. The capability-gated
 //! wrappers include the six manifest capability classes:
 //!
 //! * `std/time.ax` — `Duration`, `Instant`, `now_ms()`, `now()`,
@@ -38,8 +38,10 @@
 //!   `crypto_rand_*` intrinsics (crypto).
 //! * `std/crypto_aead.ax` — typed AEAD algorithm wrappers for AES-GCM and
 //!   ChaCha20-Poly1305 on top of `crypto_aead_*` intrinsics (crypto).
+//! * `std/crypto_sign.ax` — Ed25519 key generation, signing, and verification
+//!   on top of `crypto_ed25519_*` intrinsics (crypto).
 //! * `std/crypto.ax` — umbrella re-export module for the stage1 crypto hash
-//!   MAC, random, and AEAD helpers.
+//!   MAC, random, AEAD, and Ed25519 helpers.
 //!
 //! Additional modules share existing capability classes with peer wrappers,
 //! demonstrating that the `std.*` surface is not limited to one wrapper per
@@ -225,6 +227,12 @@ pub fn aead_seal(alg: AeadAlgorithm, key: &[u8], nonce: &[u8], aad: &[u8], plain
 pub fn aead_open(alg: AeadAlgorithm, key: &[u8], nonce: &[u8], aad: &[u8], ciphertext: &[u8]): Option<[u8]> {\nreturn crypto_aead_open(aead_algorithm_name(alg), key, nonce, aad, ciphertext)\n}\n",
     ),
     (
+        "crypto_sign.ax",
+        "pub fn ed25519_keygen(): ([u8], [u8]) {\nreturn crypto_ed25519_keygen()\n}\n\
+pub fn ed25519_sign(secret_key: &[u8], message: &[u8]): [u8] {\nreturn crypto_ed25519_sign(secret_key, message)\n}\n\
+pub fn ed25519_verify(public_key: &[u8], message: &[u8], signature: &[u8]): bool {\nreturn crypto_ed25519_verify(public_key, message, signature)\n}\n",
+    ),
+    (
         "crypto.ax",
         "pub enum AeadAlgorithm {\nAes128Gcm\nAes256Gcm\nChaCha20Poly1305\n}\n\
 pub fn aead_algorithm_name(alg: AeadAlgorithm): string {\nmatch alg {\nAes128Gcm {\nreturn \"AES-128-GCM\"\n}\nAes256Gcm {\nreturn \"AES-256-GCM\"\n}\nChaCha20Poly1305 {\nreturn \"CHACHA20-POLY1305\"\n}\n}\n}\n\
@@ -238,7 +246,10 @@ pub fn verify_sha512(tag: string, key: string, message: string): bool {\nreturn 
 pub fn random_bytes(n: int): [u8] {\nreturn crypto_rand_bytes(n)\n}\n\
 pub fn random_u64(): u64 {\nreturn crypto_rand_u64()\n}\n\
 pub fn aead_seal(alg: AeadAlgorithm, key: &[u8], nonce: &[u8], aad: &[u8], plaintext: &[u8]): [u8] {\nreturn crypto_aead_seal(aead_algorithm_name(alg), key, nonce, aad, plaintext)\n}\n\
-pub fn aead_open(alg: AeadAlgorithm, key: &[u8], nonce: &[u8], aad: &[u8], ciphertext: &[u8]): Option<[u8]> {\nreturn crypto_aead_open(aead_algorithm_name(alg), key, nonce, aad, ciphertext)\n}\n",
+pub fn aead_open(alg: AeadAlgorithm, key: &[u8], nonce: &[u8], aad: &[u8], ciphertext: &[u8]): Option<[u8]> {\nreturn crypto_aead_open(aead_algorithm_name(alg), key, nonce, aad, ciphertext)\n}\n\
+pub fn ed25519_keygen(): ([u8], [u8]) {\nreturn crypto_ed25519_keygen()\n}\n\
+pub fn ed25519_sign(secret_key: &[u8], message: &[u8]): [u8] {\nreturn crypto_ed25519_sign(secret_key, message)\n}\n\
+pub fn ed25519_verify(public_key: &[u8], message: &[u8], signature: &[u8]): bool {\nreturn crypto_ed25519_verify(public_key, message, signature)\n}\n",
     ),
     (
         "io.ax",
