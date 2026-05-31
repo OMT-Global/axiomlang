@@ -1,0 +1,18 @@
+{
+  "schema_version": "axiom.decision_record.v0",
+  "id": "python-exit-vm-disposition",
+  "title": "Python-exit VM disposition",
+  "status": "accepted",
+  "context": "The existing Python-exit VM disposition defines when bootstrap Python paths may be removed.",
+  "decision": "Preserve the VM parity gate until the checked evidence proves deletion readiness.",
+  "governs": [
+    {
+      "relationship": "preserves",
+      "target": "axiom://semantic/axiom/PythonExitParityGate"
+    },
+    {
+      "relationship": "depends_on",
+      "target": "axiom://semantic/capability/PythonExitDisposition"
+    }
+  ]
+}
