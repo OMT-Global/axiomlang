@@ -47,6 +47,12 @@ Current executable fixtures cover:
   the same package.
 - `type_system_aggregates`: typed aggregate coverage for generic wrappers,
   structs, enums, tuples, arrays, maps, `Option`, and `Result`.
+- `trait_bounded_aggregate`: generic struct instantiation that satisfies an
+  explicit static trait bound.
+- `trait_eq_user_type`: static `Eq` trait conformance for a local user type
+  imported from `std/traits.ax`.
+- `trait_multibound`: explicit multi-bound generic function dispatch through
+  local static trait impls.
 - `parser_type_slice`: migrated parser/type coverage for type aliases,
   borrowed slices, enum payload patterns, typed aggregate literals, and
   return-type checking through parsed control flow.
@@ -115,6 +121,20 @@ Current compile-fail fixtures cover:
   type argument.
 - `result_ok_without_context`: type diagnostics for `Ok(...)` without an
   expected `Result<T, E>` context.
+- `dyn_trait_not_supported`: parse diagnostics that keep dynamic dispatch
+  gated until the accepted design lands.
+- `trait_aggregate_missing_impl`: type diagnostics when a generic aggregate
+  instantiation lacks a required trait impl.
+- `trait_duplicate_impl`: type diagnostics for duplicate static trait impl
+  methods on the same target type.
+- `trait_missing_impl`: type diagnostics when a concrete generic
+  instantiation lacks a required trait impl.
+- `trait_missing_method`: type diagnostics when an impl block omits a required
+  trait method.
+- `trait_signature_mismatch`: type diagnostics when an impl method signature
+  diverges from the trait contract after `Self` substitution.
+- `trait_unbound_method_call`: type diagnostics for generic method calls that
+  lack an active trait bound exposing the method.
 - `stdlib_clock_without_capability`: capability diagnostics for clock
   intrinsics without the manifest opt-in.
 - `stdlib_fs_write_without_capability`: capability diagnostics for write-side

@@ -1,0 +1,5 @@
+import "std/traits.ax"
+
+fn eq_box(value: dyn Eq): bool {
+return true
+}

@@ -1,0 +1,11 @@
+import "std/traits.ax"
+
+struct Point {
+x: int
+}
+
+impl Eq for Point {
+fn same(self, other: Point): bool {
+return self.x == other.x
+}
+}

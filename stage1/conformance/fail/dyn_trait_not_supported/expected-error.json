@@ -1,0 +1,7 @@
+{
+  "kind": "parse",
+  "message": "dyn Trait type expressions require an accepted dynamic-dispatch design before implementation",
+  "path": "src/main.ax",
+  "line": 3,
+  "column": 1
+}

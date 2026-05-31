@@ -139,6 +139,7 @@ pub struct Function {
     pub source_name: String,
     pub path: String,
     pub type_params: Vec<String>,
+    pub type_param_bounds: Vec<TypeParamBound>,
     pub params: Vec<Param>,
     pub return_ty: TypeName,
     pub body: Vec<Stmt>,
@@ -150,6 +151,7 @@ pub struct Function {
     pub visibility: Visibility,
     pub receiver: Option<ReceiverKind>,
     pub impl_target: Option<String>,
+    pub impl_trait: Option<String>,
     pub line: usize,
     pub column: usize,
 }
@@ -168,6 +170,8 @@ pub struct ConstDecl {
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct TypeAliasDecl {
     pub name: String,
+    pub type_params: Vec<String>,
+    pub type_param_bounds: Vec<TypeParamBound>,
     pub ty: TypeName,
     pub visibility: Visibility,
     pub line: usize,
@@ -178,6 +182,7 @@ pub struct TypeAliasDecl {
 pub struct StructDecl {
     pub name: String,
     pub type_params: Vec<String>,
+    pub type_param_bounds: Vec<TypeParamBound>,
     pub fields: Vec<StructField>,
     pub visibility: Visibility,
     pub line: usize,
@@ -196,6 +201,7 @@ pub struct StructField {
 pub struct EnumDecl {
     pub name: String,
     pub type_params: Vec<String>,
+    pub type_param_bounds: Vec<TypeParamBound>,
     pub variants: Vec<EnumVariantDecl>,
     pub visibility: Visibility,
     pub line: usize,
@@ -226,6 +232,14 @@ pub struct TraitMethodDecl {
     pub params: Vec<Param>,
     pub return_ty: TypeName,
     pub has_self: bool,
+    pub line: usize,
+    pub column: usize,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct TypeParamBound {
+    pub param: String,
+    pub traits: Vec<String>,
     pub line: usize,
     pub column: usize,
 }
@@ -1798,7 +1812,7 @@ fn parse_stmt(
 }
 
 fn parse_function(lines: &[&str], index: &mut usize, path: &Path) -> Result<Function, Diagnostic> {
-    parse_function_in_context(lines, index, path, None)
+    parse_function_in_context(lines, index, path, None, None)
 }
 
 fn parse_function_in_context(
@@ -1806,6 +1820,7 @@ fn parse_function_in_context(
     index: &mut usize,
     path: &Path,
     impl_target: Option<&str>,
+    impl_trait: Option<&str>,
 ) -> Result<Function, Diagnostic> {
     let line_no = *index + 1;
     let trimmed = lines[*index].trim();
@@ -1849,7 +1864,8 @@ fn parse_function_in_context(
             .with_span(line_no, 1)
     })?;
     let name_text = header[..open_paren].trim();
-    let (name, type_params) = parse_function_name(name_text, path, line_no, fn_column + 3)?;
+    let (name, type_params, type_param_bounds) =
+        parse_function_name(name_text, path, line_no, fn_column + 3)?;
     let (receiver, params) = parse_params(
         &header[open_paren + 1..close_paren],
         path,
@@ -1884,6 +1900,7 @@ fn parse_function_in_context(
             source_name: name.to_string(),
             path: path.display().to_string(),
             type_params,
+            type_param_bounds,
             params,
             return_ty,
             body: Vec::new(),
@@ -1895,6 +1912,7 @@ fn parse_function_in_context(
             visibility,
             receiver,
             impl_target: impl_target.map(str::to_string),
+            impl_trait: impl_trait.map(str::to_string),
             line: line_no,
             column: 1,
         });
@@ -1918,6 +1936,7 @@ fn parse_function_in_context(
         source_name: name.to_string(),
         path: path.display().to_string(),
         type_params,
+        type_param_bounds,
         params,
         return_ty,
         body,
@@ -1929,6 +1948,7 @@ fn parse_function_in_context(
         visibility,
         receiver,
         impl_target: impl_target.map(str::to_string),
+        impl_trait: impl_trait.map(str::to_string),
         line: line_no,
         column: 1,
     })
@@ -1955,8 +1975,14 @@ fn parse_type_alias(
             .with_path(path.display().to_string())
             .with_span(line_no, 1)
     })?;
-    let name = header[..equals].trim();
-    validate_ident(name, path, line_no, visibility_column + 5)?;
+    let name_text = header[..equals].trim();
+    let (name, type_params, type_param_bounds) = parse_decl_name(
+        name_text,
+        "type alias",
+        path,
+        line_no,
+        visibility_column + 5,
+    )?;
     let target = header[equals + 1..].trim();
     if target.is_empty() {
         return Err(
@@ -1968,6 +1994,8 @@ fn parse_type_alias(
     let ty = parse_type_name(target, path, line_no, equals + 2)?;
     Ok(TypeAliasDecl {
         name: name.to_string(),
+        type_params,
+        type_param_bounds,
         ty,
         visibility,
         line: line_no,
@@ -2358,13 +2386,14 @@ fn parse_struct(lines: &[&str], index: &mut usize, path: &Path) -> Result<Struct
         .with_path(path.display().to_string())
         .with_span(line_no, 1)
     })?;
-    let (name, type_params) =
+    let (name, type_params, type_param_bounds) =
         parse_decl_name(name_text, "struct", path, line_no, visibility_column + 7)?;
     *index += 1;
     let fields = parse_struct_fields(lines, index, path)?;
     Ok(StructDecl {
         name: name.to_string(),
         type_params,
+        type_param_bounds,
         fields,
         visibility,
         line: line_no,
@@ -2413,7 +2442,7 @@ fn parse_struct_fields(
 fn parse_impl(lines: &[&str], index: &mut usize, path: &Path) -> Result<Vec<Function>, Diagnostic> {
     let line_no = *index + 1;
     let trimmed = lines[*index].trim();
-    let target = trimmed
+    let raw_target = trimmed
         .strip_prefix("impl ")
         .and_then(|rest| rest.strip_suffix('{'))
         .map(str::trim)
@@ -2422,6 +2451,7 @@ fn parse_impl(lines: &[&str], index: &mut usize, path: &Path) -> Result<Vec<Func
                 .with_path(path.display().to_string())
                 .with_span(line_no, 1)
         })?;
+    let (impl_trait, target) = parse_impl_header(raw_target, path, line_no)?;
     validate_ident(target, path, line_no, 6)?;
     *index += 1;
     let mut methods = Vec::new();
@@ -2448,7 +2478,13 @@ fn parse_impl(lines: &[&str], index: &mut usize, path: &Path) -> Result<Vec<Func
             || trimmed.starts_with("pub(pkg) async fn ")
             || trimmed.starts_with("pub(pkg) extern fn ")
         {
-            methods.push(parse_function_in_context(lines, index, path, Some(target))?);
+            methods.push(parse_function_in_context(
+                lines,
+                index,
+                path,
+                Some(target),
+                impl_trait,
+            )?);
             continue;
         }
         return Err(Diagnostic::new(
@@ -2465,6 +2501,36 @@ fn parse_impl(lines: &[&str], index: &mut usize, path: &Path) -> Result<Vec<Func
     )
 }
 
+fn parse_impl_header<'a>(
+    raw: &'a str,
+    path: &Path,
+    line_no: usize,
+) -> Result<(Option<&'a str>, &'a str), Diagnostic> {
+    if raw.starts_with('<') || raw.contains("impl<") {
+        return Err(
+            Diagnostic::new("parse", "blanket trait impls are not supported in stage1")
+                .with_path(path.display().to_string())
+                .with_span(line_no, 1),
+        );
+    }
+    if let Some((trait_name, target)) = raw.split_once(" for ") {
+        let trait_name = trait_name.trim();
+        let target = target.trim();
+        if trait_name.contains('<') || target.contains('<') {
+            return Err(Diagnostic::new(
+                "parse",
+                "generic trait impl headers are not supported in stage1",
+            )
+            .with_path(path.display().to_string())
+            .with_span(line_no, 1));
+        }
+        validate_ident(trait_name, path, line_no, 6)?;
+        validate_ident(target, path, line_no, 6 + trait_name.len() + 5)?;
+        return Ok((Some(trait_name), target));
+    }
+    Ok((None, raw))
+}
+
 fn parse_trait(lines: &[&str], index: &mut usize, path: &Path) -> Result<TraitDecl, Diagnostic> {
     let line_no = *index + 1;
     let trimmed = lines[*index].trim();
@@ -2479,6 +2545,14 @@ fn parse_trait(lines: &[&str], index: &mut usize, path: &Path) -> Result<TraitDe
             .with_path(path.display().to_string())
             .with_span(line_no, 1)
     })?;
+    if name.contains(':') {
+        return Err(Diagnostic::new(
+            "parse",
+            "supertraits are not supported in stage1 trait declarations",
+        )
+        .with_path(path.display().to_string())
+        .with_span(line_no, visibility_column + 7));
+    }
     validate_ident(name, path, line_no, visibility_column + 7)?;
     *index += 1;
     let methods = parse_trait_methods(lines, index, path)?;
@@ -2507,6 +2581,14 @@ fn parse_trait_methods(
         if trimmed == "}" {
             *index += 1;
             return Ok(methods);
+        }
+        if trimmed.starts_with("fn ") && trimmed.ends_with('{') {
+            return Err(Diagnostic::new(
+                "parse",
+                "trait default method bodies are not supported in stage1",
+            )
+            .with_path(path.display().to_string())
+            .with_span(line_no, 1));
         }
         let header = trimmed
             .strip_prefix("fn ")
@@ -2581,13 +2663,14 @@ fn parse_enum(lines: &[&str], index: &mut usize, path: &Path) -> Result<EnumDecl
             .with_path(path.display().to_string())
             .with_span(line_no, 1)
     })?;
-    let (name, type_params) =
+    let (name, type_params, type_param_bounds) =
         parse_decl_name(name_text, "enum", path, line_no, visibility_column + 5)?;
     *index += 1;
     let variants = parse_enum_variants(lines, index, path)?;
     Ok(EnumDecl {
         name: name.to_string(),
         type_params,
+        type_param_bounds,
         variants,
         visibility,
         line: line_no,
@@ -3298,6 +3381,14 @@ fn parse_type_name(
     line_no: usize,
     column: usize,
 ) -> Result<TypeName, Diagnostic> {
+    if raw.starts_with("dyn ") {
+        return Err(Diagnostic::new(
+            "parse",
+            "dyn Trait type expressions require an accepted dynamic-dispatch design before implementation",
+        )
+        .with_path(path.display().to_string())
+        .with_span(line_no, column));
+    }
     if raw.starts_with("fn(") {
         let open = 2;
         let close = find_matching_paren(raw, open).ok_or_else(|| {
@@ -4194,7 +4285,7 @@ fn parse_function_name<'a>(
     path: &Path,
     line_no: usize,
     column: usize,
-) -> Result<(&'a str, Vec<String>), Diagnostic> {
+) -> Result<(&'a str, Vec<String>, Vec<TypeParamBound>), Diagnostic> {
     parse_decl_name(raw, "function", path, line_no, column)
 }
 
@@ -4204,7 +4295,7 @@ fn parse_decl_name<'a>(
     path: &Path,
     line_no: usize,
     column: usize,
-) -> Result<(&'a str, Vec<String>), Diagnostic> {
+) -> Result<(&'a str, Vec<String>, Vec<TypeParamBound>), Diagnostic> {
     if let Some(open_angle) = find_top_level_char(raw, '<') {
         if !raw.ends_with('>')
             || !matches!(find_matching_angle(raw, open_angle), Some(close) if close == raw.len() - 1)
@@ -4227,24 +4318,72 @@ fn parse_decl_name<'a>(
             .with_path(path.display().to_string())
             .with_span(line_no, column + open_angle + 1));
         }
-        let mut params = Vec::new();
+        let mut params: Vec<String> = Vec::new();
+        let mut bounds = Vec::new();
         for param in split_top_level_type(params_raw, ',') {
             let param = param.trim();
-            validate_ident(param, path, line_no, column + open_angle + 1)?;
-            if params.iter().any(|existing| existing == param) {
+            let (param_name, trait_bounds) =
+                parse_type_param_bound(param, path, line_no, column + open_angle + 1)?;
+            if params.iter().any(|existing| existing == &param_name) {
                 return Err(Diagnostic::new(
                     "parse",
-                    format!("duplicate type parameter {param:?}"),
+                    format!("duplicate type parameter {param_name:?}"),
                 )
                 .with_path(path.display().to_string())
                 .with_span(line_no, column + open_angle + 1));
             }
-            params.push(param.to_string());
+            params.push(param_name.clone());
+            if !trait_bounds.is_empty() {
+                bounds.push(TypeParamBound {
+                    param: param_name,
+                    traits: trait_bounds,
+                    line: line_no,
+                    column: column + open_angle + 1,
+                });
+            }
         }
-        return Ok((name, params));
+        return Ok((name, params, bounds));
     }
     validate_ident(raw, path, line_no, column)?;
-    Ok((raw, Vec::new()))
+    Ok((raw, Vec::new(), Vec::new()))
+}
+
+fn parse_type_param_bound(
+    raw: &str,
+    path: &Path,
+    line_no: usize,
+    column: usize,
+) -> Result<(String, Vec<String>), Diagnostic> {
+    let Some((name, bounds_raw)) = raw.split_once(':') else {
+        validate_ident(raw, path, line_no, column)?;
+        return Ok((raw.to_string(), Vec::new()));
+    };
+    let name = name.trim();
+    validate_ident(name, path, line_no, column)?;
+    let bounds_raw = bounds_raw.trim();
+    if bounds_raw.is_empty() {
+        return Err(Diagnostic::new(
+            "parse",
+            format!("type parameter {name:?} is missing trait bounds"),
+        )
+        .with_path(path.display().to_string())
+        .with_span(line_no, column));
+    }
+    let mut bounds = Vec::new();
+    for bound in split_top_level_type(bounds_raw, '+') {
+        let bound = bound.trim();
+        validate_ident(bound, path, line_no, column)?;
+        if bounds.iter().any(|existing| existing == bound) {
+            return Err(Diagnostic::new(
+                "parse",
+                format!("duplicate trait bound {bound:?} on type parameter {name:?}"),
+            )
+            .with_path(path.display().to_string())
+            .with_span(line_no, column));
+        }
+        bounds.push(bound.to_string());
+    }
+    Ok((name.to_string(), bounds))
 }
 
 fn parse_call_name<'a>(

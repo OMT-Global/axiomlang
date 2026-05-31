@@ -1,0 +1,7 @@
+{
+  "kind": "type",
+  "message": "impl Eq for conformance_trait_missing_method_main_Point is missing required method \"eq\"",
+  "path": "src/main.ax",
+  "line": 8,
+  "column": 1
+}

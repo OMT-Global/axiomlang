@@ -8,7 +8,7 @@
 //! enforcement continues to run against the importing package's manifest via
 //! `hir::lower_with_capabilities`.
 //!
-//! Today this provides twenty-three stdlib modules. The capability-gated
+//! Today this provides twenty-eight stdlib modules. The capability-gated
 //! wrappers include the six manifest capability classes:
 //!
 //! * `std/time.ax` — `Duration`, `Instant`, `now_ms()`, `now()`,
@@ -55,9 +55,10 @@
 //!   sockets and serve blocking HTTP/1.0 responses.
 
 //!
-//! The eighth through fifteenth modules are stdlib surfaces not tied to a
+//! The remaining modules are stdlib surfaces not tied to a
 //! capability flag, matching the ambient status of the `print` statement:
 //!
+//! * `std/traits.ax` — the static-dispatch seed trait `Eq`.
 //! * `std/io.ax` — `eprintln(text)`, `readline()`, and `read_to_string()`
 //!   on top of the new ungated `io_*` intrinsics.
 //! * `std/json.ax` — scalar/string JSON parsing plus first-class `JsonValue`
@@ -103,6 +104,10 @@ pub(crate) const STDLIB_PACKAGE_VERSION: &str = "0.0.0";
 /// the stdlib import prefix. Keeping stage1 stdlib sources in-tree as `&str`
 /// avoids any filesystem lookup and keeps the bootstrap hermetic.
 const STDLIB_SOURCES: &[(&str, &str)] = &[
+    (
+        "traits.ax",
+        "pub trait Eq {\nfn eq(self, other: Self): bool\n}\n",
+    ),
     (
         "time.ax",
         "pub struct Duration {\nms: int\n}\n\

@@ -4568,6 +4568,13 @@ fn format_type_name(ty: &syntax::TypeName) -> String {
     }
 }
 
+fn function_symbol_key(function: &syntax::Function) -> String {
+    match &function.impl_target {
+        Some(target) => format!("{target}__{}", function.name),
+        None => function.name.clone(),
+    }
+}
+
 fn build_module_symbols(module: &LoadedModule) -> Result<ModuleSymbols, Diagnostic> {
     let module_id = module_id_for_path(&module.path, &module.source_root, &module.package_name);
     let mut functions = HashMap::new();
@@ -4648,33 +4655,44 @@ fn build_module_symbols(module: &LoadedModule) -> Result<ModuleSymbols, Diagnost
         }
     }
     for function in &module.program.functions {
-        if structs.contains_key(&function.name) || enums.contains_key(&function.name) {
+        if function.impl_target.is_none()
+            && (structs.contains_key(&function.name) || enums.contains_key(&function.name))
+        {
             return Err(
                 Diagnostic::new("type", format!("duplicate symbol {:?}", function.name))
                     .with_path(module.path.display().to_string())
                     .with_span(function.line, function.column),
             );
         }
-        let internal_name = format!("{module_id}_{}", function.name);
+        let symbol_key = function_symbol_key(function);
+        let internal_name = format!("{module_id}_{symbol_key}");
         if functions
-            .insert(function.name.clone(), internal_name.clone())
+            .insert(symbol_key, internal_name.clone())
             .is_some()
         {
-            return Err(
-                Diagnostic::new("type", format!("duplicate function {:?}", function.name))
-                    .with_path(module.path.display().to_string())
-                    .with_span(function.line, function.column),
-            );
+            let message = if let Some(target) = &function.impl_target {
+                format!(
+                    "duplicate impl method {:?} for {:?}",
+                    function.source_name, target
+                )
+            } else {
+                format!("duplicate function {:?}", function.name)
+            };
+            return Err(Diagnostic::new("type", message)
+                .with_path(module.path.display().to_string())
+                .with_span(function.line, function.column));
         }
-        match function.visibility {
-            syntax::Visibility::Public => {
-                public_functions.insert(function.name.clone(), internal_name);
-            }
-            syntax::Visibility::Package => {
-                package_functions.insert(function.name.clone(), internal_name);
-            }
-            syntax::Visibility::Module => {
-                private_functions.insert(function.name.clone());
+        if function.impl_target.is_none() {
+            match function.visibility {
+                syntax::Visibility::Public => {
+                    public_functions.insert(function.name.clone(), internal_name);
+                }
+                syntax::Visibility::Package => {
+                    package_functions.insert(function.name.clone(), internal_name);
+                }
+                syntax::Visibility::Module => {
+                    private_functions.insert(function.name.clone());
+                }
             }
         }
     }
@@ -4855,6 +4873,8 @@ fn rewrite_type_alias(
             .get(&type_alias.name)
             .cloned()
             .unwrap_or_else(|| format!("{}_{}", module_symbols.module_id, type_alias.name)),
+        type_params: type_alias.type_params.clone(),
+        type_param_bounds: type_alias.type_param_bounds.clone(),
         ty: rewrite_type_name(
             &type_alias.ty,
             visible_consts,
@@ -4964,11 +4984,12 @@ fn rewrite_function(
     module_path: &Path,
 ) -> Result<syntax::Function, Diagnostic> {
     let mut rewritten = function.clone();
+    let symbol_key = function_symbol_key(function);
     rewritten.name = module_symbols
         .functions
-        .get(&function.name)
+        .get(&symbol_key)
         .cloned()
-        .unwrap_or_else(|| format!("{}_{}", module_symbols.module_id, function.name));
+        .unwrap_or_else(|| format!("{}_{}", module_symbols.module_id, symbol_key));
     rewritten.body = function
         .body
         .iter()

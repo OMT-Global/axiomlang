@@ -1,0 +1,22 @@
+[package]
+name = "conformance-trait-missing-impl"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+fs = false
+net = false
+process = false
+env = false
+clock = false
+crypto = false
+
+[expected_error]
+kind = "type"
+message = "trait bound not satisfied: type Named(\"conformance_trait_missing_impl_main_Point\", []) does not implement \"Eq\""
+path = "src/main.ax"
+line = 10
+column = 1

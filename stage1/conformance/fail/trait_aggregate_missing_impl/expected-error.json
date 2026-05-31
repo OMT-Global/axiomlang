@@ -1,0 +1,7 @@
+{
+  "kind": "type",
+  "message": "trait bound not satisfied: type Named(\"conformance_trait_aggregate_missing_impl_main_Point\", []) does not implement \"Eq\"",
+  "path": "src/main.ax",
+  "line": 7,
+  "column": 1
+}

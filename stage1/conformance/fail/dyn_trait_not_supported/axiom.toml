@@ -1,0 +1,22 @@
+[package]
+name = "conformance-dyn-trait-not-supported"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+fs = false
+net = false
+process = false
+env = false
+clock = false
+crypto = false
+
+[expected_error]
+kind = "parse"
+message = "dyn Trait type expressions require an accepted dynamic-dispatch design before implementation"
+path = "src/main.ax"
+line = 3
+column = 16

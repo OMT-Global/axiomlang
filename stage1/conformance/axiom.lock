@@ -66,6 +66,11 @@ version = "0.1.0"
 source = "path:fail/double_mutable_borrow"
 
 [[package]]
+name = "conformance-dyn-trait-not-supported"
+version = "0.1.0"
+source = "path:fail/dyn_trait_not_supported"
+
+[[package]]
 name = "conformance-for-loop-requires-iteration-protocol"
 version = "0.1.0"
 source = "path:fail/for_loop_requires_iteration_protocol"
@@ -391,9 +396,39 @@ version = "0.1.0"
 source = "path:fail/string_use_after_move"
 
 [[package]]
+name = "conformance-trait-aggregate-missing-impl"
+version = "0.1.0"
+source = "path:fail/trait_aggregate_missing_impl"
+
+[[package]]
+name = "conformance-trait-duplicate-impl"
+version = "0.1.0"
+source = "path:fail/trait_duplicate_impl"
+
+[[package]]
+name = "conformance-trait-missing-impl"
+version = "0.1.0"
+source = "path:fail/trait_missing_impl"
+
+[[package]]
+name = "conformance-trait-missing-method"
+version = "0.1.0"
+source = "path:fail/trait_missing_method"
+
+[[package]]
+name = "conformance-trait-signature-mismatch"
+version = "0.1.0"
+source = "path:fail/trait_signature_mismatch"
+
+[[package]]
 name = "conformance-trait-type-position-not-supported"
 version = "0.1.0"
 source = "path:fail/trait_type_position_not_supported"
+
+[[package]]
+name = "conformance-trait-unbound-method-call"
+version = "0.1.0"
+source = "path:fail/trait_unbound_method_call"
 
 [[package]]
 name = "conformance-borrow-return-elision"
@@ -429,11 +464,6 @@ source = "path:pass/comparison_package_resources"
 name = "conformance-comparison-strict-typing"
 version = "0.1.0"
 source = "path:pass/comparison_strict_typing"
-
-[[package]]
-name = "conformance-const-fn-array-length"
-version = "0.1.0"
-source = "path:pass/const_fn_array_length"
 
 [[package]]
 name = "conformance-const-match-patterns"
@@ -486,6 +516,11 @@ version = "0.1.0"
 source = "path:pass/mutable_projection_borrows"
 
 [[package]]
+name = "conformance-mutable-slice-write-through"
+version = "0.1.0"
+source = "path:pass/mutable_slice_write_through"
+
+[[package]]
 name = "conformance-net-socket-localhost-allowlist"
 version = "0.1.0"
 source = "path:pass/net_socket_localhost_allowlist"
@@ -501,6 +536,11 @@ version = "0.1.0"
 source = "path:pass/net_udp_datagram"
 
 [[package]]
+name = "conformance-never-control-flow"
+version = "0.1.0"
+source = "path:pass/never_control_flow"
+
+[[package]]
 name = "conformance-numeric-cross-width-casts"
 version = "0.1.0"
 source = "path:pass/numeric_cross_width_casts"
@@ -514,11 +554,6 @@ source = "path:pass/numeric_float_mean"
 name = "conformance-numeric-literal-suffixes"
 version = "0.1.0"
 source = "path:pass/numeric_literal_suffixes"
-
-[[package]]
-name = "conformance-numeric-overflow-policy"
-version = "0.1.0"
-source = "path:pass/numeric_overflow_policy"
 
 [[package]]
 name = "conformance-outcome-control-flow"
@@ -591,9 +626,24 @@ version = "0.1.0"
 source = "path:pass/struct_field_access"
 
 [[package]]
+name = "conformance-trait-bounded-aggregate"
+version = "0.1.0"
+source = "path:pass/trait_bounded_aggregate"
+
+[[package]]
 name = "conformance-trait-declaration-syntax"
 version = "0.1.0"
 source = "path:pass/trait_declaration_syntax"
+
+[[package]]
+name = "conformance-trait-eq-user-type"
+version = "0.1.0"
+source = "path:pass/trait_eq_user_type"
+
+[[package]]
+name = "conformance-trait-multibound"
+version = "0.1.0"
+source = "path:pass/trait_multibound"
 
 [[package]]
 name = "conformance-type-system-aggregates"

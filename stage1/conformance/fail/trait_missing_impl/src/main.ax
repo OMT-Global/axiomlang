@@ -1,0 +1,13 @@
+import "std/traits.ax"
+
+struct Point {
+x: int
+}
+
+fn same<T: Eq>(left: T, right: T): bool {
+return left.eq(right)
+}
+
+let left: Point = Point { x: 1 }
+let right: Point = Point { x: 1 }
+print same<Point>(left, right)

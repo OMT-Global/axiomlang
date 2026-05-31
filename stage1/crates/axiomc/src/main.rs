@@ -3283,6 +3283,7 @@ fn inspect_graph(project: &Path) -> Result<InspectGraphReport, Diagnostic> {
             "std/string_builder.ax",
             "std/sync.ax",
             "std/time.ax",
+            "std/traits.ax",
         ],
         cycles,
         import_errors,
@@ -3744,6 +3745,7 @@ fn inspect_stdlib_module_set() -> BTreeSet<&'static str> {
         "std/string_builder.ax",
         "std/sync.ax",
         "std/time.ax",
+        "std/traits.ax",
     ]
     .into_iter()
     .collect()

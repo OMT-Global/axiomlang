@@ -1,0 +1,22 @@
+[package]
+name = "conformance-trait-missing-method"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+fs = false
+net = false
+process = false
+env = false
+clock = false
+crypto = false
+
+[expected_error]
+kind = "type"
+message = "impl Eq for conformance_trait_missing_method_main_Point is missing required method \"eq\""
+path = "src/main.ax"
+line = 7
+column = 1

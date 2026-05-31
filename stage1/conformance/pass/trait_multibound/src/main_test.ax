@@ -1,0 +1,32 @@
+import "std/traits.ax"
+
+trait Tagged {
+fn tag(self): int
+}
+
+struct Point {
+x: int
+}
+
+impl Eq for Point {
+fn eq(self, other: Point): bool {
+return self.x == other.x
+}
+}
+
+impl Tagged for Point {
+fn tag(self): int {
+return self.x
+}
+}
+
+fn tagged_same<T: Eq + Tagged>(left: T, right: T, tag_left: T, tag_right: T): bool {
+let tag_match: bool = tag_left.tag() == tag_right.tag()
+return left.eq(right) == tag_match
+}
+
+let left: Point = Point { x: 4 }
+let right: Point = Point { x: 4 }
+let tag_left: Point = Point { x: 4 }
+let tag_right: Point = Point { x: 4 }
+print tagged_same<Point>(left, right, tag_left, tag_right)
