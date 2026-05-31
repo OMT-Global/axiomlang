@@ -12126,20 +12126,21 @@ fn validate_process_command_allowlist_hir(
     line: usize,
     column: usize,
 ) -> Result<(), Diagnostic> {
-    if capabilities.process_commands.is_empty() {
+    let Some(allowed_commands) = capabilities.process_commands.allowed_commands() else {
         return Ok(());
+    };
+    if allowed_commands.is_empty() {
+        return Err(Diagnostic::new(
+            "capability",
+            "internal error: process command allowlist must not be empty",
+        )
+        .with_span(line, column));
     }
     match command {
         Expr::Literal {
             value: LiteralValue::String(value),
             ..
-        } if capabilities
-            .process_commands
-            .iter()
-            .any(|allowed| allowed == value) =>
-        {
-            Ok(())
-        }
+        } if allowed_commands.iter().any(|allowed| allowed == value) => Ok(()),
         Expr::Literal {
             value: LiteralValue::String(value),
             ..
@@ -12155,6 +12156,41 @@ fn validate_process_command_allowlist_hir(
             "call to \"process_status\" requires a string literal listed in [capabilities].process",
         )
         .with_span(line, column)),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::manifest::{CapabilityConfig, ProcessCommandAllowlist, ProcessCommandPolicy};
+    use crate::syntax;
+    use std::path::Path;
+
+    #[test]
+    fn process_allowlist_empty_shape_fails_closed_for_dynamic_command() {
+        let parsed = syntax::parse_program(
+            "let command: string = \"/bin/true\"\nprint process_status(command)\n",
+            Path::new("main.ax"),
+        )
+        .expect("parse process status program");
+        let capabilities = CapabilityConfig {
+            process: true,
+            process_commands: ProcessCommandPolicy::Allowlist(
+                ProcessCommandAllowlist::new_unchecked_for_test(Vec::new()),
+            ),
+            ..CapabilityConfig::default()
+        };
+
+        let error = lower_with_capabilities(&parsed, &capabilities)
+            .expect_err("empty process allowlist shape should fail closed");
+
+        assert_eq!(error.kind, "capability");
+        assert!(
+            error
+                .message
+                .contains("internal error: process command allowlist must not be empty"),
+            "unexpected diagnostic: {error:?}"
+        );
     }
 }
 

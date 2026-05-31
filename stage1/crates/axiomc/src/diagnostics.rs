@@ -132,11 +132,22 @@ fn stable_diagnostic_code(kind: &str, message: &str) -> Option<String> {
         "parse" if message.contains("missing closing brace") => "parse.missing_closing_brace",
         "parse" if message.contains("unexpected closing brace") => "parse.unexpected_closing_brace",
         "parse" if message.contains("not supported") => "parse.unsupported_syntax",
+        "parse" if message.contains("unexpected") => "parse.unexpected_token",
         "parse" if message.contains("missing") => "parse.missing_token",
         "parse" => "parse.invalid_syntax",
+        "manifest"
+            if message.contains("dependency path") || message.contains("resolves outside") =>
+        {
+            "manifest.bad_dependency_path"
+        }
         "manifest" if message.contains("capability") => "manifest.invalid_capability",
         "manifest" => "manifest.invalid",
-        "import" if message.contains("not found") || message.contains("failed to read") => {
+        "import" if message.contains("circular") || message.contains("cycle") => "import.cycle",
+        "import"
+            if message.contains("not found")
+                || message.contains("failed to read")
+                || message.contains("missing import") =>
+        {
             "import.unresolved"
         }
         "import" => "import.invalid",
@@ -150,8 +161,14 @@ fn stable_diagnostic_code(kind: &str, message: &str) -> Option<String> {
         "type" if message.contains("expected") || message.contains("mismatch") => "type.mismatch",
         "type" => "type.invalid",
         "ownership" => "ownership.invalid",
-        "codegen" | "build" => "build.failed",
+        "codegen" => "codegen.internal",
+        "build" => "build.failed",
         "runtime" => "runtime.failed",
+        "control" if message.contains("does not return along all paths") => {
+            "control.missing_return"
+        }
+        "control" if message.contains("unreachable") => "control.unreachable_statement",
+        "control" => "control.invalid",
         "fmt" => "fmt.failed",
         "source" => "source.invalid",
         "json" => "json.serialization_failed",

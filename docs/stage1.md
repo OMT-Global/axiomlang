@@ -48,6 +48,7 @@ cargo run --manifest-path stage1/Cargo.toml -p axiomc -- build stage1/examples/h
 cargo run --manifest-path stage1/Cargo.toml -p axiomc -- build stage1/examples/hello --target "$(rustc -vV | sed -n 's/^host: //p')"
 cargo run --manifest-path stage1/Cargo.toml -p axiomc -- build stage1/examples/hello --target wasm32
 cargo run --manifest-path stage1/Cargo.toml -p axiomc -- run stage1/examples/hello
+cargo run --manifest-path stage1/Cargo.toml -p axiomc -- run stage1/examples/hello --json
 cargo run --manifest-path stage1/Cargo.toml -p axiomc -- test stage1/examples/modules --json
 cargo run --manifest-path stage1/Cargo.toml -p axiomc -- test stage1/examples/workspace --filter core --json
 cargo run --manifest-path stage1/Cargo.toml -p axiomc -- test stage1/examples/packages --json
@@ -67,6 +68,7 @@ cargo run --manifest-path stage1/Cargo.toml -p axiomc -- fmt stage1/examples/hel
 cargo run --manifest-path stage1/Cargo.toml -p axiomc -- doc stage1/examples/hello
 cargo run --manifest-path stage1/Cargo.toml -p axiomc -- doc stage1/examples/hello --json
 cargo run --manifest-path stage1/Cargo.toml -p axiomc -- bench stage1/examples/benchmarks --json
+cargo run --manifest-path stage1/Cargo.toml -p axiomc -- mutation-report .axiom-build/reports/mutation-rust-smoke.json --json
 cargo run --manifest-path stage1/Cargo.toml -p axiomc -- lsp
 ```
 
@@ -114,15 +116,22 @@ long as build/run commands select a concrete member package with `-p/--package`.
 
 ## JSON contract
 
-`axiomc check --json`, `build --json`, `test --json`, and `caps --json` all now
-emit the versioned schema envelope `schema_version = "axiom.stage1.v1"`.
+`axiomc check --json`, `build --json`, `run --json`, `test --json`,
+`caps --json`, and `mutation-report --json` all now emit the versioned schema
+envelope `schema_version = "axiom.stage1.v1"`.
 The checked-in compiler JSON schema is
 `stage1/schemas/axiom.stage1.v1.schema.json`; the manifest editor schema is
 `stage1/schemas/axiom.toml.schema.json`.
 The first agent-facing Intent IR / semantic graph schema is
 `stage1/schemas/axiom-intent-ir-v0.schema.json`; see
 [intent-ir-v0.md](intent-ir-v0.md).
-Successful payloads always include `ok`, `command`, and `project`, while
+Successful payloads always include `ok` and `command`; project-scoped payloads
+also include `project`.
+`axiomc run --json` captures the native binary exit code, result enum,
+duration, stdout, stderr, forwarded args, and selected package without changing
+the default human-readable streaming behavior.
+`axiomc mutation-report --json` reports survivor counts and grouped recommended
+fixtures in the same versioned envelope used by the other command contracts.
 `axiomc test --json` additionally reports `filter` and per-run/per-case
 `duration_ms` plus `passed` / `failed` / `skipped`. Build payloads report the
 requested Rust target triple when `--target <triple>` is used and report
@@ -183,12 +192,33 @@ Stable ownership diagnostic codes:
 | `move_while_borrowed` | An owned collection root was moved while a live borrowed slice still referenced it. | `cannot move value "values" while borrowed slices are still live`. |
 | `loop_move_outer_non_copy` | A loop body moved a non-`Copy` value declared outside the loop. | `cannot move non-copy value "name" declared outside the loop inside a while body`. |
 | `borrow_return_requires_param_origin` | A function returned a borrowed value that was not derived from a borrowed parameter. | `returning borrowed values requires data derived from one of the borrowed parameters in stage1`. |
-| `borrow_return_origin_ambiguous` | A function returned a borrowed value while more than one borrowed parameter could be the origin. | `cannot infer which parameter the returned borrow originates from; this case will require an explicit annotation when origin syntax lands`. |
+| `borrow_return_origin_ambiguous` | A function returned a borrowed value while more than one borrowed parameter could be the origin. | `cannot infer which parameter the returned borrow originates from`. |
 | `mutable_borrow_while_shared_live` | A mutable borrowed slice was created while a shared borrowed slice of the same owner was live. | `cannot create mutable borrow of value "values" while a shared borrow is still live`. |
 | `shared_borrow_while_mutable_live` | A shared borrowed slice was created while a mutable borrowed slice of the same owner was live. | `cannot create shared borrow of value "values" while a mutable borrow is still live`. |
 | `mutable_borrow_while_mutable_live` | A mutable borrowed slice was created while another mutable borrowed slice of the same owner was live. | `cannot create mutable borrow of value "values" while another mutable borrow is still live`. |
 | `closure_move_captured_non_copy` | A closure body moved a captured non-`Copy` value. | `closure cannot move captured non-copy value`. |
 | `closure_borrowed_slice_return` | A closure returned a borrowed slice whose lifetime cannot be tied to a safe parameter origin. | `closure fn values cannot return borrowed slice types in stage1`. |
+
+Common non-ownership diagnostic codes:
+
+| Code | Meaning |
+| --- | --- |
+| `type.mismatch` | A value does not match the type required by a binding, call, or return site. |
+| `type.invalid` | A type-system rule failed outside a simple expected-versus-actual mismatch. |
+| `parse.unexpected_token` | The parser found a token that is invalid in the current grammar slot. |
+| `parse.invalid_syntax` | Source does not fit a supported stage1 grammar form. |
+| `parse.missing_token` | A declaration or expression is incomplete because a required token is missing. |
+| `parse.unsupported_syntax` | Source uses a syntactic form that stage1 deliberately does not implement yet. |
+| `manifest.invalid_capability` | `axiom.toml` declares a capability with an unsupported shape. |
+| `manifest.bad_dependency_path` | A dependency or workspace member path is empty, missing, or escapes the workspace boundary. |
+| `import.unresolved` | A package or dependency import path could not be resolved to source. |
+| `import.cycle` | A package-local import graph loops back to a module already being loaded. |
+| `import.invalid` | An import violates stage1 visibility, namespace, or boundary rules. |
+| `capability.denied` | Source attempted to use a host capability that the manifest does not allow. |
+| `control.missing_return` | A non-unit function can reach a control-flow path without returning a value. |
+| `control.unreachable_statement` | A statement follows a terminating control-flow operation in a currently unsupported shape. |
+| `control.invalid` | A branch, loop, or terminating statement violates the current control-flow contract. |
+| `codegen.internal` | A checked construct reached a backend path without a valid lowering. |
 
 Checked-in `check --json` contract fixtures live under
 `stage1/json-fixtures/check/` and cover success, parse, type, ownership, and
