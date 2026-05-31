@@ -33,6 +33,9 @@ Use this checklist after the first bootstrap render or whenever `project.bootstr
 - Record the local validation you actually ran so `Validate PR Description` and `CI Gate` can pass cleanly.
 - Older pull requests may still pass a temporary legacy fallback when they link an issue and include a short prose summary; that fallback also accepts qualified issue references and full GitHub issue URLs, but new pull requests should use the structured template above.
 - Keep required checks aligned to `CI Gate`; optional review-automation lanes should stay non-required.
+- Use `scripts/ci/pr-queue-remediation.py --json` for queue-wide repair passes.
+  It classifies live PR state into a deterministic worklist and must be rerun
+  after any branch repair so terminal state comes from a fresh GitHub fetch.
 - Use `python3 scripts/ci/report-delivery-signals.py` when triaging open PRs or
   issue closure. It reports governing issue links, changed files, semantic-node
   hints, fresh `CI Gate` state, and review state without adding a required
