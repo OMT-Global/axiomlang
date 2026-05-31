@@ -3227,6 +3227,230 @@ fn axiom_crypto_rand_u64() -> u64 {
 }
 
 #[allow(dead_code)]
+fn axiom_crypto_ed25519_keygen() -> (Vec<u8>, Vec<u8>) {
+    match axiom_crypto_ed25519_keygen_inner() {
+        Some(keys) => {
+            axiom_capability_audit("crypto_ed25519_keygen", "crypto", "algorithm=Ed25519", "ok");
+            keys
+        }
+        None => {
+            axiom_capability_audit(
+                "crypto_ed25519_keygen",
+                "crypto",
+                "algorithm=Ed25519",
+                "error",
+            );
+            (Vec::new(), Vec::new())
+        }
+    }
+}
+
+#[allow(dead_code)]
+fn axiom_crypto_ed25519_sign(secret_key: &[u8], message: &[u8]) -> Vec<u8> {
+    let arg_summary = format!("secret_key_len={},message_len={}", secret_key.len(), message.len());
+    match axiom_crypto_ed25519_sign_inner(secret_key, message) {
+        Some(signature) => {
+            axiom_capability_audit("crypto_ed25519_sign", "crypto", &arg_summary, "ok");
+            signature
+        }
+        None => {
+            axiom_capability_audit("crypto_ed25519_sign", "crypto", &arg_summary, "error");
+            Vec::new()
+        }
+    }
+}
+
+#[allow(dead_code)]
+fn axiom_crypto_ed25519_verify(
+    public_key: &[u8],
+    message: &[u8],
+    signature: &[u8],
+) -> bool {
+    let arg_summary = format!(
+        "public_key_len={},message_len={},signature_len={}",
+        public_key.len(),
+        message.len(),
+        signature.len()
+    );
+    match axiom_crypto_ed25519_verify_inner(public_key, message, signature) {
+        Some(true) => {
+            axiom_capability_audit("crypto_ed25519_verify", "crypto", &arg_summary, "ok");
+            true
+        }
+        Some(false) => {
+            axiom_capability_audit("crypto_ed25519_verify", "crypto", &arg_summary, "denied");
+            false
+        }
+        None => {
+            axiom_capability_audit("crypto_ed25519_verify", "crypto", &arg_summary, "error");
+            false
+        }
+    }
+}
+
+#[allow(dead_code)]
+fn axiom_crypto_ed25519_keygen_inner() -> Option<(Vec<u8>, Vec<u8>)> {
+    let crypto = AxiomEd25519Crypto::load().ok()?;
+    let ctx = AxiomEd25519PkeyCtxGuard::new(
+        unsafe {
+            (crypto.evp_pkey_ctx_new_id)(
+                AXIOM_EVP_PKEY_ED25519,
+                std::ptr::null_mut(),
+            )
+        },
+        &crypto,
+    )?;
+    if unsafe { (crypto.evp_pkey_keygen_init)(ctx.ctx) } <= 0 {
+        return None;
+    }
+    let mut pkey = std::ptr::null_mut();
+    if unsafe { (crypto.evp_pkey_keygen)(ctx.ctx, &mut pkey) } <= 0 || pkey.is_null() {
+        return None;
+    }
+    let pkey = AxiomEd25519PkeyGuard::new(pkey, &crypto)?;
+    let mut public_key = vec![0u8; 32];
+    let mut public_len = public_key.len();
+    if unsafe {
+        (crypto.evp_pkey_get_raw_public_key)(pkey.pkey, public_key.as_mut_ptr(), &mut public_len)
+    } <= 0
+    {
+        return None;
+    }
+    let mut private_key = vec![0u8; 32];
+    let mut private_len = private_key.len();
+    if unsafe {
+        (crypto.evp_pkey_get_raw_private_key)(pkey.pkey, private_key.as_mut_ptr(), &mut private_len)
+    } <= 0
+    {
+        return None;
+    }
+    if public_len != 32 || private_len != 32 {
+        return None;
+    }
+    public_key.truncate(public_len);
+    private_key.truncate(private_len);
+    private_key.extend_from_slice(&public_key);
+    Some((public_key, private_key))
+}
+
+#[allow(dead_code)]
+fn axiom_crypto_ed25519_sign_inner(secret_key: &[u8], message: &[u8]) -> Option<Vec<u8>> {
+    let crypto = AxiomEd25519Crypto::load().ok()?;
+    let signing_key = axiom_crypto_ed25519_signing_key(secret_key)?;
+    let pkey = unsafe {
+        (crypto.evp_pkey_new_raw_private_key)(
+            AXIOM_EVP_PKEY_ED25519,
+            std::ptr::null_mut(),
+            signing_key.as_ptr(),
+            signing_key.len(),
+        )
+    };
+    let pkey = AxiomEd25519PkeyGuard::new(pkey, &crypto)?;
+    let ctx = AxiomEd25519MdCtxGuard::new(unsafe { (crypto.evp_md_ctx_new)() }, &crypto)?;
+    if unsafe {
+        (crypto.evp_digest_sign_init)(
+            ctx.ctx,
+            std::ptr::null_mut(),
+            std::ptr::null(),
+            std::ptr::null_mut(),
+            pkey.pkey,
+        )
+    } <= 0
+    {
+        return None;
+    }
+    let mut signature_len = 0usize;
+    if unsafe {
+        (crypto.evp_digest_sign)(
+            ctx.ctx,
+            std::ptr::null_mut(),
+            &mut signature_len,
+            message.as_ptr(),
+            message.len(),
+        )
+    } <= 0
+        || signature_len == 0
+        || signature_len > 1024
+    {
+        return None;
+    }
+    let mut signature = vec![0u8; signature_len];
+    if unsafe {
+        (crypto.evp_digest_sign)(
+            ctx.ctx,
+            signature.as_mut_ptr(),
+            &mut signature_len,
+            message.as_ptr(),
+            message.len(),
+        )
+    } <= 0
+    {
+        return None;
+    }
+    signature.truncate(signature_len);
+    Some(signature)
+}
+
+#[allow(dead_code)]
+fn axiom_crypto_ed25519_verify_inner(
+    public_key: &[u8],
+    message: &[u8],
+    signature: &[u8],
+) -> Option<bool> {
+    if public_key.len() != 32 || signature.len() != 64 {
+        return Some(false);
+    }
+    let crypto = AxiomEd25519Crypto::load().ok()?;
+    let pkey = unsafe {
+        (crypto.evp_pkey_new_raw_public_key)(
+            AXIOM_EVP_PKEY_ED25519,
+            std::ptr::null_mut(),
+            public_key.as_ptr(),
+            public_key.len(),
+        )
+    };
+    let pkey = AxiomEd25519PkeyGuard::new(pkey, &crypto)?;
+    let ctx = AxiomEd25519MdCtxGuard::new(unsafe { (crypto.evp_md_ctx_new)() }, &crypto)?;
+    if unsafe {
+        (crypto.evp_digest_verify_init)(
+            ctx.ctx,
+            std::ptr::null_mut(),
+            std::ptr::null(),
+            std::ptr::null_mut(),
+            pkey.pkey,
+        )
+    } <= 0
+    {
+        return None;
+    }
+    let result = unsafe {
+        (crypto.evp_digest_verify)(
+            ctx.ctx,
+            signature.as_ptr(),
+            signature.len(),
+            message.as_ptr(),
+            message.len(),
+        )
+    };
+    if result == 1 {
+        Some(true)
+    } else if result == 0 {
+        Some(false)
+    } else {
+        None
+    }
+}
+
+#[allow(dead_code)]
+fn axiom_crypto_ed25519_signing_key(secret_key: &[u8]) -> Option<&[u8]> {
+    match secret_key.len() {
+        32 => Some(secret_key),
+        64 => Some(&secret_key[..32]),
+        _ => None,
+    }
+}
+
+#[allow(dead_code)]
 fn axiom_crypto_aead_seal(
     alg: String,
     key: &[u8],
@@ -3542,6 +3766,138 @@ struct AxiomEvpCipherCtx {
     _private: [u8; 0],
 }
 
+#[repr(C)]
+struct AxiomEvpPkey {
+    _private: [u8; 0],
+}
+
+#[repr(C)]
+struct AxiomEvpPkeyCtx {
+    _private: [u8; 0],
+}
+
+#[repr(C)]
+struct AxiomEvpMdCtx {
+    _private: [u8; 0],
+}
+
+const AXIOM_EVP_PKEY_ED25519: std::os::raw::c_int = 1087;
+
+#[allow(dead_code)]
+struct AxiomEd25519Crypto {
+    handle: *mut std::os::raw::c_void,
+    evp_pkey_ctx_new_id: unsafe extern "C" fn(
+        std::os::raw::c_int,
+        *mut std::os::raw::c_void,
+    ) -> *mut AxiomEvpPkeyCtx,
+    evp_pkey_ctx_free: unsafe extern "C" fn(*mut AxiomEvpPkeyCtx),
+    evp_pkey_keygen_init: unsafe extern "C" fn(*mut AxiomEvpPkeyCtx) -> std::os::raw::c_int,
+    evp_pkey_keygen:
+        unsafe extern "C" fn(*mut AxiomEvpPkeyCtx, *mut *mut AxiomEvpPkey) -> std::os::raw::c_int,
+    evp_pkey_free: unsafe extern "C" fn(*mut AxiomEvpPkey),
+    evp_pkey_get_raw_public_key:
+        unsafe extern "C" fn(*const AxiomEvpPkey, *mut u8, *mut usize) -> std::os::raw::c_int,
+    evp_pkey_get_raw_private_key:
+        unsafe extern "C" fn(*const AxiomEvpPkey, *mut u8, *mut usize) -> std::os::raw::c_int,
+    evp_pkey_new_raw_private_key: unsafe extern "C" fn(
+        std::os::raw::c_int,
+        *mut std::os::raw::c_void,
+        *const u8,
+        usize,
+    ) -> *mut AxiomEvpPkey,
+    evp_pkey_new_raw_public_key: unsafe extern "C" fn(
+        std::os::raw::c_int,
+        *mut std::os::raw::c_void,
+        *const u8,
+        usize,
+    ) -> *mut AxiomEvpPkey,
+    evp_md_ctx_new: unsafe extern "C" fn() -> *mut AxiomEvpMdCtx,
+    evp_md_ctx_free: unsafe extern "C" fn(*mut AxiomEvpMdCtx),
+    evp_digest_sign_init: unsafe extern "C" fn(
+        *mut AxiomEvpMdCtx,
+        *mut *mut std::os::raw::c_void,
+        *const std::os::raw::c_void,
+        *mut std::os::raw::c_void,
+        *mut AxiomEvpPkey,
+    ) -> std::os::raw::c_int,
+    evp_digest_sign: unsafe extern "C" fn(
+        *mut AxiomEvpMdCtx,
+        *mut u8,
+        *mut usize,
+        *const u8,
+        usize,
+    ) -> std::os::raw::c_int,
+    evp_digest_verify_init: unsafe extern "C" fn(
+        *mut AxiomEvpMdCtx,
+        *mut *mut std::os::raw::c_void,
+        *const std::os::raw::c_void,
+        *mut std::os::raw::c_void,
+        *mut AxiomEvpPkey,
+    ) -> std::os::raw::c_int,
+    evp_digest_verify: unsafe extern "C" fn(
+        *mut AxiomEvpMdCtx,
+        *const u8,
+        usize,
+        *const u8,
+        usize,
+    ) -> std::os::raw::c_int,
+}
+
+impl AxiomEd25519Crypto {
+    fn load() -> Result<Self, String> {
+        let handle = axiom_crypto_aead_open_library(&[
+            "libcrypto.so.3",
+            "libcrypto.so.1.1",
+            "libcrypto.so",
+            "/opt/homebrew/opt/openssl@3/lib/libcrypto.3.dylib",
+            "/usr/local/opt/openssl@3/lib/libcrypto.3.dylib",
+            "libcrypto.3.dylib",
+            "libcrypto.dylib",
+        ])?;
+        Ok(Self {
+            handle,
+            evp_pkey_ctx_new_id: axiom_crypto_aead_load_symbol(handle, "EVP_PKEY_CTX_new_id")?,
+            evp_pkey_ctx_free: axiom_crypto_aead_load_symbol(handle, "EVP_PKEY_CTX_free")?,
+            evp_pkey_keygen_init: axiom_crypto_aead_load_symbol(handle, "EVP_PKEY_keygen_init")?,
+            evp_pkey_keygen: axiom_crypto_aead_load_symbol(handle, "EVP_PKEY_keygen")?,
+            evp_pkey_free: axiom_crypto_aead_load_symbol(handle, "EVP_PKEY_free")?,
+            evp_pkey_get_raw_public_key: axiom_crypto_aead_load_symbol(
+                handle,
+                "EVP_PKEY_get_raw_public_key",
+            )?,
+            evp_pkey_get_raw_private_key: axiom_crypto_aead_load_symbol(
+                handle,
+                "EVP_PKEY_get_raw_private_key",
+            )?,
+            evp_pkey_new_raw_private_key: axiom_crypto_aead_load_symbol(
+                handle,
+                "EVP_PKEY_new_raw_private_key",
+            )?,
+            evp_pkey_new_raw_public_key: axiom_crypto_aead_load_symbol(
+                handle,
+                "EVP_PKEY_new_raw_public_key",
+            )?,
+            evp_md_ctx_new: axiom_crypto_aead_load_symbol(handle, "EVP_MD_CTX_new")?,
+            evp_md_ctx_free: axiom_crypto_aead_load_symbol(handle, "EVP_MD_CTX_free")?,
+            evp_digest_sign_init: axiom_crypto_aead_load_symbol(handle, "EVP_DigestSignInit")?,
+            evp_digest_sign: axiom_crypto_aead_load_symbol(handle, "EVP_DigestSign")?,
+            evp_digest_verify_init: axiom_crypto_aead_load_symbol(
+                handle,
+                "EVP_DigestVerifyInit",
+            )?,
+            evp_digest_verify: axiom_crypto_aead_load_symbol(handle, "EVP_DigestVerify")?,
+        })
+    }
+}
+
+impl Drop for AxiomEd25519Crypto {
+    fn drop(&mut self) {
+        unsafe {
+            let _ = axiom_crypto_aead_dlclose(self.handle);
+        }
+    }
+}
+
 #[allow(dead_code)]
 struct AxiomAeadCrypto {
     handle: *mut std::os::raw::c_void,
@@ -3650,6 +4006,63 @@ impl Drop for AxiomAeadCtxGuard<'_> {
     fn drop(&mut self) {
         unsafe {
             (self.crypto.evp_cipher_ctx_free)(self.ctx);
+        }
+    }
+}
+
+struct AxiomEd25519PkeyCtxGuard<'a> {
+    ctx: *mut AxiomEvpPkeyCtx,
+    crypto: &'a AxiomEd25519Crypto,
+}
+
+impl<'a> AxiomEd25519PkeyCtxGuard<'a> {
+    fn new(ctx: *mut AxiomEvpPkeyCtx, crypto: &'a AxiomEd25519Crypto) -> Option<Self> {
+        (!ctx.is_null()).then_some(Self { ctx, crypto })
+    }
+}
+
+impl Drop for AxiomEd25519PkeyCtxGuard<'_> {
+    fn drop(&mut self) {
+        unsafe {
+            (self.crypto.evp_pkey_ctx_free)(self.ctx);
+        }
+    }
+}
+
+struct AxiomEd25519PkeyGuard<'a> {
+    pkey: *mut AxiomEvpPkey,
+    crypto: &'a AxiomEd25519Crypto,
+}
+
+impl<'a> AxiomEd25519PkeyGuard<'a> {
+    fn new(pkey: *mut AxiomEvpPkey, crypto: &'a AxiomEd25519Crypto) -> Option<Self> {
+        (!pkey.is_null()).then_some(Self { pkey, crypto })
+    }
+}
+
+impl Drop for AxiomEd25519PkeyGuard<'_> {
+    fn drop(&mut self) {
+        unsafe {
+            (self.crypto.evp_pkey_free)(self.pkey);
+        }
+    }
+}
+
+struct AxiomEd25519MdCtxGuard<'a> {
+    ctx: *mut AxiomEvpMdCtx,
+    crypto: &'a AxiomEd25519Crypto,
+}
+
+impl<'a> AxiomEd25519MdCtxGuard<'a> {
+    fn new(ctx: *mut AxiomEvpMdCtx, crypto: &'a AxiomEd25519Crypto) -> Option<Self> {
+        (!ctx.is_null()).then_some(Self { ctx, crypto })
+    }
+}
+
+impl Drop for AxiomEd25519MdCtxGuard<'_> {
+    fn drop(&mut self) {
+        unsafe {
+            (self.crypto.evp_md_ctx_free)(self.ctx);
         }
     }
 }
@@ -5220,6 +5633,24 @@ fn render_expr(expr: &Expr) -> String {
         }
         Expr::Call { name, .. } if name == "crypto_rand_u64" => {
             String::from("axiom_crypto_rand_u64()")
+        }
+        Expr::Call { name, .. } if name == "crypto_ed25519_keygen" => {
+            String::from("axiom_crypto_ed25519_keygen()")
+        }
+        Expr::Call { name, args, .. } if name == "crypto_ed25519_sign" => {
+            format!(
+                "axiom_crypto_ed25519_sign({}, {})",
+                render_expr(&args[0]),
+                render_expr(&args[1])
+            )
+        }
+        Expr::Call { name, args, .. } if name == "crypto_ed25519_verify" => {
+            format!(
+                "axiom_crypto_ed25519_verify({}, {}, {})",
+                render_expr(&args[0]),
+                render_expr(&args[1]),
+                render_expr(&args[2])
+            )
         }
         Expr::Call { name, args, .. } if name == "crypto_aead_seal" => {
             format!(
