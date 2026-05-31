@@ -11,6 +11,7 @@ concurrency:
 permissions:
   contents: read
   issues: read
+  pull-requests: read
 
 env:
   NODE_VERSION: '20'
@@ -148,6 +149,12 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha }}
       - name: Require generated PR template content
         run: bash scripts/ci/validate-pr-description.sh
+      - name: Emit advisory issue traceability
+        continue-on-error: true
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: scripts/ci/issue-pr-traceability.py --json
 
 
   validate-secrets:
