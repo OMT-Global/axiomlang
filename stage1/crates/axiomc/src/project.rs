@@ -1,5 +1,5 @@
 use crate::codegen::{
-    GeneratedRustBackendInput, NativeBackendKind, compile_native, render_generated_rust,
+    GeneratedRustBackendInput, NativeBackendKind, compile_native, try_render_generated_rust,
 };
 use crate::diagnostics::Diagnostic;
 use crate::hir;
@@ -1874,12 +1874,12 @@ fn build_artifacts(
         })?;
     }
     let fs_root = fs_root_path_for_package(package_root, &analyzed.manifest)?;
-    let rust_source = render_generated_rust(
+    let rust_source = try_render_generated_rust(
         &GeneratedRustBackendInput::from_mir(analyzed.mir.clone())
             .with_debug(options.debug)
             .with_paths(package_root, fs_root)
             .with_capabilities(analyzed.manifest.capabilities.clone()),
-    );
+    )?;
     let cache = build_cache_file(
         graph,
         package_root,
@@ -7180,19 +7180,13 @@ mod tests {
                     name: "clock_now_ms".to_string(),
                     args: Vec::new(),
                     ty: hir::Type::Int,
-                    span: hir::SourceSpan {
-                        line: 7,
-                        column: 21,
-                    },
+                    span: hir::SourceSpan::point(7, 21),
                 },
                 hir::Expr::Call {
                     name: "clock_now_ms".to_string(),
                     args: Vec::new(),
                     ty: hir::Type::Int,
-                    span: hir::SourceSpan {
-                        line: 7,
-                        column: 38,
-                    },
+                    span: hir::SourceSpan::point(7, 38),
                 },
             ],
             ty: hir::Type::Tuple(vec![hir::Type::Int, hir::Type::Int]),
@@ -7202,7 +7196,7 @@ mod tests {
             ty: hir::Type::Tuple(vec![hir::Type::Int, hir::Type::Int]),
             expr,
             borrow_region_facts: Vec::new(),
-            span: hir::SourceSpan { line: 7, column: 1 },
+            span: hir::SourceSpan::point(7, 1),
         };
         let mut uses = BTreeSet::new();
 
@@ -7229,19 +7223,13 @@ mod tests {
                         name: "clock_now_ms".to_string(),
                         args: Vec::new(),
                         ty: hir::Type::Int,
-                        span: hir::SourceSpan {
-                            line: 3,
-                            column: 22,
-                        },
+                        span: hir::SourceSpan::point(3, 22),
                     },
                     hir::Expr::Call {
                         name: "clock_now_ms".to_string(),
                         args: Vec::new(),
                         ty: hir::Type::Int,
-                        span: hir::SourceSpan {
-                            line: 3,
-                            column: 38,
-                        },
+                        span: hir::SourceSpan::point(3, 38),
                     },
                 ],
                 ty: hir::Type::Tuple(vec![hir::Type::Int, hir::Type::Int]),
