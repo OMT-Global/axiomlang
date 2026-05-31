@@ -1,7 +1,7 @@
 use crate::diagnostics::Diagnostic;
 use crate::lockfile::validate_lockfile;
 use crate::manifest::{
-    LOCK_FILENAME, MANIFEST_FILENAME, capability_descriptors, load_manifest, manifest_path,
+    capability_descriptors, load_manifest, manifest_path, LOCK_FILENAME, MANIFEST_FILENAME,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -416,6 +416,118 @@ pub fn verify_archive_integrity(
     Ok(())
 }
 
+fn verify_archive_attestation(
+    package: &str,
+    version: &str,
+    archive_bytes: &[u8],
+    signature_payload: &str,
+) -> Result<(), Diagnostic> {
+    let mut header = None;
+    let mut declared_package = None;
+    let mut declared_version = None;
+    let mut declared_hash = None;
+    let mut declared_integrity = None;
+    for line in signature_payload.lines() {
+        if header.is_none() {
+            header = Some(line);
+            continue;
+        }
+        if line.is_empty() {
+            return Err(Diagnostic::new(
+                "registry",
+                "signature payload contains an empty line",
+            ));
+        }
+        if let Some((key, value)) = line.split_once('=') {
+            match key {
+                "package" => {
+                    if declared_package.is_some() {
+                        return Err(Diagnostic::new(
+                            "registry",
+                            "signature payload repeats package",
+                        ));
+                    }
+                    declared_package = Some(value.to_string())
+                }
+                "version" => {
+                    if declared_version.is_some() {
+                        return Err(Diagnostic::new(
+                            "registry",
+                            "signature payload repeats version",
+                        ));
+                    }
+                    declared_version = Some(value.to_string())
+                }
+                "archive_hash" => {
+                    if declared_hash.is_some() {
+                        return Err(Diagnostic::new(
+                            "registry",
+                            "signature payload repeats archive_hash",
+                        ));
+                    }
+                    declared_hash = Some(value.to_string())
+                }
+                "integrity" => {
+                    if declared_integrity.is_some() {
+                        return Err(Diagnostic::new(
+                            "registry",
+                            "signature payload repeats integrity",
+                        ));
+                    }
+                    declared_integrity = Some(value.to_string())
+                }
+                _ => {
+                    return Err(Diagnostic::new(
+                        "registry",
+                        format!("signature payload contains unexpected field {key}"),
+                    ));
+                }
+            }
+        } else {
+            return Err(Diagnostic::new(
+                "registry",
+                "signature payload contains an invalid line",
+            ));
+        }
+    }
+    if header != Some("axiom-integrity-v1") {
+        return Err(Diagnostic::new(
+            "registry",
+            "signature payload missing axiom-integrity-v1 header",
+        ));
+    }
+    let declared_package = declared_package
+        .ok_or_else(|| Diagnostic::new("registry", "signature payload missing package"))?;
+    let declared_version = declared_version
+        .ok_or_else(|| Diagnostic::new("registry", "signature payload missing version"))?;
+    let declared_hash = declared_hash
+        .ok_or_else(|| Diagnostic::new("registry", "signature payload missing archive_hash"))?;
+    let declared_integrity = declared_integrity
+        .ok_or_else(|| Diagnostic::new("registry", "signature payload missing integrity tag"))?;
+    if declared_package != package || declared_version != version {
+        return Err(Diagnostic::new(
+            "registry",
+            format!("signature payload does not match package {package}@{version}"),
+        ));
+    }
+    let actual_hash = hash_bytes(archive_bytes);
+    if declared_hash != actual_hash {
+        return Err(Diagnostic::new(
+            "registry",
+            format!(
+                "archive hash mismatch: payload declares {declared_hash}, archive hashes to {actual_hash}"
+            ),
+        ));
+    }
+    if declared_integrity.is_empty() {
+        return Err(Diagnostic::new(
+            "registry",
+            "signature payload has an empty integrity tag",
+        ));
+    }
+    Ok(())
+}
+
 fn hash_bytes(value: &[u8]) -> String {
     let mut hash = 0xcbf29ce484222325u64;
     for byte in value {
@@ -673,14 +785,39 @@ fn load_release(
                 .then(|| format!("{archive}.sig"))
         }),
     };
-    if archive_file.is_some() && signature_file.is_none() {
+    if archive_file.is_some() ^ signature_file.is_some() {
         return Err(Diagnostic::new(
             "registry",
             format!(
-                "registry release {package_name}@{version} includes an archive but no signature"
+                "registry release {package_name} must include both archive and signature sidecars"
             ),
         )
         .with_path(version_dir.display().to_string()));
+    }
+    if let (Some(archive_file), Some(signature_file)) = (&archive_file, &signature_file) {
+        let archive_path = version_dir.join(archive_file);
+        let signature_path = version_dir.join(signature_file);
+        let archive_bytes = fs::read(&archive_path).map_err(|err| {
+            Diagnostic::new(
+                "registry",
+                format!(
+                    "failed to read registry archive {}: {err}",
+                    archive_path.display()
+                ),
+            )
+            .with_path(archive_path.display().to_string())
+        })?;
+        let signature_payload = fs::read_to_string(&signature_path).map_err(|err| {
+            Diagnostic::new(
+                "registry",
+                format!(
+                    "failed to read registry signature {}: {err}",
+                    signature_path.display()
+                ),
+            )
+            .with_path(signature_path.display().to_string())
+        })?;
+        verify_archive_attestation(package_name, &version, &archive_bytes, &signature_payload)?;
     }
     Ok(RegistryRelease {
         version: package.version.clone(),
@@ -951,11 +1088,9 @@ mod tests {
         let original = fs::read(release.join("package.axp")).expect("read archive");
         let error = verify_archive_integrity("core", "1.0.0", &original, &signature, "wrong-key")
             .expect_err("wrong key should fail");
-        assert!(
-            error
-                .message
-                .contains("does not match supplied signing key")
-        );
+        assert!(error
+            .message
+            .contains("does not match supplied signing key"));
     }
 
     #[test]
@@ -1159,7 +1294,19 @@ mod tests {
             "[package]\nname = \"core\"\nversion = \"1.2.3\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nnet = true\nenv = [\"API_TOKEN\"]\n",
         );
         fs::write(release.join("package.axp"), "archive").expect("write archive");
-        fs::write(release.join("package.axp.sig"), "signature").expect("write signature");
+        let archive_hash = hash_bytes(b"archive");
+        fs::write(
+            release.join("package.axp.sig"),
+            format!(
+                "axiom-integrity-v1
+package=core
+version=1.2.3
+archive_hash={archive_hash}
+integrity=ignored
+",
+            ),
+        )
+        .expect("write signature");
         fs::write(
             release.join("axiom-registry.toml"),
             "yanked = true\nyank_reason = \"security fix required\"\n",
@@ -1186,12 +1333,10 @@ mod tests {
             release.yank_reason.as_deref(),
             Some("security fix required")
         );
-        assert!(
-            release
-                .capabilities
-                .iter()
-                .any(|cap| cap.name == "net" && cap.enabled)
-        );
+        assert!(release
+            .capabilities
+            .iter()
+            .any(|cap| cap.name == "net" && cap.enabled));
         let env = release
             .capabilities
             .iter()
@@ -1213,7 +1358,80 @@ mod tests {
         let error = build_registry_index(dir.path(), "https://packages.example.test")
             .expect_err("unsigned archive should fail");
         assert_eq!(error.kind, "registry");
-        assert!(error.message.contains("archive but no signature"));
+        assert!(error.message.contains("archive"));
+        assert!(error.message.contains("signature sidecars"));
+    }
+
+    #[test]
+    fn rejects_invalid_archive_attestation_payload() {
+        let dir = tempdir().expect("tempdir");
+        let release = write_release(
+            dir.path(),
+            "core",
+            "1.0.0",
+            "[package]\nname = \"core\"\nversion = \"1.0.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n",
+        );
+        fs::write(release.join("package.axp"), "archive").expect("write archive");
+        fs::write(
+            release.join("package.axp.sig"),
+            "axiom-integrity-v1\npackage=core\nversion=1.0.0\narchive_hash=deadbeef\nintegrity=ignored\n",
+        )
+        .expect("write signature");
+
+        let error = build_registry_index(dir.path(), "https://packages.example.test")
+            .expect_err("mismatched archive hash should fail");
+        assert_eq!(error.kind, "registry");
+        assert!(error.message.contains("archive hash mismatch"));
+    }
+
+    #[test]
+    fn rejects_archive_attestation_payload_without_integrity_field() {
+        let dir = tempdir().expect("tempdir");
+        let release = write_release(
+            dir.path(),
+            "core",
+            "1.0.0",
+            "[package]\nname = \"core\"\nversion = \"1.0.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n",
+        );
+        fs::write(release.join("package.axp"), "archive").expect("write archive");
+        let archive_hash = hash_bytes(b"archive");
+        fs::write(
+            release.join("package.axp.sig"),
+            format!(
+                "axiom-integrity-v1\npackage=core\nversion=1.0.0\narchive_hash={archive_hash}\n",
+            ),
+        )
+        .expect("write signature");
+
+        let error = build_registry_index(dir.path(), "https://packages.example.test")
+            .expect_err("missing integrity field should fail");
+        assert_eq!(error.kind, "registry");
+        assert!(error.message.contains("missing integrity tag"));
+    }
+
+    #[test]
+    fn rejects_archive_attestation_payload_with_unexpected_field() {
+        let dir = tempdir().expect("tempdir");
+        let release = write_release(
+            dir.path(),
+            "core",
+            "1.0.0",
+            "[package]\nname = \"core\"\nversion = \"1.0.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n",
+        );
+        fs::write(release.join("package.axp"), "archive").expect("write archive");
+        let archive_hash = hash_bytes(b"archive");
+        fs::write(
+            release.join("package.axp.sig"),
+            format!(
+                "axiom-integrity-v1\npackage=core\nversion=1.0.0\narchive_hash={archive_hash}\nintegrity=ignored\nunknown=field\n",
+            ),
+        )
+        .expect("write signature");
+
+        let error = build_registry_index(dir.path(), "https://packages.example.test")
+            .expect_err("unexpected field should fail");
+        assert_eq!(error.kind, "registry");
+        assert!(error.message.contains("unexpected field unknown"));
     }
 
     #[test]
@@ -1235,12 +1453,10 @@ mod tests {
             .expect_err("yank_reason without yanked should fail");
         assert_eq!(error.kind, "registry");
         assert!(error.message.contains("yank_reason but is not yanked"));
-        assert!(
-            error
-                .path
-                .as_deref()
-                .is_some_and(|path| path.ends_with("axiom-registry.toml"))
-        );
+        assert!(error
+            .path
+            .as_deref()
+            .is_some_and(|path| path.ends_with("axiom-registry.toml")));
     }
 
     #[test]

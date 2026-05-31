@@ -8656,6 +8656,59 @@ fn lower_call_arg_with_expected(
     })
 }
 
+fn lower_binary_add_chain(
+    expr: &syntax::Expr,
+    env: &mut HashMap<String, Binding>,
+    ctx: &LowerContext<'_>,
+) -> Result<Expr, Diagnostic> {
+    let mut current = expr;
+    let mut pending = Vec::new();
+    while let syntax::Expr::BinaryAdd {
+        op,
+        lhs,
+        rhs,
+        line,
+        column,
+    } = current
+    {
+        pending.push((*op, rhs.as_ref(), *line, *column));
+        current = lhs.as_ref();
+    }
+
+    let mut lowered = lower_expr(current, env, ctx)?;
+    for (op, rhs, line, column) in pending.into_iter().rev() {
+        let lowered_rhs = lower_expr(rhs, env, ctx)?;
+        let lhs_ty = lowered.ty().clone();
+        let rhs_ty = lowered_rhs.ty().clone();
+        let result_ty = if lhs_ty == rhs_ty && is_addable_numeric(&lhs_ty) {
+            lhs_ty.clone()
+        } else if op == syntax::ArithmeticOp::Add
+            && is_string_like_type(&lhs_ty)
+            && is_string_like_type(&rhs_ty)
+        {
+            Type::String
+        } else {
+            return Err(
+                Diagnostic::new(
+                    "type",
+                    format!(
+                        "operator '{}' expects matching numeric or string operands, got {lhs_ty} and {rhs_ty}",
+                        op.lexeme()
+                    ),
+                )
+                .with_span(line, column),
+            );
+        };
+        lowered = Expr::BinaryAdd {
+            op: lower_arithmetic_op(op),
+            lhs: Box::new(lowered),
+            rhs: Box::new(lowered_rhs),
+            ty: result_ty,
+        };
+    }
+    Ok(lowered)
+}
+
 fn lower_expr_with_expected_inner(
     expr: &syntax::Expr,
     expected: Option<&Type>,
@@ -9820,6 +9873,53 @@ fn lower_expr_with_expected_inner(
                     ty: Type::Int,
                 });
             }
+            if name == "net_tcp_read_string" || name == "net_tcp_write_string" {
+                require_capability(ctx.capabilities, CapabilityKind::Net, name, *line, *column)?;
+                if args.len() != 2 {
+                    return Err(Diagnostic::new(
+                        "type",
+                        format!("{name} expects 2 arguments, got {}", args.len()),
+                    )
+                    .with_span(*line, *column));
+                }
+                let stream = lower_expr_with_expected(&args[0], Some(&Type::Int), env, ctx)?;
+                if stream.ty() != &Type::Int {
+                    return Err(Diagnostic::new(
+                        "type",
+                        format!("{name} expects argument 1 type int, got {}", stream.ty()),
+                    )
+                    .with_span(args[0].line(), args[0].column()));
+                }
+                let expected = if name == "net_tcp_read_string" {
+                    Type::Int
+                } else {
+                    Type::String
+                };
+                let value = lower_expr_with_expected(&args[1], Some(&expected), env, ctx)?;
+                if value.ty() != &expected {
+                    return Err(Diagnostic::new(
+                        "type",
+                        format!(
+                            "{name} expects argument 2 type {expected}, got {}",
+                            value.ty()
+                        ),
+                    )
+                    .with_span(args[1].line(), args[1].column()));
+                }
+                if name == "net_tcp_write_string" {
+                    move_lowered_value(&value, env)?;
+                }
+                return Ok(Expr::Call {
+                    span: SourceSpan::point(*line, *column),
+                    name: name.clone(),
+                    args: vec![stream, value],
+                    ty: if name == "net_tcp_read_string" {
+                        Type::String
+                    } else {
+                        Type::Int
+                    },
+                });
+            }
             if name == "net_udp_bind" {
                 require_capability(ctx.capabilities, CapabilityKind::Net, name, *line, *column)?;
                 if args.len() != 1 {
@@ -10309,6 +10409,177 @@ fn lower_expr_with_expected_inner(
                     name: name.clone(),
                     args: vec![bind, route_path, body, max_requests],
                     ty: Type::Bool,
+                });
+            }
+            if name == "http_server_listen" {
+                require_capability(ctx.capabilities, CapabilityKind::Net, name, *line, *column)?;
+                if args.len() != 1 {
+                    return Err(Diagnostic::new(
+                        "type",
+                        format!("http_server_listen expects 1 argument, got {}", args.len()),
+                    )
+                    .with_span(*line, *column));
+                }
+                let bind = lower_expr_with_expected(&args[0], Some(&Type::String), env, ctx)?;
+                if bind.ty() != &Type::String {
+                    return Err(Diagnostic::new(
+                        "type",
+                        format!(
+                            "http_server_listen expects a string bind argument, got {}",
+                            bind.ty()
+                        ),
+                    )
+                    .with_span(args[0].line(), args[0].column()));
+                }
+                validate_net_socket_allowlist_hir(ctx.capabilities, name, &bind, *line, *column)?;
+                move_lowered_value(&bind, env)?;
+                return Ok(Expr::Call {
+                    span: SourceSpan::point(*line, *column),
+                    name: name.clone(),
+                    args: vec![bind],
+                    ty: Type::Int,
+                });
+            }
+            if matches!(
+                name.as_str(),
+                "http_server_local_port" | "http_server_accept" | "http_server_close"
+            ) {
+                require_capability(ctx.capabilities, CapabilityKind::Net, name, *line, *column)?;
+                if args.len() != 1 {
+                    return Err(Diagnostic::new(
+                        "type",
+                        format!("{name} expects 1 argument, got {}", args.len()),
+                    )
+                    .with_span(*line, *column));
+                }
+                let server = lower_expr_with_expected(&args[0], Some(&Type::Int), env, ctx)?;
+                if server.ty() != &Type::Int {
+                    return Err(Diagnostic::new(
+                        "type",
+                        format!(
+                            "{name} expects a Server handle argument, got {}",
+                            server.ty()
+                        ),
+                    )
+                    .with_span(args[0].line(), args[0].column()));
+                }
+                let ty = match name.as_str() {
+                    "http_server_local_port" => Type::Int,
+                    "http_server_accept" => Type::Int,
+                    "http_server_close" => Type::Bool,
+                    _ => unreachable!("HTTP server intrinsic checked above"),
+                };
+                return Ok(Expr::Call {
+                    span: SourceSpan::point(*line, *column),
+                    name: name.clone(),
+                    args: vec![server],
+                    ty,
+                });
+            }
+            if matches!(
+                name.as_str(),
+                "http_request_method" | "http_request_path" | "http_request_body"
+            ) {
+                require_capability(ctx.capabilities, CapabilityKind::Net, name, *line, *column)?;
+                if args.len() != 1 {
+                    return Err(Diagnostic::new(
+                        "type",
+                        format!("{name} expects 1 argument, got {}", args.len()),
+                    )
+                    .with_span(*line, *column));
+                }
+                let stream = lower_expr_with_expected(&args[0], Some(&Type::Int), env, ctx)?;
+                if stream.ty() != &Type::Int {
+                    return Err(Diagnostic::new(
+                        "type",
+                        format!(
+                            "{name} expects a Request stream handle, got {}",
+                            stream.ty()
+                        ),
+                    )
+                    .with_span(args[0].line(), args[0].column()));
+                }
+                return Ok(Expr::Call {
+                    span: SourceSpan::point(*line, *column),
+                    name: name.clone(),
+                    args: vec![stream],
+                    ty: Type::String,
+                });
+            }
+            if name == "http_response_write" {
+                require_capability(ctx.capabilities, CapabilityKind::Net, name, *line, *column)?;
+                if args.len() != 3 {
+                    return Err(Diagnostic::new(
+                        "type",
+                        format!(
+                            "http_response_write expects 3 arguments, got {}",
+                            args.len()
+                        ),
+                    )
+                    .with_span(*line, *column));
+                }
+                let stream = lower_expr_with_expected(&args[0], Some(&Type::Int), env, ctx)?;
+                let status = lower_expr_with_expected(&args[1], Some(&Type::Int), env, ctx)?;
+                let body = lower_expr_with_expected(&args[2], Some(&Type::String), env, ctx)?;
+                if stream.ty() != &Type::Int
+                    || status.ty() != &Type::Int
+                    || body.ty() != &Type::String
+                {
+                    return Err(Diagnostic::new(
+                        "type",
+                        "http_response_write expects Request, int, and string arguments",
+                    )
+                    .with_span(*line, *column));
+                }
+                move_lowered_value(&body, env)?;
+                return Ok(Expr::Call {
+                    span: SourceSpan::point(*line, *column),
+                    name: name.clone(),
+                    args: vec![stream, status, body],
+                    ty: Type::Bool,
+                });
+            }
+            if name == "http_async_serve_route" {
+                require_capability(ctx.capabilities, CapabilityKind::Net, name, *line, *column)?;
+                require_capability(
+                    ctx.capabilities,
+                    CapabilityKind::Async,
+                    name,
+                    *line,
+                    *column,
+                )?;
+                if args.len() != 4 {
+                    return Err(Diagnostic::new(
+                        "type",
+                        format!(
+                            "http_async_serve_route expects 4 arguments, got {}",
+                            args.len()
+                        ),
+                    )
+                    .with_span(*line, *column));
+                }
+                let server = lower_expr_with_expected(&args[0], Some(&Type::Int), env, ctx)?;
+                let route_path = lower_expr_with_expected(&args[1], Some(&Type::String), env, ctx)?;
+                let body = lower_expr_with_expected(&args[2], Some(&Type::String), env, ctx)?;
+                let max_requests = lower_expr_with_expected(&args[3], Some(&Type::Int), env, ctx)?;
+                if server.ty() != &Type::Int
+                    || route_path.ty() != &Type::String
+                    || body.ty() != &Type::String
+                    || max_requests.ty() != &Type::Int
+                {
+                    return Err(Diagnostic::new(
+                        "type",
+                        "http_async_serve_route expects Server, string, string, and int arguments",
+                    )
+                    .with_span(*line, *column));
+                }
+                move_lowered_value(&route_path, env)?;
+                move_lowered_value(&body, env)?;
+                return Ok(Expr::Call {
+                    span: SourceSpan::point(*line, *column),
+                    name: name.clone(),
+                    args: vec![server, route_path, body, max_requests],
+                    ty: Type::Task(Box::new(Type::Bool)),
                 });
             }
             if name == "process_status" {
@@ -11346,43 +11617,7 @@ fn lower_expr_with_expected_inner(
                 ty: signature.return_ty.clone(),
             })
         }
-        syntax::Expr::BinaryAdd {
-            op,
-            lhs,
-            rhs,
-            line,
-            column,
-        } => {
-            let lhs = lower_expr(lhs, env, ctx)?;
-            let rhs = lower_expr(rhs, env, ctx)?;
-            let lhs_ty = lhs.ty().clone();
-            let rhs_ty = rhs.ty().clone();
-            let result_ty = if lhs_ty == rhs_ty && is_addable_numeric(&lhs_ty) {
-                lhs_ty.clone()
-            } else if *op == syntax::ArithmeticOp::Add
-                && is_string_like_type(&lhs_ty)
-                && is_string_like_type(&rhs_ty)
-            {
-                Type::String
-            } else {
-                return Err(
-                    Diagnostic::new(
-                        "type",
-                        format!(
-                            "operator '{}' expects matching numeric or string operands, got {lhs_ty} and {rhs_ty}",
-                            op.lexeme()
-                        ),
-                    )
-                    .with_span(*line, *column),
-                );
-            };
-            Ok(Expr::BinaryAdd {
-                op: lower_arithmetic_op(*op),
-                lhs: Box::new(lhs),
-                rhs: Box::new(rhs),
-                ty: result_ty,
-            })
-        }
+        syntax::Expr::BinaryAdd { .. } => lower_binary_add_chain(expr, env, ctx),
         syntax::Expr::BinaryCompare {
             op,
             lhs,
