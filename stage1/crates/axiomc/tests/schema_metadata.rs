@@ -32,6 +32,11 @@ fn editor_metadata_schemas_are_parseable_and_current() {
             .expect("read inspect JSON schema"),
     )
     .expect("inspect schema is valid JSON");
+    let doc_schema: Value = serde_json::from_str(
+        &fs::read_to_string(schema_dir().join("axiom-doc-v0.schema.json"))
+            .expect("read doc JSON schema"),
+    )
+    .expect("doc schema is valid JSON");
 
     assert_eq!(
         compiler_schema["properties"]["schema_version"]["const"],
@@ -56,6 +61,15 @@ fn editor_metadata_schemas_are_parseable_and_current() {
     assert_eq!(
         inspect_schema["$id"],
         "https://axiom.omt.global/schemas/axiom-inspect-v0.schema.json"
+    );
+    assert_eq!(
+        doc_schema["$id"],
+        "https://axiom.omt.global/schemas/axiom-doc-v0.schema.json"
+    );
+    assert_eq!(doc_schema["properties"]["command"]["const"], "doc");
+    assert_eq!(
+        doc_schema["properties"]["schema_version"]["const"],
+        json_contract::JSON_SCHEMA_VERSION
     );
     assert_eq!(
         inspect_schema["properties"]["schema_version"]["const"],

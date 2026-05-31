@@ -77,7 +77,9 @@ cargo run --manifest-path stage1/Cargo.toml -p axiomc -- lsp
 `axiomc doc --json` emits the same API extraction pass as a versioned machine
 contract, including generated Markdown/HTML paths, documented symbols, comments,
 signatures, simple example notes, declaration kind/visibility, and package
-capability descriptors when the input path is a package root.
+capability descriptors when the input path is a package root. The output
+validates against `stage1/schemas/axiom-doc-v0.schema.json` as well as the
+shared `axiom.stage1.v1` envelope.
 
 `axiomc new` defaults to the `cli` starter and also accepts `--template worker`
 and `--template service`. Each starter writes `axiom.toml`, `axiom.lock`,
