@@ -50,8 +50,147 @@ return assert_true(true)
 }
 }
 
+fn typed_fixture_json(): string {
+return "{\"enabled\":true,\"count\":3,\"name\":\"agent\",\"tags\":[\"cli\",\"worker\"],\"meta\":{\"kind\":\"job\"}}"
+}
+
+fn assert_some_bool(actual: Option<bool>, expected: bool): int {
+match actual {
+Some(value) {
+return assert_eq_bool(value, expected)
+}
+None {
+return 1
+}
+}
+}
+
+fn assert_some_int(actual: Option<int>, expected: int): int {
+match actual {
+Some(value) {
+return assert_eq_int(value, expected)
+}
+None {
+return 1
+}
+}
+}
+
+fn assert_some_string(actual: Option<string>, expected: string): int {
+match actual {
+Some(value) {
+return assert_eq_string(value, expected)
+}
+None {
+return 1
+}
+}
+}
+
+fn direct_value_accessors(): int {
+let null_ok: int = assert_eq_bool(is_null(Null), true)
+let text_ok: int = assert_some_string(as_text(Text("worker")), "worker")
+let int_ok: int = assert_some_int(as_int(Int(7)), 7)
+let bool_ok: int = assert_some_bool(as_bool(Bool(true)), true)
+return null_ok + text_ok + int_ok + bool_ok
+}
+
+fn typed_scalar_fields(): int {
+match from_json(typed_fixture_json()) {
+Ok(value) {
+return assert_some_bool(bool_field(value, "enabled"), true)
+}
+Err(error) {
+print parse_error_message(error)
+return 1
+}
+}
+}
+
+fn typed_int_field(): int {
+match from_json(typed_fixture_json()) {
+Ok(value) {
+return assert_some_int(int_field(value, "count"), 3)
+}
+Err(error) {
+print parse_error_message(error)
+return 1
+}
+}
+}
+
+fn typed_object_field(): int {
+match from_json(typed_fixture_json()) {
+Ok(value) {
+match object_field(value, "meta") {
+Some(fields) {
+return assert_some_string(text_field(Object(fields), "kind"), "job")
+}
+None {
+return 1
+}
+}
+}
+Err(error) {
+print parse_error_message(error)
+return 1
+}
+}
+}
+
+fn typed_array_field(): int {
+match from_json(typed_fixture_json()) {
+Ok(value) {
+match array_field(value, "tags") {
+Some(items) {
+match value_item(Array(items), 1) {
+Some(item) {
+return assert_some_string(as_text(item), "worker")
+}
+None {
+return 1
+}
+}
+}
+None {
+return 1
+}
+}
+}
+Err(error) {
+print parse_error_message(error)
+return 1
+}
+}
+}
+
+fn typed_field_rejects_wrong_shape(): int {
+match from_json(typed_fixture_json()) {
+Ok(value) {
+match text_field(value, "enabled") {
+Some(_text) {
+return 1
+}
+None {
+return assert_true(true)
+}
+}
+}
+Err(error) {
+print parse_error_message(error)
+return 1
+}
+}
+}
+
 print roundtrip_object()
 print parses_surrogate_pair()
 print parses_scientific_with_trailing_ws()
 print rejects_invalid_json()
+print direct_value_accessors()
+print typed_scalar_fields()
+print typed_int_field()
+print typed_object_field()
+print typed_array_field()
+print typed_field_rejects_wrong_shape()
 print to_json({"b": Int(2), "a": Text("alpha")})

@@ -34,6 +34,188 @@ pub fn parse_error_message(error: ParseError): string {
 return error.message
 }
 
+pub fn is_null(value: Value): bool {
+match value {
+Null {
+return true
+}
+Bool(_value) {
+return false
+}
+Int(_value) {
+return false
+}
+Float(_value) {
+return false
+}
+Text(_value) {
+return false
+}
+Array(_items) {
+return false
+}
+Object(_fields) {
+return false
+}
+}
+}
+
+pub fn as_bool(value: Value): Option<bool> {
+match value {
+Bool(item) {
+return Some(item)
+}
+Null {
+return None
+}
+Int(_item) {
+return None
+}
+Float(_item) {
+return None
+}
+Text(_item) {
+return None
+}
+Array(_items) {
+return None
+}
+Object(_fields) {
+return None
+}
+}
+}
+
+pub fn as_int(value: Value): Option<int> {
+match value {
+Int(item) {
+return Some(item)
+}
+Null {
+return None
+}
+Bool(_item) {
+return None
+}
+Float(_item) {
+return None
+}
+Text(_item) {
+return None
+}
+Array(_items) {
+return None
+}
+Object(_fields) {
+return None
+}
+}
+}
+
+pub fn as_float(value: Value): Option<f64> {
+match value {
+Float(item) {
+return Some(item)
+}
+Null {
+return None
+}
+Bool(_item) {
+return None
+}
+Int(_item) {
+return None
+}
+Text(_item) {
+return None
+}
+Array(_items) {
+return None
+}
+Object(_fields) {
+return None
+}
+}
+}
+
+pub fn as_text(value: Value): Option<string> {
+match value {
+Text(item) {
+return Some(item)
+}
+Null {
+return None
+}
+Bool(_item) {
+return None
+}
+Int(_item) {
+return None
+}
+Float(_item) {
+return None
+}
+Array(_items) {
+return None
+}
+Object(_fields) {
+return None
+}
+}
+}
+
+pub fn as_array(value: Value): Option<[Value]> {
+match value {
+Array(items) {
+return Some(items)
+}
+Null {
+return None
+}
+Bool(_item) {
+return None
+}
+Int(_item) {
+return None
+}
+Float(_item) {
+return None
+}
+Text(_item) {
+return None
+}
+Object(_fields) {
+return None
+}
+}
+}
+
+pub fn as_object(value: Value): Option<{string: Value}> {
+match value {
+Object(fields) {
+return Some(fields)
+}
+Null {
+return None
+}
+Bool(_item) {
+return None
+}
+Int(_item) {
+return None
+}
+Float(_item) {
+return None
+}
+Text(_item) {
+return None
+}
+Array(_items) {
+return None
+}
+}
+}
+
 pub fn field(value: Value, key: string): Option<Value> {
 match value {
 Object(fields) {
@@ -60,32 +242,21 @@ return None
 }
 }
 
+pub fn bool_field(value: Value, key: string): Option<bool> {
+match field(value, key) {
+Some(item) {
+return as_bool(item)
+}
+None {
+return None
+}
+}
+}
+
 pub fn text_field(value: Value, key: string): Option<string> {
 match field(value, key) {
 Some(item) {
-match item {
-Text(text) {
-return Some(text)
-}
-Null {
-return None
-}
-Bool(_value) {
-return None
-}
-Int(_value) {
-return None
-}
-Float(_value) {
-return None
-}
-Array(_items) {
-return None
-}
-Object(_fields) {
-return None
-}
-}
+return as_text(item)
 }
 None {
 return None
@@ -96,29 +267,40 @@ return None
 pub fn int_field(value: Value, key: string): Option<int> {
 match field(value, key) {
 Some(item) {
-match item {
-Int(number) {
-return Some(number)
+return as_int(item)
 }
-Null {
-return None
-}
-Bool(_value) {
-return None
-}
-Float(_value) {
-return None
-}
-Text(_value) {
-return None
-}
-Array(_items) {
-return None
-}
-Object(_fields) {
+None {
 return None
 }
 }
+}
+
+pub fn float_field(value: Value, key: string): Option<f64> {
+match field(value, key) {
+Some(item) {
+return as_float(item)
+}
+None {
+return None
+}
+}
+}
+
+pub fn array_field(value: Value, key: string): Option<[Value]> {
+match field(value, key) {
+Some(item) {
+return as_array(item)
+}
+None {
+return None
+}
+}
+}
+
+pub fn object_field(value: Value, key: string): Option<{string: Value}> {
+match field(value, key) {
+Some(item) {
+return as_object(item)
 }
 None {
 return None
