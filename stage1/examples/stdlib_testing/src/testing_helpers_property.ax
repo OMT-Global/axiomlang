@@ -1,0 +1,9 @@
+import "std/testing.ax"
+
+let table_ok: int = table_int("testing table int", 2 + 2, 4)
+let bool_ok: int = table_bool("testing table bool", true, true)
+let string_ok: int = table_string("testing table string", "hello " + "stdlib", "hello stdlib")
+let property_ok: int = property("testing property helper", 40 + 2 == 42)
+let snapshot_ok: int = snapshot("testing snapshot helper", "{\"ok\":true}", "{\"ok\":true}")
+
+print table_ok + bool_ok + string_ok + property_ok + snapshot_ok

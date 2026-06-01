@@ -1,0 +1,26 @@
+import "std/outcome.ax"
+import "std/testing.ax"
+
+let ready_pred: Option<int> = Some(7)
+let missing_pred: Option<int> = None
+let ready_fallback: Option<int> = Some(7)
+let missing_fallback: Option<int> = None
+let ok_pred: Result<string, string> = Ok("done")
+let err_pred: Result<string, string> = Err("failed")
+let ok_fallback: Result<string, string> = Ok("done")
+let err_fallback: Result<string, string> = Err("failed")
+let ready_is_some: bool = option_is_some<int>(ready_pred)
+let missing_is_none: bool = option_is_none<int>(missing_pred)
+let ready_value: int = option_unwrap_or<int>(ready_fallback, 0)
+let missing_value: int = option_unwrap_or<int>(missing_fallback, 0)
+let result_is_ok_value: bool = result_is_ok<string, string>(ok_pred)
+let result_is_err_value: bool = result_is_err<string, string>(err_pred)
+let ok_text: string = result_unwrap_or<string, string>(ok_fallback, "fallback")
+let err_text: string = result_unwrap_or<string, string>(err_fallback, "fallback")
+
+let option_ok: int = property("outcome option predicates", ready_is_some && missing_is_none)
+let option_fallback_ok: int = property("outcome option fallback", ready_value == 7 && missing_value == 0)
+let result_ok: int = property("outcome result predicates", result_is_ok_value && result_is_err_value)
+let result_fallback_ok: int = property("outcome result fallback", ok_text == "done" && err_text == "fallback")
+
+print option_ok + option_fallback_ok + result_ok + result_fallback_ok

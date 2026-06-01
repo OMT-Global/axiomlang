@@ -1,0 +1,13 @@
+import "std/log.ax"
+import "std/testing.ax"
+
+let attrs: string = fields3(field_string("component", "worker"), field_int("attempt", 2), field_bool("ready", true))
+let render_attrs: string = fields3(field_string("component", "worker"), field_int("attempt", 2), field_bool("ready", true))
+let rendered: string = event("info", "started", render_attrs)
+
+let expected: string = "{\"level\":\"info\",\"message\":\"started\",\"attributes\":{\"component\":\"worker\",\"attempt\":2,\"ready\":true}}"
+
+let event_ok: int = property("log event render", rendered == expected)
+let fields_ok: int = property("log fields render", attrs == "\"component\":\"worker\",\"attempt\":2,\"ready\":true")
+
+print event_ok + fields_ok

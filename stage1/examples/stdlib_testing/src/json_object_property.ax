@@ -1,0 +1,17 @@
+import "std/json.ax"
+import "std/testing.ax"
+
+let render_item: JsonValue = value_object2(field_string("id", "worker"), field_int("attempts", 2))
+let render_payload: JsonValue = value_object2(field_value("item", render_item), field_bool("ready", true))
+let text: string = stringify_value(render_payload)
+let parse_item: JsonValue = value_object2(field_string("id", "worker"), field_int("attempts", 2))
+let parse_payload: JsonValue = value_object2(field_value("item", parse_item), field_bool("ready", true))
+let parse_text: string = stringify_value(parse_payload)
+
+let render_ok: int = property("json object render", text == "{\"item\":{\"id\":\"worker\",\"attempts\":2},\"ready\":true}")
+let parse_ok: int = match parse_value(parse_text) {
+Some(parsed) => property("json object parse", stringify_value(parsed) == "{\"item\":{\"id\":\"worker\",\"attempts\":2},\"ready\":true}")
+None => property("json object parse", false)
+}
+
+print render_ok + parse_ok

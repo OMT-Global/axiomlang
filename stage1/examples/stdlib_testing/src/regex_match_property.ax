@@ -1,0 +1,9 @@
+import "std/regex.ax"
+import "std/testing.ax"
+
+let anchored_ok: int = property("regex anchored match", is_match("^h.llo$", "hello"))
+let class_ok: int = property("regex class match", is_match("^[a-z]+$", "agent"))
+let negated_ok: int = property("regex negated class", is_match("^[^0-9]+$", "agent7") == false)
+let repeat_ok: int = property("regex repeat", is_match("a*a", "aaaaaaaaaaaaaaaa"))
+
+print anchored_ok + class_ok + negated_ok + repeat_ok

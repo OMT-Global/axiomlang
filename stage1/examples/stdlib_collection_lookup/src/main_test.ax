@@ -1,7 +1,7 @@
 import "std/collections.ax"
 
 let scores: {string: int} = {"build": 7, "deploy": 9}
-print contains_key<string, int>(scores, "deploy")
+print contains<string, int>(scores, "deploy")
 
 let deploy_scores: {string: int} = {"build": 7, "deploy": 9}
 let found: Option<int> = get<string, int>(deploy_scores, "deploy")

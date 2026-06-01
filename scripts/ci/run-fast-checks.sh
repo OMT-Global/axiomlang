@@ -15,6 +15,7 @@ bash scripts/ci/test-pr-fast-ci-workflow.sh
 python3 scripts/ci/test-pr-queue-remediation.py
 python3 scripts/ci/test-report-delivery-signals.py
 python3 scripts/ci/test-issue-pr-traceability.py
+bash scripts/ci/run-stdlib-property-checks.sh
 
 if [[ "${AXIOM_FAST_CI_PROOF_WORKLOADS:-1}" != "1" ]]; then
   echo "error: proof workload execution is required for PR fast checks." >&2
