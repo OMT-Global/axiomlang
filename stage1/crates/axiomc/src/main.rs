@@ -119,13 +119,16 @@ enum Command {
     },
     /// Discover, build, and run package test entrypoints.
     Test {
-        path: PathBuf,
+        path: Option<PathBuf>,
         #[arg(long)]
         json: bool,
         #[arg(long)]
         filter: Option<String>,
         #[arg(long)]
         properties: bool,
+        /// Run the aggregate stage1 conformance workspace as AxiOM property cases.
+        #[arg(long)]
+        conformance: bool,
         #[arg(long)]
         include_benchmarks: bool,
         #[arg(long)]
@@ -566,15 +569,23 @@ fn main() {
             json,
             filter,
             properties,
+            conformance,
             include_benchmarks,
             list,
             package,
         } => {
+            let path = match (path, conformance) {
+                (Some(path), _) => path,
+                (None, true) => PathBuf::from("stage1/conformance"),
+                (None, false) => PathBuf::from("."),
+            };
+            let property_summary = properties || conformance;
             let options = TestOptions {
                 filter: filter.clone(),
                 package: package.clone(),
                 include_benchmarks,
                 properties_only: properties,
+                conformance,
             };
             if list {
                 match list_project_tests_with_options(&path, &options) {
@@ -585,7 +596,7 @@ fn main() {
                                 json_contract::test_list_success(
                                     &path,
                                     filter.as_deref(),
-                                    properties,
+                                    property_summary,
                                     &output
                                 )
                             );
@@ -613,7 +624,7 @@ fn main() {
                                 json_contract::test_success(
                                     &path,
                                     filter.as_deref(),
-                                    properties,
+                                    property_summary,
                                     &output
                                 )
                             );
@@ -633,7 +644,7 @@ fn main() {
                                 "passed: {} failed: {} skipped: {} duration: {} ms",
                                 output.passed, output.failed, output.skipped, output.duration_ms
                             );
-                            if properties {
+                            if property_summary {
                                 let passed = output
                                     .cases
                                     .iter()
@@ -1304,6 +1315,7 @@ fn run_property_check_tests(
             package,
             include_benchmarks: false,
             properties_only: true,
+            conformance: false,
         },
     )
 }
@@ -1761,6 +1773,7 @@ fn evidence_report(project: &Path) -> Result<EvidenceReport, Diagnostic> {
                 package: None,
                 include_benchmarks: true,
                 properties_only: false,
+                conformance: false,
             },
         )?;
         for case in &test_output.cases {
@@ -6935,6 +6948,7 @@ fn inspect_evidence(project: &Path) -> Result<InspectEvidenceReport, Diagnostic>
         package: None,
         include_benchmarks: true,
         properties_only: false,
+        conformance: false,
     };
     match list_project_tests_with_options(project, &test_options) {
         Ok(list) => {
@@ -7123,6 +7137,7 @@ fn inspect_artifacts(project: &Path) -> Result<InspectArtifactsReport, Diagnosti
         package: None,
         include_benchmarks: true,
         properties_only: false,
+        conformance: false,
     };
     if let Ok(list) = list_project_tests_with_options(project, &test_options) {
         for test in list.tests {
@@ -7459,6 +7474,7 @@ mod tests {
             .render_long_help()
             .to_string();
         assert!(test_help.contains("--properties"));
+        assert!(test_help.contains("--conformance"));
         assert!(help.contains("Discover, build, and run package test entrypoints"));
         assert!(help.contains("Inspect manifest capability requirements"));
         assert!(help.contains("Inspect project metadata for agent tooling"));
@@ -7688,6 +7704,24 @@ mod tests {
                 assert!(json);
             }
             other => panic!("expected check command, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_accepts_conformance_flag_without_path() {
+        let cli = Cli::parse_from(["axiomc", "test", "--conformance", "--json"]);
+        match cli.command {
+            Command::Test {
+                path,
+                conformance,
+                json,
+                ..
+            } => {
+                assert!(path.is_none());
+                assert!(conformance);
+                assert!(json);
+            }
+            other => panic!("expected test command, got {other:?}"),
         }
     }
 

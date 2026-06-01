@@ -425,6 +425,7 @@ pub struct TestOptions {
     pub package: Option<String>,
     pub include_benchmarks: bool,
     pub properties_only: bool,
+    pub conformance: bool,
 }
 
 pub fn check_project(project_root: &Path) -> Result<CheckOutput, Diagnostic> {
@@ -702,8 +703,39 @@ pub fn list_project_tests_with_options(
     {
         let manifest = graph.context(&package_root)?.manifest.clone();
         validate_lockfile(&package_root, &manifest)?;
-        let discovered = if expected_error_path(&package_root).exists() {
+        let discovered = if expected_error_path(&package_root).exists() && !options.conformance {
             Vec::new()
+        } else if expected_error_path(&package_root).exists() {
+            let case_name = manifest
+                .package
+                .as_ref()
+                .map(|package| package.name.clone())
+                .unwrap_or_else(|| package_root.display().to_string());
+            let entry = manifest.build.entry.clone();
+            if options
+                .filter
+                .as_deref()
+                .map(|filter| case_name.contains(filter) || entry.contains(filter))
+                .unwrap_or(true)
+            {
+                vec![crate::manifest::TestTarget {
+                    name: case_name,
+                    entry,
+                    stdin: None,
+                    stdout: None,
+                    stderr: None,
+                    kind: TestKind::Property,
+                    expected_error: None,
+                    http: None,
+                    capabilities: Vec::new(),
+                    package: manifest
+                        .package
+                        .as_ref()
+                        .map(|package| package.name.clone()),
+                }]
+            } else {
+                Vec::new()
+            }
         } else {
             collect_test_targets(
                 &package_root,
@@ -711,6 +743,7 @@ pub fn list_project_tests_with_options(
                 options.filter.as_deref(),
                 options.include_benchmarks,
                 options.properties_only,
+                options.conformance,
             )?
         };
         if discovered.is_empty() {
@@ -760,7 +793,9 @@ pub fn run_project_tests_with_options(
     {
         let manifest = graph.context(&package_root)?.manifest.clone();
         validate_lockfile(&package_root, &manifest)?;
-        if expected_error_path(&package_root).exists() && !options.properties_only {
+        if expected_error_path(&package_root).exists()
+            && (!options.properties_only || options.conformance)
+        {
             let case_name = manifest
                 .package
                 .as_ref()
@@ -779,6 +814,11 @@ pub fn run_project_tests_with_options(
                     &graph,
                     &manifest,
                     &case_name,
+                    if options.conformance {
+                        TestKind::Property
+                    } else {
+                        TestKind::Unit
+                    },
                 ));
             }
             continue;
@@ -789,6 +829,7 @@ pub fn run_project_tests_with_options(
             options.filter.as_deref(),
             options.include_benchmarks,
             options.properties_only,
+            options.conformance,
         )?;
         if tests.is_empty() {
             continue;
@@ -829,6 +870,7 @@ fn collect_test_targets(
     filter: Option<&str>,
     include_benchmarks: bool,
     properties_only: bool,
+    conformance: bool,
 ) -> Result<Vec<crate::manifest::TestTarget>, Diagnostic> {
     let mut tests = manifest.tests.clone();
     for test in &mut tests {
@@ -846,7 +888,7 @@ fn collect_test_targets(
     if !include_benchmarks {
         tests.retain(|test| test.kind != TestKind::Benchmark);
     }
-    if properties_only {
+    if properties_only && !conformance {
         tests.retain(|test| test.kind == TestKind::Property);
     }
     if let Some(expected_stdout) = load_package_expected_output(project_root)? {
@@ -863,6 +905,13 @@ fn collect_test_targets(
     for discovered in discover_test_targets(project_root, include_benchmarks)? {
         if seen_entries.insert(discovered.entry.clone()) {
             tests.push(discovered);
+        }
+    }
+    if conformance {
+        for test in &mut tests {
+            if test.kind != TestKind::Benchmark {
+                test.kind = TestKind::Property;
+            }
         }
     }
     if properties_only {
@@ -3027,6 +3076,7 @@ fn run_compile_fail_case(
     graph: &PackageGraph,
     manifest: &Manifest,
     case_name: &str,
+    kind: TestKind,
 ) -> TestCaseResult {
     let started = Instant::now();
     let expected = match load_expected_error(project_root) {
@@ -3035,7 +3085,7 @@ fn run_compile_fail_case(
             return TestCaseResult {
                 package_root: project_root.display().to_string(),
                 name: case_name.to_string(),
-                kind: TestKind::Unit,
+                kind,
                 entry: manifest.build.entry.clone(),
                 ok: false,
                 binary: None,
@@ -3063,7 +3113,7 @@ fn run_compile_fail_case(
             return TestCaseResult {
                 package_root: project_root.display().to_string(),
                 name: case_name.to_string(),
-                kind: TestKind::Unit,
+                kind,
                 entry: manifest.build.entry.clone(),
                 ok: false,
                 binary: None,
@@ -3090,7 +3140,7 @@ fn run_compile_fail_case(
     TestCaseResult {
         package_root: project_root.display().to_string(),
         name: case_name.to_string(),
-        kind: TestKind::Unit,
+        kind,
         entry: manifest.build.entry.clone(),
         ok: mismatch.is_none(),
         binary: None,
@@ -7610,7 +7660,7 @@ mod tests {
             },
         ];
 
-        let default_tests = collect_test_targets(root, &manifest, None, false, false)
+        let default_tests = collect_test_targets(root, &manifest, None, false, false, false)
             .unwrap_or_else(|err| panic!("collect default tests: {err:?}"));
         assert_eq!(
             default_tests
@@ -7620,7 +7670,7 @@ mod tests {
             vec!["unit"]
         );
 
-        let benchmark_tests = collect_test_targets(root, &manifest, None, true, false)
+        let benchmark_tests = collect_test_targets(root, &manifest, None, true, false, false)
             .unwrap_or_else(|err| panic!("collect benchmark tests: {err:?}"));
         assert_eq!(
             benchmark_tests
@@ -7628,6 +7678,44 @@ mod tests {
                 .map(|test| test.name.as_str())
                 .collect::<Vec<_>>(),
             vec!["unit", "bench"]
+        );
+    }
+
+    #[test]
+    fn conformance_mode_marks_manifest_and_discovered_tests_as_properties() {
+        let dir = tempdir().unwrap_or_else(|err| panic!("tempdir: {err}"));
+        let root = dir.path();
+        let source_root = root.join("src");
+        fs::create_dir_all(&source_root).unwrap_or_else(|err| panic!("create src: {err}"));
+        fs::write(source_root.join("unit_test.ax"), "print 1\n")
+            .unwrap_or_else(|err| panic!("write unit test: {err}"));
+        fs::write(source_root.join("manifest_entry.ax"), "print 2\n")
+            .unwrap_or_else(|err| panic!("write manifest test: {err}"));
+
+        let mut manifest = package_manifest();
+        manifest.tests.push(crate::manifest::TestTarget {
+            name: "manifest_unit".to_string(),
+            entry: "src/manifest_entry.ax".to_string(),
+            stdin: None,
+            stdout: None,
+            stderr: None,
+            kind: TestKind::Unit,
+            expected_error: None,
+            http: None,
+            capabilities: Vec::new(),
+            package: None,
+        });
+
+        let tests = collect_test_targets(root, &manifest, None, false, true, true)
+            .unwrap_or_else(|err| panic!("collect conformance tests: {err:?}"));
+        assert_eq!(tests.len(), 2);
+        assert!(tests.iter().all(|test| test.kind == TestKind::Property));
+        assert_eq!(
+            tests
+                .iter()
+                .map(|test| test.name.as_str())
+                .collect::<Vec<_>>(),
+            vec!["manifest_unit", "src/unit_test"]
         );
     }
 
@@ -7662,7 +7750,7 @@ mod tests {
             package: None,
         });
 
-        let tests = collect_test_targets(root, &manifest, None, true, false)
+        let tests = collect_test_targets(root, &manifest, None, true, false, false)
             .unwrap_or_else(|err| panic!("collect benchmark tests: {err:?}"));
         let stdout_by_name = tests
             .iter()
