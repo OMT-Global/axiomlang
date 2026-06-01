@@ -51,6 +51,15 @@
         "$ref": "#/$defs/capability"
       }
     },
+    "markdown": {
+      "$ref": "#/$defs/path"
+    },
+    "html": {
+      "$ref": "#/$defs/path"
+    },
+    "items": {
+      "type": "array"
+    },
     "binary": {
       "type": [
         "string",
@@ -595,6 +604,52 @@
       },
       "additionalProperties": false
     },
+    "docItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "file",
+        "kind",
+        "public",
+        "signature",
+        "docs",
+        "examples"
+      ],
+      "properties": {
+        "file": {
+          "$ref": "#/$defs/path"
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "function",
+            "struct",
+            "enum",
+            "const",
+            "declaration"
+          ]
+        },
+        "public": {
+          "type": "boolean"
+        },
+        "signature": {
+          "type": "string",
+          "minLength": 1
+        },
+        "docs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "examples": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
     "path": {
       "type": "string",
       "minLength": 1
@@ -832,6 +887,58 @@
                   }
                 }
               }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "command": {
+            "const": "doc"
+          }
+        },
+        "required": [
+          "command"
+        ]
+      },
+      "then": {
+        "required": [
+          "schema_version",
+          "ok",
+          "command",
+          "markdown",
+          "html",
+          "items",
+          "capabilities"
+        ],
+        "properties": {
+          "schema_version": {
+            "$ref": "#/$defs/schemaVersion"
+          },
+          "ok": {
+            "const": true
+          },
+          "command": {
+            "const": "doc"
+          },
+          "markdown": {
+            "$ref": "#/$defs/path"
+          },
+          "html": {
+            "$ref": "#/$defs/path"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/docItem"
+            }
+          },
+          "capabilities": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/capability"
             }
           }
         }

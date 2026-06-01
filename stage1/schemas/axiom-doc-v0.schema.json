@@ -1,0 +1,129 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://axiom.omt.global/schemas/axiom-doc-v0.schema.json",
+  "title": "Axiom documentation JSON output v0",
+  "description": "Structured output emitted by axiomc doc --json.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "command",
+    "ok",
+    "markdown",
+    "html",
+    "items",
+    "capabilities"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "axiom.stage1.v1"
+    },
+    "command": {
+      "const": "doc"
+    },
+    "ok": {
+      "const": true
+    },
+    "markdown": {
+      "$ref": "#/$defs/path"
+    },
+    "html": {
+      "$ref": "#/$defs/path"
+    },
+    "items": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/docItem"
+      }
+    },
+    "capabilities": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/capability"
+      }
+    }
+  },
+  "$defs": {
+    "path": {
+      "type": "string",
+      "minLength": 1
+    },
+    "docItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "file",
+        "kind",
+        "public",
+        "signature",
+        "docs",
+        "examples"
+      ],
+      "properties": {
+        "file": {
+          "$ref": "#/$defs/path"
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "function",
+            "struct",
+            "enum",
+            "const",
+            "declaration"
+          ]
+        },
+        "public": {
+          "type": "boolean"
+        },
+        "signature": {
+          "type": "string",
+          "minLength": 1
+        },
+        "docs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "examples": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "capability": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "name",
+        "description",
+        "enabled"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "enum": [
+            "fs",
+            "fs:write",
+            "net",
+            "process",
+            "env",
+            "clock",
+            "crypto",
+            "ffi",
+            "async"
+          ]
+        },
+        "description": {
+          "type": "string"
+        },
+        "enabled": {
+          "type": "boolean"
+        }
+      }
+    }
+  }
+}

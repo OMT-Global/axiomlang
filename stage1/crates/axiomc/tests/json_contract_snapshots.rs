@@ -110,13 +110,19 @@ fn cli_json_outputs_validate_against_public_v1_schema() {
     )
     .expect("write mutation input");
     let mutation_input_str = mutation_input.to_str().expect("mutation input path");
-    let invocations: [(&str, Vec<&str>); 8] = [
+    let doc_out = temp.path().join("docs/api");
+    let doc_out_str = doc_out.to_str().expect("doc output path");
+    let invocations: [(&str, Vec<&str>); 9] = [
         ("check", vec!["check", project_str, "--json"]),
         ("build", vec!["build", project_str, "--json"]),
         ("test", vec!["test", project_str, "--json"]),
         ("caps", vec!["caps", project_str, "--json"]),
         ("parse", vec!["parse", project_str, "--json"]),
         ("fmt", vec!["fmt", project_str, "--check", "--json"]),
+        (
+            "doc",
+            vec!["doc", project_str, "--out-dir", doc_out_str, "--json"],
+        ),
         ("run", vec!["run", project_str, "--json"]),
         (
             "mutation-report",
@@ -143,6 +149,51 @@ fn cli_json_outputs_validate_against_public_v1_schema() {
             "{label} payload command field drifted"
         );
     }
+}
+
+#[test]
+fn doc_json_output_validates_against_doc_schema() {
+    let public_schema = read_json(&public_v1_schema_path());
+    let public_validator =
+        jsonschema::validator_for(&public_schema).expect("compile public v1 schema");
+    let doc_schema = read_json(&doc_schema_path());
+    let doc_validator = jsonschema::validator_for(&doc_schema).expect("compile doc schema");
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("doc-json");
+    fs::create_dir_all(project.join("src")).expect("mkdir");
+    fs::write(
+        project.join("axiom.toml"),
+        "[package]\nname = \"doc-json\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nenv = true\nenv_vars = [\"AXIOM_ENV\"]\n",
+    )
+    .expect("write manifest");
+    fs::write(project.join("axiom.lock"), "version = 1\n").expect("write lock");
+    fs::write(
+        project.join("src/main.ax"),
+        "/// Handles a request.\n/// Example: route(\"/health\")\npub fn route(path: string): string {\nreturn \"ok\"\n}\n\n/// Response envelope.\npub struct Response {\nstatus: int\n}\n",
+    )
+    .expect("write source");
+
+    let out_dir = temp.path().join("docs/api");
+    let output = run_axiomc_json(&[
+        "doc",
+        project.to_str().expect("project path"),
+        "--out-dir",
+        out_dir.to_str().expect("out dir"),
+        "--json",
+    ]);
+
+    assert_payload_matches_schema(&public_validator, "doc", &output);
+    assert_payload_matches_schema(&doc_validator, "doc", &output);
+    assert_eq!(output["command"], "doc");
+    assert_eq!(output["items"][0]["kind"], "function");
+    assert_eq!(output["items"][0]["examples"][0], "route(\"/health\")");
+    assert!(
+        output["capabilities"]
+            .as_array()
+            .expect("capabilities array")
+            .iter()
+            .any(|capability| capability["name"] == "env")
+    );
 }
 
 #[test]
@@ -199,6 +250,13 @@ fn public_v1_schema_path() -> PathBuf {
         .join("../../schemas/axiom.stage1.v1.schema.json")
         .canonicalize()
         .expect("public v1 schema path")
+}
+
+fn doc_schema_path() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../schemas/axiom-doc-v0.schema.json")
+        .canonicalize()
+        .expect("doc schema path")
 }
 
 fn semantic_graph_schema_path() -> PathBuf {
