@@ -37,7 +37,7 @@ stage1-stdlib-test:
 	bash scripts/ci/run-stdlib-property-checks.sh
 
 stage1-conformance:
-	cargo run --manifest-path stage1/Cargo.toml -p axiomc -- test stage1/conformance --json
+	cargo run --manifest-path stage1/Cargo.toml -p axiomc -- test --conformance --json
 
 stage1-bench:
 	python3 scripts/ci/run-stage1-bench.py --output stage1/benchmarks/generated/stage1-bench.json

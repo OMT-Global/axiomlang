@@ -1,16 +1,17 @@
 # Stage1 Conformance
 
-Run the Rust-owned conformance corpus with:
+Run the conformance corpus as AxiOM property cases with:
 
 ```sh
-make stage1-conformance
+axiomc test --conformance
 ```
 
 Packages under `pass/` are executable fixtures. Each package is a complete
 stage1 project with `axiom.toml`, `axiom.lock`, source, and
 `expected-output.txt`. The conformance runner compiles each discovered
-`src/**/*_test.ax` target through the Rust path, executes the generated binary,
-and compares stdout to the package-level expected output.
+`src/**/*_test.ax` target, executes the generated binary, compares stdout to the
+package-level expected output, and reports the fixture result as an AxiOM
+property in the stable JSON envelope.
 
 Fixtures may also declare explicit `[[tests]]` entries in `axiom.toml`.
 Manifest test entries support `name`, `entry`, `stdout`, `expected_error`,
@@ -64,7 +65,8 @@ Current executable fixtures cover:
 Packages under `fail/` are compile-fail fixtures. Each package is a complete
 stage1 project with `axiom.toml`, `axiom.lock`, source, and
 `expected-error.json`. The conformance runner checks the diagnostic kind, code,
-message, relative path, line, and column.
+message, relative path, line, and column, then reports the expected diagnostic
+case as an AxiOM property result.
 Load-time manifest fixtures that cannot be listed in the aggregate workspace,
 such as `dependency_path_escape`, are kept under `fail/` and exercised by
 focused Rust tests.

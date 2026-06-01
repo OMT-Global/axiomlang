@@ -2860,6 +2860,7 @@ print 0
                 package: Some(String::from("workspace-app")),
                 include_benchmarks: false,
                 properties_only: false,
+                conformance: false,
             },
         )
         .expect("test selected workspace package");
@@ -9077,6 +9078,7 @@ print false
                 package: None,
                 include_benchmarks: false,
                 properties_only: true,
+                conformance: false,
             },
         )
         .expect("run property-only tests");
@@ -9164,6 +9166,7 @@ print false
                 package: None,
                 include_benchmarks: true,
                 properties_only: false,
+                conformance: false,
             },
         )
         .expect("run benchmark smoke tests");
@@ -12868,6 +12871,7 @@ print takes_two(three)
                 package: None,
                 include_benchmarks: false,
                 properties_only: false,
+                conformance: false,
             },
         )
         .expect("run filtered tests");
@@ -13141,6 +13145,7 @@ print main_value()
                 package: None,
                 include_benchmarks: false,
                 properties_only: false,
+                conformance: false,
             },
         )
         .expect("test project");
