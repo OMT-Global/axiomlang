@@ -227,7 +227,7 @@ fn eval_len_call(
     };
     let value = eval_expr(arg, functions, env)?;
     let len = match value {
-        SpikeValue::Text(value) => value.chars().count(),
+        SpikeValue::Text(value) => value.len(),
         SpikeValue::Tuple(values) | SpikeValue::Array(values) => values.len(),
         _ => return Err(unsupported("len supports strings, tuples, and arrays")),
     };

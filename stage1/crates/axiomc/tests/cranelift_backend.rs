@@ -107,6 +107,56 @@ fn cranelift_backend_builds_scalar_aggregate_binary() {
 
 #[cfg(not(windows))]
 #[test]
+fn cranelift_backend_builds_non_ascii_string_len_binary() {
+    if which::which("cc").is_err() {
+        eprintln!("skipping cranelift backend smoke test because cc is unavailable");
+        return;
+    }
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("non-ascii-len");
+    fs::create_dir_all(project.join("src")).expect("create project src");
+    copy_fixture("axiom.toml", &project.join("axiom.toml"));
+    copy_fixture("axiom.lock", &project.join("axiom.lock"));
+    fs::write(
+        project.join("src/main.ax"),
+        "let value: string = \"é\"\nprint len(value)\n",
+    )
+    .expect("write non-ascii source");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args([
+            "build",
+            project.to_str().expect("project path"),
+            "--backend",
+            "cranelift",
+            "--json",
+        ])
+        .output()
+        .expect("run axiomc build --backend cranelift");
+    assert!(
+        output.status.success(),
+        "cranelift non-ascii build failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+    assert_eq!(payload["backend"], "cranelift");
+    let binary = payload["binary"].as_str().expect("binary path");
+    let run = Command::new(binary)
+        .output()
+        .expect("run cranelift non-ascii binary");
+    assert!(
+        run.status.success(),
+        "cranelift non-ascii binary failed: stderr={}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "2\n");
+}
+
+#[cfg(not(windows))]
+#[test]
 fn cranelift_backend_builds_const_sized_array_conformance_binary() {
     if which::which("cc").is_err() {
         eprintln!("skipping cranelift backend smoke test because cc is unavailable");

@@ -316,8 +316,8 @@ still far from the stated 1.0 target for service and agent workloads.
 - The backend-selection surface remains preparatory backend plumbing for later
   native-backend expansion. `generated-rust` is still the default and only broad
   backend; `cranelift` is intentionally limited to scalar print-line programs,
-  tuple/array indexing, function calls, `len(...)` over in-memory strings,
-  tuples, and arrays, and scalar branching, so this is not closure for #105 or
+  tuple/array indexing, function calls, `len(...)` over in-memory strings and
+  arrays, and scalar branching, so this is not closure for #105 or
   the later full-surface native backend slices.
 - Generated-Rust builds now use a persistent per-artifact cache keyed by
   compiler version, target, debug mode, manifest/lockfile hash, rendered Rust,
