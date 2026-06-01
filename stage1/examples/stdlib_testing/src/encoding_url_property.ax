@@ -1,0 +1,17 @@
+import "std/encoding.ax"
+import "std/testing.ax"
+
+let encoded: string = url_component_encode("hello world/one")
+let decoded: Option<string> = url_component_decode(url_component_encode("hello world/one"))
+
+let encode_ok: int = property("encoding url component", encoded == "hello%20world%2Fone")
+let decode_ok: int = match decoded {
+Some(value) => property("encoding url roundtrip", value == "hello world/one")
+None => property("encoding url roundtrip", false)
+}
+let reject_ok: int = match url_component_decode("bad%2") {
+Some(_value) => property("encoding rejects short percent", false)
+None => property("encoding rejects short percent", true)
+}
+
+print encode_ok + decode_ok + reject_ok

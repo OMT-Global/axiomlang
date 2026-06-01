@@ -1,0 +1,16 @@
+import "std/string_builder.ax"
+import "std/testing.ax"
+
+let empty: StringBuilder = builder()
+let greeting: StringBuilder = push_str(empty, "hello")
+let spaced: StringBuilder = push_str(greeting, " ")
+let finished: StringBuilder = push_str(spaced, "stdlib")
+
+let seeded: StringBuilder = from_string("first")
+let second: StringBuilder = push_line(seeded, " line")
+let third: StringBuilder = push_str(second, "second line")
+
+let greeting_ok: int = property("string builder push", finish(finished) == "hello stdlib")
+let line_ok: int = property("string builder line", finish(third) == "first line\nsecond line")
+
+print greeting_ok + line_ok

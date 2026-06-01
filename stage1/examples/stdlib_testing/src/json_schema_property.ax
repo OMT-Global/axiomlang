@@ -1,0 +1,10 @@
+import "std/json.ax"
+import "std/testing.ax"
+
+let schema: string = schema_object3(schema_field_string("name"), schema_field_int("age"), schema_field_bool("active"))
+
+let string_ok: int = property("json schema string", schema == "{\"type\":\"object\",\"properties\":{\"name\":{\"type\":\"string\"},\"age\":{\"type\":\"integer\"},\"active\":{\"type\":\"boolean\"}}}")
+let int_ok: int = property("json schema int", schema_field_int("age") == "\"age\":{\"type\":\"integer\"}")
+let bool_ok: int = property("json schema bool", schema_field_bool("active") == "\"active\":{\"type\":\"boolean\"}")
+
+print string_ok + int_ok + bool_ok

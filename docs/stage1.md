@@ -118,7 +118,11 @@ ownership, capability, and manifest checks, then runs the same property-only
 fixture gate so property failures block a check command before build artifacts
 are accepted. The `std/testing.ax` helper surface is backed by
 `stage1/stdlib/std/testing.ax` and embedded into the virtual stdlib at compiler
-build time. The default CLI summary prints `passed` / `failed` / `skipped`
+build time. The checked-in stdlib testing package now carries a 12-property
+suite across the deterministic stdlib surfaces and is exercised by
+`scripts/ci/run-stdlib-property-checks.sh`; that script also runs the checked-in
+`stage1/examples/stdlib_*` AxiOM tests so CI covers stdlib behavior through
+`axiomc test`. The default CLI summary prints `passed` / `failed` / `skipped`
 counts. `axiomc test --list` exposes the same discovery pass without building or
 running the tests; text output emits package, test name, and entry path columns,
 while `--json` adds stable package membership plus golden-output and compile-fail
