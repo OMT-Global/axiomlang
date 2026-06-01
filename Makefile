@@ -24,6 +24,7 @@ python-exit-readiness-github:
 stage1-test:
 	RUST_MIN_STACK=8388608 cargo test --manifest-path stage1/Cargo.toml --features run-native-tests
 	$(MAKE) stage1-stdlib-test
+	$(MAKE) stage1-compiler-property-test
 	$(MAKE) stage1-proof-test
 
 stage1-proof-test:
