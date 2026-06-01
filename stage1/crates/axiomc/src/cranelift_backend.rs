@@ -1,11 +1,14 @@
 use crate::diagnostics::Diagnostic;
 use crate::mir::{ArithmeticOp, CompareOp, Expr, Function, LiteralValue, Program, Stmt, Type};
+use crate::syntax::NumericType;
 use std::collections::HashMap;
 use std::path::Path;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 enum SpikeValue {
     Int(i64),
+    UInt(u64),
+    Float(f64),
     Bool(bool),
     Text(String),
     Tuple(Vec<SpikeValue>),
@@ -124,10 +127,7 @@ fn eval_expr(
 ) -> Result<SpikeValue, Diagnostic> {
     match expr {
         Expr::Literal(LiteralValue::Int(value)) => Ok(SpikeValue::Int(*value)),
-        Expr::Literal(LiteralValue::Numeric { raw, .. }) => raw
-            .parse::<i64>()
-            .map(SpikeValue::Int)
-            .map_err(|_| unsupported("only integer numeric literals are supported")),
+        Expr::Literal(LiteralValue::Numeric { raw, ty }) => eval_numeric_literal(raw, *ty),
         Expr::Literal(LiteralValue::Bool(value)) => Ok(SpikeValue::Bool(*value)),
         Expr::Literal(LiteralValue::String(value)) | Expr::Literal(LiteralValue::Str(value)) => {
             Ok(SpikeValue::Text(value.clone()))
@@ -154,7 +154,7 @@ fn eval_expr(
                 )),
             }
         }
-        Expr::Cast { expr, .. } => eval_expr(expr, functions, env),
+        Expr::Cast { expr, ty } => cast_spike_value(eval_expr(expr, functions, env)?, ty),
         Expr::TupleLiteral { elements, .. } => elements
             .iter()
             .map(|element| eval_expr(element, functions, env))
@@ -185,6 +185,114 @@ fn eval_expr(
         _ => Err(unsupported(
             "this expression is outside the cranelift hello spike subset",
         )),
+    }
+}
+
+fn eval_numeric_literal(raw: &str, ty: NumericType) -> Result<SpikeValue, Diagnostic> {
+    match ty {
+        NumericType::F32 => raw
+            .parse::<f32>()
+            .map(|value| SpikeValue::Float(value as f64))
+            .map_err(|_| unsupported("invalid f32 numeric literal")),
+        NumericType::F64 => raw
+            .parse::<f64>()
+            .map(SpikeValue::Float)
+            .map_err(|_| unsupported("invalid f64 numeric literal")),
+        NumericType::I8
+        | NumericType::I16
+        | NumericType::I32
+        | NumericType::I64
+        | NumericType::Isize => raw
+            .parse::<i64>()
+            .map(|value| cast_signed_integer(value, ty))
+            .map_err(|_| unsupported("invalid signed integer numeric literal")),
+        NumericType::U8
+        | NumericType::U16
+        | NumericType::U32
+        | NumericType::U64
+        | NumericType::Usize => raw
+            .parse::<u64>()
+            .map(|value| cast_unsigned_integer(value, ty))
+            .map_err(|_| unsupported("invalid unsigned integer numeric literal")),
+    }
+}
+
+fn cast_spike_value(value: SpikeValue, ty: &Type) -> Result<SpikeValue, Diagnostic> {
+    match ty {
+        Type::Int => cast_to_int(value),
+        Type::Numeric(numeric_ty) => cast_to_numeric(value, *numeric_ty),
+        _ => Ok(value),
+    }
+}
+
+fn cast_to_numeric(value: SpikeValue, ty: NumericType) -> Result<SpikeValue, Diagnostic> {
+    match value {
+        SpikeValue::Int(value) => Ok(cast_signed_integer(value, ty)),
+        SpikeValue::UInt(value) => Ok(cast_unsigned_integer(value, ty)),
+        SpikeValue::Float(value) => Ok(cast_float(value, ty)),
+        _ => Err(unsupported(
+            "only numeric values can be cast to numeric types",
+        )),
+    }
+}
+
+fn cast_to_int(value: SpikeValue) -> Result<SpikeValue, Diagnostic> {
+    match value {
+        SpikeValue::Int(value) => Ok(SpikeValue::Int(value)),
+        SpikeValue::UInt(value) => Ok(SpikeValue::Int(value as i64)),
+        SpikeValue::Float(value) => Ok(SpikeValue::Int(value as i64)),
+        _ => Err(unsupported("only numeric values can be cast to int")),
+    }
+}
+
+fn cast_signed_integer(value: i64, ty: NumericType) -> SpikeValue {
+    match ty {
+        NumericType::I8 => SpikeValue::Int(value as i8 as i64),
+        NumericType::I16 => SpikeValue::Int(value as i16 as i64),
+        NumericType::I32 => SpikeValue::Int(value as i32 as i64),
+        NumericType::I64 => SpikeValue::Int(value),
+        NumericType::Isize => SpikeValue::Int(value as isize as i64),
+        NumericType::U8 => SpikeValue::UInt(value as u8 as u64),
+        NumericType::U16 => SpikeValue::UInt(value as u16 as u64),
+        NumericType::U32 => SpikeValue::UInt(value as u32 as u64),
+        NumericType::U64 => SpikeValue::UInt(value as u64),
+        NumericType::Usize => SpikeValue::UInt(value as usize as u64),
+        NumericType::F32 => SpikeValue::Float((value as f32) as f64),
+        NumericType::F64 => SpikeValue::Float(value as f64),
+    }
+}
+
+fn cast_unsigned_integer(value: u64, ty: NumericType) -> SpikeValue {
+    match ty {
+        NumericType::I8 => SpikeValue::Int(value as i8 as i64),
+        NumericType::I16 => SpikeValue::Int(value as i16 as i64),
+        NumericType::I32 => SpikeValue::Int(value as i32 as i64),
+        NumericType::I64 => SpikeValue::Int(value as i64),
+        NumericType::Isize => SpikeValue::Int(value as isize as i64),
+        NumericType::U8 => SpikeValue::UInt(value as u8 as u64),
+        NumericType::U16 => SpikeValue::UInt(value as u16 as u64),
+        NumericType::U32 => SpikeValue::UInt(value as u32 as u64),
+        NumericType::U64 => SpikeValue::UInt(value),
+        NumericType::Usize => SpikeValue::UInt(value as usize as u64),
+        NumericType::F32 => SpikeValue::Float((value as f32) as f64),
+        NumericType::F64 => SpikeValue::Float(value as f64),
+    }
+}
+
+fn cast_float(value: f64, ty: NumericType) -> SpikeValue {
+    match ty {
+        NumericType::I8 => SpikeValue::Int(value as i8 as i64),
+        NumericType::I16 => SpikeValue::Int(value as i16 as i64),
+        NumericType::I32 => SpikeValue::Int(value as i32 as i64),
+        NumericType::I64 => SpikeValue::Int(value as i64),
+        NumericType::Isize => SpikeValue::Int(value as isize as i64),
+        NumericType::U8 => SpikeValue::UInt(value as u8 as u64),
+        NumericType::U16 => SpikeValue::UInt(value as u16 as u64),
+        NumericType::U32 => SpikeValue::UInt(value as u32 as u64),
+        NumericType::U64 => SpikeValue::UInt(value as u64),
+        NumericType::Usize => SpikeValue::UInt(value as usize as u64),
+        NumericType::F32 => SpikeValue::Float((value as f32) as f64),
+        NumericType::F64 => SpikeValue::Float(value),
     }
 }
 
@@ -225,7 +333,7 @@ fn eval_arithmetic(
     let left = eval_expr(lhs, functions, env)?;
     let right = eval_expr(rhs, functions, env)?;
     match (ty, left, right) {
-        (Type::Int | Type::Numeric(_), SpikeValue::Int(left), SpikeValue::Int(right)) => {
+        (Type::Int, SpikeValue::Int(left), SpikeValue::Int(right)) => {
             let value = match op {
                 ArithmeticOp::Add => left + right,
                 ArithmeticOp::Sub => left - right,
@@ -235,6 +343,35 @@ fn eval_arithmetic(
             };
             Ok(SpikeValue::Int(value))
         }
+        (Type::Numeric(numeric_ty), left, right) if is_signed_numeric(*numeric_ty) => {
+            let left = expect_signed_integer(left)?;
+            let right = expect_signed_integer(right)?;
+            let value = match op {
+                ArithmeticOp::Add => left + right,
+                ArithmeticOp::Sub => left - right,
+                ArithmeticOp::Mul => left * right,
+                ArithmeticOp::Div if right != 0 => left / right,
+                ArithmeticOp::Div => return Err(unsupported("integer division by zero")),
+            };
+            Ok(cast_signed_integer(value, *numeric_ty))
+        }
+        (Type::Numeric(numeric_ty), left, right) if is_unsigned_numeric(*numeric_ty) => {
+            let left = expect_unsigned_integer(left)?;
+            let right = expect_unsigned_integer(right)?;
+            let value = match op {
+                ArithmeticOp::Add => left + right,
+                ArithmeticOp::Sub => left - right,
+                ArithmeticOp::Mul => left * right,
+                ArithmeticOp::Div if right != 0 => left / right,
+                ArithmeticOp::Div => return Err(unsupported("integer division by zero")),
+            };
+            Ok(cast_unsigned_integer(value, *numeric_ty))
+        }
+        (
+            Type::Numeric(numeric_ty @ (NumericType::F32 | NumericType::F64)),
+            SpikeValue::Float(left),
+            SpikeValue::Float(right),
+        ) => eval_float_arithmetic(op, left, right, *numeric_ty),
         (Type::String | Type::Str, left, right) if op == ArithmeticOp::Add => Ok(SpikeValue::Text(
             format!("{}{}", render_value(&left), render_value(&right)),
         )),
@@ -244,6 +381,79 @@ fn eval_arithmetic(
         _ => Err(unsupported(
             "unsupported cranelift spike arithmetic operands",
         )),
+    }
+}
+
+fn eval_float_arithmetic(
+    op: ArithmeticOp,
+    left: f64,
+    right: f64,
+    ty: NumericType,
+) -> Result<SpikeValue, Diagnostic> {
+    match ty {
+        NumericType::F32 => {
+            let left = left as f32;
+            let right = right as f32;
+            let value = match op {
+                ArithmeticOp::Add => left + right,
+                ArithmeticOp::Sub => left - right,
+                ArithmeticOp::Mul => left * right,
+                ArithmeticOp::Div if right != 0.0 => left / right,
+                ArithmeticOp::Div => return Err(unsupported("floating-point division by zero")),
+            };
+            Ok(SpikeValue::Float(value as f64))
+        }
+        NumericType::F64 => {
+            let value = match op {
+                ArithmeticOp::Add => left + right,
+                ArithmeticOp::Sub => left - right,
+                ArithmeticOp::Mul => left * right,
+                ArithmeticOp::Div if right != 0.0 => left / right,
+                ArithmeticOp::Div => return Err(unsupported("floating-point division by zero")),
+            };
+            Ok(SpikeValue::Float(value))
+        }
+        _ => Err(unsupported(
+            "floating-point arithmetic requires a float type",
+        )),
+    }
+}
+
+fn is_signed_numeric(ty: NumericType) -> bool {
+    matches!(
+        ty,
+        NumericType::I8
+            | NumericType::I16
+            | NumericType::I32
+            | NumericType::I64
+            | NumericType::Isize
+    )
+}
+
+fn is_unsigned_numeric(ty: NumericType) -> bool {
+    matches!(
+        ty,
+        NumericType::U8
+            | NumericType::U16
+            | NumericType::U32
+            | NumericType::U64
+            | NumericType::Usize
+    )
+}
+
+fn expect_signed_integer(value: SpikeValue) -> Result<i64, Diagnostic> {
+    match value {
+        SpikeValue::Int(value) => Ok(value),
+        SpikeValue::UInt(value) => Ok(value as i64),
+        _ => Err(unsupported("expected integer operands")),
+    }
+}
+
+fn expect_unsigned_integer(value: SpikeValue) -> Result<u64, Diagnostic> {
+    match value {
+        SpikeValue::Int(value) => Ok(value as u64),
+        SpikeValue::UInt(value) => Ok(value),
+        _ => Err(unsupported("expected integer operands")),
     }
 }
 
@@ -258,6 +468,8 @@ fn eval_compare(
     let right = eval_expr(rhs, functions, env)?;
     let result = match (left, right) {
         (SpikeValue::Int(left), SpikeValue::Int(right)) => compare_ord(op, left, right),
+        (SpikeValue::UInt(left), SpikeValue::UInt(right)) => compare_ord(op, left, right),
+        (SpikeValue::Float(left), SpikeValue::Float(right)) => compare_float(op, left, right)?,
         (SpikeValue::Bool(left), SpikeValue::Bool(right)) => compare_eq(op, left, right)?,
         (SpikeValue::Text(left), SpikeValue::Text(right)) => compare_eq(op, left, right)?,
         _ => return Err(unsupported("mismatched comparison operands")),
@@ -274,6 +486,20 @@ fn compare_ord<T: Ord>(op: CompareOp, left: T, right: T) -> bool {
         CompareOp::Gt => left > right,
         CompareOp::Ge => left >= right,
     }
+}
+
+fn compare_float(op: CompareOp, left: f64, right: f64) -> Result<bool, Diagnostic> {
+    if !left.is_finite() || !right.is_finite() {
+        return Err(unsupported("non-finite float comparison"));
+    }
+    Ok(match op {
+        CompareOp::Eq => left == right,
+        CompareOp::Ne => left != right,
+        CompareOp::Lt => left < right,
+        CompareOp::Le => left <= right,
+        CompareOp::Gt => left > right,
+        CompareOp::Ge => left >= right,
+    })
 }
 
 fn compare_eq<T: Eq>(op: CompareOp, left: T, right: T) -> Result<bool, Diagnostic> {
@@ -295,6 +521,8 @@ fn expect_non_negative_index(value: SpikeValue) -> Result<usize, Diagnostic> {
     match value {
         SpikeValue::Int(value) if value >= 0 => Ok(value as usize),
         SpikeValue::Int(_) => Err(unsupported("array index cannot be negative")),
+        SpikeValue::UInt(value) => usize::try_from(value)
+            .map_err(|_| unsupported("array index is outside the host usize range")),
         _ => Err(unsupported("array index must be an integer")),
     }
 }
@@ -302,6 +530,8 @@ fn expect_non_negative_index(value: SpikeValue) -> Result<usize, Diagnostic> {
 fn render_value(value: &SpikeValue) -> String {
     match value {
         SpikeValue::Int(value) => value.to_string(),
+        SpikeValue::UInt(value) => value.to_string(),
+        SpikeValue::Float(value) => value.to_string(),
         SpikeValue::Bool(true) => String::from("true"),
         SpikeValue::Bool(false) => String::from("false"),
         SpikeValue::Text(value) => value.clone(),
