@@ -1,4 +1,5 @@
 import "std/serdes.ax"
+import "std/json.ax"
 
 pub type Position = (int, int)
 pub type Range = (Position, Position)
@@ -82,6 +83,14 @@ return request_with_id(TextId(id), method, params)
 
 pub fn notification(method: string, params: {string: Value}): string {
 return stringify(Object({"jsonrpc": Text("2.0"), "method": Text(method), "params": Object(params)}))
+}
+
+pub fn content_length_header(payload: &str): string {
+return "Content-Length: " + stringify_int(len(payload))
+}
+
+pub fn frame_message(payload: string): string {
+return content_length_header(payload) + "\r\n\r\n" + payload
 }
 
 pub fn initialize_response(id: int): string {
@@ -224,6 +233,17 @@ None {
 return None
 }
 }
+}
+None {
+return None
+}
+}
+}
+
+pub fn response_frame_for_request(payload: &str): Option<string> {
+match response_for_request(payload) {
+Some(response) {
+return Some(frame_message(response))
 }
 None {
 return None

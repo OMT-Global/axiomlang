@@ -1705,6 +1705,20 @@ let bad: u8 = byte.wrapping_add(1u16)
     }
 
     #[test]
+    fn parser_lowers_string_len_without_moving_value() {
+        let source = "fn borrowed_len(value: &str): int {\nreturn len(value)\n}\n\nlet label: string = \"Content-Length\"\nprint len(label)\nprint label\nprint borrowed_len(label)\nprint label\n";
+        let parsed = parse_program(source, Path::new("main.ax")).expect("parse");
+        let hir = hir::lower(&parsed).expect("lower");
+        let mir = mir::lower(&hir);
+        let rendered = render_rust(&mir);
+        assert!(rendered.contains("fn borrowed_len<'a>(value: &'a str) -> i64 {"));
+        assert!(rendered.contains("return (value).len() as i64;"));
+        assert!(rendered.contains("println!(\"{}\", (label).len() as i64);"));
+        assert!(rendered.contains("println!(\"{}\", label);"));
+        assert!(rendered.contains("println!(\"{}\", borrowed_len(label.as_str()));"));
+    }
+
+    #[test]
     fn parser_lowers_mutable_slice_signatures() {
         let source = "fn passthrough(values: &mut [int]): &mut [int] {\nreturn values\n}\n\nfn count(values: &mut [string]): int {\nreturn len(values)\n}\n\nprint 0\n";
         let parsed = parse_program(source, Path::new("main.ax")).expect("parse");

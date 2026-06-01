@@ -9384,11 +9384,18 @@ fn lower_expr_with_expected_inner(
                 let lowered = lower_expr(&args[0], env, ctx)?;
                 if !matches!(
                     lowered.ty(),
-                    Type::Array(_, _) | Type::Slice(_) | Type::MutSlice(_)
+                    Type::Array(_, _)
+                        | Type::Slice(_)
+                        | Type::MutSlice(_)
+                        | Type::String
+                        | Type::Str
                 ) {
                     return Err(Diagnostic::new(
                         "type",
-                        format!("len expects an array or slice value, got {}", lowered.ty()),
+                        format!(
+                            "len expects an array, slice, or string value, got {}",
+                            lowered.ty()
+                        ),
                     )
                     .with_span(args[0].line(), args[0].column()));
                 }

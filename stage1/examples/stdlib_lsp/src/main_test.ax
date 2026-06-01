@@ -102,6 +102,14 @@ let invalid_payload: string = "{"
 return property("lsp invalid message rejected", no_text(message_method(invalid_payload)) && no_request_id(message_id(invalid_payload)) && message_supported(invalid_payload) == false && no_text(response_for_request(initialized_payload)))
 }
 
+fn frames_protocol_messages(): int {
+let params: {string: Value} = {"rootUri": Text("file:///tmp/axiom")}
+let initialize_payload: string = request(7, method_initialize(), params)
+let initialize_response_payload: string = initialize_response(7)
+let initialized_payload: string = notification(method_initialized(), {"ready": Bool(true)})
+return property("lsp content-length framing", content_length_header("hi") == "Content-Length: 2" && frame_message("hi") == "Content-Length: 2\r\n\r\nhi" && response_frame_for_request(initialize_payload) == Some(frame_message(initialize_response_payload)) && no_text(response_frame_for_request(initialized_payload)))
+}
+
 print parses_request()
 print publishes_diagnostic()
 print completion_has_items()
@@ -110,3 +118,4 @@ print dispatches_request_responses()
 print dispatches_string_request_ids()
 print extracts_text_document_notifications()
 print rejects_invalid_messages()
+print frames_protocol_messages()

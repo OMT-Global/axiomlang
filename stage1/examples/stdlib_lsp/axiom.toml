@@ -17,4 +17,4 @@ crypto = false
 [[tests]]
 name = "stdlib-lsp-protocol"
 entry = "src/main_test.ax"
-stdout = "0\n0\n0\n0\n0\n0\n0\n0\n"
+stdout = "0\n0\n0\n0\n0\n0\n0\n0\n0\n"
