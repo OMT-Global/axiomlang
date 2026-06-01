@@ -1,5 +1,8 @@
 use crate::diagnostics::Diagnostic;
-use crate::mir::{ArithmeticOp, CompareOp, Expr, Function, LiteralValue, Program, Stmt, Type};
+use crate::mir::{
+    ArithmeticOp, CompareOp, Expr, Function, LiteralValue, MatchArm, MatchExprArm, Program, Stmt,
+    Type,
+};
 use crate::syntax::NumericType;
 use std::collections::HashMap;
 use std::path::Path;
@@ -14,6 +17,12 @@ enum SpikeValue {
     Struct {
         name: String,
         fields: Vec<(String, SpikeValue)>,
+    },
+    Enum {
+        enum_name: String,
+        variant: String,
+        field_names: Vec<String>,
+        payloads: Vec<SpikeValue>,
     },
     Tuple(Vec<SpikeValue>),
     Array(Vec<SpikeValue>),
@@ -45,11 +54,6 @@ pub fn compile_cranelift_hello_spike(
 }
 
 fn collect_print_lines(program: &Program) -> Result<Vec<String>, Diagnostic> {
-    if !program.enums.is_empty() {
-        return Err(unsupported(
-            "enums are not part of the cranelift hello spike",
-        ));
-    }
     let functions = program
         .functions
         .iter()
@@ -119,12 +123,11 @@ fn eval_stmt(
             )),
             _ => Err(unsupported("while conditions must be boolean")),
         },
+        Stmt::Match { expr, arms, .. } => eval_match_stmt(expr, arms, functions, env, lines),
         Stmt::Return { expr, .. } => Ok(Some(eval_expr(expr, functions, env)?)),
-        Stmt::Assign { .. } | Stmt::Panic { .. } | Stmt::Defer { .. } | Stmt::Match { .. } => {
-            Err(unsupported(
-                "only let, print, if, while false, and return statements are supported by the cranelift hello spike",
-            ))
-        }
+        Stmt::Assign { .. } | Stmt::Panic { .. } | Stmt::Defer { .. } => Err(unsupported(
+            "only let, print, if, while false, match, and return statements are supported by the cranelift hello spike",
+        )),
     }
 }
 
@@ -182,6 +185,23 @@ fn eval_expr(
                 }),
             _ => Err(unsupported("field access requires a struct value")),
         },
+        Expr::EnumVariant {
+            enum_name,
+            variant,
+            field_names,
+            payloads,
+            ..
+        } => payloads
+            .iter()
+            .map(|payload| eval_expr(payload, functions, env))
+            .collect::<Result<Vec<_>, _>>()
+            .map(|payloads| SpikeValue::Enum {
+                enum_name: enum_name.clone(),
+                variant: variant.clone(),
+                field_names: field_names.clone(),
+                payloads,
+            }),
+        Expr::Match { expr, arms, .. } => eval_match_expr(expr, arms, functions, env),
         Expr::TupleLiteral { elements, .. } => elements
             .iter()
             .map(|element| eval_expr(element, functions, env))
@@ -213,6 +233,107 @@ fn eval_expr(
             "this expression is outside the cranelift hello spike subset",
         )),
     }
+}
+
+fn eval_match_stmt(
+    expr: &Expr,
+    arms: &[MatchArm],
+    functions: &HashMap<&str, &Function>,
+    env: &SpikeEnv,
+    lines: &mut Vec<String>,
+) -> Result<Option<SpikeValue>, Diagnostic> {
+    let matched = expect_enum_value(eval_expr(expr, functions, env)?)?;
+    let arm = arms
+        .iter()
+        .find(|arm| arm.enum_name == matched.enum_name && arm.variant == matched.variant)
+        .ok_or_else(|| unsupported("match statement has no matching enum arm"))?;
+    let mut arm_env = env.clone();
+    if !arm.ignore_payloads {
+        bind_match_payloads(
+            &mut arm_env,
+            &arm.bindings,
+            arm.is_named,
+            &matched.field_names,
+            &matched.payloads,
+        )?;
+    }
+    eval_block(&arm.body, functions, &mut arm_env, lines)
+}
+
+fn eval_match_expr(
+    expr: &Expr,
+    arms: &[MatchExprArm],
+    functions: &HashMap<&str, &Function>,
+    env: &SpikeEnv,
+) -> Result<SpikeValue, Diagnostic> {
+    let matched = expect_enum_value(eval_expr(expr, functions, env)?)?;
+    let arm = arms
+        .iter()
+        .find(|arm| arm.enum_name == matched.enum_name && arm.variant == matched.variant)
+        .ok_or_else(|| unsupported("match expression has no matching enum arm"))?;
+    let mut arm_env = env.clone();
+    bind_match_payloads(
+        &mut arm_env,
+        &arm.bindings,
+        arm.is_named,
+        &matched.field_names,
+        &matched.payloads,
+    )?;
+    eval_expr(&arm.expr, functions, &arm_env)
+}
+
+struct MatchedEnum {
+    enum_name: String,
+    variant: String,
+    field_names: Vec<String>,
+    payloads: Vec<SpikeValue>,
+}
+
+fn expect_enum_value(value: SpikeValue) -> Result<MatchedEnum, Diagnostic> {
+    match value {
+        SpikeValue::Enum {
+            enum_name,
+            variant,
+            field_names,
+            payloads,
+        } => Ok(MatchedEnum {
+            enum_name,
+            variant,
+            field_names,
+            payloads,
+        }),
+        _ => Err(unsupported("match requires an enum value")),
+    }
+}
+
+fn bind_match_payloads(
+    env: &mut SpikeEnv,
+    bindings: &[String],
+    is_named: bool,
+    field_names: &[String],
+    payloads: &[SpikeValue],
+) -> Result<(), Diagnostic> {
+    if bindings.len() != payloads.len() {
+        return Err(unsupported("match payload binding count mismatch"));
+    }
+    for (index, binding) in bindings.iter().enumerate() {
+        if binding == "_" {
+            continue;
+        }
+        let payload_index = if is_named {
+            field_names
+                .iter()
+                .position(|field_name| field_name == binding)
+                .ok_or_else(|| unsupported("named enum match binding has no payload field"))?
+        } else {
+            index
+        };
+        let value = payloads
+            .get(payload_index)
+            .ok_or_else(|| unsupported("match payload binding index mismatch"))?;
+        env.insert(binding.clone(), value.clone());
+    }
+    Ok(())
 }
 
 fn eval_numeric_literal(raw: &str, ty: NumericType) -> Result<SpikeValue, Diagnostic> {
@@ -628,9 +749,19 @@ fn render_value(value: &SpikeValue) -> String {
         SpikeValue::Bool(false) => String::from("false"),
         SpikeValue::Text(value) => value.clone(),
         SpikeValue::Struct { name, fields } => render_struct(name, fields),
+        SpikeValue::Enum {
+            variant, payloads, ..
+        } => render_enum(variant, payloads),
         SpikeValue::Tuple(values) => render_sequence("(", ")", values),
         SpikeValue::Array(values) => render_sequence("[", "]", values),
     }
+}
+
+fn render_enum(variant: &str, payloads: &[SpikeValue]) -> String {
+    if payloads.is_empty() {
+        return variant.to_string();
+    }
+    format!("{variant}{}", render_sequence("(", ")", payloads))
 }
 
 fn render_struct(name: &str, fields: &[(String, SpikeValue)]) -> String {
