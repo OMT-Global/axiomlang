@@ -87,6 +87,8 @@
 //!   `find`, `replace_all`) over a stage1-safe NFA engine.
 //! * `std/testing.ax` — table-case, property, and snapshot assertion helpers
 //!   layered over the bootstrap test intrinsics.
+//! * `std/doc.ax` — the AxiOM-side doc item contract and Markdown renderer
+//!   used to retire bootstrap Rust rendering in Phase-K.
 //! * `std/outcome.ax` — generic `Option<T>` / `Result<T, E>` predicates and
 //!   fallback unwrap helpers implemented in Axiom.
 //! * `std/encoding.ax` — URL query and path percent-encoding helpers.
@@ -396,6 +398,7 @@ pub async fn udp_bind_loopback_once(response: string, timeout_ms: int): Option<i
 pub async fn udp_send_recv(host: string, port: int, message: string, timeout_ms: int): Option<string> {\nreturn net_udp_send_recv(host, port, message, timeout_ms)\n}\n",
     ),
     ("testing.ax", include_str!("../../../stdlib/std/testing.ax")),
+    ("doc.ax", include_str!("../../../stdlib/std/doc.ax")),
     (
         "http.ax",
         "pub type Server = int

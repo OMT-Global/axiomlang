@@ -1,0 +1,53 @@
+pub type DocItem = (&str, &str, bool, &str, &str, &str)
+
+pub fn doc_file(item: DocItem): &str {
+return item.0
+}
+
+pub fn doc_kind(item: DocItem): &str {
+return item.1
+}
+
+pub fn doc_public(item: DocItem): bool {
+return item.2
+}
+
+pub fn doc_signature(item: DocItem): &str {
+return item.3
+}
+
+pub fn doc_text(item: DocItem): &str {
+return item.4
+}
+
+pub fn doc_examples(item: DocItem): &str {
+return item.5
+}
+
+pub fn render_markdown(items: [DocItem]): string {
+return render_markdown_view(items[:])
+}
+
+pub fn render_markdown_view(items: &[DocItem]): string {
+let output: string = "# Axiom API\n\n"
+if len(items) == 0 {
+return output + "No public or documented declarations found."
+}
+return render_items(output, items, 0)
+}
+
+fn render_items(output: string, items: &[DocItem], index: int): string {
+if index >= len(items) {
+return output
+}
+let item: DocItem = items[index]
+let rendered: string = render_item(output, item)
+if index + 1 >= len(items) {
+return rendered
+}
+return render_items(rendered + "\n\n", items, index + 1)
+}
+
+fn render_item(output: string, item: DocItem): string {
+return output + "## `" + doc_signature(item) + "`\n\nSource: `" + doc_file(item) + "`\n\n" + doc_text(item)
+}

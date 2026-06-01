@@ -80,6 +80,9 @@ signatures, simple example notes, declaration kind/visibility, and package
 capability descriptors when the input path is a package root. The output
 validates against `stage1/schemas/axiom-doc-v0.schema.json` as well as the
 shared `axiom.stage1.v1` envelope.
+`std/doc.ax` now defines the AxiOM-side doc item contract and Markdown renderer;
+source extraction and `axiomc doc` driver integration remain bootstrap-hosted
+until Phase-K.1 can follow Phase-J.3.
 
 `axiomc new` defaults to the `cli` starter and also accepts `--template worker`
 and `--template service`. Each starter writes `axiom.toml`, `axiom.lock`,

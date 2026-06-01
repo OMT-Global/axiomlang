@@ -8904,6 +8904,33 @@ print false
     }
 
     #[test]
+    fn std_doc_source_file_backs_virtual_module() {
+        let virtual_path = crate::stdlib::stdlib_source_path("doc.ax");
+        let virtual_source =
+            crate::stdlib::stdlib_source_for(&virtual_path).expect("doc stdlib source");
+
+        assert_eq!(virtual_source, include_str!("../../../stdlib/std/doc.ax"));
+        assert!(virtual_source.contains("pub type DocItem"));
+        assert!(virtual_source.contains("pub fn render_markdown(items: [DocItem]): string"));
+        assert!(virtual_source.contains("pub fn doc_signature(item: DocItem): &str"));
+    }
+
+    #[test]
+    fn checked_in_stdlib_doc_example_renders_markdown() {
+        let project = checked_in_example_fixture("stdlib_doc");
+        let output = run_project_tests(&project).expect("run stdlib doc example");
+
+        assert_eq!(output.passed, 1);
+        assert_eq!(output.failed, 0);
+        let case = output.cases.first().expect("test case");
+        assert!(case.ok);
+        assert_eq!(
+            case.stdout,
+            fs::read_to_string(project.join("src/main_test.stdout")).expect("read golden")
+        );
+    }
+
+    #[test]
     fn run_project_tests_reports_std_testing_helper_failure_details() {
         let dir = tempdir().expect("tempdir");
         let project = dir.path().join("runner-std-testing-fail");
