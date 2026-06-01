@@ -8,6 +8,8 @@ enum SpikeValue {
     Int(i64),
     Bool(bool),
     Text(String),
+    Tuple(Vec<SpikeValue>),
+    Array(Vec<SpikeValue>),
 }
 
 type SpikeEnv = HashMap<String, SpikeValue>;
@@ -135,7 +137,7 @@ fn eval_expr(
             .cloned()
             .ok_or_else(|| unsupported(&format!("unknown cranelift spike variable {name:?}"))),
         Expr::Call { name, args, .. } => eval_call(name, args, functions, env),
-        Expr::BinaryAdd { op, lhs, rhs, ty } => eval_add(*op, lhs, rhs, ty, functions, env),
+        Expr::BinaryAdd { op, lhs, rhs, ty } => eval_arithmetic(*op, lhs, rhs, ty, functions, env),
         Expr::BinaryCompare {
             op,
             lhs,
@@ -153,6 +155,33 @@ fn eval_expr(
             }
         }
         Expr::Cast { expr, .. } => eval_expr(expr, functions, env),
+        Expr::TupleLiteral { elements, .. } => elements
+            .iter()
+            .map(|element| eval_expr(element, functions, env))
+            .collect::<Result<Vec<_>, _>>()
+            .map(SpikeValue::Tuple),
+        Expr::TupleIndex { base, index, .. } => match eval_expr(base, functions, env)? {
+            SpikeValue::Tuple(elements) => elements
+                .get(*index)
+                .cloned()
+                .ok_or_else(|| unsupported("tuple index is outside the tuple width")),
+            _ => Err(unsupported("tuple indexing requires a tuple value")),
+        },
+        Expr::ArrayLiteral { elements, .. } => elements
+            .iter()
+            .map(|element| eval_expr(element, functions, env))
+            .collect::<Result<Vec<_>, _>>()
+            .map(SpikeValue::Array),
+        Expr::Index { base, index, .. } => {
+            let index = expect_non_negative_index(eval_expr(index, functions, env)?)?;
+            match eval_expr(base, functions, env)? {
+                SpikeValue::Array(elements) => elements
+                    .get(index)
+                    .cloned()
+                    .ok_or_else(|| unsupported("array index is outside the array length")),
+                _ => Err(unsupported("array indexing requires an array value")),
+            }
+        }
         _ => Err(unsupported(
             "this expression is outside the cranelift hello spike subset",
         )),
@@ -182,10 +211,10 @@ fn eval_call(
             "functions with print side effects are not part of the cranelift hello spike",
         ));
     }
-    returned.ok_or_else(|| unsupported("cranelift spike functions must return a scalar value"))
+    returned.ok_or_else(|| unsupported("cranelift spike functions must return a value"))
 }
 
-fn eval_add(
+fn eval_arithmetic(
     op: ArithmeticOp,
     lhs: &Expr,
     rhs: &Expr,
@@ -193,23 +222,28 @@ fn eval_add(
     functions: &HashMap<&str, &Function>,
     env: &SpikeEnv,
 ) -> Result<SpikeValue, Diagnostic> {
-    if op != ArithmeticOp::Add {
-        return Err(unsupported(
-            "only addition is supported by the cranelift hello spike",
-        ));
-    }
     let left = eval_expr(lhs, functions, env)?;
     let right = eval_expr(rhs, functions, env)?;
     match (ty, left, right) {
-        (Type::Int, SpikeValue::Int(left), SpikeValue::Int(right)) => {
-            Ok(SpikeValue::Int(left + right))
+        (Type::Int | Type::Numeric(_), SpikeValue::Int(left), SpikeValue::Int(right)) => {
+            let value = match op {
+                ArithmeticOp::Add => left + right,
+                ArithmeticOp::Sub => left - right,
+                ArithmeticOp::Mul => left * right,
+                ArithmeticOp::Div if right != 0 => left / right,
+                ArithmeticOp::Div => return Err(unsupported("integer division by zero")),
+            };
+            Ok(SpikeValue::Int(value))
         }
-        (Type::String | Type::Str, left, right) => Ok(SpikeValue::Text(format!(
-            "{}{}",
-            render_value(&left),
-            render_value(&right)
-        ))),
-        _ => Err(unsupported("unsupported cranelift spike addition operands")),
+        (Type::String | Type::Str, left, right) if op == ArithmeticOp::Add => Ok(SpikeValue::Text(
+            format!("{}{}", render_value(&left), render_value(&right)),
+        )),
+        (Type::String | Type::Str, _, _) => Err(unsupported(
+            "only string addition is supported by the cranelift spike",
+        )),
+        _ => Err(unsupported(
+            "unsupported cranelift spike arithmetic operands",
+        )),
     }
 }
 
@@ -257,13 +291,35 @@ fn expect_bool(value: SpikeValue) -> Result<bool, Diagnostic> {
     }
 }
 
+fn expect_non_negative_index(value: SpikeValue) -> Result<usize, Diagnostic> {
+    match value {
+        SpikeValue::Int(value) if value >= 0 => Ok(value as usize),
+        SpikeValue::Int(_) => Err(unsupported("array index cannot be negative")),
+        _ => Err(unsupported("array index must be an integer")),
+    }
+}
+
 fn render_value(value: &SpikeValue) -> String {
     match value {
         SpikeValue::Int(value) => value.to_string(),
         SpikeValue::Bool(true) => String::from("true"),
         SpikeValue::Bool(false) => String::from("false"),
         SpikeValue::Text(value) => value.clone(),
+        SpikeValue::Tuple(values) => render_sequence("(", ")", values),
+        SpikeValue::Array(values) => render_sequence("[", "]", values),
     }
+}
+
+fn render_sequence(open: &str, close: &str, values: &[SpikeValue]) -> String {
+    let mut rendered = String::from(open);
+    for (index, value) in values.iter().enumerate() {
+        if index > 0 {
+            rendered.push_str(", ");
+        }
+        rendered.push_str(&render_value(value));
+    }
+    rendered.push_str(close);
+    rendered
 }
 
 fn unsupported(message: &str) -> Diagnostic {
