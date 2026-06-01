@@ -20,8 +20,8 @@ use axiomc::project::{
     trace_provenance,
 };
 use axiomc::registry::{
-    PublishOptions, load_registry_index, publish_package, render_registry_index,
-    verify_registry_index_integrity,
+    PublishOptions, RegistryServeOptions, load_registry_index, publish_package,
+    render_registry_index, serve_registry, verify_registry_index_integrity,
 };
 use axiomc::syntax::parse_program;
 use clap::{Parser, Subcommand, ValueEnum};
@@ -269,6 +269,16 @@ enum Command {
         packages_dir: Option<PathBuf>,
         #[arg(long = "signing-key")]
         signing_key: Option<String>,
+    },
+    /// Serve a hosted package-registry index and release artifacts over HTTP.
+    RegistryServe {
+        packages_dir: PathBuf,
+        #[arg(long, default_value = "127.0.0.1:8080")]
+        addr: String,
+        #[arg(long = "base-url")]
+        base_url: Option<String>,
+        #[arg(long)]
+        once: bool,
     },
     /// Start the bounded axiom-analyzer Language Server Protocol endpoint.
     Lsp,
@@ -1224,6 +1234,28 @@ fn main() {
                 0
             }
             Err(error) => print_error("registry-validate", error, false),
+        },
+        Command::RegistryServe {
+            packages_dir,
+            addr,
+            base_url,
+            once,
+        } => match serve_registry(
+            &packages_dir,
+            &RegistryServeOptions {
+                addr,
+                base_url,
+                once,
+            },
+        ) {
+            Ok(output) => {
+                eprintln!(
+                    "served {} registry request(s) from {}",
+                    output.requests, output.base_url
+                );
+                0
+            }
+            Err(error) => print_error("registry-serve", error, false),
         },
         Command::Lsp => match lsp::run_stdio(io::stdin().lock(), io::stdout()) {
             Ok(()) => 0,
@@ -7441,6 +7473,7 @@ mod tests {
         assert!(help.contains("Pack and publish a stage1 package into a local registry tree"));
         assert!(help.contains("Build a static package-registry index"));
         assert!(help.contains("Validate a static package-registry index JSON file"));
+        assert!(help.contains("Serve a hosted package-registry index"));
         assert!(help.contains("Verify declared axioms and target evidence requirements"));
         assert!(help.contains("Diff two Intent IR snapshots"));
     }
@@ -7478,6 +7511,34 @@ mod tests {
                 assert_eq!(signing_key.as_deref(), Some("dev-key"));
             }
             other => panic!("expected registry validate command, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn registry_serve_cli_parses_host_options() {
+        let cli = Cli::parse_from([
+            "axiomc",
+            "registry-serve",
+            "registry/packages",
+            "--addr",
+            "127.0.0.1:0",
+            "--base-url",
+            "http://127.0.0.1:0",
+            "--once",
+        ]);
+        match cli.command {
+            Command::RegistryServe {
+                packages_dir,
+                addr,
+                base_url,
+                once,
+            } => {
+                assert_eq!(packages_dir, PathBuf::from("registry/packages"));
+                assert_eq!(addr, "127.0.0.1:0");
+                assert_eq!(base_url.as_deref(), Some("http://127.0.0.1:0"));
+                assert!(once);
+            }
+            other => panic!("expected registry serve command, got {other:?}"),
         }
     }
 

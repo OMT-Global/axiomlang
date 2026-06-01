@@ -15,6 +15,7 @@ cargo run --manifest-path stage1/Cargo.toml -p axiomc -- publish stage1/examples
 cargo run --manifest-path stage1/Cargo.toml -p axiomc -- pkg graph stage1/examples/workspace_only --json
 cargo run --manifest-path stage1/Cargo.toml -p axiomc -- registry-index ./registry/packages --base-url https://packages.example.test --out ./registry/index.json
 cargo run --manifest-path stage1/Cargo.toml -p axiomc -- registry-validate ./registry/index.json --packages-dir ./registry/packages --signing-key dev-key
+cargo run --manifest-path stage1/Cargo.toml -p axiomc -- registry-serve ./registry/packages --addr 127.0.0.1:8080 --base-url http://127.0.0.1:8080
 ```
 
 ## Manifest Shape
@@ -80,7 +81,17 @@ analysis.
 - `axiom-registry.toml` with `yanked = true` and optional `yank_reason`
 
 The generated index records per-release capability manifests, archive/signature URLs,
-and yanked status so a simple static host can serve lockfile-friendly package metadata. `axiomc registry-validate` checks the index contract by default; when passed `--packages-dir` and `--signing-key`, it also reads every indexed local archive plus sidecar and rejects tampered archives or mismatched integrity keys. This is publish and registry-index groundwork for a future hosted registry service, not the hosted service itself.
+and yanked status so a simple static host can serve lockfile-friendly package metadata. `axiomc registry-validate` checks the index contract by default; when passed `--packages-dir` and `--signing-key`, it also reads every indexed local archive plus sidecar and rejects tampered archives or mismatched integrity keys.
+
+`axiomc registry-serve <packages-dir>` starts a small read-only HTTP registry for that same release tree. It serves:
+
+- `/index.json` and `/` as a freshly rendered registry index
+- `/<package>/<version>/axiom.toml`
+- `/<package>/<version>/axiom.lock`
+- `/<package>/<version>/package.axp`
+- `/<package>/<version>/package.axp.sig`
+
+The server rebuilds and validates the index before serving package files, so malformed manifests, mismatched archive sidecars, unsafe path segments, or invalid yank metadata fail before artifacts are exposed. Pass `--base-url` when the registry is behind a proxy or a stable hostname; otherwise the server derives a local `http://host:port` base URL from the bound address. The hosted stage1 registry remains read-only: package uploads still happen through `axiomc publish`, and the `.sig` sidecar is still an integrity tag rather than cryptographic authenticity proof.
 
 ## Registry And Publish Contract
 

@@ -6,6 +6,8 @@ use crate::manifest::{
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::fs;
+use std::io::{Read, Write};
+use std::net::{TcpListener, TcpStream};
 use std::path::{Component, Path, PathBuf};
 
 const REGISTRY_METADATA_FILENAME: &str = "axiom-registry.toml";
@@ -58,6 +60,27 @@ pub struct PublishOutput {
 pub struct PublishOptions {
     pub signing_key: Option<String>,
     pub allow_overwrite: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RegistryServeOptions {
+    pub addr: String,
+    pub base_url: Option<String>,
+    pub once: bool,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct RegistryServeOutput {
+    pub addr: String,
+    pub base_url: String,
+    pub requests: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct RegistryHttpResponse {
+    status: &'static str,
+    content_type: &'static str,
+    body: Vec<u8>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -581,6 +604,241 @@ pub fn load_registry_index(path: &Path) -> Result<RegistryIndex, Diagnostic> {
     })?;
     validate_registry_index(&index, Some(path))?;
     Ok(index)
+}
+
+pub fn serve_registry(
+    packages_root: &Path,
+    options: &RegistryServeOptions,
+) -> Result<RegistryServeOutput, Diagnostic> {
+    let listener = TcpListener::bind(&options.addr).map_err(|err| {
+        Diagnostic::new(
+            "registry",
+            format!("failed to bind registry server {}: {err}", options.addr),
+        )
+    })?;
+    let local_addr = listener.local_addr().map_err(|err| {
+        Diagnostic::new(
+            "registry",
+            format!("failed to inspect registry bind addr: {err}"),
+        )
+    })?;
+    let addr = local_addr.to_string();
+    let base_url = options
+        .base_url
+        .clone()
+        .unwrap_or_else(|| format!("http://{addr}"));
+    build_registry_index(packages_root, &base_url)?;
+
+    eprintln!(
+        "serving registry {} at {}",
+        packages_root.display(),
+        base_url
+    );
+
+    let mut requests = 0usize;
+    for stream in listener.incoming() {
+        let mut stream = stream.map_err(|err| {
+            Diagnostic::new(
+                "registry",
+                format!("failed to accept registry request: {err}"),
+            )
+        })?;
+        serve_registry_stream(packages_root, &base_url, &mut stream)?;
+        requests += 1;
+        if options.once {
+            break;
+        }
+    }
+
+    Ok(RegistryServeOutput {
+        addr,
+        base_url,
+        requests,
+    })
+}
+
+fn serve_registry_stream(
+    packages_root: &Path,
+    base_url: &str,
+    stream: &mut TcpStream,
+) -> Result<(), Diagnostic> {
+    let mut buffer = [0u8; 16 * 1024];
+    let len = stream.read(&mut buffer).map_err(|err| {
+        Diagnostic::new(
+            "registry",
+            format!("failed to read registry request: {err}"),
+        )
+    })?;
+    let request = String::from_utf8_lossy(&buffer[..len]);
+    let response = registry_http_response(packages_root, base_url, &request)?;
+    write_registry_http_response(stream, &response)
+}
+
+fn registry_http_response(
+    packages_root: &Path,
+    base_url: &str,
+    request: &str,
+) -> Result<RegistryHttpResponse, Diagnostic> {
+    let Some(request_line) = request.lines().next() else {
+        return Ok(registry_http_error("400 Bad Request", "empty request"));
+    };
+    let mut parts = request_line.split_whitespace();
+    let Some(method) = parts.next() else {
+        return Ok(registry_http_error("400 Bad Request", "missing method"));
+    };
+    let Some(target) = parts.next() else {
+        return Ok(registry_http_error("400 Bad Request", "missing target"));
+    };
+    let Some(version) = parts.next() else {
+        return Ok(registry_http_error("400 Bad Request", "missing version"));
+    };
+    if !version.starts_with("HTTP/") {
+        return Ok(registry_http_error("400 Bad Request", "invalid version"));
+    }
+    if method != "GET" && method != "HEAD" {
+        return Ok(RegistryHttpResponse {
+            status: "405 Method Not Allowed",
+            content_type: "text/plain; charset=utf-8",
+            body: b"method not allowed\n".to_vec(),
+        });
+    }
+
+    let target = target.split('?').next().unwrap_or(target);
+    let mut response = if target == "/" || target == "/index.json" {
+        let index = render_registry_index(packages_root, base_url)?;
+        RegistryHttpResponse {
+            status: "200 OK",
+            content_type: "application/json",
+            body: index.into_bytes(),
+        }
+    } else {
+        registry_release_file_response(packages_root, base_url, target)?
+    };
+    if method == "HEAD" {
+        response.body.clear();
+    }
+    Ok(response)
+}
+
+fn registry_release_file_response(
+    packages_root: &Path,
+    base_url: &str,
+    target: &str,
+) -> Result<RegistryHttpResponse, Diagnostic> {
+    let Some(relative) = target.strip_prefix('/') else {
+        return Ok(registry_http_error(
+            "400 Bad Request",
+            "target must be absolute",
+        ));
+    };
+    let segments = relative.split('/').collect::<Vec<_>>();
+    if segments.len() != 3 {
+        return Ok(registry_http_error("404 Not Found", "not found"));
+    }
+    let package = match safe_registry_lookup_segment("package name", segments[0]) {
+        Ok(value) => value,
+        Err(_) => {
+            return Ok(registry_http_error(
+                "400 Bad Request",
+                "unsafe package path segment",
+            ));
+        }
+    };
+    let version = match safe_registry_lookup_segment("package version", segments[1]) {
+        Ok(value) => value,
+        Err(_) => {
+            return Ok(registry_http_error(
+                "400 Bad Request",
+                "unsafe version path segment",
+            ));
+        }
+    };
+    let file = match safe_registry_lookup_segment("artifact file name", segments[2]) {
+        Ok(value) => value,
+        Err(_) => {
+            return Ok(registry_http_error(
+                "400 Bad Request",
+                "unsafe artifact path segment",
+            ));
+        }
+    };
+    let index = build_registry_index(packages_root, base_url)?;
+    let Some(release) = index
+        .packages
+        .get(&package)
+        .and_then(|releases| releases.iter().find(|release| release.version == version))
+    else {
+        return Ok(registry_http_error("404 Not Found", "not found"));
+    };
+
+    if !registry_release_allows_file(release, &file)? {
+        return Ok(registry_http_error("404 Not Found", "not found"));
+    }
+
+    let path = packages_root.join(&package).join(&version).join(&file);
+    let body = fs::read(&path).map_err(|err| {
+        Diagnostic::new(
+            "registry",
+            format!("failed to read registry artifact {}: {err}", path.display()),
+        )
+        .with_path(path.display().to_string())
+    })?;
+    Ok(RegistryHttpResponse {
+        status: "200 OK",
+        content_type: registry_content_type(&file),
+        body,
+    })
+}
+
+fn registry_release_allows_file(release: &RegistryRelease, file: &str) -> Result<bool, Diagnostic> {
+    if file == MANIFEST_FILENAME || file == LOCK_FILENAME {
+        return Ok(true);
+    }
+    if let Some(archive) = release.archive.as_deref() {
+        if registry_artifact_file_name("archive file name", archive)? == file {
+            return Ok(true);
+        }
+    }
+    if let Some(signature) = release.signature.as_deref() {
+        if registry_artifact_file_name("signature file name", signature)? == file {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+fn registry_content_type(file: &str) -> &'static str {
+    match file {
+        MANIFEST_FILENAME | LOCK_FILENAME => "application/toml; charset=utf-8",
+        "package.axp.sig" => "text/plain; charset=utf-8",
+        _ if file.ends_with(".json") => "application/json",
+        _ => "application/octet-stream",
+    }
+}
+
+fn registry_http_error(status: &'static str, message: &str) -> RegistryHttpResponse {
+    RegistryHttpResponse {
+        status,
+        content_type: "text/plain; charset=utf-8",
+        body: format!("{message}\n").into_bytes(),
+    }
+}
+
+fn write_registry_http_response(
+    stream: &mut TcpStream,
+    response: &RegistryHttpResponse,
+) -> Result<(), Diagnostic> {
+    write!(
+        stream,
+        "HTTP/1.1 {}\r\ncontent-type: {}\r\ncontent-length: {}\r\nconnection: close\r\n\r\n",
+        response.status,
+        response.content_type,
+        response.body.len()
+    )
+    .map_err(|err| Diagnostic::new("registry", format!("failed to write response: {err}")))?;
+    stream
+        .write_all(&response.body)
+        .map_err(|err| Diagnostic::new("registry", format!("failed to write response: {err}")))
 }
 
 pub fn validate_registry_index(
@@ -1475,5 +1733,86 @@ integrity=ignored
         )
         .expect("write index");
         load_registry_index(&path).expect("valid index");
+    }
+
+    #[test]
+    fn hosted_registry_serves_index_and_signed_artifacts() {
+        let dir = tempdir().expect("tempdir");
+        let project = write_publishable_project(dir.path(), "core", "1.0.0");
+        let registry = dir.path().join("registry");
+        publish_package(
+            &project,
+            &registry,
+            &PublishOptions {
+                signing_key: Some(String::from("dev-key")),
+                allow_overwrite: false,
+            },
+        )
+        .expect("publish package");
+        fs::write(
+            registry
+                .join("core")
+                .join("1.0.0")
+                .join("axiom-registry.toml"),
+            "yanked = true\nyank_reason = \"superseded\"\n",
+        )
+        .expect("write registry metadata");
+
+        let index = registry_http_response(
+            &registry,
+            "http://registry.test",
+            "GET /index.json HTTP/1.1\r\nHost: registry.test\r\n\r\n",
+        )
+        .expect("index response");
+        assert_eq!(index.status, "200 OK");
+        assert_eq!(index.content_type, "application/json");
+        let index_text = String::from_utf8(index.body).expect("utf8 index");
+        assert!(index_text.contains("\"core\""));
+        assert!(index_text.contains("\"yanked\": true"));
+        assert!(index_text.contains("\"yank_reason\": \"superseded\""));
+        assert!(index_text.contains("http://registry.test/core/1.0.0/package.axp"));
+
+        let archive = registry_http_response(
+            &registry,
+            "http://registry.test",
+            "GET /core/1.0.0/package.axp HTTP/1.1\r\nHost: registry.test\r\n\r\n",
+        )
+        .expect("archive response");
+        assert_eq!(archive.status, "200 OK");
+        assert_eq!(archive.content_type, "application/octet-stream");
+        assert!(archive.body.starts_with(b"AXIOM_PACKAGE_ARCHIVE_V1\n"));
+    }
+
+    #[test]
+    fn hosted_registry_rejects_traversal_and_unknown_files() {
+        let dir = tempdir().expect("tempdir");
+        let project = write_publishable_project(dir.path(), "core", "1.0.0");
+        let registry = dir.path().join("registry");
+        publish_package(
+            &project,
+            &registry,
+            &PublishOptions {
+                signing_key: Some(String::from("dev-key")),
+                allow_overwrite: false,
+            },
+        )
+        .expect("publish package");
+
+        let traversal = registry_http_response(
+            &registry,
+            "http://registry.test",
+            "GET /core/../package.axp HTTP/1.1\r\nHost: registry.test\r\n\r\n",
+        )
+        .expect("traversal response");
+        assert_eq!(traversal.status, "400 Bad Request");
+        assert!(String::from_utf8_lossy(&traversal.body).contains("unsafe version"));
+
+        let metadata = registry_http_response(
+            &registry,
+            "http://registry.test",
+            "GET /core/1.0.0/axiom-registry.toml HTTP/1.1\r\nHost: registry.test\r\n\r\n",
+        )
+        .expect("metadata response");
+        assert_eq!(metadata.status, "404 Not Found");
     }
 }
