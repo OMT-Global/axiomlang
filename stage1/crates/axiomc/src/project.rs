@@ -1,6 +1,7 @@
 use crate::codegen::{
     GeneratedRustBackendInput, NativeBackendKind, compile_native, try_render_generated_rust,
 };
+use crate::cranelift_backend::compile_cranelift_hello_spike;
 use crate::diagnostics::Diagnostic;
 use crate::hir;
 use crate::json_contract;
@@ -1991,13 +1992,30 @@ fn build_artifacts(
         )
     })?;
     let started = Instant::now();
-    compile_native(
-        options.backend,
-        generated_rust,
-        binary,
-        resolved_target,
-        options.debug,
-    )?;
+    match options.backend {
+        NativeBackendKind::GeneratedRust => compile_native(
+            options.backend,
+            generated_rust,
+            binary,
+            resolved_target,
+            options.debug,
+        )?,
+        NativeBackendKind::Cranelift => {
+            let object_path = generated_rust.with_extension("cranelift.o");
+            ensure_output_path_stays_inside_package(
+                package_root,
+                &object_path,
+                "Cranelift object output",
+            )?;
+            compile_cranelift_hello_spike(
+                &analyzed.mir,
+                &object_path,
+                binary,
+                resolved_target,
+                options.debug,
+            )?;
+        }
+    }
     let compile_ms = started.elapsed().as_millis() as u64;
     if options.debug {
         write_debug_artifacts(generated_rust, binary, analyzed)?;

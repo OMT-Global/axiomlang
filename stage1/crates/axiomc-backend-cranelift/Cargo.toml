@@ -1,0 +1,15 @@
+[package]
+name = "axiomc-backend-cranelift"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+cranelift-codegen.workspace = true
+cranelift-frontend.workspace = true
+cranelift-module.workspace = true
+cranelift-native.workspace = true
+cranelift-object.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

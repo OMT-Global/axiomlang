@@ -29,12 +29,14 @@ thread_local! {
 pub enum NativeBackendKind {
     #[default]
     GeneratedRust,
+    Cranelift,
 }
 
 impl NativeBackendKind {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::GeneratedRust => "generated-rust",
+            Self::Cranelift => "cranelift",
         }
     }
 }
@@ -51,8 +53,9 @@ impl FromStr for NativeBackendKind {
     fn from_str(value: &str) -> Result<Self, Self::Err> {
         match value {
             "generated-rust" => Ok(Self::GeneratedRust),
+            "cranelift" => Ok(Self::Cranelift),
             other => Err(format!(
-                "unsupported backend {other:?}; only generated-rust is implemented in this preparatory backend plumbing"
+                "unsupported backend {other:?}; supported backends: generated-rust, cranelift"
             )),
         }
     }
@@ -79,14 +82,18 @@ mod tests {
     }
 
     #[test]
+    fn parses_cranelift_backend() {
+        assert_eq!(
+            NativeBackendKind::from_str("cranelift").expect("parse cranelift"),
+            NativeBackendKind::Cranelift
+        );
+    }
+
+    #[test]
     fn rejects_unsupported_backend_value() {
         let error = NativeBackendKind::from_str("direct-native")
             .expect_err("unsupported backend values should be rejected");
-        assert!(
-            error.contains(
-                "only generated-rust is implemented in this preparatory backend plumbing"
-            )
-        );
+        assert!(error.contains("supported backends: generated-rust, cranelift"));
     }
 
     #[test]
@@ -7435,6 +7442,11 @@ pub fn compile_native(
         NativeBackendKind::GeneratedRust => {
             compile_generated_rust(generated_rust, binary_path, target, debug)
         }
+        NativeBackendKind::Cranelift => Err(Diagnostic::new(
+            "build",
+            "internal error: cranelift backend requires MIR input from the project build pipeline",
+        )
+        .with_path(generated_rust.display().to_string())),
     }
 }
 

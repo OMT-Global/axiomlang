@@ -286,8 +286,16 @@ still far from the stated 1.0 target for service and agent workloads.
 
 ### Backend and tooling gaps
 
-- Native builds still work by generating Rust and invoking `rustc`; there is no Cranelift backend yet.
-- The backend-selection surface is only preparatory backend plumbing for later native-backend expansion; today `generated-rust` is the only implemented backend, so this branch is part of #105 rather than closure for it.
+- Native builds still default to generating Rust and invoking `rustc`.
+  `axiomc build stage1/examples/hello --backend cranelift` is an opt-in
+  direct-object spike for #691: it folds the supported hello-world MIR subset
+  into print lines, emits a Cranelift object, links it with the host linker, and
+  leaves generated Rust as the production backend.
+- The backend-selection surface remains preparatory backend plumbing for later
+  native-backend expansion. `generated-rust` is still the default and only broad
+  backend; `cranelift` is intentionally limited to the #691 hello-world spike,
+  so this is not closure for #105 or the later full-surface native backend
+  slices.
 - Generated-Rust builds now use a persistent per-artifact cache keyed by
   compiler version, target, debug mode, manifest/lockfile hash, rendered Rust,
   module source hashes, and dependency imports. Cache hits skip `rustc`, cache

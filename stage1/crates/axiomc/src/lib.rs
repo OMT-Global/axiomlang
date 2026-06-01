@@ -1,5 +1,6 @@
 pub(crate) mod borrowck;
 pub mod codegen;
+pub(crate) mod cranelift_backend;
 pub mod dap;
 pub mod diagnostic_catalog;
 pub mod diagnostics;

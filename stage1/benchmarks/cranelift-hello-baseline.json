@@ -1,0 +1,13 @@
+{
+  "schema_version": "axiom.stage1.cranelift-spike-baseline.v1",
+  "issue": 691,
+  "updated": "2026-05-31",
+  "workload": "stage1/examples/hello",
+  "command": "cargo run --manifest-path stage1/Cargo.toml -p axiomc -- build stage1/examples/hello --backend cranelift --json",
+  "policy": "advisory",
+  "metrics": {
+    "compile_ms": 28,
+    "duration_ms": 33
+  },
+  "notes": "Initial local measurement for the opt-in Cranelift hello-world spike. This is not a regression threshold; it records the first working object/link path for #691."
+}

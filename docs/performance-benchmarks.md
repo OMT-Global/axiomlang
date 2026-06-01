@@ -85,3 +85,10 @@ make stage1-bench-update-baseline
 The parser timing is backed by `axiomc parse`, a parse-only command that validates
 the primary package entrypoint and emits the same machine-readable stage1 JSON
 contract shape as the other compiler commands.
+
+## Cranelift spike fixture
+
+The first direct-object backend slice records an advisory hello-world baseline at
+`stage1/benchmarks/cranelift-hello-baseline.json`. It is intentionally separate
+from the generated-Rust regression baselines because `--backend cranelift` only
+supports `stage1/examples/hello` in #691 and is not yet a broad native backend.
