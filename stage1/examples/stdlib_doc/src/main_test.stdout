@@ -1,0 +1,14 @@
+# Axiom API
+
+## `pub fn hello(): int`
+
+Source: `src/main.ax`
+
+Says hello from the fixture.
+Returns a stable integer.
+
+## `pub struct Greeting`
+
+Source: `src/model.ax`
+
+Carries the greeting text.

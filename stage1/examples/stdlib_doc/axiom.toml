@@ -1,0 +1,20 @@
+[package]
+name = "stdlib-doc"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+fs = false
+net = false
+process = false
+env = false
+clock = false
+crypto = false
+
+[[tests]]
+name = "stdlib-doc-renderer"
+entry = "src/main_test.ax"
+stdout = "# Axiom API\n\n## `pub fn hello(): int`\n\nSource: `src/main.ax`\n\nSays hello from the fixture.\nReturns a stable integer.\n\n## `pub struct Greeting`\n\nSource: `src/model.ax`\n\nCarries the greeting text.\n"

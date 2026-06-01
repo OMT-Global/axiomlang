@@ -1,0 +1,5 @@
+import "std/doc.ax"
+
+let first: DocItem = ("src/main.ax", "function", true, "pub fn hello(): int", "Says hello from the fixture.\nReturns a stable integer.", "")
+let second: DocItem = ("src/model.ax", "struct", true, "pub struct Greeting", "Carries the greeting text.", "")
+print render_markdown([first, second])
