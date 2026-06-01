@@ -206,13 +206,16 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
-    /// Generate Markdown and HTML API docs from source doc comments.
+    /// Generate API docs from source doc comments.
     Doc {
         path: PathBuf,
-        #[arg(long, default_value = "docs/axiom")]
-        out_dir: PathBuf,
+        #[arg(long)]
+        out_dir: Option<PathBuf>,
         #[arg(long)]
         json: bool,
+        /// Emit Markdown output for the project, defaulting to <project>/dist/docs.
+        #[arg(long)]
+        md: bool,
     },
     /// Run discovered *_bench.ax entrypoints with warmup and iterations.
     Bench {
@@ -1103,24 +1106,39 @@ fn main() {
             path,
             out_dir,
             json,
-        } => match generate_docs(&path, &out_dir) {
-            Ok(output) => {
-                if json {
-                    match json_contract::to_pretty_string(&output) {
-                        Ok(payload) => {
-                            println!("{payload}");
+            md,
+        } => {
+            if json && md {
+                print_error(
+                    "doc",
+                    Diagnostic::new("doc", "--json and --md cannot be combined"),
+                    json,
+                )
+            } else {
+                let out_dir = resolve_doc_out_dir(&path, out_dir, md);
+                match generate_docs(&path, &out_dir, !md) {
+                    Ok(output) => {
+                        if json {
+                            match json_contract::to_pretty_string(&output) {
+                                Ok(payload) => {
+                                    println!("{payload}");
+                                    0
+                                }
+                                Err(error) => print_error("doc", error, json),
+                            }
+                        } else if md {
+                            eprintln!("wrote {}", output.markdown.display());
+                            0
+                        } else {
+                            eprintln!("wrote {}", output.markdown.display());
+                            eprintln!("wrote {}", output.html.display());
                             0
                         }
-                        Err(error) => print_error("doc", error, json),
                     }
-                } else {
-                    eprintln!("wrote {}", output.markdown.display());
-                    eprintln!("wrote {}", output.html.display());
-                    0
+                    Err(error) => print_error("doc", error, json),
                 }
             }
-            Err(error) => print_error("doc", error, json),
-        },
+        }
         Command::Bench {
             path,
             warmup,
@@ -6066,11 +6084,24 @@ struct DocOutput {
     ok: bool,
     markdown: PathBuf,
     html: PathBuf,
+    functions: Vec<DocItem>,
+    types: Vec<DocItem>,
     items: Vec<DocItem>,
     capabilities: Vec<CapabilityDescriptor>,
 }
 
-fn generate_docs(path: &Path, out_dir: &Path) -> Result<DocOutput, Diagnostic> {
+fn resolve_doc_out_dir(path: &Path, out_dir: Option<PathBuf>, markdown_only: bool) -> PathBuf {
+    if let Some(out_dir) = out_dir {
+        return out_dir;
+    }
+    if markdown_only {
+        path.join("dist/docs")
+    } else {
+        PathBuf::from("docs/axiom")
+    }
+}
+
+fn generate_docs(path: &Path, out_dir: &Path, write_html: bool) -> Result<DocOutput, Diagnostic> {
     let files = axiom_files(path)?;
     if files.is_empty() {
         return Err(Diagnostic::new(
@@ -6086,28 +6117,49 @@ fn generate_docs(path: &Path, out_dir: &Path) -> Result<DocOutput, Diagnostic> {
     })?;
     let items = extract_doc_items(&files)?;
     let markdown = render_markdown_docs(&items);
-    let html = render_html_docs(&markdown);
     let markdown_path = out_dir.join("index.md");
     let html_path = out_dir.join("index.html");
-    fs::write(&markdown_path, markdown).map_err(|err| {
+    fs::write(&markdown_path, &markdown).map_err(|err| {
         Diagnostic::new(
             "doc",
             format!("failed to write {}: {err}", markdown_path.display()),
         )
     })?;
-    fs::write(&html_path, html).map_err(|err| {
-        Diagnostic::new(
-            "doc",
-            format!("failed to write {}: {err}", html_path.display()),
-        )
-    })?;
+    if write_html {
+        let html = render_html_docs(&markdown);
+        fs::write(&html_path, html).map_err(|err| {
+            Diagnostic::new(
+                "doc",
+                format!("failed to write {}: {err}", html_path.display()),
+            )
+        })?;
+    } else if html_path.exists() {
+        fs::remove_file(&html_path).map_err(|err| {
+            Diagnostic::new(
+                "doc",
+                format!("failed to remove {}: {err}", html_path.display()),
+            )
+        })?;
+    }
     let capabilities = project_capabilities(path).unwrap_or_default();
+    let functions = items
+        .iter()
+        .filter(|item| item.kind == "function")
+        .cloned()
+        .collect();
+    let types = items
+        .iter()
+        .filter(|item| matches!(item.kind.as_str(), "struct" | "enum" | "type"))
+        .cloned()
+        .collect();
     Ok(DocOutput {
         schema_version: json_contract::JSON_SCHEMA_VERSION,
         command: "doc",
         ok: true,
         markdown: markdown_path,
         html: html_path,
+        functions,
+        types,
         items,
         capabilities,
     })
@@ -6174,6 +6226,8 @@ fn doc_item_kind(line: &str) -> &'static str {
         "enum"
     } else if line.starts_with("const ") {
         "const"
+    } else if line.starts_with("type ") {
+        "type"
     } else {
         "declaration"
     }
@@ -6190,6 +6244,8 @@ fn is_documented_signature(line: &str) -> bool {
         || line.starts_with("pub enum ")
         || line.starts_with("const ")
         || line.starts_with("pub const ")
+        || line.starts_with("type ")
+        || line.starts_with("pub type ")
 }
 
 fn render_markdown_docs(items: &[DocItem]) -> String {
@@ -6206,6 +6262,9 @@ fn render_markdown_docs(items: &[DocItem]) -> String {
         } else {
             output.push_str(&format!("{}\n\n", item.docs.join("\n")));
         }
+    }
+    if output.ends_with("\n\n") {
+        output.pop();
     }
     output
 }
@@ -7483,7 +7542,7 @@ mod tests {
         assert!(help.contains("Explain a stable diagnostic code"));
         assert!(help.contains("Report local stage1 project and toolchain health"));
         assert!(help.contains("Format .ax source files"));
-        assert!(help.contains("Generate Markdown and HTML API docs"));
+        assert!(help.contains("Generate API docs"));
         assert!(help.contains("Run discovered *_bench.ax entrypoints"));
         assert!(help.contains("Start a small stage1 scratch REPL"));
         assert!(help.contains("Pack and publish a stage1 package into a local registry tree"));
@@ -7503,6 +7562,80 @@ mod tests {
             .render_long_help()
             .to_string();
         assert!(check_help.contains("--properties"));
+    }
+
+    #[test]
+    fn doc_cli_parses_markdown_mode_and_defaults_to_project_dist_docs() {
+        let cli = Cli::parse_from(["axiomc", "doc", "--md", "stage1/examples/hello"]);
+        match cli.command {
+            Command::Doc {
+                path,
+                out_dir,
+                json,
+                md,
+            } => {
+                assert_eq!(path, PathBuf::from("stage1/examples/hello"));
+                assert_eq!(out_dir, None);
+                assert!(!json);
+                assert!(md);
+                assert_eq!(
+                    resolve_doc_out_dir(&path, out_dir, md),
+                    PathBuf::from("stage1/examples/hello/dist/docs")
+                );
+            }
+            other => panic!("expected doc command, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn doc_markdown_mode_skips_html_output() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let project = dir.path().join("doc-md-only");
+        fs::create_dir_all(project.join("src")).expect("mkdir");
+        fs::write(
+            project.join("axiom.toml"),
+            r#"[package]
+name = "doc-md-only"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+"#,
+        )
+        .expect("write manifest");
+        fs::write(project.join("axiom.lock"), "version = 1\n").expect("write lock");
+        fs::write(
+            project.join("src/main.ax"),
+            r#"/// Handles a request.
+pub fn route(path: string): string {
+return "ok"
+}
+"#,
+        )
+        .expect("write source");
+
+        fs::create_dir_all(project.join("dist/docs")).expect("mkdir docs dir");
+        fs::write(project.join("dist/docs/index.html"), "stale html").expect("write stale html");
+
+        let output = generate_docs(&project, &project.join("dist/docs"), false)
+            .expect("generate markdown docs");
+
+        assert!(output.markdown.ends_with("index.md"));
+        assert!(output.markdown.exists());
+        assert!(!output.html.exists());
+        let generated_files: Vec<_> = fs::read_dir(project.join("dist/docs"))
+            .expect("read generated docs directory")
+            .map(|entry| {
+                entry
+                    .expect("read generated doc entry")
+                    .file_name()
+                    .to_string_lossy()
+                    .into_owned()
+            })
+            .collect();
+
+        assert_eq!(generated_files, vec![String::from("index.md")]);
     }
 
     #[test]
@@ -9586,17 +9719,21 @@ print serve("127.0.0.1:0", selected_route, 1)
         fs::write(project.join("axiom.lock"), "version = 1\n").expect("write lock");
         fs::write(
             project.join("src/main.ax"),
-            "/// Handles a request.\n/// Example: route(\"/health\")\npub fn route(path: string): string {\nreturn \"ok\"\n}\n",
+            "/// Response text alias.\npub type ResponseText = string\n\n/// Handles a request.\n/// Example: route(\"/health\")\npub fn route(path: string): string {\nreturn \"ok\"\n}\n",
         )
         .expect("write source");
 
-        let output = generate_docs(&project, &project.join("docs/api")).expect("generate docs");
+        let output =
+            generate_docs(&project, &project.join("docs/api"), true).expect("generate docs");
 
         assert_eq!(output.command, "doc");
         assert!(output.ok);
-        assert_eq!(output.items.len(), 1);
+        assert_eq!(output.items.len(), 2);
+        assert_eq!(output.functions.len(), 1);
+        assert_eq!(output.types.len(), 1);
+        assert_eq!(output.types[0].kind, "type");
         assert_eq!(
-            output.items[0].examples,
+            output.functions[0].examples,
             vec![String::from("route(\"/health\")")]
         );
         assert!(

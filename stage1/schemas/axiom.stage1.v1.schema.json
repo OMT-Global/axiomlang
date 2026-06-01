@@ -625,6 +625,7 @@
             "function",
             "struct",
             "enum",
+            "type",
             "const",
             "declaration"
           ]
@@ -910,6 +911,8 @@
           "command",
           "markdown",
           "html",
+          "functions",
+          "types",
           "items",
           "capabilities"
         ],
@@ -928,6 +931,18 @@
           },
           "html": {
             "$ref": "#/$defs/path"
+          },
+          "functions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/docItem"
+            }
+          },
+          "types": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/docItem"
+            }
           },
           "items": {
             "type": "array",

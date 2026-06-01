@@ -185,6 +185,10 @@ fn doc_json_output_validates_against_doc_schema() {
     assert_payload_matches_schema(&public_validator, "doc", &output);
     assert_payload_matches_schema(&doc_validator, "doc", &output);
     assert_eq!(output["command"], "doc");
+    assert_eq!(output["functions"].as_array().expect("functions").len(), 1);
+    assert_eq!(output["types"].as_array().expect("types").len(), 1);
+    assert_eq!(output["functions"][0]["kind"], "function");
+    assert_eq!(output["types"][0]["kind"], "struct");
     assert_eq!(output["items"][0]["kind"], "function");
     assert_eq!(output["items"][0]["examples"][0], "route(\"/health\")");
     assert!(
@@ -194,6 +198,54 @@ fn doc_json_output_validates_against_doc_schema() {
             .iter()
             .any(|capability| capability["name"] == "env")
     );
+}
+
+#[test]
+fn doc_md_output_matches_checked_in_golden() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("doc-md");
+    fs::create_dir_all(project.join("src")).expect("mkdir");
+    fs::write(
+        project.join("axiom.toml"),
+        "[package]\nname = \"doc-md\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n",
+    )
+    .expect("write manifest");
+    fs::write(project.join("axiom.lock"), "version = 1\n").expect("write lock");
+    fs::write(
+        project.join("src/main.ax"),
+        "/// Handles a request.\n/// Example: route(\"/health\")\npub fn route(path: string): string {\nreturn \"ok\"\n}\n\n/// Response envelope.\npub struct Response {\nstatus: int\n}\n",
+    )
+    .expect("write source");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args(["doc", "--md", project.to_str().expect("project path")])
+        .output()
+        .expect("run axiomc doc --md");
+
+    assert!(
+        output.status.success(),
+        "doc --md failed: stderr={}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        output.stdout.is_empty(),
+        "doc --md should not emit stdout: {}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("dist/docs/index.md"),
+        "doc --md should report the markdown path"
+    );
+    let markdown =
+        fs::read_to_string(project.join("dist/docs/index.md")).expect("read markdown output");
+    assert!(
+        !project.join("dist/docs/index.html").exists(),
+        "doc --md should not write HTML output"
+    );
+    let normalized = markdown.replace(&project.display().to_string(), "<project>");
+    let expected =
+        fs::read_to_string(contract_root().join("snapshots/doc-md.md")).expect("read golden");
+    assert_eq!(normalized, expected);
 }
 
 #[test]

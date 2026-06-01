@@ -194,6 +194,7 @@ stage1-smoke:
 	cargo run --manifest-path stage1/Cargo.toml -p axiomc -- caps stage1/examples/hello --json
 	cargo run --manifest-path stage1/Cargo.toml -p axiomc -- fmt stage1/examples/hello --check
 	cargo run --manifest-path stage1/Cargo.toml -p axiomc -- doc stage1/examples/hello --out-dir .axiom-build/docs/hello
+	cargo run --manifest-path stage1/Cargo.toml -p axiomc -- doc --md stage1/examples/hello --out-dir .axiom-build/docs/hello-md
 	cargo run --manifest-path stage1/Cargo.toml -p axiomc -- bench stage1/examples/benchmarks --json
 
 stage1-run:

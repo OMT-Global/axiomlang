@@ -11,6 +11,8 @@
     "ok",
     "markdown",
     "html",
+    "functions",
+    "types",
     "items",
     "capabilities"
   ],
@@ -29,6 +31,18 @@
     },
     "html": {
       "$ref": "#/$defs/path"
+    },
+    "functions": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/docItem"
+      }
+    },
+    "types": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/docItem"
+      }
     },
     "items": {
       "type": "array",
@@ -69,6 +83,7 @@
             "function",
             "struct",
             "enum",
+            "type",
             "const",
             "declaration"
           ]

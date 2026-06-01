@@ -68,6 +68,7 @@ cargo run --manifest-path stage1/Cargo.toml -p axiomc -- inspect graph stage1/ex
 cargo run --manifest-path stage1/Cargo.toml -p axiomc -- explain use_after_move --json
 cargo run --manifest-path stage1/Cargo.toml -p axiomc -- fmt stage1/examples/hello --check
 cargo run --manifest-path stage1/Cargo.toml -p axiomc -- doc stage1/examples/hello
+cargo run --manifest-path stage1/Cargo.toml -p axiomc -- doc --md stage1/examples/hello
 cargo run --manifest-path stage1/Cargo.toml -p axiomc -- doc stage1/examples/hello --json
 cargo run --manifest-path stage1/Cargo.toml -p axiomc -- bench stage1/examples/benchmarks --json
 cargo run --manifest-path stage1/Cargo.toml -p axiomc -- mutation-report .axiom-build/reports/mutation-rust-smoke.json --json
@@ -75,11 +76,13 @@ cargo run --manifest-path stage1/Cargo.toml -p axiomc -- lsp
 ```
 
 `axiomc doc --json` emits the same API extraction pass as a versioned machine
-contract, including generated Markdown/HTML paths, documented symbols, comments,
-signatures, simple example notes, declaration kind/visibility, and package
-capability descriptors when the input path is a package root. The output
-validates against `stage1/schemas/axiom-doc-v0.schema.json` as well as the
-shared `axiom.stage1.v1` envelope.
+contract, including generated Markdown/HTML paths, `functions` and `types`
+views, documented symbols, comments, signatures, simple example notes,
+declaration kind/visibility, and package capability descriptors when the input
+path is a package root. The output validates against
+`stage1/schemas/axiom-doc-v0.schema.json` as well as the shared
+`axiom.stage1.v1` envelope. `axiomc doc --md <project>` writes Markdown into
+`<project>/dist/docs/index.md` unless `--out-dir` is provided.
 `std/doc.ax` now defines the AxiOM-side doc item contract and Markdown renderer;
 source extraction and `axiomc doc` driver integration remain bootstrap-hosted
 until Phase-K.1 can follow Phase-J.3.
