@@ -14,6 +14,7 @@
                     "ty": "String"
                   }
                 },
+                "op": "Add",
                 "rhs": {
                   "VarRef": {
                     "name": "name",
@@ -35,6 +36,7 @@
       "extern_library": null,
       "is_async": false,
       "is_extern": false,
+      "is_property": false,
       "line": 1,
       "name": "modules_stage1_greetings_banner",
       "params": [
@@ -68,6 +70,7 @@
       "extern_library": null,
       "is_async": false,
       "is_extern": false,
+      "is_property": false,
       "line": 5,
       "name": "modules_stage1_greetings_prefix",
       "params": [],
@@ -105,6 +108,7 @@
       "extern_library": null,
       "is_async": false,
       "is_extern": false,
+      "is_property": false,
       "line": 1,
       "name": "modules_stage1_math_lucky",
       "params": [
@@ -129,6 +133,7 @@
                     "ty": "Int"
                   }
                 },
+                "op": "Add",
                 "rhs": {
                   "Literal": {
                     "Int": 2
@@ -149,6 +154,7 @@
       "extern_library": null,
       "is_async": false,
       "is_extern": false,
+      "is_property": false,
       "line": 5,
       "name": "modules_stage1_math_bump",
       "params": [
@@ -194,6 +200,7 @@
       "extern_library": null,
       "is_async": false,
       "is_extern": false,
+      "is_property": false,
       "line": 4,
       "name": "modules_stage1_main_is_ready",
       "params": [

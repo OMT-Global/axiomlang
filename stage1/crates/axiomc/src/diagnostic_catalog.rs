@@ -259,6 +259,14 @@ pub const STABLE_DIAGNOSTIC_CODES: &[DiagnosticCodeInfo] = &[
         example: "Before: a branch exits without satisfying the surrounding expression contract\nAfter: make the branch return or produce the expected value.",
         suggested_fix: "Restructure the branch, loop, or terminating statement so the function body satisfies the declared control-flow contract.",
     },
+    DiagnosticCodeInfo {
+        code: "property_failed",
+        kind: "property",
+        title: "Property check failed",
+        explanation: "A property clause evaluated to false while the stage1 property checker ran a declared fixture.",
+        example: "Before: property { false }\nAfter: rewrite the property so it captures the expected invariant, or fix the implementation under test.",
+        suggested_fix: "Inspect the property fixture and the reported clause, then either correct the source behavior or update an invalid property expectation.",
+    },
 ];
 
 pub fn diagnostic_code_info(code: &str) -> Option<&'static DiagnosticCodeInfo> {
@@ -309,6 +317,7 @@ mod tests {
         assert!(codes.contains(&"control.missing_return"));
         assert!(codes.contains(&"control.unreachable_statement"));
         assert!(codes.contains(&"control.invalid"));
+        assert!(codes.contains(&"property_failed"));
     }
 
     #[test]

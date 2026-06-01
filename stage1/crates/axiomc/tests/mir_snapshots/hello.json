@@ -12,6 +12,7 @@
                     "String": "hello "
                   }
                 },
+                "op": "Add",
                 "rhs": {
                   "VarRef": {
                     "name": "name",
@@ -33,6 +34,7 @@
       "extern_library": null,
       "is_async": false,
       "is_extern": false,
+      "is_property": false,
       "line": 1,
       "name": "hello_stage1_main_banner",
       "params": [
@@ -57,6 +59,7 @@
                     "ty": "Int"
                   }
                 },
+                "op": "Add",
                 "rhs": {
                   "Literal": {
                     "Int": 2
@@ -77,6 +80,7 @@
       "extern_library": null,
       "is_async": false,
       "is_extern": false,
+      "is_property": false,
       "line": 5,
       "name": "hello_stage1_main_lucky",
       "params": [
@@ -122,6 +126,7 @@
       "extern_library": null,
       "is_async": false,
       "is_extern": false,
+      "is_property": false,
       "line": 9,
       "name": "hello_stage1_main_is_ready",
       "params": [

@@ -33,6 +33,7 @@
       "extern_library": null,
       "is_async": false,
       "is_extern": false,
+      "is_property": false,
       "line": 1,
       "name": "std_collections_count__int",
       "params": [
@@ -90,6 +91,7 @@
       "extern_library": null,
       "is_async": false,
       "is_extern": false,
+      "is_property": false,
       "line": 4,
       "name": "std_collections_is_empty__int",
       "params": [
@@ -147,6 +149,7 @@
       "extern_library": null,
       "is_async": false,
       "is_extern": false,
+      "is_property": false,
       "line": 7,
       "name": "std_collections_has_items__int",
       "params": [
@@ -204,6 +207,7 @@
       "extern_library": null,
       "is_async": false,
       "is_extern": false,
+      "is_property": false,
       "line": 19,
       "name": "std_collections_window__int",
       "params": [
@@ -266,6 +270,7 @@
       "extern_library": null,
       "is_async": false,
       "is_extern": false,
+      "is_property": false,
       "line": 16,
       "name": "std_collections_take__int",
       "params": [
@@ -324,6 +329,7 @@
       "extern_library": null,
       "is_async": false,
       "is_extern": false,
+      "is_property": false,
       "line": 13,
       "name": "std_collections_skip__int",
       "params": [
@@ -376,6 +382,7 @@
       "extern_library": null,
       "is_async": false,
       "is_extern": false,
+      "is_property": false,
       "line": 1,
       "name": "std_collections_count__string",
       "params": [
@@ -428,6 +435,7 @@
       "extern_library": null,
       "is_async": false,
       "is_extern": false,
+      "is_property": false,
       "line": 16,
       "name": "std_collections_take__string",
       "params": [
@@ -491,6 +499,7 @@
       "extern_library": null,
       "is_async": false,
       "is_extern": false,
+      "is_property": false,
       "line": 4,
       "name": "std_collections_is_empty__string",
       "params": [
