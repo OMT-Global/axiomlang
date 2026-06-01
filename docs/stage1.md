@@ -317,11 +317,12 @@ still far from the stated 1.0 target for service and agent workloads.
   native-backend expansion. `generated-rust` is still the default and only broad
   backend; `cranelift` is intentionally limited to scalar print-line programs,
   typed numeric scalars with width- and signedness-aware casts, static scalar
-  globals, struct literals and field access, tuple/array indexing, function
-  calls, the collection helpers `len(...)` over in-memory strings (encoded byte
-  length, matching the generated-Rust backend) and arrays plus
-  `first(...)`/`last(...)` over in-memory arrays, and scalar branching, so this
-  is not closure for #105 or the later full-surface native backend slices.
+  globals, struct literals and field access, enum variants with statement and
+  expression `match`, tuple/array indexing, function calls, the collection
+  helpers `len(...)` over in-memory strings (encoded byte length, matching the
+  generated-Rust backend) and arrays plus `first(...)`/`last(...)` over
+  in-memory arrays, and scalar branching, so this is not closure for #105 or
+  the later full-surface native backend slices.
 - Generated-Rust builds now use a persistent per-artifact cache keyed by
   compiler version, target, debug mode, manifest/lockfile hash, rendered Rust,
   module source hashes, and dependency imports. Cache hits skip `rustc`, cache

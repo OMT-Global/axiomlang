@@ -329,6 +329,49 @@ fn cranelift_backend_builds_array_helpers_binary() {
     assert_eq!(String::from_utf8_lossy(&run.stdout), "3\n10\n30\n40\n");
 }
 
+#[cfg(not(windows))]
+#[test]
+fn cranelift_backend_builds_enum_match_binary() {
+    if which::which("cc").is_err() {
+        eprintln!("skipping cranelift backend smoke test because cc is unavailable");
+        return;
+    }
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("enum-match");
+    write_enum_match_project(&project);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args([
+            "build",
+            project.to_str().expect("project path"),
+            "--backend",
+            "cranelift",
+            "--json",
+        ])
+        .output()
+        .expect("run axiomc build --backend cranelift");
+    assert!(
+        output.status.success(),
+        "cranelift enum-match build failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+    assert_eq!(payload["backend"], "cranelift");
+    let binary = payload["binary"].as_str().expect("binary path");
+    let run = Command::new(binary)
+        .output()
+        .expect("run cranelift enum-match binary");
+    assert!(
+        run.status.success(),
+        "cranelift enum-match binary failed: stderr={}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "9\n20\n0\n3\n2\n1\n");
+}
+
 fn copy_fixture(relative: &str, destination: &Path) {
     let fixture = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../examples/hello")
@@ -453,4 +496,23 @@ fn write_array_helpers_project(project: &Path) {
         "let values: [int; 3] = [10, 20, 30]\nprint len(values)\nprint first(values)\nprint last(values)\nprint first(values) + last(values)\n",
     )
     .expect("write array-helpers source");
+}
+
+fn write_enum_match_project(project: &Path) {
+    fs::create_dir_all(project.join("src")).expect("create enum-match project src");
+    fs::write(
+        project.join("axiom.toml"),
+        "[package]\nname = \"cranelift-enum-match\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n",
+    )
+    .expect("write enum-match manifest");
+    fs::write(
+        project.join("axiom.lock"),
+        "version = 1\n\n[[package]]\nname = \"cranelift-enum-match\"\nversion = \"0.1.0\"\nsource = \"path\"\n",
+    )
+    .expect("write enum-match lockfile");
+    fs::write(
+        project.join("src/main.ax"),
+        "enum Shape {\nCircle(int)\nRect { width: int, height: int }\nEmpty\n}\n\nenum Signal {\nRed\nYellow\nGreen\n}\n\nfn area(shape: Shape): int {\nmatch shape {\nCircle(radius) {\nreturn radius * radius\n}\nRect { width, height } {\nreturn width * height\n}\nEmpty {\nreturn 0\n}\n}\n}\n\nfn rank(signal: Signal): int {\nreturn match signal { Red => 3, Yellow => 2, Green => 1 }\n}\n\nprint area(Circle(3))\nprint area(Rect { width: 4, height: 5 })\nprint area(Empty)\nprint rank(Red)\nprint rank(Yellow)\nprint rank(Green)\n",
+    )
+    .expect("write enum-match source");
 }
