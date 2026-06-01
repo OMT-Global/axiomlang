@@ -126,7 +126,8 @@ suite across the deterministic stdlib surfaces and is exercised by
 `scripts/ci/run-stdlib-property-checks.sh`; that script also runs the checked-in
 `stage1/examples/stdlib_*` AxiOM tests so CI covers stdlib behavior through
 `axiomc test`. `make stage1-test` also runs `make stage1-stdlib-test`, so local
-stage1 verification records the same property summary before proof workloads.
+stage1 verification records `properties passed: N/N` in stdout and in the
+GitHub step summary when that environment is available before proof workloads.
 The default CLI summary prints `passed` / `failed` / `skipped` counts.
 `axiomc test --list` exposes the same discovery pass without building or running
 the tests; text output emits package, test name, and entry path columns, while
@@ -386,10 +387,10 @@ Current proof points:
   support.
 - `make stage1-test`, `make stage1-conformance`, and `make stage1-smoke` now
   cover the checked-in stage1 language gate. `make stage1-test` also carries
-  the AG5 proof-workload tests for `stage1/examples/proof_cli` and
-  `stage1/examples/proof_worker`, while `make stage1-smoke` carries their
-  blocking build/run acceptance path. The small HTTP service proof remains
-  blocked on server-side HTTP support.
+  the stdlib `axiomc test --properties` gate and the AG5 proof-workload tests
+  for `stage1/examples/proof_cli`, `stage1/examples/proof_worker`, and
+  `stage1/examples/proof_http_service`, while `make stage1-smoke` carries their
+  blocking build/run acceptance path.
 - Local `cargo test --manifest-path stage1/Cargo.toml -p axiomc` keeps native
   runtime tests listed but ignored by default so sandboxed contributor hosts
   without linker tooling still get a clean compiler test signal. Use
