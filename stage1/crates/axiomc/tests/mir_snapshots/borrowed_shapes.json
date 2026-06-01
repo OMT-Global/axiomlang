@@ -77,6 +77,7 @@
       "extern_library": null,
       "is_async": false,
       "is_extern": false,
+      "is_property": false,
       "line": 10,
       "name": "borrowed_shapes_stage1_main_tail",
       "params": [
@@ -205,6 +206,7 @@
       "extern_library": null,
       "is_async": false,
       "is_extern": false,
+      "is_property": false,
       "line": 14,
       "name": "borrowed_shapes_stage1_main_read",
       "params": [

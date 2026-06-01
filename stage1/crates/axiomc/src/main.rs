@@ -7811,11 +7811,7 @@ mod tests {
             );
         let rendered = error.to_string();
         assert!(rendered.contains("unsupported backend \"direct-native\""));
-        assert!(
-            rendered.contains(
-                "only generated-rust is implemented in this preparatory backend plumbing"
-            )
-        );
+        assert!(rendered.contains("supported backends: generated-rust, cranelift"));
     }
 
     #[test]

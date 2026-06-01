@@ -83,6 +83,7 @@
       "extern_library": null,
       "is_async": false,
       "is_extern": false,
+      "is_property": false,
       "line": 27,
       "name": "generic_aggregates_stage1_main_make_window__int",
       "params": [
@@ -136,6 +137,7 @@
       "extern_library": null,
       "is_async": false,
       "is_extern": false,
+      "is_property": false,
       "line": 23,
       "name": "generic_aggregates_stage1_main_tail__int",
       "params": [
