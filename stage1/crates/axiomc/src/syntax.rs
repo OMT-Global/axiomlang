@@ -4260,6 +4260,9 @@ fn source_position_for_offset(
 
 fn parse_expr(raw: &str, path: &Path, line_no: usize, column: usize) -> Result<Expr, Diagnostic> {
     let raw = raw.trim();
+    if raw.starts_with('|') {
+        return parse_term(raw, path, line_no, column);
+    }
     parse_logic_or(raw, path, line_no, column)
 }
 
