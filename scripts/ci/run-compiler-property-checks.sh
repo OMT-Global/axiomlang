@@ -5,6 +5,7 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$repo_root"
 
 project_dir="stage1/examples/compiler_properties"
+property_floor=100
 
 keep_outputs_writable() {
   local dir="$1"
@@ -33,8 +34,13 @@ run_with_writable_outputs() {
 }
 
 rm -rf "$project_dir/dist"
+actual_properties="$(rg -c '^property fn ' "$project_dir/src/property_clause_surface_property.ax")"
+if [[ "$actual_properties" -lt "$property_floor" ]]; then
+  echo "expected at least $property_floor property fn clauses in $project_dir/src/property_clause_surface_property.ax, found $actual_properties" >&2
+  exit 1
+fi
 run_with_writable_outputs "$project_dir/dist" \
-  cargo run --manifest-path stage1/Cargo.toml -p axiomc -- check "$project_dir" --properties --json
+  env CARGO_TARGET_DIR="$project_dir/dist/target" cargo run --manifest-path stage1/Cargo.toml -p axiomc -- check "$project_dir" --properties --json
 rm -rf "$project_dir/dist"
 run_with_writable_outputs "$project_dir/dist" \
-  cargo run --manifest-path stage1/Cargo.toml -p axiomc -- test "$project_dir" --properties
+  env CARGO_TARGET_DIR="$project_dir/dist/target" cargo run --manifest-path stage1/Cargo.toml -p axiomc -- test "$project_dir" --properties
