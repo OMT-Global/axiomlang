@@ -1724,6 +1724,44 @@ fn axiom_regex_replace_all(pattern: String, text: String, replacement: String) -
     out
 }
 
+#[allow(dead_code)]
+fn axiom_string_line_at(text: &str, index: i64) -> Option<String> {
+    if index < 0 {
+        return None;
+    }
+    text.lines().nth(index as usize).map(|line| line.to_string())
+}
+
+#[allow(dead_code)]
+fn axiom_string_clone(text: &str) -> String {
+    text.to_string()
+}
+
+#[allow(dead_code)]
+fn axiom_string_starts_with(text: &str, prefix: &str) -> bool {
+    text.starts_with(prefix)
+}
+
+#[allow(dead_code)]
+fn axiom_string_strip_prefix(text: &str, prefix: &str) -> Option<String> {
+    text.strip_prefix(prefix).map(|rest| rest.to_string())
+}
+
+#[allow(dead_code)]
+fn axiom_string_strip_suffix(text: &str, suffix: &str) -> Option<String> {
+    text.strip_suffix(suffix).map(|rest| rest.to_string())
+}
+
+#[allow(dead_code)]
+fn axiom_string_trim(text: &str) -> String {
+    text.trim().to_string()
+}
+
+#[allow(dead_code)]
+fn axiom_string_trim_start(text: &str) -> String {
+    text.trim_start().to_string()
+}
+
 "#);
     out.push_str(
         r#"#[allow(dead_code)]
@@ -6515,6 +6553,43 @@ fn render_expr(expr: &Expr) -> String {
                 render_expr(&args[1]),
                 render_expr(&args[2])
             )
+        }
+        Expr::Call { name, args, .. } if name == "string_line_at" => {
+            format!(
+                "axiom_string_line_at({}, {})",
+                render_expr(&args[0]),
+                render_expr(&args[1])
+            )
+        }
+        Expr::Call { name, args, .. } if name == "string_clone" => {
+            format!("axiom_string_clone({})", render_expr(&args[0]))
+        }
+        Expr::Call { name, args, .. } if name == "string_starts_with" => {
+            format!(
+                "axiom_string_starts_with({}, {})",
+                render_expr(&args[0]),
+                render_expr(&args[1])
+            )
+        }
+        Expr::Call { name, args, .. } if name == "string_strip_prefix" => {
+            format!(
+                "axiom_string_strip_prefix({}, {})",
+                render_expr(&args[0]),
+                render_expr(&args[1])
+            )
+        }
+        Expr::Call { name, args, .. } if name == "string_strip_suffix" => {
+            format!(
+                "axiom_string_strip_suffix({}, {})",
+                render_expr(&args[0]),
+                render_expr(&args[1])
+            )
+        }
+        Expr::Call { name, args, .. } if name == "string_trim" => {
+            format!("axiom_string_trim({})", render_expr(&args[0]))
+        }
+        Expr::Call { name, args, .. } if name == "string_trim_start" => {
+            format!("axiom_string_trim_start({})", render_expr(&args[0]))
         }
         Expr::Call { name, args, .. } if name == "encoding_url_component_encode" => {
             format!("axiom_percent_encode({})", render_expr(&args[0]))

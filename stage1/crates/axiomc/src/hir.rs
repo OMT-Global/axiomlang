@@ -9965,6 +9965,85 @@ fn lower_expr_with_expected_inner(
             }
             if matches!(
                 name.as_str(),
+                "string_line_at"
+                    | "string_clone"
+                    | "string_starts_with"
+                    | "string_strip_prefix"
+                    | "string_strip_suffix"
+                    | "string_trim"
+                    | "string_trim_start"
+            ) {
+                let expected_len = if name == "string_clone"
+                    || name == "string_trim"
+                    || name == "string_trim_start"
+                {
+                    1
+                } else {
+                    2
+                };
+                if args.len() != expected_len {
+                    return Err(Diagnostic::new(
+                        "type",
+                        format!(
+                            "{name} expects {expected_len} arguments, got {}",
+                            args.len()
+                        ),
+                    )
+                    .with_span(*line, *column));
+                }
+                let mut lowered_args = Vec::new();
+                let string_arg_count = if name == "string_line_at" {
+                    1
+                } else {
+                    args.len()
+                };
+                for (idx, arg) in args.iter().take(string_arg_count).enumerate() {
+                    let lowered = lower_expr_with_expected(arg, Some(&Type::Str), env, ctx)?;
+                    if lowered.ty() != &Type::Str {
+                        return Err(Diagnostic::new(
+                            "type",
+                            format!(
+                                "{name} expects argument {} type &str, got {}",
+                                idx + 1,
+                                lowered.ty()
+                            ),
+                        )
+                        .with_span(arg.line(), arg.column()));
+                    }
+                    lowered_args.push(lowered);
+                }
+                if name == "string_line_at" {
+                    let lowered = lower_expr_with_expected(&args[1], Some(&Type::Int), env, ctx)?;
+                    if lowered.ty() != &Type::Int {
+                        return Err(Diagnostic::new(
+                            "type",
+                            format!(
+                                "string_line_at expects argument 2 type int, got {}",
+                                lowered.ty()
+                            ),
+                        )
+                        .with_span(args[1].line(), args[1].column()));
+                    }
+                    lowered_args.push(lowered);
+                }
+                let ty = match name.as_str() {
+                    "string_line_at" => Type::Option(Box::new(Type::String)),
+                    "string_clone" => Type::String,
+                    "string_starts_with" => Type::Bool,
+                    "string_strip_prefix" => Type::Option(Box::new(Type::String)),
+                    "string_strip_suffix" => Type::Option(Box::new(Type::String)),
+                    "string_trim" | "string_trim_start" => Type::String,
+                    _ => unreachable!("string intrinsic checked above"),
+                };
+                return Ok(Expr::Call {
+                    span: SourceSpan::point(*line, *column),
+                    name: name.clone(),
+                    args: lowered_args,
+                    ty,
+                });
+            }
+            if matches!(
+                name.as_str(),
                 "encoding_url_component_encode"
                     | "encoding_url_component_decode"
                     | "encoding_path_segment_encode"

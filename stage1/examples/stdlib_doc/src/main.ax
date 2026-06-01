@@ -3,3 +3,5 @@ import "std/doc.ax"
 let first: DocItem = ("src/main.ax", "function", true, "pub fn hello(): int", "Says hello from the fixture.\nReturns a stable integer.", "")
 let second: DocItem = ("src/model.ax", "struct", true, "pub struct Greeting", "Carries the greeting text.", "")
 print render_markdown([first, second])
+let source: string = "/// Says hello from source.\n/// Returns a stable integer.\npub fn hello(): int {\nreturn 1\n}\n\n/// Runs async work.\nasync fn compute(): int {\nreturn 2\n}\n\n  /// Carries the greeting text.\n  pub struct Greeting {\ntext: string\n}\n"
+print render_source_markdown("src/main.ax", source)

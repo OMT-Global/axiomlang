@@ -8910,11 +8910,18 @@ print false
         assert_eq!(virtual_source, include_str!("../../../stdlib/std/doc.ax"));
         assert!(virtual_source.contains("pub type DocItem"));
         assert!(virtual_source.contains("pub fn render_markdown(items: [DocItem]): string"));
+        assert!(
+            virtual_source
+                .contains("pub fn render_source_markdown(file: &str, source: &str): string")
+        );
+        assert!(
+            virtual_source.contains("pub fn render_source_html(file: &str, source: &str): string")
+        );
         assert!(virtual_source.contains("pub fn doc_signature(item: DocItem): &str"));
     }
 
     #[test]
-    fn checked_in_stdlib_doc_example_renders_markdown() {
+    fn checked_in_stdlib_doc_example_renders_docs() {
         let project = checked_in_example_fixture("stdlib_doc");
         let output = run_project_tests(&project).expect("run stdlib doc example");
 
