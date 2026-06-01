@@ -1,0 +1,45 @@
+import "std/testing.ax"
+
+struct LocalView {
+view: &[int]
+}
+
+struct Pair {
+name: string
+values: [int]
+}
+
+fn tail(values: &[int]): &[int] {
+return values[1:]
+}
+
+fn wrap(values: &[int]): LocalView {
+return LocalView { view: tail(values) }
+}
+
+fn bump_first(values: &mut [int]): int {
+values[0] = values[0] + 1
+return values[0]
+}
+
+fn borrowed_slice_shape(): int {
+let values: [int] = [3, 5, 8, 13]
+let view: LocalView = wrap(values[:])
+return property("borrowed slice shape", len(view.view) == 3 && first(view.view) == 5 && last(view.view) == 13)
+}
+
+fn move_field_keeps_disjoint_field(): int {
+let pair: Pair = Pair { name: "left", values: [1, 2, 3] }
+let moved: [int] = pair.values
+return property("move field keeps disjoint field", len(moved) == 3 && pair.name == "left")
+}
+
+fn mutable_borrow_write_through(): int {
+let values: [int] = [4, 9]
+let changed: int = bump_first(values[:])
+return property("mutable borrow write through", changed == 5 && values[0] == 5)
+}
+
+print borrowed_slice_shape()
+print move_field_keeps_disjoint_field()
+print mutable_borrow_write_through()

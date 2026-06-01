@@ -1,0 +1,48 @@
+import "std/testing.ax"
+
+enum Capability {
+Fs
+Net
+Process
+Env
+Clock
+Crypto
+Ambient
+}
+
+fn enabled_by_default(capability: Capability): bool {
+match capability {
+Ambient {
+return true
+}
+Fs {
+return false
+}
+Net {
+return false
+}
+Process {
+return false
+}
+Env {
+return false
+}
+Clock {
+return false
+}
+Crypto {
+return false
+}
+}
+}
+
+fn deny_by_default_policy(): int {
+return property("capability deny by default", enabled_by_default(Ambient) && enabled_by_default(Fs) == false && enabled_by_default(Env) == false && enabled_by_default(Net) == false)
+}
+
+fn explicit_allow_policy(): int {
+return property("capability explicit allow", enabled_by_default(Clock) == false && enabled_by_default(Crypto) == false && enabled_by_default(Process) == false)
+}
+
+print deny_by_default_policy()
+print explicit_allow_policy()

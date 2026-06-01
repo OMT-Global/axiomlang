@@ -130,14 +130,18 @@ suite across the deterministic stdlib surfaces and is exercised by
 `scripts/ci/run-stdlib-property-checks.sh`; that script also runs the checked-in
 `stage1/examples/stdlib_*` AxiOM tests so CI covers stdlib behavior through
 `axiomc test`. `make stage1-test` also runs `make stage1-stdlib-test`, so local
-stage1 verification records `properties passed: N/N` in stdout and in the
-GitHub step summary when that environment is available before proof workloads.
-The default CLI summary prints `passed` / `failed` / `skipped` counts.
-`axiomc test --list` exposes the same discovery pass without building or running
-the tests; text output emits package, test name, and entry path columns, while
-`--json` adds stable package membership plus golden-output and compile-fail
-markers for automation. Workspace-only roots are supported as long as build/run
-commands select a concrete member package with `-p/--package`.
+stage1 verification records the same property summary before proof workloads.
+Phase-J compiler-internal property migration has a seed package at
+`stage1/examples/compiler_properties`; `make stage1-compiler-property-test`
+runs its type-system, ownership, capability-policy, and property-clause fixtures
+through both `axiomc check --properties` and `axiomc test --properties` while the
+full 100-property suite remains tracked by #717. The default CLI summary prints
+`passed` / `failed` / `skipped` counts. `axiomc test --list` exposes the same
+discovery pass without building or running the tests; text output emits package,
+test name, and entry path columns, while `--json` adds stable package
+membership plus golden-output and compile-fail markers for automation.
+Workspace-only roots are supported as long as build/run commands select a
+concrete member package with `-p/--package`.
 
 ## JSON contract
 

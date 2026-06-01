@@ -1,0 +1,59 @@
+import "std/testing.ax"
+
+struct Box<T> {
+item: T
+}
+
+struct Buckets<T> {
+items: [T]
+by_name: {string: T}
+}
+
+enum Slot<T> {
+Filled(T)
+Empty
+}
+
+fn choose<T>(value: T): Slot<T> {
+return Filled(value)
+}
+
+fn generic_struct_field_type(): int {
+let boxed: Box<int> = Box { item: 42 }
+return property("generic struct field type", boxed.item == 42)
+}
+
+fn generic_enum_match_type(): int {
+let slot: Slot<string> = choose<string>("ready")
+match slot {
+Filled(value) {
+return property("generic enum match type", value == "ready")
+}
+Empty {
+return property("generic enum match type", false)
+}
+}
+}
+
+fn typed_map_lookup(): int {
+let buckets: Buckets<int> = Buckets { items: [7, 9], by_name: {"build": 7, "deploy": 9} }
+let names: {string: int} = buckets.by_name
+return property("typed map lookup", len(buckets.items) == 2 && names["deploy"] == 9)
+}
+
+fn result_payload_type(): int {
+let result: Result<string, string> = Ok("done")
+match result {
+Ok(value) {
+return property("result payload type", value == "done")
+}
+Err(_error) {
+return property("result payload type", false)
+}
+}
+}
+
+print generic_struct_field_type()
+print generic_enum_match_type()
+print typed_map_lookup()
+print result_payload_type()

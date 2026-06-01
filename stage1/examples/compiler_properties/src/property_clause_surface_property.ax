@@ -1,0 +1,13 @@
+property fn array_identity(input: [int]): bool {
+return input == input && true
+}
+
+property fn scalar_assertion_form(input: int): bool {
+return assert_true(input == input || false)
+}
+
+property fn nested_boolean_verdict(input: int): bool {
+return true && (false || input == input)
+}
+
+print "ok"
