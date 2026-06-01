@@ -391,7 +391,7 @@
           "$ref": "#/$defs/path"
         },
         "ok": {
-          "const": true
+          "type": "boolean"
         },
         "command": {
           "const": "check"
@@ -433,6 +433,29 @@
           "type": "array",
           "items": {
             "$ref": "#/$defs/macroExpansion"
+          }
+        },
+        "properties": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "passed",
+            "failed",
+            "total"
+          ],
+          "properties": {
+            "passed": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "failed": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "total": {
+              "type": "integer",
+              "minimum": 0
+            }
           }
         }
       }

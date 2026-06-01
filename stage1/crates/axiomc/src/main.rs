@@ -13,10 +13,11 @@ use axiomc::manifest::{
 use axiomc::new_project::create_project;
 use axiomc::new_project::{WorkloadTemplate, create_project_with_template};
 use axiomc::project::{
-    BuildOptions, BuildOutput, CheckOptions, RunOptions, TestOptions, build_project_with_options,
-    capability_sbom, check_project_with_options, list_project_tests_with_options,
-    package_graph_metadata, project_capabilities, run_project_report_with_options,
-    run_project_tests_with_options, run_project_with_options, trace_provenance,
+    BuildOptions, BuildOutput, CheckOptions, RunOptions, TestOptions, TestOutput,
+    build_project_with_options, capability_sbom, check_project_with_options,
+    list_project_tests_with_options, package_graph_metadata, project_capabilities,
+    run_project_report_with_options, run_project_tests_with_options, run_project_with_options,
+    trace_provenance,
 };
 use axiomc::registry::{
     PublishOptions, load_registry_index, publish_package, render_registry_index,
@@ -60,6 +61,9 @@ enum Command {
         path: PathBuf,
         #[arg(long)]
         json: bool,
+        /// After type and ownership checks pass, run discovered property fixtures.
+        #[arg(long)]
+        properties: bool,
         #[arg(long)]
         exports: bool,
         #[arg(long = "debug-symbols")]
@@ -409,32 +413,61 @@ fn main() {
         Command::Check {
             path,
             json,
+            properties,
             exports,
             debug_symbols,
             macro_recursion_limit,
             package,
-        } => match check_project_with_options(
-            &path,
-            &CheckOptions {
-                package: package.clone(),
-                include_exports: exports,
-                include_debug_symbols: debug_symbols,
-                macro_recursion_limit,
-            },
-        ) {
-            Ok(output) => {
-                if json {
-                    println!("{}", json_contract::check_success(&path, &output));
-                } else {
-                    for warning in &output.warnings {
-                        eprintln!("{warning}");
+        } => {
+            match check_project_with_options(
+                &path,
+                &CheckOptions {
+                    package: package.clone(),
+                    include_exports: exports,
+                    include_debug_symbols: debug_symbols,
+                    macro_recursion_limit,
+                },
+            ) {
+                Ok(output) => {
+                    let property_output = if properties {
+                        match run_property_check_tests(&path, package.clone()) {
+                            Ok(output) => Some(output),
+                            Err(error) => std::process::exit(print_error("check", error, json)),
+                        }
+                    } else {
+                        None
+                    };
+
+                    if json {
+                        let mut payload = json_contract::check_success(&path, &output);
+                        if let Some(property_output) = &property_output {
+                            payload["ok"] = serde_json::json!(property_output.failed == 0);
+                            payload["properties"] =
+                                json_contract::test_property_summary(property_output);
+                        }
+                        println!("{payload}");
+                    } else {
+                        for warning in &output.warnings {
+                            eprintln!("{warning}");
+                        }
+                        eprintln!("OK");
+                        if let Some(property_output) = &property_output {
+                            print_property_summary(property_output);
+                        }
                     }
-                    eprintln!("OK");
+                    if property_output
+                        .as_ref()
+                        .map(|output| output.failed == 0)
+                        .unwrap_or(true)
+                    {
+                        0
+                    } else {
+                        1
+                    }
                 }
-                0
+                Err(error) => print_error("check", error, json),
             }
-            Err(error) => print_error("check", error, json),
-        },
+        }
         Command::Build {
             path,
             json,
@@ -1226,6 +1259,36 @@ fn parse_project_entry(path: &Path) -> Result<ParseOutput, Diagnostic> {
         entry: entry.display().to_string(),
         statement_count: program.stmts.len(),
     })
+}
+
+fn run_property_check_tests(
+    path: &Path,
+    package: Option<String>,
+) -> Result<TestOutput, Diagnostic> {
+    run_project_tests_with_options(
+        path,
+        &TestOptions {
+            filter: None,
+            package,
+            include_benchmarks: false,
+            properties_only: true,
+        },
+    )
+}
+
+fn print_property_summary(output: &TestOutput) {
+    for case in &output.cases {
+        let status = if case.ok { "PASS" } else { "FAIL" };
+        eprintln!("{status} {:?} {} ({})", case.kind, case.name, case.entry);
+        if let Some(error) = &case.error {
+            eprintln!("  {error}");
+        }
+        eprintln!("  duration: {} ms", case.duration_ms);
+    }
+    let properties = json_contract::test_property_summary(output);
+    let passed = properties["passed"].as_u64().unwrap_or(0);
+    let total = properties["total"].as_u64().unwrap_or(0);
+    eprintln!("{passed}/{total} properties passed");
 }
 
 fn build_summary_lines(output: &BuildOutput, timings: bool) -> Vec<String> {
@@ -7383,6 +7446,17 @@ mod tests {
     }
 
     #[test]
+    fn check_help_lists_properties_flag() {
+        let mut command = Cli::command();
+        let check_help = command
+            .find_subcommand_mut("check")
+            .expect("check subcommand")
+            .render_long_help()
+            .to_string();
+        assert!(check_help.contains("--properties"));
+    }
+
+    #[test]
     fn registry_validate_cli_parses_integrity_options() {
         let cli = Cli::parse_from([
             "axiomc",
@@ -7540,6 +7614,42 @@ mod tests {
             }
             other => panic!("expected test command, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn check_accepts_properties_flag() {
+        let cli = Cli::parse_from(["axiomc", "check", ".", "--properties", "--json"]);
+        match cli.command {
+            Command::Check {
+                properties, json, ..
+            } => {
+                assert!(properties);
+                assert!(json);
+            }
+            other => panic!("expected check command, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn check_properties_runs_property_only_tests() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let project = dir.path().join("check-properties");
+        create_project(&project, Some("check-properties-app")).expect("create project");
+        fs::write(project.join("src/main_test.ax"), "print \"unit\"\n").expect("write unit test");
+        fs::write(project.join("src/main_test.stdout"), "unit\n").expect("write unit golden");
+        fs::write(
+            project.join("src/addition_property.ax"),
+            "import \"std/testing.ax\"\nlet ok: int = property(\"addition identity\", 40 + 2 == 42)\nprint ok\n",
+        )
+        .expect("write property test");
+        fs::write(project.join("src/addition_property.stdout"), "0\n")
+            .expect("write property golden");
+
+        let output = run_property_check_tests(&project, None).expect("run property checks");
+
+        assert_eq!(output.failed, 0);
+        assert_eq!(output.cases.len(), 1);
+        assert_eq!(output.cases[0].kind, TestKind::Property);
     }
 
     #[test]

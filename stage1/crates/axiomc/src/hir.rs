@@ -15878,6 +15878,25 @@ return input == input && true && true
     }
 
     #[test]
+    fn hir_lowers_property_clause_with_borrowed_input() {
+        let parsed = parse(
+            r#"
+property fn borrowed_input_len(input: [int]): bool {
+let view: &[int] = input[:]
+return len(view) == len(input)
+}
+"#,
+        );
+
+        let lowered =
+            lower(&parsed).expect("property clauses should typecheck borrowed input reads");
+        let property = &lowered.functions[0];
+
+        assert!(property.is_property);
+        assert_eq!(property.return_ty, Type::Bool);
+    }
+
+    #[test]
     fn hir_lowers_assert_true_as_property_verdict() {
         let parsed = parse(
             r#"

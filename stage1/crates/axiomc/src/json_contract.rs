@@ -33,6 +33,29 @@ pub fn check_success(project: &Path, output: &CheckOutput) -> Value {
     payload
 }
 
+pub fn test_property_summary(output: &TestOutput) -> Value {
+    let property_total = output
+        .cases
+        .iter()
+        .filter(|case| case.kind == TestKind::Property)
+        .count();
+    let property_passed = output
+        .cases
+        .iter()
+        .filter(|case| case.kind == TestKind::Property && case.ok)
+        .count();
+    let property_failed = output
+        .cases
+        .iter()
+        .filter(|case| case.kind == TestKind::Property && !case.ok)
+        .count();
+    json!({
+        "passed": property_passed,
+        "failed": property_failed,
+        "total": property_total,
+    })
+}
+
 pub fn build_success(project: &Path, output: &BuildOutput) -> Value {
     let payload = json!({
         "schema_version": JSON_SCHEMA_VERSION,
@@ -107,21 +130,6 @@ pub fn test_success(
     properties_only: bool,
     output: &TestOutput,
 ) -> Value {
-    let property_total = output
-        .cases
-        .iter()
-        .filter(|case| case.kind == TestKind::Property)
-        .count();
-    let property_passed = output
-        .cases
-        .iter()
-        .filter(|case| case.kind == TestKind::Property && case.ok)
-        .count();
-    let property_failed = output
-        .cases
-        .iter()
-        .filter(|case| case.kind == TestKind::Property && !case.ok)
-        .count();
     json!({
         "schema_version": JSON_SCHEMA_VERSION,
         "ok": output.failed == 0,
@@ -135,11 +143,7 @@ pub fn test_success(
         "failed": output.failed,
         "skipped": output.skipped,
         "kinds": output.kinds,
-        "properties": {
-            "passed": property_passed,
-            "failed": property_failed,
-            "total": property_total,
-        },
+        "properties": test_property_summary(output),
         "duration_ms": output.duration_ms,
         "cases": output.cases,
     })
