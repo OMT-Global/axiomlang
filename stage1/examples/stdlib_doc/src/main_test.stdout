@@ -12,3 +12,63 @@ Returns a stable integer.
 Source: `src/model.ax`
 
 Carries the greeting text.
+<section class="axiom-docs">
+<h1>Axiom API</h1>
+<article data-kind="function">
+<h2><code>pub fn hello(): int</code></h2>
+<p>Source: <code>src/main.ax</code></p>
+<pre>Says hello from the fixture.
+Returns a stable integer.</pre>
+</article>
+<article data-kind="struct">
+<h2><code>pub struct Greeting</code></h2>
+<p>Source: <code>src/model.ax</code></p>
+<pre>Carries the greeting text.</pre>
+</article>
+<article data-kind="function&quot; data-risk=&quot;x">
+<h2><code>pub fn quoted(): int</code></h2>
+<p>Source: <code>src/quoted.ax</code></p>
+<pre>Exercises attribute quotes.</pre>
+</article>
+</section>
+# Axiom API
+
+## `pub fn hello(): int`
+
+Source: `src/main.ax`
+
+Says hello from source.
+Returns a stable integer.
+
+## `async fn compute(): int`
+
+Source: `src/main.ax`
+
+Runs async work.
+
+## `pub struct Greeting`
+
+Source: `src/main.ax`
+
+Carries the greeting text.
+<section class="axiom-docs">
+<h1>Axiom API</h1>
+<article data-kind="function">
+<h2><code>pub fn hello(): int</code></h2>
+<p>Source: <code>src/main.ax</code></p>
+<pre>Says hello from source.
+Returns a stable integer.</pre>
+</article>
+
+<article data-kind="function">
+<h2><code>async fn compute(): int</code></h2>
+<p>Source: <code>src/main.ax</code></p>
+<pre>Runs async work.</pre>
+</article>
+
+<article data-kind="struct">
+<h2><code>pub struct Greeting</code></h2>
+<p>Source: <code>src/main.ax</code></p>
+<pre>Carries the greeting text.</pre>
+</article>
+</section>

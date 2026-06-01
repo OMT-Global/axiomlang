@@ -88,8 +88,8 @@
 //!   `find`, `replace_all`) over a stage1-safe NFA engine.
 //! * `std/testing.ax` — table-case, property, and snapshot assertion helpers
 //!   layered over the bootstrap test intrinsics.
-//! * `std/doc.ax` — the AxiOM-side doc item contract and Markdown renderer
-//!   used to retire bootstrap Rust rendering in Phase-K.
+//! * `std/doc.ax` — the AxiOM-side doc item contract, source extractor, and
+//!   Markdown/HTML renderers used to retire bootstrap Rust rendering in Phase-K.
 //! * `std/lsp.ax` — the AxiOM-side JSON-RPC/LSP protocol message contract used
 //!   to retire bootstrap Rust protocol handling in Phase-L.
 //! * `std/outcome.ax` — generic `Option<T>` / `Result<T, E>` predicates and

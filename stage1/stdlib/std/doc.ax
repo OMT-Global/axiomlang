@@ -36,6 +36,34 @@ return output + "No public or documented declarations found."
 return render_items(output, items, 0)
 }
 
+pub fn render_html(items: [DocItem]): string {
+return render_html_view(items[:])
+}
+
+pub fn render_html_view(items: &[DocItem]): string {
+let output: string = "<section class=\"axiom-docs\">\n<h1>Axiom API</h1>\n"
+if len(items) == 0 {
+return output + "<p>No public or documented declarations found.</p>\n</section>"
+}
+return render_html_items(output, items, 0) + "\n</section>"
+}
+
+pub fn render_source_markdown(file: &str, source: &str): string {
+let output: string = render_source_markdown_lines("", file, source, 0, "")
+if output == "" {
+return "# Axiom API\n\nNo public or documented declarations found."
+}
+return "# Axiom API\n\n" + output
+}
+
+pub fn render_source_html(file: &str, source: &str): string {
+let output: string = render_source_html_lines("", file, source, 0, "")
+if output == "" {
+return "<section class=\"axiom-docs\">\n<h1>Axiom API</h1>\n<p>No public or documented declarations found.</p>\n</section>"
+}
+return "<section class=\"axiom-docs\">\n<h1>Axiom API</h1>\n" + output + "\n</section>"
+}
+
 fn render_items(output: string, items: &[DocItem], index: int): string {
 if index >= len(items) {
 return output
@@ -50,4 +78,257 @@ return render_items(rendered + "\n\n", items, index + 1)
 
 fn render_item(output: string, item: DocItem): string {
 return output + "## `" + doc_signature(item) + "`\n\nSource: `" + doc_file(item) + "`\n\n" + doc_text(item)
+}
+
+fn render_html_items(output: string, items: &[DocItem], index: int): string {
+if index >= len(items) {
+return output
+}
+let item: DocItem = items[index]
+let rendered: string = render_html_item(output, item)
+if index + 1 >= len(items) {
+return rendered
+}
+return render_html_items(rendered + "\n", items, index + 1)
+}
+
+fn render_html_item(output: string, item: DocItem): string {
+return output + "<article data-kind=\"" + escape_html_attr(doc_kind(item)) + "\">\n<h2><code>" + escape_html(doc_signature(item)) + "</code></h2>\n<p>Source: <code>" + escape_html(doc_file(item)) + "</code></p>\n<pre>" + escape_html(doc_text(item)) + "</pre>\n</article>"
+}
+
+fn render_source_markdown_lines(output: string, file: &str, source: &str, index: int, pending: string): string {
+match string_line_at(source, index) {
+Some(line) {
+if is_doc_comment(line) {
+return render_source_markdown_after_doc(output, file, source, index + 1, append_doc_line(pending, doc_comment_text(line)))
+}
+return render_source_markdown_lines(output, file, source, index + 1, "")
+}
+None {
+return output
+}
+}
+}
+
+fn render_source_markdown_after_doc(output: string, file: &str, source: &str, index: int, pending: string): string {
+match string_line_at(source, index) {
+Some(line) {
+if is_doc_comment(line) {
+return render_source_markdown_after_doc(output, file, source, index + 1, append_doc_line(pending, doc_comment_text(line)))
+}
+if is_blank(line) {
+return render_source_markdown_after_doc(output, file, source, index + 1, pending)
+}
+if is_documented_declaration(line) {
+let item: string = markdown_source_item(file, line, pending)
+let joined: string = append_rendered(output, item)
+return render_source_markdown_lines(joined, file, source, index + 1, "")
+}
+return render_source_markdown_lines(output, file, source, index + 1, "")
+}
+None {
+return output
+}
+}
+}
+
+fn render_source_html_lines(output: string, file: &str, source: &str, index: int, pending: string): string {
+match string_line_at(source, index) {
+Some(line) {
+if is_doc_comment(line) {
+return render_source_html_after_doc(output, file, source, index + 1, append_doc_line(pending, doc_comment_text(line)))
+}
+return render_source_html_lines(output, file, source, index + 1, "")
+}
+None {
+return output
+}
+}
+}
+
+fn render_source_html_after_doc(output: string, file: &str, source: &str, index: int, pending: string): string {
+match string_line_at(source, index) {
+Some(line) {
+if is_doc_comment(line) {
+return render_source_html_after_doc(output, file, source, index + 1, append_doc_line(pending, doc_comment_text(line)))
+}
+if is_blank(line) {
+return render_source_html_after_doc(output, file, source, index + 1, pending)
+}
+if is_documented_declaration(line) {
+let item: string = html_source_item(file, line, pending)
+let joined: string = append_rendered(output, item)
+return render_source_html_lines(joined, file, source, index + 1, "")
+}
+return render_source_html_lines(output, file, source, index + 1, "")
+}
+None {
+return output
+}
+}
+}
+
+fn append_rendered(output: string, item: string): string {
+if output == "" {
+return item
+}
+return output + "\n\n" + item
+}
+
+fn markdown_source_item(file: &str, line: &str, text: string): string {
+let signature: string = normalized_signature(line)
+return "## `" + signature + "`\n\nSource: `" + file + "`\n\n" + text
+}
+
+fn html_source_item(file: &str, line: &str, text: string): string {
+let signature: string = normalized_signature(line)
+return "<article data-kind=\"" + escape_html_attr(doc_kind_from_signature(line)) + "\">\n<h2><code>" + escape_html(signature) + "</code></h2>\n<p>Source: <code>" + escape_html(file) + "</code></p>\n<pre>" + escape_html(text) + "</pre>\n</article>"
+}
+
+fn normalized_signature(line: &str): string {
+let trimmed: string = string_trim(line)
+match string_strip_suffix(trimmed, " {") {
+Some(signature) {
+return signature
+}
+None {
+match string_strip_suffix(trimmed, "{") {
+Some(signature) {
+return string_trim(signature)
+}
+None {
+return trimmed
+}
+}
+}
+}
+}
+
+fn append_doc_line(existing: string, line: string): string {
+if existing == "" {
+return line
+}
+return existing + "\n" + line
+}
+
+fn is_doc_comment(line: &str): bool {
+let trimmed: string = string_trim_start(line)
+return string_starts_with(trimmed, "///")
+}
+
+fn doc_comment_text(line: &str): string {
+let trimmed: string = string_trim_start(line)
+match string_strip_prefix(trimmed, "///") {
+Some(text) {
+return trim_doc_prefix(text)
+}
+None {
+return ""
+}
+}
+}
+
+fn trim_doc_prefix(text: &str): string {
+match string_strip_prefix(text, " ") {
+Some(rest) {
+return rest
+}
+None {
+return string_trim_start(text)
+}
+}
+}
+
+fn is_blank(line: &str): bool {
+return string_trim(line) == ""
+}
+
+fn is_documented_declaration(line: &str): bool {
+let trimmed: string = string_trim_start(line)
+if is_function_declaration(trimmed) {
+return true
+}
+if is_struct_declaration(trimmed) {
+return true
+}
+if is_enum_declaration(trimmed) {
+return true
+}
+if is_type_declaration(trimmed) {
+return true
+}
+return is_trait_declaration(trimmed)
+}
+
+fn doc_kind_from_signature(line: &str): string {
+let trimmed: string = string_trim_start(line)
+if is_function_declaration(trimmed) {
+return "function"
+}
+if is_struct_declaration(trimmed) {
+return "struct"
+}
+if is_enum_declaration(trimmed) {
+return "enum"
+}
+if is_type_declaration(trimmed) {
+return "type"
+}
+if is_trait_declaration(trimmed) {
+return "trait"
+}
+return "declaration"
+}
+
+fn is_function_declaration(trimmed: &str): bool {
+if string_starts_with(trimmed, "pub async fn ") {
+return true
+}
+if string_starts_with(trimmed, "async fn ") {
+return true
+}
+if string_starts_with(trimmed, "pub fn ") {
+return true
+}
+return string_starts_with(trimmed, "fn ")
+}
+
+fn is_struct_declaration(trimmed: &str): bool {
+if string_starts_with(trimmed, "pub struct ") {
+return true
+}
+return string_starts_with(trimmed, "struct ")
+}
+
+fn is_enum_declaration(trimmed: &str): bool {
+if string_starts_with(trimmed, "pub enum ") {
+return true
+}
+return string_starts_with(trimmed, "enum ")
+}
+
+fn is_type_declaration(trimmed: &str): bool {
+if string_starts_with(trimmed, "pub type ") {
+return true
+}
+return string_starts_with(trimmed, "type ")
+}
+
+fn is_trait_declaration(trimmed: &str): bool {
+if string_starts_with(trimmed, "pub trait ") {
+return true
+}
+return string_starts_with(trimmed, "trait ")
+}
+
+fn escape_html(text: &str): string {
+let raw: string = string_clone(text)
+let amp: string = regex_replace_all("&", raw, "&amp;")
+let lt: string = regex_replace_all("<", amp, "&lt;")
+return regex_replace_all(">", lt, "&gt;")
+}
+
+fn escape_html_attr(text: &str): string {
+let escaped: string = escape_html(text)
+return regex_replace_all("\"", escaped, "&quot;")
 }
