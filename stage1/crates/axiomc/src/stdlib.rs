@@ -67,8 +67,9 @@
 //! * `std/json.ax` — scalar/string JSON parsing plus first-class `JsonValue`
 //!   parsing, composition, nested field lookup, and serialization helpers on
 //!   top of ungated `json_parse_*` / `json_stringify_*` intrinsics.
-//! * `std/serdes.ax` — an Axiom `Value` union plus map-to-JSON and JSON-to-value
-//!   helpers on top of ungated `json_serdes_*` bootstrap intrinsics.
+//! * `std/serdes.ax` — an Axiom `Value` union plus map-to-JSON,
+//!   JSON-to-value, and typed accessor helpers on top of ungated
+//!   `json_serdes_*` bootstrap intrinsics.
 //! * `std/collections.ax` — generic borrowed-slice helpers built on the
 //!   existing polymorphic collection primitives and AG2 generic functions.
 //! * `std/string_builder.ax` — an owned string accumulator implemented with
