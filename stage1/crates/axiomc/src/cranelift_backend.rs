@@ -803,7 +803,7 @@ fn validate_map_key(value: &SpikeValue) -> Result<(), Diagnostic> {
         SpikeValue::Float(_) => Err(unsupported(
             "map float keys are not supported by the cranelift spike",
         )),
-        SpikeValue::Struct { .. } | SpikeValue::Map(_) | SpikeValue::Array(_) => Err(unsupported(
+        SpikeValue::Enum { .. } | SpikeValue::Struct { .. } | SpikeValue::Map(_) | SpikeValue::Array(_) => Err(unsupported(
             "map keys must be scalar values or scalar tuples in the cranelift spike",
         )),
     }
