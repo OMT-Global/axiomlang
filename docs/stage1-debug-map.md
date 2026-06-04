@@ -37,19 +37,13 @@ lldb <binary>
 (lldb) frame info
 ```
 
-Use the `line_entry.line` from `frame info` as `generated_line`. A helper script
-can then load the debug map and print the matching Axiom span:
+Use the `line_entry.line` from `frame info` as `generated_line`, then resolve
+that line through the debug manifest:
 
-```python
-import json
-
-def axiom_span(debug_map_path, generated_line):
-    with open(debug_map_path, "r", encoding="utf-8") as handle:
-        payload = json.load(handle)
-    for mapping in payload["mappings"]:
-        if mapping["generated_line"] == generated_line:
-            return f'{mapping["source"]}:{mapping["line"]}:{mapping["column"]}'
-    return None
+```sh
+python3 scripts/debug/axiom-debug-map.py resolve \
+  --manifest <artifact>.debug-manifest.json \
+  --generated-line <line_entry.line>
 ```
 
 LLDB command scripts should keep this translation explicit. Until the direct
@@ -68,9 +62,16 @@ gdb <binary>
 ```
 
 Use the generated Rust line shown by `frame` as `generated_line`, then resolve
-it through `debug_map` with the same JSON lookup shown above. A GDB Python
-command can call `gdb.selected_frame().find_sal().line`, load the debug map,
-and print the mapped `.ax` span.
+it through the checked-in helper:
+
+```sh
+python3 scripts/debug/axiom-debug-map.py resolve \
+  --debug-map <artifact>.debug-map.json \
+  --generated-line <frame-line>
+```
+
+A GDB Python command can call `gdb.selected_frame().find_sal().line`, invoke the
+same resolver, and print the mapped `.ax` span.
 
 ## Tooling Contract
 
