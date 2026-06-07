@@ -1,0 +1,227 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://omt-global.github.io/axiom/schemas/axiom.compiler.command_lsp.v1.schema.json",
+  "title": "Axiom compiler command and LSP package contract",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "contract",
+    "issue",
+    "commands",
+    "lsp_services",
+    "protocols",
+    "official_release"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "axiom.compiler.command_lsp.v1"
+    },
+    "contract": {
+      "const": "compiler.commands_lsp"
+    },
+    "issue": {
+      "const": 938
+    },
+    "commands": {
+      "type": "array",
+      "minItems": 7,
+      "items": {
+        "$ref": "#/$defs/command"
+      }
+    },
+    "lsp_services": {
+      "type": "array",
+      "minItems": 7,
+      "items": {
+        "$ref": "#/$defs/lspService"
+      }
+    },
+    "protocols": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "json_envelopes",
+        "lsp_framing"
+      ],
+      "properties": {
+        "json_envelopes": {
+          "type": "array",
+          "minItems": 2,
+          "items": {
+            "$ref": "#/$defs/jsonEnvelope"
+          }
+        },
+        "lsp_framing": {
+          "$ref": "#/$defs/lspFraming"
+        }
+      }
+    },
+    "official_release": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "requires_cargo",
+        "requires_rustc",
+        "temporary_developer_path"
+      ],
+      "properties": {
+        "requires_cargo": {
+          "type": "boolean"
+        },
+        "requires_rustc": {
+          "type": "boolean"
+        },
+        "temporary_developer_path": {
+          "type": "boolean"
+        }
+      }
+    }
+  },
+  "$defs": {
+    "command": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "package",
+        "api",
+        "inputs",
+        "delegates_to",
+        "stable_output",
+        "fixtures"
+      ],
+      "properties": {
+        "name": {
+          "enum": [
+            "check",
+            "build",
+            "run",
+            "test",
+            "doc",
+            "caps",
+            "trace"
+          ]
+        },
+        "package": {
+          "enum": [
+            "compiler.commands",
+            "compiler.evidence"
+          ]
+        },
+        "api": {
+          "type": "string",
+          "minLength": 1
+        },
+        "inputs": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "delegates_to": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "stable_output": {
+          "type": "string",
+          "minLength": 1
+        },
+        "fixtures": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "lspService": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "flow",
+        "api",
+        "delegates_to",
+        "protocol"
+      ],
+      "properties": {
+        "flow": {
+          "enum": [
+            "serve_stdio",
+            "initialize",
+            "open_document",
+            "change_document",
+            "publish_diagnostics",
+            "shutdown",
+            "exit"
+          ]
+        },
+        "api": {
+          "type": "string",
+          "minLength": 1
+        },
+        "delegates_to": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "protocol": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "jsonEnvelope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "commands"
+      ],
+      "properties": {
+        "schema": {
+          "type": "string",
+          "minLength": 1
+        },
+        "commands": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "lspFraming": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "transport",
+        "header",
+        "body"
+      ],
+      "properties": {
+        "transport": {
+          "const": "stdio"
+        },
+        "header": {
+          "const": "Content-Length"
+        },
+        "body": {
+          "const": "JSON-RPC 2.0"
+        }
+      }
+    }
+  }
+}
+

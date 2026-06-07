@@ -1,0 +1,245 @@
+{
+  "schema_version": "axiom.compiler.command_lsp.v1",
+  "contract": "compiler.commands_lsp",
+  "issue": 938,
+  "commands": [
+    {
+      "name": "check",
+      "package": "compiler.commands",
+      "api": "compiler.commands.check_package",
+      "inputs": [
+        "root",
+        "package",
+        "options"
+      ],
+      "delegates_to": [
+        "compiler.package_graph.load_workspace",
+        "compiler.syntax.parse_program",
+        "compiler.hir.analyze",
+        "compiler.diagnostics.diagnostic"
+      ],
+      "stable_output": "axiom.stage1.v1",
+      "fixtures": [
+        "stage1/json-fixtures/check/success.json",
+        "stage1/json-fixtures/check/parse-error.json",
+        "stage1/json-fixtures/check/type-error.json",
+        "stage1/json-fixtures/check/borrow-error.json",
+        "stage1/json-fixtures/check/capability-denial.json"
+      ]
+    },
+    {
+      "name": "build",
+      "package": "compiler.commands",
+      "api": "compiler.commands.build_package",
+      "inputs": [
+        "root",
+        "package",
+        "target",
+        "debug",
+        "locked",
+        "offline"
+      ],
+      "delegates_to": [
+        "compiler.package_graph.resolve_locked",
+        "compiler.hir.analyze",
+        "compiler.mir.lower_package",
+        "compiler.backend.contracts.select_target",
+        "compiler.evidence.record_build"
+      ],
+      "stable_output": "axiom.stage1.v1",
+      "fixtures": [
+        "stage1/json-fixtures/build/success.json",
+        "stage1/json-fixtures/build/failure.json",
+        "stage1/compiler-contracts/snapshots/build.json"
+      ]
+    },
+    {
+      "name": "run",
+      "package": "compiler.commands",
+      "api": "compiler.commands.run_artifact",
+      "inputs": [
+        "root",
+        "package",
+        "args",
+        "options"
+      ],
+      "delegates_to": [
+        "compiler.commands.build_package",
+        "compiler.evidence.record_run"
+      ],
+      "stable_output": "axiom.stage1.v1",
+      "fixtures": [
+        "stage1/compiler-contracts/snapshots/run.json"
+      ]
+    },
+    {
+      "name": "test",
+      "package": "compiler.commands",
+      "api": "compiler.commands.test_package",
+      "inputs": [
+        "root",
+        "package",
+        "filter",
+        "options"
+      ],
+      "delegates_to": [
+        "compiler.package_graph.load_workspace",
+        "compiler.commands.build_package",
+        "compiler.evidence.record_test"
+      ],
+      "stable_output": "axiom.stage1.v1",
+      "fixtures": [
+        "stage1/json-fixtures/test/filter-success.json",
+        "stage1/json-fixtures/test/failure.json",
+        "stage1/compiler-contracts/snapshots/test.json"
+      ]
+    },
+    {
+      "name": "doc",
+      "package": "compiler.commands",
+      "api": "compiler.commands.render_docs",
+      "inputs": [
+        "root",
+        "package",
+        "options"
+      ],
+      "delegates_to": [
+        "compiler.package_graph.load_workspace",
+        "compiler.hir.export_public_api",
+        "compiler.evidence.record_artifact"
+      ],
+      "stable_output": "axiom.stage1.v1",
+      "fixtures": [
+        "stage1/compiler-contracts/snapshots/doc-md.md"
+      ]
+    },
+    {
+      "name": "caps",
+      "package": "compiler.commands",
+      "api": "compiler.commands.describe_capabilities",
+      "inputs": [
+        "root",
+        "package",
+        "options"
+      ],
+      "delegates_to": [
+        "compiler.package_graph.load_workspace",
+        "compiler.hir.infer_capability_use"
+      ],
+      "stable_output": "axiom.stage1.v1",
+      "fixtures": [
+        "stage1/json-fixtures/caps/unsafe-env.json",
+        "stage1/compiler-contracts/snapshots/caps.json"
+      ]
+    },
+    {
+      "name": "trace",
+      "package": "compiler.evidence",
+      "api": "compiler.evidence.trace",
+      "inputs": [
+        "root",
+        "query"
+      ],
+      "delegates_to": [
+        "compiler.package_graph.load_workspace",
+        "compiler.evidence.trace_graph"
+      ],
+      "stable_output": "axiom.trace.v0",
+      "fixtures": []
+    }
+  ],
+  "lsp_services": [
+    {
+      "flow": "serve_stdio",
+      "api": "compiler.services.lsp.serve_stdio",
+      "delegates_to": [
+        "compiler.services.lsp.initialize",
+        "compiler.services.lsp.open_document",
+        "compiler.services.lsp.shutdown",
+        "compiler.services.lsp.exit"
+      ],
+      "protocol": "Content-Length framed JSON-RPC 2.0 over stdio"
+    },
+    {
+      "flow": "initialize",
+      "api": "compiler.services.lsp.initialize",
+      "delegates_to": [
+        "compiler.package_graph.available_capabilities"
+      ],
+      "protocol": "JSON-RPC response with bounded textDocumentSync"
+    },
+    {
+      "flow": "open_document",
+      "api": "compiler.services.lsp.open_document",
+      "delegates_to": [
+        "compiler.syntax.parse_program",
+        "compiler.diagnostics.diagnostic"
+      ],
+      "protocol": "textDocument/publishDiagnostics notification"
+    },
+    {
+      "flow": "change_document",
+      "api": "compiler.services.lsp.change_document",
+      "delegates_to": [
+        "compiler.package_graph.resolve_document",
+        "compiler.syntax.parse_program",
+        "compiler.hir.analyze",
+        "compiler.diagnostics.diagnostic"
+      ],
+      "protocol": "textDocument/publishDiagnostics notification"
+    },
+    {
+      "flow": "publish_diagnostics",
+      "api": "compiler.services.lsp.publish_diagnostics",
+      "delegates_to": [
+        "compiler.diagnostics.to_lsp_range",
+        "compiler.diagnostics.normalize_code",
+        "compiler.evidence.lookup_related"
+      ],
+      "protocol": "LSP Diagnostic array with additive related context"
+    },
+    {
+      "flow": "shutdown",
+      "api": "compiler.services.lsp.shutdown",
+      "delegates_to": [],
+      "protocol": "JSON-RPC response with null result"
+    },
+    {
+      "flow": "exit",
+      "api": "compiler.services.lsp.exit",
+      "delegates_to": [],
+      "protocol": "clean service exit"
+    }
+  ],
+  "protocols": {
+    "json_envelopes": [
+      {
+        "schema": "axiom.stage1.v1",
+        "commands": [
+          "check",
+          "build",
+          "run",
+          "test",
+          "doc",
+          "caps"
+        ]
+      },
+      {
+        "schema": "axiom.trace.v0",
+        "commands": [
+          "trace"
+        ]
+      }
+    ],
+    "lsp_framing": {
+      "transport": "stdio",
+      "header": "Content-Length",
+      "body": "JSON-RPC 2.0"
+    }
+  },
+  "official_release": {
+    "requires_cargo": false,
+    "requires_rustc": false,
+    "temporary_developer_path": true
+  }
+}
