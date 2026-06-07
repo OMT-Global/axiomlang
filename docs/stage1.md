@@ -259,6 +259,9 @@ Common non-ownership diagnostic codes:
 Checked-in `check --json` contract fixtures live under
 `stage1/json-fixtures/check/` and cover success, parse, type, ownership, and
 capability-denial payloads.
+The self-hosted diagnostics and syntax boundary fixture lives at
+`stage1/compiler-contracts/snapshots/diagnostics-syntax.json` and is validated
+with `make stage1-diagnostics-syntax-boundary`.
 Checked-in `build`, `test`, and `caps` JSON contract fixtures live under
 `stage1/json-fixtures/` and cover build target triples, build failures, test
 filters, duration fields, failing cases, and unsafe capability state.

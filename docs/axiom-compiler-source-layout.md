@@ -28,8 +28,8 @@ compiler architecture, not the current implementation language.
 
 | Migration order | Future AxiOM package | Current Rust sources | Boundary | Owner lane | Validation command | Rust capture risk |
 |---:|---|---|---|---|---|---|
-| 1 | `compiler.diagnostics` | `diagnostics.rs`, `diagnostic_catalog.rs`, LSP diagnostic adapters in `lsp.rs` | Diagnostic envelope, codes, source spans, recovery hints, and target diagnostics. | Pheidon | `cargo test --manifest-path stage1/Cargo.toml -p axiomc diagnostic` | Medium: keep spans and codes AxiOM-neutral; do not encode Rust enum names as public codes. |
-| 2 | `compiler.syntax` | `syntax.rs` | Lexer, parser, comments, macro expansion records, parse recovery, and concrete source spans. | Daedalus | `cargo test --manifest-path stage1/Cargo.toml -p axiomc parse_program` | Low: grammar terms are AxiOM source concepts; avoid Rust token helper names in public grammar. |
+| 1 | `compiler.diagnostics` | `diagnostics.rs`, `diagnostic_catalog.rs`, LSP diagnostic adapters in `lsp.rs` | Diagnostic envelope, codes, source spans, recovery hints, and target diagnostics. | Pheidon | `make stage1-diagnostics-syntax-boundary`, `cargo test --manifest-path stage1/Cargo.toml -p axiomc diagnostic` | Medium: keep spans and codes AxiOM-neutral; do not encode Rust enum names as public codes. |
+| 2 | `compiler.syntax` | `syntax.rs` | Lexer, parser, comments, macro expansion records, parse recovery, and concrete source spans. | Daedalus | `make stage1-diagnostics-syntax-boundary`, `cargo test --manifest-path stage1/Cargo.toml -p axiomc parse_program` | Low: grammar terms are AxiOM source concepts; avoid Rust token helper names in public grammar. |
 | 3 | `compiler.package_graph` | `manifest.rs`, `lockfile.rs`, package graph portions of `project.rs`, `registry.rs` | Manifest loading, workspace membership, lockfile validation, dependency graph, registry index integrity. | Pheidon | `make stage1-package-graph-boundary`, `make supply-chain`, and `cargo test --manifest-path stage1/Cargo.toml -p axiomc lockfile` | Medium: Cargo metadata may remain test scaffolding only; official package graph must be AxiOM manifest and lockfile based. |
 | 4 | `compiler.hir` | `hir.rs`, `borrowck.rs` | Typed declarations, name resolution, imports, capability checks, ownership and borrow validation, property clauses. | Daedalus | `make stage1-compiler-property-test` | High: do not define concepts by Rust lifetimes, traits, `Option`, `Result`, or borrow checker implementation shortcuts. |
 | 5 | `compiler.mir` | `mir.rs` | Lowered executable compiler IR, control flow, intrinsic calls, test/property entrypoints, backend input. | Daedalus | `cargo test --manifest-path stage1/Cargo.toml -p axiomc mir` | Medium: MIR is an implementation layer, not Intent IR; keep semantic graph mapping explicit. |
@@ -102,7 +102,8 @@ The following child issues own source migration slices:
 - #936 Package graph and lockfile package: move manifest/workspace/lockfile
   behavior behind `compiler.package_graph`.
 - #937 Diagnostics and syntax package freeze: migrate parser and diagnostic
-  fixtures behind `compiler.diagnostics` and `compiler.syntax` APIs.
+  fixtures behind `compiler.diagnostics` and `compiler.syntax` APIs. See
+  [Compiler Diagnostics and Syntax Boundary](compiler-diagnostics-syntax.md).
 - #938 Command and LSP package split: route CLI and LSP through package APIs
   instead of Rust module internals.
 - #939 MIR and backend contract package: expose MIR-to-target inputs without

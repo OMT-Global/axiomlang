@@ -2,7 +2,9 @@
 
 The authoritative grammar lives in the Rust parser under
 `stage1/crates/axiomc/src/syntax.rs`. This document is a compact guide to the
-currently supported source shape.
+currently supported source shape. The self-hosted migration contract for parser
+entrypoints, macro expansion records, and diagnostic recovery lives in
+[Compiler Diagnostics and Syntax Boundary](compiler-diagnostics-syntax.md).
 
 ```ebnf
 program        := item* EOF ;

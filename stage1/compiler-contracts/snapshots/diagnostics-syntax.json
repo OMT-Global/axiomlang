@@ -1,0 +1,125 @@
+{
+  "schema_version": "axiom.compiler.diagnostics_syntax.v1",
+  "contracts": [
+    "compiler.diagnostics",
+    "compiler.syntax"
+  ],
+  "syntax": {
+    "entrypoints": [
+      "lex_source",
+      "parse_program",
+      "parse_program_with_recovery",
+      "parse_macro_definitions",
+      "expand_macros"
+    ],
+    "public_terms": [
+      "program",
+      "item",
+      "macro item",
+      "import item",
+      "declaration",
+      "statement",
+      "expression",
+      "type",
+      "pattern",
+      "block",
+      "macro expansion"
+    ],
+    "macro_expansion_record": {
+      "required_fields": [
+        "macro_name",
+        "call_site.path",
+        "call_site.line",
+        "call_site.column",
+        "expanded_line_start",
+        "expanded_line_end"
+      ],
+      "fixture": {
+        "macro_name": "add_one",
+        "call_site": {
+          "path": "stage1/examples/compiler_properties/src/property_clause_surface_property.ax",
+          "line": 5,
+          "column": 1
+        },
+        "expanded_line_start": 5,
+        "expanded_line_end": 5
+      }
+    }
+  },
+  "diagnostics": {
+    "entrypoints": [
+      "diagnostic",
+      "normalize_code",
+      "explain",
+      "to_lsp_range"
+    ],
+    "envelope_fields": [
+      "kind",
+      "code",
+      "message",
+      "path",
+      "line",
+      "column",
+      "end_line",
+      "end_column",
+      "related",
+      "repair"
+    ],
+    "stable_parse_codes": [
+      "parse.unexpected_token",
+      "parse.invalid_syntax",
+      "parse.missing_token",
+      "parse.unsupported_syntax"
+    ],
+    "rust_capture_forbidden_terms": [
+      "Rust enum",
+      "Rust module",
+      "Serde layout",
+      "syntax.rs helper"
+    ]
+  },
+  "fixtures": {
+    "check_success": {
+      "path": "stage1/json-fixtures/check/success.json",
+      "assertions": [
+        "ok_true",
+        "command_check",
+        "statement_count_present"
+      ]
+    },
+    "parse_error": {
+      "path": "stage1/json-fixtures/check/parse-error.json",
+      "assertions": [
+        "ok_false",
+        "kind_parse",
+        "start_span_present",
+        "end_span_present"
+      ]
+    },
+    "type_error": {
+      "path": "stage1/json-fixtures/check/type-error.json",
+      "assertions": [
+        "ok_false",
+        "kind_type",
+        "start_span_present"
+      ]
+    },
+    "ownership_error": {
+      "path": "stage1/json-fixtures/check/borrow-error.json",
+      "assertions": [
+        "ok_false",
+        "kind_ownership",
+        "stable_code_present",
+        "start_span_present"
+      ]
+    },
+    "capability_error": {
+      "path": "stage1/json-fixtures/check/capability-denial.json",
+      "assertions": [
+        "ok_false",
+        "kind_capability",
+        "start_span_present"
+      ]
+    }
+  }
+}

@@ -1,0 +1,250 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://omt-global.github.io/axiom/schemas/axiom.compiler.diagnostics_syntax.v1.schema.json",
+  "title": "Axiom compiler diagnostics and syntax contract",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "contracts",
+    "syntax",
+    "diagnostics",
+    "fixtures"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "axiom.compiler.diagnostics_syntax.v1"
+    },
+    "contracts": {
+      "type": "array",
+      "minItems": 2,
+      "items": {
+        "enum": [
+          "compiler.diagnostics",
+          "compiler.syntax"
+        ]
+      },
+      "uniqueItems": true
+    },
+    "syntax": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "entrypoints",
+        "public_terms",
+        "macro_expansion_record"
+      ],
+      "properties": {
+        "entrypoints": {
+          "type": "array",
+          "minItems": 4,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true
+        },
+        "public_terms": {
+          "type": "array",
+          "minItems": 8,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true
+        },
+        "macro_expansion_record": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "required_fields",
+            "fixture"
+          ],
+          "properties": {
+            "required_fields": {
+              "type": "array",
+              "minItems": 6,
+              "items": {
+                "enum": [
+                  "macro_name",
+                  "call_site.path",
+                  "call_site.line",
+                  "call_site.column",
+                  "expanded_line_start",
+                  "expanded_line_end"
+                ]
+              },
+              "uniqueItems": true
+            },
+            "fixture": {
+              "$ref": "#/$defs/macroExpansion"
+            }
+          }
+        }
+      }
+    },
+    "diagnostics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "entrypoints",
+        "envelope_fields",
+        "stable_parse_codes",
+        "rust_capture_forbidden_terms"
+      ],
+      "properties": {
+        "entrypoints": {
+          "type": "array",
+          "minItems": 4,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true
+        },
+        "envelope_fields": {
+          "type": "array",
+          "minItems": 7,
+          "items": {
+            "enum": [
+              "kind",
+              "code",
+              "message",
+              "path",
+              "line",
+              "column",
+              "end_line",
+              "end_column",
+              "related",
+              "repair"
+            ]
+          },
+          "uniqueItems": true
+        },
+        "stable_parse_codes": {
+          "type": "array",
+          "minItems": 4,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true
+        },
+        "rust_capture_forbidden_terms": {
+          "type": "array",
+          "minItems": 4,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true
+        }
+      }
+    },
+    "fixtures": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "check_success",
+        "parse_error",
+        "type_error",
+        "ownership_error",
+        "capability_error"
+      ],
+      "properties": {
+        "check_success": {
+          "$ref": "#/$defs/jsonFixture"
+        },
+        "parse_error": {
+          "$ref": "#/$defs/jsonFixture"
+        },
+        "type_error": {
+          "$ref": "#/$defs/jsonFixture"
+        },
+        "ownership_error": {
+          "$ref": "#/$defs/jsonFixture"
+        },
+        "capability_error": {
+          "$ref": "#/$defs/jsonFixture"
+        }
+      }
+    }
+  },
+  "$defs": {
+    "path": {
+      "type": "string",
+      "minLength": 1
+    },
+    "sourceSpan": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "line",
+        "column"
+      ],
+      "properties": {
+        "path": {
+          "$ref": "#/$defs/path"
+        },
+        "line": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "column": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "macroExpansion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "macro_name",
+        "call_site",
+        "expanded_line_start",
+        "expanded_line_end"
+      ],
+      "properties": {
+        "macro_name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "call_site": {
+          "$ref": "#/$defs/sourceSpan"
+        },
+        "expanded_line_start": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "expanded_line_end": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "jsonFixture": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "assertions"
+      ],
+      "properties": {
+        "path": {
+          "$ref": "#/$defs/path"
+        },
+        "assertions": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true
+        }
+      }
+    }
+  }
+}
