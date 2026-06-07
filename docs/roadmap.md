@@ -7,8 +7,10 @@ target.
 
 For the agent-native direction, see [vision.md](vision.md). For the boundary
 between Rust implementation details and Axiom semantics, see
-[rust-bootstrap-boundary.md](rust-bootstrap-boundary.md). For backend and
-implementation-language positioning, see
+[rust-bootstrap-boundary.md](rust-bootstrap-boundary.md). For the planned
+self-hosted compiler package layout, see
+[axiom-compiler-source-layout.md](axiom-compiler-source-layout.md). For backend
+and implementation-language positioning, see
 [positioning/implementation-languages.md](positioning/implementation-languages.md).
 
 For issue-level roadmap disposition, current execution scope, and deferred
