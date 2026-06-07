@@ -1,0 +1,216 @@
+{
+  "schema_version": "axiom.direct_native.runtime_abi.v0",
+  "target_id": "axiom://target/stage1-direct-native",
+  "status": "partial",
+  "summary": "Runtime value and capability-shim contract required before direct native builds can replace generated Rust for the supported stage1 surface.",
+  "value_features": [
+    {
+      "id": "numeric.scalars",
+      "status": "partial",
+      "evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"],
+      "blockers": [928],
+      "notes": "The Cranelift spike covers several scalar widths and casts, but the contract is not yet proven across the full runtime surface."
+    },
+    {
+      "id": "boolean",
+      "status": "partial",
+      "evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"],
+      "blockers": [928]
+    },
+    {
+      "id": "string",
+      "status": "partial",
+      "evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"],
+      "blockers": [928]
+    },
+    {
+      "id": "array.fixed",
+      "status": "partial",
+      "evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"],
+      "blockers": [928]
+    },
+    {
+      "id": "slice.borrowed",
+      "status": "blocked",
+      "evidence": [],
+      "blockers": [928]
+    },
+    {
+      "id": "map.lookup",
+      "status": "partial",
+      "evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"],
+      "blockers": [928]
+    },
+    {
+      "id": "tuple",
+      "status": "partial",
+      "evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"],
+      "blockers": [928]
+    },
+    {
+      "id": "option",
+      "status": "partial",
+      "evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"],
+      "blockers": [928]
+    },
+    {
+      "id": "result",
+      "status": "blocked",
+      "evidence": [],
+      "blockers": [928]
+    },
+    {
+      "id": "enum.payload",
+      "status": "partial",
+      "evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"],
+      "blockers": [928]
+    },
+    {
+      "id": "struct.field",
+      "status": "partial",
+      "evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"],
+      "blockers": [928]
+    },
+    {
+      "id": "owned.move_state",
+      "status": "blocked",
+      "evidence": [],
+      "blockers": [928]
+    }
+  ],
+  "capability_shims": [
+    {
+      "id": "fs.read",
+      "status": "blocked",
+      "capability": "fs",
+      "blockers": [928],
+      "denial_evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"]
+    },
+    {
+      "id": "fs.write",
+      "status": "blocked",
+      "capability": "fs:write",
+      "blockers": [928]
+    },
+    {
+      "id": "network.dns.resolve",
+      "status": "blocked",
+      "capability": "net",
+      "blockers": [928]
+    },
+    {
+      "id": "network.tcp",
+      "status": "blocked",
+      "capability": "net",
+      "blockers": [928]
+    },
+    {
+      "id": "network.udp",
+      "status": "blocked",
+      "capability": "net",
+      "blockers": [928]
+    },
+    {
+      "id": "network.http.client",
+      "status": "blocked",
+      "capability": "net",
+      "blockers": [928]
+    },
+    {
+      "id": "network.http.server",
+      "status": "blocked",
+      "capability": "net",
+      "blockers": [928]
+    },
+    {
+      "id": "network.http.async_server",
+      "status": "blocked",
+      "capability": "async",
+      "blockers": [928]
+    },
+    {
+      "id": "process.status",
+      "status": "blocked",
+      "capability": "process",
+      "blockers": [928]
+    },
+    {
+      "id": "env.read",
+      "status": "blocked",
+      "capability": "env",
+      "blockers": [928]
+    },
+    {
+      "id": "clock.now_sleep",
+      "status": "blocked",
+      "capability": "clock",
+      "blockers": [928]
+    },
+    {
+      "id": "crypto.hash",
+      "status": "blocked",
+      "capability": "crypto",
+      "blockers": [928]
+    },
+    {
+      "id": "crypto.mac",
+      "status": "blocked",
+      "capability": "crypto",
+      "blockers": [928]
+    },
+    {
+      "id": "crypto.random",
+      "status": "blocked",
+      "capability": "crypto",
+      "blockers": [928]
+    },
+    {
+      "id": "crypto.signature",
+      "status": "blocked",
+      "capability": "crypto",
+      "blockers": [928]
+    },
+    {
+      "id": "crypto.aead",
+      "status": "blocked",
+      "capability": "crypto",
+      "blockers": [928]
+    },
+    {
+      "id": "ffi.call",
+      "status": "blocked",
+      "capability": "ffi",
+      "blockers": [928]
+    },
+    {
+      "id": "async.runtime",
+      "status": "blocked",
+      "capability": "async",
+      "blockers": [928]
+    },
+    {
+      "id": "json.serdes",
+      "status": "blocked",
+      "capability": null,
+      "blockers": [928]
+    },
+    {
+      "id": "regex.match_replace",
+      "status": "blocked",
+      "capability": null,
+      "blockers": [928]
+    },
+    {
+      "id": "sync.primitives",
+      "status": "blocked",
+      "capability": null,
+      "blockers": [928]
+    },
+    {
+      "id": "io.logging_stdio",
+      "status": "blocked",
+      "capability": null,
+      "blockers": [928]
+    }
+  ]
+}

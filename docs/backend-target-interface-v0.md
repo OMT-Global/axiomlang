@@ -230,7 +230,9 @@ maps to a separate `native_binary` target contract:
 The two targets coexist during the migration. Each roadmap slice for the
 direct native backend can be tracked against the `supported_effect_kinds`,
 `supported_type_features`, and `unsupported_feature_diagnostics` slots in
-this contract, not by editing the generated-Rust contract.
+this contract, not by editing the generated-Rust contract. Runtime value and
+host-service requirements for the direct native backend are tracked separately
+in [Direct Native Runtime ABI v0](direct-native-runtime-abi-v0.md).
 
 ## Future Target Sketches
 
