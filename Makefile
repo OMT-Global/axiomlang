@@ -1,4 +1,4 @@
-.PHONY: test smoke supply-chain docs-python-exit docs-python-exit-test python-exit-readiness python-exit-readiness-github stage1-direct-native-runtime-abi stage1-direct-native-runtime-abi-test stage1-test stage1-proof-test stage1-stdlib-test stage1-compiler-property-test stage1-conformance stage1-smoke stage1-bench stage1-bench-update-baseline stage1-bench-gate stage1-crap-proposal stage1-crap-thresholds stage1-crap-thresholds-test mutation-rust-smoke mutation-survivor-report stage1-run
+.PHONY: test smoke supply-chain docs-python-exit docs-python-exit-test python-exit-readiness python-exit-readiness-github rust-exit-readiness rust-exit-readiness-github rust-exit-readiness-test stage1-direct-native-runtime-abi stage1-direct-native-runtime-abi-test stage1-test stage1-proof-test stage1-stdlib-test stage1-compiler-property-test stage1-conformance stage1-smoke stage1-bench stage1-bench-update-baseline stage1-bench-gate stage1-crap-proposal stage1-crap-thresholds stage1-crap-thresholds-test mutation-rust-smoke mutation-survivor-report stage1-run
 
 test: docs-python-exit python-exit-readiness stage1-test
 
@@ -20,6 +20,15 @@ python-exit-readiness:
 
 python-exit-readiness-github:
 	bash scripts/ci/check-python-exit-readiness.sh --json --require-issue-states
+
+rust-exit-readiness:
+	bash scripts/ci/check-rust-exit-readiness.sh --json
+
+rust-exit-readiness-github:
+	bash scripts/ci/check-rust-exit-readiness.sh --json --require-issue-states
+
+rust-exit-readiness-test:
+	bash scripts/ci/test-check-rust-exit-readiness.sh
 
 stage1-direct-native-runtime-abi:
 	python3 scripts/ci/check-direct-native-runtime-abi.py --json
