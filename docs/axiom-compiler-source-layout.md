@@ -38,8 +38,8 @@ compiler architecture, not the current implementation language.
 | 8 | `compiler.backend.generated_rust` | `codegen.rs` | Legacy generated-Rust projection and `rustc` invocation compatibility. | Daedalus | `cargo test --manifest-path stage1/Cargo.toml -p axiomc render_rust` | High: this package is legacy-only and must not be a dependency of self-hosted semantics. |
 | 9 | `compiler.backend.native` | `cranelift_backend.rs`, direct-native tests | Direct MIR-to-native lowering, native ABI shims, native binary artifacts, native backend diagnostics. | Daedalus | `cargo test --manifest-path stage1/Cargo.toml -p axiomc --test cranelift_backend` | High: Cranelift details must stay backend-local; direct-native evidence must not require generated Rust. |
 | 10 | `compiler.evidence` | provenance/debug/reporting portions of `project.rs`, `stage1-debug-map.md`, `provenance-trace-v0.md` | Build provenance, debug sidecars, evidence records, trace output, source-to-artifact relationships. | Pheidon | `cargo test --manifest-path stage1/Cargo.toml -p axiomc provenance` | Medium: evidence may reference Rust artifacts only when the selected backend emitted them. |
-| 11 | `compiler.commands` | `main.rs`, command orchestration in `project.rs`, `new_project.rs`, `json_contract.rs` | `axiomc` command dispatch, JSON envelopes, starter project generation, build/run/test/doc/check/caps/trace flows. | Pheidon | `cargo test --manifest-path stage1/Cargo.toml -p axiomc json_contract` | Medium: command contracts must not require Cargo except on the temporary developer path. |
-| 12 | `compiler.services.lsp` | `lsp.rs`, `dap.rs`, `stage1-lsp.md` | LSP/DAP protocol handling, document state, diagnostics publication, future completion and navigation APIs. | Daedalus | `cargo test --manifest-path stage1/Cargo.toml -p axiomc lsp` | Medium: protocol structs can mirror LSP JSON, but compiler analysis must call package APIs instead of Rust internals. |
+| 11 | `compiler.commands` | `main.rs`, command orchestration in `project.rs`, `new_project.rs`, `json_contract.rs` | `axiomc` command dispatch, JSON envelopes, starter project generation, build/run/test/doc/check/caps/trace flows. The public package APIs are defined in [Compiler Command and LSP Packages](compiler-command-lsp-packages.md). | Pheidon | `make stage1-command-lsp-boundary` and `cargo test --manifest-path stage1/Cargo.toml -p axiomc json_contract` | Medium: command contracts must not require Cargo except on the temporary developer path. |
+| 12 | `compiler.services.lsp` | `lsp.rs`, `dap.rs`, `stage1-lsp.md` | LSP/DAP protocol handling, document state, diagnostics publication, future completion and navigation APIs. The LSP service package APIs are defined in [Compiler Command and LSP Packages](compiler-command-lsp-packages.md). | Daedalus | `make stage1-command-lsp-boundary` and `cargo test --manifest-path stage1/Cargo.toml -p axiomc lsp` | Medium: protocol structs can mirror LSP JSON, but compiler analysis must call package APIs instead of Rust internals. |
 
 ## Public Self-Hosted Compiler API
 
@@ -105,7 +105,8 @@ The following child issues own source migration slices:
   fixtures behind `compiler.diagnostics` and `compiler.syntax` APIs. See
   [Compiler Diagnostics and Syntax Boundary](compiler-diagnostics-syntax.md).
 - #938 Command and LSP package split: route CLI and LSP through package APIs
-  instead of Rust module internals.
+  instead of Rust module internals. See
+  [Compiler Command and LSP Packages](compiler-command-lsp-packages.md).
 - #939 MIR and backend contract package: expose MIR-to-target inputs without
   generated-Rust assumptions.
 - #940 HIR and ownership package: migrate typed declarations, capability checks,

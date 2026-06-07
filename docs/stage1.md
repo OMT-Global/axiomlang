@@ -165,6 +165,12 @@ duration, stdout, stderr, forwarded args, and selected package without changing
 the default human-readable streaming behavior.
 `axiomc mutation-report --json` reports survivor counts and grouped recommended
 fixtures in the same versioned envelope used by the other command contracts.
+The self-hosted command and LSP package boundary is frozen in
+`docs/compiler-command-lsp-packages.md`, with the validation snapshot at
+`stage1/compiler-contracts/snapshots/command-lsp.json`. Use
+`make stage1-command-lsp-boundary` to verify that command dispatch, JSON
+envelopes, and LSP service flows stay package-oriented while the Rust bootstrap
+host remains the temporary developer path.
 `axiomc test --json` additionally reports `filter`, `properties_only`,
 property totals, and per-run/per-case `duration_ms` plus `passed` / `failed` /
 `skipped`. Build payloads report the

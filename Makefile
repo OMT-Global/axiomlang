@@ -1,4 +1,4 @@
-.PHONY: test smoke supply-chain docs-python-exit docs-python-exit-test python-exit-readiness python-exit-readiness-github rust-exit-readiness rust-exit-readiness-github rust-exit-readiness-test stage1-direct-native-runtime-abi stage1-direct-native-runtime-abi-test stage1-package-graph-boundary stage1-package-graph-boundary-test stage1-diagnostics-syntax-boundary stage1-diagnostics-syntax-boundary-test stage1-test stage1-proof-test stage1-stdlib-test stage1-compiler-property-test stage1-conformance stage1-smoke stage1-bench stage1-bench-update-baseline stage1-bench-gate stage1-crap-proposal stage1-crap-thresholds stage1-crap-thresholds-test mutation-rust-smoke mutation-survivor-report stage1-run
+.PHONY: test smoke supply-chain docs-python-exit docs-python-exit-test python-exit-readiness python-exit-readiness-github rust-exit-readiness rust-exit-readiness-github rust-exit-readiness-test stage1-direct-native-runtime-abi stage1-direct-native-runtime-abi-test stage1-package-graph-boundary stage1-package-graph-boundary-test stage1-diagnostics-syntax-boundary stage1-diagnostics-syntax-boundary-test stage1-command-lsp-boundary stage1-command-lsp-boundary-test stage1-test stage1-proof-test stage1-stdlib-test stage1-compiler-property-test stage1-conformance stage1-smoke stage1-bench stage1-bench-update-baseline stage1-bench-gate stage1-crap-proposal stage1-crap-thresholds stage1-crap-thresholds-test mutation-rust-smoke mutation-survivor-report stage1-run
 
 test: docs-python-exit python-exit-readiness stage1-test
 
@@ -47,6 +47,12 @@ stage1-diagnostics-syntax-boundary:
 
 stage1-diagnostics-syntax-boundary-test:
 	bash scripts/ci/test-check-diagnostics-syntax-boundary.sh
+
+stage1-command-lsp-boundary:
+	python3 scripts/ci/check-command-lsp-boundary.py --json
+
+stage1-command-lsp-boundary-test:
+	bash scripts/ci/test-check-command-lsp-boundary.sh
 
 stage1-test:
 	RUST_MIN_STACK=8388608 cargo test --manifest-path stage1/Cargo.toml --features run-native-tests

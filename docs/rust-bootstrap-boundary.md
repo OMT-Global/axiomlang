@@ -42,5 +42,6 @@ capabilities, effects, evidence, artifacts, or backend contracts:
 
 - [Axiom Vision](vision.md)
 - [Compiler Package Graph Boundary](compiler-package-graph.md)
+- [Compiler Command and LSP Packages](compiler-command-lsp-packages.md)
 - [Compiler Diagnostics and Syntax Boundary](compiler-diagnostics-syntax.md)
 - [Implementation Language Positioning](positioning/implementation-languages.md)
