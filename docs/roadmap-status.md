@@ -16,6 +16,8 @@ letting large roadmap issues become implicit work queues.
   `axiomc` workflow.
 - `docs/stage1-agent-grade-compiler.md` is the execution contract for the
   AG0-AG5 compiler track.
+- `docs/rust-exit-readiness.md` is the readiness matrix for removing Rust,
+  Cargo, generated Rust, and `rustc` from the supported toolchain.
 - GitHub issues remain the source of record for agent execution work. Broad
   roadmap issues should either point to a current execution issue, be closed
   only when already shipped, or remain open until their prerequisite milestone
@@ -29,6 +31,8 @@ scope when it advances one of these active contracts:
 - Rust-only `axiomc` behavior under `stage1/`.
 - `make stage1-test`, `make stage1-conformance`, and `make stage1-smoke`.
 - The AG4/AG5 proof path in `docs/stage1-agent-grade-compiler.md`.
+- `make rust-exit-readiness` as a non-blocking evidence gate while Rust exit
+  issues remain open.
 - Bootstrap governance defined in `project.bootstrap.yaml` and
   `docs/bootstrap/onboarding.md`.
 
@@ -52,6 +56,7 @@ issue scopes them with testable acceptance criteria and owner approval:
 | [#245](https://github.com/OMT-Global/axiom/issues/245) `axiomc publish` and package registry | Implemented as local static registry publishing | Close as completed when this PR lands | `axiomc publish` now validates the lockfile, packs a deterministic `package.axp`, writes an `axiom-integrity-v1` sidecar (tamper-detection tag bound to a required `--signing-key`, not authenticity proof), and stages releases for `axiomc registry-index`. Hosted registry operation remains covered by #263. |
 | [#248](https://github.com/OMT-Global/axiom/issues/248) Lockfile integrity and signed packages | Implemented as the stage1 supply-chain gate | Close as completed when this PR lands | `make supply-chain` runs the pinned cargo-vet policy under `stage1/supply-chain`, verifies locked offline Cargo metadata, performs a locked release build with deterministic path/time inputs, verifies signed npm packages when a root `package-lock.json` exists, and emits `stage1/target/sbom/stage1.spdx.json`. `docs/supply-chain.md` records the operator contract and the workflow skips Node setup when no npm lockfile exists, preserving the signed-package check without forcing unused Node extraction on self-hosted runners. Hosted registry trust roots remain covered by #263. |
 | [#561](https://github.com/OMT-Global/axiom/issues/561) Phase-I compiler test suite in AxiOM | Complete as the shipped property-test gate | Close as completed when this PR lands | The active Phase-I child slices are closed: #712 routes stdlib verification through `axiomc test --properties`, #714 runs the conformance corpus as property-mode evidence, and #715 makes property functions first-class AxiOM constructs. `docs/stage1.md`, `scripts/ci/run-stdlib-property-checks.sh`, `scripts/ci/run-compiler-property-checks.sh`, `make stage1-test`, `make stage1-stdlib-test`, `make stage1-compiler-property-test`, and `make stage1-conformance` are the current operator evidence. Remaining Cargo/Rust-bootstrap removal stays with #719 and #721. |
+| [#927](https://github.com/OMT-Global/axiom/issues/927) Rust exit native backend parity readiness matrix | Implemented as the initial readiness gate | Close as completed when this PR lands | `docs/rust-exit-readiness.md` and `docs/rust-exit-readiness.json` define the blocked backend/bootstrap matrix, while `scripts/ci/check-rust-exit-readiness.sh` and `make rust-exit-readiness` emit `axiom.rust_exit.readiness.v1` JSON. The gate is expected to fail until #928, #929, #693, #694, #930, #931, #932, #562, #563, and #564 are closed. |
 | [#101](https://github.com/OMT-Global/axiom/issues/101) AG5.3 proof workload fixtures | Open, blocked | Keep open | The issue requires CLI, worker, and HTTP service proof workloads. AG4.3 HTTP server support remains open, so the HTTP service fixture cannot honestly close yet. |
 | [#102](https://github.com/OMT-Global/axiom/issues/102) AG5.4 CI closure | Open, blocked | Keep open | CI can only make proof workloads blocking after #101 exists. This remains blocked on AG5.3 and AG4.3. |
 | [#397](https://github.com/OMT-Global/axiom/issues/397) Runtime: HTTP server runtime surface | Implemented as the current stage1 HTTP server slice | Close as completed when this PR lands | `std/http.ax` exposes loopback-only `listen`/`accept`/`respond`, `serve_once(bind, body)`, and route-shaped `fixed_route(path, body)` / `serve(bind, route, max_requests)` over `http_server_*`, `http_response_write`, `http_serve_once`, and `http_serve_route`; `std/http_async.ax` adds async-gated bounded route serving. Capability-denied programs fail before native execution via the shared `net` or `async` gates, and Rust integration coverage proves deterministic local request handling plus non-loopback bind rejection. |
