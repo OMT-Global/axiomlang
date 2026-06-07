@@ -2012,7 +2012,13 @@ fn build_artifacts(
         if options.debug {
             write_debug_artifacts(generated_rust, binary, analyzed, options.backend)?;
         }
-        write_provenance_artifact(package_root, analyzed, generated_rust, binary)?;
+        write_provenance_artifact(
+            package_root,
+            analyzed,
+            generated_rust,
+            binary,
+            options.backend,
+        )?;
         return Ok(BuildArtifactReport {
             metadata: build_metadata(package_root, &cache),
             cache_status: BuildCacheStatus::Hit,
@@ -2058,7 +2064,13 @@ fn build_artifacts(
     let mut cache = cache;
     cache.binary_hash = Some(hash_file_bytes(binary)?);
     write_build_cache(&cache_path, &cache)?;
-    write_provenance_artifact(package_root, analyzed, generated_rust, binary)?;
+    write_provenance_artifact(
+        package_root,
+        analyzed,
+        generated_rust,
+        binary,
+        options.backend,
+    )?;
     Ok(BuildArtifactReport {
         metadata: build_metadata(package_root, &cache),
         cache_status: BuildCacheStatus::Miss,
@@ -2160,10 +2172,11 @@ fn write_provenance_artifact(
     analyzed: &AnalyzedProject,
     generated_rust: &Path,
     binary: &Path,
+    backend: NativeBackendKind,
 ) -> Result<(), Diagnostic> {
     let path = provenance_path(package_root, &analyzed.manifest);
     ensure_writable_output_parent(&path, "provenance output")?;
-    let report = provenance_report(package_root, analyzed, generated_rust, binary)?;
+    let report = provenance_report(package_root, analyzed, generated_rust, binary, backend)?;
     let content = serde_json::to_string_pretty(&report)
         .map_err(|err| Diagnostic::new("build", format!("failed to render provenance: {err}")))?;
     fs::write(&path, format!("{content}\n")).map_err(|err| {
@@ -2258,6 +2271,7 @@ fn provenance_report(
     analyzed: &AnalyzedProject,
     generated_rust: &Path,
     binary: &Path,
+    backend: NativeBackendKind,
 ) -> Result<ProvenanceReport, Diagnostic> {
     let package_name = package_name_for_manifest(package_root, &analyzed.manifest)?;
     let package_id = format!("axiom://package/{}", slug_node_segment(&package_name));
@@ -2315,20 +2329,21 @@ fn provenance_report(
             });
         }
     }
-    let artifacts = vec![
-        ProvenanceArtifact {
+    let mut artifacts = Vec::new();
+    if matches!(backend, NativeBackendKind::GeneratedRust) {
+        artifacts.push(ProvenanceArtifact {
             id: format!("{package_id}/artifact/generated-rust"),
             kind: String::from("rust_source"),
             path: provenance_path_display(package_root, generated_rust),
             hash: hash_file(generated_rust)?,
-        },
-        ProvenanceArtifact {
-            id: format!("{package_id}/artifact/native-binary"),
-            kind: String::from("native_binary"),
-            path: provenance_path_display(package_root, binary),
-            hash: hash_file_bytes(binary)?,
-        },
-    ];
+        });
+    }
+    artifacts.push(ProvenanceArtifact {
+        id: format!("{package_id}/artifact/native-binary"),
+        kind: String::from("native_binary"),
+        path: provenance_path_display(package_root, binary),
+        hash: hash_file_bytes(binary)?,
+    });
     for node in nodes
         .iter()
         .filter(|node| node.kind == "source" || node.kind == "function")
@@ -7481,8 +7496,14 @@ mod tests {
         fs::write(&generated_rust, "fn main() {}\n").expect("write generated rust");
         fs::write(&binary, b"binary").expect("write binary");
 
-        write_provenance_artifact(&package_root, &analyzed, &generated_rust, &binary)
-            .expect("write provenance");
+        write_provenance_artifact(
+            &package_root,
+            &analyzed,
+            &generated_rust,
+            &binary,
+            NativeBackendKind::GeneratedRust,
+        )
+        .expect("write provenance");
         let path = provenance_path_for_project(root).expect("provenance path");
         assert!(path.exists());
 
@@ -7494,6 +7515,70 @@ mod tests {
         assert!(trace.relationships.iter().any(|relationship| {
             relationship.kind == "emits"
                 && relationship.from == "axiom://package/demo/function/src/main.ax/main"
+                && relationship.to == "axiom://package/demo/artifact/generated-rust"
+        }));
+    }
+
+    #[test]
+    fn cranelift_provenance_does_not_require_rust_source_artifact() {
+        let dir = tempdir().unwrap_or_else(|err| panic!("tempdir: {err}"));
+        let root = dir.path();
+        fs::create_dir_all(root.join("src")).expect("create src");
+        fs::write(
+            root.join("axiom.toml"),
+            "[package]\nname = \"demo\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n",
+        )
+        .expect("write manifest");
+        fs::write(
+            root.join("axiom.lock"),
+            crate::lockfile::render_lockfile(&package_manifest()).expect("render lockfile"),
+        )
+        .expect("write lockfile");
+        fs::write(root.join("src/main.ax"), "fn main(): int {\nreturn 0\n}\n")
+            .expect("write source");
+
+        let graph = load_package_graph(root).expect("load graph");
+        let package_root =
+            canonicalize_existing_path(root, "project root").expect("canonical root");
+        let analyzed = analyze_package(&graph, &package_root).expect("analyze package");
+        let generated_rust = generated_rust_path(&package_root, &analyzed.manifest);
+        let binary = binary_path_for_target(&package_root, &analyzed.manifest, None);
+        fs::create_dir_all(binary.parent().expect("binary parent")).expect("create dist");
+        fs::write(&binary, b"binary").expect("write binary");
+
+        assert!(!generated_rust.exists());
+        write_provenance_artifact(
+            &package_root,
+            &analyzed,
+            &generated_rust,
+            &binary,
+            NativeBackendKind::Cranelift,
+        )
+        .expect("write provenance");
+
+        let trace = trace_provenance(root, Some("axiom://package/demo/function/src/main.ax/main"))
+            .expect("trace function");
+        assert_eq!(trace.schema_version, "axiom.trace.v0");
+        assert_eq!(trace.artifacts.len(), 1);
+        assert!(
+            trace
+                .artifacts
+                .iter()
+                .any(|artifact| artifact.kind == "native_binary")
+        );
+        assert!(
+            !trace
+                .artifacts
+                .iter()
+                .any(|artifact| artifact.kind == "rust_source")
+        );
+        assert!(trace.relationships.iter().any(|relationship| {
+            relationship.kind == "emits"
+                && relationship.from == "axiom://package/demo/function/src/main.ax/main"
+                && relationship.to == "axiom://package/demo/artifact/native-binary"
+        }));
+        assert!(!trace.relationships.iter().any(|relationship| {
+            relationship.kind == "emits"
                 && relationship.to == "axiom://package/demo/artifact/generated-rust"
         }));
     }

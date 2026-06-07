@@ -15,6 +15,15 @@ at generated Rust, and Cranelift debug builds do not emit Axiom DWARF yet, so
 debugger integrations should translate generated Rust frames through the debug
 map instead of assuming the binary contains native `.ax` line records.
 
+This PR does not change the debug sidecar schema. `axiom.stage1.debug_manifest.v1`
+continues to require `generated_rust` and `generated_rust_hash` because debug
+mapping is still mediated through generated Rust line records. A future
+direct-native debug manifest that removes generated Rust from the debug
+integrity envelope must use a successor schema version. The provenance sidecar
+is separate: generated Rust is not a required direct-native provenance artifact,
+so provenance for direct-native builds follows the native artifacts actually
+emitted by the backend.
+
 ## Build
 
 ```sh
@@ -78,6 +87,8 @@ same resolver, and print the mapped `.ax` span.
 Consumers should treat `debug_manifest` as the integrity envelope:
 
 - `binary_hash` and `generated_rust_hash` identify the exact artifacts.
+- `generated_rust` and `generated_rust_hash` remain required in
+  `axiom.stage1.debug_manifest.v1`, including for Cranelift debug builds.
 - `source_files[*].source_hash` identifies the `.ax` inputs.
 - `native_debug.axiom_dwarf` is the backend-neutral signal for whether the
   binary contains native Axiom DWARF line tables.

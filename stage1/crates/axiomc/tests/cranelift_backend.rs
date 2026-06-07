@@ -455,6 +455,12 @@ fn cranelift_backend_debug_build_emits_sidecars_without_axiom_dwarf() {
     assert_eq!(manifest["backend"], "cranelift");
     assert_eq!(manifest["binary"], binary);
     assert_eq!(manifest["generated_rust"], generated_rust);
+    assert!(
+        manifest["generated_rust_hash"]
+            .as_str()
+            .is_some_and(|hash| !hash.is_empty()),
+        "debug manifest v1 should keep generated_rust_hash in the integrity envelope"
+    );
     assert_eq!(manifest["debug_map"], debug_map);
     assert_eq!(manifest["native_debug"]["producer"], "cranelift");
     assert_eq!(manifest["native_debug"]["debuginfo"], 0);
