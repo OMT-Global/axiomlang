@@ -877,6 +877,44 @@ fn cranelift_backend_rejects_process_denial_before_backend_lowering() {
 }
 
 #[test]
+fn cranelift_backend_rejects_http_client_denial_before_backend_lowering() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("http-client-denied");
+    write_http_client_denial_project(&project);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args([
+            "build",
+            project.to_str().expect("project path"),
+            "--backend",
+            "cranelift",
+            "--json",
+        ])
+        .output()
+        .expect("run axiomc build --backend cranelift");
+
+    assert!(
+        !output.status.success(),
+        "cranelift http client denial build unexpectedly succeeded: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let combined = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        combined.contains("requires [capabilities].net = true"),
+        "expected net capability denial before backend lowering, got: {combined}"
+    );
+    assert!(
+        !combined.contains("unsupported by --backend cranelift spike"),
+        "capability denial should happen before cranelift unsupported-feature lowering: {combined}"
+    );
+}
+
+#[test]
 fn cranelift_backend_rejects_capability_denial_before_backend_lowering() {
     let temp = tempfile::tempdir().expect("tempdir");
     let project = temp.path().join("fs-denied");
