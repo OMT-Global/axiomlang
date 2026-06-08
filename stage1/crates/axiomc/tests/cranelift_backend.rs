@@ -1212,47 +1212,17 @@ fn write_tcp_denial_project(project: &Path) {
     fs::create_dir_all(project.join("src")).expect("create tcp denied project src");
     fs::write(
         project.join("axiom.toml"),
-        "[package]
-name = "cranelift-tcp-denied"
-version = "0.1.0"
-
-[build]
-entry = "src/main.ax"
-out_dir = "dist"
-
-[capabilities]
-fs = false
-net = false
-process = false
-env = false
-clock = false
-crypto = false
-",
+        "[package]\nname = \"cranelift-tcp-denied\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n",
     )
     .expect("write tcp denied manifest");
     fs::write(
         project.join("axiom.lock"),
-        "version = 1
-
-[[package]]
-name = "cranelift-tcp-denied"
-version = "0.1.0"
-source = "path"
-",
+        "version = 1\n\n[[package]]\nname = \"cranelift-tcp-denied\"\nversion = \"0.1.0\"\nsource = \"path\"\n",
     )
     .expect("write tcp denied lockfile");
     fs::write(
         project.join("src/main.ax"),
-        "import "std/net.ax"
-match tcp_listen_loopback_once("pong", 1000) {
-Some(_port) {
-print true
-}
-None {
-print false
-}
-}
-",
+        "import \"std/net.ax\"\nmatch tcp_listen_loopback_once(\"pong\", 1000) {\nSome(_port) {\nprint true\n}\nNone {\nprint false\n}\n}\n",
     )
     .expect("write tcp denied source");
 }
@@ -1296,6 +1266,9 @@ fn write_net_resolve_denial_project(project: &Path) {
 }
 
 fn write_process_denial_project(project: &Path) {
+
+
+
     fs::create_dir_all(project.join("src")).expect("create process denied project src");
     fs::write(
         project.join("axiom.toml"),
