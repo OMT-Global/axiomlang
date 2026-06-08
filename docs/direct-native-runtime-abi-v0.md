@@ -88,6 +88,11 @@ builds a package using `std/fs.ax` without the `fs` capability and verifies the
 public capability denial appears before any Cranelift unsupported-feature
 diagnostic.
 
+The TCP row is still blocked for positive direct-native runtime execution, but
+now has denial evidence: a package that calls `std/net.ax`
+`tcp_listen_loopback_once(...)` without the `net` capability must receive the
+public manifest-policy denial before any backend-specific lowering diagnostic.
+
 The direct-native crypto hash slice is still marked partial: the Cranelift
 spike can build and run `std/crypto_hash.ax` `sha256(...)` without generated
 Rust, and crypto capability denials still happen before backend lowering. MAC,
