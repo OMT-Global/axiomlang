@@ -529,7 +529,7 @@ fn eval_call(
         return eval_crypto_sha256_call(args, functions, env, lines);
     }
     if name == "env_get" {
-        return eval_env_get_call(args, functions, env);
+        return eval_env_get_call(args, functions, env, lines);
     }
     let function = functions
         .get(name)
@@ -725,14 +725,16 @@ fn sha256_hex(input: &str) -> String {
     output
 }
 
+fn eval_env_get_call(
     args: &[Expr],
     functions: &HashMap<&str, &Function>,
     env: &SpikeEnv,
+    lines: &mut Vec<OutputLine>,
 ) -> Result<SpikeValue, Diagnostic> {
     let [name] = args else {
         return Err(unsupported("env_get expects exactly one argument"));
     };
-    let name = match eval_expr(name, functions, env)? {
+    let name = match eval_expr(name, functions, env, lines)? {
         SpikeValue::Text(value) => value,
         _ => return Err(unsupported("env_get expects a string argument")),
     };
@@ -758,6 +760,7 @@ fn option_text(value: Option<String>) -> SpikeValue {
 }
 
 fn eval_io_eprintln_call(
+    args: &[Expr],
     functions: &HashMap<&str, &Function>,
     env: &SpikeEnv,
     lines: &mut Vec<OutputLine>,
@@ -774,6 +777,7 @@ fn eval_io_eprintln_call(
     Ok(SpikeValue::Int(written))
 }
 
+fn eval_arithmetic(
     op: ArithmeticOp,
     lhs: &Expr,
     rhs: &Expr,

@@ -813,6 +813,50 @@ fn cranelift_backend_builds_sync_primitives_binary() {
 
 #[cfg(not(windows))]
 #[test]
+fn cranelift_backend_builds_logging_stdio_binary() {
+    if which::which("cc").is_err() {
+        eprintln!("skipping cranelift backend smoke test because cc is unavailable");
+        return;
+    }
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("logging-stdio");
+    write_logging_stdio_project(&project);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args([
+            "build",
+            project.to_str().expect("project path"),
+            "--backend",
+            "cranelift",
+            "--json",
+        ])
+        .output()
+        .expect("run axiomc build --backend cranelift");
+    assert!(
+        output.status.success(),
+        "cranelift logging stdio build failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+    assert_eq!(payload["backend"], "cranelift");
+    let binary = payload["binary"].as_str().expect("binary path");
+    let run = Command::new(binary)
+        .output()
+        .expect("run cranelift logging stdio binary");
+    assert!(
+        run.status.success(),
+        "cranelift logging stdio binary failed: stderr={}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "true\n");
+    assert_eq!(String::from_utf8_lossy(&run.stderr), "hello stderr\n");
+}
+
+#[cfg(not(windows))]
+#[test]
 fn cranelift_backend_rejects_float_map_keys() {
     let temp = tempfile::tempdir().expect("tempdir");
     let project = temp.path().join("float-map-key");
