@@ -31,9 +31,10 @@
     },
     {
       "id": "slice.borrowed",
-      "status": "blocked",
-      "evidence": [],
-      "blockers": [928]
+      "status": "partial",
+      "evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"],
+      "blockers": [928],
+      "notes": "The Cranelift spike evaluates borrowed array slices for len, first, last, indexing, and function returns. Broader borrowed-slice aliasing and host ABI coverage remain open."
     },
     {
       "id": "map.lookup",
