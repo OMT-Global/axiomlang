@@ -119,6 +119,10 @@ package without the `env` capability fails before backend lowering. Full
 runtime-time lookup, manifest allowlist parity, and audit parity remain open
 under #928.
 
+The sync-primitives row has partial direct-native evidence: the Cranelift spike
+now evaluates ownership-shaped `std/sync.ax` mutex, once, and channel wrappers
+and emits the expected native output. Concurrent execution, blocking behavior,
+and host runtime synchronization remain tracked by issue #928.
 ## Rust Capture Check
 
 This ABI describes Axiom runtime values and host-service effects. Rust may
