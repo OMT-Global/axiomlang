@@ -138,7 +138,7 @@
         "module_imports"
       ],
       "outputs": [
-        "capability_use_records",
+        "inferred_capability_use_records",
         "capability_sources",
         "policy_verdicts"
       ]

@@ -170,6 +170,10 @@ def validate_apis(snapshot: dict[str, Any]) -> None:
     for name, api in apis.items():
         require(name.startswith("compiler.hir."), f"{name} must be package-qualified")
         reject_rust_capture_terms([name, *api["inputs"], *api["outputs"]], f"apis.{name}")
+    require(
+        "inferred_capability_use_records" in apis["compiler.hir.infer_capability_use"]["outputs"],
+        "infer_capability_use must expose inferred_capability_use_records",
+    )
 
 
 def validate_analysis_input(snapshot: dict[str, Any]) -> None:
