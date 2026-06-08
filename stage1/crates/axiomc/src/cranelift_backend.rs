@@ -32,6 +32,37 @@ enum SpikeValue {
 
 type SpikeEnv = HashMap<String, SpikeValue>;
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum RegexAtom {
+    Literal(char),
+    Any,
+    Class {
+        ranges: Vec<(char, char)>,
+        negated: bool,
+    },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum RegexQuantifier {
+    One,
+    ZeroOrOne,
+    ZeroOrMore,
+    OneOrMore,
+}
+
+#[derive(Clone, Debug)]
+struct RegexToken {
+    atom: RegexAtom,
+    quantifier: RegexQuantifier,
+}
+
+#[derive(Clone, Debug)]
+struct RegexProgram {
+    tokens: Vec<RegexToken>,
+    start_anchor: bool,
+    end_anchor: bool,
+}
+
 pub fn compile_cranelift_hello_spike(
     program: &Program,
     object_path: &Path,
@@ -542,6 +573,9 @@ fn eval_call(
     }
     if name == "clock_sleep_ms" {
         return eval_clock_sleep_ms_call(args, functions, env, lines);
+    }
+    if is_regex_call(name) {
+        return eval_regex_call(name, args, functions, env);
     }
     let function = functions
         .get(name)
@@ -1067,30 +1101,84 @@ fn sha256_hex(input: &str) -> String {
     output
 }
 
-fn eval_env_get_call(
+fn is_regex_call(name: &str) -> bool {
+    matches!(name, "regex_is_match" | "regex_find" | "regex_replace_all")
+}
+
+fn eval_regex_call(
+    name: &str,
     args: &[Expr],
     functions: &HashMap<&str, &Function>,
     env: &SpikeEnv,
     lines: &mut Vec<OutputLine>,
 ) -> Result<SpikeValue, Diagnostic> {
-    let [name] = args else {
-        return Err(unsupported("env_get expects exactly one argument"));
-    };
-    let name = match eval_expr(name, functions, env, lines)? {
-        SpikeValue::Text(value) => value,
-        _ => return Err(unsupported("env_get expects a string argument")),
-    };
-    let value = std::env::var(name).ok();
-    Ok(option_text(value))
+    match name {
+        "env_get" => {
+            let [name] = args else {
+                return Err(unsupported("env_get expects exactly one argument"));
+            };
+            let name = match eval_expr(name, functions, env, lines)? {
+                SpikeValue::Text(value) => value,
+                _ => return Err(unsupported("env_get expects a string argument")),
+            };
+            let value = std::env::var(name).ok();
+            Ok(option_text(value))
+        }
+        "regex_is_match" => {
+            let (pattern, text) = eval_regex_binary_text(name, args, functions, env)?;
+            Ok(SpikeValue::Bool(regex_find_span(&pattern, &text).is_some()))
+        }
+        "regex_find" => {
+            let (pattern, text) = eval_regex_binary_text(name, args, functions, env)?;
+            let found = regex_find_span(&pattern, &text)
+                .map(|(start, end)| SpikeValue::Text(text[start..end].to_string()));
+            Ok(spike_option(found))
+        }
+        "regex_replace_all" => {
+            let [pattern, text, replacement] = args else {
+                return Err(unsupported(
+                    "regex_replace_all expects exactly three arguments",
+                ));
+            };
+            let pattern = expect_text(eval_expr(pattern, functions, env)?, "regex_replace_all")?;
+            let text = expect_text(eval_expr(text, functions, env)?, "regex_replace_all")?;
+            let replacement =
+                expect_text(eval_expr(replacement, functions, env)?, "regex_replace_all")?;
+            Ok(SpikeValue::Text(regex_replace_all(
+                &pattern,
+                &text,
+                &replacement,
+            )))
+        }
+        _ => Err(unsupported(&format!(
+            "unsupported cranelift spike regex call {name:?}"
+        ))),
+    }
 }
 
-fn option_text(value: Option<String>) -> SpikeValue {
+fn eval_regex_binary_text(
+    name: &str,
+    args: &[Expr],
+    functions: &HashMap<&str, &Function>,
+    env: &SpikeEnv,
+) -> Result<(String, String), Diagnostic> {
+    let [pattern, text] = args else {
+        return Err(unsupported(&format!(
+            "{name} expects exactly two arguments"
+        )));
+    };
+    let pattern = expect_text(eval_expr(pattern, functions, env)?, name)?;
+    let text = expect_text(eval_expr(text, functions, env)?, name)?;
+    Ok((pattern, text))
+}
+
+fn spike_option(value: Option<SpikeValue>) -> SpikeValue {
     match value {
         Some(value) => SpikeValue::Enum {
             enum_name: String::from("Option"),
             variant: String::from("Some"),
             field_names: Vec::new(),
-            payloads: vec![SpikeValue::Text(value)],
+            payloads: vec![value],
         },
         None => SpikeValue::Enum {
             enum_name: String::from("Option"),
@@ -1166,6 +1254,274 @@ fn current_time_ms() -> Result<i64, Diagnostic> {
         .duration_since(std::time::UNIX_EPOCH)
         .map_err(|_| unsupported("system clock must be after unix epoch"))?;
     Ok(now.as_millis() as i64)
+}
+
+fn expect_text(value: SpikeValue, name: &str) -> Result<String, Diagnostic> {
+    match value {
+        SpikeValue::Text(value) => Ok(value),
+        _ => Err(unsupported(&format!("{name} expects string arguments"))),
+    }
+}
+
+fn regex_escape_char(ch: char) -> char {
+    match ch {
+        'n' => '\n',
+        'r' => '\r',
+        't' => '\t',
+        other => other,
+    }
+}
+
+fn regex_parse_atom(chars: &[char], pos: &mut usize) -> Option<RegexAtom> {
+    if *pos >= chars.len() {
+        return None;
+    }
+    let ch = chars[*pos];
+    *pos += 1;
+    match ch {
+        '.' => Some(RegexAtom::Any),
+        '\\' => {
+            if *pos >= chars.len() {
+                Some(RegexAtom::Literal('\\'))
+            } else {
+                let escaped = regex_escape_char(chars[*pos]);
+                *pos += 1;
+                Some(RegexAtom::Literal(escaped))
+            }
+        }
+        '[' => {
+            let mut negated = false;
+            if *pos < chars.len() && chars[*pos] == '^' {
+                negated = true;
+                *pos += 1;
+            }
+            let mut ranges = Vec::new();
+            let mut first = true;
+            while *pos < chars.len() {
+                if chars[*pos] == ']' && !first {
+                    *pos += 1;
+                    return Some(RegexAtom::Class { ranges, negated });
+                }
+                first = false;
+                let start = if chars[*pos] == '\\' {
+                    *pos += 1;
+                    if *pos >= chars.len() {
+                        return None;
+                    }
+                    let escaped = regex_escape_char(chars[*pos]);
+                    *pos += 1;
+                    escaped
+                } else {
+                    let value = chars[*pos];
+                    *pos += 1;
+                    value
+                };
+                if *pos + 1 < chars.len() && chars[*pos] == '-' && chars[*pos + 1] != ']' {
+                    *pos += 1;
+                    let end = if chars[*pos] == '\\' {
+                        *pos += 1;
+                        if *pos >= chars.len() {
+                            return None;
+                        }
+                        let escaped = regex_escape_char(chars[*pos]);
+                        *pos += 1;
+                        escaped
+                    } else {
+                        let value = chars[*pos];
+                        *pos += 1;
+                        value
+                    };
+                    if start <= end {
+                        ranges.push((start, end));
+                    } else {
+                        ranges.push((end, start));
+                    }
+                } else {
+                    ranges.push((start, start));
+                }
+            }
+            None
+        }
+        '(' | ')' | '|' => None,
+        other => Some(RegexAtom::Literal(other)),
+    }
+}
+
+fn regex_parse(pattern: &str) -> Option<RegexProgram> {
+    let chars: Vec<char> = pattern.chars().collect();
+    let mut pos = 0usize;
+    let mut start_anchor = false;
+    let mut end_anchor = false;
+    if pos < chars.len() && chars[pos] == '^' {
+        start_anchor = true;
+        pos += 1;
+    }
+    let mut parse_end = chars.len();
+    if parse_end > pos && chars[parse_end - 1] == '$' {
+        let escaped = parse_end >= 2 && chars[parse_end - 2] == '\\';
+        if !escaped {
+            end_anchor = true;
+            parse_end -= 1;
+        }
+    }
+    let mut tokens = Vec::new();
+    while pos < parse_end {
+        let mut atom_pos = pos;
+        let atom = regex_parse_atom(&chars[..parse_end], &mut atom_pos)?;
+        pos = atom_pos;
+        let quantifier = if pos < parse_end {
+            match chars[pos] {
+                '?' => {
+                    pos += 1;
+                    RegexQuantifier::ZeroOrOne
+                }
+                '*' => {
+                    pos += 1;
+                    RegexQuantifier::ZeroOrMore
+                }
+                '+' => {
+                    pos += 1;
+                    RegexQuantifier::OneOrMore
+                }
+                _ => RegexQuantifier::One,
+            }
+        } else {
+            RegexQuantifier::One
+        };
+        tokens.push(RegexToken { atom, quantifier });
+    }
+    Some(RegexProgram {
+        tokens,
+        start_anchor,
+        end_anchor,
+    })
+}
+
+fn regex_atom_matches(atom: &RegexAtom, ch: char) -> bool {
+    match atom {
+        RegexAtom::Literal(expected) => *expected == ch,
+        RegexAtom::Any => true,
+        RegexAtom::Class { ranges, negated } => {
+            let found = ranges.iter().any(|(start, end)| *start <= ch && ch <= *end);
+            if *negated { !found } else { found }
+        }
+    }
+}
+
+fn regex_add_state(program: &RegexProgram, states: &mut Vec<usize>, state: usize) {
+    if states.contains(&state) {
+        return;
+    }
+    states.push(state);
+    if state >= program.tokens.len() {
+        return;
+    }
+    match program.tokens[state].quantifier {
+        RegexQuantifier::ZeroOrOne | RegexQuantifier::ZeroOrMore => {
+            regex_add_state(program, states, state + 1);
+        }
+        RegexQuantifier::One | RegexQuantifier::OneOrMore => {}
+    }
+}
+
+fn regex_accepts(program: &RegexProgram, states: &[usize], at_text_end: bool) -> bool {
+    states
+        .iter()
+        .any(|state| *state == program.tokens.len() && (!program.end_anchor || at_text_end))
+}
+
+fn regex_match_from(program: &RegexProgram, text: &[char], start: usize) -> Option<usize> {
+    let mut states = Vec::new();
+    regex_add_state(program, &mut states, 0);
+    let mut last_accept = if regex_accepts(program, &states, start == text.len()) {
+        Some(start)
+    } else {
+        None
+    };
+    let mut pos = start;
+    while pos < text.len() {
+        let ch = text[pos];
+        let mut next = Vec::new();
+        for state in states.iter().copied() {
+            if state >= program.tokens.len() {
+                continue;
+            }
+            let token = &program.tokens[state];
+            if !regex_atom_matches(&token.atom, ch) {
+                continue;
+            }
+            match token.quantifier {
+                RegexQuantifier::One | RegexQuantifier::ZeroOrOne => {
+                    regex_add_state(program, &mut next, state + 1);
+                }
+                RegexQuantifier::ZeroOrMore => {
+                    regex_add_state(program, &mut next, state);
+                    regex_add_state(program, &mut next, state + 1);
+                }
+                RegexQuantifier::OneOrMore => {
+                    regex_add_state(program, &mut next, state);
+                    regex_add_state(program, &mut next, state + 1);
+                }
+            }
+        }
+        pos += 1;
+        if regex_accepts(program, &next, pos == text.len()) {
+            last_accept = Some(pos);
+        }
+        states = next;
+        if states.is_empty() {
+            return last_accept;
+        }
+    }
+    last_accept
+}
+
+fn regex_find_span(pattern: &str, text: &str) -> Option<(usize, usize)> {
+    let program = regex_parse(pattern)?;
+    let chars: Vec<char> = text.chars().collect();
+    let byte_offsets: Vec<usize> = text
+        .char_indices()
+        .map(|(index, _)| index)
+        .chain(std::iter::once(text.len()))
+        .collect();
+    let starts: Box<dyn Iterator<Item = usize>> = if program.start_anchor {
+        Box::new(std::iter::once(0))
+    } else {
+        Box::new(0..=chars.len())
+    };
+    for start in starts {
+        if let Some(end) = regex_match_from(&program, &chars, start) {
+            return Some((byte_offsets[start], byte_offsets[end]));
+        }
+    }
+    None
+}
+
+fn regex_replace_all(pattern: &str, text: &str, replacement: &str) -> String {
+    if regex_parse(pattern).is_none() {
+        return text.to_string();
+    }
+    let mut remaining = text;
+    let mut out = String::new();
+    loop {
+        let Some((start, end)) = regex_find_span(pattern, remaining) else {
+            out.push_str(remaining);
+            break;
+        };
+        out.push_str(&remaining[..start]);
+        out.push_str(replacement);
+        if end == 0 {
+            if let Some(ch) = remaining.chars().next() {
+                out.push(ch);
+                remaining = &remaining[ch.len_utf8()..];
+            } else {
+                break;
+            }
+        } else {
+            remaining = &remaining[end..];
+        }
+    }
+    out
 }
 
 fn eval_arithmetic(

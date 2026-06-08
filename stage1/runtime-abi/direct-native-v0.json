@@ -217,9 +217,11 @@
     },
     {
       "id": "regex.match_replace",
-      "status": "blocked",
+      "status": "partial",
       "capability": null,
-      "blockers": [928]
+      "evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"],
+      "blockers": [928],
+      "notes": "The Cranelift spike covers std/regex.ax is_match, find, and replace_all for the stage1-safe NFA subset without generated Rust. Broader regex syntax and conformance coverage remain blocked."
     },
     {
       "id": "sync.primitives",
