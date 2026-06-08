@@ -88,6 +88,11 @@ builds a package using `std/fs.ax` without the `fs` capability and verifies the
 public capability denial appears before any Cranelift unsupported-feature
 diagnostic.
 
+The direct-native crypto hash slice is still marked partial: the Cranelift
+spike can build and run `std/crypto_hash.ax` `sha256(...)` without generated
+Rust, and crypto capability denials still happen before backend lowering. MAC,
+random, signature, AEAD, and broader crypto audit parity remain blocked.
+
 The borrowed-slice row has partial direct-native evidence: the Cranelift spike
 now evaluates array-backed borrowed slices through `len`, `first`, `last`,
 indexing, and function returns. Broader borrowed-slice aliasing and host ABI

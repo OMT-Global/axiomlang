@@ -149,9 +149,12 @@
     },
     {
       "id": "crypto.hash",
-      "status": "blocked",
+      "status": "partial",
       "capability": "crypto",
-      "blockers": [928]
+      "evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"],
+      "denial_evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"],
+      "blockers": [928],
+      "notes": "The Cranelift spike covers std/crypto_hash.ax sha256 over strings without using generated Rust. MAC, random, signature, AEAD, and broader crypto audit parity remain blocked."
     },
     {
       "id": "crypto.mac",

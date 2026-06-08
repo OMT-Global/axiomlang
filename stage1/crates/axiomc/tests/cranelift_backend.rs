@@ -598,6 +598,52 @@ high
 
 #[cfg(not(windows))]
 #[test]
+fn cranelift_backend_builds_crypto_hash_binary() {
+    if which::which("cc").is_err() {
+        eprintln!("skipping cranelift backend smoke test because cc is unavailable");
+        return;
+    }
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("crypto-hash");
+    write_crypto_hash_project(&project, true);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args([
+            "build",
+            project.to_str().expect("project path"),
+            "--backend",
+            "cranelift",
+            "--json",
+        ])
+        .output()
+        .expect("run axiomc build --backend cranelift");
+    assert!(
+        output.status.success(),
+        "cranelift crypto hash build failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+    assert_eq!(payload["backend"], "cranelift");
+    let binary = payload["binary"].as_str().expect("binary path");
+    let run = Command::new(binary)
+        .output()
+        .expect("run cranelift crypto hash binary");
+    assert!(
+        run.status.success(),
+        "cranelift crypto hash binary failed: stderr={}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&run.stdout),
+        "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad\n"
+    );
+}
+
+#[cfg(not(windows))]
+#[test]
 fn cranelift_backend_rejects_float_map_keys() {
     let temp = tempfile::tempdir().expect("tempdir");
     let project = temp.path().join("float-map-key");
@@ -628,6 +674,44 @@ fn cranelift_backend_rejects_float_map_keys() {
     assert!(
         combined.contains("map float keys are not supported by the cranelift spike"),
         "expected float map key diagnostic, got: {combined}"
+    );
+}
+
+#[test]
+fn cranelift_backend_rejects_crypto_hash_denial_before_backend_lowering() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("crypto-hash-denied");
+    write_crypto_hash_project(&project, false);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args([
+            "build",
+            project.to_str().expect("project path"),
+            "--backend",
+            "cranelift",
+            "--json",
+        ])
+        .output()
+        .expect("run axiomc build --backend cranelift");
+
+    assert!(
+        !output.status.success(),
+        "cranelift crypto hash denial build unexpectedly succeeded: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let combined = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        combined.contains("requires [capabilities].crypto = true"),
+        "expected crypto capability denial before backend lowering, got: {combined}"
+    );
+    assert!(
+        !combined.contains("unsupported by --backend cranelift spike"),
+        "capability denial should happen before cranelift unsupported-feature lowering: {combined}"
     );
 }
 
@@ -869,6 +953,27 @@ fn write_float_map_key_project(project: &Path) {
         "let scores: {f64: int} = {1.5f64: 7}\nprint scores[1.5f64]\n",
     )
     .expect("write float map source");
+}
+
+fn write_crypto_hash_project(project: &Path, crypto: bool) {
+    fs::create_dir_all(project.join("src")).expect("create crypto hash project src");
+    fs::write(
+        project.join("axiom.toml"),
+        format!(
+            "[package]\nname = \"cranelift-crypto-hash\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = {crypto}\n"
+        ),
+    )
+    .expect("write crypto hash manifest");
+    fs::write(
+        project.join("axiom.lock"),
+        "version = 1\n\n[[package]]\nname = \"cranelift-crypto-hash\"\nversion = \"0.1.0\"\nsource = \"path\"\n",
+    )
+    .expect("write crypto hash lockfile");
+    fs::write(
+        project.join("src/main.ax"),
+        "import \"std/crypto_hash.ax\"\nprint sha256(\"abc\")\n",
+    )
+    .expect("write crypto hash source");
 }
 
 fn write_fs_denial_project(project: &Path) {
