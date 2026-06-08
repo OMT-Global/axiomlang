@@ -56,9 +56,10 @@
     },
     {
       "id": "result",
-      "status": "blocked",
-      "evidence": [],
-      "blockers": [928]
+      "status": "partial",
+      "evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"],
+      "blockers": [928],
+      "notes": "The Cranelift spike evaluates Result<T, E> through std/outcome.ax helpers, direct match arms, scalar payloads, string errors, and struct payloads. Broader ABI payload and capability-shim coverage remain open."
     },
     {
       "id": "enum.payload",
