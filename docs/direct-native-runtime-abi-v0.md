@@ -103,6 +103,11 @@ now evaluates array-backed borrowed slices through `len`, `first`, `last`,
 indexing, and function returns. Broader borrowed-slice aliasing and host ABI
 coverage remain tracked by issue #928.
 
+The sync-primitives row has partial direct-native evidence: the Cranelift spike
+now evaluates ownership-shaped `std/sync.ax` mutex, once, and channel wrappers
+and emits the expected native output. Concurrent execution, blocking behavior,
+and host runtime synchronization remain tracked by issue #928.
+
 ## Rust Capture Check
 
 This ABI describes Axiom runtime values and host-service effects. Rust may

@@ -207,9 +207,11 @@
     },
     {
       "id": "sync.primitives",
-      "status": "blocked",
+      "status": "partial",
       "capability": null,
-      "blockers": [928]
+      "evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"],
+      "blockers": [928],
+      "notes": "The Cranelift spike now builds and runs ownership-shaped std/sync mutex, once, and channel wrappers. Concurrent execution, blocking behavior, and host runtime synchronization remain open."
     },
     {
       "id": "io.logging_stdio",
