@@ -454,6 +454,49 @@ fn cranelift_backend_builds_borrowed_slice_binary() {
 
 #[cfg(not(windows))]
 #[test]
+fn cranelift_backend_builds_owned_move_state_binary() {
+    if which::which("cc").is_err() {
+        eprintln!("skipping cranelift backend smoke test because cc is unavailable");
+        return;
+    }
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("owned-move-state");
+    write_owned_move_state_project(&project);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args([
+            "build",
+            project.to_str().expect("project path"),
+            "--backend",
+            "cranelift",
+            "--json",
+        ])
+        .output()
+        .expect("run axiomc build --backend cranelift");
+    assert!(
+        output.status.success(),
+        "cranelift owned move-state build failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+    assert_eq!(payload["backend"], "cranelift");
+    let binary = payload["binary"].as_str().expect("binary path");
+    let run = Command::new(binary)
+        .output()
+        .expect("run cranelift owned move-state binary");
+    assert!(
+        run.status.success(),
+        "cranelift owned move-state binary failed: stderr={}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "3\nleft\n");
+}
+
+#[cfg(not(windows))]
+#[test]
 fn cranelift_backend_debug_build_emits_sidecars_without_axiom_dwarf() {
     if which::which("cc").is_err() {
         eprintln!("skipping cranelift backend smoke test because cc is unavailable");
@@ -1213,19 +1256,93 @@ fn write_process_status_project(project: &Path) {
     fs::create_dir_all(project.join("src")).expect("create process-status project src");
     fs::write(
         project.join("axiom.toml"),
-        "[package]\nname = \"cranelift-process-status\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = true\nunsafe_rationale = \"direct-native process-status regression executes deterministic system helpers\"\nenv = false\nclock = false\ncrypto = false\n",
+        "[package]
+name = "cranelift-process-status"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+fs = false
+net = false
+process = true
+unsafe_rationale = "direct-native process-status regression executes deterministic system helpers"
+env = false
+clock = false
+crypto = false
+",
     )
     .expect("write process-status manifest");
     fs::write(
         project.join("axiom.lock"),
-        "version = 1\n\n[[package]]\nname = \"cranelift-process-status\"\nversion = \"0.1.0\"\nsource = \"path\"\n",
+        "version = 1
+
+[[package]]
+name = "cranelift-process-status"
+version = "0.1.0"
+source = "path"
+",
     )
     .expect("write process-status lockfile");
     fs::write(
         project.join("src/main.ax"),
-        "import \"std/process.ax\"\nprint run_status(\"/usr/bin/true\")\nprint run_status(\"/usr/bin/false\")\n",
+        "import "std/process.ax"
+print run_status("/usr/bin/true")
+print run_status("/usr/bin/false")
+",
     )
     .expect("write process-status source");
+}
+
+fn write_owned_move_state_project(project: &Path) {
+    fs::create_dir_all(project.join("src")).expect("create owned move project src");
+    fs::write(
+        project.join("axiom.toml"),
+        "[package]
+name = "cranelift-owned-move-state"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+fs = false
+net = false
+process = false
+env = false
+clock = false
+crypto = false
+",
+    )
+    .expect("write owned move manifest");
+    fs::write(
+        project.join("axiom.lock"),
+        "version = 1
+
+[[package]]
+name = "cranelift-owned-move-state"
+version = "0.1.0"
+source = "path"
+",
+    )
+    .expect("write owned move lockfile");
+    fs::write(
+        project.join("src/main.ax"),
+        "struct Pair {
+name: string
+values: [int]
+}
+
+let pair: Pair = Pair { name: "left", values: [1, 2, 3] }
+let moved: [int] = pair.values
+print len(moved)
+print pair.name
+",
+    )
+    .expect("write owned move source");
 }
 
 fn write_map_index_project(project: &Path) {

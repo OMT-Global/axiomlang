@@ -123,6 +123,11 @@ The sync-primitives row has partial direct-native evidence: the Cranelift spike
 now evaluates ownership-shaped `std/sync.ax` mutex, once, and channel wrappers
 and emits the expected native output. Concurrent execution, blocking behavior,
 and host runtime synchronization remain tracked by issue #928.
+
+The owned move-state row has partial direct-native evidence: the Cranelift
+spike builds and runs projection-sensitive owned field moves while preserving
+access to disjoint sibling projections. Broader move-state, lifetime, and host
+ABI coverage remain tracked by issue #928.
 ## Rust Capture Check
 
 This ABI describes Axiom runtime values and host-service effects. Rust may
