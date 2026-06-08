@@ -98,6 +98,13 @@ now evaluates array-backed borrowed slices through `len`, `first`, `last`,
 indexing, and function returns. Broader borrowed-slice aliasing and host ABI
 coverage remain tracked by issue #928.
 
+The `process.status` row has partial direct-native evidence: the Cranelift
+spike now builds and runs a process-enabled package importing `std/process.ax`,
+returns deterministic process status codes, and verifies a missing process
+capability is rejected before backend lowering. Broader allowlist parity,
+runtime execution, auditing, and capability-shim coverage remain tracked by
+issue #928.
+
 ## Rust Capture Check
 
 This ABI describes Axiom runtime values and host-service effects. Rust may
