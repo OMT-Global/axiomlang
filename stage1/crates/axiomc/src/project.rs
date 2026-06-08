@@ -7907,6 +7907,61 @@ mod tests {
         }));
     }
 
+    #[cfg(not(windows))]
+    #[test]
+    fn cranelift_build_cache_creates_output_parent_without_generated_rust() {
+        if which::which("cc").is_err() {
+            eprintln!("skipping Cranelift build cache test because cc is unavailable");
+            return;
+        }
+
+        let dir = tempdir().unwrap_or_else(|err| panic!("tempdir: {err}"));
+        let root = dir.path();
+        fs::create_dir_all(root.join("src")).expect("create src");
+        fs::write(
+            root.join("axiom.toml"),
+            "[package]\nname = \"demo\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n",
+        )
+        .expect("write manifest");
+        fs::write(
+            root.join("axiom.lock"),
+            crate::lockfile::render_lockfile(&package_manifest()).expect("render lockfile"),
+        )
+        .expect("write lockfile");
+        fs::write(root.join("src/main.ax"), "print \"cache parent\"\n").expect("write source");
+
+        let package_root =
+            canonicalize_existing_path(root, "project root").expect("canonical root");
+        let manifest = load_manifest(&package_root).expect("load manifest");
+        let generated_rust = generated_rust_path(&package_root, &manifest);
+        let cache_path = build_cache_path(&generated_rust);
+
+        assert!(!root.join("dist").exists());
+        let output = build_project_with_options(
+            root,
+            &BuildOptions {
+                backend: NativeBackendKind::Cranelift,
+                ..BuildOptions::default()
+            },
+        )
+        .expect("cranelift build");
+
+        assert_eq!(output.backend, NativeBackendKind::Cranelift);
+        assert!(output.generated_rust.is_none());
+        assert!(
+            Path::new(&output.binary).exists(),
+            "cranelift binary exists"
+        );
+        assert!(
+            cache_path.exists(),
+            "cranelift build cache should be written even without generated Rust"
+        );
+        assert!(
+            !generated_rust.exists(),
+            "cranelift build should not emit generated Rust"
+        );
+    }
+
     #[cfg(unix)]
     #[test]
     fn property_tests_recover_read_only_artifact_directory() {
