@@ -1,0 +1,185 @@
+{
+  "schema_version": "axiom.compiler.mir_backend.v1",
+  "contract": "compiler.mir_backend",
+  "issue": 939,
+  "packages": [
+    {
+      "name": "compiler.mir",
+      "owner_lane": "Daedalus",
+      "apis": [
+        "compiler.mir.lower_package",
+        "compiler.mir.export_backend_input"
+      ],
+      "owns": [
+        "typed declarations",
+        "typed statements",
+        "typed expressions",
+        "intrinsic calls",
+        "test entrypoints",
+        "source-span index",
+        "required type features",
+        "required effect kinds"
+      ],
+      "must_not_define": [
+        "Intent IR",
+        "target-specific artifact truth",
+        "host-language module paths"
+      ]
+    },
+    {
+      "name": "compiler.backend.contracts",
+      "owner_lane": "Pheidon",
+      "apis": [
+        "compiler.backend.contracts.select_target",
+        "compiler.backend.contracts.unsupported_features"
+      ],
+      "owns": [
+        "target class selection",
+        "supported type features",
+        "supported effect kinds",
+        "artifact kinds",
+        "unsupported-feature diagnostics",
+        "target evidence requirements"
+      ],
+      "must_not_define": [
+        "Axiom language semantics",
+        "generated Rust as required target",
+        "Cranelift details as public semantics"
+      ]
+    },
+    {
+      "name": "compiler.backend.generated_rust",
+      "owner_lane": "Daedalus",
+      "apis": [
+        "compiler.backend.generated_rust.emit_source"
+      ],
+      "owns": [
+        "legacy rust_source artifact",
+        "source map",
+        "downstream rustc metadata",
+        "generated-Rust diagnostics"
+      ],
+      "must_not_define": [
+        "self-hosted command behavior",
+        "direct-native evidence",
+        "semantic graph truth"
+      ]
+    },
+    {
+      "name": "compiler.backend.native",
+      "owner_lane": "Daedalus",
+      "apis": [
+        "compiler.backend.native.lower_to_object",
+        "compiler.backend.native.explain_unsupported"
+      ],
+      "owns": [
+        "direct MIR-to-native lowering",
+        "native runtime ABI shims",
+        "native binary artifacts",
+        "native backend diagnostics",
+        "direct-native evidence records"
+      ],
+      "must_not_define": [
+        "generated Rust compatibility",
+        "host package-manager release behavior",
+        "Rust source as required evidence"
+      ]
+    }
+  ],
+  "backend_input": {
+    "schema": "MirBackendInput",
+    "required_fields": [
+      "mir_version",
+      "package_id",
+      "entrypoints",
+      "type_features",
+      "effect_kinds",
+      "artifact_kinds",
+      "source_spans",
+      "evidence_hooks"
+    ],
+    "forbidden_required_fields": [
+      "rust_source",
+      "generated_rust",
+      "cargo_metadata",
+      "rustc_command",
+      "rustc_output",
+      "cranelift_module_path"
+    ]
+  },
+  "targets": [
+    {
+      "id": "axiom://target/stage1-generated-rust",
+      "package": "compiler.backend.generated_rust",
+      "class": "rust_source",
+      "status": "legacy",
+      "primary_artifacts": [
+        "rust_source"
+      ],
+      "required_evidence": [
+        "unit_test",
+        "conformance"
+      ],
+      "may_emit": [
+        "generated_rust",
+        "source_map",
+        "rustc_metadata",
+        "native_binary"
+      ],
+      "must_not_require": []
+    },
+    {
+      "id": "axiom://target/stage1-direct-native",
+      "package": "compiler.backend.native",
+      "class": "native_binary",
+      "status": "experimental",
+      "primary_artifacts": [
+        "native_binary",
+        "native_object",
+        "debug_sidecar"
+      ],
+      "required_evidence": [
+        "unit_test",
+        "conformance",
+        "runtime_abi",
+        "capability_denial_test"
+      ],
+      "may_emit": [
+        "native_binary",
+        "native_object",
+        "debug_sidecar",
+        "unsupported_feature_diagnostic",
+        "runtime_abi_row"
+      ],
+      "must_not_require": [
+        "rust_source",
+        "generated_rust",
+        "cargo_metadata",
+        "rustc_output"
+      ]
+    }
+  ],
+  "evidence_rules": {
+    "direct_native_must_not_require": [
+      "rust_source",
+      "generated_rust",
+      "cargo_metadata",
+      "rustc_output"
+    ],
+    "direct_native_may_reference": [
+      "native_binary",
+      "native_object",
+      "debug_sidecar",
+      "runtime_abi_row",
+      "unsupported_feature_diagnostic",
+      "axiom_source_id"
+    ],
+    "generated_rust_scope": "Generated Rust evidence is scoped to compiler.backend.generated_rust and may be optional parity evidence only for compiler.backend.native."
+  },
+  "validation": [
+    "make stage1-mir-backend-boundary",
+    "make stage1-mir-backend-boundary-test",
+    "make stage1-direct-native-runtime-abi-test",
+    "cargo test --manifest-path stage1/Cargo.toml -p axiomc --test cranelift_backend"
+  ]
+}
