@@ -12983,6 +12983,53 @@ print takes_two(three)
     }
 
     #[test]
+    #[cfg_attr(not(feature = "run-native-tests"), ignore)]
+    fn cranelift_build_reuses_cache_without_generated_rust_artifact() {
+        if which::which("cc").is_err() {
+            eprintln!("skipping Cranelift cache reuse test because cc is unavailable");
+            return;
+        }
+
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("cranelift-cached-build");
+        create_project(&project, Some("cranelift-cached-build-app")).expect("create project");
+
+        let options = BuildOptions {
+            backend: NativeBackendKind::Cranelift,
+            debug: true,
+            ..BuildOptions::default()
+        };
+
+        let first =
+            build_project_with_options(&project, &options).expect("initial cranelift build");
+        assert_eq!(first.cache_hits, 0);
+        assert_eq!(first.cache_misses, 1);
+        assert_eq!(first.packages[0].cache_status, BuildCacheStatus::Miss);
+        assert!(first.generated_rust.is_none());
+        assert!(first.packages[0].generated_rust.is_none());
+
+        let second =
+            build_project_with_options(&project, &options).expect("cached cranelift build");
+        assert_eq!(second.cache_hits, 1);
+        assert_eq!(second.cache_misses, 0);
+        assert_eq!(second.packages[0].cache_status, BuildCacheStatus::Hit);
+        assert!(second.generated_rust.is_none());
+        assert!(second.packages[0].generated_rust.is_none());
+        assert!(
+            second
+                .debug_map
+                .as_ref()
+                .is_some_and(|path| Path::new(path).exists())
+        );
+        assert!(
+            second
+                .debug_manifest
+                .as_ref()
+                .is_some_and(|path| Path::new(path).exists())
+        );
+    }
+
+    #[test]
     fn run_project_tests_supports_name_filtering() {
         let dir = tempdir().expect("tempdir");
         let project = dir.path().join("filtered-tests");
