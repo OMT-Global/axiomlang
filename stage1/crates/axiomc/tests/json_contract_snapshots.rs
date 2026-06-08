@@ -121,9 +121,11 @@ fn cranelift_debug_build_emits_direct_native_debug_sidecars() {
         debug_map["schema_version"],
         "axiom.stage1.direct_native.debug_map.v1"
     );
-    assert!(debug_map["binary"]
-        .as_str()
-        .is_some_and(|path| path.contains("cranelift-debug-contract-app")));
+    assert!(
+        debug_map["binary"]
+            .as_str()
+            .is_some_and(|path| path.contains("cranelift-debug-contract-app"))
+    );
 
     let debug_manifest = read_json(Path::new(debug_manifest_path));
     assert_eq!(
@@ -278,11 +280,13 @@ fn doc_json_output_validates_against_doc_schema() {
     assert_eq!(output["types"][0]["kind"], "struct");
     assert_eq!(output["items"][0]["kind"], "function");
     assert_eq!(output["items"][0]["examples"][0], "route(\"/health\")");
-    assert!(output["capabilities"]
-        .as_array()
-        .expect("capabilities array")
-        .iter()
-        .any(|capability| capability["name"] == "env"));
+    assert!(
+        output["capabilities"]
+            .as_array()
+            .expect("capabilities array")
+            .iter()
+            .any(|capability| capability["name"] == "env")
+    );
 }
 
 #[test]

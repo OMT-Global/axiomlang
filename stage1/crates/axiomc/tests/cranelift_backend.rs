@@ -39,14 +39,10 @@ fn cranelift_backend_builds_hello_binary() {
     assert_eq!(payload["backend"], "cranelift");
     assert_eq!(payload["packages"][0]["backend"], "cranelift");
     let binary = payload["binary"].as_str().expect("binary path");
-    let generated_rust = payload["generated_rust"]
-        .as_str()
-        .expect("generated Rust path");
+    assert!(payload["generated_rust"].is_null());
     assert!(Path::new(binary).exists(), "cranelift binary exists");
     assert!(
-        Path::new(generated_rust)
-            .with_extension("cranelift.o")
-            .exists(),
+        Path::new(binary).with_extension("cranelift.o").exists(),
         "cranelift object exists"
     );
 
