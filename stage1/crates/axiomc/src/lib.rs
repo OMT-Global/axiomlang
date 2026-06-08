@@ -51,6 +51,13 @@ mod tests {
     #[cfg(unix)]
     const PROCESS_FIXTURE_EXECUTABLE_MODE: u32 = 0o700;
 
+    fn generated_rust_path(output: &crate::project::BuildOutput) -> &str {
+        output
+            .generated_rust
+            .as_deref()
+            .expect("generated Rust path")
+    }
+
     fn render_manifest_with_capabilities(
         name: &str,
         fs: bool,
@@ -2520,7 +2527,8 @@ print 0
         .expect("write source");
 
         let built = build_project(&project).expect("build async timeout project");
-        let generated = fs::read_to_string(&built.generated_rust).expect("read generated rust");
+        let generated =
+            fs::read_to_string(generated_rust_path(&built)).expect("read generated rust");
         assert!(generated.contains("match receiver.recv_timeout(remaining)"));
         assert!(
             generated.contains("Err(std::sync::mpsc::RecvTimeoutError::Timeout) => return None")
@@ -2901,7 +2909,7 @@ print first(values)\n",
         .expect("write cli args program");
 
         let built = build_project(&project).expect("build cli args project");
-        let build_output_dir = Path::new(&built.generated_rust)
+        let build_output_dir = Path::new(generated_rust_path(&built))
             .parent()
             .expect("build output directory");
         let output = command_for_build_output(&built.binary, build_output_dir)
@@ -7022,7 +7030,8 @@ true
         .expect("write golden");
 
         let built = build_project(&project).expect("build project");
-        let generated = fs::read_to_string(&built.generated_rust).expect("read generated rust");
+        let generated =
+            fs::read_to_string(generated_rust_path(&built)).expect("read generated rust");
         assert!(generated.contains("axiom_task_deferred(move ||"));
         assert!(generated.contains("struct AxiomRuntimeScheduler"));
         assert!(
@@ -7176,7 +7185,8 @@ let _listener_closed: int = close_listener(listener)
         fs::write(project.join("src/main.ax"), source).expect("write source");
 
         let built = build_project(&project).expect("build project");
-        let generated = fs::read_to_string(&built.generated_rust).expect("read generated rust");
+        let generated =
+            fs::read_to_string(generated_rust_path(&built)).expect("read generated rust");
         assert!(generated.contains("axiom_net_tcp_read_string"));
         assert!(generated.contains("axiom_net_tcp_write_string"));
         assert!(generated.contains("net_tcp_accept(listener)"));
@@ -7267,7 +7277,8 @@ let _listener_closed: int = close_listener(listener)
         fs::write(project.join("src/main.ax"), source).expect("write source");
 
         let built = build_project(&project).expect("build single-worker async project");
-        let generated = fs::read_to_string(&built.generated_rust).expect("read generated rust");
+        let generated =
+            fs::read_to_string(generated_rust_path(&built)).expect("read generated rust");
         assert!(generated.contains("const AXIOM_RUNTIME_MAX_THREADS_CONFIG: usize = 1;"));
         assert!(generated.contains("fn axiom_runtime_recv<T>("));
         assert!(generated.contains("fn try_run_one(&self) -> bool"));
@@ -7326,7 +7337,8 @@ let _listener_closed: int = close_listener(listener)
         fs::write(project.join("src/main.ax"), source).expect("write source");
 
         let built = build_project(&project).expect("build project");
-        let generated = fs::read_to_string(&built.generated_rust).expect("read generated rust");
+        let generated =
+            fs::read_to_string(generated_rust_path(&built)).expect("read generated rust");
         assert!(generated.contains("const AXIOM_RUNTIME_MAX_THREADS_CONFIG: usize = 32;"));
         assert!(generated.contains("AxiomTimerWheel"));
         assert!(generated.contains("AxiomRuntimePool"));
@@ -10400,7 +10412,8 @@ print takes_two(three)
         )
         .expect("write source");
         let built = build_project(&project).expect("build project with static globals");
-        let generated = fs::read_to_string(&built.generated_rust).expect("read generated rust");
+        let generated =
+            fs::read_to_string(generated_rust_path(&built)).expect("read generated rust");
         assert!(generated.contains("static static_globals_app_main_LIMIT: i64 = 40 + 2;"));
         assert!(generated.contains("static static_globals_app_main_READY: bool = 40 + 2 == 42;"));
         assert!(
@@ -10427,7 +10440,8 @@ print takes_two(three)
         .expect("write source");
 
         let built = build_project(&project).expect("build project with static string comparisons");
-        let generated = fs::read_to_string(&built.generated_rust).expect("read generated rust");
+        let generated =
+            fs::read_to_string(generated_rust_path(&built)).expect("read generated rust");
         assert!(generated.contains("static static_string_comparison_app_main_SAME: bool = true;"));
         assert!(
             generated.contains("static static_string_comparison_app_main_DIFFERENT: bool = true;")
@@ -10450,7 +10464,8 @@ print takes_two(three)
         .expect("write source");
 
         let built = build_project(&project).expect("static names should not false-recurse");
-        let generated = fs::read_to_string(&built.generated_rust).expect("read generated rust");
+        let generated =
+            fs::read_to_string(generated_rust_path(&built)).expect("read generated rust");
         assert!(generated.contains("static p_main_A: i64 = 1;"));
         assert!(generated.contains("static p_main_p_main_A: i64 = 1;"));
         let output = compiled_binary_command(&built.binary)
@@ -10475,7 +10490,8 @@ print takes_two(three)
         )
         .expect("write values");
         let built = build_project(&project).expect("build project with imported static globals");
-        let generated = fs::read_to_string(&built.generated_rust).expect("read generated rust");
+        let generated =
+            fs::read_to_string(generated_rust_path(&built)).expect("read generated rust");
         assert!(generated.contains("static public_static_globals_app_values_LIMIT: i64 = 40 + 2;"));
         assert!(
             generated
@@ -11514,7 +11530,8 @@ print takes_two(three)
         .expect("write source");
 
         let built = build_project(&project).expect("build project");
-        let generated = fs::read_to_string(&built.generated_rust).expect("read generated rust");
+        let generated =
+            fs::read_to_string(generated_rust_path(&built)).expect("read generated rust");
         assert!(generated.contains("let mut value: String"));
         assert!(generated.contains("let local: &mut String = &mut value;"));
         assert!(generated.contains("*local = String::from(\"beta\");"));
@@ -12617,7 +12634,7 @@ print takes_two(three)
         assert_eq!(release.cache_misses, 1);
         assert!(!release.debug);
         let release_generated =
-            fs::read_to_string(&release.generated_rust).expect("read release generated rust");
+            fs::read_to_string(generated_rust_path(&release)).expect("read release generated rust");
         assert!(!release_generated.contains("// axiom-source:"));
 
         let debug = build_project_with_options(
@@ -12641,7 +12658,8 @@ print takes_two(three)
         assert_eq!(debug.cache_hits, 0);
         assert_eq!(debug.cache_misses, 1);
 
-        let generated = fs::read_to_string(&debug.generated_rust).expect("read generated rust");
+        let generated =
+            fs::read_to_string(generated_rust_path(&debug)).expect("read generated rust");
         let source = project
             .join("src/main.ax")
             .canonicalize()
@@ -12654,7 +12672,7 @@ print takes_two(three)
             serde_json::from_str(&fs::read_to_string(&debug_map).expect("read debug map"))
                 .expect("parse debug map");
         assert_eq!(map["schema_version"], "axiom.stage1.debug_map.v1");
-        assert_eq!(map["generated_rust"], debug.generated_rust);
+        assert_eq!(map["generated_rust"], generated_rust_path(&debug));
         assert_eq!(map["mappings"][0]["source"], source);
         assert_eq!(map["mappings"][0]["line"], 1);
         assert_eq!(map["mappings"][0]["column"], 1);
@@ -12666,7 +12684,7 @@ print takes_two(three)
         assert_eq!(manifest["schema_version"], "axiom.stage1.debug_manifest.v1");
         assert_eq!(manifest["backend"], "generated-rust");
         assert_eq!(manifest["binary"], debug.binary);
-        assert_eq!(manifest["generated_rust"], debug.generated_rust);
+        assert_eq!(manifest["generated_rust"], generated_rust_path(&debug));
         assert_eq!(manifest["debug_map"], debug_map.display().to_string());
         assert_eq!(manifest["native_debug"]["producer"], "rustc");
         assert_eq!(manifest["native_debug"]["debuginfo"], 2);
@@ -12692,7 +12710,7 @@ print takes_two(three)
                 "readelf --debug-dump=decodedline failed"
             );
             let dwarf_lines = String::from_utf8_lossy(&output.stdout);
-            let generated_file = PathBuf::from(&debug.generated_rust)
+            let generated_file = PathBuf::from(generated_rust_path(&debug))
                 .file_name()
                 .expect("generated rust file name")
                 .to_string_lossy()
@@ -12792,6 +12810,103 @@ print takes_two(three)
     }
 
     #[test]
+    fn cranelift_debug_build_emits_direct_native_evidence_without_generated_rust() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("cranelift-debug-build");
+        create_project(&project, Some("cranelift-debug-build-app")).expect("create project");
+        fs::write(
+            project.join("src/main.ax"),
+            "let answer: int = 42\nprint answer\n",
+        )
+        .expect("write source");
+
+        let output = build_project_with_options(
+            &project,
+            &BuildOptions {
+                backend: NativeBackendKind::Cranelift,
+                target: None,
+                package: None,
+                debug: true,
+                ..BuildOptions::default()
+            },
+        )
+        .expect("cranelift debug build");
+
+        assert!(output.generated_rust.is_none());
+        let manifest = load_manifest(&project).expect("load manifest");
+        let legacy_generated = crate::manifest::generated_rust_path(&project, &manifest);
+        assert!(
+            !legacy_generated.exists(),
+            "direct-native debug builds must not write generated Rust"
+        );
+        assert!(
+            legacy_generated.with_extension("build-cache.toml").exists(),
+            "direct-native builds should still create the cache sidecar"
+        );
+        let debug_map = PathBuf::from(output.debug_map.as_ref().expect("debug map path"));
+        let debug_manifest =
+            PathBuf::from(output.debug_manifest.as_ref().expect("debug manifest path"));
+        assert!(debug_map.exists());
+        assert!(debug_manifest.exists());
+
+        let map: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(&debug_map).expect("read debug map"))
+                .expect("parse debug map");
+        assert_eq!(
+            map["schema_version"],
+            "axiom.stage1.direct_native.debug_map.v1"
+        );
+        assert_eq!(map["backend"], "cranelift");
+        assert_eq!(map["binary"], output.binary);
+        assert!(map.get("generated_rust").is_none());
+        assert!(map["source_spans"].as_array().is_some_and(|spans| {
+            spans.iter().any(|span| {
+                span["kind"] == "statement"
+                    && span["source"]
+                        .as_str()
+                        .is_some_and(|path| path.ends_with("src/main.ax"))
+                    && span["line"] == 2
+            })
+        }));
+
+        let manifest_json: serde_json::Value = serde_json::from_str(
+            &fs::read_to_string(&debug_manifest).expect("read debug manifest"),
+        )
+        .expect("parse debug manifest");
+        assert_eq!(
+            manifest_json["schema_version"],
+            "axiom.stage1.direct_native.debug_manifest.v1"
+        );
+        assert_eq!(manifest_json["backend"], "cranelift");
+        assert_eq!(manifest_json["artifact_class"], "native_binary");
+        assert_eq!(manifest_json["binary"], output.binary);
+        assert_eq!(manifest_json["debug_map"], debug_map.display().to_string());
+        assert_eq!(manifest_json["native_debug"]["producer"], "cranelift");
+        assert_eq!(manifest_json["native_debug"]["axiom_dwarf"], false);
+        assert!(manifest_json.get("generated_rust").is_none());
+        assert!(manifest_json.get("generated_rust_hash").is_none());
+        assert!(
+            manifest_json["source_files"]
+                .as_array()
+                .is_some_and(|files| {
+                    files.iter().any(|file| {
+                        file["path"]
+                            .as_str()
+                            .is_some_and(|path| path.ends_with("src/main.ax"))
+                            && file["mapping_count"]
+                                .as_u64()
+                                .is_some_and(|count| count >= 2)
+                    })
+                })
+        );
+
+        let payload = json_contract::build_success(&project, &output);
+        assert!(payload["generated_rust"].is_null());
+        assert_eq!(payload["backend"], "cranelift");
+        assert!(payload["debug_manifest"].is_string());
+    }
+
+    #[test]
     fn build_project_reuses_incremental_cache_until_module_changes() {
         let dir = tempdir().expect("tempdir");
         let project = dir.path().join("cached-build");
@@ -12811,18 +12926,19 @@ print takes_two(three)
         assert_eq!(first.cache_hits, 0);
         assert_eq!(first.cache_misses, 1);
         assert_eq!(first.packages[0].cache_status, BuildCacheStatus::Miss);
-        let generated = fs::read_to_string(&first.generated_rust).expect("read generated rust");
+        let generated =
+            fs::read_to_string(generated_rust_path(&first)).expect("read generated rust");
 
         let second = build_project(&project).expect("cached build");
         assert_eq!(second.cache_hits, 1);
         assert_eq!(second.cache_misses, 0);
         assert_eq!(second.packages[0].cache_status, BuildCacheStatus::Hit);
         assert_eq!(
-            fs::read_to_string(&second.generated_rust).expect("read cached generated rust"),
+            fs::read_to_string(generated_rust_path(&second)).expect("read cached generated rust"),
             generated
         );
 
-        fs::write(&second.generated_rust, "// stale generated rust\n")
+        fs::write(generated_rust_path(&second), "// stale generated rust\n")
             .expect("corrupt generated rust");
         let repaired_rust = build_project(&project).expect("repair generated rust");
         assert_eq!(repaired_rust.cache_hits, 0);
@@ -12832,7 +12948,7 @@ print takes_two(three)
             BuildCacheStatus::Miss
         );
         assert_eq!(
-            fs::read_to_string(&repaired_rust.generated_rust).expect("read repaired rust"),
+            fs::read_to_string(generated_rust_path(&repaired_rust)).expect("read repaired rust"),
             generated
         );
 
@@ -12864,6 +12980,53 @@ print takes_two(three)
             .expect("run rebuilt binary");
         assert!(output.status.success());
         assert_eq!(String::from_utf8_lossy(&output.stdout), "42\n");
+    }
+
+    #[test]
+    #[cfg_attr(not(feature = "run-native-tests"), ignore)]
+    fn cranelift_build_reuses_cache_without_generated_rust_artifact() {
+        if which::which("cc").is_err() {
+            eprintln!("skipping Cranelift cache reuse test because cc is unavailable");
+            return;
+        }
+
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("cranelift-cached-build");
+        create_project(&project, Some("cranelift-cached-build-app")).expect("create project");
+
+        let options = BuildOptions {
+            backend: NativeBackendKind::Cranelift,
+            debug: true,
+            ..BuildOptions::default()
+        };
+
+        let first =
+            build_project_with_options(&project, &options).expect("initial cranelift build");
+        assert_eq!(first.cache_hits, 0);
+        assert_eq!(first.cache_misses, 1);
+        assert_eq!(first.packages[0].cache_status, BuildCacheStatus::Miss);
+        assert!(first.generated_rust.is_none());
+        assert!(first.packages[0].generated_rust.is_none());
+
+        let second =
+            build_project_with_options(&project, &options).expect("cached cranelift build");
+        assert_eq!(second.cache_hits, 1);
+        assert_eq!(second.cache_misses, 0);
+        assert_eq!(second.packages[0].cache_status, BuildCacheStatus::Hit);
+        assert!(second.generated_rust.is_none());
+        assert!(second.packages[0].generated_rust.is_none());
+        assert!(
+            second
+                .debug_map
+                .as_ref()
+                .is_some_and(|path| Path::new(path).exists())
+        );
+        assert!(
+            second
+                .debug_manifest
+                .as_ref()
+                .is_some_and(|path| Path::new(path).exists())
+        );
     }
 
     #[test]
