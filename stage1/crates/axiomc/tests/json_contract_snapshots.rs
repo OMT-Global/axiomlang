@@ -49,6 +49,38 @@ fn cli_json_outputs_match_checked_in_contract_snapshots() {
     }
 }
 
+#[cfg(not(windows))]
+#[test]
+fn cranelift_build_json_validates_against_command_schema() {
+    if which::which("cc").is_err() {
+        eprintln!("skipping Cranelift build JSON schema test because cc is unavailable");
+        return;
+    }
+
+    let contracts = contract_root();
+    let schema = read_json(&contracts.join("schemas/axiom.stage1.command.schema.json"));
+    let validator = jsonschema::validator_for(&schema).expect("compile JSON contract schema");
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("cranelift-contract-app");
+
+    run_axiomc(&[
+        "new",
+        project.to_str().expect("project path"),
+        "--name",
+        "cranelift-contract-app",
+    ]);
+
+    let output = run_axiomc_json(&[
+        "build",
+        project.to_str().expect("project path"),
+        "--backend",
+        "cranelift",
+        "--json",
+    ]);
+    assert!(output["generated_rust"].is_null());
+    assert_payload_matches_schema(&validator, "cranelift build", &output);
+}
+
 #[test]
 fn debug_map_sidecar_matches_checked_in_contract_snapshot() {
     let contracts = contract_root();

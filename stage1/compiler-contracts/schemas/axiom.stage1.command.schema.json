@@ -534,7 +534,10 @@
           "$ref": "#/$defs/path"
         },
         "generated_rust": {
-          "$ref": "#/$defs/path"
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "debug_map": {
           "type": [
