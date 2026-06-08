@@ -4,6 +4,7 @@ use crate::mir::{
     Type,
 };
 use crate::syntax::NumericType;
+use axiomc_backend_cranelift::OutputLine;
 use std::collections::HashMap;
 use std::path::Path;
 
@@ -43,24 +44,26 @@ pub fn compile_cranelift_hello_spike(
             "the cranelift backend spike currently supports only the host target",
         ));
     }
-    let lines = collect_print_lines(program)?;
-    axiomc_backend_cranelift::compile_print_lines(&lines, object_path, binary_path).map_err(|err| {
-        Diagnostic::new("build", err.to_string()).with_path(object_path.display().to_string())
-    })
+    let lines = collect_output_lines(program)?;
+    axiomc_backend_cranelift::compile_output_lines(&lines, object_path, binary_path).map_err(
+        |err| {
+            Diagnostic::new("build", err.to_string()).with_path(object_path.display().to_string())
+        },
+    )
 }
 
-fn collect_print_lines(program: &Program) -> Result<Vec<String>, Diagnostic> {
+fn collect_output_lines(program: &Program) -> Result<Vec<OutputLine>, Diagnostic> {
     let functions = program
         .functions
         .iter()
         .map(|function| (function.name.as_str(), function))
         .collect::<HashMap<_, _>>();
     let mut env = SpikeEnv::new();
+    let mut lines = Vec::new();
     for static_def in &program.statics {
-        let value = eval_expr(&static_def.expr, &functions, &env)?;
+        let value = eval_expr(&static_def.expr, &functions, &env, &mut lines)?;
         env.insert(static_def.name.clone(), value);
     }
-    let mut lines = Vec::new();
     eval_block(&program.stmts, &functions, &mut env, &mut lines)?;
     Ok(lines)
 }
@@ -69,7 +72,7 @@ fn eval_block(
     stmts: &[Stmt],
     functions: &HashMap<&str, &Function>,
     env: &mut SpikeEnv,
-    lines: &mut Vec<String>,
+    lines: &mut Vec<OutputLine>,
 ) -> Result<Option<SpikeValue>, Diagnostic> {
     for stmt in stmts {
         if let Some(value) = eval_stmt(stmt, functions, env, lines)? {
@@ -83,16 +86,17 @@ fn eval_stmt(
     stmt: &Stmt,
     functions: &HashMap<&str, &Function>,
     env: &mut SpikeEnv,
-    lines: &mut Vec<String>,
+    lines: &mut Vec<OutputLine>,
 ) -> Result<Option<SpikeValue>, Diagnostic> {
     match stmt {
         Stmt::Let { name, expr, .. } => {
-            let value = eval_expr(expr, functions, env)?;
+            let value = eval_expr(expr, functions, env, lines)?;
             env.insert(name.clone(), value);
             Ok(None)
         }
         Stmt::Print { expr, .. } => {
-            lines.push(render_value(&eval_expr(expr, functions, env)?));
+            let value = eval_expr(expr, functions, env, lines)?;
+            lines.push(OutputLine::stdout(render_value(&value)));
             Ok(None)
         }
         Stmt::If {
@@ -101,7 +105,7 @@ fn eval_stmt(
             else_block,
             ..
         } => {
-            let branch = match eval_expr(cond, functions, env)? {
+            let branch = match eval_expr(cond, functions, env, lines)? {
                 SpikeValue::Bool(true) => Some(then_block.as_slice()),
                 SpikeValue::Bool(false) => else_block.as_deref(),
                 _ => return Err(unsupported("if conditions must be boolean")),
@@ -112,7 +116,7 @@ fn eval_stmt(
                 Ok(None)
             }
         }
-        Stmt::While { cond, .. } => match eval_expr(cond, functions, env)? {
+        Stmt::While { cond, .. } => match eval_expr(cond, functions, env, lines)? {
             SpikeValue::Bool(false) => Ok(None),
             SpikeValue::Bool(true) => Err(unsupported(
                 "runtime loops are not part of the cranelift hello spike",
@@ -120,7 +124,7 @@ fn eval_stmt(
             _ => Err(unsupported("while conditions must be boolean")),
         },
         Stmt::Match { expr, arms, .. } => eval_match_stmt(expr, arms, functions, env, lines),
-        Stmt::Return { expr, .. } => Ok(Some(eval_expr(expr, functions, env)?)),
+        Stmt::Return { expr, .. } => Ok(Some(eval_expr(expr, functions, env, lines)?)),
         Stmt::Assign { .. } | Stmt::Panic { .. } | Stmt::Defer { .. } => Err(unsupported(
             "only let, print, if, while false, match, and return statements are supported by the cranelift hello spike",
         )),
@@ -131,6 +135,7 @@ fn eval_expr(
     expr: &Expr,
     functions: &HashMap<&str, &Function>,
     env: &SpikeEnv,
+    lines: &mut Vec<OutputLine>,
 ) -> Result<SpikeValue, Diagnostic> {
     match expr {
         Expr::Literal(LiteralValue::Int(value)) => Ok(SpikeValue::Int(*value)),
@@ -143,34 +148,41 @@ fn eval_expr(
             .get(name)
             .cloned()
             .ok_or_else(|| unsupported(&format!("unknown cranelift spike variable {name:?}"))),
-        Expr::Call { name, args, .. } => eval_call(name, args, functions, env),
-        Expr::BinaryAdd { op, lhs, rhs, ty } => eval_arithmetic(*op, lhs, rhs, ty, functions, env),
+        Expr::Call { name, args, .. } => eval_call(name, args, functions, env, lines),
+        Expr::BinaryAdd { op, lhs, rhs, ty } => {
+            eval_arithmetic(*op, lhs, rhs, ty, functions, env, lines)
+        }
         Expr::BinaryCompare {
             op,
             lhs,
             rhs,
             ty: _,
-        } => eval_compare(*op, lhs, rhs, functions, env),
+        } => eval_compare(*op, lhs, rhs, functions, env, lines),
         Expr::BinaryLogic { op, lhs, rhs, .. } => {
-            let left = expect_bool(eval_expr(lhs, functions, env)?)?;
+            let left = expect_bool(eval_expr(lhs, functions, env, lines)?)?;
             match op {
                 crate::mir::LogicOp::And if !left => Ok(SpikeValue::Bool(false)),
                 crate::mir::LogicOp::Or if left => Ok(SpikeValue::Bool(true)),
                 crate::mir::LogicOp::And | crate::mir::LogicOp::Or => Ok(SpikeValue::Bool(
-                    expect_bool(eval_expr(rhs, functions, env)?)?,
+                    expect_bool(eval_expr(rhs, functions, env, lines)?)?,
                 )),
             }
         }
-        Expr::Cast { expr, ty } => cast_spike_value(eval_expr(expr, functions, env)?, ty),
+        Expr::Cast { expr, ty } => cast_spike_value(eval_expr(expr, functions, env, lines)?, ty),
         Expr::StructLiteral { name, fields, .. } => fields
             .iter()
-            .map(|field| Ok((field.name.clone(), eval_expr(&field.expr, functions, env)?)))
+            .map(|field| {
+                Ok((
+                    field.name.clone(),
+                    eval_expr(&field.expr, functions, env, lines)?,
+                ))
+            })
             .collect::<Result<Vec<_>, _>>()
             .map(|fields| SpikeValue::Struct {
                 name: name.clone(),
                 fields,
             }),
-        Expr::FieldAccess { base, field, .. } => match eval_expr(base, functions, env)? {
+        Expr::FieldAccess { base, field, .. } => match eval_expr(base, functions, env, lines)? {
             SpikeValue::Struct { name, fields } => fields
                 .into_iter()
                 .find_map(|(candidate, value)| (candidate == *field).then_some(value))
@@ -189,7 +201,7 @@ fn eval_expr(
             ..
         } => payloads
             .iter()
-            .map(|payload| eval_expr(payload, functions, env))
+            .map(|payload| eval_expr(payload, functions, env, lines))
             .collect::<Result<Vec<_>, _>>()
             .map(|payloads| SpikeValue::Enum {
                 enum_name: enum_name.clone(),
@@ -197,13 +209,13 @@ fn eval_expr(
                 field_names: field_names.clone(),
                 payloads,
             }),
-        Expr::Match { expr, arms, .. } => eval_match_expr(expr, arms, functions, env),
+        Expr::Match { expr, arms, .. } => eval_match_expr(expr, arms, functions, env, lines),
         Expr::TupleLiteral { elements, .. } => elements
             .iter()
-            .map(|element| eval_expr(element, functions, env))
+            .map(|element| eval_expr(element, functions, env, lines))
             .collect::<Result<Vec<_>, _>>()
             .map(SpikeValue::Tuple),
-        Expr::TupleIndex { base, index, .. } => match eval_expr(base, functions, env)? {
+        Expr::TupleIndex { base, index, .. } => match eval_expr(base, functions, env, lines)? {
             SpikeValue::Tuple(elements) => elements
                 .get(*index)
                 .cloned()
@@ -213,22 +225,22 @@ fn eval_expr(
         Expr::MapLiteral { entries, .. } => {
             let mut values = Vec::new();
             for entry in entries {
-                let key = eval_expr(&entry.key, functions, env)?;
+                let key = eval_expr(&entry.key, functions, env, lines)?;
                 validate_map_key(&key)?;
-                let value = eval_expr(&entry.value, functions, env)?;
+                let value = eval_expr(&entry.value, functions, env, lines)?;
                 insert_map_entry(&mut values, key, value)?;
             }
             Ok(SpikeValue::Map(values))
         }
         Expr::ArrayLiteral { elements, .. } => elements
             .iter()
-            .map(|element| eval_expr(element, functions, env))
+            .map(|element| eval_expr(element, functions, env, lines))
             .collect::<Result<Vec<_>, _>>()
             .map(SpikeValue::Array),
         Expr::Slice {
             base, start, end, ..
         } => {
-            let elements = match eval_expr(base, functions, env)? {
+            let elements = match eval_expr(base, functions, env, lines)? {
                 SpikeValue::Array(elements) => elements,
                 _ => {
                     return Err(unsupported(
@@ -237,11 +249,11 @@ fn eval_expr(
                 }
             };
             let start = match start {
-                Some(expr) => expect_non_negative_index(eval_expr(expr, functions, env)?)?,
+                Some(expr) => expect_non_negative_index(eval_expr(expr, functions, env, lines)?)?,
                 None => 0,
             };
             let end = match end {
-                Some(expr) => expect_non_negative_index(eval_expr(expr, functions, env)?)?,
+                Some(expr) => expect_non_negative_index(eval_expr(expr, functions, env, lines)?)?,
                 None => elements.len(),
             };
             if start > end || end > elements.len() {
@@ -249,16 +261,16 @@ fn eval_expr(
             }
             Ok(SpikeValue::Array(elements[start..end].to_vec()))
         }
-        Expr::Index { base, index, .. } => match eval_expr(base, functions, env)? {
+        Expr::Index { base, index, .. } => match eval_expr(base, functions, env, lines)? {
             SpikeValue::Array(elements) => {
-                let index = expect_non_negative_index(eval_expr(index, functions, env)?)?;
+                let index = expect_non_negative_index(eval_expr(index, functions, env, lines)?)?;
                 elements
                     .get(index)
                     .cloned()
                     .ok_or_else(|| unsupported("array index is outside the array length"))
             }
             SpikeValue::Map(entries) => {
-                let key = eval_expr(index, functions, env)?;
+                let key = eval_expr(index, functions, env, lines)?;
                 validate_map_key(&key)?;
                 for (candidate, value) in entries {
                     if map_keys_equal(&candidate, &key)? {
@@ -280,9 +292,9 @@ fn eval_match_stmt(
     arms: &[MatchArm],
     functions: &HashMap<&str, &Function>,
     env: &SpikeEnv,
-    lines: &mut Vec<String>,
+    lines: &mut Vec<OutputLine>,
 ) -> Result<Option<SpikeValue>, Diagnostic> {
-    let matched = expect_enum_value(eval_expr(expr, functions, env)?)?;
+    let matched = expect_enum_value(eval_expr(expr, functions, env, lines)?)?;
     let arm = arms
         .iter()
         .find(|arm| arm.enum_name == matched.enum_name && arm.variant == matched.variant)
@@ -305,8 +317,9 @@ fn eval_match_expr(
     arms: &[MatchExprArm],
     functions: &HashMap<&str, &Function>,
     env: &SpikeEnv,
+    lines: &mut Vec<OutputLine>,
 ) -> Result<SpikeValue, Diagnostic> {
-    let matched = expect_enum_value(eval_expr(expr, functions, env)?)?;
+    let matched = expect_enum_value(eval_expr(expr, functions, env, lines)?)?;
     let arm = arms
         .iter()
         .find(|arm| arm.enum_name == matched.enum_name && arm.variant == matched.variant)
@@ -319,7 +332,7 @@ fn eval_match_expr(
         &matched.field_names,
         &matched.payloads,
     )?;
-    eval_expr(&arm.expr, functions, &arm_env)
+    eval_expr(&arm.expr, functions, &arm_env, lines)
 }
 
 struct MatchedEnum {
@@ -498,21 +511,25 @@ fn eval_call(
     args: &[Expr],
     functions: &HashMap<&str, &Function>,
     env: &SpikeEnv,
+    lines: &mut Vec<OutputLine>,
 ) -> Result<SpikeValue, Diagnostic> {
     if name == "len" {
-        return eval_len_call(args, functions, env);
+        return eval_len_call(args, functions, env, lines);
     }
     if name == "first" || name == "last" {
-        return eval_first_last_call(name, args, functions, env);
+        return eval_first_last_call(name, args, functions, env, lines);
     }
     if name == "contains" || name == "map_contains_key" {
-        return eval_map_contains_call(args, functions, env);
+        return eval_map_contains_call(args, functions, env, lines);
+    }
+    if name == "io_eprintln" {
+        return eval_io_eprintln_call(args, functions, env, lines);
     }
     if name == "crypto_sha256" {
-        return eval_crypto_sha256_call(args, functions, env);
+        return eval_crypto_sha256_call(args, functions, env, lines);
     }
     if name == "env_get" {
-        return eval_env_get_call(args, functions, env);
+        return eval_env_get_call(args, functions, env, lines);
     }
     let function = functions
         .get(name)
@@ -522,15 +539,9 @@ fn eval_call(
     }
     let mut local_env = env.clone();
     for (param, arg) in function.params.iter().zip(args) {
-        local_env.insert(param.name.clone(), eval_expr(arg, functions, env)?);
+        local_env.insert(param.name.clone(), eval_expr(arg, functions, env, lines)?);
     }
-    let mut lines = Vec::new();
-    let returned = eval_block(&function.body, functions, &mut local_env, &mut lines)?;
-    if !lines.is_empty() {
-        return Err(unsupported(
-            "functions with print side effects are not part of the cranelift hello spike",
-        ));
-    }
+    let returned = eval_block(&function.body, functions, &mut local_env, lines)?;
     returned.ok_or_else(|| unsupported("cranelift spike functions must return a value"))
 }
 
@@ -538,11 +549,12 @@ fn eval_len_call(
     args: &[Expr],
     functions: &HashMap<&str, &Function>,
     env: &SpikeEnv,
+    lines: &mut Vec<OutputLine>,
 ) -> Result<SpikeValue, Diagnostic> {
     let [arg] = args else {
         return Err(unsupported("len expects exactly one argument"));
     };
-    let value = eval_expr(arg, functions, env)?;
+    let value = eval_expr(arg, functions, env, lines)?;
     let len = match value {
         // Match the generated-Rust backend, which lowers `len(...)` to Rust
         // `.len()` (encoded byte length). Using char count here would diverge
@@ -559,6 +571,7 @@ fn eval_first_last_call(
     args: &[Expr],
     functions: &HashMap<&str, &Function>,
     env: &SpikeEnv,
+    lines: &mut Vec<OutputLine>,
 ) -> Result<SpikeValue, Diagnostic> {
     let [arg] = args else {
         return Err(unsupported(&format!("{name} expects exactly one argument")));
@@ -566,7 +579,7 @@ fn eval_first_last_call(
     // HIR restricts `first`/`last` to arrays and slices and returns the element
     // directly (it panics at runtime on an empty collection). The spike models
     // owned arrays and evaluated array slices with the same value shape.
-    let elements = match eval_expr(arg, functions, env)? {
+    let elements = match eval_expr(arg, functions, env, lines)? {
         SpikeValue::Array(elements) => elements,
         _ => {
             return Err(unsupported(&format!(
@@ -588,15 +601,16 @@ fn eval_map_contains_call(
     args: &[Expr],
     functions: &HashMap<&str, &Function>,
     env: &SpikeEnv,
+    lines: &mut Vec<OutputLine>,
 ) -> Result<SpikeValue, Diagnostic> {
     let [map, key] = args else {
         return Err(unsupported("map contains expects exactly two arguments"));
     };
-    let entries = match eval_expr(map, functions, env)? {
+    let entries = match eval_expr(map, functions, env, lines)? {
         SpikeValue::Map(entries) => entries,
         _ => return Err(unsupported("map contains expects a map value")),
     };
-    let key = eval_expr(key, functions, env)?;
+    let key = eval_expr(key, functions, env, lines)?;
     validate_map_key(&key)?;
     let contains = entries.iter().try_fold(false, |found, (candidate, _)| {
         Ok::<_, Diagnostic>(found || map_keys_equal(candidate, &key)?)
@@ -608,11 +622,12 @@ fn eval_crypto_sha256_call(
     args: &[Expr],
     functions: &HashMap<&str, &Function>,
     env: &SpikeEnv,
+    lines: &mut Vec<OutputLine>,
 ) -> Result<SpikeValue, Diagnostic> {
     let [arg] = args else {
         return Err(unsupported("crypto_sha256 expects exactly one argument"));
     };
-    let input = match eval_expr(arg, functions, env)? {
+    let input = match eval_expr(arg, functions, env, lines)? {
         SpikeValue::Text(value) => value,
         _ => return Err(unsupported("crypto_sha256 expects a string argument")),
     };
@@ -714,11 +729,12 @@ fn eval_env_get_call(
     args: &[Expr],
     functions: &HashMap<&str, &Function>,
     env: &SpikeEnv,
+    lines: &mut Vec<OutputLine>,
 ) -> Result<SpikeValue, Diagnostic> {
     let [name] = args else {
         return Err(unsupported("env_get expects exactly one argument"));
     };
-    let name = match eval_expr(name, functions, env)? {
+    let name = match eval_expr(name, functions, env, lines)? {
         SpikeValue::Text(value) => value,
         _ => return Err(unsupported("env_get expects a string argument")),
     };
@@ -743,6 +759,24 @@ fn option_text(value: Option<String>) -> SpikeValue {
     }
 }
 
+fn eval_io_eprintln_call(
+    args: &[Expr],
+    functions: &HashMap<&str, &Function>,
+    env: &SpikeEnv,
+    lines: &mut Vec<OutputLine>,
+) -> Result<SpikeValue, Diagnostic> {
+    let [arg] = args else {
+        return Err(unsupported("io_eprintln expects exactly one argument"));
+    };
+    let text = match eval_expr(arg, functions, env, lines)? {
+        SpikeValue::Text(value) => value,
+        _ => return Err(unsupported("io_eprintln expects a string")),
+    };
+    let written = text.len() as i64 + 1;
+    lines.push(OutputLine::stderr(text));
+    Ok(SpikeValue::Int(written))
+}
+
 fn eval_arithmetic(
     op: ArithmeticOp,
     lhs: &Expr,
@@ -750,9 +784,10 @@ fn eval_arithmetic(
     ty: &Type,
     functions: &HashMap<&str, &Function>,
     env: &SpikeEnv,
+    lines: &mut Vec<OutputLine>,
 ) -> Result<SpikeValue, Diagnostic> {
-    let left = eval_expr(lhs, functions, env)?;
-    let right = eval_expr(rhs, functions, env)?;
+    let left = eval_expr(lhs, functions, env, lines)?;
+    let right = eval_expr(rhs, functions, env, lines)?;
     match (ty, left, right) {
         (Type::Int, SpikeValue::Int(left), SpikeValue::Int(right)) => {
             let value = match op {
@@ -884,9 +919,10 @@ fn eval_compare(
     rhs: &Expr,
     functions: &HashMap<&str, &Function>,
     env: &SpikeEnv,
+    lines: &mut Vec<OutputLine>,
 ) -> Result<SpikeValue, Diagnostic> {
-    let left = eval_expr(lhs, functions, env)?;
-    let right = eval_expr(rhs, functions, env)?;
+    let left = eval_expr(lhs, functions, env, lines)?;
+    let right = eval_expr(rhs, functions, env, lines)?;
     let result = match (left, right) {
         (SpikeValue::Int(left), SpikeValue::Int(right)) => compare_ord(op, left, right),
         (SpikeValue::UInt(left), SpikeValue::UInt(right)) => compare_ord(op, left, right),
@@ -1192,8 +1228,11 @@ mod tests {
     #[test]
     fn folds_hello_subset_into_print_lines() {
         assert_eq!(
-            collect_print_lines(&hello_program()).expect("fold hello"),
-            vec![String::from("hello from stage1"), String::from("42")]
+            collect_output_lines(&hello_program()).expect("fold hello"),
+            vec![
+                OutputLine::stdout("hello from stage1"),
+                OutputLine::stdout("42")
+            ]
         );
     }
 }

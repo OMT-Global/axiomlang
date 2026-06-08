@@ -223,9 +223,11 @@
     },
     {
       "id": "io.logging_stdio",
-      "status": "blocked",
+      "status": "partial",
       "capability": null,
-      "blockers": [928]
+      "evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"],
+      "blockers": [928],
+      "notes": "The Cranelift spike now builds and runs std/io eprintln with stdout and stderr output from the native binary. Stdin reads, std/log wrappers, and broader streaming/runtime buffering remain open."
     }
   ]
 }

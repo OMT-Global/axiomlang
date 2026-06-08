@@ -15,6 +15,34 @@ pub struct CraneliftBackendError {
     message: String,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OutputStream {
+    Stdout,
+    Stderr,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OutputLine {
+    pub stream: OutputStream,
+    pub text: String,
+}
+
+impl OutputLine {
+    pub fn stdout(text: impl Into<String>) -> Self {
+        Self {
+            stream: OutputStream::Stdout,
+            text: text.into(),
+        }
+    }
+
+    pub fn stderr(text: impl Into<String>) -> Self {
+        Self {
+            stream: OutputStream::Stderr,
+            text: text.into(),
+        }
+    }
+}
+
 impl CraneliftBackendError {
     fn new(message: impl Into<String>) -> Self {
         Self {
@@ -36,12 +64,25 @@ pub fn compile_print_lines(
     object_path: &Path,
     binary_path: &Path,
 ) -> Result<(), CraneliftBackendError> {
+    let lines = lines
+        .iter()
+        .cloned()
+        .map(OutputLine::stdout)
+        .collect::<Vec<_>>();
+    compile_output_lines(&lines, object_path, binary_path)
+}
+
+pub fn compile_output_lines(
+    lines: &[OutputLine],
+    object_path: &Path,
+    binary_path: &Path,
+) -> Result<(), CraneliftBackendError> {
     emit_cranelift_object(lines, object_path)?;
     link_object(object_path, binary_path)
 }
 
 fn emit_cranelift_object(
-    lines: &[String],
+    lines: &[OutputLine],
     object_path: &Path,
 ) -> Result<(), CraneliftBackendError> {
     let isa_builder = host_isa_builder()?;
@@ -60,12 +101,16 @@ fn emit_cranelift_object(
     let mut module = ObjectModule::new(builder);
     let pointer_type = module.target_config().pointer_type();
 
-    let mut puts_sig = module.make_signature();
-    puts_sig.params.push(AbiParam::new(pointer_type));
-    puts_sig.returns.push(AbiParam::new(types::I32));
-    let puts_id = module
-        .declare_function("puts", Linkage::Import, &puts_sig)
-        .map_err(|message| CraneliftBackendError::new(format!("declare puts import: {message}")))?;
+    let mut write_sig = module.make_signature();
+    write_sig.params.push(AbiParam::new(types::I32));
+    write_sig.params.push(AbiParam::new(pointer_type));
+    write_sig.params.push(AbiParam::new(pointer_type));
+    write_sig.returns.push(AbiParam::new(pointer_type));
+    let write_id = module
+        .declare_function("write", Linkage::Import, &write_sig)
+        .map_err(|message| {
+            CraneliftBackendError::new(format!("declare write import: {message}"))
+        })?;
 
     let mut data_ids = Vec::new();
     for (index, line) in lines.iter().enumerate() {
@@ -78,13 +123,14 @@ fn emit_cranelift_object(
             )
             .map_err(|message| CraneliftBackendError::new(format!("declare data: {message}")))?;
         let mut description = DataDescription::new();
-        let mut bytes = line.as_bytes().to_vec();
-        bytes.push(0);
+        let mut bytes = line.text.as_bytes().to_vec();
+        bytes.push(b'\n');
+        let byte_len = bytes.len();
         description.define(bytes.into_boxed_slice());
         module
             .define_data(data_id, &description)
             .map_err(|message| CraneliftBackendError::new(format!("define data: {message}")))?;
-        data_ids.push(data_id);
+        data_ids.push((line.stream, data_id, byte_len));
     }
 
     let mut context = module.make_context();
@@ -102,11 +148,19 @@ fn emit_cranelift_object(
         let block = builder.create_block();
         builder.switch_to_block(block);
         builder.seal_block(block);
-        let puts_ref = module.declare_func_in_func(puts_id, builder.func);
-        for data_id in data_ids {
+        let write_ref = module.declare_func_in_func(write_id, builder.func);
+        for (stream, data_id, byte_len) in data_ids {
             let data_ref = module.declare_data_in_func(data_id, builder.func);
             let pointer = builder.ins().global_value(pointer_type, data_ref);
-            builder.ins().call(puts_ref, &[pointer]);
+            let fd = builder.ins().iconst(
+                types::I32,
+                match stream {
+                    OutputStream::Stdout => 1,
+                    OutputStream::Stderr => 2,
+                },
+            );
+            let len = builder.ins().iconst(pointer_type, byte_len as i64);
+            builder.ins().call(write_ref, &[fd, pointer, len]);
         }
         let ok = builder.ins().iconst(types::I32, 0);
         builder.ins().return_(&[ok]);
@@ -201,5 +255,33 @@ mod tests {
             String::from_utf8_lossy(&output.stdout),
             "hello from stage1\n42\ntrue\n"
         );
+    }
+
+    #[test]
+    fn links_stdout_and_stderr_lines() {
+        if std::env::var_os("AXIOM_SKIP_CRANELIFT_LINK_TEST").is_some() {
+            return;
+        }
+        if Command::new("cc").arg("--version").output().is_err() {
+            eprintln!("skipping cranelift link test because cc is unavailable");
+            return;
+        }
+        let temp = tempfile::tempdir().expect("tempdir");
+        let object = temp.path().join("stdio.o");
+        let binary = temp.path().join("stdio");
+        compile_output_lines(
+            &[
+                OutputLine::stdout("ready"),
+                OutputLine::stderr("audit"),
+                OutputLine::stdout("done"),
+            ],
+            &object,
+            &binary,
+        )
+        .expect("compile output lines");
+        let output = Command::new(&binary).output().expect("run binary");
+        assert!(output.status.success(), "binary exits successfully");
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "ready\ndone\n");
+        assert_eq!(String::from_utf8_lossy(&output.stderr), "audit\n");
     }
 }
