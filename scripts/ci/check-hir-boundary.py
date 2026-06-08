@@ -152,11 +152,21 @@ def reject_rust_capture_terms(values: list[str], path: str) -> None:
             require(not found, f"{path} must not expose Rust capture term {term!r}: {value}")
 
 
+def reject_rust_capture_payload(value: Any, path: str = "$") -> None:
+    if isinstance(value, dict):
+        for key, nested in value.items():
+            reject_rust_capture_payload(nested, f"{path}.{key}")
+    elif isinstance(value, list):
+        for index, nested in enumerate(value):
+            reject_rust_capture_payload(nested, f"{path}[{index}]")
+    elif isinstance(value, str):
+        reject_rust_capture_terms([value], path)
+
+
 def validate_package(snapshot: dict[str, Any]) -> None:
     package = snapshot["package"]
     require(package["name"] == CONTRACT, "package name mismatch")
     require(package["owner_lane"] == "Daedalus", "compiler.hir owner lane mismatch")
-    reject_rust_capture_terms([*package["owns"]], "package.owns")
     require("typed declarations" in package["owns"], "compiler.hir must own typed declarations")
     require("capability policy verdicts" in package["owns"], "compiler.hir must own capability verdicts")
     require("ownership state" in package["owns"], "compiler.hir must own ownership state")
@@ -169,7 +179,6 @@ def validate_apis(snapshot: dict[str, Any]) -> None:
     require(set(apis) == EXPECTED_APIS, "compiler.hir API set mismatch")
     for name, api in apis.items():
         require(name.startswith("compiler.hir."), f"{name} must be package-qualified")
-        reject_rust_capture_terms([name, *api["inputs"], *api["outputs"]], f"apis.{name}")
     require(
         "inferred_capability_use_records" in apis["compiler.hir.infer_capability_use"]["outputs"],
         "infer_capability_use must expose inferred_capability_use_records",
@@ -183,7 +192,6 @@ def validate_analysis_input(snapshot: dict[str, Any]) -> None:
     require(REQUIRED_ANALYSIS_INPUT_FIELDS.issubset(required), "HIR analysis input missing required fields")
     require(FORBIDDEN_ANALYSIS_INPUT_FIELDS.issubset(forbidden), "HIR analysis input must forbid host/backend required fields")
     require(not required.intersection(forbidden), "HIR required fields conflict with forbidden fields")
-    reject_rust_capture_terms(list(required), "analysis_input.required_fields")
 
 
 def validate_contracts(snapshot: dict[str, Any]) -> None:
@@ -191,10 +199,6 @@ def validate_contracts(snapshot: dict[str, Any]) -> None:
     require(set(contracts) == EXPECTED_CONTRACTS, "HIR contract set mismatch")
     for name, contract in contracts.items():
         require(contract["source_correlated"] is True, f"{name} must be source-correlated")
-        reject_rust_capture_terms(
-            [name, *contract["stable_outputs"], *contract["diagnostic_kinds"]],
-            f"contracts.{name}",
-        )
     require("capability" in contracts["capability_policy_contract"]["diagnostic_kinds"], "capability contract must emit capability diagnostics")
     require("ownership" in contracts["ownership_state_contract"]["diagnostic_kinds"], "ownership contract must emit ownership diagnostics")
     require("ownership" in contracts["borrow_state_contract"]["diagnostic_kinds"], "borrow contract must emit ownership diagnostics")
@@ -206,7 +210,6 @@ def validate_diagnostics(snapshot: dict[str, Any]) -> None:
     require(REQUIRED_DIAGNOSTIC_KINDS.issubset(set(diagnostics["required_kinds"])), "HIR diagnostic kinds are incomplete")
     require(REQUIRED_DIAGNOSTIC_CODES.issubset(set(diagnostics["required_codes"])), "HIR diagnostic codes are incomplete")
     require(SOURCE_FIELDS.issubset(set(diagnostics["source_fields"])), "HIR diagnostics must include source fields")
-    reject_rust_capture_terms(diagnostics["required_kinds"], "diagnostics.required_kinds")
 
 
 def count_property_clauses(path: Path) -> int:
@@ -279,6 +282,7 @@ def main() -> int:
     require(snapshot["schema_version"] == SCHEMA_VERSION, "snapshot schema_version mismatch")
     require(snapshot["contract"] == CONTRACT, "snapshot contract mismatch")
     require(snapshot["issue"] == 940, "snapshot issue mismatch")
+    reject_rust_capture_payload(snapshot)
     validate_package(snapshot)
     validate_apis(snapshot)
     validate_analysis_input(snapshot)
