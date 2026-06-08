@@ -171,6 +171,12 @@ The self-hosted command and LSP package boundary is frozen in
 `make stage1-command-lsp-boundary` to verify that command dispatch, JSON
 envelopes, and LSP service flows stay package-oriented while the Rust bootstrap
 host remains the temporary developer path.
+The MIR/backend package boundary is frozen in
+`docs/compiler-mir-backend-packages.md`, with the validation snapshot at
+`stage1/compiler-contracts/snapshots/mir-backend.json`. Use
+`make stage1-mir-backend-boundary` to verify that MIR-to-target inputs,
+backend target contracts, generated-Rust compatibility, and direct-native
+evidence stay separate before the Rust-hosted backend path is removed.
 `axiomc test --json` additionally reports `filter`, `properties_only`,
 property totals, and per-run/per-case `duration_ms` plus `passed` / `failed` /
 `skipped`. Build payloads report the
