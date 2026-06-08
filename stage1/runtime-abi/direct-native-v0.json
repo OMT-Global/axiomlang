@@ -56,9 +56,10 @@
     },
     {
       "id": "result",
-      "status": "blocked",
-      "evidence": [],
-      "blockers": [928]
+      "status": "partial",
+      "evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"],
+      "blockers": [928],
+      "notes": "The Cranelift spike evaluates Result<T, E> through std/outcome.ax helpers, direct match arms, scalar payloads, string errors, and struct payloads. Broader ABI payload and capability-shim coverage remain open."
     },
     {
       "id": "enum.payload",
@@ -74,9 +75,10 @@
     },
     {
       "id": "owned.move_state",
-      "status": "blocked",
-      "evidence": [],
-      "blockers": [928]
+      "status": "partial",
+      "evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"],
+      "blockers": [928],
+      "notes": "The Cranelift spike builds and runs projection-sensitive owned field moves while preserving access to disjoint sibling projections. Broader move-state, lifetime, and host ABI coverage remain open."
     }
   ],
   "capability_shims": [
@@ -111,7 +113,8 @@
       "id": "network.udp",
       "status": "blocked",
       "capability": "net",
-      "blockers": [928]
+      "blockers": [928],
+      "denial_evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"]
     },
     {
       "id": "network.http.client",

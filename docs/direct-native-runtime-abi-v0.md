@@ -88,6 +88,11 @@ builds a package using `std/fs.ax` without the `fs` capability and verifies the
 public capability denial appears before any Cranelift unsupported-feature
 diagnostic.
 
+The UDP row is still blocked for positive direct-native runtime execution, but
+now has denial evidence: a package that calls `std/net.ax`
+`udp_bind_loopback_once(...)` without the `net` capability must receive the
+public manifest-policy denial before any backend-specific lowering diagnostic.
+
 The TCP row is still blocked for positive direct-native runtime execution, but
 now has denial evidence: a package that calls `std/net.ax`
 `tcp_listen_loopback_once(...)` without the `net` capability must receive the
@@ -125,10 +130,17 @@ package without the `env` capability fails before backend lowering. Full
 runtime-time lookup, manifest allowlist parity, and audit parity remain open
 under #928.
 
-The sync-primitives row has partial direct-native evidence: the Cranelift spike
-now evaluates ownership-shaped `std/sync.ax` mutex, once, and channel wrappers
-and emits the expected native output. Concurrent execution, blocking behavior,
-and host runtime synchronization remain tracked by issue #928.
+The `Result<T, E>` row has partial direct-native evidence: the Cranelift spike
+now builds and runs a package importing `std/outcome.ax`, using result
+predicates, fallback unwrap helpers, direct match arms over `Result<T, E>`
+values, scalar payloads, string errors, and struct payloads. Broader runtime
+ABI and capability-shim coverage remain tracked by issue #928.
+
+The owned move-state row has partial direct-native evidence: the Cranelift
+spike builds and runs projection-sensitive owned field moves while preserving
+access to disjoint sibling projections. Broader move-state, lifetime, and host
+ABI coverage remain tracked by issue #928.
+
 ## Rust Capture Check
 
 This ABI describes Axiom runtime values and host-service effects. Rust may
