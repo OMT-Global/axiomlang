@@ -706,7 +706,6 @@ fn sha256_hex(input: &str) -> String {
     }
     output
 }
-
 fn eval_arithmetic(
     op: ArithmeticOp,
     lhs: &Expr,
