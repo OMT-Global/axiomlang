@@ -375,6 +375,40 @@ fn cranelift_backend_builds_array_helpers_binary() {
     assert_eq!(String::from_utf8_lossy(&run.stdout), "3\n10\n30\n40\n");
 }
 
+#[test]
+fn cranelift_backend_rejects_process_status_binary() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("process-status");
+    write_process_status_project(&project);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args([
+            "build",
+            project.to_str().expect("project path"),
+            "--backend",
+            "cranelift",
+            "--json",
+        ])
+        .output()
+        .expect("run axiomc build --backend cranelift");
+
+    assert!(
+        !output.status.success(),
+        "cranelift process-status build unexpectedly succeeded: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let combined = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        combined.contains("unsupported by --backend cranelift spike"),
+        "expected backend rejection for process_status, got: {combined}"
+    );
+}
+
 #[cfg(not(windows))]
 #[test]
 fn cranelift_backend_builds_borrowed_slice_binary() {
@@ -416,49 +450,6 @@ fn cranelift_backend_builds_borrowed_slice_binary() {
         String::from_utf8_lossy(&run.stderr)
     );
     assert_eq!(String::from_utf8_lossy(&run.stdout), "3\n4\n8\n6\n3\n");
-}
-
-#[cfg(not(windows))]
-#[test]
-fn cranelift_backend_builds_process_status_binary() {
-    if which::which("cc").is_err() {
-        eprintln!("skipping cranelift backend smoke test because cc is unavailable");
-        return;
-    }
-
-    let temp = tempfile::tempdir().expect("tempdir");
-    let project = temp.path().join("process-status");
-    write_process_status_project(&project);
-
-    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
-        .args([
-            "build",
-            project.to_str().expect("project path"),
-            "--backend",
-            "cranelift",
-            "--json",
-        ])
-        .output()
-        .expect("run axiomc build --backend cranelift");
-    assert!(
-        output.status.success(),
-        "cranelift process-status build failed: stdout={} stderr={}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
-
-    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
-    assert_eq!(payload["backend"], "cranelift");
-    let binary = payload["binary"].as_str().expect("binary path");
-    let run = Command::new(binary)
-        .output()
-        .expect("run cranelift process-status binary");
-    assert!(
-        run.status.success(),
-        "cranelift process-status binary failed: stderr={}",
-        String::from_utf8_lossy(&run.stderr)
-    );
-    assert_eq!(String::from_utf8_lossy(&run.stdout), "0\n1\n");
 }
 
 #[cfg(not(windows))]

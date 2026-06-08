@@ -511,9 +511,6 @@ fn eval_call(
     if name == "crypto_sha256" {
         return eval_crypto_sha256_call(args, functions, env);
     }
-    if name == "process_status" {
-        return eval_process_status_call(args, functions, env);
-    }
     let function = functions
         .get(name)
         .ok_or_else(|| unsupported(&format!("unsupported cranelift spike call {name:?}")))?;
@@ -709,28 +706,6 @@ fn sha256_hex(input: &str) -> String {
     }
     output
 }
-
-fn eval_process_status_call(
-    args: &[Expr],
-    functions: &HashMap<&str, &Function>,
-    env: &SpikeEnv,
-) -> Result<SpikeValue, Diagnostic> {
-    let [program] = args else {
-        return Err(unsupported("process_status expects exactly one argument"));
-    };
-    let program = match eval_expr(program, functions, env)? {
-        SpikeValue::Text(program) => program,
-        _ => return Err(unsupported("process_status expects a string argument")),
-    };
-    let status = std::process::Command::new(program)
-        .status()
-        .ok()
-        .and_then(|status| status.code())
-        .map(i64::from)
-        .unwrap_or(-1);
-    Ok(SpikeValue::Int(status))
-}
-
 fn eval_arithmetic(
     op: ArithmeticOp,
     lhs: &Expr,

@@ -131,12 +131,9 @@
     },
     {
       "id": "process.status",
-      "status": "partial",
+      "status": "blocked",
       "capability": "process",
-      "blockers": [928],
-      "evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"],
-      "denial_evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"],
-      "notes": "The Cranelift spike evaluates process-enabled std/process.ax run_status calls for deterministic status codes and rejects missing process capability before backend lowering. Broader allowlist parity, runtime execution, auditing, and capability-shim coverage remain open."
+      "blockers": [928]
     },
     {
       "id": "env.read",
