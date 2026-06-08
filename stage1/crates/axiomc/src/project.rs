@@ -3077,7 +3077,7 @@ fn build_cache_file(
         debug,
         manifest_hash: hash_file(&manifest_path(package_root))?,
         lockfile_hash: hash_file(&crate::manifest::lockfile_path(package_root))?,
-        rust_hash: rust_source.to_string(),
+        rust_hash: hash_text(rust_source),
         binary_hash: None,
         modules: cached_modules(graph, &analyzed.modules)?,
     })
