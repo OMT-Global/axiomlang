@@ -334,6 +334,52 @@ fn cranelift_backend_builds_enum_match_binary() {
 
 #[cfg(not(windows))]
 #[test]
+fn cranelift_backend_builds_result_helpers_binary() {
+    if which::which("cc").is_err() {
+        eprintln!("skipping cranelift backend smoke test because cc is unavailable");
+        return;
+    }
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("result-helpers");
+    write_result_helpers_project(&project);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args([
+            "build",
+            project.to_str().expect("project path"),
+            "--backend",
+            "cranelift",
+            "--json",
+        ])
+        .output()
+        .expect("run axiomc build --backend cranelift");
+    assert!(
+        output.status.success(),
+        "cranelift result-helpers build failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+    assert_eq!(payload["backend"], "cranelift");
+    let binary = payload["binary"].as_str().expect("binary path");
+    let run = Command::new(binary)
+        .output()
+        .expect("run cranelift result-helpers binary");
+    assert!(
+        run.status.success(),
+        "cranelift result-helpers binary failed: stderr={}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&run.stdout),
+        "true\ntrue\n7\n9\nbuilt\nboom\n"
+    );
+}
+
+#[cfg(not(windows))]
+#[test]
 fn cranelift_backend_builds_array_helpers_binary() {
     if which::which("cc").is_err() {
         eprintln!("skipping cranelift backend smoke test because cc is unavailable");
@@ -1188,6 +1234,25 @@ fn write_enum_match_project(project: &Path) {
         "enum Message {\nPair(int, string)\nJob { id: int, label: string }\nText(string)\n}\n\nenum Signal {\nRed\nYellow\nGreen\n}\n\nfn render(message: Message): string {\nmatch message {\nPair(count, label) {\nreturn label\n}\nJob { label, id } {\nreturn label\n}\nText(text) {\nreturn text\n}\n}\n}\n\nfn signal_priority(signal: Signal): int {\nreturn match signal { Red => 3, Yellow => 2, Green => 1 }\n}\n\nlet first: Message = Pair(7, \"multi\")\nlet second: Message = Job { id: 9, label: \"named\" }\nlet score: int = match Some(7) {\nSome(value) => value + 1\nNone => 0\n}\n\nprint render(first)\nprint render(second)\nprint render(Text(\"payload\"))\nprint signal_priority(Yellow)\nprint score\n",
     )
     .expect("write enum match source");
+}
+
+fn write_result_helpers_project(project: &Path) {
+    fs::create_dir_all(project.join("src")).expect("create result helpers project src");
+    fs::write(
+        project.join("axiom.toml"),
+        "[package]\nname = \"cranelift-result-helpers\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n",
+    )
+    .expect("write result helpers manifest");
+    fs::write(
+        project.join("axiom.lock"),
+        "version = 1\n\n[[package]]\nname = \"cranelift-result-helpers\"\nversion = \"0.1.0\"\nsource = \"path\"\n",
+    )
+    .expect("write result helpers lockfile");
+    fs::write(
+        project.join("src/main.ax"),
+        "import \"std/outcome.ax\"\n\nstruct BuildInfo {\nlabel: string\n}\n\nfn load(ready: bool): Result<BuildInfo, string> {\nif ready {\nreturn Ok(BuildInfo { label: \"built\" })\n}\nreturn Err(\"boom\")\n}\n\nfn render(result: Result<BuildInfo, string>): string {\nmatch result {\nOk(info) {\nreturn info.label\n}\nErr(message) {\nreturn message\n}\n}\n}\n\nlet ok_check: Result<int, string> = Ok(7)\nlet err_check: Result<int, string> = Err(\"missing\")\nlet ok_value: Result<int, string> = Ok(7)\nlet err_value: Result<int, string> = Err(\"missing\")\nprint result_is_ok<int, string>(ok_check)\nprint result_is_err<int, string>(err_check)\nprint result_unwrap_or<int, string>(ok_value, 0)\nprint result_unwrap_or<int, string>(err_value, 9)\nprint render(load(true))\nprint render(load(false))\n",
+    )
+    .expect("write result helpers source");
 }
 
 fn write_struct_field_project(project: &Path) {
