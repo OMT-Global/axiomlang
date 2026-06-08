@@ -876,6 +876,59 @@ fn cranelift_backend_rejects_tcp_denial_before_backend_lowering() {
     let temp = tempfile::tempdir().expect("tempdir");
     let project = temp.path().join("tcp-denied");
     write_tcp_denial_project(&project);
+#[cfg(not(windows))]
+#[test]
+fn cranelift_backend_builds_env_read_binary() {
+    if which::which("cc").is_err() {
+        eprintln!("skipping cranelift backend smoke test because cc is unavailable");
+        return;
+    }
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("env-read");
+    write_env_read_project(&project);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .env("AXIOM_CRANELIFT_ENV_READ", "native-env")
+        .env_remove("__AXIOM_CRANELIFT_ENV_MISSING__")
+        .args([
+            "build",
+            project.to_str().expect("project path"),
+            "--backend",
+            "cranelift",
+            "--json",
+        ])
+        .output()
+        .expect("run axiomc build --backend cranelift");
+    assert!(
+        output.status.success(),
+        "cranelift env build failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+    assert_eq!(payload["backend"], "cranelift");
+    let binary = payload["binary"].as_str().expect("binary path");
+    let run = Command::new(binary)
+        .output()
+        .expect("run cranelift env binary");
+    assert!(
+        run.status.success(),
+        "cranelift env binary failed: stderr={}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&run.stdout),
+        "native-env\nmissing\n"
+    );
+}
+
+#[test]
+fn cranelift_backend_rejects_env_denial_before_backend_lowering() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("env-denied");
+    write_env_denial_project(&project);
 
     let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
         .args([
@@ -891,6 +944,7 @@ fn cranelift_backend_rejects_tcp_denial_before_backend_lowering() {
     assert!(
         !output.status.success(),
         "cranelift tcp denied build unexpectedly succeeded: stdout={} stderr={}",
+        "cranelift env-denied build unexpectedly succeeded: stdout={} stderr={}",
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
@@ -982,6 +1036,12 @@ fn cranelift_backend_rejects_process_denial_before_backend_lowering() {
     assert!(
         !combined.contains("unsupported by --backend cranelift spike"),
         "capability denial must happen before backend lowering: {combined}"
+        combined.contains("requires [capabilities].env"),
+        "expected env capability denial before backend lowering, got: {combined}"
+    );
+    assert!(
+        !combined.contains("unsupported by --backend cranelift spike"),
+        "env capability denial should happen before cranelift unsupported-feature lowering: {combined}"
     );
 }
 
@@ -1320,4 +1380,40 @@ fn write_fs_write_denial_project(project: &Path) {
         "import \"std/fs.ax\"\nprint write_file(\"out.txt\", \"content\")\n",
     )
     .expect("write fs write denied source");
+fn write_env_read_project(project: &Path) {
+    fs::create_dir_all(project.join("src")).expect("create env project src");
+    fs::write(
+        project.join("axiom.toml"),
+        "[package]\nname = \"cranelift-env-read\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = true\nclock = false\ncrypto = false\n\n[unsafe_rationale]\nenv = \"Cranelift ABI regression covers direct-native env.read behavior for issue 928.\"\n",
+    )
+    .expect("write env manifest");
+    fs::write(
+        project.join("axiom.lock"),
+        "version = 1\n\n[[package]]\nname = \"cranelift-env-read\"\nversion = \"0.1.0\"\nsource = \"path\"\n",
+    )
+    .expect("write env lockfile");
+    fs::write(
+        project.join("src/main.ax"),
+        "import \"std/env.ax\"\nmatch get_env(\"AXIOM_CRANELIFT_ENV_READ\") {\nSome(value) {\nprint value\n}\nNone {\nprint \"missing value\"\n}\n}\nmatch get_env(\"__AXIOM_CRANELIFT_ENV_MISSING__\") {\nSome(value) {\nprint value\n}\nNone {\nprint \"missing\"\n}\n}\n",
+    )
+    .expect("write env source");
+}
+
+fn write_env_denial_project(project: &Path) {
+    fs::create_dir_all(project.join("src")).expect("create env denied project src");
+    fs::write(
+        project.join("axiom.toml"),
+        "[package]\nname = \"cranelift-env-denied\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n",
+    )
+    .expect("write env denied manifest");
+    fs::write(
+        project.join("axiom.lock"),
+        "version = 1\n\n[[package]]\nname = \"cranelift-env-denied\"\nversion = \"0.1.0\"\nsource = \"path\"\n",
+    )
+    .expect("write env denied lockfile");
+    fs::write(
+        project.join("src/main.ax"),
+        "import \"std/env.ax\"\nmatch get_env(\"AXIOM_CRANELIFT_ENV_READ\") {\nSome(value) {\nprint value\n}\nNone {\nprint \"missing\"\n}\n}\n",
+    )
+    .expect("write env denied source");
 }
