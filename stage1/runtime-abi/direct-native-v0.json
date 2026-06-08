@@ -118,7 +118,8 @@
       "id": "network.http.client",
       "status": "blocked",
       "capability": "net",
-      "blockers": [928]
+      "blockers": [928],
+      "denial_evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"]
     },
     {
       "id": "network.http.server",

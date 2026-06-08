@@ -108,6 +108,12 @@ spike can build and run `std/crypto_hash.ax` `sha256(...)` without generated
 Rust, and crypto capability denials still happen before backend lowering. MAC,
 random, signature, AEAD, and broader crypto audit parity remain blocked.
 
+The HTTP client row remains blocked for positive direct-native runtime support:
+the Cranelift spike does not yet lower `std/http.ax` `get(...)` into a native
+host-service entrypoint. The current evidence proves only that denied `net`
+capability use fails through the manifest policy before Cranelift lowering or
+native execution.
+
 The borrowed-slice row has partial direct-native evidence: the Cranelift spike
 now evaluates array-backed borrowed slices through `len`, `first`, `last`,
 indexing, and function returns. Broader borrowed-slice aliasing and host ABI
