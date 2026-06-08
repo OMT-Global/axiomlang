@@ -209,9 +209,11 @@
     },
     {
       "id": "json.serdes",
-      "status": "blocked",
+      "status": "partial",
       "capability": null,
-      "blockers": [928]
+      "evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"],
+      "blockers": [928],
+      "notes": "The Cranelift spike covers std/json.ax scalar parse/stringify, JsonValue string wrapping, object field extraction, and value normalization without generated Rust. Full std/serdes.ax object graph parsing, schema validation, and richer JSON value modeling remain blocked."
     },
     {
       "id": "regex.match_replace",

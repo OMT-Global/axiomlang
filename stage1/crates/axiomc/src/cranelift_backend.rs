@@ -525,6 +525,9 @@ fn eval_call(
     if name == "io_eprintln" {
         return eval_io_eprintln_call(args, functions, env, lines);
     }
+    if is_json_call(name) {
+        return eval_json_call(name, args, functions, env, lines);
+    }
     if name == "crypto_sha256" {
         return eval_crypto_sha256_call(args, functions, env, lines);
     }
@@ -625,6 +628,336 @@ fn eval_map_contains_call(
         Ok::<_, Diagnostic>(found || map_keys_equal(candidate, &key)?)
     })?;
     Ok(SpikeValue::Bool(contains))
+}
+
+fn is_json_call(name: &str) -> bool {
+    matches!(
+        name,
+        "json_parse_int"
+            | "json_parse_bool"
+            | "json_parse_string"
+            | "json_parse_value"
+            | "json_parse_field_int"
+            | "json_parse_field_bool"
+            | "json_parse_field_string"
+            | "json_parse_field_value"
+            | "json_stringify_int"
+            | "json_stringify_bool"
+            | "json_stringify_string"
+            | "json_stringify_value"
+    )
+}
+
+fn eval_json_call(
+    name: &str,
+    args: &[Expr],
+    functions: &HashMap<&str, &Function>,
+    env: &SpikeEnv,
+    lines: &mut Vec<OutputLine>,
+) -> Result<SpikeValue, Diagnostic> {
+    match name {
+        "json_parse_int" => {
+            let text = eval_json_unary_text(name, args, functions, env, lines)?;
+            Ok(spike_option(json_parse_int(&text).map(SpikeValue::Int)))
+        }
+        "json_parse_bool" => {
+            let text = eval_json_unary_text(name, args, functions, env, lines)?;
+            Ok(spike_option(json_parse_bool(&text).map(SpikeValue::Bool)))
+        }
+        "json_parse_string" => {
+            let text = eval_json_unary_text(name, args, functions, env, lines)?;
+            Ok(spike_option(json_parse_string(&text).map(SpikeValue::Text)))
+        }
+        "json_parse_value" => {
+            let text = eval_json_unary_text(name, args, functions, env, lines)?;
+            Ok(spike_option(json_parse_value(&text).map(SpikeValue::Text)))
+        }
+        "json_parse_field_int" => {
+            let (text, key) = eval_json_binary_text(name, args, functions, env, lines)?;
+            Ok(spike_option(
+                json_object_field(&text, &key)
+                    .and_then(|value| json_parse_int(&value))
+                    .map(SpikeValue::Int),
+            ))
+        }
+        "json_parse_field_bool" => {
+            let (text, key) = eval_json_binary_text(name, args, functions, env, lines)?;
+            Ok(spike_option(
+                json_object_field(&text, &key)
+                    .and_then(|value| json_parse_bool(&value))
+                    .map(SpikeValue::Bool),
+            ))
+        }
+        "json_parse_field_string" => {
+            let (text, key) = eval_json_binary_text(name, args, functions, env, lines)?;
+            Ok(spike_option(
+                json_object_field(&text, &key)
+                    .and_then(|value| json_parse_string(&value))
+                    .map(SpikeValue::Text),
+            ))
+        }
+        "json_parse_field_value" => {
+            let (text, key) = eval_json_binary_text(name, args, functions, env, lines)?;
+            Ok(spike_option(
+                json_object_field(&text, &key)
+                    .and_then(|value| json_parse_value(&value))
+                    .map(SpikeValue::Text),
+            ))
+        }
+        "json_stringify_int" => {
+            let value = eval_json_unary(name, args, functions, env, lines)?;
+            let value = expect_signed_integer(value)?;
+            Ok(SpikeValue::Text(value.to_string()))
+        }
+        "json_stringify_bool" => {
+            let value = eval_json_unary(name, args, functions, env, lines)?;
+            Ok(SpikeValue::Text(expect_bool(value)?.to_string()))
+        }
+        "json_stringify_string" => {
+            let text = eval_json_unary_text(name, args, functions, env, lines)?;
+            Ok(SpikeValue::Text(json_escape_string(&text)))
+        }
+        "json_stringify_value" => {
+            let text = eval_json_unary_text(name, args, functions, env, lines)?;
+            Ok(SpikeValue::Text(json_parse_value(&text).unwrap_or(text)))
+        }
+        _ => Err(unsupported(&format!(
+            "unsupported cranelift spike JSON call {name:?}"
+        ))),
+    }
+}
+
+fn eval_json_unary(
+    name: &str,
+    args: &[Expr],
+    functions: &HashMap<&str, &Function>,
+    env: &SpikeEnv,
+    lines: &mut Vec<OutputLine>,
+) -> Result<SpikeValue, Diagnostic> {
+    let [arg] = args else {
+        return Err(unsupported(&format!("{name} expects exactly one argument")));
+    };
+    eval_expr(arg, functions, env, lines)
+}
+
+fn eval_json_unary_text(
+    name: &str,
+    args: &[Expr],
+    functions: &HashMap<&str, &Function>,
+    env: &SpikeEnv,
+    lines: &mut Vec<OutputLine>,
+) -> Result<String, Diagnostic> {
+    match eval_json_unary(name, args, functions, env, lines)? {
+        SpikeValue::Text(value) => Ok(value),
+        _ => Err(unsupported(&format!("{name} expects a string argument"))),
+    }
+}
+
+fn eval_json_binary_text(
+    name: &str,
+    args: &[Expr],
+    functions: &HashMap<&str, &Function>,
+    env: &SpikeEnv,
+    lines: &mut Vec<OutputLine>,
+) -> Result<(String, String), Diagnostic> {
+    let [left, right] = args else {
+        return Err(unsupported(&format!(
+            "{name} expects exactly two arguments"
+        )));
+    };
+    let left = match eval_expr(left, functions, env, lines)? {
+        SpikeValue::Text(value) => value,
+        _ => {
+            return Err(unsupported(&format!(
+                "{name} expects a string JSON argument"
+            )));
+        }
+    };
+    let right = match eval_expr(right, functions, env, lines)? {
+        SpikeValue::Text(value) => value,
+        _ => {
+            return Err(unsupported(&format!(
+                "{name} expects a string key argument"
+            )));
+        }
+    };
+    Ok((left, right))
+}
+
+fn spike_option(value: Option<SpikeValue>) -> SpikeValue {
+    match value {
+        Some(value) => SpikeValue::Enum {
+            enum_name: String::from("Option"),
+            variant: String::from("Some"),
+            field_names: Vec::new(),
+            payloads: vec![value],
+        },
+        None => SpikeValue::Enum {
+            enum_name: String::from("Option"),
+            variant: String::from("None"),
+            field_names: Vec::new(),
+            payloads: Vec::new(),
+        },
+    }
+}
+
+fn json_parse_int(text: &str) -> Option<i64> {
+    text.trim().parse::<i64>().ok()
+}
+
+fn json_parse_bool(text: &str) -> Option<bool> {
+    match text.trim() {
+        "true" => Some(true),
+        "false" => Some(false),
+        _ => None,
+    }
+}
+
+fn json_parse_string(text: &str) -> Option<String> {
+    let text = text.trim();
+    if text.len() < 2 || !text.starts_with('"') || !text.ends_with('"') {
+        return None;
+    }
+    let mut out = String::new();
+    let mut chars = text[1..text.len() - 1].chars();
+    while let Some(ch) = chars.next() {
+        if ch != '\\' {
+            out.push(ch);
+            continue;
+        }
+        match chars.next()? {
+            '"' => out.push('"'),
+            '\\' => out.push('\\'),
+            '/' => out.push('/'),
+            'b' => out.push('\u{0008}'),
+            'f' => out.push('\u{000C}'),
+            'n' => out.push('\n'),
+            'r' => out.push('\r'),
+            't' => out.push('\t'),
+            'u' => {
+                let mut value = 0u32;
+                for _ in 0..4 {
+                    value = (value << 4) + chars.next()?.to_digit(16)?;
+                }
+                out.push(char::from_u32(value)?);
+            }
+            _ => return None,
+        }
+    }
+    Some(out)
+}
+
+fn json_skip_ws(text: &str, mut index: usize) -> usize {
+    let bytes = text.as_bytes();
+    while index < bytes.len() && bytes[index].is_ascii_whitespace() {
+        index += 1;
+    }
+    index
+}
+
+fn json_scan_string_end(text: &str, start: usize) -> Option<usize> {
+    let bytes = text.as_bytes();
+    if bytes.get(start).copied()? != b'"' {
+        return None;
+    }
+    let mut index = start + 1;
+    while index < bytes.len() {
+        match bytes[index] {
+            b'\\' => index += 2,
+            b'"' => return Some(index + 1),
+            _ => index += 1,
+        }
+    }
+    None
+}
+
+fn json_scan_value_end(text: &str, start: usize) -> Option<usize> {
+    let bytes = text.as_bytes();
+    if start >= bytes.len() {
+        return None;
+    }
+    if bytes[start] == b'"' {
+        return json_scan_string_end(text, start);
+    }
+    let mut index = start;
+    let mut depth = 0i64;
+    while index < bytes.len() {
+        match bytes[index] {
+            b'"' => index = json_scan_string_end(text, index)?,
+            b'{' | b'[' => {
+                depth += 1;
+                index += 1;
+            }
+            b'}' | b']' if depth > 0 => {
+                depth -= 1;
+                index += 1;
+            }
+            b',' | b'}' if depth == 0 => return Some(index),
+            _ => index += 1,
+        }
+    }
+    Some(index)
+}
+
+fn json_object_field(text: &str, key: &str) -> Option<String> {
+    let text = text.trim();
+    let bytes = text.as_bytes();
+    if bytes.first().copied()? != b'{' || bytes.last().copied()? != b'}' {
+        return None;
+    }
+    let mut index = 1usize;
+    loop {
+        index = json_skip_ws(text, index);
+        if index >= bytes.len() || bytes[index] == b'}' {
+            return None;
+        }
+        let key_end = json_scan_string_end(text, index)?;
+        let found_key = json_parse_string(&text[index..key_end])?;
+        index = json_skip_ws(text, key_end);
+        if bytes.get(index).copied()? != b':' {
+            return None;
+        }
+        let value_start = json_skip_ws(text, index + 1);
+        let value_end = json_scan_value_end(text, value_start)?;
+        if found_key == key {
+            return Some(text[value_start..value_end].trim().to_string());
+        }
+        index = json_skip_ws(text, value_end);
+        match bytes.get(index).copied()? {
+            b',' => index += 1,
+            b'}' => return None,
+            _ => return None,
+        }
+    }
+}
+
+fn json_parse_value(text: &str) -> Option<String> {
+    let text = text.trim();
+    let end = json_scan_value_end(text, 0)?;
+    if json_skip_ws(text, end) == text.len() {
+        Some(text.to_string())
+    } else {
+        None
+    }
+}
+
+fn json_escape_string(value: &str) -> String {
+    let mut out = String::from("\"");
+    for ch in value.chars() {
+        match ch {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            '\u{0008}' => out.push_str("\\b"),
+            '\u{000C}' => out.push_str("\\f"),
+            ch if ch.is_control() => out.push_str(&format!("\\u{:04x}", ch as u32)),
+            _ => out.push(ch),
+        }
+    }
+    out.push('"');
+    out
 }
 
 fn eval_crypto_sha256_call(

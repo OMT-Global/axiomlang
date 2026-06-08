@@ -808,7 +808,69 @@ fn cranelift_backend_builds_sync_primitives_binary() {
     );
     assert_eq!(
         String::from_utf8_lossy(&run.stdout),
-        "2\ntrue\nempty\nmessage\n"
+        "2
+true
+empty
+message
+"
+    );
+}
+
+#[cfg(not(windows))]
+#[test]
+fn cranelift_backend_builds_json_serdes_binary() {
+    if which::which("cc").is_err() {
+        eprintln!("skipping cranelift backend smoke test because cc is unavailable");
+        return;
+    }
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("json-serdes");
+    write_json_serdes_project(&project);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args([
+            "build",
+            project.to_str().expect("project path"),
+            "--backend",
+            "cranelift",
+            "--json",
+        ])
+        .output()
+        .expect("run axiomc build --backend cranelift");
+    assert!(
+        output.status.success(),
+        "cranelift json build failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+    assert_eq!(payload["backend"], "cranelift");
+    let binary = payload["binary"].as_str().expect("binary path");
+    let run = Command::new(binary)
+        .output()
+        .expect("run cranelift json binary");
+    assert!(
+        run.status.success(),
+        "cranelift json binary failed: stderr={}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&run.stdout),
+        r#"42
+false
+"hello"
+42
+true
+{"name":"axiom","count":3,"ready":true}
+axiom
+3
+true
+{"name":"axiom","count":3,"ready":true}
+"axiom"
+no int
+"#,
     );
 }
 
@@ -1805,6 +1867,135 @@ print direct > 0
     .expect("write logging stdio source");
 }
 
+fn write_json_serdes_project(project: &Path) {
+    fs::create_dir_all(project.join("src")).expect("create json project src");
+    fs::write(
+        project.join("axiom.toml"),
+        r#"[package]
+name = "cranelift-json-serdes"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+fs = false
+net = false
+process = false
+env = false
+clock = false
+crypto = false
+"#,
+    )
+    .expect("write json manifest");
+    fs::write(
+        project.join("axiom.lock"),
+        r#"version = 1
+
+[[package]]
+name = "cranelift-json-serdes"
+version = "0.1.0"
+source = "path"
+"#,
+    )
+    .expect("write json lockfile");
+    fs::write(
+        project.join("src/main.ax"),
+        r#"import "std/json.ax"
+
+fn doc(): string {
+return object3(field_string("name", "axiom"), field_int("count", 3), field_bool("ready", true))
+}
+
+print stringify_int(42)
+print stringify_bool(false)
+print stringify_string("hello")
+
+match parse_int(" 42 ") {
+Some(value) {
+print value
+}
+None {
+print -1
+}
+}
+
+match parse_bool("true") {
+Some(value) {
+print value
+}
+None {
+print false
+}
+}
+
+print doc()
+
+match parse_field_string(doc(), "name") {
+Some(value) {
+print value
+}
+None {
+print "missing name"
+}
+}
+
+match parse_field_int(doc(), "count") {
+Some(value) {
+print value
+}
+None {
+print -1
+}
+}
+
+match parse_field_bool(doc(), "ready") {
+Some(value) {
+print value
+}
+None {
+print false
+}
+}
+
+match parse_value(doc()) {
+Some(value) {
+print stringify_value(value)
+}
+None {
+print "invalid"
+}
+}
+
+match parse_value(doc()) {
+Some(value) {
+match parse_field_value(value, "name") {
+Some(name_value) {
+print stringify_value(name_value)
+}
+None {
+print "missing value"
+}
+}
+}
+None {
+print "invalid"
+}
+}
+
+match parse_int("nope") {
+Some(value) {
+print value
+}
+None {
+print "no int"
+}
+}
+"#,
+    )
+    .expect("write json source");
+}
 fn write_fs_denial_project(project: &Path) {
     fs::create_dir_all(project.join("src")).expect("create fs denied project src");
     fs::write(
