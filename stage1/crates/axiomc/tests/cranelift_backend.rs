@@ -377,6 +377,49 @@ fn cranelift_backend_builds_array_helpers_binary() {
 
 #[cfg(not(windows))]
 #[test]
+fn cranelift_backend_builds_borrowed_slice_binary() {
+    if which::which("cc").is_err() {
+        eprintln!("skipping cranelift backend smoke test because cc is unavailable");
+        return;
+    }
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("borrowed-slice");
+    write_borrowed_slice_project(&project);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args([
+            "build",
+            project.to_str().expect("project path"),
+            "--backend",
+            "cranelift",
+            "--json",
+        ])
+        .output()
+        .expect("run axiomc build --backend cranelift");
+    assert!(
+        output.status.success(),
+        "cranelift borrowed-slice build failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+    assert_eq!(payload["backend"], "cranelift");
+    let binary = payload["binary"].as_str().expect("binary path");
+    let run = Command::new(binary)
+        .output()
+        .expect("run cranelift borrowed-slice binary");
+    assert!(
+        run.status.success(),
+        "cranelift borrowed-slice binary failed: stderr={}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "3\n4\n8\n6\n3\n");
+}
+
+#[cfg(not(windows))]
+#[test]
 fn cranelift_backend_debug_build_emits_sidecars_without_axiom_dwarf() {
     if which::which("cc").is_err() {
         eprintln!("skipping cranelift backend smoke test because cc is unavailable");
@@ -769,6 +812,25 @@ fn write_array_helpers_project(project: &Path) {
         "let values: [int; 3] = [10, 20, 30]\nprint len(values)\nprint first(values)\nprint last(values)\nprint first(values) + last(values)\n",
     )
     .expect("write array-helpers source");
+}
+
+fn write_borrowed_slice_project(project: &Path) {
+    fs::create_dir_all(project.join("src")).expect("create borrowed-slice project src");
+    fs::write(
+        project.join("axiom.toml"),
+        "[package]\nname = \"cranelift-borrowed-slice\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n",
+    )
+    .expect("write borrowed-slice manifest");
+    fs::write(
+        project.join("axiom.lock"),
+        "version = 1\n\n[[package]]\nname = \"cranelift-borrowed-slice\"\nversion = \"0.1.0\"\nsource = \"path\"\n",
+    )
+    .expect("write borrowed-slice lockfile");
+    fs::write(
+        project.join("src/main.ax"),
+        "fn tail(values: &[int]): &[int] {\nreturn values[1:]\n}\n\nlet values: [int] = [2, 4, 6, 8]\nlet window: &[int] = values[1:]\nprint len(window)\nprint first(window)\nprint last(window)\nprint window[1]\nlet nested: &[int] = tail(values[:])\nprint len(nested)\n",
+    )
+    .expect("write borrowed-slice source");
 }
 
 fn write_map_index_project(project: &Path) {

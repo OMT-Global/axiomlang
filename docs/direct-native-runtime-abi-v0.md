@@ -88,6 +88,11 @@ builds a package using `std/fs.ax` without the `fs` capability and verifies the
 public capability denial appears before any Cranelift unsupported-feature
 diagnostic.
 
+The borrowed-slice row has partial direct-native evidence: the Cranelift spike
+now evaluates array-backed borrowed slices through `len`, `first`, `last`,
+indexing, and function returns. Broader borrowed-slice aliasing and host ABI
+coverage remain tracked by issue #928.
+
 ## Rust Capture Check
 
 This ABI describes Axiom runtime values and host-service effects. Rust may
