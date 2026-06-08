@@ -91,7 +91,8 @@
       "id": "fs.write",
       "status": "blocked",
       "capability": "fs:write",
-      "blockers": [928]
+      "blockers": [928],
+      "denial_evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"]
     },
     {
       "id": "network.dns.resolve",
@@ -103,7 +104,8 @@
       "id": "network.tcp",
       "status": "blocked",
       "capability": "net",
-      "blockers": [928]
+      "blockers": [928],
+      "denial_evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"]
     },
     {
       "id": "network.udp",
@@ -138,9 +140,12 @@
     },
     {
       "id": "env.read",
-      "status": "blocked",
+      "status": "partial",
       "capability": "env",
-      "blockers": [928]
+      "evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"],
+      "denial_evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"],
+      "blockers": [928],
+      "notes": "The Cranelift spike can build a std/env.ax get_env package for present and missing environment reads, and rejects missing env capability before backend lowering. Full runtime-time environment lookup, manifest allowlist parity, and audit parity remain open."
     },
     {
       "id": "clock.now_sleep",
