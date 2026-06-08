@@ -81,6 +81,61 @@ fn cranelift_build_json_validates_against_command_schema() {
     assert_payload_matches_schema(&validator, "cranelift build", &output);
 }
 
+#[cfg(not(windows))]
+#[test]
+fn cranelift_debug_build_emits_direct_native_debug_sidecars() {
+    if which::which("cc").is_err() {
+        eprintln!("skipping Cranelift debug build test because cc is unavailable");
+        return;
+    }
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("cranelift-debug-contract-app");
+
+    run_axiomc(&[
+        "new",
+        project.to_str().expect("project path"),
+        "--name",
+        "cranelift-debug-contract-app",
+    ]);
+
+    let output = run_axiomc_json(&[
+        "build",
+        project.to_str().expect("project path"),
+        "--backend",
+        "cranelift",
+        "--debug",
+        "--json",
+    ]);
+
+    assert!(output["generated_rust"].is_null());
+    let debug_map_path = output["debug_map"]
+        .as_str()
+        .expect("cranelift debug build should emit debug_map");
+    let debug_manifest_path = output["debug_manifest"]
+        .as_str()
+        .expect("cranelift debug build should emit debug_manifest");
+
+    let debug_map = read_json(Path::new(debug_map_path));
+    assert_eq!(
+        debug_map["schema_version"],
+        "axiom.stage1.direct_native.debug_map.v1"
+    );
+    assert!(debug_map["binary"]
+        .as_str()
+        .is_some_and(|path| path.contains("cranelift-debug-contract-app")));
+
+    let debug_manifest = read_json(Path::new(debug_manifest_path));
+    assert_eq!(
+        debug_manifest["schema_version"],
+        "axiom.stage1.direct_native.debug_manifest.v1"
+    );
+    assert_eq!(debug_manifest["artifact_class"], "native_binary");
+    assert!(debug_manifest.get("generated_rust").is_none());
+    assert!(debug_manifest.get("generated_rust_hash").is_none());
+    assert!(debug_manifest.get("rustc").is_none());
+}
+
 #[test]
 fn debug_map_sidecar_matches_checked_in_contract_snapshot() {
     let contracts = contract_root();
@@ -223,13 +278,11 @@ fn doc_json_output_validates_against_doc_schema() {
     assert_eq!(output["types"][0]["kind"], "struct");
     assert_eq!(output["items"][0]["kind"], "function");
     assert_eq!(output["items"][0]["examples"][0], "route(\"/health\")");
-    assert!(
-        output["capabilities"]
-            .as_array()
-            .expect("capabilities array")
-            .iter()
-            .any(|capability| capability["name"] == "env")
-    );
+    assert!(output["capabilities"]
+        .as_array()
+        .expect("capabilities array")
+        .iter()
+        .any(|capability| capability["name"] == "env"));
 }
 
 #[test]
