@@ -1482,19 +1482,115 @@ fn write_sync_primitives_project(project: &Path) {
     fs::create_dir_all(project.join("src")).expect("create sync primitives project src");
     fs::write(
         project.join("axiom.toml"),
-        "[package]\nname = \"cranelift-sync-primitives\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n",
+        r#"[package]
+name = "cranelift-sync-primitives"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+fs = false
+net = false
+process = false
+env = false
+clock = false
+crypto = false
+"#,
     )
     .expect("write sync primitives manifest");
     fs::write(
         project.join("axiom.lock"),
-        "version = 1\n\n[[package]]\nname = \"cranelift-sync-primitives\"\nversion = \"0.1.0\"\nsource = \"path\"\n",
+        r#"version = 1
+
+[[package]]
+name = "cranelift-sync-primitives"
+version = "0.1.0"
+source = "path"
+"#,
     )
     .expect("write sync primitives lockfile");
     fs::write(
         project.join("src/main.ax"),
-        "import \"std/sync.ax\"\n\nlet counter: Mutex<int> = mutex<int>(1)\nlet guard: MutexGuard<int> = lock<int>(counter)\nlet updated: Mutex<int> = replace<int>(guard, 2)\nlet final_guard: MutexGuard<int> = lock<int>(updated)\nprint into_inner<int>(final_guard)\n\nlet ready: Once<string> = once_with<string>(\"configured\")\nprint once_is_set<string>(ready)\n\nlet empty: Once<int> = once<int>(None)\nmatch once_take<int>(empty) {\nSome(value) {\nprint value\n}\nNone {\nprint \"empty\"\n}\n}\n\nlet channel: Channel<string> = channel<string>(None)\nlet sent: Channel<string> = send<string>(channel, \"message\")\nmatch try_recv<string>(sent) {\nSome(message) {\nprint message\n}\nNone {\nprint \"missing\"\n}\n}\n",
+        r#"import "std/sync.ax"
+
+let counter: Mutex<int> = mutex<int>(1)
+let guard: MutexGuard<int> = lock<int>(counter)
+let updated: Mutex<int> = replace<int>(guard, 2)
+let final_guard: MutexGuard<int> = lock<int>(updated)
+print into_inner<int>(final_guard)
+
+let ready: Once<string> = once_with<string>("configured")
+print once_is_set<string>(ready)
+
+let empty: Once<int> = once<int>(None)
+match once_take<int>(empty) {
+Some(value) {
+print value
+}
+None {
+print "empty"
+}
+}
+
+let channel: Channel<string> = channel<string>(None)
+let sent: Channel<string> = send<string>(channel, "message")
+match try_recv<string>(sent) {
+Some(message) {
+print message
+}
+None {
+print "missing"
+}
+}
+"#,
     )
     .expect("write sync primitives source");
+}
+
+fn write_logging_stdio_project(project: &Path) {
+    fs::create_dir_all(project.join("src")).expect("create logging stdio project src");
+    fs::write(
+        project.join("axiom.toml"),
+        r#"[package]
+name = "cranelift-logging-stdio"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+fs = false
+net = false
+process = false
+env = false
+clock = false
+crypto = false
+"#,
+    )
+    .expect("write logging stdio manifest");
+    fs::write(
+        project.join("axiom.lock"),
+        r#"version = 1
+
+[[package]]
+name = "cranelift-logging-stdio"
+version = "0.1.0"
+source = "path"
+"#,
+    )
+    .expect("write logging stdio lockfile");
+    fs::write(
+        project.join("src/main.ax"),
+        r#"import "std/io.ax"
+
+let direct: int = eprintln("hello stderr")
+print direct > 0
+"#,
+    )
+    .expect("write logging stdio source");
 }
 
 fn write_fs_denial_project(project: &Path) {
