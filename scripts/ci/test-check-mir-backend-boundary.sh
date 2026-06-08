@@ -72,7 +72,7 @@ with open(sys.argv[1], encoding="utf-8") as handle:
 
 payload["backend_input"]["forbidden_required_fields"] = [
     field for field in payload["backend_input"]["forbidden_required_fields"]
-    if field != "rustc_output"
+    if field != "rustc_command"
 ]
 
 with open(sys.argv[2], "w", encoding="utf-8") as handle:
@@ -85,6 +85,29 @@ if python3 "$script" --snapshot "$temp_dir/missing-forbidden.json" >"$temp_dir/m
 fi
 
 grep -q "backend input must forbid Rust-derived required fields" "$temp_dir/missing-forbidden.err"
+
+python3 - "$repo_root/stage1/compiler-contracts/snapshots/mir-backend.json" "$temp_dir/missing-cranelift-forbidden.json" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    payload = json.load(handle)
+
+payload["backend_input"]["forbidden_required_fields"] = [
+    field for field in payload["backend_input"]["forbidden_required_fields"]
+    if field != "cranelift_module_path"
+]
+
+with open(sys.argv[2], "w", encoding="utf-8") as handle:
+    json.dump(payload, handle)
+PY
+
+if python3 "$script" --snapshot "$temp_dir/missing-cranelift-forbidden.json" >"$temp_dir/missing-cranelift-forbidden.out" 2>"$temp_dir/missing-cranelift-forbidden.err"; then
+  echo "expected missing Cranelift forbidden field to fail" >&2
+  exit 1
+fi
+
+grep -q "backend input must forbid Rust-derived required fields" "$temp_dir/missing-cranelift-forbidden.err"
 
 python3 - "$repo_root/stage1/compiler-contracts/snapshots/mir-backend.json" "$temp_dir/rust-capture.json" <<'PY'
 import json
@@ -105,5 +128,27 @@ if python3 "$script" --snapshot "$temp_dir/rust-capture.json" >"$temp_dir/rust-c
 fi
 
 grep -q "Rust capture term" "$temp_dir/rust-capture.err"
+
+python3 - "$repo_root/stage1/compiler-contracts/snapshots/mir-backend.json" "$temp_dir/cranelift-capture.json" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    payload = json.load(handle)
+
+for package in payload["packages"]:
+    if package["name"] == "compiler.backend.native":
+        package["apis"].append("compiler.backend.native.cranelift_backend")
+
+with open(sys.argv[2], "w", encoding="utf-8") as handle:
+    json.dump(payload, handle)
+PY
+
+if python3 "$script" --snapshot "$temp_dir/cranelift-capture.json" >"$temp_dir/cranelift-capture.out" 2>"$temp_dir/cranelift-capture.err"; then
+  echo "expected Cranelift-captured package API to fail" >&2
+  exit 1
+fi
+
+grep -q "Rust capture term 'cranelift'" "$temp_dir/cranelift-capture.err"
 
 echo "check-mir-backend-boundary regression cases passed"

@@ -34,6 +34,14 @@ REQUIRED_BACKEND_INPUT_FIELDS = {
     "source_spans",
     "evidence_hooks",
 }
+FORBIDDEN_BACKEND_INPUT_REQUIRED_FIELDS = {
+    "rust_source",
+    "generated_rust",
+    "cargo_metadata",
+    "rustc_command",
+    "rustc_output",
+    "cranelift_module_path",
+}
 FORBIDDEN_DIRECT_NATIVE_REQUIREMENTS = {
     "rust_source",
     "generated_rust",
@@ -43,6 +51,7 @@ FORBIDDEN_DIRECT_NATIVE_REQUIREMENTS = {
 RUST_CAPTURE_TERMS = {
     "cargo",
     "rustc",
+    "cranelift",
     "main.rs",
     "mir.rs",
     "codegen.rs",
@@ -136,7 +145,7 @@ def validate_packages(snapshot: dict[str, Any]) -> None:
     require("compiler.backend.native.lower_to_object" in packages["compiler.backend.native"]["apis"], "native backend must expose lower_to_object")
 
     for name, package in packages.items():
-        values = [*package["apis"], *package["owns"], *package["must_not_define"]]
+        values = [*package["apis"], *package["owns"]]
         reject_rust_capture_terms(
             values,
             f"packages.{name}",
@@ -149,7 +158,7 @@ def validate_backend_input(snapshot: dict[str, Any]) -> None:
     fields = set(backend_input["required_fields"])
     require(REQUIRED_BACKEND_INPUT_FIELDS.issubset(fields), "backend input missing required MIR-to-target fields")
     forbidden = set(backend_input["forbidden_required_fields"])
-    require(FORBIDDEN_DIRECT_NATIVE_REQUIREMENTS.issubset(forbidden), "backend input must forbid Rust-derived required fields")
+    require(FORBIDDEN_BACKEND_INPUT_REQUIRED_FIELDS.issubset(forbidden), "backend input must forbid Rust-derived required fields")
     require(not fields.intersection(forbidden), "backend input required fields conflict with forbidden fields")
 
 
@@ -219,4 +228,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
