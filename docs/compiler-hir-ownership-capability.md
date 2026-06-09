@@ -19,6 +19,8 @@ and reports inferred capability use for agent inspection.
 
 `compiler.hir` does not own package discovery, parser recovery, MIR lowering,
 backend target selection, generated source projection, or artifact provenance.
+Its boundary snapshot also keeps the package-level `must_not_own` surface
+under the same Rust-capture validation as the owned package fields.
 
 ## Package APIs
 
