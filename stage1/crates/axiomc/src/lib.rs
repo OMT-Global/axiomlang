@@ -2776,6 +2776,11 @@ print 0
         fs::create_dir_all(project.join("members")).expect("create workspace members dir");
         create_project(&app, Some("workspace-app")).expect("create app member");
         create_project(&core, Some("workspace-core")).expect("create core member");
+        fs::write(
+            project.join("axiom.toml"),
+            "[workspace]\nmembers = [\"members/app\", \"members/core\"]\n",
+        )
+        .expect("write workspace-only manifest");
 
         fs::write(
             core.join("src/math.ax"),
@@ -2815,11 +2820,6 @@ print 0
         )
         .expect("write app lockfile");
 
-        fs::write(
-            project.join("axiom.toml"),
-            "[workspace]\nmembers = [\"members/app\", \"members/core\"]\n",
-        )
-        .expect("write workspace-only manifest");
         let root_manifest = load_manifest(&project).expect("load root manifest");
         assert!(root_manifest.is_workspace_only());
         let root_lockfile =
@@ -2940,6 +2940,11 @@ print first(values)\n",
         fs::create_dir_all(project.join("members")).expect("create workspace members dir");
         create_project(&app, Some("workspace-graph-app")).expect("create app member");
         create_project(&core, Some("workspace-graph-core")).expect("create core member");
+        fs::write(
+            project.join("axiom.toml"),
+            "[workspace]\nmembers = [\"members/app\", \"members/core\"]\n",
+        )
+        .expect("write workspace-only manifest");
 
         fs::write(
             app.join("axiom.toml"),
@@ -2961,11 +2966,6 @@ print first(values)\n",
             render_lockfile_for_project(&core, &core_manifest).expect("core lockfile"),
         )
         .expect("write core lockfile");
-        fs::write(
-            project.join("axiom.toml"),
-            "[workspace]\nmembers = [\"members/app\", \"members/core\"]\n",
-        )
-        .expect("write workspace-only manifest");
         let root_manifest = load_manifest(&project).expect("load root manifest");
         fs::write(
             project.join("axiom.lock"),
@@ -3226,6 +3226,42 @@ crypto = false
     }
 
     #[test]
+    fn lockfile_render_rejects_dependency_path_traversal() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("lockfile-dependency-boundary-root");
+        let outside = dir.path().join("outside-lockfile-dependency");
+        create_project(&project, Some("lockfile-dependency-boundary-root"))
+            .expect("create project");
+        create_project(&outside, Some("outside-lockfile-dependency"))
+            .expect("create outside dependency");
+        fs::write(
+            project.join("axiom.toml"),
+            format!(
+                "{}\n[dependencies]\noutside = {{ path = \"../outside-lockfile-dependency\" }}\n",
+                render_manifest("lockfile-dependency-boundary-root")
+            ),
+        )
+        .expect("write manifest");
+        let manifest = load_manifest(&project).expect("load manifest");
+
+        let error = render_lockfile_for_project(&project, &manifest)
+            .expect_err("lockfile dependency path escape should fail");
+
+        assert_eq!(error.kind, "manifest");
+        assert!(
+            error
+                .message
+                .contains("dependency path must stay inside the workspace")
+        );
+        assert!(
+            error
+                .path
+                .as_deref()
+                .is_some_and(|path| path.ends_with("axiom.toml"))
+        );
+    }
+
+    #[test]
     fn dependency_path_escape_conformance_fixture_reports_manifest_error() {
         let fixture = conformance_fixture().join("fail/dependency_path_escape");
 
@@ -3254,6 +3290,11 @@ crypto = false
         fs::create_dir_all(project.join("members")).expect("create workspace members dir");
         create_project(&app, Some("dependency-boundary-app")).expect("create app member");
         create_project(&core, Some("dependency-boundary-core")).expect("create core member");
+        fs::write(
+            project.join("axiom.toml"),
+            "[workspace]\nmembers = [\"members/app\", \"members/core\"]\n",
+        )
+        .expect("write workspace manifest");
         fs::write(
             core.join("src/math.ax"),
             "pub fn answer(): int {\nreturn 42\n}\n",
@@ -3284,11 +3325,6 @@ crypto = false
             render_lockfile_for_project(&app, &app_manifest).expect("app lockfile"),
         )
         .expect("write app lockfile");
-        fs::write(
-            project.join("axiom.toml"),
-            "[workspace]\nmembers = [\"members/app\", \"members/core\"]\n",
-        )
-        .expect("write workspace manifest");
         let root_manifest = load_manifest(&project).expect("load root manifest");
         fs::write(
             project.join("axiom.lock"),

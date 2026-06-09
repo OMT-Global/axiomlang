@@ -1,7 +1,8 @@
 use crate::diagnostics::Diagnostic;
-use crate::manifest::{DependencySpec, Manifest, load_manifest, lockfile_path};
+use crate::manifest::{DependencySpec, Manifest, load_manifest, lockfile_path, manifest_path};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
+use std::fs;
 use std::path::{Component, Path, PathBuf};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -124,8 +125,27 @@ pub fn validate_lockfile_packages(
     Ok(())
 }
 
-fn dependency_root(project_root: &Path, spec: &DependencySpec) -> PathBuf {
-    normalize_path(project_root.join(&spec.path))
+fn dependency_root(
+    root_project_root: &Path,
+    project_root: &Path,
+    spec: &DependencySpec,
+) -> Result<PathBuf, Diagnostic> {
+    let dependency_root = normalize_path(project_root.join(&spec.path));
+    let canonical_project_root = canonicalize_path(project_root, "dependency source package")?;
+    let canonical_dependency_root = canonicalize_path(&dependency_root, "dependency path")?;
+    let canonical_root_project_root = canonicalize_path(root_project_root, "package root")?;
+    if canonical_dependency_root.starts_with(&canonical_root_project_root)
+        || workspace_declares_dependency_member(&canonical_project_root, &canonical_dependency_root)
+    {
+        return Ok(dependency_root);
+    }
+    Err(
+        Diagnostic::new(
+            "manifest",
+            "dependency path must stay inside the workspace or package root; declare sibling packages as workspace members before depending on them",
+        )
+        .with_path(manifest_path(project_root).display().to_string()),
+    )
 }
 
 fn collect_dependency_packages(
@@ -136,7 +156,7 @@ fn collect_dependency_packages(
     packages: &mut Vec<LockedPackage>,
 ) -> Result<(), Diagnostic> {
     for spec in manifest.dependencies.values() {
-        let dependency_root = dependency_root(project_root, spec);
+        let dependency_root = dependency_root(root_project_root, project_root, spec)?;
         if !visited.insert(dependency_root.clone()) {
             continue;
         }
@@ -172,6 +192,42 @@ fn collect_dependency_packages(
         )?;
     }
     Ok(())
+}
+
+fn canonicalize_path(path: &Path, label: &str) -> Result<PathBuf, Diagnostic> {
+    fs::canonicalize(path).map_err(|err| {
+        Diagnostic::new(
+            "manifest",
+            format!("{label} {} is not accessible: {err}", path.display()),
+        )
+        .with_path(path.display().to_string())
+    })
+}
+
+fn workspace_declares_dependency_member(project_root: &Path, dependency_root: &Path) -> bool {
+    for ancestor in project_root.ancestors().skip(1) {
+        let manifest_file = manifest_path(ancestor);
+        if !manifest_file.exists() {
+            continue;
+        }
+        let Ok(manifest) = load_manifest(ancestor) else {
+            continue;
+        };
+        let Some(workspace) = manifest.workspace.as_ref() else {
+            continue;
+        };
+        let mut members = BTreeSet::new();
+        for member in &workspace.members {
+            let member_root = ancestor.join(member);
+            if let Ok(member_root) = fs::canonicalize(&member_root) {
+                members.insert(member_root);
+            }
+        }
+        if members.contains(project_root) && members.contains(dependency_root) {
+            return true;
+        }
+    }
+    false
 }
 
 fn collect_workspace_packages(
