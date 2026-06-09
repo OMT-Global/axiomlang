@@ -81,10 +81,12 @@
   "capability_shims": [
     {
       "id": "fs.read",
-      "status": "blocked",
+      "status": "partial",
       "capability": "fs",
       "blockers": [928],
-      "denial_evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"]
+      "evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"],
+      "denial_evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"],
+      "notes": "The Cranelift spike can build a std/fs.ax read_file package for present and missing filesystem reads, and rejects missing fs capability before backend lowering. Full runtime-time filesystem access, manifest policy parity, and audit parity remain open."
     },
     {
       "id": "fs.write",
