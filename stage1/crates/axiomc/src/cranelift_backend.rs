@@ -1885,6 +1885,14 @@ fn unsupported(message: &str) -> Diagnostic {
 mod tests {
     use super::*;
 
+    #[test]
+    fn regex_replace_all_start_anchor_only_replaces_original_match() {
+        assert_eq!(regex_replace_all("^a", "aa", "x"), "xa");
+        assert_eq!(regex_replace_all("^a", "aaa", "x"), "xaa");
+        assert_eq!(regex_replace_all("^a", "ba", "x"), "ba");
+        assert_eq!(regex_replace_all("a", "aaa", "x"), "xxx");
+    }
+
     fn hello_program() -> Program {
         Program {
             path: String::from("hello"),
