@@ -134,11 +134,6 @@ The sync-primitives row has partial direct-native evidence: the Cranelift spike
 now evaluates ownership-shaped `std/sync.ax` mutex, once, and channel wrappers
 and emits the expected native output. Concurrent execution, blocking behavior,
 and host runtime synchronization remain tracked by issue #928.
-The `env.read` row now has partial Cranelift evidence for `std/env.ax`
-`get_env` on present and missing environment names, plus denial evidence that a
-package without the `env` capability fails before backend lowering. Full
-runtime-time lookup, manifest allowlist parity, and audit parity remain open
-under #928.
 
 The `Result<T, E>` row has partial direct-native evidence: the Cranelift spike
 now builds and runs a package importing `std/outcome.ax`, using result
@@ -152,25 +147,6 @@ access to disjoint sibling projections. Broader move-state, lifetime, and host
 ABI coverage remain tracked by issue #928.
 
 The logging/stdio row has partial direct-native evidence: the Cranelift spike
-now evaluates `std/io.ax` stderr writes and emits the resulting stdout and
-stderr streams from the native binary. Stdin reads, `std/log.ax` wrappers, and
-broader streaming/runtime buffering remain tracked by issue #928.
-The `env.read` row now has partial Cranelift evidence for `std/env.ax`
-`get_env` on present and missing environment names, plus denial evidence that a
-package without the `env` capability fails before backend lowering. Full
-runtime-time lookup, manifest allowlist parity, and audit parity remain open
-under #928.
-
-The `Result<T, E>` row has partial direct-native evidence: the Cranelift spike
-now builds and runs a package importing `std/outcome.ax`, using result
-predicates, fallback unwrap helpers, direct match arms over `Result<T, E>`
-values, scalar payloads, string errors, and struct payloads. Broader runtime
-ABI and capability-shim coverage remain tracked by issue #928.
-
-The owned move-state row has partial direct-native evidence: the Cranelift
-spike builds and runs projection-sensitive owned field moves while preserving
-access to disjoint sibling projections. Broader move-state, lifetime, and host
-ABI coverage remain tracked by issue #928.
 now evaluates `std/io.ax` stderr writes and emits the resulting stdout and
 stderr streams from the native binary. Stdin reads, `std/log.ax` wrappers, and
 broader streaming/runtime buffering remain tracked by issue #928.
