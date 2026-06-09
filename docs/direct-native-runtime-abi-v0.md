@@ -155,8 +155,10 @@ The `clock.now_sleep` row now has partial Cranelift evidence for `std/time.ax`
 `now_ms`, `now`, `elapsed_ms`, and zero-duration `sleep`, plus guards that a
 package without the `clock` capability fails before backend lowering and that
 nonzero sleep fails fast instead of waiting during compiler-side spike
-evaluation. Full runtime-time clock/sleep execution, timer scheduling, async
-clock integration, and audit parity remain open under #928.
+evaluation. The spike intentionally keeps the supported sleep shape limited to
+zero-duration calls until the real runtime clock path lands. Full runtime-time
+clock/sleep execution, timer scheduling, async clock integration, and audit
+parity remain open under #928.
 
 ## Rust Capture Check
 
