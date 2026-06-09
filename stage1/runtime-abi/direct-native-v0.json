@@ -31,9 +31,10 @@
     },
     {
       "id": "slice.borrowed",
-      "status": "blocked",
-      "evidence": [],
-      "blockers": [928]
+      "status": "partial",
+      "evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"],
+      "blockers": [928],
+      "notes": "The Cranelift spike evaluates borrowed array slices for len, first, last, indexing, and function returns. Broader borrowed-slice aliasing and host ABI coverage remain open."
     },
     {
       "id": "map.lookup",
@@ -55,9 +56,10 @@
     },
     {
       "id": "result",
-      "status": "blocked",
-      "evidence": [],
-      "blockers": [928]
+      "status": "partial",
+      "evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"],
+      "blockers": [928],
+      "notes": "The Cranelift spike evaluates Result<T, E> through std/outcome.ax helpers, direct match arms, scalar payloads, string errors, and struct payloads. Broader ABI payload and capability-shim coverage remain open."
     },
     {
       "id": "enum.payload",
@@ -73,9 +75,10 @@
     },
     {
       "id": "owned.move_state",
-      "status": "blocked",
-      "evidence": [],
-      "blockers": [928]
+      "status": "partial",
+      "evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"],
+      "blockers": [928],
+      "notes": "The Cranelift spike builds and runs projection-sensitive owned field moves while preserving access to disjoint sibling projections. Broader move-state, lifetime, and host ABI coverage remain open."
     }
   ],
   "capability_shims": [
@@ -92,31 +95,36 @@
       "id": "fs.write",
       "status": "blocked",
       "capability": "fs:write",
-      "blockers": [928]
+      "blockers": [928],
+      "denial_evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"]
     },
     {
       "id": "network.dns.resolve",
       "status": "blocked",
       "capability": "net",
-      "blockers": [928]
+      "blockers": [928],
+      "denial_evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"]
     },
     {
       "id": "network.tcp",
       "status": "blocked",
       "capability": "net",
-      "blockers": [928]
+      "blockers": [928],
+      "denial_evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"]
     },
     {
       "id": "network.udp",
       "status": "blocked",
       "capability": "net",
-      "blockers": [928]
+      "blockers": [928],
+      "denial_evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"]
     },
     {
       "id": "network.http.client",
       "status": "blocked",
       "capability": "net",
-      "blockers": [928]
+      "blockers": [928],
+      "denial_evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"]
     },
     {
       "id": "network.http.server",
@@ -153,9 +161,12 @@
     },
     {
       "id": "crypto.hash",
-      "status": "blocked",
+      "status": "partial",
       "capability": "crypto",
-      "blockers": [928]
+      "evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"],
+      "denial_evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"],
+      "blockers": [928],
+      "notes": "The Cranelift spike covers std/crypto_hash.ax sha256 over strings without using generated Rust. MAC, random, signature, AEAD, and broader crypto audit parity remain blocked."
     },
     {
       "id": "crypto.mac",
@@ -207,15 +218,19 @@
     },
     {
       "id": "sync.primitives",
-      "status": "blocked",
+      "status": "partial",
       "capability": null,
-      "blockers": [928]
+      "evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"],
+      "blockers": [928],
+      "notes": "The Cranelift spike now builds and runs ownership-shaped std/sync mutex, once, and channel wrappers. Concurrent execution, blocking behavior, and host runtime synchronization remain open."
     },
     {
       "id": "io.logging_stdio",
-      "status": "blocked",
+      "status": "partial",
       "capability": null,
-      "blockers": [928]
+      "evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"],
+      "blockers": [928],
+      "notes": "The Cranelift spike now builds and runs std/io eprintln with stdout and stderr output from the native binary. Stdin reads, std/log wrappers, and broader streaming/runtime buffering remain open."
     }
   ]
 }

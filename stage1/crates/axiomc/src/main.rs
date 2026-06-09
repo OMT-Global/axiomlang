@@ -7998,7 +7998,7 @@ return "ok"
             manifest: String::from("axiom.toml"),
             entry: String::from("src/main.ax"),
             binary: String::from("dist/app"),
-            generated_rust: String::from("target/main.rs"),
+            generated_rust: Some(String::from("target/main.rs")),
             debug_map,
             debug_manifest,
             statement_count: 1,

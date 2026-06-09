@@ -94,6 +94,74 @@ filesystem or environment names, plus denial evidence that packages without the
 matching capability fail before backend lowering. Full runtime-time lookup,
 manifest allowlist parity, and audit parity remain open under #928.
 
+The UDP row is still blocked for positive direct-native runtime execution, but
+now has denial evidence: a package that calls `std/net.ax`
+`udp_bind_loopback_once(...)` without the `net` capability must receive the
+public manifest-policy denial before any backend-specific lowering diagnostic.
+
+The TCP row is still blocked for positive direct-native runtime execution, but
+now has denial evidence: a package that calls `std/net.ax`
+`tcp_listen_loopback_once(...)` without the `net` capability must receive the
+public manifest-policy denial before any backend-specific lowering diagnostic.
+
+The filesystem write row is still blocked for positive direct-native runtime
+execution, but now has denial evidence: a package with `fs = true` and
+`"fs:write" = false` that calls `std/fs.ax` `write_file(...)` must receive the
+public manifest-policy denial before any backend-specific lowering diagnostic.
+
+The DNS resolve row is still blocked for positive direct-native runtime
+execution, but now has denial evidence: a package that calls `std/net.ax`
+`resolve(...)` without the `net` capability must receive the public
+manifest-policy denial before any backend-specific lowering diagnostic.
+
+The direct-native crypto hash slice is still marked partial: the Cranelift
+spike can build and run `std/crypto_hash.ax` `sha256(...)` without generated
+Rust, and crypto capability denials still happen before backend lowering. MAC,
+random, signature, AEAD, and broader crypto audit parity remain blocked.
+
+The HTTP client row remains blocked for positive direct-native runtime support:
+the Cranelift spike does not yet lower `std/http.ax` `get(...)` into a native
+host-service entrypoint. The current evidence proves only that denied `net`
+capability use fails through the manifest policy before Cranelift lowering or
+native execution.
+
+The borrowed-slice row has partial direct-native evidence: the Cranelift spike
+now evaluates array-backed borrowed slices through `len`, `first`, `last`,
+indexing, and function returns. Broader borrowed-slice aliasing and host ABI
+coverage remain tracked by issue #928.
+
+The `env.read` row now has partial Cranelift evidence for `std/env.ax`
+`get_env` on present and missing environment names, plus denial evidence that a
+package without the `env` capability fails before backend lowering. Full
+runtime-time lookup, manifest allowlist parity, and audit parity remain open
+under #928.
+
+The sync-primitives row has partial direct-native evidence: the Cranelift spike
+now evaluates ownership-shaped `std/sync.ax` mutex, once, and channel wrappers
+and emits the expected native output. Concurrent execution, blocking behavior,
+and host runtime synchronization remain tracked by issue #928.
+The `env.read` row now has partial Cranelift evidence for `std/env.ax`
+`get_env` on present and missing environment names, plus denial evidence that a
+package without the `env` capability fails before backend lowering. Full
+runtime-time lookup, manifest allowlist parity, and audit parity remain open
+under #928.
+
+The `Result<T, E>` row has partial direct-native evidence: the Cranelift spike
+now builds and runs a package importing `std/outcome.ax`, using result
+predicates, fallback unwrap helpers, direct match arms over `Result<T, E>`
+values, scalar payloads, string errors, and struct payloads. Broader runtime
+ABI and capability-shim coverage remain tracked by issue #928.
+
+The owned move-state row has partial direct-native evidence: the Cranelift
+spike builds and runs projection-sensitive owned field moves while preserving
+access to disjoint sibling projections. Broader move-state, lifetime, and host
+ABI coverage remain tracked by issue #928.
+
+The logging/stdio row has partial direct-native evidence: the Cranelift spike
+now evaluates `std/io.ax` stderr writes and emits the resulting stdout and
+stderr streams from the native binary. Stdin reads, `std/log.ax` wrappers, and
+broader streaming/runtime buffering remain tracked by issue #928.
+
 ## Rust Capture Check
 
 This ABI describes Axiom runtime values and host-service effects. Rust may

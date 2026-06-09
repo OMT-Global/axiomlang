@@ -1,0 +1,235 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://omt-global.github.io/axiom/schemas/axiom.compiler.mir_backend.v1.schema.json",
+  "title": "Axiom compiler MIR and backend package contract",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "contract",
+    "issue",
+    "packages",
+    "backend_input",
+    "targets",
+    "evidence_rules",
+    "validation"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "axiom.compiler.mir_backend.v1"
+    },
+    "contract": {
+      "const": "compiler.mir_backend"
+    },
+    "issue": {
+      "const": 939
+    },
+    "packages": {
+      "type": "array",
+      "minItems": 4,
+      "items": {
+        "$ref": "#/$defs/package"
+      }
+    },
+    "backend_input": {
+      "$ref": "#/$defs/backendInput"
+    },
+    "targets": {
+      "type": "array",
+      "minItems": 2,
+      "items": {
+        "$ref": "#/$defs/target"
+      }
+    },
+    "evidence_rules": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "direct_native_must_not_require",
+        "direct_native_may_reference",
+        "generated_rust_scope"
+      ],
+      "properties": {
+        "direct_native_must_not_require": {
+          "type": "array",
+          "minItems": 3,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "direct_native_may_reference": {
+          "type": "array",
+          "minItems": 3,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "generated_rust_scope": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "validation": {
+      "type": "array",
+      "minItems": 2,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    }
+  },
+  "$defs": {
+    "package": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "owner_lane",
+        "apis",
+        "owns",
+        "must_not_define"
+      ],
+      "properties": {
+        "name": {
+          "enum": [
+            "compiler.mir",
+            "compiler.backend.contracts",
+            "compiler.backend.generated_rust",
+            "compiler.backend.native"
+          ]
+        },
+        "owner_lane": {
+          "enum": [
+            "Daedalus",
+            "Pheidon"
+          ]
+        },
+        "apis": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "owns": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "must_not_define": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "backendInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "required_fields",
+        "forbidden_required_fields"
+      ],
+      "properties": {
+        "schema": {
+          "const": "MirBackendInput"
+        },
+        "required_fields": {
+          "type": "array",
+          "minItems": 7,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "forbidden_required_fields": {
+          "type": "array",
+          "minItems": 4,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "package",
+        "class",
+        "status",
+        "primary_artifacts",
+        "required_evidence",
+        "may_emit",
+        "must_not_require"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "package": {
+          "enum": [
+            "compiler.backend.generated_rust",
+            "compiler.backend.native"
+          ]
+        },
+        "class": {
+          "enum": [
+            "rust_source",
+            "native_binary"
+          ]
+        },
+        "status": {
+          "enum": [
+            "legacy",
+            "experimental",
+            "supported"
+          ]
+        },
+        "primary_artifacts": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required_evidence": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "may_emit": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "must_not_require": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    }
+  }
+}

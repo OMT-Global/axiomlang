@@ -158,7 +158,7 @@ pub struct BuiltPackage {
     pub manifest: String,
     pub entry: String,
     pub binary: String,
-    pub generated_rust: String,
+    pub generated_rust: Option<String>,
     pub debug_map: Option<String>,
     pub debug_manifest: Option<String>,
     pub statement_count: usize,
@@ -178,7 +178,7 @@ pub struct BuildOutput {
     pub manifest: String,
     pub entry: String,
     pub binary: String,
-    pub generated_rust: String,
+    pub generated_rust: Option<String>,
     pub debug_map: Option<String>,
     pub debug_manifest: Option<String>,
     pub statement_count: usize,
@@ -534,13 +534,17 @@ pub fn build_project_with_options(
             manifest: manifest_path(&package_root).display().to_string(),
             entry: analyzed.entry_path.display().to_string(),
             binary: binary.display().to_string(),
-            generated_rust: generated_rust.display().to_string(),
-            debug_map: options
-                .debug
-                .then(|| debug_source_map_path(&generated_rust).display().to_string()),
-            debug_manifest: options
-                .debug
-                .then(|| debug_manifest_path(&generated_rust).display().to_string()),
+            generated_rust: generated_rust_output(options.backend, &generated_rust),
+            debug_map: options.debug.then(|| {
+                debug_source_map_path(options.backend, &generated_rust, &binary)
+                    .display()
+                    .to_string()
+            }),
+            debug_manifest: options.debug.then(|| {
+                debug_manifest_path(options.backend, &generated_rust, &binary)
+                    .display()
+                    .to_string()
+            }),
             statement_count: analyzed.mir.statement_count(),
             target: resolved_target.clone(),
             debug: options.debug,
@@ -629,7 +633,12 @@ pub fn run_project_report_with_options(
         manifest: built.manifest,
         entry: built.entry,
         binary: built.binary,
-        generated_rust: built.generated_rust,
+        generated_rust: built.generated_rust.ok_or_else(|| {
+            Diagnostic::new(
+                "run",
+                "generated-Rust build did not report a generated Rust artifact",
+            )
+        })?,
         package: options.package.clone(),
         args: options.args.clone(),
         exit_code,
@@ -672,7 +681,13 @@ fn prepare_run_project(
             offline: true,
         },
     )?;
-    let build_output_dir = Path::new(&built.generated_rust).parent().ok_or_else(|| {
+    let generated_rust = built.generated_rust.as_ref().ok_or_else(|| {
+        Diagnostic::new(
+            "run",
+            "generated-Rust run requires a generated Rust artifact",
+        )
+    })?;
+    let build_output_dir = Path::new(generated_rust).parent().ok_or_else(|| {
         Diagnostic::new(
             "run",
             format!(
@@ -1983,31 +1998,35 @@ fn build_artifacts(
     resolved_target: Option<&str>,
     options: &BuildOptions,
 ) -> Result<BuildArtifactReport, Diagnostic> {
-    ensure_output_path_stays_inside_package(package_root, generated_rust, "generated Rust output")?;
+    if matches!(options.backend, NativeBackendKind::GeneratedRust) {
+        ensure_output_path_stays_inside_package(
+            package_root,
+            generated_rust,
+            "generated Rust output",
+        )?;
+        ensure_writable_output_parent(generated_rust, "generated Rust output")?;
+    }
     ensure_output_path_stays_inside_package(package_root, binary, "binary output")?;
-    ensure_writable_output_parent(generated_rust, "generated Rust output")?;
     ensure_writable_output_parent(binary, "binary output")?;
-    let fs_root = fs_root_path_for_package(package_root, &analyzed.manifest)?;
-    let rust_source = try_render_generated_rust(
-        &GeneratedRustBackendInput::from_mir(analyzed.mir.clone())
-            .with_debug(options.debug)
-            .with_paths(package_root, fs_root)
-            .with_capabilities(analyzed.manifest.capabilities.clone())
-            .with_runtime_max_threads(analyzed.manifest.runtime.max_threads),
-    )?;
+    let cache_path = build_cache_path(generated_rust);
+    ensure_output_path_stays_inside_package(package_root, &cache_path, "build cache output")?;
+    ensure_writable_output_parent(&cache_path, "build cache output")?;
+    let generated_source = generated_rust_source_for_backend(package_root, analyzed, options)?;
+    let backend_input_hash = backend_input_hash(analyzed, generated_source.as_deref())?;
     let cache = build_cache_file(
         graph,
         package_root,
         analyzed,
-        &rust_source,
+        &backend_input_hash,
         options.backend,
         resolved_target.map(str::to_string),
         options.debug,
     )?;
-    let cache_path = build_cache_path(generated_rust);
     if read_build_cache(&cache_path)
         .as_ref()
-        .is_some_and(|stored| cache_matches(stored, &cache, generated_rust, binary))
+        .is_some_and(|stored| {
+            cache_matches(stored, &cache, options.backend, generated_rust, binary)
+        })
     {
         if options.debug {
             write_debug_artifacts(generated_rust, binary, analyzed, options.backend)?;
@@ -2026,12 +2045,14 @@ fn build_artifacts(
             compile_ms: 0,
         });
     }
-    fs::write(generated_rust, rust_source).map_err(|err| {
-        Diagnostic::new(
-            "build",
-            format!("failed to write {}: {err}", generated_rust.display()),
-        )
-    })?;
+    if let Some(rust_source) = generated_source {
+        fs::write(generated_rust, rust_source).map_err(|err| {
+            Diagnostic::new(
+                "build",
+                format!("failed to write {}: {err}", generated_rust.display()),
+            )
+        })?;
+    }
     let started = Instant::now();
     match options.backend {
         NativeBackendKind::GeneratedRust => compile_native(
@@ -2042,7 +2063,7 @@ fn build_artifacts(
             options.debug,
         )?,
         NativeBackendKind::Cranelift => {
-            let object_path = generated_rust.with_extension("cranelift.o");
+            let object_path = binary.with_extension("cranelift.o");
             ensure_output_path_stays_inside_package(
                 package_root,
                 &object_path,
@@ -2077,6 +2098,39 @@ fn build_artifacts(
         cache_key: build_cache_metadata(&cache),
         compile_ms,
     })
+}
+
+fn generated_rust_source_for_backend(
+    package_root: &Path,
+    analyzed: &AnalyzedProject,
+    options: &BuildOptions,
+) -> Result<Option<String>, Diagnostic> {
+    match options.backend {
+        NativeBackendKind::GeneratedRust => {
+            let fs_root = fs_root_path_for_package(package_root, &analyzed.manifest)?;
+            try_render_generated_rust(
+                &GeneratedRustBackendInput::from_mir(analyzed.mir.clone())
+                    .with_debug(options.debug)
+                    .with_paths(package_root, fs_root)
+                    .with_capabilities(analyzed.manifest.capabilities.clone())
+                    .with_runtime_max_threads(analyzed.manifest.runtime.max_threads),
+            )
+            .map(Some)
+        }
+        NativeBackendKind::Cranelift => Ok(None),
+    }
+}
+
+fn backend_input_hash(
+    analyzed: &AnalyzedProject,
+    generated_source: Option<&str>,
+) -> Result<String, Diagnostic> {
+    if let Some(generated_source) = generated_source {
+        return Ok(hash_text(generated_source));
+    }
+    let mir = serde_json::to_string(&analyzed.mir)
+        .map_err(|err| Diagnostic::new("build", format!("failed to hash MIR input: {err}")))?;
+    Ok(hash_text(&mir))
 }
 
 pub fn provenance_path_for_project(project_root: &Path) -> Result<PathBuf, Diagnostic> {
@@ -2467,12 +2521,33 @@ fn build_cache_path(generated_rust: &Path) -> PathBuf {
     generated_rust.with_extension("build-cache.toml")
 }
 
-fn debug_source_map_path(generated_rust: &Path) -> PathBuf {
-    generated_rust.with_extension("debug-map.json")
+fn generated_rust_output(backend: NativeBackendKind, generated_rust: &Path) -> Option<String> {
+    match backend {
+        NativeBackendKind::GeneratedRust => Some(generated_rust.display().to_string()),
+        NativeBackendKind::Cranelift => None,
+    }
 }
 
-fn debug_manifest_path(generated_rust: &Path) -> PathBuf {
-    generated_rust.with_extension("debug-manifest.json")
+fn debug_source_map_path(
+    backend: NativeBackendKind,
+    generated_rust: &Path,
+    binary: &Path,
+) -> PathBuf {
+    match backend {
+        NativeBackendKind::GeneratedRust => generated_rust.with_extension("debug-map.json"),
+        NativeBackendKind::Cranelift => binary.with_extension("debug-map.json"),
+    }
+}
+
+fn debug_manifest_path(
+    backend: NativeBackendKind,
+    generated_rust: &Path,
+    binary: &Path,
+) -> PathBuf {
+    match backend {
+        NativeBackendKind::GeneratedRust => generated_rust.with_extension("debug-manifest.json"),
+        NativeBackendKind::Cranelift => binary.with_extension("debug-manifest.json"),
+    }
 }
 
 #[derive(Debug, Serialize)]
@@ -2491,6 +2566,23 @@ struct DebugSourceMapping {
 }
 
 #[derive(Debug, Serialize)]
+struct DirectNativeDebugSourceMap {
+    schema_version: &'static str,
+    backend: NativeBackendKind,
+    binary: String,
+    source_spans: Vec<DirectNativeDebugSourceSpan>,
+}
+
+#[derive(Debug, Serialize)]
+struct DirectNativeDebugSourceSpan {
+    kind: &'static str,
+    name: String,
+    source: String,
+    line: usize,
+    column: usize,
+}
+
+#[derive(Debug, Serialize)]
 struct DebugManifest<'a> {
     schema_version: &'static str,
     backend: NativeBackendKind,
@@ -2502,6 +2594,18 @@ struct DebugManifest<'a> {
     native_debug: DebugNativeInfo,
     #[serde(skip_serializing_if = "Option::is_none")]
     rustc: Option<DebugRustcInfo>,
+    source_files: Vec<DebugSourceFile>,
+}
+
+#[derive(Debug, Serialize)]
+struct DirectNativeDebugManifest<'a> {
+    schema_version: &'static str,
+    backend: NativeBackendKind,
+    artifact_class: &'static str,
+    binary: &'a str,
+    binary_hash: String,
+    debug_map: &'a str,
+    native_debug: DebugNativeInfo,
     source_files: Vec<DebugSourceFile>,
 }
 
@@ -2536,16 +2640,30 @@ fn write_debug_artifacts(
     analyzed: &AnalyzedProject,
     backend: NativeBackendKind,
 ) -> Result<(), Diagnostic> {
-    let debug_map = debug_source_map_path(generated_rust);
-    write_debug_source_map(generated_rust, &debug_map)?;
-    write_debug_manifest(
-        generated_rust,
-        binary,
-        &debug_map,
-        &debug_manifest_path(generated_rust),
-        backend,
-        analyzed,
-    )
+    let debug_map = debug_source_map_path(backend, generated_rust, binary);
+    let debug_manifest = debug_manifest_path(backend, generated_rust, binary);
+    match backend {
+        NativeBackendKind::GeneratedRust => {
+            write_debug_source_map(generated_rust, &debug_map)?;
+            write_debug_manifest(
+                generated_rust,
+                binary,
+                &debug_map,
+                &debug_manifest,
+                analyzed,
+            )
+        }
+        NativeBackendKind::Cranelift => {
+            write_direct_native_debug_source_map(binary, &debug_map, analyzed, backend)?;
+            write_direct_native_debug_manifest(
+                binary,
+                &debug_map,
+                &debug_manifest,
+                backend,
+                analyzed,
+            )
+        }
+    }
 }
 
 fn write_debug_source_map(generated_rust: &Path, debug_map: &Path) -> Result<(), Diagnostic> {
@@ -2577,7 +2695,6 @@ fn write_debug_manifest(
     binary: &Path,
     debug_map: &Path,
     debug_manifest: &Path,
-    backend: NativeBackendKind,
     analyzed: &AnalyzedProject,
 ) -> Result<(), Diagnostic> {
     let generated_source = fs::read_to_string(generated_rust).map_err(|err| {
@@ -2591,18 +2708,77 @@ fn write_debug_manifest(
     let debug_map_path = debug_map.display().to_string();
     let manifest = DebugManifest {
         schema_version: "axiom.stage1.debug_manifest.v1",
-        backend,
+        backend: NativeBackendKind::GeneratedRust,
         binary: &binary_path,
         binary_hash: hash_file_bytes(binary)?,
         generated_rust: &generated_rust_path,
         generated_rust_hash: hash_file(generated_rust)?,
         debug_map: &debug_map_path,
-        native_debug: debug_native_info(backend),
-        rustc: rustc_debug_info(backend),
+        native_debug: debug_native_info(NativeBackendKind::GeneratedRust),
+        rustc: rustc_debug_info(NativeBackendKind::GeneratedRust),
         source_files: debug_source_files(analyzed, &generated_source)?,
     };
     let content = serde_json::to_string_pretty(&manifest).map_err(|err| {
         Diagnostic::new("build", format!("failed to render debug manifest: {err}"))
+    })?;
+    fs::write(debug_manifest, format!("{content}\n")).map_err(|err| {
+        Diagnostic::new(
+            "build",
+            format!("failed to write {}: {err}", debug_manifest.display()),
+        )
+    })
+}
+
+fn write_direct_native_debug_source_map(
+    binary: &Path,
+    debug_map: &Path,
+    analyzed: &AnalyzedProject,
+    backend: NativeBackendKind,
+) -> Result<(), Diagnostic> {
+    let map = DirectNativeDebugSourceMap {
+        schema_version: "axiom.stage1.direct_native.debug_map.v1",
+        backend,
+        binary: binary.display().to_string(),
+        source_spans: direct_native_debug_source_spans(analyzed),
+    };
+    let content = serde_json::to_string_pretty(&map).map_err(|err| {
+        Diagnostic::new(
+            "build",
+            format!("failed to render direct-native debug source map: {err}"),
+        )
+    })?;
+    fs::write(debug_map, format!("{content}\n")).map_err(|err| {
+        Diagnostic::new(
+            "build",
+            format!("failed to write {}: {err}", debug_map.display()),
+        )
+    })
+}
+
+fn write_direct_native_debug_manifest(
+    binary: &Path,
+    debug_map: &Path,
+    debug_manifest: &Path,
+    backend: NativeBackendKind,
+    analyzed: &AnalyzedProject,
+) -> Result<(), Diagnostic> {
+    let binary_path = binary.display().to_string();
+    let debug_map_path = debug_map.display().to_string();
+    let manifest = DirectNativeDebugManifest {
+        schema_version: "axiom.stage1.direct_native.debug_manifest.v1",
+        backend,
+        artifact_class: "native_binary",
+        binary: &binary_path,
+        binary_hash: hash_file_bytes(binary)?,
+        debug_map: &debug_map_path,
+        native_debug: debug_native_info(backend),
+        source_files: direct_native_debug_source_files(analyzed)?,
+    };
+    let content = serde_json::to_string_pretty(&manifest).map_err(|err| {
+        Diagnostic::new(
+            "build",
+            format!("failed to render direct-native debug manifest: {err}"),
+        )
     })?;
     fs::write(debug_manifest, format!("{content}\n")).map_err(|err| {
         Diagnostic::new(
@@ -2667,6 +2843,29 @@ fn debug_source_files(
         .collect()
 }
 
+fn direct_native_debug_source_files(
+    analyzed: &AnalyzedProject,
+) -> Result<Vec<DebugSourceFile>, Diagnostic> {
+    let mut span_counts = BTreeMap::<String, usize>::new();
+    for span in direct_native_debug_source_spans(analyzed) {
+        *span_counts.entry(span.source).or_default() += 1;
+    }
+    analyzed
+        .modules
+        .iter()
+        .map(|module| {
+            let source = module_source(&module.path)?;
+            let path = module.path.display().to_string();
+            Ok(DebugSourceFile {
+                mapping_count: span_counts.get(&path).copied().unwrap_or(0),
+                path,
+                source_hash: hash_text(&source),
+                line_count: source.lines().count(),
+            })
+        })
+        .collect()
+}
+
 fn debug_source_mappings(generated_source: &str) -> Vec<DebugSourceMapping> {
     generated_source
         .lines()
@@ -2682,6 +2881,130 @@ fn debug_source_mappings(generated_source: &str) -> Vec<DebugSourceMapping> {
             })
         })
         .collect()
+}
+
+fn direct_native_debug_source_spans(
+    analyzed: &AnalyzedProject,
+) -> Vec<DirectNativeDebugSourceSpan> {
+    let mut spans = Vec::new();
+    for module in &analyzed.modules {
+        let source = module.path.display().to_string();
+        spans.push(DirectNativeDebugSourceSpan {
+            kind: "module",
+            name: source.clone(),
+            source: source.clone(),
+            line: 1,
+            column: 1,
+        });
+    }
+    for function in &analyzed.mir.functions {
+        spans.push(DirectNativeDebugSourceSpan {
+            kind: "function",
+            name: function.source_name.clone(),
+            source: function.path.clone(),
+            line: function.line,
+            column: function.column,
+        });
+        collect_direct_native_stmt_spans(
+            &function.body,
+            &function.path,
+            &format!("{}::stmt", function.source_name),
+            &mut spans,
+        );
+    }
+    collect_direct_native_stmt_spans(
+        &analyzed.mir.stmts,
+        &analyzed.mir.path,
+        "module::stmt",
+        &mut spans,
+    );
+    spans.sort_by(|left, right| {
+        left.source
+            .cmp(&right.source)
+            .then_with(|| left.line.cmp(&right.line))
+            .then_with(|| left.column.cmp(&right.column))
+            .then_with(|| left.kind.cmp(&right.kind))
+            .then_with(|| left.name.cmp(&right.name))
+    });
+    spans
+}
+
+fn collect_direct_native_stmt_spans(
+    statements: &[mir::Stmt],
+    source: &str,
+    name_prefix: &str,
+    spans: &mut Vec<DirectNativeDebugSourceSpan>,
+) {
+    for (index, statement) in statements.iter().enumerate() {
+        let span = stmt_source_span(statement);
+        spans.push(DirectNativeDebugSourceSpan {
+            kind: "statement",
+            name: format!("{name_prefix}/{index}"),
+            source: source.to_string(),
+            line: span.line,
+            column: span.column,
+        });
+        match statement {
+            mir::Stmt::If {
+                then_block,
+                else_block,
+                ..
+            } => {
+                collect_direct_native_stmt_spans(
+                    then_block,
+                    source,
+                    &format!("{name_prefix}/{index}/then"),
+                    spans,
+                );
+                if let Some(else_block) = else_block {
+                    collect_direct_native_stmt_spans(
+                        else_block,
+                        source,
+                        &format!("{name_prefix}/{index}/else"),
+                        spans,
+                    );
+                }
+            }
+            mir::Stmt::While { body, .. } => {
+                collect_direct_native_stmt_spans(
+                    body,
+                    source,
+                    &format!("{name_prefix}/{index}/while"),
+                    spans,
+                );
+            }
+            mir::Stmt::Match { arms, .. } => {
+                for (arm_index, arm) in arms.iter().enumerate() {
+                    collect_direct_native_stmt_spans(
+                        &arm.body,
+                        source,
+                        &format!("{name_prefix}/{index}/match/{arm_index}"),
+                        spans,
+                    );
+                }
+            }
+            mir::Stmt::Let { .. }
+            | mir::Stmt::Assign { .. }
+            | mir::Stmt::Print { .. }
+            | mir::Stmt::Panic { .. }
+            | mir::Stmt::Defer { .. }
+            | mir::Stmt::Return { .. } => {}
+        }
+    }
+}
+
+fn stmt_source_span(statement: &mir::Stmt) -> mir::SourceSpan {
+    match statement {
+        mir::Stmt::Let { span, .. }
+        | mir::Stmt::Assign { span, .. }
+        | mir::Stmt::Print { span, .. }
+        | mir::Stmt::Panic { span, .. }
+        | mir::Stmt::Defer { span, .. }
+        | mir::Stmt::If { span, .. }
+        | mir::Stmt::While { span, .. }
+        | mir::Stmt::Match { span, .. }
+        | mir::Stmt::Return { span, .. } => *span,
+    }
 }
 
 fn parse_debug_source_marker(marker: &str) -> Option<(String, usize, usize)> {
@@ -2700,14 +3023,17 @@ fn read_build_cache(path: &Path) -> Option<BuildCacheFile> {
 fn cache_matches(
     stored: &BuildCacheFile,
     expected: &BuildCacheFile,
+    backend: NativeBackendKind,
     generated_rust: &Path,
     binary: &Path,
 ) -> bool {
     let Some(binary_hash) = stored.binary_hash.as_ref() else {
         return false;
     };
-    let Ok(generated_rust_source) = fs::read_to_string(generated_rust) else {
-        return false;
+    let generated_rust_matches = match backend {
+        NativeBackendKind::GeneratedRust => fs::read_to_string(generated_rust)
+            .is_ok_and(|source| hash_text(&source) == expected.rust_hash),
+        NativeBackendKind::Cranelift => true,
     };
     let Ok(actual_binary_hash) = hash_file_bytes(binary) else {
         return false;
@@ -2716,9 +3042,7 @@ fn cache_matches(
     let mut expected_key = expected.clone();
     stored_key.binary_hash = None;
     expected_key.binary_hash = None;
-    stored_key == expected_key
-        && hash_text(&generated_rust_source) == expected.rust_hash
-        && actual_binary_hash == *binary_hash
+    stored_key == expected_key && generated_rust_matches && actual_binary_hash == *binary_hash
 }
 
 fn write_build_cache(path: &Path, cache: &BuildCacheFile) -> Result<(), Diagnostic> {
@@ -7581,6 +7905,110 @@ mod tests {
             relationship.kind == "emits"
                 && relationship.to == "axiom://package/demo/artifact/generated-rust"
         }));
+    }
+
+    #[test]
+    fn generated_rust_cache_matches_hashed_source_not_raw_source() {
+        let dir = tempdir().unwrap_or_else(|err| panic!("tempdir: {err}"));
+        let generated_rust = dir.path().join("dist/main.rs");
+        let binary = dir.path().join("dist/main");
+        fs::create_dir_all(generated_rust.parent().expect("generated parent"))
+            .expect("create dist");
+        let generated_source = "fn main() { println!(\"cache\"); }\n";
+        fs::write(&generated_rust, generated_source).expect("write generated rust");
+        fs::write(&binary, b"binary").expect("write binary");
+
+        let stored = BuildCacheFile {
+            version: BUILD_CACHE_VERSION,
+            backend: NativeBackendKind::GeneratedRust,
+            compiler: String::from("test-generated-rust"),
+            target: None,
+            debug: false,
+            manifest_hash: String::from("manifest"),
+            lockfile_hash: String::from("lockfile"),
+            rust_hash: hash_text(generated_source),
+            binary_hash: Some(hash_file_bytes(&binary).expect("binary hash")),
+            modules: Vec::new(),
+        };
+        let expected = BuildCacheFile {
+            binary_hash: None,
+            ..stored.clone()
+        };
+
+        assert!(cache_matches(
+            &stored,
+            &expected,
+            NativeBackendKind::GeneratedRust,
+            &generated_rust,
+            &binary,
+        ));
+
+        let raw_source_expected = BuildCacheFile {
+            rust_hash: generated_source.to_string(),
+            ..expected
+        };
+        assert!(!cache_matches(
+            &stored,
+            &raw_source_expected,
+            NativeBackendKind::GeneratedRust,
+            &generated_rust,
+            &binary,
+        ));
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn cranelift_build_cache_creates_output_parent_without_generated_rust() {
+        if which::which("cc").is_err() {
+            eprintln!("skipping Cranelift build cache test because cc is unavailable");
+            return;
+        }
+
+        let dir = tempdir().unwrap_or_else(|err| panic!("tempdir: {err}"));
+        let root = dir.path();
+        fs::create_dir_all(root.join("src")).expect("create src");
+        fs::write(
+            root.join("axiom.toml"),
+            "[package]\nname = \"demo\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n",
+        )
+        .expect("write manifest");
+        fs::write(
+            root.join("axiom.lock"),
+            crate::lockfile::render_lockfile(&package_manifest()).expect("render lockfile"),
+        )
+        .expect("write lockfile");
+        fs::write(root.join("src/main.ax"), "print \"cache parent\"\n").expect("write source");
+
+        let package_root =
+            canonicalize_existing_path(root, "project root").expect("canonical root");
+        let manifest = load_manifest(&package_root).expect("load manifest");
+        let generated_rust = generated_rust_path(&package_root, &manifest);
+        let cache_path = build_cache_path(&generated_rust);
+
+        assert!(!root.join("dist").exists());
+        let output = build_project_with_options(
+            root,
+            &BuildOptions {
+                backend: NativeBackendKind::Cranelift,
+                ..BuildOptions::default()
+            },
+        )
+        .expect("cranelift build");
+
+        assert_eq!(output.backend, NativeBackendKind::Cranelift);
+        assert!(output.generated_rust.is_none());
+        assert!(
+            Path::new(&output.binary).exists(),
+            "cranelift binary exists"
+        );
+        assert!(
+            cache_path.exists(),
+            "cranelift build cache should be written even without generated Rust"
+        );
+        assert!(
+            !generated_rust.exists(),
+            "cranelift build should not emit generated Rust"
+        );
     }
 
     #[cfg(unix)]

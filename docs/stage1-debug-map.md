@@ -9,20 +9,27 @@ native Axiom DWARF is not present yet.
   `.ax` source file, line, and column positions.
 - `<artifact>.debug-manifest.json` binds the native binary, generated Rust,
   debug map, backend-native debug settings, source hashes, and mapping counts.
+- Direct-native debug maps use
+  `axiom.stage1.direct_native.debug_map.v1` and bind Axiom module, function,
+  and statement spans directly to the native binary. They do not contain
+  `generated_rust` or generated line records.
+- Direct-native debug manifests use
+  `axiom.stage1.direct_native.debug_manifest.v1`, set
+  `artifact_class = "native_binary"`, and omit `generated_rust`,
+  `generated_rust_hash`, and `rustc`.
 
 This is an interim sidecar bridge. Generated-Rust DWARF line tables still point
 at generated Rust, and Cranelift debug builds do not emit Axiom DWARF yet, so
 debugger integrations should translate generated Rust frames through the debug
 map instead of assuming the binary contains native `.ax` line records.
 
-This PR does not change the debug sidecar schema. `axiom.stage1.debug_manifest.v1`
-continues to require `generated_rust` and `generated_rust_hash` because debug
-mapping is still mediated through generated Rust line records. A future
-direct-native debug manifest that removes generated Rust from the debug
-integrity envelope must use a successor schema version. The provenance sidecar
-is separate: generated Rust is not a required direct-native provenance artifact,
-so provenance for direct-native builds follows the native artifacts actually
-emitted by the backend.
+`axiom.stage1.debug_manifest.v1` continues to require `generated_rust` and
+`generated_rust_hash` because that legacy mapping is mediated through generated
+Rust line records. Direct-native builds use the successor direct-native schema
+versions above, so generated Rust is not part of their debug integrity
+envelope. The provenance sidecar is separate: generated Rust is not a required
+direct-native provenance artifact, so provenance for direct-native builds
+follows the native artifacts actually emitted by the backend.
 
 ## Build
 
@@ -31,8 +38,9 @@ axiomc build --debug --json
 ```
 
 The JSON payload includes `binary`, `generated_rust`, `debug_map`, and
-`debug_manifest`. Use those paths as the source of truth; do not derive sidecar
-paths by hand in tooling.
+`debug_manifest`. `generated_rust` is a path for generated-Rust builds and
+`null` for direct-native builds. Use those paths as the source of truth; do not
+derive sidecar paths by hand in tooling.
 
 ## LLDB
 
@@ -88,11 +96,13 @@ Consumers should treat `debug_manifest` as the integrity envelope:
 
 - `binary_hash` and `generated_rust_hash` identify the exact artifacts.
 - `generated_rust` and `generated_rust_hash` remain required in
-  `axiom.stage1.debug_manifest.v1`, including for Cranelift debug builds.
+  `axiom.stage1.debug_manifest.v1`.
+- Direct-native manifests identify the native artifact with `binary_hash` and
+  `artifact_class = "native_binary"` instead of a generated Rust hash.
 - `source_files[*].source_hash` identifies the `.ax` inputs.
 - `native_debug.axiom_dwarf` is the backend-neutral signal for whether the
   binary contains native Axiom DWARF line tables.
-- `rustc` is retained for generated-Rust compatibility; Cranelift debug
+- `rustc` is retained for generated-Rust compatibility; direct-native debug
   manifests omit it because `rustc` is not the native debug producer.
 - `source_files[*].mapping_count` lets tools detect missing or unexpectedly
   sparse source mappings.
