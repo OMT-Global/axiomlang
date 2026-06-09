@@ -155,9 +155,12 @@
     },
     {
       "id": "clock.now_sleep",
-      "status": "blocked",
+      "status": "partial",
       "capability": "clock",
-      "blockers": [928]
+      "evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"],
+      "denial_evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"],
+      "blockers": [928],
+      "notes": "The Cranelift spike can build a std/time.ax package covering now_ms, now, elapsed_ms, and zero-duration sleep, rejects missing clock capability before backend lowering, and fails fast for nonzero sleep before any host sleep or backend lowering. Full runtime-time clock/sleep execution, timer scheduling, async clock integration, and audit parity remain open."
     },
     {
       "id": "crypto.hash",

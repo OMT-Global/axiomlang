@@ -1005,6 +1005,134 @@ fn cranelift_backend_rejects_http_client_denial_before_backend_lowering() {
     );
 }
 
+#[cfg(not(windows))]
+#[test]
+fn cranelift_backend_rejects_nonzero_clock_sleep() {
+    if which::which("cc").is_err() {
+        eprintln!("skipping cranelift backend smoke test because cc is unavailable");
+        return;
+    }
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("clock-nonzero-sleep");
+    write_clock_nonzero_sleep_project(&project);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args([
+            "build",
+            project.to_str().expect("project path"),
+            "--backend",
+            "cranelift",
+            "--json",
+        ])
+        .output()
+        .expect("run axiomc build --backend cranelift");
+
+    assert!(
+        !output.status.success(),
+        "cranelift nonzero clock sleep build unexpectedly succeeded: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let combined = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        combined.contains("nonzero clock_sleep_ms is not supported by the cranelift spike"),
+        "expected nonzero sleep rejection, got: {combined}"
+    );
+}
+
+#[cfg(not(windows))]
+#[test]
+fn cranelift_backend_builds_clock_binary() {
+    if which::which("cc").is_err() {
+        eprintln!("skipping cranelift backend smoke test because cc is unavailable");
+        return;
+    }
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("clock");
+    write_clock_project(&project);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args([
+            "build",
+            project.to_str().expect("project path"),
+            "--backend",
+            "cranelift",
+            "--json",
+        ])
+        .output()
+        .expect("run axiomc build --backend cranelift");
+    assert!(
+        output.status.success(),
+        "cranelift clock build failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+    assert_eq!(payload["backend"], "cranelift");
+    let binary = payload["binary"].as_str().expect("binary path");
+    let run = Command::new(binary)
+        .output()
+        .expect("run cranelift clock binary");
+    assert!(
+        run.status.success(),
+        "cranelift clock binary failed: stderr={}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&run.stdout),
+        "true
+true
+true
+true
+"
+    );
+}
+
+#[test]
+fn cranelift_backend_rejects_clock_denial_before_backend_lowering() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("clock-denied");
+    write_clock_denial_project(&project);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args([
+            "build",
+            project.to_str().expect("project path"),
+            "--backend",
+            "cranelift",
+            "--json",
+        ])
+        .output()
+        .expect("run axiomc build --backend cranelift");
+
+    assert!(
+        !output.status.success(),
+        "cranelift clock-denied build unexpectedly succeeded: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let combined = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        combined.contains("requires [capabilities].clock = true"),
+        "expected clock capability denial before backend lowering, got: {combined}"
+    );
+    assert!(
+        !combined.contains("unsupported by --backend cranelift spike"),
+        "clock capability denial should happen before cranelift unsupported-feature lowering: {combined}"
+    );
+}
+
 #[test]
 fn cranelift_backend_rejects_capability_denial_before_backend_lowering() {
     let temp = tempfile::tempdir().expect("tempdir");
@@ -1280,6 +1408,7 @@ fn cranelift_backend_rejects_env_denial_before_backend_lowering() {
         "env capability denial should happen before cranelift unsupported-feature lowering: {combined}"
     );
 }
+
 
 fn copy_fixture(relative: &str, destination: &Path) {
     let fixture = Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -1845,4 +1974,138 @@ fn write_env_denial_project(project: &Path) {
         "import \"std/env.ax\"\nmatch get_env(\"AXIOM_CRANELIFT_ENV_READ\") {\nSome(value) {\nprint value\n}\nNone {\nprint \"missing\"\n}\n}\n",
     )
     .expect("write env denied source");
+}
+
+fn write_clock_nonzero_sleep_project(project: &Path) {
+    fs::create_dir_all(project.join("src")).expect("create clock nonzero sleep project src");
+    fs::write(
+        project.join("axiom.toml"),
+        r#"[package]
+name = "cranelift-clock-nonzero-sleep"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+fs = false
+net = false
+process = false
+env = false
+clock = true
+crypto = false
+"#,
+    )
+    .expect("write clock nonzero sleep manifest");
+    fs::write(
+        project.join("axiom.lock"),
+        r#"version = 1
+
+[[package]]
+name = "cranelift-clock-nonzero-sleep"
+version = "0.1.0"
+source = "path"
+"#,
+    )
+    .expect("write clock nonzero sleep lockfile");
+    fs::write(
+        project.join("src/main.ax"),
+        r#"import "std/time.ax"
+print sleep(duration_ms(1))
+"#,
+    )
+    .expect("write clock nonzero sleep source");
+}
+
+fn write_clock_project(project: &Path) {
+    fs::create_dir_all(project.join("src")).expect("create clock project src");
+    fs::write(
+        project.join("axiom.toml"),
+        r#"[package]
+name = "cranelift-clock"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+fs = false
+net = false
+process = false
+env = false
+clock = true
+crypto = false
+"#,
+    )
+    .expect("write clock manifest");
+    fs::write(
+        project.join("axiom.lock"),
+        r#"version = 1
+
+[[package]]
+name = "cranelift-clock"
+version = "0.1.0"
+source = "path"
+"#,
+    )
+    .expect("write clock lockfile");
+    fs::write(
+        project.join("src/main.ax"),
+        r#"import "std/time.ax"
+let start: Instant = now()
+let pause: Duration = duration_ms(0)
+print start.ms > 0
+print now_ms() > 0
+print sleep(pause) == 0
+let elapsed: int = elapsed_ms(start)
+print elapsed == elapsed
+"#,
+    )
+    .expect("write clock source");
+}
+
+fn write_clock_denial_project(project: &Path) {
+    fs::create_dir_all(project.join("src")).expect("create clock denied project src");
+    fs::write(
+        project.join("axiom.toml"),
+        r#"[package]
+name = "cranelift-clock-denied"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+fs = false
+net = false
+process = false
+env = false
+clock = false
+crypto = false
+"#,
+    )
+    .expect("write clock denied manifest");
+    fs::write(
+        project.join("axiom.lock"),
+        r#"version = 1
+
+[[package]]
+name = "cranelift-clock-denied"
+version = "0.1.0"
+source = "path"
+"#,
+    )
+    .expect("write clock denied lockfile");
+    fs::write(
+        project.join("src/main.ax"),
+        r#"import "std/time.ax"
+let start: Instant = now()
+print sleep(duration_ms(0))
+print elapsed_ms(start)
+"#,
+    )
+    .expect("write clock denied source");
 }

@@ -531,6 +531,15 @@ fn eval_call(
     if name == "env_get" {
         return eval_env_get_call(args, functions, env, lines);
     }
+    if name == "clock_now_ms" {
+        return eval_clock_now_ms_call(args);
+    }
+    if name == "clock_elapsed_ms" {
+        return eval_clock_elapsed_ms_call(args, functions, env, lines);
+    }
+    if name == "clock_sleep_ms" {
+        return eval_clock_sleep_ms_call(args, functions, env, lines);
+    }
     let function = functions
         .get(name)
         .ok_or_else(|| unsupported(&format!("unsupported cranelift spike call {name:?}")))?;
@@ -775,6 +784,55 @@ fn eval_io_eprintln_call(
     let written = text.len() as i64 + 1;
     lines.push(OutputLine::stderr(text));
     Ok(SpikeValue::Int(written))
+}
+
+fn eval_clock_now_ms_call(args: &[Expr]) -> Result<SpikeValue, Diagnostic> {
+    let [] = args else {
+        return Err(unsupported("clock_now_ms expects no arguments"));
+    };
+    current_time_ms().map(SpikeValue::Int)
+}
+
+fn eval_clock_elapsed_ms_call(
+    args: &[Expr],
+    functions: &HashMap<&str, &Function>,
+    env: &SpikeEnv,
+    lines: &mut Vec<OutputLine>,
+) -> Result<SpikeValue, Diagnostic> {
+    let [start] = args else {
+        return Err(unsupported("clock_elapsed_ms expects exactly one argument"));
+    };
+    let start = expect_signed_integer(eval_expr(start, functions, env, lines)?)?;
+    let now = current_time_ms()?;
+    Ok(SpikeValue::Int(if now < start { -1 } else { now - start }))
+}
+
+fn eval_clock_sleep_ms_call(
+    args: &[Expr],
+    functions: &HashMap<&str, &Function>,
+    env: &SpikeEnv,
+    lines: &mut Vec<OutputLine>,
+) -> Result<SpikeValue, Diagnostic> {
+    let [milliseconds] = args else {
+        return Err(unsupported("clock_sleep_ms expects exactly one argument"));
+    };
+    let milliseconds = expect_signed_integer(eval_expr(milliseconds, functions, env, lines)?)?;
+    if milliseconds < 0 {
+        return Ok(SpikeValue::Int(-1));
+    }
+    if milliseconds == 0 {
+        return Ok(SpikeValue::Int(0));
+    }
+    Err(unsupported(
+        "nonzero clock_sleep_ms is not supported by the cranelift spike",
+    ))
+}
+
+fn current_time_ms() -> Result<i64, Diagnostic> {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|_| unsupported("system clock must be after unix epoch"))?;
+    Ok(now.as_millis() as i64)
 }
 
 fn eval_arithmetic(
