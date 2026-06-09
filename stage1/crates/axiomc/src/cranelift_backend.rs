@@ -575,11 +575,8 @@ fn eval_call(
     if name == "clock_sleep_ms" {
         return eval_clock_sleep_ms_call(args, functions, env, lines);
     }
-    if name == "env_get" {
-        return eval_env_get_call(args, functions, env);
-    }
     if is_regex_call(name) {
-        return eval_regex_call(name, args, functions, env);
+        return eval_regex_call(name, args, functions, env, lines);
     }
     let function = functions
         .get(name)
@@ -1018,11 +1015,12 @@ fn eval_env_get_call(
     args: &[Expr],
     functions: &HashMap<&str, &Function>,
     env: &SpikeEnv,
+    lines: &mut Vec<OutputLine>,
 ) -> Result<SpikeValue, Diagnostic> {
     let [name] = args else {
         return Err(unsupported("env_get expects exactly one argument"));
     };
-    let name = expect_text(eval_expr(name, functions, env)?, "env_get")?;
+    let name = expect_text(eval_expr(name, functions, env, lines)?, "env_get")?;
     Ok(spike_option(env::var(name).ok().map(SpikeValue::Text)))
 }
 
@@ -1138,14 +1136,14 @@ fn eval_regex_call(
                 _ => return Err(unsupported("env_get expects a string argument")),
             };
             let value = std::env::var(name).ok();
-            Ok(option_text(value))
+            Ok(spike_option(value.map(SpikeValue::Text)))
         }
         "regex_is_match" => {
-            let (pattern, text) = eval_regex_binary_text(name, args, functions, env)?;
+            let (pattern, text) = eval_regex_binary_text(name, args, functions, env, lines)?;
             Ok(SpikeValue::Bool(regex_find_span(&pattern, &text).is_some()))
         }
         "regex_find" => {
-            let (pattern, text) = eval_regex_binary_text(name, args, functions, env)?;
+            let (pattern, text) = eval_regex_binary_text(name, args, functions, env, lines)?;
             let found = regex_find_span(&pattern, &text)
                 .map(|(start, end)| SpikeValue::Text(text[start..end].to_string()));
             Ok(spike_option(found))
@@ -1156,10 +1154,10 @@ fn eval_regex_call(
                     "regex_replace_all expects exactly three arguments",
                 ));
             };
-            let pattern = expect_text(eval_expr(pattern, functions, env)?, "regex_replace_all")?;
-            let text = expect_text(eval_expr(text, functions, env)?, "regex_replace_all")?;
+            let pattern = expect_text(eval_expr(pattern, functions, env, lines)?, "regex_replace_all")?;
+            let text = expect_text(eval_expr(text, functions, env, lines)?, "regex_replace_all")?;
             let replacement =
-                expect_text(eval_expr(replacement, functions, env)?, "regex_replace_all")?;
+                expect_text(eval_expr(replacement, functions, env, lines)?, "regex_replace_all")?;
             Ok(SpikeValue::Text(regex_replace_all(
                 &pattern,
                 &text,
@@ -1177,14 +1175,15 @@ fn eval_regex_binary_text(
     args: &[Expr],
     functions: &HashMap<&str, &Function>,
     env: &SpikeEnv,
+    lines: &mut Vec<OutputLine>,
 ) -> Result<(String, String), Diagnostic> {
     let [pattern, text] = args else {
         return Err(unsupported(&format!(
             "{name} expects exactly two arguments"
         )));
     };
-    let pattern = expect_text(eval_expr(pattern, functions, env)?, name)?;
-    let text = expect_text(eval_expr(text, functions, env)?, name)?;
+    let pattern = expect_text(eval_expr(pattern, functions, env, lines)?, name)?;
+    let text = expect_text(eval_expr(text, functions, env, lines)?, name)?;
     Ok((pattern, text))
 }
 
