@@ -172,9 +172,7 @@ def validate_package_boundary(snapshot: dict[str, Any]) -> None:
     require("ownership state" in package["owns"], "compiler.hir must own ownership state")
     require("borrow state" in package["owns"], "compiler.hir must own borrow state")
     require("property clause verdicts" in package["owns"], "compiler.hir must own property verdicts")
-    reject_rust_capture_terms([package["name"], package["owner_lane"]], "$.package")
-    reject_rust_capture_terms(package["owns"], "$.package.owns")
-    reject_rust_capture_terms(package["must_not_own"], "$.package.must_not_own")
+    reject_rust_capture_payload(package, "$.package")
 
 
 def validate_api_boundary(snapshot: dict[str, Any]) -> None:
