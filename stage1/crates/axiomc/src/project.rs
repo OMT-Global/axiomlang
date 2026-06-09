@@ -3958,6 +3958,7 @@ fn load_module_recursive(
         &module_path,
         &syntax::ParseOptions {
             macro_recursion_limit,
+            ..syntax::ParseOptions::default()
         },
     )?;
     if !is_entry && !program.stmts.is_empty() {

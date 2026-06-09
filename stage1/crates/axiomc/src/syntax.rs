@@ -57,16 +57,22 @@ pub struct Program {
 }
 
 pub const DEFAULT_MACRO_RECURSION_LIMIT: usize = 64;
+pub const DEFAULT_MACRO_EXPANSION_BYTE_LIMIT: usize = 16 * 1024 * 1024;
+pub const DEFAULT_MACRO_EXPANSION_INVOCATION_LIMIT: usize = 8192;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ParseOptions {
     pub macro_recursion_limit: usize,
+    pub macro_expansion_byte_limit: usize,
+    pub macro_expansion_invocation_limit: usize,
 }
 
 impl Default for ParseOptions {
     fn default() -> Self {
         Self {
             macro_recursion_limit: DEFAULT_MACRO_RECURSION_LIMIT,
+            macro_expansion_byte_limit: DEFAULT_MACRO_EXPANSION_BYTE_LIMIT,
+            macro_expansion_invocation_limit: DEFAULT_MACRO_EXPANSION_INVOCATION_LIMIT,
         }
     }
 }
@@ -1103,6 +1109,23 @@ fn expand_declarative_macros(
                 .with_span(1, 1),
         ]);
     }
+    if options.macro_expansion_byte_limit == 0 {
+        return Err(vec![
+            Diagnostic::new("parse", "macro expansion byte limit must be at least 1")
+                .with_path(path.display().to_string())
+                .with_span(1, 1),
+        ]);
+    }
+    if options.macro_expansion_invocation_limit == 0 {
+        return Err(vec![
+            Diagnostic::new(
+                "parse",
+                "macro expansion invocation limit must be at least 1",
+            )
+            .with_path(path.display().to_string())
+            .with_span(1, 1),
+        ]);
+    }
     let (macros, mut expanded_lines) = collect_macro_rules(source, path)?;
     let declarations = macro_declarations(&macros);
     if macros.is_empty() {
@@ -1123,7 +1146,25 @@ fn expand_declarative_macros(
             invocation_chain.push(format!("{}!", expansion.macro_name));
         }
         expansions.extend(line_expansions);
+        if expansions.len() > options.macro_expansion_invocation_limit {
+            return Err(vec![
+                Diagnostic::new(
+                    "parse",
+                    format!(
+                        "declarative macro expansion exceeded invocation budget of {}",
+                        options.macro_expansion_invocation_limit
+                    ),
+                )
+                .with_path(path.display().to_string())
+                .with_span(1, 1),
+            ]);
+        }
         expanded_lines = next;
+        validate_macro_expansion_byte_budget(
+            &expanded_lines,
+            path,
+            options.macro_expansion_byte_limit,
+        )?;
         if !changed {
             return Ok(ExpandedSource {
                 source: expanded_lines_to_source(&expanded_lines),
@@ -1162,6 +1203,27 @@ fn expand_declarative_macros(
         macros: declarations,
         expansions,
     })
+}
+
+fn validate_macro_expansion_byte_budget(
+    lines: &[ExpandedSourceLine],
+    path: &Path,
+    limit: usize,
+) -> Result<(), Vec<Diagnostic>> {
+    let mut bytes = 0usize;
+    for line in lines {
+        bytes = bytes.saturating_add(line.text.len());
+        bytes = bytes.saturating_add(1);
+        if bytes > limit {
+            return Err(vec![Diagnostic::new(
+                "parse",
+                format!("declarative macro expansion exceeded expanded source budget of {limit} bytes"),
+            )
+            .with_path(path.display().to_string())
+            .with_span(line.original_line, 1)]);
+        }
+    }
+    Ok(())
 }
 
 fn source_has_macro_invocation(
