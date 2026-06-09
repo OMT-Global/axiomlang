@@ -1,0 +1,310 @@
+{
+  "schema_version": "axiom.compiler.hir_ownership_capability.v1",
+  "contract": "compiler.hir",
+  "issue": 940,
+  "package": {
+    "name": "compiler.hir",
+    "owner_lane": "Daedalus",
+    "owns": [
+      "typed declarations",
+      "name resolution",
+      "import visibility",
+      "type checking",
+      "capability policy verdicts",
+      "ownership state",
+      "borrow state",
+      "property clause verdicts",
+      "public API export records",
+      "inferred capability use records"
+    ],
+    "must_not_own": [
+      "package graph discovery",
+      "parser recovery",
+      "MIR lowering",
+      "backend target selection",
+      "generated source projection",
+      "artifact provenance"
+    ]
+  },
+  "apis": [
+    {
+      "name": "compiler.hir.build_package_hir",
+      "inputs": [
+        "package_graph",
+        "syntax_units",
+        "diagnostics_context",
+        "analysis_options"
+      ],
+      "outputs": [
+        "typed_package_hir",
+        "declaration_table",
+        "source_span_index"
+      ]
+    },
+    {
+      "name": "compiler.hir.resolve_names",
+      "inputs": [
+        "typed_package_hir",
+        "package_export_records"
+      ],
+      "outputs": [
+        "name_table",
+        "import_visibility_diagnostics",
+        "unresolved_name_diagnostics"
+      ]
+    },
+    {
+      "name": "compiler.hir.check_types",
+      "inputs": [
+        "typed_package_hir",
+        "name_table",
+        "type_options"
+      ],
+      "outputs": [
+        "typed_expression_records",
+        "typed_statement_records",
+        "type_diagnostics",
+        "public_signatures"
+      ]
+    },
+    {
+      "name": "compiler.hir.evaluate_capability_policy",
+      "inputs": [
+        "typed_package_hir",
+        "manifest_capability_policy"
+      ],
+      "outputs": [
+        "capability_use_records",
+        "capability_verdicts",
+        "capability_diagnostics"
+      ]
+    },
+    {
+      "name": "compiler.hir.evaluate_ownership",
+      "inputs": [
+        "typed_package_hir",
+        "type_table"
+      ],
+      "outputs": [
+        "ownership_state_transitions",
+        "move_diagnostics",
+        "owned_value_hazards"
+      ]
+    },
+    {
+      "name": "compiler.hir.evaluate_borrow_state",
+      "inputs": [
+        "typed_package_hir",
+        "ownership_state"
+      ],
+      "outputs": [
+        "borrow_state_transitions",
+        "conflicting_borrow_diagnostics",
+        "borrowed_return_origin_diagnostics"
+      ]
+    },
+    {
+      "name": "compiler.hir.evaluate_property_clauses",
+      "inputs": [
+        "typed_package_hir",
+        "type_table"
+      ],
+      "outputs": [
+        "property_clause_verdicts",
+        "property_diagnostics",
+        "property_totals"
+      ]
+    },
+    {
+      "name": "compiler.hir.export_public_api",
+      "inputs": [
+        "typed_package_hir",
+        "name_table",
+        "type_table"
+      ],
+      "outputs": [
+        "public_symbols",
+        "public_signatures",
+        "module_imports",
+        "source_spans",
+        "package_capability_surface"
+      ]
+    },
+    {
+      "name": "compiler.hir.infer_capability_use",
+      "inputs": [
+        "typed_package_hir",
+        "typed_calls",
+        "module_imports"
+      ],
+      "outputs": [
+        "inferred_capability_use_records",
+        "capability_sources",
+        "policy_verdicts"
+      ]
+    }
+  ],
+  "analysis_input": {
+    "required_fields": [
+      "package_graph",
+      "syntax_units",
+      "diagnostics_context",
+      "manifest_capability_policy",
+      "source_span_index"
+    ],
+    "forbidden_required_fields": [
+      "host_implementation_file",
+      "host_package_metadata",
+      "generated_source",
+      "backend_artifact",
+      "backend_runtime_diagnostic"
+    ]
+  },
+  "contracts": [
+    {
+      "name": "typed_declaration_contract",
+      "stable_outputs": [
+        "typed_package_hir",
+        "declaration_table",
+        "public_signatures"
+      ],
+      "diagnostic_kinds": [
+        "type",
+        "import"
+      ],
+      "source_correlated": true
+    },
+    {
+      "name": "capability_policy_contract",
+      "stable_outputs": [
+        "capability_use_records",
+        "capability_verdicts"
+      ],
+      "diagnostic_kinds": [
+        "capability"
+      ],
+      "source_correlated": true
+    },
+    {
+      "name": "ownership_state_contract",
+      "stable_outputs": [
+        "ownership_state_transitions",
+        "move_diagnostics"
+      ],
+      "diagnostic_kinds": [
+        "ownership"
+      ],
+      "source_correlated": true
+    },
+    {
+      "name": "borrow_state_contract",
+      "stable_outputs": [
+        "borrow_state_transitions",
+        "borrowed_return_origin_diagnostics",
+        "conflicting_borrow_diagnostics"
+      ],
+      "diagnostic_kinds": [
+        "ownership"
+      ],
+      "source_correlated": true
+    },
+    {
+      "name": "property_clause_contract",
+      "stable_outputs": [
+        "property_clause_verdicts",
+        "property_totals"
+      ],
+      "diagnostic_kinds": [
+        "property"
+      ],
+      "source_correlated": true
+    },
+    {
+      "name": "agent_inspection_contract",
+      "stable_outputs": [
+        "public_symbols",
+        "module_imports",
+        "package_capability_surface",
+        "inferred_capability_use_records"
+      ],
+      "diagnostic_kinds": [],
+      "source_correlated": true
+    }
+  ],
+  "diagnostics": {
+    "required_kinds": [
+      "type",
+      "import",
+      "ownership",
+      "capability",
+      "property"
+    ],
+    "required_codes": [
+      "use_after_move",
+      "move_while_borrowed",
+      "borrow_return_requires_param_origin",
+      "mutable_borrow_while_shared_live",
+      "shared_borrow_while_mutable_live",
+      "mutable_borrow_while_mutable_live",
+      "property_failed"
+    ],
+    "source_fields": [
+      "path",
+      "line",
+      "column"
+    ]
+  },
+  "fixtures": [
+    {
+      "name": "compiler_property_corpus",
+      "path": "stage1/examples/compiler_properties/src",
+      "assertions": [
+        "property_count_at_least_100"
+      ]
+    },
+    {
+      "name": "ownership_use_after_move",
+      "path": "stage1/conformance/fail/ownership_use_after_move",
+      "expected_error": "stage1/conformance/fail/ownership_use_after_move/expected-error.json",
+      "assertions": [
+        "kind_ownership",
+        "code_use_after_move",
+        "source_correlated"
+      ]
+    },
+    {
+      "name": "mutable_borrow_while_shared_live",
+      "path": "stage1/conformance/fail/mutable_borrow_while_shared_live",
+      "expected_error": "stage1/conformance/fail/mutable_borrow_while_shared_live/expected-error.json",
+      "assertions": [
+        "kind_ownership",
+        "code_mutable_borrow_while_shared_live",
+        "source_correlated"
+      ]
+    },
+    {
+      "name": "capability_denial_clock",
+      "path": "stage1/conformance/fail/stdlib_clock_without_capability",
+      "expected_error": "stage1/conformance/fail/stdlib_clock_without_capability/expected-error.json",
+      "assertions": [
+        "kind_capability",
+        "source_correlated"
+      ]
+    },
+    {
+      "name": "property_clause_failure",
+      "path": "stage1/conformance/fail/property_clause_failure",
+      "expected_error": "stage1/conformance/fail/property_clause_failure/expected-error.json",
+      "assertions": [
+        "kind_property",
+        "code_property_failed",
+        "source_correlated"
+      ]
+    }
+  ],
+  "validation": [
+    "make stage1-hir-boundary",
+    "make stage1-hir-boundary-test",
+    "make stage1-compiler-property-test"
+  ]
+}

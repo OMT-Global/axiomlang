@@ -1,0 +1,261 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://omt-global.github.io/axiom/schemas/axiom.compiler.hir_ownership_capability.v1.schema.json",
+  "title": "Axiom compiler HIR ownership and capability contract",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "contract",
+    "issue",
+    "package",
+    "apis",
+    "analysis_input",
+    "contracts",
+    "diagnostics",
+    "fixtures",
+    "validation"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "axiom.compiler.hir_ownership_capability.v1"
+    },
+    "contract": {
+      "const": "compiler.hir"
+    },
+    "issue": {
+      "const": 940
+    },
+    "package": {
+      "$ref": "#/$defs/package"
+    },
+    "apis": {
+      "type": "array",
+      "minItems": 9,
+      "items": {
+        "$ref": "#/$defs/api"
+      }
+    },
+    "analysis_input": {
+      "$ref": "#/$defs/analysisInput"
+    },
+    "contracts": {
+      "type": "array",
+      "minItems": 6,
+      "items": {
+        "$ref": "#/$defs/contract"
+      }
+    },
+    "diagnostics": {
+      "$ref": "#/$defs/diagnostics"
+    },
+    "fixtures": {
+      "type": "array",
+      "minItems": 4,
+      "items": {
+        "$ref": "#/$defs/fixture"
+      }
+    },
+    "validation": {
+      "type": "array",
+      "minItems": 3,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    }
+  },
+  "$defs": {
+    "package": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "owner_lane",
+        "owns",
+        "must_not_own"
+      ],
+      "properties": {
+        "name": {
+          "const": "compiler.hir"
+        },
+        "owner_lane": {
+          "const": "Daedalus"
+        },
+        "owns": {
+          "type": "array",
+          "minItems": 6,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "must_not_own": {
+          "type": "array",
+          "minItems": 4,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "api": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "inputs",
+        "outputs"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "inputs": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "outputs": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "analysisInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "required_fields",
+        "forbidden_required_fields"
+      ],
+      "properties": {
+        "required_fields": {
+          "type": "array",
+          "minItems": 5,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "forbidden_required_fields": {
+          "type": "array",
+          "minItems": 5,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "contract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "stable_outputs",
+        "diagnostic_kinds",
+        "source_correlated"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "stable_outputs": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "diagnostic_kinds": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "source_correlated": {
+          "type": "boolean"
+        }
+      }
+    },
+    "diagnostics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "required_kinds",
+        "required_codes",
+        "source_fields"
+      ],
+      "properties": {
+        "required_kinds": {
+          "type": "array",
+          "minItems": 4,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required_codes": {
+          "type": "array",
+          "minItems": 5,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "source_fields": {
+          "type": "array",
+          "minItems": 3,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "fixture": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "path",
+        "assertions"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "expected_error": {
+          "type": "string",
+          "minLength": 1
+        },
+        "assertions": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    }
+  }
+}

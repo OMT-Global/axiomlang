@@ -171,6 +171,13 @@ The self-hosted command and LSP package boundary is frozen in
 `make stage1-command-lsp-boundary` to verify that command dispatch, JSON
 envelopes, and LSP service flows stay package-oriented while the Rust bootstrap
 host remains the temporary developer path.
+The HIR ownership and capability package boundary is frozen in
+`docs/compiler-hir-ownership-capability.md`, with the validation snapshot at
+`stage1/compiler-contracts/snapshots/hir-ownership-capability.json`. Use
+`make stage1-hir-boundary` to verify that typed declarations, name resolution,
+capability policy, ownership and borrow state, property clauses, and
+agent-facing HIR inspection stay package-oriented while the Rust bootstrap host
+remains temporary.
 The MIR/backend package boundary is frozen in
 `docs/compiler-mir-backend-packages.md`, with the validation snapshot at
 `stage1/compiler-contracts/snapshots/mir-backend.json`. Use

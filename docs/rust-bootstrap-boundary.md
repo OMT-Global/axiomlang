@@ -44,5 +44,6 @@ capabilities, effects, evidence, artifacts, or backend contracts:
 - [Compiler Package Graph Boundary](compiler-package-graph.md)
 - [Compiler Command and LSP Packages](compiler-command-lsp-packages.md)
 - [Compiler Diagnostics and Syntax Boundary](compiler-diagnostics-syntax.md)
+- [Compiler HIR, Ownership, and Capability Package](compiler-hir-ownership-capability.md)
 - [Compiler MIR and Backend Packages](compiler-mir-backend-packages.md)
 - [Implementation Language Positioning](positioning/implementation-languages.md)
