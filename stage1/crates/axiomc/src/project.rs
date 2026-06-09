@@ -4371,7 +4371,9 @@ fn validate_expr_capabilities(
                 .with_path(module_path.display().to_string())
                 .with_span(*line, *column));
             }
-            if name == "process_status" || name == "run_status" {
+            if (name == "process_status" || name == "run_status")
+                && !(name == "process_status" && module_path == Path::new("<stdlib>/process.ax"))
+            {
                 validate_process_command_allowlist(
                     module_path,
                     name,
@@ -4469,7 +4471,17 @@ fn validate_process_command_allowlist(
     column: usize,
 ) -> Result<(), Diagnostic> {
     let Some(allowed_commands) = capabilities.process_commands.allowed_commands() else {
-        return Ok(());
+        return match args.first() {
+            Some(syntax::Expr::Literal(syntax::Literal::String(_))) => Ok(()),
+            _ => Err(Diagnostic::new(
+                "capability",
+                format!(
+                    "call to {call_name:?} requires a string literal when [capabilities].process is unrestricted"
+                ),
+            )
+            .with_path(module_path.display().to_string())
+            .with_span(line, column)),
+        };
     };
     if allowed_commands.is_empty() {
         return Err(Diagnostic::new(

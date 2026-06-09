@@ -4794,6 +4794,83 @@ process = ["/bin/true"]
     }
 
     #[test]
+    fn check_project_rejects_dynamic_process_command_with_unrestricted_process() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("process-dynamic-unrestricted-denied");
+        create_project(&project, Some("process-dynamic-unrestricted-denied-app"))
+            .expect("create project");
+        fs::write(
+            project.join("axiom.toml"),
+            r#"[package]
+name = "process-dynamic-unrestricted-denied-app"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+process = true
+unsafe_rationale = "test fixture checks dynamic command rejection"
+"#,
+        )
+        .expect("write manifest");
+        fs::write(
+            project.join("src/main.ax"),
+            "let command: string = \"/bin/true\"\nprint process_status(command)\n",
+        )
+        .expect("write source");
+
+        let error = check_project(&project).expect_err("dynamic unrestricted command should fail");
+        assert_eq!(error.kind, "capability");
+        assert!(
+            error
+                .message
+                .contains("requires a string literal when [capabilities].process is unrestricted")
+        );
+    }
+
+    #[test]
+    fn check_project_rejects_dynamic_stdlib_process_command_with_unrestricted_process() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("stdlib-process-dynamic-unrestricted-denied");
+        create_project(
+            &project,
+            Some("stdlib-process-dynamic-unrestricted-denied-app"),
+        )
+        .expect("create project");
+        fs::write(
+            project.join("axiom.toml"),
+            r#"[package]
+name = "stdlib-process-dynamic-unrestricted-denied-app"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+process = true
+unsafe_rationale = "test fixture checks dynamic stdlib command rejection"
+"#,
+        )
+        .expect("write manifest");
+        fs::write(
+            project.join("src/main.ax"),
+            "import \"std/process.ax\"\nlet command: string = \"/bin/true\"\nprint run_status(command)\n",
+        )
+        .expect("write source");
+
+        let error = check_project(&project).expect_err("dynamic stdlib command should fail");
+        assert_eq!(error.kind, "capability");
+        assert!(
+            error
+                .message
+                .contains("call to \"run_status\" requires a string literal")
+        );
+    }
+
+    #[test]
     fn load_manifest_accepts_network_host_and_port_allowlists() {
         let dir = tempdir().expect("tempdir");
         let project = dir.path().join("net-allowlist");

@@ -612,6 +612,7 @@ enum BorrowOrigin {
 type BorrowKind = borrowck::BorrowKind;
 
 struct LowerContext<'a> {
+    current_path: &'a str,
     consts: &'a HashMap<String, syntax::ConstDecl>,
     structs: &'a HashMap<String, StructDef>,
     enums: &'a HashMap<String, EnumDef>,
@@ -800,6 +801,7 @@ fn lower_with_capabilities_impl(
         }
     }
     let ctx = LowerContext {
+        current_path: &program.path,
         consts: &consts,
         structs: &structs,
         enums: &enums,
@@ -6828,6 +6830,7 @@ fn lower_function(
         });
     }
     let ctx = LowerContext {
+        current_path: &function.path,
         consts,
         structs,
         enums,
@@ -11091,7 +11094,13 @@ fn lower_expr_with_expected_inner(
                     .with_span(*line, *column));
                 }
                 let lowered = lower_expr_with_expected(&args[0], Some(&Type::String), env, ctx)?;
-                validate_process_command_allowlist_hir(ctx.capabilities, &lowered, *line, *column)?;
+                validate_process_command_allowlist_hir(
+                    ctx.capabilities,
+                    &lowered,
+                    *line,
+                    *column,
+                    is_stdlib_process_wrapper(ctx),
+                )?;
                 if lowered.ty() != &Type::String {
                     return Err(Diagnostic::new(
                         "type",
@@ -13802,9 +13811,23 @@ fn validate_process_command_allowlist_hir(
     command: &Expr,
     line: usize,
     column: usize,
+    allow_dynamic_command: bool,
 ) -> Result<(), Diagnostic> {
     let Some(allowed_commands) = capabilities.process_commands.allowed_commands() else {
-        return Ok(());
+        if allow_dynamic_command {
+            return Ok(());
+        }
+        return match command {
+            Expr::Literal {
+                value: LiteralValue::String(_),
+                ..
+            } => Ok(()),
+            _ => Err(Diagnostic::new(
+                "capability",
+                "call to \"process_status\" requires a string literal when [capabilities].process is unrestricted",
+            )
+            .with_span(line, column)),
+        };
     };
     if allowed_commands.is_empty() {
         return Err(Diagnostic::new(
@@ -13834,6 +13857,11 @@ fn validate_process_command_allowlist_hir(
         )
         .with_span(line, column)),
     }
+}
+
+fn is_stdlib_process_wrapper(ctx: &LowerContext<'_>) -> bool {
+    ctx.current_path == "<stdlib>/process.ax"
+        && ctx.current_function.as_deref() == Some("run_status")
 }
 
 #[cfg(test)]
