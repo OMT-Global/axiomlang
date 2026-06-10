@@ -2946,7 +2946,7 @@ fn axiom_openssl_tls_get(host: &str, port: u16, request: &str) -> Result<Vec<u8>
 
     fn load_typed_symbol<T>(handle: *mut c_void, symbol: &str) -> Result<T, String> {
         let value = load_symbol(handle, symbol)?;
-        Ok(unsafe { std::mem::transmute(value) })
+        Ok(unsafe { std::ptr::read(&value as *const *mut c_void as *const T) })
     }
 
     fn open_library(candidates: &[&str]) -> Result<*mut c_void, String> {
