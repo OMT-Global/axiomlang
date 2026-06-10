@@ -1618,6 +1618,37 @@ Variant(
     }
 
     #[test]
+    fn render_rust_verifies_https_tls_certificates() {
+        let source = "match http_get(\"https://example.com/\") {\nSome(_body) {\nprint true\n}\nNone {\nprint false\n}\n}\n";
+        let parsed = parse_program(source, Path::new("main.ax")).expect("parse");
+        let hir = hir::lower_with_capabilities(
+            &parsed,
+            &CapabilityConfig {
+                net: true,
+                ..CapabilityConfig::default()
+            },
+        )
+        .expect("lower");
+        let mir = mir::lower(&hir);
+        let rendered = render_rust(&mir);
+        assert!(rendered.contains("const SSL_VERIFY_PEER: c_int = 1;"));
+        assert!(rendered.contains("const X509_V_OK: c_long = 0;"));
+        assert!(rendered.contains(
+            "ssl_ctx_set_default_verify_paths: load_symbol(\n                    ssl_handle,\n                    \"SSL_CTX_set_default_verify_paths\",\n                )?,"
+        ));
+        assert!(rendered.contains("(openssl.ssl_ctx_set_verify)(ctx.ctx, SSL_VERIFY_PEER, None);"));
+        assert!(rendered.contains("(openssl.ssl_ctx_set_default_verify_paths)(ctx.ctx) != 1"));
+        assert!(rendered.contains("ssl_set1_host: load_symbol(ssl_handle, \"SSL_set1_host\")?"));
+        assert!(rendered.contains("(openssl.ssl_set1_host)(ssl.ssl, server_name.as_ptr()) != 1"));
+        assert!(rendered.contains(
+            "ssl_get_verify_result: load_symbol(ssl_handle, \"SSL_get_verify_result\")?"
+        ));
+        assert!(rendered.contains("let verify_result = (openssl.ssl_get_verify_result)(ssl.ssl);"));
+        assert!(rendered.contains("if verify_result != X509_V_OK"));
+        assert!(!rendered.contains("(openssl.ssl_ctx_set_verify)(ctx.ctx, 0, None);"));
+    }
+
+    #[test]
     fn render_rust_strips_crlf_from_http_request_parts() {
         let source = "match http_get(\"http://example.com/\") {\nSome(_body) {\nprint true\n}\nNone {\nprint false\n}\n}\n";
         let parsed = parse_program(source, Path::new("main.ax")).expect("parse");
