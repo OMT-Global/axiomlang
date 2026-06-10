@@ -5544,6 +5544,54 @@ net = { hosts = ["example.com"], ports = [443] }
     }
 
     #[test]
+    fn check_project_rejects_dynamic_stdlib_http_url_with_network_allowlist() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir
+            .path()
+            .join("stdlib-http-url-dynamic-allowlist");
+        create_project(&project, Some("stdlib-http-url-dynamic-allowlist-app"))
+            .expect("create project");
+        fs::write(
+            project.join("axiom.toml"),
+            r#"[package]
+name = "stdlib-http-url-dynamic-allowlist-app"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+net = { hosts = ["example.com"], ports = [443] }
+"#,
+        )
+        .expect("write manifest");
+        fs::write(
+            project.join("src/main.ax"),
+            r#"import "std/http.ax"
+let url: string = "https://example.com/"
+match get(url) {
+Some(_body) {
+print true
+}
+None {
+print false
+}
+}
+"#,
+        )
+        .expect("write source");
+
+        let error =
+            check_project(&project).expect_err("dynamic stdlib HTTP URL should fail closed");
+        assert_eq!(error.kind, "capability");
+        assert!(
+            error.message.contains("requires a static URL literal"),
+            "unexpected diagnostic: {error:?}",
+        );
+    }
+
+    #[test]
     fn check_project_does_not_gate_fs_read_on_network_allowlist() {
         let dir = tempdir().expect("tempdir");
         let project = dir.path().join("fs-read-net-allowlist-independent");
