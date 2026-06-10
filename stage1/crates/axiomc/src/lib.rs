@@ -5172,6 +5172,85 @@ net = { hosts = ["localhost"], ports = [8080] }
     }
 
     #[test]
+    fn check_project_rejects_dynamic_network_host_with_unrestricted_net() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("net-dynamic-host-unrestricted-denied");
+        create_project(&project, Some("net-dynamic-host-unrestricted-denied-app"))
+            .expect("create project");
+        fs::write(
+            project.join("axiom.toml"),
+            r#"[package]
+name = "net-dynamic-host-unrestricted-denied-app"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+net = true
+"#,
+        )
+        .expect("write manifest");
+        fs::write(
+            project.join("src/main.ax"),
+            "let host: string = \"example.com\"\nprint net_resolve(host)\n",
+        )
+        .expect("write source");
+
+        let error = check_project(&project).expect_err("dynamic unrestricted host should fail");
+        assert_eq!(error.kind, "capability");
+        assert!(
+            error.message.contains(
+                "requires a string literal when [capabilities].net hosts are unrestricted"
+            ),
+            "unexpected diagnostic: {error:?}",
+        );
+    }
+
+    #[test]
+    fn check_project_rejects_dynamic_stdlib_network_host_with_unrestricted_net() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir
+            .path()
+            .join("stdlib-net-dynamic-host-unrestricted-denied");
+        create_project(
+            &project,
+            Some("stdlib-net-dynamic-host-unrestricted-denied-app"),
+        )
+        .expect("create project");
+        fs::write(
+            project.join("axiom.toml"),
+            r#"[package]
+name = "stdlib-net-dynamic-host-unrestricted-denied-app"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+net = true
+"#,
+        )
+        .expect("write manifest");
+        fs::write(
+            project.join("src/main.ax"),
+            "import \"std/net.ax\"\nlet host: string = \"localhost\"\nmatch resolve(host) {\nSome(_address) {\nprint true\n}\nNone {\nprint false\n}\n}\n",
+        )
+        .expect("write source");
+
+        let error = check_project(&project).expect_err("dynamic stdlib host should fail");
+        assert_eq!(error.kind, "capability");
+        assert!(
+            error.message.contains(
+                "requires a string literal when [capabilities].net hosts are unrestricted"
+            ),
+            "unexpected diagnostic: {error:?}",
+        );
+    }
+
+    #[test]
     fn check_project_rejects_udp_network_host_missing_from_manifest_allowlist() {
         let dir = tempdir().expect("tempdir");
         let project = dir.path().join("udp-host-not-allowlisted");
@@ -5273,6 +5352,43 @@ net = { hosts = ["example.com"], ports = [443] }
     }
 
     #[test]
+    fn check_project_rejects_dynamic_http_url_with_unrestricted_net() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("http-url-dynamic-unrestricted");
+        create_project(&project, Some("http-url-dynamic-unrestricted-app"))
+            .expect("create project");
+        fs::write(
+            project.join("axiom.toml"),
+            r#"[package]
+name = "http-url-dynamic-unrestricted-app"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+net = true
+"#,
+        )
+        .expect("write manifest");
+        fs::write(
+            project.join("src/main.ax"),
+            "let url: string = \"https://example.com/\"\nmatch http_get(url) {\nSome(_body) {\nprint true\n}\nNone {\nprint false\n}\n}\n",
+        )
+        .expect("write source");
+
+        let error = check_project(&project).expect_err("dynamic unrestricted HTTP URL should fail");
+        assert_eq!(error.kind, "capability");
+        assert!(
+            error
+                .message
+                .contains("requires a static URL literal when [capabilities].net is unrestricted"),
+            "unexpected diagnostic: {error:?}",
+        );
+    }
+
+    #[test]
     fn check_project_rejects_dynamic_http_url_with_network_allowlist() {
         let dir = tempdir().expect("tempdir");
         let project = dir.path().join("http-url-dynamic-allowlist");
@@ -5304,6 +5420,38 @@ net = { hosts = ["example.com"], ports = [443] }
             error.message.contains("requires a static URL literal"),
             "unexpected diagnostic: {error:?}",
         );
+    }
+
+    #[test]
+    fn check_project_does_not_gate_fs_read_on_network_allowlist() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("fs-read-net-allowlist-independent");
+        create_project(&project, Some("fs-read-net-allowlist-independent-app"))
+            .expect("create project");
+        fs::write(project.join("src/fixture.txt"), "fixture").expect("write fixture");
+        fs::write(
+            project.join("axiom.toml"),
+            r#"[package]
+name = "fs-read-net-allowlist-independent-app"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+fs = true
+net = { hosts = ["example.com"] }
+"#,
+        )
+        .expect("write manifest");
+        fs::write(
+            project.join("src/main.ax"),
+            "match fs_read(\"src/fixture.txt\") {\nSome(value) {\nprint value\n}\nNone {\nprint \"missing\"\n}\n}\n",
+        )
+        .expect("write source");
+
+        check_project(&project).expect("fs_read should not use net host allowlists");
     }
 
     #[test]

@@ -587,6 +587,8 @@ enum ProjectionSegment {
 
 #[derive(Debug, Clone)]
 struct FunctionSig {
+    source_name: String,
+    source_path: String,
     params: Vec<Type>,
     return_ty: Type,
     borrow_return_params: Vec<usize>,
@@ -6189,6 +6191,8 @@ fn collect_function_signatures(
             .insert(
                 function_symbol_name(function),
                 FunctionSig {
+                    source_name: function.source_name.clone(),
+                    source_path: function.path.clone(),
                     params,
                     return_ty: signature_return_ty,
                     borrow_return_params,
@@ -9545,7 +9549,6 @@ fn lower_expr_with_expected_inner(
                     )
                     .with_span(args[0].line(), args[0].column()));
                 }
-                validate_net_host_allowlist_hir(ctx.capabilities, name, &lowered, *line, *column)?;
                 move_lowered_value(&lowered, env)?;
                 return Ok(Expr::Call {
                     span: SourceSpan::point(*line, *column),
@@ -9615,7 +9618,6 @@ fn lower_expr_with_expected_inner(
                     )
                     .with_span(args[0].line(), args[0].column()));
                 }
-                validate_net_host_allowlist_hir(ctx.capabilities, name, &lowered, *line, *column)?;
                 move_lowered_value(&lowered, env)?;
                 return Ok(Expr::Call {
                     span: SourceSpan::point(*line, *column),
@@ -9643,7 +9645,6 @@ fn lower_expr_with_expected_inner(
                     )
                     .with_span(args[0].line(), args[0].column()));
                 }
-                validate_net_host_allowlist_hir(ctx.capabilities, name, &lowered, *line, *column)?;
                 move_lowered_value(&lowered, env)?;
                 return Ok(Expr::Call {
                     span: SourceSpan::point(*line, *column),
@@ -9674,7 +9675,6 @@ fn lower_expr_with_expected_inner(
                     )
                     .with_span(args[0].line(), args[0].column()));
                 }
-                validate_net_host_allowlist_hir(ctx.capabilities, name, &lowered, *line, *column)?;
                 move_lowered_value(&lowered, env)?;
                 return Ok(Expr::Call {
                     span: SourceSpan::point(*line, *column),
@@ -9702,7 +9702,6 @@ fn lower_expr_with_expected_inner(
                     )
                     .with_span(args[0].line(), args[0].column()));
                 }
-                validate_net_host_allowlist_hir(ctx.capabilities, name, &lowered, *line, *column)?;
                 move_lowered_value(&lowered, env)?;
                 return Ok(Expr::Call {
                     span: SourceSpan::point(*line, *column),
@@ -9733,7 +9732,6 @@ fn lower_expr_with_expected_inner(
                     )
                     .with_span(args[0].line(), args[0].column()));
                 }
-                validate_net_host_allowlist_hir(ctx.capabilities, name, &lowered, *line, *column)?;
                 move_lowered_value(&lowered, env)?;
                 return Ok(Expr::Call {
                     span: SourceSpan::point(*line, *column),
@@ -10154,7 +10152,6 @@ fn lower_expr_with_expected_inner(
                     )
                     .with_span(args[0].line(), args[0].column()));
                 }
-                validate_net_host_allowlist_hir(ctx.capabilities, name, &lowered, *line, *column)?;
                 move_lowered_value(&lowered, env)?;
                 return Ok(Expr::Call {
                     span: SourceSpan::point(*line, *column),
@@ -10260,7 +10257,14 @@ fn lower_expr_with_expected_inner(
                     )
                     .with_span(args[0].line(), args[0].column()));
                 }
-                validate_net_host_allowlist_hir(ctx.capabilities, name, &lowered, *line, *column)?;
+                validate_net_host_allowlist_hir(
+                    ctx.capabilities,
+                    name,
+                    &lowered,
+                    *line,
+                    *column,
+                    is_stdlib_net_host_wrapper(ctx),
+                )?;
                 move_lowered_value(&lowered, env)?;
                 return Ok(Expr::Call {
                     span: SourceSpan::point(*line, *column),
@@ -10289,7 +10293,14 @@ fn lower_expr_with_expected_inner(
                     )
                     .with_span(args[0].line(), args[0].column()));
                 }
-                validate_net_socket_allowlist_hir(ctx.capabilities, name, &bind, *line, *column)?;
+                validate_net_socket_allowlist_hir(
+                    ctx.capabilities,
+                    name,
+                    &bind,
+                    *line,
+                    *column,
+                    is_stdlib_net_socket_wrapper(ctx),
+                )?;
                 move_lowered_value(&bind, env)?;
                 return Ok(Expr::Call {
                     span: SourceSpan::point(*line, *column),
@@ -10436,7 +10447,14 @@ fn lower_expr_with_expected_inner(
                     )
                     .with_span(args[0].line(), args[0].column()));
                 }
-                validate_net_socket_allowlist_hir(ctx.capabilities, name, &bind, *line, *column)?;
+                validate_net_socket_allowlist_hir(
+                    ctx.capabilities,
+                    name,
+                    &bind,
+                    *line,
+                    *column,
+                    is_stdlib_net_socket_wrapper(ctx),
+                )?;
                 move_lowered_value(&bind, env)?;
                 return Ok(Expr::Call {
                     span: SourceSpan::point(*line, *column),
@@ -10533,6 +10551,7 @@ fn lower_expr_with_expected_inner(
                         &peer,
                         *line,
                         *column,
+                        is_stdlib_net_socket_wrapper(ctx),
                     )?;
                     move_lowered_value(&peer, env)?;
                     return Ok(Expr::Call {
@@ -10644,8 +10663,22 @@ fn lower_expr_with_expected_inner(
                     )
                     .with_span(args[3].line(), args[3].column()));
                 }
-                validate_net_host_allowlist_hir(ctx.capabilities, name, &host, *line, *column)?;
-                validate_net_port_allowlist_hir(ctx.capabilities, name, &port, *line, *column)?;
+                validate_net_host_allowlist_hir(
+                    ctx.capabilities,
+                    name,
+                    &host,
+                    *line,
+                    *column,
+                    is_stdlib_net_peer_wrapper(ctx),
+                )?;
+                validate_net_port_allowlist_hir(
+                    ctx.capabilities,
+                    name,
+                    &port,
+                    *line,
+                    *column,
+                    is_stdlib_net_peer_wrapper(ctx),
+                )?;
                 move_lowered_value(&host, env)?;
                 move_lowered_value(&message, env)?;
                 return Ok(Expr::Call {
@@ -10750,8 +10783,22 @@ fn lower_expr_with_expected_inner(
                     )
                     .with_span(args[3].line(), args[3].column()));
                 }
-                validate_net_host_allowlist_hir(ctx.capabilities, name, &host, *line, *column)?;
-                validate_net_port_allowlist_hir(ctx.capabilities, name, &port, *line, *column)?;
+                validate_net_host_allowlist_hir(
+                    ctx.capabilities,
+                    name,
+                    &host,
+                    *line,
+                    *column,
+                    is_stdlib_net_peer_wrapper(ctx),
+                )?;
+                validate_net_port_allowlist_hir(
+                    ctx.capabilities,
+                    name,
+                    &port,
+                    *line,
+                    *column,
+                    is_stdlib_net_peer_wrapper(ctx),
+                )?;
                 move_lowered_value(&host, env)?;
                 move_lowered_value(&message, env)?;
                 return Ok(Expr::Call {
@@ -10788,6 +10835,7 @@ fn lower_expr_with_expected_inner(
                     &lowered,
                     *line,
                     *column,
+                    is_stdlib_http_get_wrapper(ctx),
                 )?;
                 move_lowered_value(&lowered, env)?;
                 return Ok(Expr::Call {
@@ -10831,7 +10879,14 @@ fn lower_expr_with_expected_inner(
                     )
                     .with_span(args[1].line(), args[1].column()));
                 }
-                validate_net_socket_allowlist_hir(ctx.capabilities, name, &bind, *line, *column)?;
+                validate_net_socket_allowlist_hir(
+                    ctx.capabilities,
+                    name,
+                    &bind,
+                    *line,
+                    *column,
+                    is_stdlib_http_socket_wrapper(ctx),
+                )?;
                 move_lowered_value(&bind, env)?;
                 move_lowered_value(&body, env)?;
                 return Ok(Expr::Call {
@@ -10896,7 +10951,14 @@ fn lower_expr_with_expected_inner(
                     )
                     .with_span(args[3].line(), args[3].column()));
                 }
-                validate_net_socket_allowlist_hir(ctx.capabilities, name, &bind, *line, *column)?;
+                validate_net_socket_allowlist_hir(
+                    ctx.capabilities,
+                    name,
+                    &bind,
+                    *line,
+                    *column,
+                    is_stdlib_http_socket_wrapper(ctx),
+                )?;
                 move_lowered_value(&bind, env)?;
                 move_lowered_value(&route_path, env)?;
                 move_lowered_value(&body, env)?;
@@ -10927,7 +10989,14 @@ fn lower_expr_with_expected_inner(
                     )
                     .with_span(args[0].line(), args[0].column()));
                 }
-                validate_net_socket_allowlist_hir(ctx.capabilities, name, &bind, *line, *column)?;
+                validate_net_socket_allowlist_hir(
+                    ctx.capabilities,
+                    name,
+                    &bind,
+                    *line,
+                    *column,
+                    is_stdlib_http_socket_wrapper(ctx),
+                )?;
                 move_lowered_value(&bind, env)?;
                 return Ok(Expr::Call {
                     span: SourceSpan::point(*line, *column),
@@ -11111,7 +11180,6 @@ fn lower_expr_with_expected_inner(
                     )
                     .with_span(args[0].line(), args[0].column()));
                 }
-                validate_net_host_allowlist_hir(ctx.capabilities, name, &lowered, *line, *column)?;
                 move_lowered_value(&lowered, env)?;
                 return Ok(Expr::Call {
                     span: SourceSpan::point(*line, *column),
@@ -11225,7 +11293,6 @@ fn lower_expr_with_expected_inner(
                     )
                     .with_span(args[0].line(), args[0].column()));
                 }
-                validate_net_host_allowlist_hir(ctx.capabilities, name, &lowered, *line, *column)?;
                 move_lowered_value(&lowered, env)?;
                 return Ok(Expr::Call {
                     span: SourceSpan::point(*line, *column),
@@ -11260,7 +11327,6 @@ fn lower_expr_with_expected_inner(
                     )
                     .with_span(args[0].line(), args[0].column()));
                 }
-                validate_net_host_allowlist_hir(ctx.capabilities, name, &lowered, *line, *column)?;
                 move_lowered_value(&lowered, env)?;
                 return Ok(Expr::Call {
                     span: SourceSpan::point(*line, *column),
@@ -11774,6 +11840,14 @@ fn lower_expr_with_expected_inner(
                     }
                     lowered_args.push(lowered);
                 }
+                validate_stdlib_network_wrapper_call_hir(
+                    ctx.capabilities,
+                    name,
+                    signature,
+                    &lowered_args,
+                    *line,
+                    *column,
+                )?;
                 release_temporary_borrows(&temporary_borrows, env);
                 return Ok(Expr::Call {
                     span: SourceSpan::point(*line, *column),
@@ -13591,9 +13665,23 @@ fn validate_net_host_allowlist_hir(
     host: &Expr,
     line: usize,
     column: usize,
+    allow_dynamic_host: bool,
 ) -> Result<(), Diagnostic> {
     if capabilities.net_hosts.is_empty() {
-        return Ok(());
+        return match host {
+            Expr::Literal {
+                value: LiteralValue::String(_),
+                ..
+            } => Ok(()),
+            _ if allow_dynamic_host => Ok(()),
+            _ => Err(Diagnostic::new(
+                "capability",
+                format!(
+                    "call to {intrinsic_name:?} requires a string literal when [capabilities].net hosts are unrestricted"
+                ),
+            )
+            .with_span(line, column)),
+        };
     }
     match host {
         Expr::Literal {
@@ -13613,6 +13701,7 @@ fn validate_net_host_allowlist_hir(
             ),
         )
         .with_span(line, column)),
+        _ if allow_dynamic_host => Ok(()),
         _ => Err(Diagnostic::new(
             "capability",
             format!(
@@ -13629,10 +13718,8 @@ fn validate_http_get_net_allowlist_hir(
     url: &Expr,
     line: usize,
     column: usize,
+    allow_dynamic_url: bool,
 ) -> Result<(), Diagnostic> {
-    if capabilities.net_hosts.is_empty() && capabilities.net_ports.is_empty() {
-        return Ok(());
-    }
     match url {
         Expr::Literal {
             value: LiteralValue::String(value),
@@ -13669,6 +13756,16 @@ fn validate_http_get_net_allowlist_hir(
                 .with_span(line, column));
             }
             Ok(())
+        }
+        _ if allow_dynamic_url => Ok(()),
+        _ if capabilities.net_hosts.is_empty() && capabilities.net_ports.is_empty() => {
+            Err(Diagnostic::new(
+                "capability",
+                format!(
+                    "call to {intrinsic_name:?} requires a static URL literal when [capabilities].net is unrestricted"
+                ),
+            )
+            .with_span(line, column))
         }
         _ => Err(Diagnostic::new(
             "capability",
@@ -13710,10 +13807,8 @@ fn validate_net_socket_allowlist_hir(
     socket_addr: &Expr,
     line: usize,
     column: usize,
+    allow_dynamic_socket: bool,
 ) -> Result<(), Diagnostic> {
-    if capabilities.net_hosts.is_empty() && capabilities.net_ports.is_empty() {
-        return Ok(());
-    }
     match socket_addr {
         Expr::Literal {
             value: LiteralValue::String(value),
@@ -13723,7 +13818,7 @@ fn validate_net_socket_allowlist_hir(
                 return Err(Diagnostic::new(
                     "capability",
                     format!(
-                        "call to {intrinsic_name:?} requires a static host:port literal when [capabilities].net host or port allowlists are configured"
+                        "call to {intrinsic_name:?} requires a static host:port literal"
                     ),
                 )
                 .with_span(line, column));
@@ -13753,7 +13848,23 @@ fn validate_net_socket_allowlist_hir(
             }
             Ok(())
         }
-        _ => Ok(()),
+        _ if allow_dynamic_socket => Ok(()),
+        _ if capabilities.net_hosts.is_empty() && capabilities.net_ports.is_empty() => {
+            Err(Diagnostic::new(
+                "capability",
+                format!(
+                    "call to {intrinsic_name:?} requires a static host:port literal when [capabilities].net is unrestricted"
+                ),
+            )
+            .with_span(line, column))
+        }
+        _ => Err(Diagnostic::new(
+            "capability",
+            format!(
+                "call to {intrinsic_name:?} requires a static host:port literal when [capabilities].net host or port allowlists are configured"
+            ),
+        )
+        .with_span(line, column)),
     }
 }
 
@@ -13775,6 +13886,7 @@ fn validate_net_port_allowlist_hir(
     port: &Expr,
     line: usize,
     column: usize,
+    allow_dynamic_port: bool,
 ) -> Result<(), Diagnostic> {
     if capabilities.net_ports.is_empty() {
         return Ok(());
@@ -13796,6 +13908,7 @@ fn validate_net_port_allowlist_hir(
             ),
         )
         .with_span(line, column)),
+        _ if allow_dynamic_port => Ok(()),
         _ => Err(Diagnostic::new(
             "capability",
             format!(
@@ -13804,6 +13917,133 @@ fn validate_net_port_allowlist_hir(
         )
         .with_span(line, column)),
     }
+}
+
+fn validate_stdlib_network_wrapper_call_hir(
+    capabilities: &CapabilityConfig,
+    function_name: &str,
+    signature: &FunctionSig,
+    args: &[Expr],
+    line: usize,
+    column: usize,
+) -> Result<(), Diagnostic> {
+    let diagnostic_name = if signature.source_path.starts_with("<stdlib>/") {
+        signature.source_name.as_str()
+    } else {
+        function_name
+    };
+    match (
+        signature.source_path.as_str(),
+        signature.source_name.as_str(),
+    ) {
+        ("<stdlib>/net.ax", "resolve") => validate_net_host_allowlist_hir(
+            capabilities,
+            diagnostic_name,
+            &args[0],
+            line,
+            column,
+            false,
+        ),
+        ("<stdlib>/net.ax", "tcp_dial")
+        | ("<stdlib>/net.ax", "udp_send_recv")
+        | ("<stdlib>/net_tcp.ax", "dial")
+        | ("<stdlib>/net_udp.ax", "send_recv")
+        | ("<stdlib>/async_net.ax", "tcp_dial")
+        | ("<stdlib>/async_net.ax", "udp_send_recv") => {
+            validate_net_host_allowlist_hir(
+                capabilities,
+                diagnostic_name,
+                &args[0],
+                line,
+                column,
+                false,
+            )?;
+            validate_net_port_allowlist_hir(
+                capabilities,
+                diagnostic_name,
+                &args[1],
+                line,
+                column,
+                false,
+            )
+        }
+        ("<stdlib>/net_tcp.ax", "listen")
+        | ("<stdlib>/net_udp.ax", "bind")
+        | ("<stdlib>/async_net.ax", "listen") => validate_net_socket_allowlist_hir(
+            capabilities,
+            diagnostic_name,
+            &args[0],
+            line,
+            column,
+            false,
+        ),
+        ("<stdlib>/net_udp.ax", "send_to") => validate_net_socket_allowlist_hir(
+            capabilities,
+            diagnostic_name,
+            &args[2],
+            line,
+            column,
+            false,
+        ),
+        ("<stdlib>/http.ax", "get") => validate_http_get_net_allowlist_hir(
+            capabilities,
+            diagnostic_name,
+            &args[0],
+            line,
+            column,
+            false,
+        ),
+        ("<stdlib>/http.ax", "listen")
+        | ("<stdlib>/http.ax", "serve")
+        | ("<stdlib>/http.ax", "serve_once") => validate_net_socket_allowlist_hir(
+            capabilities,
+            diagnostic_name,
+            &args[0],
+            line,
+            column,
+            false,
+        ),
+        _ => Ok(()),
+    }
+}
+
+fn is_stdlib_net_host_wrapper(ctx: &LowerContext<'_>) -> bool {
+    ctx.current_path == "<stdlib>/net.ax" && ctx.current_function.as_deref() == Some("resolve")
+}
+
+fn is_stdlib_net_peer_wrapper(ctx: &LowerContext<'_>) -> bool {
+    matches!(
+        (ctx.current_path, ctx.current_function.as_deref()),
+        ("<stdlib>/net.ax", Some("tcp_dial"))
+            | ("<stdlib>/net.ax", Some("udp_send_recv"))
+            | ("<stdlib>/net_tcp.ax", Some("dial"))
+            | ("<stdlib>/net_udp.ax", Some("send_recv"))
+            | ("<stdlib>/async_net.ax", Some("tcp_dial"))
+            | ("<stdlib>/async_net.ax", Some("udp_send_recv"))
+    )
+}
+
+fn is_stdlib_net_socket_wrapper(ctx: &LowerContext<'_>) -> bool {
+    matches!(
+        (ctx.current_path, ctx.current_function.as_deref()),
+        ("<stdlib>/net_tcp.ax", Some("listen"))
+            | ("<stdlib>/net_udp.ax", Some("bind"))
+            | ("<stdlib>/net_udp.ax", Some("send_to"))
+            | ("<stdlib>/async_net.ax", Some("listen"))
+    )
+}
+
+fn is_stdlib_http_get_wrapper(ctx: &LowerContext<'_>) -> bool {
+    ctx.current_path == "<stdlib>/http.ax" && ctx.current_function.as_deref() == Some("get")
+}
+
+fn is_stdlib_http_socket_wrapper(ctx: &LowerContext<'_>) -> bool {
+    matches!(
+        (ctx.current_path, ctx.current_function.as_deref()),
+        ("<stdlib>/http.ax", Some("listen"))
+            | ("<stdlib>/http.ax", Some("serve"))
+            | ("<stdlib>/http.ax", Some("serve_once"))
+    )
 }
 
 fn validate_process_command_allowlist_hir(
