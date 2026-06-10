@@ -2807,11 +2807,14 @@ fn axiom_openssl_tls_get(host: &str, port: u16, request: &str) -> Result<Vec<u8>
         c_int,
         Option<unsafe extern "C" fn(c_int, *mut c_void) -> c_int>,
     );
+    type SslCtxSetDefaultVerifyPaths = unsafe extern "C" fn(*mut SslCtx) -> c_int;
     type SslNew = unsafe extern "C" fn(*mut SslCtx) -> *mut Ssl;
     type SslFree = unsafe extern "C" fn(*mut Ssl);
     type SslSetFd = unsafe extern "C" fn(*mut Ssl, c_int) -> c_int;
+    type SslSet1Host = unsafe extern "C" fn(*mut Ssl, *const c_char) -> c_int;
     type SslCtrl = unsafe extern "C" fn(*mut Ssl, c_int, c_long, *mut c_void) -> c_long;
     type SslConnect = unsafe extern "C" fn(*mut Ssl) -> c_int;
+    type SslGetVerifyResult = unsafe extern "C" fn(*const Ssl) -> c_long;
     type SslWrite = unsafe extern "C" fn(*mut Ssl, *const c_void, c_int) -> c_int;
     type SslRead = unsafe extern "C" fn(*mut Ssl, *mut c_void, c_int) -> c_int;
     type SslShutdown = unsafe extern "C" fn(*mut Ssl) -> c_int;
@@ -2826,6 +2829,8 @@ fn axiom_openssl_tls_get(host: &str, port: u16, request: &str) -> Result<Vec<u8>
     }
 
     const RTLD_NOW: c_int = 2;
+    const SSL_VERIFY_PEER: c_int = 1;
+    const X509_V_OK: c_long = 0;
 
     struct OpenSsl {
         ssl_handle: *mut c_void,
@@ -2834,11 +2839,14 @@ fn axiom_openssl_tls_get(host: &str, port: u16, request: &str) -> Result<Vec<u8>
         ssl_ctx_new: SslCtxNew,
         ssl_ctx_free: SslCtxFree,
         ssl_ctx_set_verify: SslCtxSetVerify,
+        ssl_ctx_set_default_verify_paths: SslCtxSetDefaultVerifyPaths,
         ssl_new: SslNew,
         ssl_free: SslFree,
         ssl_set_fd: SslSetFd,
+        ssl_set1_host: SslSet1Host,
         ssl_ctrl: SslCtrl,
         ssl_connect: SslConnect,
+        ssl_get_verify_result: SslGetVerifyResult,
         ssl_write: SslWrite,
         ssl_read: SslRead,
         ssl_shutdown: SslShutdown,
@@ -2866,11 +2874,17 @@ fn axiom_openssl_tls_get(host: &str, port: u16, request: &str) -> Result<Vec<u8>
                 ssl_ctx_new: load_symbol(ssl_handle, "SSL_CTX_new")?,
                 ssl_ctx_free: load_symbol(ssl_handle, "SSL_CTX_free")?,
                 ssl_ctx_set_verify: load_symbol(ssl_handle, "SSL_CTX_set_verify")?,
+                ssl_ctx_set_default_verify_paths: load_symbol(
+                    ssl_handle,
+                    "SSL_CTX_set_default_verify_paths",
+                )?,
                 ssl_new: load_symbol(ssl_handle, "SSL_new")?,
                 ssl_free: load_symbol(ssl_handle, "SSL_free")?,
                 ssl_set_fd: load_symbol(ssl_handle, "SSL_set_fd")?,
+                ssl_set1_host: load_symbol(ssl_handle, "SSL_set1_host")?,
                 ssl_ctrl: load_symbol(ssl_handle, "SSL_ctrl")?,
                 ssl_connect: load_symbol(ssl_handle, "SSL_connect")?,
+                ssl_get_verify_result: load_symbol(ssl_handle, "SSL_get_verify_result")?,
                 ssl_write: load_symbol(ssl_handle, "SSL_write")?,
                 ssl_read: load_symbol(ssl_handle, "SSL_read")?,
                 ssl_shutdown: load_symbol(ssl_handle, "SSL_shutdown")?,
@@ -2984,7 +2998,13 @@ fn axiom_openssl_tls_get(host: &str, port: u16, request: &str) -> Result<Vec<u8>
             ctx,
             openssl: &openssl,
         };
-        (openssl.ssl_ctx_set_verify)(ctx.ctx, 0, None);
+        (openssl.ssl_ctx_set_verify)(ctx.ctx, SSL_VERIFY_PEER, None);
+        if (openssl.ssl_ctx_set_default_verify_paths)(ctx.ctx) != 1 {
+            return Err(format!(
+                "https TLS trust store setup failed: {}",
+                openssl_error(&openssl)
+            ));
+        }
 
         let ssl = (openssl.ssl_new)(ctx.ctx);
         if ssl.is_null() {
@@ -3003,11 +3023,23 @@ fn axiom_openssl_tls_get(host: &str, port: u16, request: &str) -> Result<Vec<u8>
                 openssl_error(&openssl)
             ));
         }
+        if (openssl.ssl_set1_host)(ssl.ssl, server_name.as_ptr()) != 1 {
+            return Err(format!(
+                "https TLS hostname setup failed: {}",
+                openssl_error(&openssl)
+            ));
+        }
         let _ = (openssl.ssl_ctrl)(ssl.ssl, 55, 0, server_name.as_ptr() as *mut c_void);
         if (openssl.ssl_connect)(ssl.ssl) != 1 {
             return Err(format!(
                 "https TLS handshake failed: {}",
                 openssl_error(&openssl)
+            ));
+        }
+        let verify_result = (openssl.ssl_get_verify_result)(ssl.ssl);
+        if verify_result != X509_V_OK {
+            return Err(format!(
+                "https TLS certificate verification failed: {verify_result}"
             ));
         }
 
