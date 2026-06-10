@@ -242,16 +242,15 @@ enum Command {
     },
     /// Pack and publish a stage1 package into a local registry tree.
     ///
-    /// Note: --signing-key is required and the emitted `.sig` payload is a
-    /// tamper-detection integrity tag bound to that key, not a cryptographic
-    /// signature. The stage1 registry does not yet provide authenticity proof.
+    /// Note: --signing-key is required and the emitted `.sig` payload is an
+    /// HMAC-SHA256 authentication tag bound to that key.
     Publish {
         path: PathBuf,
         #[arg(long = "registry-dir")]
         registry_dir: PathBuf,
         #[arg(
             long = "signing-key",
-            help = "Required integrity key bound into the emitted .sig payload. Not authenticity proof."
+            help = "Required authentication key bound into the emitted .sig payload."
         )]
         signing_key: Option<String>,
         #[arg(long)]
@@ -262,6 +261,8 @@ enum Command {
         packages_dir: PathBuf,
         #[arg(long)]
         base_url: String,
+        #[arg(long = "signing-key")]
+        signing_key: String,
         #[arg(long)]
         out: Option<PathBuf>,
     },
@@ -283,6 +284,8 @@ enum Command {
         addr: String,
         #[arg(long = "base-url")]
         base_url: Option<String>,
+        #[arg(long = "signing-key")]
+        signing_key: String,
         #[arg(long)]
         once: bool,
     },
@@ -1210,8 +1213,9 @@ fn main() {
         Command::RegistryIndex {
             packages_dir,
             base_url,
+            signing_key,
             out,
-        } => match render_registry_index(&packages_dir, &base_url) {
+        } => match render_registry_index(&packages_dir, &base_url, &signing_key) {
             Ok(index) => {
                 if let Some(path) = out {
                     match fs::write(&path, index) {
@@ -1268,12 +1272,14 @@ fn main() {
             packages_dir,
             addr,
             base_url,
+            signing_key,
             once,
         } => match serve_registry(
             &packages_dir,
             &RegistryServeOptions {
                 addr,
                 base_url,
+                signing_key,
                 once,
             },
         ) {
@@ -7664,6 +7670,35 @@ return "ok"
     }
 
     #[test]
+    fn registry_index_cli_parses_authentication_options() {
+        let cli = Cli::parse_from([
+            "axiomc",
+            "registry-index",
+            "registry/packages",
+            "--base-url",
+            "https://packages.example.test",
+            "--signing-key",
+            "dev-key",
+            "--out",
+            "registry/index.json",
+        ]);
+        match cli.command {
+            Command::RegistryIndex {
+                packages_dir,
+                base_url,
+                signing_key,
+                out,
+            } => {
+                assert_eq!(packages_dir, PathBuf::from("registry/packages"));
+                assert_eq!(base_url, "https://packages.example.test");
+                assert_eq!(signing_key, "dev-key");
+                assert_eq!(out, Some(PathBuf::from("registry/index.json")));
+            }
+            other => panic!("expected registry index command, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn registry_serve_cli_parses_host_options() {
         let cli = Cli::parse_from([
             "axiomc",
@@ -7673,6 +7708,8 @@ return "ok"
             "127.0.0.1:0",
             "--base-url",
             "http://127.0.0.1:0",
+            "--signing-key",
+            "dev-key",
             "--once",
         ]);
         match cli.command {
@@ -7680,11 +7717,13 @@ return "ok"
                 packages_dir,
                 addr,
                 base_url,
+                signing_key,
                 once,
             } => {
                 assert_eq!(packages_dir, PathBuf::from("registry/packages"));
                 assert_eq!(addr, "127.0.0.1:0");
                 assert_eq!(base_url.as_deref(), Some("http://127.0.0.1:0"));
+                assert_eq!(signing_key, "dev-key");
                 assert!(once);
             }
             other => panic!("expected registry serve command, got {other:?}"),
