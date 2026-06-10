@@ -37,8 +37,8 @@ mod tests {
         run_project_tests_with_options, run_project_with_options,
     };
     use crate::syntax::{
-        MacroStyle, ParseOptions, Stmt, TypeName, Visibility, parse_program,
-        parse_program_with_options, parse_program_with_recovery,
+        DEFAULT_PARSE_RECURSION_LIMIT, MacroStyle, ParseOptions, Stmt, TypeName, Visibility,
+        parse_program, parse_program_with_options, parse_program_with_recovery,
     };
     use serde::Serialize;
     use std::collections::HashMap;
@@ -843,6 +843,45 @@ spin!()
         )
         .expect_err("custom recursion limit should be enforced");
         assert!(error.message.contains("bounded depth of 3"));
+    }
+
+    #[test]
+    fn parser_bounds_deeply_nested_parenthesized_expressions() {
+        let nested = format!(
+            "print {}1{}\n",
+            "(".repeat(DEFAULT_PARSE_RECURSION_LIMIT + 8),
+            ")".repeat(DEFAULT_PARSE_RECURSION_LIMIT + 8)
+        );
+
+        let error = parse_program(&nested, Path::new("main.ax"))
+            .expect_err("deep expression nesting should be bounded");
+
+        assert_eq!(error.code.as_deref(), Some("parse_recursion_limit"));
+        assert!(
+            error.message.contains("parser recursion limit"),
+            "unexpected diagnostic: {error:?}",
+        );
+    }
+
+    #[test]
+    fn parser_bounds_deeply_nested_statement_blocks() {
+        let mut source = String::new();
+        for _ in 0..(DEFAULT_PARSE_RECURSION_LIMIT + 8) {
+            source.push_str("if true {\n");
+        }
+        source.push_str("print true\n");
+        for _ in 0..(DEFAULT_PARSE_RECURSION_LIMIT + 8) {
+            source.push_str("}\n");
+        }
+
+        let error = parse_program(&source, Path::new("main.ax"))
+            .expect_err("deep block nesting should be bounded");
+
+        assert_eq!(error.code.as_deref(), Some("parse_recursion_limit"));
+        assert!(
+            error.message.contains("parser recursion limit"),
+            "unexpected diagnostic: {error:?}",
+        );
     }
 
     #[test]

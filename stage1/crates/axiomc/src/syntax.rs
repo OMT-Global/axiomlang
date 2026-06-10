@@ -1,5 +1,6 @@
 use crate::diagnostics::Diagnostic;
 use serde::Serialize;
+use std::cell::Cell;
 use std::path::Path;
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq, Hash)]
@@ -59,6 +60,44 @@ pub struct Program {
 pub const DEFAULT_MACRO_RECURSION_LIMIT: usize = 64;
 pub const DEFAULT_MACRO_EXPANSION_BYTE_LIMIT: usize = 16 * 1024 * 1024;
 pub const DEFAULT_MACRO_EXPANSION_INVOCATION_LIMIT: usize = 8192;
+pub const DEFAULT_PARSE_RECURSION_LIMIT: usize = 64;
+
+thread_local! {
+    static PARSE_RECURSION_DEPTH: Cell<usize> = const { Cell::new(0) };
+}
+
+struct ParseRecursionGuard;
+
+impl Drop for ParseRecursionGuard {
+    fn drop(&mut self) {
+        PARSE_RECURSION_DEPTH.with(|depth| {
+            depth.set(depth.get().saturating_sub(1));
+        });
+    }
+}
+
+fn enter_parse_recursion(
+    path: &Path,
+    line_no: usize,
+    column: usize,
+) -> Result<ParseRecursionGuard, Diagnostic> {
+    PARSE_RECURSION_DEPTH.with(|depth| {
+        let current = depth.get();
+        if current >= DEFAULT_PARSE_RECURSION_LIMIT {
+            return Err(Diagnostic::new(
+                "parse",
+                format!(
+                    "parser recursion limit of {DEFAULT_PARSE_RECURSION_LIMIT} nested constructs exceeded"
+                ),
+            )
+            .with_code("parse_recursion_limit")
+            .with_path(path.display().to_string())
+            .with_span(line_no, column));
+        }
+        depth.set(current + 1);
+        Ok(ParseRecursionGuard)
+    })
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ParseOptions {
@@ -2089,6 +2128,7 @@ fn parse_stmt_list(
     index: &mut usize,
     path: &Path,
 ) -> Result<Vec<Stmt>, Diagnostic> {
+    let _recursion_guard = enter_parse_recursion(path, (*index + 1).max(1), 1)?;
     let mut stmts = Vec::new();
     while *index < lines.len() {
         let line_no = *index + 1;
@@ -2193,6 +2233,9 @@ fn parse_stmt_list(
         match parse_stmt(lines, index, path, true) {
             Ok(stmt) => stmts.push(stmt),
             Err(error) => {
+                if error.code.as_deref() == Some("parse_recursion_limit") {
+                    return Err(error);
+                }
                 let mut diagnostics = vec![error];
                 let failed_index = *index;
                 synchronize_statement(lines, index);
@@ -2208,6 +2251,9 @@ fn parse_stmt_list(
                     match parse_stmt(lines, index, path, true) {
                         Ok(stmt) => stmts.push(stmt),
                         Err(error) => {
+                            if error.code.as_deref() == Some("parse_recursion_limit") {
+                                return Err(error);
+                            }
                             diagnostics.push(error);
                             let before = *index;
                             synchronize_statement(lines, index);
@@ -4006,6 +4052,7 @@ fn parse_type_name(
     line_no: usize,
     column: usize,
 ) -> Result<TypeName, Diagnostic> {
+    let _recursion_guard = enter_parse_recursion(path, line_no, column)?;
     if raw.starts_with("dyn ") {
         return Err(Diagnostic::new(
             "parse",
@@ -4323,6 +4370,7 @@ fn source_position_for_offset(
 }
 
 fn parse_expr(raw: &str, path: &Path, line_no: usize, column: usize) -> Result<Expr, Diagnostic> {
+    let _recursion_guard = enter_parse_recursion(path, line_no, column)?;
     let raw = raw.trim();
     if raw.starts_with('|') {
         return parse_term(raw, path, line_no, column);
@@ -4482,6 +4530,7 @@ fn parse_mul(raw: &str, path: &Path, line_no: usize, column: usize) -> Result<Ex
 }
 
 fn parse_term(raw: &str, path: &Path, line_no: usize, column: usize) -> Result<Expr, Diagnostic> {
+    let _recursion_guard = enter_parse_recursion(path, line_no, column)?;
     if let Some(closure) = parse_closure_expr(raw, path, line_no, column)? {
         return Ok(closure);
     }
