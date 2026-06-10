@@ -65,6 +65,7 @@ jobs:
     needs: changes
     if: >-
       github.event.pull_request.draft == false &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
       (needs.changes.outputs.app == 'true' || needs.changes.outputs.ci == 'true')
     env:
       GITHUB_TOKEN: ${{ github.token }}
@@ -140,7 +141,9 @@ jobs:
     name: Validate PR Description
     runs-on: ['self-hosted', 'linux', 'shell-only', 'public']
     timeout-minutes: 5
-    if: github.event.pull_request.draft == false
+    if: >-
+      github.event.pull_request.draft == false &&
+      github.event.pull_request.head.repo.full_name == github.repository
     env:
       PR_BODY: ${{ github.event.pull_request.body }}
       PR_AUTHOR: ${{ github.event.pull_request.user.login }}
@@ -162,7 +165,9 @@ jobs:
     name: Validate Secrets
     runs-on: ['self-hosted', 'linux', 'shell-only', 'public']
     timeout-minutes: 10
-    if: github.event.pull_request.draft == false
+    if: >-
+      github.event.pull_request.draft == false &&
+      github.event.pull_request.head.repo.full_name == github.repository
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4 pinned 2026-05-30
         with:

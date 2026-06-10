@@ -1633,19 +1633,63 @@ Variant(
         let rendered = render_rust(&mir);
         assert!(rendered.contains("const SSL_VERIFY_PEER: c_int = 1;"));
         assert!(rendered.contains("const X509_V_OK: c_long = 0;"));
+        assert!(rendered.contains("let ssl_handle = open_library(OPENSSL_SSL_CANDIDATES)?;"));
+        assert!(rendered.contains("/usr/lib/x86_64-linux-gnu/libssl.so.3"));
+        assert!(!rendered.contains("open_library(&[\"libssl.so.3\""));
+        assert!(!rendered.contains("std::mem::transmute_copy"));
         assert!(rendered.contains(
-            "ssl_ctx_set_default_verify_paths: load_symbol(\n                    ssl_handle,\n                    \"SSL_CTX_set_default_verify_paths\",\n                )?,"
+            "ssl_ctx_set_default_verify_paths: load_typed_symbol!(\n                    ssl_handle,\n                    \"SSL_CTX_set_default_verify_paths\",\n                    SslCtxSetDefaultVerifyPaths\n                ),"
         ));
         assert!(rendered.contains("(openssl.ssl_ctx_set_verify)(ctx.ctx, SSL_VERIFY_PEER, None);"));
         assert!(rendered.contains("(openssl.ssl_ctx_set_default_verify_paths)(ctx.ctx) != 1"));
-        assert!(rendered.contains("ssl_set1_host: load_symbol(ssl_handle, \"SSL_set1_host\")?"));
-        assert!(rendered.contains("(openssl.ssl_set1_host)(ssl.ssl, server_name.as_ptr()) != 1"));
         assert!(rendered.contains(
-            "ssl_get_verify_result: load_symbol(ssl_handle, \"SSL_get_verify_result\")?"
+            "ssl_set1_host: load_typed_symbol!(ssl_handle, \"SSL_set1_host\", SslSet1Host)"
         ));
+        assert!(rendered.contains("(openssl.ssl_set1_host)(ssl.ssl, server_name.as_ptr()) != 1"));
+        assert!(rendered.contains("ssl_get_verify_result: load_typed_symbol!(ssl_handle, \"SSL_get_verify_result\", SslGetVerifyResult)"));
         assert!(rendered.contains("let verify_result = (openssl.ssl_get_verify_result)(ssl.ssl);"));
         assert!(rendered.contains("if verify_result != X509_V_OK"));
         assert!(!rendered.contains("(openssl.ssl_ctx_set_verify)(ctx.ctx, 0, None);"));
+    }
+
+    #[test]
+    fn render_rust_uses_trusted_crypto_symbol_loading() {
+        let source = "let keys: ([u8], [u8]) = crypto_ed25519_keygen()\nprint len(keys.0)\n";
+        let parsed = parse_program(source, Path::new("main.ax")).expect("parse");
+        let hir = hir::lower_with_capabilities(
+            &parsed,
+            &CapabilityConfig {
+                crypto: true,
+                ..CapabilityConfig::default()
+            },
+        )
+        .expect("lower");
+        let mir = mir::lower(&hir);
+        let rendered = render_rust(&mir);
+        assert!(rendered.contains("AXIOM_OPENSSL_CRYPTO_CANDIDATES"));
+        assert!(rendered.contains("/usr/lib/x86_64-linux-gnu/libcrypto.so.3"));
+        assert!(rendered.contains("axiom_crypto_aead_load_typed_symbol!"));
+        assert!(!rendered.contains("axiom_crypto_aead_open_library(&["));
+        assert!(!rendered.contains("std::mem::transmute_copy"));
+    }
+
+    #[test]
+    fn render_rust_revalidates_mkdir_all_after_create() {
+        let source = "print fs_mkdir_all(\"data/nested\")\n";
+        let parsed = parse_program(source, Path::new("main.ax")).expect("parse");
+        let hir = hir::lower_with_capabilities(
+            &parsed,
+            &CapabilityConfig {
+                fs: true,
+                fs_write: true,
+                ..CapabilityConfig::default()
+            },
+        )
+        .expect("lower");
+        let mir = mir::lower(&hir);
+        let rendered = render_rust(&mir);
+        assert!(rendered.contains("Ok(()) => match axiom_fs_candidate(&path, false)"));
+        assert!(rendered.contains("Some(created) if created.is_dir() => 0"));
     }
 
     #[test]

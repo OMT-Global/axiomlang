@@ -1463,6 +1463,8 @@ fn validate_relative_path(path: &Path, field_name: &str, value: &str) -> Result<
 }
 
 fn validate_dependency_path(path: &Path, field_name: &str, value: &str) -> Result<(), Diagnostic> {
+    // Dependency paths may use `..` for declared workspace siblings. Consumers
+    // must canonicalize and enforce the workspace/package boundary before use.
     if Path::new(value).is_absolute() {
         return Err(
             Diagnostic::new("manifest", format!("{field_name} must be relative"))
