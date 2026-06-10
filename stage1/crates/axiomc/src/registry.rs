@@ -12,6 +12,8 @@ use std::path::{Component, Path, PathBuf};
 
 const REGISTRY_METADATA_FILENAME: &str = "axiom-registry.toml";
 const DEFAULT_ARCHIVE_FILENAME: &str = "package.axp";
+const ARCHIVE_AUTH_HEADER: &str = "axiom-hmac-sha256-v1";
+const SHA256_BLOCK_LEN: usize = 64;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct RegistryIndex {
@@ -66,6 +68,7 @@ pub struct PublishOptions {
 pub struct RegistryServeOptions {
     pub addr: String,
     pub base_url: Option<String>,
+    pub signing_key: String,
     pub once: bool,
 }
 
@@ -99,7 +102,7 @@ pub fn publish_package(
     let signing_key = options.signing_key.as_deref().ok_or_else(|| {
         Diagnostic::new(
             "publish",
-            "publish requires --signing-key; the stage1 registry has no default key, and the emitted .sig file is an integrity tag, not authenticity proof",
+            "publish requires --signing-key; the stage1 registry has no default authentication key",
         )
     })?;
     if signing_key.trim().is_empty() {
@@ -363,94 +366,39 @@ fn render_archive_signature(
     archive_hash: &str,
     signing_key: &str,
 ) -> String {
-    // The emitted file is a tamper-detection integrity tag, not a cryptographic
-    // signature. It binds (key, package, version, archive_hash) under a 64-bit
-    // non-cryptographic hash and is intended only to catch accidental drift in
-    // a stage1 dev registry. The file extension stays `.sig` for backward
-    // compatibility with consumers, but the in-file header documents the
-    // weaker semantics so operators do not mistake this for authenticity.
-    let integrity = compute_integrity_tag(signing_key, package, version, archive_hash);
+    let integrity = compute_authentication_tag(signing_key, package, version, archive_hash);
     format!(
-        "axiom-integrity-v1\npackage={package}\nversion={version}\narchive_hash={archive_hash}\nintegrity={integrity}\n"
+        "{ARCHIVE_AUTH_HEADER}\npackage={package}\nversion={version}\narchive_hash={archive_hash}\nhmac_sha256={integrity}\n"
     )
 }
 
-fn compute_integrity_tag(
+fn compute_authentication_tag(
     signing_key: &str,
     package: &str,
     version: &str,
     archive_hash: &str,
 ) -> String {
-    hash_bytes(format!("{signing_key}\0{package}\0{version}\0{archive_hash}").as_bytes())
+    hmac_sha256_hex(
+        signing_key.as_bytes(),
+        format!("{package}\0{version}\0{archive_hash}").as_bytes(),
+    )
 }
 
-/// Re-derive the integrity tag for an archive and compare it against the
-/// emitted `.sig` payload. Returns Ok(()) when the tag binds the same archive
-/// bytes under the supplied key.
-pub fn verify_archive_integrity(
-    package: &str,
-    version: &str,
-    archive_bytes: &[u8],
-    signature_payload: &str,
-    signing_key: &str,
-) -> Result<(), Diagnostic> {
-    let mut header = None;
-    let mut declared_hash = None;
-    let mut declared_integrity = None;
-    for line in signature_payload.lines() {
-        if header.is_none() {
-            header = Some(line);
-            continue;
-        }
-        if let Some((key, value)) = line.split_once('=') {
-            match key {
-                "archive_hash" => declared_hash = Some(value.to_string()),
-                "integrity" => declared_integrity = Some(value.to_string()),
-                _ => {}
-            }
-        }
-    }
-    if header != Some("axiom-integrity-v1") {
-        return Err(Diagnostic::new(
-            "registry",
-            "signature payload missing axiom-integrity-v1 header",
-        ));
-    }
-    let declared_hash = declared_hash
-        .ok_or_else(|| Diagnostic::new("registry", "signature payload missing archive_hash"))?;
-    let declared_integrity = declared_integrity
-        .ok_or_else(|| Diagnostic::new("registry", "signature payload missing integrity tag"))?;
-    let actual_hash = hash_bytes(archive_bytes);
-    if declared_hash != actual_hash {
-        return Err(Diagnostic::new(
-            "registry",
-            format!(
-                "archive hash mismatch: payload declares {declared_hash}, archive hashes to {actual_hash}"
-            ),
-        ));
-    }
-    let expected_integrity = compute_integrity_tag(signing_key, package, version, &actual_hash);
-    if declared_integrity != expected_integrity {
-        return Err(Diagnostic::new(
-            "registry",
-            "integrity tag does not match supplied signing key",
-        ));
-    }
-    Ok(())
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ArchiveAuthentication {
+    package: String,
+    version: String,
+    archive_hash: String,
+    hmac_sha256: String,
 }
 
-fn verify_archive_attestation(
-    package: &str,
-    version: &str,
-    archive_bytes: &[u8],
-    signature_payload: &str,
-) -> Result<(), Diagnostic> {
+fn parse_archive_authentication(payload: &str) -> Result<ArchiveAuthentication, Diagnostic> {
     let mut header = None;
     let mut declared_package = None;
     let mut declared_version = None;
     let mut declared_hash = None;
-    let mut declared_integrity = None;
-    for line in signature_payload.lines() {
+    let mut declared_hmac = None;
+    for line in payload.lines() {
         if header.is_none() {
             header = Some(line);
             continue;
@@ -490,14 +438,14 @@ fn verify_archive_attestation(
                     }
                     declared_hash = Some(value.to_string())
                 }
-                "integrity" => {
-                    if declared_integrity.is_some() {
+                "hmac_sha256" => {
+                    if declared_hmac.is_some() {
                         return Err(Diagnostic::new(
                             "registry",
-                            "signature payload repeats integrity",
+                            "signature payload repeats hmac_sha256",
                         ));
                     }
-                    declared_integrity = Some(value.to_string())
+                    declared_hmac = Some(value.to_string())
                 }
                 _ => {
                     return Err(Diagnostic::new(
@@ -513,64 +461,254 @@ fn verify_archive_attestation(
             ));
         }
     }
-    if header != Some("axiom-integrity-v1") {
+    if header != Some(ARCHIVE_AUTH_HEADER) {
         return Err(Diagnostic::new(
             "registry",
-            "signature payload missing axiom-integrity-v1 header",
+            format!("signature payload missing {ARCHIVE_AUTH_HEADER} header"),
         ));
     }
-    let declared_package = declared_package
-        .ok_or_else(|| Diagnostic::new("registry", "signature payload missing package"))?;
-    let declared_version = declared_version
-        .ok_or_else(|| Diagnostic::new("registry", "signature payload missing version"))?;
-    let declared_hash = declared_hash
-        .ok_or_else(|| Diagnostic::new("registry", "signature payload missing archive_hash"))?;
-    let declared_integrity = declared_integrity
-        .ok_or_else(|| Diagnostic::new("registry", "signature payload missing integrity tag"))?;
-    if declared_package != package || declared_version != version {
+    Ok(ArchiveAuthentication {
+        package: declared_package
+            .ok_or_else(|| Diagnostic::new("registry", "signature payload missing package"))?,
+        version: declared_version
+            .ok_or_else(|| Diagnostic::new("registry", "signature payload missing version"))?,
+        archive_hash: declared_hash
+            .ok_or_else(|| Diagnostic::new("registry", "signature payload missing archive_hash"))?,
+        hmac_sha256: declared_hmac
+            .ok_or_else(|| Diagnostic::new("registry", "signature payload missing hmac_sha256"))?,
+    })
+}
+
+/// Re-derive the archive authentication tag and compare it against the emitted
+/// `.sig` payload. Returns Ok(()) when the HMAC binds the same archive bytes,
+/// package identity, and version under the supplied key.
+pub fn verify_archive_integrity(
+    package: &str,
+    version: &str,
+    archive_bytes: &[u8],
+    signature_payload: &str,
+    signing_key: &str,
+) -> Result<(), Diagnostic> {
+    let auth = parse_archive_authentication(signature_payload)?;
+    if auth.package != package || auth.version != version {
         return Err(Diagnostic::new(
             "registry",
             format!("signature payload does not match package {package}@{version}"),
         ));
     }
     let actual_hash = hash_bytes(archive_bytes);
-    if declared_hash != actual_hash {
+    if auth.archive_hash != actual_hash {
         return Err(Diagnostic::new(
             "registry",
             format!(
-                "archive hash mismatch: payload declares {declared_hash}, archive hashes to {actual_hash}"
+                "archive hash mismatch: payload declares {}, archive hashes to {actual_hash}",
+                auth.archive_hash
             ),
         ));
     }
-    if declared_integrity.is_empty() {
+    let expected_hmac = compute_authentication_tag(signing_key, package, version, &actual_hash);
+    if !constant_time_eq_hex(&auth.hmac_sha256, &expected_hmac) {
         return Err(Diagnostic::new(
             "registry",
-            "signature payload has an empty integrity tag",
+            "archive authentication tag does not match supplied signing key",
         ));
     }
     Ok(())
 }
 
-fn hash_bytes(value: &[u8]) -> String {
-    let mut hash = 0xcbf29ce484222325u64;
-    for byte in value {
-        hash ^= u64::from(*byte);
-        hash = hash.wrapping_mul(0x100000001b3);
+fn verify_archive_attestation(
+    package: &str,
+    version: &str,
+    archive_bytes: &[u8],
+    signature_payload: &str,
+    signing_key: &str,
+) -> Result<(), Diagnostic> {
+    if signing_key.trim().is_empty() {
+        return Err(Diagnostic::new(
+            "registry",
+            "--signing-key must not be empty when verifying registry archive authentication",
+        ));
     }
-    format!("{hash:016x}")
+    verify_archive_integrity(
+        package,
+        version,
+        archive_bytes,
+        signature_payload,
+        signing_key,
+    )
+}
+
+fn hash_bytes(value: &[u8]) -> String {
+    hex_bytes(&sha256(value))
+}
+
+fn hmac_sha256_hex(key: &[u8], message: &[u8]) -> String {
+    let mut normalized_key = [0u8; SHA256_BLOCK_LEN];
+    if key.len() > SHA256_BLOCK_LEN {
+        normalized_key[..32].copy_from_slice(&sha256(key));
+    } else {
+        normalized_key[..key.len()].copy_from_slice(key);
+    }
+
+    let mut outer_key_pad = [0x5cu8; SHA256_BLOCK_LEN];
+    let mut inner_key_pad = [0x36u8; SHA256_BLOCK_LEN];
+    for index in 0..SHA256_BLOCK_LEN {
+        outer_key_pad[index] ^= normalized_key[index];
+        inner_key_pad[index] ^= normalized_key[index];
+    }
+
+    let mut inner = Vec::with_capacity(SHA256_BLOCK_LEN + message.len());
+    inner.extend_from_slice(&inner_key_pad);
+    inner.extend_from_slice(message);
+    let inner_hash = sha256(&inner);
+
+    let mut outer = Vec::with_capacity(SHA256_BLOCK_LEN + inner_hash.len());
+    outer.extend_from_slice(&outer_key_pad);
+    outer.extend_from_slice(&inner_hash);
+    hex_bytes(&sha256(&outer))
+}
+
+fn constant_time_eq_hex(left: &str, right: &str) -> bool {
+    let left = left.as_bytes();
+    let right = right.as_bytes();
+    let mut diff = left.len() ^ right.len();
+    let max_len = left.len().max(right.len());
+    for index in 0..max_len {
+        let left_byte = left.get(index).copied().unwrap_or(0);
+        let right_byte = right.get(index).copied().unwrap_or(0);
+        diff |= usize::from(left_byte ^ right_byte);
+    }
+    diff == 0
+}
+
+fn hex_bytes(bytes: &[u8]) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut out = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        out.push(char::from(HEX[usize::from(byte >> 4)]));
+        out.push(char::from(HEX[usize::from(byte & 0x0f)]));
+    }
+    out
+}
+
+fn sha256(input: &[u8]) -> [u8; 32] {
+    const INITIAL: [u32; 8] = [
+        0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab,
+        0x5be0cd19,
+    ];
+    const K: [u32; 64] = [
+        0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4,
+        0xab1c5ed5, 0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe,
+        0x9bdc06a7, 0xc19bf174, 0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f,
+        0x4a7484aa, 0x5cb0a9dc, 0x76f988da, 0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7,
+        0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967, 0x27b70a85, 0x2e1b2138, 0x4d2c6dfc,
+        0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85, 0xa2bfe8a1, 0xa81a664b,
+        0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070, 0x19a4c116,
+        0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+        0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7,
+        0xc67178f2,
+    ];
+
+    let mut message = Vec::with_capacity(input.len() + 72);
+    message.extend_from_slice(input);
+    message.push(0x80);
+    while (message.len() % 64) != 56 {
+        message.push(0);
+    }
+    let bit_len = (input.len() as u64).wrapping_mul(8);
+    message.extend_from_slice(&bit_len.to_be_bytes());
+
+    let mut state = INITIAL;
+    for chunk in message.chunks_exact(64) {
+        let mut words = [0u32; 64];
+        for (index, word) in words.iter_mut().take(16).enumerate() {
+            let offset = index * 4;
+            *word = u32::from_be_bytes([
+                chunk[offset],
+                chunk[offset + 1],
+                chunk[offset + 2],
+                chunk[offset + 3],
+            ]);
+        }
+        for index in 16..64 {
+            let s0 = words[index - 15].rotate_right(7)
+                ^ words[index - 15].rotate_right(18)
+                ^ (words[index - 15] >> 3);
+            let s1 = words[index - 2].rotate_right(17)
+                ^ words[index - 2].rotate_right(19)
+                ^ (words[index - 2] >> 10);
+            words[index] = words[index - 16]
+                .wrapping_add(s0)
+                .wrapping_add(words[index - 7])
+                .wrapping_add(s1);
+        }
+
+        let mut a = state[0];
+        let mut b = state[1];
+        let mut c = state[2];
+        let mut d = state[3];
+        let mut e = state[4];
+        let mut f = state[5];
+        let mut g = state[6];
+        let mut h = state[7];
+
+        for index in 0..64 {
+            let s1 = e.rotate_right(6) ^ e.rotate_right(11) ^ e.rotate_right(25);
+            let ch = (e & f) ^ ((!e) & g);
+            let temp1 = h
+                .wrapping_add(s1)
+                .wrapping_add(ch)
+                .wrapping_add(K[index])
+                .wrapping_add(words[index]);
+            let s0 = a.rotate_right(2) ^ a.rotate_right(13) ^ a.rotate_right(22);
+            let maj = (a & b) ^ (a & c) ^ (b & c);
+            let temp2 = s0.wrapping_add(maj);
+
+            h = g;
+            g = f;
+            f = e;
+            e = d.wrapping_add(temp1);
+            d = c;
+            c = b;
+            b = a;
+            a = temp1.wrapping_add(temp2);
+        }
+
+        state[0] = state[0].wrapping_add(a);
+        state[1] = state[1].wrapping_add(b);
+        state[2] = state[2].wrapping_add(c);
+        state[3] = state[3].wrapping_add(d);
+        state[4] = state[4].wrapping_add(e);
+        state[5] = state[5].wrapping_add(f);
+        state[6] = state[6].wrapping_add(g);
+        state[7] = state[7].wrapping_add(h);
+    }
+
+    let mut output = [0u8; 32];
+    for (index, value) in state.iter().enumerate() {
+        output[index * 4..index * 4 + 4].copy_from_slice(&value.to_be_bytes());
+    }
+    output
 }
 
 pub fn build_registry_index(
     packages_root: &Path,
     base_url: &str,
+    signing_key: &str,
 ) -> Result<RegistryIndex, Diagnostic> {
+    if signing_key.trim().is_empty() {
+        return Err(Diagnostic::new(
+            "registry",
+            "--signing-key must not be empty when building a registry index",
+        ));
+    }
     let base_url = normalize_base_url(base_url, packages_root)?;
     let mut packages = BTreeMap::new();
     for package_dir in read_sorted_dirs(packages_root)? {
         let package_name = file_name(&package_dir)?;
         let mut releases = Vec::new();
         for version_dir in read_sorted_dirs(&package_dir)? {
-            let release = load_release(&package_name, &version_dir, &base_url)?;
+            let release = load_release(&package_name, &version_dir, &base_url, signing_key)?;
             releases.push(release);
         }
         if !releases.is_empty() {
@@ -583,8 +721,12 @@ pub fn build_registry_index(
     })
 }
 
-pub fn render_registry_index(packages_root: &Path, base_url: &str) -> Result<String, Diagnostic> {
-    let index = build_registry_index(packages_root, base_url)?;
+pub fn render_registry_index(
+    packages_root: &Path,
+    base_url: &str,
+    signing_key: &str,
+) -> Result<String, Diagnostic> {
+    let index = build_registry_index(packages_root, base_url, signing_key)?;
     serde_json::to_string_pretty(&index).map_err(|err| {
         Diagnostic::new(
             "registry",
@@ -627,7 +769,7 @@ pub fn serve_registry(
         .base_url
         .clone()
         .unwrap_or_else(|| format!("http://{addr}"));
-    build_registry_index(packages_root, &base_url)?;
+    build_registry_index(packages_root, &base_url, &options.signing_key)?;
 
     eprintln!(
         "serving registry {} at {}",
@@ -643,7 +785,7 @@ pub fn serve_registry(
                 format!("failed to accept registry request: {err}"),
             )
         })?;
-        serve_registry_stream(packages_root, &base_url, &mut stream)?;
+        serve_registry_stream(packages_root, &base_url, &options.signing_key, &mut stream)?;
         requests += 1;
         if options.once {
             break;
@@ -660,6 +802,7 @@ pub fn serve_registry(
 fn serve_registry_stream(
     packages_root: &Path,
     base_url: &str,
+    signing_key: &str,
     stream: &mut TcpStream,
 ) -> Result<(), Diagnostic> {
     let mut buffer = [0u8; 16 * 1024];
@@ -670,13 +813,14 @@ fn serve_registry_stream(
         )
     })?;
     let request = String::from_utf8_lossy(&buffer[..len]);
-    let response = registry_http_response(packages_root, base_url, &request)?;
+    let response = registry_http_response(packages_root, base_url, signing_key, &request)?;
     write_registry_http_response(stream, &response)
 }
 
 fn registry_http_response(
     packages_root: &Path,
     base_url: &str,
+    signing_key: &str,
     request: &str,
 ) -> Result<RegistryHttpResponse, Diagnostic> {
     let Some(request_line) = request.lines().next() else {
@@ -705,14 +849,14 @@ fn registry_http_response(
 
     let target = target.split('?').next().unwrap_or(target);
     let mut response = if target == "/" || target == "/index.json" {
-        let index = render_registry_index(packages_root, base_url)?;
+        let index = render_registry_index(packages_root, base_url, signing_key)?;
         RegistryHttpResponse {
             status: "200 OK",
             content_type: "application/json",
             body: index.into_bytes(),
         }
     } else {
-        registry_release_file_response(packages_root, base_url, target)?
+        registry_release_file_response(packages_root, base_url, signing_key, target)?
     };
     if method == "HEAD" {
         response.body.clear();
@@ -723,6 +867,7 @@ fn registry_http_response(
 fn registry_release_file_response(
     packages_root: &Path,
     base_url: &str,
+    signing_key: &str,
     target: &str,
 ) -> Result<RegistryHttpResponse, Diagnostic> {
     let Some(relative) = target.strip_prefix('/') else {
@@ -762,7 +907,7 @@ fn registry_release_file_response(
             ));
         }
     };
-    let index = build_registry_index(packages_root, base_url)?;
+    let index = build_registry_index(packages_root, base_url, signing_key)?;
     let Some(release) = index
         .packages
         .get(&package)
@@ -899,7 +1044,7 @@ pub fn validate_registry_index(
 }
 
 /// Verify local release archives listed by a registry index against their
-/// `axiom-integrity-v1` sidecars using the supplied stage1 integrity key.
+/// `axiom-hmac-sha256-v1` sidecars using the supplied stage1 authentication key.
 pub fn verify_registry_index_integrity(
     index: &RegistryIndex,
     packages_root: &Path,
@@ -980,6 +1125,7 @@ fn load_release(
     package_name: &str,
     version_dir: &Path,
     base_url: &str,
+    signing_key: &str,
 ) -> Result<RegistryRelease, Diagnostic> {
     let version = file_name(version_dir)?;
     let manifest = load_manifest(version_dir)?;
@@ -1075,7 +1221,13 @@ fn load_release(
             )
             .with_path(signature_path.display().to_string())
         })?;
-        verify_archive_attestation(package_name, &version, &archive_bytes, &signature_payload)?;
+        verify_archive_attestation(
+            package_name,
+            &version,
+            &archive_bytes,
+            &signature_payload,
+            signing_key,
+        )?;
     }
     Ok(RegistryRelease {
         version: package.version.clone(),
@@ -1218,6 +1370,23 @@ mod tests {
     use std::fs;
     use tempfile::tempdir;
 
+    #[test]
+    fn sha256_matches_known_test_vector() {
+        assert_eq!(
+            hash_bytes(b"abc"),
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        );
+    }
+
+    #[test]
+    fn hmac_sha256_matches_rfc4231_test_vector() {
+        let key = [0x0bu8; 20];
+        assert_eq!(
+            hmac_sha256_hex(&key, b"Hi There"),
+            "b0344c61d8db38535ca8afceaf0bf12b881dc200c9833da726e9376c2e32cff7"
+        );
+    }
+
     fn write_release(root: &Path, package: &str, version: &str, manifest: &str) -> PathBuf {
         let dir = root.join(package).join(version);
         fs::create_dir_all(&dir).expect("create release dir");
@@ -1270,13 +1439,13 @@ mod tests {
         assert!(archive.contains("--- file src/main.ax"));
         let signature =
             fs::read_to_string(release.join("package.axp.sig")).expect("read signature");
-        assert!(signature.contains("axiom-integrity-v1"));
+        assert!(signature.contains(ARCHIVE_AUTH_HEADER));
         assert!(signature.contains(&format!("archive_hash={}", output.archive_hash)));
         let archive_bytes = fs::read(release.join("package.axp")).expect("read archive bytes");
         verify_archive_integrity("core", "1.0.0", &archive_bytes, &signature, "test-key")
-            .expect("integrity tag verifies under publishing key");
+            .expect("archive authentication verifies under publishing key");
 
-        let index = build_registry_index(&registry, "https://packages.example.test")
+        let index = build_registry_index(&registry, "https://packages.example.test", "test-key")
             .expect("build registry index");
         let release = &index.packages["core"][0];
         assert_eq!(
@@ -1319,6 +1488,17 @@ mod tests {
         assert_eq!(error.kind, "publish");
         assert!(error.message.contains("--signing-key"));
         assert!(!registry.exists(), "registry tree must not be created");
+    }
+
+    #[test]
+    fn registry_index_requires_nonempty_signing_key() {
+        let dir = tempdir().expect("tempdir");
+
+        let error = build_registry_index(dir.path(), "https://packages.example.test", "   ")
+            .expect_err("empty signing key should fail");
+
+        assert_eq!(error.kind, "registry");
+        assert!(error.message.contains("--signing-key"));
     }
 
     #[test]
@@ -1367,7 +1547,7 @@ mod tests {
             },
         )
         .expect("publish package");
-        let index = build_registry_index(&registry, "https://packages.example.test")
+        let index = build_registry_index(&registry, "https://packages.example.test", "test-key")
             .expect("build registry index");
 
         verify_registry_index_integrity(&index, &registry, "test-key")
@@ -1388,7 +1568,7 @@ mod tests {
             },
         )
         .expect("publish package");
-        let index = build_registry_index(&registry, "https://packages.example.test")
+        let index = build_registry_index(&registry, "https://packages.example.test", "test-key")
             .expect("build registry index");
         fs::write(
             registry.join("core").join("1.0.0").join("package.axp"),
@@ -1557,14 +1737,7 @@ mod tests {
         let archive_hash = hash_bytes(b"archive");
         fs::write(
             release.join("package.axp.sig"),
-            format!(
-                "axiom-integrity-v1
-package=core
-version=1.2.3
-archive_hash={archive_hash}
-integrity=ignored
-",
-            ),
+            render_archive_signature("core", "1.2.3", &archive_hash, "test-key"),
         )
         .expect("write signature");
         fs::write(
@@ -1573,8 +1746,12 @@ integrity=ignored
         )
         .expect("write metadata");
 
-        let index = build_registry_index(dir.path(), "https://packages.example.test/registry/")
-            .expect("build index");
+        let index = build_registry_index(
+            dir.path(),
+            "https://packages.example.test/registry/",
+            "test-key",
+        )
+        .expect("build index");
         let release = &index.packages["core"][0];
         assert_eq!(
             release.source,
@@ -1617,7 +1794,7 @@ integrity=ignored
             "[package]\nname = \"core\"\nversion = \"1.0.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n",
         );
         fs::write(release.join("package.axp"), "archive").expect("write archive");
-        let error = build_registry_index(dir.path(), "https://packages.example.test")
+        let error = build_registry_index(dir.path(), "https://packages.example.test", "test-key")
             .expect_err("unsigned archive should fail");
         assert_eq!(error.kind, "registry");
         assert!(error.message.contains("archive"));
@@ -1636,14 +1813,44 @@ integrity=ignored
         fs::write(release.join("package.axp"), "archive").expect("write archive");
         fs::write(
             release.join("package.axp.sig"),
-            "axiom-integrity-v1\npackage=core\nversion=1.0.0\narchive_hash=deadbeef\nintegrity=ignored\n",
+            "axiom-hmac-sha256-v1\npackage=core\nversion=1.0.0\narchive_hash=deadbeef\nhmac_sha256=ignored\n",
         )
         .expect("write signature");
 
-        let error = build_registry_index(dir.path(), "https://packages.example.test")
+        let error = build_registry_index(dir.path(), "https://packages.example.test", "test-key")
             .expect_err("mismatched archive hash should fail");
         assert_eq!(error.kind, "registry");
         assert!(error.message.contains("archive hash mismatch"));
+    }
+
+    #[test]
+    fn rejects_archive_authentication_payload_with_forged_hmac() {
+        let dir = tempdir().expect("tempdir");
+        let release = write_release(
+            dir.path(),
+            "core",
+            "1.0.0",
+            "[package]\nname = \"core\"\nversion = \"1.0.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n",
+        );
+        fs::write(release.join("package.axp"), "archive").expect("write archive");
+        let archive_hash = hash_bytes(b"archive");
+        fs::write(
+            release.join("package.axp.sig"),
+            format!(
+                "{ARCHIVE_AUTH_HEADER}\npackage=core\nversion=1.0.0\narchive_hash={archive_hash}\nhmac_sha256=0000000000000000000000000000000000000000000000000000000000000000\n",
+            ),
+        )
+        .expect("write signature");
+
+        let error = build_registry_index(dir.path(), "https://packages.example.test", "test-key")
+            .expect_err("forged HMAC should fail");
+
+        assert_eq!(error.kind, "registry");
+        assert!(
+            error
+                .message
+                .contains("authentication tag does not match supplied signing key")
+        );
     }
 
     #[test]
@@ -1660,15 +1867,15 @@ integrity=ignored
         fs::write(
             release.join("package.axp.sig"),
             format!(
-                "axiom-integrity-v1\npackage=core\nversion=1.0.0\narchive_hash={archive_hash}\n",
+                "{ARCHIVE_AUTH_HEADER}\npackage=core\nversion=1.0.0\narchive_hash={archive_hash}\n",
             ),
         )
         .expect("write signature");
 
-        let error = build_registry_index(dir.path(), "https://packages.example.test")
-            .expect_err("missing integrity field should fail");
+        let error = build_registry_index(dir.path(), "https://packages.example.test", "test-key")
+            .expect_err("missing hmac field should fail");
         assert_eq!(error.kind, "registry");
-        assert!(error.message.contains("missing integrity tag"));
+        assert!(error.message.contains("missing hmac_sha256"));
     }
 
     #[test]
@@ -1685,12 +1892,12 @@ integrity=ignored
         fs::write(
             release.join("package.axp.sig"),
             format!(
-                "axiom-integrity-v1\npackage=core\nversion=1.0.0\narchive_hash={archive_hash}\nintegrity=ignored\nunknown=field\n",
+                "{ARCHIVE_AUTH_HEADER}\npackage=core\nversion=1.0.0\narchive_hash={archive_hash}\nhmac_sha256=ignored\nunknown=field\n",
             ),
         )
         .expect("write signature");
 
-        let error = build_registry_index(dir.path(), "https://packages.example.test")
+        let error = build_registry_index(dir.path(), "https://packages.example.test", "test-key")
             .expect_err("unexpected field should fail");
         assert_eq!(error.kind, "registry");
         assert!(error.message.contains("unexpected field unknown"));
@@ -1711,7 +1918,7 @@ integrity=ignored
         )
         .expect("write metadata");
 
-        let error = build_registry_index(dir.path(), "https://packages.example.test")
+        let error = build_registry_index(dir.path(), "https://packages.example.test", "test-key")
             .expect_err("yank_reason without yanked should fail");
         assert_eq!(error.kind, "registry");
         assert!(error.message.contains("yank_reason but is not yanked"));
@@ -1761,6 +1968,7 @@ integrity=ignored
         let index = registry_http_response(
             &registry,
             "http://registry.test",
+            "dev-key",
             "GET /index.json HTTP/1.1\r\nHost: registry.test\r\n\r\n",
         )
         .expect("index response");
@@ -1775,6 +1983,7 @@ integrity=ignored
         let archive = registry_http_response(
             &registry,
             "http://registry.test",
+            "dev-key",
             "GET /core/1.0.0/package.axp HTTP/1.1\r\nHost: registry.test\r\n\r\n",
         )
         .expect("archive response");
@@ -1801,6 +2010,7 @@ integrity=ignored
         let traversal = registry_http_response(
             &registry,
             "http://registry.test",
+            "dev-key",
             "GET /core/../package.axp HTTP/1.1\r\nHost: registry.test\r\n\r\n",
         )
         .expect("traversal response");
@@ -1810,6 +2020,7 @@ integrity=ignored
         let metadata = registry_http_response(
             &registry,
             "http://registry.test",
+            "dev-key",
             "GET /core/1.0.0/axiom-registry.toml HTTP/1.1\r\nHost: registry.test\r\n\r\n",
         )
         .expect("metadata response");
