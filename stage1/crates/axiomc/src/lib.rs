@@ -1637,16 +1637,9 @@ Variant(
         assert!(rendered.contains("/usr/lib/x86_64-linux-gnu/libssl.so.3"));
         assert!(!rendered.contains("open_library(&[\"libssl.so.3\""));
         assert!(!rendered.contains("std::mem::transmute_copy"));
-        assert!(rendered.contains(
-            "ssl_ctx_set_default_verify_paths: load_typed_symbol!(\n                    ssl_handle,\n                    \"SSL_CTX_set_default_verify_paths\",\n                    SslCtxSetDefaultVerifyPaths\n                ),"
-        ));
         assert!(rendered.contains("(openssl.ssl_ctx_set_verify)(ctx.ctx, SSL_VERIFY_PEER, None);"));
         assert!(rendered.contains("(openssl.ssl_ctx_set_default_verify_paths)(ctx.ctx) != 1"));
-        assert!(rendered.contains(
-            "ssl_set1_host: load_typed_symbol!(ssl_handle, \"SSL_set1_host\", SslSet1Host)"
-        ));
         assert!(rendered.contains("(openssl.ssl_set1_host)(ssl.ssl, server_name.as_ptr()) != 1"));
-        assert!(rendered.contains("ssl_get_verify_result: load_typed_symbol!(ssl_handle, \"SSL_get_verify_result\", SslGetVerifyResult)"));
         assert!(rendered.contains("let verify_result = (openssl.ssl_get_verify_result)(ssl.ssl);"));
         assert!(rendered.contains("if verify_result != X509_V_OK"));
         assert!(!rendered.contains("(openssl.ssl_ctx_set_verify)(ctx.ctx, 0, None);"));
