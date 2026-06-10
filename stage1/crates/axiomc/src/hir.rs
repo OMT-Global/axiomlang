@@ -13890,6 +13890,7 @@ fn validate_net_port_allowlist_hir(
 ) -> Result<(), Diagnostic> {
     if capabilities.net_ports.is_empty() {
         return match port {
+            _ if allow_dynamic_port => Ok(()),
             Expr::Literal {
                 value: LiteralValue::Int(value),
                 ..
