@@ -5209,6 +5209,43 @@ net = true
     }
 
     #[test]
+    fn check_project_rejects_dynamic_network_port_with_unrestricted_net() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("net-dynamic-port-unrestricted-denied");
+        create_project(&project, Some("net-dynamic-port-unrestricted-denied-app"))
+            .expect("create project");
+        fs::write(
+            project.join("axiom.toml"),
+            r#"[package]
+name = "net-dynamic-port-unrestricted-denied-app"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+net = true
+"#,
+        )
+        .expect("write manifest");
+        fs::write(
+            project.join("src/main.ax"),
+            "let port: int = 8080\nprint net_tcp_dial(\"example.com\", port, \"ping\", 1000)\n",
+        )
+        .expect("write source");
+
+        let error = check_project(&project).expect_err("dynamic unrestricted port should fail");
+        assert_eq!(error.kind, "capability");
+        assert!(
+            error.message.contains(
+                "requires an integer literal when [capabilities].net ports are unrestricted"
+            ),
+            "unexpected diagnostic: {error:?}",
+        );
+    }
+
+    #[test]
     fn check_project_rejects_dynamic_stdlib_network_host_with_unrestricted_net() {
         let dir = tempdir().expect("tempdir");
         let project = dir
@@ -5245,6 +5282,48 @@ net = true
         assert!(
             error.message.contains(
                 "requires a string literal when [capabilities].net hosts are unrestricted"
+            ),
+            "unexpected diagnostic: {error:?}",
+        );
+    }
+
+    #[test]
+    fn check_project_rejects_dynamic_stdlib_network_port_with_unrestricted_net() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir
+            .path()
+            .join("stdlib-net-dynamic-port-unrestricted-denied");
+        create_project(
+            &project,
+            Some("stdlib-net-dynamic-port-unrestricted-denied-app"),
+        )
+        .expect("create project");
+        fs::write(
+            project.join("axiom.toml"),
+            r#"[package]
+name = "stdlib-net-dynamic-port-unrestricted-denied-app"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+net = true
+"#,
+        )
+        .expect("write manifest");
+        fs::write(
+            project.join("src/main.ax"),
+            "import \"std/net.ax\"\nlet port: int = 8080\nmatch tcp_dial(\"localhost\", port, \"ping\", 1000) {\nSome(_body) {\nprint true\n}\nNone {\nprint false\n}\n}\n",
+        )
+        .expect("write source");
+
+        let error = check_project(&project).expect_err("dynamic stdlib port should fail");
+        assert_eq!(error.kind, "capability");
+        assert!(
+            error.message.contains(
+                "requires an integer literal when [capabilities].net ports are unrestricted"
             ),
             "unexpected diagnostic: {error:?}",
         );
@@ -6539,7 +6618,7 @@ print "missing"
             render_lockfile_for_project(&project, &manifest).expect("lockfile"),
         )
         .expect("write lockfile");
-        let source = "import \"std/net.ax\"\nmatch resolve(\"localhost\") {\nSome(_address) {\nprint true\n}\nNone {\nprint false\n}\n}\nmatch tcp_listen_loopback_once(\"tcp pong\", 1000) {\nSome(port) {\nmatch tcp_dial(\"127.0.0.1\", port, \"tcp ping\", 1000) {\nSome(reply) {\nprint reply\n}\nNone {\nprint \"tcp none\"\n}\n}\n}\nNone {\nprint \"tcp listen none\"\n}\n}\nmatch udp_bind_loopback_once(\"udp pong\", 1000) {\nSome(port) {\nmatch udp_send_recv(\"127.0.0.1\", port, \"udp ping\", 1000) {\nSome(reply) {\nprint reply\n}\nNone {\nprint \"udp none\"\n}\n}\n}\nNone {\nprint \"udp bind none\"\n}\n}\n";
+        let source = "import \"std/net.ax\"\nmatch resolve(\"localhost\") {\nSome(_address) {\nprint true\n}\nNone {\nprint false\n}\n}\nmatch tcp_listen_loopback_once(\"tcp pong\", 1000) {\nSome(_port) {\nprint \"tcp listen ok\"\n}\nNone {\nprint \"tcp listen none\"\n}\n}\nmatch udp_bind_loopback_once(\"udp pong\", 1000) {\nSome(_port) {\nprint \"udp bind ok\"\n}\nNone {\nprint \"udp bind none\"\n}\n}\n";
         fs::write(project.join("src/main.ax"), source).expect("write source");
 
         let built = build_project(&project).expect("build project");
@@ -6547,7 +6626,7 @@ print "missing"
             .output()
             .expect("run compiled binary");
         let expected = if loopback_socket_bind_available() {
-            "false\ntcp pong\nudp pong\n"
+            "false\ntcp listen ok\nudp bind ok\n"
         } else {
             "false\ntcp listen none\nudp bind none\n"
         };

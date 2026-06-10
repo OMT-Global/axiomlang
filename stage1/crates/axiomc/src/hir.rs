@@ -13889,7 +13889,28 @@ fn validate_net_port_allowlist_hir(
     allow_dynamic_port: bool,
 ) -> Result<(), Diagnostic> {
     if capabilities.net_ports.is_empty() {
-        return Ok(());
+        return match port {
+            Expr::Literal {
+                value: LiteralValue::Int(value),
+                ..
+            } if u16::try_from(*value).is_ok() => Ok(()),
+            Expr::Literal {
+                value: LiteralValue::Int(value),
+                ..
+            } => Err(Diagnostic::new(
+                "capability",
+                format!("call to {intrinsic_name:?} requires a valid u16 port, got {value}"),
+            )
+            .with_span(line, column)),
+            _ if allow_dynamic_port => Ok(()),
+            _ => Err(Diagnostic::new(
+                "capability",
+                format!(
+                    "call to {intrinsic_name:?} requires an integer literal when [capabilities].net ports are unrestricted"
+                ),
+            )
+            .with_span(line, column)),
+        };
     }
     match port {
         Expr::Literal {
