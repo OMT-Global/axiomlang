@@ -11,7 +11,6 @@ use std::io::Read;
 use std::path::{Component, Path, PathBuf};
 use std::process::Command;
 
-const SPIKE_PACKAGE_ROOT_BINDING: &str = "$axiom_package_root";
 const SPIKE_FS_ROOT_BINDING: &str = "$axiom_fs_root";
 const SPIKE_MAX_FS_READ_BYTES: u64 = 64 * 1024 * 1024;
 const SPIKE_MAX_FS_WRITE_BYTES: usize = 64 * 1024 * 1024;
@@ -95,7 +94,7 @@ pub fn compile_cranelift_hello_spike(
 
 fn collect_output_lines(
     program: &Program,
-    package_root: &Path,
+    _package_root: &Path,
     fs_root: &Path,
 ) -> Result<Vec<OutputLine>, Diagnostic> {
     let functions = program
@@ -104,10 +103,6 @@ fn collect_output_lines(
         .map(|function| (function.name.as_str(), function))
         .collect::<HashMap<_, _>>();
     let mut env = SpikeEnv::new();
-    env.insert(
-        SPIKE_PACKAGE_ROOT_BINDING.to_string(),
-        SpikeValue::Text(package_root.display().to_string()),
-    );
     env.insert(
         SPIKE_FS_ROOT_BINDING.to_string(),
         SpikeValue::Text(fs_root.display().to_string()),
@@ -1292,13 +1287,6 @@ fn eval_fs_path_content(
     Ok((path, content))
 }
 
-fn spike_package_root(env: &SpikeEnv) -> Result<PathBuf, Diagnostic> {
-    match env.get(SPIKE_PACKAGE_ROOT_BINDING) {
-        Some(SpikeValue::Text(root)) => Ok(PathBuf::from(root)),
-        _ => Err(unsupported("cranelift spike package root is unavailable")),
-    }
-}
-
 fn spike_fs_root(env: &SpikeEnv) -> Result<PathBuf, Diagnostic> {
     match env.get(SPIKE_FS_ROOT_BINDING) {
         Some(SpikeValue::Text(root)) => Ok(PathBuf::from(root)),
@@ -1309,9 +1297,8 @@ fn spike_fs_root(env: &SpikeEnv) -> Result<PathBuf, Diagnostic> {
 }
 
 fn spike_fs_existing_candidate(env: &SpikeEnv, path: &str) -> Result<Option<PathBuf>, Diagnostic> {
-    let package_root = spike_package_root(env)?;
     let fs_root = spike_fs_root(env)?;
-    let Some(candidate) = spike_fs_join_candidate(&package_root, path) else {
+    let Some(candidate) = spike_fs_join_candidate(&fs_root, path) else {
         return Ok(None);
     };
     let Ok(canonical_root) = std::fs::canonicalize(fs_root) else {
@@ -1330,9 +1317,8 @@ fn spike_fs_write_candidate(
     path: &str,
     allow_missing_ancestors: bool,
 ) -> Result<Option<PathBuf>, Diagnostic> {
-    let package_root = spike_package_root(env)?;
     let fs_root = spike_fs_root(env)?;
-    let Some(candidate) = spike_fs_join_candidate(&package_root, path) else {
+    let Some(candidate) = spike_fs_join_candidate(&fs_root, path) else {
         return Ok(None);
     };
     let Ok(canonical_root) = std::fs::canonicalize(&fs_root) else {

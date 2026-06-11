@@ -575,7 +575,7 @@ fn cranelift_backend_honors_fs_root_for_fs_write_binary() {
     );
     assert_eq!(
         fs::read_to_string(project.join("src/main.ax")).expect("read source"),
-        fs_root_source()
+        fs_root_source(&project)
     );
 }
 
@@ -2390,11 +2390,15 @@ fn write_fs_root_project(project: &Path) {
         "version = 1\n\n[[package]]\nname = \"cranelift-fs-root\"\nversion = \"0.1.0\"\nsource = \"path\"\n",
     )
     .expect("write fs-root lockfile");
-    fs::write(project.join("src/main.ax"), fs_root_source()).expect("write fs-root source");
+    fs::write(project.join("src/main.ax"), fs_root_source(project)).expect("write fs-root source");
 }
 
-fn fs_root_source() -> &'static str {
-    "import \"std/fs.ax\"\nprint mkdir_all(\"sandbox/nested\")\nprint write_file(\"sandbox/nested/data.txt\", \"ok\")\nprint write_file(\"src/main.ax\", \"corrupt\")\nmatch read_file(\"axiom.toml\") {\nSome(_value) {\nprint \"leak\"\n}\nNone {\nprint \"missing\"\n}\n}\nmatch read_file(\"sandbox/nested/data.txt\") {\nSome(value) {\nprint value\n}\nNone {\nprint \"missing allowed\"\n}\n}\n"
+fn fs_root_source(project: &Path) -> String {
+    let source = project.join("src/main.ax").display().to_string();
+    let manifest = project.join("axiom.toml").display().to_string();
+    format!(
+        "import \"std/fs.ax\"\nprint mkdir_all(\"nested\")\nprint write_file(\"nested/data.txt\", \"ok\")\nprint write_file({source:?}, \"corrupt\")\nmatch read_file({manifest:?}) {{\nSome(_value) {{\nprint \"leak\"\n}}\nNone {{\nprint \"missing\"\n}}\n}}\nmatch read_file(\"nested/data.txt\") {{\nSome(value) {{\nprint value\n}}\nNone {{\nprint \"missing allowed\"\n}}\n}}\n"
+    )
 }
 
 fn write_fs_write_denial_project(project: &Path) {
