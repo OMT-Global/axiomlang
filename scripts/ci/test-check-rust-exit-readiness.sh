@@ -40,7 +40,7 @@ assert payload["ready"] is False
 statuses = {check["name"]: check["status"] for check in payload["checks"]}
 assert statuses["readiness_doc_present"] == "pass"
 assert statuses["readiness_manifest_valid"] == "pass"
-assert statuses["readiness_matrix_unblocked"] == "fail"
+assert statuses["readiness_blockers_closed"] == "fail"
 PY
 )
 
@@ -69,7 +69,7 @@ with open(sys.argv[1], encoding="utf-8") as handle:
 
 assert payload["ready"] is True
 statuses = {check["name"]: check["status"] for check in payload["checks"]}
-assert statuses["readiness_matrix_unblocked"] == "pass"
+assert statuses["readiness_blockers_closed"] == "pass"
 assert statuses["rust_exit_issue_927_closed"] == "pass"
 assert statuses["rust_exit_issue_564_closed"] == "pass"
 PY

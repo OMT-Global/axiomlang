@@ -125,11 +125,11 @@ else
 fi
 
 if [[ ! -f docs/rust-exit-readiness.json ]]; then
-  add_check "readiness_matrix_unblocked" "fail" "Rust exit readiness manifest is unavailable"
+  add_check "readiness_blockers_closed" "fail" "Rust exit readiness manifest is unavailable"
 elif all_blocking_issues_closed; then
-  add_check "readiness_matrix_unblocked" "pass" "All blocking issues listed in docs/rust-exit-readiness.json are CLOSED"
+  add_check "readiness_blockers_closed" "pass" "All blocking issues listed in docs/rust-exit-readiness.json are CLOSED"
 else
-  add_check "readiness_matrix_unblocked" "fail" "One or more blocking issues listed in docs/rust-exit-readiness.json are not CLOSED"
+  add_check "readiness_blockers_closed" "fail" "One or more blocking issues listed in docs/rust-exit-readiness.json are not CLOSED"
 fi
 
 if [[ -f docs/rust-exit-readiness.json ]]; then
