@@ -9916,7 +9916,12 @@ return route_response("/health", selected_response)
 
 pub fn serve_health(started: bool): bool {{
 let selected_route: HttpRoute = health_route(started)
-return serve("127.0.0.1:{port}", selected_route, 1)
+return serve("127.0.0.1:18080", selected_route, 1)
+}}
+
+pub fn serve_health_for_test(bind: string, max_requests: int, started: bool): bool {{
+let selected_route: HttpRoute = health_route(started)
+return serve(bind, selected_route, max_requests)
 }}
 "#
             ),
@@ -9990,7 +9995,7 @@ print serve_health(started)
 import "server.ax"
 
 let started: bool = now_ms() > 0
-print serve_health("127.0.0.1:18080", 1, started)
+print serve_health_for_test("127.0.0.1:18080", 1, started)
 "#,
         )
         .expect("write denied service entrypoint");

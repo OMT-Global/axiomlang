@@ -6,7 +6,7 @@ let started: bool = now_ms() > 0
 
 match get_env("AXIOM_TEST_BIND") {
 Some(bind) {
-print serve_health(bind, 1, started)
+print serve_health_for_test(bind, 1, started)
 }
 None {
 print false
