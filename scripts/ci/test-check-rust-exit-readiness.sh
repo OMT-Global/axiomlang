@@ -11,6 +11,10 @@ mkdir -p "$case_dir/docs" "$case_dir/scripts/ci"
 cp "$script" "$case_dir/scripts/ci/check-rust-exit-readiness.sh"
 cp "$repo_root/docs/rust-exit-readiness.md" "$case_dir/docs/rust-exit-readiness.md"
 cp "$repo_root/docs/rust-exit-readiness.json" "$case_dir/docs/rust-exit-readiness.json"
+if ! grep -q '`blocked`' "$case_dir/docs/rust-exit-readiness.md"; then
+  echo "expected copied readiness doc to preserve descriptive blocked rows" >&2
+  exit 1
+fi
 cat >"$case_dir/Makefile" <<'MAKE'
 rust-exit-readiness:
 	bash scripts/ci/check-rust-exit-readiness.sh --json
@@ -82,6 +86,7 @@ with open(sys.argv[1], encoding="utf-8") as handle:
 
 assert payload["ready"] is True
 statuses = {check["name"]: check["status"] for check in payload["checks"]}
+assert "readiness_matrix_unblocked" not in statuses
 assert statuses["rust_exit_issue_927_closed"] == "pass"
 assert statuses["rust_exit_issue_564_closed"] == "pass"
 PY
