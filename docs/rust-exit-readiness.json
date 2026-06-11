@@ -38,11 +38,6 @@
       "check": "A previously shipped axiomc snapshot can build the next axiomc without Cargo."
     },
     {
-      "issue": 932,
-      "lane": "bootstrap",
-      "check": "Cargo and Rust deletion readiness gate is satisfied."
-    },
-    {
       "issue": 562,
       "lane": "verification",
       "check": "Compiler-internal verification is expressed in AxiOM property form."
