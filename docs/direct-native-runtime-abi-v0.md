@@ -48,6 +48,9 @@ Every row has one of these statuses:
   Rust exit.
 
 Rows that are not `implemented` must name at least one blocker issue.
+Compiler-side Cranelift spike evaluation can be recorded as evidence on a
+blocked runtime-shim row, but it does not by itself reclassify that row as
+runtime support.
 
 ## Required Value Features
 
@@ -115,16 +118,16 @@ now has denial evidence: a package that calls `std/net.ax`
 `tcp_listen_loopback_once(...)` without the `net` capability must receive the
 public manifest-policy denial before any backend-specific lowering diagnostic.
 
-The filesystem write row now has partial compiler-side spike evidence: the
-Cranelift spike builds and runs `std/fs.ax` write helpers over
-package-root-scoped literal paths through compiler-side spike evaluation,
-covering `mkdir_all`, `write_file`, `append_file`, readback, `replace_file`,
-`create_file`, `remove_file`, and `remove_dir`. A package with `fs = true` and
-`"fs:write" = false` that calls `std/fs.ax` `write_file(...)` must still
-receive the public manifest-policy denial before any backend-specific lowering
-diagnostic. Full runtime-time filesystem writes, atomic replace parity,
-manifest root configuration, TOCTOU hardening, and audit parity remain open
-under #928.
+The filesystem write row remains blocked for direct-native runtime support, but
+now has positive compiler-side spike evidence: the Cranelift spike evaluates
+`std/fs.ax` write helpers over package-root-scoped literal paths during
+compilation and emits the resulting output, covering `mkdir_all`, `write_file`,
+`append_file`, readback, `replace_file`, `create_file`, `remove_file`, and
+`remove_dir`. A package with `fs = true` and `"fs:write" = false` that calls
+`std/fs.ax` `write_file(...)` must still receive the public manifest-policy
+denial before any backend-specific lowering diagnostic. Full runtime-time
+filesystem writes, atomic replace parity, manifest root configuration, TOCTOU
+hardening, and audit parity remain open under #928.
 
 The DNS resolve row is still blocked for positive direct-native runtime
 execution, but now has denial evidence: a package that calls `std/net.ax`

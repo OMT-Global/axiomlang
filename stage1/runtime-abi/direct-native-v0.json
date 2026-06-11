@@ -93,12 +93,12 @@
     },
     {
       "id": "fs.write",
-      "status": "partial",
+      "status": "blocked",
       "capability": "fs:write",
       "blockers": [928],
       "evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"],
       "denial_evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"],
-      "notes": "The Cranelift spike can build and run std/fs.ax write helpers over package-root-scoped literal paths through compiler-side spike evaluation, including mkdir_all, write_file, append_file, readback, replace_file, create_file, remove_file, and remove_dir. Full runtime-time filesystem writes, atomic replace parity, manifest root configuration, TOCTOU hardening, and audit parity remain open."
+      "notes": "The runtime shim remains blocked. The Cranelift spike records positive compiler-side evidence for std/fs.ax write helpers over package-root-scoped literal paths, including mkdir_all, write_file, append_file, readback, replace_file, create_file, remove_file, and remove_dir. Full runtime-time filesystem writes, atomic replace parity, manifest root configuration, TOCTOU hardening, and audit parity remain open."
     },
     {
       "id": "network.dns.resolve",
@@ -146,12 +146,12 @@
     },
     {
       "id": "process.status",
-      "status": "partial",
+      "status": "blocked",
       "capability": "process",
       "evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"],
       "blockers": [928],
       "denial_evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"],
-      "notes": "The Cranelift spike can build and run std/process.ax run_status over literal, allowlisted deterministic commands through compiler-side spike evaluation, and rejects missing process capability before backend lowering. Full runtime-time process execution, argument handling, audit parity, and host-process policy coverage remain open."
+      "notes": "The runtime shim remains blocked. The Cranelift spike records positive compiler-side evidence for std/process.ax run_status over literal, allowlisted deterministic commands, and missing process capability is rejected before backend lowering. Full runtime-time process execution, argument handling, audit parity, and host-process policy coverage remain open."
     },
     {
       "id": "env.read",
