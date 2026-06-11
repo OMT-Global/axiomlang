@@ -530,6 +530,57 @@ fn cranelift_backend_builds_fs_write_binary() {
 
 #[cfg(not(windows))]
 #[test]
+fn cranelift_backend_honors_fs_root_for_fs_write_binary() {
+    if which::which("cc").is_err() {
+        eprintln!("skipping cranelift backend smoke test because cc is unavailable");
+        return;
+    }
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("fs-root");
+    write_fs_root_project(&project);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args([
+            "build",
+            project.to_str().expect("project path"),
+            "--backend",
+            "cranelift",
+            "--json",
+        ])
+        .output()
+        .expect("run axiomc build --backend cranelift");
+
+    assert!(
+        output.status.success(),
+        "cranelift fs-root build failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+    assert_eq!(payload["backend"], "cranelift");
+    let binary = payload["binary"].as_str().expect("binary path");
+    let run = Command::new(binary)
+        .output()
+        .expect("run cranelift fs-root binary");
+    assert!(
+        run.status.success(),
+        "cranelift fs-root binary failed: stderr={}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&run.stdout),
+        "0\n0\n-1\nmissing\nok\n"
+    );
+    assert_eq!(
+        fs::read_to_string(project.join("src/main.ax")).expect("read source"),
+        fs_root_source()
+    );
+}
+
+#[cfg(not(windows))]
+#[test]
 fn cranelift_backend_builds_borrowed_slice_binary() {
     if which::which("cc").is_err() {
         eprintln!("skipping cranelift backend smoke test because cc is unavailable");
@@ -2653,6 +2704,26 @@ fn write_fs_write_project(project: &Path) {
         "import \"std/fs.ax\"\nprint mkdir_all(\"scratch/nested\")\nprint write_file(\"scratch/nested/data.txt\", \"one\")\nprint append_file(\"scratch/nested/data.txt\", \"\\ntwo\")\nmatch read_file(\"scratch/nested/data.txt\") {\nSome(value) {\nprint value\n}\nNone {\nprint \"missing\"\n}\n}\nprint replace_file(\"scratch/nested/data.txt\", \"final\")\nmatch read_file(\"scratch/nested/data.txt\") {\nSome(value) {\nprint value\n}\nNone {\nprint \"missing\"\n}\n}\nprint create_file(\"scratch/empty.txt\")\nprint remove_file(\"scratch/empty.txt\")\nprint remove_file(\"scratch/nested/data.txt\")\nprint remove_dir(\"scratch/nested\")\nprint remove_dir(\"scratch\")\n",
     )
     .expect("write fs write source");
+}
+
+fn write_fs_root_project(project: &Path) {
+    fs::create_dir_all(project.join("src")).expect("create fs-root project src");
+    fs::create_dir_all(project.join("sandbox")).expect("create fs-root sandbox");
+    fs::write(
+        project.join("axiom.toml"),
+        "[package]\nname = \"cranelift-fs-root\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = true\n\"fs:write\" = true\nfs_root = \"sandbox\"\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n",
+    )
+    .expect("write fs-root manifest");
+    fs::write(
+        project.join("axiom.lock"),
+        "version = 1\n\n[[package]]\nname = \"cranelift-fs-root\"\nversion = \"0.1.0\"\nsource = \"path\"\n",
+    )
+    .expect("write fs-root lockfile");
+    fs::write(project.join("src/main.ax"), fs_root_source()).expect("write fs-root source");
+}
+
+fn fs_root_source() -> &'static str {
+    "import \"std/fs.ax\"\nprint mkdir_all(\"sandbox/nested\")\nprint write_file(\"sandbox/nested/data.txt\", \"ok\")\nprint write_file(\"src/main.ax\", \"corrupt\")\nmatch read_file(\"axiom.toml\") {\nSome(_value) {\nprint \"leak\"\n}\nNone {\nprint \"missing\"\n}\n}\nmatch read_file(\"sandbox/nested/data.txt\") {\nSome(value) {\nprint value\n}\nNone {\nprint \"missing allowed\"\n}\n}\n"
 }
 
 fn write_fs_write_denial_project(project: &Path) {

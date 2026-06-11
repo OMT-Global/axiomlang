@@ -2069,9 +2069,11 @@ fn build_artifacts(
                 &object_path,
                 "Cranelift object output",
             )?;
+            let fs_root = fs_root_path_for_package(package_root, &analyzed.manifest)?;
             compile_cranelift_hello_spike(
                 &analyzed.mir,
                 package_root,
+                &fs_root,
                 &object_path,
                 binary,
                 resolved_target,

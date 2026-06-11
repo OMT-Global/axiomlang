@@ -98,7 +98,7 @@
       "blockers": [928],
       "evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"],
       "denial_evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"],
-      "notes": "The runtime shim remains blocked. The Cranelift spike records positive compiler-side evidence for std/fs.ax write helpers over package-root-scoped literal paths, including mkdir_all, write_file, append_file, readback, replace_file, create_file, remove_file, and remove_dir. Full runtime-time filesystem writes, atomic replace parity, manifest root configuration, TOCTOU hardening, and audit parity remain open."
+      "notes": "The runtime shim remains blocked. The Cranelift spike records positive compiler-side evidence for std/fs.ax write helpers over configured fs_root-scoped literal paths, including mkdir_all, write_file, append_file, readback, replace_file, create_file, remove_file, and remove_dir. Full runtime-time filesystem writes, atomic replace parity, TOCTOU hardening, and audit parity remain open."
     },
     {
       "id": "network.dns.resolve",

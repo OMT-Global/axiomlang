@@ -12,6 +12,7 @@ use std::path::{Component, Path, PathBuf};
 use std::process::Command;
 
 const SPIKE_PACKAGE_ROOT_BINDING: &str = "$axiom_package_root";
+const SPIKE_FS_ROOT_BINDING: &str = "$axiom_fs_root";
 const SPIKE_MAX_FS_READ_BYTES: u64 = 64 * 1024 * 1024;
 const SPIKE_MAX_FS_WRITE_BYTES: usize = 64 * 1024 * 1024;
 
@@ -73,6 +74,7 @@ struct RegexProgram {
 pub fn compile_cranelift_hello_spike(
     program: &Program,
     package_root: &Path,
+    fs_root: &Path,
     object_path: &Path,
     binary_path: &Path,
     target: Option<&str>,
@@ -83,7 +85,7 @@ pub fn compile_cranelift_hello_spike(
             "the cranelift backend spike currently supports only the host target",
         ));
     }
-    let lines = collect_output_lines(program, package_root)?;
+    let lines = collect_output_lines(program, package_root, fs_root)?;
     axiomc_backend_cranelift::compile_output_lines(&lines, object_path, binary_path).map_err(
         |err| {
             Diagnostic::new("build", err.to_string()).with_path(object_path.display().to_string())
@@ -94,6 +96,7 @@ pub fn compile_cranelift_hello_spike(
 fn collect_output_lines(
     program: &Program,
     package_root: &Path,
+    fs_root: &Path,
 ) -> Result<Vec<OutputLine>, Diagnostic> {
     let functions = program
         .functions
@@ -104,6 +107,10 @@ fn collect_output_lines(
     env.insert(
         SPIKE_PACKAGE_ROOT_BINDING.to_string(),
         SpikeValue::Text(package_root.display().to_string()),
+    );
+    env.insert(
+        SPIKE_FS_ROOT_BINDING.to_string(),
+        SpikeValue::Text(fs_root.display().to_string()),
     );
     let mut lines = Vec::new();
     for static_def in &program.statics {
@@ -1292,12 +1299,22 @@ fn spike_package_root(env: &SpikeEnv) -> Result<PathBuf, Diagnostic> {
     }
 }
 
+fn spike_fs_root(env: &SpikeEnv) -> Result<PathBuf, Diagnostic> {
+    match env.get(SPIKE_FS_ROOT_BINDING) {
+        Some(SpikeValue::Text(root)) => Ok(PathBuf::from(root)),
+        _ => Err(unsupported(
+            "cranelift spike filesystem root is unavailable",
+        )),
+    }
+}
+
 fn spike_fs_existing_candidate(env: &SpikeEnv, path: &str) -> Result<Option<PathBuf>, Diagnostic> {
     let package_root = spike_package_root(env)?;
+    let fs_root = spike_fs_root(env)?;
     let Some(candidate) = spike_fs_join_candidate(&package_root, path) else {
         return Ok(None);
     };
-    let Ok(canonical_root) = std::fs::canonicalize(package_root) else {
+    let Ok(canonical_root) = std::fs::canonicalize(fs_root) else {
         return Ok(None);
     };
     let Ok(canonical_candidate) = std::fs::canonicalize(candidate) else {
@@ -1314,10 +1331,11 @@ fn spike_fs_write_candidate(
     allow_missing_ancestors: bool,
 ) -> Result<Option<PathBuf>, Diagnostic> {
     let package_root = spike_package_root(env)?;
+    let fs_root = spike_fs_root(env)?;
     let Some(candidate) = spike_fs_join_candidate(&package_root, path) else {
         return Ok(None);
     };
-    let Ok(canonical_root) = std::fs::canonicalize(&package_root) else {
+    let Ok(canonical_root) = std::fs::canonicalize(&fs_root) else {
         return Ok(None);
     };
     if let Ok(canonical_candidate) = std::fs::canonicalize(&candidate) {
@@ -2589,7 +2607,8 @@ mod tests {
     #[test]
     fn folds_hello_subset_into_print_lines() {
         assert_eq!(
-            collect_output_lines(&hello_program(), Path::new(".")).expect("fold hello"),
+            collect_output_lines(&hello_program(), Path::new("."), Path::new("."))
+                .expect("fold hello"),
             vec![
                 OutputLine::stdout("hello from stage1"),
                 OutputLine::stdout("42")
