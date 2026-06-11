@@ -5246,6 +5246,36 @@ net = true
     }
 
     #[test]
+    fn check_project_accepts_literal_network_port_with_unrestricted_net() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("net-literal-port-unrestricted-allowed");
+        create_project(&project, Some("net-literal-port-unrestricted-allowed-app"))
+            .expect("create project");
+        fs::write(
+            project.join("axiom.toml"),
+            r#"[package]
+name = "net-literal-port-unrestricted-allowed-app"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+net = true
+"#,
+        )
+        .expect("write manifest");
+        fs::write(
+            project.join("src/main.ax"),
+            "match net_tcp_dial(\"example.com\", 8080, \"ping\", 1000) {\nSome(_body) {\nprint true\n}\nNone {\nprint false\n}\n}\n",
+        )
+        .expect("write source");
+
+        check_project(&project).expect("literal unrestricted port should check");
+    }
+
+    #[test]
     fn check_project_rejects_dynamic_stdlib_peer_network_port_with_unrestricted_net() {
         let dir = tempdir().expect("tempdir");
         let project = dir
@@ -5285,6 +5315,41 @@ net = true
             ),
             "unexpected diagnostic: {error:?}",
         );
+    }
+
+    #[test]
+    fn check_project_accepts_literal_stdlib_network_port_with_unrestricted_net() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir
+            .path()
+            .join("stdlib-net-literal-port-unrestricted-allowed");
+        create_project(
+            &project,
+            Some("stdlib-net-literal-port-unrestricted-allowed-app"),
+        )
+        .expect("create project");
+        fs::write(
+            project.join("axiom.toml"),
+            r#"[package]
+name = "stdlib-net-literal-port-unrestricted-allowed-app"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+net = true
+"#,
+        )
+        .expect("write manifest");
+        fs::write(
+            project.join("src/main.ax"),
+            "import \"std/net.ax\"\nmatch tcp_dial(\"localhost\", 8080, \"ping\", 1000) {\nSome(_body) {\nprint true\n}\nNone {\nprint false\n}\n}\n",
+        )
+        .expect("write source");
+
+        check_project(&project).expect("literal stdlib unrestricted port should check");
     }
 
     #[test]
