@@ -9319,10 +9319,14 @@ print serve_once("127.0.0.1:18080", "hello")
         let dir = tempdir().expect("tempdir");
         let project = dir.path().join("service-runner");
         create_project(&project, Some("service-runner-app")).expect("create project");
+        let Some(port) = find_free_loopback_port() else {
+            return;
+        };
+        let bind = format!("127.0.0.1:{port}");
         fs::write(
             project.join("axiom.toml"),
             format!(
-                "{}\n[[tests]]\nname = \"service-smoke\"\nentry = \"src/service_test.ax\"\nstdout = \"true\\n\"\nhttp = {{ path = \"/health\", expected_body = \"ok\" }}\n",
+                "{}\n[[tests]]\nname = \"service-smoke\"\nentry = \"src/service_test.ax\"\nstdout = \"true\\n\"\nhttp = {{ bind = {:?}, path = \"/health\", expected_body = \"ok\" }}\n",
                 render_manifest_with_capabilities(
                     "service-runner-app",
                     false,
@@ -9331,24 +9335,19 @@ print serve_once("127.0.0.1:18080", "hello")
                     true,
                     false,
                     false,
-                )
+                ),
+                bind,
             ),
         )
         .expect("write manifest");
         fs::write(
             project.join("src/service_test.ax"),
-            r#"import "std/env.ax"
-import "std/http.ax"
+            format!(
+                r#"import "std/http.ax"
 
-match get_env("AXIOM_TEST_BIND") {
-Some(bind) {
-print serve_once(bind, "ok")
-}
-None {
-print false
-}
-}
-"#,
+print serve_once("{bind}", "ok")
+"#
+            ),
         )
         .expect("write service test");
 
@@ -9953,12 +9952,7 @@ return route_response("/health", selected_response)
 
 pub fn serve_health(started: bool): bool {{
 let selected_route: HttpRoute = health_route(started)
-return serve("127.0.0.1:18080", selected_route, 1)
-}}
-
-pub fn serve_health_for_test(bind: string, max_requests: int, started: bool): bool {{
-let selected_route: HttpRoute = health_route(started)
-return serve(bind, selected_route, max_requests)
+return serve("127.0.0.1:{port}", selected_route, 1)
 }}
 "#
             ),
@@ -10032,7 +10026,7 @@ print serve_health(started)
 import "server.ax"
 
 let started: bool = now_ms() > 0
-print serve_health_for_test("127.0.0.1:18080", 1, started)
+print serve_health(started)
 "#,
         )
         .expect("write denied service entrypoint");

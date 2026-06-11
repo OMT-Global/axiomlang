@@ -3378,20 +3378,35 @@ fn run_http_fixture_case(
     test: &crate::manifest::TestTarget,
 ) -> io::Result<std::process::Output> {
     let fixture = test.http.as_ref().expect("http fixture present");
-    let listener = std::net::TcpListener::bind(("127.0.0.1", 0))?;
-    let port = listener.local_addr()?.port();
-    drop(listener);
+    let (host, port, injected_bind) = if let Some(bind) = fixture.bind.as_deref() {
+        let addr = bind.parse::<std::net::SocketAddr>().map_err(|err| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!("invalid http fixture bind {bind:?}: {err}"),
+            )
+        })?;
+        (addr.ip().to_string(), addr.port(), None)
+    } else {
+        let listener = std::net::TcpListener::bind(("127.0.0.1", 0))?;
+        let port = listener.local_addr()?.port();
+        drop(listener);
+        (
+            String::from("127.0.0.1"),
+            port,
+            Some(format!("127.0.0.1:{port}")),
+        )
+    };
 
     let mut command = command_for_build_output(binary, build_output_dir)?;
-    command
-        .env("AXIOM_TEST_BIND", format!("127.0.0.1:{port}"))
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
+    if let Some(bind) = injected_bind {
+        command.env("AXIOM_TEST_BIND", bind);
+    }
+    command.stdout(Stdio::piped()).stderr(Stdio::piped());
     let mut child = command.spawn()?;
 
     let deadline = Instant::now() + Duration::from_secs(5);
     let mut stream = loop {
-        match std::net::TcpStream::connect(("127.0.0.1", port)) {
+        match std::net::TcpStream::connect((host.as_str(), port)) {
             Ok(stream) => break stream,
             Err(err) if Instant::now() < deadline => {
                 let _ = err;

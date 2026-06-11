@@ -13942,7 +13942,7 @@ fn validate_net_port_allowlist_hir(
 }
 
 fn validate_stdlib_network_wrapper_call_hir(
-    ctx: &LowerContext<'_>,
+    _ctx: &LowerContext<'_>,
     capabilities: &CapabilityConfig,
     function_name: &str,
     signature: &FunctionSig,

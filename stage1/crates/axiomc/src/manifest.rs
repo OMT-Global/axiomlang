@@ -83,6 +83,8 @@ pub struct TestTarget {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct HttpTestFixture {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bind: Option<String>,
     pub path: String,
     pub expected_body: String,
 }
