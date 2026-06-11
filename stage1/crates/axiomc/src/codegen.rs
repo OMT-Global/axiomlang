@@ -2083,7 +2083,10 @@ fn axiom_fs_mkdir_all(path: String) -> i64 {
     let path_len = path.len();
     let result = match axiom_fs_candidate(&path, true) {
         Some(candidate) => match std::fs::create_dir_all(candidate) {
-            Ok(()) => 0,
+            Ok(()) => match axiom_fs_candidate(&path, false) {
+                Some(created) if created.is_dir() => 0,
+                _ => -1,
+            },
             Err(_) => -1,
         },
         None => -1,
@@ -2856,9 +2859,9 @@ fn axiom_openssl_tls_get(host: &str, port: u16, request: &str) -> Result<Vec<u8>
 
     impl OpenSsl {
         fn load() -> Result<Self, String> {
-            let ssl_handle = open_library(&["libssl.so.3", "libssl.so.1.1", "libssl.so"])?;
+            let ssl_handle = open_library(OPENSSL_SSL_CANDIDATES)?;
             let crypto_handle =
-                match open_library(&["libcrypto.so.3", "libcrypto.so.1.1", "libcrypto.so"]) {
+                match open_library(OPENSSL_CRYPTO_CANDIDATES) {
                     Ok(handle) => handle,
                     Err(err) => {
                         unsafe {
@@ -2870,26 +2873,26 @@ fn axiom_openssl_tls_get(host: &str, port: u16, request: &str) -> Result<Vec<u8>
             Ok(Self {
                 ssl_handle,
                 crypto_handle,
-                tls_client_method: load_symbol(ssl_handle, "TLS_client_method")?,
-                ssl_ctx_new: load_symbol(ssl_handle, "SSL_CTX_new")?,
-                ssl_ctx_free: load_symbol(ssl_handle, "SSL_CTX_free")?,
-                ssl_ctx_set_verify: load_symbol(ssl_handle, "SSL_CTX_set_verify")?,
-                ssl_ctx_set_default_verify_paths: load_symbol(
+                tls_client_method: load_typed_symbol(ssl_handle, "TLS_client_method")?,
+                ssl_ctx_new: load_typed_symbol(ssl_handle, "SSL_CTX_new")?,
+                ssl_ctx_free: load_typed_symbol(ssl_handle, "SSL_CTX_free")?,
+                ssl_ctx_set_verify: load_typed_symbol(ssl_handle, "SSL_CTX_set_verify")?,
+                ssl_ctx_set_default_verify_paths: load_typed_symbol(
                     ssl_handle,
                     "SSL_CTX_set_default_verify_paths",
                 )?,
-                ssl_new: load_symbol(ssl_handle, "SSL_new")?,
-                ssl_free: load_symbol(ssl_handle, "SSL_free")?,
-                ssl_set_fd: load_symbol(ssl_handle, "SSL_set_fd")?,
-                ssl_set1_host: load_symbol(ssl_handle, "SSL_set1_host")?,
-                ssl_ctrl: load_symbol(ssl_handle, "SSL_ctrl")?,
-                ssl_connect: load_symbol(ssl_handle, "SSL_connect")?,
-                ssl_get_verify_result: load_symbol(ssl_handle, "SSL_get_verify_result")?,
-                ssl_write: load_symbol(ssl_handle, "SSL_write")?,
-                ssl_read: load_symbol(ssl_handle, "SSL_read")?,
-                ssl_shutdown: load_symbol(ssl_handle, "SSL_shutdown")?,
-                err_get_error: load_symbol(crypto_handle, "ERR_get_error")?,
-                err_error_string_n: load_symbol(crypto_handle, "ERR_error_string_n")?,
+                ssl_new: load_typed_symbol(ssl_handle, "SSL_new")?,
+                ssl_free: load_typed_symbol(ssl_handle, "SSL_free")?,
+                ssl_set_fd: load_typed_symbol(ssl_handle, "SSL_set_fd")?,
+                ssl_set1_host: load_typed_symbol(ssl_handle, "SSL_set1_host")?,
+                ssl_ctrl: load_typed_symbol(ssl_handle, "SSL_ctrl")?,
+                ssl_connect: load_typed_symbol(ssl_handle, "SSL_connect")?,
+                ssl_get_verify_result: load_typed_symbol(ssl_handle, "SSL_get_verify_result")?,
+                ssl_write: load_typed_symbol(ssl_handle, "SSL_write")?,
+                ssl_read: load_typed_symbol(ssl_handle, "SSL_read")?,
+                ssl_shutdown: load_typed_symbol(ssl_handle, "SSL_shutdown")?,
+                err_get_error: load_typed_symbol(crypto_handle, "ERR_get_error")?,
+                err_error_string_n: load_typed_symbol(crypto_handle, "ERR_error_string_n")?,
             })
         }
     }
@@ -2901,6 +2904,65 @@ fn axiom_openssl_tls_get(host: &str, port: u16, request: &str) -> Result<Vec<u8>
                 let _ = dlclose(self.crypto_handle);
             }
         }
+    }
+
+    const OPENSSL_SSL_CANDIDATES: &[&str] = &[
+        "/usr/lib/x86_64-linux-gnu/libssl.so.3",
+        "/lib/x86_64-linux-gnu/libssl.so.3",
+        "/usr/lib/aarch64-linux-gnu/libssl.so.3",
+        "/lib/aarch64-linux-gnu/libssl.so.3",
+        "/usr/lib64/libssl.so.3",
+        "/lib64/libssl.so.3",
+        "/usr/lib/libssl.so.3",
+        "/lib/libssl.so.3",
+        "/usr/lib/x86_64-linux-gnu/libssl.so.1.1",
+        "/lib/x86_64-linux-gnu/libssl.so.1.1",
+        "/usr/lib/aarch64-linux-gnu/libssl.so.1.1",
+        "/lib/aarch64-linux-gnu/libssl.so.1.1",
+        "/usr/lib64/libssl.so.1.1",
+        "/lib64/libssl.so.1.1",
+        "/usr/lib/libssl.so.1.1",
+        "/lib/libssl.so.1.1",
+    ];
+
+    const OPENSSL_CRYPTO_CANDIDATES: &[&str] = &[
+        "/usr/lib/x86_64-linux-gnu/libcrypto.so.3",
+        "/lib/x86_64-linux-gnu/libcrypto.so.3",
+        "/usr/lib/aarch64-linux-gnu/libcrypto.so.3",
+        "/lib/aarch64-linux-gnu/libcrypto.so.3",
+        "/usr/lib64/libcrypto.so.3",
+        "/lib64/libcrypto.so.3",
+        "/usr/lib/libcrypto.so.3",
+        "/lib/libcrypto.so.3",
+        "/usr/lib/x86_64-linux-gnu/libcrypto.so.1.1",
+        "/lib/x86_64-linux-gnu/libcrypto.so.1.1",
+        "/usr/lib/aarch64-linux-gnu/libcrypto.so.1.1",
+        "/lib/aarch64-linux-gnu/libcrypto.so.1.1",
+        "/usr/lib64/libcrypto.so.1.1",
+        "/lib64/libcrypto.so.1.1",
+        "/usr/lib/libcrypto.so.1.1",
+        "/lib/libcrypto.so.1.1",
+    ];
+
+    unsafe fn cast_typed_symbol<T: Copy>(value: *mut c_void) -> T {
+        debug_assert_eq!(
+            std::mem::size_of::<T>(),
+            std::mem::size_of::<*mut c_void>()
+        );
+        let mut output = std::mem::MaybeUninit::<T>::uninit();
+        unsafe {
+            std::ptr::copy_nonoverlapping(
+                (&value as *const *mut c_void).cast::<u8>(),
+                output.as_mut_ptr().cast::<u8>(),
+                std::mem::size_of::<T>(),
+            );
+            output.assume_init()
+        }
+    }
+
+    fn load_typed_symbol<T: Copy>(handle: *mut c_void, symbol: &str) -> Result<T, String> {
+        let value = load_symbol(handle, symbol)?;
+        Ok(unsafe { cast_typed_symbol(value) })
     }
 
     fn open_library(candidates: &[&str]) -> Result<*mut c_void, String> {
@@ -2917,13 +2979,13 @@ fn axiom_openssl_tls_get(host: &str, port: u16, request: &str) -> Result<Vec<u8>
         ))
     }
 
-    fn load_symbol<T: Copy>(handle: *mut c_void, symbol: &str) -> Result<T, String> {
+    fn load_symbol(handle: *mut c_void, symbol: &str) -> Result<*mut c_void, String> {
         let name = CString::new(symbol).map_err(|_| String::from("invalid symbol name"))?;
         let value = unsafe { dlsym(handle, name.as_ptr()) };
         if value.is_null() {
             return Err(format!("https TLS support missing OpenSSL symbol {symbol}"));
         }
-        Ok(unsafe { std::mem::transmute_copy(&value) })
+        Ok(value)
     }
 
     struct SslCtxGuard<'a> {
@@ -4599,6 +4661,50 @@ struct AxiomEvpMdCtx {
 
 const AXIOM_EVP_PKEY_ED25519: std::os::raw::c_int = 1087;
 
+const AXIOM_OPENSSL_CRYPTO_CANDIDATES: &[&str] = &[
+    "/usr/lib/x86_64-linux-gnu/libcrypto.so.3",
+    "/lib/x86_64-linux-gnu/libcrypto.so.3",
+    "/usr/lib/aarch64-linux-gnu/libcrypto.so.3",
+    "/lib/aarch64-linux-gnu/libcrypto.so.3",
+    "/usr/lib64/libcrypto.so.3",
+    "/lib64/libcrypto.so.3",
+    "/usr/lib/libcrypto.so.3",
+    "/lib/libcrypto.so.3",
+    "/opt/homebrew/opt/openssl@3/lib/libcrypto.3.dylib",
+    "/usr/local/opt/openssl@3/lib/libcrypto.3.dylib",
+    "/usr/lib/x86_64-linux-gnu/libcrypto.so.1.1",
+    "/lib/x86_64-linux-gnu/libcrypto.so.1.1",
+    "/usr/lib/aarch64-linux-gnu/libcrypto.so.1.1",
+    "/lib/aarch64-linux-gnu/libcrypto.so.1.1",
+    "/usr/lib64/libcrypto.so.1.1",
+    "/lib64/libcrypto.so.1.1",
+    "/usr/lib/libcrypto.so.1.1",
+    "/lib/libcrypto.so.1.1",
+];
+
+macro_rules! axiom_crypto_aead_load_typed_symbol {
+    ($handle:expr, $symbol:literal) => {{
+        let value = axiom_crypto_aead_load_symbol($handle, $symbol)?;
+        unsafe { axiom_crypto_aead_cast_typed_symbol(value) }
+    }};
+}
+
+unsafe fn axiom_crypto_aead_cast_typed_symbol<T: Copy>(value: *mut std::os::raw::c_void) -> T {
+    debug_assert_eq!(
+        std::mem::size_of::<T>(),
+        std::mem::size_of::<*mut std::os::raw::c_void>()
+    );
+    let mut output = std::mem::MaybeUninit::<T>::uninit();
+    unsafe {
+        std::ptr::copy_nonoverlapping(
+            (&value as *const *mut std::os::raw::c_void).cast::<u8>(),
+            output.as_mut_ptr().cast::<u8>(),
+            std::mem::size_of::<T>(),
+        );
+        output.assume_init()
+    }
+}
+
 #[allow(dead_code)]
 struct AxiomEd25519Crypto {
     handle: *mut std::os::raw::c_void,
@@ -4661,47 +4767,39 @@ struct AxiomEd25519Crypto {
 
 impl AxiomEd25519Crypto {
     fn load() -> Result<Self, String> {
-        let handle = axiom_crypto_aead_open_library(&[
-            "libcrypto.so.3",
-            "libcrypto.so.1.1",
-            "libcrypto.so",
-            "/opt/homebrew/opt/openssl@3/lib/libcrypto.3.dylib",
-            "/usr/local/opt/openssl@3/lib/libcrypto.3.dylib",
-            "libcrypto.3.dylib",
-            "libcrypto.dylib",
-        ])?;
+        let handle = axiom_crypto_aead_open_library(AXIOM_OPENSSL_CRYPTO_CANDIDATES)?;
         Ok(Self {
             handle,
-            evp_pkey_ctx_new_id: axiom_crypto_aead_load_symbol(handle, "EVP_PKEY_CTX_new_id")?,
-            evp_pkey_ctx_free: axiom_crypto_aead_load_symbol(handle, "EVP_PKEY_CTX_free")?,
-            evp_pkey_keygen_init: axiom_crypto_aead_load_symbol(handle, "EVP_PKEY_keygen_init")?,
-            evp_pkey_keygen: axiom_crypto_aead_load_symbol(handle, "EVP_PKEY_keygen")?,
-            evp_pkey_free: axiom_crypto_aead_load_symbol(handle, "EVP_PKEY_free")?,
-            evp_pkey_get_raw_public_key: axiom_crypto_aead_load_symbol(
+            evp_pkey_ctx_new_id: axiom_crypto_aead_load_typed_symbol!(handle, "EVP_PKEY_CTX_new_id"),
+            evp_pkey_ctx_free: axiom_crypto_aead_load_typed_symbol!(handle, "EVP_PKEY_CTX_free"),
+            evp_pkey_keygen_init: axiom_crypto_aead_load_typed_symbol!(handle, "EVP_PKEY_keygen_init"),
+            evp_pkey_keygen: axiom_crypto_aead_load_typed_symbol!(handle, "EVP_PKEY_keygen"),
+            evp_pkey_free: axiom_crypto_aead_load_typed_symbol!(handle, "EVP_PKEY_free"),
+            evp_pkey_get_raw_public_key: axiom_crypto_aead_load_typed_symbol!(
                 handle,
-                "EVP_PKEY_get_raw_public_key",
-            )?,
-            evp_pkey_get_raw_private_key: axiom_crypto_aead_load_symbol(
+                "EVP_PKEY_get_raw_public_key"
+            ),
+            evp_pkey_get_raw_private_key: axiom_crypto_aead_load_typed_symbol!(
                 handle,
-                "EVP_PKEY_get_raw_private_key",
-            )?,
-            evp_pkey_new_raw_private_key: axiom_crypto_aead_load_symbol(
+                "EVP_PKEY_get_raw_private_key"
+            ),
+            evp_pkey_new_raw_private_key: axiom_crypto_aead_load_typed_symbol!(
                 handle,
-                "EVP_PKEY_new_raw_private_key",
-            )?,
-            evp_pkey_new_raw_public_key: axiom_crypto_aead_load_symbol(
+                "EVP_PKEY_new_raw_private_key"
+            ),
+            evp_pkey_new_raw_public_key: axiom_crypto_aead_load_typed_symbol!(
                 handle,
-                "EVP_PKEY_new_raw_public_key",
-            )?,
-            evp_md_ctx_new: axiom_crypto_aead_load_symbol(handle, "EVP_MD_CTX_new")?,
-            evp_md_ctx_free: axiom_crypto_aead_load_symbol(handle, "EVP_MD_CTX_free")?,
-            evp_digest_sign_init: axiom_crypto_aead_load_symbol(handle, "EVP_DigestSignInit")?,
-            evp_digest_sign: axiom_crypto_aead_load_symbol(handle, "EVP_DigestSign")?,
-            evp_digest_verify_init: axiom_crypto_aead_load_symbol(
+                "EVP_PKEY_new_raw_public_key"
+            ),
+            evp_md_ctx_new: axiom_crypto_aead_load_typed_symbol!(handle, "EVP_MD_CTX_new"),
+            evp_md_ctx_free: axiom_crypto_aead_load_typed_symbol!(handle, "EVP_MD_CTX_free"),
+            evp_digest_sign_init: axiom_crypto_aead_load_typed_symbol!(handle, "EVP_DigestSignInit"),
+            evp_digest_sign: axiom_crypto_aead_load_typed_symbol!(handle, "EVP_DigestSign"),
+            evp_digest_verify_init: axiom_crypto_aead_load_typed_symbol!(
                 handle,
-                "EVP_DigestVerifyInit",
-            )?,
-            evp_digest_verify: axiom_crypto_aead_load_symbol(handle, "EVP_DigestVerify")?,
+                "EVP_DigestVerifyInit"
+            ),
+            evp_digest_verify: axiom_crypto_aead_load_typed_symbol!(handle, "EVP_DigestVerify"),
         })
     }
 }
@@ -4770,31 +4868,24 @@ struct AxiomAeadCrypto {
 
 impl AxiomAeadCrypto {
     fn load() -> Result<Self, String> {
-        let handle = axiom_crypto_aead_open_library(&[
-            "libcrypto.so.3",
-            "libcrypto.so.1.1",
-            "libcrypto.so",
-            "/opt/homebrew/opt/openssl@3/lib/libcrypto.3.dylib",
-            "/usr/local/opt/openssl@3/lib/libcrypto.3.dylib",
-            "libcrypto.3.dylib",
-        ])?;
+        let handle = axiom_crypto_aead_open_library(AXIOM_OPENSSL_CRYPTO_CANDIDATES)?;
         Ok(Self {
             handle,
-            evp_aes_128_gcm: axiom_crypto_aead_load_symbol(handle, "EVP_aes_128_gcm")?,
-            evp_aes_256_gcm: axiom_crypto_aead_load_symbol(handle, "EVP_aes_256_gcm")?,
-            evp_chacha20_poly1305: axiom_crypto_aead_load_symbol(
+            evp_aes_128_gcm: axiom_crypto_aead_load_typed_symbol!(handle, "EVP_aes_128_gcm"),
+            evp_aes_256_gcm: axiom_crypto_aead_load_typed_symbol!(handle, "EVP_aes_256_gcm"),
+            evp_chacha20_poly1305: axiom_crypto_aead_load_typed_symbol!(
                 handle,
-                "EVP_chacha20_poly1305",
-            )?,
-            evp_cipher_ctx_new: axiom_crypto_aead_load_symbol(handle, "EVP_CIPHER_CTX_new")?,
-            evp_cipher_ctx_free: axiom_crypto_aead_load_symbol(handle, "EVP_CIPHER_CTX_free")?,
-            evp_cipher_ctx_ctrl: axiom_crypto_aead_load_symbol(handle, "EVP_CIPHER_CTX_ctrl")?,
-            evp_encrypt_init_ex: axiom_crypto_aead_load_symbol(handle, "EVP_EncryptInit_ex")?,
-            evp_encrypt_update: axiom_crypto_aead_load_symbol(handle, "EVP_EncryptUpdate")?,
-            evp_encrypt_final_ex: axiom_crypto_aead_load_symbol(handle, "EVP_EncryptFinal_ex")?,
-            evp_decrypt_init_ex: axiom_crypto_aead_load_symbol(handle, "EVP_DecryptInit_ex")?,
-            evp_decrypt_update: axiom_crypto_aead_load_symbol(handle, "EVP_DecryptUpdate")?,
-            evp_decrypt_final_ex: axiom_crypto_aead_load_symbol(handle, "EVP_DecryptFinal_ex")?,
+                "EVP_chacha20_poly1305"
+            ),
+            evp_cipher_ctx_new: axiom_crypto_aead_load_typed_symbol!(handle, "EVP_CIPHER_CTX_new"),
+            evp_cipher_ctx_free: axiom_crypto_aead_load_typed_symbol!(handle, "EVP_CIPHER_CTX_free"),
+            evp_cipher_ctx_ctrl: axiom_crypto_aead_load_typed_symbol!(handle, "EVP_CIPHER_CTX_ctrl"),
+            evp_encrypt_init_ex: axiom_crypto_aead_load_typed_symbol!(handle, "EVP_EncryptInit_ex"),
+            evp_encrypt_update: axiom_crypto_aead_load_typed_symbol!(handle, "EVP_EncryptUpdate"),
+            evp_encrypt_final_ex: axiom_crypto_aead_load_typed_symbol!(handle, "EVP_EncryptFinal_ex"),
+            evp_decrypt_init_ex: axiom_crypto_aead_load_typed_symbol!(handle, "EVP_DecryptInit_ex"),
+            evp_decrypt_update: axiom_crypto_aead_load_typed_symbol!(handle, "EVP_DecryptUpdate"),
+            evp_decrypt_final_ex: axiom_crypto_aead_load_typed_symbol!(handle, "EVP_DecryptFinal_ex"),
         })
     }
 }
@@ -4901,16 +4992,16 @@ fn axiom_crypto_aead_open_library(
 }
 
 #[allow(dead_code)]
-fn axiom_crypto_aead_load_symbol<T: Copy>(
+fn axiom_crypto_aead_load_symbol(
     handle: *mut std::os::raw::c_void,
     symbol: &str,
-) -> Result<T, String> {
+) -> Result<*mut std::os::raw::c_void, String> {
     let name = std::ffi::CString::new(symbol).map_err(|_| String::from("invalid symbol name"))?;
     let value = unsafe { axiom_crypto_aead_dlsym(handle, name.as_ptr()) };
     if value.is_null() {
         return Err(format!("AEAD support missing OpenSSL symbol {symbol}"));
     }
-    Ok(unsafe { std::mem::transmute_copy(&value) })
+    Ok(value)
 }
 
 #[cfg(unix)]
