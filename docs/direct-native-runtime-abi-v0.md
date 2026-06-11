@@ -125,6 +125,12 @@ host-service entrypoint. The current evidence proves only that denied `net`
 capability use fails through the manifest policy before Cranelift lowering or
 native execution.
 
+The process status row remains blocked for positive direct-native runtime
+support: the Cranelift spike still rejects `std/process.ax` `run_status(...)`
+instead of lowering it into a native host-service entrypoint. The current
+evidence proves that denied `process` capability use fails through the manifest
+policy before Cranelift lowering or native execution.
+
 The borrowed-slice row has partial direct-native evidence: the Cranelift spike
 now evaluates array-backed borrowed slices through `len`, `first`, `last`,
 indexing, and function returns. Broader borrowed-slice aliasing and host ABI

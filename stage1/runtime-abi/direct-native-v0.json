@@ -142,7 +142,9 @@
       "id": "process.status",
       "status": "blocked",
       "capability": "process",
-      "blockers": [928]
+      "blockers": [928],
+      "denial_evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"],
+      "notes": "The Cranelift spike still rejects positive std/process.ax run_status execution, but a package without the process capability now receives the public manifest-policy denial before backend lowering."
     },
     {
       "id": "env.read",
