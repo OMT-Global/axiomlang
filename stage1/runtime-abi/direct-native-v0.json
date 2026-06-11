@@ -186,19 +186,25 @@
       "id": "crypto.random",
       "status": "blocked",
       "capability": "crypto",
-      "blockers": [928]
+      "blockers": [928],
+      "denial_evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"],
+      "notes": "The Cranelift spike still blocks positive random-byte and random-u64 execution, but packages without the crypto capability receive the public manifest-policy denial before backend lowering."
     },
     {
       "id": "crypto.signature",
       "status": "blocked",
       "capability": "crypto",
-      "blockers": [928]
+      "blockers": [928],
+      "denial_evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"],
+      "notes": "The Cranelift spike still blocks positive Ed25519 key generation, signing, and verification execution, but packages without the crypto capability receive the public manifest-policy denial before backend lowering."
     },
     {
       "id": "crypto.aead",
       "status": "blocked",
       "capability": "crypto",
-      "blockers": [928]
+      "blockers": [928],
+      "denial_evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"],
+      "notes": "The Cranelift spike still blocks positive AEAD seal/open execution, but packages without the crypto capability receive the public manifest-policy denial before backend lowering."
     },
     {
       "id": "ffi.call",

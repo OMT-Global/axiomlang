@@ -126,6 +126,12 @@ without generated Rust. A package without the `crypto` capability fails before
 backend lowering. Runtime audit parity and broader crypto host-service coverage
 remain blocked under #928.
 
+The crypto random, signature, and AEAD rows remain blocked for positive
+direct-native runtime execution, but now have denial evidence: packages that
+call `std/crypto_rand.ax`, `std/crypto_sign.ax`, or `std/crypto_aead.ax`
+without the `crypto` capability must receive the public manifest-policy denial
+before any backend-specific lowering diagnostic.
+
 The HTTP client row remains blocked for positive direct-native runtime support:
 the Cranelift spike does not yet lower `std/http.ax` `get(...)` into a native
 host-service entrypoint. The current evidence proves only that denied `net`
