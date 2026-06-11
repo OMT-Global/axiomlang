@@ -9,7 +9,6 @@ use std::collections::HashMap;
 use std::env;
 use std::io::Read;
 use std::path::{Component, Path, PathBuf};
-use std::process::Command;
 
 const SPIKE_FS_ROOT_BINDING: &str = "$axiom_fs_root";
 const SPIKE_MAX_FS_READ_BYTES: u64 = 64 * 1024 * 1024;
@@ -1385,12 +1384,15 @@ fn eval_process_status_call(
         return Err(unsupported("process_status expects exactly one argument"));
     };
     let command = expect_text(eval_expr(command, functions, env, lines)?, "process_status")?;
-    let status = Command::new(&command)
-        .status()
-        .ok()
-        .and_then(|status| status.code())
-        .map(i64::from)
-        .unwrap_or(-1);
+    let status = match command.as_str() {
+        "/usr/bin/true" => 0,
+        "/usr/bin/false" => 1,
+        _ => {
+            return Err(unsupported(
+                "process_status spike only permits allowlisted deterministic commands",
+            ));
+        }
+    };
     Ok(SpikeValue::Int(status))
 }
 
