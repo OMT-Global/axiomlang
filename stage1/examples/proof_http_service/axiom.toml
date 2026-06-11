@@ -10,7 +10,7 @@ out_dir = "dist"
 fs = false
 net = true
 process = false
-env = ["REQUEST_METHOD", "REQUEST_PATH", "AXIOM_TEST_BIND"]
+env = ["REQUEST_METHOD", "REQUEST_PATH"]
 clock = true
 crypto = false
 
