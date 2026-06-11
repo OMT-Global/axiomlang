@@ -2,11 +2,7 @@
   "schema_version": "axiom.direct_native.runtime_abi.v0",
   "target_id": "axiom://target/stage1-direct-native",
   "status": "partial",
-<<<<<<< HEAD
-  "summary": "Compiler-side spike value and capability-shim contract required before direct native builds can replace generated Rust for the supported stage1 surface.",
-=======
-  "summary": "Compiler-side Cranelift spike evidence for blocked runtime rows required before direct native builds can replace generated Rust for the supported stage1 surface.",
->>>>>>> 96bafc73 (Clarify direct-native runtime evidence)
+  "summary": "Compiler-side Cranelift spike value and capability-shim contract required before direct native builds can replace generated Rust for the supported stage1 surface.",
   "value_features": [
     {
       "id": "numeric.scalars",

@@ -102,12 +102,11 @@ builds a package using `std/fs.ax` without the `fs` capability and verifies the
 public capability denial appears before any Cranelift unsupported-feature
 diagnostic.
 
-<<<<<<< HEAD
-The `fs.read` and `env.read` rows now have partial Cranelift evidence for
-`std/fs.ax` `read_file` and `std/env.ax` `get_env` on present and missing
-filesystem or environment names, plus denial evidence that packages without the
-matching capability fail before backend lowering. Full runtime-time lookup,
-manifest allowlist parity, and audit parity remain open under #928.
+The `fs.read` row now has partial Cranelift evidence for `std/fs.ax`
+`read_file` on present and missing filesystem names, plus denial evidence that a
+package without the `fs` capability fails before backend lowering. Full
+runtime-time filesystem access, manifest policy parity, and audit parity remain
+open under #928.
 
 The UDP row is still blocked for positive direct-native runtime execution, but
 now has denial evidence: a package that calls `std/net.ax`
@@ -181,15 +180,11 @@ now evaluates array-backed borrowed slices through `len`, `first`, `last`,
 indexing, and function returns. Broader borrowed-slice aliasing and host ABI
 coverage remain tracked by issue #928.
 
-The `env.read` row now has partial Cranelift evidence for `std/env.ax`
-`get_env` on present and missing environment names, plus denial evidence that a
-package without the `env` capability fails before backend lowering. Full
-=======
-The `env.read` row now has compiler-side Cranelift spike evidence for
-`std/env.ax` `get_env` on present and missing environment names, plus denial
-evidence that a package without the `env` capability fails before backend
-lowering. This does not claim direct native runtime execution yet; full
->>>>>>> 96bafc73 (Clarify direct-native runtime evidence)
+The `env.read` row remains blocked for direct-native runtime execution, but now
+has compiler-side Cranelift spike evidence for `std/env.ax` `get_env` on present
+and missing environment names, plus denial evidence that a package without the
+`env` capability fails before backend lowering. This does not claim direct native
+runtime execution yet; full
 runtime-time lookup, manifest allowlist parity, and audit parity remain open
 under #928.
 
