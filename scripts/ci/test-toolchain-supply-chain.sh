@@ -8,13 +8,18 @@ script="$repo_root/scripts/ci/run-toolchain-supply-chain.sh"
 [[ -f "$workflow" ]] || { echo "missing workflow: $workflow" >&2; exit 1; }
 [[ -x "$script" ]] || { echo "missing executable script: $script" >&2; exit 1; }
 
-grep -Fq 'command -v cargo-vet >/dev/null 2>&1' "$workflow" || {
-  echo "workflow must skip cargo-vet install when cargo-vet is already present" >&2
+grep -Fq 'stage1/supply-chain/config.toml' "$workflow" || {
+  echo "workflow must read the required cargo-vet version from the supply-chain config" >&2
   exit 1
 }
 
-grep -Fq 'cargo install cargo-vet --locked' "$workflow" || {
-  echo "workflow must install missing cargo-vet with a locked install" >&2
+grep -Fq 'cargo-vet --version' "$workflow" || {
+  echo "workflow must validate an existing cargo-vet binary before reusing it" >&2
+  exit 1
+}
+
+grep -Fq 'cargo install cargo-vet --version "$required_version" --locked --force' "$workflow" || {
+  echo "workflow must force-install the configured cargo-vet version on mismatch" >&2
   exit 1
 }
 

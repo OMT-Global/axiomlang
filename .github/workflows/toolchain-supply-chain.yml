@@ -45,8 +45,30 @@ jobs:
 
       - name: Ensure cargo-vet
         run: |
-          if ! command -v cargo-vet >/dev/null 2>&1; then
-            cargo install cargo-vet --locked
+          required_version="$(
+            awk '
+              /^\[cargo-vet\]$/ { in_cargo_vet = 1; next }
+              /^\[/ { in_cargo_vet = 0 }
+              in_cargo_vet && $1 == "version" {
+                gsub(/"/, "", $3)
+                print $3
+                exit
+              }
+            ' stage1/supply-chain/config.toml
+          )"
+          if [[ -z "$required_version" ]]; then
+            echo "unable to read cargo-vet version from stage1/supply-chain/config.toml" >&2
+            exit 1
+          fi
+
+          installed_version=""
+          if command -v cargo-vet >/dev/null 2>&1; then
+            installed_version="$(cargo-vet --version || true)"
+          fi
+
+          if [[ "$installed_version" != "cargo-vet ${required_version}" &&
+                "$installed_version" != "cargo-vet ${required_version}."* ]]; then
+            cargo install cargo-vet --version "$required_version" --locked --force
           fi
       - name: Run supply-chain checks
         env:
