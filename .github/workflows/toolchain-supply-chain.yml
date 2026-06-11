@@ -43,8 +43,11 @@ jobs:
         with:
           node-version: 20
 
-      - name: Install cargo-vet
-        run: cargo install cargo-vet --locked
+      - name: Ensure cargo-vet
+        run: |
+          if ! command -v cargo-vet >/dev/null 2>&1; then
+            cargo install cargo-vet --locked
+          fi
       - name: Run supply-chain checks
         env:
           SOURCE_DATE_EPOCH: '1704067200'

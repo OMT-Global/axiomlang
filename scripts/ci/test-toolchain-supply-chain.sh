@@ -8,8 +8,13 @@ script="$repo_root/scripts/ci/run-toolchain-supply-chain.sh"
 [[ -f "$workflow" ]] || { echo "missing workflow: $workflow" >&2; exit 1; }
 [[ -x "$script" ]] || { echo "missing executable script: $script" >&2; exit 1; }
 
+grep -Fq 'command -v cargo-vet >/dev/null 2>&1' "$workflow" || {
+  echo "workflow must skip cargo-vet install when cargo-vet is already present" >&2
+  exit 1
+}
+
 grep -Fq 'cargo install cargo-vet --locked' "$workflow" || {
-  echo "workflow must install cargo-vet with a locked install" >&2
+  echo "workflow must install missing cargo-vet with a locked install" >&2
   exit 1
 }
 
