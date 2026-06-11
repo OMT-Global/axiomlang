@@ -2071,6 +2071,7 @@ fn build_artifacts(
             )?;
             compile_cranelift_hello_spike(
                 &analyzed.mir,
+                package_root,
                 &object_path,
                 binary,
                 resolved_target,
