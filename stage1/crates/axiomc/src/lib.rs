@@ -4992,7 +4992,9 @@ unsafe_rationale = "test fixture checks dynamic command rejection"
     #[test]
     fn check_project_rejects_dynamic_stdlib_process_command_with_unrestricted_process() {
         let dir = tempdir().expect("tempdir");
-        let project = dir.path().join("stdlib-process-dynamic-unrestricted-denied");
+        let project = dir
+            .path()
+            .join("stdlib-process-dynamic-unrestricted-denied");
         create_project(
             &project,
             Some("stdlib-process-dynamic-unrestricted-denied-app"),
