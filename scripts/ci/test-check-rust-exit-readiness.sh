@@ -25,7 +25,7 @@ MAKE
 (
   cd "$case_dir"
   if bash scripts/ci/check-rust-exit-readiness.sh --json >"$temp_dir/blocked.json" 2>"$temp_dir/blocked.err"; then
-    echo "expected readiness check to fail while matrix has blocked rows" >&2
+    echo "expected readiness check to fail while blocking issues remain open" >&2
     exit 1
   fi
   python3 - "$temp_dir/blocked.json" <<'PY'
@@ -43,17 +43,6 @@ assert statuses["readiness_manifest_valid"] == "pass"
 assert statuses["readiness_matrix_unblocked"] == "fail"
 PY
 )
-
-python3 - "$case_dir/docs/rust-exit-readiness.md" <<'PY'
-import sys
-
-path = sys.argv[1]
-with open(path, encoding="utf-8") as handle:
-    text = handle.read()
-text = text.replace("`blocked`", "`complete`")
-with open(path, "w", encoding="utf-8") as handle:
-    handle.write(text)
-PY
 
 cat >"$temp_dir/issues.txt" <<'ISSUES'
 927 CLOSED

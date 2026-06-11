@@ -2,7 +2,11 @@
   "schema_version": "axiom.direct_native.runtime_abi.v0",
   "target_id": "axiom://target/stage1-direct-native",
   "status": "partial",
+<<<<<<< HEAD
   "summary": "Compiler-side spike value and capability-shim contract required before direct native builds can replace generated Rust for the supported stage1 surface.",
+=======
+  "summary": "Compiler-side Cranelift spike evidence for blocked runtime rows required before direct native builds can replace generated Rust for the supported stage1 surface.",
+>>>>>>> 96bafc73 (Clarify direct-native runtime evidence)
   "value_features": [
     {
       "id": "numeric.scalars",
@@ -151,12 +155,12 @@
     },
     {
       "id": "env.read",
-      "status": "partial",
+      "status": "blocked",
       "capability": "env",
       "evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"],
       "denial_evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"],
       "blockers": [928],
-      "notes": "The Cranelift spike can build a std/env.ax get_env package for present and missing environment reads, and rejects missing env capability before backend lowering. Full runtime-time environment lookup, manifest allowlist parity, and audit parity remain open."
+      "notes": "The Cranelift spike can build a std/env.ax get_env package for present and missing environment reads, and rejects missing env capability before backend lowering. This is compiler-side spike evidence, not direct native runtime execution; full runtime-time environment lookup, manifest allowlist parity, and audit parity remain open."
     },
     {
       "id": "clock.now_sleep",

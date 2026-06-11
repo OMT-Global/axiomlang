@@ -91,6 +91,7 @@ builds a package using `std/fs.ax` without the `fs` capability and verifies the
 public capability denial appears before any Cranelift unsupported-feature
 diagnostic.
 
+<<<<<<< HEAD
 The `fs.read` and `env.read` rows now have partial Cranelift evidence for
 `std/fs.ax` `read_file` and `std/env.ax` `get_env` on present and missing
 filesystem or environment names, plus denial evidence that packages without the
@@ -158,6 +159,12 @@ coverage remain tracked by issue #928.
 The `env.read` row now has partial Cranelift evidence for `std/env.ax`
 `get_env` on present and missing environment names, plus denial evidence that a
 package without the `env` capability fails before backend lowering. Full
+=======
+The `env.read` row now has compiler-side Cranelift spike evidence for
+`std/env.ax` `get_env` on present and missing environment names, plus denial
+evidence that a package without the `env` capability fails before backend
+lowering. This does not claim direct native runtime execution yet; full
+>>>>>>> 96bafc73 (Clarify direct-native runtime evidence)
 runtime-time lookup, manifest allowlist parity, and audit parity remain open
 under #928.
 

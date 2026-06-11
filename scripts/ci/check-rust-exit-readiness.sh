@@ -81,15 +81,6 @@ read_issue_state() {
   return 1
 }
 
-matrix_has_blocked_rows() {
-  awk -F '|' '
-    /^## Backend Matrix/ || /^## Bootstrap Matrix/ { in_matrix = 1; next }
-    /^## / && in_matrix { in_matrix = 0 }
-    in_matrix && $4 ~ /`blocked`/ { found = 1 }
-    END { exit found ? 0 : 1 }
-  ' docs/rust-exit-readiness.md
-}
-
 blocking_issues_from_manifest() {
   python3 - <<'PY'
 import json
@@ -100,6 +91,25 @@ with open("docs/rust-exit-readiness.json", encoding="utf-8") as handle:
 for entry in payload.get("blockingIssues", []):
     print(entry["issue"])
 PY
+}
+
+all_blocking_issues_closed() {
+  local issue_state
+  local issue
+
+  if [[ ! -f docs/rust-exit-readiness.json ]]; then
+    return 1
+  fi
+
+  while IFS= read -r issue; do
+    issue_state=""
+    if ! issue_state="$(read_issue_state "$issue")" || [[ -z "$issue_state" ]]; then
+      return 1
+    fi
+    if [[ "$issue_state" != "CLOSED" ]]; then
+      return 1
+    fi
+  done < <(blocking_issues_from_manifest)
 }
 
 if [[ -f docs/rust-exit-readiness.md ]]; then
@@ -114,12 +124,12 @@ else
   add_check "readiness_manifest_present" "fail" "docs/rust-exit-readiness.json is missing"
 fi
 
-if [[ ! -f docs/rust-exit-readiness.md ]]; then
-  add_check "readiness_matrix_unblocked" "fail" "Rust exit readiness matrix is unavailable because docs/rust-exit-readiness.md is missing"
-elif matrix_has_blocked_rows; then
-  add_check "readiness_matrix_unblocked" "fail" "Rust exit readiness matrix still contains blocked rows"
+if [[ ! -f docs/rust-exit-readiness.json ]]; then
+  add_check "readiness_matrix_unblocked" "fail" "Rust exit readiness manifest is unavailable"
+elif all_blocking_issues_closed; then
+  add_check "readiness_matrix_unblocked" "pass" "All blocking issues listed in docs/rust-exit-readiness.json are CLOSED"
 else
-  add_check "readiness_matrix_unblocked" "pass" "Rust exit readiness matrix has no blocked rows"
+  add_check "readiness_matrix_unblocked" "fail" "One or more blocking issues listed in docs/rust-exit-readiness.json are not CLOSED"
 fi
 
 if [[ -f docs/rust-exit-readiness.json ]]; then
