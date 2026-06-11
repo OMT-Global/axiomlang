@@ -81,15 +81,6 @@ read_issue_state() {
   return 1
 }
 
-matrix_has_blocked_rows() {
-  awk -F '|' '
-    /^## Backend Matrix/ || /^## Bootstrap Matrix/ { in_matrix = 1; next }
-    /^## / && in_matrix { in_matrix = 0 }
-    in_matrix && $4 ~ /`blocked`/ { found = 1 }
-    END { exit found ? 0 : 1 }
-  ' docs/rust-exit-readiness.md
-}
-
 blocking_issues_from_manifest() {
   python3 - <<'PY'
 import json
@@ -112,14 +103,6 @@ if [[ -f docs/rust-exit-readiness.json ]]; then
   add_check "readiness_manifest_present" "pass" "docs/rust-exit-readiness.json exists"
 else
   add_check "readiness_manifest_present" "fail" "docs/rust-exit-readiness.json is missing"
-fi
-
-if [[ ! -f docs/rust-exit-readiness.md ]]; then
-  add_check "readiness_matrix_unblocked" "fail" "Rust exit readiness matrix is unavailable because docs/rust-exit-readiness.md is missing"
-elif matrix_has_blocked_rows; then
-  add_check "readiness_matrix_unblocked" "fail" "Rust exit readiness matrix still contains blocked rows"
-else
-  add_check "readiness_matrix_unblocked" "pass" "Rust exit readiness matrix has no blocked rows"
 fi
 
 if [[ -f docs/rust-exit-readiness.json ]]; then
@@ -180,7 +163,7 @@ if [[ -f docs/rust-exit-readiness.json ]]; then
       else
         add_check "rust_exit_issue_${issue}_closed" "fail" "issue #$issue is $issue_state"
       fi
-    elif [[ "$require_issue_states" == true ]]; then
+    else
       add_check "rust_exit_issue_${issue}_closed" "fail" "issue #$issue state is unavailable"
     fi
   done < <(blocking_issues_from_manifest)

@@ -19,8 +19,9 @@ Final Rust bootstrap issue: [#721](https://github.com/OMT-Global/axiom/issues/72
 make rust-exit-readiness
 ```
 
-It emits `axiom.rust_exit.readiness.v1` JSON and fails while required rows are
-blocked. Deletion or release-chain PRs can require live GitHub state:
+It emits `axiom.rust_exit.readiness.v1` JSON and fails while blocker issues in
+`docs/rust-exit-readiness.json` are open or unavailable. Deletion or
+release-chain PRs can require live GitHub state:
 
 ```bash
 make rust-exit-readiness-github
