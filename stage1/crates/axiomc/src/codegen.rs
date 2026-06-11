@@ -2949,7 +2949,7 @@ fn axiom_openssl_tls_get(host: &str, port: u16, request: &str) -> Result<Vec<u8>
             std::mem::size_of::<T>(),
             std::mem::size_of::<*mut c_void>()
         );
-        std::mem::transmute(value)
+        unsafe { std::mem::transmute_copy(&value) }
     }
 
     fn load_typed_symbol<T: Copy>(handle: *mut c_void, symbol: &str) -> Result<T, String> {
@@ -4677,8 +4677,16 @@ const AXIOM_OPENSSL_CRYPTO_CANDIDATES: &[&str] = &[
 macro_rules! axiom_crypto_aead_load_typed_symbol {
     ($handle:expr, $symbol:literal) => {{
         let value = axiom_crypto_aead_load_symbol($handle, $symbol)?;
-        unsafe { std::mem::transmute(value) }
+        unsafe { axiom_crypto_aead_cast_typed_symbol(value) }
     }};
+}
+
+unsafe fn axiom_crypto_aead_cast_typed_symbol<T>(value: *mut std::os::raw::c_void) -> T {
+    debug_assert_eq!(
+        std::mem::size_of::<T>(),
+        std::mem::size_of::<*mut std::os::raw::c_void>()
+    );
+    unsafe { std::mem::transmute_copy(&value) }
 }
 
 #[allow(dead_code)]
