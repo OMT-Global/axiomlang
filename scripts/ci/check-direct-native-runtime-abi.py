@@ -63,13 +63,15 @@ def load_contract(path: Path) -> dict[str, Any]:
 
 def validate_rows(
     rows: object, required_ids: set[str], group_name: str, errors: list[str]
-) -> tuple[set[str], list[str]]:
+) -> tuple[set[str], list[str], dict[str, int], set[int]]:
     if not isinstance(rows, list):
         errors.append(f"{group_name} must be an array")
-        return set(), []
+        return set(), [], {status: 0 for status in sorted(VALID_STATUSES)}, set()
 
     seen: set[str] = set()
     blockers: list[str] = []
+    status_counts = {status: 0 for status in sorted(VALID_STATUSES)}
+    blocker_issues: set[int] = set()
     for index, row in enumerate(rows):
         if not isinstance(row, dict):
             errors.append(f"{group_name}[{index}] must be an object")
@@ -89,6 +91,7 @@ def validate_rows(
                 f"expected one of {sorted(VALID_STATUSES)}"
             )
             continue
+        status_counts[status] += 1
 
         row_blockers = row.get("blockers", [])
         if status != "implemented":
@@ -99,6 +102,8 @@ def validate_rows(
                 errors.append(
                     f"{group_name} row {row_id!r} blockers must be positive issue numbers"
                 )
+            else:
+                blocker_issues.update(row_blockers)
 
     missing = sorted(required_ids - seen)
     if missing:
@@ -106,7 +111,7 @@ def validate_rows(
     extra = sorted(seen - required_ids)
     if extra:
         errors.append(f"{group_name} has unknown rows: {', '.join(extra)}")
-    return seen, blockers
+    return seen, blockers, status_counts, blocker_issues
 
 
 def build_report(contract: dict[str, Any]) -> tuple[dict[str, Any], int]:
@@ -119,13 +124,18 @@ def build_report(contract: dict[str, Any]) -> tuple[dict[str, Any], int]:
     if contract.get("status") not in VALID_STATUSES:
         errors.append("status must be implemented, partial, or blocked")
 
-    _, value_blockers = validate_rows(
+    _, value_blockers, value_status_counts, value_blocker_issues = validate_rows(
         contract.get("value_features"),
         REQUIRED_VALUE_FEATURES,
         "value_features",
         errors,
     )
-    _, capability_blockers = validate_rows(
+    (
+        _,
+        capability_blockers,
+        capability_status_counts,
+        capability_blocker_issues,
+    ) = validate_rows(
         contract.get("capability_shims"),
         REQUIRED_CAPABILITY_SHIMS,
         "capability_shims",
@@ -133,12 +143,17 @@ def build_report(contract: dict[str, Any]) -> tuple[dict[str, Any], int]:
     )
 
     blocked_rows = sorted(value_blockers + capability_blockers)
+    blocker_issues = sorted(value_blocker_issues | capability_blocker_issues)
     ready = not errors and not blocked_rows and contract.get("status") == "implemented"
     report = {
         "schema": "axiom.direct_native.runtime_abi.check.v1",
         "ready": ready,
         "target_id": contract.get("target_id"),
         "contract_status": contract.get("status"),
+        "status_counts": {
+            "value_features": value_status_counts,
+            "capability_shims": capability_status_counts,
+        },
         "value_feature_count": len(contract.get("value_features", []))
         if isinstance(contract.get("value_features"), list)
         else 0,
@@ -146,6 +161,7 @@ def build_report(contract: dict[str, Any]) -> tuple[dict[str, Any], int]:
         if isinstance(contract.get("capability_shims"), list)
         else 0,
         "blocked_rows": blocked_rows,
+        "blocker_issues": blocker_issues,
         "errors": errors,
     }
     return report, 1 if errors else 0
@@ -172,9 +188,14 @@ def main() -> int:
             "ready": False,
             "target_id": None,
             "contract_status": None,
+            "status_counts": {
+                "value_features": {status: 0 for status in sorted(VALID_STATUSES)},
+                "capability_shims": {status: 0 for status in sorted(VALID_STATUSES)},
+            },
             "value_feature_count": 0,
             "capability_shim_count": 0,
             "blocked_rows": [],
+            "blocker_issues": [],
             "errors": [str(error)],
         }
         if args.json:
@@ -193,6 +214,11 @@ def main() -> int:
             "direct native runtime ABI: not ready "
             f"({len(report['blocked_rows'])} blocked rows, {len(report['errors'])} errors)"
         )
+        if report["blocked_rows"]:
+            print(f"blocked rows: {', '.join(report['blocked_rows'])}")
+        if report["blocker_issues"]:
+            issue_list = ", ".join(f"#{issue}" for issue in report["blocker_issues"])
+            print(f"blocker issues: {issue_list}")
 
     if validation_status:
         return validation_status

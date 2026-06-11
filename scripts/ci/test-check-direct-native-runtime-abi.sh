@@ -20,8 +20,11 @@ assert report["ready"] is False
 assert report["target_id"] == "axiom://target/stage1-direct-native"
 assert report["value_feature_count"] == 12
 assert report["capability_shim_count"] == 22
+assert report["status_counts"]["value_features"]["partial"] == 12
+assert report["status_counts"]["capability_shims"]["blocked"] >= 1
 assert "fs.read" in report["blocked_rows"]
 assert "owned.move_state" in report["blocked_rows"]
+assert report["blocker_issues"] == [928]
 assert report["errors"] == []
 PY
 
