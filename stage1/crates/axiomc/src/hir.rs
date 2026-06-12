@@ -10835,7 +10835,6 @@ fn lower_expr_with_expected_inner(
                     &lowered,
                     *line,
                     *column,
-                    is_stdlib_http_get_wrapper(ctx),
                 )?;
                 move_lowered_value(&lowered, env)?;
                 return Ok(Expr::Call {
@@ -13719,7 +13718,6 @@ fn validate_http_get_net_allowlist_hir(
     url: &Expr,
     line: usize,
     column: usize,
-    allow_dynamic_url: bool,
 ) -> Result<(), Diagnostic> {
     match url {
         Expr::Literal {
@@ -13758,7 +13756,6 @@ fn validate_http_get_net_allowlist_hir(
             }
             Ok(())
         }
-        _ if allow_dynamic_url => Ok(()),
         _ if capabilities.net_hosts.is_empty() && capabilities.net_ports.is_empty() => {
             Err(Diagnostic::new(
                 "capability",
@@ -14014,7 +14011,6 @@ fn validate_stdlib_network_wrapper_call_hir(
             &args[0],
             line,
             column,
-            false,
         ),
         ("<stdlib>/http.ax", "listen")
         | ("<stdlib>/http.ax", "serve")
