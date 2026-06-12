@@ -14160,6 +14160,29 @@ mod tests {
             "unexpected diagnostic: {error:?}"
         );
     }
+
+    #[test]
+    fn http_get_rejects_dynamic_url_when_net_is_unrestricted() {
+        let parsed = syntax::parse_program(
+            "let url: string = \"http://127.0.0.1:1/health\"\nprint http_get(url)\n",
+            Path::new("main.ax"),
+        )
+        .expect("parse http get program");
+        let capabilities = CapabilityConfig {
+            net: true,
+            ..CapabilityConfig::default()
+        };
+
+        let error = lower_with_capabilities(&parsed, &capabilities)
+            .expect_err("dynamic http target should fail closed");
+
+        assert!(
+            error.message.contains(
+                "requires a static URL literal when [capabilities].net is unrestricted"
+            ),
+            "unexpected diagnostic: {error:?}"
+        );
+    }
 }
 
 fn require_capability(
