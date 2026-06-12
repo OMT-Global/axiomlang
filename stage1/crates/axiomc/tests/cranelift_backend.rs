@@ -1596,6 +1596,44 @@ fn cranelift_backend_rejects_tcp_denial_before_backend_lowering() {
 }
 
 #[test]
+fn cranelift_backend_rejects_dynamic_net_targets_before_backend_lowering() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("dynamic-net-targets");
+    write_dynamic_net_targets_project(&project);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args([
+            "build",
+            project.to_str().expect("project path"),
+            "--backend",
+            "cranelift",
+            "--json",
+        ])
+        .output()
+        .expect("run axiomc build --backend cranelift");
+
+    assert!(
+        !output.status.success(),
+        "cranelift dynamic-net-targets build unexpectedly succeeded: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let combined = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        combined.contains("requires a string literal when [capabilities].net hosts are unrestricted"),
+        "expected dynamic host rejection before backend lowering, got: {combined}"
+    );
+    assert!(
+        !combined.contains("unsupported by --backend cranelift spike"),
+        "capability denial should happen before cranelift unsupported-feature lowering: {combined}"
+    );
+}
+
+#[test]
 fn cranelift_backend_rejects_udp_denial_before_backend_lowering() {
     let temp = tempfile::tempdir().expect("tempdir");
     let project = temp.path().join("udp-denied");
@@ -2533,6 +2571,53 @@ fn write_tcp_denial_project(project: &Path) {
         "import \"std/net.ax\"\nmatch tcp_listen_loopback_once(\"pong\", 1000) {\nSome(_port) {\nprint true\n}\nNone {\nprint false\n}\n}\n",
     )
     .expect("write tcp denied source");
+}
+
+fn write_dynamic_net_targets_project(project: &Path) {
+    fs::create_dir_all(project.join("src")).expect("create dynamic net targets project src");
+    fs::write(
+        project.join("axiom.toml"),
+        r#"[package]
+name = "cranelift-dynamic-net-targets"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+fs = false
+net = true
+process = false
+env = false
+clock = false
+crypto = false
+"#,
+    )
+    .expect("write dynamic net targets manifest");
+    fs::write(
+        project.join("axiom.lock"),
+        r#"version = 1
+
+[[package]]
+name = "cranelift-dynamic-net-targets"
+version = "0.1.0"
+source = "path"
+"#,
+    )
+    .expect("write dynamic net targets lockfile");
+    fs::write(
+        project.join("src/main.ax"),
+        r#"import "std/net.ax"
+
+let host: string = "localhost"
+let port: int = 8080
+
+print net_resolve(host)
+print tcp_dial(host, port, "ping", 1000)
+"#,
+    )
+    .expect("write dynamic net targets source");
 }
 
 fn write_udp_denial_project(project: &Path) {
