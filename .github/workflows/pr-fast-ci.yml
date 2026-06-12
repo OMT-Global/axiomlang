@@ -78,10 +78,12 @@ jobs:
 
       - name: Ensure Rust linker availability
         run: |
-          if command -v cc >/dev/null 2>&1; then
-            echo "AXIOM_FAST_CI_PROOF_WORKLOADS=1" >> "$GITHUB_ENV"
-            exit 0
-          fi
+          for candidate in cc gcc clang; do
+            if command -v "$candidate" >/dev/null 2>&1; then
+              echo "AXIOM_FAST_CI_PROOF_WORKLOADS=1" >> "$GITHUB_ENV"
+              exit 0
+            fi
+          done
 
           rust_lld="$(rustc --print sysroot)/lib/rustlib/$(rustc -vV | awk '/^host:/ { print $2 }')/bin/rust-lld"
           if [[ -x "$rust_lld" ]]; then

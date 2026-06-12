@@ -26,12 +26,18 @@ if [[ "${AXIOM_FAST_CI_PROOF_WORKLOADS:-1}" != "1" ]]; then
   exit 1
 fi
 
-if ! command -v cc >/dev/null 2>&1; then
-  rust_linker="${AXIOM_FAST_CI_RUST_LINKER:-}"
-  if [[ -z "$rust_linker" || ! -x "$rust_linker" ]]; then
-    echo "error: cc or AXIOM_FAST_CI_RUST_LINKER is required to run proof workloads in PR fast checks." >&2
-    exit 1
-  fi
+rust_linker="${AXIOM_FAST_CI_RUST_LINKER:-}"
+if [[ -z "$rust_linker" ]]; then
+  for candidate in cc gcc clang; do
+    if rust_linker="$(command -v "$candidate" 2>/dev/null)" && [[ -n "$rust_linker" ]]; then
+      break
+    fi
+  done
+fi
+
+if [[ -z "$rust_linker" || ! -x "$rust_linker" ]]; then
+  echo "error: cc, gcc, clang, or AXIOM_FAST_CI_RUST_LINKER is required to run proof workloads in PR fast checks." >&2
+  exit 1
 fi
 
 for example in proof_cli proof_worker proof_http_service; do
