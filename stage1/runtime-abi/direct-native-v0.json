@@ -130,13 +130,17 @@
       "id": "network.http.server",
       "status": "blocked",
       "capability": "net",
-      "blockers": [928]
+      "blockers": [928],
+      "denial_evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"],
+      "notes": "The Cranelift spike still blocks positive HTTP server runtime support, but packages without the net capability receive the public manifest-policy denial before backend lowering."
     },
     {
       "id": "network.http.async_server",
       "status": "blocked",
       "capability": "async",
-      "blockers": [928]
+      "blockers": [928],
+      "denial_evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"],
+      "notes": "The Cranelift spike still blocks positive async HTTP server runtime support, but packages without the async capability receive the public manifest-policy denial after the net capability is present and before backend lowering."
     },
     {
       "id": "process.status",

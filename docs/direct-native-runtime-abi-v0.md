@@ -149,6 +149,15 @@ host-service entrypoint. The current evidence proves only that denied `net`
 capability use fails through the manifest policy before Cranelift lowering or
 native execution.
 
+The HTTP server row remains blocked for positive direct-native runtime support,
+but now has denial evidence: a package that calls `std/http.ax`
+`serve_once(...)` without the `net` capability must receive the public
+manifest-policy denial before any backend-specific lowering diagnostic. The
+async HTTP server row is also still blocked for positive runtime support, but
+now proves the async gate separately: with `net` present and `async` missing,
+`std/http_async.ax` `async_serve_route(...)` must fail through the public
+`async` capability denial before backend lowering.
+
 The process status row remains blocked for positive direct-native runtime
 support: the Cranelift spike still rejects `std/process.ax` `run_status(...)`
 instead of lowering it into a native host-service entrypoint. The current
