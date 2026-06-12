@@ -14183,6 +14183,29 @@ mod tests {
             "unexpected diagnostic: {error:?}"
         );
     }
+
+    #[test]
+    fn net_tcp_dial_rejects_dynamic_port_when_net_is_unrestricted() {
+        let parsed = syntax::parse_program(
+            "let port: int = 8080\nprint net_tcp_dial(\"example.com\", port, \"ping\", 1000)\n",
+            Path::new("main.ax"),
+        )
+        .expect("parse tcp dial program");
+        let capabilities = CapabilityConfig {
+            net: true,
+            ..CapabilityConfig::default()
+        };
+
+        let error = lower_with_capabilities(&parsed, &capabilities)
+            .expect_err("dynamic network port should fail closed");
+
+        assert!(
+            error.message.contains(
+                "requires an integer literal when [capabilities].net ports are unrestricted"
+            ),
+            "unexpected diagnostic: {error:?}"
+        );
+    }
 }
 
 fn require_capability(
