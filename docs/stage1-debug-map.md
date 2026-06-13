@@ -109,3 +109,23 @@ Consumers should treat `debug_manifest` as the integrity envelope:
 
 If `native_debug.axiom_dwarf` is `false`, tools must report that stepping is
 mediated through the sidecar map and not through native Axiom DWARF.
+
+## Native DWARF Readiness
+
+The direct-native DWARF closure check is intentionally fail-closed until the
+backend emits Axiom line tables:
+
+```sh
+python3 scripts/debug/check-axiom-dwarf.py verify \
+  --manifest <artifact>.debug-manifest.json
+```
+
+The checker first requires the manifest `binary_hash` to match the bytes at the
+manifest `binary` path, then requires both a manifest claim
+(`native_debug.axiom_dwarf = true`) and object debug metadata showing non-empty
+DWARF line/info sections plus an `.ax` source path reported by either
+`llvm-dwarfdump --show-sources` or the generic `dwarfdump` fallback. Current
+generated-Rust and Cranelift spike builds are expected to fail this check
+honestly. Passing this check is not the whole debugger acceptance bar by
+itself, but it is the minimum artifact-level evidence a future #230 closure PR
+must satisfy before claiming native Axiom DWARF support.
