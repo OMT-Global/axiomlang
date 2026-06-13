@@ -1773,7 +1773,7 @@ fn cranelift_backend_rejects_dynamic_net_targets_before_backend_lowering() {
         String::from_utf8_lossy(&output.stderr)
     );
     assert!(
-        combined.contains("requires a string literal when [capabilities].net hosts are unrestricted"),
+        combined.contains("requires a string literal listed in [capabilities].net.hosts"),
         "expected dynamic host rejection before backend lowering, got: {combined}"
     );
     assert!(
@@ -2779,7 +2779,7 @@ out_dir = "dist"
 
 [capabilities]
 fs = false
-net = true
+net = { hosts = ["localhost"], ports = [8080] }
 process = false
 env = false
 clock = false

@@ -5209,6 +5209,45 @@ net = true
     }
 
     #[test]
+    fn check_project_rejects_dynamic_network_host_with_network_allowlist() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("net-dynamic-host-allowlisted-denied");
+        create_project(&project, Some("net-dynamic-host-allowlisted-denied-app"))
+            .expect("create project");
+        fs::write(
+            project.join("axiom.toml"),
+            r#"[package]
+name = "net-dynamic-host-allowlisted-denied-app"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+net = { hosts = ["example.com"] }
+"#,
+        )
+        .expect("write manifest");
+        fs::write(
+            project.join("src/main.ax"),
+            r#"let host: string = "example.com"
+print net_resolve(host)
+"#,
+        )
+        .expect("write source");
+
+        let error = check_project(&project).expect_err("dynamic allowlisted host should fail");
+        assert_eq!(error.kind, "capability");
+        assert!(
+            error
+                .message
+                .contains("requires a string literal listed in [capabilities].net.hosts"),
+            "unexpected diagnostic: {error:?}",
+        );
+    }
+
+    #[test]
     fn check_project_rejects_dynamic_network_port_with_unrestricted_net() {
         let dir = tempdir().expect("tempdir");
         let project = dir.path().join("net-dynamic-port-unrestricted-denied");
@@ -5241,6 +5280,45 @@ net = true
             error.message.contains(
                 "requires an integer literal when [capabilities].net ports are unrestricted"
             ),
+            "unexpected diagnostic: {error:?}",
+        );
+    }
+
+    #[test]
+    fn check_project_rejects_dynamic_network_port_with_network_allowlist() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("net-dynamic-port-allowlisted-denied");
+        create_project(&project, Some("net-dynamic-port-allowlisted-denied-app"))
+            .expect("create project");
+        fs::write(
+            project.join("axiom.toml"),
+            r#"[package]
+name = "net-dynamic-port-allowlisted-denied-app"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+net = { ports = [8080] }
+"#,
+        )
+        .expect("write manifest");
+        fs::write(
+            project.join("src/main.ax"),
+            r#"let port: int = 8080
+print net_tcp_dial("example.com", port, "ping", 1000)
+"#,
+        )
+        .expect("write source");
+
+        let error = check_project(&project).expect_err("dynamic allowlisted port should fail");
+        assert_eq!(error.kind, "capability");
+        assert!(
+            error
+                .message
+                .contains("requires an integer literal listed in [capabilities].net.ports"),
             "unexpected diagnostic: {error:?}",
         );
     }

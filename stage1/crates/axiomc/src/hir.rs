@@ -14177,9 +14177,9 @@ mod tests {
             .expect_err("dynamic http target should fail closed");
 
         assert!(
-            error.message.contains(
-                "requires a static URL literal when [capabilities].net is unrestricted"
-            ),
+            error
+                .message
+                .contains("requires a static URL literal when [capabilities].net is unrestricted"),
             "unexpected diagnostic: {error:?}"
         );
     }
