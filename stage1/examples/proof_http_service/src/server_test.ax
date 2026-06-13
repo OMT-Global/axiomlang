@@ -1,6 +1,8 @@
+import "std/env.ax"
 import "std/time.ax"
 import "server.ax"
 
 let started: bool = now_ms() > 0
+let bind: string = get_env("AXIOM_TEST_BIND").unwrap_or("127.0.0.1:18080")
 
-print serve_health("127.0.0.1:18080", 1, started)
+print serve_health(bind, started)

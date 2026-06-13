@@ -82,9 +82,8 @@ pub struct TestTarget {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
 pub struct HttpTestFixture {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub bind: Option<String>,
     pub path: String,
     pub expected_body: String,
 }
@@ -286,6 +285,7 @@ struct RawDependencyDetail {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct RawTestTarget {
     name: Option<String>,
     entry: Option<String>,
@@ -295,7 +295,6 @@ struct RawTestTarget {
     kind: Option<String>,
     expected_error: Option<ExpectedDiagnostic>,
     http: Option<HttpTestFixture>,
-    bind: Option<String>,
     capabilities: Option<Vec<CapabilityKind>>,
     package: Option<String>,
 }
@@ -1270,10 +1269,7 @@ fn normalize_tests(
             stderr: raw_test.stderr,
             kind: normalize_test_kind(raw_test.kind, path, &format!("{field_prefix}.kind"))?,
             expected_error: raw_test.expected_error,
-            http: raw_test.http.map(|mut http| {
-                http.bind = raw_test.bind.or(http.bind);
-                http
-            }),
+            http: raw_test.http,
             capabilities,
             package,
         });

@@ -3375,24 +3375,11 @@ fn run_http_fixture_case(
     test: &crate::manifest::TestTarget,
 ) -> io::Result<std::process::Output> {
     let fixture = test.http.as_ref().expect("http fixture present");
-    let (host, port, injected_bind) = if let Some(bind) = fixture.bind.as_deref() {
-        let addr = bind.parse::<std::net::SocketAddr>().map_err(|err| {
-            io::Error::new(
-                io::ErrorKind::InvalidInput,
-                format!("invalid http fixture bind {bind:?}: {err}"),
-            )
-        })?;
-        (addr.ip().to_string(), addr.port(), None)
-    } else {
-        let listener = std::net::TcpListener::bind(("127.0.0.1", 0))?;
-        let port = listener.local_addr()?.port();
-        drop(listener);
-        (
-            String::from("127.0.0.1"),
-            port,
-            Some(format!("127.0.0.1:{port}")),
-        )
-    };
+    let listener = std::net::TcpListener::bind(("127.0.0.1", 0))?;
+    let port = listener.local_addr()?.port();
+    drop(listener);
+    let host = String::from("127.0.0.1");
+    let injected_bind = Some(format!("127.0.0.1:{port}"));
 
     let mut command = command_for_build_output(binary, build_output_dir)?;
     if let Some(bind) = injected_bind {
@@ -3425,15 +3412,10 @@ fn run_http_fixture_case(
     } else {
         format!("/{}", fixture.path)
     };
-    stream.write_all(format!("GET {path} HTTP/1.0
-Host: 127.0.0.1
-
-").as_bytes())?;
+    stream.write_all(format!("GET {path} HTTP/1.0\r\nHost: 127.0.0.1\r\n\r\n").as_bytes())?;
     let mut response = String::new();
     stream.read_to_string(&mut response)?;
-    let body = response.split("
-
-").nth(1).unwrap_or("");
+    let body = response.split("\r\n\r\n").nth(1).unwrap_or("");
     if body != fixture.expected_body {
         let _ = child.kill();
         let _ = child.wait();
