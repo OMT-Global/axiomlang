@@ -18,4 +18,4 @@ crypto = false
 name = "http-service-health"
 entry = "src/server_test.ax"
 stdout = "true\n"
-http = { path = "/health", expected_body = "{\"path\":\"/health\",\"ok\":true}" }
+http = { bind = "127.0.0.1:18080", path = "/health", expected_body = "{\"path\":\"/health\",\"ok\":true}" }

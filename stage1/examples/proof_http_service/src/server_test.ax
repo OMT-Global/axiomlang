@@ -2,6 +2,5 @@ import "std/time.ax"
 import "server.ax"
 
 let started: bool = now_ms() > 0
-let bind: string = "127.0.0.1:18080"
 
-print serve_health(bind, started)
+print serve_health(started)

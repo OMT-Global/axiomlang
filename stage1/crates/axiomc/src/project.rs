@@ -3375,11 +3375,27 @@ fn run_http_fixture_case(
     test: &crate::manifest::TestTarget,
 ) -> io::Result<std::process::Output> {
     let fixture = test.http.as_ref().expect("http fixture present");
-    let listener = std::net::TcpListener::bind(("127.0.0.1", 0))?;
-    let port = listener.local_addr()?.port();
-    drop(listener);
-    let host = String::from("127.0.0.1");
-    let injected_bind = Some(format!("127.0.0.1:{port}"));
+    let (host, port, injected_bind) = if let Some(bind) = &fixture.bind {
+        let (host, port) = bind.rsplit_once(':').ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!("http fixture bind must be host:port, got {bind:?}"),
+            )
+        })?;
+        let port = port.parse::<u16>().map_err(|err| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!("http fixture bind has invalid port {port:?}: {err}"),
+            )
+        })?;
+        (host.to_string(), port, None)
+    } else {
+        let listener = std::net::TcpListener::bind(("127.0.0.1", 0))?;
+        let port = listener.local_addr()?.port();
+        drop(listener);
+        let bind = format!("127.0.0.1:{port}");
+        (String::from("127.0.0.1"), port, Some(bind))
+    };
 
     let mut command = command_for_build_output(binary, build_output_dir)?;
     if let Some(bind) = injected_bind {

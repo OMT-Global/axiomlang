@@ -5518,8 +5518,11 @@ net = true
     fn check_project_rejects_dynamic_udp_network_port_with_unrestricted_net() {
         let dir = tempdir().expect("tempdir");
         let project = dir.path().join("net-dynamic-udp-port-unrestricted-denied");
-        create_project(&project, Some("net-dynamic-udp-port-unrestricted-denied-app"))
-            .expect("create project");
+        create_project(
+            &project,
+            Some("net-dynamic-udp-port-unrestricted-denied-app"),
+        )
+        .expect("create project");
         fs::write(
             project.join("axiom.toml"),
             r#"[package]
@@ -5726,9 +5729,7 @@ net = { hosts = ["example.com"], ports = [443] }
     #[test]
     fn check_project_rejects_dynamic_stdlib_http_url_with_network_allowlist() {
         let dir = tempdir().expect("tempdir");
-        let project = dir
-            .path()
-            .join("stdlib-http-url-dynamic-allowlist");
+        let project = dir.path().join("stdlib-http-url-dynamic-allowlist");
         create_project(&project, Some("stdlib-http-url-dynamic-allowlist-app"))
             .expect("create project");
         fs::write(
