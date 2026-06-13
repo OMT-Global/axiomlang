@@ -6,7 +6,7 @@ let selected_response: HttpResponse = response(200, body("/health", started), [h
 return route_response("/health", selected_response)
 }
 
-pub fn serve_health(started: bool): bool {
+pub fn serve_health(bind: string, started: bool): bool {
 let selected_route: HttpRoute = health_route(started)
-return serve("127.0.0.1:18080", selected_route, 1)
+return serve(bind, selected_route, 1)
 }
