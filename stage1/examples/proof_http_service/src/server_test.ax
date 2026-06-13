@@ -3,4 +3,4 @@ import "server.ax"
 
 let started: bool = now_ms() > 0
 
-print serve_health(started)
+print serve_health("127.0.0.1:18080", 1, started)

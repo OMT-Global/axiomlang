@@ -3425,10 +3425,15 @@ fn run_http_fixture_case(
     } else {
         format!("/{}", fixture.path)
     };
-    stream.write_all(format!("GET {path} HTTP/1.0\r\nHost: 127.0.0.1\r\n\r\n").as_bytes())?;
+    stream.write_all(format!("GET {path} HTTP/1.0
+Host: 127.0.0.1
+
+").as_bytes())?;
     let mut response = String::new();
     stream.read_to_string(&mut response)?;
-    let body = response.split("\r\n\r\n").nth(1).unwrap_or("");
+    let body = response.split("
+
+").nth(1).unwrap_or("");
     if body != fixture.expected_body {
         let _ = child.kill();
         let _ = child.wait();

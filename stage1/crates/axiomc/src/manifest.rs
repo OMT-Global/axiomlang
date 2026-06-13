@@ -295,6 +295,7 @@ struct RawTestTarget {
     kind: Option<String>,
     expected_error: Option<ExpectedDiagnostic>,
     http: Option<HttpTestFixture>,
+    bind: Option<String>,
     capabilities: Option<Vec<CapabilityKind>>,
     package: Option<String>,
 }
@@ -1269,7 +1270,10 @@ fn normalize_tests(
             stderr: raw_test.stderr,
             kind: normalize_test_kind(raw_test.kind, path, &format!("{field_prefix}.kind"))?,
             expected_error: raw_test.expected_error,
-            http: raw_test.http,
+            http: raw_test.http.map(|mut http| {
+                http.bind = raw_test.bind.or(http.bind);
+                http
+            }),
             capabilities,
             package,
         });
