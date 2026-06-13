@@ -105,7 +105,8 @@ def dwarf_tool() -> str:
 
 
 def dwarf_tool_kind(tool_path: str) -> str:
-    return TOOL_KIND_LLVM if Path(tool_path).name == "llvm-dwarfdump" else TOOL_KIND_GENERIC
+    tool_name = Path(tool_path).name
+    return TOOL_KIND_LLVM if tool_name.startswith("llvm-dwarfdump") else TOOL_KIND_GENERIC
 
 
 def run_dwarfdump(tool_path: str, binary_path: Path, *args: str) -> subprocess.CompletedProcess[str]:
