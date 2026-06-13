@@ -2,7 +2,7 @@
   "schema_version": "axiom.direct_native.runtime_abi.v0",
   "target_id": "axiom://target/stage1-direct-native",
   "status": "partial",
-  "summary": "Runtime value and capability-shim contract required before direct native builds can replace generated Rust for the supported stage1 surface.",
+  "summary": "Compiler-side Cranelift spike value and capability-shim contract required before direct native builds can replace generated Rust for the supported stage1 surface.",
   "value_features": [
     {
       "id": "numeric.scalars",
@@ -96,7 +96,9 @@
       "status": "blocked",
       "capability": "fs:write",
       "blockers": [928],
-      "denial_evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"]
+      "evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"],
+      "denial_evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"],
+      "notes": "The runtime shim remains blocked. The Cranelift spike records positive compiler-side evidence for std/fs.ax write helpers over configured fs_root-scoped literal paths, including mkdir_all, write_file, append_file, readback, replace_file, create_file, remove_file, and remove_dir. Full runtime-time filesystem writes, atomic replace parity, TOCTOU hardening, and audit parity remain open."
     },
     {
       "id": "network.dns.resolve",
@@ -146,18 +148,19 @@
       "id": "process.status",
       "status": "blocked",
       "capability": "process",
+      "evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"],
       "blockers": [928],
       "denial_evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"],
-      "notes": "The Cranelift spike still rejects positive std/process.ax run_status execution, but a package without the process capability now receives the public manifest-policy denial before backend lowering."
+      "notes": "The runtime shim remains blocked. The Cranelift spike records positive compiler-side evidence for std/process.ax run_status over literal, allowlisted deterministic commands, and missing process capability is rejected before backend lowering. Full runtime-time process execution, argument handling, audit parity, and host-process policy coverage remain open."
     },
     {
       "id": "env.read",
-      "status": "partial",
+      "status": "blocked",
       "capability": "env",
       "evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"],
       "denial_evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"],
       "blockers": [928],
-      "notes": "The Cranelift spike can build a std/env.ax get_env package for present and missing environment reads, and rejects missing env capability before backend lowering. Full runtime-time environment lookup, manifest allowlist parity, and audit parity remain open."
+      "notes": "The Cranelift spike can build a std/env.ax get_env package for present and missing environment reads, and rejects missing env capability before backend lowering. This is compiler-side spike evidence, not direct native runtime execution; full runtime-time environment lookup, manifest allowlist parity, and audit parity remain open."
     },
     {
       "id": "clock.now_sleep",

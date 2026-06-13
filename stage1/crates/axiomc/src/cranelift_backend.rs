@@ -7,7 +7,12 @@ use crate::syntax::NumericType;
 use axiomc_backend_cranelift::OutputLine;
 use std::collections::HashMap;
 use std::env;
-use std::path::Path;
+use std::io::Read;
+use std::path::{Component, Path, PathBuf};
+
+const SPIKE_FS_ROOT_BINDING: &str = "$axiom_fs_root";
+const SPIKE_MAX_FS_READ_BYTES: u64 = 64 * 1024 * 1024;
+const SPIKE_MAX_FS_WRITE_BYTES: usize = 64 * 1024 * 1024;
 
 #[derive(Debug, Clone, PartialEq)]
 enum SpikeValue {
@@ -66,6 +71,8 @@ struct RegexProgram {
 
 pub fn compile_cranelift_hello_spike(
     program: &Program,
+    package_root: &Path,
+    fs_root: &Path,
     object_path: &Path,
     binary_path: &Path,
     target: Option<&str>,
@@ -76,7 +83,7 @@ pub fn compile_cranelift_hello_spike(
             "the cranelift backend spike currently supports only the host target",
         ));
     }
-    let lines = collect_output_lines(program)?;
+    let lines = collect_output_lines(program, package_root, fs_root)?;
     axiomc_backend_cranelift::compile_output_lines(&lines, object_path, binary_path).map_err(
         |err| {
             Diagnostic::new("build", err.to_string()).with_path(object_path.display().to_string())
@@ -84,13 +91,21 @@ pub fn compile_cranelift_hello_spike(
     )
 }
 
-fn collect_output_lines(program: &Program) -> Result<Vec<OutputLine>, Diagnostic> {
+fn collect_output_lines(
+    program: &Program,
+    _package_root: &Path,
+    fs_root: &Path,
+) -> Result<Vec<OutputLine>, Diagnostic> {
     let functions = program
         .functions
         .iter()
         .map(|function| (function.name.as_str(), function))
         .collect::<HashMap<_, _>>();
     let mut env = SpikeEnv::new();
+    env.insert(
+        SPIKE_FS_ROOT_BINDING.to_string(),
+        SpikeValue::Text(fs_root.display().to_string()),
+    );
     let mut lines = Vec::new();
     for static_def in &program.statics {
         let value = eval_expr(&static_def.expr, &functions, &env, &mut lines)?;
@@ -565,6 +580,15 @@ fn eval_call(
     }
     if name == "env_get" {
         return eval_env_get_call(args, functions, env, lines);
+    }
+    if name == "fs_read" {
+        return eval_fs_read_call(args, functions, env, lines);
+    }
+    if is_fs_write_call(name) {
+        return eval_fs_write_call(name, args, functions, env, lines);
+    }
+    if name == "process_status" {
+        return eval_process_status_call(args, functions, env, lines);
     }
     if name == "clock_now_ms" {
         return eval_clock_now_ms_call(args);
@@ -1076,6 +1100,300 @@ fn eval_env_get_call(
     };
     let name = expect_text(eval_expr(name, functions, env, lines)?, "env_get")?;
     Ok(spike_option(env::var(name).ok().map(SpikeValue::Text)))
+}
+
+fn is_fs_write_call(name: &str) -> bool {
+    matches!(
+        name,
+        "fs_write"
+            | "fs_create"
+            | "fs_append"
+            | "fs_mkdir"
+            | "fs_mkdir_all"
+            | "fs_remove_file"
+            | "fs_remove_dir"
+            | "fs_replace"
+    )
+}
+
+fn eval_fs_read_call(
+    args: &[Expr],
+    functions: &HashMap<&str, &Function>,
+    env: &SpikeEnv,
+    lines: &mut Vec<OutputLine>,
+) -> Result<SpikeValue, Diagnostic> {
+    let [path] = args else {
+        return Err(unsupported("fs_read expects exactly one argument"));
+    };
+    let path = expect_text(eval_expr(path, functions, env, lines)?, "fs_read")?;
+    let Some(candidate) = spike_fs_existing_candidate(env, &path)? else {
+        return Ok(spike_option(None));
+    };
+    let Some(metadata) = std::fs::metadata(&candidate).ok() else {
+        return Ok(spike_option(None));
+    };
+    if !metadata.is_file() || metadata.len() > SPIKE_MAX_FS_READ_BYTES {
+        return Ok(spike_option(None));
+    }
+    let Some(file) = std::fs::File::open(&candidate).ok() else {
+        return Ok(spike_option(None));
+    };
+    let mut reader = file.take(SPIKE_MAX_FS_READ_BYTES + 1);
+    let mut content = String::new();
+    if reader.read_to_string(&mut content).is_err()
+        || content.len() as u64 > SPIKE_MAX_FS_READ_BYTES
+    {
+        return Ok(spike_option(None));
+    }
+    Ok(spike_option(Some(SpikeValue::Text(content))))
+}
+
+fn eval_fs_write_call(
+    name: &str,
+    args: &[Expr],
+    functions: &HashMap<&str, &Function>,
+    env: &SpikeEnv,
+    lines: &mut Vec<OutputLine>,
+) -> Result<SpikeValue, Diagnostic> {
+    let result = match name {
+        "fs_write" => {
+            let (path, content) = eval_fs_path_content(name, args, functions, env, lines)?;
+            if content.len() > SPIKE_MAX_FS_WRITE_BYTES {
+                -1
+            } else {
+                spike_fs_write_candidate(env, &path, false)?
+                    .and_then(|candidate| std::fs::write(candidate, content).ok())
+                    .map(|()| 0)
+                    .unwrap_or(-1)
+            }
+        }
+        "fs_create" => {
+            let path = eval_fs_path(name, args, functions, env, lines)?;
+            spike_fs_write_candidate(env, &path, false)?
+                .and_then(|candidate| {
+                    std::fs::OpenOptions::new()
+                        .write(true)
+                        .create_new(true)
+                        .open(candidate)
+                        .ok()
+                })
+                .map(|_| 0)
+                .unwrap_or(-1)
+        }
+        "fs_append" => {
+            let (path, content) = eval_fs_path_content(name, args, functions, env, lines)?;
+            if content.len() > SPIKE_MAX_FS_WRITE_BYTES {
+                -1
+            } else {
+                spike_fs_write_candidate(env, &path, false)?
+                    .and_then(|candidate| {
+                        let mut file = std::fs::OpenOptions::new()
+                            .append(true)
+                            .create(true)
+                            .open(candidate)
+                            .ok()?;
+                        std::io::Write::write_all(&mut file, content.as_bytes()).ok()
+                    })
+                    .map(|()| 0)
+                    .unwrap_or(-1)
+            }
+        }
+        "fs_mkdir" => {
+            let path = eval_fs_path(name, args, functions, env, lines)?;
+            spike_fs_write_candidate(env, &path, false)?
+                .and_then(|candidate| std::fs::create_dir(candidate).ok())
+                .map(|()| 0)
+                .unwrap_or(-1)
+        }
+        "fs_mkdir_all" => {
+            let path = eval_fs_path(name, args, functions, env, lines)?;
+            spike_fs_write_candidate(env, &path, true)?
+                .and_then(|candidate| std::fs::create_dir_all(candidate).ok())
+                .map(|()| 0)
+                .unwrap_or(-1)
+        }
+        "fs_remove_file" => {
+            let path = eval_fs_path(name, args, functions, env, lines)?;
+            spike_fs_existing_candidate(env, &path)?
+                .and_then(|candidate| {
+                    std::fs::metadata(&candidate)
+                        .ok()
+                        .filter(|metadata| metadata.is_file())?;
+                    std::fs::remove_file(candidate).ok()
+                })
+                .map(|()| 0)
+                .unwrap_or(-1)
+        }
+        "fs_remove_dir" => {
+            let path = eval_fs_path(name, args, functions, env, lines)?;
+            spike_fs_existing_candidate(env, &path)?
+                .and_then(|candidate| {
+                    std::fs::metadata(&candidate)
+                        .ok()
+                        .filter(|metadata| metadata.is_dir())?;
+                    std::fs::remove_dir(candidate).ok()
+                })
+                .map(|()| 0)
+                .unwrap_or(-1)
+        }
+        "fs_replace" => {
+            let (path, content) = eval_fs_path_content(name, args, functions, env, lines)?;
+            if content.len() > SPIKE_MAX_FS_WRITE_BYTES {
+                -1
+            } else {
+                spike_fs_write_candidate(env, &path, false)?
+                    .and_then(|candidate| std::fs::write(candidate, content).ok())
+                    .map(|()| 0)
+                    .unwrap_or(-1)
+            }
+        }
+        _ => {
+            return Err(unsupported(&format!(
+                "unsupported cranelift spike filesystem call {name:?}"
+            )));
+        }
+    };
+    Ok(SpikeValue::Int(result))
+}
+
+fn eval_fs_path(
+    name: &str,
+    args: &[Expr],
+    functions: &HashMap<&str, &Function>,
+    env: &SpikeEnv,
+    lines: &mut Vec<OutputLine>,
+) -> Result<String, Diagnostic> {
+    let [path] = args else {
+        return Err(unsupported(&format!("{name} expects exactly one argument")));
+    };
+    expect_text(eval_expr(path, functions, env, lines)?, name)
+}
+
+fn eval_fs_path_content(
+    name: &str,
+    args: &[Expr],
+    functions: &HashMap<&str, &Function>,
+    env: &SpikeEnv,
+    lines: &mut Vec<OutputLine>,
+) -> Result<(String, String), Diagnostic> {
+    let [path, content] = args else {
+        return Err(unsupported(&format!(
+            "{name} expects exactly two arguments"
+        )));
+    };
+    let path = expect_text(eval_expr(path, functions, env, lines)?, name)?;
+    let content = expect_text(eval_expr(content, functions, env, lines)?, name)?;
+    Ok((path, content))
+}
+
+fn spike_fs_root(env: &SpikeEnv) -> Result<PathBuf, Diagnostic> {
+    match env.get(SPIKE_FS_ROOT_BINDING) {
+        Some(SpikeValue::Text(root)) => Ok(PathBuf::from(root)),
+        _ => Err(unsupported(
+            "cranelift spike filesystem root is unavailable",
+        )),
+    }
+}
+
+fn spike_fs_existing_candidate(env: &SpikeEnv, path: &str) -> Result<Option<PathBuf>, Diagnostic> {
+    let fs_root = spike_fs_root(env)?;
+    let Some(candidate) = spike_fs_join_candidate(&fs_root, path) else {
+        return Ok(None);
+    };
+    let Ok(canonical_root) = std::fs::canonicalize(fs_root) else {
+        return Ok(None);
+    };
+    let Ok(canonical_candidate) = std::fs::canonicalize(candidate) else {
+        return Ok(None);
+    };
+    Ok(canonical_candidate
+        .starts_with(canonical_root)
+        .then_some(canonical_candidate))
+}
+
+fn spike_fs_write_candidate(
+    env: &SpikeEnv,
+    path: &str,
+    allow_missing_ancestors: bool,
+) -> Result<Option<PathBuf>, Diagnostic> {
+    let fs_root = spike_fs_root(env)?;
+    let Some(candidate) = spike_fs_join_candidate(&fs_root, path) else {
+        return Ok(None);
+    };
+    let Ok(canonical_root) = std::fs::canonicalize(&fs_root) else {
+        return Ok(None);
+    };
+    if let Ok(canonical_candidate) = std::fs::canonicalize(&candidate) {
+        return Ok(canonical_candidate
+            .starts_with(canonical_root)
+            .then_some(canonical_candidate));
+    }
+    let Some(parent) = candidate.parent() else {
+        return Ok(None);
+    };
+    if !allow_missing_ancestors {
+        let Ok(canonical_parent) = std::fs::canonicalize(parent) else {
+            return Ok(None);
+        };
+        if !canonical_parent.starts_with(&canonical_root) {
+            return Ok(None);
+        }
+        let Some(file_name) = candidate.file_name() else {
+            return Ok(None);
+        };
+        return Ok(Some(canonical_parent.join(file_name)));
+    }
+    let mut ancestor = parent;
+    while !ancestor.exists() {
+        let Some(parent) = ancestor.parent() else {
+            return Ok(None);
+        };
+        ancestor = parent;
+    }
+    let Ok(canonical_ancestor) = std::fs::canonicalize(ancestor) else {
+        return Ok(None);
+    };
+    Ok(canonical_ancestor
+        .starts_with(canonical_root)
+        .then_some(candidate))
+}
+
+fn spike_fs_join_candidate(package_root: &Path, path: &str) -> Option<PathBuf> {
+    let requested = Path::new(path);
+    if requested.as_os_str().is_empty()
+        || requested
+            .components()
+            .any(|component| matches!(component, Component::ParentDir))
+    {
+        return None;
+    }
+    Some(if requested.is_absolute() {
+        requested.to_path_buf()
+    } else {
+        package_root.join(requested)
+    })
+}
+
+fn eval_process_status_call(
+    args: &[Expr],
+    functions: &HashMap<&str, &Function>,
+    env: &SpikeEnv,
+    lines: &mut Vec<OutputLine>,
+) -> Result<SpikeValue, Diagnostic> {
+    let [command] = args else {
+        return Err(unsupported("process_status expects exactly one argument"));
+    };
+    let command = expect_text(eval_expr(command, functions, env, lines)?, "process_status")?;
+    let status = match command.as_str() {
+        "/usr/bin/true" => 0,
+        "/usr/bin/false" => 1,
+        _ => {
+            return Err(unsupported(
+                "process_status spike only permits allowlisted deterministic commands",
+            ));
+        }
+    };
+    Ok(SpikeValue::Int(status))
 }
 
 fn hex_lower(bytes: &[u8]) -> String {
@@ -2277,7 +2595,8 @@ mod tests {
     #[test]
     fn folds_hello_subset_into_print_lines() {
         assert_eq!(
-            collect_output_lines(&hello_program()).expect("fold hello"),
+            collect_output_lines(&hello_program(), Path::new("."), Path::new("."))
+                .expect("fold hello"),
             vec![
                 OutputLine::stdout("hello from stage1"),
                 OutputLine::stdout("42")

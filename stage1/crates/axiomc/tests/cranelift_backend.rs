@@ -431,11 +431,62 @@ fn cranelift_backend_builds_array_helpers_binary() {
     assert_eq!(String::from_utf8_lossy(&run.stdout), "3\n10\n30\n40\n");
 }
 
+#[cfg(not(windows))]
 #[test]
-fn cranelift_backend_rejects_process_status_binary() {
+fn cranelift_backend_builds_process_status_binary() {
+    if which::which("cc").is_err() {
+        eprintln!("skipping cranelift backend smoke test because cc is unavailable");
+        return;
+    }
+    if !Path::new("/usr/bin/true").exists() || !Path::new("/usr/bin/false").exists() {
+        eprintln!(
+            "skipping cranelift process-status test because /usr/bin/true or /usr/bin/false is unavailable"
+        );
+        return;
+    }
+
     let temp = tempfile::tempdir().expect("tempdir");
     let project = temp.path().join("process-status");
     write_process_status_project(&project);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args([
+            "build",
+            project.to_str().expect("project path"),
+            "--backend",
+            "cranelift",
+            "--json",
+        ])
+        .output()
+        .expect("run axiomc build --backend cranelift");
+
+    assert!(
+        output.status.success(),
+        "cranelift process-status build failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+    assert_eq!(payload["backend"], "cranelift");
+    let binary = payload["binary"].as_str().expect("binary path");
+    let run = Command::new(binary)
+        .output()
+        .expect("run cranelift process-status binary");
+    assert!(
+        run.status.success(),
+        "cranelift process-status binary failed: stderr={}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "0\n1\n");
+}
+
+#[cfg(not(windows))]
+#[test]
+fn cranelift_backend_rejects_unapproved_process_status_command() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("process-status-unapproved");
+    write_process_status_unapproved_project(&project);
 
     let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
         .args([
@@ -454,14 +505,112 @@ fn cranelift_backend_rejects_process_status_binary() {
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
-    let combined = format!(
+    let diagnostic = format!(
         "{}{}",
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
     assert!(
-        combined.contains("unsupported by --backend cranelift spike"),
-        "expected backend rejection for process_status, got: {combined}"
+        diagnostic.contains("allowlisted deterministic commands"),
+        "unexpected diagnostic: {diagnostic}"
+    );
+}
+
+#[cfg(not(windows))]
+#[test]
+fn cranelift_backend_builds_fs_write_binary() {
+    if which::which("cc").is_err() {
+        eprintln!("skipping cranelift backend smoke test because cc is unavailable");
+        return;
+    }
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("fs-write");
+    write_fs_write_project(&project);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args([
+            "build",
+            project.to_str().expect("project path"),
+            "--backend",
+            "cranelift",
+            "--json",
+        ])
+        .output()
+        .expect("run axiomc build --backend cranelift");
+
+    assert!(
+        output.status.success(),
+        "cranelift fs-write build failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+    assert_eq!(payload["backend"], "cranelift");
+    let binary = payload["binary"].as_str().expect("binary path");
+    let run = Command::new(binary)
+        .output()
+        .expect("run cranelift fs-write binary");
+    assert!(
+        run.status.success(),
+        "cranelift fs-write binary failed: stderr={}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&run.stdout),
+        "0\n0\n0\none\ntwo\n0\nfinal\n0\n0\n0\n0\n0\n"
+    );
+}
+
+#[cfg(not(windows))]
+#[test]
+fn cranelift_backend_honors_fs_root_for_fs_write_binary() {
+    if which::which("cc").is_err() {
+        eprintln!("skipping cranelift backend smoke test because cc is unavailable");
+        return;
+    }
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("fs-root");
+    write_fs_root_project(&project);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args([
+            "build",
+            project.to_str().expect("project path"),
+            "--backend",
+            "cranelift",
+            "--json",
+        ])
+        .output()
+        .expect("run axiomc build --backend cranelift");
+
+    assert!(
+        output.status.success(),
+        "cranelift fs-root build failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+    assert_eq!(payload["backend"], "cranelift");
+    let binary = payload["binary"].as_str().expect("binary path");
+    let run = Command::new(binary)
+        .output()
+        .expect("run cranelift fs-root binary");
+    assert!(
+        run.status.success(),
+        "cranelift fs-root binary failed: stderr={}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&run.stdout),
+        "0\n0\n-1\nmissing\nok\n"
+    );
+    assert_eq!(
+        fs::read_to_string(project.join("src/main.ax")).expect("read source"),
+        fs_root_source(&project)
     );
 }
 
@@ -2096,6 +2245,49 @@ print run_status("/usr/bin/false")
     .expect("write process-status source");
 }
 
+fn write_process_status_unapproved_project(project: &Path) {
+    fs::create_dir_all(project.join("src")).expect("create process-status project src");
+    fs::write(
+        project.join("axiom.toml"),
+        r#"[package]
+name = "cranelift-process-status-unapproved"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+fs = false
+net = false
+process = true
+unsafe_rationale = "direct-native process-status regression rejects unapproved compiler-time commands"
+env = false
+clock = false
+crypto = false
+"#,
+    )
+    .expect("write process-status manifest");
+    fs::write(
+        project.join("axiom.lock"),
+        r#"version = 1
+
+[[package]]
+name = "cranelift-process-status-unapproved"
+version = "0.1.0"
+source = "path"
+"#,
+    )
+    .expect("write process-status lockfile");
+    fs::write(
+        project.join("src/main.ax"),
+        r#"import "std/process.ax"
+print run_status("/bin/sh")
+"#,
+    )
+    .expect("write process-status source");
+}
+
 fn write_owned_move_state_project(project: &Path) {
     fs::create_dir_all(project.join("src")).expect("create owned move project src");
     fs::write(
@@ -2656,6 +2848,49 @@ fn write_process_denial_project(project: &Path) {
         "import \"std/process.ax\"\nprint run_status(\"/usr/bin/true\")\n",
     )
     .expect("write process denied source");
+}
+
+fn write_fs_write_project(project: &Path) {
+    fs::create_dir_all(project.join("src")).expect("create fs write project src");
+    fs::write(
+        project.join("axiom.toml"),
+        "[package]\nname = \"cranelift-fs-write\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = true\n\"fs:write\" = true\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n",
+    )
+    .expect("write fs write manifest");
+    fs::write(
+        project.join("axiom.lock"),
+        "version = 1\n\n[[package]]\nname = \"cranelift-fs-write\"\nversion = \"0.1.0\"\nsource = \"path\"\n",
+    )
+    .expect("write fs write lockfile");
+    fs::write(
+        project.join("src/main.ax"),
+        "import \"std/fs.ax\"\nprint mkdir_all(\"scratch/nested\")\nprint write_file(\"scratch/nested/data.txt\", \"one\")\nprint append_file(\"scratch/nested/data.txt\", \"\\ntwo\")\nmatch read_file(\"scratch/nested/data.txt\") {\nSome(value) {\nprint value\n}\nNone {\nprint \"missing\"\n}\n}\nprint replace_file(\"scratch/nested/data.txt\", \"final\")\nmatch read_file(\"scratch/nested/data.txt\") {\nSome(value) {\nprint value\n}\nNone {\nprint \"missing\"\n}\n}\nprint create_file(\"scratch/empty.txt\")\nprint remove_file(\"scratch/empty.txt\")\nprint remove_file(\"scratch/nested/data.txt\")\nprint remove_dir(\"scratch/nested\")\nprint remove_dir(\"scratch\")\n",
+    )
+    .expect("write fs write source");
+}
+
+fn write_fs_root_project(project: &Path) {
+    fs::create_dir_all(project.join("src")).expect("create fs-root project src");
+    fs::create_dir_all(project.join("sandbox")).expect("create fs-root sandbox");
+    fs::write(
+        project.join("axiom.toml"),
+        "[package]\nname = \"cranelift-fs-root\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = true\n\"fs:write\" = true\nfs_root = \"sandbox\"\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n",
+    )
+    .expect("write fs-root manifest");
+    fs::write(
+        project.join("axiom.lock"),
+        "version = 1\n\n[[package]]\nname = \"cranelift-fs-root\"\nversion = \"0.1.0\"\nsource = \"path\"\n",
+    )
+    .expect("write fs-root lockfile");
+    fs::write(project.join("src/main.ax"), fs_root_source(project)).expect("write fs-root source");
+}
+
+fn fs_root_source(project: &Path) -> String {
+    let source = project.join("src/main.ax").display().to_string();
+    let manifest = project.join("axiom.toml").display().to_string();
+    format!(
+        "import \"std/fs.ax\"\nprint mkdir_all(\"nested\")\nprint write_file(\"nested/data.txt\", \"ok\")\nprint write_file({source:?}, \"corrupt\")\nmatch read_file({manifest:?}) {{\nSome(_value) {{\nprint \"leak\"\n}}\nNone {{\nprint \"missing\"\n}}\n}}\nmatch read_file(\"nested/data.txt\") {{\nSome(value) {{\nprint value\n}}\nNone {{\nprint \"missing allowed\"\n}}\n}}\n"
+    )
 }
 
 fn write_fs_write_denial_project(project: &Path) {

@@ -48,6 +48,9 @@ Every row has one of these statuses:
   Rust exit.
 
 Rows that are not `implemented` must name at least one blocker issue.
+Compiler-side Cranelift spike evaluation can be recorded as evidence on a
+blocked runtime-shim row, but it does not by itself reclassify that row as
+runtime support.
 
 ## Required Value Features
 
@@ -88,22 +91,22 @@ native backend attempts lowering or native execution.
 
 ## Current Status
 
-The checked-in contract is intentionally not ready. It records the current
-Cranelift/direct-native spike as partial and points the blocked runtime rows at
-the Rust-exit implementation issues. This lets future backend slices update the
-contract as runtime shims land without editing the generated-Rust target
-contract.
+The checked-in contract is intentionally not ready. It records compiler-side
+Cranelift/direct-native spike evidence and keeps the affected runtime rows
+blocked until real runtime shims land. This lets future backend slices update
+the contract as runtime support lands without pretending the spike already
+proves direct-native runtime coverage.
 
 The first executable guard for this boundary is a Cranelift regression that
 builds a package using `std/fs.ax` without the `fs` capability and verifies the
 public capability denial appears before any Cranelift unsupported-feature
 diagnostic.
 
-The `fs.read` and `env.read` rows now have partial Cranelift evidence for
-`std/fs.ax` `read_file` and `std/env.ax` `get_env` on present and missing
-filesystem or environment names, plus denial evidence that packages without the
-matching capability fail before backend lowering. Full runtime-time lookup,
-manifest allowlist parity, and audit parity remain open under #928.
+The `fs.read` row now has partial Cranelift evidence for `std/fs.ax`
+`read_file` on present and missing filesystem names, plus denial evidence that a
+package without the `fs` capability fails before backend lowering. Full
+runtime-time filesystem access, manifest policy parity, and audit parity remain
+open under #928.
 
 The UDP row is still blocked for positive direct-native runtime execution, but
 now has denial evidence: a package that calls `std/net.ax`
@@ -115,10 +118,16 @@ now has denial evidence: a package that calls `std/net.ax`
 `tcp_listen_loopback_once(...)` without the `net` capability must receive the
 public manifest-policy denial before any backend-specific lowering diagnostic.
 
-The filesystem write row is still blocked for positive direct-native runtime
-execution, but now has denial evidence: a package with `fs = true` and
-`"fs:write" = false` that calls `std/fs.ax` `write_file(...)` must receive the
-public manifest-policy denial before any backend-specific lowering diagnostic.
+The filesystem write row remains blocked for direct-native runtime support, but
+now has positive compiler-side spike evidence: the Cranelift spike evaluates
+`std/fs.ax` write helpers over configured `fs_root`-scoped literal paths during
+compilation and emits the resulting output, covering `mkdir_all`, `write_file`,
+`append_file`, readback, `replace_file`, `create_file`, `remove_file`, and
+`remove_dir`. A package with `fs = true` and `"fs:write" = false` that calls
+`std/fs.ax` `write_file(...)` must still receive the public manifest-policy
+denial before any backend-specific lowering diagnostic. Full runtime-time
+filesystem writes, atomic replace parity, TOCTOU hardening, and audit parity
+remain open under #928.
 
 The DNS resolve row is still blocked for positive direct-native runtime
 execution, but now has denial evidence: a package that calls `std/net.ax`
@@ -158,20 +167,24 @@ now proves the async gate separately: with `net` present and `async` missing,
 `std/http_async.ax` `async_serve_route(...)` must fail through the public
 `async` capability denial before backend lowering.
 
-The process status row remains blocked for positive direct-native runtime
-support: the Cranelift spike still rejects `std/process.ax` `run_status(...)`
-instead of lowering it into a native host-service entrypoint. The current
-evidence proves that denied `process` capability use fails through the manifest
-policy before Cranelift lowering or native execution.
+The process status row now has partial compiler-side spike evidence: the
+Cranelift spike builds and runs `std/process.ax` `run_status(...)` for literal,
+allowlisted deterministic commands through compiler-side spike evaluation and
+emits their exit statuses without generated Rust. Denied `process` capability
+use still fails through the manifest policy before Cranelift lowering or native
+execution. Full runtime-time process execution, argument handling, audit parity,
+and host-process policy coverage remain open under #928.
 
 The borrowed-slice row has partial direct-native evidence: the Cranelift spike
 now evaluates array-backed borrowed slices through `len`, `first`, `last`,
 indexing, and function returns. Broader borrowed-slice aliasing and host ABI
 coverage remain tracked by issue #928.
 
-The `env.read` row now has partial Cranelift evidence for `std/env.ax`
-`get_env` on present and missing environment names, plus denial evidence that a
-package without the `env` capability fails before backend lowering. Full
+The `env.read` row remains blocked for direct-native runtime execution, but now
+has compiler-side Cranelift spike evidence for `std/env.ax` `get_env` on present
+and missing environment names, plus denial evidence that a package without the
+`env` capability fails before backend lowering. This does not claim direct native
+runtime execution yet; full
 runtime-time lookup, manifest allowlist parity, and audit parity remain open
 under #928.
 
@@ -211,37 +224,6 @@ sleep shape limited to zero-duration calls until the real runtime clock path
 lands. Full runtime-time clock/sleep execution, timer scheduling, async clock
 integration, and audit parity remain open under #928.
 
-The sync-primitives row has partial direct-native evidence: the Cranelift spike
-now evaluates ownership-shaped `std/sync.ax` mutex, once, and channel wrappers
-and emits the expected native output. Concurrent execution, blocking behavior,
-and host runtime synchronization remain tracked by issue #928.
-
-The direct-native JSON/serdes slice is still marked partial: the Cranelift
-spike can build and run `std/json.ax` scalar parse/stringify helpers, first-class
-`JsonValue` string wrapping, object field extraction, and value normalization
-without generated Rust. Full `std/serdes.ax` object graph parsing, schema
-validation, and richer JSON value modeling remain blocked.
-
-The regex row is partial: direct native builds cover `std/regex.ax` matching,
-finding, and replacement for the stage1-safe NFA subset. The replacement
-coverage includes an anchored `replace_all` regression so `^` patterns only
-replace the original leading match. Full regex syntax and broader conformance
-remain tracked by #928.
-
-The `clock.now_sleep` row now has partial Cranelift evidence for `std/time.ax`
-`now_ms`, `now`, `elapsed_ms`, and zero-duration `sleep`, plus guards that a
-package without the `clock` capability fails before backend lowering and that
-nonzero sleep fails fast instead of ever reaching host sleep during
-compiler-side spike evaluation. The spike intentionally keeps the supported
-sleep shape limited to zero-duration calls until the real runtime clock path
-lands. Full runtime-time clock/sleep execution, timer scheduling, async clock
-integration, and audit parity remain open under #928.
-
-The direct-native JSON/serdes slice is still marked partial: the Cranelift
-spike can build and run `std/json.ax` scalar parse/stringify helpers, first-class
-`JsonValue` string wrapping, object field extraction, and value normalization
-without generated Rust. Full `std/serdes.ax` object graph parsing, schema
-validation, and richer JSON value modeling remain blocked.
 
 
 ## Rust Capture Check
