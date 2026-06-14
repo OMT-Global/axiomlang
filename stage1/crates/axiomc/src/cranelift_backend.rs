@@ -53,6 +53,16 @@ struct I64StaticBindings {
     encoding_path_segment_encode_wrappers: HashSet<String>,
     encoding_url_query_pair_encode_wrappers: HashSet<String>,
     encoding_path_join_segment_wrappers: HashSet<String>,
+    json_wrappers: HashSet<String>,
+    json_parse_int_wrappers: HashSet<String>,
+    json_parse_bool_wrappers: HashSet<String>,
+    json_parse_string_wrappers: HashSet<String>,
+    json_parse_field_int_wrappers: HashSet<String>,
+    json_parse_field_bool_wrappers: HashSet<String>,
+    json_parse_field_string_wrappers: HashSet<String>,
+    json_stringify_int_wrappers: HashSet<String>,
+    json_stringify_bool_wrappers: HashSet<String>,
+    json_stringify_string_wrappers: HashSet<String>,
     crypto_wrappers: HashSet<String>,
     crypto_sha256_wrappers: HashSet<String>,
     crypto_hmac_sha256_wrappers: HashSet<String>,
@@ -366,6 +376,66 @@ fn lower_i64_exit_program(program: &Program, fs_root: &Path) -> Option<I64ExitPr
         .filter(|function| is_i64_std_encoding_wrapper(function, "path_join_segment"))
         .flat_map(|function| [function.name.clone(), function.source_name.clone()])
         .collect();
+    static_bindings.json_wrappers = program
+        .functions
+        .iter()
+        .filter(|function| function.path == "<stdlib>/json.ax")
+        .map(|function| function.name.clone())
+        .collect();
+    static_bindings.json_parse_int_wrappers = program
+        .functions
+        .iter()
+        .filter(|function| is_i64_std_json_wrapper(function, "parse_int"))
+        .flat_map(|function| [function.name.clone(), function.source_name.clone()])
+        .collect();
+    static_bindings.json_parse_bool_wrappers = program
+        .functions
+        .iter()
+        .filter(|function| is_i64_std_json_wrapper(function, "parse_bool"))
+        .flat_map(|function| [function.name.clone(), function.source_name.clone()])
+        .collect();
+    static_bindings.json_parse_string_wrappers = program
+        .functions
+        .iter()
+        .filter(|function| is_i64_std_json_wrapper(function, "parse_string"))
+        .flat_map(|function| [function.name.clone(), function.source_name.clone()])
+        .collect();
+    static_bindings.json_parse_field_int_wrappers = program
+        .functions
+        .iter()
+        .filter(|function| is_i64_std_json_wrapper(function, "parse_field_int"))
+        .flat_map(|function| [function.name.clone(), function.source_name.clone()])
+        .collect();
+    static_bindings.json_parse_field_bool_wrappers = program
+        .functions
+        .iter()
+        .filter(|function| is_i64_std_json_wrapper(function, "parse_field_bool"))
+        .flat_map(|function| [function.name.clone(), function.source_name.clone()])
+        .collect();
+    static_bindings.json_parse_field_string_wrappers = program
+        .functions
+        .iter()
+        .filter(|function| is_i64_std_json_wrapper(function, "parse_field_string"))
+        .flat_map(|function| [function.name.clone(), function.source_name.clone()])
+        .collect();
+    static_bindings.json_stringify_int_wrappers = program
+        .functions
+        .iter()
+        .filter(|function| is_i64_std_json_wrapper(function, "stringify_int"))
+        .flat_map(|function| [function.name.clone(), function.source_name.clone()])
+        .collect();
+    static_bindings.json_stringify_bool_wrappers = program
+        .functions
+        .iter()
+        .filter(|function| is_i64_std_json_wrapper(function, "stringify_bool"))
+        .flat_map(|function| [function.name.clone(), function.source_name.clone()])
+        .collect();
+    static_bindings.json_stringify_string_wrappers = program
+        .functions
+        .iter()
+        .filter(|function| is_i64_std_json_wrapper(function, "stringify_string"))
+        .flat_map(|function| [function.name.clone(), function.source_name.clone()])
+        .collect();
     static_bindings.crypto_wrappers = program
         .functions
         .iter()
@@ -445,6 +515,7 @@ fn lower_i64_exit_program(program: &Program, fs_root: &Path) -> Option<I64ExitPr
     let collection_wrappers = static_bindings.collection_wrappers.clone();
     let regex_wrappers = static_bindings.regex_wrappers.clone();
     let encoding_wrappers = static_bindings.encoding_wrappers.clone();
+    let json_wrappers = static_bindings.json_wrappers.clone();
     let crypto_wrappers = static_bindings.crypto_wrappers.clone();
     let ffi_strlen_symbols = static_bindings.ffi_strlen_symbols.clone();
     let helper_functions = program
@@ -459,6 +530,7 @@ fn lower_i64_exit_program(program: &Program, fs_root: &Path) -> Option<I64ExitPr
                 && !collection_wrappers.contains(&function.name)
                 && !regex_wrappers.contains(&function.name)
                 && !encoding_wrappers.contains(&function.name)
+                && !json_wrappers.contains(&function.name)
                 && !crypto_wrappers.contains(&function.name)
                 && !ffi_strlen_symbols.contains(&function.name)
         })
@@ -6126,7 +6198,7 @@ fn i64_string_call_text(
                 &i64_string_text(replacement, static_bindings)?,
             ))
         }
-        "json_stringify_string" => {
+        name if is_i64_json_stringify_string_name(name, static_bindings) => {
             let [text] = args else {
                 return None;
             };
@@ -6139,13 +6211,13 @@ fn i64_string_call_text(
             let text = i64_string_text(text, static_bindings)?;
             Some(json_parse_value(&text).unwrap_or(text))
         }
-        "json_stringify_int" => {
+        name if is_i64_json_stringify_int_name(name, static_bindings) => {
             let [value] = args else {
                 return None;
             };
             Some(i64_static_scalar_value(value, static_bindings)?.to_string())
         }
-        "json_stringify_bool" => {
+        name if is_i64_json_stringify_bool_name(name, static_bindings) => {
             let [value] = args else {
                 return None;
             };
@@ -6299,7 +6371,7 @@ fn i64_string_option_text(
                 &i64_string_text(path, static_bindings)?,
             ))
         }
-        "json_parse_string" => {
+        name if is_i64_json_parse_string_name(name, static_bindings) => {
             let [text] = args.as_slice() else {
                 return None;
             };
@@ -6311,7 +6383,7 @@ fn i64_string_option_text(
             };
             Some(json_parse_value(&i64_string_text(text, static_bindings)?))
         }
-        "json_parse_field_string" => {
+        name if is_i64_json_parse_field_string_name(name, static_bindings) => {
             let [text, key] = args.as_slice() else {
                 return None;
             };
@@ -6342,13 +6414,13 @@ fn i64_i64_option_value(expr: &Expr, static_bindings: &I64StaticBindings) -> Opt
         };
     }
     match name.as_str() {
-        "json_parse_int" => {
+        name if is_i64_json_parse_int_name(name, static_bindings) => {
             let [text] = args.as_slice() else {
                 return None;
             };
             Some(json_parse_int(&i64_string_text(text, static_bindings)?))
         }
-        "json_parse_field_int" => {
+        name if is_i64_json_parse_field_int_name(name, static_bindings) => {
             let [text, key] = args.as_slice() else {
                 return None;
             };
@@ -6371,13 +6443,13 @@ fn i64_bool_option_value(expr: &Expr, static_bindings: &I64StaticBindings) -> Op
         };
     }
     match name.as_str() {
-        "json_parse_bool" => {
+        name if is_i64_json_parse_bool_name(name, static_bindings) => {
             let [text] = args.as_slice() else {
                 return None;
             };
             Some(json_parse_bool(&i64_string_text(text, static_bindings)?))
         }
-        "json_parse_field_bool" => {
+        name if is_i64_json_parse_field_bool_name(name, static_bindings) => {
             let [text, key] = args.as_slice() else {
                 return None;
             };
@@ -8339,6 +8411,55 @@ fn is_i64_encoding_path_join_segment_name(name: &str, static_bindings: &I64Stati
             .contains(name)
 }
 
+fn is_i64_std_json_wrapper(function: &Function, source_name: &str) -> bool {
+    function.path == "<stdlib>/json.ax" && function.source_name == source_name
+}
+
+fn is_i64_json_parse_int_name(name: &str, static_bindings: &I64StaticBindings) -> bool {
+    name == "json_parse_int" || static_bindings.json_parse_int_wrappers.contains(name)
+}
+
+fn is_i64_json_parse_bool_name(name: &str, static_bindings: &I64StaticBindings) -> bool {
+    name == "json_parse_bool" || static_bindings.json_parse_bool_wrappers.contains(name)
+}
+
+fn is_i64_json_parse_string_name(name: &str, static_bindings: &I64StaticBindings) -> bool {
+    name == "json_parse_string" || static_bindings.json_parse_string_wrappers.contains(name)
+}
+
+fn is_i64_json_parse_field_int_name(name: &str, static_bindings: &I64StaticBindings) -> bool {
+    name == "json_parse_field_int" || static_bindings.json_parse_field_int_wrappers.contains(name)
+}
+
+fn is_i64_json_parse_field_bool_name(name: &str, static_bindings: &I64StaticBindings) -> bool {
+    name == "json_parse_field_bool"
+        || static_bindings
+            .json_parse_field_bool_wrappers
+            .contains(name)
+}
+
+fn is_i64_json_parse_field_string_name(name: &str, static_bindings: &I64StaticBindings) -> bool {
+    name == "json_parse_field_string"
+        || static_bindings
+            .json_parse_field_string_wrappers
+            .contains(name)
+}
+
+fn is_i64_json_stringify_int_name(name: &str, static_bindings: &I64StaticBindings) -> bool {
+    name == "json_stringify_int" || static_bindings.json_stringify_int_wrappers.contains(name)
+}
+
+fn is_i64_json_stringify_bool_name(name: &str, static_bindings: &I64StaticBindings) -> bool {
+    name == "json_stringify_bool" || static_bindings.json_stringify_bool_wrappers.contains(name)
+}
+
+fn is_i64_json_stringify_string_name(name: &str, static_bindings: &I64StaticBindings) -> bool {
+    name == "json_stringify_string"
+        || static_bindings
+            .json_stringify_string_wrappers
+            .contains(name)
+}
+
 fn is_i64_std_crypto_wrapper(function: &Function, source_name: &str) -> bool {
     matches!(
         function.path.as_str(),
@@ -8591,7 +8712,7 @@ fn lower_i64_string_len_expr(
             )?;
             Some(CraneliftI64Expr::Literal(128))
         }
-        Expr::Call { name, args, .. } if name == "json_stringify_int" => {
+        Expr::Call { name, args, .. } if is_i64_json_stringify_int_name(name, static_bindings) => {
             let [value] = args.as_slice() else {
                 return None;
             };
@@ -8604,7 +8725,7 @@ fn lower_i64_string_len_expr(
             )?;
             Some(i64_decimal_string_len_expr(value))
         }
-        Expr::Call { name, args, .. } if name == "json_stringify_bool" => {
+        Expr::Call { name, args, .. } if is_i64_json_stringify_bool_name(name, static_bindings) => {
             let [value] = args.as_slice() else {
                 return None;
             };
@@ -8620,7 +8741,9 @@ fn lower_i64_string_len_expr(
                 else_result: Box::new(CraneliftI64Expr::Literal(5)),
             })
         }
-        Expr::Call { name, args, .. } if name == "json_stringify_string" => {
+        Expr::Call { name, args, .. }
+            if is_i64_json_stringify_string_name(name, static_bindings) =>
+        {
             let [text] = args.as_slice() else {
                 return None;
             };
@@ -8671,7 +8794,7 @@ fn lower_i64_json_safe_string_len_expr(
     static_bindings: &I64StaticBindings,
 ) -> Option<CraneliftI64Expr> {
     match expr {
-        Expr::Call { name, args, .. } if name == "json_stringify_int" => {
+        Expr::Call { name, args, .. } if is_i64_json_stringify_int_name(name, static_bindings) => {
             let [value] = args.as_slice() else {
                 return None;
             };
@@ -8684,7 +8807,7 @@ fn lower_i64_json_safe_string_len_expr(
             )?;
             Some(i64_decimal_string_len_expr(value))
         }
-        Expr::Call { name, args, .. } if name == "json_stringify_bool" => {
+        Expr::Call { name, args, .. } if is_i64_json_stringify_bool_name(name, static_bindings) => {
             let [value] = args.as_slice() else {
                 return None;
             };

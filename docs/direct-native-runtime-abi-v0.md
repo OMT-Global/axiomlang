@@ -624,6 +624,12 @@ matches, and known-input `json_parse_int`, `json_parse_bool`,
 `json_parse_field_int`, and `json_parse_field_bool` direct scalar option matches
 into native process exit status without generated Rust. Schema validation,
 dynamic runtime JSON parsing, and broader JSON value modeling remain tracked by
+issue #928. Imported public `std/json.ax` scalar parse/stringify wrappers for
+`parse_int(...)`, `parse_bool(...)`, `parse_string(...)`,
+`parse_field_int(...)`, `parse_field_bool(...)`, `parse_field_string(...)`,
+`stringify_int(...)`, `stringify_bool(...)`, and `stringify_string(...)` now
+alias those same direct-native paths in runtime-exit programs. Broader
+`JsonValue` wrapper construction and schema helper coverage remain tracked by
 issue #928.
 
 The owned move-state row has partial direct-native evidence: the Cranelift

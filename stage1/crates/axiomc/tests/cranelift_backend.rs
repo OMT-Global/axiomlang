@@ -1530,6 +1530,46 @@ fn cranelift_backend_lowers_known_json_text_to_runtime_exit_code() {
 
 #[cfg(not(windows))]
 #[test]
+fn cranelift_backend_lowers_std_json_wrappers_to_runtime_exit_code() {
+    if which::which("cc").is_err() {
+        eprintln!("skipping cranelift backend smoke test because cc is unavailable");
+        return;
+    }
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("std-json-wrapper-main-exit");
+    write_std_json_wrapper_main_exit_project(&project);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args([
+            "build",
+            project.to_str().expect("project path"),
+            "--backend",
+            "cranelift",
+            "--json",
+        ])
+        .output()
+        .expect("run axiomc build --backend cranelift");
+    assert!(
+        output.status.success(),
+        "cranelift std json wrapper main build failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+    assert_eq!(payload["backend"], "cranelift");
+    assert_eq!(payload["generated_rust"], Value::Null);
+    let binary = payload["binary"].as_str().expect("binary path");
+    let run = Command::new(binary)
+        .output()
+        .expect("run cranelift std json wrapper main binary");
+    assert_eq!(run.status.code(), Some(48));
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "");
+}
+
+#[cfg(not(windows))]
+#[test]
 fn cranelift_backend_lowers_struct_literal_field_to_runtime_exit_code() {
     if which::which("cc").is_err() {
         eprintln!("skipping cranelift backend smoke test because cc is unavailable");
@@ -5683,6 +5723,25 @@ fn write_known_json_text_main_exit_project(project: &Path) {
         "static DOC: string = \"{\\\"name\\\":\\\"axiom\\\",\\\"count\\\":3,\\\"ready\\\":true,\\\"nested\\\":{\\\"ok\\\":true}}\"\nstatic STATIC_COUNT: int = 321\nstatic STATIC_READY: bool = true\n\nfn main(): int {\nlet quoted_len: int = len(json_stringify_string(\"axiom\"))\nlet int_len: int = len(json_stringify_int(42))\nlet static_int_len: int = len(json_stringify_int(STATIC_COUNT))\nlet bool_len: int = len(json_stringify_bool(false))\nlet static_bool_len: int = len(json_stringify_bool(STATIC_READY))\nlet value_len: int = len(json_stringify_value(DOC))\nlet parsed_int: int = match json_parse_int(\" 42 \") { Some(value) => value, None => 1 }\nlet parsed_int_for_len: int = match json_parse_int(\" 42 \") { Some(value) => value, None => 1 }\nlet parsed_int_for_clone_len: int = match json_parse_int(\" 42 \") { Some(value) => value, None => 1 }\nlet parsed_int_for_negative_len: int = match json_parse_int(\" 42 \") { Some(value) => value, None => 1 }\nlet parsed_int_for_quoted_len: int = match json_parse_int(\" 42 \") { Some(value) => value, None => 1 }\nlet parsed_int_for_negative_quoted_len: int = match json_parse_int(\" 42 \") { Some(value) => value, None => 1 }\nlet parsed_bool: bool = match json_parse_bool(\"true\") { Some(value) => value, None => false }\nlet parsed_bool_for_len: bool = match json_parse_bool(\"true\") { Some(value) => value, None => false }\nlet parsed_bool_for_clone_len: bool = match json_parse_bool(\"true\") { Some(value) => value, None => false }\nlet parsed_bool_for_quoted_len: bool = match json_parse_bool(\"true\") { Some(value) => value, None => false }\nlet parsed_int_for_branch_len: int = match json_parse_int(\" 42 \") { Some(value) => value, None => 1 }\nlet parsed_bool_for_branch_len: bool = match json_parse_bool(\"true\") { Some(value) => value, None => false }\nlet dynamic_int_len: int = len(json_stringify_int(parsed_int_for_len))\nlet negative_int_len: int = len(json_stringify_int(0 - parsed_int_for_negative_len))\nlet dynamic_bool_len: int = len(json_stringify_bool(parsed_bool_for_len))\nlet dynamic_quoted_int_text: string = json_stringify_int(parsed_int_for_quoted_len)\nlet dynamic_quoted_negative_int_text: string = json_stringify_int(0 - parsed_int_for_negative_quoted_len)\nlet dynamic_quoted_bool_text: string = json_stringify_bool(parsed_bool_for_quoted_len)\nlet dynamic_quoted_int_len: int = len(json_stringify_string(dynamic_quoted_int_text))\nlet dynamic_quoted_negative_int_len: int = len(json_stringify_string(dynamic_quoted_negative_int_text))\nlet dynamic_quoted_bool_len: int = len(json_stringify_string(dynamic_quoted_bool_text))\nlet dynamic_clone_int_text: string = json_stringify_int(parsed_int_for_clone_len)\nlet dynamic_clone_int_len: int = len(string_clone(dynamic_clone_int_text))\nlet dynamic_clone_bool_text: string = json_stringify_bool(parsed_bool_for_clone_len)\nlet dynamic_clone_bool_len: int = len(string_clone(dynamic_clone_bool_text))\nlet dynamic_concat_len: int = len(dynamic_clone_int_text + dynamic_clone_bool_text)\nlet branch_len: int = 0\nlet branch_quoted_len: int = 0\nif parsed_bool_for_branch_len {\nlet branch_text: string = json_stringify_int(parsed_int_for_branch_len)\nlet branch_clone_len: int = len(string_clone(branch_text))\nlet branch_quoted_text: string = json_stringify_bool(parsed_bool_for_branch_len)\nlet branch_quoted_len_value: int = len(json_stringify_string(branch_quoted_text))\nbranch_len = branch_clone_len\nbranch_quoted_len = branch_quoted_len_value\n} else {\nbranch_len = 1\nbranch_quoted_len = 1\n}\nlet count_value: int = match json_parse_field_int(DOC, \"count\") { Some(value) => value, None => 1 }\nlet ready_value: bool = match json_parse_field_bool(DOC, \"ready\") { Some(value) => value, None => false }\nlet name_len: int = match json_parse_field_string(DOC, \"name\") { Some(value) => len(value), None => 1 }\nlet field_value_len: int = match json_parse_field_value(DOC, \"nested\") { Some(value) => len(value), None => 1 }\nlet parsed_string_len: int = match json_parse_string(\"\\\"hello\\\"\") { Some(value) => len(value), None => 1 }\nlet parsed_value_len: int = match json_parse_value(\"[1,true]\") { Some(value) => len(value), None => 1 }\nlet missing_len: int = match json_parse_field_string(DOC, \"missing\") { Some(value) => len(value), None => 4 }\nlet missing_int: int = match json_parse_field_int(DOC, \"missing\") { Some(value) => value, None => 4 }\nif parsed_bool && ready_value && quoted_len == 7 && int_len == 2 && static_int_len == 3 && bool_len == 5 && static_bool_len == 4 && dynamic_int_len == 2 && negative_int_len == 3 && dynamic_bool_len == 4 && dynamic_quoted_int_len == 4 && dynamic_quoted_negative_int_len == 5 && dynamic_quoted_bool_len == 6 && dynamic_clone_int_len == 2 && dynamic_clone_bool_len == 4 && dynamic_concat_len == 6 && branch_len == 2 && branch_quoted_len == 6 && value_len == 60 && parsed_int == 42 && count_value == 3 && name_len == 5 && field_value_len == 11 && parsed_string_len == 5 && parsed_value_len == 8 && missing_len == 4 && missing_int == 4 {\nreturn 48\n} else {\nreturn 1\n}\n}\n",
     )
     .expect("write known json text source");
+}
+
+fn write_std_json_wrapper_main_exit_project(project: &Path) {
+    fs::create_dir_all(project.join("src")).expect("create std json wrapper project src");
+    fs::write(
+        project.join("axiom.toml"),
+        "[package]\nname = \"cranelift-std-json-wrapper-main-exit\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n",
+    )
+    .expect("write std json wrapper manifest");
+    fs::write(
+        project.join("axiom.lock"),
+        "version = 1\n\n[[package]]\nname = \"cranelift-std-json-wrapper-main-exit\"\nversion = \"0.1.0\"\nsource = \"path\"\n",
+    )
+    .expect("write std json wrapper lockfile");
+    fs::write(
+        project.join("src/main.ax"),
+        "import \"std/json.ax\"\n\nstatic DOC: string = \"{\\\"name\\\":\\\"axiom\\\",\\\"count\\\":3,\\\"ready\\\":true}\"\nstatic STATIC_COUNT: int = 321\nstatic STATIC_READY: bool = true\n\nfn main(): int {\nlet int_len: int = len(stringify_int(42))\nlet static_int_len: int = len(stringify_int(STATIC_COUNT))\nlet bool_len: int = len(stringify_bool(false))\nlet static_bool_len: int = len(stringify_bool(STATIC_READY))\nlet string_len: int = len(stringify_string(\"axiom\"))\nlet parsed_int: int = match parse_int(\" 42 \") { Some(value) => value, None => 1 }\nlet parsed_bool: bool = match parse_bool(\"true\") { Some(value) => value, None => false }\nlet parsed_string_len: int = match parse_string(\"\\\"hello\\\"\") { Some(value) => len(value), None => 1 }\nlet missing_string_len: int = match parse_string(\"42\") { Some(value) => len(value), None => 4 }\nlet count_value: int = match parse_field_int(DOC, \"count\") { Some(value) => value, None => 1 }\nlet ready_value: bool = match parse_field_bool(DOC, \"ready\") { Some(value) => value, None => false }\nlet name_len: int = match parse_field_string(DOC, \"name\") { Some(value) => len(value), None => 1 }\nlet missing_int: int = match parse_field_int(DOC, \"missing\") { Some(value) => value, None => 4 }\nlet dynamic_int: int = match parse_int(\"12345\") { Some(value) => value, None => 1 }\nlet dynamic_bool: bool = match parse_bool(\"false\") { Some(value) => value, None => true }\nlet dynamic_int_len: int = len(stringify_int(dynamic_int))\nlet dynamic_bool_len: int = len(stringify_bool(dynamic_bool))\nlet dynamic_string_text: string = stringify_int(dynamic_int)\nlet dynamic_string_len: int = len(stringify_string(dynamic_string_text))\nif parsed_bool && ready_value && int_len == 2 && static_int_len == 3 && bool_len == 5 && static_bool_len == 4 && string_len == 7 && parsed_int == 42 && parsed_string_len == 5 && missing_string_len == 4 && count_value == 3 && name_len == 5 && missing_int == 4 && dynamic_int_len == 5 && dynamic_bool_len == 5 && dynamic_string_len == 7 {\nreturn 48\n} else {\nreturn 1\n}\n}\n",
+    )
+    .expect("write std json wrapper source");
 }
 
 fn write_struct_literal_field_main_exit_project(project: &Path) {
