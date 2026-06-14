@@ -348,14 +348,16 @@ open under #928.
 
 The TCP row now has partial Cranelift evidence: the spike builds and runs
 `std/net.ax` `tcp_listen_loopback_once(...)` over `127.0.0.1` without generated
-Rust and returns a loopback port. The direct-native i64 path now also lowers
-known-response `net_tcp_listen_loopback_once(...)` and public `std/net.ax`
+Rust and returns a loopback port. The spike now also builds and runs
+`std/async_net.ax` loopback TCP `listen`, `local_port`, `accept`, `recv_text`,
+`send_text`, `close`, `close_listener`, and paired `tcp_dial` flows without
+generated Rust. The direct-native i64 path now also lowers known-response
+`net_tcp_listen_loopback_once(...)` and public `std/net.ax`
 `tcp_listen_loopback_once(...)` calls into native process exit status by
 selecting `Option<int>` match arms at compile time for successful loopback
 binds. Packages without the `net` capability still fail before backend
-lowering. Paired dynamic-port dial coverage, full TCP socket lifecycle APIs,
-non-loopback policy coverage, timeout parity, and audit parity remain open
-under #928.
+lowering. General runtime-time TCP socket lifecycle APIs, non-loopback policy
+coverage, timeout parity, and audit parity remain open under #928.
 
 The UDP row now has partial Cranelift evidence: the spike builds and runs
 `std/net.ax` `udp_bind_loopback_once(...)` over `127.0.0.1` without generated
@@ -578,10 +580,12 @@ library resolution, and audit parity remain open under #928.
 The async runtime row now has partial Cranelift evidence for `std/async.ax`
 `ready`, `await`, `spawn`, `join`, `cancel`, `is_canceled`, `timeout`,
 single-slot channel `send`/`recv`, `select`, `selected`, and `selected_value`
-without generated Rust. A package importing `std/async.ax` with no `async`
-capability must still receive the public manifest-policy denial before backend
-lowering. Full scheduler, timer, blocking, wakeup, cancellation, and audit
-parity remain open under #928.
+without generated Rust. The spike now also builds and runs the
+`std/async_net.ax` loopback TCP example through async `listen`, `accept`,
+`recv_text`, `send_text`, `tcp_dial`, and `join` flows without generated Rust. A
+package importing `std/async.ax` with no `async` capability must still receive
+the public manifest-policy denial before backend lowering. Full scheduler,
+timer, blocking, wakeup, cancellation, and audit parity remain open under #928.
 
 The sync-primitives row has partial direct-native evidence: the Cranelift spike
 now evaluates ownership-shaped `std/sync.ax` mutex, once, and channel wrappers
