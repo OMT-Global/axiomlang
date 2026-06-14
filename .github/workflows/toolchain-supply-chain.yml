@@ -43,6 +43,43 @@ jobs:
         with:
           node-version: 20
 
+      - name: Ensure Rust linker availability
+        run: |
+          for candidate in cc gcc clang; do
+            if command -v "$candidate" >/dev/null 2>&1; then
+              exit 0
+            fi
+          done
+
+          if command -v apt-get >/dev/null 2>&1; then
+            apt_cache="${RUNNER_TEMP:-/tmp}/axiom-supply-chain-apt-cache"
+            apt_lists="${RUNNER_TEMP:-/tmp}/axiom-supply-chain-apt-lists"
+            mkdir -p "$apt_cache/partial" "$apt_lists/partial"
+            apt_get=(
+              apt-get
+              -o Acquire::Retries=3
+              -o Dpkg::Use-Pty=0
+              -o APT::Sandbox::User=root
+              -o Dir::Cache::archives="$apt_cache"
+              -o Dir::State::lists="$apt_lists"
+            )
+            if [[ "$(id -u)" != "0" ]]; then
+              apt_get=(sudo "${apt_get[@]}")
+            fi
+
+            "${apt_get[@]}" update || true
+            DEBIAN_FRONTEND=noninteractive "${apt_get[@]}" install -y --no-install-recommends gcc libc6-dev || true
+          fi
+
+          for candidate in cc gcc clang; do
+            if command -v "$candidate" >/dev/null 2>&1; then
+              exit 0
+            fi
+          done
+
+          echo "::error::no usable Rust linker found; cargo-vet installation requires a linker"
+          exit 1
+
       - name: Ensure cargo-vet
         run: |
           required_version="$(

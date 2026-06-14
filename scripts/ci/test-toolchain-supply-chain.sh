@@ -23,6 +23,16 @@ grep -Fq 'cargo install cargo-vet --version "$install_version" --locked --force'
   exit 1
 }
 
+grep -Fq 'Ensure Rust linker availability' "$workflow" || {
+  echo "workflow must provision a Rust linker before installing cargo-vet" >&2
+  exit 1
+}
+
+grep -Fq 'gcc libc6-dev' "$workflow" || {
+  echo "workflow must install gcc/libc headers when runner images lack cc" >&2
+  exit 1
+}
+
 grep -Fq 'actions/setup-node@' "$workflow" || {
   echo "workflow must install Node.js for signed package verification" >&2
   exit 1
