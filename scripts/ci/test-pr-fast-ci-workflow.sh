@@ -3,9 +3,15 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 workflow="$repo_root/.github/workflows/pr-fast-ci.yml"
+fast_checks="$repo_root/scripts/ci/run-fast-checks.sh"
 
 if [[ ! -f "$workflow" ]]; then
   echo "missing workflow: $workflow" >&2
+  exit 1
+fi
+
+if [[ ! -f "$fast_checks" ]]; then
+  echo "missing fast checks script: $fast_checks" >&2
   exit 1
 fi
 
@@ -101,6 +107,11 @@ fi
 if [[ -n "$benchmark_gate_reference" ]]; then
   echo "pr-fast-ci must not run the Stage 1 comparison benchmark gate; keep it in extended, nightly, or manual validation" >&2
   printf '%s\n' "$benchmark_gate_reference" >&2
+  exit 1
+fi
+
+if ! grep -Fq 'stage1-direct-native-runtime-abi-test' "$fast_checks"; then
+  echo "run-fast-checks must enforce direct-native runtime ABI and example smoke coverage" >&2
   exit 1
 fi
 

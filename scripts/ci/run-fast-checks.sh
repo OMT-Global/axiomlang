@@ -17,6 +17,7 @@ python3 scripts/ci/test-report-delivery-signals.py
 python3 scripts/ci/test-issue-pr-traceability.py
 bash scripts/ci/run-stdlib-property-checks.sh
 bash scripts/ci/run-compiler-property-checks.sh
+make stage1-direct-native-runtime-abi-test
 
 cargo test --manifest-path stage1/Cargo.toml -p axiomc render_rust_verifies_https_tls_certificates -- --nocapture
 cargo test --manifest-path stage1/Cargo.toml -p axiomc render_rust_uses_trusted_crypto_symbol_loading -- --nocapture
