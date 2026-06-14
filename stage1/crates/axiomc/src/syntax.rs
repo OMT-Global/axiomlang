@@ -1828,6 +1828,15 @@ fn is_identifier_char(ch: char) -> bool {
     ch.is_ascii_alphanumeric() || ch == '_'
 }
 
+fn is_identifier(value: &str) -> bool {
+    let mut chars = value.chars();
+    let Some(first) = chars.next() else {
+        return false;
+    };
+    (first.is_ascii_alphabetic() || first == '_')
+        && chars.all(|ch| ch.is_ascii_alphanumeric() || ch == '_')
+}
+
 fn render_macro_expansion(template: &str, params: &[MacroParam], args: &[&str]) -> String {
     if let Some(MacroParam::Repeat { name, separator }) = params
         .iter()
@@ -2360,7 +2369,7 @@ fn parse_stmt(
         && let Some(equals) = find_top_level_char(trimmed, '=')
     {
         let target_raw = trimmed[..equals].trim();
-        if !target_raw.starts_with('*') && !target_raw.contains('[') {
+        if !target_raw.starts_with('*') && !target_raw.contains('[') && !is_identifier(target_raw) {
             return Err(Diagnostic::new(
                 "parse",
                 if in_block {
@@ -4384,26 +4393,14 @@ fn parse_logic_or(
     line_no: usize,
     column: usize,
 ) -> Result<Expr, Diagnostic> {
-    if let Some(split_index) = find_top_level_logical_operator(raw, "||") {
-        let lhs_raw = raw[..split_index].trim();
-        let rhs_raw = raw[split_index + 2..].trim();
-        if lhs_raw.is_empty() || rhs_raw.is_empty() {
-            return Err(Diagnostic::new("parse", "logical expression is incomplete")
-                .with_path(path.display().to_string())
-                .with_span(line_no, column));
-        }
-        return Ok(Expr::BinaryLogic {
-            op: LogicOp::Or,
-            lhs: Box::new(parse_logic_or(lhs_raw, path, line_no, column)?),
-            rhs: Box::new(parse_logic_and(
-                rhs_raw,
-                path,
-                line_no,
-                column + split_index + 3,
-            )?),
-            line: line_no,
-            column,
-        });
+    let splits = find_top_level_logical_operators(raw, "||");
+    if !splits.is_empty() {
+        let ranges = logical_operand_ranges(raw, &splits, 2, path, line_no, column)?;
+        let operands = ranges
+            .iter()
+            .map(|&(start, end)| parse_logic_and(&raw[start..end], path, line_no, column + start))
+            .collect::<Result<Vec<_>, _>>()?;
+        return Ok(build_logical_chain(LogicOp::Or, &operands, line_no, column));
     }
     parse_logic_and(raw, path, line_no, column)
 }
@@ -4414,28 +4411,36 @@ fn parse_logic_and(
     line_no: usize,
     column: usize,
 ) -> Result<Expr, Diagnostic> {
-    if let Some(split_index) = find_top_level_logical_operator(raw, "&&") {
-        let lhs_raw = raw[..split_index].trim();
-        let rhs_raw = raw[split_index + 2..].trim();
-        if lhs_raw.is_empty() || rhs_raw.is_empty() {
-            return Err(Diagnostic::new("parse", "logical expression is incomplete")
-                .with_path(path.display().to_string())
-                .with_span(line_no, column));
-        }
-        return Ok(Expr::BinaryLogic {
-            op: LogicOp::And,
-            lhs: Box::new(parse_logic_and(lhs_raw, path, line_no, column)?),
-            rhs: Box::new(parse_compare(
-                rhs_raw,
-                path,
-                line_no,
-                column + split_index + 3,
-            )?),
-            line: line_no,
+    let splits = find_top_level_logical_operators(raw, "&&");
+    if !splits.is_empty() {
+        let ranges = logical_operand_ranges(raw, &splits, 2, path, line_no, column)?;
+        let operands = ranges
+            .iter()
+            .map(|&(start, end)| parse_compare(&raw[start..end], path, line_no, column + start))
+            .collect::<Result<Vec<_>, _>>()?;
+        return Ok(build_logical_chain(
+            LogicOp::And,
+            &operands,
+            line_no,
             column,
-        });
+        ));
     }
     parse_compare(raw, path, line_no, column)
+}
+
+fn build_logical_chain(op: LogicOp, operands: &[Expr], line_no: usize, column: usize) -> Expr {
+    debug_assert!(!operands.is_empty());
+    if operands.len() == 1 {
+        return operands[0].clone();
+    }
+    let mid = operands.len() / 2;
+    Expr::BinaryLogic {
+        op,
+        lhs: Box::new(build_logical_chain(op, &operands[..mid], line_no, column)),
+        rhs: Box::new(build_logical_chain(op, &operands[mid..], line_no, column)),
+        line: line_no,
+        column,
+    }
 }
 
 fn parse_compare(
@@ -6104,13 +6109,13 @@ fn find_compare_operator(raw: &str) -> Option<(CompareOp, usize)> {
     None
 }
 
-fn find_top_level_logical_operator(raw: &str, token: &str) -> Option<usize> {
+fn find_top_level_logical_operators(raw: &str, token: &str) -> Vec<usize> {
     let mut in_string = false;
     let mut escaped = false;
     let mut paren_depth = 0usize;
     let mut brace_depth = 0usize;
     let mut bracket_depth = 0usize;
-    let mut found = None;
+    let mut found = Vec::new();
     let chars: Vec<(usize, char)> = raw.char_indices().collect();
     let mut cursor = 0;
     while cursor < chars.len() {
@@ -6148,11 +6153,46 @@ fn find_top_level_logical_operator(raw: &str, token: &str) -> Option<usize> {
             && bracket_depth == 0
             && raw[index..].starts_with(token)
         {
-            found = Some(index);
+            found.push(index);
         }
         cursor += 1;
     }
     found
+}
+
+fn logical_operand_ranges(
+    raw: &str,
+    splits: &[usize],
+    token_len: usize,
+    path: &Path,
+    line_no: usize,
+    column: usize,
+) -> Result<Vec<(usize, usize)>, Diagnostic> {
+    let mut ranges = Vec::with_capacity(splits.len() + 1);
+    let mut start = 0usize;
+    for split in splits.iter().copied().chain(std::iter::once(raw.len())) {
+        let (trimmed_start, trimmed_end) = trim_range(raw, start, split);
+        if trimmed_start == trimmed_end {
+            return Err(Diagnostic::new("parse", "logical expression is incomplete")
+                .with_path(path.display().to_string())
+                .with_span(line_no, column));
+        }
+        ranges.push((trimmed_start, trimmed_end));
+        start = split.saturating_add(token_len);
+    }
+    Ok(ranges)
+}
+
+fn trim_range(raw: &str, start: usize, end: usize) -> (usize, usize) {
+    let mut trimmed_start = start;
+    let mut trimmed_end = end;
+    while trimmed_start < trimmed_end && raw.as_bytes()[trimmed_start].is_ascii_whitespace() {
+        trimmed_start += 1;
+    }
+    while trimmed_end > trimmed_start && raw.as_bytes()[trimmed_end - 1].is_ascii_whitespace() {
+        trimmed_end -= 1;
+    }
+    (trimmed_start, trimmed_end)
 }
 
 fn skip_blank_lines(lines: &[&str], index: &mut usize) {

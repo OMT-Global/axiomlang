@@ -5995,10 +5995,16 @@ fn collect_mutably_borrowed_locals(stmts: &[Stmt]) -> HashSet<String> {
 fn collect_stmt_mutable_borrows(stmt: &Stmt, locals: &mut HashSet<String>) {
     match stmt {
         Stmt::Let { expr, .. }
-        | Stmt::Assign { expr, .. }
         | Stmt::Print { expr, .. }
         | Stmt::Defer { expr, .. }
         | Stmt::Return { expr, .. } => collect_expr_mutable_borrows(expr, locals),
+        Stmt::Assign { target, expr, .. } => {
+            if let Expr::VarRef { name, .. } = target {
+                locals.insert(name.clone());
+            }
+            collect_expr_mutable_borrows(target, locals);
+            collect_expr_mutable_borrows(expr, locals);
+        }
         Stmt::Panic { message, .. } => collect_expr_mutable_borrows(message, locals),
         Stmt::If {
             cond,

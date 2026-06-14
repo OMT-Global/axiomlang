@@ -7,10 +7,14 @@ temp_dir="$(mktemp -d)"
 trap 'rm -rf "$temp_dir"' EXIT
 
 case_dir="$temp_dir/repo"
-mkdir -p "$case_dir/docs" "$case_dir/scripts/ci"
+mkdir -p "$case_dir/docs" "$case_dir/scripts/ci" "$case_dir/stage1/runtime-abi" "$case_dir/stage1/compiler-contracts/snapshots"
 cp "$script" "$case_dir/scripts/ci/check-rust-exit-readiness.sh"
+cp "$repo_root/scripts/ci/check-direct-native-runtime-abi.py" "$case_dir/scripts/ci/check-direct-native-runtime-abi.py"
 cp "$repo_root/docs/rust-exit-readiness.md" "$case_dir/docs/rust-exit-readiness.md"
 cp "$repo_root/docs/rust-exit-readiness.json" "$case_dir/docs/rust-exit-readiness.json"
+cp "$repo_root/stage1/runtime-abi/direct-native-v0.json" "$case_dir/stage1/runtime-abi/direct-native-v0.json"
+cp "$repo_root/stage1/compiler-contracts/snapshots/command-lsp.json" "$case_dir/stage1/compiler-contracts/snapshots/command-lsp.json"
+cp "$repo_root/stage1/compiler-contracts/snapshots/mir-backend.json" "$case_dir/stage1/compiler-contracts/snapshots/mir-backend.json"
 cat >"$case_dir/Makefile" <<'MAKE'
 rust-exit-readiness:
 	bash scripts/ci/check-rust-exit-readiness.sh --json
@@ -22,9 +26,22 @@ rust-exit-readiness-test:
 	bash scripts/ci/test-check-rust-exit-readiness.sh
 MAKE
 
+cat >"$temp_dir/open-issues.txt" <<'ISSUES'
+927 OPEN
+928 OPEN
+929 OPEN
+693 OPEN
+694 OPEN
+930 OPEN
+931 OPEN
+562 OPEN
+563 OPEN
+564 OPEN
+ISSUES
+
 (
   cd "$case_dir"
-  if bash scripts/ci/check-rust-exit-readiness.sh --json >"$temp_dir/blocked.json" 2>"$temp_dir/blocked.err"; then
+  if bash scripts/ci/check-rust-exit-readiness.sh --json --issue-state-file "$temp_dir/open-issues.txt" >"$temp_dir/blocked.json" 2>"$temp_dir/blocked.err"; then
     echo "expected readiness check to fail while blocking issues remain open" >&2
     exit 1
   fi
@@ -41,6 +58,9 @@ statuses = {check["name"]: check["status"] for check in payload["checks"]}
 assert statuses["readiness_doc_present"] == "pass"
 assert statuses["readiness_manifest_valid"] == "pass"
 assert statuses["readiness_blockers_closed"] == "fail"
+assert statuses["direct_native_runtime_abi_ready"] == "fail"
+assert statuses["command_lsp_release_boundary"] == "pass"
+assert statuses["mir_backend_direct_native_boundary"] == "pass"
 PY
 )
 
@@ -59,19 +79,88 @@ ISSUES
 
 (
   cd "$case_dir"
-  bash scripts/ci/check-rust-exit-readiness.sh --json --issue-state-file "$temp_dir/issues.txt" >"$temp_dir/ready.json"
-  python3 - "$temp_dir/ready.json" <<'PY'
+  if bash scripts/ci/check-rust-exit-readiness.sh --json --issue-state-file "$temp_dir/issues.txt" >"$temp_dir/still-blocked.json" 2>"$temp_dir/still-blocked.err"; then
+    echo "expected readiness check to fail while the direct-native ABI remains incomplete" >&2
+    exit 1
+  fi
+  python3 - "$temp_dir/still-blocked.json" <<'PY'
 import json
 import sys
 
 with open(sys.argv[1], encoding="utf-8") as handle:
     payload = json.load(handle)
 
-assert payload["ready"] is True
+assert payload["ready"] is False
 statuses = {check["name"]: check["status"] for check in payload["checks"]}
 assert statuses["readiness_blockers_closed"] == "pass"
 assert statuses["rust_exit_issue_927_closed"] == "pass"
 assert statuses["rust_exit_issue_564_closed"] == "pass"
+assert statuses["direct_native_runtime_abi_ready"] == "fail"
+assert statuses["command_lsp_release_boundary"] == "pass"
+assert statuses["mir_backend_direct_native_boundary"] == "pass"
+PY
+)
+
+python3 - "$case_dir/stage1/compiler-contracts/snapshots/command-lsp.json" <<'PY'
+import json
+import sys
+
+path = sys.argv[1]
+with open(path, encoding="utf-8") as handle:
+    payload = json.load(handle)
+payload["official_release"]["requires_cargo"] = True
+with open(path, "w", encoding="utf-8") as handle:
+    json.dump(payload, handle)
+PY
+
+(
+  cd "$case_dir"
+  if bash scripts/ci/check-rust-exit-readiness.sh --json --issue-state-file "$temp_dir/issues.txt" >"$temp_dir/cargo-boundary.json" 2>"$temp_dir/cargo-boundary.err"; then
+    echo "expected readiness check to fail when command/LSP release requires Cargo" >&2
+    exit 1
+  fi
+  python3 - "$temp_dir/cargo-boundary.json" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    payload = json.load(handle)
+statuses = {check["name"]: check["status"] for check in payload["checks"]}
+assert statuses["command_lsp_release_boundary"] == "fail"
+PY
+)
+
+cp "$repo_root/stage1/compiler-contracts/snapshots/command-lsp.json" "$case_dir/stage1/compiler-contracts/snapshots/command-lsp.json"
+
+python3 - "$case_dir/stage1/compiler-contracts/snapshots/mir-backend.json" <<'PY'
+import json
+import sys
+
+path = sys.argv[1]
+with open(path, encoding="utf-8") as handle:
+    payload = json.load(handle)
+for target in payload["targets"]:
+    if target["id"] == "axiom://target/stage1-direct-native":
+        target["primary_artifacts"].append("rust_source")
+        break
+with open(path, "w", encoding="utf-8") as handle:
+    json.dump(payload, handle)
+PY
+
+(
+  cd "$case_dir"
+  if bash scripts/ci/check-rust-exit-readiness.sh --json --issue-state-file "$temp_dir/issues.txt" >"$temp_dir/mir-boundary.json" 2>"$temp_dir/mir-boundary.err"; then
+    echo "expected readiness check to fail when direct-native target emits rust_source" >&2
+    exit 1
+  fi
+  python3 - "$temp_dir/mir-boundary.json" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    payload = json.load(handle)
+statuses = {check["name"]: check["status"] for check in payload["checks"]}
+assert statuses["mir_backend_direct_native_boundary"] == "fail"
 PY
 )
 

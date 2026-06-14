@@ -99,12 +99,15 @@ enum Command {
         #[arg(long)]
         offline: bool,
     },
-    /// Build and run a stage1 package through the current generated-Rust backend path.
+    /// Build and run a stage1 package through the selected backend.
     Run {
         path: PathBuf,
         /// Emit an axiom.stage1.v1 JSON envelope; see stage1/compiler-contracts/schemas/axiom.stage1.command.schema.json.
         #[arg(long)]
         json: bool,
+        /// Select the backend used to build the executable before running it.
+        #[arg(long, default_value_t = NativeBackendKind::GeneratedRust)]
+        backend: NativeBackendKind,
         #[arg(short = 'p', long = "package")]
         package: Option<String>,
         #[arg(last = true)]
@@ -122,6 +125,9 @@ enum Command {
         path: Option<PathBuf>,
         #[arg(long)]
         json: bool,
+        /// Select the backend used to build executable test cases.
+        #[arg(long, default_value_t = NativeBackendKind::GeneratedRust)]
+        backend: NativeBackendKind,
         #[arg(long)]
         filter: Option<String>,
         #[arg(long)]
@@ -525,10 +531,12 @@ fn main() {
         Command::Run {
             path,
             json,
+            backend,
             package,
             args,
         } => {
             let options = RunOptions {
+                backend,
                 package: package.clone(),
                 args: args.clone(),
             };
@@ -573,6 +581,7 @@ fn main() {
         Command::Test {
             path,
             json,
+            backend,
             filter,
             properties,
             conformance,
@@ -587,6 +596,7 @@ fn main() {
             };
             let property_summary = properties || conformance;
             let options = TestOptions {
+                backend,
                 filter: filter.clone(),
                 package: package.clone(),
                 include_benchmarks,
@@ -1340,6 +1350,7 @@ fn run_property_check_tests(
             include_benchmarks: false,
             properties_only: true,
             conformance: false,
+            ..TestOptions::default()
         },
     )
 }
@@ -1798,6 +1809,7 @@ fn evidence_report(project: &Path) -> Result<EvidenceReport, Diagnostic> {
                 include_benchmarks: true,
                 properties_only: false,
                 conformance: false,
+                ..TestOptions::default()
             },
         )?;
         for case in &test_output.cases {
@@ -7014,6 +7026,7 @@ fn inspect_evidence(project: &Path) -> Result<InspectEvidenceReport, Diagnostic>
         include_benchmarks: true,
         properties_only: false,
         conformance: false,
+        ..TestOptions::default()
     };
     match list_project_tests_with_options(project, &test_options) {
         Ok(list) => {
@@ -7203,6 +7216,7 @@ fn inspect_artifacts(project: &Path) -> Result<InspectArtifactsReport, Diagnosti
         include_benchmarks: true,
         properties_only: false,
         conformance: false,
+        ..TestOptions::default()
     };
     if let Ok(list) = list_project_tests_with_options(project, &test_options) {
         for test in list.tests {
@@ -7513,9 +7527,7 @@ mod tests {
         assert!(
             help.contains("Build a stage1 package through the current generated-Rust backend path")
         );
-        assert!(help.contains(
-            "Build and run a stage1 package through the current generated-Rust backend path"
-        ));
+        assert!(help.contains("Build and run a stage1 package through the selected backend"));
 
         let mut command = Cli::command();
         let build_help = command
@@ -7866,6 +7878,17 @@ return "ok"
     }
 
     #[test]
+    fn test_accepts_backend_selection() {
+        let cli = Cli::parse_from(["axiomc", "test", ".", "--backend", "cranelift"]);
+        match cli.command {
+            Command::Test { backend, .. } => {
+                assert_eq!(backend, NativeBackendKind::Cranelift);
+            }
+            other => panic!("expected test command, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn check_accepts_properties_flag() {
         let cli = Cli::parse_from(["axiomc", "check", ".", "--properties", "--json"]);
         match cli.command {
@@ -7952,6 +7975,17 @@ return "ok"
                 assert!(offline);
             }
             other => panic!("expected build command, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn run_accepts_backend_selection() {
+        let cli = Cli::parse_from(["axiomc", "run", ".", "--backend", "cranelift"]);
+        match cli.command {
+            Command::Run { backend, .. } => {
+                assert_eq!(backend, NativeBackendKind::Cranelift);
+            }
+            other => panic!("expected run command, got {other:?}"),
         }
     }
 

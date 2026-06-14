@@ -160,9 +160,12 @@ The first agent-facing Intent IR / semantic graph schema is
 [intent-ir-v0.md](intent-ir-v0.md).
 Successful payloads always include `ok` and `command`; project-scoped payloads
 also include `project`.
-`axiomc run --json` captures the native binary exit code, result enum,
-duration, stdout, stderr, forwarded args, and selected package without changing
-the default human-readable streaming behavior.
+`axiomc run --json` captures the selected backend, native binary exit code,
+result enum, duration, stdout, stderr, forwarded args, selected package, and
+optional generated-Rust artifact path without changing the default
+human-readable streaming behavior. `axiomc test --json` likewise reports the
+selected backend and keeps per-case generated-Rust artifact paths optional so
+direct-native test runs can report only their native binaries.
 `axiomc mutation-report --json` reports survivor counts and grouped recommended
 fixtures in the same versioned envelope used by the other command contracts.
 The self-hosted command and LSP package boundary is frozen in

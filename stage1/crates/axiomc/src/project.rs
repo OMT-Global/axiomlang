@@ -201,10 +201,11 @@ pub enum RunResult {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct RunOutput {
+    pub backend: NativeBackendKind,
     pub manifest: String,
     pub entry: String,
     pub binary: String,
-    pub generated_rust: String,
+    pub generated_rust: Option<String>,
     pub package: Option<String>,
     pub args: Vec<String>,
     pub exit_code: i32,
@@ -288,6 +289,7 @@ pub struct TestListOutput {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct TestOutput {
+    pub backend: NativeBackendKind,
     pub manifest: String,
     pub packages: Vec<String>,
     pub cases: Vec<TestCaseResult>,
@@ -415,12 +417,14 @@ pub struct BuildOptions {
 
 #[derive(Debug, Clone, Default)]
 pub struct RunOptions {
+    pub backend: NativeBackendKind,
     pub package: Option<String>,
     pub args: Vec<String>,
 }
 
 #[derive(Debug, Clone, Default)]
 pub struct TestOptions {
+    pub backend: NativeBackendKind,
     pub filter: Option<String>,
     pub package: Option<String>,
     pub include_benchmarks: bool,
@@ -630,15 +634,11 @@ pub fn run_project_report_with_options(
         })?;
     let exit_code = output.status.code().unwrap_or(1);
     Ok(RunOutput {
+        backend: built.backend,
         manifest: built.manifest,
         entry: built.entry,
         binary: built.binary,
-        generated_rust: built.generated_rust.ok_or_else(|| {
-            Diagnostic::new(
-                "run",
-                "generated-Rust build did not report a generated Rust artifact",
-            )
-        })?,
+        generated_rust: built.generated_rust,
         package: options.package.clone(),
         args: options.args.clone(),
         exit_code,
@@ -673,7 +673,7 @@ fn prepare_run_project(
     let built = build_project_with_options(
         &project_root,
         &BuildOptions {
-            backend: NativeBackendKind::GeneratedRust,
+            backend: options.backend,
             target: None,
             package: options.package.clone(),
             debug: false,
@@ -681,13 +681,7 @@ fn prepare_run_project(
             offline: true,
         },
     )?;
-    let generated_rust = built.generated_rust.as_ref().ok_or_else(|| {
-        Diagnostic::new(
-            "run",
-            "generated-Rust run requires a generated Rust artifact",
-        )
-    })?;
-    let build_output_dir = Path::new(generated_rust).parent().ok_or_else(|| {
+    let build_output_dir = Path::new(&built.binary).parent().ok_or_else(|| {
         Diagnostic::new(
             "run",
             format!(
@@ -851,7 +845,13 @@ pub fn run_project_tests_with_options(
         }
         packages.push(package_root.display().to_string());
         for test in &tests {
-            cases.push(run_test_case(&package_root, &graph, &manifest, test));
+            cases.push(run_test_case(
+                &package_root,
+                &graph,
+                &manifest,
+                test,
+                options.backend,
+            ));
         }
     }
     if cases.is_empty() {
@@ -868,6 +868,7 @@ pub fn run_project_tests_with_options(
         *kinds.entry(case.kind).or_insert(0) += 1;
     }
     Ok(TestOutput {
+        backend: options.backend,
         manifest: manifest_path(&project_root).display().to_string(),
         packages,
         cases,
@@ -3171,6 +3172,7 @@ fn run_test_case(
     graph: &PackageGraph,
     manifest: &Manifest,
     test: &crate::manifest::TestTarget,
+    backend: NativeBackendKind,
 ) -> TestCaseResult {
     if test.expected_error.is_some() {
         return run_manifest_compile_fail_case(project_root, graph, manifest, test);
@@ -3215,8 +3217,12 @@ fn run_test_case(
         &generated_rust,
         &binary,
         None,
-        &BuildOptions::default(),
+        &BuildOptions {
+            backend,
+            ..BuildOptions::default()
+        },
     ) {
+        let generated_rust_artifact = generated_rust_output(backend, &generated_rust);
         return TestCaseResult {
             package_root: project_root.display().to_string(),
             name: test.name.clone(),
@@ -3224,7 +3230,7 @@ fn run_test_case(
             entry: test.entry.clone(),
             ok: false,
             binary: Some(binary.display().to_string()),
-            generated_rust: Some(generated_rust.display().to_string()),
+            generated_rust: generated_rust_artifact,
             exit_code: None,
             stdout: String::new(),
             stderr: String::new(),
@@ -3323,7 +3329,7 @@ fn run_test_case(
                 entry: test.entry.clone(),
                 ok: error.is_none(),
                 binary: Some(binary.display().to_string()),
-                generated_rust: Some(generated_rust.display().to_string()),
+                generated_rust: generated_rust_output(backend, &generated_rust),
                 exit_code,
                 stdout,
                 stderr,
@@ -3341,7 +3347,7 @@ fn run_test_case(
             entry: test.entry.clone(),
             ok: false,
             binary: Some(binary.display().to_string()),
-            generated_rust: Some(generated_rust.display().to_string()),
+            generated_rust: generated_rust_output(backend, &generated_rust),
             exit_code: None,
             stdout: String::new(),
             stderr: String::new(),
@@ -7409,6 +7415,7 @@ fn resolve_const_expr(
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum ConstValueType {
     Int,
+    Numeric(syntax::NumericType),
     Bool,
     String,
 }
@@ -7416,12 +7423,20 @@ enum ConstValueType {
 fn const_expr_type(expr: &syntax::Expr) -> Option<ConstValueType> {
     match expr {
         syntax::Expr::Literal(syntax::Literal::Int(_)) => Some(ConstValueType::Int),
+        syntax::Expr::Literal(syntax::Literal::Numeric { ty, .. }) if !ty.is_float() => {
+            Some(ConstValueType::Numeric(*ty))
+        }
         syntax::Expr::Literal(syntax::Literal::Bool(_)) => Some(ConstValueType::Bool),
         syntax::Expr::Literal(syntax::Literal::String(_)) => Some(ConstValueType::String),
         syntax::Expr::BinaryAdd { lhs, rhs, .. } => {
             let lhs = const_expr_type(lhs)?;
             let rhs = const_expr_type(rhs)?;
-            if lhs == rhs && matches!(lhs, ConstValueType::Int | ConstValueType::String) {
+            if lhs == rhs
+                && matches!(
+                    lhs,
+                    ConstValueType::Int | ConstValueType::Numeric(_) | ConstValueType::String
+                )
+            {
                 Some(lhs)
             } else {
                 None
@@ -7441,6 +7456,9 @@ fn const_expr_type(expr: &syntax::Expr) -> Option<ConstValueType> {
 fn const_type_name(ty: &syntax::TypeName) -> Option<ConstValueType> {
     match ty {
         syntax::TypeName::Int => Some(ConstValueType::Int),
+        syntax::TypeName::Numeric(numeric) if !numeric.is_float() => {
+            Some(ConstValueType::Numeric(*numeric))
+        }
         syntax::TypeName::Bool => Some(ConstValueType::Bool),
         syntax::TypeName::String => Some(ConstValueType::String),
         _ => None,
@@ -7450,6 +7468,7 @@ fn const_type_name(ty: &syntax::TypeName) -> Option<ConstValueType> {
 fn const_type_label(ty: &ConstValueType) -> &'static str {
     match ty {
         ConstValueType::Int => "int",
+        ConstValueType::Numeric(numeric) => numeric.as_str(),
         ConstValueType::Bool => "bool",
         ConstValueType::String => "string",
     }
@@ -8045,6 +8064,92 @@ mod tests {
         );
     }
 
+    #[cfg(not(windows))]
+    #[test]
+    fn cranelift_run_report_executes_without_generated_rust_artifact() {
+        if which::which("cc").is_err() {
+            eprintln!("skipping Cranelift run report test because cc is unavailable");
+            return;
+        }
+
+        let dir = tempdir().unwrap_or_else(|err| panic!("tempdir: {err}"));
+        let root = dir.path();
+        fs::create_dir_all(root.join("src")).expect("create src");
+        fs::write(
+            root.join("axiom.toml"),
+            "[package]\nname = \"demo\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n",
+        )
+        .expect("write manifest");
+        fs::write(
+            root.join("axiom.lock"),
+            crate::lockfile::render_lockfile(&package_manifest()).expect("render lockfile"),
+        )
+        .expect("write lockfile");
+        fs::write(root.join("src/main.ax"), "print \"native run\"\n").expect("write source");
+
+        let output = run_project_report_with_options(
+            root,
+            &RunOptions {
+                backend: NativeBackendKind::Cranelift,
+                ..RunOptions::default()
+            },
+        )
+        .expect("cranelift run");
+
+        assert_eq!(output.backend, NativeBackendKind::Cranelift);
+        assert_eq!(output.result, RunResult::Success);
+        assert_eq!(output.exit_code, 0);
+        assert_eq!(output.stdout, "native run\n");
+        assert!(output.stderr.is_empty());
+        assert!(output.generated_rust.is_none());
+        let manifest = load_manifest(root).expect("load manifest");
+        let legacy_generated = generated_rust_path(root, &manifest);
+        assert!(
+            !legacy_generated.exists(),
+            "cranelift run should not emit generated Rust"
+        );
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn cranelift_test_case_executes_without_generated_rust_artifact() {
+        if which::which("cc").is_err() {
+            eprintln!("skipping Cranelift test case test because cc is unavailable");
+            return;
+        }
+
+        let dir = tempdir().unwrap_or_else(|err| panic!("tempdir: {err}"));
+        let root = dir.path().join("cranelift-test-app");
+        crate::new_project::create_project(&root, Some("cranelift-test-app"))
+            .expect("create project");
+        fs::write(root.join("src/main_test.ax"), "print \"native test\"\n")
+            .expect("write test source");
+        fs::write(root.join("src/main_test.stdout"), "native test\n").expect("write test golden");
+
+        let output = run_project_tests_with_options(
+            &root,
+            &TestOptions {
+                backend: NativeBackendKind::Cranelift,
+                ..TestOptions::default()
+            },
+        )
+        .expect("cranelift tests");
+
+        assert_eq!(output.backend, NativeBackendKind::Cranelift);
+        assert_eq!(output.passed, 1);
+        assert_eq!(output.failed, 0);
+        assert_eq!(output.cases.len(), 1);
+        assert_eq!(output.cases[0].stdout, "native test\n");
+        assert!(output.cases[0].generated_rust.is_none());
+        let manifest = load_manifest(&root).expect("load manifest");
+        let legacy_generated = test_generated_rust_path(&root, &manifest, &output.cases[0].name)
+            .expect("legacy generated test path");
+        assert!(
+            !legacy_generated.exists(),
+            "cranelift test should not emit generated Rust"
+        );
+    }
+
     #[cfg(unix)]
     #[test]
     fn property_tests_recover_read_only_artifact_directory() {
@@ -8083,6 +8188,7 @@ mod tests {
                 include_benchmarks: false,
                 properties_only: true,
                 conformance: false,
+                ..TestOptions::default()
             },
         )
         .expect("run property-only tests with stale artifact permissions");

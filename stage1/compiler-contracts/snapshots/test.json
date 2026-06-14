@@ -17,6 +17,7 @@
       "expected_stderr": null
     }
   ],
+  "backend": "generated-rust",
   "command": "test",
   "duration_ms": 0,
   "failed": 0,

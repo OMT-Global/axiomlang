@@ -8107,10 +8107,86 @@ fn starts_with_ascii_uppercase(value: &str) -> bool {
         .unwrap_or(false)
 }
 
-fn is_assignment_target(expr: &Expr) -> bool {
+fn is_assignment_target(expr: &Expr, ctx: &LowerContext<'_>) -> bool {
     match expr {
+        Expr::VarRef { ty, .. } => is_local_assignment_type(ty, ctx),
         Expr::Deref { .. } => true,
         Expr::Index { base, .. } => matches!(base.ty(), Type::MutSlice(_)),
+        _ => false,
+    }
+}
+
+fn is_local_assignment_type(ty: &Type, ctx: &LowerContext<'_>) -> bool {
+    is_scalar_local_assignment_type(ty)
+        || is_scalar_option_assignment_type(ty)
+        || is_scalar_result_assignment_type(ty)
+        || is_scalar_enum_assignment_type(ty, ctx)
+        || is_scalar_projection_assignment_type(ty, ctx)
+}
+
+fn is_scalar_local_assignment_type(ty: &Type) -> bool {
+    matches!(ty, Type::Int | Type::Numeric(_) | Type::Bool)
+}
+
+fn is_scalar_option_assignment_type(ty: &Type) -> bool {
+    matches!(ty, Type::Option(inner) if is_scalar_option_assignment_payload_type(inner))
+}
+
+fn is_scalar_option_assignment_payload_type(ty: &Type) -> bool {
+    is_scalar_local_assignment_type(ty)
+        || matches!(ty, Type::Tuple(elements) if elements.iter().all(is_scalar_local_assignment_type))
+}
+
+fn is_scalar_result_assignment_type(ty: &Type) -> bool {
+    matches!(ty, Type::Result(ok, err) if is_scalar_result_assignment_payload_type(ok) && is_scalar_result_assignment_payload_type(err))
+}
+
+fn is_scalar_result_assignment_payload_type(ty: &Type) -> bool {
+    is_scalar_local_assignment_type(ty)
+        || matches!(ty, Type::Tuple(elements) if elements.iter().all(is_scalar_local_assignment_type))
+}
+
+fn is_scalar_enum_assignment_type(ty: &Type, ctx: &LowerContext<'_>) -> bool {
+    let Type::Enum(name) = ty else {
+        return false;
+    };
+    ctx.enums
+        .get(name)
+        .map(|enum_def| {
+            enum_def.variants.iter().all(|variant| {
+                variant
+                    .payload_tys
+                    .iter()
+                    .all(|ty| is_scalar_enum_assignment_payload_type(ty, ctx))
+            })
+        })
+        .unwrap_or(false)
+}
+
+fn is_scalar_enum_assignment_payload_type(ty: &Type, ctx: &LowerContext<'_>) -> bool {
+    is_scalar_result_assignment_payload_type(ty)
+        || matches!(ty, Type::Struct(name) if ctx.structs.get(name).map(|struct_def| {
+            struct_def
+                .fields
+                .iter()
+                .all(|field| is_scalar_local_assignment_type(&field.ty))
+        }).unwrap_or(false))
+}
+
+fn is_scalar_projection_assignment_type(ty: &Type, ctx: &LowerContext<'_>) -> bool {
+    match ty {
+        Type::Tuple(elements) => elements.iter().all(is_scalar_local_assignment_type),
+        Type::Array(element, Some(_)) => is_scalar_local_assignment_type(element),
+        Type::Struct(name) => ctx
+            .structs
+            .get(name)
+            .map(|struct_def| {
+                struct_def
+                    .fields
+                    .iter()
+                    .all(|field| is_scalar_local_assignment_type(&field.ty))
+            })
+            .unwrap_or(false),
         _ => false,
     }
 }
@@ -8226,11 +8302,11 @@ fn lower_stmt(
             column,
         } => {
             let lowered_target = lower_expr(target, env, ctx)?;
-            if !is_assignment_target(&lowered_target) {
+            if !is_assignment_target(&lowered_target, ctx) {
                 return Err(Diagnostic::new(
                     "type",
                     format!(
-                        "assignment target must dereference a mutable reference or index a mutable slice, got {}",
+                        "assignment target must be a scalar local, dereference a mutable reference, or index a mutable slice, got {}",
                         lowered_target.ty()
                     ),
                 )
@@ -16339,6 +16415,33 @@ return input == input && true && true
             },
             other => panic!("expected property return, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn hir_lowers_long_bool_logic_chain_without_stack_overflow() {
+        let chain = std::iter::repeat_n("flag", 32)
+            .collect::<Vec<_>>()
+            .join(" && ");
+        let source = format!(
+            r#"
+fn main(): int {{
+let flag: bool = true
+let ok: bool = {chain}
+if ok {{
+return 48
+}} else {{
+return 1
+}}
+}}
+"#
+        );
+        let parsed = parse(&source);
+
+        let lowered = lower(&parsed).expect("HIR lowering should accept long bool logic chains");
+        let main = &lowered.functions[0];
+
+        assert_eq!(main.name, "main");
+        assert_eq!(main.return_ty, Type::Int);
     }
 
     #[test]

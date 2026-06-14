@@ -1,5 +1,6 @@
 {
   "args": [],
+  "backend": "generated-rust",
   "binary": "<project>/dist/contract-app",
   "command": "run",
   "duration_ms": 0,

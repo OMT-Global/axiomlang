@@ -3,19 +3,19 @@
   "generated_rust": "<project>/dist/debug-map-contract.generated.rs",
   "mappings": [
     {
-      "generated_line": 3585,
+      "generated_line": 3617,
       "source": "<project>/src/helper.ax",
       "line": 2,
       "column": 1
     },
     {
-      "generated_line": 3592,
+      "generated_line": 3624,
       "source": "<project>/src/main.ax",
       "line": 2,
       "column": 1
     },
     {
-      "generated_line": 3594,
+      "generated_line": 3626,
       "source": "<project>/src/main.ax",
       "line": 3,
       "column": 1

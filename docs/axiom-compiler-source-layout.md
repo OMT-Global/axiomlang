@@ -50,8 +50,8 @@ surface, but command handlers should delegate to these AxiOM package functions:
 |---|---|---|
 | `axiomc check` | `compiler.commands.check_package(root, options)` | diagnostics, capability records, optional exports/debug symbols, `axiom.stage1.v1` JSON envelope |
 | `axiomc build` | `compiler.commands.build_package(root, target, debug, locked, offline)` | artifact plan, selected backend contract, provenance, optional debug sidecars, build metadata |
-| `axiomc run` | `compiler.commands.run_artifact(root, args, options)` | exit code, stdout/stderr capture when JSON is requested, selected package metadata |
-| `axiomc test` | `compiler.commands.test_package(root, filter, options)` | discovered tests, per-case result, property totals, golden stream evidence |
+| `axiomc run` | `compiler.commands.run_artifact(root, args, options)` | selected backend, exit code, stdout/stderr capture when JSON is requested, selected package metadata, optional generated-Rust artifact metadata |
+| `axiomc test` | `compiler.commands.test_package(root, filter, options)` | selected backend, discovered tests, per-case result, property totals, golden stream evidence, optional generated-Rust artifact metadata |
 | `axiomc doc` | `compiler.commands.render_docs(root, options)` | documentation artifacts, API extraction records, source symbol evidence |
 | `axiomc lsp` | `compiler.services.lsp.serve_stdio()` | JSON-RPC/LSP lifecycle, document diagnostics, future semantic features through compiler package APIs |
 | `axiomc trace` | `compiler.evidence.trace(root, query)` | source/function/package/artifact graph filtered by stable `axiom://` ids |

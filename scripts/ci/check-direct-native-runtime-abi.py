@@ -67,13 +67,14 @@ def validate_rows(
     group_name: str,
     errors: list[str],
     contract_root: Path,
-) -> tuple[set[str], list[str], dict[str, int], set[int]]:
+) -> tuple[set[str], list[str], list[str], dict[str, int], set[int]]:
     if not isinstance(rows, list):
         errors.append(f"{group_name} must be an array")
-        return set(), [], {status: 0 for status in sorted(VALID_STATUSES)}, set()
+        return set(), [], [], {status: 0 for status in sorted(VALID_STATUSES)}, set()
 
     seen: set[str] = set()
-    blockers: list[str] = []
+    incomplete_rows: list[str] = []
+    blocked_rows: list[str] = []
     status_counts = {status: 0 for status in sorted(VALID_STATUSES)}
     blocker_issues: set[int] = set()
     for index, row in enumerate(rows):
@@ -101,14 +102,27 @@ def validate_rows(
         validate_evidence_paths(
             row, row_id, group_name, "denial_evidence", errors, contract_root
         )
+        validate_evidence_paths(
+            row, row_id, group_name, "runtime_evidence", errors, contract_root
+        )
         if status in {"implemented", "partial"} and "evidence" not in row:
             errors.append(
                 f"{group_name} row {row_id!r} must name evidence for status {status!r}"
             )
 
         row_blockers = row.get("blockers", [])
-        if status != "implemented":
-            blockers.append(row_id)
+        if status == "implemented":
+            if "blockers" in row and row_blockers:
+                errors.append(f"{group_name} row {row_id!r} must not name blockers")
+            if "runtime_evidence" not in row:
+                errors.append(
+                    f"{group_name} row {row_id!r} must name runtime_evidence "
+                    "for status 'implemented'"
+                )
+        else:
+            incomplete_rows.append(row_id)
+            if status == "blocked":
+                blocked_rows.append(row_id)
             if not isinstance(row_blockers, list) or not row_blockers:
                 errors.append(f"{group_name} row {row_id!r} must name blockers")
             elif not all(isinstance(issue, int) and issue > 0 for issue in row_blockers):
@@ -124,7 +138,7 @@ def validate_rows(
     extra = sorted(seen - required_ids)
     if extra:
         errors.append(f"{group_name} has unknown rows: {', '.join(extra)}")
-    return seen, blockers, status_counts, blocker_issues
+    return seen, incomplete_rows, blocked_rows, status_counts, blocker_issues
 
 
 def validate_evidence_paths(
@@ -176,7 +190,13 @@ def build_report(
     if contract.get("status") not in VALID_STATUSES:
         errors.append("status must be implemented, partial, or blocked")
 
-    _, value_blockers, value_status_counts, value_blocker_issues = validate_rows(
+    (
+        _,
+        value_incomplete_rows,
+        value_blocked_rows,
+        value_status_counts,
+        value_blocker_issues,
+    ) = validate_rows(
         contract.get("value_features"),
         REQUIRED_VALUE_FEATURES,
         "value_features",
@@ -185,7 +205,8 @@ def build_report(
     )
     (
         _,
-        capability_blockers,
+        capability_incomplete_rows,
+        capability_blocked_rows,
         capability_status_counts,
         capability_blocker_issues,
     ) = validate_rows(
@@ -196,9 +217,10 @@ def build_report(
         contract_root,
     )
 
-    blocked_rows = sorted(value_blockers + capability_blockers)
+    incomplete_rows = sorted(value_incomplete_rows + capability_incomplete_rows)
+    blocked_rows = sorted(value_blocked_rows + capability_blocked_rows)
     blocker_issues = sorted(value_blocker_issues | capability_blocker_issues)
-    ready = not errors and not blocked_rows and contract.get("status") == "implemented"
+    ready = not errors and not incomplete_rows and contract.get("status") == "implemented"
     report = {
         "schema": "axiom.direct_native.runtime_abi.check.v1",
         "ready": ready,
@@ -214,6 +236,7 @@ def build_report(
         "capability_shim_count": len(contract.get("capability_shims", []))
         if isinstance(contract.get("capability_shims"), list)
         else 0,
+        "incomplete_rows": incomplete_rows,
         "blocked_rows": blocked_rows,
         "blocker_issues": blocker_issues,
         "errors": errors,
@@ -248,6 +271,7 @@ def main() -> int:
             },
             "value_feature_count": 0,
             "capability_shim_count": 0,
+            "incomplete_rows": [],
             "blocked_rows": [],
             "blocker_issues": [],
             "errors": [str(error)],
@@ -266,8 +290,11 @@ def main() -> int:
     else:
         print(
             "direct native runtime ABI: not ready "
-            f"({len(report['blocked_rows'])} blocked rows, {len(report['errors'])} errors)"
+            f"({len(report['incomplete_rows'])} incomplete rows, "
+            f"{len(report['blocked_rows'])} blocked rows, {len(report['errors'])} errors)"
         )
+        if report["incomplete_rows"]:
+            print(f"incomplete rows: {', '.join(report['incomplete_rows'])}")
         if report["blocked_rows"]:
             print(f"blocked rows: {', '.join(report['blocked_rows'])}")
         if report["blocker_issues"]:

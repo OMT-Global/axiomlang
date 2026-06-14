@@ -8,26 +8,31 @@
       "id": "numeric.scalars",
       "status": "partial",
       "evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"],
+      "runtime_evidence": ["stage1/crates/axiomc-backend-cranelift/src/lib.rs"],
       "blockers": [928],
-      "notes": "The Cranelift spike covers several scalar widths and casts, but the contract is not yet proven across the full runtime surface."
+      "notes": "The Cranelift spike covers several scalar widths and casts. The direct-native path now also has narrow axiomc MIR-pipeline runtime evidence: zero-argument main(): int, main(): i64, main(): i32, and main(): u32 entrypoints with straight-line literal/local int and i64 expressions, integer typed numeric literals cast to int, int values round-tripped through i64, local initializer expressions, helper int -> int and int/i64 boundary functions, simple int, i64, signed i8/i16/i32 and isize helper arguments, locals, returns, and casts, narrow unsigned u8/u16/u32 helper arguments, locals, returns, and casts, explicit narrow integer casts with unsigned truncation and signed extension, typed narrow integer arithmetic and helper return values cast back to their source width, immediate tuple-literal scalar indexing, scalar projection from local tuple bindings, immediate array-literal scalar indexing with literal indexes, scalar projection from local fixed-array bindings, immediate struct-literal scalar field access, scalar projection from local struct bindings, and explicitly cast typed-integer static values, multi-argument helper calls, recursive helper-to-helper calls, nested i64 add/sub/mul/signed-div arithmetic, source-level while loops with scalar numeric and bool local assignment, scoped runtime scalar let declarations, scoped runtime tuple, fixed-array, and struct scalar projection let declarations, scalar-projection aggregate reassignment in loop bodies, after loops, and final return branches, nested branch statements, and an if branch driven by signed i64 comparisons and boolean literals composed with &&/|| are lowered to Cranelift functions, calls, locals, arithmetic, comparison, boolean condition, branch, loop, return-block, and assignment instructions in both the entrypoint and helper functions, including helper function loop bodies with scoped runtime let declarations, and returned as the process exit status without generated Rust. The backend crate also has narrow object-link evidence for composed &&/|| comparison conditions and bool local assignment through a branch inside a loop after a scoped runtime bool let. The row remains partial until this runtime path covers the full supported scalar surface."
     },
     {
       "id": "boolean",
       "status": "partial",
       "evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"],
-      "blockers": [928]
+      "runtime_evidence": ["stage1/crates/axiomc-backend-cranelift/src/lib.rs"],
+      "blockers": [928],
+      "notes": "The Cranelift spike covers boolean values. The direct-native path now also has narrow runtime evidence for signed i64 comparisons, bool local bindings backed by i64 slots, scoped runtime bool let declarations in loop bodies, simple bool static values, boolean literals composed with &&/|| feeding an if branch in a zero-argument main(): int, zero-argument main(): bool calling bool-returning helpers and returning process exit status 1 for true and 0 for false, bool helper parameters encoded through the i64 helper ABI with literal bools, static bools, dynamic bool locals, and comparison expressions, bool-returning helpers that return condition expressions directly, final if branches whose arms return bool expressions, boolean equality/inequality between dynamic bool expressions, local/static bool values, and boolean literals in conditions, immediate tuple-literal bool indexing, bool projection from local tuple bindings, immediate array-literal bool indexing, bool projection from local fixed-array bindings, immediate struct-literal bool field access, and bool projection from local struct bindings for bool locals, helper returns, and boolean conditions, and bool local assignment through a source-level while loop without generated Rust. The backend crate has object-link evidence for composed &&/|| comparison conditions, condition-to-i64 value lowering for helper-call arguments, and bool local assignment through a branch inside a loop after a scoped runtime bool let. The row remains partial until direct-native codegen covers the full boolean expression surface."
     },
     {
       "id": "string",
       "status": "partial",
       "evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"],
-      "blockers": [928]
+      "blockers": [928],
+      "notes": "The Cranelift spike builds and runs pure string intrinsics including string_clone, string_starts_with, string_strip_prefix, string_strip_suffix, string_trim, string_trim_start, and string_line_at without generated Rust. It also covers std/string_builder.ax owned string accumulator helpers and std/encoding.ax percent encode/decode, query-pair encoding, and path segment joining without generated Rust. Broader string ABI coverage, allocation behavior, and host-boundary representation remain open."
     },
     {
       "id": "array.fixed",
       "status": "partial",
       "evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"],
-      "blockers": [928]
+      "blockers": [928],
+      "notes": "The direct-native path now has narrow runtime evidence for immediate array-literal scalar indexing with literal indexes and scalar projection from local fixed-array bindings, including runtime-scope loop-body bindings and reassignment of scalar-projection array locals. Numeric projections can feed int and typed integer locals; boolean projections can feed bool locals, helper return conditions, and composed boolean conditions. Fixed-size scalar and bool array helper parameters lower across direct-native function-call boundaries as one ABI slot per element for local array values and inline array literals. Local and helper-parameter fixed-array scalar and bool projections also support narrow in-bounds dynamic indexes by selecting across projected element locals. Scalar and bool fixed-array-returning helpers now lower across direct-native function-call boundaries as one return slot per element, with caller-side projection locals populated from the multi-slot return; this covers literal array returns, local array binding returns, forwarded array parameters, and branch-selected array returns. The same projected element-slot representation now covers fixed-array payloads inside narrow local Option<[int; 2]> construction and tag/payload matches. The row remains partial until direct-native codegen covers a general array ABI, array storage for non-scalar elements, full dynamic indexing semantics, bounds diagnostics, and a complete aggregate value passing contract."
     },
     {
       "id": "slice.borrowed",
@@ -40,38 +45,46 @@
       "id": "map.lookup",
       "status": "partial",
       "evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"],
-      "blockers": [928]
+      "blockers": [928],
+      "notes": "The Cranelift spike covers direct map indexing, get, get_or_default, map_contains_key, map_keys, and public std/collections.ax contains, get, get_or_default, and keys helpers for string and integer key/value shapes without generated Rust. Broader map ABI coverage, key/value ownership, and host boundary representation remain open."
     },
     {
       "id": "tuple",
       "status": "partial",
       "evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"],
-      "blockers": [928]
+      "blockers": [928],
+      "notes": "The direct-native path now has narrow runtime evidence for immediate tuple-literal scalar indexing and scalar projection from local tuple bindings, including runtime-scope loop-body bindings and reassignment of scalar-projection tuple locals. Numeric projections can feed int and typed integer locals; boolean projections can feed bool locals, helper return conditions, and composed boolean conditions. Scalar and bool tuple helper parameters lower across direct-native function-call boundaries as one ABI slot per element for local tuple values and inline tuple literals. Scalar and bool tuple-returning helpers now lower across direct-native function-call boundaries as one return slot per tuple element, with caller-side projection locals populated from the multi-slot return; this includes helpers whose final return is selected by branch blocks with branch-local scalar values, helpers returning local tuple bindings, and helpers forwarding tuple parameters. The row remains partial until direct-native codegen covers a general tuple ABI, tuple storage for non-scalar elements, tuple return expressions beyond the scalar/bool local, literal, and parameter slice, and a complete aggregate value passing contract."
     },
     {
       "id": "option",
       "status": "partial",
       "evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"],
-      "blockers": [928]
+      "runtime_evidence": ["stage1/crates/axiomc-backend-cranelift/src/lib.rs"],
+      "blockers": [928],
+      "notes": "The direct-native path now has narrow runtime evidence for local Option<int> and Option<bool> construction as tag/payload locals, scalar option reassignment in loop bodies, value-producing match expressions over Some(payload) and None arms that feed scalar and bool locals before returning without generated Rust, match statements that assign scalar and bool locals from Some/None arms, and scalar Option<int>/Option<bool> helper parameters lowered across direct-native function-call boundaries as explicit tag/payload ABI slots for local option values and inline Some/None arguments. The direct-native path also has narrow evidence for Option<(int, bool)> construction, reassignment, matching, helper parameters, and helper returns for local values, forwarded local or parameter values, and inline Some((...))/None arguments represented as a tag plus multiple payload slots. The same tag/payload-slot representation now covers local Option<[int; 2]> construction and matching for inline Some([..])/None values. The row remains partial until direct-native codegen covers a general Option ABI across broader payload shapes, nested option values, helper ABI coverage for array payloads, and broad aggregate storage."
     },
     {
       "id": "result",
       "status": "partial",
       "evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"],
+      "runtime_evidence": ["stage1/crates/axiomc-backend-cranelift/src/lib.rs"],
       "blockers": [928],
-      "notes": "The Cranelift spike evaluates Result<T, E> through std/outcome.ax helpers, direct match arms, scalar payloads, string errors, and struct payloads. Broader ABI payload and capability-shim coverage remain open."
+      "notes": "The Cranelift spike evaluates Result<T, E> through std/outcome.ax helpers, direct match arms, scalar payloads, string errors, and struct payloads. The direct-native path now has narrow runtime evidence for local Result<int, int>, Result<bool, bool>, Result<int, bool>, Result<bool, int>, and typed numeric Result<i32, u32>, Result<i64, u16>, and Result<u8, i8> Ok and Err construction and reassignment represented as tag/payload locals, value-producing matches over Ok(payload) and Err(error) that feed scalar and bool locals and process exit status, match statements that assign scalar and bool locals from Ok/Err arms, and those Result helper parameters lowered across direct-native function-call boundaries as explicit tag/payload ABI slots for local values and inline Ok/Err arguments without generated Rust. The direct-native path also has narrow evidence for Result<(int, bool), int> and Result<(int, bool), (int, bool)> Ok/Err construction, reassignment, matching, and helper parameters for local values and inline Ok/Err arguments represented as a tag plus multiple payload slots. That same tag/payload representation now covers helper returns and forwarded local or parameter values for the Result<(int, bool), int> narrow slice. Broader Result ABI support, the full numeric-width matrix, additional aggregate payload shapes, and capability-shim coverage remain open."
     },
     {
       "id": "enum.payload",
       "status": "partial",
       "evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"],
-      "blockers": [928]
+      "blockers": [928],
+      "runtime_evidence": ["stage1/crates/axiomc-backend-cranelift/src/lib.rs"],
+      "notes": "The Cranelift spike builds and runs custom enum matches with tuple, named, and string payloads without generated Rust. The direct-native path now has narrow runtime evidence for local custom enum construction, reassignment, value-producing matches, and statement matches over scalar/bool positional and named payload variants, represented as a tag plus payload slots and returned as process exit status without generated Rust. The same tag/payload-slot representation now covers narrow scalar tuple and scalar struct payload storage, matching, and helper parameters for named custom enum payloads such as (int, bool) and Step { value: int, enabled: bool }. Scalar/bool custom enum helper parameters lower across direct-native function-call boundaries as explicit tag/payload ABI slots for local values and inline variant arguments. Narrow custom enum helper returns and forwarded local or parameter values also lower through the same tag/payload slots for scalar struct payload variants. Broader enum ABI support and aggregate payload storage beyond scalar tuples/structs remain open."
     },
     {
       "id": "struct.field",
       "status": "partial",
       "evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"],
-      "blockers": [928]
+      "blockers": [928],
+      "notes": "The direct-native path now has narrow runtime evidence for immediate struct-literal scalar field access and scalar projection from local struct bindings, including runtime-scope loop-body bindings and reassignment of scalar-projection struct locals. Numeric fields can feed int and typed integer locals; boolean fields can feed bool locals, helper return conditions, and composed boolean conditions. Scalar and bool struct helper parameters lower across direct-native function-call boundaries as one ABI slot per field in declared field order for local struct values and inline struct literal arguments. Scalar and bool struct-returning helpers now lower across direct-native function-call boundaries as one return slot per declared field, with caller-side projection locals populated from the multi-slot return; this includes helpers whose final return is selected by branch blocks with branch-local scalar values, helpers returning local struct bindings, and helpers forwarding struct parameters. The row remains partial until direct-native codegen covers a general struct ABI, struct storage for non-scalar fields, owned field projection, field mutation, struct return expressions beyond the scalar/bool local, literal, and parameter slice, and a complete aggregate value passing contract."
     },
     {
       "id": "owned.move_state",
@@ -93,74 +106,84 @@
     },
     {
       "id": "fs.write",
-      "status": "blocked",
+      "status": "partial",
       "capability": "fs:write",
       "blockers": [928],
       "evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"],
       "denial_evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"],
-      "notes": "The runtime shim remains blocked. The Cranelift spike records positive compiler-side evidence for std/fs.ax write helpers over configured fs_root-scoped literal paths, including mkdir_all, write_file, append_file, readback, replace_file, create_file, remove_file, and remove_dir. Full runtime-time filesystem writes, atomic replace parity, TOCTOU hardening, and audit parity remain open."
+      "notes": "The Cranelift spike records positive compiler-side evidence for std/fs.ax write helpers over configured fs_root-scoped literal paths, including mkdir_all, write_file, append_file, readback, replace_file, create_file, remove_file, and remove_dir. The spike also covers fs_root scoping and missing fs:write capability denial before backend lowering. Full runtime-time filesystem writes, atomic replace parity, TOCTOU hardening, and audit parity remain open."
     },
     {
       "id": "network.dns.resolve",
-      "status": "blocked",
+      "status": "partial",
       "capability": "net",
+      "evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"],
       "blockers": [928],
-      "denial_evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"]
+      "denial_evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"],
+      "notes": "The Cranelift spike builds and runs std/net.ax resolve(\"localhost\") through host DNS resolution without generated Rust, returning an Option<string> address. Packages without the net capability still receive the public manifest-policy denial before backend lowering. Full runtime-time DNS policy, non-loopback coverage, resolver portability, and audit parity remain blocked."
     },
     {
       "id": "network.tcp",
-      "status": "blocked",
+      "status": "partial",
       "capability": "net",
+      "evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"],
       "blockers": [928],
-      "denial_evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"]
+      "denial_evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"],
+      "notes": "The Cranelift spike builds and runs std/net.ax tcp_listen_loopback_once over 127.0.0.1 without generated Rust, returning a loopback port. Packages without the net capability still receive the public manifest-policy denial before backend lowering. Paired dynamic-port dial coverage, full socket lifecycle APIs, non-loopback policy coverage, timeout parity, and audit parity remain blocked."
     },
     {
       "id": "network.udp",
-      "status": "blocked",
+      "status": "partial",
       "capability": "net",
+      "evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"],
       "blockers": [928],
-      "denial_evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"]
+      "denial_evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"],
+      "notes": "The Cranelift spike builds and runs std/net.ax udp_bind_loopback_once over 127.0.0.1 without generated Rust, returning a loopback port. Packages without the net capability still receive the public manifest-policy denial before backend lowering. Paired dynamic-port send/recv coverage, full UDP socket lifecycle APIs, non-loopback policy coverage, timeout parity, and audit parity remain blocked."
     },
     {
       "id": "network.http.client",
-      "status": "blocked",
+      "status": "partial",
       "capability": "net",
+      "evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"],
       "blockers": [928],
-      "denial_evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"]
+      "denial_evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"],
+      "notes": "The Cranelift spike builds std/http.ax get against a static allowlisted http://127.0.0.1 URL and fetches a local one-shot HTTP response without generated Rust. Packages without the net capability still receive the public manifest-policy denial before backend lowering. HTTPS, nonlocal HTTP policy coverage, redirects, richer response handling, timeout parity, and audit parity remain blocked."
     },
     {
       "id": "network.http.server",
-      "status": "blocked",
+      "status": "partial",
       "capability": "net",
+      "evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"],
       "blockers": [928],
       "denial_evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"],
-      "notes": "The Cranelift spike still blocks positive HTTP server runtime support, but packages without the net capability receive the public manifest-policy denial before backend lowering."
+      "notes": "The Cranelift spike builds and runs loopback HTTP server entrypoints without generated Rust: listen, local_port, accept, request method/path/body extraction, response write, and close over a one-request HTTP/1.0 fixture. Packages without the net capability still receive the public manifest-policy denial before backend lowering. Route helpers, multi-request serving, non-loopback policy coverage, richer response metadata, timeout parity, and audit parity remain blocked."
     },
     {
       "id": "network.http.async_server",
-      "status": "blocked",
+      "status": "partial",
       "capability": "async",
+      "evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"],
       "blockers": [928],
       "denial_evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"],
-      "notes": "The Cranelift spike still blocks positive async HTTP server runtime support, but packages without the async capability receive the public manifest-policy denial after the net capability is present and before backend lowering."
+      "notes": "The Cranelift spike builds and runs http_async_serve_route over a loopback server handle without generated Rust, returning Task<bool> and serving a one-request HTTP/1.0 route fixture. Packages without the async capability receive the public manifest-policy denial after the net capability is present and before backend lowering. Real scheduler-backed serving, concurrent clients, cancellation, timeout parity, non-loopback policy coverage, and audit parity remain blocked."
     },
     {
       "id": "process.status",
-      "status": "blocked",
+      "status": "partial",
       "capability": "process",
       "evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"],
       "blockers": [928],
       "denial_evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"],
-      "notes": "The runtime shim remains blocked. The Cranelift spike records positive compiler-side evidence for std/process.ax run_status over literal, allowlisted deterministic commands, and missing process capability is rejected before backend lowering. Full runtime-time process execution, argument handling, audit parity, and host-process policy coverage remain open."
+      "notes": "The Cranelift spike records positive compiler-side evidence for std/process.ax run_status over literal, allowlisted deterministic commands, rejects unapproved commands, and rejects missing process capability before backend lowering. Full runtime-time process execution, argument handling, audit parity, and host-process policy coverage remain open."
     },
     {
       "id": "env.read",
-      "status": "blocked",
+      "status": "partial",
       "capability": "env",
       "evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"],
       "denial_evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"],
       "blockers": [928],
-      "notes": "The Cranelift spike can build a std/env.ax get_env package for present and missing environment reads, and rejects missing env capability before backend lowering. This is compiler-side spike evidence, not direct native runtime execution; full runtime-time environment lookup, manifest allowlist parity, and audit parity remain open."
+      "notes": "The Cranelift spike can build a std/env.ax get_env package for present and missing environment reads without generated Rust, and rejects missing env capability before backend lowering. Full runtime-time environment lookup, manifest allowlist parity, and audit parity remain open."
     },
     {
       "id": "clock.now_sleep",
@@ -178,7 +201,7 @@
       "evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"],
       "denial_evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"],
       "blockers": [928],
-      "notes": "The Cranelift spike covers std/crypto_hash.ax sha256 over strings without using generated Rust. Random, signature, AEAD, and broader crypto audit parity remain blocked."
+      "notes": "The Cranelift spike covers std/crypto_hash.ax sha256 over strings without using generated Rust. Random, signature, AEAD, and broader crypto audit parity remain open."
     },
     {
       "id": "crypto.mac",
@@ -191,43 +214,48 @@
     },
     {
       "id": "crypto.random",
-      "status": "blocked",
+      "status": "partial",
       "capability": "crypto",
+      "evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"],
       "blockers": [928],
       "denial_evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"],
-      "notes": "The Cranelift spike still blocks positive random-byte and random-u64 execution, but packages without the crypto capability receive the public manifest-policy denial before backend lowering."
+      "notes": "The Cranelift spike builds and runs std/crypto_rand.ax random_bytes and random_u64 through a Unix OS-random source without generated Rust, preserving the existing 0..=65536 byte length cap. Packages without the crypto capability receive the public manifest-policy denial before backend lowering. Portable entropy source parity, deterministic test hooks, and runtime audit parity remain blocked."
     },
     {
       "id": "crypto.signature",
-      "status": "blocked",
+      "status": "partial",
       "capability": "crypto",
+      "evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"],
       "blockers": [928],
       "denial_evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"],
-      "notes": "The Cranelift spike still blocks positive Ed25519 key generation, signing, and verification execution, but packages without the crypto capability receive the public manifest-policy denial before backend lowering."
+      "notes": "The Cranelift spike builds and runs std/crypto_sign.ax Ed25519 key generation, signing, and verification without generated Rust by dynamically loading the host libcrypto EVP provider for real cryptographic operations. Packages without the crypto capability receive the public manifest-policy denial before backend lowering. Runtime-integrated crypto provider selection, deterministic test hooks, audit parity, and non-Unix support remain blocked."
     },
     {
       "id": "crypto.aead",
-      "status": "blocked",
+      "status": "partial",
       "capability": "crypto",
+      "evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"],
       "blockers": [928],
       "denial_evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"],
-      "notes": "The Cranelift spike still blocks positive AEAD seal/open execution, but packages without the crypto capability receive the public manifest-policy denial before backend lowering."
+      "notes": "The Cranelift spike builds and runs std/crypto_aead.ax AES-256-GCM seal/open without generated Rust through a dynamically loaded host OpenSSL EVP provider. Packages without the crypto capability receive the public manifest-policy denial before backend lowering. Runtime-integrated crypto provider selection, broader algorithm coverage, deterministic test hooks, audit parity, and non-Unix support remain blocked."
     },
     {
       "id": "ffi.call",
-      "status": "blocked",
+      "status": "partial",
       "capability": "ffi",
+      "evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"],
       "blockers": [928],
       "denial_evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"],
-      "notes": "The Cranelift spike still blocks positive FFI call support, but packages without the ffi capability receive the public manifest-policy denial before backend lowering."
+      "notes": "The Cranelift spike builds and runs a narrow C ABI extern strlen fixture without generated Rust, using the source-level extern declaration and preserving missing ffi capability denial before backend lowering. Broad dynamic symbol loading, pointer/mutptr ABI shapes, non-string arguments, ownership safety, platform library resolution, and audit parity remain blocked."
     },
     {
       "id": "async.runtime",
-      "status": "blocked",
+      "status": "partial",
       "capability": "async",
       "blockers": [928],
+      "evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"],
       "denial_evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"],
-      "notes": "The Cranelift spike still blocks positive async runtime support, but packages without the async capability receive the public manifest-policy denial before backend lowering."
+      "notes": "The Cranelift spike now has compiler-side evidence for std/async.ax ready, await, spawn, join, cancel, is_canceled, timeout, channel send/recv, select, selected, and selected_value without generated Rust. Packages without the async capability still receive the public manifest-policy denial before backend lowering. Full direct-native scheduler, timer, blocking, wakeup, cancellation, and audit parity remain open."
     },
     {
       "id": "json.serdes",
@@ -235,7 +263,7 @@
       "capability": null,
       "evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"],
       "blockers": [928],
-      "notes": "The Cranelift spike covers std/json.ax scalar parse/stringify, JsonValue string wrapping, object field extraction, and value normalization without generated Rust. Full std/serdes.ax object graph parsing, schema validation, and richer JSON value modeling remain blocked."
+      "notes": "The Cranelift spike covers std/json.ax scalar parse/stringify, JsonValue string wrapping, object field extraction, and value normalization without generated Rust. It also covers std/serdes.ax Value object-map construction, nested JSON object/array parsing, typed field accessors, value indexing, stringify, and parse-error reporting without generated Rust. Schema validation and broader JSON value modeling remain blocked."
     },
     {
       "id": "regex.match_replace",
@@ -259,7 +287,7 @@
       "capability": null,
       "evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"],
       "blockers": [928],
-      "notes": "The Cranelift spike now builds and runs std/io eprintln with stdout and stderr output from the native binary. Stdin reads, std/log wrappers, and broader streaming/runtime buffering remain open."
+      "notes": "The Cranelift spike now builds and runs std/io eprintln with stdout and stderr output from the native binary, and std/log.ax event formatting plus info_attrs stderr emission without generated Rust. Stdin reads and broader streaming/runtime buffering remain open."
     }
   ]
 }

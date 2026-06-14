@@ -596,6 +596,7 @@
         "ok",
         "command",
         "project",
+        "backend",
         "manifest",
         "entry",
         "binary",
@@ -621,6 +622,10 @@
         "command": {
           "const": "run"
         },
+        "backend": {
+          "type": "string",
+          "minLength": 1
+        },
         "manifest": {
           "$ref": "#/$defs/path"
         },
@@ -631,7 +636,10 @@
           "$ref": "#/$defs/path"
         },
         "generated_rust": {
-          "$ref": "#/$defs/path"
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "package": {
           "type": [
@@ -673,6 +681,7 @@
         "ok",
         "command",
         "project",
+        "backend",
         "manifest",
         "packages",
         "filter",
@@ -697,6 +706,10 @@
         },
         "command": {
           "const": "test"
+        },
+        "backend": {
+          "type": "string",
+          "minLength": 1
         },
         "manifest": {
           "$ref": "#/$defs/path"

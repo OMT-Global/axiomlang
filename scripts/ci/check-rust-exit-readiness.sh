@@ -112,6 +112,76 @@ all_blocking_issues_closed() {
   done < <(blocking_issues_from_manifest)
 }
 
+direct_native_runtime_abi_report() {
+  if [[ ! -f scripts/ci/check-direct-native-runtime-abi.py ]]; then
+    return 1
+  fi
+  python3 scripts/ci/check-direct-native-runtime-abi.py --json
+}
+
+direct_native_runtime_abi_ready() {
+  python3 -c 'import json, sys; payload = json.load(sys.stdin); sys.exit(0 if payload.get("ready") is True else 1)'
+}
+
+direct_native_runtime_abi_detail() {
+  python3 -c 'import json, sys; payload = json.load(sys.stdin); incomplete = payload.get("incomplete_rows", []); blocked = payload.get("blocked_rows", []); errors = payload.get("errors", []); issues = ", ".join("#%s" % issue for issue in payload.get("blocker_issues", [])); print("errors: " + ", ".join(map(str, errors)) if errors else ("%d incomplete rows, %d blocked rows; blocker issues: %s" % (len(incomplete), len(blocked), issues) if incomplete or blocked else "contract status: %s" % payload.get("contract_status")))'
+}
+
+self_hosted_boundary_report() {
+  python3 - <<'PY'
+import json
+from pathlib import Path
+
+checks = []
+
+command_lsp = Path("stage1/compiler-contracts/snapshots/command-lsp.json")
+if not command_lsp.is_file():
+    checks.append(("command_lsp_release_boundary", "fail", "command/LSP boundary snapshot is missing"))
+else:
+    payload = json.loads(command_lsp.read_text(encoding="utf-8"))
+    release = payload.get("official_release", {})
+    failures = []
+    if release.get("requires_cargo") is not False:
+        failures.append("requires_cargo must be false")
+    if release.get("requires_rustc") is not False:
+        failures.append("requires_rustc must be false")
+    if release.get("temporary_developer_path") is not True:
+        failures.append("temporary_developer_path must remain explicit while Rust host exists")
+    if failures:
+        checks.append(("command_lsp_release_boundary", "fail", "; ".join(failures)))
+    else:
+        checks.append(("command_lsp_release_boundary", "pass", "official command/LSP boundary excludes Cargo and rustc"))
+
+mir_backend = Path("stage1/compiler-contracts/snapshots/mir-backend.json")
+if not mir_backend.is_file():
+    checks.append(("mir_backend_direct_native_boundary", "fail", "MIR/backend boundary snapshot is missing"))
+else:
+    payload = json.loads(mir_backend.read_text(encoding="utf-8"))
+    targets = {target.get("id"): target for target in payload.get("targets", [])}
+    native = targets.get("axiom://target/stage1-direct-native")
+    failures = []
+    if not native:
+        failures.append("direct-native target is missing")
+    else:
+        forbidden = {"rust_source", "generated_rust", "cargo_metadata", "rustc_output"}
+        if set(native.get("must_not_require", [])) != forbidden:
+            failures.append("direct-native must_not_require set changed")
+        if "rust_source" in native.get("primary_artifacts", []):
+            failures.append("direct-native primary artifacts must not include rust_source")
+        if "rust_source" in native.get("required_evidence", []):
+            failures.append("direct-native evidence must not require rust_source")
+        if "runtime_abi" not in native.get("required_evidence", []):
+            failures.append("direct-native evidence must include runtime_abi")
+    if failures:
+        checks.append(("mir_backend_direct_native_boundary", "fail", "; ".join(failures)))
+    else:
+        checks.append(("mir_backend_direct_native_boundary", "pass", "direct-native target contract excludes generated Rust, Cargo, and rustc"))
+
+for name, status, detail in checks:
+    print(f"{name}|{status}|{detail}")
+PY
+}
+
 if [[ -f docs/rust-exit-readiness.md ]]; then
   add_check "readiness_doc_present" "pass" "docs/rust-exit-readiness.md exists"
 else
@@ -160,6 +230,22 @@ PY
 else
   add_check "readiness_manifest_valid" "fail" "docs/rust-exit-readiness.json cannot be validated"
 fi
+
+abi_report=""
+if abi_report="$(direct_native_runtime_abi_report 2>/dev/null)" && [[ -n "$abi_report" ]]; then
+  if printf '%s' "$abi_report" | direct_native_runtime_abi_ready; then
+    add_check "direct_native_runtime_abi_ready" "pass" "Direct native runtime ABI reports ready"
+  else
+    abi_detail="$(printf '%s' "$abi_report" | direct_native_runtime_abi_detail)"
+    add_check "direct_native_runtime_abi_ready" "fail" "Direct native runtime ABI is not ready: $abi_detail"
+  fi
+else
+  add_check "direct_native_runtime_abi_ready" "fail" "Direct native runtime ABI report is unavailable"
+fi
+
+while IFS='|' read -r boundary_name boundary_status boundary_detail; do
+  add_check "$boundary_name" "$boundary_status" "$boundary_detail"
+done < <(self_hosted_boundary_report)
 
 for target in rust-exit-readiness rust-exit-readiness-github rust-exit-readiness-test; do
   if has_make_target "$target"; then

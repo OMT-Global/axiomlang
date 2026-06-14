@@ -20,7 +20,8 @@ make rust-exit-readiness
 ```
 
 It emits `axiom.rust_exit.readiness.v1` JSON and fails while blocker issues in
-`docs/rust-exit-readiness.json` are open or unavailable. Deletion or
+`docs/rust-exit-readiness.json` are open or unavailable, or while the
+machine-readable direct-native runtime ABI reports `ready: false`. Deletion or
 release-chain PRs can require live GitHub state:
 
 ```bash
@@ -28,7 +29,8 @@ make rust-exit-readiness-github
 ```
 
 The readiness gate is an evidence surface, not permission to remove Rust by
-itself. It uses the manifest plus live issue state; this Markdown page is
+itself. It uses the manifest, the direct-native ABI contract, self-hosted
+command/MIR boundary fixtures, and live issue state; this Markdown page is
 descriptive evidence only. Closing #721 also requires the governing issues and
 review gates to be satisfied.
 
@@ -36,7 +38,7 @@ review gates to be satisfied.
 
 | Surface | Required state | Current disposition | Governing issue |
 | --- | --- | --- | --- |
-| Direct native parity matrix | Every supported stage1 surface has a direct-native status row and linked blocker when incomplete. | `blocked` | [#927](https://github.com/OMT-Global/axiom/issues/927) |
+| Direct native parity matrix | Every supported stage1 surface has a direct-native status row and linked blocker when incomplete. | Implemented as the checked runtime ABI matrix; individual incomplete rows still block through #928. | [#927](https://github.com/OMT-Global/axiom/issues/927) |
 | Direct native runtime ABI | Supported values, ownership shapes, stdlib calls, and capability host calls lower through backend-neutral direct-native runtime entrypoints. | `blocked` | [#928](https://github.com/OMT-Global/axiom/issues/928) |
 | Direct native diagnostics and evidence | Direct native builds preserve source diagnostics, provenance, debug manifests, and operator evidence without generated Rust. | Implemented for the Cranelift direct-native spike; broader coverage remains gated by runtime ABI and default-backend blockers. | [#929](https://github.com/OMT-Global/axiom/issues/929) |
 | Default backend | `axiomc build` defaults to direct native output and no longer invokes `rustc` for supported broad builds. | `blocked` | [#693](https://github.com/OMT-Global/axiom/issues/693) |
@@ -46,7 +48,7 @@ review gates to be satisfied.
 
 | Surface | Required state | Current disposition | Governing issue |
 | --- | --- | --- | --- |
-| AxiOM compiler source layout | Parser, checker, lowering, MIR, backend selection, diagnostics, packages, manifests, lockfiles, and command dispatch have AxiOM package boundaries. | `blocked` | [#930](https://github.com/OMT-Global/axiom/issues/930) |
+| AxiOM compiler source layout | Parser, checker, lowering, MIR, backend selection, diagnostics, packages, manifests, lockfiles, and command dispatch have AxiOM package boundaries. | Implemented as [AxiOM Compiler Source Layout and Self-Hosting Boundary](axiom-compiler-source-layout.md); source migration remains owned by child issues. | [#930](https://github.com/OMT-Global/axiom/issues/930) |
 | Snapshot bootstrap | A previously shipped `axiomc` snapshot builds the next working `axiomc` binary without invoking Cargo. | `blocked` | [#931](https://github.com/OMT-Global/axiom/issues/931) |
 | Final readiness gate | The Rust-exit command proves supported workflows, release builds, tests, docs, and LSP no longer require Rust-only infrastructure. | Implemented as `make rust-exit-readiness`; the gate still fails until the rows above and below are complete. | [#932](https://github.com/OMT-Global/axiom/issues/932) |
 | Compiler verification | Compiler-internal coverage is expressed in AxiOM property form instead of Rust-only tests. | `blocked` | [#562](https://github.com/OMT-Global/axiom/issues/562) |
@@ -56,9 +58,12 @@ review gates to be satisfied.
 ## Closure Rules
 
 - The direct native backend may replace generated Rust only after the backend
-  matrix has no blocked rows.
+  matrix has no incomplete rows (`partial` or `blocked`).
+- A direct-native runtime ABI row may be marked `implemented` only when it has
+  runtime-entrypoint or backend-emitted codegen evidence; compiler-side
+  Cranelift spike evaluation alone is not sufficient.
 - #721 may close only after the backend matrix and bootstrap matrix have no
-  blocked rows.
+  incomplete rows.
 - Generated Rust may remain as a compatibility backend while #693 is being
   proven, but #694 may not close until it is removed from the supported toolchain.
 - Cargo may remain as a developer convenience while #931 is being proven, but it

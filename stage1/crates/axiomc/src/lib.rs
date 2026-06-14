@@ -3032,6 +3032,7 @@ print 0
                 include_benchmarks: false,
                 properties_only: false,
                 conformance: false,
+                ..TestOptions::default()
             },
         )
         .expect("test selected workspace package");
@@ -3043,6 +3044,7 @@ print 0
             &RunOptions {
                 package: Some(String::from("workspace-app")),
                 args: Vec::new(),
+                ..RunOptions::default()
             },
         )
         .expect("run selected workspace package");
@@ -3088,6 +3090,7 @@ print first(values)\n",
             &RunOptions {
                 package: None,
                 args: vec![String::from("alpha"), String::from("beta")],
+                ..RunOptions::default()
             },
         )
         .expect("run project with forwarded args");
@@ -9871,6 +9874,7 @@ print serve_once("{bind}", "ok")
                 include_benchmarks: false,
                 properties_only: true,
                 conformance: false,
+                ..TestOptions::default()
             },
         )
         .expect("run property-only tests");
@@ -9959,6 +9963,7 @@ print serve_once("{bind}", "ok")
                 include_benchmarks: true,
                 properties_only: false,
                 conformance: false,
+                ..TestOptions::default()
             },
         )
         .expect("run benchmark smoke tests");
@@ -13837,6 +13842,7 @@ print takes_two(three)
                 include_benchmarks: false,
                 properties_only: false,
                 conformance: false,
+                ..TestOptions::default()
             },
         )
         .expect("run filtered tests");
@@ -14111,6 +14117,7 @@ print main_value()
                 include_benchmarks: false,
                 properties_only: false,
                 conformance: false,
+                ..TestOptions::default()
             },
         )
         .expect("test project");
