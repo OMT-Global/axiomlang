@@ -7046,7 +7046,12 @@ let dynamic_key_prefix_scores: {string: int} = {"build": 7, "deploy": 9}
 let dynamic_key_prefix_names: [string] = keys<string, int>(dynamic_key_prefix_scores)
 let dynamic_key_prefix_value: string = dynamic_key_prefix_names[dynamic_key_index]
 let dynamic_key_has_prefix: bool = string_starts_with(dynamic_key_prefix_value, "dep")
-if contains_hit && contains_miss && get_hit_code == 9 && get_miss_code == 13 && fallback == 13 && key_count == 2 && first_key_len == 5 && second_key_len == 6 && dynamic_key_len == 6 && dynamic_key_is_deploy && dynamic_key_not_build && dynamic_key_has_prefix {
+let dynamic_key_trim_scores: {string: int} = {" build ": 7, " deploy ": 9}
+let dynamic_key_trim_names: [string] = keys<string, int>(dynamic_key_trim_scores)
+let dynamic_key_trim_value: string = dynamic_key_trim_names[dynamic_key_index]
+let dynamic_key_trim_len: int = len(string_trim(dynamic_key_trim_value))
+let dynamic_key_trim_start_len: int = len(string_trim_start(dynamic_key_trim_value))
+if contains_hit && contains_miss && get_hit_code == 9 && get_miss_code == 13 && fallback == 13 && key_count == 2 && first_key_len == 5 && second_key_len == 6 && dynamic_key_len == 6 && dynamic_key_is_deploy && dynamic_key_not_build && dynamic_key_has_prefix && dynamic_key_trim_len == 6 && dynamic_key_trim_start_len == 7 {
 return 48
 } else {
 return 1

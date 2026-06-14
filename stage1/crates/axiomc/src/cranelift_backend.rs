@@ -6328,13 +6328,31 @@ fn lower_i64_map_key_array_string_index_predicate_expr(
     static_bindings: &I64StaticBindings,
     predicate: impl Fn(&str) -> bool,
 ) -> Option<CraneliftI64Expr> {
+    lower_i64_map_key_array_string_index_mapped_i64_expr(
+        expr,
+        local_indexes,
+        local_conditions,
+        helper_signatures,
+        static_bindings,
+        |value| predicate(value) as i64,
+    )
+}
+
+fn lower_i64_map_key_array_string_index_mapped_i64_expr(
+    expr: &Expr,
+    local_indexes: &HashMap<String, usize>,
+    local_conditions: &HashMap<String, CraneliftI64Condition>,
+    helper_signatures: &HashMap<&str, I64HelperSignature>,
+    static_bindings: &I64StaticBindings,
+    mapper: impl Fn(&str) -> i64,
+) -> Option<CraneliftI64Expr> {
     let (keys, index) = i64_map_key_array_string_index_source(expr, static_bindings)?;
     if keys.is_empty() {
         return None;
     }
     if let Some(index) = lower_i64_literal_index(&index) {
         return match keys.get(index)? {
-            I64MapKey::Text(value) => Some(CraneliftI64Expr::Literal(predicate(value) as i64)),
+            I64MapKey::Text(value) => Some(CraneliftI64Expr::Literal(mapper(value))),
             _ => None,
         };
     }
@@ -6347,12 +6365,12 @@ fn lower_i64_map_key_array_string_index_predicate_expr(
     )?;
     let last = keys.len() - 1;
     let mut result = match keys.get(last)? {
-        I64MapKey::Text(value) => CraneliftI64Expr::Literal(predicate(value) as i64),
+        I64MapKey::Text(value) => CraneliftI64Expr::Literal(mapper(value)),
         _ => return None,
     };
     for candidate in (0..last).rev() {
-        let matches_expected = match keys.get(candidate)? {
-            I64MapKey::Text(value) => predicate(value) as i64,
+        let mapped = match keys.get(candidate)? {
+            I64MapKey::Text(value) => mapper(value),
             _ => return None,
         };
         result = CraneliftI64Expr::Select {
@@ -6361,7 +6379,7 @@ fn lower_i64_map_key_array_string_index_predicate_expr(
                 lhs: index.clone(),
                 rhs: CraneliftI64Expr::Literal(candidate as i64),
             })),
-            then_result: Box::new(CraneliftI64Expr::Literal(matches_expected)),
+            then_result: Box::new(CraneliftI64Expr::Literal(mapped)),
             else_result: Box::new(result),
         };
     }
@@ -9809,6 +9827,29 @@ fn lower_i64_string_len_expr(
                 local_conditions,
                 helper_signatures,
                 static_bindings,
+            )
+        }
+        Expr::Call {
+            name,
+            args,
+            ty: Type::String | Type::Str,
+        } if name == "string_trim" || name == "string_trim_start" => {
+            let [text] = args.as_slice() else {
+                return None;
+            };
+            lower_i64_map_key_array_string_index_mapped_i64_expr(
+                text,
+                local_indexes,
+                local_conditions,
+                helper_signatures,
+                static_bindings,
+                |value| {
+                    if name == "string_trim" {
+                        value.trim().len() as i64
+                    } else {
+                        value.trim_start().len() as i64
+                    }
+                },
             )
         }
         Expr::Call { name, args, .. } if is_i64_crypto_sha256_name(name, static_bindings) => {
