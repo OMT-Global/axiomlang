@@ -92,6 +92,7 @@ struct I64StaticBindings {
     crypto_constant_time_eq_u8_wrappers: HashSet<String>,
     crypto_verify_sha256_wrappers: HashSet<String>,
     crypto_verify_sha512_wrappers: HashSet<String>,
+    crypto_random_u64_wrappers: HashSet<String>,
     ffi_strlen_symbols: HashSet<String>,
     fs_root: Option<PathBuf>,
     structs: HashMap<String, StructDef>,
@@ -597,6 +598,8 @@ fn lower_i64_exit_program(program: &Program, fs_root: &Path) -> Option<I64ExitPr
                 || is_i64_std_crypto_wrapper(function, "constant_time_eq_u8")
                 || is_i64_std_crypto_wrapper(function, "verify_sha256")
                 || is_i64_std_crypto_wrapper(function, "verify_sha512")
+                || is_i64_std_crypto_wrapper(function, "random_u64")
+                || function.path == "<stdlib>/crypto_rand.ax"
         })
         .map(|function| function.name.clone())
         .collect();
@@ -640,6 +643,12 @@ fn lower_i64_exit_program(program: &Program, fs_root: &Path) -> Option<I64ExitPr
         .functions
         .iter()
         .filter(|function| is_i64_std_crypto_wrapper(function, "verify_sha512"))
+        .flat_map(|function| [function.name.clone(), function.source_name.clone()])
+        .collect();
+    static_bindings.crypto_random_u64_wrappers = program
+        .functions
+        .iter()
+        .filter(|function| is_i64_std_crypto_wrapper(function, "random_u64"))
         .flat_map(|function| [function.name.clone(), function.source_name.clone()])
         .collect();
     static_bindings.ffi_strlen_symbols = program
@@ -6960,6 +6969,9 @@ fn lower_i64_expr(
         Expr::Literal(LiteralValue::Numeric { raw, ty }) => {
             lower_i64_numeric_literal(raw, *ty).map(CraneliftI64Expr::Literal)
         }
+        Expr::Call { name, args, .. } if is_i64_crypto_random_u64_name(name, static_bindings) => {
+            lower_i64_crypto_random_intrinsic_expr(name, args, static_bindings)
+        }
         Expr::VarRef { name, ty } if is_i64_compatible_type(ty) => local_indexes
             .get(name.as_str())
             .copied()
@@ -6970,6 +6982,7 @@ fn lower_i64_expr(
             lower_i64_clock_intrinsic_expr(name, args, static_bindings)
                 .or_else(|| lower_i64_process_intrinsic_expr(name, args, static_bindings))
                 .or_else(|| lower_i64_fs_write_intrinsic_expr(name, args, static_bindings))
+                .or_else(|| lower_i64_crypto_random_intrinsic_expr(name, args, static_bindings))
                 .or_else(|| {
                     lower_i64_ffi_intrinsic_expr(
                         name,
@@ -8513,6 +8526,18 @@ fn lower_i64_fs_write_intrinsic_expr(
     )?))
 }
 
+fn lower_i64_crypto_random_intrinsic_expr(
+    name: &str,
+    args: &[Expr],
+    static_bindings: &I64StaticBindings,
+) -> Option<CraneliftI64Expr> {
+    if !is_i64_crypto_random_u64_name(name, static_bindings) || !args.is_empty() {
+        return None;
+    }
+    let bytes: [u8; 8] = crypto_random_bytes(8).ok()?.try_into().ok()?;
+    Some(CraneliftI64Expr::Literal(i64::from_ne_bytes(bytes)))
+}
+
 fn lower_i64_ffi_intrinsic_expr(
     name: &str,
     args: &[Expr],
@@ -9001,7 +9026,10 @@ fn is_i64_string_builder_constructor_name(name: &str, static_bindings: &I64Stati
 fn is_i64_std_crypto_wrapper(function: &Function, source_name: &str) -> bool {
     matches!(
         function.path.as_str(),
-        "<stdlib>/crypto_hash.ax" | "<stdlib>/crypto_mac.ax" | "<stdlib>/crypto.ax"
+        "<stdlib>/crypto_hash.ax"
+            | "<stdlib>/crypto_mac.ax"
+            | "<stdlib>/crypto_rand.ax"
+            | "<stdlib>/crypto.ax"
     ) && function.source_name == source_name
 }
 
@@ -9037,6 +9065,10 @@ fn is_i64_crypto_verify_sha256_name(name: &str, static_bindings: &I64StaticBindi
 
 fn is_i64_crypto_verify_sha512_name(name: &str, static_bindings: &I64StaticBindings) -> bool {
     static_bindings.crypto_verify_sha512_wrappers.contains(name)
+}
+
+fn is_i64_crypto_random_u64_name(name: &str, static_bindings: &I64StaticBindings) -> bool {
+    name == "crypto_rand_u64" || static_bindings.crypto_random_u64_wrappers.contains(name)
 }
 
 fn is_i64_supported_strlen_extern(function: &Function) -> bool {

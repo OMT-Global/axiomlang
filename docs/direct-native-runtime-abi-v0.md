@@ -397,10 +397,12 @@ host-service coverage remain blocked under #928.
 The direct-native crypto random slice is now marked partial: the Cranelift
 spike can build and run `std/crypto_rand.ax` `random_bytes(...)` and
 `random_u64()` through a Unix OS-random source without generated Rust, while
-preserving the generated-Rust helper's `0..=65536` byte length cap. A package
-without the `crypto` capability still fails before backend lowering. Portable
-entropy source parity, deterministic test hooks, and runtime audit parity
-remain open under #928.
+preserving the generated-Rust helper's `0..=65536` byte length cap. The
+direct-native i64 path now also lowers public `std/crypto_rand.ax`
+`random_u64()` into native process exit status through the same Unix OS-random
+source. A package without the `crypto` capability still fails before backend
+lowering. Direct-native `random_bytes(...)`, portable entropy source parity,
+deterministic test hooks, and runtime audit parity remain open under #928.
 
 The direct-native crypto signature slice is now marked partial: the Cranelift
 spike builds and runs `std/crypto_sign.ax` Ed25519 key generation, signing, and
