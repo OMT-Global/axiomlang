@@ -8118,8 +8118,8 @@ fn is_assignment_target(expr: &Expr, ctx: &LowerContext<'_>) -> bool {
 
 fn is_local_assignment_type(ty: &Type, ctx: &LowerContext<'_>) -> bool {
     is_scalar_local_assignment_type(ty)
-        || is_scalar_option_assignment_type(ty)
-        || is_scalar_result_assignment_type(ty)
+        || is_scalar_option_assignment_type(ty, ctx)
+        || is_scalar_result_assignment_type(ty, ctx)
         || is_scalar_enum_assignment_type(ty, ctx)
         || is_scalar_projection_assignment_type(ty, ctx)
 }
@@ -8128,22 +8128,26 @@ fn is_scalar_local_assignment_type(ty: &Type) -> bool {
     matches!(ty, Type::Int | Type::Numeric(_) | Type::Bool)
 }
 
-fn is_scalar_option_assignment_type(ty: &Type) -> bool {
-    matches!(ty, Type::Option(inner) if is_scalar_option_assignment_payload_type(inner))
+fn is_scalar_option_assignment_type(ty: &Type, ctx: &LowerContext<'_>) -> bool {
+    matches!(ty, Type::Option(inner) if is_scalar_aggregate_assignment_payload_type(inner, ctx))
 }
 
-fn is_scalar_option_assignment_payload_type(ty: &Type) -> bool {
+fn is_scalar_aggregate_assignment_payload_type(ty: &Type, ctx: &LowerContext<'_>) -> bool {
     is_scalar_local_assignment_type(ty)
         || matches!(ty, Type::Tuple(elements) if elements.iter().all(is_scalar_local_assignment_type))
+        || matches!(ty, Type::Array(element, Some(_)) if is_scalar_local_assignment_type(element))
+        || matches!(ty, Type::Struct(name) if ctx.structs.get(name).map(|struct_def| {
+            struct_def
+                .fields
+                .iter()
+                .all(|field| is_scalar_local_assignment_type(&field.ty))
+        }).unwrap_or(false))
+        || matches!(ty, Type::Option(inner) if is_scalar_aggregate_assignment_payload_type(inner, ctx))
+        || matches!(ty, Type::Result(ok, err) if is_scalar_aggregate_assignment_payload_type(ok, ctx) && is_scalar_aggregate_assignment_payload_type(err, ctx))
 }
 
-fn is_scalar_result_assignment_type(ty: &Type) -> bool {
-    matches!(ty, Type::Result(ok, err) if is_scalar_result_assignment_payload_type(ok) && is_scalar_result_assignment_payload_type(err))
-}
-
-fn is_scalar_result_assignment_payload_type(ty: &Type) -> bool {
-    is_scalar_local_assignment_type(ty)
-        || matches!(ty, Type::Tuple(elements) if elements.iter().all(is_scalar_local_assignment_type))
+fn is_scalar_result_assignment_type(ty: &Type, ctx: &LowerContext<'_>) -> bool {
+    matches!(ty, Type::Result(ok, err) if is_scalar_aggregate_assignment_payload_type(ok, ctx) && is_scalar_aggregate_assignment_payload_type(err, ctx))
 }
 
 fn is_scalar_enum_assignment_type(ty: &Type, ctx: &LowerContext<'_>) -> bool {
@@ -8164,13 +8168,7 @@ fn is_scalar_enum_assignment_type(ty: &Type, ctx: &LowerContext<'_>) -> bool {
 }
 
 fn is_scalar_enum_assignment_payload_type(ty: &Type, ctx: &LowerContext<'_>) -> bool {
-    is_scalar_result_assignment_payload_type(ty)
-        || matches!(ty, Type::Struct(name) if ctx.structs.get(name).map(|struct_def| {
-            struct_def
-                .fields
-                .iter()
-                .all(|field| is_scalar_local_assignment_type(&field.ty))
-        }).unwrap_or(false))
+    is_scalar_aggregate_assignment_payload_type(ty, ctx)
 }
 
 fn is_scalar_projection_assignment_type(ty: &Type, ctx: &LowerContext<'_>) -> bool {

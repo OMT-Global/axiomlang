@@ -148,6 +148,46 @@ assignment through a branch inside a loop after a scoped runtime bool `let`.
 Both rows remain partial because that runtime path does not yet cover the full
 supported scalar, function-call, control-flow, or boolean surface.
 
+The `string` row now has narrow direct-native runtime evidence for `len(...)`
+over string literals, string statics initialized from literals, and string locals
+initialized from known literal or static string values. Known-text
+`string_clone(...)`, `string_trim(...)`, and `string_trim_start(...)` results can
+also feed this same direct-native path, and `string_clone(...)` can pass through
+supported runtime string length projection locals. String length is represented
+as a byte-length projection local, matching the generated-Rust backend and Cranelift
+spike `.len()` semantics, and can feed direct-native integer locals,
+comparisons, helper calls, runtime branch-local string projection `let`s, and
+process exit status without generated Rust.
+String concatenation length also lowers for supported string length projection
+inputs by adding the operand byte lengths without materializing the concatenated
+runtime string.
+Literal-, static-, local-, and known-string-call-backed `string_starts_with(...)`
+predicates and known-text string comparisons now also lower directly to native
+boolean conditions, including bool locals, helper returns, composed branch
+conditions, and process exit status without generated Rust. Known-input
+`string_strip_prefix(...)`, `string_strip_suffix(...)`, and `string_line_at(...)`
+calls can also lower direct `match` expressions by selecting the `Some` or
+`None` arm at compile time and binding the `Some` payload as a known string fact
+for that arm. Known-text `encoding_url_component_encode(...)`,
+`encoding_path_segment_encode(...)`, `encoding_url_query_pair_encode(...)`, and
+`encoding_path_join_segment(...)` calls can feed the same direct-native string
+length and comparison path, and known-input `encoding_url_component_decode(...)`
+can lower direct `Option<string>` matches by compile-time arm selection.
+Known-input `crypto_sha256(...)`, `crypto_hmac_sha256(...)`, and
+`crypto_hmac_sha512(...)` calls can also feed direct-native string length and
+comparison paths after normal front-end crypto capability checks. Supported
+runtime scalar/bool string-projection inputs, directly or through
+`string_clone(...)` over a projection local, can feed crypto hash/MAC length
+projections without materializing a general runtime string value. Known-input
+`crypto_constant_time_eq(...)` over known string values can also feed
+direct-native boolean conditions after normal front-end crypto capability
+checks. The row
+remains partial because direct-native codegen still does not provide a general
+string ABI, string parameters or returns, allocation or mutation behavior,
+non-literal string storage, general Option-string payload storage or helper ABI,
+broad string, encoding, or crypto string intrinsic lowering, or host-boundary
+representation.
+
 The `array.fixed` row now has narrow direct-native runtime evidence for
 immediate array-literal scalar indexing with literal indexes and scalar
 projection from local fixed-array bindings, including runtime-scope loop-body
@@ -158,16 +198,25 @@ Fixed-size scalar and bool array helper parameters lower across direct-native
 function-call boundaries as one ABI slot per element for local array values and
 inline array literals. Local and helper-parameter fixed-array scalar and bool
 projections also support narrow in-bounds dynamic indexes by selecting across
-projected element locals. Scalar and bool fixed-array-returning helpers now
-lower across direct-native function-call boundaries as one return slot per
-element, with caller-side projection locals populated from the multi-slot
-return; this covers literal array returns, local array binding returns,
-forwarded array parameters, and branch-selected array returns. The same
+projected element locals. Inline scalar and bool fixed-array literals also
+support narrow in-bounds dynamic indexes by selecting across lowered literal
+elements. Scalar and bool fixed-array-returning helpers now lower across
+direct-native function-call boundaries as one return slot per element, with
+caller-side projection locals populated from the multi-slot return; this covers
+literal array returns, local array binding returns, forwarded array parameters,
+and branch-selected array returns. The same
 projected element-slot representation now covers fixed-array payloads inside
-narrow local `Option<[int; 2]>` construction and tag/payload matches. The row
-remains partial because direct-native codegen still does not provide a general
-array ABI, array storage for non-scalar elements, full dynamic indexing
-semantics, bounds diagnostics, or a complete aggregate value passing contract.
+narrow `Option<[int; 2]>` and `Result<[int; 2], [int; 2]>` construction,
+tag/payload matches, helper parameters, helper returns, and forwarded helper
+values. Existing fixed-array locals can now be reassigned from fixed-array
+helper returns using the same element-slot ABI, including inside runtime loop
+blocks. Fixed-array `len`, `first`, and `last` over scalar and bool element
+arrays also lower through the same projected element-slot representation for
+local arrays, inline literals, helper parameters, and helper-returned arrays
+feeding a direct-native process exit status. The row remains partial because
+direct-native codegen still does not provide a general array ABI, array storage
+for non-scalar elements, full dynamic indexing semantics, bounds diagnostics,
+or a complete aggregate value passing contract.
 
 The `tuple` row now has narrow direct-native runtime evidence for immediate
 tuple-literal scalar indexing and scalar projection from local tuple bindings.
@@ -181,11 +230,12 @@ helpers now lower across direct-native function-call boundaries as one return
 slot per tuple element, with caller-side projection locals populated from the
 multi-slot return; this includes helpers whose final return is selected by
 branch blocks with branch-local scalar values, helpers returning local tuple
-bindings, and helpers forwarding tuple parameters. The row remains partial
-because direct-native codegen still does not provide a general tuple ABI, tuple
-storage for non-scalar elements, tuple return expressions beyond the
-scalar/bool local, literal, and parameter slice, or a complete aggregate value
-passing contract.
+bindings, and helpers forwarding tuple parameters. Existing tuple locals can
+now be reassigned from tuple helper returns using the same tuple-element ABI,
+including inside runtime loop blocks. The row remains partial because
+direct-native codegen still does not provide a general tuple ABI, tuple storage
+for non-scalar elements, tuple return expressions beyond the scalar/bool local,
+literal, and parameter slice, or a complete aggregate value passing contract.
 
 The `struct.field` row now has narrow direct-native runtime evidence for
 immediate struct-literal scalar field access and scalar projection from local
@@ -200,7 +250,13 @@ direct-native function-call boundaries as one return slot per declared field,
 with caller-side projection locals populated from the multi-slot return; this
 includes helpers whose final return is selected by branch blocks with
 branch-local scalar values, helpers returning local struct bindings, and
-helpers forwarding struct parameters. The row remains partial because
+helpers forwarding struct parameters. The same declared-field slot
+representation now backs narrow `Option<Step>` and `Result<Step, Step>` struct
+payload construction, matching, helper parameters, helper returns, forwarded
+helper values, and inline `Some(Step { ... })`/`None` and
+`Ok(Step { ... })`/`Err(Step { ... })` helper arguments. Existing struct locals
+can now be reassigned from struct helper returns using the declared-field slot
+ABI, including inside runtime branch blocks. The row remains partial because
 direct-native codegen still does not provide a general struct ABI, struct
 storage for non-scalar fields, owned field projection, field mutation, struct
 return expressions beyond the scalar/bool local, literal, and parameter slice,
@@ -218,11 +274,25 @@ direct-native path also has narrow evidence for `Option<(int, bool)>`
 construction, reassignment, matching, helper parameters, and helper returns for
 local values, forwarded local or parameter values, and inline `Some((...))`/`None`
 arguments represented as a tag plus multiple payload slots. The same
-tag/payload-slot representation now covers local `Option<[int; 2]>`
-construction and matching for inline `Some([..])`/`None` values. The row remains
-partial because direct-native codegen still does not provide a general
-`Option<T>` ABI across broader payload shapes, nested option values, helper ABI
-coverage for array payloads, or broad aggregate storage.
+tag/payload-slot representation now covers `Option<[int; 2]>` construction,
+matching, helper parameters, helper returns, forwarded helper values, and inline
+`Some([..])`/`None` helper arguments. The same representation now covers narrow
+`Option<Step>` struct payload construction, expression and statement matches,
+helper parameters, helper returns, forwarded helper values, and inline
+`Some(Step { ... })`/`None` helper arguments using declared field-order payload
+slots. Existing narrow `Option<Step>` locals can now be reassigned from option
+helper returns using the same tag/payload slots, including inside runtime branch
+blocks. The direct-native path also has narrow evidence for nested
+`Option<Option<int>>` construction, reassignment, matching, helper parameters,
+helper returns, forwarded helper values, and inline `Some(Some(...))`,
+`Some(None)`, and outer `None` helper arguments using nested tag/payload slots.
+The same nested slot representation now has narrow evidence for
+`Option<Result<int, int>>` construction, reassignment, matching, helper
+parameters, helper returns, forwarded helper values, and inline
+`Some(Ok(...))`, `Some(Err(...))`, and outer `None` helper arguments.
+The row remains partial because direct-native codegen still does not provide a
+general `Option<T>` ABI across broader payload shapes, deeper nested option or
+result values, or broad aggregate storage.
 
 The first executable guard for this boundary is a Cranelift regression that
 builds a package using `std/fs.ax` without the `fs` capability and verifies the
@@ -231,16 +301,24 @@ diagnostic.
 
 The `fs.read` row now has partial Cranelift evidence for `std/fs.ax`
 `read_file` on present and missing filesystem names, plus denial evidence that a
-package without the `fs` capability fails before backend lowering. Full
-runtime-time filesystem access, manifest policy parity, and audit parity remain
-open under #928.
+package without the `fs` capability fails before backend lowering. The
+direct-native i64 path now also lowers literal-path `fs_read(...)` calls and the
+public `std/fs.ax` `read_file(...)` wrapper into native process exit status by
+selecting `Option<string>` match arms at compile time for present and missing
+package-root-scoped files, using the same canonicalized `fs_root`, file-only,
+UTF-8, and maximum-size guard as the Cranelift spike. Full runtime-time
+filesystem access, write-side filesystem wrappers, manifest policy parity,
+runtime filesystem binding, and audit parity remain open under #928.
 
 The DNS row now has partial Cranelift evidence: the spike builds and runs a
 `std/net.ax` package resolving `localhost` through host DNS without generated
-Rust and returns the public `Option<string>` shape. Packages without the `net`
-capability still fail before backend lowering. Full runtime-time DNS policy,
-non-loopback coverage, resolver portability, and audit parity remain open under
-#928.
+Rust and returns the public `Option<string>` shape. The direct-native i64 path
+now also lowers known-host `net_resolve(...)` calls and the public `std/net.ax`
+`resolve(...)` wrapper into native process exit status by selecting
+`Option<string>` match arms at compile time for `localhost`. Packages without
+the `net` capability still fail before backend lowering. Full runtime-time DNS
+policy, non-loopback coverage, resolver portability, and audit parity remain
+open under #928.
 
 The TCP row now has partial Cranelift evidence: the spike builds and runs
 `std/net.ax` `tcp_listen_loopback_once(...)` over `127.0.0.1` without generated
@@ -268,15 +346,32 @@ audit parity remain open under #928.
 
 The direct-native crypto hash slice is still marked partial: the Cranelift
 spike can build and run `std/crypto_hash.ax` `sha256(...)` without generated
-Rust, and crypto capability denials still happen before backend lowering.
-Random, signature, AEAD, and broader crypto audit parity remain open.
+Rust, and crypto capability denials still happen before backend lowering. The
+direct-native i64 path now also lowers known-input `crypto_sha256(...)` string
+results into length and comparison conditions that can feed a native process
+exit status without generated Rust. Supported runtime string-projection inputs
+can also feed fixed SHA-256 hex length projections directly or through
+`string_clone(...)` over a projection local without materializing a general
+runtime string value.
+Random, signature, AEAD, dynamic runtime hash execution, and broader crypto
+audit parity remain open.
 
 The direct-native crypto MAC slice is now marked partial: the Cranelift spike
 can build and run `std/crypto_mac.ax` HMAC-SHA256, HMAC-SHA512, verification
 helpers, string constant-time equality, and byte-slice constant-time equality
 without generated Rust. A package without the `crypto` capability fails before
-backend lowering. Runtime audit parity and broader crypto host-service coverage
-remain blocked under #928.
+backend lowering. The direct-native i64 path now also lowers known-input
+`crypto_hmac_sha256(...)` and `crypto_hmac_sha512(...)` string results into
+length and comparison conditions that can feed a native process exit status
+without generated Rust. Supported runtime string-projection inputs can also feed
+fixed HMAC hex length projections directly or through `string_clone(...)` over
+a projection local without materializing a general runtime string value. Known-input
+`crypto_constant_time_eq(...)` over known string values lowers into native
+boolean conditions. It also lowers
+`crypto_constant_time_eq_u8(...)` over narrow fixed-array/static-slice `u8`
+inputs into native boolean conditions. Runtime audit parity, dynamic runtime
+MAC execution, general byte-slice runtime equality, and broader crypto
+host-service coverage remain blocked under #928.
 
 The direct-native crypto random slice is now marked partial: the Cranelift
 spike can build and run `std/crypto_rand.ax` `random_bytes(...)` and
@@ -327,13 +422,27 @@ the public `async` capability denial before backend lowering. Real
 scheduler-backed serving, concurrent clients, cancellation, timeout parity,
 non-loopback policy coverage, and audit parity remain open under #928.
 
-The process status row now has partial compiler-side spike evidence: the
-Cranelift spike builds and runs `std/process.ax` `run_status(...)` for literal,
+The process status row now has partial direct-native evidence: the Cranelift
+spike builds and runs `std/process.ax` `run_status(...)` for literal,
 allowlisted deterministic commands through compiler-side spike evaluation and
-emits their exit statuses without generated Rust. Denied `process` capability
-use still fails through the manifest policy before Cranelift lowering or native
-execution. Full runtime-time process execution, argument handling, audit parity,
-and host-process policy coverage remain open under #928.
+emits their exit statuses without generated Rust. The direct-native i64 path
+also lowers literal `process_status(...)` calls and the `std/process.ax`
+`run_status(...)` wrapper for the deterministic `/usr/bin/true` and
+`/usr/bin/false` commands into native process exit status without generated
+Rust. Denied `process` capability use still fails through the manifest policy
+before Cranelift lowering or native execution. Full runtime-time process
+execution, argument handling, audit parity, and host-process policy coverage
+remain open under #928.
+
+The regex row now has partial direct-native evidence: the Cranelift spike covers
+`std/regex.ax` `is_match`, `find`, and `replace_all` for the stage1-safe NFA
+subset without generated Rust, including anchored replacement behavior. The
+direct-native i64 path now also lowers known-input `regex_is_match(...)`
+conditions, known-input `regex_replace_all(...)` string results, and known-input
+`regex_find(...)` direct `Option<string>` matches into native process exit status
+without generated Rust. Broader regex syntax, dynamic runtime regex execution,
+capture groups, replacement expansion semantics, and conformance coverage remain
+open under #928.
 
 The string row has partial direct-native evidence: the Cranelift spike now
 builds and runs pure string intrinsics including `string_clone`,
@@ -341,36 +450,64 @@ builds and runs pure string intrinsics including `string_clone`,
 `string_trim`, `string_trim_start`, and `string_line_at` without generated
 Rust. It also builds and runs `std/string_builder.ax` owned string accumulator
 helpers and `std/encoding.ax` percent encode/decode helpers, query-pair
-encoding, and path segment joining without generated Rust. Broader string ABI
-coverage, allocation behavior, and host-boundary representation remain tracked
-by issue #928.
+encoding, and path segment joining without generated Rust. Known-text encoding
+helpers now also feed narrow direct-native string length/comparison lowering,
+and known-input percent decode can feed direct `Option<string>` matches without
+generated Rust. Broader string ABI coverage, allocation behavior, and
+host-boundary representation remain tracked by issue #928.
 
 The borrowed-slice row has partial direct-native evidence: the Cranelift spike
-now evaluates array-backed borrowed slices through `len`, `first`, `last`,
-indexing, and function returns. Broader borrowed-slice aliasing and host ABI
-coverage remain tracked by issue #928.
+evaluates array-backed borrowed slices through `len`, `first`, `last`, indexing,
+and function returns. The direct-native runtime path now also lowers narrow
+static-range fixed-array slices such as `values[1:]` and `values[:2]` through
+`len`, `first`, and `last` for scalar and bool elements by projecting the
+underlying fixed-array slots, including helper-parameter arrays feeding a
+direct-native process exit status. Static-range fixed-array slices also support
+narrow literal and dynamic indexing over the sliced window through the same
+projection slots, including pre-runtime slice locals that alias the projected
+fixed-array slots. Broader borrowed-slice aliasing, dynamic slice bounds, slice
+returns, and host ABI coverage remain tracked by issue #928.
 
 The map lookup row has partial direct-native evidence: the Cranelift spike now
 builds and runs direct map indexing, `get`, `get_or_default`,
 `map_contains_key`, `map_keys`, and the public `std/collections.ax` `contains`,
 `get`, `get_or_default`, and `keys` helpers for string and integer key/value
-shapes without generated Rust. Broader map ownership and host-boundary
-representation remain tracked by issue #928.
+shapes without generated Rust. The direct-native i64 path now also lowers
+inline-map-literal `get_or_default(...)` over scalar/string keys and
+i64-compatible values into native process exit status, including default
+fallback and duplicate-key replacement behavior. Inline-map-literal
+`map_contains_key(...)` over scalar/string keys now also lowers into native
+boolean conditions that can feed direct-native process exit status.
+Inline-map-literal `get(...)` over scalar/string keys and scalar integer,
+boolean, or known string values can now feed direct
+`Option<int>`/`Option<bool>`/`Option<string>` match expressions into native
+process exit status. Integer and boolean lookup results can also feed local
+`Option<int>`/`Option<bool>` tag/payload bindings that are matched later in the
+same direct-native body. Broader map ownership, stored-map locals, local
+`Option<string>`/general payload lookup bindings, full public `std/collections.ax`
+wrapper coverage in the i64 path, and host-boundary representation remain
+tracked by issue #928.
 
 The `env.read` row now has partial Cranelift evidence for `std/env.ax`
 `get_env` on present and missing environment names without generated Rust, plus
 denial evidence that a package without the `env` capability fails before
-backend lowering. Full runtime-time lookup, manifest allowlist parity, and
-audit parity remain open under #928.
+backend lowering. The direct-native i64 path now also lowers literal-key
+`env_get(...)` calls and the public `std/env.ax` `get_env(...)` wrapper into
+native process exit status by selecting `Option<string>` match arms at compile
+time for present and missing test environment names. Full runtime-time lookup,
+manifest allowlist parity, runtime environment binding, and audit parity remain
+open under #928.
 
-The FFI call row now has partial Cranelift evidence: the spike builds and runs
-a narrow C ABI `extern fn strlen(value: string): int from "c"` fixture without
-generated Rust, using the source-level extern declaration. A package with an
-`extern fn` declaration and no `ffi` capability must still receive its public
-manifest-policy denial before any Cranelift-specific lowering diagnostic. Broad
-dynamic symbol loading, pointer and mutable-pointer ABI shapes, non-string
-arguments, ownership safety, platform library resolution, and audit parity
-remain open under #928.
+The FFI call row now has partial direct-native evidence: the spike builds and
+runs a narrow C ABI `extern fn strlen(value: string): int from "c"` fixture
+without generated Rust, using the source-level extern declaration. The
+direct-native i64 path also lowers that same narrow `strlen` declaration for
+supported literal and string-projection inputs into native process exit status
+without generated Rust. A package with an `extern fn` declaration and no `ffi`
+capability must still receive its public manifest-policy denial before any
+Cranelift-specific lowering diagnostic. Broad dynamic symbol loading, pointer
+and mutable-pointer ABI shapes, non-string arguments, ownership safety, platform
+library resolution, and audit parity remain open under #928.
 
 The async runtime row now has partial Cranelift evidence for `std/async.ax`
 `ready`, `await`, `spawn`, `join`, `cancel`, `is_canceled`, `timeout`,
@@ -404,7 +541,24 @@ generated Rust. The direct-native path also has narrow evidence for
 construction, reassignment, matching, and helper parameters for local values and
 inline `Ok`/`Err` arguments represented as a tag plus multiple payload slots.
 That same tag/payload representation now covers helper returns and forwarded
-local or parameter values for the `Result<(int, bool), int>` narrow slice.
+local or parameter values for the `Result<(int, bool), int>` narrow slice. The
+direct-native path also has narrow evidence for `Result<[int; 2], [int; 2]>`
+construction, matching, helper parameters, helper returns, forwarded helper
+values, and inline `Ok([..])`/`Err([..])` helper arguments represented as a tag
+plus fixed-array payload slots. It also covers narrow `Result<Step, Step>`
+struct payload construction, expression and statement matches, helper
+parameters, helper returns, forwarded helper values, and inline
+`Ok(Step { ... })`/`Err(Step { ... })` helper arguments using declared
+field-order payload slots. Existing narrow `Result<Step, Step>` locals can now
+be reassigned from result helper returns using the same tag/payload slots,
+including inside runtime branch blocks. The nested option payload slice now also
+has narrow direct-native evidence for `Result<Option<int>, int>` construction,
+reassignment, matching, helper parameters, helper returns, forwarded helper
+values, and inline `Ok(Some(...))`, `Ok(None)`, and `Err(...)` helper arguments.
+The recursive result payload slice now also has narrow evidence for
+`Result<Result<int, int>, int>` construction, reassignment, matching, helper
+parameters, helper returns, forwarded helper values, and inline `Ok(Ok(...))`,
+`Ok(Err(...))`, and outer `Err(...)` helper arguments.
 Broader Result ABI support, the full numeric-width matrix, additional aggregate
 payload shapes, and capability-shim coverage remain tracked by issue #928.
 
@@ -419,15 +573,39 @@ bool }`. Scalar/bool custom enum helper parameters lower across direct-native
 function-call boundaries as explicit tag/payload ABI slots for local values and
 inline variant arguments. Narrow custom enum helper returns and forwarded local
 or parameter values also lower through the same tag/payload slots for scalar
-struct payload variants. Broader enum ABI support and aggregate payload storage
-beyond scalar tuples/structs remain tracked by issue #928.
+struct payload variants. Existing narrow custom enum locals can now be
+reassigned from enum helper returns using the same tag/payload slots, including
+inside runtime branch blocks. The same representation now has narrow evidence
+for positional custom enum payloads carrying nested `Option<Result<int, int>>`
+and `Result<Option<int>, int>` values, including runtime-scope literal
+construction, reassignment, value-producing matches, helper returns, forwarded
+helper values, and inline nested variant arguments. Broader enum ABI support,
+deeper nested payload shapes, and aggregate payload storage beyond the evidenced
+slices remain tracked by issue #928.
 
 The `json.serdes` row has expanded partial direct-native evidence: the
 Cranelift spike now builds and runs `std/json.ax` scalar/object helpers and
 `std/serdes.ax` `Value` object-map construction, nested JSON object/array
 parsing, typed field accessors, value indexing, stringify, and parse-error
-reporting without generated Rust. Schema validation and broader JSON value
-modeling remain tracked by issue #928.
+reporting without generated Rust. The direct-native i64 path now also lowers
+known-input `json_stringify_*` string results, including literal and static
+scalar/bool stringify inputs. Runtime scalar/bool `json_stringify_*` calls can
+also feed direct-native string length projections directly or through
+`string_clone(...)` over a projection local without materializing a general
+runtime string value, including string projection `let`s scoped inside runtime
+branches and `len(left + right)` over supported projection inputs.
+`json_stringify_string(...)` can also lower a quoted byte-length projection for
+supported JSON-safe scalar/bool stringify locals, including branch-scoped
+projection `let`s, by adding the enclosing quote bytes without materializing a
+runtime string.
+Known-input `json_parse_string` and
+`json_parse_value` direct `Option<string>` matches, known-input
+`json_parse_field_string`/`json_parse_field_value` direct `Option<string>`
+matches, and known-input `json_parse_int`, `json_parse_bool`,
+`json_parse_field_int`, and `json_parse_field_bool` direct scalar option matches
+into native process exit status without generated Rust. Schema validation,
+dynamic runtime JSON parsing, and broader JSON value modeling remain tracked by
+issue #928.
 
 The owned move-state row has partial direct-native evidence: the Cranelift
 spike builds and runs projection-sensitive owned field moves while preserving
@@ -444,10 +622,12 @@ The `clock.now_sleep` row now has partial Cranelift evidence for `std/time.ax`
 `now_ms`, `now`, `elapsed_ms`, and zero-duration `sleep`, plus guards that a
 package without the `clock` capability fails before backend lowering and that
 nonzero sleep fails fast instead of ever reaching host sleep during
-compiler-side spike evaluation. The spike intentionally keeps the supported
-sleep shape limited to zero-duration calls until the real runtime clock path
-lands. Full runtime-time clock/sleep execution, timer scheduling, async clock
-integration, and audit parity remain open under #928.
+compiler-side spike evaluation. The direct-native i64 path now also lowers
+literal `clock_sleep_ms(0)` through entrypoint and helper functions to a native
+process exit status without generated Rust. The supported sleep shape remains
+limited to zero-duration calls until the real runtime clock path lands. Full
+runtime-time clock/sleep execution, timer scheduling, async clock integration,
+and audit parity remain open under #928.
 
 
 
