@@ -589,8 +589,12 @@ timer, blocking, wakeup, cancellation, and audit parity remain open under #928.
 
 The sync-primitives row has partial direct-native evidence: the Cranelift spike
 now evaluates ownership-shaped `std/sync.ax` mutex, once, and channel wrappers
-and emits the expected native output. Concurrent execution, blocking behavior,
-and host runtime synchronization remain tracked by issue #928.
+and emits the expected native output. The direct-native i64 path now also lowers
+public `std/sync.ax` `mutex(...)`, `lock(...)`, `replace(...)`, and
+`into_inner(...)` wrappers over a scalar `int` payload into native process exit
+status without generated Rust. Once and channel runtime-exit lowering,
+concurrent execution, blocking behavior, and host runtime synchronization
+remain tracked by issue #928.
 
 The `Result<T, E>` row has partial direct-native evidence: the Cranelift spike
 now builds and runs a package importing `std/outcome.ax`, using result

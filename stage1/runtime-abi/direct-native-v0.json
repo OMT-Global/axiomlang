@@ -285,7 +285,7 @@
       "capability": null,
       "evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"],
       "blockers": [928],
-      "notes": "The Cranelift spike now builds and runs ownership-shaped std/sync mutex, once, and channel wrappers. Concurrent execution, blocking behavior, and host runtime synchronization remain open."
+      "notes": "The Cranelift spike now builds and runs ownership-shaped std/sync mutex, once, and channel wrappers. The direct-native i64 path now also lowers public std/sync.ax mutex, lock, replace, and into_inner wrappers over a scalar int payload into native process exit status without generated Rust. Once and channel runtime-exit lowering, concurrent execution, blocking behavior, and host runtime synchronization remain open."
     },
     {
       "id": "io.logging_stdio",
