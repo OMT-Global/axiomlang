@@ -64,20 +64,22 @@ examples=(
   stdlib_time
   terraform_runtime_service
   workspace
+  "workspace_only|workspace-app"
 )
 
 validate_payload() {
   local command="$1"
   local project="$2"
-  local payload="$3"
+  local package="$3"
+  local payload="$4"
   local payload_file
   payload_file="$(mktemp "${RUNNER_TEMP:-/tmp}/axiom-direct-native-payload.XXXXXX")"
   printf '%s\n' "$payload" >"$payload_file"
-  python3 - "$command" "$project" "$payload_file" <<'PY'
+  python3 - "$command" "$project" "$package" "$payload_file" <<'PY'
 import json
 import sys
 
-command, project, payload_file = sys.argv[1:]
+command, project, package, payload_file = sys.argv[1:]
 with open(payload_file, "r", encoding="utf-8") as handle:
     payload = json.load(handle)
 
@@ -86,6 +88,8 @@ if payload.get("command") != command:
     errors.append(f"command={payload.get('command')!r}")
 if payload.get("project") != project:
     errors.append(f"project={payload.get('project')!r}")
+if package and command == "run" and payload.get("package") != package:
+    errors.append(f"package={payload.get('package')!r}")
 if payload.get("backend") != "cranelift":
     errors.append(f"backend={payload.get('backend')!r}")
 if payload.get("generated_rust") is not None:
@@ -105,12 +109,27 @@ PY
   rm -f "$payload_file"
 }
 
-for example in "${examples[@]}"; do
+for entry in "${examples[@]}"; do
+  example="${entry%%|*}"
+  package=""
+  if [[ "$entry" == *"|"* ]]; then
+    package="${entry#*|}"
+  fi
   project="stage1/examples/${example}"
-  echo "direct-native example smoke: ${project}"
-  "$axiomc_bin" check "$project" --json >/dev/null
-  build_payload="$("$axiomc_bin" build "$project" --backend cranelift --json)"
-  validate_payload build "$project" "$build_payload"
-  run_payload="$("$axiomc_bin" run "$project" --backend cranelift --json)"
-  validate_payload run "$project" "$run_payload"
+  label="$project"
+  if [[ -n "$package" ]]; then
+    label="${label} (${package})"
+  fi
+  echo "direct-native example smoke: ${label}"
+  if [[ -n "$package" ]]; then
+    "$axiomc_bin" check "$project" --package "$package" --json >/dev/null
+    build_payload="$("$axiomc_bin" build "$project" --package "$package" --backend cranelift --json)"
+    run_payload="$("$axiomc_bin" run "$project" --package "$package" --backend cranelift --json)"
+  else
+    "$axiomc_bin" check "$project" --json >/dev/null
+    build_payload="$("$axiomc_bin" build "$project" --backend cranelift --json)"
+    run_payload="$("$axiomc_bin" run "$project" --backend cranelift --json)"
+  fi
+  validate_payload build "$project" "$package" "$build_payload"
+  validate_payload run "$project" "$package" "$run_payload"
 done
