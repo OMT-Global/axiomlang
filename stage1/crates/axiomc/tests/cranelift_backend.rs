@@ -3334,6 +3334,64 @@ fn cranelift_backend_lowers_http_server_once_to_runtime_exit_code() {
 
 #[cfg(not(windows))]
 #[test]
+fn cranelift_backend_lowers_http_server_route_to_runtime_exit_code() {
+    if which::which("cc").is_err() {
+        eprintln!("skipping cranelift backend smoke test because cc is unavailable");
+        return;
+    }
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("http-server-route-main-exit");
+    let Some(port) = reserve_loopback_port() else {
+        return;
+    };
+    write_http_server_route_main_exit_project(&project, port);
+    let first_client = start_http_route_probe_client(port, "/route");
+    let second_client = start_http_route_probe_client(port, "/route");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args([
+            "build",
+            project.to_str().expect("project path"),
+            "--backend",
+            "cranelift",
+            "--json",
+        ])
+        .output()
+        .expect("run axiomc build --backend cranelift");
+    assert!(
+        output.status.success(),
+        "cranelift http server route main build failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    for response in [
+        first_client.join().expect("join first http route client"),
+        second_client.join().expect("join second http route client"),
+    ] {
+        assert!(
+            response.starts_with("HTTP/1.0 200 OK\r\n"),
+            "unexpected http server route response: {response:?}"
+        );
+        assert!(
+            response.ends_with("route-ok"),
+            "unexpected http server route response body: {response:?}"
+        );
+    }
+
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+    assert_eq!(payload["backend"], "cranelift");
+    assert_eq!(payload["generated_rust"], Value::Null);
+    let binary = payload["binary"].as_str().expect("binary path");
+    let run = Command::new(binary)
+        .output()
+        .expect("run cranelift http server route main binary");
+    assert_eq!(run.status.code(), Some(48));
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "");
+}
+
+#[cfg(not(windows))]
+#[test]
 fn cranelift_backend_builds_http_async_server_binary() {
     if which::which("cc").is_err() {
         eprintln!("skipping cranelift backend smoke test because cc is unavailable");
@@ -7271,6 +7329,60 @@ return 1
         ),
     )
     .expect("write http server once main source");
+}
+
+fn write_http_server_route_main_exit_project(project: &Path, port: u16) {
+    fs::create_dir_all(project.join("src")).expect("create http server route main project src");
+    fs::write(
+        project.join("axiom.toml"),
+        format!(
+            r#"[package]
+name = "cranelift-http-server-route-main-exit"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+fs = false
+net = {{ hosts = ["127.0.0.1"], ports = [{port}] }}
+process = false
+env = false
+clock = false
+crypto = false
+
+[unsafe_rationale]
+net = "Direct-native HTTP server regression covers http_serve_route for issue 928."
+"#
+        ),
+    )
+    .expect("write http server route main manifest");
+    fs::write(
+        project.join("axiom.lock"),
+        r#"version = 1
+
+[[package]]
+name = "cranelift-http-server-route-main-exit"
+version = "0.1.0"
+source = "path"
+"#,
+    )
+    .expect("write http server route main lockfile");
+    fs::write(
+        project.join("src/main.ax"),
+        format!(
+            r#"fn main(): int {{
+if http_serve_route("127.0.0.1:{port}", "/route", "route-ok", 2) {{
+return 48
+}} else {{
+return 1
+}}
+}}
+"#
+        ),
+    )
+    .expect("write http server route main source");
 }
 
 fn write_http_async_server_project(project: &Path, port: u16) {

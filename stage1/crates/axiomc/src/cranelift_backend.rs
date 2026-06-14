@@ -6149,6 +6149,17 @@ fn lower_i64_known_bool_intrinsic_condition(
                 &i64_string_text(body, static_bindings)?,
             )))
         }
+        name if is_i64_http_serve_route_name(name) => {
+            let [bind, route_path, body, max_requests] = args else {
+                return None;
+            };
+            Some(CraneliftI64Condition::Literal(http_serve_route(
+                &i64_string_text(bind, static_bindings)?,
+                &i64_string_text(route_path, static_bindings)?,
+                &i64_string_text(body, static_bindings)?,
+                i64_static_scalar_value(max_requests, static_bindings)?,
+            )))
+        }
         name if is_i64_crypto_constant_time_eq_name(name, static_bindings) => {
             let [left, right] = args else {
                 return None;
@@ -8802,6 +8813,10 @@ fn is_i64_http_serve_once_name(name: &str, static_bindings: &I64StaticBindings) 
         name,
         "http_serve_once" | "serve_once" | "std_http_serve_once"
     ) || static_bindings.http_serve_once_wrappers.contains(name)
+}
+
+fn is_i64_http_serve_route_name(name: &str) -> bool {
+    name == "http_serve_route"
 }
 
 fn is_i64_std_collection_wrapper(function: &Function, source_name: &str) -> bool {

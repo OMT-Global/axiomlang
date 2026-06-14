@@ -433,12 +433,12 @@ runs loopback HTTP server entrypoints without generated Rust, covering
 `http_request_method`, `http_request_path`, `http_request_body`,
 `http_response_write`, and `http_server_close` over a one-request HTTP/1.0
 fixture. The direct-native i64 path now also lowers known-bind
-`http_serve_once(...)` and public `std/http.ax` `serve_once(...)` calls into
-native process exit status by selecting bool branches at compile time for a
-local one-request HTTP response. Packages without the `net` capability still
-fail before backend lowering. Multi-request serving, non-loopback policy
-coverage, richer response metadata, timeout parity, and audit parity remain
-open under #928.
+`http_serve_once(...)`, `http_serve_route(...)`, and public `std/http.ax`
+`serve_once(...)` calls into native process exit status by selecting bool
+branches at compile time for local HTTP responses, including a two-request
+routed fixture. Packages without the `net` capability still fail before backend
+lowering. Non-loopback policy coverage, richer response metadata, timeout
+parity, and audit parity remain open under #928.
 
 The async HTTP server row now has partial Cranelift evidence: the spike builds
 and runs `http_async_serve_route` over a loopback server handle without
