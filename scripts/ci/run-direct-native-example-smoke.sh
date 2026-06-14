@@ -31,6 +31,8 @@ examples=(
   packages
   policy_bundle_service
   proof_cli
+  proof_http_service
+  proof_worker
   property_smoke
   runbook_service
   semantic_verifier
@@ -54,6 +56,7 @@ examples=(
   stdlib_json_value
   stdlib_log
   stdlib_lsp
+  stdlib_net
   stdlib_outcome
   stdlib_process
   stdlib_regex
