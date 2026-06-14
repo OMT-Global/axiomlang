@@ -7034,7 +7034,13 @@ let dynamic_key_scores: {string: int} = {"build": 7, "deploy": 9}
 let dynamic_key_names: [string] = keys<string, int>(dynamic_key_scores)
 let dynamic_key_index: int = choose_key_index(true)
 let dynamic_key_len: int = len(dynamic_key_names[dynamic_key_index])
-if contains_hit && contains_miss && get_hit_code == 9 && get_miss_code == 13 && fallback == 13 && key_count == 2 && first_key_len == 5 && second_key_len == 6 && dynamic_key_len == 6 {
+let dynamic_key_eq_scores: {string: int} = {"build": 7, "deploy": 9}
+let dynamic_key_eq_names: [string] = keys<string, int>(dynamic_key_eq_scores)
+let dynamic_key_is_deploy: bool = dynamic_key_eq_names[dynamic_key_index] == "deploy"
+let dynamic_key_ne_scores: {string: int} = {"build": 7, "deploy": 9}
+let dynamic_key_ne_names: [string] = keys<string, int>(dynamic_key_ne_scores)
+let dynamic_key_not_build: bool = dynamic_key_ne_names[dynamic_key_index] != "build"
+if contains_hit && contains_miss && get_hit_code == 9 && get_miss_code == 13 && fallback == 13 && key_count == 2 && first_key_len == 5 && second_key_len == 6 && dynamic_key_len == 6 && dynamic_key_is_deploy && dynamic_key_not_build {
 return 48
 } else {
 return 1

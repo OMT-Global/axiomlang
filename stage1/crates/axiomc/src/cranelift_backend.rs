@@ -6001,6 +6001,14 @@ fn lower_i64_condition(
                 static_bindings,
             ) {
                 Some(condition)
+            } else if let Some(condition) = lower_i64_map_key_array_string_index_compare(
+                expr,
+                local_indexes,
+                local_conditions,
+                helper_signatures,
+                static_bindings,
+            ) {
+                Some(condition)
             } else if let Some(condition) = lower_i64_string_literal_compare(expr, static_bindings)
             {
                 Some(condition)
@@ -6236,6 +6244,119 @@ fn lower_i64_bool_value_compare(
             static_bindings,
         )?,
     }))
+}
+
+fn lower_i64_map_key_array_string_index_compare(
+    expr: &Expr,
+    local_indexes: &HashMap<String, usize>,
+    local_conditions: &HashMap<String, CraneliftI64Condition>,
+    helper_signatures: &HashMap<&str, I64HelperSignature>,
+    static_bindings: &I64StaticBindings,
+) -> Option<CraneliftI64Condition> {
+    let Expr::BinaryCompare {
+        op,
+        lhs,
+        rhs,
+        ty: Type::Bool,
+    } = expr
+    else {
+        return None;
+    };
+    let selected = match (lhs.as_ref(), rhs.as_ref()) {
+        (Expr::Index { .. }, known) => lower_i64_map_key_array_string_index_match_expr(
+            lhs,
+            &i64_string_text(known, static_bindings)?,
+            local_indexes,
+            local_conditions,
+            helper_signatures,
+            static_bindings,
+        )?,
+        (known, Expr::Index { .. }) => lower_i64_map_key_array_string_index_match_expr(
+            rhs,
+            &i64_string_text(known, static_bindings)?,
+            local_indexes,
+            local_conditions,
+            helper_signatures,
+            static_bindings,
+        )?,
+        _ => return None,
+    };
+    let expected = match op {
+        CompareOp::Eq => 1,
+        CompareOp::Ne => 0,
+        CompareOp::Lt | CompareOp::Le | CompareOp::Gt | CompareOp::Ge => return None,
+    };
+    Some(CraneliftI64Condition::Compare(CraneliftI64Compare {
+        op: CraneliftI64CompareOp::Eq,
+        lhs: selected,
+        rhs: CraneliftI64Expr::Literal(expected),
+    }))
+}
+
+fn lower_i64_map_key_array_string_index_match_expr(
+    expr: &Expr,
+    expected: &str,
+    local_indexes: &HashMap<String, usize>,
+    local_conditions: &HashMap<String, CraneliftI64Condition>,
+    helper_signatures: &HashMap<&str, I64HelperSignature>,
+    static_bindings: &I64StaticBindings,
+) -> Option<CraneliftI64Expr> {
+    let Expr::Index {
+        base,
+        index,
+        ty: Type::String | Type::Str,
+    } = expr
+    else {
+        return None;
+    };
+    let Expr::VarRef {
+        name,
+        ty: Type::Array(element, None),
+    } = base.as_ref()
+    else {
+        return None;
+    };
+    if !matches!(element.as_ref(), Type::String | Type::Str) {
+        return None;
+    }
+    let keys = static_bindings.map_key_arrays.get(name)?;
+    if keys.is_empty() {
+        return None;
+    }
+    if let Some(index) = lower_i64_literal_index(index) {
+        return match keys.get(index)? {
+            I64MapKey::Text(value) => Some(CraneliftI64Expr::Literal((value == expected) as i64)),
+            _ => None,
+        };
+    }
+    let index = lower_i64_expr(
+        index,
+        local_indexes,
+        local_conditions,
+        helper_signatures,
+        static_bindings,
+    )?;
+    let last = keys.len() - 1;
+    let mut result = match keys.get(last)? {
+        I64MapKey::Text(value) => CraneliftI64Expr::Literal((value == expected) as i64),
+        _ => return None,
+    };
+    for candidate in (0..last).rev() {
+        let matches_expected = match keys.get(candidate)? {
+            I64MapKey::Text(value) => (value == expected) as i64,
+            _ => return None,
+        };
+        result = CraneliftI64Expr::Select {
+            cond: Box::new(CraneliftI64Condition::Compare(CraneliftI64Compare {
+                op: CraneliftI64CompareOp::Eq,
+                lhs: index.clone(),
+                rhs: CraneliftI64Expr::Literal(candidate as i64),
+            })),
+            then_result: Box::new(CraneliftI64Expr::Literal(matches_expected)),
+            else_result: Box::new(result),
+        };
+    }
+    Some(result)
 }
 
 fn lower_i64_string_literal_compare(
