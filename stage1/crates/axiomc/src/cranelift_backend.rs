@@ -7936,9 +7936,10 @@ fn lower_i64_map_get_or_default_expr(
     let entries = i64_map_literal_entries(map, static_bindings)?;
     let key = lower_i64_map_key_expr(key, static_bindings)?;
     let mut selected = None;
-    for entry in entries {
+    for entry in entries.iter().rev() {
         if lower_i64_map_key_expr(&entry.key, static_bindings)? == key {
             selected = Some(&entry.value);
+            break;
         }
     }
     lower_i64_expr(
@@ -7964,7 +7965,7 @@ fn i64_map_get_value_expr<'a>(
     };
     let entries = i64_map_literal_entries(map, static_bindings)?;
     let key = lower_i64_map_key_expr(key, static_bindings)?;
-    for entry in entries {
+    for entry in entries.iter().rev() {
         if lower_i64_map_key_expr(&entry.key, static_bindings)? == key {
             return Some(Some(&entry.value));
         }
@@ -7988,7 +7989,7 @@ fn lower_i64_map_contains_key_condition(
     };
     let entries = i64_map_literal_entries(map, static_bindings)?;
     let key = lower_i64_map_key_expr(key, static_bindings)?;
-    for entry in entries {
+    for entry in entries.iter().rev() {
         if lower_i64_map_key_expr(&entry.key, static_bindings)? == key {
             return Some(CraneliftI64Condition::Literal(true));
         }
@@ -14941,6 +14942,44 @@ mod tests {
                 OutputLine::stdout("hello from stage1"),
                 OutputLine::stdout("42")
             ]
+        );
+    }
+    #[test]
+    fn static_map_lookups_respect_last_duplicate_key() {
+        let map = Expr::MapLiteral {
+            entries: vec![
+                MapEntry {
+                    key: Expr::Literal(LiteralValue::Int(1)),
+                    value: Expr::Literal(LiteralValue::Int(10)),
+                },
+                MapEntry {
+                    key: Expr::Literal(LiteralValue::Int(1)),
+                    value: Expr::Literal(LiteralValue::Int(20)),
+                },
+                MapEntry {
+                    key: Expr::Literal(LiteralValue::Int(2)),
+                    value: Expr::Literal(LiteralValue::Int(30)),
+                },
+            ],
+            ty: Type::Map(Box::new(Type::Int), Box::new(Type::Int)),
+        };
+        let key = Expr::Literal(LiteralValue::Int(1));
+        let missing_key = Expr::Literal(LiteralValue::Int(3));
+        let expected_value = Expr::Literal(LiteralValue::Int(20));
+        let args = vec![map.clone(), key.clone()];
+        let static_bindings = I64StaticBindings::default();
+
+        assert_eq!(
+            i64_map_get_value_expr("get", &args, &static_bindings),
+            Some(Some(&expected_value))
+        );
+        assert_eq!(
+            lower_i64_map_contains_key_condition("contains", &args, &static_bindings),
+            Some(CraneliftI64Condition::Literal(true))
+        );
+        assert_eq!(
+            lower_i64_map_contains_key_condition("contains", &[map, missing_key], &static_bindings),
+            Some(CraneliftI64Condition::Literal(false))
         );
     }
 }
