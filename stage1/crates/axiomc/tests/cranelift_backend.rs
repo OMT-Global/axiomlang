@@ -1370,6 +1370,46 @@ fn cranelift_backend_lowers_known_crypto_text_to_runtime_exit_code() {
 
 #[cfg(not(windows))]
 #[test]
+fn cranelift_backend_lowers_std_crypto_wrappers_to_runtime_exit_code() {
+    if which::which("cc").is_err() {
+        eprintln!("skipping cranelift backend smoke test because cc is unavailable");
+        return;
+    }
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("std-crypto-wrapper-main-exit");
+    write_std_crypto_wrapper_main_exit_project(&project);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args([
+            "build",
+            project.to_str().expect("project path"),
+            "--backend",
+            "cranelift",
+            "--json",
+        ])
+        .output()
+        .expect("run axiomc build --backend cranelift");
+    assert!(
+        output.status.success(),
+        "cranelift std crypto wrapper main build failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+    assert_eq!(payload["backend"], "cranelift");
+    assert_eq!(payload["generated_rust"], Value::Null);
+    let binary = payload["binary"].as_str().expect("binary path");
+    let run = Command::new(binary)
+        .output()
+        .expect("run cranelift std crypto wrapper main binary");
+    assert_eq!(run.status.code(), Some(48));
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "");
+}
+
+#[cfg(not(windows))]
+#[test]
 fn cranelift_backend_lowers_known_regex_text_to_runtime_exit_code() {
     if which::which("cc").is_err() {
         eprintln!("skipping cranelift backend smoke test because cc is unavailable");
@@ -5567,6 +5607,25 @@ fn write_known_crypto_text_main_exit_project(project: &Path) {
         "static KEY: string = \"key\"\n\nfn main(): int {\nlet message_for_len: string = \"The quick brown fox jumps over the lazy dog\"\nlet message_for_gate: string = \"The quick brown fox jumps over the lazy dog\"\nlet sha_for_gate: string = crypto_sha256(\"abc\")\nlet hmac256_for_gate: string = crypto_hmac_sha256(KEY, message_for_gate)\nlet hmac512_for_gate: string = crypto_hmac_sha512(\"Jefe\", \"what do ya want for nothing?\")\nlet sha_len: int = len(crypto_sha256(\"abc\"))\nlet hmac256_len: int = len(crypto_hmac_sha256(KEY, message_for_len))\nlet hmac512_len: int = len(crypto_hmac_sha512(\"Jefe\", \"what do ya want for nothing?\"))\nlet dynamic_sha_input: int = match json_parse_int(\"12345\") { Some(value) => value, None => 1 }\nlet dynamic_clone_sha_input: int = match json_parse_int(\"12345\") { Some(value) => value, None => 1 }\nlet dynamic_hmac_key: int = match json_parse_int(\"321\") { Some(value) => value, None => 1 }\nlet dynamic_hmac256_message: bool = match json_parse_bool(\"true\") { Some(value) => value, None => false }\nlet dynamic_hmac512_message: bool = match json_parse_bool(\"false\") { Some(value) => value, None => true }\nlet dynamic_sha_len: int = len(crypto_sha256(json_stringify_int(dynamic_sha_input)))\nlet dynamic_clone_sha_text: string = json_stringify_int(dynamic_clone_sha_input)\nlet dynamic_clone_sha_len: int = len(crypto_sha256(string_clone(dynamic_clone_sha_text)))\nlet dynamic_hmac256_len: int = len(crypto_hmac_sha256(json_stringify_int(dynamic_hmac_key), json_stringify_bool(dynamic_hmac256_message)))\nlet dynamic_hmac512_len: int = len(crypto_hmac_sha512(KEY, json_stringify_bool(dynamic_hmac512_message)))\nlet sha_gate: bool = string_starts_with(sha_for_gate, \"ba7816bf\")\nlet hmac256_gate: bool = string_starts_with(hmac256_for_gate, \"f7bc83f4\")\nlet hmac512_gate: bool = string_starts_with(hmac512_for_gate, \"164b7a7b\")\nlet constant_gate: bool = crypto_constant_time_eq(crypto_sha256(\"abc\"), \"ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad\")\nlet mismatch_gate: bool = crypto_constant_time_eq(\"short\", \"shorter\") == false\nlet byte_left: [u8; 3] = [1u8, 2u8, 3u8]\nlet byte_same: [u8; 3] = [1u8, 2u8, 3u8]\nlet byte_different: [u8; 3] = [1u8, 2u8, 4u8]\nlet byte_literal_left: [u8; 2] = [4u8, 5u8]\nlet byte_literal_same: [u8; 2] = [4u8, 5u8]\nlet byte_short: [u8; 1] = [4u8]\nlet byte_gate: bool = crypto_constant_time_eq_u8(byte_left[:], byte_same[:])\nlet byte_mismatch_gate: bool = crypto_constant_time_eq_u8(byte_left[:], byte_different[:]) == false\nlet byte_literal_gate: bool = crypto_constant_time_eq_u8(byte_literal_left[:], byte_literal_same[:])\nlet byte_len_gate: bool = crypto_constant_time_eq_u8(byte_literal_left[:], byte_short[:]) == false\nif sha_gate && hmac256_gate && hmac512_gate && constant_gate && mismatch_gate && byte_gate && byte_mismatch_gate && byte_literal_gate && byte_len_gate && sha_len == 64 && hmac256_len == 64 && hmac512_len == 128 && dynamic_sha_len == 64 && dynamic_clone_sha_len == 64 && dynamic_hmac256_len == 64 && dynamic_hmac512_len == 128 {\nreturn 48\n} else {\nreturn 1\n}\n}\n",
     )
     .expect("write known crypto text source");
+}
+
+fn write_std_crypto_wrapper_main_exit_project(project: &Path) {
+    fs::create_dir_all(project.join("src")).expect("create std crypto wrapper project src");
+    fs::write(
+        project.join("axiom.toml"),
+        "[package]\nname = \"cranelift-std-crypto-wrapper-main-exit\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = true\n",
+    )
+    .expect("write std crypto wrapper manifest");
+    fs::write(
+        project.join("axiom.lock"),
+        "version = 1\n\n[[package]]\nname = \"cranelift-std-crypto-wrapper-main-exit\"\nversion = \"0.1.0\"\nsource = \"path\"\n",
+    )
+    .expect("write std crypto wrapper lockfile");
+    fs::write(
+        project.join("src/main.ax"),
+        "import \"std/crypto_hash.ax\"\nimport \"std/crypto_mac.ax\"\n\nstatic KEY: string = \"key\"\n\nfn main(): int {\nlet message_for_len: string = \"The quick brown fox jumps over the lazy dog\"\nlet message_for_gate: string = \"The quick brown fox jumps over the lazy dog\"\nlet message_for_verify: string = \"The quick brown fox jumps over the lazy dog\"\nlet sha_for_gate: string = sha256(\"abc\")\nlet hmac256_for_gate: string = hmac_sha256(KEY, message_for_gate)\nlet hmac512_for_gate: string = hmac_sha512(\"Jefe\", \"what do ya want for nothing?\")\nlet sha_len: int = len(sha256(\"abc\"))\nlet hmac256_len: int = len(hmac_sha256(KEY, message_for_len))\nlet hmac512_len: int = len(hmac_sha512(\"Jefe\", \"what do ya want for nothing?\"))\nlet sha_gate: bool = string_starts_with(sha_for_gate, \"ba7816bf\")\nlet hmac256_gate: bool = string_starts_with(hmac256_for_gate, \"f7bc83f4\")\nlet hmac512_gate: bool = string_starts_with(hmac512_for_gate, \"164b7a7b\")\nlet constant_gate: bool = constant_time_eq(sha256(\"abc\"), \"ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad\")\nlet verify256_gate: bool = verify_sha256(\"f7bc83f430538424b13298e6aa6fb143ef4d59a14946175997479dbc2d1a3cd8\", KEY, message_for_verify)\nlet verify512_gate: bool = verify_sha512(\"164b7a7bfcf819e2e395fbe73b56e0a387bd64222e831fd610270cd7ea2505549758bf75c05a994a6d034f65f8f0e6fdcaeab1a34d4a6b4b636e070a38bce737\", \"Jefe\", \"what do ya want for nothing?\")\nlet mismatch_gate: bool = constant_time_eq(\"short\", \"shorter\") == false\nlet byte_left: [u8; 3] = [1u8, 2u8, 3u8]\nlet byte_same: [u8; 3] = [1u8, 2u8, 3u8]\nlet byte_different: [u8; 3] = [1u8, 2u8, 4u8]\nlet byte_gate: bool = constant_time_eq_u8(byte_left[:], byte_same[:])\nlet byte_mismatch_gate: bool = constant_time_eq_u8(byte_left[:], byte_different[:]) == false\nif sha_gate && hmac256_gate && hmac512_gate && constant_gate && verify256_gate && verify512_gate && mismatch_gate && byte_gate && byte_mismatch_gate && sha_len == 64 && hmac256_len == 64 && hmac512_len == 128 {\nreturn 48\n} else {\nreturn 1\n}\n}\n",
+    )
+    .expect("write std crypto wrapper source");
 }
 
 fn write_known_regex_text_main_exit_project(project: &Path) {

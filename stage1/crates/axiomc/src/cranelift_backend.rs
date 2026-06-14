@@ -53,6 +53,14 @@ struct I64StaticBindings {
     encoding_path_segment_encode_wrappers: HashSet<String>,
     encoding_url_query_pair_encode_wrappers: HashSet<String>,
     encoding_path_join_segment_wrappers: HashSet<String>,
+    crypto_wrappers: HashSet<String>,
+    crypto_sha256_wrappers: HashSet<String>,
+    crypto_hmac_sha256_wrappers: HashSet<String>,
+    crypto_hmac_sha512_wrappers: HashSet<String>,
+    crypto_constant_time_eq_wrappers: HashSet<String>,
+    crypto_constant_time_eq_u8_wrappers: HashSet<String>,
+    crypto_verify_sha256_wrappers: HashSet<String>,
+    crypto_verify_sha512_wrappers: HashSet<String>,
     ffi_strlen_symbols: HashSet<String>,
     fs_root: Option<PathBuf>,
     structs: HashMap<String, StructDef>,
@@ -358,6 +366,62 @@ fn lower_i64_exit_program(program: &Program, fs_root: &Path) -> Option<I64ExitPr
         .filter(|function| is_i64_std_encoding_wrapper(function, "path_join_segment"))
         .flat_map(|function| [function.name.clone(), function.source_name.clone()])
         .collect();
+    static_bindings.crypto_wrappers = program
+        .functions
+        .iter()
+        .filter(|function| {
+            is_i64_std_crypto_wrapper(function, "sha256")
+                || is_i64_std_crypto_wrapper(function, "hmac_sha256")
+                || is_i64_std_crypto_wrapper(function, "hmac_sha512")
+                || is_i64_std_crypto_wrapper(function, "constant_time_eq")
+                || is_i64_std_crypto_wrapper(function, "constant_time_eq_u8")
+                || is_i64_std_crypto_wrapper(function, "verify_sha256")
+                || is_i64_std_crypto_wrapper(function, "verify_sha512")
+        })
+        .map(|function| function.name.clone())
+        .collect();
+    static_bindings.crypto_sha256_wrappers = program
+        .functions
+        .iter()
+        .filter(|function| is_i64_std_crypto_wrapper(function, "sha256"))
+        .flat_map(|function| [function.name.clone(), function.source_name.clone()])
+        .collect();
+    static_bindings.crypto_hmac_sha256_wrappers = program
+        .functions
+        .iter()
+        .filter(|function| is_i64_std_crypto_wrapper(function, "hmac_sha256"))
+        .flat_map(|function| [function.name.clone(), function.source_name.clone()])
+        .collect();
+    static_bindings.crypto_hmac_sha512_wrappers = program
+        .functions
+        .iter()
+        .filter(|function| is_i64_std_crypto_wrapper(function, "hmac_sha512"))
+        .flat_map(|function| [function.name.clone(), function.source_name.clone()])
+        .collect();
+    static_bindings.crypto_constant_time_eq_wrappers = program
+        .functions
+        .iter()
+        .filter(|function| is_i64_std_crypto_wrapper(function, "constant_time_eq"))
+        .flat_map(|function| [function.name.clone(), function.source_name.clone()])
+        .collect();
+    static_bindings.crypto_constant_time_eq_u8_wrappers = program
+        .functions
+        .iter()
+        .filter(|function| is_i64_std_crypto_wrapper(function, "constant_time_eq_u8"))
+        .flat_map(|function| [function.name.clone(), function.source_name.clone()])
+        .collect();
+    static_bindings.crypto_verify_sha256_wrappers = program
+        .functions
+        .iter()
+        .filter(|function| is_i64_std_crypto_wrapper(function, "verify_sha256"))
+        .flat_map(|function| [function.name.clone(), function.source_name.clone()])
+        .collect();
+    static_bindings.crypto_verify_sha512_wrappers = program
+        .functions
+        .iter()
+        .filter(|function| is_i64_std_crypto_wrapper(function, "verify_sha512"))
+        .flat_map(|function| [function.name.clone(), function.source_name.clone()])
+        .collect();
     static_bindings.ffi_strlen_symbols = program
         .functions
         .iter()
@@ -381,6 +445,7 @@ fn lower_i64_exit_program(program: &Program, fs_root: &Path) -> Option<I64ExitPr
     let collection_wrappers = static_bindings.collection_wrappers.clone();
     let regex_wrappers = static_bindings.regex_wrappers.clone();
     let encoding_wrappers = static_bindings.encoding_wrappers.clone();
+    let crypto_wrappers = static_bindings.crypto_wrappers.clone();
     let ffi_strlen_symbols = static_bindings.ffi_strlen_symbols.clone();
     let helper_functions = program
         .functions
@@ -394,6 +459,7 @@ fn lower_i64_exit_program(program: &Program, fs_root: &Path) -> Option<I64ExitPr
                 && !collection_wrappers.contains(&function.name)
                 && !regex_wrappers.contains(&function.name)
                 && !encoding_wrappers.contains(&function.name)
+                && !crypto_wrappers.contains(&function.name)
                 && !ffi_strlen_symbols.contains(&function.name)
         })
         .collect::<Vec<_>>();
@@ -5818,7 +5884,7 @@ fn lower_i64_known_bool_intrinsic_condition(
                 .is_some(),
             ))
         }
-        "crypto_constant_time_eq" => {
+        name if is_i64_crypto_constant_time_eq_name(name, static_bindings) => {
             let [left, right] = args else {
                 return None;
             };
@@ -5827,13 +5893,41 @@ fn lower_i64_known_bool_intrinsic_condition(
                 i64_string_text(right, static_bindings)?.as_bytes(),
             )))
         }
-        "crypto_constant_time_eq_u8" => lower_i64_byte_slice_eq_condition(
-            args,
-            local_indexes,
-            local_conditions,
-            helper_signatures,
-            static_bindings,
-        ),
+        name if is_i64_crypto_constant_time_eq_u8_name(name, static_bindings) => {
+            lower_i64_byte_slice_eq_condition(
+                args,
+                local_indexes,
+                local_conditions,
+                helper_signatures,
+                static_bindings,
+            )
+        }
+        name if is_i64_crypto_verify_sha256_name(name, static_bindings)
+            || is_i64_crypto_verify_sha512_name(name, static_bindings) =>
+        {
+            let [tag, key, message] = args else {
+                return None;
+            };
+            let expected = if is_i64_crypto_verify_sha256_name(name, static_bindings) {
+                hmac_hex(
+                    i64_string_text(key, static_bindings)?.as_bytes(),
+                    i64_string_text(message, static_bindings)?.as_bytes(),
+                    64,
+                    sha256_bytes,
+                )
+            } else {
+                hmac_hex(
+                    i64_string_text(key, static_bindings)?.as_bytes(),
+                    i64_string_text(message, static_bindings)?.as_bytes(),
+                    128,
+                    sha512_bytes,
+                )
+            };
+            Some(CraneliftI64Condition::Literal(constant_time_eq_bytes(
+                i64_string_text(tag, static_bindings)?.as_bytes(),
+                expected.as_bytes(),
+            )))
+        }
         _ => None,
     }
 }
@@ -6000,7 +6094,7 @@ fn i64_string_call_text(
                 format!("{base}/{encoded}")
             })
         }
-        "crypto_sha256" => {
+        name if is_i64_crypto_sha256_name(name, static_bindings) => {
             let [input] = args else {
                 return None;
             };
@@ -6008,13 +6102,15 @@ fn i64_string_call_text(
                 i64_string_text(input, static_bindings)?.as_bytes(),
             ))
         }
-        "crypto_hmac_sha256" | "crypto_hmac_sha512" => {
+        name if is_i64_crypto_hmac_sha256_name(name, static_bindings)
+            || is_i64_crypto_hmac_sha512_name(name, static_bindings) =>
+        {
             let [key, message] = args else {
                 return None;
             };
             let key = i64_string_text(key, static_bindings)?;
             let message = i64_string_text(message, static_bindings)?;
-            Some(if name == "crypto_hmac_sha256" {
+            Some(if is_i64_crypto_hmac_sha256_name(name, static_bindings) {
                 hmac_hex(key.as_bytes(), message.as_bytes(), 64, sha256_bytes)
             } else {
                 hmac_hex(key.as_bytes(), message.as_bytes(), 128, sha512_bytes)
@@ -8243,6 +8339,47 @@ fn is_i64_encoding_path_join_segment_name(name: &str, static_bindings: &I64Stati
             .contains(name)
 }
 
+fn is_i64_std_crypto_wrapper(function: &Function, source_name: &str) -> bool {
+    matches!(
+        function.path.as_str(),
+        "<stdlib>/crypto_hash.ax" | "<stdlib>/crypto_mac.ax" | "<stdlib>/crypto.ax"
+    ) && function.source_name == source_name
+}
+
+fn is_i64_crypto_sha256_name(name: &str, static_bindings: &I64StaticBindings) -> bool {
+    name == "crypto_sha256" || static_bindings.crypto_sha256_wrappers.contains(name)
+}
+
+fn is_i64_crypto_hmac_sha256_name(name: &str, static_bindings: &I64StaticBindings) -> bool {
+    name == "crypto_hmac_sha256" || static_bindings.crypto_hmac_sha256_wrappers.contains(name)
+}
+
+fn is_i64_crypto_hmac_sha512_name(name: &str, static_bindings: &I64StaticBindings) -> bool {
+    name == "crypto_hmac_sha512" || static_bindings.crypto_hmac_sha512_wrappers.contains(name)
+}
+
+fn is_i64_crypto_constant_time_eq_name(name: &str, static_bindings: &I64StaticBindings) -> bool {
+    name == "crypto_constant_time_eq"
+        || static_bindings
+            .crypto_constant_time_eq_wrappers
+            .contains(name)
+}
+
+fn is_i64_crypto_constant_time_eq_u8_name(name: &str, static_bindings: &I64StaticBindings) -> bool {
+    name == "crypto_constant_time_eq_u8"
+        || static_bindings
+            .crypto_constant_time_eq_u8_wrappers
+            .contains(name)
+}
+
+fn is_i64_crypto_verify_sha256_name(name: &str, static_bindings: &I64StaticBindings) -> bool {
+    static_bindings.crypto_verify_sha256_wrappers.contains(name)
+}
+
+fn is_i64_crypto_verify_sha512_name(name: &str, static_bindings: &I64StaticBindings) -> bool {
+    static_bindings.crypto_verify_sha512_wrappers.contains(name)
+}
+
 fn is_i64_supported_strlen_extern(function: &Function) -> bool {
     function.is_extern
         && function.source_name == "strlen"
@@ -8401,7 +8538,7 @@ fn lower_i64_string_len_expr(
                 static_bindings,
             )
         }
-        Expr::Call { name, args, .. } if name == "crypto_sha256" => {
+        Expr::Call { name, args, .. } if is_i64_crypto_sha256_name(name, static_bindings) => {
             let [input] = args.as_slice() else {
                 return None;
             };
@@ -8414,7 +8551,7 @@ fn lower_i64_string_len_expr(
             )?;
             Some(CraneliftI64Expr::Literal(64))
         }
-        Expr::Call { name, args, .. } if name == "crypto_hmac_sha256" => {
+        Expr::Call { name, args, .. } if is_i64_crypto_hmac_sha256_name(name, static_bindings) => {
             let [key, message] = args.as_slice() else {
                 return None;
             };
@@ -8434,7 +8571,7 @@ fn lower_i64_string_len_expr(
             )?;
             Some(CraneliftI64Expr::Literal(64))
         }
-        Expr::Call { name, args, .. } if name == "crypto_hmac_sha512" => {
+        Expr::Call { name, args, .. } if is_i64_crypto_hmac_sha512_name(name, static_bindings) => {
             let [key, message] = args.as_slice() else {
                 return None;
             };

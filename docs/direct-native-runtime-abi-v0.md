@@ -183,7 +183,9 @@ runtime scalar/bool string-projection inputs, directly or through
 projections without materializing a general runtime string value. Known-input
 `crypto_constant_time_eq(...)` over known string values can also feed
 direct-native boolean conditions after normal front-end crypto capability
-checks. The row
+checks. Imported public `std/crypto_hash.ax` and `std/crypto_mac.ax` hash, HMAC,
+verify, and constant-time equality wrappers now alias those same known-input
+direct-native paths in runtime-exit programs. The row
 remains partial because direct-native codegen still does not provide a general
 string ABI, string parameters or returns, allocation or mutation behavior,
 non-literal string storage, general Option-string payload storage or helper ABI,
@@ -350,9 +352,10 @@ The direct-native crypto hash slice is still marked partial: the Cranelift
 spike can build and run `std/crypto_hash.ax` `sha256(...)` without generated
 Rust, and crypto capability denials still happen before backend lowering. The
 direct-native i64 path now also lowers known-input `crypto_sha256(...)` string
-results into length and comparison conditions that can feed a native process
-exit status without generated Rust. Supported runtime string-projection inputs
-can also feed fixed SHA-256 hex length projections directly or through
+results and imported public `std/crypto_hash.ax` `sha256(...)` wrapper results
+into length and comparison conditions that can feed a native process exit
+status without generated Rust. Supported runtime string-projection inputs can
+also feed fixed SHA-256 hex length projections directly or through
 `string_clone(...)` over a projection local without materializing a general
 runtime string value.
 Random, signature, AEAD, dynamic runtime hash execution, and broader crypto
@@ -371,8 +374,12 @@ a projection local without materializing a general runtime string value. Known-i
 `crypto_constant_time_eq(...)` over known string values lowers into native
 boolean conditions. It also lowers
 `crypto_constant_time_eq_u8(...)` over narrow fixed-array/static-slice `u8`
-inputs into native boolean conditions. Runtime audit parity, dynamic runtime
-MAC execution, general byte-slice runtime equality, and broader crypto
+inputs into native boolean conditions. Imported public `std/crypto_mac.ax`
+wrappers for `hmac_sha256(...)`, `hmac_sha512(...)`,
+`constant_time_eq(...)`, `constant_time_eq_u8(...)`, `verify_sha256(...)`, and
+`verify_sha512(...)` now alias those same known-input direct-native paths in a
+runtime-exit program without generated Rust. Runtime audit parity, dynamic
+runtime MAC execution, general byte-slice runtime equality, and broader crypto
 host-service coverage remain blocked under #928.
 
 The direct-native crypto random slice is now marked partial: the Cranelift
