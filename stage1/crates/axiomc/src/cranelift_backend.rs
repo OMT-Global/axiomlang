@@ -32,6 +32,7 @@ struct I64StaticBindings {
     strings: HashMap<String, String>,
     string_options: HashMap<String, Option<String>>,
     map_literals: HashMap<String, Vec<MapEntry>>,
+    map_key_arrays: HashMap<String, Vec<I64MapKey>>,
     process_status_wrappers: HashSet<String>,
     env_get_wrappers: HashSet<String>,
     fs_read_wrappers: HashSet<String>,
@@ -690,6 +691,18 @@ fn lower_i64_aggregate_return_body(
                 static_bindings
                     .map_literals
                     .insert(name.clone(), entries.clone());
+            }
+            Stmt::Let {
+                name,
+                ty: Type::Array(_, None),
+                expr,
+                ..
+            } if !seen_runtime_stmt => {
+                if let Some(keys) = i64_map_keys_expr(expr, static_bindings) {
+                    static_bindings.map_key_arrays.insert(name.clone(), keys);
+                } else {
+                    return None;
+                }
             }
             Stmt::Let {
                 name,
@@ -1846,6 +1859,18 @@ fn lower_i64_body(
                 static_bindings
                     .map_literals
                     .insert(name.clone(), entries.clone());
+            }
+            Stmt::Let {
+                name,
+                ty: Type::Array(_, None),
+                expr,
+                ..
+            } if !seen_runtime_stmt => {
+                if let Some(keys) = i64_map_keys_expr(expr, static_bindings) {
+                    static_bindings.map_key_arrays.insert(name.clone(), keys);
+                } else {
+                    return None;
+                }
             }
             Stmt::Let {
                 name,
@@ -7893,6 +7918,49 @@ fn lower_i64_map_contains_key_condition(
     Some(CraneliftI64Condition::Literal(false))
 }
 
+fn lower_i64_map_keys_len_expr(
+    expr: &Expr,
+    static_bindings: &I64StaticBindings,
+) -> Option<CraneliftI64Expr> {
+    if let Expr::VarRef {
+        name,
+        ty: Type::Array(_, None),
+    } = expr
+    {
+        return static_bindings
+            .map_key_arrays
+            .get(name)
+            .map(|keys| CraneliftI64Expr::Literal(keys.len() as i64));
+    }
+    i64_map_keys_expr(expr, static_bindings)
+        .map(|keys| CraneliftI64Expr::Literal(keys.len() as i64))
+}
+
+fn i64_map_keys_expr(expr: &Expr, static_bindings: &I64StaticBindings) -> Option<Vec<I64MapKey>> {
+    let Expr::Call { name, args, .. } = expr else {
+        return None;
+    };
+    if name != "map_keys" && name != "keys" {
+        return None;
+    }
+    let [map] = args.as_slice() else {
+        return None;
+    };
+    i64_map_unique_keys(map, static_bindings)
+}
+
+fn i64_map_unique_keys(map: &Expr, static_bindings: &I64StaticBindings) -> Option<Vec<I64MapKey>> {
+    let entries = i64_map_literal_entries(map, static_bindings)?;
+    let mut keys = Vec::new();
+    for entry in entries {
+        let key = lower_i64_map_key_expr(&entry.key, static_bindings)?;
+        if !keys.iter().any(|candidate| candidate == &key) {
+            keys.push(key);
+        }
+    }
+    Some(keys)
+}
+
 fn lower_i64_map_key_expr(expr: &Expr, static_bindings: &I64StaticBindings) -> Option<I64MapKey> {
     if let Some(text) = i64_string_text(expr, static_bindings) {
         return Some(I64MapKey::Text(text));
@@ -7991,6 +8059,9 @@ fn lower_i64_fixed_array_intrinsic_expr(
             helper_signatures,
             static_bindings,
         ) {
+            return Some(length);
+        }
+        if let Some(length) = lower_i64_map_keys_len_expr(arg, static_bindings) {
             return Some(length);
         }
     }

@@ -486,10 +486,12 @@ process exit status. Integer and boolean lookup results can also feed local
 same direct-native body, and known string lookup results can feed pre-runtime
 local `Option<string>` facts that are matched later in the same body.
 Pre-runtime local map bindings initialized from inline map literals can feed the
-same `get_or_default`, `map_contains_key`, and `get` lowering. Broader map
-ownership, runtime map storage, general payload lookup bindings, full public
-`std/collections.ax` wrapper coverage in the i64 path, and host-boundary
-representation remain tracked by issue #928.
+same `get_or_default`, `map_contains_key`, and `get` lowering, and
+`len(keys(...))`/`len(map_keys(...))` can count static map keys without
+materializing a runtime key array. Broader map ownership, runtime map storage,
+general payload lookup bindings, full public `std/collections.ax` wrapper
+coverage in the i64 path, key array projection, and host-boundary representation
+remain tracked by issue #928.
 
 The `env.read` row now has partial Cranelift evidence for `std/env.ax`
 `get_env` on present and missing environment names without generated Rust, plus
