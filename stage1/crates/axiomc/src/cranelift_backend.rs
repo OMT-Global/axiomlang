@@ -11184,6 +11184,9 @@ fn eval_call(
     if is_async_call(name) {
         return eval_async_call(name, args, functions, env, lines);
     }
+    if is_cli_call(name) {
+        return eval_cli_call(name, args, functions, env, lines);
+    }
     if name == "env_get" {
         return eval_env_get_call(args, functions, env, lines);
     }
@@ -11357,6 +11360,43 @@ fn eval_extern_call(
         _ => Err(unsupported(&format!(
             "unsupported cranelift spike extern call {:?} from {:?}",
             function.name, function.extern_library
+        ))),
+    }
+}
+
+fn is_cli_call(name: &str) -> bool {
+    matches!(name, "cli_args" | "cli_arg_count" | "cli_arg")
+}
+
+fn eval_cli_call(
+    name: &str,
+    args: &[Expr],
+    functions: &HashMap<&str, &Function>,
+    env: &SpikeEnv,
+    lines: &mut Vec<OutputLine>,
+) -> Result<SpikeValue, Diagnostic> {
+    match name {
+        "cli_args" => {
+            let [] = args else {
+                return Err(unsupported("cli_args expects no arguments"));
+            };
+            Ok(SpikeValue::Array(Vec::new()))
+        }
+        "cli_arg_count" => {
+            let [] = args else {
+                return Err(unsupported("cli_arg_count expects no arguments"));
+            };
+            Ok(SpikeValue::Int(0))
+        }
+        "cli_arg" => {
+            let [index] = args else {
+                return Err(unsupported("cli_arg expects exactly one argument"));
+            };
+            let _index = expect_signed_integer(eval_expr(index, functions, env, lines)?)?;
+            Ok(spike_option(None))
+        }
+        _ => Err(unsupported(&format!(
+            "unsupported cranelift spike CLI call {name:?}"
         ))),
     }
 }

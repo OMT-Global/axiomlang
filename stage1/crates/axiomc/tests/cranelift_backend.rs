@@ -4196,6 +4196,56 @@ parse error
 
 #[cfg(not(windows))]
 #[test]
+fn cranelift_backend_builds_std_cli_no_args_binary() {
+    if which::which("cc").is_err() {
+        eprintln!("skipping cranelift backend smoke test because cc is unavailable");
+        return;
+    }
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("std-cli");
+    write_std_cli_project(&project);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args([
+            "build",
+            project.to_str().expect("project path"),
+            "--backend",
+            "cranelift",
+            "--json",
+        ])
+        .output()
+        .expect("run axiomc build --backend cranelift");
+    assert!(
+        output.status.success(),
+        "cranelift std/cli build failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+    assert_eq!(payload["backend"], "cranelift");
+    assert_eq!(payload["generated_rust"], Value::Null);
+    let binary = payload["binary"].as_str().expect("binary path");
+    let run = Command::new(binary)
+        .output()
+        .expect("run cranelift std/cli binary");
+    assert!(
+        run.status.success(),
+        "cranelift std/cli binary failed: stderr={}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&run.stdout),
+        "0
+0
+missing
+"
+    );
+}
+
+#[cfg(not(windows))]
+#[test]
 fn cranelift_backend_rejects_float_map_keys() {
     let temp = tempfile::tempdir().expect("tempdir");
     let project = temp.path().join("float-map-key");
@@ -8340,6 +8390,61 @@ print "parse error"
 "#,
     )
     .expect("write std/serdes source");
+}
+
+fn write_std_cli_project(project: &Path) {
+    fs::create_dir_all(project.join("src")).expect("create std/cli project src");
+    fs::write(
+        project.join("axiom.toml"),
+        r#"[package]
+name = "cranelift-std-cli"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+fs = false
+net = false
+process = false
+env = false
+clock = false
+crypto = false
+"#,
+    )
+    .expect("write std/cli manifest");
+    fs::write(
+        project.join("axiom.lock"),
+        r#"version = 1
+
+[[package]]
+name = "cranelift-std-cli"
+version = "0.1.0"
+source = "path"
+"#,
+    )
+    .expect("write std/cli lockfile");
+    fs::write(
+        project.join("src/main.ax"),
+        r#"import "std/cli.ax"
+
+print arg_count()
+let values: [string] = args()
+print len(values)
+
+let first_arg: Option<string> = arg(0)
+match first_arg {
+Some(value) {
+print value
+}
+None {
+print "missing"
+}
+}
+"#,
+    )
+    .expect("write std/cli source");
 }
 
 fn write_fs_denial_project(project: &Path) {

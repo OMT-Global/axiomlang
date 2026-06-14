@@ -24,6 +24,7 @@ examples=(
   outcomes
   packages
   stdlib_async
+  stdlib_cli
   stdlib_collection_lookup
   stdlib_collections
   stdlib_crypto_hash
@@ -44,6 +45,7 @@ examples=(
   stdlib_regex
   stdlib_serdes
   stdlib_sync
+  stdlib_testing
   stdlib_string_builder
   stdlib_time
   workspace

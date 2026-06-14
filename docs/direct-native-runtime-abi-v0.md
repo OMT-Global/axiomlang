@@ -38,13 +38,13 @@ not a readiness claim while rows remain `partial` or `blocked`.
 The example smoke runs a bounded subset of checked-in value and stdlib examples
 through `check`, `build --backend cranelift`, and `run --backend cranelift`, and
 asserts the build/run JSON reports `generated_rust: null`. The current set
-covers 35 deterministic examples across scalar/aggregate values, borrowed
+covers 37 deterministic examples across scalar/aggregate values, borrowed
 shapes, generic aggregates, modules/packages/workspaces, outcome/result
-helpers, JSON value and serdes helpers, LSP/doc helpers, plus async,
-collections, crypto hash/MAC, encoding, env, fs read/write, HTTP's closed-port
-client path, io, JSON, logging, process-status missing-binary handling, regex,
-sync, string builder, and time. It is direct-native example evidence for #928,
-not a
+helpers, JSON value and serdes helpers, LSP/doc/testing helpers, plus async,
+CLI's no-argument path, collections, crypto hash/MAC, encoding, env, fs
+read/write, HTTP's closed-port client path, io, JSON, logging, process-status
+missing-binary handling, regex, sync, string builder, and time. It is
+direct-native example evidence for #928, not a
 replacement for full
 `stage1-smoke` parity; examples that still require broader capability policy or
 runtime parity remain outside this smoke target.
