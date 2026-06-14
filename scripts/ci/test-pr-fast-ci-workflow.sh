@@ -110,9 +110,15 @@ if [[ -n "$benchmark_gate_reference" ]]; then
   exit 1
 fi
 
-if ! grep -Fq 'stage1-direct-native-runtime-abi-test' "$fast_checks"; then
-  echo "run-fast-checks must enforce direct-native runtime ABI and example smoke coverage" >&2
-  exit 1
-fi
+for required_direct_native_check in \
+  'bash scripts/ci/test-check-direct-native-runtime-abi.sh' \
+  'bash scripts/ci/test-run-direct-native-runtime-abi-evidence.sh' \
+  'bash scripts/ci/run-direct-native-example-smoke.sh'; do
+  if ! grep -Fq "$required_direct_native_check" "$fast_checks"; then
+    echo "run-fast-checks must enforce direct-native runtime ABI and example smoke coverage" >&2
+    echo "missing: $required_direct_native_check" >&2
+    exit 1
+  fi
+done
 
 echo "pr-fast-ci workflow validation passed"
