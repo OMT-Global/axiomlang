@@ -16070,6 +16070,7 @@ mod tests {
         let key = Expr::Literal(LiteralValue::Int(1));
         let missing_key = Expr::Literal(LiteralValue::Int(3));
         let expected_value = Expr::Literal(LiteralValue::Int(20));
+        let expected_default = Expr::Literal(LiteralValue::Int(99));
         let args = vec![map.clone(), key.clone()];
         let static_bindings = I64StaticBindings::default();
 
@@ -16088,6 +16089,17 @@ mod tests {
                 &static_bindings
             ),
             Some(CraneliftI64Condition::Literal(false))
+        );
+        assert_eq!(
+            lower_i64_map_get_or_default_expr(
+                "get_or_default",
+                &[map, key, expected_default],
+                &HashMap::new(),
+                &HashMap::new(),
+                &HashMap::new(),
+                &static_bindings
+            ),
+            Some(CraneliftI64Expr::Literal(20))
         );
     }
 
