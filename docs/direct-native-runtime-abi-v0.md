@@ -38,12 +38,13 @@ not a readiness claim while rows remain `partial` or `blocked`.
 The example smoke runs a bounded subset of checked-in value and stdlib examples
 through `check`, `build --backend cranelift`, and `run --backend cranelift`, and
 asserts the build/run JSON reports `generated_rust: null`. The current set
-covers 34 deterministic examples across scalar/aggregate values, borrowed
+covers 35 deterministic examples across scalar/aggregate values, borrowed
 shapes, generic aggregates, modules/packages/workspaces, outcome/result
-helpers, JSON value helpers, LSP/doc helpers, plus async, collections, crypto
-hash/MAC, encoding, env, fs read/write, HTTP's closed-port client path, io,
-JSON, logging, process-status missing-binary handling, regex, sync, string
-builder, and time. It is direct-native example evidence for #928, not a
+helpers, JSON value and serdes helpers, LSP/doc helpers, plus async,
+collections, crypto hash/MAC, encoding, env, fs read/write, HTTP's closed-port
+client path, io, JSON, logging, process-status missing-binary handling, regex,
+sync, string builder, and time. It is direct-native example evidence for #928,
+not a
 replacement for full
 `stage1-smoke` parity; examples that still require broader capability policy or
 runtime parity remain outside this smoke target.
@@ -650,7 +651,10 @@ The `json.serdes` row has expanded partial direct-native evidence: the
 Cranelift spike now builds and runs `std/json.ax` scalar/object helpers and
 `std/serdes.ax` `Value` object-map construction, nested JSON object/array
 parsing, typed field accessors, value indexing, stringify, and parse-error
-reporting without generated Rust. The direct-native i64 path now also lowers
+reporting without generated Rust. The checked-in `stdlib_serdes` example now
+also runs through the direct-native example smoke, including deep `Value`
+equality and `std/testing.ax` assertion helpers without generated Rust. The
+direct-native i64 path now also lowers
 known-input `json_stringify_*` string results, including literal and static
 scalar/bool stringify inputs. Runtime scalar/bool `json_stringify_*` calls can
 also feed direct-native string length projections directly or through

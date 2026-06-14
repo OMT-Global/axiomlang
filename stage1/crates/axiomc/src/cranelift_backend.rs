@@ -11142,6 +11142,9 @@ fn eval_call(
     env: &SpikeEnv,
     lines: &mut Vec<OutputLine>,
 ) -> Result<SpikeValue, Diagnostic> {
+    if is_assert_call(name) {
+        return eval_assert_call(name, args, functions, env, lines);
+    }
     if name == "len" {
         return eval_len_call(args, functions, env, lines);
     }
@@ -11230,6 +11233,100 @@ fn eval_call(
         Ok(spike_task(returned))
     } else {
         Ok(returned)
+    }
+}
+
+fn is_assert_call(name: &str) -> bool {
+    matches!(
+        name,
+        "assert_true"
+            | "assert_property"
+            | "assert_snapshot"
+            | "assert_contains"
+            | "assert_eq"
+            | "assert_case_eq"
+            | "assert_ne"
+    )
+}
+
+fn eval_assert_call(
+    name: &str,
+    args: &[Expr],
+    functions: &HashMap<&str, &Function>,
+    env: &SpikeEnv,
+    lines: &mut Vec<OutputLine>,
+) -> Result<SpikeValue, Diagnostic> {
+    match name {
+        "assert_true" => {
+            let [condition, _line, _column] = args else {
+                return Err(unsupported(
+                    "assert_true expects condition, line, and column",
+                ));
+            };
+            let condition = expect_bool(eval_expr(condition, functions, env, lines)?)?;
+            assert_result(condition, "assert_true failed")
+        }
+        "assert_property" => {
+            let [_label, condition, _line, _column] = args else {
+                return Err(unsupported(
+                    "assert_property expects label, condition, line, and column",
+                ));
+            };
+            let condition = expect_bool(eval_expr(condition, functions, env, lines)?)?;
+            assert_result(condition, "assert_property failed")
+        }
+        "assert_snapshot" => {
+            let [_label, actual, expected, _line, _column] = args else {
+                return Err(unsupported(
+                    "assert_snapshot expects label, actual, expected, line, and column",
+                ));
+            };
+            let actual = expect_text(eval_expr(actual, functions, env, lines)?, name)?;
+            let expected = expect_text(eval_expr(expected, functions, env, lines)?, name)?;
+            assert_result(actual == expected, "assert_snapshot failed")
+        }
+        "assert_contains" => {
+            let [haystack, needle, _line, _column] = args else {
+                return Err(unsupported(
+                    "assert_contains expects haystack, needle, line, and column",
+                ));
+            };
+            let haystack = expect_text(eval_expr(haystack, functions, env, lines)?, name)?;
+            let needle = expect_text(eval_expr(needle, functions, env, lines)?, name)?;
+            assert_result(haystack.contains(&needle), "assert_contains failed")
+        }
+        "assert_eq" | "assert_ne" => {
+            let [left, right, _line, _column] = args else {
+                return Err(unsupported(
+                    "assert_eq/assert_ne expects left, right, line, and column",
+                ));
+            };
+            let left = eval_expr(left, functions, env, lines)?;
+            let right = eval_expr(right, functions, env, lines)?;
+            let equal = spike_values_equal(&left, &right)?;
+            assert_result(equal == (name == "assert_eq"), &format!("{name} failed"))
+        }
+        "assert_case_eq" => {
+            let [_label, left, right, _line, _column] = args else {
+                return Err(unsupported(
+                    "assert_case_eq expects label, left, right, line, and column",
+                ));
+            };
+            let left = eval_expr(left, functions, env, lines)?;
+            let right = eval_expr(right, functions, env, lines)?;
+            assert_result(spike_values_equal(&left, &right)?, "assert_case_eq failed")
+        }
+        _ => Err(unsupported(&format!(
+            "unsupported cranelift spike assertion call {name:?}"
+        ))),
+    }
+}
+
+fn assert_result(condition: bool, message: &str) -> Result<SpikeValue, Diagnostic> {
+    if condition {
+        Ok(SpikeValue::Int(0))
+    } else {
+        Err(unsupported(message))
     }
 }
 
@@ -15663,12 +15760,18 @@ fn eval_compare(
 ) -> Result<SpikeValue, Diagnostic> {
     let left = eval_expr(lhs, functions, env, lines)?;
     let right = eval_expr(rhs, functions, env, lines)?;
-    let result = match (left, right) {
-        (SpikeValue::Int(left), SpikeValue::Int(right)) => compare_ord(op, left, right),
-        (SpikeValue::UInt(left), SpikeValue::UInt(right)) => compare_ord(op, left, right),
-        (SpikeValue::Float(left), SpikeValue::Float(right)) => compare_float(op, left, right)?,
-        (SpikeValue::Bool(left), SpikeValue::Bool(right)) => compare_eq(op, left, right)?,
-        (SpikeValue::Text(left), SpikeValue::Text(right)) => compare_eq(op, left, right)?,
+    let result = match (&left, &right) {
+        (SpikeValue::Int(left), SpikeValue::Int(right)) => compare_ord(op, *left, *right),
+        (SpikeValue::UInt(left), SpikeValue::UInt(right)) => compare_ord(op, *left, *right),
+        (SpikeValue::Float(left), SpikeValue::Float(right)) => compare_float(op, *left, *right)?,
+        (SpikeValue::Bool(left), SpikeValue::Bool(right)) => compare_eq(op, *left, *right)?,
+        (SpikeValue::Text(left), SpikeValue::Text(right)) => {
+            compare_eq(op, left.as_str(), right.as_str())?
+        }
+        _ if matches!(op, CompareOp::Eq | CompareOp::Ne) => {
+            let equal = spike_values_equal(&left, &right)?;
+            matches!(op, CompareOp::Eq) == equal
+        }
         _ => return Err(unsupported("mismatched comparison operands")),
     };
     Ok(SpikeValue::Bool(result))
@@ -15705,6 +15808,126 @@ fn compare_eq<T: Eq>(op: CompareOp, left: T, right: T) -> Result<bool, Diagnosti
         CompareOp::Ne => Ok(left != right),
         _ => Err(unsupported("only equality comparisons are supported here")),
     }
+}
+
+fn spike_values_equal(left: &SpikeValue, right: &SpikeValue) -> Result<bool, Diagnostic> {
+    match (left, right) {
+        (SpikeValue::Int(left), SpikeValue::Int(right)) => Ok(left == right),
+        (SpikeValue::UInt(left), SpikeValue::UInt(right)) => Ok(left == right),
+        (SpikeValue::Float(left), SpikeValue::Float(right)) => {
+            if !left.is_finite() || !right.is_finite() {
+                return Err(unsupported("non-finite float comparison"));
+            }
+            Ok(left == right)
+        }
+        (SpikeValue::Bool(left), SpikeValue::Bool(right)) => Ok(left == right),
+        (SpikeValue::Text(left), SpikeValue::Text(right)) => Ok(left == right),
+        (
+            SpikeValue::Struct {
+                name: left_name,
+                fields: left_fields,
+            },
+            SpikeValue::Struct {
+                name: right_name,
+                fields: right_fields,
+            },
+        ) => Ok(left_name == right_name && named_spike_values_equal(left_fields, right_fields)?),
+        (
+            SpikeValue::Enum {
+                enum_name: left_enum,
+                variant: left_variant,
+                field_names: left_fields,
+                payloads: left_payloads,
+            },
+            SpikeValue::Enum {
+                enum_name: right_enum,
+                variant: right_variant,
+                field_names: right_fields,
+                payloads: right_payloads,
+            },
+        ) => Ok(left_enum == right_enum
+            && left_variant == right_variant
+            && left_fields == right_fields
+            && spike_value_slices_equal(left_payloads, right_payloads)?),
+        (SpikeValue::Tuple(left), SpikeValue::Tuple(right))
+        | (SpikeValue::Array(left), SpikeValue::Array(right)) => {
+            spike_value_slices_equal(left, right)
+        }
+        (SpikeValue::Map(left), SpikeValue::Map(right)) => spike_maps_equal(left, right),
+        (
+            SpikeValue::Task { .. }
+            | SpikeValue::JoinHandle(_)
+            | SpikeValue::AsyncChannel { .. }
+            | SpikeValue::SelectResult { .. },
+            _,
+        )
+        | (
+            _,
+            SpikeValue::Task { .. }
+            | SpikeValue::JoinHandle(_)
+            | SpikeValue::AsyncChannel { .. }
+            | SpikeValue::SelectResult { .. },
+        ) => Err(unsupported(
+            "runtime handle equality is not supported by the cranelift spike",
+        )),
+        _ => Ok(false),
+    }
+}
+
+fn named_spike_values_equal(
+    left: &[(String, SpikeValue)],
+    right: &[(String, SpikeValue)],
+) -> Result<bool, Diagnostic> {
+    if left.len() != right.len() {
+        return Ok(false);
+    }
+    left.iter().zip(right.iter()).try_fold(
+        true,
+        |equal, ((left_name, left), (right_name, right))| {
+            Ok::<_, Diagnostic>(
+                equal && left_name == right_name && spike_values_equal(left, right)?,
+            )
+        },
+    )
+}
+
+fn spike_value_slices_equal(left: &[SpikeValue], right: &[SpikeValue]) -> Result<bool, Diagnostic> {
+    if left.len() != right.len() {
+        return Ok(false);
+    }
+    left.iter()
+        .zip(right.iter())
+        .try_fold(true, |equal, (left, right)| {
+            Ok::<_, Diagnostic>(equal && spike_values_equal(left, right)?)
+        })
+}
+
+fn spike_maps_equal(
+    left: &[(SpikeValue, SpikeValue)],
+    right: &[(SpikeValue, SpikeValue)],
+) -> Result<bool, Diagnostic> {
+    if left.len() != right.len() {
+        return Ok(false);
+    }
+    let mut matched = vec![false; right.len()];
+    for (left_key, left_value) in left {
+        let mut found = false;
+        for (index, (right_key, right_value)) in right.iter().enumerate() {
+            if matched[index] || !map_keys_equal(left_key, right_key)? {
+                continue;
+            }
+            if !spike_values_equal(left_value, right_value)? {
+                return Ok(false);
+            }
+            matched[index] = true;
+            found = true;
+            break;
+        }
+        if !found {
+            return Ok(false);
+        }
+    }
+    Ok(true)
 }
 
 fn expect_bool(value: SpikeValue) -> Result<bool, Diagnostic> {

@@ -42,6 +42,7 @@ examples=(
   stdlib_outcome
   stdlib_process
   stdlib_regex
+  stdlib_serdes
   stdlib_sync
   stdlib_string_builder
   stdlib_time
