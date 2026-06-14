@@ -1842,6 +1842,46 @@ second line
 
 #[cfg(not(windows))]
 #[test]
+fn cranelift_backend_lowers_std_string_builder_wrappers_to_runtime_exit_code() {
+    if which::which("cc").is_err() {
+        eprintln!("skipping cranelift backend smoke test because cc is unavailable");
+        return;
+    }
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("string-builder-main-exit");
+    write_std_string_builder_main_exit_project(&project);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args([
+            "build",
+            project.to_str().expect("project path"),
+            "--backend",
+            "cranelift",
+            "--json",
+        ])
+        .output()
+        .expect("run axiomc build --backend cranelift");
+    assert!(
+        output.status.success(),
+        "cranelift string builder main build failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+    assert_eq!(payload["backend"], "cranelift");
+    assert_eq!(payload["generated_rust"], Value::Null);
+    let binary = payload["binary"].as_str().expect("binary path");
+    let run = Command::new(binary)
+        .output()
+        .expect("run cranelift string builder main binary");
+    assert_eq!(run.status.code(), Some(48));
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "");
+}
+
+#[cfg(not(windows))]
+#[test]
 fn cranelift_backend_builds_string_intrinsics_binary() {
     if which::which("cc").is_err() {
         eprintln!("skipping cranelift backend smoke test because cc is unavailable");
@@ -5930,6 +5970,44 @@ print finish(third)
 "#,
     )
     .expect("write string builder source");
+}
+
+fn write_std_string_builder_main_exit_project(project: &Path) {
+    fs::create_dir_all(project.join("src")).expect("create string builder main project src");
+    fs::write(
+        project.join("axiom.toml"),
+        "[package]\nname = \"cranelift-string-builder-main-exit\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n",
+    )
+    .expect("write string builder main manifest");
+    fs::write(
+        project.join("axiom.lock"),
+        "version = 1\n\n[[package]]\nname = \"cranelift-string-builder-main-exit\"\nversion = \"0.1.0\"\nsource = \"path\"\n",
+    )
+    .expect("write string builder main lockfile");
+    fs::write(
+        project.join("src/main.ax"),
+        r#"import "std/string_builder.ax"
+
+fn main(): int {
+let empty: StringBuilder = builder()
+let greeting: StringBuilder = push_str(empty, "hello")
+let spaced: StringBuilder = push_str(greeting, " ")
+let finished: StringBuilder = push_str(spaced, "stdlib")
+let message: string = finish(finished)
+let seeded: StringBuilder = from_string("first")
+let second: StringBuilder = push_line(seeded, " line")
+let third: StringBuilder = push_str(second, "second line")
+let report: string = finish(third)
+let nested: string = finish(push_line(from_string("nested"), " ok"))
+if message == "hello stdlib" && report == "first line\nsecond line" && nested == "nested ok\n" && len(message) == 12 && len(report) == 22 && len(nested) == 10 {
+return 48
+} else {
+return 1
+}
+}
+"#,
+    )
+    .expect("write string builder main source");
 }
 
 fn write_string_intrinsics_project(project: &Path) {

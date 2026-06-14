@@ -31,6 +31,7 @@ struct I64StaticBindings {
     conditions: HashMap<String, CraneliftI64Condition>,
     strings: HashMap<String, String>,
     string_options: HashMap<String, Option<String>>,
+    string_builders: HashMap<String, String>,
     map_literals: HashMap<String, Vec<MapEntry>>,
     map_key_arrays: HashMap<String, Vec<I64MapKey>>,
     process_status_wrappers: HashSet<String>,
@@ -73,6 +74,12 @@ struct I64StaticBindings {
     log_fields2_wrappers: HashSet<String>,
     log_fields3_wrappers: HashSet<String>,
     log_event_wrappers: HashSet<String>,
+    string_builder_wrappers: HashSet<String>,
+    string_builder_new_wrappers: HashSet<String>,
+    string_builder_from_string_wrappers: HashSet<String>,
+    string_builder_push_str_wrappers: HashSet<String>,
+    string_builder_push_line_wrappers: HashSet<String>,
+    string_builder_finish_wrappers: HashSet<String>,
     crypto_wrappers: HashSet<String>,
     crypto_sha256_wrappers: HashSet<String>,
     crypto_hmac_sha256_wrappers: HashSet<String>,
@@ -506,6 +513,42 @@ fn lower_i64_exit_program(program: &Program, fs_root: &Path) -> Option<I64ExitPr
         .filter(|function| is_i64_std_log_wrapper(function, "event"))
         .flat_map(|function| [function.name.clone(), function.source_name.clone()])
         .collect();
+    static_bindings.string_builder_wrappers = program
+        .functions
+        .iter()
+        .filter(|function| function.path == "<stdlib>/string_builder.ax")
+        .map(|function| function.name.clone())
+        .collect();
+    static_bindings.string_builder_new_wrappers = program
+        .functions
+        .iter()
+        .filter(|function| is_i64_std_string_builder_wrapper(function, "builder"))
+        .flat_map(|function| [function.name.clone(), function.source_name.clone()])
+        .collect();
+    static_bindings.string_builder_from_string_wrappers = program
+        .functions
+        .iter()
+        .filter(|function| is_i64_std_string_builder_wrapper(function, "from_string"))
+        .flat_map(|function| [function.name.clone(), function.source_name.clone()])
+        .collect();
+    static_bindings.string_builder_push_str_wrappers = program
+        .functions
+        .iter()
+        .filter(|function| is_i64_std_string_builder_wrapper(function, "push_str"))
+        .flat_map(|function| [function.name.clone(), function.source_name.clone()])
+        .collect();
+    static_bindings.string_builder_push_line_wrappers = program
+        .functions
+        .iter()
+        .filter(|function| is_i64_std_string_builder_wrapper(function, "push_line"))
+        .flat_map(|function| [function.name.clone(), function.source_name.clone()])
+        .collect();
+    static_bindings.string_builder_finish_wrappers = program
+        .functions
+        .iter()
+        .filter(|function| is_i64_std_string_builder_wrapper(function, "finish"))
+        .flat_map(|function| [function.name.clone(), function.source_name.clone()])
+        .collect();
     static_bindings.crypto_wrappers = program
         .functions
         .iter()
@@ -588,6 +631,7 @@ fn lower_i64_exit_program(program: &Program, fs_root: &Path) -> Option<I64ExitPr
     let encoding_wrappers = static_bindings.encoding_wrappers.clone();
     let json_wrappers = static_bindings.json_wrappers.clone();
     let log_wrappers = static_bindings.log_wrappers.clone();
+    let string_builder_wrappers = static_bindings.string_builder_wrappers.clone();
     let crypto_wrappers = static_bindings.crypto_wrappers.clone();
     let ffi_strlen_symbols = static_bindings.ffi_strlen_symbols.clone();
     let helper_functions = program
@@ -605,6 +649,7 @@ fn lower_i64_exit_program(program: &Program, fs_root: &Path) -> Option<I64ExitPr
                 && !encoding_wrappers.contains(&function.name)
                 && !json_wrappers.contains(&function.name)
                 && !log_wrappers.contains(&function.name)
+                && !string_builder_wrappers.contains(&function.name)
                 && !crypto_wrappers.contains(&function.name)
                 && !ffi_strlen_symbols.contains(&function.name)
         })
@@ -1042,6 +1087,19 @@ fn lower_i64_aggregate_return_body(
                     helper_signatures,
                     static_bindings,
                 )?;
+            }
+            Stmt::Let {
+                name,
+                ty: Type::Struct(_),
+                expr: expr @ Expr::Call {
+                    name: call_name, ..
+                },
+                ..
+            } if is_i64_string_builder_constructor_name(call_name, static_bindings)
+                && !seen_runtime_stmt =>
+            {
+                let text = i64_string_builder_text(expr, static_bindings)?;
+                static_bindings.string_builders.insert(name.clone(), text);
             }
             Stmt::Let {
                 name,
@@ -2210,6 +2268,19 @@ fn lower_i64_body(
                     helper_signatures,
                     static_bindings,
                 )?;
+            }
+            Stmt::Let {
+                name,
+                ty: Type::Struct(_),
+                expr: expr @ Expr::Call {
+                    name: call_name, ..
+                },
+                ..
+            } if is_i64_string_builder_constructor_name(call_name, static_bindings)
+                && !seen_runtime_stmt =>
+            {
+                let text = i64_string_builder_text(expr, static_bindings)?;
+                static_bindings.string_builders.insert(name.clone(), text);
             }
             Stmt::Let {
                 name,
@@ -6174,6 +6245,48 @@ fn i64_string_text(expr: &Expr, static_bindings: &I64StaticBindings) -> Option<S
     }
 }
 
+fn i64_string_builder_text(expr: &Expr, static_bindings: &I64StaticBindings) -> Option<String> {
+    match expr {
+        Expr::VarRef {
+            name,
+            ty: Type::Struct(_),
+        } => static_bindings.string_builders.get(name).cloned(),
+        Expr::Call { name, args, .. } if is_i64_string_builder_new_name(name, static_bindings) => {
+            let [] = args.as_slice() else {
+                return None;
+            };
+            Some(String::new())
+        }
+        Expr::Call { name, args, .. }
+            if is_i64_string_builder_from_string_name(name, static_bindings) =>
+        {
+            let [value] = args.as_slice() else {
+                return None;
+            };
+            i64_string_text(value, static_bindings)
+        }
+        Expr::Call { name, args, .. }
+            if is_i64_string_builder_push_str_name(name, static_bindings)
+                || is_i64_string_builder_push_line_name(name, static_bindings) =>
+        {
+            let [builder, text] = args.as_slice() else {
+                return None;
+            };
+            let mut value = i64_string_builder_text(builder, static_bindings)?;
+            value.push_str(&i64_string_text(text, static_bindings)?);
+            if is_i64_string_builder_push_line_name(name, static_bindings) {
+                value.push('\n');
+            }
+            Some(value)
+        }
+        Expr::StructLiteral { fields, .. } => fields
+            .iter()
+            .find(|field| field.name == "value")
+            .and_then(|field| i64_string_text(&field.expr, static_bindings)),
+        _ => None,
+    }
+}
+
 fn i64_map_key_array_string_index_text(
     base: &Expr,
     index: &Expr,
@@ -6368,6 +6481,12 @@ fn i64_string_call_text(
                 json_escape_string(&i64_string_text(message, static_bindings)?),
                 i64_string_text(attributes, static_bindings)?
             ))
+        }
+        name if is_i64_string_builder_finish_name(name, static_bindings) => {
+            let [builder] = args else {
+                return None;
+            };
+            i64_string_builder_text(builder, static_bindings)
         }
         _ => None,
     }
@@ -8671,6 +8790,45 @@ fn is_i64_log_fields3_name(name: &str, static_bindings: &I64StaticBindings) -> b
 
 fn is_i64_log_event_name(name: &str, static_bindings: &I64StaticBindings) -> bool {
     static_bindings.log_event_wrappers.contains(name)
+}
+
+fn is_i64_std_string_builder_wrapper(function: &Function, source_name: &str) -> bool {
+    function.path == "<stdlib>/string_builder.ax" && function.source_name == source_name
+}
+
+fn is_i64_string_builder_new_name(name: &str, static_bindings: &I64StaticBindings) -> bool {
+    static_bindings.string_builder_new_wrappers.contains(name)
+}
+
+fn is_i64_string_builder_from_string_name(name: &str, static_bindings: &I64StaticBindings) -> bool {
+    static_bindings
+        .string_builder_from_string_wrappers
+        .contains(name)
+}
+
+fn is_i64_string_builder_push_str_name(name: &str, static_bindings: &I64StaticBindings) -> bool {
+    static_bindings
+        .string_builder_push_str_wrappers
+        .contains(name)
+}
+
+fn is_i64_string_builder_push_line_name(name: &str, static_bindings: &I64StaticBindings) -> bool {
+    static_bindings
+        .string_builder_push_line_wrappers
+        .contains(name)
+}
+
+fn is_i64_string_builder_finish_name(name: &str, static_bindings: &I64StaticBindings) -> bool {
+    static_bindings
+        .string_builder_finish_wrappers
+        .contains(name)
+}
+
+fn is_i64_string_builder_constructor_name(name: &str, static_bindings: &I64StaticBindings) -> bool {
+    is_i64_string_builder_new_name(name, static_bindings)
+        || is_i64_string_builder_from_string_name(name, static_bindings)
+        || is_i64_string_builder_push_str_name(name, static_bindings)
+        || is_i64_string_builder_push_line_name(name, static_bindings)
 }
 
 fn is_i64_std_crypto_wrapper(function: &Function, source_name: &str) -> bool {

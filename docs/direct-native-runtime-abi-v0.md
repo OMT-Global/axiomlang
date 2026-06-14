@@ -464,8 +464,12 @@ helpers and `std/encoding.ax` percent encode/decode helpers, query-pair
 encoding, and path segment joining without generated Rust. Known-text encoding
 helpers now also feed narrow direct-native string length/comparison lowering,
 and known-input percent decode can feed direct `Option<string>` matches without
-generated Rust. Broader string ABI coverage, allocation behavior, and
-host-boundary representation remain tracked by issue #928.
+generated Rust. Imported public `std/string_builder.ax` builder, seed, push,
+line-push, and finish wrappers now alias known text facts that can feed
+direct-native string comparisons, length projections, and process exit status
+without generated Rust. Broader string ABI coverage, allocation behavior,
+string parameters and returns, non-literal storage, and host-boundary
+representation remain tracked by issue #928.
 
 The borrowed-slice row has partial direct-native evidence: the Cranelift spike
 evaluates array-backed borrowed slices through `len`, `first`, `last`, indexing,
