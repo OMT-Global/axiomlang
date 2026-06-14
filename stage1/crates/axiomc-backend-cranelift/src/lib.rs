@@ -1,4 +1,4 @@
-use cranelift_codegen::ir::{AbiParam, FuncRef, InstBuilder, condcodes::IntCC, types};
+use cranelift_codegen::ir::{AbiParam, BlockArg, FuncRef, InstBuilder, condcodes::IntCC, types};
 use cranelift_codegen::isa;
 use cranelift_codegen::settings::{self, Configurable};
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext, Variable};
@@ -831,16 +831,63 @@ fn emit_i64_condition(
         }
         I64Condition::Compare(compare) => emit_i64_compare(builder, locals, function_refs, compare),
         I64Condition::And { lhs, rhs } => {
-            let lhs = emit_i64_condition(builder, locals, function_refs, lhs)?;
-            let rhs = emit_i64_condition(builder, locals, function_refs, rhs)?;
-            Ok(builder.ins().band(lhs, rhs))
+            emit_i64_short_circuit_condition(builder, locals, function_refs, lhs, rhs, false)
         }
         I64Condition::Or { lhs, rhs } => {
-            let lhs = emit_i64_condition(builder, locals, function_refs, lhs)?;
-            let rhs = emit_i64_condition(builder, locals, function_refs, rhs)?;
-            Ok(builder.ins().bor(lhs, rhs))
+            emit_i64_short_circuit_condition(builder, locals, function_refs, lhs, rhs, true)
         }
     }
+}
+
+fn emit_i64_short_circuit_condition(
+    builder: &mut FunctionBuilder<'_>,
+    locals: &[Variable],
+    function_refs: &[FuncRef],
+    lhs: &I64Condition,
+    rhs: &I64Condition,
+    short_circuit_value: bool,
+) -> Result<cranelift_codegen::ir::Value, CraneliftBackendError> {
+    let lhs = emit_i64_condition(builder, locals, function_refs, lhs)?;
+    let rhs_block = builder.create_block();
+    let short_circuit_block = builder.create_block();
+    let merge_block = builder.create_block();
+    builder.append_block_param(merge_block, types::I64);
+
+    let (true_block, false_block) = if short_circuit_value {
+        (short_circuit_block, rhs_block)
+    } else {
+        (rhs_block, short_circuit_block)
+    };
+    builder.ins().brif(lhs, true_block, &[], false_block, &[]);
+
+    builder.switch_to_block(short_circuit_block);
+    builder.seal_block(short_circuit_block);
+    let short_circuit_value = builder
+        .ins()
+        .iconst(types::I64, i64::from(short_circuit_value));
+    let short_circuit_args = [BlockArg::Value(short_circuit_value)];
+    builder.ins().jump(merge_block, &short_circuit_args);
+
+    builder.switch_to_block(rhs_block);
+    builder.seal_block(rhs_block);
+    let rhs = emit_i64_condition(builder, locals, function_refs, rhs)?;
+    let rhs = emit_i64_bool_value(builder, rhs);
+    let rhs_args = [BlockArg::Value(rhs)];
+    builder.ins().jump(merge_block, &rhs_args);
+
+    builder.switch_to_block(merge_block);
+    builder.seal_block(merge_block);
+    let merged = builder.block_params(merge_block)[0];
+    Ok(builder.ins().icmp_imm(IntCC::NotEqual, merged, 0))
+}
+
+fn emit_i64_bool_value(
+    builder: &mut FunctionBuilder<'_>,
+    cond: cranelift_codegen::ir::Value,
+) -> cranelift_codegen::ir::Value {
+    let true_value = builder.ins().iconst(types::I64, 1);
+    let false_value = builder.ins().iconst(types::I64, 0);
+    builder.ins().select(cond, true_value, false_value)
 }
 
 fn i64_compare_op(op: I64CompareOp) -> IntCC {
@@ -870,9 +917,7 @@ fn emit_i64_expr(
         }
         I64Expr::ConditionValue(cond) => {
             let cond = emit_i64_condition(builder, locals, function_refs, cond)?;
-            let true_value = builder.ins().iconst(types::I64, 1);
-            let false_value = builder.ins().iconst(types::I64, 0);
-            Ok(builder.ins().select(cond, true_value, false_value))
+            Ok(emit_i64_bool_value(builder, cond))
         }
         I64Expr::Cast { cast, expr } => {
             let value = emit_i64_expr(builder, locals, function_refs, expr)?;
@@ -904,13 +949,47 @@ fn emit_i64_expr(
             cond,
             then_result,
             else_result,
-        } => {
-            let cond = emit_i64_condition(builder, locals, function_refs, cond)?;
-            let then_result = emit_i64_expr(builder, locals, function_refs, then_result)?;
-            let else_result = emit_i64_expr(builder, locals, function_refs, else_result)?;
-            Ok(builder.ins().select(cond, then_result, else_result))
-        }
+        } => emit_i64_select_expr(
+            builder,
+            locals,
+            function_refs,
+            cond,
+            then_result,
+            else_result,
+        ),
     }
+}
+
+fn emit_i64_select_expr(
+    builder: &mut FunctionBuilder<'_>,
+    locals: &[Variable],
+    function_refs: &[FuncRef],
+    cond: &I64Condition,
+    then_result: &I64Expr,
+    else_result: &I64Expr,
+) -> Result<cranelift_codegen::ir::Value, CraneliftBackendError> {
+    let cond = emit_i64_condition(builder, locals, function_refs, cond)?;
+    let then_block = builder.create_block();
+    let else_block = builder.create_block();
+    let merge_block = builder.create_block();
+    builder.append_block_param(merge_block, types::I64);
+    builder.ins().brif(cond, then_block, &[], else_block, &[]);
+
+    builder.switch_to_block(then_block);
+    builder.seal_block(then_block);
+    let then_result = emit_i64_expr(builder, locals, function_refs, then_result)?;
+    let then_args = [BlockArg::Value(then_result)];
+    builder.ins().jump(merge_block, &then_args);
+
+    builder.switch_to_block(else_block);
+    builder.seal_block(else_block);
+    let else_result = emit_i64_expr(builder, locals, function_refs, else_result)?;
+    let else_args = [BlockArg::Value(else_result)];
+    builder.ins().jump(merge_block, &else_args);
+
+    builder.switch_to_block(merge_block);
+    builder.seal_block(merge_block);
+    Ok(builder.block_params(merge_block)[0])
 }
 
 fn emit_i64_cast(
@@ -994,6 +1073,22 @@ fn link_object(object_path: &Path, binary_path: &Path) -> Result<(), CraneliftBa
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn i64_divide_by_zero_expr() -> I64Expr {
+        I64Expr::Binary {
+            op: I64BinaryOp::Div,
+            lhs: Box::new(I64Expr::Literal(1)),
+            rhs: Box::new(I64Expr::Literal(0)),
+        }
+    }
+
+    fn i64_divide_by_zero_is_zero_condition() -> I64Condition {
+        I64Condition::Compare(I64Compare {
+            op: I64CompareOp::Eq,
+            lhs: i64_divide_by_zero_expr(),
+            rhs: I64Expr::Literal(0),
+        })
+    }
 
     #[test]
     fn links_hello_print_lines() {
@@ -1432,5 +1527,123 @@ mod tests {
         .expect("compile i64 division exit program");
         let output = Command::new(&binary).output().expect("run binary");
         assert_eq!(output.status.code(), Some(42));
+    }
+
+    #[test]
+    fn links_i64_exit_program_short_circuits_boolean_conditions() {
+        if std::env::var_os("AXIOM_SKIP_CRANELIFT_LINK_TEST").is_some() {
+            return;
+        }
+        if Command::new("cc").arg("--version").output().is_err() {
+            eprintln!("skipping cranelift link test because cc is unavailable");
+            return;
+        }
+        let temp = tempfile::tempdir().expect("tempdir");
+
+        let and_object = temp.path().join("i64-exit-short-circuit-and.o");
+        let and_binary = temp.path().join("i64-exit-short-circuit-and");
+        compile_i64_exit_program(
+            I64ExitProgram {
+                functions: Vec::new(),
+                locals: Vec::new(),
+                stmts: Vec::new(),
+                body: I64ExitBody::IfReturn {
+                    cond: I64Condition::And {
+                        lhs: Box::new(I64Condition::Literal(false)),
+                        rhs: Box::new(i64_divide_by_zero_is_zero_condition()),
+                    },
+                    then_result: I64Expr::Literal(1),
+                    else_result: I64Expr::Literal(48),
+                },
+            },
+            &and_object,
+            &and_binary,
+        )
+        .expect("compile short-circuit and exit program");
+        let output = Command::new(&and_binary)
+            .output()
+            .expect("run short-circuit and binary");
+        assert_eq!(output.status.code(), Some(48));
+
+        let or_object = temp.path().join("i64-exit-short-circuit-or.o");
+        let or_binary = temp.path().join("i64-exit-short-circuit-or");
+        compile_i64_exit_program(
+            I64ExitProgram {
+                functions: Vec::new(),
+                locals: Vec::new(),
+                stmts: Vec::new(),
+                body: I64ExitBody::IfReturn {
+                    cond: I64Condition::Or {
+                        lhs: Box::new(I64Condition::Literal(true)),
+                        rhs: Box::new(i64_divide_by_zero_is_zero_condition()),
+                    },
+                    then_result: I64Expr::Literal(48),
+                    else_result: I64Expr::Literal(1),
+                },
+            },
+            &or_object,
+            &or_binary,
+        )
+        .expect("compile short-circuit or exit program");
+        let output = Command::new(&or_binary)
+            .output()
+            .expect("run short-circuit or binary");
+        assert_eq!(output.status.code(), Some(48));
+    }
+
+    #[test]
+    fn links_i64_exit_program_selects_only_chosen_arm() {
+        if std::env::var_os("AXIOM_SKIP_CRANELIFT_LINK_TEST").is_some() {
+            return;
+        }
+        if Command::new("cc").arg("--version").output().is_err() {
+            eprintln!("skipping cranelift link test because cc is unavailable");
+            return;
+        }
+        let temp = tempfile::tempdir().expect("tempdir");
+
+        let then_object = temp.path().join("i64-exit-select-then.o");
+        let then_binary = temp.path().join("i64-exit-select-then");
+        compile_i64_exit_program(
+            I64ExitProgram {
+                functions: Vec::new(),
+                locals: Vec::new(),
+                stmts: Vec::new(),
+                body: I64ExitBody::Return(I64Expr::Select {
+                    cond: Box::new(I64Condition::Literal(true)),
+                    then_result: Box::new(I64Expr::Literal(48)),
+                    else_result: Box::new(i64_divide_by_zero_expr()),
+                }),
+            },
+            &then_object,
+            &then_binary,
+        )
+        .expect("compile selected then-arm exit program");
+        let output = Command::new(&then_binary)
+            .output()
+            .expect("run selected then-arm binary");
+        assert_eq!(output.status.code(), Some(48));
+
+        let else_object = temp.path().join("i64-exit-select-else.o");
+        let else_binary = temp.path().join("i64-exit-select-else");
+        compile_i64_exit_program(
+            I64ExitProgram {
+                functions: Vec::new(),
+                locals: Vec::new(),
+                stmts: Vec::new(),
+                body: I64ExitBody::Return(I64Expr::Select {
+                    cond: Box::new(I64Condition::Literal(false)),
+                    then_result: Box::new(i64_divide_by_zero_expr()),
+                    else_result: Box::new(I64Expr::Literal(48)),
+                }),
+            },
+            &else_object,
+            &else_binary,
+        )
+        .expect("compile selected else-arm exit program");
+        let output = Command::new(&else_binary)
+            .output()
+            .expect("run selected else-arm binary");
+        assert_eq!(output.status.code(), Some(48));
     }
 }
