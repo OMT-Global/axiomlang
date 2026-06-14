@@ -553,10 +553,11 @@ materializing a runtime key array. Imported public `std/collections.ax`
 direct-native i64 lowering for static string/int map-local cases. Literal
 indexes into static string key arrays can also feed known string length
 lowering, and dynamic scalar indexes into those static string key arrays can
-select among known key byte lengths and equality/inequality predicates for
-direct-native process exit status. Broader map ownership, runtime map storage,
-general payload lookup bindings, runtime key array value projection, and
-host-boundary representation remain tracked by issue #928.
+select among known key byte lengths, equality/inequality predicates, and
+`string_starts_with(...)` predicates for direct-native process exit status.
+Broader map ownership, runtime map storage, general payload lookup bindings,
+runtime key array value projection, and host-boundary representation remain
+tracked by issue #928.
 
 The `env.read` row now has partial Cranelift evidence for `std/env.ax`
 `get_env` on present and missing environment names without generated Rust, plus

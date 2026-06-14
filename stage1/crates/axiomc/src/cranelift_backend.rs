@@ -38,6 +38,7 @@ struct I64StaticBindings {
     bool_channels: HashMap<String, Option<bool>>,
     map_literals: HashMap<String, Vec<MapEntry>>,
     map_key_arrays: HashMap<String, Vec<I64MapKey>>,
+    map_key_array_string_indexes: HashMap<String, I64MapKeyArrayStringIndex>,
     process_status_wrappers: HashSet<String>,
     env_get_wrappers: HashSet<String>,
     time_wrappers: HashSet<String>,
@@ -152,6 +153,12 @@ enum I64MapKey {
     Int(i64),
     Bool(bool),
     Text(String),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct I64MapKeyArrayStringIndex {
+    array_name: String,
+    index: Expr,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -6262,25 +6269,27 @@ fn lower_i64_map_key_array_string_index_compare(
     else {
         return None;
     };
-    let selected = match (lhs.as_ref(), rhs.as_ref()) {
-        (Expr::Index { .. }, known) => lower_i64_map_key_array_string_index_match_expr(
+    let selected = if let Some(known) = i64_string_text(rhs, static_bindings) {
+        lower_i64_map_key_array_string_index_match_expr(
             lhs,
-            &i64_string_text(known, static_bindings)?,
+            &known,
             local_indexes,
             local_conditions,
             helper_signatures,
             static_bindings,
-        )?,
-        (known, Expr::Index { .. }) => lower_i64_map_key_array_string_index_match_expr(
+        )
+    } else if let Some(known) = i64_string_text(lhs, static_bindings) {
+        lower_i64_map_key_array_string_index_match_expr(
             rhs,
-            &i64_string_text(known, static_bindings)?,
+            &known,
             local_indexes,
             local_conditions,
             helper_signatures,
             static_bindings,
-        )?,
-        _ => return None,
-    };
+        )
+    } else {
+        None
+    }?;
     let expected = match op {
         CompareOp::Eq => 1,
         CompareOp::Ne => 0,
@@ -6301,6 +6310,91 @@ fn lower_i64_map_key_array_string_index_match_expr(
     helper_signatures: &HashMap<&str, I64HelperSignature>,
     static_bindings: &I64StaticBindings,
 ) -> Option<CraneliftI64Expr> {
+    lower_i64_map_key_array_string_index_predicate_expr(
+        expr,
+        local_indexes,
+        local_conditions,
+        helper_signatures,
+        static_bindings,
+        |value| value == expected,
+    )
+}
+
+fn lower_i64_map_key_array_string_index_predicate_expr(
+    expr: &Expr,
+    local_indexes: &HashMap<String, usize>,
+    local_conditions: &HashMap<String, CraneliftI64Condition>,
+    helper_signatures: &HashMap<&str, I64HelperSignature>,
+    static_bindings: &I64StaticBindings,
+    predicate: impl Fn(&str) -> bool,
+) -> Option<CraneliftI64Expr> {
+    let (keys, index) = i64_map_key_array_string_index_source(expr, static_bindings)?;
+    if keys.is_empty() {
+        return None;
+    }
+    if let Some(index) = lower_i64_literal_index(&index) {
+        return match keys.get(index)? {
+            I64MapKey::Text(value) => Some(CraneliftI64Expr::Literal(predicate(value) as i64)),
+            _ => None,
+        };
+    }
+    let index = lower_i64_expr(
+        &index,
+        local_indexes,
+        local_conditions,
+        helper_signatures,
+        static_bindings,
+    )?;
+    let last = keys.len() - 1;
+    let mut result = match keys.get(last)? {
+        I64MapKey::Text(value) => CraneliftI64Expr::Literal(predicate(value) as i64),
+        _ => return None,
+    };
+    for candidate in (0..last).rev() {
+        let matches_expected = match keys.get(candidate)? {
+            I64MapKey::Text(value) => predicate(value) as i64,
+            _ => return None,
+        };
+        result = CraneliftI64Expr::Select {
+            cond: Box::new(CraneliftI64Condition::Compare(CraneliftI64Compare {
+                op: CraneliftI64CompareOp::Eq,
+                lhs: index.clone(),
+                rhs: CraneliftI64Expr::Literal(candidate as i64),
+            })),
+            then_result: Box::new(CraneliftI64Expr::Literal(matches_expected)),
+            else_result: Box::new(result),
+        };
+    }
+    Some(result)
+}
+
+fn i64_map_key_array_string_index_source(
+    expr: &Expr,
+    static_bindings: &I64StaticBindings,
+) -> Option<(Vec<I64MapKey>, Expr)> {
+    if let Expr::StringBorrow { expr, .. } = expr {
+        return i64_map_key_array_string_index_source(expr, static_bindings);
+    }
+    if let Some((array_name, index)) = i64_map_key_array_string_index_parts(expr) {
+        let keys = static_bindings.map_key_arrays.get(array_name)?.clone();
+        return Some((keys, index.clone()));
+    }
+    let Expr::VarRef {
+        name,
+        ty: Type::String | Type::Str,
+    } = expr
+    else {
+        return None;
+    };
+    let binding = static_bindings.map_key_array_string_indexes.get(name)?;
+    let keys = static_bindings
+        .map_key_arrays
+        .get(binding.array_name.as_str())?
+        .clone();
+    Some((keys, binding.index.clone()))
+}
+
+fn i64_map_key_array_string_index_parts(expr: &Expr) -> Option<(&str, &Expr)> {
     let Expr::Index {
         base,
         index,
@@ -6319,44 +6413,7 @@ fn lower_i64_map_key_array_string_index_match_expr(
     if !matches!(element.as_ref(), Type::String | Type::Str) {
         return None;
     }
-    let keys = static_bindings.map_key_arrays.get(name)?;
-    if keys.is_empty() {
-        return None;
-    }
-    if let Some(index) = lower_i64_literal_index(index) {
-        return match keys.get(index)? {
-            I64MapKey::Text(value) => Some(CraneliftI64Expr::Literal((value == expected) as i64)),
-            _ => None,
-        };
-    }
-    let index = lower_i64_expr(
-        index,
-        local_indexes,
-        local_conditions,
-        helper_signatures,
-        static_bindings,
-    )?;
-    let last = keys.len() - 1;
-    let mut result = match keys.get(last)? {
-        I64MapKey::Text(value) => CraneliftI64Expr::Literal((value == expected) as i64),
-        _ => return None,
-    };
-    for candidate in (0..last).rev() {
-        let matches_expected = match keys.get(candidate)? {
-            I64MapKey::Text(value) => (value == expected) as i64,
-            _ => return None,
-        };
-        result = CraneliftI64Expr::Select {
-            cond: Box::new(CraneliftI64Condition::Compare(CraneliftI64Compare {
-                op: CraneliftI64CompareOp::Eq,
-                lhs: index.clone(),
-                rhs: CraneliftI64Expr::Literal(candidate as i64),
-            })),
-            then_result: Box::new(CraneliftI64Expr::Literal(matches_expected)),
-            else_result: Box::new(result),
-        };
-    }
-    Some(result)
+    Some((name, index))
 }
 
 fn lower_i64_string_literal_compare(
@@ -6385,6 +6442,30 @@ fn lower_i64_string_literal_compare(
     Some(CraneliftI64Condition::Literal(value))
 }
 
+fn lower_i64_map_key_array_string_index_starts_with_condition(
+    text: &Expr,
+    prefix: &Expr,
+    local_indexes: &HashMap<String, usize>,
+    local_conditions: &HashMap<String, CraneliftI64Condition>,
+    helper_signatures: &HashMap<&str, I64HelperSignature>,
+    static_bindings: &I64StaticBindings,
+) -> Option<CraneliftI64Condition> {
+    let prefix = i64_string_text(prefix, static_bindings)?;
+    let selected = lower_i64_map_key_array_string_index_predicate_expr(
+        text,
+        local_indexes,
+        local_conditions,
+        helper_signatures,
+        static_bindings,
+        |value| value.starts_with(prefix.as_str()),
+    )?;
+    Some(CraneliftI64Condition::Compare(CraneliftI64Compare {
+        op: CraneliftI64CompareOp::Eq,
+        lhs: selected,
+        rhs: CraneliftI64Expr::Literal(1),
+    }))
+}
+
 fn lower_i64_known_bool_intrinsic_condition(
     name: &str,
     args: &[Expr],
@@ -6398,6 +6479,16 @@ fn lower_i64_known_bool_intrinsic_condition(
             let [text, prefix] = args else {
                 return None;
             };
+            if let Some(condition) = lower_i64_map_key_array_string_index_starts_with_condition(
+                text,
+                prefix,
+                local_indexes,
+                local_conditions,
+                helper_signatures,
+                static_bindings,
+            ) {
+                return Some(condition);
+            }
             Some(CraneliftI64Condition::Literal(
                 i64_string_text(text, static_bindings)?
                     .starts_with(i64_string_text(prefix, static_bindings)?.as_str()),
@@ -9662,6 +9753,15 @@ fn lower_i64_string_len_projection_local(
     }
     if let Some(text) = text {
         static_bindings.strings.insert(name.to_string(), text);
+    }
+    if let Some((array_name, index)) = i64_map_key_array_string_index_parts(expr) {
+        static_bindings.map_key_array_string_indexes.insert(
+            name.to_string(),
+            I64MapKeyArrayStringIndex {
+                array_name: array_name.to_string(),
+                index: index.clone(),
+            },
+        );
     }
     Some(())
 }
