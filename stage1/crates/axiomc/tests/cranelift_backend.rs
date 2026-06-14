@@ -2591,6 +2591,46 @@ fn cranelift_backend_lowers_map_get_or_default_to_runtime_exit_code() {
 
 #[cfg(not(windows))]
 #[test]
+fn cranelift_backend_lowers_std_collection_wrappers_to_runtime_exit_code() {
+    if which::which("cc").is_err() {
+        eprintln!("skipping cranelift backend smoke test because cc is unavailable");
+        return;
+    }
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("std-collection-wrapper-main-exit");
+    write_std_collection_wrapper_main_exit_project(&project);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args([
+            "build",
+            project.to_str().expect("project path"),
+            "--backend",
+            "cranelift",
+            "--json",
+        ])
+        .output()
+        .expect("run axiomc build --backend cranelift");
+    assert!(
+        output.status.success(),
+        "cranelift std collection wrapper main build failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+    assert_eq!(payload["backend"], "cranelift");
+    assert_eq!(payload["generated_rust"], Value::Null);
+    let binary = payload["binary"].as_str().expect("binary path");
+    let run = Command::new(binary)
+        .output()
+        .expect("run cranelift std collection wrapper main binary");
+    assert_eq!(run.status.code(), Some(48));
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "");
+}
+
+#[cfg(not(windows))]
+#[test]
 fn cranelift_backend_builds_std_collection_lookup_binary() {
     if which::which("cc").is_err() {
         eprintln!("skipping cranelift backend smoke test because cc is unavailable");
@@ -6040,6 +6080,54 @@ print second_key_names[1]
 "#,
     )
     .expect("write collection lookup source");
+}
+
+fn write_std_collection_wrapper_main_exit_project(project: &Path) {
+    fs::create_dir_all(project.join("src"))
+        .expect("create std collection wrapper main project src");
+    fs::write(
+        project.join("axiom.toml"),
+        "[package]\nname = \"cranelift-std-collection-wrapper-main-exit\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n",
+    )
+    .expect("write std collection wrapper main manifest");
+    fs::write(
+        project.join("axiom.lock"),
+        "version = 1\n\n[[package]]\nname = \"cranelift-std-collection-wrapper-main-exit\"\nversion = \"0.1.0\"\nsource = \"path\"\n",
+    )
+    .expect("write std collection wrapper main lockfile");
+    fs::write(
+        project.join("src/main.ax"),
+        r#"import "std/collections.ax"
+
+fn main(): int {
+let contains_hit_scores: {string: int} = {"build": 7, "deploy": 9}
+let contains_hit: bool = contains<string, int>(contains_hit_scores, "deploy")
+let contains_miss_scores: {string: int} = {"build": 7, "deploy": 9}
+let contains_miss: bool = contains<string, int>(contains_miss_scores, "test") == false
+let get_hit_scores: {string: int} = {"build": 7, "deploy": 9}
+let get_hit_code: int = match get<string, int>(get_hit_scores, "deploy") { Some(value) => value, None => 1 }
+let get_miss_scores: {string: int} = {"build": 7, "deploy": 9}
+let get_miss_code: int = match get<string, int>(get_miss_scores, "test") { Some(value) => value, None => 13 }
+let fallback_scores: {string: int} = {"build": 7, "deploy": 9}
+let fallback: int = get_or_default<string, int>(fallback_scores, "test", 13)
+let key_count_scores: {string: int} = {"build": 7, "deploy": 9, "deploy": 11}
+let key_count_names: [string] = keys<string, int>(key_count_scores)
+let key_count: int = len(key_count_names)
+let first_key_scores: {string: int} = {"build": 7, "deploy": 9}
+let first_key_names: [string] = keys<string, int>(first_key_scores)
+let first_key_len: int = len(first_key_names[0])
+let second_key_scores: {string: int} = {"build": 7, "deploy": 9}
+let second_key_names: [string] = keys<string, int>(second_key_scores)
+let second_key_len: int = len(second_key_names[1])
+if contains_hit && contains_miss && get_hit_code == 9 && get_miss_code == 13 && fallback == 13 && key_count == 2 && first_key_len == 5 && second_key_len == 6 {
+return 48
+} else {
+return 1
+}
+}
+"#,
+    )
+    .expect("write std collection wrapper main source");
 }
 
 fn write_net_resolve_project(project: &Path) {

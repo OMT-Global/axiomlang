@@ -38,6 +38,11 @@ struct I64StaticBindings {
     fs_read_wrappers: HashSet<String>,
     fs_shim_wrappers: HashSet<String>,
     net_shim_wrappers: HashSet<String>,
+    collection_wrappers: HashSet<String>,
+    collection_contains_wrappers: HashSet<String>,
+    collection_get_wrappers: HashSet<String>,
+    collection_get_or_default_wrappers: HashSet<String>,
+    collection_keys_wrappers: HashSet<String>,
     ffi_strlen_symbols: HashSet<String>,
     fs_root: Option<PathBuf>,
     structs: HashMap<String, StructDef>,
@@ -253,6 +258,36 @@ fn lower_i64_exit_program(program: &Program, fs_root: &Path) -> Option<I64ExitPr
         .filter(|function| is_i64_std_net_shim_wrapper(function))
         .map(|function| function.name.clone())
         .collect();
+    static_bindings.collection_wrappers = program
+        .functions
+        .iter()
+        .filter(|function| function.path == "<stdlib>/collections.ax")
+        .map(|function| function.name.clone())
+        .collect();
+    static_bindings.collection_contains_wrappers = program
+        .functions
+        .iter()
+        .filter(|function| is_i64_std_collection_wrapper(function, "contains"))
+        .flat_map(|function| [function.name.clone(), function.source_name.clone()])
+        .collect();
+    static_bindings.collection_get_wrappers = program
+        .functions
+        .iter()
+        .filter(|function| is_i64_std_collection_wrapper(function, "get"))
+        .flat_map(|function| [function.name.clone(), function.source_name.clone()])
+        .collect();
+    static_bindings.collection_get_or_default_wrappers = program
+        .functions
+        .iter()
+        .filter(|function| is_i64_std_collection_wrapper(function, "get_or_default"))
+        .flat_map(|function| [function.name.clone(), function.source_name.clone()])
+        .collect();
+    static_bindings.collection_keys_wrappers = program
+        .functions
+        .iter()
+        .filter(|function| is_i64_std_collection_wrapper(function, "keys"))
+        .flat_map(|function| [function.name.clone(), function.source_name.clone()])
+        .collect();
     static_bindings.ffi_strlen_symbols = program
         .functions
         .iter()
@@ -273,6 +308,7 @@ fn lower_i64_exit_program(program: &Program, fs_root: &Path) -> Option<I64ExitPr
     let env_get_wrappers = static_bindings.env_get_wrappers.clone();
     let fs_shim_wrappers = static_bindings.fs_shim_wrappers.clone();
     let net_shim_wrappers = static_bindings.net_shim_wrappers.clone();
+    let collection_wrappers = static_bindings.collection_wrappers.clone();
     let ffi_strlen_symbols = static_bindings.ffi_strlen_symbols.clone();
     let helper_functions = program
         .functions
@@ -283,6 +319,7 @@ fn lower_i64_exit_program(program: &Program, fs_root: &Path) -> Option<I64ExitPr
                 && !env_get_wrappers.contains(&function.name)
                 && !fs_shim_wrappers.contains(&function.name)
                 && !net_shim_wrappers.contains(&function.name)
+                && !collection_wrappers.contains(&function.name)
                 && !ffi_strlen_symbols.contains(&function.name)
         })
         .collect::<Vec<_>>();
@@ -5993,11 +6030,13 @@ fn i64_string_option_text(
     let Expr::Call { name, args, .. } = expr else {
         return None;
     };
-    match name.as_str() {
-        "map_get" | "get" => match i64_map_get_value_expr(name, args, static_bindings)? {
+    if let Some(value) = i64_map_get_value_expr(name, args, static_bindings) {
+        return match value {
             Some(value) => Some(Some(i64_string_text(value, static_bindings)?)),
             None => Some(None),
-        },
+        };
+    }
+    match name.as_str() {
         "string_strip_prefix" => {
             let [text, prefix] = args.as_slice() else {
                 return None;
@@ -6126,11 +6165,13 @@ fn i64_i64_option_value(expr: &Expr, static_bindings: &I64StaticBindings) -> Opt
     let Expr::Call { name, args, .. } = expr else {
         return None;
     };
-    match name.as_str() {
-        "map_get" | "get" => match i64_map_get_value_expr(name, args, static_bindings)? {
+    if let Some(value) = i64_map_get_value_expr(name, args, static_bindings) {
+        return match value {
             Some(value) => Some(Some(i64_static_scalar_value(value, static_bindings)?)),
             None => Some(None),
-        },
+        };
+    }
+    match name.as_str() {
         "json_parse_int" => {
             let [text] = args.as_slice() else {
                 return None;
@@ -6153,11 +6194,13 @@ fn i64_bool_option_value(expr: &Expr, static_bindings: &I64StaticBindings) -> Op
     let Expr::Call { name, args, .. } = expr else {
         return None;
     };
-    match name.as_str() {
-        "map_get" | "get" => match i64_map_get_value_expr(name, args, static_bindings)? {
+    if let Some(value) = i64_map_get_value_expr(name, args, static_bindings) {
+        return match value {
             Some(value) => Some(Some(i64_static_bool_value(value, static_bindings)?)),
             None => Some(None),
-        },
+        };
+    }
+    match name.as_str() {
         "json_parse_bool" => {
             let [text] = args.as_slice() else {
                 return None;
@@ -7880,7 +7923,11 @@ fn lower_i64_map_get_or_default_expr(
     helper_signatures: &HashMap<&str, I64HelperSignature>,
     static_bindings: &I64StaticBindings,
 ) -> Option<CraneliftI64Expr> {
-    if name != "get_or_default" {
+    if name != "get_or_default"
+        && !static_bindings
+            .collection_get_or_default_wrappers
+            .contains(name)
+    {
         return None;
     }
     let [map, key, default] = args else {
@@ -7908,7 +7955,8 @@ fn i64_map_get_value_expr<'a>(
     args: &'a [Expr],
     static_bindings: &'a I64StaticBindings,
 ) -> Option<Option<&'a Expr>> {
-    if name != "map_get" && name != "get" {
+    if name != "map_get" && name != "get" && !static_bindings.collection_get_wrappers.contains(name)
+    {
         return None;
     }
     let [map, key] = args else {
@@ -7929,7 +7977,10 @@ fn lower_i64_map_contains_key_condition(
     args: &[Expr],
     static_bindings: &I64StaticBindings,
 ) -> Option<CraneliftI64Condition> {
-    if name != "map_contains_key" && name != "contains" {
+    if name != "map_contains_key"
+        && name != "contains"
+        && !static_bindings.collection_contains_wrappers.contains(name)
+    {
         return None;
     }
     let [map, key] = args else {
@@ -7967,7 +8018,10 @@ fn i64_map_keys_expr(expr: &Expr, static_bindings: &I64StaticBindings) -> Option
     let Expr::Call { name, args, .. } = expr else {
         return None;
     };
-    if name != "map_keys" && name != "keys" {
+    if name != "map_keys"
+        && name != "keys"
+        && !static_bindings.collection_keys_wrappers.contains(name)
+    {
         return None;
     }
     let [map] = args.as_slice() else {
@@ -8049,6 +8103,10 @@ fn is_i64_std_net_shim_wrapper(function: &Function) -> bool {
                 | "udp_send_recv"
         )
     )
+}
+
+fn is_i64_std_collection_wrapper(function: &Function, source_name: &str) -> bool {
+    function.path == "<stdlib>/collections.ax" && function.source_name == source_name
 }
 
 fn is_i64_supported_strlen_extern(function: &Function) -> bool {
