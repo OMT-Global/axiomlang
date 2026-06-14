@@ -653,10 +653,13 @@ package without the `clock` capability fails before backend lowering and that
 nonzero sleep fails fast instead of ever reaching host sleep during
 compiler-side spike evaluation. The direct-native i64 path now also lowers
 literal `clock_sleep_ms(0)` through entrypoint and helper functions to a native
-process exit status without generated Rust. The supported sleep shape remains
-limited to zero-duration calls until the real runtime clock path lands. Full
-runtime-time clock/sleep execution, timer scheduling, async clock integration,
-and audit parity remain open under #928.
+process exit status without generated Rust. Imported public `std/time.ax`
+`sleep(duration_ms(...))` wrappers now alias that same deterministic path for
+zero-duration and negative-duration calls in runtime-exit programs. The
+supported sleep shape remains limited to compile-time-known nonpositive
+durations until the real runtime clock path lands. Full runtime-time
+clock/sleep execution, timer scheduling, async clock integration, nonzero
+sleep, and audit parity remain open under #928.
 
 
 

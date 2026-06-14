@@ -3657,6 +3657,46 @@ fn cranelift_backend_lowers_zero_clock_sleep_to_runtime_exit_code() {
     assert_eq!(String::from_utf8_lossy(&run.stdout), "");
 }
 
+#[cfg(not(windows))]
+#[test]
+fn cranelift_backend_lowers_std_time_sleep_wrappers_to_runtime_exit_code() {
+    if which::which("cc").is_err() {
+        eprintln!("skipping cranelift backend smoke test because cc is unavailable");
+        return;
+    }
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("std-time-sleep-main-exit");
+    write_std_time_sleep_main_exit_project(&project);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args([
+            "build",
+            project.to_str().expect("project path"),
+            "--backend",
+            "cranelift",
+            "--json",
+        ])
+        .output()
+        .expect("run axiomc build --backend cranelift");
+    assert!(
+        output.status.success(),
+        "cranelift std time sleep wrapper main build failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+    assert_eq!(payload["backend"], "cranelift");
+    assert_eq!(payload["generated_rust"], Value::Null);
+    let binary = payload["binary"].as_str().expect("binary path");
+    let run = Command::new(binary)
+        .output()
+        .expect("run cranelift std time sleep wrapper main binary");
+    assert_eq!(run.status.code(), Some(48));
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "");
+}
+
 #[test]
 fn cranelift_backend_rejects_clock_denial_before_backend_lowering() {
     let temp = tempfile::tempdir().expect("tempdir");
@@ -7358,6 +7398,66 @@ source = "path"
         "fn pause_zero(): int {\nreturn clock_sleep_ms(0)\n}\n\nfn main(): int {\nlet direct: int = clock_sleep_ms(0)\nlet helper: int = pause_zero()\nif direct == 0 && helper == 0 {\nreturn 48\n} else {\nreturn 1\n}\n}\n",
     )
     .expect("write clock sleep zero source");
+}
+
+fn write_std_time_sleep_main_exit_project(project: &Path) {
+    fs::create_dir_all(project.join("src")).expect("create std time sleep project src");
+    fs::write(
+        project.join("axiom.toml"),
+        r#"[package]
+name = "cranelift-std-time-sleep-main-exit"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+fs = false
+net = false
+process = false
+env = false
+clock = true
+crypto = false
+"#,
+    )
+    .expect("write std time sleep manifest");
+    fs::write(
+        project.join("axiom.lock"),
+        r#"version = 1
+
+[[package]]
+name = "cranelift-std-time-sleep-main-exit"
+version = "0.1.0"
+source = "path"
+"#,
+    )
+    .expect("write std time sleep lockfile");
+    fs::write(
+        project.join("src/main.ax"),
+        r#"import "std/time.ax"
+
+fn pause_zero(): int {
+return sleep(duration_ms(0))
+}
+
+fn pause_negative(): int {
+return sleep(duration_ms(-1))
+}
+
+fn main(): int {
+let direct: int = sleep(duration_ms(0))
+let helper: int = pause_zero()
+let negative: int = pause_negative()
+if direct == 0 && helper == 0 && negative == -1 {
+return 48
+} else {
+return 1
+}
+}
+"#,
+    )
+    .expect("write std time sleep source");
 }
 
 fn write_json_serdes_project(project: &Path) {

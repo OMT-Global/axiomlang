@@ -35,6 +35,9 @@ struct I64StaticBindings {
     map_key_arrays: HashMap<String, Vec<I64MapKey>>,
     process_status_wrappers: HashSet<String>,
     env_get_wrappers: HashSet<String>,
+    time_wrappers: HashSet<String>,
+    time_duration_ms_wrappers: HashSet<String>,
+    time_sleep_wrappers: HashSet<String>,
     fs_read_wrappers: HashSet<String>,
     fs_shim_wrappers: HashSet<String>,
     net_shim_wrappers: HashSet<String>,
@@ -274,6 +277,24 @@ fn lower_i64_exit_program(program: &Program, fs_root: &Path) -> Option<I64ExitPr
         .iter()
         .filter(|function| function.path == "<stdlib>/env.ax" && function.source_name == "get_env")
         .map(|function| function.name.clone())
+        .collect();
+    static_bindings.time_wrappers = program
+        .functions
+        .iter()
+        .filter(|function| function.path == "<stdlib>/time.ax")
+        .map(|function| function.name.clone())
+        .collect();
+    static_bindings.time_duration_ms_wrappers = program
+        .functions
+        .iter()
+        .filter(|function| is_i64_std_time_wrapper(function, "duration_ms"))
+        .flat_map(|function| [function.name.clone(), function.source_name.clone()])
+        .collect();
+    static_bindings.time_sleep_wrappers = program
+        .functions
+        .iter()
+        .filter(|function| is_i64_std_time_wrapper(function, "sleep"))
+        .flat_map(|function| [function.name.clone(), function.source_name.clone()])
         .collect();
     static_bindings.fs_read_wrappers = program
         .functions
@@ -559,6 +580,7 @@ fn lower_i64_exit_program(program: &Program, fs_root: &Path) -> Option<I64ExitPr
         .collect();
     let process_status_wrappers = static_bindings.process_status_wrappers.clone();
     let env_get_wrappers = static_bindings.env_get_wrappers.clone();
+    let time_wrappers = static_bindings.time_wrappers.clone();
     let fs_shim_wrappers = static_bindings.fs_shim_wrappers.clone();
     let net_shim_wrappers = static_bindings.net_shim_wrappers.clone();
     let collection_wrappers = static_bindings.collection_wrappers.clone();
@@ -575,6 +597,7 @@ fn lower_i64_exit_program(program: &Program, fs_root: &Path) -> Option<I64ExitPr
             function.name != main.name
                 && !process_status_wrappers.contains(&function.name)
                 && !env_get_wrappers.contains(&function.name)
+                && !time_wrappers.contains(&function.name)
                 && !fs_shim_wrappers.contains(&function.name)
                 && !net_shim_wrappers.contains(&function.name)
                 && !collection_wrappers.contains(&function.name)
@@ -6744,7 +6767,7 @@ fn lower_i64_expr(
             .or_else(|| static_bindings.values.get(name).cloned()),
         Expr::VarRef { name, .. } => static_bindings.values.get(name).cloned(),
         Expr::Call { name, args, ty } if is_i64_compatible_type(ty) => {
-            lower_i64_clock_intrinsic_expr(name, args)
+            lower_i64_clock_intrinsic_expr(name, args, static_bindings)
                 .or_else(|| lower_i64_process_intrinsic_expr(name, args, static_bindings))
                 .or_else(|| {
                     lower_i64_ffi_intrinsic_expr(
@@ -8215,18 +8238,45 @@ fn lower_i64_array_literal_projection_index_expr(
     Some(result)
 }
 
-fn lower_i64_clock_intrinsic_expr(name: &str, args: &[Expr]) -> Option<CraneliftI64Expr> {
-    match name {
+fn lower_i64_clock_intrinsic_expr(
+    name: &str,
+    args: &[Expr],
+    static_bindings: &I64StaticBindings,
+) -> Option<CraneliftI64Expr> {
+    let milliseconds = match name {
         "clock_sleep_ms" => {
             let [milliseconds] = args else {
                 return None;
             };
-            match lower_i64_literal_value(milliseconds)? {
-                value if value < 0 => Some(CraneliftI64Expr::Literal(-1)),
-                0 => Some(CraneliftI64Expr::Literal(0)),
-                _ => None,
-            }
+            lower_i64_literal_value(milliseconds)?
         }
+        name if is_i64_time_sleep_name(name, static_bindings) => {
+            let [duration] = args else {
+                return None;
+            };
+            lower_i64_duration_ms_value(duration, static_bindings)?
+        }
+        _ => return None,
+    };
+    match milliseconds {
+        value if value < 0 => Some(CraneliftI64Expr::Literal(-1)),
+        0 => Some(CraneliftI64Expr::Literal(0)),
+        _ => None,
+    }
+}
+
+fn lower_i64_duration_ms_value(expr: &Expr, static_bindings: &I64StaticBindings) -> Option<i64> {
+    match expr {
+        Expr::Call { name, args, .. } if is_i64_time_duration_ms_name(name, static_bindings) => {
+            let [milliseconds] = args.as_slice() else {
+                return None;
+            };
+            lower_i64_literal_value(milliseconds)
+        }
+        Expr::StructLiteral { fields, .. } => fields
+            .iter()
+            .find(|field| field.name == "ms")
+            .and_then(|field| lower_i64_literal_value(&field.expr)),
         _ => None,
     }
 }
@@ -8437,6 +8487,18 @@ fn i64_map_literal_entries<'a>(
 
 fn is_i64_std_fs_read_wrapper(function: &Function) -> bool {
     function.path == "<stdlib>/fs.ax" && function.source_name == "read_file"
+}
+
+fn is_i64_std_time_wrapper(function: &Function, source_name: &str) -> bool {
+    function.path == "<stdlib>/time.ax" && function.source_name == source_name
+}
+
+fn is_i64_time_duration_ms_name(name: &str, static_bindings: &I64StaticBindings) -> bool {
+    static_bindings.time_duration_ms_wrappers.contains(name)
+}
+
+fn is_i64_time_sleep_name(name: &str, static_bindings: &I64StaticBindings) -> bool {
+    static_bindings.time_sleep_wrappers.contains(name)
 }
 
 fn is_i64_std_fs_shim_wrapper(function: &Function) -> bool {
