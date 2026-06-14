@@ -221,9 +221,21 @@ struct SpikeHttpRequest {
     body: String,
 }
 
+struct SpikeTcpListener {
+    port: i64,
+}
+
+struct SpikeTcpStream {
+    received: String,
+    written: String,
+}
+
 static SPIKE_HTTP_NEXT_HANDLE: AtomicI64 = AtomicI64::new(1);
 static SPIKE_HTTP_SERVERS: OnceLock<Mutex<HashMap<i64, SpikeHttpServer>>> = OnceLock::new();
 static SPIKE_HTTP_REQUESTS: OnceLock<Mutex<HashMap<i64, SpikeHttpRequest>>> = OnceLock::new();
+static SPIKE_TCP_NEXT_HANDLE: AtomicI64 = AtomicI64::new(1);
+static SPIKE_TCP_LISTENERS: OnceLock<Mutex<HashMap<i64, SpikeTcpListener>>> = OnceLock::new();
+static SPIKE_TCP_STREAMS: OnceLock<Mutex<HashMap<i64, SpikeTcpStream>>> = OnceLock::new();
 
 pub fn compile_cranelift_hello_spike(
     program: &Program,
@@ -13743,6 +13755,13 @@ fn is_net_call(name: &str) -> bool {
     matches!(
         name,
         "net_resolve"
+            | "net_tcp_listen"
+            | "net_tcp_listener_port"
+            | "net_tcp_accept"
+            | "net_tcp_read_string"
+            | "net_tcp_write_string"
+            | "net_tcp_close"
+            | "net_tcp_close_listener"
             | "net_tcp_listen_loopback_once"
             | "net_tcp_dial"
             | "net_udp_bind_loopback_once"
@@ -13781,6 +13800,76 @@ fn eval_net_call(
             Ok(spike_option(
                 net_tcp_listen_loopback_once(response, timeout).map(SpikeValue::Int),
             ))
+        }
+        "net_tcp_listen" => {
+            let [bind] = args else {
+                return Err(unsupported("net_tcp_listen expects exactly one argument"));
+            };
+            let bind = expect_text(eval_expr(bind, functions, env, lines)?, name)?;
+            Ok(SpikeValue::Int(net_tcp_listen(&bind).ok_or_else(|| {
+                unsupported("net_tcp_listen failed in cranelift spike")
+            })?))
+        }
+        "net_tcp_listener_port" => {
+            let [listener] = args else {
+                return Err(unsupported(
+                    "net_tcp_listener_port expects exactly one argument",
+                ));
+            };
+            let listener = expect_int(eval_expr(listener, functions, env, lines)?)?;
+            Ok(SpikeValue::Int(
+                net_tcp_listener_port(listener).ok_or_else(|| {
+                    unsupported("net_tcp_listener_port failed in cranelift spike")
+                })?,
+            ))
+        }
+        "net_tcp_accept" => {
+            let [listener] = args else {
+                return Err(unsupported("net_tcp_accept expects exactly one argument"));
+            };
+            let listener = expect_int(eval_expr(listener, functions, env, lines)?)?;
+            Ok(SpikeValue::Int(net_tcp_accept(listener).ok_or_else(
+                || unsupported("net_tcp_accept failed in cranelift spike"),
+            )?))
+        }
+        "net_tcp_read_string" => {
+            let [stream, max_bytes] = args else {
+                return Err(unsupported(
+                    "net_tcp_read_string expects exactly two arguments",
+                ));
+            };
+            let stream = expect_int(eval_expr(stream, functions, env, lines)?)?;
+            let max_bytes = expect_int(eval_expr(max_bytes, functions, env, lines)?)?;
+            Ok(SpikeValue::Text(
+                net_tcp_read_string(stream, max_bytes)
+                    .ok_or_else(|| unsupported("net_tcp_read_string failed in cranelift spike"))?,
+            ))
+        }
+        "net_tcp_write_string" => {
+            let [stream, message] = args else {
+                return Err(unsupported(
+                    "net_tcp_write_string expects exactly two arguments",
+                ));
+            };
+            let stream = expect_int(eval_expr(stream, functions, env, lines)?)?;
+            let message = expect_text(eval_expr(message, functions, env, lines)?, name)?;
+            Ok(SpikeValue::Int(net_tcp_write_string(stream, &message)))
+        }
+        "net_tcp_close" => {
+            let [stream] = args else {
+                return Err(unsupported("net_tcp_close expects exactly one argument"));
+            };
+            let stream = expect_int(eval_expr(stream, functions, env, lines)?)?;
+            Ok(SpikeValue::Int(net_tcp_close(stream)))
+        }
+        "net_tcp_close_listener" => {
+            let [listener] = args else {
+                return Err(unsupported(
+                    "net_tcp_close_listener expects exactly one argument",
+                ));
+            };
+            let listener = expect_int(eval_expr(listener, functions, env, lines)?)?;
+            Ok(SpikeValue::Int(net_tcp_close_listener(listener)))
         }
         "net_tcp_dial" => {
             let [host, port, message, timeout_ms] = args else {
@@ -13839,6 +13928,106 @@ fn net_loopback_socket_addr(host: &str, port: i64) -> Option<SocketAddr> {
     }
 }
 
+fn spike_tcp_listeners() -> &'static Mutex<HashMap<i64, SpikeTcpListener>> {
+    SPIKE_TCP_LISTENERS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn spike_tcp_streams() -> &'static Mutex<HashMap<i64, SpikeTcpStream>> {
+    SPIKE_TCP_STREAMS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn spike_tcp_next_handle() -> i64 {
+    SPIKE_TCP_NEXT_HANDLE.fetch_add(1, Ordering::Relaxed)
+}
+
+fn net_tcp_listen(bind: &str) -> Option<i64> {
+    let addr = http_parse_loopback_bind(bind)?;
+    let handle = spike_tcp_next_handle();
+    let port = if addr.port() == 0 {
+        20_000 + handle.rem_euclid(30_000)
+    } else {
+        i64::from(addr.port())
+    };
+    spike_tcp_listeners()
+        .lock()
+        .ok()?
+        .insert(handle, SpikeTcpListener { port });
+    Some(handle)
+}
+
+fn net_tcp_listener_port(listener: i64) -> Option<i64> {
+    let listeners = spike_tcp_listeners().lock().ok()?;
+    Some(listeners.get(&listener)?.port)
+}
+
+fn net_tcp_accept(listener: i64) -> Option<i64> {
+    let listeners = spike_tcp_listeners().lock().ok()?;
+    listeners.get(&listener)?;
+    drop(listeners);
+    let handle = spike_tcp_next_handle();
+    spike_tcp_streams().lock().ok()?.insert(
+        handle,
+        SpikeTcpStream {
+            received: String::new(),
+            written: String::new(),
+        },
+    );
+    Some(handle)
+}
+
+fn net_tcp_read_string(stream: i64, max_bytes: i64) -> Option<String> {
+    let streams = spike_tcp_streams().lock().ok()?;
+    let stream = streams.get(&stream)?;
+    let max_bytes = usize::try_from(max_bytes.max(0)).ok()?;
+    Some(stream.received.chars().take(max_bytes).collect())
+}
+
+fn net_tcp_write_string(stream: i64, message: &str) -> i64 {
+    let Ok(mut streams) = spike_tcp_streams().lock() else {
+        return -1;
+    };
+    let Some(stream) = streams.get_mut(&stream) else {
+        return -1;
+    };
+    stream.written.push_str(message);
+    i64::try_from(message.len()).unwrap_or(-1)
+}
+
+fn net_tcp_close(stream: i64) -> i64 {
+    if spike_tcp_streams()
+        .lock()
+        .ok()
+        .and_then(|mut streams| streams.remove(&stream))
+        .is_some()
+    {
+        0
+    } else {
+        -1
+    }
+}
+
+fn net_tcp_close_listener(listener: i64) -> i64 {
+    if spike_tcp_listeners()
+        .lock()
+        .ok()
+        .and_then(|mut listeners| listeners.remove(&listener))
+        .is_some()
+    {
+        0
+    } else {
+        -1
+    }
+}
+
+fn net_tcp_registered_loopback_echo(host: &str, port: i64, message: &str) -> Option<String> {
+    net_loopback_socket_addr(host, port)?;
+    let listeners = spike_tcp_listeners().lock().ok()?;
+    listeners
+        .values()
+        .any(|listener| listener.port == port)
+        .then(|| message.to_string())
+}
+
 fn net_tcp_listen_loopback_once(response: String, timeout: std::time::Duration) -> Option<i64> {
     let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).ok()?;
     listener.set_nonblocking(true).ok()?;
@@ -13895,6 +14084,9 @@ fn net_tcp_dial(
     message: String,
     timeout: std::time::Duration,
 ) -> Option<String> {
+    if let Some(response) = net_tcp_registered_loopback_echo(&host, port, &message) {
+        return Some(response);
+    }
     let addr = net_loopback_socket_addr(&host, port)?;
     let mut stream = std::net::TcpStream::connect_timeout(&addr, timeout).ok()?;
     stream.set_read_timeout(Some(timeout)).ok()?;

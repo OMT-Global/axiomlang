@@ -57,6 +57,7 @@ examples=(
   stdlib_log
   stdlib_lsp
   stdlib_net
+  stdlib_net_tcp_async
   stdlib_outcome
   stdlib_process
   stdlib_regex

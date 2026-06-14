@@ -3740,6 +3740,50 @@ right
 
 #[cfg(not(windows))]
 #[test]
+fn cranelift_backend_builds_std_async_net_tcp_binary() {
+    if which::which("cc").is_err() {
+        eprintln!("skipping cranelift backend smoke test because cc is unavailable");
+        return;
+    }
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("std-async-net-tcp");
+    write_std_async_net_tcp_project(&project);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args([
+            "build",
+            project.to_str().expect("project path"),
+            "--backend",
+            "cranelift",
+            "--json",
+        ])
+        .output()
+        .expect("run axiomc build --backend cranelift");
+    assert!(
+        output.status.success(),
+        "cranelift std async net TCP build failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+    assert_eq!(payload["backend"], "cranelift");
+    assert_eq!(payload["generated_rust"], Value::Null);
+    let binary = payload["binary"].as_str().expect("binary path");
+    let run = Command::new(binary)
+        .output()
+        .expect("run cranelift std async net TCP binary");
+    assert!(
+        run.status.success(),
+        "cranelift std async net TCP binary failed: stderr={}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "alpha\nbeta\n");
+}
+
+#[cfg(not(windows))]
+#[test]
 fn cranelift_backend_builds_logging_stdio_binary() {
     if which::which("cc").is_err() {
         eprintln!("skipping cranelift backend smoke test because cc is unavailable");
@@ -7788,6 +7832,91 @@ print "none"
 "#,
     )
     .expect("write std async source");
+}
+
+fn write_std_async_net_tcp_project(project: &Path) {
+    fs::create_dir_all(project.join("src")).expect("create std async net TCP project src");
+    fs::write(
+        project.join("axiom.toml"),
+        r#"[package]
+name = "cranelift-std-async-net-tcp"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+fs = false
+"fs:write" = false
+net = true
+process = false
+env = false
+clock = false
+crypto = false
+ffi = false
+async = true
+
+[unsafe_rationale]
+net = "Cranelift ABI regression covers compiler-side std/async_net.ax loopback TCP evaluation for issue 928."
+async = "Cranelift ABI regression covers compiler-side std/async_net.ax loopback TCP evaluation for issue 928."
+"#,
+    )
+    .expect("write std async net TCP manifest");
+    fs::write(
+        project.join("axiom.lock"),
+        r#"version = 1
+
+[[package]]
+name = "cranelift-std-async-net-tcp"
+version = "0.1.0"
+source = "path"
+"#,
+    )
+    .expect("write std async net TCP lockfile");
+    fs::write(
+        project.join("src/main.ax"),
+        r#"import "std/async.ax"
+import "std/async_net.ax"
+
+async fn echo_once(listener: TcpListener): int {
+let stream: TcpStream = await accept(listener)
+let received: string = await recv_text(stream, 64)
+let _written: int = await send_text(stream, received)
+return close(stream)
+}
+
+let listener: TcpListener = await listen("127.0.0.1:0")
+let port: int = local_port(listener)
+let first_handler: JoinHandle<int> = spawn<int>(echo_once(listener))
+let second_handler: JoinHandle<int> = spawn<int>(echo_once(listener))
+let first_client: JoinHandle<Option<string>> = spawn<Option<string>>(tcp_dial("127.0.0.1", port, "alpha", 1000))
+let second_client: JoinHandle<Option<string>> = spawn<Option<string>>(tcp_dial("127.0.0.1", port, "beta", 1000))
+
+match await join<Option<string>>(first_client) {
+Some(reply) {
+print reply
+}
+None {
+print "first none"
+}
+}
+
+match await join<Option<string>>(second_client) {
+Some(reply) {
+print reply
+}
+None {
+print "second none"
+}
+}
+
+let _first_done: int = await join<int>(first_handler)
+let _second_done: int = await join<int>(second_handler)
+let _listener_closed: int = close_listener(listener)
+"#,
+    )
+    .expect("write std async net TCP source");
 }
 
 fn write_logging_stdio_project(project: &Path) {
