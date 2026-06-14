@@ -556,7 +556,9 @@ lowering, and dynamic scalar indexes into those static string key arrays can
 select among known key byte lengths. Dynamic key-array value projection locals
 can also feed equality/inequality predicates, `string_starts_with(...)`
 predicates, and `string_trim(...)`/`string_trim_start(...)` length projections
-for direct-native process exit status.
+for direct-native process exit status. Trimmed dynamic key-array projection
+locals can also feed `string_starts_with(...)` predicates without materializing
+runtime strings.
 Broader map ownership, runtime map storage, general payload lookup bindings,
 runtime key array value projection, and host-boundary representation remain
 tracked by issue #928.
