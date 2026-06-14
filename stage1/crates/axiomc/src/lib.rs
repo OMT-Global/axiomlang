@@ -5518,6 +5518,129 @@ net = true
     }
 
     #[test]
+    fn check_project_accepts_loopback_derived_stdlib_network_ports() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("stdlib-net-loopback-derived-port-allowed");
+        create_project(
+            &project,
+            Some("stdlib-net-loopback-derived-port-allowed-app"),
+        )
+        .expect("create project");
+        fs::write(
+            project.join("axiom.toml"),
+            r#"[package]
+name = "stdlib-net-loopback-derived-port-allowed-app"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+net = true
+"#,
+        )
+        .expect("write manifest");
+        fs::write(
+            project.join("src/main.ax"),
+            r#"import "std/net.ax"
+match tcp_listen_loopback_once("tcp pong", 1000) {
+Some(port) {
+match tcp_dial("127.0.0.1", port, "tcp ping", 1000) {
+Some(_reply) {
+print true
+}
+None {
+print false
+}
+}
+}
+None {
+print false
+}
+}
+match udp_bind_loopback_once("udp pong", 1000) {
+Some(port) {
+match udp_send_recv("127.0.0.1", port, "udp ping", 1000) {
+Some(_reply) {
+print true
+}
+None {
+print false
+}
+}
+}
+None {
+print false
+}
+}
+"#,
+        )
+        .expect("write source");
+
+        check_project(&project).expect("loopback-derived stdlib ports should check");
+    }
+
+    #[test]
+    fn check_project_rejects_loopback_derived_stdlib_network_port_for_external_peer() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir
+            .path()
+            .join("stdlib-net-loopback-port-external-peer-denied");
+        create_project(
+            &project,
+            Some("stdlib-net-loopback-port-external-peer-denied-app"),
+        )
+        .expect("create project");
+        fs::write(
+            project.join("axiom.toml"),
+            r#"[package]
+name = "stdlib-net-loopback-port-external-peer-denied-app"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+net = true
+"#,
+        )
+        .expect("write manifest");
+        fs::write(
+            project.join("src/main.ax"),
+            r#"import "std/net.ax"
+match tcp_listen_loopback_once("tcp pong", 1000) {
+Some(port) {
+match tcp_dial("example.com", port, "tcp ping", 1000) {
+Some(_reply) {
+print true
+}
+None {
+print false
+}
+}
+}
+None {
+print false
+}
+}
+"#,
+        )
+        .expect("write source");
+
+        let error = check_project(&project)
+            .expect_err("loopback-derived stdlib port should not authorize external peers");
+        assert_eq!(error.kind, "capability");
+        assert!(
+            error.message.contains(
+                "requires an integer literal when [capabilities].net ports are unrestricted"
+            ),
+            "unexpected diagnostic: {error:?}",
+        );
+    }
+
+    #[test]
     fn check_project_rejects_dynamic_udp_network_port_with_unrestricted_net() {
         let dir = tempdir().expect("tempdir");
         let project = dir.path().join("net-dynamic-udp-port-unrestricted-denied");
