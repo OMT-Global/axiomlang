@@ -47,6 +47,12 @@ struct I64StaticBindings {
     regex_is_match_wrappers: HashSet<String>,
     regex_find_wrappers: HashSet<String>,
     regex_replace_all_wrappers: HashSet<String>,
+    encoding_wrappers: HashSet<String>,
+    encoding_url_component_encode_wrappers: HashSet<String>,
+    encoding_url_component_decode_wrappers: HashSet<String>,
+    encoding_path_segment_encode_wrappers: HashSet<String>,
+    encoding_url_query_pair_encode_wrappers: HashSet<String>,
+    encoding_path_join_segment_wrappers: HashSet<String>,
     ffi_strlen_symbols: HashSet<String>,
     fs_root: Option<PathBuf>,
     structs: HashMap<String, StructDef>,
@@ -316,6 +322,42 @@ fn lower_i64_exit_program(program: &Program, fs_root: &Path) -> Option<I64ExitPr
         .filter(|function| is_i64_std_regex_wrapper(function, "replace_all"))
         .flat_map(|function| [function.name.clone(), function.source_name.clone()])
         .collect();
+    static_bindings.encoding_wrappers = program
+        .functions
+        .iter()
+        .filter(|function| function.path == "<stdlib>/encoding.ax")
+        .map(|function| function.name.clone())
+        .collect();
+    static_bindings.encoding_url_component_encode_wrappers = program
+        .functions
+        .iter()
+        .filter(|function| is_i64_std_encoding_wrapper(function, "url_component_encode"))
+        .flat_map(|function| [function.name.clone(), function.source_name.clone()])
+        .collect();
+    static_bindings.encoding_url_component_decode_wrappers = program
+        .functions
+        .iter()
+        .filter(|function| is_i64_std_encoding_wrapper(function, "url_component_decode"))
+        .flat_map(|function| [function.name.clone(), function.source_name.clone()])
+        .collect();
+    static_bindings.encoding_path_segment_encode_wrappers = program
+        .functions
+        .iter()
+        .filter(|function| is_i64_std_encoding_wrapper(function, "path_segment_encode"))
+        .flat_map(|function| [function.name.clone(), function.source_name.clone()])
+        .collect();
+    static_bindings.encoding_url_query_pair_encode_wrappers = program
+        .functions
+        .iter()
+        .filter(|function| is_i64_std_encoding_wrapper(function, "query_pair_encode"))
+        .flat_map(|function| [function.name.clone(), function.source_name.clone()])
+        .collect();
+    static_bindings.encoding_path_join_segment_wrappers = program
+        .functions
+        .iter()
+        .filter(|function| is_i64_std_encoding_wrapper(function, "path_join_segment"))
+        .flat_map(|function| [function.name.clone(), function.source_name.clone()])
+        .collect();
     static_bindings.ffi_strlen_symbols = program
         .functions
         .iter()
@@ -338,6 +380,7 @@ fn lower_i64_exit_program(program: &Program, fs_root: &Path) -> Option<I64ExitPr
     let net_shim_wrappers = static_bindings.net_shim_wrappers.clone();
     let collection_wrappers = static_bindings.collection_wrappers.clone();
     let regex_wrappers = static_bindings.regex_wrappers.clone();
+    let encoding_wrappers = static_bindings.encoding_wrappers.clone();
     let ffi_strlen_symbols = static_bindings.ffi_strlen_symbols.clone();
     let helper_functions = program
         .functions
@@ -350,6 +393,7 @@ fn lower_i64_exit_program(program: &Program, fs_root: &Path) -> Option<I64ExitPr
                 && !net_shim_wrappers.contains(&function.name)
                 && !collection_wrappers.contains(&function.name)
                 && !regex_wrappers.contains(&function.name)
+                && !encoding_wrappers.contains(&function.name)
                 && !ffi_strlen_symbols.contains(&function.name)
         })
         .collect::<Vec<_>>();
@@ -5926,13 +5970,13 @@ fn i64_string_call_text(
             };
             Some(trimmed.to_string())
         }
-        "encoding_url_component_encode" | "encoding_path_segment_encode" => {
+        name if is_i64_encoding_percent_encode_name(name, static_bindings) => {
             let [text] = args else {
                 return None;
             };
             Some(percent_encode(&i64_string_text(text, static_bindings)?))
         }
-        "encoding_url_query_pair_encode" => {
+        name if is_i64_encoding_url_query_pair_encode_name(name, static_bindings) => {
             let [key, value] = args else {
                 return None;
             };
@@ -5942,7 +5986,7 @@ fn i64_string_call_text(
                 percent_encode(&i64_string_text(value, static_bindings)?)
             ))
         }
-        "encoding_path_join_segment" => {
+        name if is_i64_encoding_path_join_segment_name(name, static_bindings) => {
             let [base, segment] = args else {
                 return None;
             };
@@ -6104,7 +6148,7 @@ fn i64_string_option_text(
                     .map(std::string::ToString::to_string),
             )
         }
-        "encoding_url_component_decode" => {
+        name if is_i64_encoding_url_component_decode_name(name, static_bindings) => {
             let [text] = args.as_slice() else {
                 return None;
             };
@@ -8154,6 +8198,49 @@ fn is_i64_regex_find_name(name: &str, static_bindings: &I64StaticBindings) -> bo
 
 fn is_i64_regex_replace_all_name(name: &str, static_bindings: &I64StaticBindings) -> bool {
     name == "regex_replace_all" || static_bindings.regex_replace_all_wrappers.contains(name)
+}
+
+fn is_i64_std_encoding_wrapper(function: &Function, source_name: &str) -> bool {
+    function.path == "<stdlib>/encoding.ax" && function.source_name == source_name
+}
+
+fn is_i64_encoding_percent_encode_name(name: &str, static_bindings: &I64StaticBindings) -> bool {
+    matches!(
+        name,
+        "encoding_url_component_encode" | "encoding_path_segment_encode"
+    ) || static_bindings
+        .encoding_url_component_encode_wrappers
+        .contains(name)
+        || static_bindings
+            .encoding_path_segment_encode_wrappers
+            .contains(name)
+}
+
+fn is_i64_encoding_url_component_decode_name(
+    name: &str,
+    static_bindings: &I64StaticBindings,
+) -> bool {
+    name == "encoding_url_component_decode"
+        || static_bindings
+            .encoding_url_component_decode_wrappers
+            .contains(name)
+}
+
+fn is_i64_encoding_url_query_pair_encode_name(
+    name: &str,
+    static_bindings: &I64StaticBindings,
+) -> bool {
+    name == "encoding_url_query_pair_encode"
+        || static_bindings
+            .encoding_url_query_pair_encode_wrappers
+            .contains(name)
+}
+
+fn is_i64_encoding_path_join_segment_name(name: &str, static_bindings: &I64StaticBindings) -> bool {
+    name == "encoding_path_join_segment"
+        || static_bindings
+            .encoding_path_join_segment_wrappers
+            .contains(name)
 }
 
 fn is_i64_supported_strlen_extern(function: &Function) -> bool {

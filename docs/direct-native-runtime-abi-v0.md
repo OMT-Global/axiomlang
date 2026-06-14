@@ -173,6 +173,8 @@ for that arm. Known-text `encoding_url_component_encode(...)`,
 `encoding_path_join_segment(...)` calls can feed the same direct-native string
 length and comparison path, and known-input `encoding_url_component_decode(...)`
 can lower direct `Option<string>` matches by compile-time arm selection.
+Imported public `std/encoding.ax` wrappers now alias those same known-input
+encode, decode, query-pair, and path-join lowering paths.
 Known-input `crypto_sha256(...)`, `crypto_hmac_sha256(...)`, and
 `crypto_hmac_sha512(...)` calls can also feed direct-native string length and
 comparison paths after normal front-end crypto capability checks. Supported
