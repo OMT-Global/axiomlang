@@ -5803,7 +5803,34 @@ fn i64_string_text(expr: &Expr, static_bindings: &I64StaticBindings) -> Option<S
             args,
             ty: Type::String | Type::Str,
         } => i64_string_call_text(name, args, static_bindings),
+        Expr::Index {
+            base,
+            index,
+            ty: Type::String | Type::Str,
+        } => i64_map_key_array_string_index_text(base, index, static_bindings),
         Expr::StringBorrow { expr, .. } => i64_string_text(expr, static_bindings),
+        _ => None,
+    }
+}
+
+fn i64_map_key_array_string_index_text(
+    base: &Expr,
+    index: &Expr,
+    static_bindings: &I64StaticBindings,
+) -> Option<String> {
+    let Expr::VarRef {
+        name,
+        ty: Type::Array(element, None),
+    } = base
+    else {
+        return None;
+    };
+    if !matches!(element.as_ref(), Type::String | Type::Str) {
+        return None;
+    }
+    let index = lower_i64_literal_index(index)?;
+    match static_bindings.map_key_arrays.get(name)?.get(index)? {
+        I64MapKey::Text(value) => Some(value.clone()),
         _ => None,
     }
 }
