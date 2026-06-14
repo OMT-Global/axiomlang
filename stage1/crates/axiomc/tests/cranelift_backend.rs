@@ -7036,10 +7036,12 @@ let dynamic_key_index: int = choose_key_index(true)
 let dynamic_key_len: int = len(dynamic_key_names[dynamic_key_index])
 let dynamic_key_eq_scores: {string: int} = {"build": 7, "deploy": 9}
 let dynamic_key_eq_names: [string] = keys<string, int>(dynamic_key_eq_scores)
-let dynamic_key_is_deploy: bool = dynamic_key_eq_names[dynamic_key_index] == "deploy"
+let dynamic_key_eq_value: string = dynamic_key_eq_names[dynamic_key_index]
+let dynamic_key_is_deploy: bool = dynamic_key_eq_value == "deploy"
 let dynamic_key_ne_scores: {string: int} = {"build": 7, "deploy": 9}
 let dynamic_key_ne_names: [string] = keys<string, int>(dynamic_key_ne_scores)
-let dynamic_key_not_build: bool = dynamic_key_ne_names[dynamic_key_index] != "build"
+let dynamic_key_ne_value: string = dynamic_key_ne_names[dynamic_key_index]
+let dynamic_key_not_build: bool = dynamic_key_ne_value != "build"
 let dynamic_key_prefix_scores: {string: int} = {"build": 7, "deploy": 9}
 let dynamic_key_prefix_names: [string] = keys<string, int>(dynamic_key_prefix_scores)
 let dynamic_key_prefix_value: string = dynamic_key_prefix_names[dynamic_key_index]

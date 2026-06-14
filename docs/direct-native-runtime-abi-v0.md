@@ -553,8 +553,9 @@ materializing a runtime key array. Imported public `std/collections.ax`
 direct-native i64 lowering for static string/int map-local cases. Literal
 indexes into static string key arrays can also feed known string length
 lowering, and dynamic scalar indexes into those static string key arrays can
-select among known key byte lengths, equality/inequality predicates, and
-`string_starts_with(...)` predicates for direct-native process exit status.
+select among known key byte lengths. Dynamic key-array value projection locals
+can also feed equality/inequality predicates and `string_starts_with(...)`
+predicates for direct-native process exit status.
 Broader map ownership, runtime map storage, general payload lookup bindings,
 runtime key array value projection, and host-boundary representation remain
 tracked by issue #928.
