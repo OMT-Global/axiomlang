@@ -345,6 +345,16 @@ without the `net` capability still fail before backend lowering. Paired
 dynamic-port send/recv coverage, full UDP socket lifecycle APIs, non-loopback
 policy coverage, timeout parity, and audit parity remain open under #928.
 
+The HTTP client row now has partial Cranelift evidence: the spike builds
+`std/http.ax` `get(...)` against a static allowlisted `http://127.0.0.1` URL and
+fetches a local one-shot HTTP response without generated Rust. The direct-native
+i64 path now also lowers known-url `http_get(...)` and public `std/http.ax`
+`get(...)` calls into native process exit status by selecting `Option<string>`
+match arms at compile time for local HTTP responses. Packages without the `net`
+capability still fail before backend lowering. HTTPS, nonlocal HTTP policy
+coverage, redirects, richer response handling, timeout parity, and audit parity
+remain open under #928.
+
 The filesystem write row now has partial Cranelift evidence: the spike
 evaluates `std/fs.ax` write helpers over configured `fs_root`-scoped literal
 paths during compilation and emits the resulting output, covering `mkdir_all`,

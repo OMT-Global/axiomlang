@@ -147,7 +147,7 @@
       "evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"],
       "blockers": [928],
       "denial_evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"],
-      "notes": "The Cranelift spike builds std/http.ax get against a static allowlisted http://127.0.0.1 URL and fetches a local one-shot HTTP response without generated Rust. Packages without the net capability still receive the public manifest-policy denial before backend lowering. HTTPS, nonlocal HTTP policy coverage, redirects, richer response handling, timeout parity, and audit parity remain blocked."
+      "notes": "The Cranelift spike builds std/http.ax get against a static allowlisted http://127.0.0.1 URL and fetches a local one-shot HTTP response without generated Rust. The direct-native i64 path now also lowers known-url http_get and public std/http.ax get calls into native process exit status by selecting Option<string> match arms at compile time for local HTTP responses. Packages without the net capability still receive the public manifest-policy denial before backend lowering. HTTPS, nonlocal HTTP policy coverage, redirects, richer response handling, timeout parity, and audit parity remain blocked."
     },
     {
       "id": "network.http.server",

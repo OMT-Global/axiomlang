@@ -43,6 +43,8 @@ struct I64StaticBindings {
     fs_write_wrappers: HashMap<String, String>,
     fs_shim_wrappers: HashSet<String>,
     net_shim_wrappers: HashSet<String>,
+    http_shim_wrappers: HashSet<String>,
+    http_get_wrappers: HashSet<String>,
     collection_wrappers: HashSet<String>,
     collection_contains_wrappers: HashSet<String>,
     collection_get_wrappers: HashSet<String>,
@@ -333,6 +335,18 @@ fn lower_i64_exit_program(program: &Program, fs_root: &Path) -> Option<I64ExitPr
         .functions
         .iter()
         .filter(|function| is_i64_std_net_shim_wrapper(function))
+        .map(|function| function.name.clone())
+        .collect();
+    static_bindings.http_shim_wrappers = program
+        .functions
+        .iter()
+        .filter(|function| function.path == "<stdlib>/http.ax")
+        .map(|function| function.name.clone())
+        .collect();
+    static_bindings.http_get_wrappers = program
+        .functions
+        .iter()
+        .filter(|function| function.path == "<stdlib>/http.ax" && function.source_name == "get")
         .map(|function| function.name.clone())
         .collect();
     static_bindings.collection_wrappers = program
@@ -640,6 +654,7 @@ fn lower_i64_exit_program(program: &Program, fs_root: &Path) -> Option<I64ExitPr
     let time_wrappers = static_bindings.time_wrappers.clone();
     let fs_shim_wrappers = static_bindings.fs_shim_wrappers.clone();
     let net_shim_wrappers = static_bindings.net_shim_wrappers.clone();
+    let http_shim_wrappers = static_bindings.http_shim_wrappers.clone();
     let collection_wrappers = static_bindings.collection_wrappers.clone();
     let regex_wrappers = static_bindings.regex_wrappers.clone();
     let encoding_wrappers = static_bindings.encoding_wrappers.clone();
@@ -658,6 +673,7 @@ fn lower_i64_exit_program(program: &Program, fs_root: &Path) -> Option<I64ExitPr
                 && !time_wrappers.contains(&function.name)
                 && !fs_shim_wrappers.contains(&function.name)
                 && !net_shim_wrappers.contains(&function.name)
+                && !http_shim_wrappers.contains(&function.name)
                 && !collection_wrappers.contains(&function.name)
                 && !regex_wrappers.contains(&function.name)
                 && !encoding_wrappers.contains(&function.name)
@@ -6640,6 +6656,12 @@ fn i64_string_option_text(
                 static_bindings,
             )?))
         }
+        name if is_i64_http_get_name(name, static_bindings) => {
+            let [url] = args.as_slice() else {
+                return None;
+            };
+            Some(http_get(&i64_string_text(url, static_bindings)?))
+        }
         name if static_bindings.fs_read_wrappers.contains(name) => {
             let [path] = args.as_slice() else {
                 return None;
@@ -8750,6 +8772,11 @@ fn is_i64_net_udp_loopback_once_name(name: &str) -> bool {
         name,
         "net_udp_bind_loopback_once" | "udp_bind_loopback_once" | "std_net_udp_bind_loopback_once"
     )
+}
+
+fn is_i64_http_get_name(name: &str, static_bindings: &I64StaticBindings) -> bool {
+    matches!(name, "http_get" | "get" | "std_http_get")
+        || static_bindings.http_get_wrappers.contains(name)
 }
 
 fn is_i64_std_collection_wrapper(function: &Function, source_name: &str) -> bool {
@@ -15981,7 +16008,11 @@ mod tests {
             Some(CraneliftI64Condition::Literal(true))
         );
         assert_eq!(
-            lower_i64_map_contains_key_condition("contains", &[map.clone(), missing_key], &static_bindings),
+            lower_i64_map_contains_key_condition(
+                "contains",
+                &[map.clone(), missing_key],
+                &static_bindings
+            ),
             Some(CraneliftI64Condition::Literal(false))
         );
     }
@@ -16019,4 +16050,3 @@ mod tests {
         );
     }
 }
-
