@@ -105,6 +105,7 @@ jobs:
           fi
 
           if [[ "$required_version" =~ ^[0-9]+[.][0-9]+$ ]]; then
+            install_version="^${required_version}"
             cargo install cargo-vet --version "$install_version" --locked --force
           elif [[ "$installed_version" != "cargo-vet ${required_version}" ]]; then
             cargo install cargo-vet --version "$install_version" --locked --force
