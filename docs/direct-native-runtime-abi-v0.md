@@ -326,17 +326,24 @@ open under #928.
 
 The TCP row now has partial Cranelift evidence: the spike builds and runs
 `std/net.ax` `tcp_listen_loopback_once(...)` over `127.0.0.1` without generated
-Rust and returns a loopback port. Packages without the `net` capability still
-fail before backend lowering. Paired dynamic-port dial coverage, full TCP
-socket lifecycle APIs, non-loopback policy coverage, timeout parity, and audit
-parity remain open under #928.
+Rust and returns a loopback port. The direct-native i64 path now also lowers
+known-response `net_tcp_listen_loopback_once(...)` and public `std/net.ax`
+`tcp_listen_loopback_once(...)` calls into native process exit status by
+selecting `Option<int>` match arms at compile time for successful loopback
+binds. Packages without the `net` capability still fail before backend
+lowering. Paired dynamic-port dial coverage, full TCP socket lifecycle APIs,
+non-loopback policy coverage, timeout parity, and audit parity remain open
+under #928.
 
 The UDP row now has partial Cranelift evidence: the spike builds and runs
 `std/net.ax` `udp_bind_loopback_once(...)` over `127.0.0.1` without generated
-Rust and returns a loopback port. Packages without the `net` capability still
-fail before backend lowering. Paired dynamic-port send/recv coverage, full UDP
-socket lifecycle APIs, non-loopback policy coverage, timeout parity, and audit
-parity remain open under #928.
+Rust and returns a loopback port. The direct-native i64 path now also lowers
+known-response `net_udp_bind_loopback_once(...)` and public `std/net.ax`
+`udp_bind_loopback_once(...)` calls into native process exit status by selecting
+`Option<int>` match arms at compile time for successful loopback binds. Packages
+without the `net` capability still fail before backend lowering. Paired
+dynamic-port send/recv coverage, full UDP socket lifecycle APIs, non-loopback
+policy coverage, timeout parity, and audit parity remain open under #928.
 
 The filesystem write row now has partial Cranelift evidence: the spike
 evaluates `std/fs.ax` write helpers over configured `fs_root`-scoped literal

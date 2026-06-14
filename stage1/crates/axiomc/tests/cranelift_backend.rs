@@ -3095,6 +3095,46 @@ true
 
 #[cfg(not(windows))]
 #[test]
+fn cranelift_backend_lowers_net_loopback_to_runtime_exit_code() {
+    if which::which("cc").is_err() {
+        eprintln!("skipping cranelift backend smoke test because cc is unavailable");
+        return;
+    }
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("net-loopback-main-exit");
+    write_net_loopback_main_exit_project(&project);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args([
+            "build",
+            project.to_str().expect("project path"),
+            "--backend",
+            "cranelift",
+            "--json",
+        ])
+        .output()
+        .expect("run axiomc build --backend cranelift");
+    assert!(
+        output.status.success(),
+        "cranelift net loopback main build failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+    assert_eq!(payload["backend"], "cranelift");
+    assert_eq!(payload["generated_rust"], Value::Null);
+    let binary = payload["binary"].as_str().expect("binary path");
+    let run = Command::new(binary)
+        .output()
+        .expect("run cranelift net loopback main binary");
+    assert_eq!(run.status.code(), Some(48));
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "");
+}
+
+#[cfg(not(windows))]
+#[test]
 fn cranelift_backend_builds_http_client_binary() {
     if which::which("cc").is_err() {
         eprintln!("skipping cranelift backend smoke test because cc is unavailable");
@@ -6749,6 +6789,60 @@ print false
 "#,
     )
     .expect("write net loopback source");
+}
+
+fn write_net_loopback_main_exit_project(project: &Path) {
+    fs::create_dir_all(project.join("src")).expect("create net loopback main project src");
+    fs::write(
+        project.join("axiom.toml"),
+        r#"[package]
+name = "cranelift-net-loopback-main-exit"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+fs = false
+net = { hosts = ["127.0.0.1"], ports = [] }
+process = false
+env = false
+clock = false
+crypto = false
+
+[unsafe_rationale]
+net = "Direct-native loopback regression covers std/net.ax TCP and UDP helpers for issue 928."
+"#,
+    )
+    .expect("write net loopback main manifest");
+    fs::write(
+        project.join("axiom.lock"),
+        r#"version = 1
+
+[[package]]
+name = "cranelift-net-loopback-main-exit"
+version = "0.1.0"
+source = "path"
+"#,
+    )
+    .expect("write net loopback main lockfile");
+    fs::write(
+        project.join("src/main.ax"),
+        r#"import "std/net.ax"
+
+fn main(): int {
+let tcp_port: int = match tcp_listen_loopback_once("tcp-pong", 1000) { Some(port) => port, None => 0 }
+let udp_port: int = match udp_bind_loopback_once("udp-pong", 1000) { Some(port) => port, None => 0 }
+if tcp_port > 0 && udp_port > 0 {
+return 48
+} else {
+return 1
+}
+}
+"#,
+    )
+    .expect("write net loopback main source");
 }
 
 fn start_http_fixture_server(body: &'static str) -> (u16, std::thread::JoinHandle<()>) {

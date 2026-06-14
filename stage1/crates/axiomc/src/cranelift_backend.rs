@@ -6707,6 +6707,22 @@ fn i64_i64_option_value(expr: &Expr, static_bindings: &I64StaticBindings) -> Opt
             let key = i64_string_text(key, static_bindings)?;
             Some(json_object_field(&text, &key).and_then(|value| json_parse_int(&value)))
         }
+        name if is_i64_net_tcp_loopback_once_name(name) => {
+            let [response, timeout_ms] = args.as_slice() else {
+                return None;
+            };
+            let response = i64_string_text(response, static_bindings)?;
+            let timeout = net_timeout(i64_static_scalar_value(timeout_ms, static_bindings)?);
+            Some(net_tcp_listen_loopback_once(response, timeout))
+        }
+        name if is_i64_net_udp_loopback_once_name(name) => {
+            let [response, timeout_ms] = args.as_slice() else {
+                return None;
+            };
+            let response = i64_string_text(response, static_bindings)?;
+            let timeout = net_timeout(i64_static_scalar_value(timeout_ms, static_bindings)?);
+            Some(net_udp_bind_loopback_once(response, timeout))
+        }
         _ => None,
     }
 }
@@ -8716,6 +8732,22 @@ fn is_i64_std_net_shim_wrapper(function: &Function) -> bool {
                 | "udp_bind_loopback_once"
                 | "udp_send_recv"
         )
+    )
+}
+
+fn is_i64_net_tcp_loopback_once_name(name: &str) -> bool {
+    matches!(
+        name,
+        "net_tcp_listen_loopback_once"
+            | "tcp_listen_loopback_once"
+            | "std_net_tcp_listen_loopback_once"
+    )
+}
+
+fn is_i64_net_udp_loopback_once_name(name: &str) -> bool {
+    matches!(
+        name,
+        "net_udp_bind_loopback_once" | "udp_bind_loopback_once" | "std_net_udp_bind_loopback_once"
     )
 }
 

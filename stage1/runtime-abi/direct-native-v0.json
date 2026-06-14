@@ -129,7 +129,7 @@
       "evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"],
       "blockers": [928],
       "denial_evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"],
-      "notes": "The Cranelift spike builds and runs std/net.ax tcp_listen_loopback_once over 127.0.0.1 without generated Rust, returning a loopback port. Packages without the net capability still receive the public manifest-policy denial before backend lowering. Paired dynamic-port dial coverage, full socket lifecycle APIs, non-loopback policy coverage, timeout parity, and audit parity remain blocked."
+      "notes": "The Cranelift spike builds and runs std/net.ax tcp_listen_loopback_once over 127.0.0.1 without generated Rust, returning a loopback port. The direct-native i64 path now also lowers known-response net_tcp_listen_loopback_once and public std/net.ax tcp_listen_loopback_once calls into native process exit status by selecting Option<int> match arms at compile time for successful loopback binds. Packages without the net capability still receive the public manifest-policy denial before backend lowering. Paired dynamic-port dial coverage, full socket lifecycle APIs, non-loopback policy coverage, timeout parity, and audit parity remain blocked."
     },
     {
       "id": "network.udp",
@@ -138,7 +138,7 @@
       "evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"],
       "blockers": [928],
       "denial_evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"],
-      "notes": "The Cranelift spike builds and runs std/net.ax udp_bind_loopback_once over 127.0.0.1 without generated Rust, returning a loopback port. Packages without the net capability still receive the public manifest-policy denial before backend lowering. Paired dynamic-port send/recv coverage, full UDP socket lifecycle APIs, non-loopback policy coverage, timeout parity, and audit parity remain blocked."
+      "notes": "The Cranelift spike builds and runs std/net.ax udp_bind_loopback_once over 127.0.0.1 without generated Rust, returning a loopback port. The direct-native i64 path now also lowers known-response net_udp_bind_loopback_once and public std/net.ax udp_bind_loopback_once calls into native process exit status by selecting Option<int> match arms at compile time for successful loopback binds. Packages without the net capability still receive the public manifest-policy denial before backend lowering. Paired dynamic-port send/recv coverage, full UDP socket lifecycle APIs, non-loopback policy coverage, timeout parity, and audit parity remain blocked."
     },
     {
       "id": "network.http.client",
