@@ -71,6 +71,60 @@ examples=(
   "workspace_only|workspace-app"
 )
 
+validate_example_coverage() {
+  local entries_file
+  entries_file="$(mktemp "${RUNNER_TEMP:-/tmp}/axiom-direct-native-examples.XXXXXX")"
+  printf '%s\n' "${examples[@]}" >"$entries_file"
+  if python3 - "$entries_file" <<'PY'
+from pathlib import Path
+import sys
+
+entries_file = Path(sys.argv[1])
+entries = [
+    line.strip().split("|", 1)[0]
+    for line in entries_file.read_text(encoding="utf-8").splitlines()
+    if line.strip()
+]
+seen = set()
+duplicates = sorted({entry for entry in entries if entry in seen or seen.add(entry)})
+listed = set(entries)
+manifests = {
+    path.parent.name
+    for path in Path("stage1/examples").glob("*/axiom.toml")
+}
+
+missing = sorted(manifests - listed)
+unknown = sorted(listed - manifests)
+if not missing and not unknown and not duplicates:
+    sys.exit(0)
+
+print("direct-native example smoke coverage is stale:", file=sys.stderr)
+if missing:
+    print(
+        "  missing examples: " + ", ".join(missing),
+        file=sys.stderr,
+    )
+if unknown:
+    print(
+        "  unknown examples: " + ", ".join(unknown),
+        file=sys.stderr,
+    )
+if duplicates:
+    print(
+        "  duplicate examples: " + ", ".join(duplicates),
+        file=sys.stderr,
+    )
+sys.exit(1)
+PY
+  then
+    rm -f "$entries_file"
+  else
+    local status=$?
+    rm -f "$entries_file"
+    return "$status"
+  fi
+}
+
 validate_payload() {
   local command="$1"
   local project="$2"
@@ -112,6 +166,8 @@ if errors:
 PY
   rm -f "$payload_file"
 }
+
+validate_example_coverage
 
 for entry in "${examples[@]}"; do
   example="${entry%%|*}"
