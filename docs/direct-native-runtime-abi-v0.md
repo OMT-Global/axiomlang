@@ -773,7 +773,10 @@ signed and unsigned integer `print` expressions for currently supported
 direct-native scalar widths now lower through native decimal formatters and
 stdout writes without generated Rust. `string_clone` over those formatted
 integer and boolean strings, including through local string bindings, preserves
-the same native stdout/stderr lowering.
+the same native stdout/stderr lowering. Public `std/json.ax`
+`stringify_string` over those formatted integer and boolean strings, including
+through local string bindings and `string_clone`, also lowers into native
+JSON-quoted stdout/stderr writes while preserving `eprintln` byte counts.
 Stdin reads, dynamic string stdout/stderr text beyond these formatted scalar
 passthroughs, broader numeric formatting beyond supported integer lines,
 dynamic log inputs, and broader streaming/runtime buffering remain tracked by

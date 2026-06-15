@@ -175,6 +175,10 @@ pub enum I64Stmt {
         stream: OutputStream,
         value: I64Expr,
     },
+    WriteJsonStringifiedIntLine {
+        stream: OutputStream,
+        value: I64Expr,
+    },
     CallAssign {
         locals: Vec<usize>,
         function: usize,
@@ -523,7 +527,7 @@ fn collect_i64_output_lines(stmts: &[I64Stmt], lines: &mut Vec<(OutputStream, St
             }
             I64Stmt::While { body, .. } => collect_i64_output_lines(body, lines),
             I64Stmt::Assign(_) | I64Stmt::WriteIntLine { .. } | I64Stmt::CallAssign { .. } => {}
-            I64Stmt::WriteUIntLine { .. } => {}
+            I64Stmt::WriteUIntLine { .. } | I64Stmt::WriteJsonStringifiedIntLine { .. } => {}
         }
     }
 }
@@ -730,6 +734,17 @@ fn emit_i64_stmt(
             *stream,
             value,
         ),
+        I64Stmt::WriteJsonStringifiedIntLine { stream, value } => {
+            emit_i64_write_json_stringified_int_line(
+                module,
+                builder,
+                locals,
+                function_refs,
+                write_ref,
+                *stream,
+                value,
+            )
+        }
         I64Stmt::CallAssign {
             locals: assign_locals,
             function,
@@ -865,6 +880,7 @@ fn emit_i64_write_int_line(
         stream,
         value,
         true,
+        false,
     )
 }
 
@@ -886,6 +902,29 @@ fn emit_i64_write_uint_line(
         stream,
         value,
         false,
+        false,
+    )
+}
+
+fn emit_i64_write_json_stringified_int_line(
+    module: &mut ObjectModule,
+    builder: &mut FunctionBuilder<'_>,
+    locals: &[Variable],
+    function_refs: &[FuncRef],
+    write_ref: FuncRef,
+    stream: OutputStream,
+    value: &I64Expr,
+) -> Result<(), CraneliftBackendError> {
+    emit_i64_write_decimal_line(
+        module,
+        builder,
+        locals,
+        function_refs,
+        write_ref,
+        stream,
+        value,
+        true,
+        true,
     )
 }
 
@@ -898,13 +937,26 @@ fn emit_i64_write_decimal_line(
     stream: OutputStream,
     value: &I64Expr,
     signed: bool,
+    json_stringified: bool,
 ) -> Result<(), CraneliftBackendError> {
     let pointer_type = module.target_config().pointer_type();
     let value = emit_i64_expr(builder, locals, function_refs, value)?;
-    let buffer =
-        builder.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 32, 0));
+    let buffer_len = if json_stringified { 34 } else { 32 };
+    let buffer = builder.create_sized_stack_slot(StackSlotData::new(
+        StackSlotKind::ExplicitSlot,
+        buffer_len,
+        0,
+    ));
     let newline = builder.ins().iconst(types::I8, i64::from(b'\n'));
-    builder.ins().stack_store(newline, buffer, 31);
+    builder
+        .ins()
+        .stack_store(newline, buffer, (buffer_len - 1) as i32);
+    if json_stringified {
+        let quote = builder.ins().iconst(types::I8, i64::from(b'"'));
+        builder
+            .ins()
+            .stack_store(quote, buffer, (buffer_len - 2) as i32);
+    }
 
     let zero = builder.ins().iconst(types::I64, 0);
     let ten = builder.ins().iconst(types::I64, 10);
@@ -927,7 +979,12 @@ fn emit_i64_write_decimal_line(
     builder.append_block_param(after_digits, pointer_type);
     builder.append_block_param(write_block, pointer_type);
 
-    let initial_pos = builder.ins().iconst(pointer_type, 31);
+    let initial_pos = builder.ins().iconst(pointer_type, (buffer_len - 1) as i64);
+    let initial_pos = if json_stringified {
+        builder.ins().iadd_imm(initial_pos, -1)
+    } else {
+        initial_pos
+    };
     builder.ins().jump(
         loop_block,
         &[BlockArg::Value(magnitude), BlockArg::Value(initial_pos)],
@@ -986,8 +1043,17 @@ fn emit_i64_write_decimal_line(
     builder.switch_to_block(write_block);
     let start = builder.block_params(write_block)[0];
     let base = builder.ins().stack_addr(pointer_type, buffer, 0);
+    let start = if json_stringified {
+        let quoted_start = builder.ins().iadd_imm(start, -1);
+        let quote_addr = builder.ins().iadd(base, quoted_start);
+        let quote = builder.ins().iconst(types::I8, i64::from(b'"'));
+        builder.ins().store(MemFlags::new(), quote, quote_addr, 0);
+        quoted_start
+    } else {
+        start
+    };
     let pointer = builder.ins().iadd(base, start);
-    let end = builder.ins().iconst(pointer_type, 32);
+    let end = builder.ins().iconst(pointer_type, buffer_len as i64);
     let len = builder.ins().isub(end, start);
     let fd = builder.ins().iconst(
         types::I32,
@@ -1699,6 +1765,51 @@ mod tests {
         assert_eq!(
             String::from_utf8_lossy(&output.stderr),
             "-9223372036854775808\n"
+        );
+    }
+
+    #[test]
+    fn links_i64_json_stringified_int_lines() {
+        if std::env::var_os("AXIOM_SKIP_CRANELIFT_LINK_TEST").is_some() {
+            return;
+        }
+        if Command::new("cc").arg("--version").output().is_err() {
+            eprintln!("skipping cranelift link test because cc is unavailable");
+            return;
+        }
+        let temp = tempfile::tempdir().expect("tempdir");
+        let object = temp.path().join("i64-json-stringified-int-lines.o");
+        let binary = temp.path().join("i64-json-stringified-int-lines");
+        compile_i64_exit_program(
+            I64ExitProgram {
+                functions: Vec::new(),
+                locals: Vec::new(),
+                stmts: vec![
+                    I64Stmt::WriteJsonStringifiedIntLine {
+                        stream: OutputStream::Stdout,
+                        value: I64Expr::Literal(42),
+                    },
+                    I64Stmt::WriteJsonStringifiedIntLine {
+                        stream: OutputStream::Stdout,
+                        value: I64Expr::Literal(-42),
+                    },
+                    I64Stmt::WriteJsonStringifiedIntLine {
+                        stream: OutputStream::Stderr,
+                        value: I64Expr::Literal(i64::MIN),
+                    },
+                ],
+                body: I64ExitBody::Return(I64Expr::Literal(7)),
+            },
+            &object,
+            &binary,
+        )
+        .expect("compile i64 JSON-stringified int lines");
+        let output = Command::new(&binary).output().expect("run binary");
+        assert_eq!(output.status.code(), Some(7));
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "\"42\"\n\"-42\"\n");
+        assert_eq!(
+            String::from_utf8_lossy(&output.stderr),
+            "\"-9223372036854775808\"\n"
         );
     }
 

@@ -121,6 +121,8 @@ struct I64StaticBindings {
 enum I64FormattedString {
     Int(CraneliftI64Expr),
     Bool(CraneliftI64Condition),
+    JsonStringifiedInt(CraneliftI64Expr),
+    JsonStringifiedBool(CraneliftI64Condition),
 }
 
 struct I64HelperSignature {
@@ -3190,6 +3192,9 @@ fn i64_formatted_string_write_stmt(
 ) -> CraneliftI64Stmt {
     match formatted {
         I64FormattedString::Int(value) => CraneliftI64Stmt::WriteIntLine { stream, value },
+        I64FormattedString::JsonStringifiedInt(value) => {
+            CraneliftI64Stmt::WriteJsonStringifiedIntLine { stream, value }
+        }
         I64FormattedString::Bool(cond) => CraneliftI64Stmt::If {
             cond,
             then_body: vec![CraneliftI64Stmt::WriteLine {
@@ -3199,6 +3204,17 @@ fn i64_formatted_string_write_stmt(
             else_body: vec![CraneliftI64Stmt::WriteLine {
                 stream,
                 text: "false".to_string(),
+            }],
+        },
+        I64FormattedString::JsonStringifiedBool(cond) => CraneliftI64Stmt::If {
+            cond,
+            then_body: vec![CraneliftI64Stmt::WriteLine {
+                stream,
+                text: "\"true\"".to_string(),
+            }],
+            else_body: vec![CraneliftI64Stmt::WriteLine {
+                stream,
+                text: "\"false\"".to_string(),
             }],
         },
     }
@@ -3235,6 +3251,29 @@ fn lower_i64_formatted_string_expr(
             helper_signatures,
             static_bindings,
         ),
+        Expr::Call { name, args, .. }
+            if is_i64_json_stringify_string_name(name, static_bindings) =>
+        {
+            let [text] = args.as_slice() else {
+                return None;
+            };
+            match lower_i64_formatted_string_expr(
+                text,
+                local_indexes,
+                local_conditions,
+                helper_signatures,
+                static_bindings,
+            )? {
+                I64FormattedString::Int(value) => {
+                    Some(I64FormattedString::JsonStringifiedInt(value))
+                }
+                I64FormattedString::Bool(cond) => {
+                    Some(I64FormattedString::JsonStringifiedBool(cond))
+                }
+                I64FormattedString::JsonStringifiedInt(_)
+                | I64FormattedString::JsonStringifiedBool(_) => None,
+            }
+        }
         Expr::Call { name, args, .. } if is_i64_json_stringify_int_name(name, static_bindings) => {
             let [value] = args.as_slice() else {
                 return None;
@@ -3270,10 +3309,20 @@ fn i64_formatted_string_written_len(formatted: I64FormattedString) -> CraneliftI
             lhs: Box::new(i64_decimal_string_len_expr(value)),
             rhs: Box::new(CraneliftI64Expr::Literal(1)),
         },
+        I64FormattedString::JsonStringifiedInt(value) => CraneliftI64Expr::Binary {
+            op: CraneliftI64BinaryOp::Add,
+            lhs: Box::new(i64_decimal_string_len_expr(value)),
+            rhs: Box::new(CraneliftI64Expr::Literal(3)),
+        },
         I64FormattedString::Bool(cond) => CraneliftI64Expr::Select {
             cond: Box::new(cond),
             then_result: Box::new(CraneliftI64Expr::Literal(5)),
             else_result: Box::new(CraneliftI64Expr::Literal(6)),
+        },
+        I64FormattedString::JsonStringifiedBool(cond) => CraneliftI64Expr::Select {
+            cond: Box::new(cond),
+            then_result: Box::new(CraneliftI64Expr::Literal(7)),
+            else_result: Box::new(CraneliftI64Expr::Literal(8)),
         },
     }
 }
