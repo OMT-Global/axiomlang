@@ -9367,7 +9367,7 @@ fn lower_i64_map_key_expr(expr: &Expr, static_bindings: &I64StaticBindings) -> O
     }
     match expr {
         Expr::Literal(LiteralValue::Bool(value)) => Some(I64MapKey::Bool(*value)),
-        _ => lower_i64_literal_value(expr).map(I64MapKey::Int),
+        _ => i64_static_scalar_value(expr, static_bindings).map(I64MapKey::Int),
     }
 }
 
