@@ -43,6 +43,7 @@ struct I64OutputData {
 #[derive(Clone, Copy)]
 struct I64RuntimeRefs {
     write: FuncRef,
+    read: FuncRef,
     sleep: FuncRef,
     getenv: FuncRef,
     strlen: FuncRef,
@@ -140,6 +141,17 @@ pub enum I64Expr {
         library: String,
         symbol: String,
         arg_type: String,
+        success: I64AuditSuccess,
+        result: Box<I64Expr>,
+    },
+    RandomBytesLen {
+        length: i64,
+    },
+    AuditCrypto {
+        intrinsic: String,
+        package: String,
+        arg_name: String,
+        arg_value: String,
         success: I64AuditSuccess,
         result: Box<I64Expr>,
     },
@@ -429,7 +441,6 @@ fn emit_cranelift_object(
         .map_err(|message| {
             CraneliftBackendError::new(format!("declare write import: {message}"))
         })?;
-
     let mut data_ids = Vec::new();
     for (index, line) in lines.iter().enumerate() {
         let data_id = module
@@ -526,6 +537,14 @@ fn emit_i64_exit_object(
         .map_err(|message| {
             CraneliftBackendError::new(format!("declare write import: {message}"))
         })?;
+    let mut read_sig = module.make_signature();
+    read_sig.params.push(AbiParam::new(types::I32));
+    read_sig.params.push(AbiParam::new(pointer_type));
+    read_sig.params.push(AbiParam::new(pointer_type));
+    read_sig.returns.push(AbiParam::new(pointer_type));
+    let read_id = module
+        .declare_function("read", Linkage::Import, &read_sig)
+        .map_err(|message| CraneliftBackendError::new(format!("declare read import: {message}")))?;
     let mut sleep_sig = module.make_signature();
     sleep_sig.params.push(AbiParam::new(types::I32));
     sleep_sig.returns.push(AbiParam::new(types::I32));
@@ -706,6 +725,7 @@ fn emit_i64_exit_object(
             &mut module,
             &function_ids,
             write_id,
+            read_id,
             sleep_id,
             getenv_id,
             strlen_id,
@@ -749,6 +769,7 @@ fn emit_i64_exit_object(
         builder.seal_block(block);
         let function_refs = i64_function_refs(&mut module, &mut builder, &function_ids);
         let write_ref = module.declare_func_in_func(write_id, builder.func);
+        let read_ref = module.declare_func_in_func(read_id, builder.func);
         let sleep_ref = module.declare_func_in_func(sleep_id, builder.func);
         let getenv_ref = module.declare_func_in_func(getenv_id, builder.func);
         let strlen_ref = module.declare_func_in_func(strlen_id, builder.func);
@@ -771,6 +792,7 @@ fn emit_i64_exit_object(
         let strncmp_ref = module.declare_func_in_func(strncmp_id, builder.func);
         let runtime_refs = I64RuntimeRefs {
             write: write_ref,
+            read: read_ref,
             sleep: sleep_ref,
             getenv: getenv_ref,
             strlen: strlen_ref,
@@ -976,6 +998,7 @@ fn define_i64_function(
     module: &mut ObjectModule,
     function_ids: &[FuncId],
     write_id: FuncId,
+    read_id: FuncId,
     sleep_id: FuncId,
     getenv_id: FuncId,
     strlen_id: FuncId,
@@ -1027,6 +1050,7 @@ fn define_i64_function(
         builder.seal_block(block);
         let function_refs = i64_function_refs(module, &mut builder, function_ids);
         let write_ref = module.declare_func_in_func(write_id, builder.func);
+        let read_ref = module.declare_func_in_func(read_id, builder.func);
         let sleep_ref = module.declare_func_in_func(sleep_id, builder.func);
         let getenv_ref = module.declare_func_in_func(getenv_id, builder.func);
         let strlen_ref = module.declare_func_in_func(strlen_id, builder.func);
@@ -1049,6 +1073,7 @@ fn define_i64_function(
         let strncmp_ref = module.declare_func_in_func(strncmp_id, builder.func);
         let runtime_refs = I64RuntimeRefs {
             write: write_ref,
+            read: read_ref,
             sleep: sleep_ref,
             getenv: getenv_ref,
             strlen: strlen_ref,
@@ -2061,6 +2086,28 @@ fn emit_i64_expr(
             *success,
             result,
         ),
+        I64Expr::RandomBytesLen { length } => {
+            emit_i64_random_bytes_len_expr(builder, runtime_refs, *length)
+        }
+        I64Expr::AuditCrypto {
+            intrinsic,
+            package,
+            arg_name,
+            arg_value,
+            success,
+            result,
+        } => emit_i64_audit_crypto_expr(
+            builder,
+            locals,
+            function_refs,
+            runtime_refs,
+            intrinsic,
+            package,
+            arg_name,
+            arg_value,
+            *success,
+            result,
+        ),
         I64Expr::FileLen { path, max_bytes } => {
             emit_i64_file_len_expr(builder, runtime_refs, path, *max_bytes)
         }
@@ -2270,6 +2317,72 @@ fn emit_i64_c_string_len_expr(
     Ok(builder.inst_results(call)[0])
 }
 
+fn emit_i64_random_bytes_len_expr(
+    builder: &mut FunctionBuilder<'_>,
+    runtime_refs: I64RuntimeRefs,
+    length: i64,
+) -> Result<cranelift_codegen::ir::Value, CraneliftBackendError> {
+    if !(0..=65_536).contains(&length) {
+        return Ok(builder.ins().iconst(types::I64, -1));
+    }
+    if length == 0 {
+        return Ok(builder.ins().iconst(types::I64, 0));
+    }
+
+    let slot_len = u32::try_from(length)
+        .map_err(|_| CraneliftBackendError::new("crypto random length is too large"))?;
+    let bytes_slot = builder.create_sized_stack_slot(StackSlotData::new(
+        StackSlotKind::ExplicitSlot,
+        slot_len,
+        0,
+    ));
+    let bytes_ptr = builder.ins().stack_addr(types::I64, bytes_slot, 0);
+    let source_ptr = emit_i64_path_ptr(builder, "/dev/urandom")?;
+    let open_flags = builder.ins().iconst(types::I32, 0);
+    let open_call = builder
+        .ins()
+        .call(runtime_refs.open, &[source_ptr, open_flags]);
+    let fd = builder.inst_results(open_call)[0];
+
+    let failed_block = builder.create_block();
+    let read_block = builder.create_block();
+    let success_block = builder.create_block();
+    let merge_block = builder.create_block();
+    builder.append_block_param(merge_block, types::I64);
+
+    let open_failed = builder.ins().icmp_imm(IntCC::SignedLessThan, fd, 0);
+    builder
+        .ins()
+        .brif(open_failed, failed_block, &[], read_block, &[]);
+
+    builder.switch_to_block(read_block);
+    builder.seal_block(read_block);
+    let requested = builder.ins().iconst(types::I64, length);
+    let read_call = builder
+        .ins()
+        .call(runtime_refs.read, &[fd, bytes_ptr, requested]);
+    let bytes_read = builder.inst_results(read_call)[0];
+    builder.ins().call(runtime_refs.close, &[fd]);
+    let read_complete = builder.ins().icmp(IntCC::Equal, bytes_read, requested);
+    builder
+        .ins()
+        .brif(read_complete, success_block, &[], failed_block, &[]);
+
+    builder.switch_to_block(success_block);
+    builder.seal_block(success_block);
+    let success = builder.ins().iconst(types::I64, length);
+    builder.ins().jump(merge_block, &[BlockArg::Value(success)]);
+
+    builder.switch_to_block(failed_block);
+    builder.seal_block(failed_block);
+    let failed = builder.ins().iconst(types::I64, -1);
+    builder.ins().jump(merge_block, &[BlockArg::Value(failed)]);
+
+    builder.switch_to_block(merge_block);
+    builder.seal_block(merge_block);
+    Ok(builder.block_params(merge_block)[0])
+}
+
 fn emit_i64_file_len_expr(
     builder: &mut FunctionBuilder<'_>,
     runtime_refs: I64RuntimeRefs,
@@ -2474,6 +2587,23 @@ fn i64_ffi_audit_line(
         i64_json_escape(library),
         i64_json_escape(symbol),
         i64_json_escape(arg_type),
+        i64_json_escape(outcome)
+    )
+}
+
+fn i64_crypto_audit_line(
+    intrinsic: &str,
+    package: &str,
+    arg_name: &str,
+    arg_value: &str,
+    outcome: &str,
+) -> String {
+    format!(
+        "{{\"package\":\"{}\",\"intrinsic\":\"{}\",\"args\":{{\"{}\":\"{}\"}},\"outcome\":\"{}\"}}\n",
+        i64_json_escape(package),
+        i64_json_escape(intrinsic),
+        i64_json_escape(arg_name),
+        i64_json_escape(arg_value),
         i64_json_escape(outcome)
     )
 }
@@ -2739,6 +2869,52 @@ fn emit_i64_audit_ffi_expr(
     let status = emit_i64_expr(builder, locals, function_refs, runtime_refs, result)?;
     let ok_line = i64_ffi_audit_line(intrinsic, package, library, symbol, arg_type, "ok");
     let denied_line = i64_ffi_audit_line(intrinsic, package, library, symbol, arg_type, "denied");
+
+    let ok_block = builder.create_block();
+    let denied_block = builder.create_block();
+    let merge_block = builder.create_block();
+    builder.append_block_param(merge_block, types::I64);
+
+    let ok = match success {
+        I64AuditSuccess::ExitZero => builder.ins().icmp_imm(IntCC::Equal, status, 0),
+        I64AuditSuccess::NonNegative => {
+            builder
+                .ins()
+                .icmp_imm(IntCC::SignedGreaterThanOrEqual, status, 0)
+        }
+    };
+    builder.ins().brif(ok, ok_block, &[], denied_block, &[]);
+
+    builder.switch_to_block(ok_block);
+    builder.seal_block(ok_block);
+    emit_i64_host_audit_line(builder, runtime_refs, &ok_line)?;
+    builder.ins().jump(merge_block, &[BlockArg::Value(status)]);
+
+    builder.switch_to_block(denied_block);
+    builder.seal_block(denied_block);
+    emit_i64_host_audit_line(builder, runtime_refs, &denied_line)?;
+    builder.ins().jump(merge_block, &[BlockArg::Value(status)]);
+
+    builder.switch_to_block(merge_block);
+    builder.seal_block(merge_block);
+    Ok(builder.block_params(merge_block)[0])
+}
+
+fn emit_i64_audit_crypto_expr(
+    builder: &mut FunctionBuilder<'_>,
+    locals: &[Variable],
+    function_refs: &[FuncRef],
+    runtime_refs: I64RuntimeRefs,
+    intrinsic: &str,
+    package: &str,
+    arg_name: &str,
+    arg_value: &str,
+    success: I64AuditSuccess,
+    result: &I64Expr,
+) -> Result<cranelift_codegen::ir::Value, CraneliftBackendError> {
+    let status = emit_i64_expr(builder, locals, function_refs, runtime_refs, result)?;
+    let ok_line = i64_crypto_audit_line(intrinsic, package, arg_name, arg_value, "ok");
+    let denied_line = i64_crypto_audit_line(intrinsic, package, arg_name, arg_value, "denied");
 
     let ok_block = builder.create_block();
     let denied_block = builder.create_block();

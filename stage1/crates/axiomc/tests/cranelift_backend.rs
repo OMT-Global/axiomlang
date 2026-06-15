@@ -4549,11 +4549,19 @@ fn cranelift_backend_lowers_crypto_random_to_runtime_exit_code() {
     assert_eq!(payload["backend"], "cranelift");
     assert_eq!(payload["generated_rust"], Value::Null);
     let binary = payload["binary"].as_str().expect("binary path");
+    let audit_log = temp.path().join("crypto-random-audit.jsonl");
     let run = Command::new(binary)
+        .env("AXIOM_HOST_AUDIT_LOG", &audit_log)
         .output()
         .expect("run cranelift crypto random main binary");
     assert_eq!(run.status.code(), Some(48));
     assert_eq!(String::from_utf8_lossy(&run.stdout), "");
+    let audit = fs::read_to_string(&audit_log).expect("read crypto random audit log");
+    assert!(audit.contains("\"intrinsic\":\"crypto_rand_bytes\""));
+    assert!(audit.contains("\"length\":\"int:16\""));
+    assert!(audit.contains("\"length\":\"int:0\""));
+    assert_eq!(audit.matches("\"outcome\":\"ok\"").count(), 2);
+    assert!(!audit.contains("\"bytes\""));
 }
 
 #[cfg(not(windows))]

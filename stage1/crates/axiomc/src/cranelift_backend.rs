@@ -12047,6 +12047,25 @@ fn i64_audited_ffi_expr(
     })
 }
 
+fn i64_audited_crypto_expr(
+    intrinsic: &str,
+    arg_name: &str,
+    arg_value: String,
+    result: CraneliftI64Expr,
+    static_bindings: &I64StaticBindings,
+    success: CraneliftI64AuditSuccess,
+) -> Option<CraneliftI64Expr> {
+    let package = static_bindings.package_root.as_deref()?;
+    Some(CraneliftI64Expr::AuditCrypto {
+        intrinsic: intrinsic.to_string(),
+        package: package.display().to_string(),
+        arg_name: arg_name.to_string(),
+        arg_value,
+        success,
+        result: Box::new(result),
+    })
+}
+
 fn i64_runtime_fs_guard_expr(
     fs_root: &Path,
     path: &Path,
@@ -12103,7 +12122,14 @@ fn lower_i64_crypto_random_bytes_len_expr(
     if !(0..=65_536).contains(&length) {
         return None;
     }
-    Some(CraneliftI64Expr::Literal(length))
+    i64_audited_crypto_expr(
+        "crypto_rand_bytes",
+        "length",
+        format!("int:{length}"),
+        CraneliftI64Expr::RandomBytesLen { length },
+        static_bindings,
+        CraneliftI64AuditSuccess::NonNegative,
+    )
 }
 
 fn lower_i64_ffi_intrinsic_expr(
