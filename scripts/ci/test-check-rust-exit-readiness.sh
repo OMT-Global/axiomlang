@@ -37,6 +37,7 @@ MAKE
 
 cat >"$temp_dir/open-issues.txt" <<'ISSUES'
 927 OPEN
+928 OPEN
 929 OPEN
 693 OPEN
 694 OPEN
@@ -74,6 +75,7 @@ PY
 
 cat >"$temp_dir/issues.txt" <<'ISSUES'
 927 CLOSED
+928 CLOSED
 929 CLOSED
 693 CLOSED
 694 CLOSED
