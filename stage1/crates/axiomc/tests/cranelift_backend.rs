@@ -285,6 +285,25 @@ panic(selected_line)
         "{\"kind\":\"panic\",\"message\":\"deploy\"}\n",
     );
 
+    let log_event_project = temp.path().join("terminal-panic-log-event");
+    write_terminal_panic_project(
+        &log_event_project,
+        r#"import "std/log.ax"
+
+fn main(): int {
+let count: int = match json_parse_int("12345") { Some(value) => value, None => 1 }
+let ready: bool = match json_parse_bool("false") { Some(value) => value, None => true }
+let message_count: int = match json_parse_int("12345") { Some(value) => value, None => 1 }
+let message: string = json_stringify_int(message_count)
+panic(event("warn", message, fields2(field_int("count", count), field_bool("ready", ready))))
+}
+"#,
+    );
+    assert_terminal_panic_report(
+        &log_event_project,
+        "{\"kind\":\"panic\",\"message\":\"{\\\"level\\\":\\\"warn\\\",\\\"message\\\":\\\"12345\\\",\\\"attributes\\\":{\\\"count\\\":12345,\\\"ready\\\":false}}\"}\n",
+    );
+
     let else_branch_project = temp.path().join("terminal-panic-else-branch");
     write_terminal_panic_project(
         &else_branch_project,

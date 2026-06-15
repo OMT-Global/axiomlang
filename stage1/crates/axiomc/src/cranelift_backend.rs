@@ -5884,6 +5884,15 @@ fn lower_i64_panic_report_stmts(
             }],
         }]);
     }
+    if let Some(stmts) = lower_i64_log_event_panic_report_stmts(
+        message,
+        local_indexes,
+        local_conditions,
+        helper_signatures,
+        static_bindings,
+    ) {
+        return Some(stmts);
+    }
     if let Some(stmts) = lower_i64_dynamic_known_string_panic_report_stmts(
         message,
         local_indexes,
@@ -5901,6 +5910,324 @@ fn lower_i64_panic_report_stmts(
             json_escape_string(&message)
         ),
     }])
+}
+
+fn lower_i64_log_event_panic_report_stmts(
+    message: &Expr,
+    local_indexes: &HashMap<String, usize>,
+    local_conditions: &HashMap<String, CraneliftI64Condition>,
+    helper_signatures: &HashMap<&str, I64HelperSignature>,
+    static_bindings: &I64StaticBindings,
+) -> Option<Vec<CraneliftI64Stmt>> {
+    let Expr::Call { name, args, .. } = message else {
+        return None;
+    };
+    if !is_i64_log_event_name(name, static_bindings) {
+        return None;
+    }
+    let [level, message, attributes] = args.as_slice() else {
+        return None;
+    };
+    let mut stmts = vec![
+        CraneliftI64Stmt::WriteText {
+            stream: OutputStream::Stderr,
+            text: String::from("{\"kind\":\"panic\",\"message\":\""),
+        },
+        CraneliftI64Stmt::WriteText {
+            stream: OutputStream::Stderr,
+            text: json_escape_string_content("{\"level\":"),
+        },
+        CraneliftI64Stmt::WriteText {
+            stream: OutputStream::Stderr,
+            text: json_escape_string_content(&json_escape_string(&i64_string_text(
+                level,
+                static_bindings,
+            )?)),
+        },
+        CraneliftI64Stmt::WriteText {
+            stream: OutputStream::Stderr,
+            text: json_escape_string_content(",\"message\":"),
+        },
+    ];
+    stmts.extend(lower_i64_log_json_string_content_stmts(
+        message,
+        OutputStream::Stderr,
+        local_indexes,
+        local_conditions,
+        helper_signatures,
+        static_bindings,
+    )?);
+    stmts.push(CraneliftI64Stmt::WriteText {
+        stream: OutputStream::Stderr,
+        text: json_escape_string_content(",\"attributes\":{"),
+    });
+    stmts.extend(lower_i64_log_fields_content_stmts(
+        attributes,
+        OutputStream::Stderr,
+        local_indexes,
+        local_conditions,
+        helper_signatures,
+        static_bindings,
+    )?);
+    stmts.push(CraneliftI64Stmt::WriteLine {
+        stream: OutputStream::Stderr,
+        text: json_escape_string_content("}}") + "\"}",
+    });
+    Some(stmts)
+}
+
+fn lower_i64_log_json_string_content_stmts(
+    expr: &Expr,
+    stream: OutputStream,
+    local_indexes: &HashMap<String, usize>,
+    local_conditions: &HashMap<String, CraneliftI64Condition>,
+    helper_signatures: &HashMap<&str, I64HelperSignature>,
+    static_bindings: &I64StaticBindings,
+) -> Option<Vec<CraneliftI64Stmt>> {
+    if let Some(text) = i64_string_text(expr, static_bindings) {
+        return Some(vec![CraneliftI64Stmt::WriteText {
+            stream,
+            text: json_escape_string_content(&json_escape_string(&text)),
+        }]);
+    }
+    if let Some(stmts) = lower_i64_dynamic_known_string_text_stmts(
+        expr,
+        stream,
+        local_indexes,
+        local_conditions,
+        helper_signatures,
+        static_bindings,
+        |value| json_escape_string_content(&json_escape_string(value)),
+    ) {
+        return Some(stmts);
+    }
+    if let Expr::VarRef {
+        name,
+        ty: Type::String | Type::Str,
+    } = expr
+    {
+        if let Some(local) = local_indexes.get(i64_printable_i64_string_key(name).as_str()) {
+            return Some(vec![
+                CraneliftI64Stmt::WriteText {
+                    stream,
+                    text: String::from("\\\""),
+                },
+                CraneliftI64Stmt::WriteI64Text {
+                    stream,
+                    value: CraneliftI64Expr::Local(*local),
+                },
+                CraneliftI64Stmt::WriteText {
+                    stream,
+                    text: String::from("\\\""),
+                },
+            ]);
+        }
+        if let Some(cond) = local_conditions
+            .get(i64_printable_bool_string_key(name).as_str())
+            .cloned()
+        {
+            return Some(vec![CraneliftI64Stmt::If {
+                cond,
+                then_body: vec![CraneliftI64Stmt::WriteText {
+                    stream,
+                    text: String::from("\\\"true\\\""),
+                }],
+                else_body: vec![CraneliftI64Stmt::WriteText {
+                    stream,
+                    text: String::from("\\\"false\\\""),
+                }],
+            }]);
+        }
+    }
+    if let Expr::Call { name, args, .. } = expr {
+        if is_i64_json_stringify_int_name(name, static_bindings) {
+            let [value] = args.as_slice() else {
+                return None;
+            };
+            return Some(vec![
+                CraneliftI64Stmt::WriteText {
+                    stream,
+                    text: String::from("\\\""),
+                },
+                CraneliftI64Stmt::WriteI64Text {
+                    stream,
+                    value: lower_i64_expr(
+                        value,
+                        local_indexes,
+                        local_conditions,
+                        helper_signatures,
+                        static_bindings,
+                    )?,
+                },
+                CraneliftI64Stmt::WriteText {
+                    stream,
+                    text: String::from("\\\""),
+                },
+            ]);
+        }
+        if is_i64_json_stringify_bool_name(name, static_bindings) {
+            let [value] = args.as_slice() else {
+                return None;
+            };
+            return Some(vec![CraneliftI64Stmt::If {
+                cond: lower_i64_condition(
+                    value,
+                    local_indexes,
+                    local_conditions,
+                    helper_signatures,
+                    static_bindings,
+                )?,
+                then_body: vec![CraneliftI64Stmt::WriteText {
+                    stream,
+                    text: String::from("\\\"true\\\""),
+                }],
+                else_body: vec![CraneliftI64Stmt::WriteText {
+                    stream,
+                    text: String::from("\\\"false\\\""),
+                }],
+            }]);
+        }
+    }
+    None
+}
+
+fn lower_i64_log_fields_content_stmts(
+    expr: &Expr,
+    stream: OutputStream,
+    local_indexes: &HashMap<String, usize>,
+    local_conditions: &HashMap<String, CraneliftI64Condition>,
+    helper_signatures: &HashMap<&str, I64HelperSignature>,
+    static_bindings: &I64StaticBindings,
+) -> Option<Vec<CraneliftI64Stmt>> {
+    if let Some(text) = i64_string_text(expr, static_bindings) {
+        return Some(vec![CraneliftI64Stmt::WriteText {
+            stream,
+            text: json_escape_string_content(&text),
+        }]);
+    }
+    let Expr::Call { name, args, .. } = expr else {
+        return None;
+    };
+    if is_i64_log_field_string_name(name, static_bindings) {
+        let [key, value] = args.as_slice() else {
+            return None;
+        };
+        let mut stmts = vec![
+            CraneliftI64Stmt::WriteText {
+                stream,
+                text: json_escape_string_content(&json_escape_string(&i64_string_text(
+                    key,
+                    static_bindings,
+                )?)),
+            },
+            CraneliftI64Stmt::WriteText {
+                stream,
+                text: String::from(":"),
+            },
+        ];
+        stmts.extend(lower_i64_log_json_string_content_stmts(
+            value,
+            stream,
+            local_indexes,
+            local_conditions,
+            helper_signatures,
+            static_bindings,
+        )?);
+        return Some(stmts);
+    }
+    if is_i64_log_field_int_name(name, static_bindings) {
+        let [key, value] = args.as_slice() else {
+            return None;
+        };
+        return Some(vec![
+            CraneliftI64Stmt::WriteText {
+                stream,
+                text: json_escape_string_content(&json_escape_string(&i64_string_text(
+                    key,
+                    static_bindings,
+                )?)),
+            },
+            CraneliftI64Stmt::WriteText {
+                stream,
+                text: String::from(":"),
+            },
+            CraneliftI64Stmt::WriteI64Text {
+                stream,
+                value: lower_i64_expr(
+                    value,
+                    local_indexes,
+                    local_conditions,
+                    helper_signatures,
+                    static_bindings,
+                )?,
+            },
+        ]);
+    }
+    if is_i64_log_field_bool_name(name, static_bindings) {
+        let [key, value] = args.as_slice() else {
+            return None;
+        };
+        return Some(vec![
+            CraneliftI64Stmt::WriteText {
+                stream,
+                text: json_escape_string_content(&json_escape_string(&i64_string_text(
+                    key,
+                    static_bindings,
+                )?)),
+            },
+            CraneliftI64Stmt::WriteText {
+                stream,
+                text: String::from(":"),
+            },
+            CraneliftI64Stmt::If {
+                cond: lower_i64_condition(
+                    value,
+                    local_indexes,
+                    local_conditions,
+                    helper_signatures,
+                    static_bindings,
+                )?,
+                then_body: vec![CraneliftI64Stmt::WriteText {
+                    stream,
+                    text: String::from("true"),
+                }],
+                else_body: vec![CraneliftI64Stmt::WriteText {
+                    stream,
+                    text: String::from("false"),
+                }],
+            },
+        ]);
+    }
+    if is_i64_log_fields2_name(name, static_bindings)
+        || is_i64_log_fields3_name(name, static_bindings)
+    {
+        let mut iter = args.iter();
+        let first = iter.next()?;
+        let mut stmts = lower_i64_log_fields_content_stmts(
+            first,
+            stream,
+            local_indexes,
+            local_conditions,
+            helper_signatures,
+            static_bindings,
+        )?;
+        for field in iter {
+            stmts.push(CraneliftI64Stmt::WriteText {
+                stream,
+                text: String::from(","),
+            });
+            stmts.extend(lower_i64_log_fields_content_stmts(
+                field,
+                stream,
+                local_indexes,
+                local_conditions,
+                helper_signatures,
+                static_bindings,
+            )?);
+        }
+        return Some(stmts);
+    }
+    None
 }
 
 fn lower_i64_dynamic_known_string_panic_report_stmts(
@@ -14761,6 +15088,15 @@ fn json_escape_string(value: &str) -> String {
     }
     out.push('"');
     out
+}
+
+fn json_escape_string_content(value: &str) -> String {
+    let escaped = json_escape_string(value);
+    escaped
+        .strip_prefix('"')
+        .and_then(|value| value.strip_suffix('"'))
+        .unwrap_or(escaped.as_str())
+        .to_string()
 }
 
 fn is_json_serdes_call(name: &str) -> bool {

@@ -810,11 +810,14 @@ stderr JSON panic reports and exit status `1` without generated Rust. Terminal
 panic messages backed by dynamic `std/json.ax` `stringify_int(...)` and
 `stringify_bool(...)` expressions, including string locals assigned from those
 expressions in terminal branch arms, also lower to native stderr JSON panic
-reports without materializing a general string runtime. Terminal panic messages
-backed by runtime-selected known string projections from map-key arrays, either
-directly or through string locals backed by those projections, also lower to
-native stderr JSON panic reports by selecting among finite known text values
-without materializing a general string runtime. Stdin reads, dynamic
+reports without materializing a general string runtime. Supported dynamic
+`std/log.ax` `event(...)` messages with scalar and boolean fields also lower to
+native stderr JSON panic reports as nested escaped log-record strings without
+generated Rust. Terminal panic messages backed by runtime-selected known string
+projections from map-key arrays, either directly or through string locals backed
+by those projections, also lower to native stderr JSON panic reports by
+selecting among finite known text values without materializing a general string
+runtime. Stdin reads, dynamic
 stdout/stderr text beyond boolean, integer, JSON scalar formatting, and finite
 known-string projection selection, dynamic panic messages beyond scalar JSON
 stringify and finite known-string projection selection, and broader
