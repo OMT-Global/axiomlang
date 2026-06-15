@@ -6695,6 +6695,19 @@ fn has_struct_native_prefix(value: BannerBox): bool {
 return string_starts_with(value.text, "direct")
 }
 
+fn map_index_banner(key: string): string {
+return {"build": "forge", "deploy": "direct-native"}[key]
+}
+
+fn map_index_score(key: string): int {
+return len({"build": "forge", "deploy": "direct-native"}[key])
+}
+
+fn has_map_index_native_prefix(key: string): bool {
+let text: string = {"build": "forge", "deploy": "direct-native"}[key]
+return string_starts_with(text, "direct")
+}
+
 fn main(): int {
 let direct: int = score("direct-native")
 let static_score: int = score(BANNER)
@@ -6706,6 +6719,7 @@ let match_text: string = match_banner(Some(BANNER))
 let match_stmt_text: string = match_stmt_banner(Some(BANNER))
 let tuple_text: string = tuple_banner((BANNER, 5))
 let struct_text: string = struct_banner(BannerBox { text: BANNER, bonus: 7 })
+let map_index_text: string = map_index_banner("deploy")
 let forwarded_len_text: string = forward_text(BANNER)
 let forwarded_compare_text: string = forward_text(BANNER)
 let returned_len: int = len(returned_text)
@@ -6715,6 +6729,7 @@ let match_len: int = len(match_text)
 let match_stmt_len: int = len(match_stmt_text)
 let tuple_len: int = len(tuple_text)
 let struct_len: int = len(struct_text)
+let map_index_len: int = len(map_index_text)
 let forwarded_len: int = len(forwarded_len_text)
 let local_score_value: int = local_score(BANNER)
 let branch_score_value: int = branch_score(true)
@@ -6724,6 +6739,7 @@ let match_stmt_score_value: int = match_stmt_score(Some(BANNER))
 let match_stmt_none_score_value: int = match_stmt_score(None)
 let tuple_score_value: int = tuple_score((BANNER, 5))
 let struct_score_value: int = struct_score(BannerBox { text: BANNER, bonus: 7 })
+let map_index_score_value: int = map_index_score("deploy")
 let prefix_gate: bool = has_native_prefix("direct-native")
 let local_prefix_gate: bool = has_local_native_prefix(BANNER)
 let branch_prefix_gate: bool = has_branch_native_prefix(true)
@@ -6733,8 +6749,9 @@ let match_stmt_prefix_gate: bool = has_match_stmt_native_prefix(Some(BANNER))
 let match_stmt_none_prefix_gate: bool = has_match_stmt_native_prefix(None) == false
 let tuple_prefix_gate: bool = has_tuple_native_prefix((BANNER, 5))
 let struct_prefix_gate: bool = has_struct_native_prefix(BannerBox { text: BANNER, bonus: 7 })
+let map_index_prefix_gate: bool = has_map_index_native_prefix("deploy")
 let forwarded_gate: bool = forwarded_compare_text == "direct-native"
-if direct == 13 && static_score == 13 && forwarded_score == 13 && returned_len == 13 && local_len == 13 && branch_len == 13 && match_len == 13 && match_stmt_len == 13 && tuple_len == 13 && struct_len == 13 && forwarded_len == 13 && local_score_value == 13 && branch_score_value == 13 && match_score_value == 13 && match_none_score_value == 1 && match_stmt_score_value == 13 && match_stmt_none_score_value == 1 && tuple_score_value == 18 && struct_score_value == 20 && prefix_gate && local_prefix_gate && branch_prefix_gate && match_prefix_gate && match_none_prefix_gate && match_stmt_prefix_gate && match_stmt_none_prefix_gate && tuple_prefix_gate && struct_prefix_gate && forwarded_gate {
+if direct == 13 && static_score == 13 && forwarded_score == 13 && returned_len == 13 && local_len == 13 && branch_len == 13 && match_len == 13 && match_stmt_len == 13 && tuple_len == 13 && struct_len == 13 && map_index_len == 13 && forwarded_len == 13 && local_score_value == 13 && branch_score_value == 13 && match_score_value == 13 && match_none_score_value == 1 && match_stmt_score_value == 13 && match_stmt_none_score_value == 1 && tuple_score_value == 18 && struct_score_value == 20 && map_index_score_value == 13 && prefix_gate && local_prefix_gate && branch_prefix_gate && match_prefix_gate && match_none_prefix_gate && match_stmt_prefix_gate && match_stmt_none_prefix_gate && tuple_prefix_gate && struct_prefix_gate && map_index_prefix_gate && forwarded_gate {
 return 48
 } else {
 return 1
