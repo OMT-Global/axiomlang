@@ -867,20 +867,19 @@ JSON stringify and finite known-string projection selection, and broader
 streaming/runtime buffering remain tracked by issue #1001.
 
 The `clock.now_sleep` row now has partial Cranelift evidence for `std/time.ax`
-`now_ms`, `now`, `elapsed_ms`, and zero-duration `sleep`, plus guards that a
-package without the `clock` capability fails before backend lowering and that
-nonzero sleep fails fast instead of ever reaching host sleep during
-compiler-side spike evaluation. The public clock smoke now asserts
-`generated_rust` is null. The direct-native i64 path now also lowers
-literal and static scalar `clock_sleep_ms(...)` nonpositive durations through
-entrypoint and helper functions to a native process exit status without
-generated Rust. Imported public `std/time.ax` `sleep(duration_ms(...))`
-wrappers now alias that same deterministic path for literal and static scalar
-zero-duration and negative-duration calls in runtime-exit programs. The
-supported sleep shape remains limited to compile-time-known nonpositive
-durations until the real runtime clock path lands. Full runtime-time
-clock/sleep execution, timer scheduling, async clock integration, nonzero
-sleep, and audit parity remain open under #1001.
+`now_ms`, `now`, `elapsed_ms`, zero-duration `sleep`, and a bounded positive
+`sleep` smoke, plus guards that a package without the `clock` capability fails
+before backend lowering. The public clock smokes now assert `generated_rust` is
+null. The direct-native i64 path now also lowers literal and static scalar
+`clock_sleep_ms(...)` nonpositive durations through entrypoint and helper
+functions to a native process exit status without generated Rust. Imported
+public `std/time.ax` `sleep(duration_ms(...))` wrappers now alias that same
+deterministic path for literal and static scalar zero-duration and
+negative-duration calls in runtime-exit programs. The supported runtime-exit
+sleep shape remains limited to compile-time-known nonpositive durations until
+the real runtime clock path lands. Full runtime-time clock/sleep execution,
+timer scheduling, async clock integration, broad positive-duration sleep
+semantics, and audit parity remain open under #1001.
 
 
 

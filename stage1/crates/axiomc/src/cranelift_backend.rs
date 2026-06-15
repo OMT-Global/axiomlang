@@ -24,6 +24,7 @@ use std::sync::{Mutex, OnceLock};
 const SPIKE_FS_ROOT_BINDING: &str = "$axiom_fs_root";
 const SPIKE_MAX_FS_READ_BYTES: u64 = 64 * 1024 * 1024;
 const SPIKE_MAX_FS_WRITE_BYTES: usize = 64 * 1024 * 1024;
+const SPIKE_MAX_CLOCK_SLEEP_MS: i64 = 1_000;
 
 #[derive(Clone, Default)]
 struct I64StaticBindings {
@@ -18715,9 +18716,13 @@ fn eval_clock_sleep_ms_call(
     if milliseconds == 0 {
         return Ok(SpikeValue::Int(0));
     }
-    Err(unsupported(
-        "nonzero clock_sleep_ms is not supported by the cranelift spike",
-    ))
+    if milliseconds > SPIKE_MAX_CLOCK_SLEEP_MS {
+        return Err(unsupported(&format!(
+            "clock_sleep_ms literals above {SPIKE_MAX_CLOCK_SLEEP_MS} ms are not supported by the cranelift spike"
+        )));
+    }
+    std::thread::sleep(std::time::Duration::from_millis(milliseconds as u64));
+    Ok(SpikeValue::Int(0))
 }
 
 fn current_time_ms() -> Result<i64, Diagnostic> {

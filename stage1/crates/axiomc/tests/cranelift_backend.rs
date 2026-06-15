@@ -5285,8 +5285,14 @@ fn cranelift_backend_rejects_clock_denial_before_backend_lowering() {
     );
 }
 
+#[cfg(not(windows))]
 #[test]
-fn cranelift_backend_rejects_nonzero_clock_sleep() {
+fn cranelift_backend_builds_nonzero_clock_sleep_binary() {
+    if which::which("cc").is_err() {
+        eprintln!("skipping cranelift backend smoke test because cc is unavailable");
+        return;
+    }
+
     let temp = tempfile::tempdir().expect("tempdir");
     let project = temp.path().join("clock-nonzero-sleep");
     write_clock_project(&project, true, true);
@@ -5303,19 +5309,27 @@ fn cranelift_backend_rejects_nonzero_clock_sleep() {
         .expect("run axiomc build --backend cranelift");
 
     assert!(
-        !output.status.success(),
-        "cranelift nonzero clock sleep build unexpectedly succeeded: stdout={} stderr={}",
+        output.status.success(),
+        "cranelift nonzero clock sleep build failed: stdout={} stderr={}",
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
-    let combined = format!(
-        "{}{}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
+
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+    assert_eq!(payload["backend"], "cranelift");
+    assert_eq!(payload["generated_rust"], Value::Null);
+    let binary = payload["binary"].as_str().expect("binary path");
+    let run = Command::new(binary)
+        .output()
+        .expect("run cranelift nonzero clock sleep binary");
     assert!(
-        combined.contains("nonzero clock_sleep_ms is not supported by the cranelift spike"),
-        "expected nonzero sleep guard, got: {combined}"
+        run.status.success(),
+        "cranelift nonzero clock sleep binary failed: stderr={}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&run.stdout),
+        "true\ntrue\ntrue\ntrue\n"
     );
 }
 
