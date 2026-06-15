@@ -1729,11 +1729,11 @@ fn cranelift_backend_lowers_std_log_format_wrappers_to_runtime_exit_code() {
     assert_eq!(run.status.code(), Some(48));
     assert_eq!(
         String::from_utf8_lossy(&run.stdout),
-        "\"runtime_attempt\":2\n\"runtime_attempt_text\":\"2\"\n"
+        "\"runtime_attempt\":2\n\"runtime_attempt_text\":\"2\"\n\"runtime_attempt\":2,\"runtime_ready\":true\n"
     );
     assert_eq!(
         String::from_utf8_lossy(&run.stderr),
-        "\"runtime_ready\":true\n\"runtime_ready_text\":\"true\"\n"
+        "\"runtime_ready\":true\n\"runtime_ready_text\":\"true\"\n\"runtime_attempt_text\":\"2\",\"runtime_ready\":true,\"runtime_ready_text\":\"true\"\n"
     );
 }
 
@@ -7575,9 +7575,11 @@ let runtime_fields2_len: int = len(fields2(field_int("runtime_attempt", make_att
 let runtime_fields3_len: int = len(fields3(field_string("runtime_attempt_text", json_stringify_int(make_attempt())), field_bool("runtime_ready", make_ready()), field_string("runtime_ready_text", json_stringify_bool(make_ready()))))
 print runtime_attempt_field
 print runtime_attempt_text_field
+print fields2(field_int("runtime_attempt", make_attempt()), field_bool("runtime_ready", make_ready()))
 let written_ready: int = eprintln(runtime_ready_field)
 let written_ready_text: int = eprintln(runtime_ready_text_field)
-if component_gate && attempt_gate && ready_gate && attrs == "\"component\":\"worker\",\"attempt\":2,\"ready\":true" && subset == "\"component\":\"worker\",\"ready\":true" && record == expected && escaped == expected_escaped && len(record) == 97 && len(escaped) == 83 && runtime_attempt_len == 19 && runtime_ready_len == 20 && runtime_attempt_text_len == 26 && runtime_ready_text_len == 27 && runtime_fields2_len == 40 && runtime_fields3_len == 75 && written_ready == 21 && written_ready_text == 28 {
+let written_fields3: int = eprintln(fields3(field_string("runtime_attempt_text", json_stringify_int(make_attempt())), field_bool("runtime_ready", make_ready()), field_string("runtime_ready_text", json_stringify_bool(make_ready()))))
+if component_gate && attempt_gate && ready_gate && attrs == "\"component\":\"worker\",\"attempt\":2,\"ready\":true" && subset == "\"component\":\"worker\",\"ready\":true" && record == expected && escaped == expected_escaped && len(record) == 97 && len(escaped) == 83 && runtime_attempt_len == 19 && runtime_ready_len == 20 && runtime_attempt_text_len == 26 && runtime_ready_text_len == 27 && runtime_fields2_len == 40 && runtime_fields3_len == 75 && written_ready == 21 && written_ready_text == 28 && written_fields3 == 76 {
 return 48
 } else {
 return 1

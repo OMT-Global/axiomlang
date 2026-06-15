@@ -3057,6 +3057,17 @@ fn lower_i64_runtime_stmt_stmts(
     ) {
         return Some(assigns);
     }
+    if let Stmt::Print { expr, .. } = stmt {
+        if let Some(stmts) = lower_i64_print_stmts(
+            expr,
+            &local_indexes,
+            &local_conditions,
+            helper_signatures,
+            static_bindings,
+        ) {
+            return Some(stmts);
+        }
+    }
     Some(vec![lower_i64_runtime_stmt(
         stmt,
         locals,
@@ -3171,6 +3182,24 @@ fn lower_i64_runtime_stmt(
     }
 }
 
+fn lower_i64_print_stmts(
+    expr: &Expr,
+    local_indexes: &HashMap<String, usize>,
+    local_conditions: &HashMap<String, CraneliftI64Condition>,
+    helper_signatures: &HashMap<&str, I64HelperSignature>,
+    static_bindings: &I64StaticBindings,
+) -> Option<Vec<CraneliftI64Stmt>> {
+    lower_i64_log_field_list_len_and_write_stmts(
+        OutputStream::Stdout,
+        expr,
+        local_indexes,
+        local_conditions,
+        helper_signatures,
+        static_bindings,
+    )
+    .map(|(_, stmts)| stmts)
+}
+
 fn lower_i64_print_stmt(
     expr: &Expr,
     local_indexes: &HashMap<String, usize>,
@@ -3255,69 +3284,110 @@ fn i64_formatted_string_write_stmt(
     stream: OutputStream,
     formatted: I64FormattedString,
 ) -> CraneliftI64Stmt {
+    i64_formatted_string_write_stmts(stream, formatted, true)
+        .into_iter()
+        .next()
+        .expect("formatted string line writer returns one statement")
+}
+
+fn i64_formatted_string_write_stmts(
+    stream: OutputStream,
+    formatted: I64FormattedString,
+    append_newline: bool,
+) -> Vec<CraneliftI64Stmt> {
     match formatted {
-        I64FormattedString::Int(value) => CraneliftI64Stmt::WriteIntLine { stream, value },
-        I64FormattedString::JsonStringifiedInt(value) => {
+        I64FormattedString::Int(value) => vec![if append_newline {
+            CraneliftI64Stmt::WriteIntLine { stream, value }
+        } else {
+            CraneliftI64Stmt::WriteIntText { stream, value }
+        }],
+        I64FormattedString::JsonStringifiedInt(value) => vec![if append_newline {
             CraneliftI64Stmt::WriteJsonStringifiedIntLine { stream, value }
-        }
-        I64FormattedString::Bool(cond) => CraneliftI64Stmt::If {
+        } else {
+            CraneliftI64Stmt::WriteJsonStringifiedIntText { stream, value }
+        }],
+        I64FormattedString::Bool(cond) => vec![CraneliftI64Stmt::If {
             cond,
-            then_body: vec![CraneliftI64Stmt::WriteLine {
-                stream,
-                text: "true".to_string(),
-            }],
-            else_body: vec![CraneliftI64Stmt::WriteLine {
-                stream,
-                text: "false".to_string(),
-            }],
-        },
-        I64FormattedString::JsonStringifiedBool(cond) => CraneliftI64Stmt::If {
+            then_body: vec![i64_static_write_stmt(stream, "true", append_newline)],
+            else_body: vec![i64_static_write_stmt(stream, "false", append_newline)],
+        }],
+        I64FormattedString::JsonStringifiedBool(cond) => vec![CraneliftI64Stmt::If {
             cond,
-            then_body: vec![CraneliftI64Stmt::WriteLine {
-                stream,
-                text: "\"true\"".to_string(),
-            }],
-            else_body: vec![CraneliftI64Stmt::WriteLine {
-                stream,
-                text: "\"false\"".to_string(),
-            }],
-        },
-        I64FormattedString::JsonFieldInt { prefix, value } => {
+            then_body: vec![i64_static_write_stmt(stream, "\"true\"", append_newline)],
+            else_body: vec![i64_static_write_stmt(stream, "\"false\"", append_newline)],
+        }],
+        I64FormattedString::JsonFieldInt { prefix, value } => vec![if append_newline {
             CraneliftI64Stmt::WriteJsonFieldIntLine {
                 stream,
                 prefix,
                 value,
             }
-        }
-        I64FormattedString::JsonFieldStringifiedInt { prefix, value } => {
+        } else {
+            CraneliftI64Stmt::WriteJsonFieldIntText {
+                stream,
+                prefix,
+                value,
+            }
+        }],
+        I64FormattedString::JsonFieldStringifiedInt { prefix, value } => vec![if append_newline {
             CraneliftI64Stmt::WriteJsonFieldStringifiedIntLine {
                 stream,
                 prefix,
                 value,
             }
+        } else {
+            CraneliftI64Stmt::WriteJsonFieldStringifiedIntText {
+                stream,
+                prefix,
+                value,
+            }
+        }],
+        I64FormattedString::JsonFieldStringifiedBool { prefix, cond } => {
+            vec![CraneliftI64Stmt::If {
+                cond,
+                then_body: vec![i64_static_write_stmt(
+                    stream,
+                    &format!("{prefix}\"true\""),
+                    append_newline,
+                )],
+                else_body: vec![i64_static_write_stmt(
+                    stream,
+                    &format!("{prefix}\"false\""),
+                    append_newline,
+                )],
+            }]
         }
-        I64FormattedString::JsonFieldStringifiedBool { prefix, cond } => CraneliftI64Stmt::If {
+        I64FormattedString::JsonFieldBool { prefix, cond } => vec![CraneliftI64Stmt::If {
             cond,
-            then_body: vec![CraneliftI64Stmt::WriteLine {
+            then_body: vec![i64_static_write_stmt(
                 stream,
-                text: format!("{prefix}\"true\""),
-            }],
-            else_body: vec![CraneliftI64Stmt::WriteLine {
+                &format!("{prefix}true"),
+                append_newline,
+            )],
+            else_body: vec![i64_static_write_stmt(
                 stream,
-                text: format!("{prefix}\"false\""),
-            }],
-        },
-        I64FormattedString::JsonFieldBool { prefix, cond } => CraneliftI64Stmt::If {
-            cond,
-            then_body: vec![CraneliftI64Stmt::WriteLine {
-                stream,
-                text: format!("{prefix}true"),
-            }],
-            else_body: vec![CraneliftI64Stmt::WriteLine {
-                stream,
-                text: format!("{prefix}false"),
-            }],
-        },
+                &format!("{prefix}false"),
+                append_newline,
+            )],
+        }],
+    }
+}
+
+fn i64_static_write_stmt(
+    stream: OutputStream,
+    text: &str,
+    append_newline: bool,
+) -> CraneliftI64Stmt {
+    if append_newline {
+        CraneliftI64Stmt::WriteLine {
+            stream,
+            text: text.to_string(),
+        }
+    } else {
+        CraneliftI64Stmt::WriteText {
+            stream,
+            text: text.to_string(),
+        }
     }
 }
 
@@ -4186,6 +4256,16 @@ fn lower_i64_eprintln_message(
             }],
         ));
     }
+    if let Some((written, stmts)) = lower_i64_log_field_list_len_and_write_stmts(
+        OutputStream::Stderr,
+        message,
+        local_indexes,
+        local_conditions,
+        helper_signatures,
+        static_bindings,
+    ) {
+        return Some((i64_add_expr(written, CraneliftI64Expr::Literal(1)), stmts));
+    }
     let formatted = lower_i64_formatted_string_expr(
         message,
         local_indexes,
@@ -4200,6 +4280,66 @@ fn lower_i64_eprintln_message(
             formatted,
         )],
     ))
+}
+
+fn lower_i64_log_field_list_len_and_write_stmts(
+    stream: OutputStream,
+    message: &Expr,
+    local_indexes: &HashMap<String, usize>,
+    local_conditions: &HashMap<String, CraneliftI64Condition>,
+    helper_signatures: &HashMap<&str, I64HelperSignature>,
+    static_bindings: &I64StaticBindings,
+) -> Option<(CraneliftI64Expr, Vec<CraneliftI64Stmt>)> {
+    let Expr::Call { name, args, .. } = message else {
+        return None;
+    };
+    let expected = if is_i64_log_fields2_name(name, static_bindings) {
+        2
+    } else if is_i64_log_fields3_name(name, static_bindings) {
+        3
+    } else {
+        return None;
+    };
+    if args.len() != expected {
+        return None;
+    }
+
+    let fields = args
+        .iter()
+        .map(|field| {
+            lower_i64_formatted_string_expr(
+                field,
+                local_indexes,
+                local_conditions,
+                helper_signatures,
+                static_bindings,
+            )
+        })
+        .collect::<Option<Vec<_>>>()?;
+    let mut lengths = fields.iter().cloned().map(i64_formatted_string_len_expr);
+    let first_len = lengths.next()?;
+    let fields_len = lengths.fold(first_len, i64_add_expr);
+    let written = i64_add_expr(
+        fields_len,
+        CraneliftI64Expr::Literal(fields.len().saturating_sub(1) as i64),
+    );
+
+    let last = fields.len().saturating_sub(1);
+    let mut stmts = Vec::new();
+    for (index, field) in fields.into_iter().enumerate() {
+        stmts.extend(i64_formatted_string_write_stmts(
+            stream,
+            field,
+            index == last,
+        ));
+        if index != last {
+            stmts.push(CraneliftI64Stmt::WriteText {
+                stream,
+                text: ",".to_string(),
+            });
+        }
+    }
+    Some((written, stmts))
 }
 
 fn lower_i64_log_emit_let_stmts(

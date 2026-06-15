@@ -175,6 +175,10 @@ pub enum I64Stmt {
         stream: OutputStream,
         value: I64Expr,
     },
+    WriteIntText {
+        stream: OutputStream,
+        value: I64Expr,
+    },
     WriteUIntLine {
         stream: OutputStream,
         value: I64Expr,
@@ -183,12 +187,26 @@ pub enum I64Stmt {
         stream: OutputStream,
         value: I64Expr,
     },
+    WriteJsonStringifiedIntText {
+        stream: OutputStream,
+        value: I64Expr,
+    },
     WriteJsonFieldIntLine {
         stream: OutputStream,
         prefix: String,
         value: I64Expr,
     },
+    WriteJsonFieldIntText {
+        stream: OutputStream,
+        prefix: String,
+        value: I64Expr,
+    },
     WriteJsonFieldStringifiedIntLine {
+        stream: OutputStream,
+        prefix: String,
+        value: I64Expr,
+    },
+    WriteJsonFieldStringifiedIntText {
         stream: OutputStream,
         prefix: String,
         value: I64Expr,
@@ -538,7 +556,13 @@ fn collect_i64_output_lines(stmts: &[I64Stmt], lines: &mut Vec<(OutputStream, St
             I64Stmt::WriteJsonFieldIntLine { stream, prefix, .. } => {
                 lines.push((*stream, prefix.clone(), false))
             }
+            I64Stmt::WriteJsonFieldIntText { stream, prefix, .. } => {
+                lines.push((*stream, prefix.clone(), false))
+            }
             I64Stmt::WriteJsonFieldStringifiedIntLine { stream, prefix, .. } => {
+                lines.push((*stream, prefix.clone(), false))
+            }
+            I64Stmt::WriteJsonFieldStringifiedIntText { stream, prefix, .. } => {
                 lines.push((*stream, prefix.clone(), false))
             }
             I64Stmt::If {
@@ -550,8 +574,13 @@ fn collect_i64_output_lines(stmts: &[I64Stmt], lines: &mut Vec<(OutputStream, St
                 collect_i64_output_lines(else_body, lines);
             }
             I64Stmt::While { body, .. } => collect_i64_output_lines(body, lines),
-            I64Stmt::Assign(_) | I64Stmt::WriteIntLine { .. } | I64Stmt::CallAssign { .. } => {}
-            I64Stmt::WriteUIntLine { .. } | I64Stmt::WriteJsonStringifiedIntLine { .. } => {}
+            I64Stmt::Assign(_)
+            | I64Stmt::WriteIntLine { .. }
+            | I64Stmt::WriteIntText { .. }
+            | I64Stmt::CallAssign { .. } => {}
+            I64Stmt::WriteUIntLine { .. }
+            | I64Stmt::WriteJsonStringifiedIntLine { .. }
+            | I64Stmt::WriteJsonStringifiedIntText { .. } => {}
         }
     }
 }
@@ -767,6 +796,15 @@ fn emit_i64_stmt(
             *stream,
             value,
         ),
+        I64Stmt::WriteIntText { stream, value } => emit_i64_write_int_text(
+            module,
+            builder,
+            locals,
+            function_refs,
+            write_ref,
+            *stream,
+            value,
+        ),
         I64Stmt::WriteUIntLine { stream, value } => emit_i64_write_uint_line(
             module,
             builder,
@@ -778,6 +816,17 @@ fn emit_i64_stmt(
         ),
         I64Stmt::WriteJsonStringifiedIntLine { stream, value } => {
             emit_i64_write_json_stringified_int_line(
+                module,
+                builder,
+                locals,
+                function_refs,
+                write_ref,
+                *stream,
+                value,
+            )
+        }
+        I64Stmt::WriteJsonStringifiedIntText { stream, value } => {
+            emit_i64_write_json_stringified_int_text(
                 module,
                 builder,
                 locals,
@@ -811,6 +860,30 @@ fn emit_i64_stmt(
                 value,
             )
         }
+        I64Stmt::WriteJsonFieldIntText {
+            stream,
+            prefix,
+            value,
+        } => {
+            emit_i64_write_static(
+                module,
+                builder,
+                write_ref,
+                output_data_ids,
+                *stream,
+                prefix,
+                false,
+            )?;
+            emit_i64_write_int_text(
+                module,
+                builder,
+                locals,
+                function_refs,
+                write_ref,
+                *stream,
+                value,
+            )
+        }
         I64Stmt::WriteJsonFieldStringifiedIntLine {
             stream,
             prefix,
@@ -826,6 +899,30 @@ fn emit_i64_stmt(
                 false,
             )?;
             emit_i64_write_json_stringified_int_line(
+                module,
+                builder,
+                locals,
+                function_refs,
+                write_ref,
+                *stream,
+                value,
+            )
+        }
+        I64Stmt::WriteJsonFieldStringifiedIntText {
+            stream,
+            prefix,
+            value,
+        } => {
+            emit_i64_write_static(
+                module,
+                builder,
+                write_ref,
+                output_data_ids,
+                *stream,
+                prefix,
+                false,
+            )?;
+            emit_i64_write_json_stringified_int_text(
                 module,
                 builder,
                 locals,
@@ -977,6 +1074,30 @@ fn emit_i64_write_int_line(
         value,
         true,
         false,
+        true,
+    )
+}
+
+fn emit_i64_write_int_text(
+    module: &mut ObjectModule,
+    builder: &mut FunctionBuilder<'_>,
+    locals: &[Variable],
+    function_refs: &[FuncRef],
+    write_ref: FuncRef,
+    stream: OutputStream,
+    value: &I64Expr,
+) -> Result<(), CraneliftBackendError> {
+    emit_i64_write_decimal_line(
+        module,
+        builder,
+        locals,
+        function_refs,
+        write_ref,
+        stream,
+        value,
+        true,
+        false,
+        false,
     )
 }
 
@@ -999,6 +1120,7 @@ fn emit_i64_write_uint_line(
         value,
         false,
         false,
+        true,
     )
 }
 
@@ -1021,6 +1143,30 @@ fn emit_i64_write_json_stringified_int_line(
         value,
         true,
         true,
+        true,
+    )
+}
+
+fn emit_i64_write_json_stringified_int_text(
+    module: &mut ObjectModule,
+    builder: &mut FunctionBuilder<'_>,
+    locals: &[Variable],
+    function_refs: &[FuncRef],
+    write_ref: FuncRef,
+    stream: OutputStream,
+    value: &I64Expr,
+) -> Result<(), CraneliftBackendError> {
+    emit_i64_write_decimal_line(
+        module,
+        builder,
+        locals,
+        function_refs,
+        write_ref,
+        stream,
+        value,
+        true,
+        true,
+        false,
     )
 }
 
@@ -1034,6 +1180,7 @@ fn emit_i64_write_decimal_line(
     value: &I64Expr,
     signed: bool,
     json_stringified: bool,
+    append_newline: bool,
 ) -> Result<(), CraneliftBackendError> {
     let pointer_type = module.target_config().pointer_type();
     let value = emit_i64_expr(builder, locals, function_refs, value)?;
@@ -1043,15 +1190,22 @@ fn emit_i64_write_decimal_line(
         buffer_len,
         0,
     ));
-    let newline = builder.ins().iconst(types::I8, i64::from(b'\n'));
-    builder
-        .ins()
-        .stack_store(newline, buffer, (buffer_len - 1) as i32);
+    if append_newline {
+        let newline = builder.ins().iconst(types::I8, i64::from(b'\n'));
+        builder
+            .ins()
+            .stack_store(newline, buffer, (buffer_len - 1) as i32);
+    }
     if json_stringified {
+        let quote_offset = if append_newline {
+            buffer_len - 2
+        } else {
+            buffer_len - 1
+        };
         let quote = builder.ins().iconst(types::I8, i64::from(b'"'));
         builder
             .ins()
-            .stack_store(quote, buffer, (buffer_len - 2) as i32);
+            .stack_store(quote, buffer, quote_offset as i32);
     }
 
     let zero = builder.ins().iconst(types::I64, 0);
@@ -1075,11 +1229,17 @@ fn emit_i64_write_decimal_line(
     builder.append_block_param(after_digits, pointer_type);
     builder.append_block_param(write_block, pointer_type);
 
-    let initial_pos = builder.ins().iconst(pointer_type, (buffer_len - 1) as i64);
     let initial_pos = if json_stringified {
-        builder.ins().iadd_imm(initial_pos, -1)
+        let quote_offset = if append_newline {
+            buffer_len - 2
+        } else {
+            buffer_len - 1
+        };
+        builder.ins().iconst(pointer_type, quote_offset as i64)
+    } else if append_newline {
+        builder.ins().iconst(pointer_type, (buffer_len - 1) as i64)
     } else {
-        initial_pos
+        builder.ins().iconst(pointer_type, buffer_len as i64)
     };
     builder.ins().jump(
         loop_block,
@@ -1992,6 +2152,70 @@ mod tests {
         assert_eq!(
             String::from_utf8_lossy(&output.stderr),
             "\"delta_text\":\"-42\"\n"
+        );
+    }
+
+    #[test]
+    fn links_i64_json_field_fragments() {
+        if std::env::var_os("AXIOM_SKIP_CRANELIFT_LINK_TEST").is_some() {
+            return;
+        }
+        if Command::new("cc").arg("--version").output().is_err() {
+            eprintln!("skipping cranelift link test because cc is unavailable");
+            return;
+        }
+        let temp = tempfile::tempdir().expect("tempdir");
+        let object = temp.path().join("i64-json-field-fragments.o");
+        let binary = temp.path().join("i64-json-field-fragments");
+        compile_i64_exit_program(
+            I64ExitProgram {
+                functions: Vec::new(),
+                locals: Vec::new(),
+                stmts: vec![
+                    I64Stmt::WriteJsonFieldIntText {
+                        stream: OutputStream::Stdout,
+                        prefix: "\"count\":".to_string(),
+                        value: I64Expr::Literal(42),
+                    },
+                    I64Stmt::WriteText {
+                        stream: OutputStream::Stdout,
+                        text: ",".to_string(),
+                    },
+                    I64Stmt::WriteJsonFieldStringifiedIntLine {
+                        stream: OutputStream::Stdout,
+                        prefix: "\"label\":".to_string(),
+                        value: I64Expr::Literal(7),
+                    },
+                    I64Stmt::WriteJsonFieldStringifiedIntText {
+                        stream: OutputStream::Stderr,
+                        prefix: "\"delta_text\":".to_string(),
+                        value: I64Expr::Literal(-42),
+                    },
+                    I64Stmt::WriteText {
+                        stream: OutputStream::Stderr,
+                        text: ",".to_string(),
+                    },
+                    I64Stmt::WriteJsonFieldIntLine {
+                        stream: OutputStream::Stderr,
+                        prefix: "\"delta\":".to_string(),
+                        value: I64Expr::Literal(-7),
+                    },
+                ],
+                body: I64ExitBody::Return(I64Expr::Literal(7)),
+            },
+            &object,
+            &binary,
+        )
+        .expect("compile i64 JSON field fragments");
+        let output = Command::new(&binary).output().expect("run binary");
+        assert_eq!(output.status.code(), Some(7));
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout),
+            "\"count\":42,\"label\":\"7\"\n"
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&output.stderr),
+            "\"delta_text\":\"-42\",\"delta\":-7\n"
         );
     }
 

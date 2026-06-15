@@ -768,8 +768,9 @@ without generated Rust. Public `std/log.ax` `field_int(...)`,
 scalar/formatted-string values now also lower to direct-native field length
 projections, stdout/stderr output, and `eprintln` byte counts without generated
 Rust. Public `std/log.ax` `fields2(...)` and `fields3(...)` wrappers over those
-runtime field fragments also lower to direct-native byte-length projections
-without generated Rust. It also lowers known-string public `std/io.ax`
+runtime field fragments also lower to direct-native byte-length projections,
+stdout/stderr output, and `eprintln` byte counts without generated Rust. It
+also lowers known-string public `std/io.ax`
 `eprintln` calls inside direct-native i64 `main` functions into native stderr
 writes while preserving the newline-inclusive byte-count return value and
 `generated_rust` null. Public `std/io.ax` `eprintln` calls over runtime
@@ -804,8 +805,9 @@ scalar/formatted-string values also preserve native stdout/stderr lowering and
 `eprintln` byte counts for JSON field output. Public `std/log.ax` field
 wrappers over those same supported runtime scalar/formatted-string values
 preserve the same native stdout/stderr lowering and `eprintln` byte counts for
-structured log field output, and `std/log.ax` field-list wrappers preserve
-direct-native byte-length projections for those runtime field fragments.
+structured log field output, and `std/log.ax` field-list wrappers preserve the
+same direct-native byte-length projections, stdout/stderr output, and
+`eprintln` byte counts for those runtime field fragments.
 Stdin reads, dynamic string stdout/stderr text beyond these formatted scalar
 passthroughs, broader numeric formatting beyond supported integer lines,
 dynamic log inputs, and broader streaming/runtime buffering remain tracked by
