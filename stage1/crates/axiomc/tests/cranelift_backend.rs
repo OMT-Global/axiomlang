@@ -9588,9 +9588,31 @@ source = "path"
         r#"import "std/net.ax"
 
 fn main(): int {
-let tcp_port: int = match tcp_listen_loopback_once("tcp-pong", 1000) { Some(port) => port, None => 0 }
-let udp_port: int = match udp_bind_loopback_once("udp-pong", 1000) { Some(port) => port, None => 0 }
-if tcp_port > 0 && udp_port > 0 {
+let tcp_expr: Option<int> = tcp_listen_loopback_once("tcp-pong", 1000)
+let tcp_statement: Option<int> = tcp_listen_loopback_once("tcp-pong", 1000)
+let udp_expr: Option<int> = udp_bind_loopback_once("udp-pong", 1000)
+let udp_statement: Option<int> = udp_bind_loopback_once("udp-pong", 1000)
+let tcp_port: int = match tcp_expr { Some(port) => port, None => 0 }
+let udp_port: int = match udp_expr { Some(port) => port, None => 0 }
+let tcp_statement_port: int = 0
+match tcp_statement {
+Some(port) {
+tcp_statement_port = port
+}
+None {
+tcp_statement_port = 0
+}
+}
+let udp_statement_port: int = 0
+match udp_statement {
+Some(port) {
+udp_statement_port = port
+}
+None {
+udp_statement_port = 0
+}
+}
+if tcp_port > 0 && udp_port > 0 && tcp_statement_port > 0 && udp_statement_port > 0 {
 return 48
 } else {
 return 1

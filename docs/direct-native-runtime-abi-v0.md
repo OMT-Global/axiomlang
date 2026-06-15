@@ -380,7 +380,9 @@ now also builds and runs `std/async_net.ax` loopback TCP `listen`, `local_port`,
 `net_tcp_listen_loopback_once(...)` and public `std/net.ax`
 `tcp_listen_loopback_once(...)` calls into native process exit status by
 selecting `Option<int>` match arms at compile time for successful loopback
-binds. Packages without the `net` capability still fail before backend
+binds; public loopback results can also be stored in local `Option<int>` values
+and matched later in supported expression and statement contexts without
+generated Rust. Packages without the `net` capability still fail before backend
 lowering. General runtime-time TCP socket lifecycle APIs, non-loopback policy
 coverage, timeout parity, and audit parity remain open under #1001.
 
@@ -390,10 +392,13 @@ public loopback smoke asserts `generated_rust` is null and returns a loopback
 port. The direct-native i64 path now also lowers
 known-response `net_udp_bind_loopback_once(...)` and public `std/net.ax`
 `udp_bind_loopback_once(...)` calls into native process exit status by selecting
-`Option<int>` match arms at compile time for successful loopback binds. Packages
-without the `net` capability still fail before backend lowering. Paired
-dynamic-port send/recv coverage, full UDP socket lifecycle APIs, non-loopback
-policy coverage, timeout parity, and audit parity remain open under #1001.
+`Option<int>` match arms at compile time for successful loopback binds; public
+loopback results can also be stored in local `Option<int>` values and matched
+later in supported expression and statement contexts without generated Rust.
+Packages without the `net` capability still fail before backend lowering.
+Paired dynamic-port send/recv coverage, full UDP socket lifecycle APIs,
+non-loopback policy coverage, timeout parity, and audit parity remain open under
+#1001.
 
 The filesystem write row now has partial Cranelift evidence: the spike evaluates
 `std/fs.ax` write helpers over configured `fs_root`-scoped literal paths during
