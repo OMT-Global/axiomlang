@@ -3971,6 +3971,28 @@ fn lower_i64_log_json_string_value_stmts(
                 }],
             }]);
         }
+        if is_i64_json_stringify_string_name(name, static_bindings) {
+            let [value] = args.as_slice() else {
+                return None;
+            };
+            let mut stmts = vec![CraneliftI64Stmt::WriteText {
+                stream,
+                text: String::from("\""),
+            }];
+            stmts.extend(lower_i64_log_json_string_content_stmts(
+                value,
+                stream,
+                local_indexes,
+                local_conditions,
+                helper_signatures,
+                static_bindings,
+            )?);
+            stmts.push(CraneliftI64Stmt::WriteText {
+                stream,
+                text: String::from("\""),
+            });
+            return Some(stmts);
+        }
     }
     None
 }
@@ -12388,6 +12410,24 @@ fn lower_i64_json_escaped_string_len_expr(
             json_escape_string(&value).len() as i64
         ));
     }
+    if let Expr::Call { name, args, .. } = expr {
+        if is_i64_json_stringify_string_name(name, static_bindings) {
+            let [text] = args.as_slice() else {
+                return None;
+            };
+            return Some(CraneliftI64Expr::Binary {
+                op: CraneliftI64BinaryOp::Add,
+                lhs: Box::new(lower_i64_json_safe_string_len_expr(
+                    text,
+                    local_indexes,
+                    local_conditions,
+                    helper_signatures,
+                    static_bindings,
+                )?),
+                rhs: Box::new(CraneliftI64Expr::Literal(4)),
+            });
+        }
+    }
     lower_i64_map_key_array_string_index_mapped_i64_expr(
         expr,
         local_indexes,
@@ -12509,10 +12549,22 @@ fn lower_i64_json_safe_string_len_expr(
         Expr::VarRef {
             name,
             ty: Type::String | Type::Str,
-        } => local_indexes
-            .get(i64_json_safe_string_len_key(name).as_str())
-            .copied()
-            .map(CraneliftI64Expr::Local),
+        } => {
+            if let Some(local) = local_indexes.get(i64_json_safe_string_len_key(name).as_str()) {
+                return Some(CraneliftI64Expr::Local(*local));
+            }
+            if let Some(local) = local_indexes.get(i64_printable_i64_string_key(name).as_str()) {
+                return Some(i64_decimal_string_len_expr(CraneliftI64Expr::Local(*local)));
+            }
+            local_conditions
+                .get(i64_printable_bool_string_key(name).as_str())
+                .cloned()
+                .map(|cond| CraneliftI64Expr::Select {
+                    cond: Box::new(cond),
+                    then_result: Box::new(CraneliftI64Expr::Literal(4)),
+                    else_result: Box::new(CraneliftI64Expr::Literal(5)),
+                })
+        }
         Expr::BinaryAdd {
             op: ArithmeticOp::Add,
             lhs,

@@ -766,8 +766,10 @@ generated Rust. Public `std/log.ax` level wrappers such as `info(...)` can
 reuse that native event writer for supported dynamic JSON-safe message
 projections and empty attribute objects. Supported dynamic `std/log.ax`
 `event(...)` expressions can also feed source-level `print` statements as
-native stdout JSON-line writes without generated Rust. It also lowers
-known-string public `std/io.ax`
+native stdout JSON-line writes without generated Rust, including event messages
+and `field_string(...)` values backed by `std/json.ax` `stringify_string(...)`
+over supported scalar/bool projection locals. It also lowers known-string public
+`std/io.ax`
 `eprintln` lets in direct-native i64 `main` functions and helper functions,
 including runtime-scope lets after assignments and inside branches, into native
 stderr writes while preserving newline-inclusive byte-count return values and

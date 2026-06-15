@@ -2222,7 +2222,7 @@ fn cranelift_backend_lowers_std_log_dynamic_event_print_to_runtime_stdout() {
     assert_eq!(run.status.code(), Some(48));
     assert_eq!(
         String::from_utf8_lossy(&run.stdout),
-        "{\"level\":\"warn\",\"message\":\"12345\",\"attributes\":{\"count\":12345,\"ready\":false}}\n"
+        "{\"level\":\"warn\",\"message\":\"\\\"12345\\\"\",\"attributes\":{\"count\":12345,\"ready\":false}}\n{\"level\":\"info\",\"message\":\"12345\",\"attributes\":{\"count\":12345,\"ready\":false,\"quoted\":\"\\\"12345\\\"\"}}\n"
     );
     assert_eq!(String::from_utf8_lossy(&run.stderr), "");
 }
@@ -8165,9 +8165,16 @@ source = "path"
 fn main(): int {
 let count: int = match json_parse_int("12345") { Some(value) => value, None => 1 }
 let ready: bool = match json_parse_bool("false") { Some(value) => value, None => true }
-let message_count: int = match json_parse_int("12345") { Some(value) => value, None => 1 }
-let message: string = json_stringify_int(message_count)
-print event("warn", message, fields2(field_int("count", count), field_bool("ready", ready)))
+let quoted_event_count: int = match json_parse_int("12345") { Some(value) => value, None => 1 }
+let quoted_event_message: string = json_stringify_int(quoted_event_count)
+let plain_count: int = match json_parse_int("12345") { Some(value) => value, None => 1 }
+let plain_ready: bool = match json_parse_bool("false") { Some(value) => value, None => true }
+let plain_event_count: int = match json_parse_int("12345") { Some(value) => value, None => 1 }
+let plain_event_message: string = json_stringify_int(plain_event_count)
+let quoted_field_count: int = match json_parse_int("12345") { Some(value) => value, None => 1 }
+let quoted_field_message: string = json_stringify_int(quoted_field_count)
+print event("warn", json_stringify_string(quoted_event_message), fields2(field_int("count", count), field_bool("ready", ready)))
+print event("info", plain_event_message, fields3(field_int("count", plain_count), field_bool("ready", plain_ready), field_string("quoted", json_stringify_string(quoted_field_message))))
 return 48
 }
 "#,
