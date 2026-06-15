@@ -4346,7 +4346,10 @@ fn cranelift_backend_lowers_runtime_uint_print_to_native_stdout_runtime_exit_cod
         .output()
         .expect("run cranelift runtime uint stdout main binary");
     assert_eq!(run.status.code(), Some(48));
-    assert_eq!(String::from_utf8_lossy(&run.stdout), "4294967295\n65535\n");
+    assert_eq!(
+        String::from_utf8_lossy(&run.stdout),
+        "18446744073709551615\n9223372036854775808\n4611686018427387904\n"
+    );
     assert_eq!(String::from_utf8_lossy(&run.stderr), "");
 }
 
@@ -9385,17 +9388,24 @@ source = "path"
     fs::write(
         project.join("src/main.ax"),
         r#"fn main(): int {
-let max_value: u32 = 0u32
-let next_value: u16 = 0u16
+let max_value: u64 = 0u64
+let high_bit: u64 = 0u64
+let half: u64 = 0u64
 let index: int = 0
 while index < 1 {
-max_value = 4294967295u32
-next_value = 65535u16
+max_value = 18446744073709551615u64
+high_bit = 9223372036854775808u64
+half = high_bit / 2u64
 index = index + 1
 }
 print max_value
-print next_value
+print high_bit
+print half
+if max_value > high_bit && high_bit > 1u64 && half == 4611686018427387904u64 {
 return 48
+} else {
+return 1
+}
 }
 "#,
     )

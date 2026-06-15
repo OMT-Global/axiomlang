@@ -3145,6 +3145,10 @@ fn lower_i64_print_stmt(
 }
 
 fn is_i64_unsigned_print_type(ty: &Type) -> bool {
+    is_i64_unsigned_scalar_type(ty)
+}
+
+fn is_i64_unsigned_scalar_type(ty: &Type) -> bool {
     matches!(
         ty,
         Type::Numeric(
@@ -8085,7 +8089,7 @@ fn lower_i64_compare(
         return None;
     };
     Some(CraneliftI64Compare {
-        op: lower_i64_compare_op(*op),
+        op: lower_i64_compare_op(*op, &lhs.ty(), &rhs.ty()),
         lhs: lower_i64_expr(
             lhs,
             local_indexes,
@@ -8103,14 +8107,19 @@ fn lower_i64_compare(
     })
 }
 
-fn lower_i64_compare_op(op: CompareOp) -> CraneliftI64CompareOp {
-    match op {
-        CompareOp::Eq => CraneliftI64CompareOp::Eq,
-        CompareOp::Ne => CraneliftI64CompareOp::Ne,
-        CompareOp::Lt => CraneliftI64CompareOp::Lt,
-        CompareOp::Le => CraneliftI64CompareOp::Le,
-        CompareOp::Gt => CraneliftI64CompareOp::Gt,
-        CompareOp::Ge => CraneliftI64CompareOp::Ge,
+fn lower_i64_compare_op(op: CompareOp, lhs_ty: &Type, rhs_ty: &Type) -> CraneliftI64CompareOp {
+    let unsigned = is_i64_unsigned_scalar_type(lhs_ty) || is_i64_unsigned_scalar_type(rhs_ty);
+    match (op, unsigned) {
+        (CompareOp::Eq, _) => CraneliftI64CompareOp::Eq,
+        (CompareOp::Ne, _) => CraneliftI64CompareOp::Ne,
+        (CompareOp::Lt, false) => CraneliftI64CompareOp::Lt,
+        (CompareOp::Le, false) => CraneliftI64CompareOp::Le,
+        (CompareOp::Gt, false) => CraneliftI64CompareOp::Gt,
+        (CompareOp::Ge, false) => CraneliftI64CompareOp::Ge,
+        (CompareOp::Lt, true) => CraneliftI64CompareOp::Ult,
+        (CompareOp::Le, true) => CraneliftI64CompareOp::Ule,
+        (CompareOp::Gt, true) => CraneliftI64CompareOp::Ugt,
+        (CompareOp::Ge, true) => CraneliftI64CompareOp::Uge,
     }
 }
 
@@ -8219,6 +8228,7 @@ fn lower_i64_expr(
                 ArithmeticOp::Add => CraneliftI64BinaryOp::Add,
                 ArithmeticOp::Sub => CraneliftI64BinaryOp::Sub,
                 ArithmeticOp::Mul => CraneliftI64BinaryOp::Mul,
+                ArithmeticOp::Div if is_i64_unsigned_scalar_type(ty) => CraneliftI64BinaryOp::UDiv,
                 ArithmeticOp::Div => CraneliftI64BinaryOp::Div,
             };
             let expr = CraneliftI64Expr::Binary {
@@ -11640,6 +11650,8 @@ fn is_i64_compatible_type(ty: &Type) -> bool {
                     | NumericType::U8
                     | NumericType::U16
                     | NumericType::U32
+                    | NumericType::U64
+                    | NumericType::Usize
             )
         )
 }
@@ -11768,6 +11780,7 @@ fn lower_i64_cast(ty: &Type) -> Option<CraneliftI64Cast> {
         Type::Numeric(NumericType::U8) => Some(CraneliftI64Cast::Unsigned8),
         Type::Numeric(NumericType::U16) => Some(CraneliftI64Cast::Unsigned16),
         Type::Numeric(NumericType::U32) => Some(CraneliftI64Cast::Unsigned32),
+        Type::Numeric(NumericType::U64 | NumericType::Usize) => Some(CraneliftI64Cast::Signed64),
         _ => None,
     }
 }

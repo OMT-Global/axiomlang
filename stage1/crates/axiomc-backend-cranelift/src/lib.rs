@@ -36,6 +36,7 @@ pub enum I64BinaryOp {
     Sub,
     Mul,
     Div,
+    UDiv,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -46,6 +47,10 @@ pub enum I64CompareOp {
     Le,
     Gt,
     Ge,
+    Ult,
+    Ule,
+    Ugt,
+    Uge,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1351,6 +1356,10 @@ fn i64_compare_op(op: I64CompareOp) -> IntCC {
         I64CompareOp::Le => IntCC::SignedLessThanOrEqual,
         I64CompareOp::Gt => IntCC::SignedGreaterThan,
         I64CompareOp::Ge => IntCC::SignedGreaterThanOrEqual,
+        I64CompareOp::Ult => IntCC::UnsignedLessThan,
+        I64CompareOp::Ule => IntCC::UnsignedLessThanOrEqual,
+        I64CompareOp::Ugt => IntCC::UnsignedGreaterThan,
+        I64CompareOp::Uge => IntCC::UnsignedGreaterThanOrEqual,
     }
 }
 
@@ -1396,6 +1405,7 @@ fn emit_i64_expr(
                 I64BinaryOp::Sub => builder.ins().isub(lhs, rhs),
                 I64BinaryOp::Mul => builder.ins().imul(lhs, rhs),
                 I64BinaryOp::Div => builder.ins().sdiv(lhs, rhs),
+                I64BinaryOp::UDiv => builder.ins().udiv(lhs, rhs),
             })
         }
         I64Expr::Select {

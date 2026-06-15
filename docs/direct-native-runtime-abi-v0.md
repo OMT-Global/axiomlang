@@ -128,10 +128,12 @@ literal/local `int` and `i64` expressions, integer typed numeric literals cast
 to `int`, `int` values round-tripped through `i64`, local initializer
 expressions, helper `int -> int` and `int/i64` boundary functions, simple
 `int`, `i64`, signed `i8`/`i16`/`i32` and `isize` helper arguments, locals,
-returns, and casts, narrow unsigned `u8`/`u16`/`u32` helper arguments, locals,
-returns, and casts, explicit narrow integer casts with unsigned truncation and
-signed extension, typed narrow integer arithmetic and helper return values cast
-back to their source width, immediate tuple-literal scalar indexing,
+returns, and casts, unsigned `u8`/`u16`/`u32`/`u64`/`usize` helper arguments,
+locals, returns, and casts, explicit narrow integer casts with unsigned
+truncation and signed extension, typed narrow integer arithmetic and helper
+return values cast back to their source width, high-bit unsigned local values,
+unsigned comparison predicates, and unsigned division, immediate tuple-literal
+scalar indexing,
 scalar projection from local tuple bindings, immediate array-literal scalar
 indexing with literal indexes, scalar projection from local fixed-array
 bindings, immediate struct-literal scalar field access, scalar projection from
