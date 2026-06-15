@@ -10076,7 +10076,8 @@ source = "path"
         format!(
             r#"let server: int = http_server_listen("127.0.0.1:{port}")
 let served: Task<bool> = http_async_serve_route(server, "/ready", "async-response", 1)
-print await served
+let ready: bool = await served
+print ready
 print http_server_close(server)
 "#
         ),

@@ -548,12 +548,13 @@ metadata, timeout parity, and audit parity remain open under #1001.
 The async HTTP server row now has partial Cranelift evidence: the spike builds
 and runs `http_async_serve_route` over a loopback server handle while the public
 smoke asserts `generated_rust` is null, returns a `Task<bool>`, and serves a
-one-request HTTP/1.0 route fixture. It also proves the async gate separately:
-with `net` present and `async` missing, `std/http_async.ax`
-`async_serve_route(...)` must fail through the public `async` capability denial
-before backend lowering. Real
-scheduler-backed serving, concurrent clients, cancellation, timeout parity,
-non-loopback policy coverage, and audit parity remain open under #1001.
+one-request HTTP/1.0 route fixture. The awaited serve result can be stored in a
+local bool value before later output without generated Rust. It also proves the
+async gate separately: with `net` present and `async` missing,
+`std/http_async.ax` `async_serve_route(...)` must fail through the public
+`async` capability denial before backend lowering. Real scheduler-backed
+serving, concurrent clients, cancellation, timeout parity, non-loopback policy
+coverage, and audit parity remain open under #1001.
 
 The process status row now has partial direct-native evidence: the Cranelift
 spike builds and runs `std/process.ax` `run_status(...)` for literal,
