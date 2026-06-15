@@ -5333,6 +5333,7 @@ fn cranelift_backend_builds_json_serdes_binary() {
 
     let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
     assert_eq!(payload["backend"], "cranelift");
+    assert_eq!(payload["generated_rust"], Value::Null);
     let binary = payload["binary"].as_str().expect("binary path");
     let run = Command::new(binary)
         .output()
@@ -5353,6 +5354,9 @@ true
 axiom
 3
 true
+7
+false
+"7"
 {"name":"axiom","count":3,"ready":true}
 "axiom"
 no int
@@ -10982,6 +10986,16 @@ None {
 print false
 }
 }
+
+let dynamic_count: int = match parse_int("7") { Some(value) => value, None => 1 }
+let dynamic_ready: bool = match parse_bool("false") { Some(value) => value, None => true }
+let dynamic_count_value: JsonValue = value_int(dynamic_count)
+let dynamic_ready_value: JsonValue = value_bool(dynamic_ready)
+let dynamic_count_text: string = stringify_int(dynamic_count)
+let dynamic_count_string_value: JsonValue = value_string(dynamic_count_text)
+print stringify_value(dynamic_count_value)
+print stringify_value(dynamic_ready_value)
+print stringify_value(dynamic_count_string_value)
 
 match parse_value(doc()) {
 Some(value) {

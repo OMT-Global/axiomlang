@@ -730,7 +730,10 @@ alias those same direct-native paths in runtime-exit programs; scalar
 `stringify_int(...)` and `stringify_bool(...)` results can also be assigned to
 string locals that feed native stdout `print` without materializing a general
 runtime string value, and `stringify_string(...)` over those supported
-projection locals can now feed quoted native stdout lines directly. Imported
+projection locals can now feed quoted native stdout lines directly. Public
+`value_int(...)`, `value_bool(...)`, and `value_string(...)` `JsonValue`
+wrappers over supported dynamic scalar/bool string projections can also feed
+`stringify_value(...)` and native stdout output without generated Rust. Imported
 public `std/serdes.ax` known-input `to_json(...)`,
 `stringify(...)`,
 `from_json_str(...)`, `as_text(...)`, and `parse_error_message(...)` wrapper
@@ -738,7 +741,8 @@ paths now also feed direct-native known string comparisons, length projections,
 `Result` matches, `Option` matches, and process exit status without generated
 Rust for literal `Value`/object-map and literal JSON inputs. Broader dynamic
 runtime JSON parsing, broad `std/serdes` `Value` storage, `JsonValue` wrapper
-construction, and schema helper coverage remain tracked by issue #1001.
+construction beyond the evidenced scalar/string source wrappers, and schema
+helper coverage remain tracked by issue #1001.
 
 The owned move-state row has partial direct-native evidence: the Cranelift
 spike builds and runs projection-sensitive owned field moves while preserving
