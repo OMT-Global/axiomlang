@@ -6632,13 +6632,31 @@ fn cranelift_backend_lowers_env_read_to_runtime_exit_code() {
     assert_eq!(payload["backend"], "cranelift");
     assert_eq!(payload["generated_rust"], Value::Null);
     let binary = payload["binary"].as_str().expect("binary path");
+    let audit_log = temp.path().join("env-audit.jsonl");
     let run = Command::new(binary)
         .env("AXIOM_CRANELIFT_ENV_READ", "runtime-env")
+        .env("AXIOM_HOST_AUDIT_LOG", &audit_log)
         .env_remove("__AXIOM_CRANELIFT_ENV_MISSING__")
         .output()
         .expect("run cranelift env main binary");
     assert_eq!(run.status.code(), Some(48));
     assert_eq!(String::from_utf8_lossy(&run.stdout), "");
+    let audit = fs::read_to_string(&audit_log).expect("read env audit log");
+    assert!(audit.contains("\"intrinsic\":\"env_get\""), "{audit}");
+    assert!(audit.contains("\"outcome\":\"ok\""), "{audit}");
+    assert!(audit.contains("\"outcome\":\"denied\""), "{audit}");
+    assert!(
+        audit.contains("\"args\":{\"key\":\"string:24\"}"),
+        "{audit}"
+    );
+    assert!(
+        audit.contains("\"args\":{\"key\":\"string:31\"}"),
+        "{audit}"
+    );
+    assert!(
+        !audit.contains("runtime-env"),
+        "audit log should not contain environment values: {audit}"
+    );
 }
 
 #[test]

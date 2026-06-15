@@ -640,9 +640,12 @@ asserts `generated_rust` is null, plus denial evidence that a package without th
 also lowers literal-key `env_get(...)` calls and the public `std/env.ax`
 `get_env(...)` wrapper into native runtime environment lookups through the
 object backend for direct `Option<string>` matches that use `len(value)`,
-returning the runtime string length or the `None` arm when absent. Broader
-runtime environment binding, manifest allowlist parity, stored option values,
-and audit parity remain open under #1001.
+returning the runtime string length or the `None` arm when absent. That
+direct-native path also appends host audit JSONL entries when
+`AXIOM_HOST_AUDIT_LOG` is set, recording only the environment key length and the
+`ok`/`denied` outcome without recording environment values. Broader runtime
+environment binding, manifest allowlist parity, and stored option values remain
+open under #1001.
 
 The FFI call row now has partial direct-native evidence: the spike builds and
 runs a narrow C ABI `extern fn strlen(value: string): int from "c"` fixture

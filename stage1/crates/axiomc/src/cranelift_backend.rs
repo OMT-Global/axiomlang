@@ -6777,7 +6777,7 @@ fn lower_i64_env_option_match_value_expr(
         .bindings
         .first()
         .filter(|binding| binding.as_str() != "_");
-    let env_len = CraneliftI64Expr::EnvLen { key: key.clone() };
+    let env_len = i64_env_len_expr(&key, static_bindings)?;
     let then_result = lower_i64_env_some_arm_expr(
         &some_arm.expr,
         binding.map(String::as_str),
@@ -6820,9 +6820,7 @@ fn lower_i64_env_some_arm_expr(
         && let [Expr::VarRef { name, .. }] = args.as_slice()
         && name == binding
     {
-        return Some(CraneliftI64Expr::EnvLen {
-            key: key.to_string(),
-        });
+        return i64_env_len_expr(key, static_bindings);
     }
     lower_i64_return_value_expr(
         expr,
@@ -6830,6 +6828,18 @@ fn lower_i64_env_some_arm_expr(
         local_conditions,
         helper_signatures,
         static_bindings,
+    )
+}
+
+fn i64_env_len_expr(key: &str, static_bindings: &I64StaticBindings) -> Option<CraneliftI64Expr> {
+    i64_audited_env_expr(
+        "env_get",
+        key.len(),
+        CraneliftI64Expr::EnvLen {
+            key: key.to_string(),
+        },
+        static_bindings,
+        CraneliftI64AuditSuccess::NonNegative,
     )
 }
 
@@ -11948,6 +11958,23 @@ fn i64_audited_fs_expr_with_success(
         package: package.display().to_string(),
         path_len,
         content_len,
+        success,
+        result: Box::new(result),
+    })
+}
+
+fn i64_audited_env_expr(
+    intrinsic: &str,
+    key_len: usize,
+    result: CraneliftI64Expr,
+    static_bindings: &I64StaticBindings,
+    success: CraneliftI64AuditSuccess,
+) -> Option<CraneliftI64Expr> {
+    let package = static_bindings.package_root.as_deref()?;
+    Some(CraneliftI64Expr::AuditEnv {
+        intrinsic: intrinsic.to_string(),
+        package: package.display().to_string(),
+        key_len,
         success,
         result: Box::new(result),
     })

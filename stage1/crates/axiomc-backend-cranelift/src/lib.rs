@@ -110,6 +110,13 @@ pub enum I64Expr {
     EnvLen {
         key: String,
     },
+    AuditEnv {
+        intrinsic: String,
+        package: String,
+        key_len: usize,
+        success: I64AuditSuccess,
+        result: Box<I64Expr>,
+    },
     FileLen {
         path: String,
         max_bytes: u64,
@@ -523,9 +530,7 @@ fn emit_i64_exit_object(
     open_sig.returns.push(AbiParam::new(types::I32));
     let open_id = module
         .declare_function("open", Linkage::Import, &open_sig)
-        .map_err(|message| {
-            CraneliftBackendError::new(format!("declare open import: {message}"))
-        })?;
+        .map_err(|message| CraneliftBackendError::new(format!("declare open import: {message}")))?;
     let mut creat_sig = module.make_signature();
     creat_sig.params.push(AbiParam::new(pointer_type));
     creat_sig.params.push(AbiParam::new(types::I32));
@@ -1134,7 +1139,9 @@ fn emit_i64_stmt(
     stmt: &I64Stmt,
 ) -> Result<(), CraneliftBackendError> {
     match stmt {
-        I64Stmt::Assign(assign) => emit_i64_assign(builder, locals, function_refs, runtime_refs, assign),
+        I64Stmt::Assign(assign) => {
+            emit_i64_assign(builder, locals, function_refs, runtime_refs, assign)
+        }
         I64Stmt::WriteText { stream, text } => {
             emit_i64_write_text(module, builder, write_ref, output_data_ids, *stream, text)
         }
@@ -1558,7 +1565,9 @@ fn emit_i64_exit_body(
     body: &I64ExitBody,
 ) -> Result<(), CraneliftBackendError> {
     match body {
-        I64ExitBody::Return(result) => emit_i64_return(builder, locals, function_refs, runtime_refs, result),
+        I64ExitBody::Return(result) => {
+            emit_i64_return(builder, locals, function_refs, runtime_refs, result)
+        }
         I64ExitBody::BlockReturn(block) => {
             emit_i64_stmts(
                 module,
@@ -1620,7 +1629,13 @@ fn emit_i64_exit_body(
                 output_data_ids,
                 &then_block.stmts,
             )?;
-            emit_i64_return(builder, locals, function_refs, runtime_refs, &then_block.result)?;
+            emit_i64_return(
+                builder,
+                locals,
+                function_refs,
+                runtime_refs,
+                &then_block.result,
+            )?;
 
             builder.switch_to_block(else_cranelift_block);
             builder.seal_block(else_cranelift_block);
@@ -1634,7 +1649,13 @@ fn emit_i64_exit_body(
                 output_data_ids,
                 &else_block.stmts,
             )?;
-            emit_i64_return(builder, locals, function_refs, runtime_refs, &else_block.result)
+            emit_i64_return(
+                builder,
+                locals,
+                function_refs,
+                runtime_refs,
+                &else_block.result,
+            )
         }
     }
 }
@@ -1651,9 +1672,14 @@ fn emit_i64_value_body(
     body: &I64ValueBody,
 ) -> Result<(), CraneliftBackendError> {
     match body {
-        I64ValueBody::Return(results) => {
-            emit_i64_value_return(builder, locals, function_refs, runtime_refs, returns, results)
-        }
+        I64ValueBody::Return(results) => emit_i64_value_return(
+            builder,
+            locals,
+            function_refs,
+            runtime_refs,
+            returns,
+            results,
+        ),
         I64ValueBody::BlockReturn(block) => {
             emit_i64_stmts(
                 module,
@@ -1665,7 +1691,14 @@ fn emit_i64_value_body(
                 output_data_ids,
                 &block.stmts,
             )?;
-            emit_i64_value_return(builder, locals, function_refs, runtime_refs, returns, &block.results)
+            emit_i64_value_return(
+                builder,
+                locals,
+                function_refs,
+                runtime_refs,
+                returns,
+                &block.results,
+            )
         }
         I64ValueBody::IfReturn {
             cond,
@@ -1681,11 +1714,25 @@ fn emit_i64_value_body(
 
             builder.switch_to_block(then_block);
             builder.seal_block(then_block);
-            emit_i64_value_return(builder, locals, function_refs, runtime_refs, returns, then_results)?;
+            emit_i64_value_return(
+                builder,
+                locals,
+                function_refs,
+                runtime_refs,
+                returns,
+                then_results,
+            )?;
 
             builder.switch_to_block(else_block);
             builder.seal_block(else_block);
-            emit_i64_value_return(builder, locals, function_refs, runtime_refs, returns, else_results)
+            emit_i64_value_return(
+                builder,
+                locals,
+                function_refs,
+                runtime_refs,
+                returns,
+                else_results,
+            )
         }
         I64ValueBody::IfBlockReturn {
             cond,
@@ -1715,7 +1762,14 @@ fn emit_i64_value_body(
                 output_data_ids,
                 &then_block.stmts,
             )?;
-            emit_i64_value_return(builder, locals, function_refs, runtime_refs, returns, &then_block.results)?;
+            emit_i64_value_return(
+                builder,
+                locals,
+                function_refs,
+                runtime_refs,
+                returns,
+                &then_block.results,
+            )?;
 
             builder.switch_to_block(else_cranelift_block);
             builder.seal_block(else_cranelift_block);
@@ -1729,7 +1783,14 @@ fn emit_i64_value_body(
                 output_data_ids,
                 &else_block.stmts,
             )?;
-            emit_i64_value_return(builder, locals, function_refs, runtime_refs, returns, &else_block.results)
+            emit_i64_value_return(
+                builder,
+                locals,
+                function_refs,
+                runtime_refs,
+                returns,
+                &else_block.results,
+            )
         }
     }
 }
@@ -1793,13 +1854,27 @@ fn emit_i64_condition(
             let value = builder.ins().iconst(types::I8, i64::from(*value));
             Ok(builder.ins().icmp_imm(IntCC::NotEqual, value, 0))
         }
-        I64Condition::Compare(compare) => emit_i64_compare(builder, locals, function_refs, runtime_refs, compare),
-        I64Condition::And { lhs, rhs } => {
-            emit_i64_short_circuit_condition(builder, locals, function_refs, runtime_refs, lhs, rhs, false)
+        I64Condition::Compare(compare) => {
+            emit_i64_compare(builder, locals, function_refs, runtime_refs, compare)
         }
-        I64Condition::Or { lhs, rhs } => {
-            emit_i64_short_circuit_condition(builder, locals, function_refs, runtime_refs, lhs, rhs, true)
-        }
+        I64Condition::And { lhs, rhs } => emit_i64_short_circuit_condition(
+            builder,
+            locals,
+            function_refs,
+            runtime_refs,
+            lhs,
+            rhs,
+            false,
+        ),
+        I64Condition::Or { lhs, rhs } => emit_i64_short_circuit_condition(
+            builder,
+            locals,
+            function_refs,
+            runtime_refs,
+            lhs,
+            rhs,
+            true,
+        ),
     }
 }
 
@@ -1884,7 +1959,26 @@ fn emit_i64_expr(
         I64Expr::SleepMs { milliseconds } => {
             emit_i64_sleep_ms_expr(builder, locals, function_refs, runtime_refs, milliseconds)
         }
-        I64Expr::EnvLen { key } => emit_i64_env_len_expr(builder, runtime_refs.getenv, runtime_refs.strlen, key),
+        I64Expr::EnvLen { key } => {
+            emit_i64_env_len_expr(builder, runtime_refs.getenv, runtime_refs.strlen, key)
+        }
+        I64Expr::AuditEnv {
+            intrinsic,
+            package,
+            key_len,
+            success,
+            result,
+        } => emit_i64_audit_env_expr(
+            builder,
+            locals,
+            function_refs,
+            runtime_refs,
+            intrinsic,
+            package,
+            *key_len,
+            *success,
+            result,
+        ),
         I64Expr::FileLen { path, max_bytes } => {
             emit_i64_file_len_expr(builder, runtime_refs, path, *max_bytes)
         }
@@ -2028,11 +2122,16 @@ fn emit_i64_env_len_expr(
 ) -> Result<cranelift_codegen::ir::Value, CraneliftBackendError> {
     let key_len = u32::try_from(key.len() + 1)
         .map_err(|_| CraneliftBackendError::new("environment key is too large"))?;
-    let key_slot =
-        builder.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, key_len, 0));
+    let key_slot = builder.create_sized_stack_slot(StackSlotData::new(
+        StackSlotKind::ExplicitSlot,
+        key_len,
+        0,
+    ));
     for (offset, byte) in key.bytes().chain(std::iter::once(0)).enumerate() {
         let byte_value = builder.ins().iconst(types::I8, i64::from(byte));
-        builder.ins().stack_store(byte_value, key_slot, offset as i32);
+        builder
+            .ins()
+            .stack_store(byte_value, key_slot, offset as i32);
     }
     let key_ptr = builder.ins().stack_addr(types::I64, key_slot, 0);
     let call = builder.ins().call(getenv_ref, &[key_ptr]);
@@ -2081,16 +2180,23 @@ fn emit_i64_file_len_expr(
         .map_err(|_| CraneliftBackendError::new("filesystem read cap is too large"))?;
     let path_len = u32::try_from(path.len() + 1)
         .map_err(|_| CraneliftBackendError::new("filesystem path is too large"))?;
-    let path_slot = builder
-        .create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, path_len, 0));
+    let path_slot = builder.create_sized_stack_slot(StackSlotData::new(
+        StackSlotKind::ExplicitSlot,
+        path_len,
+        0,
+    ));
     for (offset, byte) in path.bytes().chain(std::iter::once(0)).enumerate() {
         let byte_value = builder.ins().iconst(types::I8, i64::from(byte));
-        builder.ins().stack_store(byte_value, path_slot, offset as i32);
+        builder
+            .ins()
+            .stack_store(byte_value, path_slot, offset as i32);
     }
 
     let path_ptr = builder.ins().stack_addr(types::I64, path_slot, 0);
     let open_flags = builder.ins().iconst(types::I32, 0);
-    let open_call = builder.ins().call(runtime_refs.open, &[path_ptr, open_flags]);
+    let open_call = builder
+        .ins()
+        .call(runtime_refs.open, &[path_ptr, open_flags]);
     let fd = builder.inst_results(open_call)[0];
 
     let missing_block = builder.create_block();
@@ -2163,11 +2269,16 @@ fn emit_i64_path_ptr(
     }
     let path_len = u32::try_from(path.len() + 1)
         .map_err(|_| CraneliftBackendError::new("filesystem path is too large"))?;
-    let path_slot = builder
-        .create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, path_len, 0));
+    let path_slot = builder.create_sized_stack_slot(StackSlotData::new(
+        StackSlotKind::ExplicitSlot,
+        path_len,
+        0,
+    ));
     for (offset, byte) in path.bytes().chain(std::iter::once(0)).enumerate() {
         let byte_value = builder.ins().iconst(types::I8, i64::from(byte));
-        builder.ins().stack_store(byte_value, path_slot, offset as i32);
+        builder
+            .ins()
+            .stack_store(byte_value, path_slot, offset as i32);
     }
     Ok(builder.ins().stack_addr(types::I64, path_slot, 0))
 }
@@ -2196,9 +2307,9 @@ fn i64_fs_audit_line(
     outcome: &str,
 ) -> String {
     let args = match content_len {
-        Some(content_len) => format!(
-            "{{\"path\":\"string:{path_len}\",\"content\":\"string:{content_len}\"}}"
-        ),
+        Some(content_len) => {
+            format!("{{\"path\":\"string:{path_len}\",\"content\":\"string:{content_len}\"}}")
+        }
         None => format!("{{\"path\":\"string:{path_len}\"}}"),
     };
     format!(
@@ -2206,6 +2317,15 @@ fn i64_fs_audit_line(
         i64_json_escape(package),
         i64_json_escape(intrinsic),
         args,
+        i64_json_escape(outcome)
+    )
+}
+
+fn i64_env_audit_line(intrinsic: &str, package: &str, key_len: usize, outcome: &str) -> String {
+    format!(
+        "{{\"package\":\"{}\",\"intrinsic\":\"{}\",\"args\":{{\"key\":\"string:{key_len}\"}},\"outcome\":\"{}\"}}\n",
+        i64_json_escape(package),
+        i64_json_escape(intrinsic),
         i64_json_escape(outcome)
     )
 }
@@ -2320,6 +2440,51 @@ fn emit_i64_audit_fs_expr(
     Ok(builder.block_params(merge_block)[0])
 }
 
+fn emit_i64_audit_env_expr(
+    builder: &mut FunctionBuilder<'_>,
+    locals: &[Variable],
+    function_refs: &[FuncRef],
+    runtime_refs: I64RuntimeRefs,
+    intrinsic: &str,
+    package: &str,
+    key_len: usize,
+    success: I64AuditSuccess,
+    result: &I64Expr,
+) -> Result<cranelift_codegen::ir::Value, CraneliftBackendError> {
+    let status = emit_i64_expr(builder, locals, function_refs, runtime_refs, result)?;
+    let ok_line = i64_env_audit_line(intrinsic, package, key_len, "ok");
+    let denied_line = i64_env_audit_line(intrinsic, package, key_len, "denied");
+
+    let ok_block = builder.create_block();
+    let denied_block = builder.create_block();
+    let merge_block = builder.create_block();
+    builder.append_block_param(merge_block, types::I64);
+
+    let ok = match success {
+        I64AuditSuccess::ExitZero => builder.ins().icmp_imm(IntCC::Equal, status, 0),
+        I64AuditSuccess::NonNegative => {
+            builder
+                .ins()
+                .icmp_imm(IntCC::SignedGreaterThanOrEqual, status, 0)
+        }
+    };
+    builder.ins().brif(ok, ok_block, &[], denied_block, &[]);
+
+    builder.switch_to_block(ok_block);
+    builder.seal_block(ok_block);
+    emit_i64_host_audit_line(builder, runtime_refs, &ok_line)?;
+    builder.ins().jump(merge_block, &[BlockArg::Value(status)]);
+
+    builder.switch_to_block(denied_block);
+    builder.seal_block(denied_block);
+    emit_i64_host_audit_line(builder, runtime_refs, &denied_line)?;
+    builder.ins().jump(merge_block, &[BlockArg::Value(status)]);
+
+    builder.switch_to_block(merge_block);
+    builder.seal_block(merge_block);
+    Ok(builder.block_params(merge_block)[0])
+}
+
 fn emit_i64_runtime_fs_guard_expr(
     builder: &mut FunctionBuilder<'_>,
     locals: &[Variable],
@@ -2372,9 +2537,7 @@ fn emit_i64_runtime_fs_guard_expr(
         .ins()
         .call(runtime_refs.realpath, &[fallback_ptr, resolved_ptr]);
     let fallback_resolved = builder.inst_results(fallback_call)[0];
-    let fallback_missing = builder
-        .ins()
-        .icmp_imm(IntCC::Equal, fallback_resolved, 0);
+    let fallback_missing = builder.ins().icmp_imm(IntCC::Equal, fallback_resolved, 0);
     builder.ins().brif(
         fallback_missing,
         denied_block,
@@ -2416,18 +2579,19 @@ fn emit_i64_canonical_root_check(
         .map_err(|_| CraneliftBackendError::new("filesystem root is too large"))?;
     let root_ptr = emit_i64_path_ptr(builder, root)?;
     let root_len_value = builder.ins().iconst(types::I64, root_len);
-    let strncmp_call = builder
-        .ins()
-        .call(runtime_refs.strncmp, &[canonical_ptr, root_ptr, root_len_value]);
+    let strncmp_call = builder.ins().call(
+        runtime_refs.strncmp,
+        &[canonical_ptr, root_ptr, root_len_value],
+    );
     let strncmp_result = builder.inst_results(strncmp_call)[0];
-    let prefix_matches = builder
-        .ins()
-        .icmp_imm(IntCC::Equal, strncmp_result, 0);
+    let prefix_matches = builder.ins().icmp_imm(IntCC::Equal, strncmp_result, 0);
     if root == "/" {
         return Ok(prefix_matches);
     }
     let boundary_ptr = builder.ins().iadd(canonical_ptr, root_len_value);
-    let boundary = builder.ins().load(types::I8, MemFlags::new(), boundary_ptr, 0);
+    let boundary = builder
+        .ins()
+        .load(types::I8, MemFlags::new(), boundary_ptr, 0);
     let is_end = builder.ins().icmp_imm(IntCC::Equal, boundary, 0);
     let is_separator = builder
         .ins()
@@ -2451,11 +2615,16 @@ fn emit_i64_write_file_expr(
         .map_err(|_| CraneliftBackendError::new("filesystem path is too large"))?;
     let content_len = u32::try_from(content.len())
         .map_err(|_| CraneliftBackendError::new("filesystem write content is too large"))?;
-    let path_slot = builder
-        .create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, path_len, 0));
+    let path_slot = builder.create_sized_stack_slot(StackSlotData::new(
+        StackSlotKind::ExplicitSlot,
+        path_len,
+        0,
+    ));
     for (offset, byte) in path.bytes().chain(std::iter::once(0)).enumerate() {
         let byte_value = builder.ins().iconst(types::I8, i64::from(byte));
-        builder.ins().stack_store(byte_value, path_slot, offset as i32);
+        builder
+            .ins()
+            .stack_store(byte_value, path_slot, offset as i32);
     }
     let content_slot = builder.create_sized_stack_slot(StackSlotData::new(
         StackSlotKind::ExplicitSlot,
@@ -2498,7 +2667,9 @@ fn emit_i64_write_file_expr(
     let full_write = builder.ins().icmp(IntCC::Equal, written, expected_len);
     let success_value = builder.ins().iconst(types::I64, 0);
     let failure_value = builder.ins().iconst(types::I64, -1);
-    let write_result = builder.ins().select(full_write, success_value, failure_value);
+    let write_result = builder
+        .ins()
+        .select(full_write, success_value, failure_value);
     builder
         .ins()
         .jump(close_block, &[BlockArg::Value(write_result)]);
@@ -2511,7 +2682,9 @@ fn emit_i64_write_file_expr(
     let close_ok = builder.ins().icmp_imm(IntCC::Equal, close_result, 0);
     let write_ok = builder.ins().icmp_imm(IntCC::Equal, write_result, 0);
     let ok = builder.ins().band(close_ok, write_ok);
-    builder.ins().brif(ok, success_block, &[], failed_block, &[]);
+    builder
+        .ins()
+        .brif(ok, success_block, &[], failed_block, &[]);
 
     builder.switch_to_block(success_block);
     builder.seal_block(success_block);
@@ -2543,11 +2716,16 @@ fn emit_i64_append_file_expr(
         .map_err(|_| CraneliftBackendError::new("filesystem path is too large"))?;
     let content_len = u32::try_from(content.len())
         .map_err(|_| CraneliftBackendError::new("filesystem append content is too large"))?;
-    let path_slot = builder
-        .create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, path_len, 0));
+    let path_slot = builder.create_sized_stack_slot(StackSlotData::new(
+        StackSlotKind::ExplicitSlot,
+        path_len,
+        0,
+    ));
     for (offset, byte) in path.bytes().chain(std::iter::once(0)).enumerate() {
         let byte_value = builder.ins().iconst(types::I8, i64::from(byte));
-        builder.ins().stack_store(byte_value, path_slot, offset as i32);
+        builder
+            .ins()
+            .stack_store(byte_value, path_slot, offset as i32);
     }
     let content_slot = builder.create_sized_stack_slot(StackSlotData::new(
         StackSlotKind::ExplicitSlot,
@@ -2564,7 +2742,9 @@ fn emit_i64_append_file_expr(
         builder.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 3, 0));
     for (offset, byte) in b"ab\0".iter().enumerate() {
         let byte_value = builder.ins().iconst(types::I8, i64::from(*byte));
-        builder.ins().stack_store(byte_value, mode_slot, offset as i32);
+        builder
+            .ins()
+            .stack_store(byte_value, mode_slot, offset as i32);
     }
 
     let path_ptr = builder.ins().stack_addr(types::I64, path_slot, 0);
@@ -2600,7 +2780,9 @@ fn emit_i64_append_file_expr(
     let full_write = builder.ins().icmp(IntCC::Equal, written, element_count);
     let success_value = builder.ins().iconst(types::I64, 0);
     let failure_value = builder.ins().iconst(types::I64, -1);
-    let write_result = builder.ins().select(full_write, success_value, failure_value);
+    let write_result = builder
+        .ins()
+        .select(full_write, success_value, failure_value);
     builder
         .ins()
         .jump(close_block, &[BlockArg::Value(write_result)]);
@@ -2613,7 +2795,9 @@ fn emit_i64_append_file_expr(
     let close_ok = builder.ins().icmp_imm(IntCC::Equal, close_result, 0);
     let write_ok = builder.ins().icmp_imm(IntCC::Equal, write_result, 0);
     let ok = builder.ins().band(close_ok, write_ok);
-    builder.ins().brif(ok, success_block, &[], failed_block, &[]);
+    builder
+        .ins()
+        .brif(ok, success_block, &[], failed_block, &[]);
 
     builder.switch_to_block(success_block);
     builder.seal_block(success_block);
@@ -2642,17 +2826,24 @@ fn emit_i64_create_file_expr(
     }
     let path_len = u32::try_from(path.len() + 1)
         .map_err(|_| CraneliftBackendError::new("filesystem path is too large"))?;
-    let path_slot = builder
-        .create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, path_len, 0));
+    let path_slot = builder.create_sized_stack_slot(StackSlotData::new(
+        StackSlotKind::ExplicitSlot,
+        path_len,
+        0,
+    ));
     for (offset, byte) in path.bytes().chain(std::iter::once(0)).enumerate() {
         let byte_value = builder.ins().iconst(types::I8, i64::from(byte));
-        builder.ins().stack_store(byte_value, path_slot, offset as i32);
+        builder
+            .ins()
+            .stack_store(byte_value, path_slot, offset as i32);
     }
     let mode_slot =
         builder.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 3, 0));
     for (offset, byte) in b"wx\0".iter().enumerate() {
         let byte_value = builder.ins().iconst(types::I8, i64::from(*byte));
-        builder.ins().stack_store(byte_value, mode_slot, offset as i32);
+        builder
+            .ins()
+            .stack_store(byte_value, mode_slot, offset as i32);
     }
 
     let path_ptr = builder.ins().stack_addr(types::I64, path_slot, 0);
@@ -2883,7 +3074,9 @@ fn emit_i64_process_status_expr(
     ));
     for (offset, byte) in command.bytes().chain(std::iter::once(0)).enumerate() {
         let byte_value = builder.ins().iconst(types::I8, i64::from(byte));
-        builder.ins().stack_store(byte_value, command_slot, offset as i32);
+        builder
+            .ins()
+            .stack_store(byte_value, command_slot, offset as i32);
     }
 
     let command_ptr = builder.ins().stack_addr(types::I64, command_slot, 0);
@@ -2924,7 +3117,9 @@ fn emit_i64_process_status_expr(
     let status = builder.ins().sextend(types::I64, status);
     let status_shift = builder.ins().iconst(types::I64, 256);
     let exit_code = builder.ins().sdiv(status, status_shift);
-    builder.ins().jump(merge_block, &[BlockArg::Value(exit_code)]);
+    builder
+        .ins()
+        .jump(merge_block, &[BlockArg::Value(exit_code)]);
 
     builder.switch_to_block(missing_block);
     builder.seal_block(missing_block);
@@ -2972,9 +3167,13 @@ fn emit_i64_sleep_ms_expr(
         .ins()
         .icmp_imm(IntCC::SignedGreaterThan, milliseconds, 1_000);
     let too_large_result = builder.ins().iconst(types::I64, -1);
-    builder
-        .ins()
-        .brif(is_too_large, merge_block, &[BlockArg::Value(too_large_result)], sleep_block, &[]);
+    builder.ins().brif(
+        is_too_large,
+        merge_block,
+        &[BlockArg::Value(too_large_result)],
+        sleep_block,
+        &[],
+    );
 
     builder.switch_to_block(sleep_block);
     builder.seal_block(sleep_block);
