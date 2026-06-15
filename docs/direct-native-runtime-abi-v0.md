@@ -524,14 +524,15 @@ representation remain tracked by issue #1001.
 The borrowed-slice row has partial direct-native evidence: the Cranelift spike
 evaluates array-backed borrowed slices through `len`, `first`, `last`, indexing,
 and function returns. The direct-native runtime path now also lowers narrow
-static-range fixed-array slices such as `values[1:]` and `values[:2]` through
-`len`, `first`, and `last` for scalar and bool elements by projecting the
-underlying fixed-array slots, including helper-parameter arrays feeding a
-direct-native process exit status. Static-range fixed-array slices also support
-narrow literal and dynamic indexing over the sliced window through the same
-projection slots, including pre-runtime slice locals that alias the projected
-fixed-array slots. Broader borrowed-slice aliasing, dynamic slice bounds, slice
-returns, and host ABI coverage remain tracked by issue #1001.
+static-range fixed-array slices using literal or static scalar bounds such as
+`values[1:]`, `values[START:]`, `values[:2]`, and `values[:END]` through `len`,
+`first`, and `last` for scalar and bool elements by projecting the underlying
+fixed-array slots, including helper-parameter arrays feeding a direct-native
+process exit status. Static-range fixed-array slices also support narrow literal
+and dynamic indexing over the sliced window through the same projection slots,
+including pre-runtime slice locals that alias the projected fixed-array slots.
+Broader borrowed-slice aliasing, dynamic slice bounds, slice returns, and host
+ABI coverage remain tracked by issue #1001.
 
 The map lookup row has partial direct-native evidence: the Cranelift spike now
 builds and runs direct map indexing, `get`, `get_or_default`,
@@ -553,12 +554,12 @@ local `Option<string>` facts that are matched later in the same body.
 Pre-runtime local map bindings initialized from inline map literals can feed the
 same `get_or_default`, `map_contains_key`, and `get` lowering, and
 `len(keys(...))`/`len(map_keys(...))` can count static map keys without
-materializing a runtime key array. Static scalar integer keys can also feed
-inline and pre-runtime map lookup, contains, and get-or-default lowering.
-Imported public `std/collections.ax` `contains`, `get`, `get_or_default`, and
-`keys` map wrappers now alias the same direct-native i64 lowering for static
-string/int map-local cases. Literal indexes into static string key arrays can
-also feed known string length
+materializing a runtime key array. Static scalar integer and boolean keys can
+also feed inline and pre-runtime map lookup, contains, and get-or-default
+lowering. Imported public `std/collections.ax` `contains`, `get`,
+`get_or_default`, and `keys` map wrappers now alias the same direct-native i64
+lowering for static string/int map-local cases. Literal indexes into static
+string key arrays can also feed known string length
 lowering, and non-literal scalar indexes into those static string key arrays can
 select among known key byte lengths. Dynamic key-array value projection locals
 whose index is derived from a prior collection predicate local can also feed

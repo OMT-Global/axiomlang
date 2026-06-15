@@ -288,6 +288,16 @@ pub fn compile_cranelift_hello_spike(
             Diagnostic::new("build", err.to_string()).with_path(object_path.display().to_string())
         });
     }
+    if program.stmts.is_empty()
+        && program
+            .functions
+            .iter()
+            .any(|function| function.source_name == "main" && function.params.is_empty())
+    {
+        return Err(unsupported(
+            "main function is outside the direct-native i64 ABI subset",
+        ));
+    }
     let lines = collect_output_lines(program, package_root, fs_root)?;
     axiomc_backend_cranelift::compile_output_lines(&lines, object_path, binary_path).map_err(
         |err| {
@@ -1355,6 +1365,7 @@ fn lower_i64_aggregate_return_body(
                     &mut locals,
                     &mut local_indexes,
                     &mut local_conditions,
+                    static_bindings,
                     false,
                 )?;
             }
@@ -2546,6 +2557,7 @@ fn lower_i64_body(
                     &mut locals,
                     &mut local_indexes,
                     &mut local_conditions,
+                    static_bindings,
                     false,
                 )?;
             }
@@ -3242,6 +3254,7 @@ fn lower_i64_runtime_let_stmts(
             locals,
             local_indexes,
             local_conditions,
+            static_bindings,
             true,
         );
     }
@@ -6698,10 +6711,10 @@ fn lower_i64_byte_slice_eq_condition(
         return None;
     };
     if !matches!(
-        i64_fixed_array_or_slice_element(left)?,
+        i64_fixed_array_or_slice_element(left, static_bindings)?,
         Type::Numeric(NumericType::U8)
     ) || !matches!(
-        i64_fixed_array_or_slice_element(right)?,
+        i64_fixed_array_or_slice_element(right, static_bindings)?,
         Type::Numeric(NumericType::U8)
     ) {
         return None;
@@ -7854,6 +7867,7 @@ fn lower_i64_slice_projection_aliases(
     locals: &mut Vec<CraneliftI64Expr>,
     local_indexes: &mut HashMap<String, usize>,
     local_conditions: &mut HashMap<String, CraneliftI64Condition>,
+    static_bindings: &I64StaticBindings,
     runtime: bool,
 ) -> Option<Vec<CraneliftI64Stmt>> {
     let Expr::Slice {
@@ -7869,7 +7883,12 @@ fn lower_i64_slice_projection_aliases(
     else {
         return None;
     };
-    let (start, end) = i64_static_slice_range(*base_size, start.as_deref(), end.as_deref())?;
+    let (start, end) = i64_static_slice_range(
+        *base_size,
+        start.as_deref(),
+        end.as_deref(),
+        static_bindings,
+    )?;
     let mut assigns = Vec::new();
     for (slice_index, base_index) in (start..end).enumerate() {
         let base_key = i64_array_projection_key(base_name, base_index);
@@ -8964,7 +8983,7 @@ fn lower_i64_slice_projection_index_expr(
         }
         return Some(result);
     }
-    let (name, start, size) = i64_static_slice_base_range(base)?;
+    let (name, start, size) = i64_static_slice_base_range(base, static_bindings)?;
     if size == 0 {
         return None;
     }
@@ -9365,10 +9384,10 @@ fn lower_i64_map_key_expr(expr: &Expr, static_bindings: &I64StaticBindings) -> O
     if let Some(text) = i64_string_text(expr, static_bindings) {
         return Some(I64MapKey::Text(text));
     }
-    match expr {
-        Expr::Literal(LiteralValue::Bool(value)) => Some(I64MapKey::Bool(*value)),
-        _ => i64_static_scalar_value(expr, static_bindings).map(I64MapKey::Int),
+    if let Some(value) = i64_static_bool_value(expr, static_bindings) {
+        return Some(I64MapKey::Bool(value));
     }
+    i64_static_scalar_value(expr, static_bindings).map(I64MapKey::Int)
 }
 
 fn i64_map_literal_entries<'a>(
@@ -9814,7 +9833,7 @@ fn lower_i64_fixed_array_intrinsic_expr(
             return Some(length);
         }
     }
-    let element = i64_fixed_array_or_slice_element(arg)?;
+    let element = i64_fixed_array_or_slice_element(arg, static_bindings)?;
     if !is_i64_array_param_element_type(&element) {
         return None;
     }
@@ -10326,7 +10345,7 @@ fn lower_i64_fixed_array_bool_intrinsic_expr(
     let [arg] = args else {
         return None;
     };
-    let element = i64_fixed_array_or_slice_element(arg)?;
+    let element = i64_fixed_array_or_slice_element(arg, static_bindings)?;
     if !matches!(element, Type::Bool) {
         return None;
     }
@@ -10348,10 +10367,13 @@ fn lower_i64_fixed_array_bool_intrinsic_expr(
     elements.get(index).cloned()
 }
 
-fn i64_fixed_array_or_slice_element(arg: &Expr) -> Option<Type> {
+fn i64_fixed_array_or_slice_element(
+    arg: &Expr,
+    static_bindings: &I64StaticBindings,
+) -> Option<Type> {
     match arg {
         Expr::Slice { base, .. } => {
-            let (_, _, _) = i64_static_slice_base_range(arg)?;
+            let (_, _, _) = i64_static_slice_base_range(arg, static_bindings)?;
             let Expr::VarRef {
                 ty: Type::Array(element, Some(_)),
                 ..
@@ -10381,7 +10403,10 @@ fn i64_fixed_array_or_slice_element(arg: &Expr) -> Option<Type> {
     }
 }
 
-fn i64_static_slice_base_range(arg: &Expr) -> Option<(&str, usize, usize)> {
+fn i64_static_slice_base_range<'a>(
+    arg: &'a Expr,
+    static_bindings: &I64StaticBindings,
+) -> Option<(&'a str, usize, usize)> {
     let Expr::Slice {
         base, start, end, ..
     } = arg
@@ -10395,7 +10420,12 @@ fn i64_static_slice_base_range(arg: &Expr) -> Option<(&str, usize, usize)> {
     else {
         return None;
     };
-    let (start, end) = i64_static_slice_range(*base_size, start.as_deref(), end.as_deref())?;
+    let (start, end) = i64_static_slice_range(
+        *base_size,
+        start.as_deref(),
+        end.as_deref(),
+        static_bindings,
+    )?;
     Some((name.as_str(), start, end - start))
 }
 
@@ -10403,16 +10433,22 @@ fn i64_static_slice_range(
     base_size: usize,
     start: Option<&Expr>,
     end: Option<&Expr>,
+    static_bindings: &I64StaticBindings,
 ) -> Option<(usize, usize)> {
     let start = match start {
-        Some(expr) => lower_i64_literal_index(expr)?,
+        Some(expr) => lower_i64_static_index(expr, static_bindings)?,
         None => 0,
     };
     let end = match end {
-        Some(expr) => lower_i64_literal_index(expr)?,
+        Some(expr) => lower_i64_static_index(expr, static_bindings)?,
         None => base_size,
     };
     (start <= end && end <= base_size).then_some((start, end))
+}
+
+fn lower_i64_static_index(expr: &Expr, static_bindings: &I64StaticBindings) -> Option<usize> {
+    let value = i64_static_scalar_value(expr, static_bindings)?;
+    usize::try_from(value).ok()
 }
 
 fn lower_i64_literal_index(expr: &Expr) -> Option<usize> {
@@ -10910,7 +10946,12 @@ fn lower_i64_array_or_slice_call_arg_exprs(
     if !is_i64_array_param_element_type(element) {
         return None;
     }
-    let (start, end) = i64_static_slice_range(*base_size, start.as_deref(), end.as_deref())?;
+    let (start, end) = i64_static_slice_range(
+        *base_size,
+        start.as_deref(),
+        end.as_deref(),
+        static_bindings,
+    )?;
     (start..end)
         .map(|index| {
             local_indexes

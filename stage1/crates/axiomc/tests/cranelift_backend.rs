@@ -1250,6 +1250,46 @@ fn cranelift_backend_lowers_fixed_array_intrinsics_to_runtime_exit_code() {
 
 #[cfg(not(windows))]
 #[test]
+fn cranelift_backend_lowers_static_slice_bounds_to_runtime_exit_code() {
+    if which::which("cc").is_err() {
+        eprintln!("skipping cranelift backend smoke test because cc is unavailable");
+        return;
+    }
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("static-slice-bounds-main-exit");
+    write_static_slice_bounds_main_exit_project(&project);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args([
+            "build",
+            project.to_str().expect("project path"),
+            "--backend",
+            "cranelift",
+            "--json",
+        ])
+        .output()
+        .expect("run axiomc build --backend cranelift");
+    assert!(
+        output.status.success(),
+        "cranelift static slice bounds main build failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+    assert_eq!(payload["backend"], "cranelift");
+    assert_eq!(payload["generated_rust"], Value::Null);
+    let binary = payload["binary"].as_str().expect("binary path");
+    let run = Command::new(binary)
+        .output()
+        .expect("run cranelift static slice bounds main binary");
+    assert_eq!(run.status.code(), Some(48));
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "");
+}
+
+#[cfg(not(windows))]
+#[test]
 fn cranelift_backend_lowers_string_literal_len_to_runtime_exit_code() {
     if which::which("cc").is_err() {
         eprintln!("skipping cranelift backend smoke test because cc is unavailable");
@@ -1286,6 +1326,38 @@ fn cranelift_backend_lowers_string_literal_len_to_runtime_exit_code() {
         .expect("run cranelift string literal len main binary");
     assert_eq!(run.status.code(), Some(48));
     assert_eq!(String::from_utf8_lossy(&run.stdout), "");
+}
+
+#[test]
+fn cranelift_backend_rejects_unsupported_string_helper_main() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("unsupported-string-helper-main");
+    write_unsupported_string_helper_main_project(&project);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args([
+            "build",
+            project.to_str().expect("project path"),
+            "--backend",
+            "cranelift",
+            "--json",
+        ])
+        .output()
+        .expect("run axiomc build --backend cranelift");
+    assert!(
+        !output.status.success(),
+        "cranelift unsupported string helper main unexpectedly built: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+    assert_eq!(payload["ok"], Value::Bool(false));
+    let message = payload["error"]["message"].as_str().expect("error message");
+    assert!(
+        message.contains("main function is outside the direct-native i64 ABI subset"),
+        "unexpected cranelift unsupported string helper error: {message}"
+    );
 }
 
 #[cfg(not(windows))]
@@ -2865,6 +2937,46 @@ fn cranelift_backend_lowers_map_get_or_default_to_runtime_exit_code() {
     let run = Command::new(binary)
         .output()
         .expect("run cranelift map get_or_default main binary");
+    assert_eq!(run.status.code(), Some(48));
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "");
+}
+
+#[cfg(not(windows))]
+#[test]
+fn cranelift_backend_lowers_static_bool_map_keys_to_runtime_exit_code() {
+    if which::which("cc").is_err() {
+        eprintln!("skipping cranelift backend smoke test because cc is unavailable");
+        return;
+    }
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("static-bool-map-keys-main-exit");
+    write_static_bool_map_keys_main_exit_project(&project);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args([
+            "build",
+            project.to_str().expect("project path"),
+            "--backend",
+            "cranelift",
+            "--json",
+        ])
+        .output()
+        .expect("run axiomc build --backend cranelift");
+    assert!(
+        output.status.success(),
+        "cranelift static bool map keys main build failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+    assert_eq!(payload["backend"], "cranelift");
+    assert_eq!(payload["generated_rust"], Value::Null);
+    let binary = payload["binary"].as_str().expect("binary path");
+    let run = Command::new(binary)
+        .output()
+        .expect("run cranelift static bool map keys main binary");
     assert_eq!(run.status.code(), Some(48));
     assert_eq!(String::from_utf8_lossy(&run.stdout), "");
 }
@@ -6203,24 +6315,179 @@ fn write_fixed_array_intrinsics_main_exit_project(project: &Path) {
     .expect("write fixed array intrinsics main exit source");
 }
 
+fn write_static_slice_bounds_main_exit_project(project: &Path) {
+    fs::create_dir_all(project.join("src"))
+        .expect("create static slice bounds main exit project src");
+    fs::write(
+        project.join("axiom.toml"),
+        "[package]\nname = \"cranelift-static-slice-bounds-main-exit\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n",
+    )
+    .expect("write static slice bounds main exit manifest");
+    fs::write(
+        project.join("axiom.lock"),
+        "version = 1\n\n[[package]]\nname = \"cranelift-static-slice-bounds-main-exit\"\nversion = \"0.1.0\"\nsource = \"path\"\n",
+    )
+    .expect("write static slice bounds main exit lockfile");
+    fs::write(
+        project.join("src/main.ax"),
+        "static TAIL_START: int = 1\nstatic PREFIX_END: int = 2\n\nfn tail_score(values: [int; 3]): int {\nreturn len(values[TAIL_START:]) + first(values[TAIL_START:]) + last(values[TAIL_START:])\n}\n\nfn prefix_score(values: [int; 3]): int {\nreturn len(values[:PREFIX_END]) + first(values[:PREFIX_END]) + last(values[:PREFIX_END])\n}\n\nfn main(): int {\nlet tail_values: [int; 3] = [1, 20, 26]\nlet prefix_values: [int; 3] = [20, 26, 1]\nlet helper_tail_values: [int; 3] = [1, 20, 26]\nlet helper_prefix_values: [int; 3] = [20, 26, 1]\nlet tail_window: &[int] = tail_values[TAIL_START:]\nlet prefix_window: &[int] = prefix_values[:PREFIX_END]\nlet tail_code: int = len(tail_window) + first(tail_window) + last(tail_window)\nlet prefix_code: int = len(prefix_window) + first(prefix_window) + last(prefix_window)\nlet helper_tail: int = tail_score(helper_tail_values)\nlet helper_prefix: int = prefix_score(helper_prefix_values)\nif tail_code == 48 && prefix_code == 48 && helper_tail == 48 && helper_prefix == 48 {\nreturn 48\n} else {\nreturn 1\n}\n}\n",
+    )
+    .expect("write static slice bounds main exit source");
+}
+
 fn write_string_literal_len_main_exit_project(project: &Path) {
     fs::create_dir_all(project.join("src"))
         .expect("create string literal len main exit project src");
     fs::write(
         project.join("axiom.toml"),
-        "[package]\nname = \"cranelift-string-literal-len-main-exit\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n",
+        r#"[package]
+name = "cranelift-string-literal-len-main-exit"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+fs = false
+net = false
+process = false
+env = false
+clock = false
+crypto = false
+"#,
     )
     .expect("write string literal len main exit manifest");
     fs::write(
         project.join("axiom.lock"),
-        "version = 1\n\n[[package]]\nname = \"cranelift-string-literal-len-main-exit\"\nversion = \"0.1.0\"\nsource = \"path\"\n",
+        r#"version = 1
+
+[[package]]
+name = "cranelift-string-literal-len-main-exit"
+version = "0.1.0"
+source = "path"
+"#,
     )
     .expect("write string literal len main exit lockfile");
     fs::write(
         project.join("src/main.ax"),
-        "static BANNER: string = \"direct-native\"\nstatic PADDED: string = \"  direct-native  \"\nstatic SECOND_LINE_INDEX: int = 1\nstatic MISSING_LINE_INDEX: int = -1\n\nfn local_len(): int {\nlet text: string = \"native\"\nreturn len(text)\n}\n\nfn add_base(value: int): int {\nreturn value + 19\n}\n\nfn native_prefix(): bool {\nlet value: string = string_clone(BANNER)\nreturn string_starts_with(value, \"direct\")\n}\n\nfn static_prefix(): bool {\nlet trimmed: string = string_trim(PADDED)\nreturn string_starts_with(trimmed, \"direct\")\n}\n\nfn main(): int {\nlet owned: string = \"direct-native\"\nlet short: string = \"abi\"\nlet prefix_text: string = string_clone(BANNER)\nlet miss_text: string = string_trim(PADDED)\nlet compare_text: string = string_trim_start(\"  direct-native\")\nlet literal_len: int = len(\"runtime\")\nlet local_len_value: int = len(owned)\nlet static_len_value: int = len(BANNER)\nlet clone_len_value: int = len(string_clone(BANNER))\nlet trim_len_value: int = len(string_trim(PADDED))\nlet trim_start_len_value: int = len(string_trim_start(\"  abi\"))\nlet concat_len_value: int = len(string_clone(BANNER) + string_trim_start(\"  abi\"))\nlet encoded_len: int = len(encoding_url_component_encode(\"hello world/one\"))\nlet segment_len: int = len(encoding_path_segment_encode(\"a/b c\"))\nlet pair_len: int = len(encoding_url_query_pair_encode(\"q\", \"agent path/one\"))\nlet joined_len: int = len(encoding_path_join_segment(\"/docs\", \"stage 1/encoding\"))\nlet strip_prefix_len: int = match string_strip_prefix(BANNER, \"direct-\") { Some(rest) => len(rest), None => 1 }\nlet strip_suffix_gate: bool = match string_strip_suffix(BANNER, \"-native\") { Some(rest) => string_starts_with(rest, \"direct\"), None => false }\nlet line_len: int = match string_line_at(\"first\\nsecond\\nthird\", SECOND_LINE_INDEX) { Some(line) => len(line), None => 1 }\nlet line_missing: int = match string_line_at(\"first\\nsecond\", MISSING_LINE_INDEX) { Some(line) => len(line), None => 4 }\nlet decoded_len: int = match encoding_url_component_decode(\"hello%20axiom\") { Some(value) => len(value), None => 1 }\nlet decode_missing: int = match encoding_url_component_decode(\"bad%2\") { Some(value) => len(value), None => 4 }\nlet short_len: int = len(short)\nlet helper_len: int = local_len()\nlet helper_arg_len: int = add_base(len(short))\nlet prefix_gate: bool = string_starts_with(prefix_text, \"direct\")\nlet miss_gate: bool = string_starts_with(miss_text, \"rust\") == false\nlet helper_gate: bool = native_prefix()\nlet static_gate: bool = static_prefix()\nlet compare_gate: bool = compare_text == BANNER\nif prefix_gate && miss_gate && helper_gate && static_gate && compare_gate && strip_suffix_gate && literal_len == 7 && local_len_value == 13 && static_len_value == 13 && clone_len_value == 13 && trim_len_value == 13 && trim_start_len_value == 3 && concat_len_value == 16 && encoded_len == 19 && segment_len == 9 && pair_len == 20 && joined_len == 26 && strip_prefix_len == 6 && line_len == 6 && line_missing == 4 && decoded_len == 11 && decode_missing == 4 && short_len == 3 && helper_len == 6 && helper_arg_len == 22 {\nreturn literal_len + local_len_value + helper_len + helper_arg_len\n} else {\nreturn 1\n}\n}\n",
+        r#"static BANNER: string = "direct-native"
+static PADDED: string = "  direct-native  "
+static SECOND_LINE_INDEX: int = 1
+static MISSING_LINE_INDEX: int = -1
+
+fn local_len(): int {
+let text: string = "native"
+return len(text)
+}
+
+fn add_base(value: int): int {
+return value + 19
+}
+
+fn native_prefix(): bool {
+let value: string = string_clone(BANNER)
+return string_starts_with(value, "direct")
+}
+
+fn static_prefix(): bool {
+let trimmed: string = string_trim(PADDED)
+return string_starts_with(trimmed, "direct")
+}
+
+fn main(): int {
+let owned: string = "direct-native"
+let short: string = "abi"
+let prefix_text: string = string_clone(BANNER)
+let miss_text: string = string_trim(PADDED)
+let compare_text: string = string_trim_start("  direct-native")
+let literal_len: int = len("runtime")
+let local_len_value: int = len(owned)
+let static_len_value: int = len(BANNER)
+let clone_len_value: int = len(string_clone(BANNER))
+let trim_len_value: int = len(string_trim(PADDED))
+let trim_start_len_value: int = len(string_trim_start("  abi"))
+let concat_len_value: int = len(string_clone(BANNER) + string_trim_start("  abi"))
+let encoded_len: int = len(encoding_url_component_encode("hello world/one"))
+let segment_len: int = len(encoding_path_segment_encode("a/b c"))
+let pair_len: int = len(encoding_url_query_pair_encode("q", "agent path/one"))
+let joined_len: int = len(encoding_path_join_segment("/docs", "stage 1/encoding"))
+let strip_prefix_len: int = match string_strip_prefix(BANNER, "direct-") { Some(rest) => len(rest), None => 1 }
+let strip_suffix_gate: bool = match string_strip_suffix(BANNER, "-native") { Some(rest) => string_starts_with(rest, "direct"), None => false }
+let line_len: int = match string_line_at("first\nsecond\nthird", SECOND_LINE_INDEX) { Some(line) => len(line), None => 1 }
+let line_missing: int = match string_line_at("first\nsecond", MISSING_LINE_INDEX) { Some(line) => len(line), None => 4 }
+let decoded_len: int = match encoding_url_component_decode("hello%20axiom") { Some(value) => len(value), None => 1 }
+let decode_missing: int = match encoding_url_component_decode("bad%2") { Some(value) => len(value), None => 4 }
+let short_len: int = len(short)
+let helper_len: int = local_len()
+let helper_arg_len: int = add_base(len(short))
+let prefix_gate: bool = string_starts_with(prefix_text, "direct")
+let miss_gate: bool = string_starts_with(miss_text, "rust") == false
+let helper_gate: bool = native_prefix()
+let static_gate: bool = static_prefix()
+let compare_gate: bool = compare_text == BANNER
+if prefix_gate && miss_gate && helper_gate && static_gate && compare_gate && strip_suffix_gate && literal_len == 7 && local_len_value == 13 && static_len_value == 13 && clone_len_value == 13 && trim_len_value == 13 && trim_start_len_value == 3 && concat_len_value == 16 && encoded_len == 19 && segment_len == 9 && pair_len == 20 && joined_len == 26 && strip_prefix_len == 6 && line_len == 6 && line_missing == 4 && decoded_len == 11 && decode_missing == 4 && short_len == 3 && helper_len == 6 && helper_arg_len == 22 {
+return literal_len + local_len_value + helper_len + helper_arg_len
+} else {
+return 1
+}
+}
+"#,
     )
     .expect("write string literal len main exit source");
+}
+
+fn write_unsupported_string_helper_main_project(project: &Path) {
+    fs::create_dir_all(project.join("src"))
+        .expect("create unsupported string helper main project src");
+    fs::write(
+        project.join("axiom.toml"),
+        r#"[package]
+name = "cranelift-unsupported-string-helper-main"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+fs = false
+net = false
+process = false
+env = false
+clock = false
+crypto = false
+"#,
+    )
+    .expect("write unsupported string helper main manifest");
+    fs::write(
+        project.join("axiom.lock"),
+        r#"version = 1
+
+[[package]]
+name = "cranelift-unsupported-string-helper-main"
+version = "0.1.0"
+source = "path"
+"#,
+    )
+    .expect("write unsupported string helper main lockfile");
+    fs::write(
+        project.join("src/main.ax"),
+        r#"fn score(text: string): int {
+return len(text)
+}
+
+fn main(): int {
+let direct: int = score("direct-native")
+if direct == 13 {
+return 48
+} else {
+return 1
+}
+}
+"#,
+    )
+    .expect("write unsupported string helper main source");
 }
 
 fn write_std_encoding_wrapper_main_exit_project(project: &Path) {
@@ -6930,6 +7197,25 @@ fn write_map_get_or_default_main_exit_project(project: &Path) {
         "static STATIC_LOW_KEY: int = 1\nstatic STATIC_HIGH_KEY: int = 2\nstatic STATIC_MISSING_KEY: int = 3\n\nfn main(): int {\nlet string_hit: int = get_or_default<string, int>({\"build\": 7, \"deploy\": 9}, \"deploy\", 13)\nlet string_miss: int = get_or_default<string, int>({\"build\": 7, \"deploy\": 9}, \"test\", 13)\nlet int_hit: int = get_or_default<int, int>({1: 11, 2: 29}, 2, 13)\nlet static_int_hit: int = get_or_default<int, int>({STATIC_LOW_KEY: 11, STATIC_HIGH_KEY: 29}, STATIC_HIGH_KEY, 13)\nlet bool_hit: int = get_or_default<bool, int>({false: 3, true: 5}, true, 13)\nlet duplicate_hit: int = get_or_default<string, int>({\"deploy\": 9, \"deploy\": 11}, \"deploy\", 13)\nlet duplicate_contains: bool = map_contains_key<string, int>({\"deploy\": 9, \"deploy\": 11}, \"deploy\")\nlet duplicate_direct_get: int = match get<string, int>({\"deploy\": 9, \"deploy\": 11}, \"deploy\") { Some(value) => value, None => 1 }\nlet string_contains: bool = map_contains_key<string, int>({\"build\": 7, \"deploy\": 9}, \"deploy\")\nlet string_missing: bool = map_contains_key<string, int>({\"build\": 7, \"deploy\": 9}, \"test\") == false\nlet int_contains: bool = map_contains_key<int, int>({1: 11, 2: 29}, 1)\nlet static_int_contains: bool = map_contains_key<int, int>({STATIC_LOW_KEY: 11, STATIC_HIGH_KEY: 29}, STATIC_LOW_KEY)\nlet bool_contains: bool = map_contains_key<bool, int>({false: 3, true: 5}, false)\nlet direct_get_hit: int = match get<string, int>({\"build\": 7, \"deploy\": 9}, \"deploy\") { Some(value) => value, None => 1 }\nlet direct_get_miss: int = match get<string, int>({\"build\": 7, \"deploy\": 9}, \"test\") { Some(value) => value, None => 13 }\nlet direct_bool_hit: bool = match get<bool, bool>({false: true, true: false}, false) { Some(value) => value, None => false }\nlet direct_bool_miss: bool = match get<bool, bool>({false: true}, true) { Some(value) => value, None => true }\nlet direct_string_hit_len: int = match get<string, string>({\"build\": \"forge\", \"deploy\": \"ship\"}, \"deploy\") { Some(value) => len(value), None => 1 }\nlet direct_string_miss_len: int = match get<string, string>({\"build\": \"forge\", \"deploy\": \"ship\"}, \"test\") { Some(value) => len(value), None => 13 }\nlet stored_default_scores: {string: int} = {\"build\": 7, \"deploy\": 9}\nlet stored_default_hit: int = get_or_default<string, int>(stored_default_scores, \"deploy\", 13)\nlet stored_contains_scores: {string: int} = {\"build\": 7, \"deploy\": 9}\nlet stored_contains: bool = map_contains_key<string, int>(stored_contains_scores, \"build\")\nlet stored_direct_scores: {string: int} = {\"build\": 7, \"deploy\": 9}\nlet stored_direct_hit: int = match get<string, int>(stored_direct_scores, \"build\") { Some(value) => value, None => 1 }\nlet stored_string_values: {string: string} = {\"build\": \"forge\", \"deploy\": \"ship\"}\nlet stored_string_value_len: int = match get<string, string>(stored_string_values, \"deploy\") { Some(value) => len(value), None => 1 }\nlet stored_key_count_scores: {string: int} = {\"build\": 7, \"deploy\": 9, \"deploy\": 11}\nlet stored_key_count_names: [string] = keys<string, int>(stored_key_count_scores)\nlet stored_key_count: int = len(stored_key_count_names)\nlet first_key_scores: {string: int} = {\"build\": 7, \"deploy\": 9}\nlet first_key_names: [string] = keys<string, int>(first_key_scores)\nlet first_key_len: int = len(first_key_names[0])\nlet second_key_scores: {string: int} = {\"build\": 7, \"deploy\": 9}\nlet second_key_names: [string] = keys<string, int>(second_key_scores)\nlet second_key_len: int = len(second_key_names[1])\nlet local_string_value_hit: Option<string> = get<string, string>({\"build\": \"forge\", \"deploy\": \"ship\"}, \"deploy\")\nlet local_string_value_miss: Option<string> = get<string, string>({\"build\": \"forge\", \"deploy\": \"ship\"}, \"test\")\nlet local_get_hit: Option<int> = get<int, int>({1: 11, 2: 29}, 2)\nlet local_get_miss: Option<int> = get<int, int>({1: 11, 2: 29}, 3)\nlet static_local_get_hit: Option<int> = get<int, int>({STATIC_LOW_KEY: 11, STATIC_HIGH_KEY: 29}, STATIC_HIGH_KEY)\nlet static_local_get_miss: Option<int> = get<int, int>({STATIC_LOW_KEY: 11, STATIC_HIGH_KEY: 29}, STATIC_MISSING_KEY)\nlet local_string_get_hit: Option<int> = get<string, int>({\"build\": 7, \"deploy\": 9}, \"deploy\")\nlet local_bool_get_hit: Option<bool> = get<bool, bool>({false: true, true: false}, false)\nlet local_bool_get_miss: Option<bool> = get<bool, bool>({false: true}, true)\nlet local_get_hit_code: int = match local_get_hit { Some(value) => value, None => 1 }\nlet local_get_miss_code: int = match local_get_miss { Some(value) => value, None => 13 }\nlet static_local_get_hit_code: int = match static_local_get_hit { Some(value) => value, None => 1 }\nlet static_local_get_miss_code: int = match static_local_get_miss { Some(value) => value, None => 13 }\nlet local_string_get_hit_code: int = match local_string_get_hit { Some(value) => value, None => 1 }\nlet local_bool_get_hit_code: bool = match local_bool_get_hit { Some(value) => value, None => false }\nlet local_bool_get_miss_code: bool = match local_bool_get_miss { Some(value) => value, None => true }\nlet local_string_value_hit_len: int = match local_string_value_hit { Some(value) => len(value), None => 1 }\nlet local_string_value_miss_len: int = match local_string_value_miss { Some(value) => len(value), None => 13 }\nif string_hit == 9 && string_miss == 13 && int_hit == 29 && static_int_hit == 29 && bool_hit == 5 && duplicate_hit == 11 && duplicate_contains && duplicate_direct_get == 11 && string_contains && string_missing && int_contains && static_int_contains && bool_contains && direct_get_hit == 9 && direct_get_miss == 13 && direct_bool_hit && direct_bool_miss && direct_string_hit_len == 4 && direct_string_miss_len == 13 && stored_default_hit == 9 && stored_contains && stored_direct_hit == 7 && stored_string_value_len == 4 && stored_key_count == 2 && first_key_len == 5 && second_key_len == 6 && local_get_hit_code == 29 && local_get_miss_code == 13 && static_local_get_hit_code == 29 && static_local_get_miss_code == 13 && local_string_get_hit_code == 9 && local_bool_get_hit_code && local_bool_get_miss_code && local_string_value_hit_len == 4 && local_string_value_miss_len == 13 {\nreturn 48\n} else {\nreturn 1\n}\n}\n",
     )
     .expect("write map get_or_default source");
+}
+
+fn write_static_bool_map_keys_main_exit_project(project: &Path) {
+    fs::create_dir_all(project.join("src")).expect("create static bool map keys project src");
+    fs::write(
+        project.join("axiom.toml"),
+        "[package]\nname = \"cranelift-static-bool-map-keys-main-exit\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n",
+    )
+    .expect("write static bool map keys manifest");
+    fs::write(
+        project.join("axiom.lock"),
+        "version = 1\n\n[[package]]\nname = \"cranelift-static-bool-map-keys-main-exit\"\nversion = \"0.1.0\"\nsource = \"path\"\n",
+    )
+    .expect("write static bool map keys lockfile");
+    fs::write(
+        project.join("src/main.ax"),
+        "static ENABLED: bool = true\nstatic DISABLED: bool = false\n\nfn main(): int {\nlet static_hit: int = get_or_default<bool, int>({DISABLED: 7, ENABLED: 29}, ENABLED, 13)\nlet static_contains: bool = map_contains_key<bool, int>({DISABLED: 7, ENABLED: 29}, DISABLED)\nlet static_missing: bool = map_contains_key<bool, int>({DISABLED: 7}, ENABLED) == false\nlet direct_bool_hit: bool = match get<bool, bool>({DISABLED: false, ENABLED: true}, ENABLED) { Some(value) => value, None => false }\nlet direct_bool_miss: bool = match get<bool, bool>({DISABLED: true}, ENABLED) { Some(value) => false, None => true }\nlet local_hit: Option<int> = get<bool, int>({DISABLED: 7, ENABLED: 29}, ENABLED)\nlet local_miss: Option<int> = get<bool, int>({DISABLED: 7}, ENABLED)\nlet local_hit_code: int = match local_hit { Some(value) => value, None => 1 }\nlet local_miss_code: int = match local_miss { Some(value) => value, None => 13 }\nif static_hit == 29 && static_contains && static_missing && direct_bool_hit && direct_bool_miss && local_hit_code == 29 && local_miss_code == 13 {\nreturn 48\n} else {\nreturn 1\n}\n}\n",
+    )
+    .expect("write static bool map keys source");
 }
 
 fn write_std_collection_lookup_project(project: &Path) {
