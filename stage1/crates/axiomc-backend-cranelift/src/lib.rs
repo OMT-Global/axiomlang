@@ -47,6 +47,7 @@ struct I64RuntimeRefs {
     sleep: FuncRef,
     getenv: FuncRef,
     strlen: FuncRef,
+    atoll: FuncRef,
     open: FuncRef,
     creat: FuncRef,
     lseek: FuncRef,
@@ -573,6 +574,14 @@ fn emit_i64_exit_object(
         .map_err(|message| {
             CraneliftBackendError::new(format!("declare strlen import: {message}"))
         })?;
+    let mut atoll_sig = module.make_signature();
+    atoll_sig.params.push(AbiParam::new(pointer_type));
+    atoll_sig.returns.push(AbiParam::new(types::I64));
+    let atoll_id = module
+        .declare_function("atoll", Linkage::Import, &atoll_sig)
+        .map_err(|message| {
+            CraneliftBackendError::new(format!("declare atoll import: {message}"))
+        })?;
     let mut open_sig = module.make_signature();
     open_sig.params.push(AbiParam::new(pointer_type));
     open_sig.params.push(AbiParam::new(types::I32));
@@ -733,6 +742,7 @@ fn emit_i64_exit_object(
             sleep_id,
             getenv_id,
             strlen_id,
+            atoll_id,
             open_id,
             creat_id,
             lseek_id,
@@ -777,6 +787,7 @@ fn emit_i64_exit_object(
         let sleep_ref = module.declare_func_in_func(sleep_id, builder.func);
         let getenv_ref = module.declare_func_in_func(getenv_id, builder.func);
         let strlen_ref = module.declare_func_in_func(strlen_id, builder.func);
+        let atoll_ref = module.declare_func_in_func(atoll_id, builder.func);
         let open_ref = module.declare_func_in_func(open_id, builder.func);
         let creat_ref = module.declare_func_in_func(creat_id, builder.func);
         let lseek_ref = module.declare_func_in_func(lseek_id, builder.func);
@@ -800,6 +811,7 @@ fn emit_i64_exit_object(
             sleep: sleep_ref,
             getenv: getenv_ref,
             strlen: strlen_ref,
+            atoll: atoll_ref,
             open: open_ref,
             creat: creat_ref,
             lseek: lseek_ref,
@@ -1006,6 +1018,7 @@ fn define_i64_function(
     sleep_id: FuncId,
     getenv_id: FuncId,
     strlen_id: FuncId,
+    atoll_id: FuncId,
     open_id: FuncId,
     creat_id: FuncId,
     lseek_id: FuncId,
@@ -1058,6 +1071,7 @@ fn define_i64_function(
         let sleep_ref = module.declare_func_in_func(sleep_id, builder.func);
         let getenv_ref = module.declare_func_in_func(getenv_id, builder.func);
         let strlen_ref = module.declare_func_in_func(strlen_id, builder.func);
+        let atoll_ref = module.declare_func_in_func(atoll_id, builder.func);
         let open_ref = module.declare_func_in_func(open_id, builder.func);
         let creat_ref = module.declare_func_in_func(creat_id, builder.func);
         let lseek_ref = module.declare_func_in_func(lseek_id, builder.func);
@@ -1081,6 +1095,7 @@ fn define_i64_function(
             sleep: sleep_ref,
             getenv: getenv_ref,
             strlen: strlen_ref,
+            atoll: atoll_ref,
             open: open_ref,
             creat: creat_ref,
             lseek: lseek_ref,
@@ -2332,6 +2347,44 @@ fn emit_i64_random_u64_expr(
 ) -> Result<cranelift_codegen::ir::Value, CraneliftBackendError> {
     let ok_line = i64_crypto_no_args_audit_line(intrinsic, package, "ok");
     let denied_line = i64_crypto_no_args_audit_line(intrinsic, package, "denied");
+    let hook_key_ptr = emit_i64_path_ptr(builder, "AXIOM_TEST_RANDOM_U64")?;
+    let hook_call = builder.ins().call(runtime_refs.getenv, &[hook_key_ptr]);
+    let hook_ptr = builder.inst_results(hook_call)[0];
+
+    let hook_len_block = builder.create_block();
+    let hook_value_block = builder.create_block();
+    let os_open_block = builder.create_block();
+    let denied_block = builder.create_block();
+    let read_block = builder.create_block();
+    let success_block = builder.create_block();
+    let merge_block = builder.create_block();
+    builder.append_block_param(read_block, types::I32);
+    builder.append_block_param(success_block, types::I64);
+    builder.append_block_param(merge_block, types::I64);
+
+    let missing_hook = builder.ins().icmp_imm(IntCC::Equal, hook_ptr, 0);
+    builder
+        .ins()
+        .brif(missing_hook, os_open_block, &[], hook_len_block, &[]);
+
+    builder.switch_to_block(hook_len_block);
+    builder.seal_block(hook_len_block);
+    let hook_len_call = builder.ins().call(runtime_refs.strlen, &[hook_ptr]);
+    let hook_len = builder.inst_results(hook_len_call)[0];
+    let empty_hook = builder.ins().icmp_imm(IntCC::Equal, hook_len, 0);
+    builder
+        .ins()
+        .brif(empty_hook, os_open_block, &[], hook_value_block, &[]);
+
+    builder.switch_to_block(hook_value_block);
+    builder.seal_block(hook_value_block);
+    let value_call = builder.ins().call(runtime_refs.atoll, &[hook_ptr]);
+    let value = builder.inst_results(value_call)[0];
+    emit_i64_host_audit_line(builder, runtime_refs, &ok_line)?;
+    builder.ins().jump(merge_block, &[BlockArg::Value(value)]);
+
+    builder.switch_to_block(os_open_block);
+    builder.seal_block(os_open_block);
     let bytes_slot =
         builder.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 0));
     let bytes_ptr = builder.ins().stack_addr(types::I64, bytes_slot, 0);
@@ -2341,20 +2394,18 @@ fn emit_i64_random_u64_expr(
         .ins()
         .call(runtime_refs.open, &[source_ptr, open_flags]);
     let fd = builder.inst_results(open_call)[0];
-
-    let denied_block = builder.create_block();
-    let read_block = builder.create_block();
-    let success_block = builder.create_block();
-    let merge_block = builder.create_block();
-    builder.append_block_param(merge_block, types::I64);
-
     let open_failed = builder.ins().icmp_imm(IntCC::SignedLessThan, fd, 0);
-    builder
-        .ins()
-        .brif(open_failed, denied_block, &[], read_block, &[]);
+    builder.ins().brif(
+        open_failed,
+        denied_block,
+        &[],
+        read_block,
+        &[BlockArg::Value(fd)],
+    );
 
     builder.switch_to_block(read_block);
     builder.seal_block(read_block);
+    let fd = builder.block_params(read_block)[0];
     let requested = builder.ins().iconst(types::I64, 8);
     let read_call = builder
         .ins()
@@ -2362,13 +2413,18 @@ fn emit_i64_random_u64_expr(
     let bytes_read = builder.inst_results(read_call)[0];
     builder.ins().call(runtime_refs.close, &[fd]);
     let read_complete = builder.ins().icmp(IntCC::Equal, bytes_read, requested);
-    builder
-        .ins()
-        .brif(read_complete, success_block, &[], denied_block, &[]);
+    let os_value = builder.ins().stack_load(types::I64, bytes_slot, 0);
+    builder.ins().brif(
+        read_complete,
+        success_block,
+        &[BlockArg::Value(os_value)],
+        denied_block,
+        &[],
+    );
 
     builder.switch_to_block(success_block);
     builder.seal_block(success_block);
-    let value = builder.ins().stack_load(types::I64, bytes_slot, 0);
+    let value = builder.block_params(success_block)[0];
     emit_i64_host_audit_line(builder, runtime_refs, &ok_line)?;
     builder.ins().jump(merge_block, &[BlockArg::Value(value)]);
 
@@ -2395,6 +2451,37 @@ fn emit_i64_random_bytes_len_expr(
         return Ok(builder.ins().iconst(types::I64, 0));
     }
 
+    let hook_key_ptr = emit_i64_path_ptr(builder, "AXIOM_TEST_RANDOM_BYTES")?;
+    let hook_call = builder.ins().call(runtime_refs.getenv, &[hook_key_ptr]);
+    let hook_ptr = builder.inst_results(hook_call)[0];
+
+    let hook_len_block = builder.create_block();
+    let os_open_block = builder.create_block();
+    let failed_block = builder.create_block();
+    let read_block = builder.create_block();
+    let success_block = builder.create_block();
+    let merge_block = builder.create_block();
+    builder.append_block_param(read_block, types::I32);
+    builder.append_block_param(merge_block, types::I64);
+
+    let missing_hook = builder.ins().icmp_imm(IntCC::Equal, hook_ptr, 0);
+    builder
+        .ins()
+        .brif(missing_hook, os_open_block, &[], hook_len_block, &[]);
+
+    builder.switch_to_block(hook_len_block);
+    builder.seal_block(hook_len_block);
+    let hook_len_call = builder.ins().call(runtime_refs.strlen, &[hook_ptr]);
+    let hook_len = builder.inst_results(hook_len_call)[0];
+    let hook_has_bytes = builder
+        .ins()
+        .icmp_imm(IntCC::SignedGreaterThanOrEqual, hook_len, length);
+    builder
+        .ins()
+        .brif(hook_has_bytes, success_block, &[], failed_block, &[]);
+
+    builder.switch_to_block(os_open_block);
+    builder.seal_block(os_open_block);
     let slot_len = u32::try_from(length)
         .map_err(|_| CraneliftBackendError::new("crypto random length is too large"))?;
     let bytes_slot = builder.create_sized_stack_slot(StackSlotData::new(
@@ -2409,20 +2496,18 @@ fn emit_i64_random_bytes_len_expr(
         .ins()
         .call(runtime_refs.open, &[source_ptr, open_flags]);
     let fd = builder.inst_results(open_call)[0];
-
-    let failed_block = builder.create_block();
-    let read_block = builder.create_block();
-    let success_block = builder.create_block();
-    let merge_block = builder.create_block();
-    builder.append_block_param(merge_block, types::I64);
-
     let open_failed = builder.ins().icmp_imm(IntCC::SignedLessThan, fd, 0);
-    builder
-        .ins()
-        .brif(open_failed, failed_block, &[], read_block, &[]);
+    builder.ins().brif(
+        open_failed,
+        failed_block,
+        &[],
+        read_block,
+        &[BlockArg::Value(fd)],
+    );
 
     builder.switch_to_block(read_block);
     builder.seal_block(read_block);
+    let fd = builder.block_params(read_block)[0];
     let requested = builder.ins().iconst(types::I64, length);
     let read_call = builder
         .ins()
