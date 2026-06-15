@@ -136,6 +136,52 @@ panic(json_stringify_int(make_attempt()))
         &formatted_project,
         "{\"kind\":\"panic\",\"message\":\"2\"}\n",
     );
+
+    let then_branch_project = temp.path().join("terminal-panic-then-branch");
+    write_terminal_panic_project(
+        &then_branch_project,
+        r#"fn should_panic(): bool {
+return true
+}
+
+fn main(): int {
+if should_panic() {
+panic("then boom")
+} else {
+return 0
+}
+}
+"#,
+    );
+    assert_terminal_panic_report(
+        &then_branch_project,
+        "{\"kind\":\"panic\",\"message\":\"then boom\"}\n",
+    );
+
+    let else_branch_project = temp.path().join("terminal-panic-else-branch");
+    write_terminal_panic_project(
+        &else_branch_project,
+        r#"fn should_panic(): bool {
+return false
+}
+
+fn make_attempt(): int {
+return 2
+}
+
+fn main(): int {
+if should_panic() {
+return 0
+} else {
+panic(json_stringify_int(make_attempt()))
+}
+}
+"#,
+    );
+    assert_terminal_panic_report(
+        &else_branch_project,
+        "{\"kind\":\"panic\",\"message\":\"2\"}\n",
+    );
 }
 
 #[cfg(not(windows))]
@@ -6259,7 +6305,8 @@ fn assert_terminal_panic_report(project: &Path, expected_stderr: &str) {
         .expect("run axiomc build --backend cranelift");
     assert!(
         output.status.success(),
-        "cranelift terminal panic build failed: stdout={} stderr={}",
+        "cranelift terminal panic build failed for {}: stdout={} stderr={}",
+        project.display(),
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );

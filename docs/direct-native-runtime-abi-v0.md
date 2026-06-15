@@ -783,8 +783,9 @@ writes while preserving the newline-inclusive byte-count return value and
 native stderr integer/boolean writes while preserving the newline-inclusive
 byte-count return value without generated Rust. Terminal source-level
 `panic(...)` statements with known string messages or runtime scalar-formatted
-messages also lower into native stderr JSON panic reports and exit status `1`
-without generated Rust. Known public `std/log.ax`
+messages, including terminal branch arms, also lower into native stderr JSON
+panic reports and exit status `1` without generated Rust. Known public
+`std/log.ax`
 `info_attrs` calls now lower into native stderr writes from direct-native i64
 `main` functions for known message and attributes strings, and for known
 messages with runtime `fields2(...)`/`fields3(...)` attribute fragments,

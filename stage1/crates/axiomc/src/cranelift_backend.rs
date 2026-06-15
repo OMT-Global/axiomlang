@@ -6176,10 +6176,7 @@ fn lower_i64_return_block(
     helper_signatures: &HashMap<&str, I64HelperSignature>,
     static_bindings: &I64StaticBindings,
 ) -> Option<CraneliftI64ReturnBlock> {
-    let (return_stmt, body_stmts) = stmts.split_last()?;
-    let Stmt::Return { expr, .. } = return_stmt else {
-        return None;
-    };
+    let (terminal_stmt, body_stmts) = stmts.split_last()?;
     let mut stmts = Vec::new();
     let mut static_bindings = static_bindings.clone();
     for stmt in body_stmts {
@@ -6203,13 +6200,26 @@ fn lower_i64_return_block(
             )?);
         }
     }
-    let result = lower_i64_return_value_expr(
-        expr,
-        &local_indexes,
-        &local_conditions,
-        helper_signatures,
-        &static_bindings,
-    )?;
+    let result = match terminal_stmt {
+        Stmt::Return { expr, .. } => lower_i64_return_value_expr(
+            expr,
+            &local_indexes,
+            &local_conditions,
+            helper_signatures,
+            &static_bindings,
+        )?,
+        Stmt::Panic { message, .. } => {
+            stmts.extend(lower_i64_panic_report_stmts(
+                message,
+                &local_indexes,
+                &local_conditions,
+                helper_signatures,
+                &static_bindings,
+            )?);
+            CraneliftI64Expr::Literal(1)
+        }
+        _ => return None,
+    };
     Some(CraneliftI64ReturnBlock { stmts, result })
 }
 
@@ -6268,7 +6278,27 @@ fn lower_i64_panic_exit_body(
     helper_signatures: &HashMap<&str, I64HelperSignature>,
     static_bindings: &I64StaticBindings,
 ) -> Option<I64ExitBody> {
-    let stmts = if let Some(formatted_message) = lower_i64_log_message_formatted_string_expr(
+    let stmts = lower_i64_panic_report_stmts(
+        message,
+        local_indexes,
+        local_conditions,
+        helper_signatures,
+        static_bindings,
+    )?;
+    Some(I64ExitBody::BlockReturn(CraneliftI64ReturnBlock {
+        stmts,
+        result: CraneliftI64Expr::Literal(1),
+    }))
+}
+
+fn lower_i64_panic_report_stmts(
+    message: &Expr,
+    local_indexes: &HashMap<String, usize>,
+    local_conditions: &HashMap<String, CraneliftI64Condition>,
+    helper_signatures: &HashMap<&str, I64HelperSignature>,
+    static_bindings: &I64StaticBindings,
+) -> Option<Vec<CraneliftI64Stmt>> {
+    if let Some(formatted_message) = lower_i64_log_message_formatted_string_expr(
         message,
         local_indexes,
         local_conditions,
@@ -6280,21 +6310,21 @@ fn lower_i64_panic_exit_body(
             message: Box::new(formatted_message),
             suffix: "}".to_string(),
         };
-        i64_formatted_string_write_stmts(OutputStream::Stderr, report, true)
+        return Some(i64_formatted_string_write_stmts(
+            OutputStream::Stderr,
+            report,
+            true,
+        ));
     } else {
         let message = i64_string_text(message, static_bindings)?;
-        vec![CraneliftI64Stmt::WriteLine {
+        Some(vec![CraneliftI64Stmt::WriteLine {
             stream: OutputStream::Stderr,
             text: format!(
                 "{{\"kind\":\"panic\",\"message\":{}}}",
                 json_escape_string(&message)
             ),
-        }]
-    };
-    Some(I64ExitBody::BlockReturn(CraneliftI64ReturnBlock {
-        stmts,
-        result: CraneliftI64Expr::Literal(1),
-    }))
+        }])
+    }
 }
 
 fn lower_i64_option_match_exit_return(
