@@ -77,6 +77,9 @@ struct I64StaticBindings {
     json_stringify_int_wrappers: HashSet<String>,
     json_stringify_bool_wrappers: HashSet<String>,
     json_stringify_string_wrappers: HashSet<String>,
+    json_stringify_value_wrappers: HashSet<String>,
+    json_value_int_wrappers: HashSet<String>,
+    json_value_bool_wrappers: HashSet<String>,
     io_eprintln_wrappers: HashSet<String>,
     log_wrappers: HashSet<String>,
     log_field_string_wrappers: HashSet<String>,
@@ -569,6 +572,24 @@ fn lower_i64_exit_program(program: &Program, fs_root: &Path) -> Option<I64ExitPr
         .functions
         .iter()
         .filter(|function| is_i64_std_json_wrapper(function, "stringify_string"))
+        .flat_map(|function| [function.name.clone(), function.source_name.clone()])
+        .collect();
+    static_bindings.json_stringify_value_wrappers = program
+        .functions
+        .iter()
+        .filter(|function| is_i64_std_json_wrapper(function, "stringify_value"))
+        .flat_map(|function| [function.name.clone(), function.source_name.clone()])
+        .collect();
+    static_bindings.json_value_int_wrappers = program
+        .functions
+        .iter()
+        .filter(|function| is_i64_std_json_wrapper(function, "value_int"))
+        .flat_map(|function| [function.name.clone(), function.source_name.clone()])
+        .collect();
+    static_bindings.json_value_bool_wrappers = program
+        .functions
+        .iter()
+        .filter(|function| is_i64_std_json_wrapper(function, "value_bool"))
         .flat_map(|function| [function.name.clone(), function.source_name.clone()])
         .collect();
     static_bindings.io_eprintln_wrappers = program
@@ -3251,12 +3272,15 @@ fn lower_i64_formatted_string_expr(
             helper_signatures,
             static_bindings,
         ),
-        Expr::Call { name, args, .. } if name == "json_stringify_value" => {
-            let [text] = args.as_slice() else {
+        Expr::Call { name, args, .. }
+            if is_i64_json_stringify_value_name(name, static_bindings) =>
+        {
+            let [value] = args.as_slice() else {
                 return None;
             };
-            match lower_i64_formatted_string_expr(
-                text,
+            match lower_i64_json_value_formatted_string_expr(
+                value,
+                name,
                 local_indexes,
                 local_conditions,
                 helper_signatures,
@@ -3316,6 +3340,67 @@ fn lower_i64_formatted_string_expr(
             )?))
         }
         _ => None,
+    }
+}
+
+fn lower_i64_json_value_formatted_string_expr(
+    value: &Expr,
+    call_name: &str,
+    local_indexes: &HashMap<String, usize>,
+    local_conditions: &HashMap<String, CraneliftI64Condition>,
+    helper_signatures: &HashMap<&str, I64HelperSignature>,
+    static_bindings: &I64StaticBindings,
+) -> Option<I64FormattedString> {
+    if call_name == "json_stringify_value" {
+        return lower_i64_formatted_string_expr(
+            value,
+            local_indexes,
+            local_conditions,
+            helper_signatures,
+            static_bindings,
+        );
+    }
+    if !static_bindings
+        .json_stringify_value_wrappers
+        .contains(call_name)
+    {
+        return None;
+    }
+    match value {
+        Expr::Call { name, args, .. } if is_i64_json_value_int_name(name, static_bindings) => {
+            let [value] = args.as_slice() else {
+                return None;
+            };
+            Some(I64FormattedString::Int(lower_i64_expr(
+                value,
+                local_indexes,
+                local_conditions,
+                helper_signatures,
+                static_bindings,
+            )?))
+        }
+        Expr::Call { name, args, .. } if is_i64_json_value_bool_name(name, static_bindings) => {
+            let [value] = args.as_slice() else {
+                return None;
+            };
+            Some(I64FormattedString::Bool(lower_i64_condition(
+                value,
+                local_indexes,
+                local_conditions,
+                helper_signatures,
+                static_bindings,
+            )?))
+        }
+        _ => {
+            let source = lower_i64_struct_literal_field(value, "source")?;
+            lower_i64_formatted_string_expr(
+                source,
+                local_indexes,
+                local_conditions,
+                helper_signatures,
+                static_bindings,
+            )
+        }
     }
 }
 
@@ -7836,6 +7921,7 @@ fn i64_known_pure_intrinsic_call(name: &str, static_bindings: &I64StaticBindings
         || is_i64_json_stringify_int_name(name, static_bindings)
         || is_i64_json_stringify_bool_name(name, static_bindings)
         || is_i64_json_stringify_string_name(name, static_bindings)
+        || is_i64_json_stringify_value_name(name, static_bindings)
 }
 
 fn i64_static_scalar_value(expr: &Expr, static_bindings: &I64StaticBindings) -> Option<i64> {
@@ -10443,6 +10529,18 @@ fn is_i64_json_stringify_string_name(name: &str, static_bindings: &I64StaticBind
             .contains(name)
 }
 
+fn is_i64_json_stringify_value_name(name: &str, static_bindings: &I64StaticBindings) -> bool {
+    name == "json_stringify_value" || static_bindings.json_stringify_value_wrappers.contains(name)
+}
+
+fn is_i64_json_value_int_name(name: &str, static_bindings: &I64StaticBindings) -> bool {
+    static_bindings.json_value_int_wrappers.contains(name)
+}
+
+fn is_i64_json_value_bool_name(name: &str, static_bindings: &I64StaticBindings) -> bool {
+    static_bindings.json_value_bool_wrappers.contains(name)
+}
+
 fn is_i64_std_log_wrapper(function: &Function, source_name: &str) -> bool {
     function.path == "<stdlib>/log.ax" && function.source_name == source_name
 }
@@ -10887,12 +10985,15 @@ fn lower_i64_string_len_expr(
                 else_result: Box::new(CraneliftI64Expr::Literal(5)),
             })
         }
-        Expr::Call { name, args, .. } if name == "json_stringify_value" => {
-            let [text] = args.as_slice() else {
+        Expr::Call { name, args, .. }
+            if is_i64_json_stringify_value_name(name, static_bindings) =>
+        {
+            let [value] = args.as_slice() else {
                 return None;
             };
-            match lower_i64_formatted_string_expr(
-                text,
+            match lower_i64_json_value_formatted_string_expr(
+                value,
+                name,
                 local_indexes,
                 local_conditions,
                 helper_signatures,
