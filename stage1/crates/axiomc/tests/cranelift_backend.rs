@@ -9460,7 +9460,21 @@ source = "path"
 
 fn main(): int {
 let resolved_len: int = match resolve("localhost") { Some(address) => len(address), None => 0 }
-if resolved_len > 0 {
+let stored_resolved: Option<string> = resolve("localhost")
+let stored_direct: Option<string> = net_resolve("localhost")
+let stored_statement: Option<string> = resolve("localhost")
+let stored_resolved_len: int = match stored_resolved { Some(address) => len(address), None => 0 }
+let stored_direct_len: int = match stored_direct { Some(address) => len(address), None => 0 }
+let statement_len: int = 0
+match stored_statement {
+Some(address) {
+statement_len = len(address)
+}
+None {
+statement_len = 0
+}
+}
+if resolved_len > 0 && stored_resolved_len == resolved_len && stored_direct_len == resolved_len && statement_len == resolved_len {
 return 48
 } else {
 return 1

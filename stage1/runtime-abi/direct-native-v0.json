@@ -120,7 +120,7 @@
       "evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"],
       "blockers": [1001],
       "denial_evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"],
-      "notes": "The Cranelift spike builds and runs std/net.ax resolve(\"localhost\") through host DNS resolution while the public smoke asserts generated_rust is null, returning an Option<string> address. The direct-native i64 path now also lowers known-host net_resolve calls and the public std/net.ax resolve wrapper into native process exit status by selecting Option<string> match arms at compile time for localhost. Packages without the net capability still receive the public manifest-policy denial before backend lowering. Full runtime-time DNS policy, non-loopback coverage, resolver portability, and audit parity remain blocked."
+      "notes": "The Cranelift spike builds and runs std/net.ax resolve(\"localhost\") through host DNS resolution while the public smoke asserts generated_rust is null, returning an Option<string> address. The direct-native i64 path now also lowers known-host net_resolve calls and the public std/net.ax resolve wrapper into native process exit status by selecting Option<string> match arms at compile time for localhost; those known-host results can also be stored in local Option<string> values and matched later in supported length-projection expression and statement contexts without generated Rust. Packages without the net capability still receive the public manifest-policy denial before backend lowering. Full runtime-time DNS policy, non-loopback coverage, resolver portability, and audit parity remain blocked."
     },
     {
       "id": "network.tcp",

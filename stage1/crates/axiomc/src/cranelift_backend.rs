@@ -3084,7 +3084,17 @@ fn lower_i64_runtime_stmt(
 ) -> Option<CraneliftI64Stmt> {
     match stmt {
         Stmt::Match { .. } => {
-            if let Some(stmt) = lower_i64_option_match_stmt(
+            if let Some(stmt) = lower_i64_known_string_option_match_stmt(
+                stmt,
+                locals,
+                local_indexes.clone(),
+                local_conditions.clone(),
+                helper_signatures,
+                static_bindings,
+                allow_stdio_effects,
+            ) {
+                Some(stmt)
+            } else if let Some(stmt) = lower_i64_option_match_stmt(
                 stmt,
                 locals,
                 local_indexes.clone(),
@@ -3174,6 +3184,59 @@ fn lower_i64_runtime_stmt(
             )?,
         }),
         _ => None,
+    }
+}
+
+fn lower_i64_known_string_option_match_stmt(
+    stmt: &Stmt,
+    locals: &mut Vec<CraneliftI64Expr>,
+    local_indexes: HashMap<String, usize>,
+    local_conditions: HashMap<String, CraneliftI64Condition>,
+    helper_signatures: &HashMap<&str, I64HelperSignature>,
+    static_bindings: &I64StaticBindings,
+    allow_stdio_effects: bool,
+) -> Option<CraneliftI64Stmt> {
+    let Stmt::Match { expr, arms, .. } = stmt else {
+        return None;
+    };
+    let value = i64_string_option_text(expr, static_bindings)?;
+    let (some_arm, none_arm) = i64_option_stmt_match_arms(arms)?;
+    match value {
+        Some(value) => {
+            let mut arm_static_bindings = static_bindings.clone();
+            if !some_arm.ignore_payloads
+                && let Some(binding) = some_arm.bindings.first()
+                && binding != "_"
+            {
+                arm_static_bindings.strings.insert(binding.clone(), value);
+            }
+            Some(CraneliftI64Stmt::If {
+                cond: CraneliftI64Condition::Literal(true),
+                then_body: lower_i64_runtime_stmts(
+                    &some_arm.body,
+                    locals,
+                    local_indexes,
+                    local_conditions,
+                    helper_signatures,
+                    &arm_static_bindings,
+                    allow_stdio_effects,
+                )?,
+                else_body: Vec::new(),
+            })
+        }
+        None => Some(CraneliftI64Stmt::If {
+            cond: CraneliftI64Condition::Literal(false),
+            then_body: Vec::new(),
+            else_body: lower_i64_runtime_stmts(
+                &none_arm.body,
+                locals,
+                local_indexes,
+                local_conditions,
+                helper_signatures,
+                static_bindings,
+                allow_stdio_effects,
+            )?,
+        }),
     }
 }
 

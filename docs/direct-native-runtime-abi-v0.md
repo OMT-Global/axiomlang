@@ -364,10 +364,12 @@ smoke asserts `generated_rust` is null and returns the public `Option<string>`
 shape. The direct-native i64 path now also lowers known-host `net_resolve(...)`
 calls and the public `std/net.ax`
 `resolve(...)` wrapper into native process exit status by selecting
-`Option<string>` match arms at compile time for `localhost`. Packages without
-the `net` capability still fail before backend lowering. Full runtime-time DNS
-policy, non-loopback coverage, resolver portability, and audit parity remain
-open under #1001.
+`Option<string>` match arms at compile time for `localhost`; those known-host
+results can also be stored in local `Option<string>` values and matched later in
+supported length-projection expression and statement contexts without generated
+Rust. Packages without the `net` capability still fail before backend lowering.
+Full runtime-time DNS policy, non-loopback coverage, resolver portability, and
+audit parity remain open under #1001.
 
 The TCP row now has partial Cranelift evidence: the spike builds and runs
 `std/net.ax` `tcp_listen_loopback_once(...)` over `127.0.0.1` while the public
