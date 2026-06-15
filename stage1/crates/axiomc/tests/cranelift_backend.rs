@@ -4516,6 +4516,46 @@ parse error
 
 #[cfg(not(windows))]
 #[test]
+fn cranelift_backend_lowers_std_serdes_known_json_to_runtime_exit_code() {
+    if which::which("cc").is_err() {
+        eprintln!("skipping cranelift backend smoke test because cc is unavailable");
+        return;
+    }
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("std-serdes-known-json-main-exit");
+    write_std_serdes_known_json_main_exit_project(&project);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args([
+            "build",
+            project.to_str().expect("project path"),
+            "--backend",
+            "cranelift",
+            "--json",
+        ])
+        .output()
+        .expect("run axiomc build --backend cranelift");
+    assert!(
+        output.status.success(),
+        "cranelift std/serdes known JSON main build failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+    assert_eq!(payload["backend"], "cranelift");
+    assert_eq!(payload["generated_rust"], Value::Null);
+    let binary = payload["binary"].as_str().expect("binary path");
+    let run = Command::new(binary)
+        .output()
+        .expect("run cranelift std/serdes known JSON main binary");
+    assert_eq!(run.status.code(), Some(48));
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "");
+}
+
+#[cfg(not(windows))]
+#[test]
 fn cranelift_backend_builds_std_cli_no_args_binary() {
     if which::which("cc").is_err() {
         eprintln!("skipping cranelift backend smoke test because cc is unavailable");
@@ -9296,6 +9336,113 @@ print "parse error"
 "#,
     )
     .expect("write std/serdes source");
+}
+
+fn write_std_serdes_known_json_main_exit_project(project: &Path) {
+    fs::create_dir_all(project.join("src")).expect("create std/serdes known JSON project src");
+    fs::write(
+        project.join("axiom.toml"),
+        r#"[package]
+name = "cranelift-std-serdes-known-json-main-exit"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+fs = false
+net = false
+process = false
+env = false
+clock = false
+crypto = false
+"#,
+    )
+    .expect("write std/serdes known JSON manifest");
+    fs::write(
+        project.join("axiom.lock"),
+        r#"version = 1
+
+[[package]]
+name = "cranelift-std-serdes-known-json-main-exit"
+version = "0.1.0"
+source = "path"
+"#,
+    )
+    .expect("write std/serdes known JSON lockfile");
+    fs::write(
+        project.join("src/main.ax"),
+        r#"import "std/serdes.ax"
+
+fn object_json(): string {
+return to_json({"name": Text("axiom"), "count": Int(3), "ready": Bool(true)})
+}
+
+fn stringified_text(): string {
+return stringify(Text("direct-native"))
+}
+
+fn parsed_value_json(): string {
+match from_json_str("{\"name\":\"axiom\",\"count\":3}") {
+Ok(value) {
+return stringify(value)
+}
+Err(error) {
+return parse_error_message(error)
+}
+}
+}
+
+fn parsed_text(): string {
+match from_json_str("\"direct-native\"") {
+Ok(value) {
+match as_text(value) {
+Some(text) {
+return text
+}
+None {
+return "not text"
+}
+}
+}
+Err(error) {
+return parse_error_message(error)
+}
+}
+}
+
+fn parse_error_text(): string {
+match from_json_str("{") {
+Ok(value) {
+return stringify(value)
+}
+Err(error) {
+return parse_error_message(error)
+}
+}
+}
+
+fn main(): int {
+let object_text: string = object_json()
+let text_json: string = stringified_text()
+let parsed_json: string = parsed_value_json()
+let text_value: string = parsed_text()
+let error_text: string = parse_error_text()
+let object_gate: bool = object_text == "{\"count\":3,\"name\":\"axiom\",\"ready\":true}"
+let text_gate: bool = text_json == "\"direct-native\""
+let parsed_gate: bool = parsed_json == "{\"count\":3,\"name\":\"axiom\"}"
+let value_gate: bool = text_value == "direct-native"
+let error_gate: bool = len(error_text) > 0
+if object_gate && text_gate && parsed_gate && value_gate && error_gate {
+return 48
+} else {
+return 1
+}
+}
+"#,
+    )
+    .expect("write std/serdes known JSON source");
 }
 
 fn write_std_cli_project(project: &Path) {

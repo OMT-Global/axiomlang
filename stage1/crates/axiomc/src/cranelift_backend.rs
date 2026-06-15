@@ -7275,6 +7275,10 @@ fn i64_known_pure_intrinsic_call(name: &str, static_bindings: &I64StaticBindings
             | "json_stringify_int"
             | "json_stringify_bool"
             | "json_stringify_string"
+            | "json_serdes_parse"
+            | "json_serdes_parse_str"
+            | "json_serdes_value_to_json"
+            | "json_serdes_to_json"
     ) || is_i64_encoding_percent_encode_name(name, static_bindings)
         || is_i64_encoding_url_query_pair_encode_name(name, static_bindings)
         || is_i64_encoding_path_join_segment_name(name, static_bindings)

@@ -726,9 +726,14 @@ issue #1001. Imported public `std/json.ax` scalar parse/stringify wrappers for
 `parse_int(...)`, `parse_bool(...)`, `parse_string(...)`,
 `parse_field_int(...)`, `parse_field_bool(...)`, `parse_field_string(...)`,
 `stringify_int(...)`, `stringify_bool(...)`, and `stringify_string(...)` now
-alias those same direct-native paths in runtime-exit programs. Broader
-`JsonValue` wrapper construction and schema helper coverage remain tracked by
-issue #1001.
+alias those same direct-native paths in runtime-exit programs. Imported public
+`std/serdes.ax` known-input `to_json(...)`, `stringify(...)`,
+`from_json_str(...)`, `as_text(...)`, and `parse_error_message(...)` wrapper
+paths now also feed direct-native known string comparisons, length projections,
+`Result` matches, `Option` matches, and process exit status without generated
+Rust for literal `Value`/object-map and literal JSON inputs. Broader dynamic
+runtime JSON parsing, broad `std/serdes` `Value` storage, `JsonValue` wrapper
+construction, and schema helper coverage remain tracked by issue #1001.
 
 The owned move-state row has partial direct-native evidence: the Cranelift
 spike builds and runs projection-sensitive owned field moves while preserving
