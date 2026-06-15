@@ -3695,6 +3695,43 @@ fn i64_formatted_string_len_expr(formatted: I64FormattedString) -> CraneliftI64E
     }
 }
 
+fn i64_add_expr(lhs: CraneliftI64Expr, rhs: CraneliftI64Expr) -> CraneliftI64Expr {
+    CraneliftI64Expr::Binary {
+        op: CraneliftI64BinaryOp::Add,
+        lhs: Box::new(lhs),
+        rhs: Box::new(rhs),
+    }
+}
+
+fn i64_formatted_field_list_len_expr(
+    fields: &[Expr],
+    local_indexes: &HashMap<String, usize>,
+    local_conditions: &HashMap<String, CraneliftI64Condition>,
+    helper_signatures: &HashMap<&str, I64HelperSignature>,
+    static_bindings: &I64StaticBindings,
+) -> Option<CraneliftI64Expr> {
+    let mut lengths = fields
+        .iter()
+        .map(|field| {
+            lower_i64_formatted_string_expr(
+                field,
+                local_indexes,
+                local_conditions,
+                helper_signatures,
+                static_bindings,
+            )
+            .map(i64_formatted_string_len_expr)
+        })
+        .collect::<Option<Vec<_>>>()?
+        .into_iter();
+    let first = lengths.next()?;
+    let fields_len = lengths.fold(first, i64_add_expr);
+    Some(i64_add_expr(
+        fields_len,
+        CraneliftI64Expr::Literal(fields.len().saturating_sub(1) as i64),
+    ))
+}
+
 fn is_i64_unsigned_print_type(ty: &Type) -> bool {
     is_i64_unsigned_scalar_type(ty)
 }
@@ -11310,6 +11347,24 @@ fn lower_i64_string_len_expr(
                 )?),
                 rhs: Box::new(CraneliftI64Expr::Literal(2)),
             })
+        }
+        Expr::Call { name, args, .. }
+            if is_i64_log_fields2_name(name, static_bindings)
+                || is_i64_log_fields3_name(name, static_bindings) =>
+        {
+            let expected = if is_i64_log_fields2_name(name, static_bindings) {
+                2
+            } else {
+                3
+            };
+            (args.len() == expected).then(|| ())?;
+            i64_formatted_field_list_len_expr(
+                args,
+                local_indexes,
+                local_conditions,
+                helper_signatures,
+                static_bindings,
+            )
         }
         Expr::Literal(LiteralValue::String(_)) | Expr::Literal(LiteralValue::Str(_)) => {
             lower_i64_string_literal_len_expr(expr)
