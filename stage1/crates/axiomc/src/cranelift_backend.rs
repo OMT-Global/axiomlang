@@ -12954,10 +12954,93 @@ fn lower_i64_string_len_expr(
     helper_signatures: &HashMap<&str, I64HelperSignature>,
     static_bindings: &I64StaticBindings,
 ) -> Option<CraneliftI64Expr> {
-    if let Some(value) = i64_string_text(expr, static_bindings) {
-        return Some(CraneliftI64Expr::Literal(value.len() as i64));
+    let crypto_len_call = matches!(
+        expr,
+        Expr::Call { name, .. }
+            if is_i64_crypto_sha256_name(name, static_bindings)
+                || is_i64_crypto_hmac_sha256_name(name, static_bindings)
+                || is_i64_crypto_hmac_sha512_name(name, static_bindings)
+    );
+    if !crypto_len_call {
+        if let Some(value) = i64_string_text(expr, static_bindings) {
+            return Some(CraneliftI64Expr::Literal(value.len() as i64));
+        }
     }
     match expr {
+        Expr::Call { name, args, .. } if is_i64_crypto_sha256_name(name, static_bindings) => {
+            let [input] = args.as_slice() else {
+                return None;
+            };
+            let _ = lower_i64_string_len_expr(
+                input,
+                local_indexes,
+                local_conditions,
+                helper_signatures,
+                static_bindings,
+            )?;
+            i64_audited_crypto_expr(
+                "crypto_sha256",
+                "inputs",
+                "strings:1".to_string(),
+                CraneliftI64Expr::Literal(64),
+                static_bindings,
+                CraneliftI64AuditSuccess::NonNegative,
+            )
+        }
+        Expr::Call { name, args, .. } if is_i64_crypto_hmac_sha256_name(name, static_bindings) => {
+            let [key, message] = args.as_slice() else {
+                return None;
+            };
+            let _ = lower_i64_string_len_expr(
+                key,
+                local_indexes,
+                local_conditions,
+                helper_signatures,
+                static_bindings,
+            )?;
+            let _ = lower_i64_string_len_expr(
+                message,
+                local_indexes,
+                local_conditions,
+                helper_signatures,
+                static_bindings,
+            )?;
+            i64_audited_crypto_expr(
+                "crypto_hmac_sha256",
+                "inputs",
+                "strings:2".to_string(),
+                CraneliftI64Expr::Literal(64),
+                static_bindings,
+                CraneliftI64AuditSuccess::NonNegative,
+            )
+        }
+        Expr::Call { name, args, .. } if is_i64_crypto_hmac_sha512_name(name, static_bindings) => {
+            let [key, message] = args.as_slice() else {
+                return None;
+            };
+            let _ = lower_i64_string_len_expr(
+                key,
+                local_indexes,
+                local_conditions,
+                helper_signatures,
+                static_bindings,
+            )?;
+            let _ = lower_i64_string_len_expr(
+                message,
+                local_indexes,
+                local_conditions,
+                helper_signatures,
+                static_bindings,
+            )?;
+            i64_audited_crypto_expr(
+                "crypto_hmac_sha512",
+                "inputs",
+                "strings:2".to_string(),
+                CraneliftI64Expr::Literal(128),
+                static_bindings,
+                CraneliftI64AuditSuccess::NonNegative,
+            )
+        }
         Expr::BinaryAdd {
             op: ArithmeticOp::Add,
             lhs,
@@ -13008,59 +13091,6 @@ fn lower_i64_string_len_expr(
                 static_bindings,
                 |value| value.len() as i64,
             )
-        }
-        Expr::Call { name, args, .. } if is_i64_crypto_sha256_name(name, static_bindings) => {
-            let [input] = args.as_slice() else {
-                return None;
-            };
-            let _ = lower_i64_string_len_expr(
-                input,
-                local_indexes,
-                local_conditions,
-                helper_signatures,
-                static_bindings,
-            )?;
-            Some(CraneliftI64Expr::Literal(64))
-        }
-        Expr::Call { name, args, .. } if is_i64_crypto_hmac_sha256_name(name, static_bindings) => {
-            let [key, message] = args.as_slice() else {
-                return None;
-            };
-            let _ = lower_i64_string_len_expr(
-                key,
-                local_indexes,
-                local_conditions,
-                helper_signatures,
-                static_bindings,
-            )?;
-            let _ = lower_i64_string_len_expr(
-                message,
-                local_indexes,
-                local_conditions,
-                helper_signatures,
-                static_bindings,
-            )?;
-            Some(CraneliftI64Expr::Literal(64))
-        }
-        Expr::Call { name, args, .. } if is_i64_crypto_hmac_sha512_name(name, static_bindings) => {
-            let [key, message] = args.as_slice() else {
-                return None;
-            };
-            let _ = lower_i64_string_len_expr(
-                key,
-                local_indexes,
-                local_conditions,
-                helper_signatures,
-                static_bindings,
-            )?;
-            let _ = lower_i64_string_len_expr(
-                message,
-                local_indexes,
-                local_conditions,
-                helper_signatures,
-                static_bindings,
-            )?;
-            Some(CraneliftI64Expr::Literal(128))
         }
         Expr::Call { name, args, .. } if is_i64_json_stringify_int_name(name, static_bindings) => {
             let [value] = args.as_slice() else {
@@ -13307,7 +13337,8 @@ fn lower_i64_string_len_expr(
             helper_signatures,
             static_bindings,
         ),
-        _ => None,
+        _ => i64_string_text(expr, static_bindings)
+            .map(|value| CraneliftI64Expr::Literal(value.len() as i64)),
     }
 }
 

@@ -1808,11 +1808,23 @@ fn cranelift_backend_lowers_std_crypto_wrappers_to_runtime_exit_code() {
     assert_eq!(payload["backend"], "cranelift");
     assert_eq!(payload["generated_rust"], Value::Null);
     let binary = payload["binary"].as_str().expect("binary path");
+    let audit_log = temp.path().join("std-crypto-audit.jsonl");
     let run = Command::new(binary)
+        .env("AXIOM_HOST_AUDIT_LOG", &audit_log)
         .output()
         .expect("run cranelift std crypto wrapper main binary");
     assert_eq!(run.status.code(), Some(48));
     assert_eq!(String::from_utf8_lossy(&run.stdout), "");
+    let audit = fs::read_to_string(&audit_log).expect("read std crypto audit log");
+    assert!(audit.contains("\"intrinsic\":\"crypto_sha256\""));
+    assert!(audit.contains("\"intrinsic\":\"crypto_hmac_sha256\""));
+    assert!(audit.contains("\"intrinsic\":\"crypto_hmac_sha512\""));
+    assert!(audit.contains("\"inputs\":\"strings:1\""));
+    assert!(audit.contains("\"inputs\":\"strings:2\""));
+    assert_eq!(audit.matches("\"outcome\":\"ok\"").count(), 3, "{audit}");
+    assert!(!audit.contains("ba7816bf"));
+    assert!(!audit.contains("f7bc83f4"));
+    assert!(!audit.contains("164b7a7b"));
 }
 
 #[cfg(not(windows))]
