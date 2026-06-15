@@ -11226,14 +11226,125 @@ fn lower_i64_string_len_expr(
             let key_len =
                 i64::try_from(json_escape_string(&i64_string_text(key, static_bindings)?).len())
                     .ok()?;
-            lower_i64_map_key_array_string_index_mapped_i64_expr(
-                value,
-                local_indexes,
-                local_conditions,
-                helper_signatures,
-                static_bindings,
-                |value| key_len + 1 + json_escape_string(value).len() as i64,
-            )
+            Some(CraneliftI64Expr::Binary {
+                op: CraneliftI64BinaryOp::Add,
+                lhs: Box::new(CraneliftI64Expr::Literal(key_len + 1)),
+                rhs: Box::new(lower_i64_json_escaped_string_len_expr(
+                    value,
+                    local_indexes,
+                    local_conditions,
+                    helper_signatures,
+                    static_bindings,
+                )?),
+            })
+        }
+        Expr::Call { name, args, .. } if is_i64_log_field_int_name(name, static_bindings) => {
+            let [key, value] = args.as_slice() else {
+                return None;
+            };
+            let key_len =
+                i64::try_from(json_escape_string(&i64_string_text(key, static_bindings)?).len())
+                    .ok()?;
+            Some(CraneliftI64Expr::Binary {
+                op: CraneliftI64BinaryOp::Add,
+                lhs: Box::new(CraneliftI64Expr::Literal(key_len + 1)),
+                rhs: Box::new(i64_decimal_string_len_expr(lower_i64_expr(
+                    value,
+                    local_indexes,
+                    local_conditions,
+                    helper_signatures,
+                    static_bindings,
+                )?)),
+            })
+        }
+        Expr::Call { name, args, .. } if is_i64_log_field_bool_name(name, static_bindings) => {
+            let [key, value] = args.as_slice() else {
+                return None;
+            };
+            let key_len =
+                i64::try_from(json_escape_string(&i64_string_text(key, static_bindings)?).len())
+                    .ok()?;
+            Some(CraneliftI64Expr::Binary {
+                op: CraneliftI64BinaryOp::Add,
+                lhs: Box::new(CraneliftI64Expr::Literal(key_len + 1)),
+                rhs: Box::new(CraneliftI64Expr::Select {
+                    cond: Box::new(lower_i64_condition(
+                        value,
+                        local_indexes,
+                        local_conditions,
+                        helper_signatures,
+                        static_bindings,
+                    )?),
+                    then_result: Box::new(CraneliftI64Expr::Literal(4)),
+                    else_result: Box::new(CraneliftI64Expr::Literal(5)),
+                }),
+            })
+        }
+        Expr::Call { name, args, .. } if is_i64_log_fields2_name(name, static_bindings) => {
+            let [first, second] = args.as_slice() else {
+                return None;
+            };
+            Some(CraneliftI64Expr::Binary {
+                op: CraneliftI64BinaryOp::Add,
+                lhs: Box::new(CraneliftI64Expr::Binary {
+                    op: CraneliftI64BinaryOp::Add,
+                    lhs: Box::new(lower_i64_string_len_expr(
+                        first,
+                        local_indexes,
+                        local_conditions,
+                        helper_signatures,
+                        static_bindings,
+                    )?),
+                    rhs: Box::new(CraneliftI64Expr::Literal(1)),
+                }),
+                rhs: Box::new(lower_i64_string_len_expr(
+                    second,
+                    local_indexes,
+                    local_conditions,
+                    helper_signatures,
+                    static_bindings,
+                )?),
+            })
+        }
+        Expr::Call { name, args, .. } if is_i64_log_fields3_name(name, static_bindings) => {
+            let [first, second, third] = args.as_slice() else {
+                return None;
+            };
+            Some(CraneliftI64Expr::Binary {
+                op: CraneliftI64BinaryOp::Add,
+                lhs: Box::new(CraneliftI64Expr::Binary {
+                    op: CraneliftI64BinaryOp::Add,
+                    lhs: Box::new(lower_i64_string_len_expr(
+                        first,
+                        local_indexes,
+                        local_conditions,
+                        helper_signatures,
+                        static_bindings,
+                    )?),
+                    rhs: Box::new(CraneliftI64Expr::Literal(1)),
+                }),
+                rhs: Box::new(CraneliftI64Expr::Binary {
+                    op: CraneliftI64BinaryOp::Add,
+                    lhs: Box::new(lower_i64_string_len_expr(
+                        second,
+                        local_indexes,
+                        local_conditions,
+                        helper_signatures,
+                        static_bindings,
+                    )?),
+                    rhs: Box::new(CraneliftI64Expr::Binary {
+                        op: CraneliftI64BinaryOp::Add,
+                        lhs: Box::new(CraneliftI64Expr::Literal(1)),
+                        rhs: Box::new(lower_i64_string_len_expr(
+                            third,
+                            local_indexes,
+                            local_conditions,
+                            helper_signatures,
+                            static_bindings,
+                        )?),
+                    }),
+                }),
+            })
         }
         Expr::Call { name, args, .. } if is_i64_log_event_name(name, static_bindings) => {
             let [level, message, attributes] = args.as_slice() else {
@@ -11254,13 +11365,12 @@ fn lower_i64_string_len_expr(
                 helper_signatures,
                 static_bindings,
             )?;
-            let message_len = lower_i64_map_key_array_string_index_mapped_i64_expr(
+            let message_len = lower_i64_json_escaped_string_len_expr(
                 message,
                 local_indexes,
                 local_conditions,
                 helper_signatures,
                 static_bindings,
-                |value| json_escape_string(value).len() as i64,
             )?;
             Some(CraneliftI64Expr::Binary {
                 op: CraneliftI64BinaryOp::Add,
@@ -11309,6 +11419,41 @@ fn lower_i64_string_len_expr(
         ),
         _ => None,
     }
+}
+
+fn lower_i64_json_escaped_string_len_expr(
+    expr: &Expr,
+    local_indexes: &HashMap<String, usize>,
+    local_conditions: &HashMap<String, CraneliftI64Condition>,
+    helper_signatures: &HashMap<&str, I64HelperSignature>,
+    static_bindings: &I64StaticBindings,
+) -> Option<CraneliftI64Expr> {
+    if let Some(value) = i64_string_text(expr, static_bindings) {
+        return Some(CraneliftI64Expr::Literal(
+            json_escape_string(&value).len() as i64
+        ));
+    }
+    lower_i64_map_key_array_string_index_mapped_i64_expr(
+        expr,
+        local_indexes,
+        local_conditions,
+        helper_signatures,
+        static_bindings,
+        |value| json_escape_string(value).len() as i64,
+    )
+    .or_else(|| {
+        Some(CraneliftI64Expr::Binary {
+            op: CraneliftI64BinaryOp::Add,
+            lhs: Box::new(lower_i64_json_safe_string_len_expr(
+                expr,
+                local_indexes,
+                local_conditions,
+                helper_signatures,
+                static_bindings,
+            )?),
+            rhs: Box::new(CraneliftI64Expr::Literal(2)),
+        })
+    })
 }
 
 fn lower_i64_map_key_array_string_index_len_expr(

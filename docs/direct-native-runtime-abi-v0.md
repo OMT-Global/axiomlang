@@ -753,7 +753,11 @@ that can feed comparisons, length projections, and native process exit status
 without generated Rust. Runtime-selected known string projections from map-key
 arrays can also feed `std/log.ax` `field_string` and `event` length projections
 by selecting among finite JSON-escaped text lengths without materializing a
-general string runtime. It also lowers known-string public `std/io.ax`
+general string runtime. Runtime scalar and boolean values can now feed
+`std/log.ax` `field_int`, `field_bool`, `fields2`, and `event` length
+projections by computing JSON-rendered byte lengths directly in native scalar
+IR without materializing log strings through generated Rust. It also lowers
+known-string public `std/io.ax`
 `eprintln` lets in direct-native i64 `main` functions and helper functions,
 including runtime-scope lets after assignments and inside branches, into native
 stderr writes while preserving newline-inclusive byte-count return values and

@@ -2021,6 +2021,46 @@ fn cranelift_backend_lowers_std_log_selected_projection_lengths_to_runtime_exit_
 
 #[cfg(not(windows))]
 #[test]
+fn cranelift_backend_lowers_std_log_dynamic_scalar_lengths_to_runtime_exit_code() {
+    if which::which("cc").is_err() {
+        eprintln!("skipping cranelift backend smoke test because cc is unavailable");
+        return;
+    }
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("std-log-dynamic-scalar-main-exit");
+    write_std_log_dynamic_scalar_main_exit_project(&project);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args([
+            "build",
+            project.to_str().expect("project path"),
+            "--backend",
+            "cranelift",
+            "--json",
+        ])
+        .output()
+        .expect("run axiomc build --backend cranelift");
+    assert!(
+        output.status.success(),
+        "cranelift std log dynamic scalar main build failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+    assert_eq!(payload["backend"], "cranelift");
+    assert_eq!(payload["generated_rust"], Value::Null);
+    let binary = payload["binary"].as_str().expect("binary path");
+    let run = Command::new(binary)
+        .output()
+        .expect("run cranelift std log dynamic scalar main binary");
+    assert_eq!(run.status.code(), Some(48));
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "");
+}
+
+#[cfg(not(windows))]
+#[test]
 fn cranelift_backend_lowers_struct_literal_field_to_runtime_exit_code() {
     if which::which("cc").is_err() {
         eprintln!("skipping cranelift backend smoke test because cc is unavailable");
@@ -7747,6 +7787,63 @@ return 1
 "#,
     )
     .expect("write std log selected projection source");
+}
+
+fn write_std_log_dynamic_scalar_main_exit_project(project: &Path) {
+    fs::create_dir_all(project.join("src")).expect("create std log dynamic scalar project src");
+    fs::write(
+        project.join("axiom.toml"),
+        r#"[package]
+name = "cranelift-std-log-dynamic-scalar-main-exit"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+fs = false
+net = false
+process = false
+env = false
+clock = false
+crypto = false
+"#,
+    )
+    .expect("write std log dynamic scalar manifest");
+    fs::write(
+        project.join("axiom.lock"),
+        r#"version = 1
+
+[[package]]
+name = "cranelift-std-log-dynamic-scalar-main-exit"
+version = "0.1.0"
+source = "path"
+"#,
+    )
+    .expect("write std log dynamic scalar lockfile");
+    fs::write(
+        project.join("src/main.ax"),
+        r#"import "std/log.ax"
+
+fn main(): int {
+let count: int = match json_parse_int("12345") { Some(value) => value, None => 1 }
+let ready: bool = match json_parse_bool("false") { Some(value) => value, None => true }
+let count_for_message: int = match json_parse_int("12345") { Some(value) => value, None => 1 }
+let message: string = json_stringify_int(count_for_message)
+let count_field_len: int = len(field_int("count", count))
+let ready_field_len: int = len(field_bool("ready", ready))
+let attrs_len: int = len(fields2(field_int("count", count), field_bool("ready", ready)))
+let event_len: int = len(event("info", message, fields2(field_int("count", count), field_bool("ready", ready))))
+if count_field_len == 13 && ready_field_len == 13 && attrs_len == 27 && event_len == 77 {
+return 48
+} else {
+return 1
+}
+}
+"#,
+    )
+    .expect("write std log dynamic scalar source");
 }
 
 fn write_struct_literal_field_main_exit_project(project: &Path) {
