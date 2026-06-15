@@ -784,9 +784,12 @@ byte-count return value without generated Rust. Known public `std/log.ax`
 `main` functions for known message and attributes strings, and for known
 messages with runtime `fields2(...)`/`fields3(...)` attribute fragments,
 preserving the structured JSON line and byte-count return value without
-generated Rust. Known pure `print` expressions for string, integer, and boolean
-values now lower from direct-native i64 `main` functions into native stdout
-writes without generated Rust. Public `std/json.ax` `stringify_int` and
+generated Rust. Public `std/log.ax` `debug(...)`, `info(...)`, `warn(...)`,
+and `error(...)` emit wrappers also lower runtime scalar-formatted messages
+into native structured stderr writes while preserving byte-count return values
+without generated Rust. Known pure `print` expressions for string, integer, and
+boolean values now lower from direct-native i64 `main` functions into native
+stdout writes without generated Rust. Public `std/json.ax` `stringify_int` and
 `stringify_bool` results can
 also feed `print` statements as native stdout integer/boolean writes without
 generated Rust, and runtime-computed boolean `print` expressions now lower into
