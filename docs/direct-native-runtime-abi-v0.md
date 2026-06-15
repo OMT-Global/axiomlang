@@ -175,11 +175,14 @@ over string literals, string statics initialized from literals, and string local
 initialized from known literal or static string values. Known-text
 `string_clone(...)`, `string_trim(...)`, and `string_trim_start(...)` results can
 also feed this same direct-native path, and `string_clone(...)` can pass through
-supported runtime string length projection locals. String length is represented
-as a byte-length projection local, matching the generated-Rust backend and Cranelift
-spike `.len()` semantics, and can feed direct-native integer locals,
-comparisons, helper calls, runtime branch-local string projection `let`s, and
-process exit status without generated Rust.
+supported runtime string length projection locals. Pure single-return helper
+calls with known string arguments can now fold string helper parameters and
+returns into the same direct-native length, comparison, and
+`string_starts_with(...)` condition paths without generated Rust. String length
+is represented as a byte-length projection local, matching the generated-Rust
+backend and Cranelift spike `.len()` semantics, and can feed direct-native
+integer locals, comparisons, helper calls, runtime branch-local string
+projection `let`s, and process exit status without generated Rust.
 String concatenation length also lowers for supported string length projection
 inputs by adding the operand byte lengths without materializing the concatenated
 runtime string.
@@ -210,10 +213,10 @@ checks. Imported public `std/crypto_hash.ax` and `std/crypto_mac.ax` hash, HMAC,
 verify, and constant-time equality wrappers now alias those same known-input
 direct-native paths in runtime-exit programs. The row
 remains partial because direct-native codegen still does not provide a general
-string ABI, string parameters or returns, allocation or mutation behavior,
-non-literal string storage, general Option-string payload storage or helper ABI,
-broad string, encoding, or crypto string intrinsic lowering, or host-boundary
-representation.
+string ABI, general runtime string parameters or returns, allocation or mutation
+behavior, non-literal string storage, general Option-string payload storage or
+helper ABI, broad string, encoding, or crypto string intrinsic lowering, or
+host-boundary representation.
 
 The `array.fixed` row now has narrow direct-native runtime evidence for
 immediate array-literal scalar indexing with literal indexes and scalar
@@ -514,12 +517,15 @@ encoding, and path segment joining without generated Rust. Known-text encoding
 helpers now also feed narrow direct-native string length/comparison lowering,
 known-input `string_line_at(...)` also accepts static scalar indexes, and
 known-input percent decode can feed direct `Option<string>` matches without
-generated Rust. Imported public `std/string_builder.ax` builder, seed, push,
+generated Rust. Pure single-return known-text helper calls can now fold string
+helper arguments and returns into direct-native length, comparison, and
+`string_starts_with(...)` conditions without generated Rust. Imported public
+`std/string_builder.ax` builder, seed, push,
 line-push, and finish wrappers now alias known text facts that can feed
 direct-native string comparisons, length projections, and process exit status
 without generated Rust. Broader string ABI coverage, allocation behavior,
-string parameters and returns, non-literal storage, and host-boundary
-representation remain tracked by issue #1001.
+general runtime string parameters and returns, non-literal storage, and
+host-boundary representation remain tracked by issue #1001.
 
 The borrowed-slice row has partial direct-native evidence: the Cranelift spike
 evaluates array-backed borrowed slices through `len`, `first`, `last`, indexing,

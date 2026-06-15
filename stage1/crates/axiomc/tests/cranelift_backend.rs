@@ -1351,6 +1351,15 @@ fn cranelift_backend_rejects_unsupported_string_helper_main() {
         String::from_utf8_lossy(&output.stderr)
     );
 
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    if output.stdout.is_empty() {
+        assert!(
+            stderr.contains("main function is outside the direct-native i64 ABI subset"),
+            "unexpected cranelift unsupported string helper error: stdout={stdout} stderr={stderr}"
+        );
+        return;
+    }
     let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
     assert_eq!(payload["ok"], Value::Bool(false));
     let message = payload["error"]["message"].as_str().expect("error message");
@@ -1358,6 +1367,40 @@ fn cranelift_backend_rejects_unsupported_string_helper_main() {
         message.contains("main function is outside the direct-native i64 ABI subset"),
         "unexpected cranelift unsupported string helper error: {message}"
     );
+}
+
+#[test]
+fn cranelift_backend_lowers_known_string_helpers_to_runtime_exit_code() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("known-string-helper-main-exit");
+    write_known_string_helper_main_exit_project(&project);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args([
+            "build",
+            project.to_str().expect("project path"),
+            "--backend",
+            "cranelift",
+            "--json",
+        ])
+        .output()
+        .expect("run axiomc build --backend cranelift");
+    assert!(
+        output.status.success(),
+        "cranelift known string helper main build failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+    assert_eq!(payload["backend"], "cranelift");
+    assert_eq!(payload["generated_rust"], Value::Null);
+    let binary = payload["binary"].as_str().expect("binary path");
+    let run = Command::new(binary)
+        .output()
+        .expect("run cranelift known string helper main binary");
+    assert_eq!(run.status.code(), Some(48));
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "");
 }
 
 #[cfg(not(windows))]
@@ -6438,8 +6481,7 @@ return 1
 }
 
 fn write_unsupported_string_helper_main_project(project: &Path) {
-    fs::create_dir_all(project.join("src"))
-        .expect("create unsupported string helper main project src");
+    fs::create_dir_all(project.join("src")).expect("create unsupported string helper main src");
     fs::write(
         project.join("axiom.toml"),
         r#"[package]
@@ -6473,13 +6515,84 @@ source = "path"
     .expect("write unsupported string helper main lockfile");
     fs::write(
         project.join("src/main.ax"),
-        r#"fn score(text: string): int {
+        r#"fn make_banner(): string {
+let text: string = "direct-native"
+return text
+}
+
+fn main(): int {
+return len(make_banner())
+}
+"#,
+    )
+    .expect("write unsupported string helper main source");
+}
+
+fn write_known_string_helper_main_exit_project(project: &Path) {
+    fs::create_dir_all(project.join("src")).expect("create known string helper main project src");
+    fs::write(
+        project.join("axiom.toml"),
+        r#"[package]
+name = "cranelift-known-string-helper-main-exit"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+fs = false
+net = false
+process = false
+env = false
+clock = false
+crypto = false
+"#,
+    )
+    .expect("write known string helper main manifest");
+    fs::write(
+        project.join("axiom.lock"),
+        r#"version = 1
+
+[[package]]
+name = "cranelift-known-string-helper-main-exit"
+version = "0.1.0"
+source = "path"
+"#,
+    )
+    .expect("write known string helper main lockfile");
+    fs::write(
+        project.join("src/main.ax"),
+        r#"static BANNER: string = "direct-native"
+
+fn score(text: string): int {
 return len(text)
+}
+
+fn make_banner(): string {
+return "direct-native"
+}
+
+fn forward_text(text: string): string {
+return text
+}
+
+fn has_native_prefix(text: string): bool {
+return string_starts_with(text, "direct")
 }
 
 fn main(): int {
 let direct: int = score("direct-native")
-if direct == 13 {
+let static_score: int = score(BANNER)
+let forwarded_score: int = score(forward_text(BANNER))
+let returned_text: string = make_banner()
+let forwarded_len_text: string = forward_text(BANNER)
+let forwarded_compare_text: string = forward_text(BANNER)
+let returned_len: int = len(returned_text)
+let forwarded_len: int = len(forwarded_len_text)
+let prefix_gate: bool = has_native_prefix("direct-native")
+let forwarded_gate: bool = forwarded_compare_text == "direct-native"
+if direct == 13 && static_score == 13 && forwarded_score == 13 && returned_len == 13 && forwarded_len == 13 && prefix_gate && forwarded_gate {
 return 48
 } else {
 return 1
@@ -6487,7 +6600,7 @@ return 1
 }
 "#,
     )
-    .expect("write unsupported string helper main source");
+    .expect("write known string helper main source");
 }
 
 fn write_std_encoding_wrapper_main_exit_project(project: &Path) {

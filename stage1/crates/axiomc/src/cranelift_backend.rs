@@ -110,6 +110,7 @@ struct I64StaticBindings {
     fs_root: Option<PathBuf>,
     structs: HashMap<String, StructDef>,
     enums: HashMap<String, EnumDef>,
+    functions: HashMap<String, Function>,
 }
 
 struct I64HelperSignature {
@@ -765,6 +766,12 @@ fn lower_i64_exit_program(program: &Program, fs_root: &Path) -> Option<I64ExitPr
         .iter()
         .map(|enum_def| (enum_def.name.clone(), enum_def.clone()))
         .collect();
+    static_bindings.functions = program
+        .functions
+        .iter()
+        .filter(|function| function.name != main.name)
+        .map(|function| (function.name.clone(), function.clone()))
+        .collect();
     let process_status_wrappers = static_bindings.process_status_wrappers.clone();
     let env_get_wrappers = static_bindings.env_get_wrappers.clone();
     let time_wrappers = static_bindings.time_wrappers.clone();
@@ -812,6 +819,11 @@ fn lower_i64_exit_program(program: &Program, fs_root: &Path) -> Option<I64ExitPr
                 && !sync_channel_wrappers.contains(&function.name)
                 && !sync_send_wrappers.contains(&function.name)
                 && !sync_try_recv_wrappers.contains(&function.name)
+                && is_i64_function_return_type(&function.return_ty, &struct_defs, &static_bindings)
+                && function
+                    .params
+                    .iter()
+                    .all(|param| is_i64_param_type(&param.ty, &struct_defs, &static_bindings))
         })
         .collect::<Vec<_>>();
     let helper_signatures = helper_functions
@@ -6078,6 +6090,9 @@ fn lower_i64_condition(
             ) {
                 return Some(condition);
             }
+            if let Some(condition) = i64_known_helper_call_condition(name, args, static_bindings) {
+                return Some(condition);
+            }
             let call = lower_i64_fixed_array_bool_intrinsic_expr(
                 name,
                 args,
@@ -7039,8 +7054,178 @@ fn i64_string_call_text(
             };
             i64_string_builder_text(builder, static_bindings)
         }
+        _ => match i64_known_helper_call_value(name, args, static_bindings)? {
+            SpikeValue::Text(value) => Some(value),
+            _ => None,
+        },
+    }
+}
+
+fn i64_known_helper_call_i64_expr(
+    name: &str,
+    args: &[Expr],
+    static_bindings: &I64StaticBindings,
+) -> Option<CraneliftI64Expr> {
+    match i64_known_helper_call_value(name, args, static_bindings)? {
+        SpikeValue::Int(value) => Some(CraneliftI64Expr::Literal(value)),
+        SpikeValue::UInt(value) => i64::try_from(value).ok().map(CraneliftI64Expr::Literal),
+        SpikeValue::Bool(value) => Some(CraneliftI64Expr::Literal(i64::from(value))),
         _ => None,
     }
+}
+
+fn i64_known_helper_call_condition(
+    name: &str,
+    args: &[Expr],
+    static_bindings: &I64StaticBindings,
+) -> Option<CraneliftI64Condition> {
+    match i64_known_helper_call_value(name, args, static_bindings)? {
+        SpikeValue::Bool(value) => Some(CraneliftI64Condition::Literal(value)),
+        _ => None,
+    }
+}
+
+fn i64_known_helper_call_value(
+    name: &str,
+    args: &[Expr],
+    static_bindings: &I64StaticBindings,
+) -> Option<SpikeValue> {
+    let function = static_bindings.functions.get(name)?;
+    if function.params.len() != args.len()
+        || !i64_known_helper_function_is_pure(function, static_bindings, 0)
+    {
+        return None;
+    }
+    let functions = static_bindings
+        .functions
+        .iter()
+        .map(|(name, function)| (name.as_str(), function))
+        .collect::<HashMap<_, _>>();
+    let mut lines = Vec::new();
+    let base_env = i64_known_static_env(static_bindings)?;
+    let mut env = base_env.clone();
+    for (param, arg) in function.params.iter().zip(args) {
+        if !i64_known_expr_is_pure(arg, static_bindings, 0) {
+            return None;
+        }
+        let value = eval_expr(arg, &functions, &base_env, &mut lines).ok()?;
+        env.insert(param.name.clone(), value);
+    }
+    let value = eval_block(&function.body, &functions, &mut env, &mut lines)
+        .ok()
+        .flatten()?;
+    lines.is_empty().then_some(value)
+}
+
+fn i64_known_static_env(static_bindings: &I64StaticBindings) -> Option<SpikeEnv> {
+    let mut env = SpikeEnv::new();
+    if let Some(root) = &static_bindings.fs_root {
+        env.insert(
+            SPIKE_FS_ROOT_BINDING.to_string(),
+            SpikeValue::Text(root.display().to_string()),
+        );
+    }
+    for (name, value) in &static_bindings.values {
+        let value = match value {
+            CraneliftI64Expr::Literal(value) => SpikeValue::Int(*value),
+            _ => return None,
+        };
+        env.insert(name.clone(), value);
+    }
+    for (name, condition) in &static_bindings.conditions {
+        let value = match condition {
+            CraneliftI64Condition::Literal(value) => SpikeValue::Bool(*value),
+            _ => return None,
+        };
+        env.insert(name.clone(), value);
+    }
+    for (name, value) in &static_bindings.strings {
+        env.insert(name.clone(), SpikeValue::Text(value.clone()));
+    }
+    Some(env)
+}
+
+fn i64_known_helper_function_is_pure(
+    function: &Function,
+    static_bindings: &I64StaticBindings,
+    depth: usize,
+) -> bool {
+    if depth > 8 || function.is_property || function.is_async || function.is_extern {
+        return false;
+    }
+    let [Stmt::Return { expr, .. }] = function.body.as_slice() else {
+        return false;
+    };
+    i64_known_expr_is_pure(expr, static_bindings, depth + 1)
+}
+
+fn i64_known_expr_is_pure(expr: &Expr, static_bindings: &I64StaticBindings, depth: usize) -> bool {
+    if depth > 8 {
+        return false;
+    }
+    match expr {
+        Expr::Literal(_) | Expr::VarRef { .. } => true,
+        Expr::StringBorrow { expr, .. } | Expr::Cast { expr, .. } => {
+            i64_known_expr_is_pure(expr, static_bindings, depth + 1)
+        }
+        Expr::BinaryAdd { lhs, rhs, .. }
+        | Expr::BinaryCompare { lhs, rhs, .. }
+        | Expr::BinaryLogic { lhs, rhs, .. } => {
+            i64_known_expr_is_pure(lhs, static_bindings, depth + 1)
+                && i64_known_expr_is_pure(rhs, static_bindings, depth + 1)
+        }
+        Expr::Call { name, args, .. } => {
+            args.iter()
+                .all(|arg| i64_known_expr_is_pure(arg, static_bindings, depth + 1))
+                && (i64_known_pure_intrinsic_call(name, static_bindings)
+                    || static_bindings.functions.get(name).is_some_and(|function| {
+                        i64_known_helper_function_is_pure(function, static_bindings, depth + 1)
+                    }))
+        }
+        Expr::Index { base, index, .. } => {
+            i64_known_expr_is_pure(base, static_bindings, depth + 1)
+                && i64_known_expr_is_pure(index, static_bindings, depth + 1)
+        }
+        Expr::ArrayLiteral { elements, .. } | Expr::TupleLiteral { elements, .. } => elements
+            .iter()
+            .all(|element| i64_known_expr_is_pure(element, static_bindings, depth + 1)),
+        Expr::StructLiteral { fields, .. } => fields
+            .iter()
+            .all(|field| i64_known_expr_is_pure(&field.expr, static_bindings, depth + 1)),
+        _ => false,
+    }
+}
+
+fn i64_known_pure_intrinsic_call(name: &str, static_bindings: &I64StaticBindings) -> bool {
+    matches!(
+        name,
+        "len"
+            | "first"
+            | "last"
+            | "string_clone"
+            | "string_starts_with"
+            | "string_strip_prefix"
+            | "string_strip_suffix"
+            | "string_trim"
+            | "string_trim_start"
+            | "string_line_at"
+            | "encoding_url_component_encode"
+            | "encoding_url_component_decode"
+            | "encoding_path_segment_encode"
+            | "encoding_url_query_pair_encode"
+            | "encoding_path_join_segment"
+            | "json_parse_int"
+            | "json_parse_bool"
+            | "json_parse_string"
+            | "json_stringify_int"
+            | "json_stringify_bool"
+            | "json_stringify_string"
+    ) || is_i64_encoding_percent_encode_name(name, static_bindings)
+        || is_i64_encoding_url_query_pair_encode_name(name, static_bindings)
+        || is_i64_encoding_path_join_segment_name(name, static_bindings)
+        || is_i64_json_stringify_int_name(name, static_bindings)
+        || is_i64_json_stringify_bool_name(name, static_bindings)
+        || is_i64_json_stringify_string_name(name, static_bindings)
 }
 
 fn i64_static_scalar_value(expr: &Expr, static_bindings: &I64StaticBindings) -> Option<i64> {
@@ -7669,6 +7854,7 @@ fn lower_i64_expr(
                         static_bindings,
                     )
                 })
+                .or_else(|| i64_known_helper_call_i64_expr(name, args, static_bindings))
                 .or_else(|| {
                     lower_i64_call_expr(
                         name,
