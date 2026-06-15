@@ -6385,9 +6385,12 @@ fn cranelift_backend_lowers_ffi_strlen_to_runtime_exit_code() {
     assert!(audit.contains("\"library\":\"c\""), "{audit}");
     assert!(audit.contains("\"symbol\":\"strlen\""), "{audit}");
     assert!(audit.contains("\"value\":\"string\""), "{audit}");
-    assert_eq!(audit.matches("\"outcome\":\"ok\"").count(), 3, "{audit}");
+    assert_eq!(audit.matches("\"outcome\":\"ok\"").count(), 4, "{audit}");
     assert!(
-        !audit.contains("hello") && !audit.contains("direct-native"),
+        !audit.contains("hello")
+            && !audit.contains("direct-native")
+            && !audit.contains("build")
+            && !audit.contains("deploy"),
         "audit log should not contain FFI string argument values: {audit}"
     );
 }
@@ -12731,7 +12734,11 @@ let literal_len: int = strlen("hello")
 let empty_len: int = strlen("")
 let text: string = "direct-native"
 let local_len: int = strlen(text)
-if literal_len == 5 && empty_len == 0 && local_len == 13 {
+let scores: {string: int} = {"build": 7, "deploy": 9}
+let names: [string] = keys<string, int>(scores)
+let selected_index: int = 1
+let selected_len: int = strlen(names[selected_index])
+if literal_len == 5 && empty_len == 0 && local_len == 13 && selected_len == 6 {
 return 48
 } else {
 return 1
