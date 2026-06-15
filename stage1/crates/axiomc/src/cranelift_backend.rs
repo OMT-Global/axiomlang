@@ -7187,6 +7187,13 @@ fn i64_known_helper_body_is_pure(
                     i64_known_helper_body_is_pure(else_block, static_bindings, depth + 1)
                 })
         }
+        Stmt::Match { expr, arms, .. } => {
+            index + 1 == body.len()
+                && i64_known_expr_is_pure(expr, static_bindings, depth + 1)
+                && arms
+                    .iter()
+                    .all(|arm| i64_known_helper_body_is_pure(&arm.body, static_bindings, depth + 1))
+        }
         _ => false,
     })
 }

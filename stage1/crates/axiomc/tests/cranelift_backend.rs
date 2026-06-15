@@ -6633,6 +6633,39 @@ fn has_match_native_prefix(value: Option<string>): bool {
 return match value { Some(text) => string_starts_with(text, "direct"), None => false }
 }
 
+fn match_stmt_banner(value: Option<string>): string {
+match value {
+Some(text) {
+return text
+}
+None {
+return "fallback"
+}
+}
+}
+
+fn match_stmt_score(value: Option<string>): int {
+match value {
+Some(text) {
+return len(text)
+}
+None {
+return 1
+}
+}
+}
+
+fn has_match_stmt_native_prefix(value: Option<string>): bool {
+match value {
+Some(text) {
+return string_starts_with(text, "direct")
+}
+None {
+return false
+}
+}
+}
+
 fn main(): int {
 let direct: int = score("direct-native")
 let static_score: int = score(BANNER)
@@ -6641,24 +6674,30 @@ let returned_text: string = make_banner()
 let local_text: string = local_banner()
 let branch_text: string = branch_banner(true)
 let match_text: string = match_banner(Some(BANNER))
+let match_stmt_text: string = match_stmt_banner(Some(BANNER))
 let forwarded_len_text: string = forward_text(BANNER)
 let forwarded_compare_text: string = forward_text(BANNER)
 let returned_len: int = len(returned_text)
 let local_len: int = len(local_text)
 let branch_len: int = len(branch_text)
 let match_len: int = len(match_text)
+let match_stmt_len: int = len(match_stmt_text)
 let forwarded_len: int = len(forwarded_len_text)
 let local_score_value: int = local_score(BANNER)
 let branch_score_value: int = branch_score(true)
 let match_score_value: int = match_score(Some(BANNER))
 let match_none_score_value: int = match_score(None)
+let match_stmt_score_value: int = match_stmt_score(Some(BANNER))
+let match_stmt_none_score_value: int = match_stmt_score(None)
 let prefix_gate: bool = has_native_prefix("direct-native")
 let local_prefix_gate: bool = has_local_native_prefix(BANNER)
 let branch_prefix_gate: bool = has_branch_native_prefix(true)
 let match_prefix_gate: bool = has_match_native_prefix(Some(BANNER))
 let match_none_prefix_gate: bool = has_match_native_prefix(None) == false
+let match_stmt_prefix_gate: bool = has_match_stmt_native_prefix(Some(BANNER))
+let match_stmt_none_prefix_gate: bool = has_match_stmt_native_prefix(None) == false
 let forwarded_gate: bool = forwarded_compare_text == "direct-native"
-if direct == 13 && static_score == 13 && forwarded_score == 13 && returned_len == 13 && local_len == 13 && branch_len == 13 && match_len == 13 && forwarded_len == 13 && local_score_value == 13 && branch_score_value == 13 && match_score_value == 13 && match_none_score_value == 1 && prefix_gate && local_prefix_gate && branch_prefix_gate && match_prefix_gate && match_none_prefix_gate && forwarded_gate {
+if direct == 13 && static_score == 13 && forwarded_score == 13 && returned_len == 13 && local_len == 13 && branch_len == 13 && match_len == 13 && match_stmt_len == 13 && forwarded_len == 13 && local_score_value == 13 && branch_score_value == 13 && match_score_value == 13 && match_none_score_value == 1 && match_stmt_score_value == 13 && match_stmt_none_score_value == 1 && prefix_gate && local_prefix_gate && branch_prefix_gate && match_prefix_gate && match_none_prefix_gate && match_stmt_prefix_gate && match_stmt_none_prefix_gate && forwarded_gate {
 return 48
 } else {
 return 1
