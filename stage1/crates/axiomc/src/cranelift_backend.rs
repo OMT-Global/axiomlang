@@ -3128,6 +3128,16 @@ fn lower_i64_print_stmt(
             value,
         });
     }
+    if let Some(stmt) = lower_i64_formatted_string_write_stmt(
+        OutputStream::Stdout,
+        expr,
+        local_indexes,
+        local_conditions,
+        helper_signatures,
+        static_bindings,
+    ) {
+        return Some(stmt);
+    }
     let cond = lower_i64_condition(
         expr,
         local_indexes,
@@ -3146,6 +3156,56 @@ fn lower_i64_print_stmt(
             text: "false".to_string(),
         }],
     })
+}
+
+fn lower_i64_formatted_string_write_stmt(
+    stream: OutputStream,
+    message: &Expr,
+    local_indexes: &HashMap<String, usize>,
+    local_conditions: &HashMap<String, CraneliftI64Condition>,
+    helper_signatures: &HashMap<&str, I64HelperSignature>,
+    static_bindings: &I64StaticBindings,
+) -> Option<CraneliftI64Stmt> {
+    match message {
+        Expr::Call { name, args, .. } if is_i64_json_stringify_int_name(name, static_bindings) => {
+            let [value] = args.as_slice() else {
+                return None;
+            };
+            Some(CraneliftI64Stmt::WriteIntLine {
+                stream,
+                value: lower_i64_expr(
+                    value,
+                    local_indexes,
+                    local_conditions,
+                    helper_signatures,
+                    static_bindings,
+                )?,
+            })
+        }
+        Expr::Call { name, args, .. } if is_i64_json_stringify_bool_name(name, static_bindings) => {
+            let [value] = args.as_slice() else {
+                return None;
+            };
+            Some(CraneliftI64Stmt::If {
+                cond: lower_i64_condition(
+                    value,
+                    local_indexes,
+                    local_conditions,
+                    helper_signatures,
+                    static_bindings,
+                )?,
+                then_body: vec![CraneliftI64Stmt::WriteLine {
+                    stream,
+                    text: "true".to_string(),
+                }],
+                else_body: vec![CraneliftI64Stmt::WriteLine {
+                    stream,
+                    text: "false".to_string(),
+                }],
+            })
+        }
+        _ => None,
+    }
 }
 
 fn is_i64_unsigned_print_type(ty: &Type) -> bool {

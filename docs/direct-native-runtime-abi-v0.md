@@ -765,12 +765,13 @@ byte-count return value without generated Rust. Known public `std/log.ax`
 structured JSON line and byte-count return value without generated Rust. Known
 pure `print` expressions for string, integer, and boolean values now lower from
 direct-native i64 `main` functions into native stdout writes without generated
-Rust, and
-runtime-computed boolean `print` expressions now lower into conditional native
-stdout writes without generated Rust. Runtime-computed signed and unsigned
-integer `print` expressions for currently supported direct-native scalar widths
-now lower through native decimal formatters and stdout writes without generated
-Rust. Stdin reads, dynamic string stdout/stderr text, broader numeric
+Rust. Public `std/json.ax` `stringify_int` and `stringify_bool` results can
+also feed `print` statements as native stdout integer/boolean writes without
+generated Rust, and runtime-computed boolean `print` expressions now lower into
+conditional native stdout writes without generated Rust. Runtime-computed
+signed and unsigned integer `print` expressions for currently supported
+direct-native scalar widths now lower through native decimal formatters and
+stdout writes without generated Rust. Stdin reads, dynamic string stdout/stderr text, broader numeric
 formatting beyond supported integer lines, dynamic log inputs, and broader
 streaming/runtime buffering remain tracked by issue #1001.
 
