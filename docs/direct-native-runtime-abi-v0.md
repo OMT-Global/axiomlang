@@ -45,8 +45,8 @@ helpers, JSON value and serdes helpers, LSP/doc/testing helpers, plus async,
 CLI's no-argument path, collections, crypto hash/MAC, env allowlisted and
 unrestricted-migration reads, encoding, fs read/write, HTTP's closed-port
 client path, io, JSON, logging, process-status missing-binary handling, regex,
-sync, string builder, and time. It is direct-native example evidence for the
-checked runtime ABI contract, not a
+sync, string builder, and time. It is direct-native example evidence for #1001,
+not a
 replacement for full
 `stage1-smoke` parity; examples that still require broader capability policy or
 runtime parity remain outside this smoke target.
@@ -726,8 +726,11 @@ issue #1001. Imported public `std/json.ax` scalar parse/stringify wrappers for
 `parse_int(...)`, `parse_bool(...)`, `parse_string(...)`,
 `parse_field_int(...)`, `parse_field_bool(...)`, `parse_field_string(...)`,
 `stringify_int(...)`, `stringify_bool(...)`, and `stringify_string(...)` now
-alias those same direct-native paths in runtime-exit programs. Imported public
-`std/serdes.ax` known-input `to_json(...)`, `stringify(...)`,
+alias those same direct-native paths in runtime-exit programs; scalar
+`stringify_int(...)` and `stringify_bool(...)` results can also be assigned to
+string locals that feed native stdout `print` without materializing a general
+runtime string value. Imported public `std/serdes.ax` known-input `to_json(...)`,
+`stringify(...)`,
 `from_json_str(...)`, `as_text(...)`, and `parse_error_message(...)` wrapper
 paths now also feed direct-native known string comparisons, length projections,
 `Result` matches, `Option` matches, and process exit status without generated
@@ -747,11 +750,63 @@ and stderr streams from the native binary. The direct-native i64 path now also
 lowers deterministic public `std/log.ax` formatting wrappers for field
 construction, field-list joining, and event rendering into known string facts
 that can feed comparisons, length projections, and native process exit status
-without generated Rust. Terminal source-level `panic(...)` statements with
-known string messages, including terminal branch arms, also lower into native
-stderr JSON panic reports and exit status `1` without generated Rust. Stdin
-reads, runtime stderr emission, and broader streaming/runtime buffering remain
-tracked by issue #1001.
+without generated Rust. Runtime-selected known string projections from map-key
+arrays can also feed `std/log.ax` `field_string` and `event` length projections
+by selecting among finite JSON-escaped text lengths without materializing a
+general string runtime. It also lowers known-string public `std/io.ax`
+`eprintln` lets in direct-native i64 `main` functions and helper functions,
+including runtime-scope lets after assignments and inside branches, into native
+stderr writes while preserving newline-inclusive byte-count return values and
+`generated_rust` null. Those stderr writes cover known string literals, locals,
+statics, `string_clone(...)`, concatenation, pure helper string returns, and
+branch-local known string lets; scalar and aggregate-return helper functions can
+emit the same known stderr writes and return byte counts through native calls.
+Dynamic scalar `std/json.ax` `stringify_int` and `stringify_bool` expressions,
+including scalar stringify results first assigned to string locals, can also
+feed public `std/io.ax` `eprintln` lets in direct-native i64 `main` functions,
+scalar helpers, and aggregate-return helpers as native stderr writes while
+preserving newline-inclusive byte-count return values and without materializing
+general runtime strings. Runtime-selected known string projections from map-key
+arrays, either directly or through string locals backed by those projections,
+can also feed public `std/io.ax` `eprintln` lets in direct-native i64 `main`
+functions, scalar helpers, and aggregate-return helpers as native stderr writes
+by selecting among finite known text values while preserving newline-inclusive
+byte-count return values and without materializing a general string runtime.
+Known-string source-level
+`print` statements now lower known string literals, locals, statics,
+`string_clone(...)`, concatenation, pure helper string returns, and branch-local
+known string lets to native stdout writes in direct-native i64 `main` functions
+and scalar and aggregate-return helpers without generated Rust. Boolean and
+integer source-level `print` statements also lower to native stdout writes in
+direct-native i64 `main` functions and scalar and aggregate-return helpers
+without generated Rust, including runtime integer values formatted through the
+native object backend. Dynamic scalar `std/json.ax`
+`stringify_int` and
+`stringify_bool` print expressions, including scalar stringify results first
+assigned to string locals, reuse those same native stdout writers in
+direct-native i64 `main` functions and scalar and aggregate-return helpers
+without materializing general runtime strings. Runtime-selected known string
+projections from map-key arrays, either directly or through string locals backed
+by those projections, can also lower to native stdout writes in direct-native
+i64 `main` functions, scalar helpers, and aggregate-return helpers by selecting
+among finite known text values without materializing a general string runtime.
+Terminal source-level
+`panic(...)` statements with known string messages, including literals, locals,
+statics, `string_clone(...)`, concatenation, pure helper string returns, and
+branch-local known string lets in terminal branch arms, also lower into native
+stderr JSON panic reports and exit status `1` without generated Rust. Terminal
+panic messages backed by dynamic `std/json.ax` `stringify_int(...)` and
+`stringify_bool(...)` expressions, including string locals assigned from those
+expressions in terminal branch arms, also lower to native stderr JSON panic
+reports without materializing a general string runtime. Terminal panic messages
+backed by runtime-selected known string projections from map-key arrays, either
+directly or through string locals backed by those projections, also lower to
+native stderr JSON panic reports by selecting among finite known text values
+without materializing a general string runtime. Stdin reads, dynamic
+stdout/stderr text beyond boolean, integer, JSON scalar formatting, and finite
+known-string projection selection, dynamic panic messages beyond scalar JSON
+stringify and finite known-string projection selection, and broader
+streaming/runtime buffering remain tracked by issue #1001.
 
 The `clock.now_sleep` row now has partial Cranelift evidence for `std/time.ax`
 `now_ms`, `now`, `elapsed_ms`, and zero-duration `sleep`, plus guards that a

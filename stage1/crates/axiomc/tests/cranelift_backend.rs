@@ -100,6 +100,262 @@ fn cranelift_backend_lowers_i64_main_to_runtime_exit_code() {
 
 #[cfg(not(windows))]
 #[test]
+fn cranelift_backend_lowers_terminal_panic_to_native_report() {
+    if which::which("cc").is_err() {
+        eprintln!("skipping cranelift backend smoke test because cc is unavailable");
+        return;
+    }
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let known_project = temp.path().join("terminal-panic-known");
+    write_terminal_panic_project(
+        &known_project,
+        r#"fn main(): int {
+panic("boom")
+}
+"#,
+    );
+    assert_terminal_panic_report(
+        &known_project,
+        "{\"kind\":\"panic\",\"message\":\"boom\"}\n",
+    );
+
+    let known_facts_project = temp.path().join("terminal-panic-known-facts");
+    write_terminal_panic_project(
+        &known_facts_project,
+        r#"static STATIC_MESSAGE: string = "static boom"
+
+fn helper_message(): string {
+return "helper boom"
+}
+
+fn main(): int {
+let local_message: string = "local boom"
+let clone_message: string = "clone boom"
+panic(local_message + " " + string_clone(clone_message) + " " + STATIC_MESSAGE + " " + helper_message())
+}
+"#,
+    );
+    assert_terminal_panic_report(
+        &known_facts_project,
+        "{\"kind\":\"panic\",\"message\":\"local boom clone boom static boom helper boom\"}\n",
+    );
+
+    let then_branch_project = temp.path().join("terminal-panic-then-branch");
+    write_terminal_panic_project(
+        &then_branch_project,
+        r#"fn should_panic(): bool {
+return true
+}
+
+fn main(): int {
+if should_panic() {
+panic("then boom")
+} else {
+return 0
+}
+}
+"#,
+    );
+    assert_terminal_panic_report(
+        &then_branch_project,
+        "{\"kind\":\"panic\",\"message\":\"then boom\"}\n",
+    );
+
+    let branch_known_project = temp.path().join("terminal-panic-branch-known-facts");
+    write_terminal_panic_project(
+        &branch_known_project,
+        r#"static STATIC_MESSAGE: string = "static branch"
+
+fn should_panic(): bool {
+return true
+}
+
+fn main(): int {
+if should_panic() {
+let branch_message: string = "branch local"
+panic(branch_message + " " + STATIC_MESSAGE)
+} else {
+return 0
+}
+}
+"#,
+    );
+    assert_terminal_panic_report(
+        &branch_known_project,
+        "{\"kind\":\"panic\",\"message\":\"branch local static branch\"}\n",
+    );
+
+    let bool_stringify_project = temp.path().join("terminal-panic-bool-stringify");
+    write_terminal_panic_project(
+        &bool_stringify_project,
+        r#"import "std/json.ax"
+
+fn main(): int {
+let status: int = 1
+panic(stringify_bool(status == 1))
+}
+"#,
+    );
+    assert_terminal_panic_report(
+        &bool_stringify_project,
+        "{\"kind\":\"panic\",\"message\":\"true\"}\n",
+    );
+
+    let branch_bool_alias_project = temp.path().join("terminal-panic-branch-bool-alias");
+    write_terminal_panic_project(
+        &branch_bool_alias_project,
+        r#"import "std/json.ax"
+
+fn should_panic(): bool {
+return true
+}
+
+fn main(): int {
+let status: int = 0
+if should_panic() {
+let message: string = stringify_bool(status == 1)
+panic(message)
+} else {
+return 0
+}
+}
+"#,
+    );
+    assert_terminal_panic_report(
+        &branch_bool_alias_project,
+        "{\"kind\":\"panic\",\"message\":\"false\"}\n",
+    );
+
+    let int_stringify_project = temp.path().join("terminal-panic-int-stringify");
+    write_terminal_panic_project(
+        &int_stringify_project,
+        r#"import "std/json.ax"
+
+fn main(): int {
+let status: int = 40
+panic(stringify_int(status + 2))
+}
+"#,
+    );
+    assert_terminal_panic_report(
+        &int_stringify_project,
+        "{\"kind\":\"panic\",\"message\":42}\n",
+    );
+
+    let branch_int_alias_project = temp.path().join("terminal-panic-branch-int-alias");
+    write_terminal_panic_project(
+        &branch_int_alias_project,
+        r#"import "std/json.ax"
+
+fn should_panic(): bool {
+return true
+}
+
+fn main(): int {
+let status: int = 7
+if should_panic() {
+let message: string = stringify_int(status - 10)
+panic(message)
+} else {
+return 0
+}
+}
+"#,
+    );
+    assert_terminal_panic_report(
+        &branch_int_alias_project,
+        "{\"kind\":\"panic\",\"message\":-3}\n",
+    );
+
+    let key_projection_project = temp.path().join("terminal-panic-key-projection");
+    write_terminal_panic_project(
+        &key_projection_project,
+        r#"fn main(): int {
+let scores: {string: int} = {"build": 7, "deploy": 9}
+let names: [string] = keys<string, int>(scores)
+let selected_index: int = 1
+let selected_line: string = names[selected_index]
+panic(selected_line)
+}
+"#,
+    );
+    assert_terminal_panic_report(
+        &key_projection_project,
+        "{\"kind\":\"panic\",\"message\":\"deploy\"}\n",
+    );
+
+    let else_branch_project = temp.path().join("terminal-panic-else-branch");
+    write_terminal_panic_project(
+        &else_branch_project,
+        r#"fn should_panic(): bool {
+return false
+}
+
+fn main(): int {
+if should_panic() {
+return 0
+} else {
+panic("else boom")
+}
+}
+"#,
+    );
+    assert_terminal_panic_report(
+        &else_branch_project,
+        "{\"kind\":\"panic\",\"message\":\"else boom\"}\n",
+    );
+}
+
+#[cfg(not(windows))]
+#[test]
+fn cranelift_backend_rejects_helper_terminal_panic_as_native_value_return() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("terminal-panic-helper");
+    write_terminal_panic_project(
+        &project,
+        r#"fn fail(): int {
+panic("helper boom")
+}
+
+fn main(): int {
+let ignored: int = fail()
+return 0
+}
+"#,
+    );
+
+    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args([
+            "build",
+            project.to_str().expect("project path"),
+            "--backend",
+            "cranelift",
+            "--json",
+        ])
+        .output()
+        .expect("run axiomc build --backend cranelift");
+    assert!(
+        !output.status.success(),
+        "cranelift helper panic build unexpectedly succeeded: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+    assert_eq!(payload["ok"], Value::Bool(false));
+    assert!(
+        payload["error"]["message"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("main function is outside the direct-native i64 ABI subset"),
+        "unexpected helper panic rejection: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[cfg(not(windows))]
+#[test]
 fn cranelift_backend_lowers_i64_returning_main_to_runtime_exit_code() {
     if which::which("cc").is_err() {
         eprintln!("skipping cranelift backend smoke test because cc is unavailable");
@@ -350,6 +606,170 @@ fn cranelift_backend_lowers_option_array_payload_match_to_runtime_exit_code() {
         assert_eq!(run.status.code(), Some(expected));
         assert_eq!(String::from_utf8_lossy(&run.stdout), "");
     }
+}
+
+#[cfg(not(windows))]
+#[test]
+fn cranelift_backend_lowers_option_struct_payload_match_to_runtime_exit_code() {
+    if which::which("cc").is_err() {
+        eprintln!("skipping cranelift backend smoke test because cc is unavailable");
+        return;
+    }
+
+    for (variant, expected) in [("Some", 48), ("None", 49)] {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let project = temp
+            .path()
+            .join(format!("option-struct-payload-match-main-exit-{variant}"));
+        write_option_struct_payload_match_main_exit_project(&project, variant);
+
+        let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+            .args([
+                "build",
+                project.to_str().expect("project path"),
+                "--backend",
+                "cranelift",
+                "--json",
+            ])
+            .output()
+            .expect("run axiomc build --backend cranelift");
+        assert!(
+            output.status.success(),
+            "cranelift option struct payload {variant} match main build failed: stdout={} stderr={}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+
+        let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+        assert_eq!(payload["backend"], "cranelift");
+        assert_eq!(payload["generated_rust"], Value::Null);
+        let binary = payload["binary"].as_str().expect("binary path");
+        let run = Command::new(binary)
+            .output()
+            .expect("run cranelift option struct payload match main binary");
+        assert_eq!(run.status.code(), Some(expected));
+        assert_eq!(String::from_utf8_lossy(&run.stdout), "");
+    }
+}
+
+#[cfg(not(windows))]
+#[test]
+fn cranelift_backend_lowers_nested_option_match_to_runtime_exit_code() {
+    if which::which("cc").is_err() {
+        eprintln!("skipping cranelift backend smoke test because cc is unavailable");
+        return;
+    }
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("nested-option-match-main-exit");
+    write_nested_option_match_main_exit_project(&project);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args([
+            "build",
+            project.to_str().expect("project path"),
+            "--backend",
+            "cranelift",
+            "--json",
+        ])
+        .output()
+        .expect("run axiomc build --backend cranelift");
+    assert!(
+        output.status.success(),
+        "cranelift nested option match main build failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+    assert_eq!(payload["backend"], "cranelift");
+    assert_eq!(payload["generated_rust"], Value::Null);
+    let binary = payload["binary"].as_str().expect("binary path");
+    let run = Command::new(binary)
+        .output()
+        .expect("run cranelift nested option match main binary");
+    assert_eq!(run.status.code(), Some(48));
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "");
+}
+
+#[cfg(not(windows))]
+#[test]
+fn cranelift_backend_lowers_nested_result_match_to_runtime_exit_code() {
+    if which::which("cc").is_err() {
+        eprintln!("skipping cranelift backend smoke test because cc is unavailable");
+        return;
+    }
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("nested-result-match-main-exit");
+    write_nested_result_match_main_exit_project(&project);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args([
+            "build",
+            project.to_str().expect("project path"),
+            "--backend",
+            "cranelift",
+            "--json",
+        ])
+        .output()
+        .expect("run axiomc build --backend cranelift");
+    assert!(
+        output.status.success(),
+        "cranelift nested result match main build failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+    assert_eq!(payload["backend"], "cranelift");
+    assert_eq!(payload["generated_rust"], Value::Null);
+    let binary = payload["binary"].as_str().expect("binary path");
+    let run = Command::new(binary)
+        .output()
+        .expect("run cranelift nested result match main binary");
+    assert_eq!(run.status.code(), Some(48));
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "");
+}
+
+#[cfg(not(windows))]
+#[test]
+fn cranelift_backend_lowers_enum_nested_payload_match_to_runtime_exit_code() {
+    if which::which("cc").is_err() {
+        eprintln!("skipping cranelift backend smoke test because cc is unavailable");
+        return;
+    }
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("enum-nested-payload-match-main-exit");
+    write_enum_nested_payload_match_main_exit_project(&project);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args([
+            "build",
+            project.to_str().expect("project path"),
+            "--backend",
+            "cranelift",
+            "--json",
+        ])
+        .output()
+        .expect("run axiomc build --backend cranelift");
+    assert!(
+        output.status.success(),
+        "cranelift enum nested payload match main build failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+    assert_eq!(payload["backend"], "cranelift");
+    assert_eq!(payload["generated_rust"], Value::Null);
+    let binary = payload["binary"].as_str().expect("binary path");
+    let run = Command::new(binary)
+        .output()
+        .expect("run cranelift enum nested payload match main binary");
+    assert_eq!(run.status.code(), Some(48));
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "");
 }
 
 #[cfg(not(windows))]
@@ -756,6 +1176,136 @@ fn cranelift_backend_lowers_result_dual_tuple_payload_match_to_runtime_exit_code
 
 #[cfg(not(windows))]
 #[test]
+fn cranelift_backend_lowers_result_array_payload_match_to_runtime_exit_code() {
+    if which::which("cc").is_err() {
+        eprintln!("skipping cranelift backend smoke test because cc is unavailable");
+        return;
+    }
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    for (name, variant, expected) in [
+        ("result-ok-array-payload-match-main-exit", "Ok", 48),
+        ("result-err-array-payload-match-main-exit", "Err", 49),
+    ] {
+        let project = temp.path().join(name);
+        write_result_array_payload_match_main_exit_project(&project, name, variant);
+
+        let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+            .args([
+                "build",
+                project.to_str().expect("project path"),
+                "--backend",
+                "cranelift",
+                "--json",
+            ])
+            .output()
+            .expect("run axiomc build --backend cranelift");
+        assert!(
+            output.status.success(),
+            "cranelift {variant} result array payload match main build failed: stdout={} stderr={}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+
+        let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+        assert_eq!(payload["backend"], "cranelift");
+        assert_eq!(payload["generated_rust"], Value::Null);
+        let binary = payload["binary"].as_str().expect("binary path");
+        let run = Command::new(binary)
+            .output()
+            .expect("run cranelift result array payload match main binary");
+        assert_eq!(run.status.code(), Some(expected));
+        assert_eq!(String::from_utf8_lossy(&run.stdout), "");
+    }
+}
+
+#[cfg(not(windows))]
+#[test]
+fn cranelift_backend_lowers_result_struct_payload_match_to_runtime_exit_code() {
+    if which::which("cc").is_err() {
+        eprintln!("skipping cranelift backend smoke test because cc is unavailable");
+        return;
+    }
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    for (name, variant, expected) in [
+        ("result-ok-struct-payload-match-main-exit", "Ok", 48),
+        ("result-err-struct-payload-match-main-exit", "Err", 49),
+    ] {
+        let project = temp.path().join(name);
+        write_result_struct_payload_match_main_exit_project(&project, name, variant);
+
+        let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+            .args([
+                "build",
+                project.to_str().expect("project path"),
+                "--backend",
+                "cranelift",
+                "--json",
+            ])
+            .output()
+            .expect("run axiomc build --backend cranelift");
+        assert!(
+            output.status.success(),
+            "cranelift {variant} result struct payload match main build failed: stdout={} stderr={}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+
+        let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+        assert_eq!(payload["backend"], "cranelift");
+        assert_eq!(payload["generated_rust"], Value::Null);
+        let binary = payload["binary"].as_str().expect("binary path");
+        let run = Command::new(binary)
+            .output()
+            .expect("run cranelift result struct payload match main binary");
+        assert_eq!(run.status.code(), Some(expected));
+        assert_eq!(String::from_utf8_lossy(&run.stdout), "");
+    }
+}
+
+#[cfg(not(windows))]
+#[test]
+fn cranelift_backend_lowers_aggregate_helper_reassignment_to_runtime_exit_code() {
+    if which::which("cc").is_err() {
+        eprintln!("skipping cranelift backend smoke test because cc is unavailable");
+        return;
+    }
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("aggregate-helper-reassignment-main-exit");
+    write_aggregate_helper_reassignment_main_exit_project(&project);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args([
+            "build",
+            project.to_str().expect("project path"),
+            "--backend",
+            "cranelift",
+            "--json",
+        ])
+        .output()
+        .expect("run axiomc build --backend cranelift");
+    assert!(
+        output.status.success(),
+        "cranelift aggregate helper reassignment build failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+    assert_eq!(payload["backend"], "cranelift");
+    assert_eq!(payload["generated_rust"], Value::Null);
+    let binary = payload["binary"].as_str().expect("binary path");
+    let run = Command::new(binary)
+        .output()
+        .expect("run cranelift aggregate helper reassignment binary");
+    assert_eq!(run.status.code(), Some(48));
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "");
+}
+
+#[cfg(not(windows))]
+#[test]
 fn cranelift_backend_lowers_i64_bool_returning_main_to_runtime_exit_code() {
     if which::which("cc").is_err() {
         eprintln!("skipping cranelift backend smoke test because cc is unavailable");
@@ -910,6 +1460,561 @@ fn cranelift_backend_lowers_array_literal_index_to_runtime_exit_code() {
     let run = Command::new(binary)
         .output()
         .expect("run cranelift array literal index main binary");
+    assert_eq!(run.status.code(), Some(48));
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "");
+}
+
+#[cfg(not(windows))]
+#[test]
+fn cranelift_backend_lowers_fixed_array_intrinsics_to_runtime_exit_code() {
+    if which::which("cc").is_err() {
+        eprintln!("skipping cranelift backend smoke test because cc is unavailable");
+        return;
+    }
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("fixed-array-intrinsics-main-exit");
+    write_fixed_array_intrinsics_main_exit_project(&project);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args([
+            "build",
+            project.to_str().expect("project path"),
+            "--backend",
+            "cranelift",
+            "--json",
+        ])
+        .output()
+        .expect("run axiomc build --backend cranelift");
+    assert!(
+        output.status.success(),
+        "cranelift fixed array intrinsics main build failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+    assert_eq!(payload["backend"], "cranelift");
+    assert_eq!(payload["generated_rust"], Value::Null);
+    let binary = payload["binary"].as_str().expect("binary path");
+    let run = Command::new(binary)
+        .output()
+        .expect("run cranelift fixed array intrinsics main binary");
+    assert_eq!(run.status.code(), Some(48));
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "");
+}
+
+#[cfg(not(windows))]
+#[test]
+fn cranelift_backend_lowers_static_slice_bounds_to_runtime_exit_code() {
+    if which::which("cc").is_err() {
+        eprintln!("skipping cranelift backend smoke test because cc is unavailable");
+        return;
+    }
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("static-slice-bounds-main-exit");
+    write_static_slice_bounds_main_exit_project(&project);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args([
+            "build",
+            project.to_str().expect("project path"),
+            "--backend",
+            "cranelift",
+            "--json",
+        ])
+        .output()
+        .expect("run axiomc build --backend cranelift");
+    assert!(
+        output.status.success(),
+        "cranelift static slice bounds main build failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+    assert_eq!(payload["backend"], "cranelift");
+    assert_eq!(payload["generated_rust"], Value::Null);
+    let binary = payload["binary"].as_str().expect("binary path");
+    let run = Command::new(binary)
+        .output()
+        .expect("run cranelift static slice bounds main binary");
+    assert_eq!(run.status.code(), Some(48));
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "");
+}
+
+#[cfg(not(windows))]
+#[test]
+fn cranelift_backend_lowers_string_literal_len_to_runtime_exit_code() {
+    if which::which("cc").is_err() {
+        eprintln!("skipping cranelift backend smoke test because cc is unavailable");
+        return;
+    }
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("string-literal-len-main-exit");
+    write_string_literal_len_main_exit_project(&project);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args([
+            "build",
+            project.to_str().expect("project path"),
+            "--backend",
+            "cranelift",
+            "--json",
+        ])
+        .output()
+        .expect("run axiomc build --backend cranelift");
+    assert!(
+        output.status.success(),
+        "cranelift string literal len main build failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+    assert_eq!(payload["backend"], "cranelift");
+    assert_eq!(payload["generated_rust"], Value::Null);
+    let binary = payload["binary"].as_str().expect("binary path");
+    let run = Command::new(binary)
+        .output()
+        .expect("run cranelift string literal len main binary");
+    assert_eq!(run.status.code(), Some(48));
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "");
+}
+
+#[test]
+fn cranelift_backend_rejects_unsupported_string_helper_main() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("unsupported-string-helper-main");
+    write_unsupported_string_helper_main_project(&project);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args([
+            "build",
+            project.to_str().expect("project path"),
+            "--backend",
+            "cranelift",
+            "--json",
+        ])
+        .output()
+        .expect("run axiomc build --backend cranelift");
+    assert!(
+        !output.status.success(),
+        "cranelift unsupported string helper main unexpectedly built: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    if output.stdout.is_empty() {
+        assert!(
+            stderr.contains("main function is outside the direct-native i64 ABI subset"),
+            "unexpected cranelift unsupported string helper error: stdout={stdout} stderr={stderr}"
+        );
+        return;
+    }
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+    assert_eq!(payload["ok"], Value::Bool(false));
+    let message = payload["error"]["message"].as_str().expect("error message");
+    assert!(
+        message.contains("main function is outside the direct-native i64 ABI subset"),
+        "unexpected cranelift unsupported string helper error: {message}"
+    );
+}
+
+#[test]
+fn cranelift_backend_lowers_known_string_helpers_to_runtime_exit_code() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("known-string-helper-main-exit");
+    write_known_string_helper_main_exit_project(&project);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args([
+            "build",
+            project.to_str().expect("project path"),
+            "--backend",
+            "cranelift",
+            "--json",
+        ])
+        .output()
+        .expect("run axiomc build --backend cranelift");
+    assert!(
+        output.status.success(),
+        "cranelift known string helper main build failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+    assert_eq!(payload["backend"], "cranelift");
+    assert_eq!(payload["generated_rust"], Value::Null);
+    let binary = payload["binary"].as_str().expect("binary path");
+    let run = Command::new(binary)
+        .output()
+        .expect("run cranelift known string helper main binary");
+    assert_eq!(run.status.code(), Some(48));
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "");
+}
+
+#[cfg(not(windows))]
+#[test]
+fn cranelift_backend_lowers_std_encoding_wrappers_to_runtime_exit_code() {
+    if which::which("cc").is_err() {
+        eprintln!("skipping cranelift backend smoke test because cc is unavailable");
+        return;
+    }
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("std-encoding-wrapper-main-exit");
+    write_std_encoding_wrapper_main_exit_project(&project);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args([
+            "build",
+            project.to_str().expect("project path"),
+            "--backend",
+            "cranelift",
+            "--json",
+        ])
+        .output()
+        .expect("run axiomc build --backend cranelift");
+    assert!(
+        output.status.success(),
+        "cranelift std encoding wrapper main build failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+    assert_eq!(payload["backend"], "cranelift");
+    assert_eq!(payload["generated_rust"], Value::Null);
+    let binary = payload["binary"].as_str().expect("binary path");
+    let run = Command::new(binary)
+        .output()
+        .expect("run cranelift std encoding wrapper main binary");
+    assert_eq!(run.status.code(), Some(48));
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "");
+}
+
+#[cfg(not(windows))]
+#[test]
+fn cranelift_backend_lowers_known_crypto_text_to_runtime_exit_code() {
+    if which::which("cc").is_err() {
+        eprintln!("skipping cranelift backend smoke test because cc is unavailable");
+        return;
+    }
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("known-crypto-text-main-exit");
+    write_known_crypto_text_main_exit_project(&project);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args([
+            "build",
+            project.to_str().expect("project path"),
+            "--backend",
+            "cranelift",
+            "--json",
+        ])
+        .output()
+        .expect("run axiomc build --backend cranelift");
+    assert!(
+        output.status.success(),
+        "cranelift known crypto text main build failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+    assert_eq!(payload["backend"], "cranelift");
+    assert_eq!(payload["generated_rust"], Value::Null);
+    let binary = payload["binary"].as_str().expect("binary path");
+    let run = Command::new(binary)
+        .output()
+        .expect("run cranelift known crypto text main binary");
+    assert_eq!(run.status.code(), Some(48));
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "");
+}
+
+#[cfg(not(windows))]
+#[test]
+fn cranelift_backend_lowers_std_crypto_wrappers_to_runtime_exit_code() {
+    if which::which("cc").is_err() {
+        eprintln!("skipping cranelift backend smoke test because cc is unavailable");
+        return;
+    }
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("std-crypto-wrapper-main-exit");
+    write_std_crypto_wrapper_main_exit_project(&project);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args([
+            "build",
+            project.to_str().expect("project path"),
+            "--backend",
+            "cranelift",
+            "--json",
+        ])
+        .output()
+        .expect("run axiomc build --backend cranelift");
+    assert!(
+        output.status.success(),
+        "cranelift std crypto wrapper main build failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+    assert_eq!(payload["backend"], "cranelift");
+    assert_eq!(payload["generated_rust"], Value::Null);
+    let binary = payload["binary"].as_str().expect("binary path");
+    let run = Command::new(binary)
+        .output()
+        .expect("run cranelift std crypto wrapper main binary");
+    assert_eq!(run.status.code(), Some(48));
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "");
+}
+
+#[cfg(not(windows))]
+#[test]
+fn cranelift_backend_lowers_known_regex_text_to_runtime_exit_code() {
+    if which::which("cc").is_err() {
+        eprintln!("skipping cranelift backend smoke test because cc is unavailable");
+        return;
+    }
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("known-regex-text-main-exit");
+    write_known_regex_text_main_exit_project(&project);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args([
+            "build",
+            project.to_str().expect("project path"),
+            "--backend",
+            "cranelift",
+            "--json",
+        ])
+        .output()
+        .expect("run axiomc build --backend cranelift");
+    assert!(
+        output.status.success(),
+        "cranelift known regex text main build failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+    assert_eq!(payload["backend"], "cranelift");
+    assert_eq!(payload["generated_rust"], Value::Null);
+    let binary = payload["binary"].as_str().expect("binary path");
+    let run = Command::new(binary)
+        .output()
+        .expect("run cranelift known regex text main binary");
+    assert_eq!(run.status.code(), Some(48));
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "");
+}
+
+#[cfg(not(windows))]
+#[test]
+fn cranelift_backend_lowers_std_regex_wrappers_to_runtime_exit_code() {
+    if which::which("cc").is_err() {
+        eprintln!("skipping cranelift backend smoke test because cc is unavailable");
+        return;
+    }
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("std-regex-wrapper-main-exit");
+    write_std_regex_wrapper_main_exit_project(&project);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args([
+            "build",
+            project.to_str().expect("project path"),
+            "--backend",
+            "cranelift",
+            "--json",
+        ])
+        .output()
+        .expect("run axiomc build --backend cranelift");
+    assert!(
+        output.status.success(),
+        "cranelift std regex wrapper main build failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+    assert_eq!(payload["backend"], "cranelift");
+    assert_eq!(payload["generated_rust"], Value::Null);
+    let binary = payload["binary"].as_str().expect("binary path");
+    let run = Command::new(binary)
+        .output()
+        .expect("run cranelift std regex wrapper main binary");
+    assert_eq!(run.status.code(), Some(48));
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "");
+}
+
+#[cfg(not(windows))]
+#[test]
+fn cranelift_backend_lowers_known_json_text_to_runtime_exit_code() {
+    if which::which("cc").is_err() {
+        eprintln!("skipping cranelift backend smoke test because cc is unavailable");
+        return;
+    }
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("known-json-text-main-exit");
+    write_known_json_text_main_exit_project(&project);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args([
+            "build",
+            project.to_str().expect("project path"),
+            "--backend",
+            "cranelift",
+            "--json",
+        ])
+        .output()
+        .expect("run axiomc build --backend cranelift");
+    assert!(
+        output.status.success(),
+        "cranelift known json text main build failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+    assert_eq!(payload["backend"], "cranelift");
+    assert_eq!(payload["generated_rust"], Value::Null);
+    let binary = payload["binary"].as_str().expect("binary path");
+    let run = Command::new(binary)
+        .output()
+        .expect("run cranelift known json text main binary");
+    assert_eq!(run.status.code(), Some(48));
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "");
+}
+
+#[cfg(not(windows))]
+#[test]
+fn cranelift_backend_lowers_std_json_wrappers_to_runtime_exit_code() {
+    if which::which("cc").is_err() {
+        eprintln!("skipping cranelift backend smoke test because cc is unavailable");
+        return;
+    }
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("std-json-wrapper-main-exit");
+    write_std_json_wrapper_main_exit_project(&project);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args([
+            "build",
+            project.to_str().expect("project path"),
+            "--backend",
+            "cranelift",
+            "--json",
+        ])
+        .output()
+        .expect("run axiomc build --backend cranelift");
+    assert!(
+        output.status.success(),
+        "cranelift std json wrapper main build failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+    assert_eq!(payload["backend"], "cranelift");
+    assert_eq!(payload["generated_rust"], Value::Null);
+    let binary = payload["binary"].as_str().expect("binary path");
+    let run = Command::new(binary)
+        .output()
+        .expect("run cranelift std json wrapper main binary");
+    assert_eq!(run.status.code(), Some(48));
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "");
+}
+
+#[cfg(not(windows))]
+#[test]
+fn cranelift_backend_lowers_std_log_format_wrappers_to_runtime_exit_code() {
+    if which::which("cc").is_err() {
+        eprintln!("skipping cranelift backend smoke test because cc is unavailable");
+        return;
+    }
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("std-log-format-wrapper-main-exit");
+    write_std_log_format_wrapper_main_exit_project(&project);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args([
+            "build",
+            project.to_str().expect("project path"),
+            "--backend",
+            "cranelift",
+            "--json",
+        ])
+        .output()
+        .expect("run axiomc build --backend cranelift");
+    assert!(
+        output.status.success(),
+        "cranelift std log format wrapper main build failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+    assert_eq!(payload["backend"], "cranelift");
+    assert_eq!(payload["generated_rust"], Value::Null);
+    let binary = payload["binary"].as_str().expect("binary path");
+    let run = Command::new(binary)
+        .output()
+        .expect("run cranelift std log format wrapper main binary");
+    assert_eq!(run.status.code(), Some(48));
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "");
+}
+
+#[cfg(not(windows))]
+#[test]
+fn cranelift_backend_lowers_std_log_selected_projection_lengths_to_runtime_exit_code() {
+    if which::which("cc").is_err() {
+        eprintln!("skipping cranelift backend smoke test because cc is unavailable");
+        return;
+    }
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("std-log-selected-projection-main-exit");
+    write_std_log_selected_projection_main_exit_project(&project);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args([
+            "build",
+            project.to_str().expect("project path"),
+            "--backend",
+            "cranelift",
+            "--json",
+        ])
+        .output()
+        .expect("run axiomc build --backend cranelift");
+    assert!(
+        output.status.success(),
+        "cranelift std log selected projection main build failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+    assert_eq!(payload["backend"], "cranelift");
+    assert_eq!(payload["generated_rust"], Value::Null);
+    let binary = payload["binary"].as_str().expect("binary path");
+    let run = Command::new(binary)
+        .output()
+        .expect("run cranelift std log selected projection main binary");
     assert_eq!(run.status.code(), Some(48));
     assert_eq!(String::from_utf8_lossy(&run.stdout), "");
 }
@@ -1144,6 +2249,46 @@ first line
 second line
 "
     );
+}
+
+#[cfg(not(windows))]
+#[test]
+fn cranelift_backend_lowers_std_string_builder_wrappers_to_runtime_exit_code() {
+    if which::which("cc").is_err() {
+        eprintln!("skipping cranelift backend smoke test because cc is unavailable");
+        return;
+    }
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("string-builder-main-exit");
+    write_std_string_builder_main_exit_project(&project);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args([
+            "build",
+            project.to_str().expect("project path"),
+            "--backend",
+            "cranelift",
+            "--json",
+        ])
+        .output()
+        .expect("run axiomc build --backend cranelift");
+    assert!(
+        output.status.success(),
+        "cranelift string builder main build failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+    assert_eq!(payload["backend"], "cranelift");
+    assert_eq!(payload["generated_rust"], Value::Null);
+    let binary = payload["binary"].as_str().expect("binary path");
+    let run = Command::new(binary)
+        .output()
+        .expect("run cranelift string builder main binary");
+    assert_eq!(run.status.code(), Some(48));
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "");
 }
 
 #[cfg(not(windows))]
@@ -1561,7 +2706,53 @@ fn cranelift_backend_builds_process_status_binary() {
         "cranelift process-status binary failed: stderr={}",
         String::from_utf8_lossy(&run.stderr)
     );
-    assert_eq!(String::from_utf8_lossy(&run.stdout), "0\n1\n");
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "0\n1\n-1\n");
+}
+
+#[cfg(not(windows))]
+#[test]
+fn cranelift_backend_lowers_process_status_to_runtime_exit_code() {
+    if which::which("cc").is_err() {
+        eprintln!("skipping cranelift backend smoke test because cc is unavailable");
+        return;
+    }
+    if !Path::new("/usr/bin/true").exists() || !Path::new("/usr/bin/false").exists() {
+        eprintln!(
+            "skipping cranelift process-status test because /usr/bin/true or /usr/bin/false is unavailable"
+        );
+        return;
+    }
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("process-status-main-exit");
+    write_process_status_main_exit_project(&project);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args([
+            "build",
+            project.to_str().expect("project path"),
+            "--backend",
+            "cranelift",
+            "--json",
+        ])
+        .output()
+        .expect("run axiomc build --backend cranelift");
+    assert!(
+        output.status.success(),
+        "cranelift process-status main build failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+    assert_eq!(payload["backend"], "cranelift");
+    assert_eq!(payload["generated_rust"], Value::Null);
+    let binary = payload["binary"].as_str().expect("binary path");
+    let run = Command::new(binary)
+        .output()
+        .expect("run cranelift process-status main binary");
+    assert_eq!(run.status.code(), Some(48));
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "");
 }
 
 #[cfg(not(windows))]
@@ -1597,6 +2788,86 @@ fn cranelift_backend_rejects_unapproved_process_status_command() {
         diagnostic.contains("allowlisted deterministic commands"),
         "unexpected diagnostic: {diagnostic}"
     );
+}
+
+#[cfg(not(windows))]
+#[test]
+fn cranelift_backend_lowers_fs_read_to_runtime_exit_code() {
+    if which::which("cc").is_err() {
+        eprintln!("skipping cranelift backend smoke test because cc is unavailable");
+        return;
+    }
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("fs-read-main-exit");
+    write_fs_read_main_exit_project(&project);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args([
+            "build",
+            project.to_str().expect("project path"),
+            "--backend",
+            "cranelift",
+            "--json",
+        ])
+        .output()
+        .expect("run axiomc build --backend cranelift");
+    assert!(
+        output.status.success(),
+        "cranelift fs-read main build failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+    assert_eq!(payload["backend"], "cranelift");
+    assert_eq!(payload["generated_rust"], Value::Null);
+    let binary = payload["binary"].as_str().expect("binary path");
+    let run = Command::new(binary)
+        .output()
+        .expect("run cranelift fs-read main binary");
+    assert_eq!(run.status.code(), Some(48));
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "");
+}
+
+#[cfg(not(windows))]
+#[test]
+fn cranelift_backend_lowers_fs_write_to_runtime_exit_code() {
+    if which::which("cc").is_err() {
+        eprintln!("skipping cranelift backend smoke test because cc is unavailable");
+        return;
+    }
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("fs-write-main-exit");
+    write_fs_write_main_exit_project(&project);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args([
+            "build",
+            project.to_str().expect("project path"),
+            "--backend",
+            "cranelift",
+            "--json",
+        ])
+        .output()
+        .expect("run axiomc build --backend cranelift");
+    assert!(
+        output.status.success(),
+        "cranelift fs-write main build failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+    assert_eq!(payload["backend"], "cranelift");
+    assert_eq!(payload["generated_rust"], Value::Null);
+    let binary = payload["binary"].as_str().expect("binary path");
+    let run = Command::new(binary)
+        .output()
+        .expect("run cranelift fs-write main binary");
+    assert_eq!(run.status.code(), Some(48));
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "");
 }
 
 #[cfg(not(windows))]
@@ -1971,6 +3242,127 @@ high
 
 #[cfg(not(windows))]
 #[test]
+fn cranelift_backend_lowers_map_get_or_default_to_runtime_exit_code() {
+    if which::which("cc").is_err() {
+        eprintln!("skipping cranelift backend smoke test because cc is unavailable");
+        return;
+    }
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("map-get-or-default-main-exit");
+    write_map_get_or_default_main_exit_project(&project);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args([
+            "build",
+            project.to_str().expect("project path"),
+            "--backend",
+            "cranelift",
+            "--json",
+        ])
+        .output()
+        .expect("run axiomc build --backend cranelift");
+    assert!(
+        output.status.success(),
+        "cranelift map get_or_default main build failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+    assert_eq!(payload["backend"], "cranelift");
+    assert_eq!(payload["generated_rust"], Value::Null);
+    let binary = payload["binary"].as_str().expect("binary path");
+    let run = Command::new(binary)
+        .output()
+        .expect("run cranelift map get_or_default main binary");
+    assert_eq!(run.status.code(), Some(48));
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "");
+}
+
+#[cfg(not(windows))]
+#[test]
+fn cranelift_backend_lowers_static_bool_map_keys_to_runtime_exit_code() {
+    if which::which("cc").is_err() {
+        eprintln!("skipping cranelift backend smoke test because cc is unavailable");
+        return;
+    }
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("static-bool-map-keys-main-exit");
+    write_static_bool_map_keys_main_exit_project(&project);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args([
+            "build",
+            project.to_str().expect("project path"),
+            "--backend",
+            "cranelift",
+            "--json",
+        ])
+        .output()
+        .expect("run axiomc build --backend cranelift");
+    assert!(
+        output.status.success(),
+        "cranelift static bool map keys main build failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+    assert_eq!(payload["backend"], "cranelift");
+    assert_eq!(payload["generated_rust"], Value::Null);
+    let binary = payload["binary"].as_str().expect("binary path");
+    let run = Command::new(binary)
+        .output()
+        .expect("run cranelift static bool map keys main binary");
+    assert_eq!(run.status.code(), Some(48));
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "");
+}
+
+#[cfg(not(windows))]
+#[test]
+fn cranelift_backend_lowers_std_collection_wrappers_to_runtime_exit_code() {
+    if which::which("cc").is_err() {
+        eprintln!("skipping cranelift backend smoke test because cc is unavailable");
+        return;
+    }
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("std-collection-wrapper-main-exit");
+    write_std_collection_wrapper_main_exit_project(&project);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args([
+            "build",
+            project.to_str().expect("project path"),
+            "--backend",
+            "cranelift",
+            "--json",
+        ])
+        .output()
+        .expect("run axiomc build --backend cranelift");
+    assert!(
+        output.status.success(),
+        "cranelift std collection wrapper main build failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+    assert_eq!(payload["backend"], "cranelift");
+    assert_eq!(payload["generated_rust"], Value::Null);
+    let binary = payload["binary"].as_str().expect("binary path");
+    let run = Command::new(binary)
+        .env("AXIOM_CRANELIFT_DYNAMIC_KEY_INDEX", "deploy")
+        .output()
+        .expect("run cranelift std collection wrapper main binary");
+    assert_eq!(run.status.code(), Some(48));
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "");
+}
+
+#[cfg(not(windows))]
+#[test]
 fn cranelift_backend_builds_std_collection_lookup_binary() {
     if which::which("cc").is_err() {
         eprintln!("skipping cranelift backend smoke test because cc is unavailable");
@@ -2067,6 +3459,46 @@ fn cranelift_backend_builds_net_resolve_binary() {
 
 #[cfg(not(windows))]
 #[test]
+fn cranelift_backend_lowers_net_resolve_to_runtime_exit_code() {
+    if which::which("cc").is_err() {
+        eprintln!("skipping cranelift backend smoke test because cc is unavailable");
+        return;
+    }
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("net-resolve-main-exit");
+    write_net_resolve_main_exit_project(&project);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args([
+            "build",
+            project.to_str().expect("project path"),
+            "--backend",
+            "cranelift",
+            "--json",
+        ])
+        .output()
+        .expect("run axiomc build --backend cranelift");
+    assert!(
+        output.status.success(),
+        "cranelift net resolve main build failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+    assert_eq!(payload["backend"], "cranelift");
+    assert_eq!(payload["generated_rust"], Value::Null);
+    let binary = payload["binary"].as_str().expect("binary path");
+    let run = Command::new(binary)
+        .output()
+        .expect("run cranelift net resolve main binary");
+    assert_eq!(run.status.code(), Some(48));
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "");
+}
+
+#[cfg(not(windows))]
+#[test]
 fn cranelift_backend_builds_net_loopback_binary() {
     if which::which("cc").is_err() {
         eprintln!("skipping cranelift backend smoke test because cc is unavailable");
@@ -2115,6 +3547,46 @@ true
 
 #[cfg(not(windows))]
 #[test]
+fn cranelift_backend_lowers_net_loopback_to_runtime_exit_code() {
+    if which::which("cc").is_err() {
+        eprintln!("skipping cranelift backend smoke test because cc is unavailable");
+        return;
+    }
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("net-loopback-main-exit");
+    write_net_loopback_main_exit_project(&project);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args([
+            "build",
+            project.to_str().expect("project path"),
+            "--backend",
+            "cranelift",
+            "--json",
+        ])
+        .output()
+        .expect("run axiomc build --backend cranelift");
+    assert!(
+        output.status.success(),
+        "cranelift net loopback main build failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+    assert_eq!(payload["backend"], "cranelift");
+    assert_eq!(payload["generated_rust"], Value::Null);
+    let binary = payload["binary"].as_str().expect("binary path");
+    let run = Command::new(binary)
+        .output()
+        .expect("run cranelift net loopback main binary");
+    assert_eq!(run.status.code(), Some(48));
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "");
+}
+
+#[cfg(not(windows))]
+#[test]
 fn cranelift_backend_builds_http_client_binary() {
     if which::which("cc").is_err() {
         eprintln!("skipping cranelift backend smoke test because cc is unavailable");
@@ -2156,6 +3628,48 @@ fn cranelift_backend_builds_http_client_binary() {
         String::from_utf8_lossy(&run.stderr)
     );
     assert_eq!(String::from_utf8_lossy(&run.stdout), "axiom-http-ok\n");
+}
+
+#[cfg(not(windows))]
+#[test]
+fn cranelift_backend_lowers_http_client_to_runtime_exit_code() {
+    if which::which("cc").is_err() {
+        eprintln!("skipping cranelift backend smoke test because cc is unavailable");
+        return;
+    }
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("http-client-main-exit");
+    let (port, server) = start_http_fixture_server("axiom-http-ok");
+    write_http_client_main_exit_project(&project, port);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args([
+            "build",
+            project.to_str().expect("project path"),
+            "--backend",
+            "cranelift",
+            "--json",
+        ])
+        .output()
+        .expect("run axiomc build --backend cranelift");
+    assert!(
+        output.status.success(),
+        "cranelift http client main build failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    server.join().expect("join http fixture server");
+
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+    assert_eq!(payload["backend"], "cranelift");
+    assert_eq!(payload["generated_rust"], Value::Null);
+    let binary = payload["binary"].as_str().expect("binary path");
+    let run = Command::new(binary)
+        .output()
+        .expect("run cranelift http client main binary");
+    assert_eq!(run.status.code(), Some(48));
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "");
 }
 
 #[cfg(not(windows))]
@@ -2215,6 +3729,117 @@ fn cranelift_backend_builds_http_server_binary() {
         String::from_utf8_lossy(&run.stdout),
         "true\nPOST\n/server\naxiom-request\ntrue\ntrue\n"
     );
+}
+
+#[cfg(not(windows))]
+#[test]
+fn cranelift_backend_lowers_http_server_once_to_runtime_exit_code() {
+    if which::which("cc").is_err() {
+        eprintln!("skipping cranelift backend smoke test because cc is unavailable");
+        return;
+    }
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("http-server-once-main-exit");
+    let Some(port) = reserve_loopback_port() else {
+        return;
+    };
+    write_http_server_once_main_exit_project(&project, port);
+    let client = start_http_route_probe_client(port, "/once");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args([
+            "build",
+            project.to_str().expect("project path"),
+            "--backend",
+            "cranelift",
+            "--json",
+        ])
+        .output()
+        .expect("run axiomc build --backend cranelift");
+    assert!(
+        output.status.success(),
+        "cranelift http server once main build failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let response = client.join().expect("join http server once probe client");
+    assert!(
+        response.starts_with("HTTP/1.0 200 OK\r\n"),
+        "unexpected http server once response: {response:?}"
+    );
+    assert!(
+        response.ends_with("server-once-ok"),
+        "unexpected http server once response body: {response:?}"
+    );
+
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+    assert_eq!(payload["backend"], "cranelift");
+    assert_eq!(payload["generated_rust"], Value::Null);
+    let binary = payload["binary"].as_str().expect("binary path");
+    let run = Command::new(binary)
+        .output()
+        .expect("run cranelift http server once main binary");
+    assert_eq!(run.status.code(), Some(48));
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "");
+}
+
+#[cfg(not(windows))]
+#[test]
+fn cranelift_backend_lowers_http_server_route_to_runtime_exit_code() {
+    if which::which("cc").is_err() {
+        eprintln!("skipping cranelift backend smoke test because cc is unavailable");
+        return;
+    }
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("http-server-route-main-exit");
+    let Some(port) = reserve_loopback_port() else {
+        return;
+    };
+    write_http_server_route_main_exit_project(&project, port);
+    let first_client = start_http_route_probe_client(port, "/route");
+    let second_client = start_http_route_probe_client(port, "/route");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args([
+            "build",
+            project.to_str().expect("project path"),
+            "--backend",
+            "cranelift",
+            "--json",
+        ])
+        .output()
+        .expect("run axiomc build --backend cranelift");
+    assert!(
+        output.status.success(),
+        "cranelift http server route main build failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    for response in [
+        first_client.join().expect("join first http route client"),
+        second_client.join().expect("join second http route client"),
+    ] {
+        assert!(
+            response.starts_with("HTTP/1.0 200 OK\r\n"),
+            "unexpected http server route response: {response:?}"
+        );
+        assert!(
+            response.ends_with("route-ok"),
+            "unexpected http server route response body: {response:?}"
+        );
+    }
+
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+    assert_eq!(payload["backend"], "cranelift");
+    assert_eq!(payload["generated_rust"], Value::Null);
+    let binary = payload["binary"].as_str().expect("binary path");
+    let run = Command::new(binary)
+        .output()
+        .expect("run cranelift http server route main binary");
+    assert_eq!(run.status.code(), Some(48));
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "");
 }
 
 #[cfg(not(windows))]
@@ -2424,6 +4049,46 @@ true
 
 #[cfg(not(windows))]
 #[test]
+fn cranelift_backend_lowers_crypto_random_to_runtime_exit_code() {
+    if which::which("cc").is_err() {
+        eprintln!("skipping cranelift backend smoke test because cc is unavailable");
+        return;
+    }
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("crypto-random-main-exit");
+    write_crypto_random_main_exit_project(&project);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args([
+            "build",
+            project.to_str().expect("project path"),
+            "--backend",
+            "cranelift",
+            "--json",
+        ])
+        .output()
+        .expect("run axiomc build --backend cranelift");
+    assert!(
+        output.status.success(),
+        "cranelift crypto random main build failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+    assert_eq!(payload["backend"], "cranelift");
+    assert_eq!(payload["generated_rust"], Value::Null);
+    let binary = payload["binary"].as_str().expect("binary path");
+    let run = Command::new(binary)
+        .output()
+        .expect("run cranelift crypto random main binary");
+    assert_eq!(run.status.code(), Some(48));
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "");
+}
+
+#[cfg(not(windows))]
+#[test]
 fn cranelift_backend_builds_sync_primitives_binary() {
     if which::which("cc").is_err() {
         eprintln!("skipping cranelift backend smoke test because cc is unavailable");
@@ -2470,6 +4135,126 @@ empty
 message
 "
     );
+}
+
+#[cfg(not(windows))]
+#[test]
+fn cranelift_backend_lowers_sync_mutex_to_runtime_exit_code() {
+    if which::which("cc").is_err() {
+        eprintln!("skipping cranelift backend smoke test because cc is unavailable");
+        return;
+    }
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("sync-mutex-main-exit");
+    write_sync_mutex_main_exit_project(&project);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args([
+            "build",
+            project.to_str().expect("project path"),
+            "--backend",
+            "cranelift",
+            "--json",
+        ])
+        .output()
+        .expect("run axiomc build --backend cranelift");
+    assert!(
+        output.status.success(),
+        "cranelift sync mutex main build failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+    assert_eq!(payload["backend"], "cranelift");
+    assert_eq!(payload["generated_rust"], Value::Null);
+    let binary = payload["binary"].as_str().expect("binary path");
+    let run = Command::new(binary)
+        .output()
+        .expect("run cranelift sync mutex main binary");
+    assert_eq!(run.status.code(), Some(48));
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "");
+}
+
+#[cfg(not(windows))]
+#[test]
+fn cranelift_backend_lowers_sync_once_to_runtime_exit_code() {
+    if which::which("cc").is_err() {
+        eprintln!("skipping cranelift backend smoke test because cc is unavailable");
+        return;
+    }
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("sync-once-main-exit");
+    write_sync_once_main_exit_project(&project);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args([
+            "build",
+            project.to_str().expect("project path"),
+            "--backend",
+            "cranelift",
+            "--json",
+        ])
+        .output()
+        .expect("run axiomc build --backend cranelift");
+    assert!(
+        output.status.success(),
+        "cranelift sync once main build failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+    assert_eq!(payload["backend"], "cranelift");
+    assert_eq!(payload["generated_rust"], Value::Null);
+    let binary = payload["binary"].as_str().expect("binary path");
+    let run = Command::new(binary)
+        .output()
+        .expect("run cranelift sync once main binary");
+    assert_eq!(run.status.code(), Some(40));
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "");
+}
+
+#[cfg(not(windows))]
+#[test]
+fn cranelift_backend_lowers_sync_channel_to_runtime_exit_code() {
+    if which::which("cc").is_err() {
+        eprintln!("skipping cranelift backend smoke test because cc is unavailable");
+        return;
+    }
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("sync-channel-main-exit");
+    write_sync_channel_main_exit_project(&project);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args([
+            "build",
+            project.to_str().expect("project path"),
+            "--backend",
+            "cranelift",
+            "--json",
+        ])
+        .output()
+        .expect("run axiomc build --backend cranelift");
+    assert!(
+        output.status.success(),
+        "cranelift sync channel main build failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+    assert_eq!(payload["backend"], "cranelift");
+    assert_eq!(payload["generated_rust"], Value::Null);
+    let binary = payload["binary"].as_str().expect("binary path");
+    let run = Command::new(binary)
+        .output()
+        .expect("run cranelift sync channel main binary");
+    assert_eq!(run.status.code(), Some(50));
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "");
 }
 
 #[cfg(not(windows))]
@@ -2527,6 +4312,50 @@ right
 
 #[cfg(not(windows))]
 #[test]
+fn cranelift_backend_builds_std_async_net_tcp_binary() {
+    if which::which("cc").is_err() {
+        eprintln!("skipping cranelift backend smoke test because cc is unavailable");
+        return;
+    }
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("std-async-net-tcp");
+    write_std_async_net_tcp_project(&project);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args([
+            "build",
+            project.to_str().expect("project path"),
+            "--backend",
+            "cranelift",
+            "--json",
+        ])
+        .output()
+        .expect("run axiomc build --backend cranelift");
+    assert!(
+        output.status.success(),
+        "cranelift std async net TCP build failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+    assert_eq!(payload["backend"], "cranelift");
+    assert_eq!(payload["generated_rust"], Value::Null);
+    let binary = payload["binary"].as_str().expect("binary path");
+    let run = Command::new(binary)
+        .output()
+        .expect("run cranelift std async net TCP binary");
+    assert!(
+        run.status.success(),
+        "cranelift std async net TCP binary failed: stderr={}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "alpha\nbeta\n");
+}
+
+#[cfg(not(windows))]
+#[test]
 fn cranelift_backend_builds_logging_stdio_binary() {
     if which::which("cc").is_err() {
         eprintln!("skipping cranelift backend smoke test because cc is unavailable");
@@ -2567,6 +4396,399 @@ fn cranelift_backend_builds_logging_stdio_binary() {
     );
     assert_eq!(String::from_utf8_lossy(&run.stdout), "true\n");
     assert_eq!(String::from_utf8_lossy(&run.stderr), "hello stderr\n");
+}
+
+#[cfg(not(windows))]
+#[test]
+fn cranelift_backend_lowers_known_eprintln_runtime_stderr_in_direct_native_main() {
+    if which::which("cc").is_err() {
+        eprintln!("skipping cranelift backend smoke test because cc is unavailable");
+        return;
+    }
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("logging-stdio-main-exit");
+    write_logging_stdio_main_exit_project(&project);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args([
+            "build",
+            project.to_str().expect("project path"),
+            "--backend",
+            "cranelift",
+            "--json",
+        ])
+        .output()
+        .expect("run axiomc build --backend cranelift");
+    assert!(
+        output.status.success(),
+        "cranelift logging stdio main build failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+    assert_eq!(payload["backend"], "cranelift");
+    assert_eq!(payload["generated_rust"], Value::Null);
+    let binary = payload["binary"].as_str().expect("binary path");
+    let run = Command::new(binary)
+        .output()
+        .expect("run cranelift logging stdio main binary");
+    assert_eq!(
+        run.status.code(),
+        Some(60),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&run.stdout),
+        String::from_utf8_lossy(&run.stderr)
+    );
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "");
+    assert_eq!(
+        String::from_utf8_lossy(&run.stderr),
+        "after assign\nbranch stderr local\ntail stderr\ntrue\n25\ndeploy\n"
+    );
+}
+
+#[cfg(not(windows))]
+#[test]
+fn cranelift_backend_lowers_known_print_runtime_stdout_in_direct_native_main() {
+    if which::which("cc").is_err() {
+        eprintln!("skipping cranelift backend smoke test because cc is unavailable");
+        return;
+    }
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("print-stdio-main-exit");
+    write_print_stdio_main_exit_project(&project);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args([
+            "build",
+            project.to_str().expect("project path"),
+            "--backend",
+            "cranelift",
+            "--json",
+        ])
+        .output()
+        .expect("run axiomc build --backend cranelift");
+    assert!(
+        output.status.success(),
+        "cranelift print stdio main build failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+    assert_eq!(payload["backend"], "cranelift");
+    assert_eq!(payload["generated_rust"], Value::Null);
+    let binary = payload["binary"].as_str().expect("binary path");
+    let run = Command::new(binary)
+        .output()
+        .expect("run cranelift print stdio main binary");
+    assert_eq!(run.status.code(), Some(7));
+    assert_eq!(
+        String::from_utf8_lossy(&run.stdout),
+        "main stdout\nmain stdout\nstatic stdout\nmain stdout suffix\nbranch stdout local\nhelper stdout\ndeploy\n"
+    );
+    assert_eq!(String::from_utf8_lossy(&run.stderr), "");
+}
+
+#[cfg(not(windows))]
+#[test]
+fn cranelift_backend_lowers_bool_print_runtime_stdout_in_direct_native_main() {
+    if which::which("cc").is_err() {
+        eprintln!("skipping cranelift backend smoke test because cc is unavailable");
+        return;
+    }
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("bool-print-stdio-main-exit");
+    write_bool_print_stdio_main_exit_project(&project);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args([
+            "build",
+            project.to_str().expect("project path"),
+            "--backend",
+            "cranelift",
+            "--json",
+        ])
+        .output()
+        .expect("run axiomc build --backend cranelift");
+    assert!(
+        output.status.success(),
+        "cranelift bool print stdio main build failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+    assert_eq!(payload["backend"], "cranelift");
+    assert_eq!(payload["generated_rust"], Value::Null);
+    let binary = payload["binary"].as_str().expect("binary path");
+    let run = Command::new(binary)
+        .output()
+        .expect("run cranelift bool print stdio main binary");
+    assert_eq!(run.status.code(), Some(13));
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "true\ntrue\n");
+    assert_eq!(String::from_utf8_lossy(&run.stderr), "hello stderr\n");
+}
+
+#[cfg(not(windows))]
+#[test]
+fn cranelift_backend_lowers_integer_print_runtime_stdout_in_direct_native_main() {
+    if which::which("cc").is_err() {
+        eprintln!("skipping cranelift backend smoke test because cc is unavailable");
+        return;
+    }
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("integer-print-stdio-main-exit");
+    write_integer_print_stdio_main_exit_project(&project);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args([
+            "build",
+            project.to_str().expect("project path"),
+            "--backend",
+            "cranelift",
+            "--json",
+        ])
+        .output()
+        .expect("run axiomc build --backend cranelift");
+    assert!(
+        output.status.success(),
+        "cranelift integer print stdio main build failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+    assert_eq!(payload["backend"], "cranelift");
+    assert_eq!(payload["generated_rust"], Value::Null);
+    let binary = payload["binary"].as_str().expect("binary path");
+    let run = Command::new(binary)
+        .output()
+        .expect("run cranelift integer print stdio main binary");
+    assert_eq!(run.status.code(), Some(42));
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "42\n-3\n0\n");
+    assert_eq!(String::from_utf8_lossy(&run.stderr), "");
+}
+
+#[cfg(not(windows))]
+#[test]
+fn cranelift_backend_lowers_json_scalar_stringify_print_to_native_stdout() {
+    if which::which("cc").is_err() {
+        eprintln!("skipping cranelift backend smoke test because cc is unavailable");
+        return;
+    }
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("json-stringify-print-main-exit");
+    write_json_stringify_print_main_exit_project(&project);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args([
+            "build",
+            project.to_str().expect("project path"),
+            "--backend",
+            "cranelift",
+            "--json",
+        ])
+        .output()
+        .expect("run axiomc build --backend cranelift");
+    assert!(
+        output.status.success(),
+        "cranelift json stringify print build failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+    assert_eq!(payload["backend"], "cranelift");
+    assert_eq!(payload["generated_rust"], Value::Null);
+    let binary = payload["binary"].as_str().expect("binary path");
+    let run = Command::new(binary)
+        .output()
+        .expect("run cranelift json stringify print binary");
+    assert_eq!(run.status.code(), Some(42));
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "42\ntrue\nfalse\n");
+    assert_eq!(String::from_utf8_lossy(&run.stderr), "");
+}
+
+#[cfg(not(windows))]
+#[test]
+fn cranelift_backend_lowers_helper_eprintln_to_native_stderr() {
+    if which::which("cc").is_err() {
+        eprintln!("skipping cranelift backend smoke test because cc is unavailable");
+        return;
+    }
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("helper-eprintln-main-exit");
+    write_helper_eprintln_main_exit_project(&project);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args([
+            "build",
+            project.to_str().expect("project path"),
+            "--backend",
+            "cranelift",
+            "--json",
+        ])
+        .output()
+        .expect("run axiomc build --backend cranelift");
+    assert!(
+        output.status.success(),
+        "cranelift helper eprintln build failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+    assert_eq!(payload["backend"], "cranelift");
+    assert_eq!(payload["generated_rust"], Value::Null);
+    let binary = payload["binary"].as_str().expect("binary path");
+    let run = Command::new(binary)
+        .output()
+        .expect("run cranelift helper eprintln binary");
+    assert_eq!(run.status.code(), Some(90));
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "");
+    assert_eq!(
+        String::from_utf8_lossy(&run.stderr),
+        "helper stderr\nhelper stderr\nhelper static\nhelper stderr suffix\nhelper text\n42\ntrue\ndeploy\n"
+    );
+}
+
+#[cfg(not(windows))]
+#[test]
+fn cranelift_backend_lowers_aggregate_helper_eprintln_to_native_stderr() {
+    if which::which("cc").is_err() {
+        eprintln!("skipping cranelift backend smoke test because cc is unavailable");
+        return;
+    }
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("aggregate-helper-eprintln-main-exit");
+    write_aggregate_helper_eprintln_main_exit_project(&project);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args([
+            "build",
+            project.to_str().expect("project path"),
+            "--backend",
+            "cranelift",
+            "--json",
+        ])
+        .output()
+        .expect("run axiomc build --backend cranelift");
+    assert!(
+        output.status.success(),
+        "cranelift aggregate helper eprintln build failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+    assert_eq!(payload["backend"], "cranelift");
+    assert_eq!(payload["generated_rust"], Value::Null);
+    let binary = payload["binary"].as_str().expect("binary path");
+    let run = Command::new(binary)
+        .output()
+        .expect("run cranelift aggregate helper eprintln binary");
+    assert_eq!(run.status.code(), Some(144));
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "");
+    assert_eq!(
+        String::from_utf8_lossy(&run.stderr),
+        "aggregate helper\naggregate helper\naggregate static\naggregate helper suffix\naggregate helper text\n31\nfalse\ndeploy\n"
+    );
+}
+
+#[cfg(not(windows))]
+#[test]
+fn cranelift_backend_lowers_helper_print_to_native_stdout() {
+    if which::which("cc").is_err() {
+        eprintln!("skipping cranelift backend smoke test because cc is unavailable");
+        return;
+    }
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("helper-print-main-exit");
+    write_helper_print_main_exit_project(&project);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args([
+            "build",
+            project.to_str().expect("project path"),
+            "--backend",
+            "cranelift",
+            "--json",
+        ])
+        .output()
+        .expect("run axiomc build --backend cranelift");
+    assert!(
+        output.status.success(),
+        "cranelift helper print build failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+    assert_eq!(payload["backend"], "cranelift");
+    assert_eq!(payload["generated_rust"], Value::Null);
+    let binary = payload["binary"].as_str().expect("binary path");
+    let run = Command::new(binary)
+        .output()
+        .expect("run cranelift helper print binary");
+    assert_eq!(run.status.code(), Some(21));
+    assert_eq!(
+        String::from_utf8_lossy(&run.stdout),
+        "helper stdout\nhelper stdout\nhelper static\nhelper stdout suffix\nhelper text\n21\ntrue\n22\ndeploy\n"
+    );
+    assert_eq!(String::from_utf8_lossy(&run.stderr), "");
+}
+
+#[cfg(not(windows))]
+#[test]
+fn cranelift_backend_lowers_aggregate_helper_print_to_native_stdout() {
+    if which::which("cc").is_err() {
+        eprintln!("skipping cranelift backend smoke test because cc is unavailable");
+        return;
+    }
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("aggregate-helper-print-main-exit");
+    write_aggregate_helper_print_main_exit_project(&project);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args([
+            "build",
+            project.to_str().expect("project path"),
+            "--backend",
+            "cranelift",
+            "--json",
+        ])
+        .output()
+        .expect("run axiomc build --backend cranelift");
+    assert!(
+        output.status.success(),
+        "cranelift aggregate helper print build failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+    assert_eq!(payload["backend"], "cranelift");
+    assert_eq!(payload["generated_rust"], Value::Null);
+    let binary = payload["binary"].as_str().expect("binary path");
+    let run = Command::new(binary)
+        .output()
+        .expect("run cranelift aggregate helper print binary");
+    assert_eq!(run.status.code(), Some(48));
+    assert_eq!(
+        String::from_utf8_lossy(&run.stdout),
+        "aggregate stdout\naggregate stdout\naggregate static\naggregate stdout suffix\naggregate helper text\n17\ndeploy\n"
+    );
+    assert_eq!(String::from_utf8_lossy(&run.stderr), "");
 }
 
 #[cfg(not(windows))]
@@ -2715,6 +4937,86 @@ fn cranelift_backend_builds_clock_binary() {
         String::from_utf8_lossy(&run.stdout),
         "true\ntrue\ntrue\ntrue\n"
     );
+}
+
+#[cfg(not(windows))]
+#[test]
+fn cranelift_backend_lowers_zero_clock_sleep_to_runtime_exit_code() {
+    if which::which("cc").is_err() {
+        eprintln!("skipping cranelift backend smoke test because cc is unavailable");
+        return;
+    }
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("clock-sleep-zero-main-exit");
+    write_clock_sleep_zero_main_exit_project(&project);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args([
+            "build",
+            project.to_str().expect("project path"),
+            "--backend",
+            "cranelift",
+            "--json",
+        ])
+        .output()
+        .expect("run axiomc build --backend cranelift");
+    assert!(
+        output.status.success(),
+        "cranelift clock sleep zero main build failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+    assert_eq!(payload["backend"], "cranelift");
+    assert_eq!(payload["generated_rust"], Value::Null);
+    let binary = payload["binary"].as_str().expect("binary path");
+    let run = Command::new(binary)
+        .output()
+        .expect("run cranelift clock sleep zero main binary");
+    assert_eq!(run.status.code(), Some(48));
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "");
+}
+
+#[cfg(not(windows))]
+#[test]
+fn cranelift_backend_lowers_std_time_sleep_wrappers_to_runtime_exit_code() {
+    if which::which("cc").is_err() {
+        eprintln!("skipping cranelift backend smoke test because cc is unavailable");
+        return;
+    }
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("std-time-sleep-main-exit");
+    write_std_time_sleep_main_exit_project(&project);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args([
+            "build",
+            project.to_str().expect("project path"),
+            "--backend",
+            "cranelift",
+            "--json",
+        ])
+        .output()
+        .expect("run axiomc build --backend cranelift");
+    assert!(
+        output.status.success(),
+        "cranelift std time sleep wrapper main build failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+    assert_eq!(payload["backend"], "cranelift");
+    assert_eq!(payload["generated_rust"], Value::Null);
+    let binary = payload["binary"].as_str().expect("binary path");
+    let run = Command::new(binary)
+        .output()
+        .expect("run cranelift std time sleep wrapper main binary");
+    assert_eq!(run.status.code(), Some(48));
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "");
 }
 
 #[test]
@@ -2890,6 +5192,7 @@ fn cranelift_backend_builds_std_serdes_binary() {
     assert_eq!(
         String::from_utf8_lossy(&run.stdout),
         r#"{"count":3,"items":["one",2],"name":"axiom","ready":true}
+0
 {"count":3,"items":["one",2],"name":"axiom","nested":{"ok":false},"ready":true}
 axiom
 3
@@ -2897,6 +5200,96 @@ false
 one
 parse error
 "#,
+    );
+}
+
+#[cfg(not(windows))]
+#[test]
+fn cranelift_backend_lowers_std_serdes_known_json_to_runtime_exit_code() {
+    if which::which("cc").is_err() {
+        eprintln!("skipping cranelift backend smoke test because cc is unavailable");
+        return;
+    }
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("std-serdes-known-json-main-exit");
+    write_std_serdes_known_json_main_exit_project(&project);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args([
+            "build",
+            project.to_str().expect("project path"),
+            "--backend",
+            "cranelift",
+            "--json",
+        ])
+        .output()
+        .expect("run axiomc build --backend cranelift");
+    assert!(
+        output.status.success(),
+        "cranelift std/serdes known JSON main build failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+    assert_eq!(payload["backend"], "cranelift");
+    assert_eq!(payload["generated_rust"], Value::Null);
+    let binary = payload["binary"].as_str().expect("binary path");
+    let run = Command::new(binary)
+        .output()
+        .expect("run cranelift std/serdes known JSON main binary");
+    assert_eq!(run.status.code(), Some(48));
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "");
+}
+
+#[cfg(not(windows))]
+#[test]
+fn cranelift_backend_builds_std_cli_no_args_binary() {
+    if which::which("cc").is_err() {
+        eprintln!("skipping cranelift backend smoke test because cc is unavailable");
+        return;
+    }
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("std-cli");
+    write_std_cli_project(&project);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args([
+            "build",
+            project.to_str().expect("project path"),
+            "--backend",
+            "cranelift",
+            "--json",
+        ])
+        .output()
+        .expect("run axiomc build --backend cranelift");
+    assert!(
+        output.status.success(),
+        "cranelift std/cli build failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+    assert_eq!(payload["backend"], "cranelift");
+    assert_eq!(payload["generated_rust"], Value::Null);
+    let binary = payload["binary"].as_str().expect("binary path");
+    let run = Command::new(binary)
+        .output()
+        .expect("run cranelift std/cli binary");
+    assert!(
+        run.status.success(),
+        "cranelift std/cli binary failed: stderr={}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&run.stdout),
+        "0
+0
+missing
+"
     );
 }
 
@@ -3369,6 +5762,46 @@ fn cranelift_backend_builds_ffi_strlen_binary() {
     assert_eq!(String::from_utf8_lossy(&run.stdout), "5\n0\n");
 }
 
+#[cfg(not(windows))]
+#[test]
+fn cranelift_backend_lowers_ffi_strlen_to_runtime_exit_code() {
+    if which::which("cc").is_err() {
+        eprintln!("skipping cranelift backend smoke test because cc is unavailable");
+        return;
+    }
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("ffi-strlen-main-exit");
+    write_ffi_strlen_main_exit_project(&project);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args([
+            "build",
+            project.to_str().expect("project path"),
+            "--backend",
+            "cranelift",
+            "--json",
+        ])
+        .output()
+        .expect("run axiomc build --backend cranelift");
+    assert!(
+        output.status.success(),
+        "cranelift ffi strlen main build failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+    assert_eq!(payload["backend"], "cranelift");
+    assert_eq!(payload["generated_rust"], Value::Null);
+    let binary = payload["binary"].as_str().expect("binary path");
+    let run = Command::new(binary)
+        .output()
+        .expect("run cranelift ffi strlen main binary");
+    assert_eq!(run.status.code(), Some(48));
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "");
+}
+
 #[test]
 fn cranelift_backend_rejects_http_server_denial_before_backend_lowering() {
     let temp = tempfile::tempdir().expect("tempdir");
@@ -3683,6 +6116,48 @@ fn cranelift_backend_builds_env_read_binary() {
     );
 }
 
+#[cfg(not(windows))]
+#[test]
+fn cranelift_backend_lowers_env_read_to_runtime_exit_code() {
+    if which::which("cc").is_err() {
+        eprintln!("skipping cranelift backend smoke test because cc is unavailable");
+        return;
+    }
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("env-read-main-exit");
+    write_env_read_main_exit_project(&project);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .env("AXIOM_CRANELIFT_ENV_READ", "native-env")
+        .env_remove("__AXIOM_CRANELIFT_ENV_MISSING__")
+        .args([
+            "build",
+            project.to_str().expect("project path"),
+            "--backend",
+            "cranelift",
+            "--json",
+        ])
+        .output()
+        .expect("run axiomc build --backend cranelift");
+    assert!(
+        output.status.success(),
+        "cranelift env main build failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+    assert_eq!(payload["backend"], "cranelift");
+    assert_eq!(payload["generated_rust"], Value::Null);
+    let binary = payload["binary"].as_str().expect("binary path");
+    let run = Command::new(binary)
+        .output()
+        .expect("run cranelift env main binary");
+    assert_eq!(run.status.code(), Some(48));
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "");
+}
+
 #[test]
 fn cranelift_backend_rejects_env_denial_before_backend_lowering() {
     let temp = tempfile::tempdir().expect("tempdir");
@@ -3806,9 +6281,12 @@ out_dir = "dist"
 fs = false
 net = false
 process = false
-env = false
+env = true
 clock = false
 crypto = false
+
+[unsafe_rationale]
+env = "Cranelift ABI regression needs a runtime-only projected key index source."
 "#,
     )
     .expect("write regex manifest");
@@ -3849,7 +6327,7 @@ fn write_i64_main_exit_project(project: &Path) {
     fs::create_dir_all(project.join("src")).expect("create i64 main exit project src");
     fs::write(
         project.join("axiom.toml"),
-        "[package]\nname = \"cranelift-i64-main-exit\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n",
+        "[package]\nname = \"cranelift-i64-main-exit\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = true\nclock = false\ncrypto = false\n\n[unsafe_rationale]\nenv = \"Cranelift ABI regression needs a runtime-only projected key index source.\"\n",
     )
     .expect("write i64 main exit manifest");
     fs::write(
@@ -3868,7 +6346,7 @@ fn write_i64_returning_main_exit_project(project: &Path) {
     fs::create_dir_all(project.join("src")).expect("create i64 returning main exit project src");
     fs::write(
         project.join("axiom.toml"),
-        "[package]\nname = \"cranelift-i64-returning-main-exit\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n",
+        "[package]\nname = \"cranelift-i64-returning-main-exit\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = true\nclock = false\ncrypto = false\n\n[unsafe_rationale]\nenv = \"Cranelift ABI regression needs a runtime-only projected key index source.\"\n",
     )
     .expect("write i64 returning main exit manifest");
     fs::write(
@@ -3881,6 +6359,52 @@ fn write_i64_returning_main_exit_project(project: &Path) {
         "fn main(): i64 {\nreturn 48i64\n}\n",
     )
     .expect("write i64 returning main exit source");
+}
+
+fn write_terminal_panic_project(project: &Path, source: &str) {
+    fs::create_dir_all(project.join("src")).expect("create terminal panic project src");
+    fs::write(
+        project.join("axiom.toml"),
+        "[package]\nname = \"cranelift-terminal-panic\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n",
+    )
+    .expect("write terminal panic manifest");
+    fs::write(
+        project.join("axiom.lock"),
+        "version = 1\n\n[[package]]\nname = \"cranelift-terminal-panic\"\nversion = \"0.1.0\"\nsource = \"path\"\n",
+    )
+    .expect("write terminal panic lockfile");
+    fs::write(project.join("src/main.ax"), source).expect("write terminal panic source");
+}
+
+fn assert_terminal_panic_report(project: &Path, expected_stderr: &str) {
+    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args([
+            "build",
+            project.to_str().expect("project path"),
+            "--backend",
+            "cranelift",
+            "--json",
+        ])
+        .output()
+        .expect("run axiomc build --backend cranelift");
+    assert!(
+        output.status.success(),
+        "cranelift terminal panic build failed for {}: stdout={} stderr={}",
+        project.display(),
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+    assert_eq!(payload["backend"], "cranelift");
+    assert_eq!(payload["generated_rust"], Value::Null);
+    let binary = payload["binary"].as_str().expect("binary path");
+    let run = Command::new(binary)
+        .output()
+        .expect("run cranelift terminal panic binary");
+    assert_eq!(run.status.code(), Some(1));
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "");
+    assert_eq!(String::from_utf8_lossy(&run.stderr), expected_stderr);
 }
 
 fn write_typed_numeric_returning_main_exit_project(
@@ -3995,9 +6519,224 @@ fn write_option_array_payload_match_main_exit_project(project: &Path, variant: &
     };
     fs::write(
         project.join("src/main.ax"),
-        format!("fn main(): int {{\nlet ready_for_match: Option<[int; 2]> = {value}\nlet ready_for_statement: Option<[int; 2]> = {value}\nlet match_code: int = match ready_for_match {{ Some(values) => values[0] + values[1], None => 49 }}\nlet statement_code: int = 0\nmatch ready_for_statement {{\nSome(values) {{\nstatement_code = values[0] + values[1]\n}}\nNone {{\nstatement_code = 49\n}}\n}}\nif match_code == statement_code {{\nreturn match_code\n}} else {{\nreturn 1\n}}\n}}\n"),
+        format!("fn choose_option(flag: bool): Option<[int; 2]> {{\nif flag {{\nreturn Some([20, 28])\n}} else {{\nreturn None\n}}\n}}\n\nfn forward_option(value: Option<[int; 2]>): Option<[int; 2]> {{\nreturn value\n}}\n\nfn score(value: Option<[int; 2]>): int {{\nreturn match value {{ Some(values) => values[0] + values[1], None => 49 }}\n}}\n\nfn main(): int {{\nlet ready_for_match: Option<[int; 2]> = {value}\nlet ready_for_statement: Option<[int; 2]> = {value}\nlet ready_for_helper: Option<[int; 2]> = {value}\nlet returned_some_for_score: Option<[int; 2]> = choose_option(true)\nlet returned_none_for_score: Option<[int; 2]> = choose_option(false)\nlet returned_some_for_forward: Option<[int; 2]> = choose_option(true)\nlet returned_none_for_forward: Option<[int; 2]> = choose_option(false)\nlet forwarded_some: Option<[int; 2]> = forward_option(returned_some_for_forward)\nlet forwarded_none: Option<[int; 2]> = forward_option(returned_none_for_forward)\nlet match_code: int = match ready_for_match {{ Some(values) => values[0] + values[1], None => 49 }}\nlet statement_code: int = 0\nmatch ready_for_statement {{\nSome(values) {{\nstatement_code = values[0] + values[1]\n}}\nNone {{\nstatement_code = 49\n}}\n}}\nlet helper_code: int = score(ready_for_helper)\nlet returned_some_code: int = score(returned_some_for_score)\nlet returned_none_code: int = score(returned_none_for_score)\nlet forwarded_some_code: int = score(forwarded_some)\nlet forwarded_none_code: int = score(forwarded_none)\nlet literal_some_code: int = score(Some([20, 28]))\nlet literal_none_code: int = score(None)\nif match_code == statement_code && statement_code == helper_code && returned_some_code == 48 && returned_none_code == 49 && forwarded_some_code == 48 && forwarded_none_code == 49 && literal_some_code == 48 && literal_none_code == 49 {{\nreturn match_code\n}} else {{\nreturn 1\n}}\n}}\n"),
     )
     .expect("write option array payload match main exit source");
+}
+
+fn write_option_struct_payload_match_main_exit_project(project: &Path, variant: &str) {
+    fs::create_dir_all(project.join("src"))
+        .expect("create option struct payload match main exit project src");
+    fs::write(
+        project.join("axiom.toml"),
+        "[package]\nname = \"cranelift-option-struct-payload-match-main-exit\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n",
+    )
+    .expect("write option struct payload match main exit manifest");
+    fs::write(
+        project.join("axiom.lock"),
+        "version = 1\n\n[[package]]\nname = \"cranelift-option-struct-payload-match-main-exit\"\nversion = \"0.1.0\"\nsource = \"path\"\n",
+    )
+    .expect("write option struct payload match main exit lockfile");
+    let value = if variant == "Some" {
+        "Some(Step { value: 48, enabled: true, small: 2u8 })"
+    } else {
+        "None"
+    };
+    fs::write(
+        project.join("src/main.ax"),
+        format!("struct Step {{\nvalue: int\nenabled: bool\nsmall: u8\n}}\n\nfn choose_option(flag: bool): Option<Step> {{\nif flag {{\nreturn Some(Step {{ value: 48, enabled: true, small: 2u8 }})\n}} else {{\nreturn None\n}}\n}}\n\nfn forward_option(value: Option<Step>): Option<Step> {{\nreturn value\n}}\n\nfn score(value: Option<Step>): int {{\nreturn match value {{ Some(step) => step.value, None => 49 }}\n}}\n\nfn main(): int {{\nlet ready_for_match: Option<Step> = {value}\nlet ready_for_statement: Option<Step> = {value}\nlet ready_for_helper: Option<Step> = {value}\nlet returned_some_for_score: Option<Step> = choose_option(true)\nlet returned_none_for_score: Option<Step> = choose_option(false)\nlet returned_some_for_forward: Option<Step> = choose_option(true)\nlet returned_none_for_forward: Option<Step> = choose_option(false)\nlet forwarded_some: Option<Step> = forward_option(returned_some_for_forward)\nlet forwarded_none: Option<Step> = forward_option(returned_none_for_forward)\nlet match_code: int = match ready_for_match {{ Some(step) => step.value, None => 49 }}\nlet statement_code: int = 0\nmatch ready_for_statement {{\nSome(step) {{\nif step.enabled {{\nstatement_code = step.value\n}} else {{\nstatement_code = 1\n}}\n}}\nNone {{\nstatement_code = 49\n}}\n}}\nlet helper_code: int = score(ready_for_helper)\nlet returned_some_code: int = score(returned_some_for_score)\nlet returned_none_code: int = score(returned_none_for_score)\nlet forwarded_some_code: int = score(forwarded_some)\nlet forwarded_none_code: int = score(forwarded_none)\nlet literal_some_code: int = score(Some(Step {{ small: 2u8, enabled: true, value: 48 }}))\nlet literal_none_code: int = score(None)\nif match_code == statement_code && statement_code == helper_code && returned_some_code == 48 && returned_none_code == 49 && forwarded_some_code == 48 && forwarded_none_code == 49 && literal_some_code == 48 && literal_none_code == 49 {{\nreturn match_code\n}} else {{\nreturn 1\n}}\n}}\n"),
+    )
+    .expect("write option struct payload match main exit source");
+}
+
+fn write_nested_option_match_main_exit_project(project: &Path) {
+    fs::create_dir_all(project.join("src")).expect("create nested option match main exit src");
+    fs::write(
+        project.join("axiom.toml"),
+        "[package]\nname = \"cranelift-nested-option-match-main-exit\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n",
+    )
+    .expect("write nested option match main exit manifest");
+    fs::write(
+        project.join("axiom.lock"),
+        "version = 1\n\n[[package]]\nname = \"cranelift-nested-option-match-main-exit\"\nversion = \"0.1.0\"\nsource = \"path\"\n",
+    )
+    .expect("write nested option match main exit lockfile");
+    fs::write(
+        project.join("src/main.ax"),
+        "fn choose_nested(flag: bool): Option<Option<int>> {\nif flag {\nreturn Some(Some(48))\n} else {\nreturn Some(None)\n}\n}\n\nfn forward_nested(value: Option<Option<int>>): Option<Option<int>> {\nreturn value\n}\n\nfn score(value: Option<Option<int>>): int {\nreturn match value { Some(inner) => match inner { Some(payload) => payload, None => 49 }, None => 1 }\n}\n\nfn choose_result(flag: bool): Result<Option<int>, int> {\nif flag {\nreturn Ok(Some(48))\n} else {\nreturn Ok(None)\n}\n}\n\nfn forward_result(value: Result<Option<int>, int>): Result<Option<int>, int> {\nreturn value\n}\n\nfn score_result(value: Result<Option<int>, int>): int {\nreturn match value { Ok(inner) => match inner { Some(payload) => payload, None => 49 }, Err(error) => error }\n}\n\nfn main(): int {\nlet ready: Option<Option<int>> = None\nready = Some(Some(48))\nlet returned_some: Option<Option<int>> = choose_nested(true)\nlet returned_none: Option<Option<int>> = choose_nested(false)\nlet forwarded_some: Option<Option<int>> = forward_nested(returned_some)\nlet forwarded_none: Option<Option<int>> = forward_nested(returned_none)\nlet result_ready: Result<Option<int>, int> = Err(1)\nresult_ready = Ok(Some(48))\nlet result_returned_some: Result<Option<int>, int> = choose_result(true)\nlet result_returned_none: Result<Option<int>, int> = choose_result(false)\nlet result_forwarded_some: Result<Option<int>, int> = forward_result(result_returned_some)\nlet result_forwarded_none: Result<Option<int>, int> = forward_result(result_returned_none)\nlet match_code: int = match ready { Some(inner) => match inner { Some(payload) => payload, None => 49 }, None => 1 }\nlet helper_code: int = score(ready)\nlet returned_some_code: int = score(returned_some)\nlet returned_none_code: int = score(returned_none)\nlet forwarded_some_code: int = score(forwarded_some)\nlet forwarded_none_code: int = score(forwarded_none)\nlet inline_some_code: int = score(Some(Some(48)))\nlet inline_inner_none_code: int = score(Some(None))\nlet inline_outer_none_code: int = score(None)\nlet result_match_code: int = match result_ready { Ok(inner) => match inner { Some(payload) => payload, None => 49 }, Err(error) => error }\nlet result_helper_code: int = score_result(result_ready)\nlet result_returned_some_code: int = score_result(result_returned_some)\nlet result_returned_none_code: int = score_result(result_returned_none)\nlet result_forwarded_some_code: int = score_result(result_forwarded_some)\nlet result_forwarded_none_code: int = score_result(result_forwarded_none)\nlet result_inline_some_code: int = score_result(Ok(Some(48)))\nlet result_inline_inner_none_code: int = score_result(Ok(None))\nlet result_inline_err_code: int = score_result(Err(1))\nif match_code == 48 && helper_code == 48 && returned_some_code == 48 && returned_none_code == 49 && forwarded_some_code == 48 && forwarded_none_code == 49 && inline_some_code == 48 && inline_inner_none_code == 49 && inline_outer_none_code == 1 && result_match_code == 48 && result_helper_code == 48 && result_returned_some_code == 48 && result_returned_none_code == 49 && result_forwarded_some_code == 48 && result_forwarded_none_code == 49 && result_inline_some_code == 48 && result_inline_inner_none_code == 49 && result_inline_err_code == 1 {\nreturn match_code\n} else {\nreturn 2\n}\n}\n",
+    )
+    .expect("write nested option match main exit source");
+}
+
+fn write_nested_result_match_main_exit_project(project: &Path) {
+    fs::create_dir_all(project.join("src")).expect("create nested result match main exit src");
+    fs::write(
+        project.join("axiom.toml"),
+        "[package]\nname = \"cranelift-nested-result-match-main-exit\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n",
+    )
+    .expect("write nested result match main exit manifest");
+    fs::write(
+        project.join("axiom.lock"),
+        "version = 1\n\n[[package]]\nname = \"cranelift-nested-result-match-main-exit\"\nversion = \"0.1.0\"\nsource = \"path\"\n",
+    )
+    .expect("write nested result match main exit lockfile");
+    fs::write(
+        project.join("src/main.ax"),
+        r#"fn choose_option_result(flag: bool): Option<Result<int, int>> {
+if flag {
+return Some(Ok(48))
+} else {
+return Some(Err(49))
+}
+}
+
+fn forward_option_result(value: Option<Result<int, int>>): Option<Result<int, int>> {
+return value
+}
+
+fn score_option_result(value: Option<Result<int, int>>): int {
+return match value { Some(inner) => match inner { Ok(payload) => payload, Err(error) => error }, None => 1 }
+}
+
+fn choose_result_result(flag: bool): Result<Result<int, int>, int> {
+if flag {
+return Ok(Ok(48))
+} else {
+return Ok(Err(49))
+}
+}
+
+fn forward_result_result(value: Result<Result<int, int>, int>): Result<Result<int, int>, int> {
+return value
+}
+
+fn score_result_result(value: Result<Result<int, int>, int>): int {
+return match value { Ok(inner) => match inner { Ok(payload) => payload, Err(error) => error }, Err(error) => error }
+}
+
+fn main(): int {
+let option_ready: Option<Result<int, int>> = None
+option_ready = Some(Ok(48))
+let option_returned_ok: Option<Result<int, int>> = choose_option_result(true)
+let option_returned_err: Option<Result<int, int>> = choose_option_result(false)
+let option_forwarded_ok: Option<Result<int, int>> = forward_option_result(option_returned_ok)
+let option_forwarded_err: Option<Result<int, int>> = forward_option_result(option_returned_err)
+let result_ready: Result<Result<int, int>, int> = Err(1)
+result_ready = Ok(Ok(48))
+let result_returned_ok: Result<Result<int, int>, int> = choose_result_result(true)
+let result_returned_err: Result<Result<int, int>, int> = choose_result_result(false)
+let result_forwarded_ok: Result<Result<int, int>, int> = forward_result_result(result_returned_ok)
+let result_forwarded_err: Result<Result<int, int>, int> = forward_result_result(result_returned_err)
+let option_match_code: int = match option_ready { Some(inner) => match inner { Ok(payload) => payload, Err(error) => error }, None => 1 }
+let option_helper_code: int = score_option_result(option_ready)
+let option_returned_ok_code: int = score_option_result(option_returned_ok)
+let option_returned_err_code: int = score_option_result(option_returned_err)
+let option_forwarded_ok_code: int = score_option_result(option_forwarded_ok)
+let option_forwarded_err_code: int = score_option_result(option_forwarded_err)
+let option_inline_ok_code: int = score_option_result(Some(Ok(48)))
+let option_inline_err_code: int = score_option_result(Some(Err(49)))
+let option_inline_none_code: int = score_option_result(None)
+let result_match_code: int = match result_ready { Ok(inner) => match inner { Ok(payload) => payload, Err(error) => error }, Err(error) => error }
+let result_helper_code: int = score_result_result(result_ready)
+let result_returned_ok_code: int = score_result_result(result_returned_ok)
+let result_returned_err_code: int = score_result_result(result_returned_err)
+let result_forwarded_ok_code: int = score_result_result(result_forwarded_ok)
+let result_forwarded_err_code: int = score_result_result(result_forwarded_err)
+let result_inline_ok_code: int = score_result_result(Ok(Ok(48)))
+let result_inline_err_code: int = score_result_result(Ok(Err(49)))
+let result_inline_outer_err_code: int = score_result_result(Err(1))
+if option_match_code == 48 && option_helper_code == 48 && option_returned_ok_code == 48 && option_returned_err_code == 49 && option_forwarded_ok_code == 48 && option_forwarded_err_code == 49 && option_inline_ok_code == 48 && option_inline_err_code == 49 && option_inline_none_code == 1 && result_match_code == 48 && result_helper_code == 48 && result_returned_ok_code == 48 && result_returned_err_code == 49 && result_forwarded_ok_code == 48 && result_forwarded_err_code == 49 && result_inline_ok_code == 48 && result_inline_err_code == 49 && result_inline_outer_err_code == 1 {
+return option_match_code
+} else {
+return 2
+}
+}
+"#,
+    )
+    .expect("write nested result match main exit source");
+}
+
+fn write_enum_nested_payload_match_main_exit_project(project: &Path) {
+    fs::create_dir_all(project.join("src"))
+        .expect("create enum nested payload match main exit src");
+    fs::write(
+        project.join("axiom.toml"),
+        "[package]\nname = \"cranelift-enum-nested-payload-match-main-exit\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n",
+    )
+    .expect("write enum nested payload match main exit manifest");
+    fs::write(
+        project.join("axiom.lock"),
+        "version = 1\n\n[[package]]\nname = \"cranelift-enum-nested-payload-match-main-exit\"\nversion = \"0.1.0\"\nsource = \"path\"\n",
+    )
+    .expect("write enum nested payload match main exit lockfile");
+    fs::write(
+        project.join("src/main.ax"),
+        r#"enum Choice {
+Wrapped(Option<Result<int, int>>)
+Done(Result<Option<int>, int>)
+Off
+}
+
+fn choose_wrapped(flag: bool): Choice {
+if flag {
+return Wrapped(Some(Ok(48)))
+} else {
+return Wrapped(Some(Err(49)))
+}
+}
+
+fn choose_done(flag: bool): Choice {
+if flag {
+return Done(Ok(Some(48)))
+} else {
+return Done(Ok(None))
+}
+}
+
+fn forward_choice(value: Choice): Choice {
+return value
+}
+
+fn score(choice: Choice): int {
+return match choice { Wrapped(nested) => match nested { Some(inner) => match inner { Ok(payload) => payload, Err(error) => error }, None => 1 }, Done(nested) => match nested { Ok(inner) => match inner { Some(payload) => payload, None => 49 }, Err(error) => error }, Off => 1 }
+}
+
+fn main(): int {
+let wrapped: Choice = Off
+wrapped = Wrapped(Some(Ok(48)))
+let done: Choice = Off
+done = Done(Ok(Some(48)))
+let returned_wrapped_ok_for_score: Choice = choose_wrapped(true)
+let returned_wrapped_err_for_score: Choice = choose_wrapped(false)
+let returned_done_some_for_score: Choice = choose_done(true)
+let returned_done_none_for_score: Choice = choose_done(false)
+let returned_wrapped_ok_for_forward: Choice = choose_wrapped(true)
+let returned_done_some_for_forward: Choice = choose_done(true)
+let forwarded_wrapped_ok: Choice = forward_choice(returned_wrapped_ok_for_forward)
+let forwarded_done_some: Choice = forward_choice(returned_done_some_for_forward)
+let wrapped_code: int = score(wrapped)
+let done_code: int = score(done)
+let returned_wrapped_ok_code: int = score(returned_wrapped_ok_for_score)
+let returned_wrapped_err_code: int = score(returned_wrapped_err_for_score)
+let returned_done_some_code: int = score(returned_done_some_for_score)
+let returned_done_none_code: int = score(returned_done_none_for_score)
+let forwarded_wrapped_ok_code: int = score(forwarded_wrapped_ok)
+let forwarded_done_some_code: int = score(forwarded_done_some)
+let inline_wrapped_ok_code: int = score(Wrapped(Some(Ok(48))))
+let inline_wrapped_err_code: int = score(Wrapped(Some(Err(49))))
+let inline_wrapped_none_code: int = score(Wrapped(None))
+let inline_done_some_code: int = score(Done(Ok(Some(48))))
+let inline_done_none_code: int = score(Done(Ok(None)))
+let inline_done_err_code: int = score(Done(Err(1)))
+if wrapped_code == 48 && done_code == 48 && returned_wrapped_ok_code == 48 && returned_wrapped_err_code == 49 && returned_done_some_code == 48 && returned_done_none_code == 49 && forwarded_wrapped_ok_code == 48 && forwarded_done_some_code == 48 && inline_wrapped_ok_code == 48 && inline_wrapped_err_code == 49 && inline_wrapped_none_code == 1 && inline_done_some_code == 48 && inline_done_none_code == 49 && inline_done_err_code == 1 {
+return wrapped_code
+} else {
+return 2
+}
+}
+"#,
+    )
+    .expect("write enum nested payload match main exit source");
 }
 
 fn write_result_match_main_exit_project(
@@ -4218,6 +6957,84 @@ fn write_result_dual_tuple_payload_match_main_exit_project(
     .expect("write result dual tuple payload match main exit source");
 }
 
+fn write_result_array_payload_match_main_exit_project(
+    project: &Path,
+    package_name: &str,
+    variant: &str,
+) {
+    fs::create_dir_all(project.join("src"))
+        .expect("create result array payload match main exit project src");
+    fs::write(
+        project.join("axiom.toml"),
+        format!("[package]\nname = \"cranelift-{package_name}\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n"),
+    )
+    .expect("write result array payload match main exit manifest");
+    fs::write(
+        project.join("axiom.lock"),
+        format!("version = 1\n\n[[package]]\nname = \"cranelift-{package_name}\"\nversion = \"0.1.0\"\nsource = \"path\"\n"),
+    )
+    .expect("write result array payload match main exit lockfile");
+    let value = if variant == "Ok" {
+        "Ok([20, 28])"
+    } else {
+        "Err([21, 28])"
+    };
+    fs::write(
+        project.join("src/main.ax"),
+        format!("fn choose_result(flag: bool): Result<[int; 2], [int; 2]> {{\nif flag {{\nreturn Ok([20, 28])\n}} else {{\nreturn Err([21, 28])\n}}\n}}\n\nfn forward_result(value: Result<[int; 2], [int; 2]>): Result<[int; 2], [int; 2]> {{\nreturn value\n}}\n\nfn score(value: Result<[int; 2], [int; 2]>): int {{\nreturn match value {{ Ok(values) => values[0] + values[1], Err(error) => error[0] + error[1] }}\n}}\n\nfn main(): int {{\nlet ready_for_match: Result<[int; 2], [int; 2]> = {value}\nlet ready_for_statement: Result<[int; 2], [int; 2]> = {value}\nlet ready_for_helper: Result<[int; 2], [int; 2]> = {value}\nlet returned_ok_for_score: Result<[int; 2], [int; 2]> = choose_result(true)\nlet returned_err_for_score: Result<[int; 2], [int; 2]> = choose_result(false)\nlet returned_ok_for_forward: Result<[int; 2], [int; 2]> = choose_result(true)\nlet returned_err_for_forward: Result<[int; 2], [int; 2]> = choose_result(false)\nlet forwarded_ok: Result<[int; 2], [int; 2]> = forward_result(returned_ok_for_forward)\nlet forwarded_err: Result<[int; 2], [int; 2]> = forward_result(returned_err_for_forward)\nlet match_code: int = match ready_for_match {{ Ok(values) => values[0] + values[1], Err(error) => error[0] + error[1] }}\nlet statement_code: int = 0\nmatch ready_for_statement {{\nOk(values) {{\nstatement_code = values[0] + values[1]\n}}\nErr(error) {{\nstatement_code = error[0] + error[1]\n}}\n}}\nlet helper_code: int = score(ready_for_helper)\nlet returned_ok_code: int = score(returned_ok_for_score)\nlet returned_err_code: int = score(returned_err_for_score)\nlet forwarded_ok_code: int = score(forwarded_ok)\nlet forwarded_err_code: int = score(forwarded_err)\nlet literal_ok_code: int = score(Ok([20, 28]))\nlet literal_err_code: int = score(Err([21, 28]))\nif match_code == statement_code && statement_code == helper_code && returned_ok_code == 48 && returned_err_code == 49 && forwarded_ok_code == 48 && forwarded_err_code == 49 && literal_ok_code == 48 && literal_err_code == 49 {{\nreturn match_code\n}} else {{\nreturn 1\n}}\n}}\n"),
+    )
+    .expect("write result array payload match main exit source");
+}
+
+fn write_result_struct_payload_match_main_exit_project(
+    project: &Path,
+    package_name: &str,
+    variant: &str,
+) {
+    fs::create_dir_all(project.join("src"))
+        .expect("create result struct payload match main exit project src");
+    fs::write(
+        project.join("axiom.toml"),
+        format!("[package]\nname = \"cranelift-{package_name}\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n"),
+    )
+    .expect("write result struct payload match main exit manifest");
+    fs::write(
+        project.join("axiom.lock"),
+        format!("version = 1\n\n[[package]]\nname = \"cranelift-{package_name}\"\nversion = \"0.1.0\"\nsource = \"path\"\n"),
+    )
+    .expect("write result struct payload match main exit lockfile");
+    let value = if variant == "Ok" {
+        "Ok(Step { value: 48, enabled: true, small: 2u8 })"
+    } else {
+        "Err(Step { value: 49, enabled: false, small: 3u8 })"
+    };
+    fs::write(
+        project.join("src/main.ax"),
+        format!("struct Step {{\nvalue: int\nenabled: bool\nsmall: u8\n}}\n\nfn choose_result(flag: bool): Result<Step, Step> {{\nif flag {{\nreturn Ok(Step {{ value: 48, enabled: true, small: 2u8 }})\n}} else {{\nreturn Err(Step {{ value: 49, enabled: false, small: 3u8 }})\n}}\n}}\n\nfn forward_result(value: Result<Step, Step>): Result<Step, Step> {{\nreturn value\n}}\n\nfn score(value: Result<Step, Step>): int {{\nreturn match value {{ Ok(step) => step.value, Err(error) => error.value }}\n}}\n\nfn main(): int {{\nlet ready_for_match: Result<Step, Step> = {value}\nlet ready_for_statement: Result<Step, Step> = {value}\nlet ready_for_helper: Result<Step, Step> = {value}\nlet returned_ok_for_score: Result<Step, Step> = choose_result(true)\nlet returned_err_for_score: Result<Step, Step> = choose_result(false)\nlet returned_ok_for_forward: Result<Step, Step> = choose_result(true)\nlet returned_err_for_forward: Result<Step, Step> = choose_result(false)\nlet forwarded_ok: Result<Step, Step> = forward_result(returned_ok_for_forward)\nlet forwarded_err: Result<Step, Step> = forward_result(returned_err_for_forward)\nlet match_code: int = match ready_for_match {{ Ok(step) => step.value, Err(error) => error.value }}\nlet statement_code: int = 0\nmatch ready_for_statement {{\nOk(step) {{\nif step.enabled {{\nstatement_code = step.value\n}} else {{\nstatement_code = 1\n}}\n}}\nErr(error) {{\nif error.enabled {{\nstatement_code = 1\n}} else {{\nstatement_code = error.value\n}}\n}}\n}}\nlet helper_code: int = score(ready_for_helper)\nlet returned_ok_code: int = score(returned_ok_for_score)\nlet returned_err_code: int = score(returned_err_for_score)\nlet forwarded_ok_code: int = score(forwarded_ok)\nlet forwarded_err_code: int = score(forwarded_err)\nlet literal_ok_code: int = score(Ok(Step {{ small: 2u8, enabled: true, value: 48 }}))\nlet literal_err_code: int = score(Err(Step {{ small: 3u8, enabled: false, value: 49 }}))\nif match_code == statement_code && statement_code == helper_code && returned_ok_code == 48 && returned_err_code == 49 && forwarded_ok_code == 48 && forwarded_err_code == 49 && literal_ok_code == 48 && literal_err_code == 49 {{\nreturn match_code\n}} else {{\nreturn 1\n}}\n}}\n"),
+    )
+    .expect("write result struct payload match main exit source");
+}
+
+fn write_aggregate_helper_reassignment_main_exit_project(project: &Path) {
+    fs::create_dir_all(project.join("src"))
+        .expect("create aggregate helper reassignment main exit project src");
+    fs::write(
+        project.join("axiom.toml"),
+        "[package]\nname = \"cranelift-aggregate-helper-reassignment-main-exit\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n",
+    )
+    .expect("write aggregate helper reassignment main exit manifest");
+    fs::write(
+        project.join("axiom.lock"),
+        "version = 1\n\n[[package]]\nname = \"cranelift-aggregate-helper-reassignment-main-exit\"\nversion = \"0.1.0\"\nsource = \"path\"\n",
+    )
+    .expect("write aggregate helper reassignment main exit lockfile");
+    fs::write(
+        project.join("src/main.ax"),
+        "struct Step {\nvalue: int\nenabled: bool\nsmall: u8\n}\n\nenum Choice {\nReady { step: Step }\nOff\n}\n\nfn make_pair(): (int, bool) {\nreturn (48, true)\n}\n\nfn make_values(): [int; 2] {\nreturn [20, 28]\n}\n\nfn make_step(): Step {\nreturn Step { value: 48, enabled: true, small: 2u8 }\n}\n\nfn make_option(): Option<Step> {\nreturn Some(Step { value: 48, enabled: true, small: 2u8 })\n}\n\nfn make_result(): Result<Step, Step> {\nreturn Ok(Step { value: 48, enabled: true, small: 2u8 })\n}\n\nfn make_choice(): Choice {\nreturn Ready { step: Step { value: 48, enabled: true, small: 2u8 } }\n}\n\nfn score_option(value: Option<Step>): int {\nreturn match value { Some(step) => step.value, None => 1 }\n}\n\nfn score_result(value: Result<Step, Step>): int {\nreturn match value { Ok(step) => step.value, Err(error) => error.value }\n}\n\nfn score_choice(value: Choice): int {\nreturn match value { Ready { step } => step.value, Off => 1 }\n}\n\nfn main(): int {\nlet pair: (int, bool) = (0, false)\nlet values: [int; 2] = [0, 0]\nlet step: Step = Step { value: 0, enabled: false, small: 0u8 }\nlet maybe: Option<Step> = None\nlet outcome: Result<Step, Step> = Err(Step { value: 1, enabled: false, small: 0u8 })\nlet choice: Choice = Off\nlet index: int = 0\nwhile index < 1 {\npair = make_pair()\nvalues = make_values()\nindex = index + 1\n}\nif pair.1 {\nstep = make_step()\nmaybe = make_option()\noutcome = make_result()\nchoice = make_choice()\n} else {\nstep = Step { value: 1, enabled: false, small: 0u8 }\nmaybe = None\noutcome = Err(Step { value: 1, enabled: false, small: 0u8 })\nchoice = Off\n}\nlet pair_code: int = pair.0\nlet pair_enabled: bool = pair.1\nlet array_code: int = values[0] + values[1]\nlet step_code: int = step.value\nlet step_enabled: bool = step.enabled\nlet option_code: int = score_option(maybe)\nlet result_code: int = score_result(outcome)\nlet choice_code: int = score_choice(choice)\nif pair_enabled && step_enabled && pair_code == 48 && array_code == 48 && step_code == 48 && option_code == 48 && result_code == 48 && choice_code == 48 {\nreturn pair_code\n} else {\nreturn 1\n}\n}\n",
+    )
+    .expect("write aggregate helper reassignment main exit source");
+}
+
 fn write_bool_returning_main_exit_project(project: &Path) {
     fs::create_dir_all(project.join("src")).expect("create bool returning main exit project src");
     fs::write(
@@ -4294,6 +7111,642 @@ fn write_array_literal_index_main_exit_project(project: &Path) {
         "fn sum_pair(values: [int; 2]): int {\nreturn values[0] + values[1]\n}\n\nfn pick_pair(values: [int; 2], index: int): int {\nreturn values[index]\n}\n\nfn make_pair(base: int): [int; 2] {\nreturn [base, 99]\n}\n\nfn make_local_pair(base: int): [int; 2] {\nlet values: [int; 2] = [base, 99]\nreturn values\n}\n\nfn forward_pair(values: [int; 2]): [int; 2] {\nreturn values\n}\n\nfn choose_pair(flag: bool): [int; 2] {\nif flag {\nlet value: int = 12\nreturn [value, 99]\n} else {\nreturn [1, 0]\n}\n}\n\nfn second_byte(values: [u8; 2]): int {\nreturn values[1] as int\n}\n\nfn pick_byte(values: [u8; 2], index: int): int {\nreturn values[index] as int\n}\n\nfn make_bytes(): [u8; 2] {\nreturn [1u8, 2u8]\n}\n\nfn forward_bytes(values: [u8; 2]): [u8; 2] {\nreturn values\n}\n\nfn array_gate(flags: [bool; 2]): bool {\nlet first: bool = flags[0]\nlet second: bool = flags[1]\nreturn first && second == false\n}\n\nfn pick_flag(flags: [bool; 2], index: int): bool {\nreturn flags[index]\n}\n\nfn make_flags(flag: bool): [bool; 2] {\nreturn [flag, false]\n}\n\nfn forward_flags(flags: [bool; 2]): [bool; 2] {\nreturn flags\n}\n\nfn main(): int {\nlet values: [int; 2] = [12, 99]\nlet helper_values: [int; 2] = [12, 99]\nlet returned_values: [int; 2] = make_pair(12)\nlet local_values: [int; 2] = make_local_pair(12)\nlet values_to_forward: [int; 2] = make_pair(12)\nlet forwarded_values: [int; 2] = forward_pair(values_to_forward)\nlet branch_values: [int; 2] = choose_pair(true)\nlet fallback_values: [int; 2] = choose_pair(false)\nlet bytes: [u8; 2] = [1u8, 2u8]\nlet helper_bytes: [u8; 2] = [1u8, 2u8]\nlet returned_bytes: [u8; 2] = make_bytes()\nlet bytes_to_forward: [u8; 2] = make_bytes()\nlet forwarded_bytes: [u8; 2] = forward_bytes(bytes_to_forward)\nlet first_index: int = 0\nlet second_index: int = 1\nlet first: int = values[first_index]\nlet typed: int = bytes[second_index] as int\nlet dynamic: bool = first + typed == 14\nlet flags: [bool; 2] = [dynamic, false]\nlet helper_flags: [bool; 2] = [dynamic, false]\nlet returned_flags: [bool; 2] = make_flags(dynamic)\nlet flags_to_forward: [bool; 2] = make_flags(dynamic)\nlet forwarded_flags: [bool; 2] = forward_flags(flags_to_forward)\nlet gate: bool = flags[first_index]\nlet blocked: bool = flags[second_index]\nlet local_sum: int = sum_pair(values)\nlet literal_sum: int = sum_pair([20, 28])\nlet helper_pick: int = pick_pair(helper_values, first_index)\nlet literal_pick: int = pick_pair([20, 28], second_index)\nlet returned_sum: int = sum_pair(returned_values)\nlet local_returned_sum: int = sum_pair(local_values)\nlet forwarded_sum: int = sum_pair(forwarded_values)\nlet branch_sum: int = sum_pair(branch_values)\nlet fallback_sum: int = sum_pair(fallback_values)\nlet typed_arg: int = second_byte(bytes)\nlet literal_typed_arg: int = second_byte([3u8, 4u8])\nlet dynamic_byte: int = pick_byte(helper_bytes, second_index)\nlet returned_byte: int = second_byte(returned_bytes)\nlet forwarded_byte: int = second_byte(forwarded_bytes)\nlet helper_flag: bool = pick_flag(helper_flags, first_index)\nlet literal_flag_blocked: bool = pick_flag([true, false], second_index)\nlet returned_flag: bool = pick_flag(returned_flags, first_index)\nlet forwarded_flag: bool = pick_flag(forwarded_flags, first_index)\nlet helper_numbers_ok: bool = local_sum == 111 && literal_sum == 48 && helper_pick == 12 && literal_pick == 28 && returned_sum == 111 && local_returned_sum == 111 && forwarded_sum == 111 && branch_sum == 111 && fallback_sum == 1\nlet helper_bytes_ok: bool = typed_arg == 2 && literal_typed_arg == 4 && dynamic_byte == 2 && returned_byte == 2 && forwarded_byte == 2\nlet helper_flags_ok: bool = array_gate([dynamic, false]) && array_gate([true, false]) && helper_flag && literal_flag_blocked == false && returned_flag && forwarded_flag\nif gate && blocked == false && helper_flags_ok && helper_numbers_ok && helper_bytes_ok {\nreturn first + typed + 34\n} else {\nreturn 1\n}\n}\n",
     )
     .expect("write array literal index main exit source");
+}
+
+fn write_fixed_array_intrinsics_main_exit_project(project: &Path) {
+    fs::create_dir_all(project.join("src"))
+        .expect("create fixed array intrinsics main exit project src");
+    fs::write(
+        project.join("axiom.toml"),
+        "[package]\nname = \"cranelift-fixed-array-intrinsics-main-exit\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n",
+    )
+    .expect("write fixed array intrinsics main exit manifest");
+    fs::write(
+        project.join("axiom.lock"),
+        "version = 1\n\n[[package]]\nname = \"cranelift-fixed-array-intrinsics-main-exit\"\nversion = \"0.1.0\"\nsource = \"path\"\n",
+    )
+    .expect("write fixed array intrinsics main exit lockfile");
+    fs::write(
+        project.join("src/main.ax"),
+        "fn score(values: [int; 3]): int {\nreturn len(values) + first(values) + last(values)\n}\n\nfn gate(flags: [bool; 2]): bool {\nreturn first(flags) && last(flags) == false\n}\n\nfn slice_score(len_values: [int; 3], first_values: [int; 3], last_values: [int; 3]): int {\nreturn len(len_values[1:]) + first(first_values[1:]) + last(last_values[1:])\n}\n\nfn prefix_score(len_values: [int; 3], first_values: [int; 3], last_values: [int; 3]): int {\nreturn len(len_values[:2]) + first(first_values[:2]) + last(last_values[:2])\n}\n\nfn slice_pick(values: [int; 3], index: int): int {\nreturn values[1:][index]\n}\n\nfn slice_gate(first_flags: [bool; 3], last_flags: [bool; 3]): bool {\nreturn first(first_flags[1:]) == false && last(last_flags[1:])\n}\n\nfn slice_index_gate(flags: [bool; 3], index: int): bool {\nreturn flags[1:][index]\n}\n\nfn make_values(): [int; 3] {\nreturn [20, 3, 25]\n}\n\nfn make_flags(): [bool; 2] {\nreturn [true, false]\n}\n\nfn main(): int {\nlet values: [int; 3] = [20, 3, 25]\nlet returned: [int; 3] = make_values()\nlet slice_len_values: [int; 3] = [1, 20, 26]\nlet slice_first_values: [int; 3] = [1, 20, 26]\nlet slice_last_values: [int; 3] = [1, 20, 26]\nlet prefix_len_values: [int; 3] = [20, 26, 1]\nlet prefix_first_values: [int; 3] = [20, 26, 1]\nlet prefix_last_values: [int; 3] = [20, 26, 1]\nlet slice_index_literal_values: [int; 3] = [1, 20, 26]\nlet slice_index_dynamic_values: [int; 3] = [1, 20, 26]\nlet slice_local_values: [int; 3] = [1, 20, 26]\nlet slice_local_index_values: [int; 3] = [1, 20, 26]\nlet helper_slice_index_values: [int; 3] = [1, 20, 26]\nlet helper_slice_len_values: [int; 3] = [1, 20, 26]\nlet helper_slice_first_values: [int; 3] = [1, 20, 26]\nlet helper_slice_last_values: [int; 3] = [1, 20, 26]\nlet helper_prefix_len_values: [int; 3] = [20, 26, 1]\nlet helper_prefix_first_values: [int; 3] = [20, 26, 1]\nlet helper_prefix_last_values: [int; 3] = [20, 26, 1]\nlet flags: [bool; 2] = [true, false]\nlet returned_flags: [bool; 2] = make_flags()\nlet slice_gate_first_flags: [bool; 3] = [false, false, true]\nlet slice_gate_last_flags: [bool; 3] = [false, false, true]\nlet slice_index_flags: [bool; 3] = [false, false, true]\nlet slice_local_flags: [bool; 3] = [false, false, true]\nlet helper_slice_gate_first_flags: [bool; 3] = [false, false, true]\nlet helper_slice_gate_last_flags: [bool; 3] = [false, false, true]\nlet helper_slice_index_flags: [bool; 3] = [false, false, true]\nlet dynamic_slice_index: int = 1\nlet local_code: int = len(values) + first(values) + last(values)\nlet literal_code: int = len([20, 3, 25]) + first([20, 3, 25]) + last([20, 3, 25])\nlet helper_code: int = score(values)\nlet returned_code: int = len(returned) + first(returned) + last(returned)\nlet slice_code: int = len(slice_len_values[1:]) + first(slice_first_values[1:]) + last(slice_last_values[1:])\nlet prefix_code: int = len(prefix_len_values[:2]) + first(prefix_first_values[:2]) + last(prefix_last_values[:2])\nlet slice_index_code: int = slice_index_literal_values[1:][0] + slice_index_dynamic_values[1:][dynamic_slice_index] + 2\nlet literal_dynamic_code: int = [20, 26][dynamic_slice_index] + 22\nlet slice_window: &[int] = slice_local_values[1:]\nlet slice_index_window: &[int] = slice_local_index_values[1:]\nlet slice_local_code: int = len(slice_window) + first(slice_window) + last(slice_window)\nlet slice_local_index_code: int = slice_index_window[0] + slice_index_window[dynamic_slice_index] + 2\nlet helper_slice_index_code: int = slice_pick(helper_slice_index_values, dynamic_slice_index) + 22\nlet helper_slice_code: int = slice_score(helper_slice_len_values, helper_slice_first_values, helper_slice_last_values)\nlet helper_prefix_code: int = prefix_score(helper_prefix_len_values, helper_prefix_first_values, helper_prefix_last_values)\nlet bool_len: int = len(flags)\nlet local_gate: bool = first(flags) && last(flags) == false\nlet literal_gate: bool = first([true, false]) && last([true, false]) == false\nlet helper_gate: bool = gate(flags)\nlet returned_gate: bool = first(returned_flags) && last(returned_flags) == false\nlet slice_gate_local: bool = first(slice_gate_first_flags[1:]) == false && last(slice_gate_last_flags[1:])\nlet slice_index_gate_local: bool = slice_index_flags[1:][dynamic_slice_index]\nlet flag_window: &[bool] = slice_local_flags[1:]\nlet slice_local_gate: bool = first(flag_window) == false && last(flag_window) && flag_window[dynamic_slice_index]\nlet literal_dynamic_gate: bool = [false, true][dynamic_slice_index]\nlet helper_slice_gate: bool = slice_gate(helper_slice_gate_first_flags, helper_slice_gate_last_flags)\nlet helper_slice_index_gate: bool = slice_index_gate(helper_slice_index_flags, dynamic_slice_index)\nif local_gate && literal_gate && helper_gate && returned_gate && slice_gate_local && slice_index_gate_local && slice_local_gate && literal_dynamic_gate && helper_slice_gate && helper_slice_index_gate && bool_len == 2 && local_code == 48 && literal_code == 48 && helper_code == 48 && returned_code == 48 && slice_code == 48 && prefix_code == 48 && slice_index_code == 48 && literal_dynamic_code == 48 && slice_local_code == 48 && slice_local_index_code == 48 && helper_slice_index_code == 48 && helper_slice_code == 48 && helper_prefix_code == 48 {\nreturn local_code\n} else {\nreturn 1\n}\n}\n",
+    )
+    .expect("write fixed array intrinsics main exit source");
+}
+
+fn write_static_slice_bounds_main_exit_project(project: &Path) {
+    fs::create_dir_all(project.join("src"))
+        .expect("create static slice bounds main exit project src");
+    fs::write(
+        project.join("axiom.toml"),
+        "[package]\nname = \"cranelift-static-slice-bounds-main-exit\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n",
+    )
+    .expect("write static slice bounds main exit manifest");
+    fs::write(
+        project.join("axiom.lock"),
+        "version = 1\n\n[[package]]\nname = \"cranelift-static-slice-bounds-main-exit\"\nversion = \"0.1.0\"\nsource = \"path\"\n",
+    )
+    .expect("write static slice bounds main exit lockfile");
+    fs::write(
+        project.join("src/main.ax"),
+        "static TAIL_START: int = 1\nstatic PREFIX_END: int = 2\n\nfn tail_score(values: [int; 3]): int {\nreturn len(values[TAIL_START:]) + first(values[TAIL_START:]) + last(values[TAIL_START:])\n}\n\nfn prefix_score(values: [int; 3]): int {\nreturn len(values[:PREFIX_END]) + first(values[:PREFIX_END]) + last(values[:PREFIX_END])\n}\n\nfn main(): int {\nlet tail_values: [int; 3] = [1, 20, 26]\nlet prefix_values: [int; 3] = [20, 26, 1]\nlet helper_tail_values: [int; 3] = [1, 20, 26]\nlet helper_prefix_values: [int; 3] = [20, 26, 1]\nlet tail_window: &[int] = tail_values[TAIL_START:]\nlet prefix_window: &[int] = prefix_values[:PREFIX_END]\nlet tail_code: int = len(tail_window) + first(tail_window) + last(tail_window)\nlet prefix_code: int = len(prefix_window) + first(prefix_window) + last(prefix_window)\nlet helper_tail: int = tail_score(helper_tail_values)\nlet helper_prefix: int = prefix_score(helper_prefix_values)\nif tail_code == 48 && prefix_code == 48 && helper_tail == 48 && helper_prefix == 48 {\nreturn 48\n} else {\nreturn 1\n}\n}\n",
+    )
+    .expect("write static slice bounds main exit source");
+}
+
+fn write_string_literal_len_main_exit_project(project: &Path) {
+    fs::create_dir_all(project.join("src"))
+        .expect("create string literal len main exit project src");
+    fs::write(
+        project.join("axiom.toml"),
+        r#"[package]
+name = "cranelift-string-literal-len-main-exit"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+fs = false
+net = false
+process = false
+env = false
+clock = false
+crypto = false
+"#,
+    )
+    .expect("write string literal len main exit manifest");
+    fs::write(
+        project.join("axiom.lock"),
+        r#"version = 1
+
+[[package]]
+name = "cranelift-string-literal-len-main-exit"
+version = "0.1.0"
+source = "path"
+"#,
+    )
+    .expect("write string literal len main exit lockfile");
+    fs::write(
+        project.join("src/main.ax"),
+        r#"static BANNER: string = "direct-native"
+static PADDED: string = "  direct-native  "
+static SECOND_LINE_INDEX: int = 1
+static MISSING_LINE_INDEX: int = -1
+
+fn local_len(): int {
+let text: string = "native"
+return len(text)
+}
+
+fn add_base(value: int): int {
+return value + 19
+}
+
+fn native_prefix(): bool {
+let value: string = string_clone(BANNER)
+return string_starts_with(value, "direct")
+}
+
+fn static_prefix(): bool {
+let trimmed: string = string_trim(PADDED)
+return string_starts_with(trimmed, "direct")
+}
+
+fn main(): int {
+let owned: string = "direct-native"
+let short: string = "abi"
+let prefix_text: string = string_clone(BANNER)
+let miss_text: string = string_trim(PADDED)
+let compare_text: string = string_trim_start("  direct-native")
+let literal_len: int = len("runtime")
+let local_len_value: int = len(owned)
+let static_len_value: int = len(BANNER)
+let clone_len_value: int = len(string_clone(BANNER))
+let trim_len_value: int = len(string_trim(PADDED))
+let trim_start_len_value: int = len(string_trim_start("  abi"))
+let concat_len_value: int = len(string_clone(BANNER) + string_trim_start("  abi"))
+let encoded_len: int = len(encoding_url_component_encode("hello world/one"))
+let segment_len: int = len(encoding_path_segment_encode("a/b c"))
+let pair_len: int = len(encoding_url_query_pair_encode("q", "agent path/one"))
+let joined_len: int = len(encoding_path_join_segment("/docs", "stage 1/encoding"))
+let strip_prefix_len: int = match string_strip_prefix(BANNER, "direct-") { Some(rest) => len(rest), None => 1 }
+let strip_suffix_gate: bool = match string_strip_suffix(BANNER, "-native") { Some(rest) => string_starts_with(rest, "direct"), None => false }
+let line_len: int = match string_line_at("first\nsecond\nthird", SECOND_LINE_INDEX) { Some(line) => len(line), None => 1 }
+let line_missing: int = match string_line_at("first\nsecond", MISSING_LINE_INDEX) { Some(line) => len(line), None => 4 }
+let decoded_len: int = match encoding_url_component_decode("hello%20axiom") { Some(value) => len(value), None => 1 }
+let decode_missing: int = match encoding_url_component_decode("bad%2") { Some(value) => len(value), None => 4 }
+let short_len: int = len(short)
+let helper_len: int = local_len()
+let helper_arg_len: int = add_base(len(short))
+let prefix_gate: bool = string_starts_with(prefix_text, "direct")
+let miss_gate: bool = string_starts_with(miss_text, "rust") == false
+let helper_gate: bool = native_prefix()
+let static_gate: bool = static_prefix()
+let compare_gate: bool = compare_text == BANNER
+if prefix_gate && miss_gate && helper_gate && static_gate && compare_gate && strip_suffix_gate && literal_len == 7 && local_len_value == 13 && static_len_value == 13 && clone_len_value == 13 && trim_len_value == 13 && trim_start_len_value == 3 && concat_len_value == 16 && encoded_len == 19 && segment_len == 9 && pair_len == 20 && joined_len == 26 && strip_prefix_len == 6 && line_len == 6 && line_missing == 4 && decoded_len == 11 && decode_missing == 4 && short_len == 3 && helper_len == 6 && helper_arg_len == 22 {
+return literal_len + local_len_value + helper_len + helper_arg_len
+} else {
+return 1
+}
+}
+"#,
+    )
+    .expect("write string literal len main exit source");
+}
+
+fn write_unsupported_string_helper_main_project(project: &Path) {
+    fs::create_dir_all(project.join("src")).expect("create unsupported string helper main src");
+    fs::write(
+        project.join("axiom.toml"),
+        r#"[package]
+name = "cranelift-unsupported-string-helper-main"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+fs = false
+net = false
+process = false
+env = false
+clock = false
+crypto = false
+"#,
+    )
+    .expect("write unsupported string helper main manifest");
+    fs::write(
+        project.join("axiom.lock"),
+        r#"version = 1
+
+[[package]]
+name = "cranelift-unsupported-string-helper-main"
+version = "0.1.0"
+source = "path"
+"#,
+    )
+    .expect("write unsupported string helper main lockfile");
+    fs::write(
+        project.join("src/main.ax"),
+        r#"fn make_banner(): string {
+print "side-effect"
+return "direct-native"
+}
+
+fn main(): int {
+return len(make_banner())
+}
+"#,
+    )
+    .expect("write unsupported string helper main source");
+}
+
+fn write_known_string_helper_main_exit_project(project: &Path) {
+    fs::create_dir_all(project.join("src")).expect("create known string helper main project src");
+    fs::write(
+        project.join("axiom.toml"),
+        r#"[package]
+name = "cranelift-known-string-helper-main-exit"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+fs = false
+net = false
+process = false
+env = false
+clock = false
+crypto = false
+"#,
+    )
+    .expect("write known string helper main manifest");
+    fs::write(
+        project.join("axiom.lock"),
+        r#"version = 1
+
+[[package]]
+name = "cranelift-known-string-helper-main-exit"
+version = "0.1.0"
+source = "path"
+"#,
+    )
+    .expect("write known string helper main lockfile");
+    fs::write(
+        project.join("src/main.ax"),
+        r#"struct BannerBox {
+text: string
+bonus: int
+}
+
+static BANNER: string = "direct-native"
+
+fn score(text: string): int {
+return len(text)
+}
+
+fn make_banner(): string {
+return "direct-native"
+}
+
+fn forward_text(text: string): string {
+return text
+}
+
+fn local_banner(): string {
+let text: string = "direct-native"
+let copy: string = forward_text(text)
+return copy
+}
+
+fn branch_banner(flag: bool): string {
+if flag {
+return "direct-native"
+} else {
+return "fallback"
+}
+}
+
+fn local_score(text: string): int {
+let copy: string = forward_text(text)
+return len(copy)
+}
+
+fn branch_score(flag: bool): int {
+if flag {
+return len("direct-native")
+} else {
+return 1
+}
+}
+
+fn has_native_prefix(text: string): bool {
+return string_starts_with(text, "direct")
+}
+
+fn has_local_native_prefix(text: string): bool {
+let copy: string = forward_text(text)
+return string_starts_with(copy, "direct")
+}
+
+fn has_branch_native_prefix(flag: bool): bool {
+if flag {
+return string_starts_with("direct-native", "direct")
+} else {
+return false
+}
+}
+
+fn match_banner(value: Option<string>): string {
+return match value { Some(text) => text, None => "fallback" }
+}
+
+fn match_score(value: Option<string>): int {
+return match value { Some(text) => len(text), None => 1 }
+}
+
+fn has_match_native_prefix(value: Option<string>): bool {
+return match value { Some(text) => string_starts_with(text, "direct"), None => false }
+}
+
+fn match_stmt_banner(value: Option<string>): string {
+match value {
+Some(text) {
+return text
+}
+None {
+return "fallback"
+}
+}
+}
+
+fn match_stmt_score(value: Option<string>): int {
+match value {
+Some(text) {
+return len(text)
+}
+None {
+return 1
+}
+}
+}
+
+fn has_match_stmt_native_prefix(value: Option<string>): bool {
+match value {
+Some(text) {
+return string_starts_with(text, "direct")
+}
+None {
+return false
+}
+}
+}
+
+fn tuple_banner(value: (string, int)): string {
+return value.0
+}
+
+fn tuple_score(value: (string, int)): int {
+return len(value.0) + value.1
+}
+
+fn has_tuple_native_prefix(value: (string, int)): bool {
+return string_starts_with(value.0, "direct")
+}
+
+fn struct_banner(value: BannerBox): string {
+return value.text
+}
+
+fn struct_score(value: BannerBox): int {
+return len(value.text) + value.bonus
+}
+
+fn has_struct_native_prefix(value: BannerBox): bool {
+return string_starts_with(value.text, "direct")
+}
+
+fn map_index_banner(key: string): string {
+return {"build": "forge", "deploy": "direct-native"}[key]
+}
+
+fn map_index_score(key: string): int {
+return len({"build": "forge", "deploy": "direct-native"}[key])
+}
+
+fn has_map_index_native_prefix(key: string): bool {
+let text: string = {"build": "forge", "deploy": "direct-native"}[key]
+return string_starts_with(text, "direct")
+}
+
+fn main(): int {
+let direct: int = score("direct-native")
+let static_score: int = score(BANNER)
+let forwarded_score: int = score(forward_text(BANNER))
+let returned_text: string = make_banner()
+let local_text: string = local_banner()
+let branch_text: string = branch_banner(true)
+let match_text: string = match_banner(Some(BANNER))
+let match_stmt_text: string = match_stmt_banner(Some(BANNER))
+let tuple_text: string = tuple_banner((BANNER, 5))
+let struct_text: string = struct_banner(BannerBox { text: BANNER, bonus: 7 })
+let map_index_text: string = map_index_banner("deploy")
+let forwarded_len_text: string = forward_text(BANNER)
+let forwarded_compare_text: string = forward_text(BANNER)
+let returned_len: int = len(returned_text)
+let local_len: int = len(local_text)
+let branch_len: int = len(branch_text)
+let match_len: int = len(match_text)
+let match_stmt_len: int = len(match_stmt_text)
+let tuple_len: int = len(tuple_text)
+let struct_len: int = len(struct_text)
+let map_index_len: int = len(map_index_text)
+let forwarded_len: int = len(forwarded_len_text)
+let local_score_value: int = local_score(BANNER)
+let branch_score_value: int = branch_score(true)
+let match_score_value: int = match_score(Some(BANNER))
+let match_none_score_value: int = match_score(None)
+let match_stmt_score_value: int = match_stmt_score(Some(BANNER))
+let match_stmt_none_score_value: int = match_stmt_score(None)
+let tuple_score_value: int = tuple_score((BANNER, 5))
+let struct_score_value: int = struct_score(BannerBox { text: BANNER, bonus: 7 })
+let map_index_score_value: int = map_index_score("deploy")
+let prefix_gate: bool = has_native_prefix("direct-native")
+let local_prefix_gate: bool = has_local_native_prefix(BANNER)
+let branch_prefix_gate: bool = has_branch_native_prefix(true)
+let match_prefix_gate: bool = has_match_native_prefix(Some(BANNER))
+let match_none_prefix_gate: bool = has_match_native_prefix(None) == false
+let match_stmt_prefix_gate: bool = has_match_stmt_native_prefix(Some(BANNER))
+let match_stmt_none_prefix_gate: bool = has_match_stmt_native_prefix(None) == false
+let tuple_prefix_gate: bool = has_tuple_native_prefix((BANNER, 5))
+let struct_prefix_gate: bool = has_struct_native_prefix(BannerBox { text: BANNER, bonus: 7 })
+let map_index_prefix_gate: bool = has_map_index_native_prefix("deploy")
+let forwarded_gate: bool = forwarded_compare_text == "direct-native"
+if direct == 13 && static_score == 13 && forwarded_score == 13 && returned_len == 13 && local_len == 13 && branch_len == 13 && match_len == 13 && match_stmt_len == 13 && tuple_len == 13 && struct_len == 13 && map_index_len == 13 && forwarded_len == 13 && local_score_value == 13 && branch_score_value == 13 && match_score_value == 13 && match_none_score_value == 1 && match_stmt_score_value == 13 && match_stmt_none_score_value == 1 && tuple_score_value == 18 && struct_score_value == 20 && map_index_score_value == 13 && prefix_gate && local_prefix_gate && branch_prefix_gate && match_prefix_gate && match_none_prefix_gate && match_stmt_prefix_gate && match_stmt_none_prefix_gate && tuple_prefix_gate && struct_prefix_gate && map_index_prefix_gate && forwarded_gate {
+return 48
+} else {
+return 1
+}
+}
+"#,
+    )
+    .expect("write known string helper main source");
+}
+
+fn write_std_encoding_wrapper_main_exit_project(project: &Path) {
+    fs::create_dir_all(project.join("src")).expect("create std encoding wrapper project src");
+    fs::write(
+        project.join("axiom.toml"),
+        "[package]\nname = \"cranelift-std-encoding-wrapper-main-exit\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n",
+    )
+    .expect("write std encoding wrapper manifest");
+    fs::write(
+        project.join("axiom.lock"),
+        "version = 1\n\n[[package]]\nname = \"cranelift-std-encoding-wrapper-main-exit\"\nversion = \"0.1.0\"\nsource = \"path\"\n",
+    )
+    .expect("write std encoding wrapper lockfile");
+    fs::write(
+        project.join("src/main.ax"),
+        "import \"std/encoding.ax\"\n\nfn main(): int {\nlet component: string = url_component_encode(\"hello world/one\")\nlet segment: string = path_segment_encode(\"a/b c\")\nlet pair: string = query_pair_encode(\"q\", \"agent path/one\")\nlet joined: string = path_join_segment(\"/docs\", \"stage 1/encoding\")\nlet decoded_len: int = match url_component_decode(\"hello%20axiom\") { Some(value) => len(value), None => 1 }\nlet decode_missing: int = match url_component_decode(\"bad%2\") { Some(value) => len(value), None => 4 }\nlet component_gate: bool = component == \"hello%20world%2Fone\"\nlet segment_gate: bool = segment == \"a%2Fb%20c\"\nlet pair_gate: bool = pair == \"q=agent%20path%2Fone\"\nlet joined_gate: bool = joined == \"/docs/stage%201%2Fencoding\"\nif component_gate && segment_gate && pair_gate && joined_gate && len(component) == 19 && len(segment) == 9 && len(pair) == 20 && len(joined) == 26 && decoded_len == 11 && decode_missing == 4 {\nreturn 48\n} else {\nreturn 1\n}\n}\n",
+    )
+    .expect("write std encoding wrapper source");
+}
+
+fn write_known_crypto_text_main_exit_project(project: &Path) {
+    fs::create_dir_all(project.join("src")).expect("create known crypto text project src");
+    fs::write(
+        project.join("axiom.toml"),
+        "[package]\nname = \"cranelift-known-crypto-text-main-exit\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = true\n",
+    )
+    .expect("write known crypto text manifest");
+    fs::write(
+        project.join("axiom.lock"),
+        "version = 1\n\n[[package]]\nname = \"cranelift-known-crypto-text-main-exit\"\nversion = \"0.1.0\"\nsource = \"path\"\n",
+    )
+    .expect("write known crypto text lockfile");
+    fs::write(
+        project.join("src/main.ax"),
+        "static KEY: string = \"key\"\n\nfn main(): int {\nlet message_for_len: string = \"The quick brown fox jumps over the lazy dog\"\nlet message_for_gate: string = \"The quick brown fox jumps over the lazy dog\"\nlet sha_for_gate: string = crypto_sha256(\"abc\")\nlet hmac256_for_gate: string = crypto_hmac_sha256(KEY, message_for_gate)\nlet hmac512_for_gate: string = crypto_hmac_sha512(\"Jefe\", \"what do ya want for nothing?\")\nlet sha_len: int = len(crypto_sha256(\"abc\"))\nlet hmac256_len: int = len(crypto_hmac_sha256(KEY, message_for_len))\nlet hmac512_len: int = len(crypto_hmac_sha512(\"Jefe\", \"what do ya want for nothing?\"))\nlet dynamic_sha_input: int = match json_parse_int(\"12345\") { Some(value) => value, None => 1 }\nlet dynamic_clone_sha_input: int = match json_parse_int(\"12345\") { Some(value) => value, None => 1 }\nlet dynamic_hmac_key: int = match json_parse_int(\"321\") { Some(value) => value, None => 1 }\nlet dynamic_hmac256_message: bool = match json_parse_bool(\"true\") { Some(value) => value, None => false }\nlet dynamic_hmac512_message: bool = match json_parse_bool(\"false\") { Some(value) => value, None => true }\nlet dynamic_sha_len: int = len(crypto_sha256(json_stringify_int(dynamic_sha_input)))\nlet dynamic_clone_sha_text: string = json_stringify_int(dynamic_clone_sha_input)\nlet dynamic_clone_sha_len: int = len(crypto_sha256(string_clone(dynamic_clone_sha_text)))\nlet dynamic_hmac256_len: int = len(crypto_hmac_sha256(json_stringify_int(dynamic_hmac_key), json_stringify_bool(dynamic_hmac256_message)))\nlet dynamic_hmac512_len: int = len(crypto_hmac_sha512(KEY, json_stringify_bool(dynamic_hmac512_message)))\nlet sha_gate: bool = string_starts_with(sha_for_gate, \"ba7816bf\")\nlet hmac256_gate: bool = string_starts_with(hmac256_for_gate, \"f7bc83f4\")\nlet hmac512_gate: bool = string_starts_with(hmac512_for_gate, \"164b7a7b\")\nlet constant_gate: bool = crypto_constant_time_eq(crypto_sha256(\"abc\"), \"ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad\")\nlet mismatch_gate: bool = crypto_constant_time_eq(\"short\", \"shorter\") == false\nlet byte_left: [u8; 3] = [1u8, 2u8, 3u8]\nlet byte_same: [u8; 3] = [1u8, 2u8, 3u8]\nlet byte_different: [u8; 3] = [1u8, 2u8, 4u8]\nlet byte_literal_left: [u8; 2] = [4u8, 5u8]\nlet byte_literal_same: [u8; 2] = [4u8, 5u8]\nlet byte_short: [u8; 1] = [4u8]\nlet byte_gate: bool = crypto_constant_time_eq_u8(byte_left[:], byte_same[:])\nlet byte_mismatch_gate: bool = crypto_constant_time_eq_u8(byte_left[:], byte_different[:]) == false\nlet byte_literal_gate: bool = crypto_constant_time_eq_u8(byte_literal_left[:], byte_literal_same[:])\nlet byte_len_gate: bool = crypto_constant_time_eq_u8(byte_literal_left[:], byte_short[:]) == false\nif sha_gate && hmac256_gate && hmac512_gate && constant_gate && mismatch_gate && byte_gate && byte_mismatch_gate && byte_literal_gate && byte_len_gate && sha_len == 64 && hmac256_len == 64 && hmac512_len == 128 && dynamic_sha_len == 64 && dynamic_clone_sha_len == 64 && dynamic_hmac256_len == 64 && dynamic_hmac512_len == 128 {\nreturn 48\n} else {\nreturn 1\n}\n}\n",
+    )
+    .expect("write known crypto text source");
+}
+
+fn write_std_crypto_wrapper_main_exit_project(project: &Path) {
+    fs::create_dir_all(project.join("src")).expect("create std crypto wrapper project src");
+    fs::write(
+        project.join("axiom.toml"),
+        "[package]\nname = \"cranelift-std-crypto-wrapper-main-exit\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = true\n",
+    )
+    .expect("write std crypto wrapper manifest");
+    fs::write(
+        project.join("axiom.lock"),
+        "version = 1\n\n[[package]]\nname = \"cranelift-std-crypto-wrapper-main-exit\"\nversion = \"0.1.0\"\nsource = \"path\"\n",
+    )
+    .expect("write std crypto wrapper lockfile");
+    fs::write(
+        project.join("src/main.ax"),
+        "import \"std/crypto_hash.ax\"\nimport \"std/crypto_mac.ax\"\n\nstatic KEY: string = \"key\"\n\nfn main(): int {\nlet message_for_len: string = \"The quick brown fox jumps over the lazy dog\"\nlet message_for_gate: string = \"The quick brown fox jumps over the lazy dog\"\nlet message_for_verify: string = \"The quick brown fox jumps over the lazy dog\"\nlet sha_for_gate: string = sha256(\"abc\")\nlet hmac256_for_gate: string = hmac_sha256(KEY, message_for_gate)\nlet hmac512_for_gate: string = hmac_sha512(\"Jefe\", \"what do ya want for nothing?\")\nlet sha_len: int = len(sha256(\"abc\"))\nlet hmac256_len: int = len(hmac_sha256(KEY, message_for_len))\nlet hmac512_len: int = len(hmac_sha512(\"Jefe\", \"what do ya want for nothing?\"))\nlet sha_gate: bool = string_starts_with(sha_for_gate, \"ba7816bf\")\nlet hmac256_gate: bool = string_starts_with(hmac256_for_gate, \"f7bc83f4\")\nlet hmac512_gate: bool = string_starts_with(hmac512_for_gate, \"164b7a7b\")\nlet constant_gate: bool = constant_time_eq(sha256(\"abc\"), \"ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad\")\nlet verify256_gate: bool = verify_sha256(\"f7bc83f430538424b13298e6aa6fb143ef4d59a14946175997479dbc2d1a3cd8\", KEY, message_for_verify)\nlet verify512_gate: bool = verify_sha512(\"164b7a7bfcf819e2e395fbe73b56e0a387bd64222e831fd610270cd7ea2505549758bf75c05a994a6d034f65f8f0e6fdcaeab1a34d4a6b4b636e070a38bce737\", \"Jefe\", \"what do ya want for nothing?\")\nlet mismatch_gate: bool = constant_time_eq(\"short\", \"shorter\") == false\nlet byte_left: [u8; 3] = [1u8, 2u8, 3u8]\nlet byte_same: [u8; 3] = [1u8, 2u8, 3u8]\nlet byte_different: [u8; 3] = [1u8, 2u8, 4u8]\nlet byte_gate: bool = constant_time_eq_u8(byte_left[:], byte_same[:])\nlet byte_mismatch_gate: bool = constant_time_eq_u8(byte_left[:], byte_different[:]) == false\nif sha_gate && hmac256_gate && hmac512_gate && constant_gate && verify256_gate && verify512_gate && mismatch_gate && byte_gate && byte_mismatch_gate && sha_len == 64 && hmac256_len == 64 && hmac512_len == 128 {\nreturn 48\n} else {\nreturn 1\n}\n}\n",
+    )
+    .expect("write std crypto wrapper source");
+}
+
+fn write_known_regex_text_main_exit_project(project: &Path) {
+    fs::create_dir_all(project.join("src")).expect("create known regex text project src");
+    fs::write(
+        project.join("axiom.toml"),
+        "[package]\nname = \"cranelift-known-regex-text-main-exit\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n",
+    )
+    .expect("write known regex text manifest");
+    fs::write(
+        project.join("axiom.lock"),
+        "version = 1\n\n[[package]]\nname = \"cranelift-known-regex-text-main-exit\"\nversion = \"0.1.0\"\nsource = \"path\"\n",
+    )
+    .expect("write known regex text lockfile");
+    fs::write(
+        project.join("src/main.ax"),
+        "static ISSUE_TEXT: string = \"issue-238-ready\"\n\nfn main(): int {\nlet replaced: string = regex_replace_all(\"[0-9]+\", ISSUE_TEXT, \"#\")\nlet anchored: string = regex_replace_all(\"^a\", \"aaa\", \"x\")\nlet match_gate: bool = regex_is_match(\"^issue-[0-9]+-ready$\", ISSUE_TEXT)\nlet replaced_gate: bool = replaced == \"issue-#-ready\"\nlet anchored_gate: bool = anchored == \"xaa\"\nlet found_len: int = match regex_find(\"[0-9]+\", ISSUE_TEXT) { Some(value) => len(value), None => 1 }\nlet missing_len: int = match regex_find(\"z+\", ISSUE_TEXT) { Some(value) => len(value), None => 4 }\nlet replaced_len: int = len(regex_replace_all(\"[a-z]+\", \"abc-123\", \"x\"))\nif match_gate && replaced_gate && anchored_gate && found_len == 3 && missing_len == 4 && replaced_len == 5 {\nreturn 48\n} else {\nreturn 1\n}\n}\n",
+    )
+    .expect("write known regex text source");
+}
+
+fn write_std_regex_wrapper_main_exit_project(project: &Path) {
+    fs::create_dir_all(project.join("src")).expect("create std regex wrapper project src");
+    fs::write(
+        project.join("axiom.toml"),
+        "[package]\nname = \"cranelift-std-regex-wrapper-main-exit\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n",
+    )
+    .expect("write std regex wrapper manifest");
+    fs::write(
+        project.join("axiom.lock"),
+        "version = 1\n\n[[package]]\nname = \"cranelift-std-regex-wrapper-main-exit\"\nversion = \"0.1.0\"\nsource = \"path\"\n",
+    )
+    .expect("write std regex wrapper lockfile");
+    fs::write(
+        project.join("src/main.ax"),
+        "import \"std/regex.ax\"\n\nstatic ISSUE_TEXT: string = \"issue-238-ready\"\n\nfn main(): int {\nlet replaced: string = replace_all(\"[0-9]+\", ISSUE_TEXT, \"#\")\nlet anchored: string = replace_all(\"^a\", \"aaa\", \"x\")\nlet match_gate: bool = is_match(\"^issue-[0-9]+-ready$\", ISSUE_TEXT)\nlet replaced_gate: bool = replaced == \"issue-#-ready\"\nlet anchored_gate: bool = anchored == \"xaa\"\nlet found_len: int = match find(\"[0-9]+\", ISSUE_TEXT) { Some(value) => len(value), None => 1 }\nlet missing_len: int = match find(\"z+\", ISSUE_TEXT) { Some(value) => len(value), None => 4 }\nlet replaced_len: int = len(replace_all(\"[a-z]+\", \"abc-123\", \"x\"))\nif match_gate && replaced_gate && anchored_gate && found_len == 3 && missing_len == 4 && replaced_len == 5 {\nreturn 48\n} else {\nreturn 1\n}\n}\n",
+    )
+    .expect("write std regex wrapper source");
+}
+
+fn write_known_json_text_main_exit_project(project: &Path) {
+    fs::create_dir_all(project.join("src")).expect("create known json text project src");
+    fs::write(
+        project.join("axiom.toml"),
+        "[package]\nname = \"cranelift-known-json-text-main-exit\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n",
+    )
+    .expect("write known json text manifest");
+    fs::write(
+        project.join("axiom.lock"),
+        "version = 1\n\n[[package]]\nname = \"cranelift-known-json-text-main-exit\"\nversion = \"0.1.0\"\nsource = \"path\"\n",
+    )
+    .expect("write known json text lockfile");
+    fs::write(
+        project.join("src/main.ax"),
+        "static DOC: string = \"{\\\"name\\\":\\\"axiom\\\",\\\"count\\\":3,\\\"ready\\\":true,\\\"nested\\\":{\\\"ok\\\":true}}\"\nstatic STATIC_COUNT: int = 321\nstatic STATIC_READY: bool = true\n\nfn main(): int {\nlet quoted_len: int = len(json_stringify_string(\"axiom\"))\nlet int_len: int = len(json_stringify_int(42))\nlet static_int_len: int = len(json_stringify_int(STATIC_COUNT))\nlet bool_len: int = len(json_stringify_bool(false))\nlet static_bool_len: int = len(json_stringify_bool(STATIC_READY))\nlet value_len: int = len(json_stringify_value(DOC))\nlet parsed_int: int = match json_parse_int(\" 42 \") { Some(value) => value, None => 1 }\nlet parsed_int_for_len: int = match json_parse_int(\" 42 \") { Some(value) => value, None => 1 }\nlet parsed_int_for_clone_len: int = match json_parse_int(\" 42 \") { Some(value) => value, None => 1 }\nlet parsed_int_for_negative_len: int = match json_parse_int(\" 42 \") { Some(value) => value, None => 1 }\nlet parsed_int_for_quoted_len: int = match json_parse_int(\" 42 \") { Some(value) => value, None => 1 }\nlet parsed_int_for_negative_quoted_len: int = match json_parse_int(\" 42 \") { Some(value) => value, None => 1 }\nlet parsed_bool: bool = match json_parse_bool(\"true\") { Some(value) => value, None => false }\nlet parsed_bool_for_len: bool = match json_parse_bool(\"true\") { Some(value) => value, None => false }\nlet parsed_bool_for_clone_len: bool = match json_parse_bool(\"true\") { Some(value) => value, None => false }\nlet parsed_bool_for_quoted_len: bool = match json_parse_bool(\"true\") { Some(value) => value, None => false }\nlet parsed_int_for_branch_len: int = match json_parse_int(\" 42 \") { Some(value) => value, None => 1 }\nlet parsed_bool_for_branch_len: bool = match json_parse_bool(\"true\") { Some(value) => value, None => false }\nlet dynamic_int_len: int = len(json_stringify_int(parsed_int_for_len))\nlet negative_int_len: int = len(json_stringify_int(0 - parsed_int_for_negative_len))\nlet dynamic_bool_len: int = len(json_stringify_bool(parsed_bool_for_len))\nlet dynamic_quoted_int_text: string = json_stringify_int(parsed_int_for_quoted_len)\nlet dynamic_quoted_negative_int_text: string = json_stringify_int(0 - parsed_int_for_negative_quoted_len)\nlet dynamic_quoted_bool_text: string = json_stringify_bool(parsed_bool_for_quoted_len)\nlet dynamic_quoted_int_len: int = len(json_stringify_string(dynamic_quoted_int_text))\nlet dynamic_quoted_negative_int_len: int = len(json_stringify_string(dynamic_quoted_negative_int_text))\nlet dynamic_quoted_bool_len: int = len(json_stringify_string(dynamic_quoted_bool_text))\nlet dynamic_clone_int_text: string = json_stringify_int(parsed_int_for_clone_len)\nlet dynamic_clone_int_len: int = len(string_clone(dynamic_clone_int_text))\nlet dynamic_clone_bool_text: string = json_stringify_bool(parsed_bool_for_clone_len)\nlet dynamic_clone_bool_len: int = len(string_clone(dynamic_clone_bool_text))\nlet dynamic_concat_len: int = len(dynamic_clone_int_text + dynamic_clone_bool_text)\nlet branch_len: int = 0\nlet branch_quoted_len: int = 0\nif parsed_bool_for_branch_len {\nlet branch_text: string = json_stringify_int(parsed_int_for_branch_len)\nlet branch_clone_len: int = len(string_clone(branch_text))\nlet branch_quoted_text: string = json_stringify_bool(parsed_bool_for_branch_len)\nlet branch_quoted_len_value: int = len(json_stringify_string(branch_quoted_text))\nbranch_len = branch_clone_len\nbranch_quoted_len = branch_quoted_len_value\n} else {\nbranch_len = 1\nbranch_quoted_len = 1\n}\nlet count_value: int = match json_parse_field_int(DOC, \"count\") { Some(value) => value, None => 1 }\nlet ready_value: bool = match json_parse_field_bool(DOC, \"ready\") { Some(value) => value, None => false }\nlet name_len: int = match json_parse_field_string(DOC, \"name\") { Some(value) => len(value), None => 1 }\nlet field_value_len: int = match json_parse_field_value(DOC, \"nested\") { Some(value) => len(value), None => 1 }\nlet parsed_string_len: int = match json_parse_string(\"\\\"hello\\\"\") { Some(value) => len(value), None => 1 }\nlet parsed_value_len: int = match json_parse_value(\"[1,true]\") { Some(value) => len(value), None => 1 }\nlet missing_len: int = match json_parse_field_string(DOC, \"missing\") { Some(value) => len(value), None => 4 }\nlet missing_int: int = match json_parse_field_int(DOC, \"missing\") { Some(value) => value, None => 4 }\nif parsed_bool && ready_value && quoted_len == 7 && int_len == 2 && static_int_len == 3 && bool_len == 5 && static_bool_len == 4 && dynamic_int_len == 2 && negative_int_len == 3 && dynamic_bool_len == 4 && dynamic_quoted_int_len == 4 && dynamic_quoted_negative_int_len == 5 && dynamic_quoted_bool_len == 6 && dynamic_clone_int_len == 2 && dynamic_clone_bool_len == 4 && dynamic_concat_len == 6 && branch_len == 2 && branch_quoted_len == 6 && value_len == 60 && parsed_int == 42 && count_value == 3 && name_len == 5 && field_value_len == 11 && parsed_string_len == 5 && parsed_value_len == 8 && missing_len == 4 && missing_int == 4 {\nreturn 48\n} else {\nreturn 1\n}\n}\n",
+    )
+    .expect("write known json text source");
+}
+
+fn write_std_json_wrapper_main_exit_project(project: &Path) {
+    fs::create_dir_all(project.join("src")).expect("create std json wrapper project src");
+    fs::write(
+        project.join("axiom.toml"),
+        "[package]\nname = \"cranelift-std-json-wrapper-main-exit\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n",
+    )
+    .expect("write std json wrapper manifest");
+    fs::write(
+        project.join("axiom.lock"),
+        "version = 1\n\n[[package]]\nname = \"cranelift-std-json-wrapper-main-exit\"\nversion = \"0.1.0\"\nsource = \"path\"\n",
+    )
+    .expect("write std json wrapper lockfile");
+    fs::write(
+        project.join("src/main.ax"),
+        "import \"std/json.ax\"\n\nstatic DOC: string = \"{\\\"name\\\":\\\"axiom\\\",\\\"count\\\":3,\\\"ready\\\":true}\"\nstatic STATIC_COUNT: int = 321\nstatic STATIC_READY: bool = true\n\nfn main(): int {\nlet int_len: int = len(stringify_int(42))\nlet static_int_len: int = len(stringify_int(STATIC_COUNT))\nlet bool_len: int = len(stringify_bool(false))\nlet static_bool_len: int = len(stringify_bool(STATIC_READY))\nlet string_len: int = len(stringify_string(\"axiom\"))\nlet parsed_int: int = match parse_int(\" 42 \") { Some(value) => value, None => 1 }\nlet parsed_bool: bool = match parse_bool(\"true\") { Some(value) => value, None => false }\nlet parsed_string_len: int = match parse_string(\"\\\"hello\\\"\") { Some(value) => len(value), None => 1 }\nlet missing_string_len: int = match parse_string(\"42\") { Some(value) => len(value), None => 4 }\nlet count_value: int = match parse_field_int(DOC, \"count\") { Some(value) => value, None => 1 }\nlet ready_value: bool = match parse_field_bool(DOC, \"ready\") { Some(value) => value, None => false }\nlet name_len: int = match parse_field_string(DOC, \"name\") { Some(value) => len(value), None => 1 }\nlet missing_int: int = match parse_field_int(DOC, \"missing\") { Some(value) => value, None => 4 }\nlet dynamic_int: int = match parse_int(\"12345\") { Some(value) => value, None => 1 }\nlet dynamic_bool: bool = match parse_bool(\"false\") { Some(value) => value, None => true }\nlet dynamic_int_len: int = len(stringify_int(dynamic_int))\nlet dynamic_bool_len: int = len(stringify_bool(dynamic_bool))\nlet dynamic_string_text: string = stringify_int(dynamic_int)\nlet dynamic_string_len: int = len(stringify_string(dynamic_string_text))\nif parsed_bool && ready_value && int_len == 2 && static_int_len == 3 && bool_len == 5 && static_bool_len == 4 && string_len == 7 && parsed_int == 42 && parsed_string_len == 5 && missing_string_len == 4 && count_value == 3 && name_len == 5 && missing_int == 4 && dynamic_int_len == 5 && dynamic_bool_len == 5 && dynamic_string_len == 7 {\nreturn 48\n} else {\nreturn 1\n}\n}\n",
+    )
+    .expect("write std json wrapper source");
+}
+
+fn write_std_log_format_wrapper_main_exit_project(project: &Path) {
+    fs::create_dir_all(project.join("src")).expect("create std log format wrapper project src");
+    fs::write(
+        project.join("axiom.toml"),
+        "[package]\nname = \"cranelift-std-log-format-wrapper-main-exit\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n",
+    )
+    .expect("write std log format wrapper manifest");
+    fs::write(
+        project.join("axiom.lock"),
+        "version = 1\n\n[[package]]\nname = \"cranelift-std-log-format-wrapper-main-exit\"\nversion = \"0.1.0\"\nsource = \"path\"\n",
+    )
+    .expect("write std log format wrapper lockfile");
+    fs::write(
+        project.join("src/main.ax"),
+        "import \"std/log.ax\"\n\nfn main(): int {\nlet component_gate: bool = field_string(\"component\", \"worker\") == \"\\\"component\\\":\\\"worker\\\"\"\nlet attempt_gate: bool = field_int(\"attempt\", 2) == \"\\\"attempt\\\":2\"\nlet ready_gate: bool = field_bool(\"ready\", true) == \"\\\"ready\\\":true\"\nlet attrs: string = fields3(field_string(\"component\", \"worker\"), field_int(\"attempt\", 2), field_bool(\"ready\", true))\nlet subset: string = fields2(field_string(\"component\", \"worker\"), field_bool(\"ready\", true))\nlet record: string = event(\"info\", \"started\", fields3(field_string(\"component\", \"worker\"), field_int(\"attempt\", 2), field_bool(\"ready\", true)))\nlet escaped: string = event(\"warn\", \"quote \\\"ok\\\"\", fields2(field_string(\"path\", \"a/b\"), field_bool(\"ready\", false)))\nlet expected: string = \"{\\\"level\\\":\\\"info\\\",\\\"message\\\":\\\"started\\\",\\\"attributes\\\":{\\\"component\\\":\\\"worker\\\",\\\"attempt\\\":2,\\\"ready\\\":true}}\"\nlet expected_escaped: string = \"{\\\"level\\\":\\\"warn\\\",\\\"message\\\":\\\"quote \\\\\\\"ok\\\\\\\"\\\",\\\"attributes\\\":{\\\"path\\\":\\\"a/b\\\",\\\"ready\\\":false}}\"\nif component_gate && attempt_gate && ready_gate && attrs == \"\\\"component\\\":\\\"worker\\\",\\\"attempt\\\":2,\\\"ready\\\":true\" && subset == \"\\\"component\\\":\\\"worker\\\",\\\"ready\\\":true\" && record == expected && escaped == expected_escaped && len(record) == 97 && len(escaped) == 83 {\nreturn 48\n} else {\nreturn 1\n}\n}\n",
+    )
+    .expect("write std log format wrapper source");
+}
+
+fn write_std_log_selected_projection_main_exit_project(project: &Path) {
+    fs::create_dir_all(project.join("src"))
+        .expect("create std log selected projection project src");
+    fs::write(
+        project.join("axiom.toml"),
+        r#"[package]
+name = "cranelift-std-log-selected-projection-main-exit"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+fs = false
+net = false
+process = false
+env = false
+clock = false
+crypto = false
+"#,
+    )
+    .expect("write std log selected projection manifest");
+    fs::write(
+        project.join("axiom.lock"),
+        r#"version = 1
+
+[[package]]
+name = "cranelift-std-log-selected-projection-main-exit"
+version = "0.1.0"
+source = "path"
+"#,
+    )
+    .expect("write std log selected projection lockfile");
+    fs::write(
+        project.join("src/main.ax"),
+        r#"import "std/log.ax"
+
+fn main(): int {
+let scores: {string: int} = {"build": 7, "deploy": 9}
+let event_scores: {string: int} = {"build": 7, "deploy": 9}
+let names: [string] = keys<string, int>(scores)
+let event_names: [string] = keys<string, int>(event_scores)
+let selected_index: int = 1
+let selected_line: string = names[selected_index]
+let selected_event_line: string = event_names[selected_index]
+let attrs: string = fields3(field_string("component", "worker"), field_int("attempt", 2), field_bool("ready", true))
+let selected_field_len: int = len(field_string("selected", selected_line))
+let selected_event_len: int = len(event("info", selected_event_line, attrs))
+if selected_field_len == 19 && selected_event_len == 96 {
+return 48
+} else {
+return 1
+}
+}
+"#,
+    )
+    .expect("write std log selected projection source");
 }
 
 fn write_struct_literal_field_main_exit_project(project: &Path) {
@@ -4383,6 +7836,44 @@ print finish(third)
 "#,
     )
     .expect("write string builder source");
+}
+
+fn write_std_string_builder_main_exit_project(project: &Path) {
+    fs::create_dir_all(project.join("src")).expect("create string builder main project src");
+    fs::write(
+        project.join("axiom.toml"),
+        "[package]\nname = \"cranelift-string-builder-main-exit\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n",
+    )
+    .expect("write string builder main manifest");
+    fs::write(
+        project.join("axiom.lock"),
+        "version = 1\n\n[[package]]\nname = \"cranelift-string-builder-main-exit\"\nversion = \"0.1.0\"\nsource = \"path\"\n",
+    )
+    .expect("write string builder main lockfile");
+    fs::write(
+        project.join("src/main.ax"),
+        r#"import "std/string_builder.ax"
+
+fn main(): int {
+let empty: StringBuilder = builder()
+let greeting: StringBuilder = push_str(empty, "hello")
+let spaced: StringBuilder = push_str(greeting, " ")
+let finished: StringBuilder = push_str(spaced, "stdlib")
+let message: string = finish(finished)
+let seeded: StringBuilder = from_string("first")
+let second: StringBuilder = push_line(seeded, " line")
+let third: StringBuilder = push_str(second, "second line")
+let report: string = finish(third)
+let nested: string = finish(push_line(from_string("nested"), " ok"))
+if message == "hello stdlib" && report == "first line\nsecond line" && nested == "nested ok\n" && len(message) == 12 && len(report) == 22 && len(nested) == 10 {
+return 48
+} else {
+return 1
+}
+}
+"#,
+    )
+    .expect("write string builder main source");
 }
 
 fn write_string_intrinsics_project(project: &Path) {
@@ -4623,9 +8114,63 @@ source = "path"
         r#"import "std/process.ax"
 print run_status("/usr/bin/true")
 print run_status("/usr/bin/false")
+print run_status("__axiom_stage1_missing_binary__")
 "#,
     )
     .expect("write process-status source");
+}
+
+fn write_process_status_main_exit_project(project: &Path) {
+    fs::create_dir_all(project.join("src")).expect("create process-status main project src");
+    fs::write(
+        project.join("axiom.toml"),
+        r#"[package]
+name = "cranelift-process-status-main-exit"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+fs = false
+net = false
+process = true
+unsafe_rationale = "direct-native process-status regression executes deterministic system helpers"
+env = false
+clock = false
+crypto = false
+"#,
+    )
+    .expect("write process-status main manifest");
+    fs::write(
+        project.join("axiom.lock"),
+        r#"version = 1
+
+[[package]]
+name = "cranelift-process-status-main-exit"
+version = "0.1.0"
+source = "path"
+"#,
+    )
+    .expect("write process-status main lockfile");
+    fs::write(
+        project.join("src/main.ax"),
+        r#"import "std/process.ax"
+
+fn main(): int {
+let ok: int = process_status("/usr/bin/true")
+let fail: int = run_status("/usr/bin/false")
+let missing: int = run_status("__axiom_stage1_missing_binary__")
+if ok == 0 && fail == 1 && missing == -1 {
+return 48
+} else {
+return 1
+}
+}
+"#,
+    )
+    .expect("write process-status main source");
 }
 
 fn write_process_status_unapproved_project(project: &Path) {
@@ -4687,9 +8232,12 @@ out_dir = "dist"
 fs = false
 net = false
 process = false
-env = false
+env = true
 clock = false
 crypto = false
+
+[unsafe_rationale]
+env = "Cranelift ABI regression needs a runtime-only projected key index source."
 "#,
     )
     .expect("write owned move manifest");
@@ -4737,6 +8285,44 @@ fn write_map_index_project(project: &Path) {
         "let scores: {string: int} = {\"build\": 7, \"deploy\": 9, \"deploy\": 11}\nprint scores[\"deploy\"]\n\nlet available: {string: int} = {\"build\": 7, \"deploy\": 9}\nprint map_contains_key<string, int>(available, \"build\")\n\nlet missing: {string: int} = {\"build\": 7, \"deploy\": 9}\nprint map_contains_key<string, int>(missing, \"test\")\n\nlet labels: {int: string} = {1: \"low\", 2: \"high\"}\nprint labels[2]\n\nlet direct_get_scores: {string: int} = {\"build\": 7, \"deploy\": 9}\nlet direct_found: Option<int> = get<string, int>(direct_get_scores, \"deploy\")\nmatch direct_found {\nSome(value) {\nprint value\n}\nNone {\nprint 0\n}\n}\n\nlet direct_hit_scores: {string: int} = {\"build\": 7, \"deploy\": 9}\nprint get_or_default<string, int>(direct_hit_scores, \"deploy\", 13)\n\nlet direct_missing_scores: {string: int} = {\"build\": 7, \"deploy\": 9}\nprint get_or_default<string, int>(direct_missing_scores, \"test\", 13)\n",
     )
     .expect("write map source");
+}
+
+fn write_map_get_or_default_main_exit_project(project: &Path) {
+    fs::create_dir_all(project.join("src")).expect("create map get_or_default project src");
+    fs::write(
+        project.join("axiom.toml"),
+        "[package]\nname = \"cranelift-map-get-or-default-main-exit\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n",
+    )
+    .expect("write map get_or_default manifest");
+    fs::write(
+        project.join("axiom.lock"),
+        "version = 1\n\n[[package]]\nname = \"cranelift-map-get-or-default-main-exit\"\nversion = \"0.1.0\"\nsource = \"path\"\n",
+    )
+    .expect("write map get_or_default lockfile");
+    fs::write(
+        project.join("src/main.ax"),
+        "static STATIC_LOW_KEY: int = 1\nstatic STATIC_HIGH_KEY: int = 2\nstatic STATIC_MISSING_KEY: int = 3\n\nfn main(): int {\nlet string_hit: int = get_or_default<string, int>({\"build\": 7, \"deploy\": 9}, \"deploy\", 13)\nlet string_miss: int = get_or_default<string, int>({\"build\": 7, \"deploy\": 9}, \"test\", 13)\nlet int_hit: int = get_or_default<int, int>({1: 11, 2: 29}, 2, 13)\nlet static_int_hit: int = get_or_default<int, int>({STATIC_LOW_KEY: 11, STATIC_HIGH_KEY: 29}, STATIC_HIGH_KEY, 13)\nlet bool_hit: int = get_or_default<bool, int>({false: 3, true: 5}, true, 13)\nlet duplicate_hit: int = get_or_default<string, int>({\"deploy\": 9, \"deploy\": 11}, \"deploy\", 13)\nlet duplicate_contains: bool = map_contains_key<string, int>({\"deploy\": 9, \"deploy\": 11}, \"deploy\")\nlet duplicate_direct_get: int = match get<string, int>({\"deploy\": 9, \"deploy\": 11}, \"deploy\") { Some(value) => value, None => 1 }\nlet string_contains: bool = map_contains_key<string, int>({\"build\": 7, \"deploy\": 9}, \"deploy\")\nlet string_missing: bool = map_contains_key<string, int>({\"build\": 7, \"deploy\": 9}, \"test\") == false\nlet int_contains: bool = map_contains_key<int, int>({1: 11, 2: 29}, 1)\nlet static_int_contains: bool = map_contains_key<int, int>({STATIC_LOW_KEY: 11, STATIC_HIGH_KEY: 29}, STATIC_LOW_KEY)\nlet bool_contains: bool = map_contains_key<bool, int>({false: 3, true: 5}, false)\nlet direct_get_hit: int = match get<string, int>({\"build\": 7, \"deploy\": 9}, \"deploy\") { Some(value) => value, None => 1 }\nlet direct_get_miss: int = match get<string, int>({\"build\": 7, \"deploy\": 9}, \"test\") { Some(value) => value, None => 13 }\nlet direct_bool_hit: bool = match get<bool, bool>({false: true, true: false}, false) { Some(value) => value, None => false }\nlet direct_bool_miss: bool = match get<bool, bool>({false: true}, true) { Some(value) => value, None => true }\nlet direct_string_hit_len: int = match get<string, string>({\"build\": \"forge\", \"deploy\": \"ship\"}, \"deploy\") { Some(value) => len(value), None => 1 }\nlet direct_string_miss_len: int = match get<string, string>({\"build\": \"forge\", \"deploy\": \"ship\"}, \"test\") { Some(value) => len(value), None => 13 }\nlet stored_default_scores: {string: int} = {\"build\": 7, \"deploy\": 9}\nlet stored_default_hit: int = get_or_default<string, int>(stored_default_scores, \"deploy\", 13)\nlet stored_contains_scores: {string: int} = {\"build\": 7, \"deploy\": 9}\nlet stored_contains: bool = map_contains_key<string, int>(stored_contains_scores, \"build\")\nlet stored_direct_scores: {string: int} = {\"build\": 7, \"deploy\": 9}\nlet stored_direct_hit: int = match get<string, int>(stored_direct_scores, \"build\") { Some(value) => value, None => 1 }\nlet stored_string_values: {string: string} = {\"build\": \"forge\", \"deploy\": \"ship\"}\nlet stored_string_value_len: int = match get<string, string>(stored_string_values, \"deploy\") { Some(value) => len(value), None => 1 }\nlet stored_key_count_scores: {string: int} = {\"build\": 7, \"deploy\": 9, \"deploy\": 11}\nlet stored_key_count_names: [string] = keys<string, int>(stored_key_count_scores)\nlet stored_key_count: int = len(stored_key_count_names)\nlet first_key_scores: {string: int} = {\"build\": 7, \"deploy\": 9}\nlet first_key_names: [string] = keys<string, int>(first_key_scores)\nlet first_key_len: int = len(first_key_names[0])\nlet second_key_scores: {string: int} = {\"build\": 7, \"deploy\": 9}\nlet second_key_names: [string] = keys<string, int>(second_key_scores)\nlet second_key_len: int = len(second_key_names[1])\nlet local_string_value_hit: Option<string> = get<string, string>({\"build\": \"forge\", \"deploy\": \"ship\"}, \"deploy\")\nlet local_string_value_miss: Option<string> = get<string, string>({\"build\": \"forge\", \"deploy\": \"ship\"}, \"test\")\nlet local_get_hit: Option<int> = get<int, int>({1: 11, 2: 29}, 2)\nlet local_get_miss: Option<int> = get<int, int>({1: 11, 2: 29}, 3)\nlet static_local_get_hit: Option<int> = get<int, int>({STATIC_LOW_KEY: 11, STATIC_HIGH_KEY: 29}, STATIC_HIGH_KEY)\nlet static_local_get_miss: Option<int> = get<int, int>({STATIC_LOW_KEY: 11, STATIC_HIGH_KEY: 29}, STATIC_MISSING_KEY)\nlet local_string_get_hit: Option<int> = get<string, int>({\"build\": 7, \"deploy\": 9}, \"deploy\")\nlet local_bool_get_hit: Option<bool> = get<bool, bool>({false: true, true: false}, false)\nlet local_bool_get_miss: Option<bool> = get<bool, bool>({false: true}, true)\nlet local_get_hit_code: int = match local_get_hit { Some(value) => value, None => 1 }\nlet local_get_miss_code: int = match local_get_miss { Some(value) => value, None => 13 }\nlet static_local_get_hit_code: int = match static_local_get_hit { Some(value) => value, None => 1 }\nlet static_local_get_miss_code: int = match static_local_get_miss { Some(value) => value, None => 13 }\nlet local_string_get_hit_code: int = match local_string_get_hit { Some(value) => value, None => 1 }\nlet local_bool_get_hit_code: bool = match local_bool_get_hit { Some(value) => value, None => false }\nlet local_bool_get_miss_code: bool = match local_bool_get_miss { Some(value) => value, None => true }\nlet local_string_value_hit_len: int = match local_string_value_hit { Some(value) => len(value), None => 1 }\nlet local_string_value_miss_len: int = match local_string_value_miss { Some(value) => len(value), None => 13 }\nif string_hit == 9 && string_miss == 13 && int_hit == 29 && static_int_hit == 29 && bool_hit == 5 && duplicate_hit == 11 && duplicate_contains && duplicate_direct_get == 11 && string_contains && string_missing && int_contains && static_int_contains && bool_contains && direct_get_hit == 9 && direct_get_miss == 13 && direct_bool_hit && direct_bool_miss && direct_string_hit_len == 4 && direct_string_miss_len == 13 && stored_default_hit == 9 && stored_contains && stored_direct_hit == 7 && stored_string_value_len == 4 && stored_key_count == 2 && first_key_len == 5 && second_key_len == 6 && local_get_hit_code == 29 && local_get_miss_code == 13 && static_local_get_hit_code == 29 && static_local_get_miss_code == 13 && local_string_get_hit_code == 9 && local_bool_get_hit_code && local_bool_get_miss_code && local_string_value_hit_len == 4 && local_string_value_miss_len == 13 {\nreturn 48\n} else {\nreturn 1\n}\n}\n",
+    )
+    .expect("write map get_or_default source");
+}
+
+fn write_static_bool_map_keys_main_exit_project(project: &Path) {
+    fs::create_dir_all(project.join("src")).expect("create static bool map keys project src");
+    fs::write(
+        project.join("axiom.toml"),
+        "[package]\nname = \"cranelift-static-bool-map-keys-main-exit\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n",
+    )
+    .expect("write static bool map keys manifest");
+    fs::write(
+        project.join("axiom.lock"),
+        "version = 1\n\n[[package]]\nname = \"cranelift-static-bool-map-keys-main-exit\"\nversion = \"0.1.0\"\nsource = \"path\"\n",
+    )
+    .expect("write static bool map keys lockfile");
+    fs::write(
+        project.join("src/main.ax"),
+        "static ENABLED: bool = true\nstatic DISABLED: bool = false\n\nfn main(): int {\nlet static_hit: int = get_or_default<bool, int>({DISABLED: 7, ENABLED: 29}, ENABLED, 13)\nlet static_contains: bool = map_contains_key<bool, int>({DISABLED: 7, ENABLED: 29}, DISABLED)\nlet static_missing: bool = map_contains_key<bool, int>({DISABLED: 7}, ENABLED) == false\nlet direct_bool_hit: bool = match get<bool, bool>({DISABLED: false, ENABLED: true}, ENABLED) { Some(value) => value, None => false }\nlet direct_bool_miss: bool = match get<bool, bool>({DISABLED: true}, ENABLED) { Some(value) => false, None => true }\nlet local_hit: Option<int> = get<bool, int>({DISABLED: 7, ENABLED: 29}, ENABLED)\nlet local_miss: Option<int> = get<bool, int>({DISABLED: 7}, ENABLED)\nlet local_hit_code: int = match local_hit { Some(value) => value, None => 1 }\nlet local_miss_code: int = match local_miss { Some(value) => value, None => 13 }\nif static_hit == 29 && static_contains && static_missing && direct_bool_hit && direct_bool_miss && local_hit_code == 29 && local_miss_code == 13 {\nreturn 48\n} else {\nreturn 1\n}\n}\n",
+    )
+    .expect("write static bool map keys source");
 }
 
 fn write_std_collection_lookup_project(project: &Path) {
@@ -4799,6 +8385,86 @@ print second_key_names[1]
     .expect("write collection lookup source");
 }
 
+fn write_std_collection_wrapper_main_exit_project(project: &Path) {
+    fs::create_dir_all(project.join("src"))
+        .expect("create std collection wrapper main project src");
+    fs::write(
+        project.join("axiom.toml"),
+        "[package]\nname = \"cranelift-std-collection-wrapper-main-exit\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n",
+    )
+    .expect("write std collection wrapper main manifest");
+    fs::write(
+        project.join("axiom.lock"),
+        "version = 1\n\n[[package]]\nname = \"cranelift-std-collection-wrapper-main-exit\"\nversion = \"0.1.0\"\nsource = \"path\"\n",
+    )
+    .expect("write std collection wrapper main lockfile");
+    fs::write(
+        project.join("src/main.ax"),
+        r#"import "std/collections.ax"
+fn choose_key_index(found: bool): int {
+if found {
+return 1
+} else {
+return 0
+}
+}
+
+fn main(): int {
+let contains_hit_scores: {string: int} = {"build": 7, "deploy": 9}
+let contains_hit: bool = contains<string, int>(contains_hit_scores, "deploy")
+let contains_miss_scores: {string: int} = {"build": 7, "deploy": 9}
+let contains_miss: bool = contains<string, int>(contains_miss_scores, "test") == false
+let get_hit_scores: {string: int} = {"build": 7, "deploy": 9}
+let get_hit_code: int = match get<string, int>(get_hit_scores, "deploy") { Some(value) => value, None => 1 }
+let get_miss_scores: {string: int} = {"build": 7, "deploy": 9}
+let get_miss_code: int = match get<string, int>(get_miss_scores, "test") { Some(value) => value, None => 13 }
+let fallback_scores: {string: int} = {"build": 7, "deploy": 9}
+let fallback: int = get_or_default<string, int>(fallback_scores, "test", 13)
+let key_count_scores: {string: int} = {"build": 7, "deploy": 9, "deploy": 11}
+let key_count_names: [string] = keys<string, int>(key_count_scores)
+let key_count: int = len(key_count_names)
+let first_key_scores: {string: int} = {"build": 7, "deploy": 9}
+let first_key_names: [string] = keys<string, int>(first_key_scores)
+let first_key_len: int = len(first_key_names[0])
+let second_key_scores: {string: int} = {"build": 7, "deploy": 9}
+let second_key_names: [string] = keys<string, int>(second_key_scores)
+let second_key_len: int = len(second_key_names[1])
+let dynamic_key_scores: {string: int} = {"build": 7, "deploy": 9}
+let dynamic_key_names: [string] = keys<string, int>(dynamic_key_scores)
+let dynamic_key_index: int = choose_key_index(contains_hit)
+let dynamic_key_len: int = len(dynamic_key_names[dynamic_key_index])
+let dynamic_key_eq_scores: {string: int} = {"build": 7, "deploy": 9}
+let dynamic_key_eq_names: [string] = keys<string, int>(dynamic_key_eq_scores)
+let dynamic_key_eq_value: string = dynamic_key_eq_names[dynamic_key_index]
+let dynamic_key_is_deploy: bool = dynamic_key_eq_value == "deploy"
+let dynamic_key_ne_scores: {string: int} = {"build": 7, "deploy": 9}
+let dynamic_key_ne_names: [string] = keys<string, int>(dynamic_key_ne_scores)
+let dynamic_key_ne_value: string = dynamic_key_ne_names[dynamic_key_index]
+let dynamic_key_not_build: bool = dynamic_key_ne_value != "build"
+let dynamic_key_prefix_scores: {string: int} = {"build": 7, "deploy": 9}
+let dynamic_key_prefix_names: [string] = keys<string, int>(dynamic_key_prefix_scores)
+let dynamic_key_prefix_value: string = dynamic_key_prefix_names[dynamic_key_index]
+let dynamic_key_has_prefix: bool = string_starts_with(dynamic_key_prefix_value, "dep")
+let dynamic_key_trim_scores: {string: int} = {" build ": 7, " deploy ": 9}
+let dynamic_key_trim_names: [string] = keys<string, int>(dynamic_key_trim_scores)
+let dynamic_key_trim_value: string = dynamic_key_trim_names[dynamic_key_index]
+let dynamic_key_trim_len: int = len(string_trim(dynamic_key_trim_value))
+let dynamic_key_trim_start_len: int = len(string_trim_start(dynamic_key_trim_value))
+let dynamic_key_trimmed_value: string = string_trim(dynamic_key_trim_value)
+let dynamic_key_trim_start_value: string = string_trim_start(dynamic_key_trim_value)
+let dynamic_key_trimmed_has_prefix: bool = string_starts_with(dynamic_key_trimmed_value, "dep")
+let dynamic_key_trim_start_has_prefix: bool = string_starts_with(dynamic_key_trim_start_value, "dep")
+if contains_hit && contains_miss && get_hit_code == 9 && get_miss_code == 13 && fallback == 13 && key_count == 2 && first_key_len == 5 && second_key_len == 6 && dynamic_key_len == 6 && dynamic_key_is_deploy && dynamic_key_not_build && dynamic_key_has_prefix && dynamic_key_trim_len == 6 && dynamic_key_trim_start_len == 7 && dynamic_key_trimmed_has_prefix && dynamic_key_trim_start_has_prefix {
+return 48
+} else {
+return 1
+}
+}
+"#,
+    )
+    .expect("write std collection wrapper main source");
+}
+
 fn write_net_resolve_project(project: &Path) {
     fs::create_dir_all(project.join("src")).expect("create net resolve project src");
     fs::write(
@@ -4850,6 +8516,59 @@ print false
 "#,
     )
     .expect("write net resolve source");
+}
+
+fn write_net_resolve_main_exit_project(project: &Path) {
+    fs::create_dir_all(project.join("src")).expect("create net resolve main project src");
+    fs::write(
+        project.join("axiom.toml"),
+        r#"[package]
+name = "cranelift-net-resolve-main-exit"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+fs = false
+net = { hosts = ["localhost"], ports = [] }
+process = false
+env = false
+clock = false
+crypto = false
+
+[unsafe_rationale]
+net = "Direct-native DNS regression covers std/net.ax localhost resolution for issue 928."
+"#,
+    )
+    .expect("write net resolve main manifest");
+    fs::write(
+        project.join("axiom.lock"),
+        r#"version = 1
+
+[[package]]
+name = "cranelift-net-resolve-main-exit"
+version = "0.1.0"
+source = "path"
+"#,
+    )
+    .expect("write net resolve main lockfile");
+    fs::write(
+        project.join("src/main.ax"),
+        r#"import "std/net.ax"
+
+fn main(): int {
+let resolved_len: int = match resolve("localhost") { Some(address) => len(address), None => 0 }
+if resolved_len > 0 {
+return 48
+} else {
+return 1
+}
+}
+"#,
+    )
+    .expect("write net resolve main source");
 }
 
 fn write_net_loopback_project(project: &Path) {
@@ -4912,6 +8631,60 @@ print false
 "#,
     )
     .expect("write net loopback source");
+}
+
+fn write_net_loopback_main_exit_project(project: &Path) {
+    fs::create_dir_all(project.join("src")).expect("create net loopback main project src");
+    fs::write(
+        project.join("axiom.toml"),
+        r#"[package]
+name = "cranelift-net-loopback-main-exit"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+fs = false
+net = { hosts = ["127.0.0.1"], ports = [] }
+process = false
+env = false
+clock = false
+crypto = false
+
+[unsafe_rationale]
+net = "Direct-native loopback regression covers std/net.ax TCP and UDP helpers for issue 928."
+"#,
+    )
+    .expect("write net loopback main manifest");
+    fs::write(
+        project.join("axiom.lock"),
+        r#"version = 1
+
+[[package]]
+name = "cranelift-net-loopback-main-exit"
+version = "0.1.0"
+source = "path"
+"#,
+    )
+    .expect("write net loopback main lockfile");
+    fs::write(
+        project.join("src/main.ax"),
+        r#"import "std/net.ax"
+
+fn main(): int {
+let tcp_port: int = match tcp_listen_loopback_once("tcp-pong", 1000) { Some(port) => port, None => 0 }
+let udp_port: int = match udp_bind_loopback_once("udp-pong", 1000) { Some(port) => port, None => 0 }
+if tcp_port > 0 && udp_port > 0 {
+return 48
+} else {
+return 1
+}
+}
+"#,
+    )
+    .expect("write net loopback main source");
 }
 
 fn start_http_fixture_server(body: &'static str) -> (u16, std::thread::JoinHandle<()>) {
@@ -5078,6 +8851,63 @@ print "missing"
     .expect("write http client source");
 }
 
+fn write_http_client_main_exit_project(project: &Path, port: u16) {
+    fs::create_dir_all(project.join("src")).expect("create http client main project src");
+    fs::write(
+        project.join("axiom.toml"),
+        format!(
+            r#"[package]
+name = "cranelift-http-client-main-exit"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+fs = false
+net = {{ hosts = ["127.0.0.1"], ports = [{port}] }}
+process = false
+env = false
+clock = false
+crypto = false
+
+[unsafe_rationale]
+net = "Direct-native HTTP client regression covers std/http.ax local GET for issue 928."
+"#
+        ),
+    )
+    .expect("write http client main manifest");
+    fs::write(
+        project.join("axiom.lock"),
+        r#"version = 1
+
+[[package]]
+name = "cranelift-http-client-main-exit"
+version = "0.1.0"
+source = "path"
+"#,
+    )
+    .expect("write http client main lockfile");
+    fs::write(
+        project.join("src/main.ax"),
+        format!(
+            r#"import "std/http.ax"
+
+fn main(): int {{
+let body_len: int = match get("http://127.0.0.1:{port}/health") {{ Some(body) => len(body), None => 0 }}
+if body_len == 13 {{
+return 48
+}} else {{
+return 1
+}}
+}}
+"#
+        ),
+    )
+    .expect("write http client main source");
+}
+
 fn write_http_server_project(project: &Path, port: u16) {
     fs::create_dir_all(project.join("src")).expect("create http server project src");
     fs::write(
@@ -5132,6 +8962,116 @@ print http_server_close(server)
         ),
     )
     .expect("write http server source");
+}
+
+fn write_http_server_once_main_exit_project(project: &Path, port: u16) {
+    fs::create_dir_all(project.join("src")).expect("create http server once main project src");
+    fs::write(
+        project.join("axiom.toml"),
+        format!(
+            r#"[package]
+name = "cranelift-http-server-once-main-exit"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+fs = false
+net = {{ hosts = ["127.0.0.1"], ports = [{port}] }}
+process = false
+env = false
+clock = false
+crypto = false
+
+[unsafe_rationale]
+net = "Direct-native HTTP server regression covers std/http.ax serve_once for issue 928."
+"#
+        ),
+    )
+    .expect("write http server once main manifest");
+    fs::write(
+        project.join("axiom.lock"),
+        r#"version = 1
+
+[[package]]
+name = "cranelift-http-server-once-main-exit"
+version = "0.1.0"
+source = "path"
+"#,
+    )
+    .expect("write http server once main lockfile");
+    fs::write(
+        project.join("src/main.ax"),
+        format!(
+            r#"import "std/http.ax"
+
+fn main(): int {{
+if serve_once("127.0.0.1:{port}", "server-once-ok") {{
+return 48
+}} else {{
+return 1
+}}
+}}
+"#
+        ),
+    )
+    .expect("write http server once main source");
+}
+
+fn write_http_server_route_main_exit_project(project: &Path, port: u16) {
+    fs::create_dir_all(project.join("src")).expect("create http server route main project src");
+    fs::write(
+        project.join("axiom.toml"),
+        format!(
+            r#"[package]
+name = "cranelift-http-server-route-main-exit"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+fs = false
+net = {{ hosts = ["127.0.0.1"], ports = [{port}] }}
+process = false
+env = false
+clock = false
+crypto = false
+
+[unsafe_rationale]
+net = "Direct-native HTTP server regression covers http_serve_route for issue 928."
+"#
+        ),
+    )
+    .expect("write http server route main manifest");
+    fs::write(
+        project.join("axiom.lock"),
+        r#"version = 1
+
+[[package]]
+name = "cranelift-http-server-route-main-exit"
+version = "0.1.0"
+source = "path"
+"#,
+    )
+    .expect("write http server route main lockfile");
+    fs::write(
+        project.join("src/main.ax"),
+        format!(
+            r#"fn main(): int {{
+if http_serve_route("127.0.0.1:{port}", "/route", "route-ok", 2) {{
+return 48
+}} else {{
+return 1
+}}
+}}
+"#
+        ),
+    )
+    .expect("write http server route main source");
 }
 
 fn write_http_async_server_project(project: &Path, port: u16) {
@@ -5269,6 +9209,25 @@ fn write_crypto_random_project(project: &Path, crypto: bool) {
     .expect("write crypto random source");
 }
 
+fn write_crypto_random_main_exit_project(project: &Path) {
+    fs::create_dir_all(project.join("src")).expect("create crypto random project src");
+    fs::write(
+        project.join("axiom.toml"),
+        "[package]\nname = \"cranelift-crypto-random-main-exit\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = true\n\n[unsafe_rationale]\ncrypto = \"Direct-native random_bytes length and random_u64 regression covers std/crypto_rand.ax for issue 1001.\"\n",
+    )
+    .expect("write crypto random main manifest");
+    fs::write(
+        project.join("axiom.lock"),
+        "version = 1\n\n[[package]]\nname = \"cranelift-crypto-random-main-exit\"\nversion = \"0.1.0\"\nsource = \"path\"\n",
+    )
+    .expect("write crypto random main lockfile");
+    fs::write(
+        project.join("src/main.ax"),
+        "import \"std/crypto_rand.ax\"\n\nstatic RANDOM_LEN: int = 16\n\nfn main(): int {\nlet sample_len: int = len(random_bytes(RANDOM_LEN))\nlet empty_len: int = len(random_bytes(0))\nlet value: int = random_u64() as int\nif sample_len == RANDOM_LEN && empty_len == 0 && value == value {\nreturn 48\n} else {\nreturn 1\n}\n}\n",
+    )
+    .expect("write crypto random main source");
+}
+
 fn write_crypto_signature_project(project: &Path, crypto: bool) {
     fs::create_dir_all(project.join("src")).expect("create crypto signature project src");
     fs::write(
@@ -5328,6 +9287,63 @@ fn write_sync_primitives_project(project: &Path) {
         "import \"std/sync.ax\"\n\nlet counter: Mutex<int> = mutex<int>(1)\nlet guard: MutexGuard<int> = lock<int>(counter)\nlet updated: Mutex<int> = replace<int>(guard, 2)\nlet final_guard: MutexGuard<int> = lock<int>(updated)\nprint into_inner<int>(final_guard)\n\nlet ready: Once<string> = once_with<string>(\"configured\")\nprint once_is_set<string>(ready)\n\nlet empty: Once<int> = once<int>(None)\nmatch once_take<int>(empty) {\nSome(value) {\nprint value\n}\nNone {\nprint \"empty\"\n}\n}\n\nlet channel: Channel<string> = channel<string>(None)\nlet sent: Channel<string> = send<string>(channel, \"message\")\nmatch try_recv<string>(sent) {\nSome(message) {\nprint message\n}\nNone {\nprint \"missing\"\n}\n}\n",
     )
     .expect("write sync primitives source");
+}
+
+fn write_sync_mutex_main_exit_project(project: &Path) {
+    fs::create_dir_all(project.join("src")).expect("create sync mutex main project src");
+    fs::write(
+        project.join("axiom.toml"),
+        "[package]\nname = \"cranelift-sync-mutex-main-exit\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n",
+    )
+    .expect("write sync mutex main manifest");
+    fs::write(
+        project.join("axiom.lock"),
+        "version = 1\n\n[[package]]\nname = \"cranelift-sync-mutex-main-exit\"\nversion = \"0.1.0\"\nsource = \"path\"\n",
+    )
+    .expect("write sync mutex main lockfile");
+    fs::write(
+        project.join("src/main.ax"),
+        "import \"std/sync.ax\"\n\nfn main(): int {\nlet counter: Mutex<int> = mutex<int>(1)\nlet guard: MutexGuard<int> = lock<int>(counter)\nlet updated: Mutex<int> = replace<int>(guard, 48)\nlet final_guard: MutexGuard<int> = lock<int>(updated)\nreturn into_inner<int>(final_guard)\n}\n",
+    )
+    .expect("write sync mutex main source");
+}
+
+fn write_sync_once_main_exit_project(project: &Path) {
+    fs::create_dir_all(project.join("src")).expect("create sync once main project src");
+    fs::write(
+        project.join("axiom.toml"),
+        "[package]\nname = \"cranelift-sync-once-main-exit\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n",
+    )
+    .expect("write sync once main manifest");
+    fs::write(
+        project.join("axiom.lock"),
+        "version = 1\n\n[[package]]\nname = \"cranelift-sync-once-main-exit\"\nversion = \"0.1.0\"\nsource = \"path\"\n",
+    )
+    .expect("write sync once main lockfile");
+    fs::write(
+        project.join("src/main.ax"),
+        "import \"std/sync.ax\"\n\nfn main(): int {\nlet present_cell: Once<int> = once_with<int>(21)\nlet missing_cell: Once<int> = once<int>(None)\nlet ready_cell: Once<int> = once_with<int>(0)\nlet empty_cell: Once<int> = once<int>(None)\nlet bool_cell: Once<bool> = once_with<bool>(true)\nlet present: Option<int> = once_take<int>(present_cell)\nlet present_score: int = match present { Some(value) => value, None => 4 }\nlet missing: Option<int> = once_take<int>(missing_cell)\nlet missing_score: int = match missing { Some(value) => value, None => 19 }\nlet ready: bool = once_is_set<int>(ready_cell)\nlet empty: bool = once_is_set<int>(empty_cell)\nlet bool_ready: Option<bool> = once_take<bool>(bool_cell)\nlet bool_present: bool = match bool_ready { Some(value) => value, None => false }\nif ready && (empty == false) && bool_present {\nreturn present_score + missing_score\n} else {\nreturn 2\n}\n}\n",
+    )
+    .expect("write sync once main source");
+}
+
+fn write_sync_channel_main_exit_project(project: &Path) {
+    fs::create_dir_all(project.join("src")).expect("create sync channel main project src");
+    fs::write(
+        project.join("axiom.toml"),
+        "[package]\nname = \"cranelift-sync-channel-main-exit\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n",
+    )
+    .expect("write sync channel main manifest");
+    fs::write(
+        project.join("axiom.lock"),
+        "version = 1\n\n[[package]]\nname = \"cranelift-sync-channel-main-exit\"\nversion = \"0.1.0\"\nsource = \"path\"\n",
+    )
+    .expect("write sync channel main lockfile");
+    fs::write(
+        project.join("src/main.ax"),
+        "import \"std/sync.ax\"\n\nfn main(): int {\nlet channel: Channel<int> = channel<int>(None)\nlet sent: Channel<int> = send<int>(channel, 31)\nlet empty: Channel<int> = channel<int>(None)\nlet bool_channel: Channel<bool> = channel<bool>(None)\nlet bool_sent: Channel<bool> = send<bool>(bool_channel, true)\nlet present: Option<int> = try_recv<int>(sent)\nlet present_score: int = match present { Some(value) => value, None => 4 }\nlet missing: Option<int> = try_recv<int>(empty)\nlet missing_score: int = match missing { Some(value) => value, None => 17 }\nlet ready: Option<bool> = try_recv<bool>(bool_sent)\nlet ready_present: bool = match ready { Some(value) => value, None => false }\nif ready_present {\nreturn present_score + missing_score + 2\n} else {\nreturn 5\n}\n}\n",
+    )
+    .expect("write sync channel main source");
 }
 
 fn write_std_async_project(project: &Path) {
@@ -5427,6 +9443,91 @@ print "none"
     .expect("write std async source");
 }
 
+fn write_std_async_net_tcp_project(project: &Path) {
+    fs::create_dir_all(project.join("src")).expect("create std async net TCP project src");
+    fs::write(
+        project.join("axiom.toml"),
+        r#"[package]
+name = "cranelift-std-async-net-tcp"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+fs = false
+"fs:write" = false
+net = true
+process = false
+env = false
+clock = false
+crypto = false
+ffi = false
+async = true
+
+[unsafe_rationale]
+net = "Cranelift ABI regression covers compiler-side std/async_net.ax loopback TCP evaluation for issue 928."
+async = "Cranelift ABI regression covers compiler-side std/async_net.ax loopback TCP evaluation for issue 928."
+"#,
+    )
+    .expect("write std async net TCP manifest");
+    fs::write(
+        project.join("axiom.lock"),
+        r#"version = 1
+
+[[package]]
+name = "cranelift-std-async-net-tcp"
+version = "0.1.0"
+source = "path"
+"#,
+    )
+    .expect("write std async net TCP lockfile");
+    fs::write(
+        project.join("src/main.ax"),
+        r#"import "std/async.ax"
+import "std/async_net.ax"
+
+async fn echo_once(listener: TcpListener): int {
+let stream: TcpStream = await accept(listener)
+let received: string = await recv_text(stream, 64)
+let _written: int = await send_text(stream, received)
+return close(stream)
+}
+
+let listener: TcpListener = await listen("127.0.0.1:0")
+let port: int = local_port(listener)
+let first_handler: JoinHandle<int> = spawn<int>(echo_once(listener))
+let second_handler: JoinHandle<int> = spawn<int>(echo_once(listener))
+let first_client: JoinHandle<Option<string>> = spawn<Option<string>>(tcp_dial("127.0.0.1", port, "alpha", 1000))
+let second_client: JoinHandle<Option<string>> = spawn<Option<string>>(tcp_dial("127.0.0.1", port, "beta", 1000))
+
+match await join<Option<string>>(first_client) {
+Some(reply) {
+print reply
+}
+None {
+print "first none"
+}
+}
+
+match await join<Option<string>>(second_client) {
+Some(reply) {
+print reply
+}
+None {
+print "second none"
+}
+}
+
+let _first_done: int = await join<int>(first_handler)
+let _second_done: int = await join<int>(second_handler)
+let _listener_closed: int = close_listener(listener)
+"#,
+    )
+    .expect("write std async net TCP source");
+}
+
 fn write_logging_stdio_project(project: &Path) {
     fs::create_dir_all(project.join("src")).expect("create logging stdio project src");
     fs::write(
@@ -5469,6 +9570,613 @@ print direct > 0
 "#,
     )
     .expect("write logging stdio source");
+}
+
+fn write_logging_stdio_main_exit_project(project: &Path) {
+    fs::create_dir_all(project.join("src")).expect("create logging stdio main project src");
+    fs::write(
+        project.join("axiom.toml"),
+        r#"[package]
+name = "cranelift-logging-stdio-main-exit"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+fs = false
+net = false
+process = false
+env = false
+clock = false
+crypto = false
+
+[unsafe_rationale]
+stdio = "Direct-native stderr regression covers std/io.ax eprintln for issue 1001."
+"#,
+    )
+    .expect("write logging stdio main manifest");
+    fs::write(
+        project.join("axiom.lock"),
+        r#"version = 1
+
+[[package]]
+name = "cranelift-logging-stdio-main-exit"
+version = "0.1.0"
+source = "path"
+"#,
+    )
+    .expect("write logging stdio main lockfile");
+    fs::write(
+        project.join("src/main.ax"),
+        r#"import "std/io.ax"
+import "std/json.ax"
+
+fn main(): int {
+let status: int = 0
+let scores: {string: int} = {"build": 7, "deploy": 9}
+let names: [string] = keys<string, int>(scores)
+let selected_index: int = 1
+let selected_line: string = names[selected_index]
+status = status + 1
+let first: int = eprintln("after assign")
+if status == 1 {
+let branch_line: string = "branch stderr"
+let branch: int = eprintln(branch_line + " local")
+status = branch
+} else {
+status = 1
+}
+let tail: int = eprintln("tail stderr")
+let bool_line: string = stringify_bool(status == 20)
+let bool_written: int = eprintln(bool_line)
+let number_written: int = eprintln(stringify_int(status + bool_written))
+let selected_written: int = eprintln(selected_line)
+return first + status + tail + bool_written + number_written + selected_written
+}
+"#,
+    )
+    .expect("write logging stdio main source");
+}
+
+fn write_print_stdio_main_exit_project(project: &Path) {
+    fs::create_dir_all(project.join("src")).expect("create print stdio main project src");
+    fs::write(
+        project.join("axiom.toml"),
+        r#"[package]
+name = "cranelift-print-stdio-main-exit"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+fs = false
+net = false
+process = false
+env = false
+clock = false
+crypto = false
+
+[unsafe_rationale]
+stdio = "Direct-native stdout regression covers source print statements for issue 1001."
+"#,
+    )
+    .expect("write print stdio main manifest");
+    fs::write(
+        project.join("axiom.lock"),
+        r#"version = 1
+
+[[package]]
+name = "cranelift-print-stdio-main-exit"
+version = "0.1.0"
+source = "path"
+"#,
+    )
+    .expect("write print stdio main lockfile");
+    fs::write(
+        project.join("src/main.ax"),
+        r#"static STATIC_LINE: string = "static stdout"
+
+fn helper_line(): string {
+return "helper stdout"
+}
+
+fn main(): int {
+let line: string = "main stdout"
+let scores: {string: int} = {"build": 7, "deploy": 9}
+let names: [string] = keys<string, int>(scores)
+let selected_index: int = 1
+let selected_line: string = names[selected_index]
+print line
+print string_clone(line)
+print STATIC_LINE
+print line + " suffix"
+let status: int = 0
+status = status + 7
+if status == 7 {
+let branch_line: string = "branch stdout"
+print branch_line + " local"
+} else {
+print "else stdout"
+}
+print helper_line()
+print selected_line
+return status
+}
+"#,
+    )
+    .expect("write print stdio main source");
+}
+
+fn write_bool_print_stdio_main_exit_project(project: &Path) {
+    fs::create_dir_all(project.join("src")).expect("create bool print stdio main project src");
+    fs::write(
+        project.join("axiom.toml"),
+        r#"[package]
+name = "cranelift-bool-print-stdio-main-exit"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+fs = false
+net = false
+process = false
+env = false
+clock = false
+crypto = false
+
+[unsafe_rationale]
+stdio = "Direct-native stdout regression covers boolean source print statements for issue 1001."
+"#,
+    )
+    .expect("write bool print stdio main manifest");
+    fs::write(
+        project.join("axiom.lock"),
+        r#"version = 1
+
+[[package]]
+name = "cranelift-bool-print-stdio-main-exit"
+version = "0.1.0"
+source = "path"
+"#,
+    )
+    .expect("write bool print stdio main lockfile");
+    fs::write(
+        project.join("src/main.ax"),
+        r#"import "std/io.ax"
+
+fn main(): int {
+let direct: int = eprintln("hello stderr")
+print direct > 0
+print direct == 13
+return direct
+}
+"#,
+    )
+    .expect("write bool print stdio main source");
+}
+
+fn write_integer_print_stdio_main_exit_project(project: &Path) {
+    fs::create_dir_all(project.join("src")).expect("create integer print stdio main project src");
+    fs::write(
+        project.join("axiom.toml"),
+        r#"[package]
+name = "cranelift-integer-print-stdio-main-exit"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+fs = false
+net = false
+process = false
+env = false
+clock = false
+crypto = false
+
+[unsafe_rationale]
+stdio = "Direct-native stdout regression covers integer source print statements for issue 1001."
+"#,
+    )
+    .expect("write integer print stdio main manifest");
+    fs::write(
+        project.join("axiom.lock"),
+        r#"version = 1
+
+[[package]]
+name = "cranelift-integer-print-stdio-main-exit"
+version = "0.1.0"
+source = "path"
+"#,
+    )
+    .expect("write integer print stdio main lockfile");
+    fs::write(
+        project.join("src/main.ax"),
+        r#"fn score(): int {
+return 40 + 2
+}
+
+fn negative_score(): int {
+return -3
+}
+
+fn zero_score(): int {
+return 0
+}
+
+fn main(): int {
+let value: int = score()
+print value
+let negative: int = negative_score()
+print negative
+let zero: int = zero_score()
+print zero
+return value
+}
+"#,
+    )
+    .expect("write integer print stdio main source");
+}
+
+fn write_json_stringify_print_main_exit_project(project: &Path) {
+    fs::create_dir_all(project.join("src")).expect("create json stringify print project src");
+    fs::write(
+        project.join("axiom.toml"),
+        r#"[package]
+name = "cranelift-json-stringify-print-main-exit"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+fs = false
+net = false
+process = false
+env = false
+clock = false
+crypto = false
+"#,
+    )
+    .expect("write json stringify print manifest");
+    fs::write(
+        project.join("axiom.lock"),
+        r#"version = 1
+
+[[package]]
+name = "cranelift-json-stringify-print-main-exit"
+version = "0.1.0"
+source = "path"
+"#,
+    )
+    .expect("write json stringify print lockfile");
+    fs::write(
+        project.join("src/main.ax"),
+        r#"import "std/json.ax"
+
+fn score(): int {
+return 40 + 2
+}
+
+fn main(): int {
+let value: int = score()
+let text: string = stringify_int(value)
+print text
+print stringify_bool(value == 42)
+let disabled: string = stringify_bool(false)
+print disabled
+return value
+}
+"#,
+    )
+    .expect("write json stringify print source");
+}
+
+fn write_helper_eprintln_main_exit_project(project: &Path) {
+    fs::create_dir_all(project.join("src")).expect("create helper eprintln project src");
+    fs::write(
+        project.join("axiom.toml"),
+        r#"[package]
+name = "cranelift-helper-eprintln-main-exit"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+fs = false
+net = false
+process = false
+env = false
+clock = false
+crypto = false
+
+[unsafe_rationale]
+stdio = "Direct-native stderr regression covers helper std/io.ax eprintln for issue 1001."
+"#,
+    )
+    .expect("write helper eprintln manifest");
+    fs::write(
+        project.join("axiom.lock"),
+        r#"version = 1
+
+[[package]]
+name = "cranelift-helper-eprintln-main-exit"
+version = "0.1.0"
+source = "path"
+"#,
+    )
+    .expect("write helper eprintln lockfile");
+    fs::write(
+        project.join("src/main.ax"),
+        r#"import "std/io.ax"
+import "std/json.ax"
+
+static STATIC_LINE: string = "helper static"
+
+fn helper_line(): string {
+return "helper text"
+}
+
+fn emit(): int {
+let first_line: string = "helper stderr"
+let clone_line: string = "helper stderr"
+let concat_line: string = "helper stderr"
+let scores: {string: int} = {"build": 7, "deploy": 9}
+let names: [string] = keys<string, int>(scores)
+let selected_index: int = 1
+let selected_line: string = names[selected_index]
+let first: int = eprintln(first_line)
+let cloned: int = eprintln(string_clone(clone_line))
+let static_written: int = eprintln(STATIC_LINE)
+let concat_written: int = eprintln(concat_line + " suffix")
+let helper_written: int = eprintln(helper_line())
+let value: int = 40 + 2
+let text: string = stringify_int(value)
+let int_written: int = eprintln(text)
+let bool_written: int = eprintln(stringify_bool(value == 42))
+let selected_written: int = eprintln(selected_line)
+return first + cloned + static_written + concat_written + helper_written + int_written + bool_written + selected_written
+}
+
+fn main(): int {
+return emit()
+}
+"#,
+    )
+    .expect("write helper eprintln source");
+}
+
+fn write_aggregate_helper_eprintln_main_exit_project(project: &Path) {
+    fs::create_dir_all(project.join("src")).expect("create aggregate helper eprintln project src");
+    fs::write(
+        project.join("axiom.toml"),
+        r#"[package]
+name = "cranelift-aggregate-helper-eprintln-main-exit"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+fs = false
+net = false
+process = false
+env = false
+clock = false
+crypto = false
+
+[unsafe_rationale]
+stdio = "Direct-native stderr regression covers aggregate helper std/io.ax eprintln for issue 1001."
+"#,
+    )
+    .expect("write aggregate helper eprintln manifest");
+    fs::write(
+        project.join("axiom.lock"),
+        r#"version = 1
+
+[[package]]
+name = "cranelift-aggregate-helper-eprintln-main-exit"
+version = "0.1.0"
+source = "path"
+"#,
+    )
+    .expect("write aggregate helper eprintln lockfile");
+    fs::write(
+        project.join("src/main.ax"),
+        r#"import "std/io.ax"
+import "std/json.ax"
+
+static STATIC_LINE: string = "aggregate static"
+
+fn helper_line(): string {
+return "aggregate helper text"
+}
+
+fn emit_pair(): (int, int) {
+let first_line: string = "aggregate helper"
+let clone_line: string = "aggregate helper"
+let concat_line: string = "aggregate helper"
+let scores: {string: int} = {"build": 7, "deploy": 9}
+let names: [string] = keys<string, int>(scores)
+let selected_index: int = 1
+let selected_line: string = names[selected_index]
+let first: int = eprintln(first_line)
+let cloned: int = eprintln(string_clone(clone_line))
+let static_written: int = eprintln(STATIC_LINE)
+let concat_written: int = eprintln(concat_line + " suffix")
+let helper_written: int = eprintln(helper_line())
+let value: int = 31
+let text: string = stringify_int(value)
+let int_written: int = eprintln(text)
+let bool_written: int = eprintln(stringify_bool(value == 32))
+let selected_written: int = eprintln(selected_line)
+let written: int = first + cloned + static_written + concat_written + helper_written + int_written + bool_written + selected_written
+return (written, 31)
+}
+
+fn main(): int {
+let result: (int, int) = emit_pair()
+return result.0 + result.1
+}
+"#,
+    )
+    .expect("write aggregate helper eprintln source");
+}
+
+fn write_helper_print_main_exit_project(project: &Path) {
+    fs::create_dir_all(project.join("src")).expect("create helper print project src");
+    fs::write(
+        project.join("axiom.toml"),
+        r#"[package]
+name = "cranelift-helper-print-main-exit"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+fs = false
+net = false
+process = false
+env = false
+clock = false
+crypto = false
+
+[unsafe_rationale]
+stdio = "Direct-native stdout regression covers scalar helper source print statements for issue 1001."
+"#,
+    )
+    .expect("write helper print manifest");
+    fs::write(
+        project.join("axiom.lock"),
+        r#"version = 1
+
+[[package]]
+name = "cranelift-helper-print-main-exit"
+version = "0.1.0"
+source = "path"
+"#,
+    )
+    .expect("write helper print lockfile");
+    fs::write(
+        project.join("src/main.ax"),
+        r#"import "std/json.ax"
+
+static STATIC_LINE: string = "helper static"
+
+fn helper_line(): string {
+return "helper text"
+}
+
+fn emit(): int {
+let line: string = "helper stdout"
+let scores: {string: int} = {"build": 7, "deploy": 9}
+let names: [string] = keys<string, int>(scores)
+let selected_index: int = 1
+let selected_line: string = names[selected_index]
+print line
+print string_clone(line)
+print STATIC_LINE
+print line + " suffix"
+print helper_line()
+let value: int = 21
+print value
+print stringify_bool(value == 21)
+let text: string = stringify_int(value + 1)
+print text
+print selected_line
+return value
+}
+
+fn main(): int {
+return emit()
+}
+"#,
+    )
+    .expect("write helper print source");
+}
+
+fn write_aggregate_helper_print_main_exit_project(project: &Path) {
+    fs::create_dir_all(project.join("src")).expect("create aggregate helper print project src");
+    fs::write(
+        project.join("axiom.toml"),
+        r#"[package]
+name = "cranelift-aggregate-helper-print-main-exit"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+fs = false
+net = false
+process = false
+env = false
+clock = false
+crypto = false
+
+[unsafe_rationale]
+stdio = "Direct-native stdout regression covers aggregate helper source print statements for issue 1001."
+"#,
+    )
+    .expect("write aggregate helper print manifest");
+    fs::write(
+        project.join("axiom.lock"),
+        r#"version = 1
+
+[[package]]
+name = "cranelift-aggregate-helper-print-main-exit"
+version = "0.1.0"
+source = "path"
+"#,
+    )
+    .expect("write aggregate helper print lockfile");
+    fs::write(
+        project.join("src/main.ax"),
+        r#"static STATIC_LINE: string = "aggregate static"
+
+fn helper_line(): string {
+return "aggregate helper text"
+}
+
+fn emit_pair(): (int, int) {
+let line: string = "aggregate stdout"
+let scores: {string: int} = {"build": 7, "deploy": 9}
+let names: [string] = keys<string, int>(scores)
+let selected_index: int = 1
+let selected_line: string = names[selected_index]
+print line
+print string_clone(line)
+print STATIC_LINE
+print line + " suffix"
+print helper_line()
+let value: int = 17
+print value
+print selected_line
+return (value, 31)
+}
+
+fn main(): int {
+let result: (int, int) = emit_pair()
+return result.0 + result.1
+}
+"#,
+    )
+    .expect("write aggregate helper print source");
 }
 
 fn write_std_log_project(project: &Path) {
@@ -5641,6 +10349,109 @@ print elapsed == elapsed
     .expect("write clock source");
 }
 
+fn write_clock_sleep_zero_main_exit_project(project: &Path) {
+    fs::create_dir_all(project.join("src")).expect("create clock sleep zero project src");
+    fs::write(
+        project.join("axiom.toml"),
+        r#"[package]
+name = "cranelift-clock-sleep-zero-main-exit"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+fs = false
+net = false
+process = false
+env = false
+clock = true
+crypto = false
+"#,
+    )
+    .expect("write clock sleep zero manifest");
+    fs::write(
+        project.join("axiom.lock"),
+        r#"version = 1
+
+[[package]]
+name = "cranelift-clock-sleep-zero-main-exit"
+version = "0.1.0"
+source = "path"
+"#,
+    )
+    .expect("write clock sleep zero lockfile");
+    fs::write(
+        project.join("src/main.ax"),
+        "static ZERO_MS: int = 0\n\nfn pause_zero(): int {\nreturn clock_sleep_ms(ZERO_MS)\n}\n\nfn main(): int {\nlet direct: int = clock_sleep_ms(ZERO_MS)\nlet helper: int = pause_zero()\nif direct == 0 && helper == 0 {\nreturn 48\n} else {\nreturn 1\n}\n}\n",
+    )
+    .expect("write clock sleep zero source");
+}
+
+fn write_std_time_sleep_main_exit_project(project: &Path) {
+    fs::create_dir_all(project.join("src")).expect("create std time sleep project src");
+    fs::write(
+        project.join("axiom.toml"),
+        r#"[package]
+name = "cranelift-std-time-sleep-main-exit"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+fs = false
+net = false
+process = false
+env = false
+clock = true
+crypto = false
+"#,
+    )
+    .expect("write std time sleep manifest");
+    fs::write(
+        project.join("axiom.lock"),
+        r#"version = 1
+
+[[package]]
+name = "cranelift-std-time-sleep-main-exit"
+version = "0.1.0"
+source = "path"
+"#,
+    )
+    .expect("write std time sleep lockfile");
+    fs::write(
+        project.join("src/main.ax"),
+        r#"import "std/time.ax"
+
+static ZERO_MS: int = 0
+static NEGATIVE_MS: int = -1
+
+fn pause_zero(): int {
+return sleep(duration_ms(ZERO_MS))
+}
+
+fn pause_negative(): int {
+return sleep(duration_ms(NEGATIVE_MS))
+}
+
+fn main(): int {
+let direct: int = sleep(duration_ms(ZERO_MS))
+let helper: int = pause_zero()
+let negative: int = pause_negative()
+if direct == 0 && helper == 0 && negative == -1 {
+return 48
+} else {
+return 1
+}
+}
+"#,
+    )
+    .expect("write std time sleep source");
+}
+
 fn write_json_serdes_project(project: &Path) {
     fs::create_dir_all(project.join("src")).expect("create json project src");
     fs::write(
@@ -5807,9 +10618,20 @@ source = "path"
     fs::write(
         project.join("src/main.ax"),
         r#"import "std/serdes.ax"
+import "std/testing.ax"
 
 let manual: {string: Value} = {"name": Text("axiom"), "count": Int(3), "ready": Bool(true), "items": Array([Text("one"), Int(2)])}
+let expected: {string: Value} = {"name": Text("axiom"), "count": Int(3), "ready": Bool(true), "items": Array([Text("one"), Int(2)])}
 print to_json(manual)
+
+match from_json_str("{\"count\":3,\"items\":[\"one\",2],\"name\":\"axiom\",\"ready\":true}") {
+Ok(value) {
+print assert_true(value == Object(expected))
+}
+Err(error) {
+print parse_error_message(error)
+}
+}
 
 match from_json_str("{\"name\":\"axiom\",\"count\":3,\"ready\":true,\"items\":[\"one\",2],\"nested\":{\"ok\":false}}") {
 Ok(value) {
@@ -5918,6 +10740,168 @@ print "parse error"
     .expect("write std/serdes source");
 }
 
+fn write_std_serdes_known_json_main_exit_project(project: &Path) {
+    fs::create_dir_all(project.join("src")).expect("create std/serdes known JSON project src");
+    fs::write(
+        project.join("axiom.toml"),
+        r#"[package]
+name = "cranelift-std-serdes-known-json-main-exit"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+fs = false
+net = false
+process = false
+env = false
+clock = false
+crypto = false
+"#,
+    )
+    .expect("write std/serdes known JSON manifest");
+    fs::write(
+        project.join("axiom.lock"),
+        r#"version = 1
+
+[[package]]
+name = "cranelift-std-serdes-known-json-main-exit"
+version = "0.1.0"
+source = "path"
+"#,
+    )
+    .expect("write std/serdes known JSON lockfile");
+    fs::write(
+        project.join("src/main.ax"),
+        r#"import "std/serdes.ax"
+
+fn object_json(): string {
+return to_json({"name": Text("axiom"), "count": Int(3), "ready": Bool(true)})
+}
+
+fn stringified_text(): string {
+return stringify(Text("direct-native"))
+}
+
+fn parsed_value_json(): string {
+match from_json_str("{\"name\":\"axiom\",\"count\":3}") {
+Ok(value) {
+return stringify(value)
+}
+Err(error) {
+return parse_error_message(error)
+}
+}
+}
+
+fn parsed_text(): string {
+match from_json_str("\"direct-native\"") {
+Ok(value) {
+match as_text(value) {
+Some(text) {
+return text
+}
+None {
+return "not text"
+}
+}
+}
+Err(error) {
+return parse_error_message(error)
+}
+}
+}
+
+fn parse_error_text(): string {
+match from_json_str("{") {
+Ok(value) {
+return stringify(value)
+}
+Err(error) {
+return parse_error_message(error)
+}
+}
+}
+
+fn main(): int {
+let object_text: string = object_json()
+let text_json: string = stringified_text()
+let parsed_json: string = parsed_value_json()
+let text_value: string = parsed_text()
+let error_text: string = parse_error_text()
+let object_gate: bool = object_text == "{\"count\":3,\"name\":\"axiom\",\"ready\":true}"
+let text_gate: bool = text_json == "\"direct-native\""
+let parsed_gate: bool = parsed_json == "{\"count\":3,\"name\":\"axiom\"}"
+let value_gate: bool = text_value == "direct-native"
+let error_gate: bool = len(error_text) > 0
+if object_gate && text_gate && parsed_gate && value_gate && error_gate {
+return 48
+} else {
+return 1
+}
+}
+"#,
+    )
+    .expect("write std/serdes known JSON source");
+}
+
+fn write_std_cli_project(project: &Path) {
+    fs::create_dir_all(project.join("src")).expect("create std/cli project src");
+    fs::write(
+        project.join("axiom.toml"),
+        r#"[package]
+name = "cranelift-std-cli"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+fs = false
+net = false
+process = false
+env = false
+clock = false
+crypto = false
+"#,
+    )
+    .expect("write std/cli manifest");
+    fs::write(
+        project.join("axiom.lock"),
+        r#"version = 1
+
+[[package]]
+name = "cranelift-std-cli"
+version = "0.1.0"
+source = "path"
+"#,
+    )
+    .expect("write std/cli lockfile");
+    fs::write(
+        project.join("src/main.ax"),
+        r#"import "std/cli.ax"
+
+print arg_count()
+let values: [string] = args()
+print len(values)
+
+let first_arg: Option<string> = arg(0)
+match first_arg {
+Some(value) {
+print value
+}
+None {
+print "missing"
+}
+}
+"#,
+    )
+    .expect("write std/cli source");
+}
+
 fn write_fs_denial_project(project: &Path) {
     fs::create_dir_all(project.join("src")).expect("create fs denied project src");
     fs::write(
@@ -5935,6 +10919,121 @@ fn write_fs_denial_project(project: &Path) {
         "import \"std/fs.ax\"\nmatch read_file(\"src/fixture.txt\") {\nSome(value) {\nprint value\n}\nNone {\nprint \"missing\"\n}\n}\n",
     )
     .expect("write fs denied source");
+}
+
+fn write_fs_read_main_exit_project(project: &Path) {
+    fs::create_dir_all(project.join("src")).expect("create fs-read main project src");
+    fs::write(
+        project.join("axiom.toml"),
+        r#"[package]
+name = "cranelift-fs-read-main-exit"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+fs = true
+net = false
+process = false
+env = false
+clock = false
+crypto = false
+"#,
+    )
+    .expect("write fs-read main manifest");
+    fs::write(
+        project.join("axiom.lock"),
+        r#"version = 1
+
+[[package]]
+name = "cranelift-fs-read-main-exit"
+version = "0.1.0"
+source = "path"
+"#,
+    )
+    .expect("write fs-read main lockfile");
+    fs::write(project.join("src/fixture.txt"), "native-fs\n").expect("write fs-read fixture");
+    fs::write(
+        project.join("src/main.ax"),
+        r#"import "std/fs.ax"
+
+fn main(): int {
+let direct_len: int = match fs_read("src/fixture.txt") { Some(value) => len(value), None => 1 }
+let wrapper_len: int = match read_file("src/fixture.txt") { Some(value) => len(value), None => 1 }
+let missing_len: int = match read_file("src/missing.txt") { Some(value) => len(value), None => 28 }
+if direct_len == 10 && wrapper_len == 10 && missing_len == 28 {
+return 48
+} else {
+return 1
+}
+}
+"#,
+    )
+    .expect("write fs-read main source");
+}
+
+fn write_fs_write_main_exit_project(project: &Path) {
+    fs::create_dir_all(project.join("src")).expect("create fs-write main project src");
+    fs::write(
+        project.join("axiom.toml"),
+        r#"[package]
+name = "cranelift-fs-write-main-exit"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+fs = true
+"fs:write" = true
+net = false
+process = false
+env = false
+clock = false
+crypto = false
+"#,
+    )
+    .expect("write fs-write main manifest");
+    fs::write(
+        project.join("axiom.lock"),
+        r#"version = 1
+
+[[package]]
+name = "cranelift-fs-write-main-exit"
+version = "0.1.0"
+source = "path"
+"#,
+    )
+    .expect("write fs-write main lockfile");
+    fs::write(
+        project.join("src/main.ax"),
+        r#"import "std/fs.ax"
+
+fn main(): int {
+let made: int = mkdir_all("scratch/nested")
+let wrote: int = write_file("scratch/nested/data.txt", "one")
+let appended: int = append_file("scratch/nested/data.txt", "\ntwo")
+let appended_len: int = match read_file("scratch/nested/data.txt") { Some(value) => len(value), None => 1 }
+let replaced: int = replace_file("scratch/nested/data.txt", "final")
+let replaced_len: int = match read_file("scratch/nested/data.txt") { Some(value) => len(value), None => 1 }
+let created: int = create_file("scratch/empty.txt")
+let removed_file: int = remove_file("scratch/empty.txt")
+let removed_data: int = remove_file("scratch/nested/data.txt")
+let removed_nested: int = remove_dir("scratch/nested")
+let removed_scratch: int = remove_dir("scratch")
+let blocked: int = write_file("../escape.txt", "blocked")
+if made == 0 && wrote == 0 && appended == 0 && appended_len == 7 && replaced == 0 && replaced_len == 5 && created == 0 && removed_file == 0 && removed_data == 0 && removed_nested == 0 && removed_scratch == 0 && blocked == -1 {
+return 48
+} else {
+return 1
+}
+}
+"#,
+    )
+    .expect("write fs-write main source");
 }
 
 fn write_tcp_denial_project(project: &Path) {
@@ -6122,6 +11221,60 @@ fn write_env_read_project(project: &Path) {
     .expect("write env source");
 }
 
+fn write_env_read_main_exit_project(project: &Path) {
+    fs::create_dir_all(project.join("src")).expect("create env main project src");
+    fs::write(
+        project.join("axiom.toml"),
+        r#"[package]
+name = "cranelift-env-read-main-exit"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+fs = false
+net = false
+process = false
+env = true
+clock = false
+crypto = false
+
+[unsafe_rationale]
+env = "direct-native env-read regression captures deterministic test environment values"
+"#,
+    )
+    .expect("write env main manifest");
+    fs::write(
+        project.join("axiom.lock"),
+        r#"version = 1
+
+[[package]]
+name = "cranelift-env-read-main-exit"
+version = "0.1.0"
+source = "path"
+"#,
+    )
+    .expect("write env main lockfile");
+    fs::write(
+        project.join("src/main.ax"),
+        r#"import "std/env.ax"
+
+fn main(): int {
+let present: int = match env_get("AXIOM_CRANELIFT_ENV_READ") { Some(value) => len(value), None => 0 }
+let missing: int = match get_env("__AXIOM_CRANELIFT_ENV_MISSING__") { Some(value) => len(value), None => 38 }
+if present == 10 && missing == 38 {
+return 48
+} else {
+return 1
+}
+}
+"#,
+    )
+    .expect("write env main source");
+}
+
 fn write_http_client_denial_project(project: &Path) {
     fs::create_dir_all(project.join("src")).expect("create http client denied project src");
     fs::write(
@@ -6252,6 +11405,63 @@ print strlen("")
 "#,
     )
     .expect("write ffi strlen source");
+}
+
+fn write_ffi_strlen_main_exit_project(project: &Path) {
+    fs::create_dir_all(project.join("src")).expect("create ffi strlen main project src");
+    fs::write(
+        project.join("axiom.toml"),
+        r#"[package]
+name = "cranelift-ffi-strlen-main-exit"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+fs = false
+net = false
+process = false
+env = false
+clock = false
+crypto = false
+ffi = true
+
+[unsafe_rationale]
+ffi = "Cranelift ABI regression covers the narrow C strlen extern call for issue 928."
+"#,
+    )
+    .expect("write ffi strlen main manifest");
+    fs::write(
+        project.join("axiom.lock"),
+        r#"version = 1
+
+[[package]]
+name = "cranelift-ffi-strlen-main-exit"
+version = "0.1.0"
+source = "path"
+"#,
+    )
+    .expect("write ffi strlen main lockfile");
+    fs::write(
+        project.join("src/main.ax"),
+        r#"extern fn strlen(value: string): int from "c"
+
+fn main(): int {
+let literal_len: int = strlen("hello")
+let empty_len: int = strlen("")
+let text: string = "direct-native"
+let local_len: int = strlen(text)
+if literal_len == 5 && empty_len == 0 && local_len == 13 {
+return 48
+} else {
+return 1
+}
+}
+"#,
+    )
+    .expect("write ffi strlen main source");
 }
 
 fn write_async_runtime_denial_project(project: &Path) {
