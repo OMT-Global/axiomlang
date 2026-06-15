@@ -754,11 +754,14 @@ that can feed comparisons, length projections, and native process exit status
 without generated Rust. It also lowers known-string public `std/io.ax`
 `eprintln` calls inside direct-native i64 `main` functions into native stderr
 writes while preserving the newline-inclusive byte-count return value and
-`generated_rust` null. Known pure `print` expressions for string, integer, and
-boolean values now lower from direct-native i64 `main` functions into native
-stdout writes without generated Rust. Stdin reads, dynamic stdout/stderr text,
-runtime numeric formatting, and broader streaming/runtime buffering remain
-tracked by issue #1001.
+`generated_rust` null. Known public `std/log.ax` `info_attrs` calls now lower
+into native stderr writes from direct-native i64 `main` functions for known
+message and attributes strings, preserving the structured JSON line and
+byte-count return value without generated Rust. Known pure `print` expressions
+for string, integer, and boolean values now lower from direct-native i64 `main`
+functions into native stdout writes without generated Rust. Stdin reads,
+dynamic stdout/stderr text, runtime numeric formatting, dynamic log inputs, and
+broader streaming/runtime buffering remain tracked by issue #1001.
 
 The `clock.now_sleep` row now has partial Cranelift evidence for `std/time.ax`
 `now_ms`, `now`, `elapsed_ms`, and zero-duration `sleep`, plus guards that a

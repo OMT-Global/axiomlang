@@ -4229,6 +4229,50 @@ fn cranelift_backend_lowers_known_print_to_native_stdout_runtime_exit_code() {
 
 #[cfg(not(windows))]
 #[test]
+fn cranelift_backend_lowers_std_log_info_attrs_to_native_stderr_runtime_exit_code() {
+    if which::which("cc").is_err() {
+        eprintln!("skipping cranelift backend smoke test because cc is unavailable");
+        return;
+    }
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("std-log-info-attrs-main-exit");
+    write_std_log_info_attrs_main_exit_project(&project);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args([
+            "build",
+            project.to_str().expect("project path"),
+            "--backend",
+            "cranelift",
+            "--json",
+        ])
+        .output()
+        .expect("run axiomc build --backend cranelift");
+    assert!(
+        output.status.success(),
+        "cranelift std log info_attrs main build failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+    assert_eq!(payload["backend"], "cranelift");
+    assert_eq!(payload["generated_rust"], Value::Null);
+    let binary = payload["binary"].as_str().expect("binary path");
+    let run = Command::new(binary)
+        .output()
+        .expect("run cranelift std log info_attrs main binary");
+    assert_eq!(run.status.code(), Some(48));
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "");
+    assert_eq!(
+        String::from_utf8_lossy(&run.stderr),
+        "{\"level\":\"info\",\"message\":\"started\",\"attributes\":{\"component\":\"worker\",\"attempt\":2,\"ready\":true}}\n"
+    );
+}
+
+#[cfg(not(windows))]
+#[test]
 fn cranelift_backend_builds_std_log_binary() {
     if which::which("cc").is_err() {
         eprintln!("skipping cranelift backend smoke test because cc is unavailable");
@@ -9058,6 +9102,60 @@ return 48
 "#,
     )
     .expect("write logging stdout main source");
+}
+
+fn write_std_log_info_attrs_main_exit_project(project: &Path) {
+    fs::create_dir_all(project.join("src")).expect("create std log info_attrs main project src");
+    fs::write(
+        project.join("axiom.toml"),
+        r#"[package]
+name = "cranelift-std-log-info-attrs-main-exit"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+fs = false
+net = false
+process = false
+env = false
+clock = false
+crypto = false
+
+[unsafe_rationale]
+stdio = "Direct-native stderr regression covers std/log.ax info_attrs for issue 1001."
+"#,
+    )
+    .expect("write std log info_attrs main manifest");
+    fs::write(
+        project.join("axiom.lock"),
+        r#"version = 1
+
+[[package]]
+name = "cranelift-std-log-info-attrs-main-exit"
+version = "0.1.0"
+source = "path"
+"#,
+    )
+    .expect("write std log info_attrs main lockfile");
+    fs::write(
+        project.join("src/main.ax"),
+        r#"import "std/log.ax"
+
+fn main(): int {
+let attrs: string = fields3(field_string("component", "worker"), field_int("attempt", 2), field_bool("ready", true))
+let written: int = info_attrs("started", attrs)
+if written == 98 {
+return 48
+} else {
+return 1
+}
+}
+"#,
+    )
+    .expect("write std log info_attrs main source");
 }
 
 fn write_std_log_project(project: &Path) {

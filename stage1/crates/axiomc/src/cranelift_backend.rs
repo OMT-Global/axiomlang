@@ -84,6 +84,8 @@ struct I64StaticBindings {
     log_fields2_wrappers: HashSet<String>,
     log_fields3_wrappers: HashSet<String>,
     log_event_wrappers: HashSet<String>,
+    log_emit_wrappers: HashMap<String, &'static str>,
+    log_info_attrs_wrappers: HashSet<String>,
     string_builder_wrappers: HashSet<String>,
     string_builder_new_wrappers: HashSet<String>,
     string_builder_from_string_wrappers: HashSet<String>,
@@ -606,6 +608,32 @@ fn lower_i64_exit_program(program: &Program, fs_root: &Path) -> Option<I64ExitPr
         .functions
         .iter()
         .filter(|function| is_i64_std_log_wrapper(function, "event"))
+        .flat_map(|function| [function.name.clone(), function.source_name.clone()])
+        .collect();
+    static_bindings.log_emit_wrappers = program
+        .functions
+        .iter()
+        .filter_map(|function| {
+            let level = match function.source_name.as_str() {
+                "debug" => "debug",
+                "info" => "info",
+                "warn" => "warn",
+                "error" => "error",
+                _ => return None,
+            };
+            (function.path == "<stdlib>/log.ax").then(|| {
+                [
+                    (function.name.clone(), level),
+                    (function.source_name.clone(), level),
+                ]
+            })
+        })
+        .flatten()
+        .collect();
+    static_bindings.log_info_attrs_wrappers = program
+        .functions
+        .iter()
+        .filter(|function| is_i64_std_log_wrapper(function, "info_attrs"))
         .flat_map(|function| [function.name.clone(), function.source_name.clone()])
         .collect();
     static_bindings.string_builder_wrappers = program
@@ -1208,7 +1236,15 @@ fn lower_i64_aggregate_return_body(
                     &mut locals,
                     &mut local_indexes,
                     static_bindings,
-                ) {
+                )
+                .or_else(|| {
+                    lower_i64_log_emit_let_stmts(
+                        stmt,
+                        &mut locals,
+                        &mut local_indexes,
+                        static_bindings,
+                    )
+                }) {
                     lowered_stmts.extend(stmts);
                     seen_runtime_stmt = true;
                 } else {
@@ -2414,7 +2450,15 @@ fn lower_i64_body(
                     &mut locals,
                     &mut local_indexes,
                     static_bindings,
-                ) {
+                )
+                .or_else(|| {
+                    lower_i64_log_emit_let_stmts(
+                        stmt,
+                        &mut locals,
+                        &mut local_indexes,
+                        static_bindings,
+                    )
+                }) {
                     lowered_stmts.extend(stmts);
                     seen_runtime_stmt = true;
                 } else {
@@ -3332,6 +3376,11 @@ fn lower_i64_runtime_let_stmts(
     {
         return Some(assigns);
     }
+    if let Some(assigns) =
+        lower_i64_log_emit_let_stmts(stmt, locals, local_indexes, static_bindings)
+    {
+        return Some(assigns);
+    }
     if let Some(assigns) = lower_i64_runtime_projection_let_stmts(
         stmt,
         locals,
@@ -3430,6 +3479,55 @@ fn lower_i64_eprintln_let_stmts(
         return None;
     };
     let text = i64_string_text(message, static_bindings)?;
+    let written = i64::try_from(text.len()).ok()?.checked_add(1)?;
+    let local = local_indexes.len();
+    local_indexes.insert(name.clone(), local);
+    locals.push(CraneliftI64Expr::Literal(written));
+    Some(vec![CraneliftI64Stmt::WriteLine {
+        stream: OutputStream::Stderr,
+        text,
+    }])
+}
+
+fn lower_i64_log_emit_let_stmts(
+    stmt: &Stmt,
+    locals: &mut Vec<CraneliftI64Expr>,
+    local_indexes: &mut HashMap<String, usize>,
+    static_bindings: &I64StaticBindings,
+) -> Option<Vec<CraneliftI64Stmt>> {
+    let Stmt::Let {
+        name,
+        ty,
+        expr: Expr::Call {
+            name: call_name,
+            args,
+            ..
+        },
+        ..
+    } = stmt
+    else {
+        return None;
+    };
+    if !is_i64_compatible_type(ty) {
+        return None;
+    }
+    let text = if let Some(level) = static_bindings.log_emit_wrappers.get(call_name.as_str()) {
+        let [message] = args.as_slice() else {
+            return None;
+        };
+        i64_log_event_text(level, &i64_string_text(message, static_bindings)?, "")
+    } else if static_bindings.log_info_attrs_wrappers.contains(call_name) {
+        let [message, attributes] = args.as_slice() else {
+            return None;
+        };
+        i64_log_event_text(
+            "info",
+            &i64_string_text(message, static_bindings)?,
+            &i64_string_text(attributes, static_bindings)?,
+        )
+    } else {
+        return None;
+    };
     let written = i64::try_from(text.len()).ok()?.checked_add(1)?;
     let local = local_indexes.len();
     local_indexes.insert(name.clone(), local);
@@ -7129,11 +7227,10 @@ fn i64_string_call_text(
             let [level, message, attributes] = args else {
                 return None;
             };
-            Some(format!(
-                "{{\"level\":{},\"message\":{},\"attributes\":{{{}}}}}",
-                json_escape_string(&i64_string_text(level, static_bindings)?),
-                json_escape_string(&i64_string_text(message, static_bindings)?),
-                i64_string_text(attributes, static_bindings)?
+            Some(i64_log_event_text(
+                &i64_string_text(level, static_bindings)?,
+                &i64_string_text(message, static_bindings)?,
+                &i64_string_text(attributes, static_bindings)?,
             ))
         }
         name if is_i64_string_builder_finish_name(name, static_bindings) => {
@@ -10048,6 +10145,15 @@ fn is_i64_log_fields3_name(name: &str, static_bindings: &I64StaticBindings) -> b
 
 fn is_i64_log_event_name(name: &str, static_bindings: &I64StaticBindings) -> bool {
     static_bindings.log_event_wrappers.contains(name)
+}
+
+fn i64_log_event_text(level: &str, message: &str, attributes: &str) -> String {
+    format!(
+        "{{\"level\":{},\"message\":{},\"attributes\":{{{}}}}}",
+        json_escape_string(level),
+        json_escape_string(message),
+        attributes
+    )
 }
 
 fn is_i64_std_string_builder_wrapper(function: &Function, source_name: &str) -> bool {
