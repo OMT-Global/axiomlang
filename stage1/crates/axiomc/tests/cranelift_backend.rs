@@ -6516,11 +6516,8 @@ source = "path"
     fs::write(
         project.join("src/main.ax"),
         r#"fn make_banner(): string {
-if true {
+print "side-effect"
 return "direct-native"
-} else {
-return "fallback"
-}
 }
 
 fn main(): int {
@@ -6586,9 +6583,25 @@ let copy: string = forward_text(text)
 return copy
 }
 
+fn branch_banner(flag: bool): string {
+if flag {
+return "direct-native"
+} else {
+return "fallback"
+}
+}
+
 fn local_score(text: string): int {
 let copy: string = forward_text(text)
 return len(copy)
+}
+
+fn branch_score(flag: bool): int {
+if flag {
+return len("direct-native")
+} else {
+return 1
+}
 }
 
 fn has_native_prefix(text: string): bool {
@@ -6600,22 +6613,34 @@ let copy: string = forward_text(text)
 return string_starts_with(copy, "direct")
 }
 
+fn has_branch_native_prefix(flag: bool): bool {
+if flag {
+return string_starts_with("direct-native", "direct")
+} else {
+return false
+}
+}
+
 fn main(): int {
 let direct: int = score("direct-native")
 let static_score: int = score(BANNER)
 let forwarded_score: int = score(forward_text(BANNER))
 let returned_text: string = make_banner()
 let local_text: string = local_banner()
+let branch_text: string = branch_banner(true)
 let forwarded_len_text: string = forward_text(BANNER)
 let forwarded_compare_text: string = forward_text(BANNER)
 let returned_len: int = len(returned_text)
 let local_len: int = len(local_text)
+let branch_len: int = len(branch_text)
 let forwarded_len: int = len(forwarded_len_text)
 let local_score_value: int = local_score(BANNER)
+let branch_score_value: int = branch_score(true)
 let prefix_gate: bool = has_native_prefix("direct-native")
 let local_prefix_gate: bool = has_local_native_prefix(BANNER)
+let branch_prefix_gate: bool = has_branch_native_prefix(true)
 let forwarded_gate: bool = forwarded_compare_text == "direct-native"
-if direct == 13 && static_score == 13 && forwarded_score == 13 && returned_len == 13 && local_len == 13 && forwarded_len == 13 && local_score_value == 13 && prefix_gate && local_prefix_gate && forwarded_gate {
+if direct == 13 && static_score == 13 && forwarded_score == 13 && returned_len == 13 && local_len == 13 && branch_len == 13 && forwarded_len == 13 && local_score_value == 13 && branch_score_value == 13 && prefix_gate && local_prefix_gate && branch_prefix_gate && forwarded_gate {
 return 48
 } else {
 return 1
