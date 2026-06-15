@@ -408,11 +408,12 @@ wrappers now lower into native exclusive file creation. Literal-path
 create/remove execution. Literal-path `fs_mkdir_all(...)` calls and public
 `std/fs.ax` `mkdir_all(...)` wrappers now lower into runtime native recursive
 directory creation with final directory verification. These paths return the
-existing status-code convention without generated Rust. The runtime smoke
-asserts the target files and directories are not created or removed during
-build, then appear, are replaced or removed, and the created empty file remains
-only after the native binary runs. TOCTOU hardening and audit parity remain open
-under #1001.
+existing status-code convention without generated Rust and now append
+best-effort host audit JSONL to `AXIOM_HOST_AUDIT_LOG` without including path or
+content secrets. The runtime smoke asserts the target files and directories are
+not created or removed during build, then appear, are replaced or removed, and
+the created empty file remains only after the native binary runs. TOCTOU
+hardening remains open under #1001.
 
 The direct-native crypto hash slice is still marked partial: the Cranelift
 spike can build and run `std/crypto_hash.ax` `sha256(...)` while the public

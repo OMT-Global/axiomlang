@@ -3081,6 +3081,7 @@ fn cranelift_backend_lowers_fs_write_to_runtime_exit_code() {
     let runtime_dir = project.join("scratch/native-dir");
     let runtime_dir_all = project.join("scratch/native-all");
     let runtime_nested_dir = project.join("scratch/native-all/deep");
+    let audit_log = project.join("native-fs-audit.jsonl");
     assert!(
         !runtime_file.exists(),
         "build should not create the fs_write runtime fixture"
@@ -3101,7 +3102,12 @@ fn cranelift_backend_lowers_fs_write_to_runtime_exit_code() {
         !runtime_dir_all.exists(),
         "build should not create the mkdir_all runtime fixture"
     );
+    assert!(
+        !audit_log.exists(),
+        "build should not create the native fs audit log"
+    );
     let run = Command::new(binary)
+        .env("AXIOM_HOST_AUDIT_LOG", &audit_log)
         .output()
         .expect("run cranelift fs-write main binary");
     assert_eq!(run.status.code(), Some(48));
@@ -3130,6 +3136,35 @@ fn cranelift_backend_lowers_fs_write_to_runtime_exit_code() {
         runtime_dir_all.is_dir(),
         "runtime mkdir_all should create the parent directory fixture"
     );
+    let audit = fs::read_to_string(&audit_log).expect("read native fs audit log");
+    for intrinsic in [
+        "fs_write",
+        "fs_append",
+        "fs_replace",
+        "fs_remove_file",
+        "fs_create",
+        "fs_mkdir",
+        "fs_remove_dir",
+        "fs_mkdir_all",
+    ] {
+        assert!(
+            audit.contains(&format!("\"intrinsic\":\"{intrinsic}\"")),
+            "missing {intrinsic} in audit log: {audit}"
+        );
+    }
+    assert!(audit.contains("\"outcome\":\"ok\""), "audit log: {audit}");
+    assert!(
+        audit.contains("\"outcome\":\"denied\""),
+        "audit log: {audit}"
+    );
+    assert!(
+        audit.contains("\"args\":{\"path\":\"string:16\",\"content\":\"string:13\"}"),
+        "audit log: {audit}"
+    );
+    assert!(!audit.contains("runtime-write"));
+    assert!(!audit.contains("runtime-append"));
+    assert!(!audit.contains("runtime-replace"));
+    assert!(!audit.contains("blocked"));
 }
 
 #[cfg(not(windows))]

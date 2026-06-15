@@ -104,6 +104,13 @@ pub enum I64Expr {
         path: String,
         max_bytes: u64,
     },
+    AuditFs {
+        intrinsic: String,
+        package: String,
+        path_len: usize,
+        content_len: Option<usize>,
+        result: Box<I64Expr>,
+    },
     WriteFile {
         path: String,
         content: String,
@@ -1833,6 +1840,23 @@ fn emit_i64_expr(
         I64Expr::FileLen { path, max_bytes } => {
             emit_i64_file_len_expr(builder, runtime_refs, path, *max_bytes)
         }
+        I64Expr::AuditFs {
+            intrinsic,
+            package,
+            path_len,
+            content_len,
+            result,
+        } => emit_i64_audit_fs_expr(
+            builder,
+            locals,
+            function_refs,
+            runtime_refs,
+            intrinsic,
+            package,
+            *path_len,
+            *content_len,
+            result,
+        ),
         I64Expr::WriteFile { path, content } => {
             emit_i64_write_file_expr(builder, runtime_refs, path, content)
         }
@@ -2081,6 +2105,146 @@ fn emit_i64_path_ptr(
         builder.ins().stack_store(byte_value, path_slot, offset as i32);
     }
     Ok(builder.ins().stack_addr(types::I64, path_slot, 0))
+}
+
+fn i64_json_escape(value: &str) -> String {
+    let mut escaped = String::new();
+    for ch in value.chars() {
+        match ch {
+            '\\' => escaped.push_str("\\\\"),
+            '"' => escaped.push_str("\\\""),
+            '\n' => escaped.push_str("\\n"),
+            '\r' => escaped.push_str("\\r"),
+            '\t' => escaped.push_str("\\t"),
+            ch if ch.is_control() => escaped.push_str(&format!("\\u{:04x}", ch as u32)),
+            ch => escaped.push(ch),
+        }
+    }
+    escaped
+}
+
+fn i64_fs_audit_line(
+    intrinsic: &str,
+    package: &str,
+    path_len: usize,
+    content_len: Option<usize>,
+    outcome: &str,
+) -> String {
+    let args = match content_len {
+        Some(content_len) => format!(
+            "{{\"path\":\"string:{path_len}\",\"content\":\"string:{content_len}\"}}"
+        ),
+        None => format!("{{\"path\":\"string:{path_len}\"}}"),
+    };
+    format!(
+        "{{\"package\":\"{}\",\"intrinsic\":\"{}\",\"args\":{},\"outcome\":\"{}\"}}\n",
+        i64_json_escape(package),
+        i64_json_escape(intrinsic),
+        args,
+        i64_json_escape(outcome)
+    )
+}
+
+fn emit_i64_host_audit_line(
+    builder: &mut FunctionBuilder<'_>,
+    runtime_refs: I64RuntimeRefs,
+    line: &str,
+) -> Result<(), CraneliftBackendError> {
+    let key_ptr = emit_i64_path_ptr(builder, "AXIOM_HOST_AUDIT_LOG")?;
+    let getenv_call = builder.ins().call(runtime_refs.getenv, &[key_ptr]);
+    let audit_path = builder.inst_results(getenv_call)[0];
+
+    let skip_block = builder.create_block();
+    let len_block = builder.create_block();
+    let open_block = builder.create_block();
+    let write_block = builder.create_block();
+    let merge_block = builder.create_block();
+
+    let missing_path = builder.ins().icmp_imm(IntCC::Equal, audit_path, 0);
+    builder
+        .ins()
+        .brif(missing_path, skip_block, &[], len_block, &[]);
+
+    builder.switch_to_block(len_block);
+    builder.seal_block(len_block);
+    let strlen_call = builder.ins().call(runtime_refs.strlen, &[audit_path]);
+    let audit_path_len = builder.inst_results(strlen_call)[0];
+    let empty_path = builder.ins().icmp_imm(IntCC::Equal, audit_path_len, 0);
+    builder
+        .ins()
+        .brif(empty_path, skip_block, &[], open_block, &[]);
+
+    builder.switch_to_block(open_block);
+    builder.seal_block(open_block);
+    let mode_ptr = emit_i64_path_ptr(builder, "ab")?;
+    let fopen_call = builder
+        .ins()
+        .call(runtime_refs.fopen, &[audit_path, mode_ptr]);
+    let file = builder.inst_results(fopen_call)[0];
+    let open_failed = builder.ins().icmp_imm(IntCC::Equal, file, 0);
+    builder
+        .ins()
+        .brif(open_failed, skip_block, &[], write_block, &[]);
+
+    builder.switch_to_block(write_block);
+    builder.seal_block(write_block);
+    let line_len = u32::try_from(line.len())
+        .map_err(|_| CraneliftBackendError::new("audit line is too large"))?;
+    let line_ptr = emit_i64_path_ptr(builder, line)?;
+    let element_size = builder.ins().iconst(types::I64, 1);
+    let element_count = builder.ins().iconst(types::I64, i64::from(line_len));
+    builder.ins().call(
+        runtime_refs.fwrite,
+        &[line_ptr, element_size, element_count, file],
+    );
+    builder.ins().call(runtime_refs.fclose, &[file]);
+    builder.ins().jump(merge_block, &[]);
+
+    builder.switch_to_block(skip_block);
+    builder.seal_block(skip_block);
+    builder.ins().jump(merge_block, &[]);
+
+    builder.switch_to_block(merge_block);
+    builder.seal_block(merge_block);
+    Ok(())
+}
+
+fn emit_i64_audit_fs_expr(
+    builder: &mut FunctionBuilder<'_>,
+    locals: &[Variable],
+    function_refs: &[FuncRef],
+    runtime_refs: I64RuntimeRefs,
+    intrinsic: &str,
+    package: &str,
+    path_len: usize,
+    content_len: Option<usize>,
+    result: &I64Expr,
+) -> Result<cranelift_codegen::ir::Value, CraneliftBackendError> {
+    let status = emit_i64_expr(builder, locals, function_refs, runtime_refs, result)?;
+    let ok_line = i64_fs_audit_line(intrinsic, package, path_len, content_len, "ok");
+    let denied_line = i64_fs_audit_line(intrinsic, package, path_len, content_len, "denied");
+
+    let ok_block = builder.create_block();
+    let denied_block = builder.create_block();
+    let merge_block = builder.create_block();
+    builder.append_block_param(merge_block, types::I64);
+
+    let ok = builder.ins().icmp_imm(IntCC::Equal, status, 0);
+    builder.ins().brif(ok, ok_block, &[], denied_block, &[]);
+
+    builder.switch_to_block(ok_block);
+    builder.seal_block(ok_block);
+    emit_i64_host_audit_line(builder, runtime_refs, &ok_line)?;
+    builder.ins().jump(merge_block, &[BlockArg::Value(status)]);
+
+    builder.switch_to_block(denied_block);
+    builder.seal_block(denied_block);
+    emit_i64_host_audit_line(builder, runtime_refs, &denied_line)?;
+    builder.ins().jump(merge_block, &[BlockArg::Value(status)]);
+
+    builder.switch_to_block(merge_block);
+    builder.seal_block(merge_block);
+    Ok(builder.block_params(merge_block)[0])
 }
 
 fn emit_i64_write_file_expr(

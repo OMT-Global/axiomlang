@@ -112,6 +112,7 @@ struct I64StaticBindings {
     sync_channel_wrappers: HashSet<String>,
     sync_send_wrappers: HashSet<String>,
     sync_try_recv_wrappers: HashSet<String>,
+    package_root: Option<PathBuf>,
     fs_root: Option<PathBuf>,
     structs: HashMap<String, StructDef>,
     enums: HashMap<String, EnumDef>,
@@ -284,7 +285,7 @@ pub fn compile_cranelift_hello_spike(
             "the cranelift backend spike currently supports only the host target",
         ));
     }
-    if let Some(program) = lower_i64_exit_program(program, fs_root) {
+    if let Some(program) = lower_i64_exit_program(program, package_root, fs_root) {
         return axiomc_backend_cranelift::compile_i64_exit_program(
             program,
             object_path,
@@ -312,7 +313,11 @@ pub fn compile_cranelift_hello_spike(
     )
 }
 
-fn lower_i64_exit_program(program: &Program, fs_root: &Path) -> Option<I64ExitProgram> {
+fn lower_i64_exit_program(
+    program: &Program,
+    package_root: &Path,
+    fs_root: &Path,
+) -> Option<I64ExitProgram> {
     if !program.stmts.is_empty() {
         return None;
     }
@@ -330,6 +335,7 @@ fn lower_i64_exit_program(program: &Program, fs_root: &Path) -> Option<I64ExitPr
         .map(|struct_def| (struct_def.name.as_str(), struct_def))
         .collect::<HashMap<_, _>>();
     let mut static_bindings = lower_i64_static_bindings(&program.statics)?;
+    static_bindings.package_root = Some(package_root.to_path_buf());
     static_bindings.fs_root = Some(fs_root.to_path_buf());
     static_bindings.process_status_wrappers = program
         .functions
@@ -11595,112 +11601,266 @@ fn lower_i64_fs_write_intrinsic_expr(
     let name = i64_fs_write_intrinsic_name(name, static_bindings)?;
     if name == "fs_write" {
         let (path, content) = i64_fs_path_content(args, static_bindings)?;
+        let path_len = path.len();
+        let content_len = content.len();
         if content.len() > SPIKE_MAX_FS_WRITE_BYTES {
-            return Some(CraneliftI64Expr::Literal(-1));
+            return i64_audited_fs_expr(
+                name,
+                path_len,
+                Some(content_len),
+                CraneliftI64Expr::Literal(-1),
+                static_bindings,
+            );
         }
         let fs_root = static_bindings.fs_root.as_deref()?;
         let Some(candidate) = spike_fs_write_candidate_for_root(fs_root, &path, false) else {
-            return Some(CraneliftI64Expr::Literal(-1));
+            return i64_audited_fs_expr(
+                name,
+                path_len,
+                Some(content_len),
+                CraneliftI64Expr::Literal(-1),
+                static_bindings,
+            );
         };
-        return Some(CraneliftI64Expr::WriteFile {
-            path: candidate.display().to_string(),
-            content,
-        });
+        return i64_audited_fs_expr(
+            name,
+            path_len,
+            Some(content_len),
+            CraneliftI64Expr::WriteFile {
+                path: candidate.display().to_string(),
+                content,
+            },
+            static_bindings,
+        );
     }
     if name == "fs_append" {
         let (path, content) = i64_fs_path_content(args, static_bindings)?;
+        let path_len = path.len();
+        let content_len = content.len();
         if content.len() > SPIKE_MAX_FS_WRITE_BYTES {
-            return Some(CraneliftI64Expr::Literal(-1));
+            return i64_audited_fs_expr(
+                name,
+                path_len,
+                Some(content_len),
+                CraneliftI64Expr::Literal(-1),
+                static_bindings,
+            );
         }
         let fs_root = static_bindings.fs_root.as_deref()?;
         let Some(candidate) = spike_fs_write_candidate_for_root(fs_root, &path, false) else {
-            return Some(CraneliftI64Expr::Literal(-1));
+            return i64_audited_fs_expr(
+                name,
+                path_len,
+                Some(content_len),
+                CraneliftI64Expr::Literal(-1),
+                static_bindings,
+            );
         };
-        return Some(CraneliftI64Expr::AppendFile {
-            path: candidate.display().to_string(),
-            content,
-        });
+        return i64_audited_fs_expr(
+            name,
+            path_len,
+            Some(content_len),
+            CraneliftI64Expr::AppendFile {
+                path: candidate.display().to_string(),
+                content,
+            },
+            static_bindings,
+        );
     }
     if name == "fs_replace" {
         let (path, content) = i64_fs_path_content(args, static_bindings)?;
+        let path_len = path.len();
+        let content_len = content.len();
         if content.len() > SPIKE_MAX_FS_WRITE_BYTES {
-            return Some(CraneliftI64Expr::Literal(-1));
+            return i64_audited_fs_expr(
+                name,
+                path_len,
+                Some(content_len),
+                CraneliftI64Expr::Literal(-1),
+                static_bindings,
+            );
         }
         let fs_root = static_bindings.fs_root.as_deref()?;
         let Some(candidate) = spike_fs_write_candidate_for_root(fs_root, &path, false) else {
-            return Some(CraneliftI64Expr::Literal(-1));
+            return i64_audited_fs_expr(
+                name,
+                path_len,
+                Some(content_len),
+                CraneliftI64Expr::Literal(-1),
+                static_bindings,
+            );
         };
         let Some(parent) = candidate.parent() else {
-            return Some(CraneliftI64Expr::Literal(-1));
+            return i64_audited_fs_expr(
+                name,
+                path_len,
+                Some(content_len),
+                CraneliftI64Expr::Literal(-1),
+                static_bindings,
+            );
         };
         let Some(file_name) = candidate.file_name() else {
-            return Some(CraneliftI64Expr::Literal(-1));
+            return i64_audited_fs_expr(
+                name,
+                path_len,
+                Some(content_len),
+                CraneliftI64Expr::Literal(-1),
+                static_bindings,
+            );
         };
         let temp_path = parent.join(format!(
             ".{}.axiom-replace.tmp",
             file_name.to_string_lossy()
         ));
-        return Some(CraneliftI64Expr::ReplaceFile {
-            path: candidate.display().to_string(),
-            temp_path: temp_path.display().to_string(),
-            content,
-        });
+        return i64_audited_fs_expr(
+            name,
+            path_len,
+            Some(content_len),
+            CraneliftI64Expr::ReplaceFile {
+                path: candidate.display().to_string(),
+                temp_path: temp_path.display().to_string(),
+                content,
+            },
+            static_bindings,
+        );
     }
     if name == "fs_create" {
         let path = i64_fs_path(args, static_bindings)?;
+        let path_len = path.len();
         let fs_root = static_bindings.fs_root.as_deref()?;
         let Some(candidate) = spike_fs_write_candidate_for_root(fs_root, &path, false) else {
-            return Some(CraneliftI64Expr::Literal(-1));
+            return i64_audited_fs_expr(
+                name,
+                path_len,
+                None,
+                CraneliftI64Expr::Literal(-1),
+                static_bindings,
+            );
         };
-        return Some(CraneliftI64Expr::CreateFile {
-            path: candidate.display().to_string(),
-        });
+        return i64_audited_fs_expr(
+            name,
+            path_len,
+            None,
+            CraneliftI64Expr::CreateFile {
+                path: candidate.display().to_string(),
+            },
+            static_bindings,
+        );
     }
     if name == "fs_mkdir" {
         let path = i64_fs_path(args, static_bindings)?;
+        let path_len = path.len();
         let fs_root = static_bindings.fs_root.as_deref()?;
         let Some(candidate) = spike_fs_write_candidate_for_root(fs_root, &path, false) else {
-            return Some(CraneliftI64Expr::Literal(-1));
+            return i64_audited_fs_expr(
+                name,
+                path_len,
+                None,
+                CraneliftI64Expr::Literal(-1),
+                static_bindings,
+            );
         };
-        return Some(CraneliftI64Expr::MakeDir {
-            path: candidate.display().to_string(),
-        });
+        return i64_audited_fs_expr(
+            name,
+            path_len,
+            None,
+            CraneliftI64Expr::MakeDir {
+                path: candidate.display().to_string(),
+            },
+            static_bindings,
+        );
     }
     if name == "fs_mkdir_all" {
         let path = i64_fs_path(args, static_bindings)?;
+        let path_len = path.len();
         let fs_root = static_bindings.fs_root.as_deref()?;
         let Some(candidate) = spike_fs_write_candidate_for_root(fs_root, &path, true) else {
-            return Some(CraneliftI64Expr::Literal(-1));
+            return i64_audited_fs_expr(
+                name,
+                path_len,
+                None,
+                CraneliftI64Expr::Literal(-1),
+                static_bindings,
+            );
         };
-        return Some(CraneliftI64Expr::MakeDirAll {
-            path: candidate.display().to_string(),
-        });
+        return i64_audited_fs_expr(
+            name,
+            path_len,
+            None,
+            CraneliftI64Expr::MakeDirAll {
+                path: candidate.display().to_string(),
+            },
+            static_bindings,
+        );
     }
     if name == "fs_remove_file" {
         let path = i64_fs_path(args, static_bindings)?;
+        let path_len = path.len();
         let fs_root = static_bindings.fs_root.as_deref()?;
         let Some(candidate) = spike_fs_write_candidate_for_root(fs_root, &path, false) else {
-            return Some(CraneliftI64Expr::Literal(-1));
+            return i64_audited_fs_expr(
+                name,
+                path_len,
+                None,
+                CraneliftI64Expr::Literal(-1),
+                static_bindings,
+            );
         };
-        return Some(CraneliftI64Expr::RemoveFile {
-            path: candidate.display().to_string(),
-        });
+        return i64_audited_fs_expr(
+            name,
+            path_len,
+            None,
+            CraneliftI64Expr::RemoveFile {
+                path: candidate.display().to_string(),
+            },
+            static_bindings,
+        );
     }
     if name == "fs_remove_dir" {
         let path = i64_fs_path(args, static_bindings)?;
+        let path_len = path.len();
         let fs_root = static_bindings.fs_root.as_deref()?;
         let Some(candidate) = spike_fs_write_candidate_for_root(fs_root, &path, false) else {
-            return Some(CraneliftI64Expr::Literal(-1));
+            return i64_audited_fs_expr(
+                name,
+                path_len,
+                None,
+                CraneliftI64Expr::Literal(-1),
+                static_bindings,
+            );
         };
-        return Some(CraneliftI64Expr::RemoveDir {
-            path: candidate.display().to_string(),
-        });
+        return i64_audited_fs_expr(
+            name,
+            path_len,
+            None,
+            CraneliftI64Expr::RemoveDir {
+                path: candidate.display().to_string(),
+            },
+            static_bindings,
+        );
     }
     Some(CraneliftI64Expr::Literal(i64_fs_write_result(
         name,
         args,
         static_bindings,
     )?))
+}
+
+fn i64_audited_fs_expr(
+    intrinsic: &str,
+    path_len: usize,
+    content_len: Option<usize>,
+    result: CraneliftI64Expr,
+    static_bindings: &I64StaticBindings,
+) -> Option<CraneliftI64Expr> {
+    let package = static_bindings.package_root.as_deref()?;
+    Some(CraneliftI64Expr::AuditFs {
+        intrinsic: intrinsic.to_string(),
+        package: package.display().to_string(),
+        path_len,
+        content_len,
+        result: Box::new(result),
+    })
 }
 
 fn lower_i64_crypto_random_intrinsic_expr(
