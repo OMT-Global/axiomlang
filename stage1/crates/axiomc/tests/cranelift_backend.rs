@@ -3598,15 +3598,15 @@ true
 
 #[cfg(not(windows))]
 #[test]
-fn cranelift_backend_lowers_crypto_random_u64_to_runtime_exit_code() {
+fn cranelift_backend_lowers_crypto_random_to_runtime_exit_code() {
     if which::which("cc").is_err() {
         eprintln!("skipping cranelift backend smoke test because cc is unavailable");
         return;
     }
 
     let temp = tempfile::tempdir().expect("tempdir");
-    let project = temp.path().join("crypto-random-u64-main-exit");
-    write_crypto_random_u64_main_exit_project(&project);
+    let project = temp.path().join("crypto-random-main-exit");
+    write_crypto_random_main_exit_project(&project);
 
     let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
         .args([
@@ -3620,7 +3620,7 @@ fn cranelift_backend_lowers_crypto_random_u64_to_runtime_exit_code() {
         .expect("run axiomc build --backend cranelift");
     assert!(
         output.status.success(),
-        "cranelift crypto random u64 main build failed: stdout={} stderr={}",
+        "cranelift crypto random main build failed: stdout={} stderr={}",
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
@@ -3631,7 +3631,7 @@ fn cranelift_backend_lowers_crypto_random_u64_to_runtime_exit_code() {
     let binary = payload["binary"].as_str().expect("binary path");
     let run = Command::new(binary)
         .output()
-        .expect("run cranelift crypto random u64 main binary");
+        .expect("run cranelift crypto random main binary");
     assert_eq!(run.status.code(), Some(48));
     assert_eq!(String::from_utf8_lossy(&run.stdout), "");
 }
@@ -5402,7 +5402,7 @@ clock = false
 crypto = false
 
 [unsafe_rationale]
-env = \"Cranelift ABI regression needs a runtime-only projected key index source.\"
+env = "Cranelift ABI regression needs a runtime-only projected key index source."
 "#,
     )
     .expect("write regex manifest");
@@ -6863,7 +6863,7 @@ clock = false
 crypto = false
 
 [unsafe_rationale]
-env = \"Cranelift ABI regression needs a runtime-only projected key index source.\"
+env = "Cranelift ABI regression needs a runtime-only projected key index source."
 "#,
     )
     .expect("write owned move manifest");
@@ -6997,7 +6997,7 @@ fn write_std_collection_wrapper_main_exit_project(project: &Path) {
         .expect("create std collection wrapper main project src");
     fs::write(
         project.join("axiom.toml"),
-        "[package]\nname = \"cranelift-std-collection-wrapper-main-exit\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = true\nclock = false\ncrypto = false\n\n[unsafe_rationale]\nenv = \"Cranelift ABI regression needs a runtime-only projected key index source.\"\n",
+        "[package]\nname = \"cranelift-std-collection-wrapper-main-exit\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n",
     )
     .expect("write std collection wrapper main manifest");
     fs::write(
@@ -7008,11 +7008,9 @@ fn write_std_collection_wrapper_main_exit_project(project: &Path) {
     fs::write(
         project.join("src/main.ax"),
         r#"import "std/collections.ax"
-import "std/env.ax"
-
-fn choose_key_index(length: int): int {
-if length > 0 {
-return length - 1
+fn choose_key_index(found: bool): int {
+if found {
+return 1
 } else {
 return 0
 }
@@ -7040,7 +7038,7 @@ let second_key_names: [string] = keys<string, int>(second_key_scores)
 let second_key_len: int = len(second_key_names[1])
 let dynamic_key_scores: {string: int} = {"build": 7, "deploy": 9}
 let dynamic_key_names: [string] = keys<string, int>(dynamic_key_scores)
-let dynamic_key_index: int = choose_key_index(match get_env("AXIOM_CRANELIFT_DYNAMIC_KEY_INDEX") { Some(value) => len(value), None => 0 })
+let dynamic_key_index: int = choose_key_index(contains_hit)
 let dynamic_key_len: int = len(dynamic_key_names[dynamic_key_index])
 let dynamic_key_eq_scores: {string: int} = {"build": 7, "deploy": 9}
 let dynamic_key_eq_names: [string] = keys<string, int>(dynamic_key_eq_scores)
@@ -7818,23 +7816,23 @@ fn write_crypto_random_project(project: &Path, crypto: bool) {
     .expect("write crypto random source");
 }
 
-fn write_crypto_random_u64_main_exit_project(project: &Path) {
-    fs::create_dir_all(project.join("src")).expect("create crypto random u64 project src");
+fn write_crypto_random_main_exit_project(project: &Path) {
+    fs::create_dir_all(project.join("src")).expect("create crypto random project src");
     fs::write(
         project.join("axiom.toml"),
-        "[package]\nname = \"cranelift-crypto-random-u64-main-exit\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = true\n\n[unsafe_rationale]\ncrypto = \"Direct-native random_u64 regression covers std/crypto_rand.ax for issue 928.\"\n",
+        "[package]\nname = \"cranelift-crypto-random-main-exit\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = true\n\n[unsafe_rationale]\ncrypto = \"Direct-native random_bytes length and random_u64 regression covers std/crypto_rand.ax for issue 1001.\"\n",
     )
-    .expect("write crypto random u64 main manifest");
+    .expect("write crypto random main manifest");
     fs::write(
         project.join("axiom.lock"),
-        "version = 1\n\n[[package]]\nname = \"cranelift-crypto-random-u64-main-exit\"\nversion = \"0.1.0\"\nsource = \"path\"\n",
+        "version = 1\n\n[[package]]\nname = \"cranelift-crypto-random-main-exit\"\nversion = \"0.1.0\"\nsource = \"path\"\n",
     )
-    .expect("write crypto random u64 main lockfile");
+    .expect("write crypto random main lockfile");
     fs::write(
         project.join("src/main.ax"),
-        "import \"std/crypto_rand.ax\"\n\nfn main(): int {\nlet value: int = random_u64() as int\nif value == value {\nreturn 48\n} else {\nreturn 1\n}\n}\n",
+        "import \"std/crypto_rand.ax\"\n\nstatic RANDOM_LEN: int = 16\n\nfn main(): int {\nlet sample_len: int = len(random_bytes(RANDOM_LEN))\nlet empty_len: int = len(random_bytes(0))\nlet value: int = random_u64() as int\nif sample_len == RANDOM_LEN && empty_len == 0 && value == value {\nreturn 48\n} else {\nreturn 1\n}\n}\n",
     )
-    .expect("write crypto random u64 main source");
+    .expect("write crypto random main source");
 }
 
 fn write_crypto_signature_project(project: &Path, crypto: bool) {

@@ -97,6 +97,7 @@ struct I64StaticBindings {
     crypto_constant_time_eq_u8_wrappers: HashSet<String>,
     crypto_verify_sha256_wrappers: HashSet<String>,
     crypto_verify_sha512_wrappers: HashSet<String>,
+    crypto_random_bytes_wrappers: HashSet<String>,
     crypto_random_u64_wrappers: HashSet<String>,
     ffi_strlen_symbols: HashSet<String>,
     sync_once_wrappers: HashSet<String>,
@@ -636,6 +637,7 @@ fn lower_i64_exit_program(program: &Program, fs_root: &Path) -> Option<I64ExitPr
                 || is_i64_std_crypto_wrapper(function, "constant_time_eq_u8")
                 || is_i64_std_crypto_wrapper(function, "verify_sha256")
                 || is_i64_std_crypto_wrapper(function, "verify_sha512")
+                || is_i64_std_crypto_wrapper(function, "random_bytes")
                 || is_i64_std_crypto_wrapper(function, "random_u64")
                 || function.path == "<stdlib>/crypto_rand.ax"
         })
@@ -681,6 +683,12 @@ fn lower_i64_exit_program(program: &Program, fs_root: &Path) -> Option<I64ExitPr
         .functions
         .iter()
         .filter(|function| is_i64_std_crypto_wrapper(function, "verify_sha512"))
+        .flat_map(|function| [function.name.clone(), function.source_name.clone()])
+        .collect();
+    static_bindings.crypto_random_bytes_wrappers = program
+        .functions
+        .iter()
+        .filter(|function| is_i64_std_crypto_wrapper(function, "random_bytes"))
         .flat_map(|function| [function.name.clone(), function.source_name.clone()])
         .collect();
     static_bindings.crypto_random_u64_wrappers = program
@@ -9173,6 +9181,26 @@ fn lower_i64_crypto_random_intrinsic_expr(
     Some(CraneliftI64Expr::Literal(i64::from_ne_bytes(bytes)))
 }
 
+fn lower_i64_crypto_random_bytes_len_expr(
+    expr: &Expr,
+    static_bindings: &I64StaticBindings,
+) -> Option<CraneliftI64Expr> {
+    let Expr::Call { name, args, .. } = expr else {
+        return None;
+    };
+    if !is_i64_crypto_random_bytes_name(name, static_bindings) {
+        return None;
+    }
+    let [length] = args.as_slice() else {
+        return None;
+    };
+    let length = i64_static_scalar_value(length, static_bindings)?;
+    if !(0..=65_536).contains(&length) {
+        return None;
+    }
+    Some(CraneliftI64Expr::Literal(length))
+}
+
 fn lower_i64_ffi_intrinsic_expr(
     name: &str,
     args: &[Expr],
@@ -9702,6 +9730,10 @@ fn is_i64_crypto_verify_sha512_name(name: &str, static_bindings: &I64StaticBindi
     static_bindings.crypto_verify_sha512_wrappers.contains(name)
 }
 
+fn is_i64_crypto_random_bytes_name(name: &str, static_bindings: &I64StaticBindings) -> bool {
+    name == "crypto_rand_bytes" || static_bindings.crypto_random_bytes_wrappers.contains(name)
+}
+
 fn is_i64_crypto_random_u64_name(name: &str, static_bindings: &I64StaticBindings) -> bool {
     name == "crypto_rand_u64" || static_bindings.crypto_random_u64_wrappers.contains(name)
 }
@@ -9773,6 +9805,9 @@ fn lower_i64_fixed_array_intrinsic_expr(
             helper_signatures,
             static_bindings,
         ) {
+            return Some(length);
+        }
+        if let Some(length) = lower_i64_crypto_random_bytes_len_expr(arg, static_bindings) {
             return Some(length);
         }
         if let Some(length) = lower_i64_map_keys_len_expr(arg, static_bindings) {

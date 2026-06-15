@@ -424,8 +424,11 @@ spike can build and run `std/crypto_rand.ax` `random_bytes(...)` and
 preserving the generated-Rust helper's `0..=65536` byte length cap. The
 direct-native i64 path now also lowers public `std/crypto_rand.ax`
 `random_u64()` into native process exit status through the same Unix OS-random
-source. A package without the `crypto` capability still fails before backend
-lowering. Direct-native `random_bytes(...)`, portable entropy source parity,
+source. It also lowers `len(random_bytes(n))` for literal and static scalar
+nonnegative lengths up to the stage1 65,536 byte cap into native process exit
+status without materializing a general byte-array value. A package without the
+`crypto` capability still fails before backend lowering. Direct-native
+`random_bytes(...)` byte storage and contents, portable entropy source parity,
 deterministic test hooks, and runtime audit parity remain open under #1001.
 
 The direct-native crypto signature slice is now marked partial: the Cranelift
