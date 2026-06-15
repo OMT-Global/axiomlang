@@ -1328,6 +1328,38 @@ fn cranelift_backend_lowers_string_literal_len_to_runtime_exit_code() {
     assert_eq!(String::from_utf8_lossy(&run.stdout), "");
 }
 
+#[test]
+fn cranelift_backend_rejects_unsupported_string_helper_main() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("unsupported-string-helper-main");
+    write_unsupported_string_helper_main_project(&project);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args([
+            "build",
+            project.to_str().expect("project path"),
+            "--backend",
+            "cranelift",
+            "--json",
+        ])
+        .output()
+        .expect("run axiomc build --backend cranelift");
+    assert!(
+        !output.status.success(),
+        "cranelift unsupported string helper main unexpectedly built: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+    assert_eq!(payload["ok"], Value::Bool(false));
+    let message = payload["error"]["message"].as_str().expect("error message");
+    assert!(
+        message.contains("main function is outside the direct-native i64 ABI subset"),
+        "unexpected cranelift unsupported string helper error: {message}"
+    );
+}
+
 #[cfg(not(windows))]
 #[test]
 fn cranelift_backend_lowers_std_encoding_wrappers_to_runtime_exit_code() {
@@ -6308,19 +6340,154 @@ fn write_string_literal_len_main_exit_project(project: &Path) {
         .expect("create string literal len main exit project src");
     fs::write(
         project.join("axiom.toml"),
-        "[package]\nname = \"cranelift-string-literal-len-main-exit\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n",
+        r#"[package]
+name = "cranelift-string-literal-len-main-exit"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+fs = false
+net = false
+process = false
+env = false
+clock = false
+crypto = false
+"#,
     )
     .expect("write string literal len main exit manifest");
     fs::write(
         project.join("axiom.lock"),
-        "version = 1\n\n[[package]]\nname = \"cranelift-string-literal-len-main-exit\"\nversion = \"0.1.0\"\nsource = \"path\"\n",
+        r#"version = 1
+
+[[package]]
+name = "cranelift-string-literal-len-main-exit"
+version = "0.1.0"
+source = "path"
+"#,
     )
     .expect("write string literal len main exit lockfile");
     fs::write(
         project.join("src/main.ax"),
-        "static BANNER: string = \"direct-native\"\nstatic PADDED: string = \"  direct-native  \"\nstatic SECOND_LINE_INDEX: int = 1\nstatic MISSING_LINE_INDEX: int = -1\n\nfn local_len(): int {\nlet text: string = \"native\"\nreturn len(text)\n}\n\nfn add_base(value: int): int {\nreturn value + 19\n}\n\nfn native_prefix(): bool {\nlet value: string = string_clone(BANNER)\nreturn string_starts_with(value, \"direct\")\n}\n\nfn static_prefix(): bool {\nlet trimmed: string = string_trim(PADDED)\nreturn string_starts_with(trimmed, \"direct\")\n}\n\nfn main(): int {\nlet owned: string = \"direct-native\"\nlet short: string = \"abi\"\nlet prefix_text: string = string_clone(BANNER)\nlet miss_text: string = string_trim(PADDED)\nlet compare_text: string = string_trim_start(\"  direct-native\")\nlet literal_len: int = len(\"runtime\")\nlet local_len_value: int = len(owned)\nlet static_len_value: int = len(BANNER)\nlet clone_len_value: int = len(string_clone(BANNER))\nlet trim_len_value: int = len(string_trim(PADDED))\nlet trim_start_len_value: int = len(string_trim_start(\"  abi\"))\nlet concat_len_value: int = len(string_clone(BANNER) + string_trim_start(\"  abi\"))\nlet encoded_len: int = len(encoding_url_component_encode(\"hello world/one\"))\nlet segment_len: int = len(encoding_path_segment_encode(\"a/b c\"))\nlet pair_len: int = len(encoding_url_query_pair_encode(\"q\", \"agent path/one\"))\nlet joined_len: int = len(encoding_path_join_segment(\"/docs\", \"stage 1/encoding\"))\nlet strip_prefix_len: int = match string_strip_prefix(BANNER, \"direct-\") { Some(rest) => len(rest), None => 1 }\nlet strip_suffix_gate: bool = match string_strip_suffix(BANNER, \"-native\") { Some(rest) => string_starts_with(rest, \"direct\"), None => false }\nlet line_len: int = match string_line_at(\"first\\nsecond\\nthird\", SECOND_LINE_INDEX) { Some(line) => len(line), None => 1 }\nlet line_missing: int = match string_line_at(\"first\\nsecond\", MISSING_LINE_INDEX) { Some(line) => len(line), None => 4 }\nlet decoded_len: int = match encoding_url_component_decode(\"hello%20axiom\") { Some(value) => len(value), None => 1 }\nlet decode_missing: int = match encoding_url_component_decode(\"bad%2\") { Some(value) => len(value), None => 4 }\nlet short_len: int = len(short)\nlet helper_len: int = local_len()\nlet helper_arg_len: int = add_base(len(short))\nlet prefix_gate: bool = string_starts_with(prefix_text, \"direct\")\nlet miss_gate: bool = string_starts_with(miss_text, \"rust\") == false\nlet helper_gate: bool = native_prefix()\nlet static_gate: bool = static_prefix()\nlet compare_gate: bool = compare_text == BANNER\nif prefix_gate && miss_gate && helper_gate && static_gate && compare_gate && strip_suffix_gate && literal_len == 7 && local_len_value == 13 && static_len_value == 13 && clone_len_value == 13 && trim_len_value == 13 && trim_start_len_value == 3 && concat_len_value == 16 && encoded_len == 19 && segment_len == 9 && pair_len == 20 && joined_len == 26 && strip_prefix_len == 6 && line_len == 6 && line_missing == 4 && decoded_len == 11 && decode_missing == 4 && short_len == 3 && helper_len == 6 && helper_arg_len == 22 {\nreturn literal_len + local_len_value + helper_len + helper_arg_len\n} else {\nreturn 1\n}\n}\n",
+        r#"static BANNER: string = "direct-native"
+static PADDED: string = "  direct-native  "
+static SECOND_LINE_INDEX: int = 1
+static MISSING_LINE_INDEX: int = -1
+
+fn local_len(): int {
+let text: string = "native"
+return len(text)
+}
+
+fn add_base(value: int): int {
+return value + 19
+}
+
+fn native_prefix(): bool {
+let value: string = string_clone(BANNER)
+return string_starts_with(value, "direct")
+}
+
+fn static_prefix(): bool {
+let trimmed: string = string_trim(PADDED)
+return string_starts_with(trimmed, "direct")
+}
+
+fn main(): int {
+let owned: string = "direct-native"
+let short: string = "abi"
+let prefix_text: string = string_clone(BANNER)
+let miss_text: string = string_trim(PADDED)
+let compare_text: string = string_trim_start("  direct-native")
+let literal_len: int = len("runtime")
+let local_len_value: int = len(owned)
+let static_len_value: int = len(BANNER)
+let clone_len_value: int = len(string_clone(BANNER))
+let trim_len_value: int = len(string_trim(PADDED))
+let trim_start_len_value: int = len(string_trim_start("  abi"))
+let concat_len_value: int = len(string_clone(BANNER) + string_trim_start("  abi"))
+let encoded_len: int = len(encoding_url_component_encode("hello world/one"))
+let segment_len: int = len(encoding_path_segment_encode("a/b c"))
+let pair_len: int = len(encoding_url_query_pair_encode("q", "agent path/one"))
+let joined_len: int = len(encoding_path_join_segment("/docs", "stage 1/encoding"))
+let strip_prefix_len: int = match string_strip_prefix(BANNER, "direct-") { Some(rest) => len(rest), None => 1 }
+let strip_suffix_gate: bool = match string_strip_suffix(BANNER, "-native") { Some(rest) => string_starts_with(rest, "direct"), None => false }
+let line_len: int = match string_line_at("first\nsecond\nthird", SECOND_LINE_INDEX) { Some(line) => len(line), None => 1 }
+let line_missing: int = match string_line_at("first\nsecond", MISSING_LINE_INDEX) { Some(line) => len(line), None => 4 }
+let decoded_len: int = match encoding_url_component_decode("hello%20axiom") { Some(value) => len(value), None => 1 }
+let decode_missing: int = match encoding_url_component_decode("bad%2") { Some(value) => len(value), None => 4 }
+let short_len: int = len(short)
+let helper_len: int = local_len()
+let helper_arg_len: int = add_base(len(short))
+let prefix_gate: bool = string_starts_with(prefix_text, "direct")
+let miss_gate: bool = string_starts_with(miss_text, "rust") == false
+let helper_gate: bool = native_prefix()
+let static_gate: bool = static_prefix()
+let compare_gate: bool = compare_text == BANNER
+if prefix_gate && miss_gate && helper_gate && static_gate && compare_gate && strip_suffix_gate && literal_len == 7 && local_len_value == 13 && static_len_value == 13 && clone_len_value == 13 && trim_len_value == 13 && trim_start_len_value == 3 && concat_len_value == 16 && encoded_len == 19 && segment_len == 9 && pair_len == 20 && joined_len == 26 && strip_prefix_len == 6 && line_len == 6 && line_missing == 4 && decoded_len == 11 && decode_missing == 4 && short_len == 3 && helper_len == 6 && helper_arg_len == 22 {
+return literal_len + local_len_value + helper_len + helper_arg_len
+} else {
+return 1
+}
+}
+"#,
     )
     .expect("write string literal len main exit source");
+}
+
+fn write_unsupported_string_helper_main_project(project: &Path) {
+    fs::create_dir_all(project.join("src"))
+        .expect("create unsupported string helper main project src");
+    fs::write(
+        project.join("axiom.toml"),
+        r#"[package]
+name = "cranelift-unsupported-string-helper-main"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+fs = false
+net = false
+process = false
+env = false
+clock = false
+crypto = false
+"#,
+    )
+    .expect("write unsupported string helper main manifest");
+    fs::write(
+        project.join("axiom.lock"),
+        r#"version = 1
+
+[[package]]
+name = "cranelift-unsupported-string-helper-main"
+version = "0.1.0"
+source = "path"
+"#,
+    )
+    .expect("write unsupported string helper main lockfile");
+    fs::write(
+        project.join("src/main.ax"),
+        r#"fn score(text: string): int {
+return len(text)
+}
+
+fn main(): int {
+let direct: int = score("direct-native")
+if direct == 13 {
+return 48
+} else {
+return 1
+}
+}
+"#,
+    )
+    .expect("write unsupported string helper main source");
 }
 
 fn write_std_encoding_wrapper_main_exit_project(project: &Path) {
