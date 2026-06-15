@@ -288,6 +288,16 @@ pub fn compile_cranelift_hello_spike(
             Diagnostic::new("build", err.to_string()).with_path(object_path.display().to_string())
         });
     }
+    if program.stmts.is_empty()
+        && program
+            .functions
+            .iter()
+            .any(|function| function.source_name == "main" && function.params.is_empty())
+    {
+        return Err(unsupported(
+            "main function is outside the direct-native i64 ABI subset",
+        ));
+    }
     let lines = collect_output_lines(program, package_root, fs_root)?;
     axiomc_backend_cranelift::compile_output_lines(&lines, object_path, binary_path).map_err(
         |err| {
