@@ -47,6 +47,7 @@ struct I64StaticBindings {
     time_sleep_wrappers: HashSet<String>,
     fs_read_wrappers: HashSet<String>,
     fs_write_wrappers: HashMap<String, String>,
+    has_fs_write_calls: bool,
     fs_shim_wrappers: HashSet<String>,
     net_shim_wrappers: HashSet<String>,
     http_shim_wrappers: HashSet<String>,
@@ -387,6 +388,10 @@ fn lower_i64_exit_program(program: &Program, fs_root: &Path) -> Option<I64ExitPr
         .filter(|function| is_i64_std_fs_shim_wrapper(function))
         .map(|function| function.name.clone())
         .collect();
+    static_bindings.has_fs_write_calls = program
+        .functions
+        .iter()
+        .any(|function| i64_stmts_have_fs_write_call(&function.body, &static_bindings));
     static_bindings.net_shim_wrappers = program
         .functions
         .iter()
@@ -6533,6 +6538,15 @@ fn lower_i64_option_match_exit_return(
     ) {
         return Some(I64ExitBody::Return(value));
     }
+    if let Some(value) = lower_i64_fs_read_option_match_value_expr(
+        expr,
+        local_indexes,
+        local_conditions,
+        helper_signatures,
+        static_bindings,
+    ) {
+        return Some(I64ExitBody::Return(value));
+    }
     if let Some(value) = lower_i64_known_string_option_match_value_expr(
         expr,
         local_indexes,
@@ -6596,6 +6610,15 @@ fn lower_i64_option_match_value_expr(
         return Some(value);
     }
     if let Some(value) = lower_i64_env_option_match_value_expr(
+        expr,
+        local_indexes,
+        local_conditions,
+        helper_signatures,
+        static_bindings,
+    ) {
+        return Some(value);
+    }
+    if let Some(value) = lower_i64_fs_read_option_match_value_expr(
         expr,
         local_indexes,
         local_conditions,
@@ -6815,6 +6838,222 @@ fn i64_env_get_key(expr: &Expr, static_bindings: &I64StaticBindings) -> Option<S
         return None;
     };
     i64_string_text(key, static_bindings)
+}
+
+fn lower_i64_fs_read_option_match_value_expr(
+    expr: &Expr,
+    local_indexes: &HashMap<String, usize>,
+    local_conditions: &HashMap<String, CraneliftI64Condition>,
+    helper_signatures: &HashMap<&str, I64HelperSignature>,
+    static_bindings: &I64StaticBindings,
+) -> Option<CraneliftI64Expr> {
+    let Expr::Match {
+        expr: matched,
+        arms,
+        ty,
+    } = expr
+    else {
+        return None;
+    };
+    if !is_i64_exit_type(ty) {
+        return None;
+    }
+    let Type::Option(inner) = matched.ty() else {
+        return None;
+    };
+    if !matches!(inner.as_ref(), Type::String | Type::Str) {
+        return None;
+    }
+    let path = i64_fs_read_path(matched, static_bindings)?;
+    let (some_arm, none_arm) = i64_option_match_arms(arms)?;
+    let binding = some_arm
+        .bindings
+        .first()
+        .filter(|binding| binding.as_str() != "_");
+    let file_len = CraneliftI64Expr::FileLen {
+        path: path.clone(),
+        max_bytes: SPIKE_MAX_FS_READ_BYTES,
+    };
+    let then_result = lower_i64_fs_read_some_arm_expr(
+        &some_arm.expr,
+        binding.map(String::as_str),
+        &path,
+        local_indexes,
+        local_conditions,
+        helper_signatures,
+        static_bindings,
+    )?;
+    let else_result = lower_i64_return_value_expr(
+        &none_arm.expr,
+        local_indexes,
+        local_conditions,
+        helper_signatures,
+        static_bindings,
+    )?;
+    Some(CraneliftI64Expr::Select {
+        cond: Box::new(CraneliftI64Condition::Compare(CraneliftI64Compare {
+            op: CraneliftI64CompareOp::Ge,
+            lhs: file_len,
+            rhs: CraneliftI64Expr::Literal(0),
+        })),
+        then_result: Box::new(then_result),
+        else_result: Box::new(else_result),
+    })
+}
+
+fn lower_i64_fs_read_some_arm_expr(
+    expr: &Expr,
+    binding: Option<&str>,
+    path: &str,
+    local_indexes: &HashMap<String, usize>,
+    local_conditions: &HashMap<String, CraneliftI64Condition>,
+    helper_signatures: &HashMap<&str, I64HelperSignature>,
+    static_bindings: &I64StaticBindings,
+) -> Option<CraneliftI64Expr> {
+    if let Some(binding) = binding
+        && let Expr::Call { name, args, .. } = expr
+        && name == "len"
+        && let [Expr::VarRef { name, .. }] = args.as_slice()
+        && name == binding
+    {
+        return Some(CraneliftI64Expr::FileLen {
+            path: path.to_string(),
+            max_bytes: SPIKE_MAX_FS_READ_BYTES,
+        });
+    }
+    lower_i64_return_value_expr(
+        expr,
+        local_indexes,
+        local_conditions,
+        helper_signatures,
+        static_bindings,
+    )
+}
+
+fn i64_fs_read_path(expr: &Expr, static_bindings: &I64StaticBindings) -> Option<String> {
+    if static_bindings.has_fs_write_calls {
+        return None;
+    }
+    let Expr::Call { name, args, .. } = expr else {
+        return None;
+    };
+    if name != "fs_read"
+        && name != "read_file"
+        && name != "std_fs_read_file"
+        && !static_bindings.fs_read_wrappers.contains(name)
+    {
+        return None;
+    }
+    let [path] = args.as_slice() else {
+        return None;
+    };
+    let fs_root = static_bindings.fs_root.as_deref()?;
+    let path = i64_string_text(path, static_bindings)?;
+    spike_fs_write_candidate_for_root(fs_root, &path, false).map(|path| path.display().to_string())
+}
+
+fn i64_stmts_have_fs_write_call(stmts: &[Stmt], static_bindings: &I64StaticBindings) -> bool {
+    stmts
+        .iter()
+        .any(|stmt| i64_stmt_has_fs_write_call(stmt, static_bindings))
+}
+
+fn i64_stmt_has_fs_write_call(stmt: &Stmt, static_bindings: &I64StaticBindings) -> bool {
+    match stmt {
+        Stmt::Let { expr, .. }
+        | Stmt::Print { expr, .. }
+        | Stmt::Panic { message: expr, .. }
+        | Stmt::Defer { expr, .. }
+        | Stmt::Return { expr, .. } => i64_expr_has_fs_write_call(expr, static_bindings),
+        Stmt::Assign { target, expr, .. } => {
+            i64_expr_has_fs_write_call(target, static_bindings)
+                || i64_expr_has_fs_write_call(expr, static_bindings)
+        }
+        Stmt::If {
+            cond,
+            then_block,
+            else_block,
+            ..
+        } => {
+            i64_expr_has_fs_write_call(cond, static_bindings)
+                || i64_stmts_have_fs_write_call(then_block, static_bindings)
+                || else_block
+                    .as_ref()
+                    .is_some_and(|stmts| i64_stmts_have_fs_write_call(stmts, static_bindings))
+        }
+        Stmt::While { cond, body, .. } => {
+            i64_expr_has_fs_write_call(cond, static_bindings)
+                || i64_stmts_have_fs_write_call(body, static_bindings)
+        }
+        Stmt::Match { expr, arms, .. } => {
+            i64_expr_has_fs_write_call(expr, static_bindings)
+                || arms
+                    .iter()
+                    .any(|arm| i64_stmts_have_fs_write_call(&arm.body, static_bindings))
+        }
+    }
+}
+
+fn i64_expr_has_fs_write_call(expr: &Expr, static_bindings: &I64StaticBindings) -> bool {
+    match expr {
+        Expr::Call { name, args, .. } => {
+            i64_fs_write_intrinsic_name(name, static_bindings).is_some()
+                || args
+                    .iter()
+                    .any(|arg| i64_expr_has_fs_write_call(arg, static_bindings))
+        }
+        Expr::BinaryAdd { lhs, rhs, .. }
+        | Expr::BinaryCompare { lhs, rhs, .. }
+        | Expr::BinaryLogic { lhs, rhs, .. }
+        | Expr::Index {
+            base: lhs,
+            index: rhs,
+            ..
+        } => {
+            i64_expr_has_fs_write_call(lhs, static_bindings)
+                || i64_expr_has_fs_write_call(rhs, static_bindings)
+        }
+        Expr::Cast { expr, .. }
+        | Expr::MutBorrow { expr, .. }
+        | Expr::Deref { expr, .. }
+        | Expr::Try { expr, .. }
+        | Expr::Await { expr, .. }
+        | Expr::FieldAccess { base: expr, .. }
+        | Expr::TupleIndex { base: expr, .. }
+        | Expr::StringBorrow { expr, .. } => i64_expr_has_fs_write_call(expr, static_bindings),
+        Expr::StructLiteral { fields, .. } => fields
+            .iter()
+            .any(|field| i64_expr_has_fs_write_call(&field.expr, static_bindings)),
+        Expr::TupleLiteral { elements, .. } | Expr::ArrayLiteral { elements, .. } => elements
+            .iter()
+            .any(|element| i64_expr_has_fs_write_call(element, static_bindings)),
+        Expr::MapLiteral { entries, .. } => entries.iter().any(|entry| {
+            i64_expr_has_fs_write_call(&entry.key, static_bindings)
+                || i64_expr_has_fs_write_call(&entry.value, static_bindings)
+        }),
+        Expr::EnumVariant { payloads, .. } => payloads
+            .iter()
+            .any(|payload| i64_expr_has_fs_write_call(payload, static_bindings)),
+        Expr::Closure { body, .. } => i64_expr_has_fs_write_call(body, static_bindings),
+        Expr::Slice {
+            base, start, end, ..
+        } => {
+            i64_expr_has_fs_write_call(base, static_bindings)
+                || start
+                    .as_ref()
+                    .is_some_and(|expr| i64_expr_has_fs_write_call(expr, static_bindings))
+                || end
+                    .as_ref()
+                    .is_some_and(|expr| i64_expr_has_fs_write_call(expr, static_bindings))
+        }
+        Expr::Match { expr, arms, .. } => {
+            i64_expr_has_fs_write_call(expr, static_bindings)
+                || arms
+                    .iter()
+                    .any(|arm| i64_expr_has_fs_write_call(&arm.expr, static_bindings))
+        }
+        Expr::Literal(_) | Expr::VarRef { .. } => false,
+    }
 }
 
 fn lower_i64_known_string_option_match_value_expr(

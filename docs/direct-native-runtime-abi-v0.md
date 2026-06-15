@@ -338,11 +338,15 @@ The `fs.read` row now has partial Cranelift evidence for `std/fs.ax`
 package without the `fs` capability fails before backend lowering. The
 direct-native i64 path now also lowers literal-path `fs_read(...)` calls and the
 public `std/fs.ax` `read_file(...)` wrapper into native process exit status by
-selecting `Option<string>` match arms at compile time for present and missing
-package-root-scoped files, using the same canonicalized `fs_root`, file-only,
-UTF-8, and maximum-size guard as the Cranelift spike. Full runtime-time
-filesystem access, write-side filesystem wrappers, manifest policy parity,
-runtime filesystem binding, and audit parity remain open under #1001.
+performing runtime native file length checks for direct `Option<string>` matches
+that use `len(value)`, returning the runtime byte length or the `None` arm when
+the file is absent, inaccessible, or above the read cap. Literal paths are still
+resolved through the package-root `fs_root` guard before codegen, and this
+native read path currently opts out for programs that contain write-side
+filesystem calls so existing write/read sequencing stays on the prior path.
+General string file contents, non-literal path binding, write-side filesystem
+wrappers, manifest policy parity, runtime filesystem binding, and audit parity
+remain open under #1001.
 
 The DNS row now has partial Cranelift evidence: the spike builds and runs a
 `std/net.ax` package resolving `localhost` through host DNS while the public

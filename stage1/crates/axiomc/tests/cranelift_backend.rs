@@ -3033,6 +3033,8 @@ fn cranelift_backend_lowers_fs_read_to_runtime_exit_code() {
     assert_eq!(payload["backend"], "cranelift");
     assert_eq!(payload["generated_rust"], Value::Null);
     let binary = payload["binary"].as_str().expect("binary path");
+    fs::write(project.join("src/fixture.txt"), "runtime-file\n")
+        .expect("rewrite fs-read fixture for runtime");
     let run = Command::new(binary)
         .output()
         .expect("run cranelift fs-read main binary");
@@ -11585,7 +11587,7 @@ fn main(): int {
 let direct_len: int = match fs_read("src/fixture.txt") { Some(value) => len(value), None => 1 }
 let wrapper_len: int = match read_file("src/fixture.txt") { Some(value) => len(value), None => 1 }
 let missing_len: int = match read_file("src/missing.txt") { Some(value) => len(value), None => 28 }
-if direct_len == 10 && wrapper_len == 10 && missing_len == 28 {
+if direct_len == 13 && wrapper_len == 13 && missing_len == 28 {
 return 48
 } else {
 return 1
