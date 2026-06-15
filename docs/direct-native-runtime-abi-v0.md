@@ -743,6 +743,7 @@ feed native stdout without generated Rust. The public `std/serdes.ax` binary
 smoke now also asserts `generated_rust: null` while exercising `to_json(...)`,
 deep `Value` equality, typed text/int/bool field access, object field access,
 array field access, `value_item(...)` over text and int elements,
+`is_null(...)`, `as_bool(...)`, `as_array(...)`, `as_object(...)`,
 `as_text(...)`, `as_int(...)`, `stringify(...)`, and parse-error output.
 Imported public `std/serdes.ax` known-input `to_json(...)`,
 `stringify(...)`,

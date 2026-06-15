@@ -5420,6 +5420,10 @@ axiom
 false
 one
 2
+true
+false
+2
+{"count":3,"name":"axiom"}
 parse error
 "#,
     );
@@ -11225,6 +11229,77 @@ print -1
 }
 None {
 print -1
+}
+}
+}
+Err(error) {
+print parse_error_message(error)
+}
+}
+
+match from_json_str("null") {
+Ok(value) {
+print is_null(value)
+}
+Err(error) {
+print parse_error_message(error)
+}
+}
+
+match from_json_str("false") {
+Ok(value) {
+match as_bool(value) {
+Some(flag) {
+print flag
+}
+None {
+print true
+}
+}
+}
+Err(error) {
+print parse_error_message(error)
+}
+}
+
+match from_json_str("[\"one\",2]") {
+Ok(value) {
+match as_array(value) {
+Some(items) {
+match value_item(Array(items), 1) {
+Some(item) {
+match as_int(item) {
+Some(count) {
+print count
+}
+None {
+print -1
+}
+}
+}
+None {
+print -1
+}
+}
+}
+None {
+print -1
+}
+}
+}
+Err(error) {
+print parse_error_message(error)
+}
+}
+
+match from_json_str("{\"name\":\"axiom\",\"count\":3}") {
+Ok(value) {
+match as_object(value) {
+Some(fields) {
+print to_json(fields)
+}
+None {
+print "missing object"
 }
 }
 }
