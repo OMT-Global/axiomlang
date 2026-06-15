@@ -2903,6 +2903,7 @@ fn cranelift_backend_lowers_std_collection_wrappers_to_runtime_exit_code() {
     assert_eq!(payload["generated_rust"], Value::Null);
     let binary = payload["binary"].as_str().expect("binary path");
     let run = Command::new(binary)
+        .env("AXIOM_CRANELIFT_DYNAMIC_KEY_INDEX", "deploy")
         .output()
         .expect("run cranelift std collection wrapper main binary");
     assert_eq!(run.status.code(), Some(48));
@@ -5396,9 +5397,12 @@ out_dir = "dist"
 fs = false
 net = false
 process = false
-env = false
+env = true
 clock = false
 crypto = false
+
+[unsafe_rationale]
+env = \"Cranelift ABI regression needs a runtime-only projected key index source.\"
 "#,
     )
     .expect("write regex manifest");
@@ -5439,7 +5443,7 @@ fn write_i64_main_exit_project(project: &Path) {
     fs::create_dir_all(project.join("src")).expect("create i64 main exit project src");
     fs::write(
         project.join("axiom.toml"),
-        "[package]\nname = \"cranelift-i64-main-exit\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n",
+        "[package]\nname = \"cranelift-i64-main-exit\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = true\nclock = false\ncrypto = false\n\n[unsafe_rationale]\nenv = \"Cranelift ABI regression needs a runtime-only projected key index source.\"\n",
     )
     .expect("write i64 main exit manifest");
     fs::write(
@@ -5458,7 +5462,7 @@ fn write_i64_returning_main_exit_project(project: &Path) {
     fs::create_dir_all(project.join("src")).expect("create i64 returning main exit project src");
     fs::write(
         project.join("axiom.toml"),
-        "[package]\nname = \"cranelift-i64-returning-main-exit\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n",
+        "[package]\nname = \"cranelift-i64-returning-main-exit\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = true\nclock = false\ncrypto = false\n\n[unsafe_rationale]\nenv = \"Cranelift ABI regression needs a runtime-only projected key index source.\"\n",
     )
     .expect("write i64 returning main exit manifest");
     fs::write(
@@ -6854,9 +6858,12 @@ out_dir = "dist"
 fs = false
 net = false
 process = false
-env = false
+env = true
 clock = false
 crypto = false
+
+[unsafe_rationale]
+env = \"Cranelift ABI regression needs a runtime-only projected key index source.\"
 "#,
     )
     .expect("write owned move manifest");
@@ -6990,7 +6997,7 @@ fn write_std_collection_wrapper_main_exit_project(project: &Path) {
         .expect("create std collection wrapper main project src");
     fs::write(
         project.join("axiom.toml"),
-        "[package]\nname = \"cranelift-std-collection-wrapper-main-exit\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n",
+        "[package]\nname = \"cranelift-std-collection-wrapper-main-exit\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = true\nclock = false\ncrypto = false\n\n[unsafe_rationale]\nenv = \"Cranelift ABI regression needs a runtime-only projected key index source.\"\n",
     )
     .expect("write std collection wrapper main manifest");
     fs::write(
@@ -7001,10 +7008,11 @@ fn write_std_collection_wrapper_main_exit_project(project: &Path) {
     fs::write(
         project.join("src/main.ax"),
         r#"import "std/collections.ax"
+import "std/env.ax"
 
-fn choose_key_index(flag: bool): int {
-if flag {
-return 1
+fn choose_key_index(length: int): int {
+if length > 0 {
+return length - 1
 } else {
 return 0
 }
@@ -7032,19 +7040,30 @@ let second_key_names: [string] = keys<string, int>(second_key_scores)
 let second_key_len: int = len(second_key_names[1])
 let dynamic_key_scores: {string: int} = {"build": 7, "deploy": 9}
 let dynamic_key_names: [string] = keys<string, int>(dynamic_key_scores)
-let dynamic_key_index: int = choose_key_index(true)
+let dynamic_key_index: int = choose_key_index(match get_env("AXIOM_CRANELIFT_DYNAMIC_KEY_INDEX") { Some(value) => len(value), None => 0 })
 let dynamic_key_len: int = len(dynamic_key_names[dynamic_key_index])
 let dynamic_key_eq_scores: {string: int} = {"build": 7, "deploy": 9}
 let dynamic_key_eq_names: [string] = keys<string, int>(dynamic_key_eq_scores)
-let dynamic_key_is_deploy: bool = dynamic_key_eq_names[dynamic_key_index] == "deploy"
+let dynamic_key_eq_value: string = dynamic_key_eq_names[dynamic_key_index]
+let dynamic_key_is_deploy: bool = dynamic_key_eq_value == "deploy"
 let dynamic_key_ne_scores: {string: int} = {"build": 7, "deploy": 9}
 let dynamic_key_ne_names: [string] = keys<string, int>(dynamic_key_ne_scores)
-let dynamic_key_not_build: bool = dynamic_key_ne_names[dynamic_key_index] != "build"
+let dynamic_key_ne_value: string = dynamic_key_ne_names[dynamic_key_index]
+let dynamic_key_not_build: bool = dynamic_key_ne_value != "build"
 let dynamic_key_prefix_scores: {string: int} = {"build": 7, "deploy": 9}
 let dynamic_key_prefix_names: [string] = keys<string, int>(dynamic_key_prefix_scores)
 let dynamic_key_prefix_value: string = dynamic_key_prefix_names[dynamic_key_index]
 let dynamic_key_has_prefix: bool = string_starts_with(dynamic_key_prefix_value, "dep")
-if contains_hit && contains_miss && get_hit_code == 9 && get_miss_code == 13 && fallback == 13 && key_count == 2 && first_key_len == 5 && second_key_len == 6 && dynamic_key_len == 6 && dynamic_key_is_deploy && dynamic_key_not_build && dynamic_key_has_prefix {
+let dynamic_key_trim_scores: {string: int} = {" build ": 7, " deploy ": 9}
+let dynamic_key_trim_names: [string] = keys<string, int>(dynamic_key_trim_scores)
+let dynamic_key_trim_value: string = dynamic_key_trim_names[dynamic_key_index]
+let dynamic_key_trim_len: int = len(string_trim(dynamic_key_trim_value))
+let dynamic_key_trim_start_len: int = len(string_trim_start(dynamic_key_trim_value))
+let dynamic_key_trimmed_value: string = string_trim(dynamic_key_trim_value)
+let dynamic_key_trim_start_value: string = string_trim_start(dynamic_key_trim_value)
+let dynamic_key_trimmed_has_prefix: bool = string_starts_with(dynamic_key_trimmed_value, "dep")
+let dynamic_key_trim_start_has_prefix: bool = string_starts_with(dynamic_key_trim_start_value, "dep")
+if contains_hit && contains_miss && get_hit_code == 9 && get_miss_code == 13 && fallback == 13 && key_count == 2 && first_key_len == 5 && second_key_len == 6 && dynamic_key_len == 6 && dynamic_key_is_deploy && dynamic_key_not_build && dynamic_key_has_prefix && dynamic_key_trim_len == 6 && dynamic_key_trim_start_len == 7 && dynamic_key_trimmed_has_prefix && dynamic_key_trim_start_has_prefix {
 return 48
 } else {
 return 1

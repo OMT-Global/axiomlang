@@ -159,6 +159,14 @@ enum I64MapKey {
 struct I64MapKeyArrayStringIndex {
     array_name: String,
     index: Expr,
+    transform: I64MapKeyArrayStringTransform,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum I64MapKeyArrayStringTransform {
+    Identity,
+    Trim,
+    TrimStart,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -6328,13 +6336,33 @@ fn lower_i64_map_key_array_string_index_predicate_expr(
     static_bindings: &I64StaticBindings,
     predicate: impl Fn(&str) -> bool,
 ) -> Option<CraneliftI64Expr> {
-    let (keys, index) = i64_map_key_array_string_index_source(expr, static_bindings)?;
+    lower_i64_map_key_array_string_index_mapped_i64_expr(
+        expr,
+        local_indexes,
+        local_conditions,
+        helper_signatures,
+        static_bindings,
+        |value| predicate(value) as i64,
+    )
+}
+
+fn lower_i64_map_key_array_string_index_mapped_i64_expr(
+    expr: &Expr,
+    local_indexes: &HashMap<String, usize>,
+    local_conditions: &HashMap<String, CraneliftI64Condition>,
+    helper_signatures: &HashMap<&str, I64HelperSignature>,
+    static_bindings: &I64StaticBindings,
+    mapper: impl Fn(&str) -> i64,
+) -> Option<CraneliftI64Expr> {
+    let (keys, index, transform) = i64_map_key_array_string_index_source(expr, static_bindings)?;
     if keys.is_empty() {
         return None;
     }
     if let Some(index) = lower_i64_literal_index(&index) {
         return match keys.get(index)? {
-            I64MapKey::Text(value) => Some(CraneliftI64Expr::Literal(predicate(value) as i64)),
+            I64MapKey::Text(value) => Some(CraneliftI64Expr::Literal(mapper(
+                i64_apply_map_key_array_string_transform(value, transform),
+            ))),
             _ => None,
         };
     }
@@ -6347,12 +6375,16 @@ fn lower_i64_map_key_array_string_index_predicate_expr(
     )?;
     let last = keys.len() - 1;
     let mut result = match keys.get(last)? {
-        I64MapKey::Text(value) => CraneliftI64Expr::Literal(predicate(value) as i64),
+        I64MapKey::Text(value) => CraneliftI64Expr::Literal(mapper(
+            i64_apply_map_key_array_string_transform(value, transform),
+        )),
         _ => return None,
     };
     for candidate in (0..last).rev() {
-        let matches_expected = match keys.get(candidate)? {
-            I64MapKey::Text(value) => predicate(value) as i64,
+        let mapped = match keys.get(candidate)? {
+            I64MapKey::Text(value) => {
+                mapper(i64_apply_map_key_array_string_transform(value, transform))
+            }
             _ => return None,
         };
         result = CraneliftI64Expr::Select {
@@ -6361,7 +6393,7 @@ fn lower_i64_map_key_array_string_index_predicate_expr(
                 lhs: index.clone(),
                 rhs: CraneliftI64Expr::Literal(candidate as i64),
             })),
-            then_result: Box::new(CraneliftI64Expr::Literal(matches_expected)),
+            then_result: Box::new(CraneliftI64Expr::Literal(mapped)),
             else_result: Box::new(result),
         };
     }
@@ -6371,13 +6403,49 @@ fn lower_i64_map_key_array_string_index_predicate_expr(
 fn i64_map_key_array_string_index_source(
     expr: &Expr,
     static_bindings: &I64StaticBindings,
-) -> Option<(Vec<I64MapKey>, Expr)> {
+) -> Option<(Vec<I64MapKey>, Expr, I64MapKeyArrayStringTransform)> {
+    let binding = i64_map_key_array_string_index_binding(expr, static_bindings)?;
+    let keys = static_bindings
+        .map_key_arrays
+        .get(binding.array_name.as_str())?
+        .clone();
+    Some((keys, binding.index, binding.transform))
+}
+
+fn i64_map_key_array_string_index_binding(
+    expr: &Expr,
+    static_bindings: &I64StaticBindings,
+) -> Option<I64MapKeyArrayStringIndex> {
     if let Expr::StringBorrow { expr, .. } = expr {
-        return i64_map_key_array_string_index_source(expr, static_bindings);
+        return i64_map_key_array_string_index_binding(expr, static_bindings);
     }
     if let Some((array_name, index)) = i64_map_key_array_string_index_parts(expr) {
-        let keys = static_bindings.map_key_arrays.get(array_name)?.clone();
-        return Some((keys, index.clone()));
+        return Some(I64MapKeyArrayStringIndex {
+            array_name: array_name.to_string(),
+            index: index.clone(),
+            transform: I64MapKeyArrayStringTransform::Identity,
+        });
+    }
+    if let Expr::Call {
+        name,
+        args,
+        ty: Type::String | Type::Str,
+    } = expr
+        && (name == "string_trim" || name == "string_trim_start")
+    {
+        let [text] = args.as_slice() else {
+            return None;
+        };
+        let mut binding = i64_map_key_array_string_index_binding(text, static_bindings)?;
+        binding.transform = i64_map_key_array_string_transform_compose(
+            binding.transform,
+            if name == "string_trim" {
+                I64MapKeyArrayStringTransform::Trim
+            } else {
+                I64MapKeyArrayStringTransform::TrimStart
+            },
+        );
+        return Some(binding);
     }
     let Expr::VarRef {
         name,
@@ -6386,12 +6454,38 @@ fn i64_map_key_array_string_index_source(
     else {
         return None;
     };
-    let binding = static_bindings.map_key_array_string_indexes.get(name)?;
-    let keys = static_bindings
-        .map_key_arrays
-        .get(binding.array_name.as_str())?
-        .clone();
-    Some((keys, binding.index.clone()))
+    static_bindings
+        .map_key_array_string_indexes
+        .get(name)
+        .cloned()
+}
+
+fn i64_map_key_array_string_transform_compose(
+    existing: I64MapKeyArrayStringTransform,
+    next: I64MapKeyArrayStringTransform,
+) -> I64MapKeyArrayStringTransform {
+    match (existing, next) {
+        (_, I64MapKeyArrayStringTransform::Identity) => existing,
+        (I64MapKeyArrayStringTransform::Identity, transform) => transform,
+        (I64MapKeyArrayStringTransform::Trim, _) => I64MapKeyArrayStringTransform::Trim,
+        (I64MapKeyArrayStringTransform::TrimStart, I64MapKeyArrayStringTransform::Trim) => {
+            I64MapKeyArrayStringTransform::Trim
+        }
+        (I64MapKeyArrayStringTransform::TrimStart, I64MapKeyArrayStringTransform::TrimStart) => {
+            I64MapKeyArrayStringTransform::TrimStart
+        }
+    }
+}
+
+fn i64_apply_map_key_array_string_transform<'a>(
+    value: &'a str,
+    transform: I64MapKeyArrayStringTransform,
+) -> &'a str {
+    match transform {
+        I64MapKeyArrayStringTransform::Identity => value,
+        I64MapKeyArrayStringTransform::Trim => value.trim(),
+        I64MapKeyArrayStringTransform::TrimStart => value.trim_start(),
+    }
 }
 
 fn i64_map_key_array_string_index_parts(expr: &Expr) -> Option<(&str, &Expr)> {
@@ -9754,14 +9848,10 @@ fn lower_i64_string_len_projection_local(
     if let Some(text) = text {
         static_bindings.strings.insert(name.to_string(), text);
     }
-    if let Some((array_name, index)) = i64_map_key_array_string_index_parts(expr) {
-        static_bindings.map_key_array_string_indexes.insert(
-            name.to_string(),
-            I64MapKeyArrayStringIndex {
-                array_name: array_name.to_string(),
-                index: index.clone(),
-            },
-        );
+    if let Some(binding) = i64_map_key_array_string_index_binding(expr, static_bindings) {
+        static_bindings
+            .map_key_array_string_indexes
+            .insert(name.to_string(), binding);
     }
     Some(())
 }
@@ -9809,6 +9899,23 @@ fn lower_i64_string_len_expr(
                 local_conditions,
                 helper_signatures,
                 static_bindings,
+            )
+        }
+        Expr::Call {
+            name,
+            args,
+            ty: Type::String | Type::Str,
+        } if name == "string_trim" || name == "string_trim_start" => {
+            let [_text] = args.as_slice() else {
+                return None;
+            };
+            lower_i64_map_key_array_string_index_mapped_i64_expr(
+                expr,
+                local_indexes,
+                local_conditions,
+                helper_signatures,
+                static_bindings,
+                |value| value.len() as i64,
             )
         }
         Expr::Call { name, args, .. } if is_i64_crypto_sha256_name(name, static_bindings) => {
