@@ -40,10 +40,12 @@ struct I64OutputData {
 
 #[derive(Clone, Copy)]
 struct I64RuntimeRefs {
+    write: FuncRef,
     sleep: FuncRef,
     getenv: FuncRef,
     strlen: FuncRef,
     open: FuncRef,
+    creat: FuncRef,
     lseek: FuncRef,
     close: FuncRef,
     access: FuncRef,
@@ -92,6 +94,10 @@ pub enum I64Expr {
     FileLen {
         path: String,
         max_bytes: u64,
+    },
+    WriteFile {
+        path: String,
+        content: String,
     },
     ProcessStatus {
         command: String,
@@ -463,6 +469,15 @@ fn emit_i64_exit_object(
         .map_err(|message| {
             CraneliftBackendError::new(format!("declare open import: {message}"))
         })?;
+    let mut creat_sig = module.make_signature();
+    creat_sig.params.push(AbiParam::new(pointer_type));
+    creat_sig.params.push(AbiParam::new(types::I32));
+    creat_sig.returns.push(AbiParam::new(types::I32));
+    let creat_id = module
+        .declare_function("creat", Linkage::Import, &creat_sig)
+        .map_err(|message| {
+            CraneliftBackendError::new(format!("declare creat import: {message}"))
+        })?;
     let mut lseek_sig = module.make_signature();
     lseek_sig.params.push(AbiParam::new(types::I32));
     lseek_sig.params.push(AbiParam::new(types::I64));
@@ -510,6 +525,7 @@ fn emit_i64_exit_object(
             getenv_id,
             strlen_id,
             open_id,
+            creat_id,
             lseek_id,
             close_id,
             access_id,
@@ -541,15 +557,18 @@ fn emit_i64_exit_object(
         let getenv_ref = module.declare_func_in_func(getenv_id, builder.func);
         let strlen_ref = module.declare_func_in_func(strlen_id, builder.func);
         let open_ref = module.declare_func_in_func(open_id, builder.func);
+        let creat_ref = module.declare_func_in_func(creat_id, builder.func);
         let lseek_ref = module.declare_func_in_func(lseek_id, builder.func);
         let close_ref = module.declare_func_in_func(close_id, builder.func);
         let access_ref = module.declare_func_in_func(access_id, builder.func);
         let system_ref = module.declare_func_in_func(system_id, builder.func);
         let runtime_refs = I64RuntimeRefs {
+            write: write_ref,
             sleep: sleep_ref,
             getenv: getenv_ref,
             strlen: strlen_ref,
             open: open_ref,
+            creat: creat_ref,
             lseek: lseek_ref,
             close: close_ref,
             access: access_ref,
@@ -743,6 +762,7 @@ fn define_i64_function(
     getenv_id: FuncId,
     strlen_id: FuncId,
     open_id: FuncId,
+    creat_id: FuncId,
     lseek_id: FuncId,
     close_id: FuncId,
     access_id: FuncId,
@@ -782,15 +802,18 @@ fn define_i64_function(
         let getenv_ref = module.declare_func_in_func(getenv_id, builder.func);
         let strlen_ref = module.declare_func_in_func(strlen_id, builder.func);
         let open_ref = module.declare_func_in_func(open_id, builder.func);
+        let creat_ref = module.declare_func_in_func(creat_id, builder.func);
         let lseek_ref = module.declare_func_in_func(lseek_id, builder.func);
         let close_ref = module.declare_func_in_func(close_id, builder.func);
         let access_ref = module.declare_func_in_func(access_id, builder.func);
         let system_ref = module.declare_func_in_func(system_id, builder.func);
         let runtime_refs = I64RuntimeRefs {
+            write: write_ref,
             sleep: sleep_ref,
             getenv: getenv_ref,
             strlen: strlen_ref,
             open: open_ref,
+            creat: creat_ref,
             lseek: lseek_ref,
             close: close_ref,
             access: access_ref,
@@ -1645,6 +1668,9 @@ fn emit_i64_expr(
         I64Expr::FileLen { path, max_bytes } => {
             emit_i64_file_len_expr(builder, runtime_refs, path, *max_bytes)
         }
+        I64Expr::WriteFile { path, content } => {
+            emit_i64_write_file_expr(builder, runtime_refs, path, content)
+        }
         I64Expr::ProcessStatus { command } => {
             emit_i64_process_status_expr(builder, runtime_refs, command)
         }
@@ -1853,6 +1879,98 @@ fn emit_i64_file_len_expr(
     builder
         .ins()
         .jump(merge_block, &[BlockArg::Value(missing_result)]);
+
+    builder.switch_to_block(merge_block);
+    builder.seal_block(merge_block);
+    Ok(builder.block_params(merge_block)[0])
+}
+
+fn emit_i64_write_file_expr(
+    builder: &mut FunctionBuilder<'_>,
+    runtime_refs: I64RuntimeRefs,
+    path: &str,
+    content: &str,
+) -> Result<cranelift_codegen::ir::Value, CraneliftBackendError> {
+    if path.as_bytes().contains(&0) {
+        return Err(CraneliftBackendError::new(
+            "filesystem path contains an interior null byte",
+        ));
+    }
+    let path_len = u32::try_from(path.len() + 1)
+        .map_err(|_| CraneliftBackendError::new("filesystem path is too large"))?;
+    let content_len = u32::try_from(content.len())
+        .map_err(|_| CraneliftBackendError::new("filesystem write content is too large"))?;
+    let path_slot = builder
+        .create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, path_len, 0));
+    for (offset, byte) in path.bytes().chain(std::iter::once(0)).enumerate() {
+        let byte_value = builder.ins().iconst(types::I8, i64::from(byte));
+        builder.ins().stack_store(byte_value, path_slot, offset as i32);
+    }
+    let content_slot = builder.create_sized_stack_slot(StackSlotData::new(
+        StackSlotKind::ExplicitSlot,
+        content_len.max(1),
+        0,
+    ));
+    for (offset, byte) in content.bytes().enumerate() {
+        let byte_value = builder.ins().iconst(types::I8, i64::from(byte));
+        builder
+            .ins()
+            .stack_store(byte_value, content_slot, offset as i32);
+    }
+
+    let path_ptr = builder.ins().stack_addr(types::I64, path_slot, 0);
+    let mode = builder.ins().iconst(types::I32, 0o666);
+    let creat_call = builder.ins().call(runtime_refs.creat, &[path_ptr, mode]);
+    let fd = builder.inst_results(creat_call)[0];
+
+    let failed_block = builder.create_block();
+    let write_block = builder.create_block();
+    let close_block = builder.create_block();
+    let success_block = builder.create_block();
+    let merge_block = builder.create_block();
+    builder.append_block_param(close_block, types::I64);
+    builder.append_block_param(merge_block, types::I64);
+
+    let open_failed = builder.ins().icmp_imm(IntCC::SignedLessThan, fd, 0);
+    builder
+        .ins()
+        .brif(open_failed, failed_block, &[], write_block, &[]);
+
+    builder.switch_to_block(write_block);
+    builder.seal_block(write_block);
+    let content_ptr = builder.ins().stack_addr(types::I64, content_slot, 0);
+    let expected_len = builder.ins().iconst(types::I64, i64::from(content_len));
+    let write_call = builder
+        .ins()
+        .call(runtime_refs.write, &[fd, content_ptr, expected_len]);
+    let written = builder.inst_results(write_call)[0];
+    let full_write = builder.ins().icmp(IntCC::Equal, written, expected_len);
+    let success_value = builder.ins().iconst(types::I64, 0);
+    let failure_value = builder.ins().iconst(types::I64, -1);
+    let write_result = builder.ins().select(full_write, success_value, failure_value);
+    builder
+        .ins()
+        .jump(close_block, &[BlockArg::Value(write_result)]);
+
+    builder.switch_to_block(close_block);
+    builder.seal_block(close_block);
+    let write_result = builder.block_params(close_block)[0];
+    let close_call = builder.ins().call(runtime_refs.close, &[fd]);
+    let close_result = builder.inst_results(close_call)[0];
+    let close_ok = builder.ins().icmp_imm(IntCC::Equal, close_result, 0);
+    let write_ok = builder.ins().icmp_imm(IntCC::Equal, write_result, 0);
+    let ok = builder.ins().band(close_ok, write_ok);
+    builder.ins().brif(ok, success_block, &[], failed_block, &[]);
+
+    builder.switch_to_block(success_block);
+    builder.seal_block(success_block);
+    let success = builder.ins().iconst(types::I64, 0);
+    builder.ins().jump(merge_block, &[BlockArg::Value(success)]);
+
+    builder.switch_to_block(failed_block);
+    builder.seal_block(failed_block);
+    let failed = builder.ins().iconst(types::I64, -1);
+    builder.ins().jump(merge_block, &[BlockArg::Value(failed)]);
 
     builder.switch_to_block(merge_block);
     builder.seal_block(merge_block);
@@ -2299,6 +2417,48 @@ mod tests {
             .output()
             .expect("run missing file len binary");
         assert_eq!(output.status.code(), Some(255));
+    }
+
+    #[test]
+    fn links_i64_exit_program_with_write_file() {
+        if std::env::var_os("AXIOM_SKIP_CRANELIFT_LINK_TEST").is_some() {
+            return;
+        }
+        if Command::new("cc").arg("--version").output().is_err() {
+            eprintln!("skipping cranelift link test because cc is unavailable");
+            return;
+        }
+        let temp = tempfile::tempdir().expect("tempdir");
+        let fixture = temp.path().join("fixture.txt");
+        let object = temp.path().join("i64-exit-write-file.o");
+        let binary = temp.path().join("i64-exit-write-file");
+        compile_i64_exit_program(
+            I64ExitProgram {
+                functions: Vec::new(),
+                locals: Vec::new(),
+                stmts: Vec::new(),
+                body: I64ExitBody::Return(I64Expr::WriteFile {
+                    path: fixture.display().to_string(),
+                    content: String::from("runtime-write"),
+                }),
+            },
+            &object,
+            &binary,
+        )
+        .expect("compile i64 write file exit program");
+
+        assert!(
+            !fixture.exists(),
+            "compile should not create the write_file fixture"
+        );
+        let output = Command::new(&binary)
+            .output()
+            .expect("run write file binary");
+        assert_eq!(output.status.code(), Some(0));
+        assert_eq!(
+            fs::read_to_string(&fixture).expect("read runtime write fixture"),
+            "runtime-write"
+        );
     }
 
     #[test]

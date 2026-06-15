@@ -383,21 +383,22 @@ without the `net` capability still fail before backend lowering. Paired
 dynamic-port send/recv coverage, full UDP socket lifecycle APIs, non-loopback
 policy coverage, timeout parity, and audit parity remain open under #1001.
 
-The filesystem write row now has partial Cranelift evidence: the spike
-evaluates `std/fs.ax` write helpers over configured `fs_root`-scoped literal
-paths during compilation and emits the resulting output, covering `mkdir_all`,
-`write_file`, `append_file`, readback, `replace_file`, `create_file`,
-`remove_file`, and `remove_dir`, with public write and `fs_root` smokes now
-asserting `generated_rust` is null. It also covers `fs_root` scoping and
-preserves the public manifest-policy denial for a package with `fs = true` and
-`"fs:write" = false` that calls `std/fs.ax` `write_file(...)`. The
-direct-native i64 path now also lowers literal-path `mkdir_all`, `write_file`,
-`append_file`, `replace_file`, `create_file`, `remove_file`, and `remove_dir`
-calls, including public `std/fs.ax` wrappers, into native process exit status
-without generated Rust by executing the same `fs_root`-scoped candidate checks
-and status-code convention used by the spike. Full runtime-time filesystem
-writes, atomic replace parity, TOCTOU hardening, and audit parity remain open
-under #1001.
+The filesystem write row now has partial Cranelift evidence: the spike evaluates
+`std/fs.ax` write helpers over configured `fs_root`-scoped literal paths during
+compilation and emits the resulting output, covering `mkdir_all`, `write_file`,
+`append_file`, readback, `replace_file`, `create_file`, `remove_file`, and
+`remove_dir`, with public write and `fs_root` smokes now asserting
+`generated_rust` is null. It also covers `fs_root` scoping and preserves the
+public manifest-policy denial for a package with `fs = true` and `"fs:write" =
+false` that calls `std/fs.ax` `write_file(...)`. The direct-native i64 path now
+also lowers literal-path `fs_write(...)` calls and public `std/fs.ax`
+`write_file(...)` wrappers into native object code that performs the
+`fs_root`-guarded create/truncate/write/close sequence at runtime and returns
+the existing status-code convention without generated Rust. The runtime smoke
+asserts the target file is not created during build and appears only after the
+native binary runs. Runtime execution for `append_file`, `replace_file`,
+`create_file`, `mkdir(_all)`, `remove_file`, and `remove_dir`, plus atomic
+replace parity, TOCTOU hardening, and audit parity remain open under #1001.
 
 The direct-native crypto hash slice is still marked partial: the Cranelift
 spike can build and run `std/crypto_hash.ax` `sha256(...)` while the public

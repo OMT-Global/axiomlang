@@ -3075,11 +3075,20 @@ fn cranelift_backend_lowers_fs_write_to_runtime_exit_code() {
     assert_eq!(payload["backend"], "cranelift");
     assert_eq!(payload["generated_rust"], Value::Null);
     let binary = payload["binary"].as_str().expect("binary path");
+    let runtime_file = project.join("scratch/data.txt");
+    assert!(
+        !runtime_file.exists(),
+        "build should not create the fs_write runtime fixture"
+    );
     let run = Command::new(binary)
         .output()
         .expect("run cranelift fs-write main binary");
     assert_eq!(run.status.code(), Some(48));
     assert_eq!(String::from_utf8_lossy(&run.stdout), "");
+    assert_eq!(
+        fs::read_to_string(&runtime_file).expect("read fs_write runtime fixture"),
+        "runtime-write"
+    );
 }
 
 #[cfg(not(windows))]
@@ -11600,6 +11609,7 @@ return 1
 
 fn write_fs_write_main_exit_project(project: &Path) {
     fs::create_dir_all(project.join("src")).expect("create fs-write main project src");
+    fs::create_dir_all(project.join("scratch")).expect("create fs-write main scratch dir");
     fs::write(
         project.join("axiom.toml"),
         r#"[package]
@@ -11637,19 +11647,9 @@ source = "path"
         r#"import "std/fs.ax"
 
 fn main(): int {
-let made: int = mkdir_all("scratch/nested")
-let wrote: int = write_file("scratch/nested/data.txt", "one")
-let appended: int = append_file("scratch/nested/data.txt", "\ntwo")
-let appended_len: int = match read_file("scratch/nested/data.txt") { Some(value) => len(value), None => 1 }
-let replaced: int = replace_file("scratch/nested/data.txt", "final")
-let replaced_len: int = match read_file("scratch/nested/data.txt") { Some(value) => len(value), None => 1 }
-let created: int = create_file("scratch/empty.txt")
-let removed_file: int = remove_file("scratch/empty.txt")
-let removed_data: int = remove_file("scratch/nested/data.txt")
-let removed_nested: int = remove_dir("scratch/nested")
-let removed_scratch: int = remove_dir("scratch")
+let wrote: int = write_file("scratch/data.txt", "runtime-write")
 let blocked: int = write_file("../escape.txt", "blocked")
-if made == 0 && wrote == 0 && appended == 0 && appended_len == 7 && replaced == 0 && replaced_len == 5 && created == 0 && removed_file == 0 && removed_data == 0 && removed_nested == 0 && removed_scratch == 0 && blocked == -1 {
+if wrote == 0 && blocked == -1 {
 return 48
 } else {
 return 1
