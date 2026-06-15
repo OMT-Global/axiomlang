@@ -501,8 +501,9 @@ host-process policy coverage remain open under #1001.
 
 The regex row now has partial direct-native evidence: the Cranelift spike covers
 `std/regex.ax` `is_match`, `find`, and `replace_all` for the stage1-safe NFA
-subset without generated Rust, including anchored replacement behavior. The
-direct-native i64 path now also lowers known-input `regex_is_match(...)`
+subset without generated Rust, and the public stdlib smoke now asserts
+`generated_rust` is null while covering find/match/replace output and anchored
+replacement behavior. The direct-native i64 path now also lowers known-input `regex_is_match(...)`
 conditions, known-input `regex_replace_all(...)` string results, and known-input
 `regex_find(...)` direct `Option<string>` matches into native process exit status
 without generated Rust. Imported public `std/regex.ax` `is_match`, `find`, and
