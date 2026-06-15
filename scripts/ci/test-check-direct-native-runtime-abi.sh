@@ -26,7 +26,7 @@ assert report["blocked_rows"] == []
 assert "fs.read" in report["incomplete_rows"]
 assert "owned.move_state" in report["incomplete_rows"]
 assert "crypto.aead" in report["incomplete_rows"]
-assert report["blocker_issues"] == [928]
+assert report["blocker_issues"] == [1001]
 assert report["errors"] == []
 PY
 

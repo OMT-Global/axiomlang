@@ -233,28 +233,28 @@ The `fs.read` row now has partial Cranelift evidence for `std/fs.ax`
 `read_file` on present and missing filesystem names, plus denial evidence that a
 package without the `fs` capability fails before backend lowering. Full
 runtime-time filesystem access, manifest policy parity, and audit parity remain
-open under #928.
+open under #1001.
 
 The DNS row now has partial Cranelift evidence: the spike builds and runs a
 `std/net.ax` package resolving `localhost` through host DNS without generated
 Rust and returns the public `Option<string>` shape. Packages without the `net`
 capability still fail before backend lowering. Full runtime-time DNS policy,
 non-loopback coverage, resolver portability, and audit parity remain open under
-#928.
+#1001.
 
 The TCP row now has partial Cranelift evidence: the spike builds and runs
 `std/net.ax` `tcp_listen_loopback_once(...)` over `127.0.0.1` without generated
 Rust and returns a loopback port. Packages without the `net` capability still
 fail before backend lowering. Paired dynamic-port dial coverage, full TCP
 socket lifecycle APIs, non-loopback policy coverage, timeout parity, and audit
-parity remain open under #928.
+parity remain open under #1001.
 
 The UDP row now has partial Cranelift evidence: the spike builds and runs
 `std/net.ax` `udp_bind_loopback_once(...)` over `127.0.0.1` without generated
 Rust and returns a loopback port. Packages without the `net` capability still
 fail before backend lowering. Paired dynamic-port send/recv coverage, full UDP
 socket lifecycle APIs, non-loopback policy coverage, timeout parity, and audit
-parity remain open under #928.
+parity remain open under #1001.
 
 The filesystem write row now has partial Cranelift evidence: the spike
 evaluates `std/fs.ax` write helpers over configured `fs_root`-scoped literal
@@ -264,7 +264,7 @@ paths during compilation and emits the resulting output, covering `mkdir_all`,
 the public manifest-policy denial for a package with `fs = true` and
 `"fs:write" = false` that calls `std/fs.ax` `write_file(...)`. Full
 runtime-time filesystem writes, atomic replace parity, TOCTOU hardening, and
-audit parity remain open under #928.
+audit parity remain open under #1001.
 
 The direct-native crypto hash slice is still marked partial: the Cranelift
 spike can build and run `std/crypto_hash.ax` `sha256(...)` without generated
@@ -276,7 +276,7 @@ can build and run `std/crypto_mac.ax` HMAC-SHA256, HMAC-SHA512, verification
 helpers, string constant-time equality, and byte-slice constant-time equality
 without generated Rust. A package without the `crypto` capability fails before
 backend lowering. Runtime audit parity and broader crypto host-service coverage
-remain blocked under #928.
+remain blocked under #1001.
 
 The direct-native crypto random slice is now marked partial: the Cranelift
 spike can build and run `std/crypto_rand.ax` `random_bytes(...)` and
@@ -284,7 +284,7 @@ spike can build and run `std/crypto_rand.ax` `random_bytes(...)` and
 preserving the generated-Rust helper's `0..=65536` byte length cap. A package
 without the `crypto` capability still fails before backend lowering. Portable
 entropy source parity, deterministic test hooks, and runtime audit parity
-remain open under #928.
+remain open under #1001.
 
 The direct-native crypto signature slice is now marked partial: the Cranelift
 spike builds and runs `std/crypto_sign.ax` Ed25519 key generation, signing, and
@@ -292,21 +292,21 @@ verification without generated Rust by dynamically loading the host libcrypto
 EVP provider for real cryptographic operations. Packages without the `crypto`
 capability still fail before backend lowering. Runtime-integrated crypto
 provider selection, deterministic test hooks, audit parity, and non-Unix support
-remain open under #928.
+remain open under #1001.
 
 The direct-native crypto AEAD slice is now marked partial: the Cranelift spike
 builds and runs `std/crypto_aead.ax` AES-256-GCM seal/open without generated
 Rust through a dynamically loaded host OpenSSL EVP provider. Packages without
 the `crypto` capability still fail before backend lowering. Runtime-integrated
 crypto provider selection, broader algorithm coverage, deterministic test
-hooks, audit parity, and non-Unix support remain open under #928.
+hooks, audit parity, and non-Unix support remain open under #1001.
 
 The HTTP client row now has partial Cranelift evidence: the spike builds
 `std/http.ax` `get(...)` against a static allowlisted `http://127.0.0.1` URL
 and fetches a local one-shot HTTP response without generated Rust. Packages
 without the `net` capability still fail before backend lowering. HTTPS,
 nonlocal HTTP policy coverage, redirects, richer response handling, timeout
-parity, and audit parity remain open under #928.
+parity, and audit parity remain open under #1001.
 
 The HTTP server row now has partial Cranelift evidence: the spike builds and
 runs loopback HTTP server entrypoints without generated Rust, covering
@@ -316,7 +316,7 @@ runs loopback HTTP server entrypoints without generated Rust, covering
 fixture. Packages without the `net` capability still fail before backend
 lowering. Route helpers, multi-request serving, non-loopback policy coverage,
 richer response metadata, timeout parity, and audit parity remain open under
-#928.
+#1001.
 
 The async HTTP server row now has partial Cranelift evidence: the spike builds
 and runs `http_async_serve_route` over a loopback server handle without
@@ -325,7 +325,7 @@ fixture. It also proves the async gate separately: with `net` present and
 `async` missing, `std/http_async.ax` `async_serve_route(...)` must fail through
 the public `async` capability denial before backend lowering. Real
 scheduler-backed serving, concurrent clients, cancellation, timeout parity,
-non-loopback policy coverage, and audit parity remain open under #928.
+non-loopback policy coverage, and audit parity remain open under #1001.
 
 The process status row now has partial compiler-side spike evidence: the
 Cranelift spike builds and runs `std/process.ax` `run_status(...)` for literal,
@@ -333,7 +333,7 @@ allowlisted deterministic commands through compiler-side spike evaluation and
 emits their exit statuses without generated Rust. Denied `process` capability
 use still fails through the manifest policy before Cranelift lowering or native
 execution. Full runtime-time process execution, argument handling, audit parity,
-and host-process policy coverage remain open under #928.
+and host-process policy coverage remain open under #1001.
 
 The string row has partial direct-native evidence: the Cranelift spike now
 builds and runs pure string intrinsics including `string_clone`,
@@ -343,25 +343,25 @@ Rust. It also builds and runs `std/string_builder.ax` owned string accumulator
 helpers and `std/encoding.ax` percent encode/decode helpers, query-pair
 encoding, and path segment joining without generated Rust. Broader string ABI
 coverage, allocation behavior, and host-boundary representation remain tracked
-by issue #928.
+by issue #1001.
 
 The borrowed-slice row has partial direct-native evidence: the Cranelift spike
 now evaluates array-backed borrowed slices through `len`, `first`, `last`,
 indexing, and function returns. Broader borrowed-slice aliasing and host ABI
-coverage remain tracked by issue #928.
+coverage remain tracked by issue #1001.
 
 The map lookup row has partial direct-native evidence: the Cranelift spike now
 builds and runs direct map indexing, `get`, `get_or_default`,
 `map_contains_key`, `map_keys`, and the public `std/collections.ax` `contains`,
 `get`, `get_or_default`, and `keys` helpers for string and integer key/value
 shapes without generated Rust. Broader map ownership and host-boundary
-representation remain tracked by issue #928.
+representation remain tracked by issue #1001.
 
 The `env.read` row now has partial Cranelift evidence for `std/env.ax`
 `get_env` on present and missing environment names without generated Rust, plus
 denial evidence that a package without the `env` capability fails before
 backend lowering. Full runtime-time lookup, manifest allowlist parity, and
-audit parity remain open under #928.
+audit parity remain open under #1001.
 
 The FFI call row now has partial Cranelift evidence: the spike builds and runs
 a narrow C ABI `extern fn strlen(value: string): int from "c"` fixture without
@@ -370,7 +370,7 @@ generated Rust, using the source-level extern declaration. A package with an
 manifest-policy denial before any Cranelift-specific lowering diagnostic. Broad
 dynamic symbol loading, pointer and mutable-pointer ABI shapes, non-string
 arguments, ownership safety, platform library resolution, and audit parity
-remain open under #928.
+remain open under #1001.
 
 The async runtime row now has partial Cranelift evidence for `std/async.ax`
 `ready`, `await`, `spawn`, `join`, `cancel`, `is_canceled`, `timeout`,
@@ -378,12 +378,12 @@ single-slot channel `send`/`recv`, `select`, `selected`, and `selected_value`
 without generated Rust. A package importing `std/async.ax` with no `async`
 capability must still receive the public manifest-policy denial before backend
 lowering. Full scheduler, timer, blocking, wakeup, cancellation, and audit
-parity remain open under #928.
+parity remain open under #1001.
 
 The sync-primitives row has partial direct-native evidence: the Cranelift spike
 now evaluates ownership-shaped `std/sync.ax` mutex, once, and channel wrappers
 and emits the expected native output. Concurrent execution, blocking behavior,
-and host runtime synchronization remain tracked by issue #928.
+and host runtime synchronization remain tracked by issue #1001.
 
 The `Result<T, E>` row has partial direct-native evidence: the Cranelift spike
 now builds and runs a package importing `std/outcome.ax`, using result
@@ -406,7 +406,7 @@ inline `Ok`/`Err` arguments represented as a tag plus multiple payload slots.
 That same tag/payload representation now covers helper returns and forwarded
 local or parameter values for the `Result<(int, bool), int>` narrow slice.
 Broader Result ABI support, the full numeric-width matrix, additional aggregate
-payload shapes, and capability-shim coverage remain tracked by issue #928.
+payload shapes, and capability-shim coverage remain tracked by issue #1001.
 
 The `enum.payload` row now has narrow direct-native runtime evidence for local
 custom enum construction, reassignment, value-producing matches, and statement
@@ -420,25 +420,25 @@ function-call boundaries as explicit tag/payload ABI slots for local values and
 inline variant arguments. Narrow custom enum helper returns and forwarded local
 or parameter values also lower through the same tag/payload slots for scalar
 struct payload variants. Broader enum ABI support and aggregate payload storage
-beyond scalar tuples/structs remain tracked by issue #928.
+beyond scalar tuples/structs remain tracked by issue #1001.
 
 The `json.serdes` row has expanded partial direct-native evidence: the
 Cranelift spike now builds and runs `std/json.ax` scalar/object helpers and
 `std/serdes.ax` `Value` object-map construction, nested JSON object/array
 parsing, typed field accessors, value indexing, stringify, and parse-error
 reporting without generated Rust. Schema validation and broader JSON value
-modeling remain tracked by issue #928.
+modeling remain tracked by issue #1001.
 
 The owned move-state row has partial direct-native evidence: the Cranelift
 spike builds and runs projection-sensitive owned field moves while preserving
 access to disjoint sibling projections. Broader move-state, lifetime, and host
-ABI coverage remain tracked by issue #928.
+ABI coverage remain tracked by issue #1001.
 
 The logging/stdio row has partial direct-native evidence: the Cranelift spike
 now evaluates `std/io.ax` stderr writes and `std/log.ax` structured event
 formatting plus `info_attrs` stderr emission, then emits the resulting stdout
 and stderr streams from the native binary. Stdin reads and broader
-streaming/runtime buffering remain tracked by issue #928.
+streaming/runtime buffering remain tracked by issue #1001.
 
 The `clock.now_sleep` row now has partial Cranelift evidence for `std/time.ax`
 `now_ms`, `now`, `elapsed_ms`, and zero-duration `sleep`, plus guards that a
@@ -447,7 +447,7 @@ nonzero sleep fails fast instead of ever reaching host sleep during
 compiler-side spike evaluation. The spike intentionally keeps the supported
 sleep shape limited to zero-duration calls until the real runtime clock path
 lands. Full runtime-time clock/sleep execution, timer scheduling, async clock
-integration, and audit parity remain open under #928.
+integration, and audit parity remain open under #1001.
 
 
 
