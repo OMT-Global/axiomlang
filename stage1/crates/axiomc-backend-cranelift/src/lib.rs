@@ -188,6 +188,11 @@ pub enum I64Stmt {
         prefix: String,
         value: I64Expr,
     },
+    WriteJsonFieldStringifiedIntLine {
+        stream: OutputStream,
+        prefix: String,
+        value: I64Expr,
+    },
     CallAssign {
         locals: Vec<usize>,
         function: usize,
@@ -533,6 +538,9 @@ fn collect_i64_output_lines(stmts: &[I64Stmt], lines: &mut Vec<(OutputStream, St
             I64Stmt::WriteJsonFieldIntLine { stream, prefix, .. } => {
                 lines.push((*stream, prefix.clone(), false))
             }
+            I64Stmt::WriteJsonFieldStringifiedIntLine { stream, prefix, .. } => {
+                lines.push((*stream, prefix.clone(), false))
+            }
             I64Stmt::If {
                 then_body,
                 else_body,
@@ -794,6 +802,30 @@ fn emit_i64_stmt(
                 false,
             )?;
             emit_i64_write_int_line(
+                module,
+                builder,
+                locals,
+                function_refs,
+                write_ref,
+                *stream,
+                value,
+            )
+        }
+        I64Stmt::WriteJsonFieldStringifiedIntLine {
+            stream,
+            prefix,
+            value,
+        } => {
+            emit_i64_write_static(
+                module,
+                builder,
+                write_ref,
+                output_data_ids,
+                *stream,
+                prefix,
+                false,
+            )?;
+            emit_i64_write_json_stringified_int_line(
                 module,
                 builder,
                 locals,
@@ -1915,6 +1947,52 @@ mod tests {
         assert_eq!(output.status.code(), Some(7));
         assert_eq!(String::from_utf8_lossy(&output.stdout), "\"count\":42\n");
         assert_eq!(String::from_utf8_lossy(&output.stderr), "\"delta\":-42\n");
+    }
+
+    #[test]
+    fn links_i64_json_field_stringified_int_lines() {
+        if std::env::var_os("AXIOM_SKIP_CRANELIFT_LINK_TEST").is_some() {
+            return;
+        }
+        if Command::new("cc").arg("--version").output().is_err() {
+            eprintln!("skipping cranelift link test because cc is unavailable");
+            return;
+        }
+        let temp = tempfile::tempdir().expect("tempdir");
+        let object = temp.path().join("i64-json-field-stringified-int-lines.o");
+        let binary = temp.path().join("i64-json-field-stringified-int-lines");
+        compile_i64_exit_program(
+            I64ExitProgram {
+                functions: Vec::new(),
+                locals: Vec::new(),
+                stmts: vec![
+                    I64Stmt::WriteJsonFieldStringifiedIntLine {
+                        stream: OutputStream::Stdout,
+                        prefix: "\"count_text\":".to_string(),
+                        value: I64Expr::Literal(42),
+                    },
+                    I64Stmt::WriteJsonFieldStringifiedIntLine {
+                        stream: OutputStream::Stderr,
+                        prefix: "\"delta_text\":".to_string(),
+                        value: I64Expr::Literal(-42),
+                    },
+                ],
+                body: I64ExitBody::Return(I64Expr::Literal(7)),
+            },
+            &object,
+            &binary,
+        )
+        .expect("compile i64 JSON field stringified int lines");
+        let output = Command::new(&binary).output().expect("run binary");
+        assert_eq!(output.status.code(), Some(7));
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout),
+            "\"count_text\":\"42\"\n"
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&output.stderr),
+            "\"delta_text\":\"-42\"\n"
+        );
     }
 
     #[test]

@@ -727,10 +727,10 @@ runtime JSON value. Imported public `std/json.ax`
 `stringify_value(value_int(...))`, `stringify_value(value_bool(...))`, and
 `stringify_value(value_string(...))` wrappers now preserve those raw formatted
 scalar values for direct-native length projections and stdout/stderr output
-without generated Rust. Imported public `std/json.ax` `field_int(...)` and
-`field_bool(...)` wrappers over runtime scalar values now lower to
-direct-native JSON field length projections and stdout/stderr output without
-generated Rust.
+without generated Rust. Imported public `std/json.ax` `field_int(...)`,
+`field_bool(...)`, and `field_string(...)` wrappers over supported runtime
+scalar/formatted-string values now lower to direct-native JSON field length
+projections and stdout/stderr output without generated Rust.
 Known-input `json_parse_string` and
 `json_parse_value` direct `Option<string>` matches, known-input
 `json_parse_field_string`/`json_parse_field_value` direct `Option<string>`
@@ -792,9 +792,10 @@ preserves the same native stdout/stderr lowering for raw JSON scalar output.
 Imported public `std/json.ax` `stringify_value(value_int(...))`,
 `stringify_value(value_bool(...))`, and `stringify_value(value_string(...))`
 wrappers preserve the same native stdout/stderr lowering and `eprintln` byte
-counts for raw JSON scalar output. Public `std/json.ax` `field_int(...)` and
-`field_bool(...)` wrappers over runtime scalar values also preserve native
-stdout/stderr lowering and `eprintln` byte counts for JSON field output.
+counts for raw JSON scalar output. Public `std/json.ax` `field_int(...)`,
+`field_bool(...)`, and `field_string(...)` wrappers over supported runtime
+scalar/formatted-string values also preserve native stdout/stderr lowering and
+`eprintln` byte counts for JSON field output.
 Stdin reads, dynamic string stdout/stderr text beyond these formatted scalar
 passthroughs, broader numeric formatting beyond supported integer lines,
 dynamic log inputs, and broader streaming/runtime buffering remain tracked by

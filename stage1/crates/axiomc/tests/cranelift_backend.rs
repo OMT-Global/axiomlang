@@ -1682,11 +1682,11 @@ fn cranelift_backend_lowers_std_json_wrappers_to_runtime_exit_code() {
     assert_eq!(run.status.code(), Some(48));
     assert_eq!(
         String::from_utf8_lossy(&run.stdout),
-        "12345\n\"12345\"\n\"count\":12345\n"
+        "12345\n\"12345\"\n\"count\":12345\n\"count_text\":\"12345\"\n"
     );
     assert_eq!(
         String::from_utf8_lossy(&run.stderr),
-        "false\n\"false\"\n\"enabled\":false\n"
+        "false\n\"false\"\n\"enabled\":false\n\"enabled_text\":\"false\"\n"
     );
 }
 
@@ -7442,7 +7442,73 @@ fn write_std_json_wrapper_main_exit_project(project: &Path) {
     .expect("write std json wrapper lockfile");
     fs::write(
         project.join("src/main.ax"),
-        "import \"std/json.ax\"\nimport \"std/io.ax\"\n\nstatic DOC: string = \"{\\\"name\\\":\\\"axiom\\\",\\\"count\\\":3,\\\"ready\\\":true}\"\nstatic STATIC_COUNT: int = 321\nstatic STATIC_READY: bool = true\n\nfn main(): int {\nlet int_len: int = len(stringify_int(42))\nlet static_int_len: int = len(stringify_int(STATIC_COUNT))\nlet bool_len: int = len(stringify_bool(false))\nlet static_bool_len: int = len(stringify_bool(STATIC_READY))\nlet string_len: int = len(stringify_string(\"axiom\"))\nlet parsed_int: int = match parse_int(\" 42 \") { Some(value) => value, None => 1 }\nlet parsed_bool: bool = match parse_bool(\"true\") { Some(value) => value, None => false }\nlet parsed_string_len: int = match parse_string(\"\\\"hello\\\"\") { Some(value) => len(value), None => 1 }\nlet missing_string_len: int = match parse_string(\"42\") { Some(value) => len(value), None => 4 }\nlet count_value: int = match parse_field_int(DOC, \"count\") { Some(value) => value, None => 1 }\nlet ready_value: bool = match parse_field_bool(DOC, \"ready\") { Some(value) => value, None => false }\nlet name_len: int = match parse_field_string(DOC, \"name\") { Some(value) => len(value), None => 1 }\nlet missing_int: int = match parse_field_int(DOC, \"missing\") { Some(value) => value, None => 4 }\nlet dynamic_int: int = match parse_int(\"12345\") { Some(value) => value, None => 1 }\nlet dynamic_bool: bool = match parse_bool(\"false\") { Some(value) => value, None => true }\nlet dynamic_int_len: int = len(stringify_int(dynamic_int))\nlet dynamic_bool_len: int = len(stringify_bool(dynamic_bool))\nlet dynamic_string_text: string = stringify_int(dynamic_int)\nlet dynamic_string_len_text: string = stringify_int(dynamic_int)\nlet dynamic_value_string_int_source: string = stringify_int(dynamic_int)\nlet dynamic_value_string_int_len_source: string = stringify_int(dynamic_int)\nlet dynamic_value_string_bool_source: string = stringify_bool(dynamic_bool)\nlet dynamic_value_string_bool_len_source: string = stringify_bool(dynamic_bool)\nlet dynamic_string_len: int = len(stringify_string(dynamic_string_len_text))\nlet dynamic_value_int_text: string = stringify_value(value_int(dynamic_int))\nlet dynamic_value_bool_text: string = stringify_value(value_bool(dynamic_bool))\nlet dynamic_value_string_int_text: string = stringify_value(value_string(dynamic_value_string_int_source))\nlet dynamic_value_string_bool_text: string = stringify_value(value_string(dynamic_value_string_bool_source))\nlet dynamic_field_int_text: string = field_int(\"count\", dynamic_int)\nlet dynamic_field_bool_text: string = field_bool(\"enabled\", dynamic_bool)\nlet dynamic_value_int_len: int = len(stringify_value(value_int(dynamic_int)))\nlet dynamic_value_bool_len: int = len(stringify_value(value_bool(dynamic_bool)))\nlet dynamic_value_string_int_len: int = len(stringify_value(value_string(dynamic_value_string_int_len_source)))\nlet dynamic_value_string_bool_len: int = len(stringify_value(value_string(dynamic_value_string_bool_len_source)))\nlet dynamic_field_int_len: int = len(field_int(\"count\", dynamic_int))\nlet dynamic_field_bool_len: int = len(field_bool(\"enabled\", dynamic_bool))\nprint dynamic_value_int_text\nprint dynamic_value_string_int_text\nprint dynamic_field_int_text\nlet written: int = eprintln(dynamic_value_bool_text)\nlet written_string: int = eprintln(dynamic_value_string_bool_text)\nlet written_field: int = eprintln(dynamic_field_bool_text)\nif parsed_bool && ready_value && int_len == 2 && static_int_len == 3 && bool_len == 5 && static_bool_len == 4 && string_len == 7 && parsed_int == 42 && parsed_string_len == 5 && missing_string_len == 4 && count_value == 3 && name_len == 5 && missing_int == 4 && dynamic_int_len == 5 && dynamic_bool_len == 5 && dynamic_string_len == 7 && dynamic_value_int_len == 5 && dynamic_value_bool_len == 5 && dynamic_value_string_int_len == 7 && dynamic_value_string_bool_len == 7 && dynamic_field_int_len == 13 && dynamic_field_bool_len == 15 && written == 6 && written_string == 8 && written_field == 16 {\nreturn 48\n} else {\nreturn 1\n}\n}\n",
+        r#"import "std/json.ax"
+import "std/io.ax"
+
+static DOC: string = "{\"name\":\"axiom\",\"count\":3,\"ready\":true}"
+static STATIC_COUNT: int = 321
+static STATIC_READY: bool = true
+
+fn main(): int {
+let int_len: int = len(stringify_int(42))
+let static_int_len: int = len(stringify_int(STATIC_COUNT))
+let bool_len: int = len(stringify_bool(false))
+let static_bool_len: int = len(stringify_bool(STATIC_READY))
+let string_len: int = len(stringify_string("axiom"))
+let parsed_int: int = match parse_int(" 42 ") { Some(value) => value, None => 1 }
+let parsed_bool: bool = match parse_bool("true") { Some(value) => value, None => false }
+let parsed_string_len: int = match parse_string("\"hello\"") { Some(value) => len(value), None => 1 }
+let missing_string_len: int = match parse_string("42") { Some(value) => len(value), None => 4 }
+let count_value: int = match parse_field_int(DOC, "count") { Some(value) => value, None => 1 }
+let ready_value: bool = match parse_field_bool(DOC, "ready") { Some(value) => value, None => false }
+let name_len: int = match parse_field_string(DOC, "name") { Some(value) => len(value), None => 1 }
+let missing_int: int = match parse_field_int(DOC, "missing") { Some(value) => value, None => 4 }
+let dynamic_int: int = match parse_int("12345") { Some(value) => value, None => 1 }
+let dynamic_bool: bool = match parse_bool("false") { Some(value) => value, None => true }
+let dynamic_int_len: int = len(stringify_int(dynamic_int))
+let dynamic_bool_len: int = len(stringify_bool(dynamic_bool))
+let dynamic_string_text: string = stringify_int(dynamic_int)
+let dynamic_string_len_text: string = stringify_int(dynamic_int)
+let dynamic_value_string_int_source: string = stringify_int(dynamic_int)
+let dynamic_value_string_int_len_source: string = stringify_int(dynamic_int)
+let dynamic_value_string_bool_source: string = stringify_bool(dynamic_bool)
+let dynamic_value_string_bool_len_source: string = stringify_bool(dynamic_bool)
+let dynamic_field_string_int_source: string = stringify_int(dynamic_int)
+let dynamic_field_string_bool_source: string = stringify_bool(dynamic_bool)
+let dynamic_field_string_int_len_source: string = stringify_int(dynamic_int)
+let dynamic_field_string_bool_len_source: string = stringify_bool(dynamic_bool)
+let dynamic_string_len: int = len(stringify_string(dynamic_string_len_text))
+let dynamic_value_int_text: string = stringify_value(value_int(dynamic_int))
+let dynamic_value_bool_text: string = stringify_value(value_bool(dynamic_bool))
+let dynamic_value_string_int_text: string = stringify_value(value_string(dynamic_value_string_int_source))
+let dynamic_value_string_bool_text: string = stringify_value(value_string(dynamic_value_string_bool_source))
+let dynamic_field_int_text: string = field_int("count", dynamic_int)
+let dynamic_field_bool_text: string = field_bool("enabled", dynamic_bool)
+let dynamic_field_string_int_text: string = field_string("count_text", dynamic_field_string_int_source)
+let dynamic_field_string_bool_text: string = field_string("enabled_text", dynamic_field_string_bool_source)
+let dynamic_value_int_len: int = len(stringify_value(value_int(dynamic_int)))
+let dynamic_value_bool_len: int = len(stringify_value(value_bool(dynamic_bool)))
+let dynamic_value_string_int_len: int = len(stringify_value(value_string(dynamic_value_string_int_len_source)))
+let dynamic_value_string_bool_len: int = len(stringify_value(value_string(dynamic_value_string_bool_len_source)))
+let dynamic_field_int_len: int = len(field_int("count", dynamic_int))
+let dynamic_field_bool_len: int = len(field_bool("enabled", dynamic_bool))
+let dynamic_field_string_int_len: int = len(field_string("count_text", dynamic_field_string_int_len_source))
+let dynamic_field_string_bool_len: int = len(field_string("enabled_text", dynamic_field_string_bool_len_source))
+print dynamic_value_int_text
+print dynamic_value_string_int_text
+print dynamic_field_int_text
+print dynamic_field_string_int_text
+let written: int = eprintln(dynamic_value_bool_text)
+let written_string: int = eprintln(dynamic_value_string_bool_text)
+let written_field: int = eprintln(dynamic_field_bool_text)
+let written_field_string: int = eprintln(dynamic_field_string_bool_text)
+if parsed_bool && ready_value && int_len == 2 && static_int_len == 3 && bool_len == 5 && static_bool_len == 4 && string_len == 7 && parsed_int == 42 && parsed_string_len == 5 && missing_string_len == 4 && count_value == 3 && name_len == 5 && missing_int == 4 && dynamic_int_len == 5 && dynamic_bool_len == 5 && dynamic_string_len == 7 && dynamic_value_int_len == 5 && dynamic_value_bool_len == 5 && dynamic_value_string_int_len == 7 && dynamic_value_string_bool_len == 7 && dynamic_field_int_len == 13 && dynamic_field_bool_len == 15 && dynamic_field_string_int_len == 20 && dynamic_field_string_bool_len == 22 && written == 6 && written_string == 8 && written_field == 16 && written_field_string == 23 {
+return 48
+} else {
+return 1
+}
+}
+"#,
     )
     .expect("write std json wrapper source");
 }
