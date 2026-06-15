@@ -28,12 +28,12 @@ MAKE
 
 cat >"$temp_dir/open-issues.txt" <<'ISSUES'
 927 OPEN
+928 OPEN
 929 OPEN
 693 OPEN
 694 OPEN
 930 OPEN
 931 OPEN
-1001 OPEN
 562 OPEN
 563 OPEN
 564 OPEN
@@ -58,7 +58,7 @@ statuses = {check["name"]: check["status"] for check in payload["checks"]}
 assert statuses["readiness_doc_present"] == "pass"
 assert statuses["readiness_manifest_valid"] == "pass"
 assert statuses["readiness_blockers_closed"] == "fail"
-assert statuses["direct_native_runtime_abi_ready"] == "fail"
+assert statuses["direct_native_runtime_abi_ready"] == "pass"
 assert statuses["command_lsp_release_boundary"] == "pass"
 assert statuses["mir_backend_direct_native_boundary"] == "pass"
 PY
@@ -66,12 +66,12 @@ PY
 
 cat >"$temp_dir/issues.txt" <<'ISSUES'
 927 CLOSED
+928 CLOSED
 929 CLOSED
 693 CLOSED
 694 CLOSED
 930 CLOSED
 931 CLOSED
-1001 CLOSED
 562 CLOSED
 563 CLOSED
 564 CLOSED
@@ -80,7 +80,7 @@ ISSUES
 (
   cd "$case_dir"
   if bash scripts/ci/check-rust-exit-readiness.sh --json --issue-state-file "$temp_dir/issues.txt" >"$temp_dir/still-blocked.json" 2>"$temp_dir/still-blocked.err"; then
-    echo "expected readiness check to fail while the direct-native ABI remains incomplete" >&2
+    echo "expected readiness check to fail while blocking issues remain open" >&2
     exit 1
   fi
   python3 - "$temp_dir/still-blocked.json" <<'PY'
@@ -95,7 +95,7 @@ statuses = {check["name"]: check["status"] for check in payload["checks"]}
 assert statuses["readiness_blockers_closed"] == "pass"
 assert statuses["rust_exit_issue_927_closed"] == "pass"
 assert statuses["rust_exit_issue_564_closed"] == "pass"
-assert statuses["direct_native_runtime_abi_ready"] == "fail"
+assert statuses["direct_native_runtime_abi_ready"] == "pass"
 assert statuses["command_lsp_release_boundary"] == "pass"
 assert statuses["mir_backend_direct_native_boundary"] == "pass"
 PY

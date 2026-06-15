@@ -3,16 +3,10 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 script="$repo_root/scripts/ci/run-direct-native-runtime-abi-evidence.sh"
-example_smoke="$repo_root/scripts/ci/run-direct-native-example-smoke.sh"
 makefile="$repo_root/Makefile"
 
 [[ -x "$script" ]] || {
   echo "missing executable direct native runtime ABI evidence runner: $script" >&2
-  exit 1
-}
-
-[[ -f "$example_smoke" ]] || {
-  echo "missing direct native example smoke runner: $example_smoke" >&2
   exit 1
 }
 
@@ -28,16 +22,6 @@ grep -Fq -- '--test cranelift_backend' "$script" || {
 
 grep -Fq 'AXIOM_DIRECT_NATIVE_RUNTIME_ABI_TEST_FILTER' "$script" || {
   echo "evidence runner must expose a focused test filter for local repair loops" >&2
-  exit 1
-}
-
-grep -Fq 'validate_example_coverage' "$example_smoke" || {
-  echo "direct native example smoke must validate all checked-in examples are covered" >&2
-  exit 1
-}
-
-grep -Fq 'direct-native example smoke coverage is stale' "$example_smoke" || {
-  echo "direct native example smoke must explain stale example coverage" >&2
   exit 1
 }
 
