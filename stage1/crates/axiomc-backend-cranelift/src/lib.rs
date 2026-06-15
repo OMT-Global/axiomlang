@@ -94,6 +94,12 @@ pub enum I64Cast {
     Unsigned32,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum I64AuditSuccess {
+    ExitZero,
+    NonNegative,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum I64Expr {
     Literal(i64),
@@ -113,6 +119,7 @@ pub enum I64Expr {
         package: String,
         path_len: usize,
         content_len: Option<usize>,
+        success: I64AuditSuccess,
         result: Box<I64Expr>,
     },
     RuntimeFsGuard {
@@ -1886,6 +1893,7 @@ fn emit_i64_expr(
             package,
             path_len,
             content_len,
+            success,
             result,
         } => emit_i64_audit_fs_expr(
             builder,
@@ -1896,6 +1904,7 @@ fn emit_i64_expr(
             package,
             *path_len,
             *content_len,
+            *success,
             result,
         ),
         I64Expr::RuntimeFsGuard {
@@ -2274,6 +2283,7 @@ fn emit_i64_audit_fs_expr(
     package: &str,
     path_len: usize,
     content_len: Option<usize>,
+    success: I64AuditSuccess,
     result: &I64Expr,
 ) -> Result<cranelift_codegen::ir::Value, CraneliftBackendError> {
     let status = emit_i64_expr(builder, locals, function_refs, runtime_refs, result)?;
@@ -2285,7 +2295,14 @@ fn emit_i64_audit_fs_expr(
     let merge_block = builder.create_block();
     builder.append_block_param(merge_block, types::I64);
 
-    let ok = builder.ins().icmp_imm(IntCC::Equal, status, 0);
+    let ok = match success {
+        I64AuditSuccess::ExitZero => builder.ins().icmp_imm(IntCC::Equal, status, 0),
+        I64AuditSuccess::NonNegative => {
+            builder
+                .ins()
+                .icmp_imm(IntCC::SignedGreaterThanOrEqual, status, 0)
+        }
+    };
     builder.ins().brif(ok, ok_block, &[], denied_block, &[]);
 
     builder.switch_to_block(ok_block);

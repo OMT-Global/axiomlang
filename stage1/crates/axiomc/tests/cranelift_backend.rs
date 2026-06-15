@@ -3033,13 +3033,35 @@ fn cranelift_backend_lowers_fs_read_to_runtime_exit_code() {
     assert_eq!(payload["backend"], "cranelift");
     assert_eq!(payload["generated_rust"], Value::Null);
     let binary = payload["binary"].as_str().expect("binary path");
+    let audit_log = project.join("native-fs-read-audit.jsonl");
+    assert!(
+        !audit_log.exists(),
+        "build should not create the native fs read audit log"
+    );
     fs::write(project.join("src/fixture.txt"), "runtime-file\n")
         .expect("rewrite fs-read fixture for runtime");
     let run = Command::new(binary)
+        .env("AXIOM_HOST_AUDIT_LOG", &audit_log)
         .output()
         .expect("run cranelift fs-read main binary");
     assert_eq!(run.status.code(), Some(48));
     assert_eq!(String::from_utf8_lossy(&run.stdout), "");
+    let audit = fs::read_to_string(&audit_log).expect("read native fs read audit log");
+    assert!(
+        audit.contains("\"intrinsic\":\"fs_read\""),
+        "audit log: {audit}"
+    );
+    assert!(audit.contains("\"outcome\":\"ok\""), "audit log: {audit}");
+    assert!(
+        audit.contains("\"outcome\":\"denied\""),
+        "audit log: {audit}"
+    );
+    assert!(
+        audit.contains("\"args\":{\"path\":\"string:15\"}"),
+        "audit log: {audit}"
+    );
+    assert!(!audit.contains("native-fs"));
+    assert!(!audit.contains("runtime-file"));
 }
 
 #[cfg(not(windows))]

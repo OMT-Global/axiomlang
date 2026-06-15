@@ -5,10 +5,10 @@ use crate::mir::{
 };
 use crate::syntax::NumericType;
 use axiomc_backend_cranelift::{
-    I64BinaryOp as CraneliftI64BinaryOp, I64Cast as CraneliftI64Cast,
-    I64Compare as CraneliftI64Compare, I64CompareOp as CraneliftI64CompareOp,
-    I64Condition as CraneliftI64Condition, I64ExitBody, I64ExitProgram,
-    I64Expr as CraneliftI64Expr, I64Function as CraneliftI64Function,
+    I64AuditSuccess as CraneliftI64AuditSuccess, I64BinaryOp as CraneliftI64BinaryOp,
+    I64Cast as CraneliftI64Cast, I64Compare as CraneliftI64Compare,
+    I64CompareOp as CraneliftI64CompareOp, I64Condition as CraneliftI64Condition, I64ExitBody,
+    I64ExitProgram, I64Expr as CraneliftI64Expr, I64Function as CraneliftI64Function,
     I64ReturnBlock as CraneliftI64ReturnBlock, I64Stmt as CraneliftI64Stmt,
     I64ValueBody as CraneliftI64ValueBody, I64ValueReturnBlock as CraneliftI64ValueReturnBlock,
     OutputLine, OutputStream,
@@ -6876,11 +6876,12 @@ fn lower_i64_fs_read_option_match_value_expr(
         .bindings
         .first()
         .filter(|binding| binding.as_str() != "_");
-    let file_len = i64_fs_read_file_len_expr(&path, static_bindings)?;
+    let file_len = i64_fs_read_file_len_expr(&path.candidate, path.requested_len, static_bindings)?;
     let then_result = lower_i64_fs_read_some_arm_expr(
         &some_arm.expr,
         binding.map(String::as_str),
-        &path,
+        &path.candidate,
+        path.requested_len,
         local_indexes,
         local_conditions,
         helper_signatures,
@@ -6908,6 +6909,7 @@ fn lower_i64_fs_read_some_arm_expr(
     expr: &Expr,
     binding: Option<&str>,
     path: &str,
+    path_len: usize,
     local_indexes: &HashMap<String, usize>,
     local_conditions: &HashMap<String, CraneliftI64Condition>,
     helper_signatures: &HashMap<&str, I64HelperSignature>,
@@ -6919,7 +6921,7 @@ fn lower_i64_fs_read_some_arm_expr(
         && let [Expr::VarRef { name, .. }] = args.as_slice()
         && name == binding
     {
-        return i64_fs_read_file_len_expr(path, static_bindings);
+        return i64_fs_read_file_len_expr(path, path_len, static_bindings);
     }
     lower_i64_return_value_expr(
         expr,
@@ -6930,7 +6932,12 @@ fn lower_i64_fs_read_some_arm_expr(
     )
 }
 
-fn i64_fs_read_path(expr: &Expr, static_bindings: &I64StaticBindings) -> Option<String> {
+struct I64FsReadPath {
+    candidate: String,
+    requested_len: usize,
+}
+
+fn i64_fs_read_path(expr: &Expr, static_bindings: &I64StaticBindings) -> Option<I64FsReadPath> {
     if static_bindings.has_fs_write_calls {
         return None;
     }
@@ -6949,16 +6956,21 @@ fn i64_fs_read_path(expr: &Expr, static_bindings: &I64StaticBindings) -> Option<
     };
     let fs_root = static_bindings.fs_root.as_deref()?;
     let path = i64_string_text(path, static_bindings)?;
-    spike_fs_write_candidate_for_root(fs_root, &path, false).map(|path| path.display().to_string())
+    let requested_len = path.len();
+    spike_fs_write_candidate_for_root(fs_root, &path, false).map(|path| I64FsReadPath {
+        candidate: path.display().to_string(),
+        requested_len,
+    })
 }
 
 fn i64_fs_read_file_len_expr(
     path: &str,
+    path_len: usize,
     static_bindings: &I64StaticBindings,
 ) -> Option<CraneliftI64Expr> {
     let fs_root = static_bindings.fs_root.as_deref()?;
     let path = Path::new(path);
-    i64_runtime_fs_guard_expr(
+    let guarded = i64_runtime_fs_guard_expr(
         fs_root,
         path,
         i64_fs_runtime_parent_fallback(path)?.as_path(),
@@ -6966,6 +6978,14 @@ fn i64_fs_read_file_len_expr(
             path: path.display().to_string(),
             max_bytes: SPIKE_MAX_FS_READ_BYTES,
         },
+    )?;
+    i64_audited_fs_expr_with_success(
+        "fs_read",
+        path_len,
+        None,
+        guarded,
+        static_bindings,
+        CraneliftI64AuditSuccess::NonNegative,
     )
 }
 
@@ -11904,12 +11924,31 @@ fn i64_audited_fs_expr(
     result: CraneliftI64Expr,
     static_bindings: &I64StaticBindings,
 ) -> Option<CraneliftI64Expr> {
+    i64_audited_fs_expr_with_success(
+        intrinsic,
+        path_len,
+        content_len,
+        result,
+        static_bindings,
+        CraneliftI64AuditSuccess::ExitZero,
+    )
+}
+
+fn i64_audited_fs_expr_with_success(
+    intrinsic: &str,
+    path_len: usize,
+    content_len: Option<usize>,
+    result: CraneliftI64Expr,
+    static_bindings: &I64StaticBindings,
+    success: CraneliftI64AuditSuccess,
+) -> Option<CraneliftI64Expr> {
     let package = static_bindings.package_root.as_deref()?;
     Some(CraneliftI64Expr::AuditFs {
         intrinsic: intrinsic.to_string(),
         package: package.display().to_string(),
         path_len,
         content_len,
+        success,
         result: Box::new(result),
     })
 }

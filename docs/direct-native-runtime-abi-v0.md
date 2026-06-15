@@ -346,11 +346,14 @@ revalidated with `realpath(...)` against the canonical `fs_root` immediately
 before runtime length checks. The symlink regression smoke builds while the
 literal read target is an in-root file, swaps that target to an out-of-root
 symlink before runtime, and proves the native binary selects the denied `None`
-arm. This native read path currently opts out for programs that contain
-write-side filesystem calls so existing write/read sequencing stays on the
-prior path. General string file contents, non-literal path binding, write-side
-filesystem wrappers, manifest policy parity, runtime filesystem binding, and
-audit parity remain open under #1001.
+arm. These read-length paths now append best-effort host audit JSONL to
+`AXIOM_HOST_AUDIT_LOG` without including path or file-content secrets, recording
+nonnegative read lengths as `ok` and missing/denied reads as `denied`. This
+native read path currently opts out for programs that contain write-side
+filesystem calls so existing write/read sequencing stays on the prior path.
+General string file contents, non-literal path binding, write-side filesystem
+wrappers, manifest policy parity, and runtime filesystem binding remain open
+under #1001.
 
 The DNS row now has partial Cranelift evidence: the spike builds and runs a
 `std/net.ax` package resolving `localhost` through host DNS while the public
