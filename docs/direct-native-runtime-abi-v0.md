@@ -761,10 +761,11 @@ byte-count return value without generated Rust. Known pure `print` expressions
 for string, integer, and boolean values now lower from direct-native i64 `main`
 functions into native stdout writes without generated Rust, and
 runtime-computed boolean `print` expressions now lower into conditional native
-stdout writes without generated Rust. Runtime-computed signed integer `print`
-expressions now lower through a native decimal formatter and stdout write
-without generated Rust. Stdin reads, dynamic string stdout/stderr text, broader
-numeric formatting beyond signed integer lines, dynamic log inputs, and broader
+stdout writes without generated Rust. Runtime-computed signed and unsigned
+integer `print` expressions for currently supported direct-native scalar widths
+now lower through native decimal formatters and stdout writes without generated
+Rust. Stdin reads, dynamic string stdout/stderr text, broader numeric
+formatting beyond supported integer lines, dynamic log inputs, and broader
 streaming/runtime buffering remain tracked by issue #1001.
 
 The `clock.now_sleep` row now has partial Cranelift evidence for `std/time.ax`

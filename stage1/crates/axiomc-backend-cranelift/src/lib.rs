@@ -166,6 +166,10 @@ pub enum I64Stmt {
         stream: OutputStream,
         value: I64Expr,
     },
+    WriteUIntLine {
+        stream: OutputStream,
+        value: I64Expr,
+    },
     CallAssign {
         locals: Vec<usize>,
         function: usize,
@@ -514,6 +518,7 @@ fn collect_i64_output_lines(stmts: &[I64Stmt], lines: &mut Vec<(OutputStream, St
             }
             I64Stmt::While { body, .. } => collect_i64_output_lines(body, lines),
             I64Stmt::Assign(_) | I64Stmt::WriteIntLine { .. } | I64Stmt::CallAssign { .. } => {}
+            I64Stmt::WriteUIntLine { .. } => {}
         }
     }
 }
@@ -711,6 +716,15 @@ fn emit_i64_stmt(
             *stream,
             value,
         ),
+        I64Stmt::WriteUIntLine { stream, value } => emit_i64_write_uint_line(
+            module,
+            builder,
+            locals,
+            function_refs,
+            write_ref,
+            *stream,
+            value,
+        ),
         I64Stmt::CallAssign {
             locals: assign_locals,
             function,
@@ -837,6 +851,49 @@ fn emit_i64_write_int_line(
     stream: OutputStream,
     value: &I64Expr,
 ) -> Result<(), CraneliftBackendError> {
+    emit_i64_write_decimal_line(
+        module,
+        builder,
+        locals,
+        function_refs,
+        write_ref,
+        stream,
+        value,
+        true,
+    )
+}
+
+fn emit_i64_write_uint_line(
+    module: &mut ObjectModule,
+    builder: &mut FunctionBuilder<'_>,
+    locals: &[Variable],
+    function_refs: &[FuncRef],
+    write_ref: FuncRef,
+    stream: OutputStream,
+    value: &I64Expr,
+) -> Result<(), CraneliftBackendError> {
+    emit_i64_write_decimal_line(
+        module,
+        builder,
+        locals,
+        function_refs,
+        write_ref,
+        stream,
+        value,
+        false,
+    )
+}
+
+fn emit_i64_write_decimal_line(
+    module: &mut ObjectModule,
+    builder: &mut FunctionBuilder<'_>,
+    locals: &[Variable],
+    function_refs: &[FuncRef],
+    write_ref: FuncRef,
+    stream: OutputStream,
+    value: &I64Expr,
+    signed: bool,
+) -> Result<(), CraneliftBackendError> {
     let pointer_type = module.target_config().pointer_type();
     let value = emit_i64_expr(builder, locals, function_refs, value)?;
     let buffer =
@@ -846,14 +903,19 @@ fn emit_i64_write_int_line(
 
     let zero = builder.ins().iconst(types::I64, 0);
     let ten = builder.ins().iconst(types::I64, 10);
-    let is_negative = builder.ins().icmp(IntCC::SignedLessThan, value, zero);
-    let negated = builder.ins().isub(zero, value);
-    let magnitude = builder.ins().select(is_negative, negated, value);
+    let (magnitude, is_negative) = if signed {
+        let is_negative = builder.ins().icmp(IntCC::SignedLessThan, value, zero);
+        let negated = builder.ins().isub(zero, value);
+        (
+            builder.ins().select(is_negative, negated, value),
+            Some(is_negative),
+        )
+    } else {
+        (value, None)
+    };
 
     let loop_block = builder.create_block();
     let after_digits = builder.create_block();
-    let negative_block = builder.create_block();
-    let positive_block = builder.create_block();
     let write_block = builder.create_block();
     builder.append_block_param(loop_block, types::I64);
     builder.append_block_param(loop_block, pointer_type);
@@ -889,25 +951,32 @@ fn emit_i64_write_int_line(
 
     builder.switch_to_block(after_digits);
     let pos = builder.block_params(after_digits)[0];
-    builder
-        .ins()
-        .brif(is_negative, negative_block, &[], positive_block, &[]);
-    builder.seal_block(after_digits);
+    if let Some(is_negative) = is_negative {
+        let negative_block = builder.create_block();
+        let positive_block = builder.create_block();
+        builder
+            .ins()
+            .brif(is_negative, negative_block, &[], positive_block, &[]);
+        builder.seal_block(after_digits);
 
-    builder.switch_to_block(negative_block);
-    let signed_pos = builder.ins().iadd_imm(pos, -1);
-    let base = builder.ins().stack_addr(pointer_type, buffer, 0);
-    let sign_addr = builder.ins().iadd(base, signed_pos);
-    let sign = builder.ins().iconst(types::I8, i64::from(b'-'));
-    builder.ins().store(MemFlags::new(), sign, sign_addr, 0);
-    builder
-        .ins()
-        .jump(write_block, &[BlockArg::Value(signed_pos)]);
-    builder.seal_block(negative_block);
+        builder.switch_to_block(negative_block);
+        let signed_pos = builder.ins().iadd_imm(pos, -1);
+        let base = builder.ins().stack_addr(pointer_type, buffer, 0);
+        let sign_addr = builder.ins().iadd(base, signed_pos);
+        let sign = builder.ins().iconst(types::I8, i64::from(b'-'));
+        builder.ins().store(MemFlags::new(), sign, sign_addr, 0);
+        builder
+            .ins()
+            .jump(write_block, &[BlockArg::Value(signed_pos)]);
+        builder.seal_block(negative_block);
 
-    builder.switch_to_block(positive_block);
-    builder.ins().jump(write_block, &[BlockArg::Value(pos)]);
-    builder.seal_block(positive_block);
+        builder.switch_to_block(positive_block);
+        builder.ins().jump(write_block, &[BlockArg::Value(pos)]);
+        builder.seal_block(positive_block);
+    } else {
+        builder.ins().jump(write_block, &[BlockArg::Value(pos)]);
+        builder.seal_block(after_digits);
+    }
 
     builder.switch_to_block(write_block);
     let start = builder.block_params(write_block)[0];
@@ -1592,6 +1661,14 @@ mod tests {
                         stream: OutputStream::Stdout,
                         value: I64Expr::Literal(-42),
                     },
+                    I64Stmt::WriteUIntLine {
+                        stream: OutputStream::Stdout,
+                        value: I64Expr::Literal(-1),
+                    },
+                    I64Stmt::WriteUIntLine {
+                        stream: OutputStream::Stdout,
+                        value: I64Expr::Literal(i64::MIN),
+                    },
                     I64Stmt::WriteIntLine {
                         stream: OutputStream::Stderr,
                         value: I64Expr::Literal(i64::MIN),
@@ -1605,7 +1682,10 @@ mod tests {
         .expect("compile i64 dynamic int lines");
         let output = Command::new(&binary).output().expect("run binary");
         assert_eq!(output.status.code(), Some(7));
-        assert_eq!(String::from_utf8_lossy(&output.stdout), "0\n42\n-42\n");
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout),
+            "0\n42\n-42\n18446744073709551615\n9223372036854775808\n"
+        );
         assert_eq!(
             String::from_utf8_lossy(&output.stderr),
             "-9223372036854775808\n"

@@ -3113,6 +3113,12 @@ fn lower_i64_print_stmt(
             helper_signatures,
             static_bindings,
         )?;
+        if is_i64_unsigned_print_type(&expr.ty()) {
+            return Some(CraneliftI64Stmt::WriteUIntLine {
+                stream: OutputStream::Stdout,
+                value,
+            });
+        }
         return Some(CraneliftI64Stmt::WriteIntLine {
             stream: OutputStream::Stdout,
             value,
@@ -3136,6 +3142,19 @@ fn lower_i64_print_stmt(
             text: "false".to_string(),
         }],
     })
+}
+
+fn is_i64_unsigned_print_type(ty: &Type) -> bool {
+    matches!(
+        ty,
+        Type::Numeric(
+            NumericType::U8
+                | NumericType::U16
+                | NumericType::U32
+                | NumericType::U64
+                | NumericType::Usize
+        )
+    )
 }
 
 fn lower_i64_option_match_stmt(
