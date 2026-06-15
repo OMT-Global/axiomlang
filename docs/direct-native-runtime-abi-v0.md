@@ -190,7 +190,8 @@ conditions, and process exit status without generated Rust. Known-input
 `string_strip_prefix(...)`, `string_strip_suffix(...)`, and `string_line_at(...)`
 calls can also lower direct `match` expressions by selecting the `Some` or
 `None` arm at compile time and binding the `Some` payload as a known string fact
-for that arm. Known-text `encoding_url_component_encode(...)`,
+for that arm, including static scalar `string_line_at(...)` indexes. Known-text
+`encoding_url_component_encode(...)`,
 `encoding_path_segment_encode(...)`, `encoding_url_query_pair_encode(...)`, and
 `encoding_path_join_segment(...)` calls can feed the same direct-native string
 length and comparison path, and known-input `encoding_url_component_decode(...)`
@@ -511,7 +512,8 @@ Rust. It also builds and runs `std/string_builder.ax` owned string accumulator
 helpers and `std/encoding.ax` percent encode/decode helpers, query-pair
 encoding, and path segment joining without generated Rust. Known-text encoding
 helpers now also feed narrow direct-native string length/comparison lowering,
-and known-input percent decode can feed direct `Option<string>` matches without
+known-input `string_line_at(...)` also accepts static scalar indexes, and
+known-input percent decode can feed direct `Option<string>` matches without
 generated Rust. Imported public `std/string_builder.ax` builder, seed, push,
 line-push, and finish wrappers now alias known text facts that can feed
 direct-native string comparisons, length projections, and process exit status

@@ -7109,7 +7109,7 @@ fn i64_string_option_text(
                 return None;
             };
             let text = i64_string_text(text, static_bindings)?;
-            let index = lower_i64_literal_value(index)?;
+            let index = i64_static_scalar_value(index, static_bindings)?;
             if index < 0 {
                 return Some(None);
             }
