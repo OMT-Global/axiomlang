@@ -540,9 +540,11 @@ and process-status execution through the object backend without generated Rust.
 The missing sentinel maps to `-1` through the native executable check, while the
 existing true/false helpers run and normalize their process status at runtime.
 Denied `process` capability use still fails through the manifest policy before
-Cranelift lowering or native execution. Arguments, broader command policy,
-environment control, audit parity, and host-process policy coverage remain open
-under #1001.
+Cranelift lowering or native execution. The direct-native i64 path also appends
+host audit JSONL entries when `AXIOM_HOST_AUDIT_LOG` is set, recording only the
+command string length and the `ok`/`denied` outcome without recording command
+text. Arguments, broader command policy, environment control, and host-process
+policy coverage remain open under #1001.
 
 The regex row now has partial direct-native evidence: the Cranelift spike covers
 `std/regex.ax` `is_match`, `find`, and `replace_all` for the stage1-safe NFA

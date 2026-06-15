@@ -11628,7 +11628,13 @@ fn lower_i64_process_intrinsic_expr(
     let command = i64_string_text(command, static_bindings)?;
     match command.as_str() {
         "/usr/bin/true" | "/usr/bin/false" | "__axiom_stage1_missing_binary__" => {
-            Some(CraneliftI64Expr::ProcessStatus { command })
+            i64_audited_process_expr(
+                "process_status",
+                command.len(),
+                CraneliftI64Expr::ProcessStatus { command },
+                static_bindings,
+                CraneliftI64AuditSuccess::NonNegative,
+            )
         }
         _ => None,
     }
@@ -11975,6 +11981,23 @@ fn i64_audited_env_expr(
         intrinsic: intrinsic.to_string(),
         package: package.display().to_string(),
         key_len,
+        success,
+        result: Box::new(result),
+    })
+}
+
+fn i64_audited_process_expr(
+    intrinsic: &str,
+    command_len: usize,
+    result: CraneliftI64Expr,
+    static_bindings: &I64StaticBindings,
+    success: CraneliftI64AuditSuccess,
+) -> Option<CraneliftI64Expr> {
+    let package = static_bindings.package_root.as_deref()?;
+    Some(CraneliftI64Expr::AuditProcess {
+        intrinsic: intrinsic.to_string(),
+        package: package.display().to_string(),
+        command_len,
         success,
         result: Box::new(result),
     })

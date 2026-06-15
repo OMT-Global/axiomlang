@@ -2958,11 +2958,40 @@ fn cranelift_backend_lowers_process_status_to_runtime_exit_code() {
     assert_eq!(payload["backend"], "cranelift");
     assert_eq!(payload["generated_rust"], Value::Null);
     let binary = payload["binary"].as_str().expect("binary path");
+    let audit_log = temp.path().join("process-audit.jsonl");
     let run = Command::new(binary)
+        .env("AXIOM_HOST_AUDIT_LOG", &audit_log)
         .output()
         .expect("run cranelift process-status main binary");
     assert_eq!(run.status.code(), Some(48));
     assert_eq!(String::from_utf8_lossy(&run.stdout), "");
+    let audit = fs::read_to_string(&audit_log).expect("read process audit log");
+    assert!(
+        audit.contains("\"intrinsic\":\"process_status\""),
+        "{audit}"
+    );
+    assert_eq!(audit.matches("\"outcome\":\"ok\"").count(), 2, "{audit}");
+    assert_eq!(
+        audit.matches("\"outcome\":\"denied\"").count(),
+        1,
+        "{audit}"
+    );
+    assert!(
+        audit.contains("\"args\":{\"command\":\"string:13\"}"),
+        "{audit}"
+    );
+    assert!(
+        audit.contains("\"args\":{\"command\":\"string:14\"}"),
+        "{audit}"
+    );
+    assert!(
+        audit.contains("\"args\":{\"command\":\"string:31\"}"),
+        "{audit}"
+    );
+    assert!(
+        !audit.contains("/usr/bin") && !audit.contains("__axiom_stage1_missing_binary__"),
+        "audit log should not contain process commands: {audit}"
+    );
 }
 
 #[cfg(not(windows))]
