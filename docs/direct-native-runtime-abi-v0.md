@@ -659,9 +659,11 @@ object backend for direct `Option<string>` matches that use `len(value)`,
 returning the runtime string length or the `None` arm when absent. That
 direct-native path also appends host audit JSONL entries when
 `AXIOM_HOST_AUDIT_LOG` is set, recording only the environment key length and the
-`ok`/`denied` outcome without recording environment values. Broader runtime
-environment binding, manifest allowlist parity, and stored option values remain
-open under #1001.
+`ok`/`denied` outcome without recording environment values. Literal-key
+direct-native environment reads now also honor manifest env allowlists at
+runtime, returning the `None` arm for non-allowlisted keys even when those names
+exist in the host process. Broader runtime environment binding, stored option
+values, and dynamic-key allowlist handling remain open under #1001.
 
 The FFI call row now has partial direct-native evidence: the spike builds and
 runs a narrow C ABI `extern fn strlen(value: string): int from "c"` fixture

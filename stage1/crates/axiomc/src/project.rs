@@ -2073,6 +2073,7 @@ fn build_artifacts(
             let fs_root = fs_root_path_for_package(package_root, &analyzed.manifest)?;
             compile_cranelift_hello_spike(
                 &analyzed.mir,
+                &analyzed.manifest.capabilities,
                 package_root,
                 &fs_root,
                 &object_path,

@@ -1,4 +1,5 @@
 use crate::diagnostics::Diagnostic;
+use crate::manifest::CapabilityConfig;
 use crate::mir::{
     ArithmeticOp, CompareOp, EnumDef, EnumVariantDef, Expr, Function, LiteralValue, LogicOp,
     MapEntry, MatchArm, MatchExprArm, Program, StaticDef, Stmt, StructDef, Type,
@@ -42,6 +43,8 @@ struct I64StaticBindings {
     map_key_array_string_indexes: HashMap<String, I64MapKeyArrayStringIndex>,
     process_status_wrappers: HashSet<String>,
     env_get_wrappers: HashSet<String>,
+    env_allowed_names: HashSet<String>,
+    env_unrestricted: bool,
     time_wrappers: HashSet<String>,
     time_duration_ms_wrappers: HashSet<String>,
     time_sleep_wrappers: HashSet<String>,
@@ -273,6 +276,7 @@ static SPIKE_TCP_STREAMS: OnceLock<Mutex<HashMap<i64, SpikeTcpStream>>> = OnceLo
 
 pub fn compile_cranelift_hello_spike(
     program: &Program,
+    capabilities: &CapabilityConfig,
     package_root: &Path,
     fs_root: &Path,
     object_path: &Path,
@@ -285,7 +289,7 @@ pub fn compile_cranelift_hello_spike(
             "the cranelift backend spike currently supports only the host target",
         ));
     }
-    if let Some(program) = lower_i64_exit_program(program, package_root, fs_root) {
+    if let Some(program) = lower_i64_exit_program(program, capabilities, package_root, fs_root) {
         return axiomc_backend_cranelift::compile_i64_exit_program(
             program,
             object_path,
@@ -315,6 +319,7 @@ pub fn compile_cranelift_hello_spike(
 
 fn lower_i64_exit_program(
     program: &Program,
+    capabilities: &CapabilityConfig,
     package_root: &Path,
     fs_root: &Path,
 ) -> Option<I64ExitProgram> {
@@ -337,6 +342,8 @@ fn lower_i64_exit_program(
     let mut static_bindings = lower_i64_static_bindings(&program.statics)?;
     static_bindings.package_root = Some(package_root.to_path_buf());
     static_bindings.fs_root = Some(fs_root.to_path_buf());
+    static_bindings.env_allowed_names = capabilities.env_vars.iter().cloned().collect();
+    static_bindings.env_unrestricted = capabilities.env_unrestricted;
     static_bindings.process_status_wrappers = program
         .functions
         .iter()
@@ -6832,12 +6839,18 @@ fn lower_i64_env_some_arm_expr(
 }
 
 fn i64_env_len_expr(key: &str, static_bindings: &I64StaticBindings) -> Option<CraneliftI64Expr> {
+    let result =
+        if static_bindings.env_unrestricted || static_bindings.env_allowed_names.contains(key) {
+            CraneliftI64Expr::EnvLen {
+                key: key.to_string(),
+            }
+        } else {
+            CraneliftI64Expr::Literal(-1)
+        };
     i64_audited_env_expr(
         "env_get",
         key.len(),
-        CraneliftI64Expr::EnvLen {
-            key: key.to_string(),
-        },
+        result,
         static_bindings,
         CraneliftI64AuditSuccess::NonNegative,
     )
