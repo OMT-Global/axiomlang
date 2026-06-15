@@ -3077,6 +3077,7 @@ fn cranelift_backend_lowers_fs_write_to_runtime_exit_code() {
     let binary = payload["binary"].as_str().expect("binary path");
     let runtime_file = project.join("scratch/data.txt");
     let created_file = project.join("scratch/created.txt");
+    let runtime_dir = project.join("scratch/native-dir");
     assert!(
         !runtime_file.exists(),
         "build should not create the fs_write runtime fixture"
@@ -3084,6 +3085,10 @@ fn cranelift_backend_lowers_fs_write_to_runtime_exit_code() {
     assert!(
         !created_file.exists(),
         "build should not create the create_file runtime fixture"
+    );
+    assert!(
+        !runtime_dir.exists(),
+        "build should not create the mkdir runtime fixture"
     );
     let run = Command::new(binary)
         .output()
@@ -3097,6 +3102,10 @@ fn cranelift_backend_lowers_fs_write_to_runtime_exit_code() {
     assert_eq!(
         fs::read_to_string(&created_file).expect("read create_file runtime fixture"),
         ""
+    );
+    assert!(
+        !runtime_dir.exists(),
+        "runtime remove_dir should remove the mkdir fixture"
     );
 }
 
@@ -11661,8 +11670,10 @@ let appended: int = append_file("scratch/data.txt", "+runtime-append")
 let replaced: int = replace_file("scratch/data.txt", "runtime-replace")
 let removed: int = remove_file("scratch/data.txt")
 let created: int = create_file("scratch/created.txt")
+let made_dir: int = mkdir("scratch/native-dir")
+let removed_dir: int = remove_dir("scratch/native-dir")
 let blocked: int = write_file("../escape.txt", "blocked")
-if wrote == 0 && appended == 0 && replaced == 0 && removed == 0 && created == 0 && blocked == -1 {
+if wrote == 0 && appended == 0 && replaced == 0 && removed == 0 && created == 0 && made_dir == 0 && removed_dir == 0 && blocked == -1 {
 return 48
 } else {
 return 1
