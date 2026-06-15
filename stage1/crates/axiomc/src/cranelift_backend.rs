@@ -11630,8 +11630,19 @@ fn lower_i64_fs_write_intrinsic_expr(
         let Some(candidate) = spike_fs_write_candidate_for_root(fs_root, &path, false) else {
             return Some(CraneliftI64Expr::Literal(-1));
         };
-        return Some(CraneliftI64Expr::WriteFile {
+        let Some(parent) = candidate.parent() else {
+            return Some(CraneliftI64Expr::Literal(-1));
+        };
+        let Some(file_name) = candidate.file_name() else {
+            return Some(CraneliftI64Expr::Literal(-1));
+        };
+        let temp_path = parent.join(format!(
+            ".{}.axiom-replace.tmp",
+            file_name.to_string_lossy()
+        ));
+        return Some(CraneliftI64Expr::ReplaceFile {
             path: candidate.display().to_string(),
+            temp_path: temp_path.display().to_string(),
             content,
         });
     }

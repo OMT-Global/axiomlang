@@ -397,7 +397,8 @@ also lowers literal-path `fs_write(...)` calls and public `std/fs.ax`
 literal-path `fs_append(...)` calls and public `std/fs.ax` `append_file(...)`
 wrappers into native append-mode open/write/close execution. Literal-path
 `fs_replace(...)` calls and public `std/fs.ax` `replace_file(...)` wrappers now
-reuse the same native create/truncate/write/close path as `write_file(...)`.
+lower into adjacent temp-file write/close followed by native `rename(...)`, with
+temp cleanup on failure.
 Literal-path `fs_remove_file(...)` calls and public `std/fs.ax`
 `remove_file(...)` wrappers now lower into native `unlink(...)` execution.
 Literal-path `fs_create(...)` calls and public `std/fs.ax` `create_file(...)`
@@ -410,8 +411,8 @@ directory creation with final directory verification. These paths return the
 existing status-code convention without generated Rust. The runtime smoke
 asserts the target files and directories are not created or removed during
 build, then appear, are replaced or removed, and the created empty file remains
-only after the native binary runs. Atomic replace parity, TOCTOU hardening, and
-audit parity remain open under #1001.
+only after the native binary runs. TOCTOU hardening and audit parity remain open
+under #1001.
 
 The direct-native crypto hash slice is still marked partial: the Cranelift
 spike can build and run `std/crypto_hash.ax` `sha256(...)` while the public

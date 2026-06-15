@@ -54,6 +54,7 @@ struct I64RuntimeRefs {
     fwrite: FuncRef,
     fclose: FuncRef,
     unlink: FuncRef,
+    rename: FuncRef,
     mkdir: FuncRef,
     rmdir: FuncRef,
     opendir: FuncRef,
@@ -109,6 +110,11 @@ pub enum I64Expr {
     },
     AppendFile {
         path: String,
+        content: String,
+    },
+    ReplaceFile {
+        path: String,
+        temp_path: String,
         content: String,
     },
     CreateFile {
@@ -576,6 +582,15 @@ fn emit_i64_exit_object(
         .map_err(|message| {
             CraneliftBackendError::new(format!("declare unlink import: {message}"))
         })?;
+    let mut rename_sig = module.make_signature();
+    rename_sig.params.push(AbiParam::new(pointer_type));
+    rename_sig.params.push(AbiParam::new(pointer_type));
+    rename_sig.returns.push(AbiParam::new(types::I32));
+    let rename_id = module
+        .declare_function("rename", Linkage::Import, &rename_sig)
+        .map_err(|message| {
+            CraneliftBackendError::new(format!("declare rename import: {message}"))
+        })?;
     let mut mkdir_sig = module.make_signature();
     mkdir_sig.params.push(AbiParam::new(pointer_type));
     mkdir_sig.params.push(AbiParam::new(types::I32));
@@ -630,6 +645,7 @@ fn emit_i64_exit_object(
             fwrite_id,
             fclose_id,
             unlink_id,
+            rename_id,
             mkdir_id,
             rmdir_id,
             opendir_id,
@@ -670,6 +686,7 @@ fn emit_i64_exit_object(
         let fwrite_ref = module.declare_func_in_func(fwrite_id, builder.func);
         let fclose_ref = module.declare_func_in_func(fclose_id, builder.func);
         let unlink_ref = module.declare_func_in_func(unlink_id, builder.func);
+        let rename_ref = module.declare_func_in_func(rename_id, builder.func);
         let mkdir_ref = module.declare_func_in_func(mkdir_id, builder.func);
         let rmdir_ref = module.declare_func_in_func(rmdir_id, builder.func);
         let opendir_ref = module.declare_func_in_func(opendir_id, builder.func);
@@ -689,6 +706,7 @@ fn emit_i64_exit_object(
             fwrite: fwrite_ref,
             fclose: fclose_ref,
             unlink: unlink_ref,
+            rename: rename_ref,
             mkdir: mkdir_ref,
             rmdir: rmdir_ref,
             opendir: opendir_ref,
@@ -891,6 +909,7 @@ fn define_i64_function(
     fwrite_id: FuncId,
     fclose_id: FuncId,
     unlink_id: FuncId,
+    rename_id: FuncId,
     mkdir_id: FuncId,
     rmdir_id: FuncId,
     opendir_id: FuncId,
@@ -939,6 +958,7 @@ fn define_i64_function(
         let fwrite_ref = module.declare_func_in_func(fwrite_id, builder.func);
         let fclose_ref = module.declare_func_in_func(fclose_id, builder.func);
         let unlink_ref = module.declare_func_in_func(unlink_id, builder.func);
+        let rename_ref = module.declare_func_in_func(rename_id, builder.func);
         let mkdir_ref = module.declare_func_in_func(mkdir_id, builder.func);
         let rmdir_ref = module.declare_func_in_func(rmdir_id, builder.func);
         let opendir_ref = module.declare_func_in_func(opendir_id, builder.func);
@@ -958,6 +978,7 @@ fn define_i64_function(
             fwrite: fwrite_ref,
             fclose: fclose_ref,
             unlink: unlink_ref,
+            rename: rename_ref,
             mkdir: mkdir_ref,
             rmdir: rmdir_ref,
             opendir: opendir_ref,
@@ -1818,6 +1839,11 @@ fn emit_i64_expr(
         I64Expr::AppendFile { path, content } => {
             emit_i64_append_file_expr(builder, runtime_refs, path, content)
         }
+        I64Expr::ReplaceFile {
+            path,
+            temp_path,
+            content,
+        } => emit_i64_replace_file_expr(builder, runtime_refs, path, temp_path, content),
         I64Expr::CreateFile { path } => emit_i64_create_file_expr(builder, runtime_refs, path),
         I64Expr::RemoveFile { path } => emit_i64_remove_file_expr(builder, runtime_refs, path),
         I64Expr::MakeDir { path } => emit_i64_make_dir_expr(builder, runtime_refs, path),
@@ -2310,6 +2336,56 @@ fn emit_i64_create_file_expr(
 
     builder.switch_to_block(failed_block);
     builder.seal_block(failed_block);
+    let failed = builder.ins().iconst(types::I64, -1);
+    builder.ins().jump(merge_block, &[BlockArg::Value(failed)]);
+
+    builder.switch_to_block(merge_block);
+    builder.seal_block(merge_block);
+    Ok(builder.block_params(merge_block)[0])
+}
+
+fn emit_i64_replace_file_expr(
+    builder: &mut FunctionBuilder<'_>,
+    runtime_refs: I64RuntimeRefs,
+    path: &str,
+    temp_path: &str,
+    content: &str,
+) -> Result<cranelift_codegen::ir::Value, CraneliftBackendError> {
+    let write_result = emit_i64_write_file_expr(builder, runtime_refs, temp_path, content)?;
+
+    let rename_block = builder.create_block();
+    let success_block = builder.create_block();
+    let failed_block = builder.create_block();
+    let merge_block = builder.create_block();
+    builder.append_block_param(merge_block, types::I64);
+
+    let write_ok = builder.ins().icmp_imm(IntCC::Equal, write_result, 0);
+    builder
+        .ins()
+        .brif(write_ok, rename_block, &[], failed_block, &[]);
+
+    builder.switch_to_block(rename_block);
+    builder.seal_block(rename_block);
+    let temp_ptr = emit_i64_path_ptr(builder, temp_path)?;
+    let path_ptr = emit_i64_path_ptr(builder, path)?;
+    let rename_call = builder
+        .ins()
+        .call(runtime_refs.rename, &[temp_ptr, path_ptr]);
+    let rename_result = builder.inst_results(rename_call)[0];
+    let rename_ok = builder.ins().icmp_imm(IntCC::Equal, rename_result, 0);
+    builder
+        .ins()
+        .brif(rename_ok, success_block, &[], failed_block, &[]);
+
+    builder.switch_to_block(success_block);
+    builder.seal_block(success_block);
+    let success = builder.ins().iconst(types::I64, 0);
+    builder.ins().jump(merge_block, &[BlockArg::Value(success)]);
+
+    builder.switch_to_block(failed_block);
+    builder.seal_block(failed_block);
+    let temp_ptr = emit_i64_path_ptr(builder, temp_path)?;
+    builder.ins().call(runtime_refs.unlink, &[temp_ptr]);
     let failed = builder.ins().iconst(types::I64, -1);
     builder.ins().jump(merge_block, &[BlockArg::Value(failed)]);
 
@@ -2959,6 +3035,59 @@ mod tests {
         assert_eq!(
             fs::read_to_string(&fixture).expect("read runtime append fixture"),
             "base+runtime-append"
+        );
+    }
+
+    #[test]
+    fn links_i64_exit_program_with_replace_file() {
+        if std::env::var_os("AXIOM_SKIP_CRANELIFT_LINK_TEST").is_some() {
+            return;
+        }
+        if Command::new("cc").arg("--version").output().is_err() {
+            eprintln!("skipping cranelift link test because cc is unavailable");
+            return;
+        }
+        let temp = tempfile::tempdir().expect("tempdir");
+        let fixture = temp.path().join("fixture.txt");
+        let temp_fixture = temp.path().join(".fixture.txt.axiom-replace.tmp");
+        fs::write(&fixture, "base").expect("write replace base fixture");
+        let object = temp.path().join("i64-exit-replace-file.o");
+        let binary = temp.path().join("i64-exit-replace-file");
+        compile_i64_exit_program(
+            I64ExitProgram {
+                functions: Vec::new(),
+                locals: Vec::new(),
+                stmts: Vec::new(),
+                body: I64ExitBody::Return(I64Expr::ReplaceFile {
+                    path: fixture.display().to_string(),
+                    temp_path: temp_fixture.display().to_string(),
+                    content: String::from("runtime-replace"),
+                }),
+            },
+            &object,
+            &binary,
+        )
+        .expect("compile i64 replace file exit program");
+
+        assert_eq!(
+            fs::read_to_string(&fixture).expect("read compile-time replace fixture"),
+            "base"
+        );
+        assert!(
+            !temp_fixture.exists(),
+            "compile should not create the replace temp fixture"
+        );
+        let output = Command::new(&binary)
+            .output()
+            .expect("run replace file binary");
+        assert_eq!(output.status.code(), Some(0));
+        assert_eq!(
+            fs::read_to_string(&fixture).expect("read runtime replace fixture"),
+            "runtime-replace"
+        );
+        assert!(
+            !temp_fixture.exists(),
+            "runtime replace should not leave the temp fixture"
         );
     }
 

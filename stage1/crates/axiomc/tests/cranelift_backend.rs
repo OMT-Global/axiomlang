@@ -3076,6 +3076,7 @@ fn cranelift_backend_lowers_fs_write_to_runtime_exit_code() {
     assert_eq!(payload["generated_rust"], Value::Null);
     let binary = payload["binary"].as_str().expect("binary path");
     let runtime_file = project.join("scratch/data.txt");
+    let replace_temp_file = project.join("scratch/.data.txt.axiom-replace.tmp");
     let created_file = project.join("scratch/created.txt");
     let runtime_dir = project.join("scratch/native-dir");
     let runtime_dir_all = project.join("scratch/native-all");
@@ -3083,6 +3084,10 @@ fn cranelift_backend_lowers_fs_write_to_runtime_exit_code() {
     assert!(
         !runtime_file.exists(),
         "build should not create the fs_write runtime fixture"
+    );
+    assert!(
+        !replace_temp_file.exists(),
+        "build should not create the fs_replace temp fixture"
     );
     assert!(
         !created_file.exists(),
@@ -3104,6 +3109,10 @@ fn cranelift_backend_lowers_fs_write_to_runtime_exit_code() {
     assert!(
         !runtime_file.exists(),
         "runtime remove_file should remove the fs_write fixture"
+    );
+    assert!(
+        !replace_temp_file.exists(),
+        "runtime replace_file should not leave the temp fixture"
     );
     assert_eq!(
         fs::read_to_string(&created_file).expect("read create_file runtime fixture"),
