@@ -12026,6 +12026,27 @@ fn i64_audited_clock_expr(
     })
 }
 
+fn i64_audited_ffi_expr(
+    intrinsic: &str,
+    library: &str,
+    symbol: &str,
+    arg_type: &str,
+    result: CraneliftI64Expr,
+    static_bindings: &I64StaticBindings,
+    success: CraneliftI64AuditSuccess,
+) -> Option<CraneliftI64Expr> {
+    let package = static_bindings.package_root.as_deref()?;
+    Some(CraneliftI64Expr::AuditFfi {
+        intrinsic: intrinsic.to_string(),
+        package: package.display().to_string(),
+        library: library.to_string(),
+        symbol: symbol.to_string(),
+        arg_type: arg_type.to_string(),
+        success,
+        result: Box::new(result),
+    })
+}
+
 fn i64_runtime_fs_guard_expr(
     fs_root: &Path,
     path: &Path,
@@ -12100,19 +12121,31 @@ fn lower_i64_ffi_intrinsic_expr(
         return None;
     };
     if let Some(text) = i64_string_text(value, static_bindings) {
-        let len = text
-            .as_bytes()
-            .iter()
-            .position(|byte| *byte == 0)
-            .unwrap_or(text.len());
-        return Some(CraneliftI64Expr::Literal(len as i64));
+        return i64_audited_ffi_expr(
+            "ffi_call",
+            "c",
+            "strlen",
+            "string",
+            CraneliftI64Expr::CStringLen { value: text },
+            static_bindings,
+            CraneliftI64AuditSuccess::NonNegative,
+        );
     }
-    lower_i64_string_len_expr(
+    let result = lower_i64_string_len_expr(
         value,
         local_indexes,
         local_conditions,
         helper_signatures,
         static_bindings,
+    )?;
+    i64_audited_ffi_expr(
+        "ffi_call",
+        "c",
+        "strlen",
+        "string",
+        result,
+        static_bindings,
+        CraneliftI64AuditSuccess::NonNegative,
     )
 }
 

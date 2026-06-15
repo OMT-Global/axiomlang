@@ -6325,11 +6325,23 @@ fn cranelift_backend_lowers_ffi_strlen_to_runtime_exit_code() {
     assert_eq!(payload["backend"], "cranelift");
     assert_eq!(payload["generated_rust"], Value::Null);
     let binary = payload["binary"].as_str().expect("binary path");
+    let audit_log = temp.path().join("ffi-audit.jsonl");
     let run = Command::new(binary)
+        .env("AXIOM_HOST_AUDIT_LOG", &audit_log)
         .output()
         .expect("run cranelift ffi strlen main binary");
     assert_eq!(run.status.code(), Some(48));
     assert_eq!(String::from_utf8_lossy(&run.stdout), "");
+    let audit = fs::read_to_string(&audit_log).expect("read ffi audit log");
+    assert!(audit.contains("\"intrinsic\":\"ffi_call\""), "{audit}");
+    assert!(audit.contains("\"library\":\"c\""), "{audit}");
+    assert!(audit.contains("\"symbol\":\"strlen\""), "{audit}");
+    assert!(audit.contains("\"value\":\"string\""), "{audit}");
+    assert_eq!(audit.matches("\"outcome\":\"ok\"").count(), 3, "{audit}");
+    assert!(
+        !audit.contains("hello") && !audit.contains("direct-native"),
+        "audit log should not contain FFI string argument values: {audit}"
+    );
 }
 
 #[test]

@@ -654,11 +654,16 @@ runs a narrow C ABI `extern fn strlen(value: string): int from "c"` fixture
 while the public smoke asserts `generated_rust` is null, using the source-level
 extern declaration. The direct-native i64 path also lowers that same narrow
 `strlen` declaration for supported literal and string-projection inputs into
-native process exit status without generated Rust. A package with an `extern fn`
+native process exit status without generated Rust, and known-string inputs now
+call the native `strlen` import at runtime instead of relying on compile-time
+length folding. That path also appends host audit JSONL entries when
+`AXIOM_HOST_AUDIT_LOG` is set, recording only the library, symbol, argument
+type, and `ok`/`denied` outcome without recording string argument values. A
+package with an `extern fn`
 declaration and no `ffi` capability must still receive its public manifest-policy denial before any
 Cranelift-specific lowering diagnostic. Broad dynamic symbol loading, pointer
 and mutable-pointer ABI shapes, non-string arguments, ownership safety, platform
-library resolution, and audit parity remain open under #1001.
+library resolution, and broader FFI audit coverage remain open under #1001.
 
 The async runtime row now has partial Cranelift evidence for `std/async.ax`
 `ready`, `await`, `spawn`, `join`, `cancel`, `is_canceled`, `timeout`,
