@@ -778,11 +778,13 @@ writes while preserving the newline-inclusive byte-count return value and
 native stderr integer/boolean writes while preserving the newline-inclusive
 byte-count return value without generated Rust. Known public `std/log.ax`
 `info_attrs` calls now lower into native stderr writes from direct-native i64
-`main` functions for known message and attributes strings, preserving the
-structured JSON line and byte-count return value without generated Rust. Known
-pure `print` expressions for string, integer, and boolean values now lower from
-direct-native i64 `main` functions into native stdout writes without generated
-Rust. Public `std/json.ax` `stringify_int` and `stringify_bool` results can
+`main` functions for known message and attributes strings, and for known
+messages with runtime `fields2(...)`/`fields3(...)` attribute fragments,
+preserving the structured JSON line and byte-count return value without
+generated Rust. Known pure `print` expressions for string, integer, and boolean
+values now lower from direct-native i64 `main` functions into native stdout
+writes without generated Rust. Public `std/json.ax` `stringify_int` and
+`stringify_bool` results can
 also feed `print` statements as native stdout integer/boolean writes without
 generated Rust, and runtime-computed boolean `print` expressions now lower into
 conditional native stdout writes without generated Rust. Runtime-computed

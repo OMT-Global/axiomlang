@@ -1318,6 +1318,8 @@ fn lower_i64_aggregate_return_body(
                         stmt,
                         &mut locals,
                         &mut local_indexes,
+                        &local_conditions,
+                        helper_signatures,
                         static_bindings,
                     )
                 }) {
@@ -2535,6 +2537,8 @@ fn lower_i64_body(
                         stmt,
                         &mut locals,
                         &mut local_indexes,
+                        &local_conditions,
+                        helper_signatures,
                         static_bindings,
                     )
                 }) {
@@ -3196,6 +3200,7 @@ fn lower_i64_print_stmts(
         local_conditions,
         helper_signatures,
         static_bindings,
+        true,
     )
     .map(|(_, stmts)| stmts)
 }
@@ -4104,9 +4109,14 @@ fn lower_i64_runtime_let_stmts(
     ) {
         return Some(assigns);
     }
-    if let Some(assigns) =
-        lower_i64_log_emit_let_stmts(stmt, locals, local_indexes, static_bindings)
-    {
+    if let Some(assigns) = lower_i64_log_emit_let_stmts(
+        stmt,
+        locals,
+        local_indexes,
+        local_conditions,
+        helper_signatures,
+        static_bindings,
+    ) {
         return Some(assigns);
     }
     if let Some(assigns) = lower_i64_runtime_projection_let_stmts(
@@ -4263,6 +4273,7 @@ fn lower_i64_eprintln_message(
         local_conditions,
         helper_signatures,
         static_bindings,
+        true,
     ) {
         return Some((i64_add_expr(written, CraneliftI64Expr::Literal(1)), stmts));
     }
@@ -4289,6 +4300,7 @@ fn lower_i64_log_field_list_len_and_write_stmts(
     local_conditions: &HashMap<String, CraneliftI64Condition>,
     helper_signatures: &HashMap<&str, I64HelperSignature>,
     static_bindings: &I64StaticBindings,
+    append_newline: bool,
 ) -> Option<(CraneliftI64Expr, Vec<CraneliftI64Stmt>)> {
     let Expr::Call { name, args, .. } = message else {
         return None;
@@ -4330,7 +4342,7 @@ fn lower_i64_log_field_list_len_and_write_stmts(
         stmts.extend(i64_formatted_string_write_stmts(
             stream,
             field,
-            index == last,
+            append_newline && index == last,
         ));
         if index != last {
             stmts.push(CraneliftI64Stmt::WriteText {
@@ -4346,6 +4358,8 @@ fn lower_i64_log_emit_let_stmts(
     stmt: &Stmt,
     locals: &mut Vec<CraneliftI64Expr>,
     local_indexes: &mut HashMap<String, usize>,
+    local_conditions: &HashMap<String, CraneliftI64Condition>,
+    helper_signatures: &HashMap<&str, I64HelperSignature>,
     static_bindings: &I64StaticBindings,
 ) -> Option<Vec<CraneliftI64Stmt>> {
     let Stmt::Let {
@@ -4363,6 +4377,31 @@ fn lower_i64_log_emit_let_stmts(
     };
     if !is_i64_compatible_type(ty) {
         return None;
+    }
+    if static_bindings.log_info_attrs_wrappers.contains(call_name) {
+        let [message, attributes] = args.as_slice() else {
+            return None;
+        };
+        if let Some((written, mut stmts)) = lower_i64_log_info_attrs_len_and_write_stmts(
+            message,
+            attributes,
+            local_indexes,
+            local_conditions,
+            helper_signatures,
+            static_bindings,
+        ) {
+            let local = local_indexes.len();
+            local_indexes.insert(name.clone(), local);
+            locals.push(CraneliftI64Expr::Literal(0));
+            stmts.insert(
+                0,
+                CraneliftI64Stmt::Assign(axiomc_backend_cranelift::I64Assign {
+                    local,
+                    value: written,
+                }),
+            );
+            return Some(stmts);
+        }
     }
     let text = if let Some(level) = static_bindings.log_emit_wrappers.get(call_name.as_str()) {
         let [message] = args.as_slice() else {
@@ -4389,6 +4428,54 @@ fn lower_i64_log_emit_let_stmts(
         stream: OutputStream::Stderr,
         text,
     }])
+}
+
+fn lower_i64_log_info_attrs_len_and_write_stmts(
+    message: &Expr,
+    attributes: &Expr,
+    local_indexes: &HashMap<String, usize>,
+    local_conditions: &HashMap<String, CraneliftI64Condition>,
+    helper_signatures: &HashMap<&str, I64HelperSignature>,
+    static_bindings: &I64StaticBindings,
+) -> Option<(CraneliftI64Expr, Vec<CraneliftI64Stmt>)> {
+    let message = i64_string_text(message, static_bindings)?;
+    let prefix = format!(
+        "{{\"level\":{},\"message\":{},\"attributes\":{{",
+        json_escape_string("info"),
+        json_escape_string(&message)
+    );
+    let suffix = "}}";
+    let (attributes_len, mut stmts) = lower_i64_log_field_list_len_and_write_stmts(
+        OutputStream::Stderr,
+        attributes,
+        local_indexes,
+        local_conditions,
+        helper_signatures,
+        static_bindings,
+        false,
+    )?;
+    stmts.insert(
+        0,
+        CraneliftI64Stmt::WriteText {
+            stream: OutputStream::Stderr,
+            text: prefix.clone(),
+        },
+    );
+    stmts.push(CraneliftI64Stmt::WriteLine {
+        stream: OutputStream::Stderr,
+        text: suffix.to_string(),
+    });
+
+    Some((
+        i64_add_expr(
+            i64_add_expr(
+                CraneliftI64Expr::Literal(prefix.len() as i64),
+                attributes_len,
+            ),
+            CraneliftI64Expr::Literal(suffix.len() as i64 + 1),
+        ),
+        stmts,
+    ))
 }
 
 fn lower_i64_runtime_projection_let_stmts(

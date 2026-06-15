@@ -4617,7 +4617,7 @@ fn cranelift_backend_lowers_std_log_info_attrs_to_native_stderr_runtime_exit_cod
     assert_eq!(String::from_utf8_lossy(&run.stdout), "");
     assert_eq!(
         String::from_utf8_lossy(&run.stderr),
-        "{\"level\":\"info\",\"message\":\"started\",\"attributes\":{\"component\":\"worker\",\"attempt\":2,\"ready\":true}}\n"
+        "{\"level\":\"info\",\"message\":\"started\",\"attributes\":{\"runtime_attempt\":2,\"runtime_ready\":true}}\n"
     );
 }
 
@@ -10124,10 +10124,17 @@ source = "path"
         project.join("src/main.ax"),
         r#"import "std/log.ax"
 
+fn make_attempt(): int {
+return 2
+}
+
+fn make_ready(): bool {
+return make_attempt() == 2
+}
+
 fn main(): int {
-let attrs: string = fields3(field_string("component", "worker"), field_int("attempt", 2), field_bool("ready", true))
-let written: int = info_attrs("started", attrs)
-if written == 98 {
+let written: int = info_attrs("started", fields2(field_int("runtime_attempt", make_attempt()), field_bool("runtime_ready", make_ready())))
+if written == 93 {
 return 48
 } else {
 return 1
