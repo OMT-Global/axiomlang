@@ -4149,6 +4149,23 @@ fn lower_i64_print_stmt_stmts(
         }
     }
     if let Expr::Call { name, args, .. } = expr {
+        if is_i64_log_event_name(name, static_bindings) {
+            let [level, message, attributes] = args.as_slice() else {
+                return None;
+            };
+            let level = i64_string_text(level, static_bindings)?;
+            let (stmts, _) = lower_i64_log_event_output_stmts(
+                &level,
+                message,
+                Some(attributes),
+                OutputStream::Stdout,
+                local_indexes,
+                local_conditions,
+                helper_signatures,
+                static_bindings,
+            )?;
+            return Some(stmts);
+        }
         if is_i64_json_stringify_int_name(name, static_bindings) {
             let [value] = args.as_slice() else {
                 return None;
