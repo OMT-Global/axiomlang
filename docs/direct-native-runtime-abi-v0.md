@@ -724,9 +724,10 @@ runtime string. `json_stringify_value(...)` over those formatted scalar and
 bool JSON strings can preserve the raw formatted value for length projections
 and native output passthroughs without materializing or reparsing a general
 runtime JSON value. Imported public `std/json.ax`
-`stringify_value(value_int(...))` and `stringify_value(value_bool(...))`
-wrappers now preserve those raw formatted scalar values for direct-native
-length projections and stdout/stderr output without generated Rust.
+`stringify_value(value_int(...))`, `stringify_value(value_bool(...))`, and
+`stringify_value(value_string(...))` wrappers now preserve those raw formatted
+scalar values for direct-native length projections and stdout/stderr output
+without generated Rust.
 Known-input `json_parse_string` and
 `json_parse_value` direct `Option<string>` matches, known-input
 `json_parse_field_string`/`json_parse_field_value` direct `Option<string>`
@@ -785,9 +786,10 @@ through local string bindings and `string_clone`, also lowers into native
 JSON-quoted stdout/stderr writes while preserving `eprintln` byte counts.
 Intrinsic `json_stringify_value` over those formatted scalar JSON strings
 preserves the same native stdout/stderr lowering for raw JSON scalar output.
-Imported public `std/json.ax` `stringify_value(value_int(...))` and
-`stringify_value(value_bool(...))` wrappers preserve the same native
-stdout/stderr lowering and `eprintln` byte counts for raw JSON scalar output.
+Imported public `std/json.ax` `stringify_value(value_int(...))`,
+`stringify_value(value_bool(...))`, and `stringify_value(value_string(...))`
+wrappers preserve the same native stdout/stderr lowering and `eprintln` byte
+counts for raw JSON scalar output.
 Stdin reads, dynamic string stdout/stderr text beyond these formatted scalar
 passthroughs, broader numeric formatting beyond supported integer lines,
 dynamic log inputs, and broader streaming/runtime buffering remain tracked by

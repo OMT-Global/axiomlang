@@ -80,6 +80,7 @@ struct I64StaticBindings {
     json_stringify_value_wrappers: HashSet<String>,
     json_value_int_wrappers: HashSet<String>,
     json_value_bool_wrappers: HashSet<String>,
+    json_value_string_wrappers: HashSet<String>,
     io_eprintln_wrappers: HashSet<String>,
     log_wrappers: HashSet<String>,
     log_field_string_wrappers: HashSet<String>,
@@ -590,6 +591,12 @@ fn lower_i64_exit_program(program: &Program, fs_root: &Path) -> Option<I64ExitPr
         .functions
         .iter()
         .filter(|function| is_i64_std_json_wrapper(function, "value_bool"))
+        .flat_map(|function| [function.name.clone(), function.source_name.clone()])
+        .collect();
+    static_bindings.json_value_string_wrappers = program
+        .functions
+        .iter()
+        .filter(|function| is_i64_std_json_wrapper(function, "value_string"))
         .flat_map(|function| [function.name.clone(), function.source_name.clone()])
         .collect();
     static_bindings.io_eprintln_wrappers = program
@@ -3288,8 +3295,12 @@ fn lower_i64_formatted_string_expr(
             )? {
                 I64FormattedString::Int(value) => Some(I64FormattedString::Int(value)),
                 I64FormattedString::Bool(cond) => Some(I64FormattedString::Bool(cond)),
-                I64FormattedString::JsonStringifiedInt(_)
-                | I64FormattedString::JsonStringifiedBool(_) => None,
+                I64FormattedString::JsonStringifiedInt(value) => {
+                    Some(I64FormattedString::JsonStringifiedInt(value))
+                }
+                I64FormattedString::JsonStringifiedBool(cond) => {
+                    Some(I64FormattedString::JsonStringifiedBool(cond))
+                }
             }
         }
         Expr::Call { name, args, .. }
@@ -3391,6 +3402,27 @@ fn lower_i64_json_value_formatted_string_expr(
                 static_bindings,
             )?))
         }
+        Expr::Call { name, args, .. } if is_i64_json_value_string_name(name, static_bindings) => {
+            let [value] = args.as_slice() else {
+                return None;
+            };
+            match lower_i64_formatted_string_expr(
+                value,
+                local_indexes,
+                local_conditions,
+                helper_signatures,
+                static_bindings,
+            )? {
+                I64FormattedString::Int(value) => {
+                    Some(I64FormattedString::JsonStringifiedInt(value))
+                }
+                I64FormattedString::Bool(cond) => {
+                    Some(I64FormattedString::JsonStringifiedBool(cond))
+                }
+                I64FormattedString::JsonStringifiedInt(_)
+                | I64FormattedString::JsonStringifiedBool(_) => None,
+            }
+        }
         _ => {
             let source = lower_i64_struct_literal_field(value, "source")?;
             lower_i64_formatted_string_expr(
@@ -3425,6 +3457,27 @@ fn i64_formatted_string_written_len(formatted: I64FormattedString) -> CraneliftI
             cond: Box::new(cond),
             then_result: Box::new(CraneliftI64Expr::Literal(7)),
             else_result: Box::new(CraneliftI64Expr::Literal(8)),
+        },
+    }
+}
+
+fn i64_formatted_string_len_expr(formatted: I64FormattedString) -> CraneliftI64Expr {
+    match formatted {
+        I64FormattedString::Int(value) => i64_decimal_string_len_expr(value),
+        I64FormattedString::JsonStringifiedInt(value) => CraneliftI64Expr::Binary {
+            op: CraneliftI64BinaryOp::Add,
+            lhs: Box::new(i64_decimal_string_len_expr(value)),
+            rhs: Box::new(CraneliftI64Expr::Literal(2)),
+        },
+        I64FormattedString::Bool(cond) => CraneliftI64Expr::Select {
+            cond: Box::new(cond),
+            then_result: Box::new(CraneliftI64Expr::Literal(4)),
+            else_result: Box::new(CraneliftI64Expr::Literal(5)),
+        },
+        I64FormattedString::JsonStringifiedBool(cond) => CraneliftI64Expr::Select {
+            cond: Box::new(cond),
+            then_result: Box::new(CraneliftI64Expr::Literal(6)),
+            else_result: Box::new(CraneliftI64Expr::Literal(7)),
         },
     }
 }
@@ -10541,6 +10594,10 @@ fn is_i64_json_value_bool_name(name: &str, static_bindings: &I64StaticBindings) 
     static_bindings.json_value_bool_wrappers.contains(name)
 }
 
+fn is_i64_json_value_string_name(name: &str, static_bindings: &I64StaticBindings) -> bool {
+    static_bindings.json_value_string_wrappers.contains(name)
+}
+
 fn is_i64_std_log_wrapper(function: &Function, source_name: &str) -> bool {
     function.path == "<stdlib>/log.ax" && function.source_name == source_name
 }
@@ -10991,23 +11048,16 @@ fn lower_i64_string_len_expr(
             let [value] = args.as_slice() else {
                 return None;
             };
-            match lower_i64_json_value_formatted_string_expr(
-                value,
-                name,
-                local_indexes,
-                local_conditions,
-                helper_signatures,
-                static_bindings,
-            )? {
-                I64FormattedString::Int(value) => Some(i64_decimal_string_len_expr(value)),
-                I64FormattedString::Bool(cond) => Some(CraneliftI64Expr::Select {
-                    cond: Box::new(cond),
-                    then_result: Box::new(CraneliftI64Expr::Literal(4)),
-                    else_result: Box::new(CraneliftI64Expr::Literal(5)),
-                }),
-                I64FormattedString::JsonStringifiedInt(_)
-                | I64FormattedString::JsonStringifiedBool(_) => None,
-            }
+            Some(i64_formatted_string_len_expr(
+                lower_i64_json_value_formatted_string_expr(
+                    value,
+                    name,
+                    local_indexes,
+                    local_conditions,
+                    helper_signatures,
+                    static_bindings,
+                )?,
+            ))
         }
         Expr::Call { name, args, .. }
             if is_i64_json_stringify_string_name(name, static_bindings) =>
