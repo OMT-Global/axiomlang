@@ -7164,16 +7164,31 @@ fn i64_known_helper_body_is_pure(
     if depth > 8 {
         return false;
     }
-    let Some((last, leading)) = body.split_last() else {
+    if body.is_empty() {
         return false;
-    };
-    leading.iter().all(|stmt| match stmt {
-        Stmt::Let { expr, .. } => i64_known_expr_is_pure(expr, static_bindings, depth + 1),
-        _ => false,
-    }) && match last {
-        Stmt::Return { expr, .. } => i64_known_expr_is_pure(expr, static_bindings, depth + 1),
-        _ => false,
     }
+    body.iter().enumerate().all(|(index, stmt)| match stmt {
+        Stmt::Let { expr, .. } => {
+            index + 1 < body.len() && i64_known_expr_is_pure(expr, static_bindings, depth + 1)
+        }
+        Stmt::Return { expr, .. } => {
+            index + 1 == body.len() && i64_known_expr_is_pure(expr, static_bindings, depth + 1)
+        }
+        Stmt::If {
+            cond,
+            then_block,
+            else_block,
+            ..
+        } => {
+            index + 1 == body.len()
+                && i64_known_expr_is_pure(cond, static_bindings, depth + 1)
+                && i64_known_helper_body_is_pure(then_block, static_bindings, depth + 1)
+                && else_block.as_ref().is_some_and(|else_block| {
+                    i64_known_helper_body_is_pure(else_block, static_bindings, depth + 1)
+                })
+        }
+        _ => false,
+    })
 }
 
 fn i64_known_expr_is_pure(expr: &Expr, static_bindings: &I64StaticBindings, depth: usize) -> bool {
