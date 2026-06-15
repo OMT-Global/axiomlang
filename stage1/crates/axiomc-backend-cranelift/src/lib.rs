@@ -163,6 +163,10 @@ pub struct I64Assign {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum I64Stmt {
     Assign(I64Assign),
+    WriteText {
+        stream: OutputStream,
+        text: String,
+    },
     WriteLine {
         stream: OutputStream,
         text: String,
@@ -177,6 +181,11 @@ pub enum I64Stmt {
     },
     WriteJsonStringifiedIntLine {
         stream: OutputStream,
+        value: I64Expr,
+    },
+    WriteJsonFieldIntLine {
+        stream: OutputStream,
+        prefix: String,
         value: I64Expr,
     },
     CallAssign {
@@ -476,7 +485,8 @@ fn emit_i64_exit_object(
 fn declare_i64_output_data(
     module: &mut ObjectModule,
     program: &I64ExitProgram,
-) -> Result<Vec<(OutputStream, String, cranelift_module::DataId, usize)>, CraneliftBackendError> {
+) -> Result<Vec<(OutputStream, String, bool, cranelift_module::DataId, usize)>, CraneliftBackendError>
+{
     let mut lines = Vec::new();
     collect_i64_output_lines(&program.stmts, &mut lines);
     collect_i64_exit_body_output_lines(&program.body, &mut lines);
@@ -487,7 +497,7 @@ fn declare_i64_output_data(
     lines
         .into_iter()
         .enumerate()
-        .map(|(index, (stream, text))| {
+        .map(|(index, (stream, text, append_newline))| {
             let data_id = module
                 .declare_data(
                     &format!("__axiom_i64_line_{index}"),
@@ -500,7 +510,9 @@ fn declare_i64_output_data(
                 })?;
             let mut description = DataDescription::new();
             let mut bytes = text.as_bytes().to_vec();
-            bytes.push(b'\n');
+            if append_newline {
+                bytes.push(b'\n');
+            }
             let byte_len = bytes.len();
             description.define(bytes.into_boxed_slice());
             module
@@ -508,15 +520,19 @@ fn declare_i64_output_data(
                 .map_err(|message| {
                     CraneliftBackendError::new(format!("define i64 output data: {message}"))
                 })?;
-            Ok((stream, text, data_id, byte_len))
+            Ok((stream, text, append_newline, data_id, byte_len))
         })
         .collect()
 }
 
-fn collect_i64_output_lines(stmts: &[I64Stmt], lines: &mut Vec<(OutputStream, String)>) {
+fn collect_i64_output_lines(stmts: &[I64Stmt], lines: &mut Vec<(OutputStream, String, bool)>) {
     for stmt in stmts {
         match stmt {
-            I64Stmt::WriteLine { stream, text } => lines.push((*stream, text.clone())),
+            I64Stmt::WriteText { stream, text } => lines.push((*stream, text.clone(), false)),
+            I64Stmt::WriteLine { stream, text } => lines.push((*stream, text.clone(), true)),
+            I64Stmt::WriteJsonFieldIntLine { stream, prefix, .. } => {
+                lines.push((*stream, prefix.clone(), false))
+            }
             I64Stmt::If {
                 then_body,
                 else_body,
@@ -532,7 +548,10 @@ fn collect_i64_output_lines(stmts: &[I64Stmt], lines: &mut Vec<(OutputStream, St
     }
 }
 
-fn collect_i64_exit_body_output_lines(body: &I64ExitBody, lines: &mut Vec<(OutputStream, String)>) {
+fn collect_i64_exit_body_output_lines(
+    body: &I64ExitBody,
+    lines: &mut Vec<(OutputStream, String, bool)>,
+) {
     match body {
         I64ExitBody::BlockReturn(block) => collect_i64_output_lines(&block.stmts, lines),
         I64ExitBody::IfBlockReturn {
@@ -549,7 +568,7 @@ fn collect_i64_exit_body_output_lines(body: &I64ExitBody, lines: &mut Vec<(Outpu
 
 fn collect_i64_value_body_output_lines(
     body: &I64ValueBody,
-    lines: &mut Vec<(OutputStream, String)>,
+    lines: &mut Vec<(OutputStream, String, bool)>,
 ) {
     match body {
         I64ValueBody::BlockReturn(block) => collect_i64_output_lines(&block.stmts, lines),
@@ -597,7 +616,7 @@ fn define_i64_function(
     module: &mut ObjectModule,
     function_ids: &[FuncId],
     write_id: FuncId,
-    output_data_ids: &[(OutputStream, String, cranelift_module::DataId, usize)],
+    output_data_ids: &[(OutputStream, String, bool, cranelift_module::DataId, usize)],
     index: usize,
     function: &I64Function,
 ) -> Result<(), CraneliftBackendError> {
@@ -685,7 +704,7 @@ fn emit_i64_stmts(
     locals: &[Variable],
     function_refs: &[FuncRef],
     write_ref: FuncRef,
-    output_data_ids: &[(OutputStream, String, cranelift_module::DataId, usize)],
+    output_data_ids: &[(OutputStream, String, bool, cranelift_module::DataId, usize)],
     stmts: &[I64Stmt],
 ) -> Result<(), CraneliftBackendError> {
     for stmt in stmts {
@@ -708,14 +727,29 @@ fn emit_i64_stmt(
     locals: &[Variable],
     function_refs: &[FuncRef],
     write_ref: FuncRef,
-    output_data_ids: &[(OutputStream, String, cranelift_module::DataId, usize)],
+    output_data_ids: &[(OutputStream, String, bool, cranelift_module::DataId, usize)],
     stmt: &I64Stmt,
 ) -> Result<(), CraneliftBackendError> {
     match stmt {
         I64Stmt::Assign(assign) => emit_i64_assign(builder, locals, function_refs, assign),
-        I64Stmt::WriteLine { stream, text } => {
-            emit_i64_write_line(module, builder, write_ref, output_data_ids, *stream, text)
-        }
+        I64Stmt::WriteText { stream, text } => emit_i64_write_static(
+            module,
+            builder,
+            write_ref,
+            output_data_ids,
+            *stream,
+            text,
+            false,
+        ),
+        I64Stmt::WriteLine { stream, text } => emit_i64_write_static(
+            module,
+            builder,
+            write_ref,
+            output_data_ids,
+            *stream,
+            text,
+            true,
+        ),
         I64Stmt::WriteIntLine { stream, value } => emit_i64_write_int_line(
             module,
             builder,
@@ -736,6 +770,30 @@ fn emit_i64_stmt(
         ),
         I64Stmt::WriteJsonStringifiedIntLine { stream, value } => {
             emit_i64_write_json_stringified_int_line(
+                module,
+                builder,
+                locals,
+                function_refs,
+                write_ref,
+                *stream,
+                value,
+            )
+        }
+        I64Stmt::WriteJsonFieldIntLine {
+            stream,
+            prefix,
+            value,
+        } => {
+            emit_i64_write_static(
+                module,
+                builder,
+                write_ref,
+                output_data_ids,
+                *stream,
+                prefix,
+                false,
+            )?;
+            emit_i64_write_int_line(
                 module,
                 builder,
                 locals,
@@ -833,20 +891,26 @@ fn emit_i64_stmt(
     }
 }
 
-fn emit_i64_write_line(
+fn emit_i64_write_static(
     module: &mut ObjectModule,
     builder: &mut FunctionBuilder<'_>,
     write_ref: FuncRef,
-    output_data_ids: &[(OutputStream, String, cranelift_module::DataId, usize)],
+    output_data_ids: &[(OutputStream, String, bool, cranelift_module::DataId, usize)],
     stream: OutputStream,
     text: &str,
+    append_newline: bool,
 ) -> Result<(), CraneliftBackendError> {
     let (data_id, byte_len) = output_data_ids
         .iter()
-        .find_map(|(candidate_stream, candidate_text, data_id, byte_len)| {
-            (*candidate_stream == stream && candidate_text == text).then_some((data_id, byte_len))
-        })
-        .ok_or_else(|| CraneliftBackendError::new("missing i64 output line data"))?;
+        .find_map(
+            |(candidate_stream, candidate_text, candidate_append_newline, data_id, byte_len)| {
+                (*candidate_stream == stream
+                    && candidate_text == text
+                    && *candidate_append_newline == append_newline)
+                    .then_some((data_id, byte_len))
+            },
+        )
+        .ok_or_else(|| CraneliftBackendError::new("missing i64 output static data"))?;
     let data_ref = module.declare_data_in_func(*data_id, builder.func);
     let pointer_type = module.target_config().pointer_type();
     let pointer = builder.ins().global_value(pointer_type, data_ref);
@@ -1125,7 +1189,7 @@ fn emit_i64_exit_body(
     locals: &[Variable],
     function_refs: &[FuncRef],
     write_ref: FuncRef,
-    output_data_ids: &[(OutputStream, String, cranelift_module::DataId, usize)],
+    output_data_ids: &[(OutputStream, String, bool, cranelift_module::DataId, usize)],
     body: &I64ExitBody,
 ) -> Result<(), CraneliftBackendError> {
     match body {
@@ -1213,7 +1277,7 @@ fn emit_i64_value_body(
     locals: &[Variable],
     function_refs: &[FuncRef],
     write_ref: FuncRef,
-    output_data_ids: &[(OutputStream, String, cranelift_module::DataId, usize)],
+    output_data_ids: &[(OutputStream, String, bool, cranelift_module::DataId, usize)],
     returns: usize,
     body: &I64ValueBody,
 ) -> Result<(), CraneliftBackendError> {
@@ -1811,6 +1875,46 @@ mod tests {
             String::from_utf8_lossy(&output.stderr),
             "\"-9223372036854775808\"\n"
         );
+    }
+
+    #[test]
+    fn links_i64_json_field_int_lines() {
+        if std::env::var_os("AXIOM_SKIP_CRANELIFT_LINK_TEST").is_some() {
+            return;
+        }
+        if Command::new("cc").arg("--version").output().is_err() {
+            eprintln!("skipping cranelift link test because cc is unavailable");
+            return;
+        }
+        let temp = tempfile::tempdir().expect("tempdir");
+        let object = temp.path().join("i64-json-field-int-lines.o");
+        let binary = temp.path().join("i64-json-field-int-lines");
+        compile_i64_exit_program(
+            I64ExitProgram {
+                functions: Vec::new(),
+                locals: Vec::new(),
+                stmts: vec![
+                    I64Stmt::WriteJsonFieldIntLine {
+                        stream: OutputStream::Stdout,
+                        prefix: "\"count\":".to_string(),
+                        value: I64Expr::Literal(42),
+                    },
+                    I64Stmt::WriteJsonFieldIntLine {
+                        stream: OutputStream::Stderr,
+                        prefix: "\"delta\":".to_string(),
+                        value: I64Expr::Literal(-42),
+                    },
+                ],
+                body: I64ExitBody::Return(I64Expr::Literal(7)),
+            },
+            &object,
+            &binary,
+        )
+        .expect("compile i64 JSON field int lines");
+        let output = Command::new(&binary).output().expect("run binary");
+        assert_eq!(output.status.code(), Some(7));
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "\"count\":42\n");
+        assert_eq!(String::from_utf8_lossy(&output.stderr), "\"delta\":-42\n");
     }
 
     #[test]
