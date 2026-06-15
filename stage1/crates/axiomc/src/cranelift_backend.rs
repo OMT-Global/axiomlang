@@ -3251,6 +3251,23 @@ fn lower_i64_formatted_string_expr(
             helper_signatures,
             static_bindings,
         ),
+        Expr::Call { name, args, .. } if name == "json_stringify_value" => {
+            let [text] = args.as_slice() else {
+                return None;
+            };
+            match lower_i64_formatted_string_expr(
+                text,
+                local_indexes,
+                local_conditions,
+                helper_signatures,
+                static_bindings,
+            )? {
+                I64FormattedString::Int(value) => Some(I64FormattedString::Int(value)),
+                I64FormattedString::Bool(cond) => Some(I64FormattedString::Bool(cond)),
+                I64FormattedString::JsonStringifiedInt(_)
+                | I64FormattedString::JsonStringifiedBool(_) => None,
+            }
+        }
         Expr::Call { name, args, .. }
             if is_i64_json_stringify_string_name(name, static_bindings) =>
         {
@@ -10869,6 +10886,27 @@ fn lower_i64_string_len_expr(
                 then_result: Box::new(CraneliftI64Expr::Literal(4)),
                 else_result: Box::new(CraneliftI64Expr::Literal(5)),
             })
+        }
+        Expr::Call { name, args, .. } if name == "json_stringify_value" => {
+            let [text] = args.as_slice() else {
+                return None;
+            };
+            match lower_i64_formatted_string_expr(
+                text,
+                local_indexes,
+                local_conditions,
+                helper_signatures,
+                static_bindings,
+            )? {
+                I64FormattedString::Int(value) => Some(i64_decimal_string_len_expr(value)),
+                I64FormattedString::Bool(cond) => Some(CraneliftI64Expr::Select {
+                    cond: Box::new(cond),
+                    then_result: Box::new(CraneliftI64Expr::Literal(4)),
+                    else_result: Box::new(CraneliftI64Expr::Literal(5)),
+                }),
+                I64FormattedString::JsonStringifiedInt(_)
+                | I64FormattedString::JsonStringifiedBool(_) => None,
+            }
         }
         Expr::Call { name, args, .. }
             if is_i64_json_stringify_string_name(name, static_bindings) =>
