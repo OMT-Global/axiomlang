@@ -393,10 +393,12 @@ public manifest-policy denial for a package with `fs = true` and `"fs:write" =
 false` that calls `std/fs.ax` `write_file(...)`. The direct-native i64 path now
 also lowers literal-path `fs_write(...)` calls and public `std/fs.ax`
 `write_file(...)` wrappers into native object code that performs the
-`fs_root`-guarded create/truncate/write/close sequence at runtime and returns
+`fs_root`-guarded create/truncate/write/close sequence at runtime, and lowers
+literal-path `fs_append(...)` calls and public `std/fs.ax` `append_file(...)`
+wrappers into native append-mode open/write/close execution. Both paths return
 the existing status-code convention without generated Rust. The runtime smoke
 asserts the target file is not created during build and appears only after the
-native binary runs. Runtime execution for `append_file`, `replace_file`,
+native binary runs with appended content. Runtime execution for `replace_file`,
 `create_file`, `mkdir(_all)`, `remove_file`, and `remove_dir`, plus atomic
 replace parity, TOCTOU hardening, and audit parity remain open under #1001.
 

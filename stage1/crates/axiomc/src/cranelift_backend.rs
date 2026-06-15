@@ -11607,6 +11607,20 @@ fn lower_i64_fs_write_intrinsic_expr(
             content,
         });
     }
+    if name == "fs_append" {
+        let (path, content) = i64_fs_path_content(args, static_bindings)?;
+        if content.len() > SPIKE_MAX_FS_WRITE_BYTES {
+            return Some(CraneliftI64Expr::Literal(-1));
+        }
+        let fs_root = static_bindings.fs_root.as_deref()?;
+        let Some(candidate) = spike_fs_write_candidate_for_root(fs_root, &path, false) else {
+            return Some(CraneliftI64Expr::Literal(-1));
+        };
+        return Some(CraneliftI64Expr::AppendFile {
+            path: candidate.display().to_string(),
+            content,
+        });
+    }
     Some(CraneliftI64Expr::Literal(i64_fs_write_result(
         name,
         args,
