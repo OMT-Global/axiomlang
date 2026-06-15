@@ -11,7 +11,7 @@ use axiomc_backend_cranelift::{
     I64Expr as CraneliftI64Expr, I64Function as CraneliftI64Function,
     I64ReturnBlock as CraneliftI64ReturnBlock, I64Stmt as CraneliftI64Stmt,
     I64ValueBody as CraneliftI64ValueBody, I64ValueReturnBlock as CraneliftI64ValueReturnBlock,
-    OutputLine,
+    OutputLine, OutputStream,
 };
 use std::collections::{HashMap, HashSet};
 use std::env;
@@ -76,6 +76,7 @@ struct I64StaticBindings {
     json_stringify_int_wrappers: HashSet<String>,
     json_stringify_bool_wrappers: HashSet<String>,
     json_stringify_string_wrappers: HashSet<String>,
+    io_eprintln_wrappers: HashSet<String>,
     log_wrappers: HashSet<String>,
     log_field_string_wrappers: HashSet<String>,
     log_field_int_wrappers: HashSet<String>,
@@ -557,6 +558,12 @@ fn lower_i64_exit_program(program: &Program, fs_root: &Path) -> Option<I64ExitPr
         .functions
         .iter()
         .filter(|function| is_i64_std_json_wrapper(function, "stringify_string"))
+        .flat_map(|function| [function.name.clone(), function.source_name.clone()])
+        .collect();
+    static_bindings.io_eprintln_wrappers = program
+        .functions
+        .iter()
+        .filter(|function| is_i64_std_io_wrapper(function, "eprintln"))
         .flat_map(|function| [function.name.clone(), function.source_name.clone()])
         .collect();
     static_bindings.log_wrappers = program
@@ -1196,15 +1203,25 @@ fn lower_i64_aggregate_return_body(
             Stmt::Let { name, ty, expr, .. }
                 if is_i64_compatible_type(ty) && !seen_runtime_stmt =>
             {
-                let local_expr = lower_i64_expr(
-                    expr,
-                    &local_indexes,
-                    &local_conditions,
-                    helper_signatures,
+                if let Some(stmts) = lower_i64_eprintln_let_stmts(
+                    stmt,
+                    &mut locals,
+                    &mut local_indexes,
                     static_bindings,
-                )?;
-                local_indexes.insert(name.clone(), local_indexes.len());
-                locals.push(local_expr);
+                ) {
+                    lowered_stmts.extend(stmts);
+                    seen_runtime_stmt = true;
+                } else {
+                    let local_expr = lower_i64_expr(
+                        expr,
+                        &local_indexes,
+                        &local_conditions,
+                        helper_signatures,
+                        static_bindings,
+                    )?;
+                    local_indexes.insert(name.clone(), local_indexes.len());
+                    locals.push(local_expr);
+                }
             }
             Stmt::Let {
                 name,
@@ -2388,15 +2405,25 @@ fn lower_i64_body(
             Stmt::Let { name, ty, expr, .. }
                 if is_i64_compatible_type(ty) && !seen_runtime_stmt =>
             {
-                let local_expr = lower_i64_expr(
-                    expr,
-                    &local_indexes,
-                    &local_conditions,
-                    helper_signatures,
+                if let Some(stmts) = lower_i64_eprintln_let_stmts(
+                    stmt,
+                    &mut locals,
+                    &mut local_indexes,
                     static_bindings,
-                )?;
-                local_indexes.insert(name.clone(), local_indexes.len());
-                locals.push(local_expr);
+                ) {
+                    lowered_stmts.extend(stmts);
+                    seen_runtime_stmt = true;
+                } else {
+                    let local_expr = lower_i64_expr(
+                        expr,
+                        &local_indexes,
+                        &local_conditions,
+                        helper_signatures,
+                        static_bindings,
+                    )?;
+                    local_indexes.insert(name.clone(), local_indexes.len());
+                    locals.push(local_expr);
+                }
             }
             Stmt::Let {
                 name,
@@ -3280,6 +3307,11 @@ fn lower_i64_runtime_let_stmts(
     ) {
         return Some(assigns);
     }
+    if let Some(assigns) =
+        lower_i64_eprintln_let_stmts(stmt, locals, local_indexes, static_bindings)
+    {
+        return Some(assigns);
+    }
     if let Some(assigns) = lower_i64_runtime_projection_let_stmts(
         stmt,
         locals,
@@ -3350,6 +3382,42 @@ fn lower_i64_runtime_string_len_let_stmts(
         ));
     }
     Some(assigns)
+}
+
+fn lower_i64_eprintln_let_stmts(
+    stmt: &Stmt,
+    locals: &mut Vec<CraneliftI64Expr>,
+    local_indexes: &mut HashMap<String, usize>,
+    static_bindings: &I64StaticBindings,
+) -> Option<Vec<CraneliftI64Stmt>> {
+    let Stmt::Let {
+        name,
+        ty,
+        expr: Expr::Call {
+            name: call_name,
+            args,
+            ..
+        },
+        ..
+    } = stmt
+    else {
+        return None;
+    };
+    if !is_i64_compatible_type(ty) || !is_i64_io_eprintln_name(call_name, static_bindings) {
+        return None;
+    }
+    let [message] = args.as_slice() else {
+        return None;
+    };
+    let text = i64_string_text(message, static_bindings)?;
+    let written = i64::try_from(text.len()).ok()?.checked_add(1)?;
+    let local = local_indexes.len();
+    local_indexes.insert(name.clone(), local);
+    locals.push(CraneliftI64Expr::Literal(written));
+    Some(vec![CraneliftI64Stmt::WriteLine {
+        stream: OutputStream::Stderr,
+        text,
+    }])
 }
 
 fn lower_i64_runtime_projection_let_stmts(
@@ -9928,6 +9996,14 @@ fn is_i64_json_stringify_string_name(name: &str, static_bindings: &I64StaticBind
 
 fn is_i64_std_log_wrapper(function: &Function, source_name: &str) -> bool {
     function.path == "<stdlib>/log.ax" && function.source_name == source_name
+}
+
+fn is_i64_std_io_wrapper(function: &Function, source_name: &str) -> bool {
+    function.path == "<stdlib>/io.ax" && function.source_name == source_name
+}
+
+fn is_i64_io_eprintln_name(name: &str, static_bindings: &I64StaticBindings) -> bool {
+    name == "io_eprintln" || static_bindings.io_eprintln_wrappers.contains(name)
 }
 
 fn is_i64_log_field_string_name(name: &str, static_bindings: &I64StaticBindings) -> bool {

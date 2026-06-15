@@ -751,8 +751,12 @@ and stderr streams from the native binary. The direct-native i64 path now also
 lowers deterministic public `std/log.ax` formatting wrappers for field
 construction, field-list joining, and event rendering into known string facts
 that can feed comparisons, length projections, and native process exit status
-without generated Rust. Stdin reads, runtime stderr emission, and broader
-streaming/runtime buffering remain tracked by issue #1001.
+without generated Rust. It also lowers known-string public `std/io.ax`
+`eprintln` calls inside direct-native i64 `main` functions into native stderr
+writes while preserving the newline-inclusive byte-count return value and
+`generated_rust` null. Stdin reads, dynamic stderr text, stdout streaming from
+runtime `main` functions, and broader streaming/runtime buffering remain
+tracked by issue #1001.
 
 The `clock.now_sleep` row now has partial Cranelift evidence for `std/time.ax`
 `now_ms`, `now`, `elapsed_ms`, and zero-duration `sleep`, plus guards that a
