@@ -102,18 +102,30 @@ jobs:
             exit 1
           fi
           install_version="$required_version"
-          if [[ "$install_version" =~ ^[0-9]+[.][0-9]+$ ]]; then
-            install_version="${install_version}.0"
-          fi
+          needs_install=0
 
           installed_version=""
           if command -v cargo-vet >/dev/null 2>&1; then
             installed_version="$(cargo-vet --version || true)"
           fi
+          installed_semver="${installed_version#cargo-vet }"
 
-          if [[ "$installed_version" != "cargo-vet ${required_version}" &&
-                "$installed_version" != "cargo-vet ${required_version}."* &&
-                "$installed_version" != "cargo-vet ${install_version}" ]]; then
+          if [[ "$required_version" =~ ^[0-9]+[.][0-9]+$ ]]; then
+            min_patch=0
+            if [[ "$required_version" == "0.10" ]]; then
+              # 0.10.0/0.10.1 cannot parse current publisher metadata imports.
+              min_patch=2
+            fi
+            install_version="^${required_version}.${min_patch}"
+            if [[ ! "$installed_semver" =~ ^${required_version//./\\.}[.]([0-9]+)$ ]] ||
+              (( BASH_REMATCH[1] < min_patch )); then
+              needs_install=1
+            fi
+          elif [[ "$installed_version" != "cargo-vet ${required_version}" ]]; then
+            needs_install=1
+          fi
+
+          if (( needs_install )); then
             cargo install cargo-vet --version "$install_version" --locked --force
           fi
       - name: Run supply-chain checks

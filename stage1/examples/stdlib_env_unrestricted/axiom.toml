@@ -11,5 +11,6 @@ fs = false
 net = false
 process = false
 env_unrestricted = true
+unsafe_rationale = "stdlib_env_unrestricted example intentionally exercises the migration escape hatch"
 clock = false
 crypto = false

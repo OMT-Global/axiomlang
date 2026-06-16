@@ -1,7 +1,4 @@
-use cranelift_codegen::ir::{
-    AbiParam, BlockArg, FuncRef, InstBuilder, MemFlags, StackSlotData, StackSlotKind,
-    condcodes::IntCC, types,
-};
+use cranelift_codegen::ir::{AbiParam, BlockArg, FuncRef, InstBuilder, condcodes::IntCC, types};
 use cranelift_codegen::isa;
 use cranelift_codegen::settings::{self, Configurable};
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext, Variable};
@@ -10,10 +7,8 @@ use cranelift_object::{ObjectBuilder, ObjectModule};
 use std::error::Error;
 use std::fmt;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::Command;
-
-const I64_REALPATH_BUFFER_BYTES: u32 = 4096;
 
 #[derive(Debug)]
 pub struct CraneliftBackendError {
@@ -30,43 +25,6 @@ pub enum OutputStream {
 pub struct OutputLine {
     pub stream: OutputStream,
     pub text: String,
-}
-
-struct I64OutputData {
-    stream: OutputStream,
-    text: String,
-    append_newline: bool,
-    data_id: cranelift_module::DataId,
-    byte_len: usize,
-}
-
-#[derive(Clone, Copy)]
-struct I64RuntimeRefs {
-    write: FuncRef,
-    read: FuncRef,
-    sleep: FuncRef,
-    getenv: FuncRef,
-    strlen: FuncRef,
-    atoll: FuncRef,
-    open: FuncRef,
-    creat: FuncRef,
-    lseek: FuncRef,
-    close: FuncRef,
-    access: FuncRef,
-    system: FuncRef,
-    fopen: FuncRef,
-    fwrite: FuncRef,
-    fclose: FuncRef,
-    unlink: FuncRef,
-    rename: FuncRef,
-    mkdir: FuncRef,
-    rmdir: FuncRef,
-    opendir: FuncRef,
-    closedir: FuncRef,
-    realpath: FuncRef,
-    strncmp: FuncRef,
-    getaddrinfo: Option<FuncRef>,
-    freeaddrinfo: Option<FuncRef>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -96,12 +54,6 @@ pub enum I64Cast {
     Unsigned8,
     Unsigned16,
     Unsigned32,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum I64AuditSuccess {
-    ExitZero,
-    NonNegative,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -211,17 +163,6 @@ pub enum I64Expr {
     ProcessStatus {
         command: String,
     },
-    NetResolveLen {
-        host: String,
-        resolved_len: i64,
-    },
-    AuditNet {
-        intrinsic: String,
-        package: String,
-        host_len: usize,
-        success: I64AuditSuccess,
-        result: Box<I64Expr>,
-    },
     ConditionValue(Box<I64Condition>),
     Cast {
         cast: I64Cast,
@@ -317,21 +258,9 @@ pub struct I64Assign {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum I64Stmt {
     Assign(I64Assign),
-    WriteText {
-        stream: OutputStream,
-        text: String,
-    },
     WriteLine {
         stream: OutputStream,
         text: String,
-    },
-    WriteI64Text {
-        stream: OutputStream,
-        value: I64Expr,
-    },
-    WriteI64Line {
-        stream: OutputStream,
-        value: I64Expr,
     },
     CallAssign {
         locals: Vec<usize>,
@@ -459,6 +388,7 @@ fn emit_cranelift_object(
         .map_err(|message| {
             CraneliftBackendError::new(format!("declare write import: {message}"))
         })?;
+
     let mut data_ids = Vec::new();
     for (index, line) in lines.iter().enumerate() {
         let data_id = module
@@ -555,289 +485,14 @@ fn emit_i64_exit_object(
         .map_err(|message| {
             CraneliftBackendError::new(format!("declare write import: {message}"))
         })?;
-    let mut read_sig = module.make_signature();
-    read_sig.params.push(AbiParam::new(types::I32));
-    read_sig.params.push(AbiParam::new(pointer_type));
-    read_sig.params.push(AbiParam::new(pointer_type));
-    read_sig.returns.push(AbiParam::new(pointer_type));
-    let read_id = module
-        .declare_function("read", Linkage::Import, &read_sig)
-        .map_err(|message| CraneliftBackendError::new(format!("declare read import: {message}")))?;
-    let mut sleep_sig = module.make_signature();
-    sleep_sig.params.push(AbiParam::new(types::I32));
-    sleep_sig.returns.push(AbiParam::new(types::I32));
-    let sleep_id = module
-        .declare_function("usleep", Linkage::Import, &sleep_sig)
-        .map_err(|message| {
-            CraneliftBackendError::new(format!("declare usleep import: {message}"))
-        })?;
-    let mut getenv_sig = module.make_signature();
-    getenv_sig.params.push(AbiParam::new(pointer_type));
-    getenv_sig.returns.push(AbiParam::new(pointer_type));
-    let getenv_id = module
-        .declare_function("getenv", Linkage::Import, &getenv_sig)
-        .map_err(|message| {
-            CraneliftBackendError::new(format!("declare getenv import: {message}"))
-        })?;
-    let mut strlen_sig = module.make_signature();
-    strlen_sig.params.push(AbiParam::new(pointer_type));
-    strlen_sig.returns.push(AbiParam::new(pointer_type));
-    let strlen_id = module
-        .declare_function("strlen", Linkage::Import, &strlen_sig)
-        .map_err(|message| {
-            CraneliftBackendError::new(format!("declare strlen import: {message}"))
-        })?;
-    let mut atoll_sig = module.make_signature();
-    atoll_sig.params.push(AbiParam::new(pointer_type));
-    atoll_sig.returns.push(AbiParam::new(types::I64));
-    let atoll_id = module
-        .declare_function("atoll", Linkage::Import, &atoll_sig)
-        .map_err(|message| {
-            CraneliftBackendError::new(format!("declare atoll import: {message}"))
-        })?;
-    let mut open_sig = module.make_signature();
-    open_sig.params.push(AbiParam::new(pointer_type));
-    open_sig.params.push(AbiParam::new(types::I32));
-    open_sig.returns.push(AbiParam::new(types::I32));
-    let open_id = module
-        .declare_function("open", Linkage::Import, &open_sig)
-        .map_err(|message| CraneliftBackendError::new(format!("declare open import: {message}")))?;
-    let mut creat_sig = module.make_signature();
-    creat_sig.params.push(AbiParam::new(pointer_type));
-    creat_sig.params.push(AbiParam::new(types::I32));
-    creat_sig.returns.push(AbiParam::new(types::I32));
-    let creat_id = module
-        .declare_function("creat", Linkage::Import, &creat_sig)
-        .map_err(|message| {
-            CraneliftBackendError::new(format!("declare creat import: {message}"))
-        })?;
-    let mut lseek_sig = module.make_signature();
-    lseek_sig.params.push(AbiParam::new(types::I32));
-    lseek_sig.params.push(AbiParam::new(types::I64));
-    lseek_sig.params.push(AbiParam::new(types::I32));
-    lseek_sig.returns.push(AbiParam::new(types::I64));
-    let lseek_id = module
-        .declare_function("lseek", Linkage::Import, &lseek_sig)
-        .map_err(|message| {
-            CraneliftBackendError::new(format!("declare lseek import: {message}"))
-        })?;
-    let mut close_sig = module.make_signature();
-    close_sig.params.push(AbiParam::new(types::I32));
-    close_sig.returns.push(AbiParam::new(types::I32));
-    let close_id = module
-        .declare_function("close", Linkage::Import, &close_sig)
-        .map_err(|message| {
-            CraneliftBackendError::new(format!("declare close import: {message}"))
-        })?;
-    let mut access_sig = module.make_signature();
-    access_sig.params.push(AbiParam::new(pointer_type));
-    access_sig.params.push(AbiParam::new(types::I32));
-    access_sig.returns.push(AbiParam::new(types::I32));
-    let access_id = module
-        .declare_function("access", Linkage::Import, &access_sig)
-        .map_err(|message| {
-            CraneliftBackendError::new(format!("declare access import: {message}"))
-        })?;
-    let mut system_sig = module.make_signature();
-    system_sig.params.push(AbiParam::new(pointer_type));
-    system_sig.returns.push(AbiParam::new(types::I32));
-    let system_id = module
-        .declare_function("system", Linkage::Import, &system_sig)
-        .map_err(|message| {
-            CraneliftBackendError::new(format!("declare system import: {message}"))
-        })?;
-    let mut fopen_sig = module.make_signature();
-    fopen_sig.params.push(AbiParam::new(pointer_type));
-    fopen_sig.params.push(AbiParam::new(pointer_type));
-    fopen_sig.returns.push(AbiParam::new(pointer_type));
-    let fopen_id = module
-        .declare_function("fopen", Linkage::Import, &fopen_sig)
-        .map_err(|message| {
-            CraneliftBackendError::new(format!("declare fopen import: {message}"))
-        })?;
-    let mut fwrite_sig = module.make_signature();
-    fwrite_sig.params.push(AbiParam::new(pointer_type));
-    fwrite_sig.params.push(AbiParam::new(pointer_type));
-    fwrite_sig.params.push(AbiParam::new(pointer_type));
-    fwrite_sig.params.push(AbiParam::new(pointer_type));
-    fwrite_sig.returns.push(AbiParam::new(pointer_type));
-    let fwrite_id = module
-        .declare_function("fwrite", Linkage::Import, &fwrite_sig)
-        .map_err(|message| {
-            CraneliftBackendError::new(format!("declare fwrite import: {message}"))
-        })?;
-    let mut fclose_sig = module.make_signature();
-    fclose_sig.params.push(AbiParam::new(pointer_type));
-    fclose_sig.returns.push(AbiParam::new(types::I32));
-    let fclose_id = module
-        .declare_function("fclose", Linkage::Import, &fclose_sig)
-        .map_err(|message| {
-            CraneliftBackendError::new(format!("declare fclose import: {message}"))
-        })?;
-    let mut unlink_sig = module.make_signature();
-    unlink_sig.params.push(AbiParam::new(pointer_type));
-    unlink_sig.returns.push(AbiParam::new(types::I32));
-    let unlink_id = module
-        .declare_function("unlink", Linkage::Import, &unlink_sig)
-        .map_err(|message| {
-            CraneliftBackendError::new(format!("declare unlink import: {message}"))
-        })?;
-    let mut rename_sig = module.make_signature();
-    rename_sig.params.push(AbiParam::new(pointer_type));
-    rename_sig.params.push(AbiParam::new(pointer_type));
-    rename_sig.returns.push(AbiParam::new(types::I32));
-    let rename_id = module
-        .declare_function("rename", Linkage::Import, &rename_sig)
-        .map_err(|message| {
-            CraneliftBackendError::new(format!("declare rename import: {message}"))
-        })?;
-    let mut mkdir_sig = module.make_signature();
-    mkdir_sig.params.push(AbiParam::new(pointer_type));
-    mkdir_sig.params.push(AbiParam::new(types::I32));
-    mkdir_sig.returns.push(AbiParam::new(types::I32));
-    let mkdir_id = module
-        .declare_function("mkdir", Linkage::Import, &mkdir_sig)
-        .map_err(|message| {
-            CraneliftBackendError::new(format!("declare mkdir import: {message}"))
-        })?;
-    let mut rmdir_sig = module.make_signature();
-    rmdir_sig.params.push(AbiParam::new(pointer_type));
-    rmdir_sig.returns.push(AbiParam::new(types::I32));
-    let rmdir_id = module
-        .declare_function("rmdir", Linkage::Import, &rmdir_sig)
-        .map_err(|message| {
-            CraneliftBackendError::new(format!("declare rmdir import: {message}"))
-        })?;
-    let mut opendir_sig = module.make_signature();
-    opendir_sig.params.push(AbiParam::new(pointer_type));
-    opendir_sig.returns.push(AbiParam::new(pointer_type));
-    let opendir_id = module
-        .declare_function("opendir", Linkage::Import, &opendir_sig)
-        .map_err(|message| {
-            CraneliftBackendError::new(format!("declare opendir import: {message}"))
-        })?;
-    let mut closedir_sig = module.make_signature();
-    closedir_sig.params.push(AbiParam::new(pointer_type));
-    closedir_sig.returns.push(AbiParam::new(types::I32));
-    let closedir_id = module
-        .declare_function("closedir", Linkage::Import, &closedir_sig)
-        .map_err(|message| {
-            CraneliftBackendError::new(format!("declare closedir import: {message}"))
-        })?;
-    let mut realpath_sig = module.make_signature();
-    realpath_sig.params.push(AbiParam::new(pointer_type));
-    realpath_sig.params.push(AbiParam::new(pointer_type));
-    realpath_sig.returns.push(AbiParam::new(pointer_type));
-    let realpath_id = module
-        .declare_function("realpath", Linkage::Import, &realpath_sig)
-        .map_err(|message| {
-            CraneliftBackendError::new(format!("declare realpath import: {message}"))
-        })?;
-    let mut strncmp_sig = module.make_signature();
-    strncmp_sig.params.push(AbiParam::new(pointer_type));
-    strncmp_sig.params.push(AbiParam::new(pointer_type));
-    strncmp_sig.params.push(AbiParam::new(pointer_type));
-    strncmp_sig.returns.push(AbiParam::new(types::I32));
-    let strncmp_id = module
-        .declare_function("strncmp", Linkage::Import, &strncmp_sig)
-        .map_err(|message| {
-            CraneliftBackendError::new(format!("declare strncmp import: {message}"))
-        })?;
-    #[cfg(not(windows))]
-    let mut getaddrinfo_sig = module.make_signature();
-    #[cfg(not(windows))]
-    getaddrinfo_sig.params.push(AbiParam::new(pointer_type));
-    #[cfg(not(windows))]
-    getaddrinfo_sig.params.push(AbiParam::new(pointer_type));
-    #[cfg(not(windows))]
-    getaddrinfo_sig.params.push(AbiParam::new(pointer_type));
-    #[cfg(not(windows))]
-    getaddrinfo_sig.params.push(AbiParam::new(pointer_type));
-    #[cfg(not(windows))]
-    getaddrinfo_sig.returns.push(AbiParam::new(types::I32));
-    #[cfg(not(windows))]
-    let getaddrinfo_id = module
-        .declare_function("getaddrinfo", Linkage::Import, &getaddrinfo_sig)
-        .map_err(|message| {
-            CraneliftBackendError::new(format!("declare getaddrinfo import: {message}"))
-        })?;
-    #[cfg(not(windows))]
-    let mut freeaddrinfo_sig = module.make_signature();
-    #[cfg(not(windows))]
-    freeaddrinfo_sig.params.push(AbiParam::new(pointer_type));
-    #[cfg(not(windows))]
-    let freeaddrinfo_id = module
-        .declare_function("freeaddrinfo", Linkage::Import, &freeaddrinfo_sig)
-        .map_err(|message| {
-            CraneliftBackendError::new(format!("declare freeaddrinfo import: {message}"))
-        })?;
     let output_data_ids = declare_i64_output_data(&mut module, &program)?;
     let function_ids = declare_i64_functions(&mut module, &program.functions)?;
 
     for (index, function) in program.functions.iter().enumerate() {
-        #[cfg(not(windows))]
-        {
-            define_i64_function(
-                &mut module,
-                &function_ids,
-                write_id,
-                read_id,
-                sleep_id,
-                getenv_id,
-                strlen_id,
-                atoll_id,
-                open_id,
-                creat_id,
-                lseek_id,
-                close_id,
-                access_id,
-                system_id,
-                fopen_id,
-                fwrite_id,
-                fclose_id,
-                unlink_id,
-                rename_id,
-                mkdir_id,
-                rmdir_id,
-                opendir_id,
-                closedir_id,
-                realpath_id,
-                strncmp_id,
-                getaddrinfo_id,
-                freeaddrinfo_id,
-                &output_data_ids,
-                index,
-                function,
-            )?;
-            continue;
-        }
-        #[cfg(windows)]
         define_i64_function(
             &mut module,
             &function_ids,
             write_id,
-            read_id,
-            sleep_id,
-            getenv_id,
-            strlen_id,
-            atoll_id,
-            open_id,
-            creat_id,
-            lseek_id,
-            close_id,
-            access_id,
-            system_id,
-            fopen_id,
-            fwrite_id,
-            fclose_id,
-            unlink_id,
-            rename_id,
-            mkdir_id,
-            rmdir_id,
-            opendir_id,
-            closedir_id,
-            realpath_id,
-            strncmp_id,
             &output_data_ids,
             index,
             function,
@@ -861,87 +516,10 @@ fn emit_i64_exit_object(
         builder.seal_block(block);
         let function_refs = i64_function_refs(&mut module, &mut builder, &function_ids);
         let write_ref = module.declare_func_in_func(write_id, builder.func);
-        let read_ref = module.declare_func_in_func(read_id, builder.func);
-        let sleep_ref = module.declare_func_in_func(sleep_id, builder.func);
-        let getenv_ref = module.declare_func_in_func(getenv_id, builder.func);
-        let strlen_ref = module.declare_func_in_func(strlen_id, builder.func);
-        let atoll_ref = module.declare_func_in_func(atoll_id, builder.func);
-        let open_ref = module.declare_func_in_func(open_id, builder.func);
-        let creat_ref = module.declare_func_in_func(creat_id, builder.func);
-        let lseek_ref = module.declare_func_in_func(lseek_id, builder.func);
-        let close_ref = module.declare_func_in_func(close_id, builder.func);
-        let access_ref = module.declare_func_in_func(access_id, builder.func);
-        let system_ref = module.declare_func_in_func(system_id, builder.func);
-        let fopen_ref = module.declare_func_in_func(fopen_id, builder.func);
-        let fwrite_ref = module.declare_func_in_func(fwrite_id, builder.func);
-        let fclose_ref = module.declare_func_in_func(fclose_id, builder.func);
-        let unlink_ref = module.declare_func_in_func(unlink_id, builder.func);
-        let rename_ref = module.declare_func_in_func(rename_id, builder.func);
-        let mkdir_ref = module.declare_func_in_func(mkdir_id, builder.func);
-        let rmdir_ref = module.declare_func_in_func(rmdir_id, builder.func);
-        let opendir_ref = module.declare_func_in_func(opendir_id, builder.func);
-        let closedir_ref = module.declare_func_in_func(closedir_id, builder.func);
-        let realpath_ref = module.declare_func_in_func(realpath_id, builder.func);
-        let strncmp_ref = module.declare_func_in_func(strncmp_id, builder.func);
-        #[cfg(not(windows))]
-        let getaddrinfo_ref = module.declare_func_in_func(getaddrinfo_id, builder.func);
-        #[cfg(not(windows))]
-        let freeaddrinfo_ref = module.declare_func_in_func(freeaddrinfo_id, builder.func);
-        let runtime_refs = I64RuntimeRefs {
-            write: write_ref,
-            read: read_ref,
-            sleep: sleep_ref,
-            getenv: getenv_ref,
-            strlen: strlen_ref,
-            atoll: atoll_ref,
-            open: open_ref,
-            creat: creat_ref,
-            lseek: lseek_ref,
-            close: close_ref,
-            access: access_ref,
-            system: system_ref,
-            fopen: fopen_ref,
-            fwrite: fwrite_ref,
-            fclose: fclose_ref,
-            unlink: unlink_ref,
-            rename: rename_ref,
-            mkdir: mkdir_ref,
-            rmdir: rmdir_ref,
-            opendir: opendir_ref,
-            closedir: closedir_ref,
-            realpath: realpath_ref,
-            strncmp: strncmp_ref,
-            getaddrinfo: {
-                #[cfg(not(windows))]
-                {
-                    Some(getaddrinfo_ref)
-                }
-                #[cfg(windows)]
-                {
-                    None
-                }
-            },
-            freeaddrinfo: {
-                #[cfg(not(windows))]
-                {
-                    Some(freeaddrinfo_ref)
-                }
-                #[cfg(windows)]
-                {
-                    None
-                }
-            },
-        };
         let mut locals = Vec::new();
         for local_expr in &program.locals {
             let local = builder.declare_var(types::I64);
-            let value = emit_i64_expr(
-                &mut builder,
-                &locals,
-                &function_refs,
-                runtime_refs,
-                local_expr,
-            )?;
+            let value = emit_i64_expr(&mut builder, &locals, &function_refs, local_expr)?;
             builder.def_var(local, value);
             locals.push(local);
         }
@@ -950,7 +528,6 @@ fn emit_i64_exit_object(
             &mut builder,
             &locals,
             &function_refs,
-            runtime_refs,
             write_ref,
             &output_data_ids,
             &program.stmts,
@@ -960,7 +537,6 @@ fn emit_i64_exit_object(
             &mut builder,
             &locals,
             &function_refs,
-            runtime_refs,
             write_ref,
             &output_data_ids,
             &program.body,
@@ -983,7 +559,7 @@ fn emit_i64_exit_object(
 fn declare_i64_output_data(
     module: &mut ObjectModule,
     program: &I64ExitProgram,
-) -> Result<Vec<I64OutputData>, CraneliftBackendError> {
+) -> Result<Vec<(OutputStream, String, cranelift_module::DataId, usize)>, CraneliftBackendError> {
     let mut lines = Vec::new();
     collect_i64_output_lines(&program.stmts, &mut lines);
     collect_i64_exit_body_output_lines(&program.body, &mut lines);
@@ -994,7 +570,7 @@ fn declare_i64_output_data(
     lines
         .into_iter()
         .enumerate()
-        .map(|(index, (stream, text, append_newline))| {
+        .map(|(index, (stream, text))| {
             let data_id = module
                 .declare_data(
                     &format!("__axiom_i64_line_{index}"),
@@ -1007,33 +583,21 @@ fn declare_i64_output_data(
                 })?;
             let mut description = DataDescription::new();
             let mut bytes = text.as_bytes().to_vec();
-            if append_newline {
-                bytes.push(b'\n');
-            }
+            bytes.push(b'\n');
             let byte_len = bytes.len();
             description.define(bytes.into_boxed_slice());
-            module
-                .define_data(data_id, &description)
-                .map_err(|message| {
-                    CraneliftBackendError::new(format!("define i64 output data: {message}"))
-                })?;
-            Ok(I64OutputData {
-                stream,
-                text,
-                append_newline,
-                data_id,
-                byte_len,
-            })
+            module.define_data(data_id, &description).map_err(|message| {
+                CraneliftBackendError::new(format!("define i64 output data: {message}"))
+            })?;
+            Ok((stream, text, data_id, byte_len))
         })
         .collect()
 }
 
-fn collect_i64_output_lines(stmts: &[I64Stmt], lines: &mut Vec<(OutputStream, String, bool)>) {
+fn collect_i64_output_lines(stmts: &[I64Stmt], lines: &mut Vec<(OutputStream, String)>) {
     for stmt in stmts {
         match stmt {
-            I64Stmt::WriteText { stream, text } => lines.push((*stream, text.clone(), false)),
-            I64Stmt::WriteLine { stream, text } => lines.push((*stream, text.clone(), true)),
-            I64Stmt::WriteI64Text { .. } | I64Stmt::WriteI64Line { .. } => {}
+            I64Stmt::WriteLine { stream, text } => lines.push((*stream, text.clone())),
             I64Stmt::If {
                 then_body,
                 else_body,
@@ -1048,10 +612,7 @@ fn collect_i64_output_lines(stmts: &[I64Stmt], lines: &mut Vec<(OutputStream, St
     }
 }
 
-fn collect_i64_exit_body_output_lines(
-    body: &I64ExitBody,
-    lines: &mut Vec<(OutputStream, String, bool)>,
-) {
+fn collect_i64_exit_body_output_lines(body: &I64ExitBody, lines: &mut Vec<(OutputStream, String)>) {
     match body {
         I64ExitBody::BlockReturn(block) => collect_i64_output_lines(&block.stmts, lines),
         I64ExitBody::IfBlockReturn {
@@ -1068,7 +629,7 @@ fn collect_i64_exit_body_output_lines(
 
 fn collect_i64_value_body_output_lines(
     body: &I64ValueBody,
-    lines: &mut Vec<(OutputStream, String, bool)>,
+    lines: &mut Vec<(OutputStream, String)>,
 ) {
     match body {
         I64ValueBody::BlockReturn(block) => collect_i64_output_lines(&block.stmts, lines),
@@ -1116,31 +677,7 @@ fn define_i64_function(
     module: &mut ObjectModule,
     function_ids: &[FuncId],
     write_id: FuncId,
-    read_id: FuncId,
-    sleep_id: FuncId,
-    getenv_id: FuncId,
-    strlen_id: FuncId,
-    atoll_id: FuncId,
-    open_id: FuncId,
-    creat_id: FuncId,
-    lseek_id: FuncId,
-    close_id: FuncId,
-    access_id: FuncId,
-    system_id: FuncId,
-    fopen_id: FuncId,
-    fwrite_id: FuncId,
-    fclose_id: FuncId,
-    unlink_id: FuncId,
-    rename_id: FuncId,
-    mkdir_id: FuncId,
-    rmdir_id: FuncId,
-    opendir_id: FuncId,
-    closedir_id: FuncId,
-    realpath_id: FuncId,
-    strncmp_id: FuncId,
-    #[cfg(not(windows))] getaddrinfo_id: FuncId,
-    #[cfg(not(windows))] freeaddrinfo_id: FuncId,
-    output_data_ids: &[I64OutputData],
+    output_data_ids: &[(OutputStream, String, cranelift_module::DataId, usize)],
     index: usize,
     function: &I64Function,
 ) -> Result<(), CraneliftBackendError> {
@@ -1171,77 +708,6 @@ fn define_i64_function(
         builder.seal_block(block);
         let function_refs = i64_function_refs(module, &mut builder, function_ids);
         let write_ref = module.declare_func_in_func(write_id, builder.func);
-        let read_ref = module.declare_func_in_func(read_id, builder.func);
-        let sleep_ref = module.declare_func_in_func(sleep_id, builder.func);
-        let getenv_ref = module.declare_func_in_func(getenv_id, builder.func);
-        let strlen_ref = module.declare_func_in_func(strlen_id, builder.func);
-        let atoll_ref = module.declare_func_in_func(atoll_id, builder.func);
-        let open_ref = module.declare_func_in_func(open_id, builder.func);
-        let creat_ref = module.declare_func_in_func(creat_id, builder.func);
-        let lseek_ref = module.declare_func_in_func(lseek_id, builder.func);
-        let close_ref = module.declare_func_in_func(close_id, builder.func);
-        let access_ref = module.declare_func_in_func(access_id, builder.func);
-        let system_ref = module.declare_func_in_func(system_id, builder.func);
-        let fopen_ref = module.declare_func_in_func(fopen_id, builder.func);
-        let fwrite_ref = module.declare_func_in_func(fwrite_id, builder.func);
-        let fclose_ref = module.declare_func_in_func(fclose_id, builder.func);
-        let unlink_ref = module.declare_func_in_func(unlink_id, builder.func);
-        let rename_ref = module.declare_func_in_func(rename_id, builder.func);
-        let mkdir_ref = module.declare_func_in_func(mkdir_id, builder.func);
-        let rmdir_ref = module.declare_func_in_func(rmdir_id, builder.func);
-        let opendir_ref = module.declare_func_in_func(opendir_id, builder.func);
-        let closedir_ref = module.declare_func_in_func(closedir_id, builder.func);
-        let realpath_ref = module.declare_func_in_func(realpath_id, builder.func);
-        let strncmp_ref = module.declare_func_in_func(strncmp_id, builder.func);
-        #[cfg(not(windows))]
-        let getaddrinfo_ref = module.declare_func_in_func(getaddrinfo_id, builder.func);
-        #[cfg(not(windows))]
-        let freeaddrinfo_ref = module.declare_func_in_func(freeaddrinfo_id, builder.func);
-        let runtime_refs = I64RuntimeRefs {
-            write: write_ref,
-            read: read_ref,
-            sleep: sleep_ref,
-            getenv: getenv_ref,
-            strlen: strlen_ref,
-            atoll: atoll_ref,
-            open: open_ref,
-            creat: creat_ref,
-            lseek: lseek_ref,
-            close: close_ref,
-            access: access_ref,
-            system: system_ref,
-            fopen: fopen_ref,
-            fwrite: fwrite_ref,
-            fclose: fclose_ref,
-            unlink: unlink_ref,
-            rename: rename_ref,
-            mkdir: mkdir_ref,
-            rmdir: rmdir_ref,
-            opendir: opendir_ref,
-            closedir: closedir_ref,
-            realpath: realpath_ref,
-            strncmp: strncmp_ref,
-            getaddrinfo: {
-                #[cfg(not(windows))]
-                {
-                    Some(getaddrinfo_ref)
-                }
-                #[cfg(windows)]
-                {
-                    None
-                }
-            },
-            freeaddrinfo: {
-                #[cfg(not(windows))]
-                {
-                    Some(freeaddrinfo_ref)
-                }
-                #[cfg(windows)]
-                {
-                    None
-                }
-            },
-        };
         let mut locals = Vec::new();
         for param in builder.block_params(block).to_vec() {
             let local = builder.declare_var(types::I64);
@@ -1250,13 +716,7 @@ fn define_i64_function(
         }
         for local_expr in &function.locals {
             let local = builder.declare_var(types::I64);
-            let value = emit_i64_expr(
-                &mut builder,
-                &locals,
-                &function_refs,
-                runtime_refs,
-                local_expr,
-            )?;
+            let value = emit_i64_expr(&mut builder, &locals, &function_refs, local_expr)?;
             builder.def_var(local, value);
             locals.push(local);
         }
@@ -1265,7 +725,6 @@ fn define_i64_function(
             &mut builder,
             &locals,
             &function_refs,
-            runtime_refs,
             write_ref,
             output_data_ids,
             &function.stmts,
@@ -1275,7 +734,6 @@ fn define_i64_function(
             &mut builder,
             &locals,
             &function_refs,
-            runtime_refs,
             write_ref,
             output_data_ids,
             function.returns,
@@ -1306,9 +764,8 @@ fn emit_i64_stmts(
     builder: &mut FunctionBuilder<'_>,
     locals: &[Variable],
     function_refs: &[FuncRef],
-    runtime_refs: I64RuntimeRefs,
     write_ref: FuncRef,
-    output_data_ids: &[I64OutputData],
+    output_data_ids: &[(OutputStream, String, cranelift_module::DataId, usize)],
     stmts: &[I64Stmt],
 ) -> Result<(), CraneliftBackendError> {
     for stmt in stmts {
@@ -1317,7 +774,6 @@ fn emit_i64_stmts(
             builder,
             locals,
             function_refs,
-            runtime_refs,
             write_ref,
             output_data_ids,
             stmt,
@@ -1331,53 +787,15 @@ fn emit_i64_stmt(
     builder: &mut FunctionBuilder<'_>,
     locals: &[Variable],
     function_refs: &[FuncRef],
-    runtime_refs: I64RuntimeRefs,
     write_ref: FuncRef,
-    output_data_ids: &[I64OutputData],
+    output_data_ids: &[(OutputStream, String, cranelift_module::DataId, usize)],
     stmt: &I64Stmt,
 ) -> Result<(), CraneliftBackendError> {
     match stmt {
-        I64Stmt::Assign(assign) => {
-            emit_i64_assign(builder, locals, function_refs, runtime_refs, assign)
+        I64Stmt::Assign(assign) => emit_i64_assign(builder, locals, function_refs, assign),
+        I64Stmt::WriteLine { stream, text } => {
+            emit_i64_write_line(module, builder, write_ref, output_data_ids, *stream, text)
         }
-        I64Stmt::WriteText { stream, text } => emit_i64_write_text(
-            module,
-            builder,
-            runtime_refs,
-            write_ref,
-            output_data_ids,
-            *stream,
-            text,
-        ),
-        I64Stmt::WriteLine { stream, text } => emit_i64_write_line(
-            module,
-            builder,
-            runtime_refs,
-            write_ref,
-            output_data_ids,
-            *stream,
-            text,
-        ),
-        I64Stmt::WriteI64Text { stream, value } => emit_i64_write_i64_text(
-            builder,
-            locals,
-            function_refs,
-            runtime_refs,
-            write_ref,
-            module.target_config().pointer_type(),
-            *stream,
-            value,
-        ),
-        I64Stmt::WriteI64Line { stream, value } => emit_i64_write_i64_line(
-            builder,
-            locals,
-            function_refs,
-            runtime_refs,
-            write_ref,
-            module.target_config().pointer_type(),
-            *stream,
-            value,
-        ),
         I64Stmt::CallAssign {
             locals: assign_locals,
             function,
@@ -1386,7 +804,6 @@ fn emit_i64_stmt(
             builder,
             locals,
             function_refs,
-            runtime_refs,
             assign_locals,
             *function,
             args,
@@ -1399,7 +816,7 @@ fn emit_i64_stmt(
             let then_block = builder.create_block();
             let else_block = builder.create_block();
             let after_if = builder.create_block();
-            let condition = emit_i64_condition(builder, locals, function_refs, runtime_refs, cond)?;
+            let condition = emit_i64_condition(builder, locals, function_refs, cond)?;
             builder
                 .ins()
                 .brif(condition, then_block, &[], else_block, &[]);
@@ -1411,7 +828,6 @@ fn emit_i64_stmt(
                 builder,
                 locals,
                 function_refs,
-                runtime_refs,
                 write_ref,
                 output_data_ids,
                 then_body,
@@ -1425,7 +841,6 @@ fn emit_i64_stmt(
                 builder,
                 locals,
                 function_refs,
-                runtime_refs,
                 write_ref,
                 output_data_ids,
                 else_body,
@@ -1443,7 +858,7 @@ fn emit_i64_stmt(
 
             builder.ins().jump(loop_header, &[]);
             builder.switch_to_block(loop_header);
-            let condition = emit_i64_condition(builder, locals, function_refs, runtime_refs, cond)?;
+            let condition = emit_i64_condition(builder, locals, function_refs, cond)?;
             builder
                 .ins()
                 .brif(condition, loop_body, &[], after_loop, &[]);
@@ -1455,7 +870,6 @@ fn emit_i64_stmt(
                 builder,
                 locals,
                 function_refs,
-                runtime_refs,
                 write_ref,
                 output_data_ids,
                 body,
@@ -1473,264 +887,36 @@ fn emit_i64_stmt(
 fn emit_i64_write_line(
     module: &mut ObjectModule,
     builder: &mut FunctionBuilder<'_>,
-    runtime_refs: I64RuntimeRefs,
     write_ref: FuncRef,
-    output_data_ids: &[I64OutputData],
+    output_data_ids: &[(OutputStream, String, cranelift_module::DataId, usize)],
     stream: OutputStream,
     text: &str,
 ) -> Result<(), CraneliftBackendError> {
-    emit_i64_write_static(
-        module,
-        builder,
-        runtime_refs,
-        write_ref,
-        output_data_ids,
-        stream,
-        text,
-        true,
-    )
-}
-
-fn emit_i64_write_text(
-    module: &mut ObjectModule,
-    builder: &mut FunctionBuilder<'_>,
-    runtime_refs: I64RuntimeRefs,
-    write_ref: FuncRef,
-    output_data_ids: &[I64OutputData],
-    stream: OutputStream,
-    text: &str,
-) -> Result<(), CraneliftBackendError> {
-    emit_i64_write_static(
-        module,
-        builder,
-        runtime_refs,
-        write_ref,
-        output_data_ids,
-        stream,
-        text,
-        false,
-    )
-}
-
-fn emit_i64_write_static(
-    module: &mut ObjectModule,
-    builder: &mut FunctionBuilder<'_>,
-    runtime_refs: I64RuntimeRefs,
-    write_ref: FuncRef,
-    output_data_ids: &[I64OutputData],
-    stream: OutputStream,
-    text: &str,
-    append_newline: bool,
-) -> Result<(), CraneliftBackendError> {
-    let output_data = output_data_ids
+    let (data_id, byte_len) = output_data_ids
         .iter()
-        .find(|candidate| {
-            candidate.stream == stream
-                && candidate.text == text
-                && candidate.append_newline == append_newline
+        .find_map(|(candidate_stream, candidate_text, data_id, byte_len)| {
+            (*candidate_stream == stream && candidate_text == text).then_some((data_id, byte_len))
         })
-        .ok_or_else(|| CraneliftBackendError::new("missing i64 output data"))?;
-    let data_ref = module.declare_data_in_func(output_data.data_id, builder.func);
+        .ok_or_else(|| CraneliftBackendError::new("missing i64 output line data"))?;
+    let data_ref = module.declare_data_in_func(*data_id, builder.func);
     let pointer_type = module.target_config().pointer_type();
     let pointer = builder.ins().global_value(pointer_type, data_ref);
-    let fd = builder.ins().iconst(types::I32, output_stream_fd(stream));
-    let len = builder
-        .ins()
-        .iconst(pointer_type, output_data.byte_len as i64);
-    builder.ins().call(write_ref, &[fd, pointer, len]);
-    let line = i64_stdio_audit_line(stream, Some(output_data.byte_len), "ok");
-    emit_i64_host_audit_line(builder, runtime_refs, &line)?;
-    Ok(())
-}
-
-fn emit_i64_write_i64_line(
-    builder: &mut FunctionBuilder<'_>,
-    locals: &[Variable],
-    function_refs: &[FuncRef],
-    runtime_refs: I64RuntimeRefs,
-    write_ref: FuncRef,
-    pointer_type: cranelift_codegen::ir::Type,
-    stream: OutputStream,
-    value: &I64Expr,
-) -> Result<(), CraneliftBackendError> {
-    emit_i64_write_i64(
-        builder,
-        locals,
-        function_refs,
-        runtime_refs,
-        write_ref,
-        pointer_type,
-        stream,
-        value,
-        true,
-    )
-}
-
-fn emit_i64_write_i64_text(
-    builder: &mut FunctionBuilder<'_>,
-    locals: &[Variable],
-    function_refs: &[FuncRef],
-    runtime_refs: I64RuntimeRefs,
-    write_ref: FuncRef,
-    pointer_type: cranelift_codegen::ir::Type,
-    stream: OutputStream,
-    value: &I64Expr,
-) -> Result<(), CraneliftBackendError> {
-    emit_i64_write_i64(
-        builder,
-        locals,
-        function_refs,
-        runtime_refs,
-        write_ref,
-        pointer_type,
-        stream,
-        value,
-        false,
-    )
-}
-
-fn emit_i64_write_i64(
-    builder: &mut FunctionBuilder<'_>,
-    locals: &[Variable],
-    function_refs: &[FuncRef],
-    runtime_refs: I64RuntimeRefs,
-    write_ref: FuncRef,
-    pointer_type: cranelift_codegen::ir::Type,
-    stream: OutputStream,
-    value: &I64Expr,
-    append_newline: bool,
-) -> Result<(), CraneliftBackendError> {
-    let value = emit_i64_expr(builder, locals, function_refs, runtime_refs, value)?;
-    let buffer =
-        builder.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 32, 0));
-    let base = builder.ins().stack_addr(pointer_type, buffer, 0);
-    if append_newline {
-        let newline = builder.ins().iconst(types::I8, i64::from(b'\n'));
-        builder.ins().stack_store(newline, buffer, 31);
-    }
-
-    let zero_block = builder.create_block();
-    let digits_block = builder.create_block();
-    let digit_loop = builder.create_block();
-    let digits_done = builder.create_block();
-    let sign_block = builder.create_block();
-    let no_sign_block = builder.create_block();
-    let write_block = builder.create_block();
-    let after_write = builder.create_block();
-
-    builder.append_block_param(digit_loop, types::I64);
-    builder.append_block_param(digit_loop, pointer_type);
-    builder.append_block_param(digits_done, pointer_type);
-    builder.append_block_param(write_block, pointer_type);
-
-    let is_zero = builder.ins().icmp_imm(IntCC::Equal, value, 0);
-    builder
-        .ins()
-        .brif(is_zero, zero_block, &[], digits_block, &[]);
-
-    builder.switch_to_block(zero_block);
-    builder.seal_block(zero_block);
-    let zero_digit = builder.ins().iconst(types::I8, i64::from(b'0'));
-    builder.ins().stack_store(zero_digit, buffer, 30);
-    let zero_start = builder.ins().iconst(pointer_type, 30);
-    let zero_args = [BlockArg::Value(zero_start)];
-    builder.ins().jump(write_block, &zero_args);
-
-    builder.switch_to_block(digits_block);
-    builder.seal_block(digits_block);
-    let is_negative = builder.ins().icmp_imm(IntCC::SignedLessThan, value, 0);
-    let initial_pos = builder.ins().iconst(pointer_type, 31);
-    let loop_args = [BlockArg::Value(value), BlockArg::Value(initial_pos)];
-    builder.ins().jump(digit_loop, &loop_args);
-
-    builder.switch_to_block(digit_loop);
-    let current_value = builder.block_params(digit_loop)[0];
-    let current_pos = builder.block_params(digit_loop)[1];
-    let ten = builder.ins().iconst(types::I64, 10);
-    let quotient = builder.ins().sdiv(current_value, ten);
-    let remainder = builder.ins().srem(current_value, ten);
-    let ascii_zero = builder.ins().iconst(types::I64, i64::from(b'0'));
-    let positive_digit = builder.ins().iadd(ascii_zero, remainder);
-    let negative_digit = builder.ins().isub(ascii_zero, remainder);
-    let digit = builder
-        .ins()
-        .select(is_negative, negative_digit, positive_digit);
-    let digit = builder.ins().ireduce(types::I8, digit);
-    let one = builder.ins().iconst(pointer_type, 1);
-    let next_pos = builder.ins().isub(current_pos, one);
-    let digit_addr = builder.ins().iadd(base, next_pos);
-    builder.ins().store(MemFlags::new(), digit, digit_addr, 0);
-    let keep_going = builder.ins().icmp_imm(IntCC::NotEqual, quotient, 0);
-    let continue_args = [BlockArg::Value(quotient), BlockArg::Value(next_pos)];
-    let done_args = [BlockArg::Value(next_pos)];
-    builder.ins().brif(
-        keep_going,
-        digit_loop,
-        &continue_args,
-        digits_done,
-        &done_args,
+    let fd = builder.ins().iconst(
+        types::I32,
+        match stream {
+            OutputStream::Stdout => 1,
+            OutputStream::Stderr => 2,
+        },
     );
-    builder.seal_block(digit_loop);
-
-    builder.switch_to_block(digits_done);
-    let start_pos = builder.block_params(digits_done)[0];
-    builder
-        .ins()
-        .brif(is_negative, sign_block, &[], no_sign_block, &[]);
-    builder.seal_block(digits_done);
-
-    builder.switch_to_block(sign_block);
-    builder.seal_block(sign_block);
-    let sign_pos = builder.ins().isub(start_pos, one);
-    let minus = builder.ins().iconst(types::I8, i64::from(b'-'));
-    let sign_addr = builder.ins().iadd(base, sign_pos);
-    builder.ins().store(MemFlags::new(), minus, sign_addr, 0);
-    let sign_args = [BlockArg::Value(sign_pos)];
-    builder.ins().jump(write_block, &sign_args);
-
-    builder.switch_to_block(no_sign_block);
-    builder.seal_block(no_sign_block);
-    let no_sign_args = [BlockArg::Value(start_pos)];
-    builder.ins().jump(write_block, &no_sign_args);
-
-    builder.switch_to_block(write_block);
-    let final_start = builder.block_params(write_block)[0];
-    let start_ptr = builder.ins().iadd(base, final_start);
-    let buffer_len = builder
-        .ins()
-        .iconst(pointer_type, if append_newline { 32 } else { 31 });
-    let len = builder.ins().isub(buffer_len, final_start);
-    let fd = builder.ins().iconst(types::I32, output_stream_fd(stream));
-    builder.ins().call(write_ref, &[fd, start_ptr, len]);
-    let line = i64_stdio_audit_line(stream, None, "ok");
-    emit_i64_host_audit_line(builder, runtime_refs, &line)?;
-    builder.ins().jump(after_write, &[]);
-    builder.seal_block(write_block);
-
-    builder.switch_to_block(after_write);
-    builder.seal_block(after_write);
+    let len = builder.ins().iconst(pointer_type, *byte_len as i64);
+    builder.ins().call(write_ref, &[fd, pointer, len]);
     Ok(())
-}
-
-fn output_stream_fd(stream: OutputStream) -> i64 {
-    match stream {
-        OutputStream::Stdout => 1,
-        OutputStream::Stderr => 2,
-    }
-}
-
-fn output_stream_name(stream: OutputStream) -> &'static str {
-    match stream {
-        OutputStream::Stdout => "stdout",
-        OutputStream::Stderr => "stderr",
-    }
 }
 
 fn emit_i64_assign(
     builder: &mut FunctionBuilder<'_>,
     locals: &[Variable],
     function_refs: &[FuncRef],
-    runtime_refs: I64RuntimeRefs,
     assign: &I64Assign,
 ) -> Result<(), CraneliftBackendError> {
     let local = locals.get(assign.local).copied().ok_or_else(|| {
@@ -1739,7 +925,7 @@ fn emit_i64_assign(
             assign.local
         ))
     })?;
-    let value = emit_i64_expr(builder, locals, function_refs, runtime_refs, &assign.value)?;
+    let value = emit_i64_expr(builder, locals, function_refs, &assign.value)?;
     builder.def_var(local, value);
     Ok(())
 }
@@ -1748,7 +934,6 @@ fn emit_i64_call_assign(
     builder: &mut FunctionBuilder<'_>,
     locals: &[Variable],
     function_refs: &[FuncRef],
-    runtime_refs: I64RuntimeRefs,
     assign_locals: &[usize],
     function: usize,
     args: &[I64Expr],
@@ -1758,7 +943,7 @@ fn emit_i64_call_assign(
     })?;
     let args = args
         .iter()
-        .map(|arg| emit_i64_expr(builder, locals, function_refs, runtime_refs, arg))
+        .map(|arg| emit_i64_expr(builder, locals, function_refs, arg))
         .collect::<Result<Vec<_>, _>>()?;
     let call = builder.ins().call(function_ref, &args);
     let results = builder.inst_results(call).to_vec();
@@ -1785,27 +970,23 @@ fn emit_i64_exit_body(
     builder: &mut FunctionBuilder<'_>,
     locals: &[Variable],
     function_refs: &[FuncRef],
-    runtime_refs: I64RuntimeRefs,
     write_ref: FuncRef,
-    output_data_ids: &[I64OutputData],
+    output_data_ids: &[(OutputStream, String, cranelift_module::DataId, usize)],
     body: &I64ExitBody,
 ) -> Result<(), CraneliftBackendError> {
     match body {
-        I64ExitBody::Return(result) => {
-            emit_i64_return(builder, locals, function_refs, runtime_refs, result)
-        }
+        I64ExitBody::Return(result) => emit_i64_return(builder, locals, function_refs, result),
         I64ExitBody::BlockReturn(block) => {
             emit_i64_stmts(
                 module,
                 builder,
                 locals,
                 function_refs,
-                runtime_refs,
                 write_ref,
                 output_data_ids,
                 &block.stmts,
             )?;
-            emit_i64_return(builder, locals, function_refs, runtime_refs, &block.result)
+            emit_i64_return(builder, locals, function_refs, &block.result)
         }
         I64ExitBody::IfReturn {
             cond,
@@ -1814,18 +995,18 @@ fn emit_i64_exit_body(
         } => {
             let then_block = builder.create_block();
             let else_block = builder.create_block();
-            let condition = emit_i64_condition(builder, locals, function_refs, runtime_refs, cond)?;
+            let condition = emit_i64_condition(builder, locals, function_refs, cond)?;
             builder
                 .ins()
                 .brif(condition, then_block, &[], else_block, &[]);
 
             builder.switch_to_block(then_block);
             builder.seal_block(then_block);
-            emit_i64_return(builder, locals, function_refs, runtime_refs, then_result)?;
+            emit_i64_return(builder, locals, function_refs, then_result)?;
 
             builder.switch_to_block(else_block);
             builder.seal_block(else_block);
-            emit_i64_return(builder, locals, function_refs, runtime_refs, else_result)
+            emit_i64_return(builder, locals, function_refs, else_result)
         }
         I64ExitBody::IfBlockReturn {
             cond,
@@ -1834,7 +1015,7 @@ fn emit_i64_exit_body(
         } => {
             let then_cranelift_block = builder.create_block();
             let else_cranelift_block = builder.create_block();
-            let condition = emit_i64_condition(builder, locals, function_refs, runtime_refs, cond)?;
+            let condition = emit_i64_condition(builder, locals, function_refs, cond)?;
             builder.ins().brif(
                 condition,
                 then_cranelift_block,
@@ -1850,18 +1031,11 @@ fn emit_i64_exit_body(
                 builder,
                 locals,
                 function_refs,
-                runtime_refs,
                 write_ref,
                 output_data_ids,
                 &then_block.stmts,
             )?;
-            emit_i64_return(
-                builder,
-                locals,
-                function_refs,
-                runtime_refs,
-                &then_block.result,
-            )?;
+            emit_i64_return(builder, locals, function_refs, &then_block.result)?;
 
             builder.switch_to_block(else_cranelift_block);
             builder.seal_block(else_cranelift_block);
@@ -1870,18 +1044,11 @@ fn emit_i64_exit_body(
                 builder,
                 locals,
                 function_refs,
-                runtime_refs,
                 write_ref,
                 output_data_ids,
                 &else_block.stmts,
             )?;
-            emit_i64_return(
-                builder,
-                locals,
-                function_refs,
-                runtime_refs,
-                &else_block.result,
-            )
+            emit_i64_return(builder, locals, function_refs, &else_block.result)
         }
     }
 }
@@ -1891,40 +1058,26 @@ fn emit_i64_value_body(
     builder: &mut FunctionBuilder<'_>,
     locals: &[Variable],
     function_refs: &[FuncRef],
-    runtime_refs: I64RuntimeRefs,
     write_ref: FuncRef,
-    output_data_ids: &[I64OutputData],
+    output_data_ids: &[(OutputStream, String, cranelift_module::DataId, usize)],
     returns: usize,
     body: &I64ValueBody,
 ) -> Result<(), CraneliftBackendError> {
     match body {
-        I64ValueBody::Return(results) => emit_i64_value_return(
-            builder,
-            locals,
-            function_refs,
-            runtime_refs,
-            returns,
-            results,
-        ),
+        I64ValueBody::Return(results) => {
+            emit_i64_value_return(builder, locals, function_refs, returns, results)
+        }
         I64ValueBody::BlockReturn(block) => {
             emit_i64_stmts(
                 module,
                 builder,
                 locals,
                 function_refs,
-                runtime_refs,
                 write_ref,
                 output_data_ids,
                 &block.stmts,
             )?;
-            emit_i64_value_return(
-                builder,
-                locals,
-                function_refs,
-                runtime_refs,
-                returns,
-                &block.results,
-            )
+            emit_i64_value_return(builder, locals, function_refs, returns, &block.results)
         }
         I64ValueBody::IfReturn {
             cond,
@@ -1933,32 +1086,18 @@ fn emit_i64_value_body(
         } => {
             let then_block = builder.create_block();
             let else_block = builder.create_block();
-            let condition = emit_i64_condition(builder, locals, function_refs, runtime_refs, cond)?;
+            let condition = emit_i64_condition(builder, locals, function_refs, cond)?;
             builder
                 .ins()
                 .brif(condition, then_block, &[], else_block, &[]);
 
             builder.switch_to_block(then_block);
             builder.seal_block(then_block);
-            emit_i64_value_return(
-                builder,
-                locals,
-                function_refs,
-                runtime_refs,
-                returns,
-                then_results,
-            )?;
+            emit_i64_value_return(builder, locals, function_refs, returns, then_results)?;
 
             builder.switch_to_block(else_block);
             builder.seal_block(else_block);
-            emit_i64_value_return(
-                builder,
-                locals,
-                function_refs,
-                runtime_refs,
-                returns,
-                else_results,
-            )
+            emit_i64_value_return(builder, locals, function_refs, returns, else_results)
         }
         I64ValueBody::IfBlockReturn {
             cond,
@@ -1967,7 +1106,7 @@ fn emit_i64_value_body(
         } => {
             let then_cranelift_block = builder.create_block();
             let else_cranelift_block = builder.create_block();
-            let condition = emit_i64_condition(builder, locals, function_refs, runtime_refs, cond)?;
+            let condition = emit_i64_condition(builder, locals, function_refs, cond)?;
             builder.ins().brif(
                 condition,
                 then_cranelift_block,
@@ -1983,19 +1122,11 @@ fn emit_i64_value_body(
                 builder,
                 locals,
                 function_refs,
-                runtime_refs,
                 write_ref,
                 output_data_ids,
                 &then_block.stmts,
             )?;
-            emit_i64_value_return(
-                builder,
-                locals,
-                function_refs,
-                runtime_refs,
-                returns,
-                &then_block.results,
-            )?;
+            emit_i64_value_return(builder, locals, function_refs, returns, &then_block.results)?;
 
             builder.switch_to_block(else_cranelift_block);
             builder.seal_block(else_cranelift_block);
@@ -2004,19 +1135,11 @@ fn emit_i64_value_body(
                 builder,
                 locals,
                 function_refs,
-                runtime_refs,
                 write_ref,
                 output_data_ids,
                 &else_block.stmts,
             )?;
-            emit_i64_value_return(
-                builder,
-                locals,
-                function_refs,
-                runtime_refs,
-                returns,
-                &else_block.results,
-            )
+            emit_i64_value_return(builder, locals, function_refs, returns, &else_block.results)
         }
     }
 }
@@ -2025,10 +1148,9 @@ fn emit_i64_return(
     builder: &mut FunctionBuilder<'_>,
     locals: &[Variable],
     function_refs: &[FuncRef],
-    runtime_refs: I64RuntimeRefs,
     result: &I64Expr,
 ) -> Result<(), CraneliftBackendError> {
-    let result = emit_i64_expr(builder, locals, function_refs, runtime_refs, result)?;
+    let result = emit_i64_expr(builder, locals, function_refs, result)?;
     let exit_code = builder.ins().ireduce(types::I32, result);
     builder.ins().return_(&[exit_code]);
     Ok(())
@@ -2038,7 +1160,6 @@ fn emit_i64_value_return(
     builder: &mut FunctionBuilder<'_>,
     locals: &[Variable],
     function_refs: &[FuncRef],
-    runtime_refs: I64RuntimeRefs,
     returns: usize,
     results: &[I64Expr],
 ) -> Result<(), CraneliftBackendError> {
@@ -2050,7 +1171,7 @@ fn emit_i64_value_return(
     }
     let results = results
         .iter()
-        .map(|result| emit_i64_expr(builder, locals, function_refs, runtime_refs, result))
+        .map(|result| emit_i64_expr(builder, locals, function_refs, result))
         .collect::<Result<Vec<_>, _>>()?;
     builder.ins().return_(&results);
     Ok(())
@@ -2060,11 +1181,10 @@ fn emit_i64_compare(
     builder: &mut FunctionBuilder<'_>,
     locals: &[Variable],
     function_refs: &[FuncRef],
-    runtime_refs: I64RuntimeRefs,
     cond: &I64Compare,
 ) -> Result<cranelift_codegen::ir::Value, CraneliftBackendError> {
-    let lhs = emit_i64_expr(builder, locals, function_refs, runtime_refs, &cond.lhs)?;
-    let rhs = emit_i64_expr(builder, locals, function_refs, runtime_refs, &cond.rhs)?;
+    let lhs = emit_i64_expr(builder, locals, function_refs, &cond.lhs)?;
+    let rhs = emit_i64_expr(builder, locals, function_refs, &cond.rhs)?;
     Ok(builder.ins().icmp(i64_compare_op(cond.op), lhs, rhs))
 }
 
@@ -2072,7 +1192,6 @@ fn emit_i64_condition(
     builder: &mut FunctionBuilder<'_>,
     locals: &[Variable],
     function_refs: &[FuncRef],
-    runtime_refs: I64RuntimeRefs,
     cond: &I64Condition,
 ) -> Result<cranelift_codegen::ir::Value, CraneliftBackendError> {
     match cond {
@@ -2080,27 +1199,13 @@ fn emit_i64_condition(
             let value = builder.ins().iconst(types::I8, i64::from(*value));
             Ok(builder.ins().icmp_imm(IntCC::NotEqual, value, 0))
         }
-        I64Condition::Compare(compare) => {
-            emit_i64_compare(builder, locals, function_refs, runtime_refs, compare)
+        I64Condition::Compare(compare) => emit_i64_compare(builder, locals, function_refs, compare),
+        I64Condition::And { lhs, rhs } => {
+            emit_i64_short_circuit_condition(builder, locals, function_refs, lhs, rhs, false)
         }
-        I64Condition::And { lhs, rhs } => emit_i64_short_circuit_condition(
-            builder,
-            locals,
-            function_refs,
-            runtime_refs,
-            lhs,
-            rhs,
-            false,
-        ),
-        I64Condition::Or { lhs, rhs } => emit_i64_short_circuit_condition(
-            builder,
-            locals,
-            function_refs,
-            runtime_refs,
-            lhs,
-            rhs,
-            true,
-        ),
+        I64Condition::Or { lhs, rhs } => {
+            emit_i64_short_circuit_condition(builder, locals, function_refs, lhs, rhs, true)
+        }
     }
 }
 
@@ -2108,12 +1213,11 @@ fn emit_i64_short_circuit_condition(
     builder: &mut FunctionBuilder<'_>,
     locals: &[Variable],
     function_refs: &[FuncRef],
-    runtime_refs: I64RuntimeRefs,
     lhs: &I64Condition,
     rhs: &I64Condition,
     short_circuit_value: bool,
 ) -> Result<cranelift_codegen::ir::Value, CraneliftBackendError> {
-    let lhs = emit_i64_condition(builder, locals, function_refs, runtime_refs, lhs)?;
+    let lhs = emit_i64_condition(builder, locals, function_refs, lhs)?;
     let rhs_block = builder.create_block();
     let short_circuit_block = builder.create_block();
     let merge_block = builder.create_block();
@@ -2136,7 +1240,7 @@ fn emit_i64_short_circuit_condition(
 
     builder.switch_to_block(rhs_block);
     builder.seal_block(rhs_block);
-    let rhs = emit_i64_condition(builder, locals, function_refs, runtime_refs, rhs)?;
+    let rhs = emit_i64_condition(builder, locals, function_refs, rhs)?;
     let rhs = emit_i64_bool_value(builder, rhs);
     let rhs_args = [BlockArg::Value(rhs)];
     builder.ins().jump(merge_block, &rhs_args);
@@ -2171,7 +1275,6 @@ fn emit_i64_expr(
     builder: &mut FunctionBuilder<'_>,
     locals: &[Variable],
     function_refs: &[FuncRef],
-    runtime_refs: I64RuntimeRefs,
     expr: &I64Expr,
 ) -> Result<cranelift_codegen::ir::Value, CraneliftBackendError> {
     match expr {
@@ -2346,32 +1449,12 @@ fn emit_i64_expr(
         I64Expr::ProcessStatus { command } => {
             emit_i64_process_status_expr(builder, runtime_refs, command)
         }
-        I64Expr::NetResolveLen { host, resolved_len } => {
-            emit_i64_net_resolve_len_expr(builder, runtime_refs, host, *resolved_len)
-        }
-        I64Expr::AuditNet {
-            intrinsic,
-            package,
-            host_len,
-            success,
-            result,
-        } => emit_i64_audit_net_expr(
-            builder,
-            locals,
-            function_refs,
-            runtime_refs,
-            intrinsic,
-            package,
-            *host_len,
-            *success,
-            result,
-        ),
         I64Expr::ConditionValue(cond) => {
-            let cond = emit_i64_condition(builder, locals, function_refs, runtime_refs, cond)?;
+            let cond = emit_i64_condition(builder, locals, function_refs, cond)?;
             Ok(emit_i64_bool_value(builder, cond))
         }
         I64Expr::Cast { cast, expr } => {
-            let value = emit_i64_expr(builder, locals, function_refs, runtime_refs, expr)?;
+            let value = emit_i64_expr(builder, locals, function_refs, expr)?;
             Ok(emit_i64_cast(builder, value, *cast))
         }
         I64Expr::Call { function, args } => {
@@ -2380,15 +1463,15 @@ fn emit_i64_expr(
             })?;
             let args = args
                 .iter()
-                .map(|arg| emit_i64_expr(builder, locals, function_refs, runtime_refs, arg))
+                .map(|arg| emit_i64_expr(builder, locals, function_refs, arg))
                 .collect::<Result<Vec<_>, _>>()?;
             let call = builder.ins().call(function_ref, &args);
             let results = builder.inst_results(call);
             Ok(results[0])
         }
         I64Expr::Binary { op, lhs, rhs } => {
-            let lhs = emit_i64_expr(builder, locals, function_refs, runtime_refs, lhs)?;
-            let rhs = emit_i64_expr(builder, locals, function_refs, runtime_refs, rhs)?;
+            let lhs = emit_i64_expr(builder, locals, function_refs, lhs)?;
+            let rhs = emit_i64_expr(builder, locals, function_refs, rhs)?;
             Ok(match op {
                 I64BinaryOp::Add => builder.ins().iadd(lhs, rhs),
                 I64BinaryOp::Sub => builder.ins().isub(lhs, rhs),
@@ -2404,7 +1487,6 @@ fn emit_i64_expr(
             builder,
             locals,
             function_refs,
-            runtime_refs,
             cond,
             then_result,
             else_result,
@@ -2416,12 +1498,11 @@ fn emit_i64_select_expr(
     builder: &mut FunctionBuilder<'_>,
     locals: &[Variable],
     function_refs: &[FuncRef],
-    runtime_refs: I64RuntimeRefs,
     cond: &I64Condition,
     then_result: &I64Expr,
     else_result: &I64Expr,
 ) -> Result<cranelift_codegen::ir::Value, CraneliftBackendError> {
-    let cond = emit_i64_condition(builder, locals, function_refs, runtime_refs, cond)?;
+    let cond = emit_i64_condition(builder, locals, function_refs, cond)?;
     let then_block = builder.create_block();
     let else_block = builder.create_block();
     let merge_block = builder.create_block();
@@ -2430,13 +1511,13 @@ fn emit_i64_select_expr(
 
     builder.switch_to_block(then_block);
     builder.seal_block(then_block);
-    let then_result = emit_i64_expr(builder, locals, function_refs, runtime_refs, then_result)?;
+    let then_result = emit_i64_expr(builder, locals, function_refs, then_result)?;
     let then_args = [BlockArg::Value(then_result)];
     builder.ins().jump(merge_block, &then_args);
 
     builder.switch_to_block(else_block);
     builder.seal_block(else_block);
-    let else_result = emit_i64_expr(builder, locals, function_refs, runtime_refs, else_result)?;
+    let else_result = emit_i64_expr(builder, locals, function_refs, else_result)?;
     let else_args = [BlockArg::Value(else_result)];
     builder.ins().jump(merge_block, &else_args);
 
@@ -2921,15 +2002,6 @@ fn i64_process_audit_line(
     )
 }
 
-fn i64_net_audit_line(intrinsic: &str, package: &str, host_len: usize, outcome: &str) -> String {
-    format!(
-        "{{\"package\":\"{}\",\"intrinsic\":\"{}\",\"args\":{{\"host\":\"string:{host_len}\"}},\"outcome\":\"{}\"}}\n",
-        i64_json_escape(package),
-        i64_json_escape(intrinsic),
-        i64_json_escape(outcome)
-    )
-}
-
 fn i64_clock_audit_line(intrinsic: &str, package: &str, arg_name: &str, outcome: &str) -> String {
     format!(
         "{{\"package\":\"{}\",\"intrinsic\":\"{}\",\"args\":{{\"{}\":\"int\"}},\"outcome\":\"{}\"}}\n",
@@ -3154,51 +2226,6 @@ fn emit_i64_audit_process_expr(
     let status = emit_i64_expr(builder, locals, function_refs, runtime_refs, result)?;
     let ok_line = i64_process_audit_line(intrinsic, package, command_len, "ok");
     let denied_line = i64_process_audit_line(intrinsic, package, command_len, "denied");
-
-    let ok_block = builder.create_block();
-    let denied_block = builder.create_block();
-    let merge_block = builder.create_block();
-    builder.append_block_param(merge_block, types::I64);
-
-    let ok = match success {
-        I64AuditSuccess::ExitZero => builder.ins().icmp_imm(IntCC::Equal, status, 0),
-        I64AuditSuccess::NonNegative => {
-            builder
-                .ins()
-                .icmp_imm(IntCC::SignedGreaterThanOrEqual, status, 0)
-        }
-    };
-    builder.ins().brif(ok, ok_block, &[], denied_block, &[]);
-
-    builder.switch_to_block(ok_block);
-    builder.seal_block(ok_block);
-    emit_i64_host_audit_line(builder, runtime_refs, &ok_line)?;
-    builder.ins().jump(merge_block, &[BlockArg::Value(status)]);
-
-    builder.switch_to_block(denied_block);
-    builder.seal_block(denied_block);
-    emit_i64_host_audit_line(builder, runtime_refs, &denied_line)?;
-    builder.ins().jump(merge_block, &[BlockArg::Value(status)]);
-
-    builder.switch_to_block(merge_block);
-    builder.seal_block(merge_block);
-    Ok(builder.block_params(merge_block)[0])
-}
-
-fn emit_i64_audit_net_expr(
-    builder: &mut FunctionBuilder<'_>,
-    locals: &[Variable],
-    function_refs: &[FuncRef],
-    runtime_refs: I64RuntimeRefs,
-    intrinsic: &str,
-    package: &str,
-    host_len: usize,
-    success: I64AuditSuccess,
-    result: &I64Expr,
-) -> Result<cranelift_codegen::ir::Value, CraneliftBackendError> {
-    let status = emit_i64_expr(builder, locals, function_refs, runtime_refs, result)?;
-    let ok_line = i64_net_audit_line(intrinsic, package, host_len, "ok");
-    let denied_line = i64_net_audit_line(intrinsic, package, host_len, "denied");
 
     let ok_block = builder.create_block();
     let denied_block = builder.create_block();
@@ -4024,90 +3051,6 @@ fn emit_i64_process_status_expr(
     Ok(builder.block_params(merge_block)[0])
 }
 
-#[cfg(not(windows))]
-fn emit_i64_net_resolve_len_expr(
-    builder: &mut FunctionBuilder<'_>,
-    runtime_refs: I64RuntimeRefs,
-    host: &str,
-    resolved_len: i64,
-) -> Result<cranelift_codegen::ir::Value, CraneliftBackendError> {
-    if host.as_bytes().contains(&0) {
-        return Err(CraneliftBackendError::new(
-            "network host contains an interior null byte",
-        ));
-    }
-    let host_ptr = emit_i64_path_ptr(builder, host)?;
-    let null_ptr = builder.ins().iconst(types::I64, 0);
-    let result_slot = builder.create_sized_stack_slot(StackSlotData::new(
-        StackSlotKind::ExplicitSlot,
-        8,
-        0,
-    ));
-    builder.ins().stack_store(null_ptr, result_slot, 0);
-    let result_ptr = builder.ins().stack_addr(types::I64, result_slot, 0);
-    #[cfg(not(windows))]
-    let call = builder.ins().call(
-        runtime_refs
-            .getaddrinfo
-            .expect("getaddrinfo import missing"),
-        &[host_ptr, null_ptr, null_ptr, result_ptr],
-    );
-    #[cfg(not(windows))]
-    let status = builder.inst_results(call)[0];
-
-    let success_block = builder.create_block();
-    let free_block = builder.create_block();
-    let failed_block = builder.create_block();
-    let merge_block = builder.create_block();
-    builder.append_block_param(merge_block, types::I64);
-
-    let status_ok = builder.ins().icmp_imm(IntCC::Equal, status, 0);
-    builder
-        .ins()
-        .brif(status_ok, success_block, &[], failed_block, &[]);
-
-    builder.switch_to_block(success_block);
-    builder.seal_block(success_block);
-    let result_head = builder.ins().stack_load(types::I64, result_slot, 0);
-    let result_missing = builder.ins().icmp_imm(IntCC::Equal, result_head, 0);
-    builder
-        .ins()
-        .brif(result_missing, failed_block, &[], free_block, &[]);
-
-    builder.switch_to_block(free_block);
-    builder.seal_block(free_block);
-    #[cfg(not(windows))]
-    builder.ins().call(
-        runtime_refs
-            .freeaddrinfo
-            .expect("freeaddrinfo import missing"),
-        &[result_head],
-    );
-    let len = builder.ins().iconst(types::I64, resolved_len);
-    builder.ins().jump(merge_block, &[BlockArg::Value(len)]);
-
-    builder.switch_to_block(failed_block);
-    builder.seal_block(failed_block);
-    let failed = builder.ins().iconst(types::I64, -1);
-    builder.ins().jump(merge_block, &[BlockArg::Value(failed)]);
-
-    builder.switch_to_block(merge_block);
-    builder.seal_block(merge_block);
-    Ok(builder.block_params(merge_block)[0])
-}
-
-#[cfg(windows)]
-fn emit_i64_net_resolve_len_expr(
-    _builder: &mut FunctionBuilder<'_>,
-    _runtime_refs: I64RuntimeRefs,
-    _host: &str,
-    _resolved_len: i64,
-) -> Result<cranelift_codegen::ir::Value, CraneliftBackendError> {
-    Err(CraneliftBackendError::new(
-        "numeric native DNS lowering is unsupported on windows",
-    ))
-}
-
 fn emit_i64_sleep_ms_expr(
     builder: &mut FunctionBuilder<'_>,
     locals: &[Variable],
@@ -4353,521 +3296,6 @@ mod tests {
     }
 
     #[test]
-    fn links_i64_exit_program_with_sleep_ms() {
-        if std::env::var_os("AXIOM_SKIP_CRANELIFT_LINK_TEST").is_some() {
-            return;
-        }
-        if Command::new("cc").arg("--version").output().is_err() {
-            eprintln!("skipping cranelift link test because cc is unavailable");
-            return;
-        }
-        let temp = tempfile::tempdir().expect("tempdir");
-        let zero_object = temp.path().join("i64-exit-sleep-zero.o");
-        let zero_binary = temp.path().join("i64-exit-sleep-zero");
-        compile_i64_exit_program(
-            I64ExitProgram {
-                functions: Vec::new(),
-                locals: Vec::new(),
-                stmts: Vec::new(),
-                body: I64ExitBody::Return(I64Expr::SleepMs {
-                    milliseconds: Box::new(I64Expr::Literal(0)),
-                }),
-            },
-            &zero_object,
-            &zero_binary,
-        )
-        .expect("compile i64 zero sleep exit program");
-        let output = Command::new(&zero_binary)
-            .output()
-            .expect("run zero sleep binary");
-        assert_eq!(output.status.code(), Some(0));
-
-        let capped_object = temp.path().join("i64-exit-sleep-capped.o");
-        let capped_binary = temp.path().join("i64-exit-sleep-capped");
-        compile_i64_exit_program(
-            I64ExitProgram {
-                functions: Vec::new(),
-                locals: Vec::new(),
-                stmts: Vec::new(),
-                body: I64ExitBody::Return(I64Expr::SleepMs {
-                    milliseconds: Box::new(I64Expr::Literal(1001)),
-                }),
-            },
-            &capped_object,
-            &capped_binary,
-        )
-        .expect("compile i64 capped sleep exit program");
-        let output = Command::new(&capped_binary)
-            .output()
-            .expect("run capped sleep binary");
-        assert_eq!(output.status.code(), Some(255));
-    }
-
-    #[test]
-    fn links_i64_exit_program_with_env_len() {
-        if std::env::var_os("AXIOM_SKIP_CRANELIFT_LINK_TEST").is_some() {
-            return;
-        }
-        if Command::new("cc").arg("--version").output().is_err() {
-            eprintln!("skipping cranelift link test because cc is unavailable");
-            return;
-        }
-        let temp = tempfile::tempdir().expect("tempdir");
-        let object = temp.path().join("i64-exit-env-len.o");
-        let binary = temp.path().join("i64-exit-env-len");
-        compile_i64_exit_program(
-            I64ExitProgram {
-                functions: Vec::new(),
-                locals: Vec::new(),
-                stmts: Vec::new(),
-                body: I64ExitBody::Return(I64Expr::EnvLen {
-                    key: String::from("AXIOM_CRANELIFT_BACKEND_ENV_LEN"),
-                }),
-            },
-            &object,
-            &binary,
-        )
-        .expect("compile i64 env len exit program");
-        let output = Command::new(&binary)
-            .env("AXIOM_CRANELIFT_BACKEND_ENV_LEN", "backend-env")
-            .output()
-            .expect("run env len binary");
-        assert_eq!(output.status.code(), Some(11));
-        let output = Command::new(&binary)
-            .env_remove("AXIOM_CRANELIFT_BACKEND_ENV_LEN")
-            .output()
-            .expect("run missing env len binary");
-        assert_eq!(output.status.code(), Some(255));
-    }
-
-    #[test]
-    fn links_i64_exit_program_with_file_len() {
-        if std::env::var_os("AXIOM_SKIP_CRANELIFT_LINK_TEST").is_some() {
-            return;
-        }
-        if Command::new("cc").arg("--version").output().is_err() {
-            eprintln!("skipping cranelift link test because cc is unavailable");
-            return;
-        }
-        let temp = tempfile::tempdir().expect("tempdir");
-        let fixture = temp.path().join("fixture.txt");
-        fs::write(&fixture, "compile-time").expect("write compile-time fixture");
-        let object = temp.path().join("i64-exit-file-len.o");
-        let binary = temp.path().join("i64-exit-file-len");
-        compile_i64_exit_program(
-            I64ExitProgram {
-                functions: Vec::new(),
-                locals: Vec::new(),
-                stmts: Vec::new(),
-                body: I64ExitBody::Return(I64Expr::FileLen {
-                    path: fixture.display().to_string(),
-                    max_bytes: 64 * 1024 * 1024,
-                }),
-            },
-            &object,
-            &binary,
-        )
-        .expect("compile i64 file len exit program");
-
-        fs::write(&fixture, "runtime-file").expect("rewrite runtime fixture");
-        let output = Command::new(&binary).output().expect("run file len binary");
-        assert_eq!(output.status.code(), Some(12));
-
-        fs::remove_file(&fixture).expect("remove runtime fixture");
-        let output = Command::new(&binary)
-            .output()
-            .expect("run missing file len binary");
-        assert_eq!(output.status.code(), Some(255));
-    }
-
-    #[test]
-    fn links_i64_exit_program_with_write_file() {
-        if std::env::var_os("AXIOM_SKIP_CRANELIFT_LINK_TEST").is_some() {
-            return;
-        }
-        if Command::new("cc").arg("--version").output().is_err() {
-            eprintln!("skipping cranelift link test because cc is unavailable");
-            return;
-        }
-        let temp = tempfile::tempdir().expect("tempdir");
-        let fixture = temp.path().join("fixture.txt");
-        let object = temp.path().join("i64-exit-write-file.o");
-        let binary = temp.path().join("i64-exit-write-file");
-        compile_i64_exit_program(
-            I64ExitProgram {
-                functions: Vec::new(),
-                locals: Vec::new(),
-                stmts: Vec::new(),
-                body: I64ExitBody::Return(I64Expr::WriteFile {
-                    path: fixture.display().to_string(),
-                    content: String::from("runtime-write"),
-                }),
-            },
-            &object,
-            &binary,
-        )
-        .expect("compile i64 write file exit program");
-
-        assert!(
-            !fixture.exists(),
-            "compile should not create the write_file fixture"
-        );
-        let output = Command::new(&binary)
-            .output()
-            .expect("run write file binary");
-        assert_eq!(output.status.code(), Some(0));
-        assert_eq!(
-            fs::read_to_string(&fixture).expect("read runtime write fixture"),
-            "runtime-write"
-        );
-    }
-
-    #[test]
-    fn links_i64_exit_program_with_append_file() {
-        if std::env::var_os("AXIOM_SKIP_CRANELIFT_LINK_TEST").is_some() {
-            return;
-        }
-        if Command::new("cc").arg("--version").output().is_err() {
-            eprintln!("skipping cranelift link test because cc is unavailable");
-            return;
-        }
-        let temp = tempfile::tempdir().expect("tempdir");
-        let fixture = temp.path().join("fixture.txt");
-        fs::write(&fixture, "base").expect("write append base fixture");
-        let object = temp.path().join("i64-exit-append-file.o");
-        let binary = temp.path().join("i64-exit-append-file");
-        compile_i64_exit_program(
-            I64ExitProgram {
-                functions: Vec::new(),
-                locals: Vec::new(),
-                stmts: Vec::new(),
-                body: I64ExitBody::Return(I64Expr::AppendFile {
-                    path: fixture.display().to_string(),
-                    content: String::from("+runtime-append"),
-                }),
-            },
-            &object,
-            &binary,
-        )
-        .expect("compile i64 append file exit program");
-
-        assert_eq!(
-            fs::read_to_string(&fixture).expect("read compile-time append fixture"),
-            "base"
-        );
-        let output = Command::new(&binary)
-            .output()
-            .expect("run append file binary");
-        assert_eq!(output.status.code(), Some(0));
-        assert_eq!(
-            fs::read_to_string(&fixture).expect("read runtime append fixture"),
-            "base+runtime-append"
-        );
-    }
-
-    #[test]
-    fn links_i64_exit_program_with_replace_file() {
-        if std::env::var_os("AXIOM_SKIP_CRANELIFT_LINK_TEST").is_some() {
-            return;
-        }
-        if Command::new("cc").arg("--version").output().is_err() {
-            eprintln!("skipping cranelift link test because cc is unavailable");
-            return;
-        }
-        let temp = tempfile::tempdir().expect("tempdir");
-        let fixture = temp.path().join("fixture.txt");
-        let temp_fixture = temp.path().join(".fixture.txt.axiom-replace.tmp");
-        fs::write(&fixture, "base").expect("write replace base fixture");
-        let object = temp.path().join("i64-exit-replace-file.o");
-        let binary = temp.path().join("i64-exit-replace-file");
-        compile_i64_exit_program(
-            I64ExitProgram {
-                functions: Vec::new(),
-                locals: Vec::new(),
-                stmts: Vec::new(),
-                body: I64ExitBody::Return(I64Expr::ReplaceFile {
-                    path: fixture.display().to_string(),
-                    temp_path: temp_fixture.display().to_string(),
-                    content: String::from("runtime-replace"),
-                }),
-            },
-            &object,
-            &binary,
-        )
-        .expect("compile i64 replace file exit program");
-
-        assert_eq!(
-            fs::read_to_string(&fixture).expect("read compile-time replace fixture"),
-            "base"
-        );
-        assert!(
-            !temp_fixture.exists(),
-            "compile should not create the replace temp fixture"
-        );
-        let output = Command::new(&binary)
-            .output()
-            .expect("run replace file binary");
-        assert_eq!(output.status.code(), Some(0));
-        assert_eq!(
-            fs::read_to_string(&fixture).expect("read runtime replace fixture"),
-            "runtime-replace"
-        );
-        assert!(
-            !temp_fixture.exists(),
-            "runtime replace should not leave the temp fixture"
-        );
-    }
-
-    #[test]
-    fn links_i64_exit_program_with_remove_file() {
-        if std::env::var_os("AXIOM_SKIP_CRANELIFT_LINK_TEST").is_some() {
-            return;
-        }
-        if Command::new("cc").arg("--version").output().is_err() {
-            eprintln!("skipping cranelift link test because cc is unavailable");
-            return;
-        }
-        let temp = tempfile::tempdir().expect("tempdir");
-        let fixture = temp.path().join("fixture.txt");
-        fs::write(&fixture, "remove-me").expect("write remove fixture");
-        let object = temp.path().join("i64-exit-remove-file.o");
-        let binary = temp.path().join("i64-exit-remove-file");
-        compile_i64_exit_program(
-            I64ExitProgram {
-                functions: Vec::new(),
-                locals: Vec::new(),
-                stmts: Vec::new(),
-                body: I64ExitBody::Return(I64Expr::RemoveFile {
-                    path: fixture.display().to_string(),
-                }),
-            },
-            &object,
-            &binary,
-        )
-        .expect("compile i64 remove file exit program");
-
-        assert!(fixture.exists(), "compile should not remove the fixture");
-        let output = Command::new(&binary)
-            .output()
-            .expect("run remove file binary");
-        assert_eq!(output.status.code(), Some(0));
-        assert!(
-            !fixture.exists(),
-            "runtime remove_file should remove the fixture"
-        );
-    }
-
-    #[test]
-    fn links_i64_exit_program_with_create_file() {
-        if std::env::var_os("AXIOM_SKIP_CRANELIFT_LINK_TEST").is_some() {
-            return;
-        }
-        if Command::new("cc").arg("--version").output().is_err() {
-            eprintln!("skipping cranelift link test because cc is unavailable");
-            return;
-        }
-        let temp = tempfile::tempdir().expect("tempdir");
-        let fixture = temp.path().join("created.txt");
-        let object = temp.path().join("i64-exit-create-file.o");
-        let binary = temp.path().join("i64-exit-create-file");
-        compile_i64_exit_program(
-            I64ExitProgram {
-                functions: Vec::new(),
-                locals: Vec::new(),
-                stmts: Vec::new(),
-                body: I64ExitBody::Return(I64Expr::CreateFile {
-                    path: fixture.display().to_string(),
-                }),
-            },
-            &object,
-            &binary,
-        )
-        .expect("compile i64 create file exit program");
-
-        assert!(
-            !fixture.exists(),
-            "compile should not create the create_file fixture"
-        );
-        let output = Command::new(&binary)
-            .output()
-            .expect("run create file binary");
-        assert_eq!(output.status.code(), Some(0));
-        assert_eq!(
-            fs::read_to_string(&fixture).expect("read created fixture"),
-            ""
-        );
-
-        let output = Command::new(&binary)
-            .output()
-            .expect("run create file binary again");
-        assert_eq!(output.status.code(), Some(255));
-    }
-
-    #[test]
-    fn links_i64_exit_program_with_directory_create_and_remove() {
-        if std::env::var_os("AXIOM_SKIP_CRANELIFT_LINK_TEST").is_some() {
-            return;
-        }
-        if Command::new("cc").arg("--version").output().is_err() {
-            eprintln!("skipping cranelift link test because cc is unavailable");
-            return;
-        }
-        let temp = tempfile::tempdir().expect("tempdir");
-        let fixture = temp.path().join("runtime-dir");
-        let object = temp.path().join("i64-exit-dir.o");
-        let binary = temp.path().join("i64-exit-dir");
-        compile_i64_exit_program(
-            I64ExitProgram {
-                functions: Vec::new(),
-                locals: vec![I64Expr::MakeDir {
-                    path: fixture.display().to_string(),
-                }],
-                stmts: Vec::new(),
-                body: I64ExitBody::Return(I64Expr::Binary {
-                    op: I64BinaryOp::Add,
-                    lhs: Box::new(I64Expr::Local(0)),
-                    rhs: Box::new(I64Expr::RemoveDir {
-                        path: fixture.display().to_string(),
-                    }),
-                }),
-            },
-            &object,
-            &binary,
-        )
-        .expect("compile i64 directory exit program");
-
-        assert!(
-            !fixture.exists(),
-            "compile should not create the directory fixture"
-        );
-        let output = Command::new(&binary)
-            .output()
-            .expect("run directory binary");
-        assert_eq!(output.status.code(), Some(0));
-        assert!(
-            !fixture.exists(),
-            "runtime remove_dir should remove the directory fixture"
-        );
-    }
-
-    #[test]
-    fn links_i64_exit_program_with_recursive_directory_create() {
-        if std::env::var_os("AXIOM_SKIP_CRANELIFT_LINK_TEST").is_some() {
-            return;
-        }
-        if Command::new("cc").arg("--version").output().is_err() {
-            eprintln!("skipping cranelift link test because cc is unavailable");
-            return;
-        }
-        let temp = tempfile::tempdir().expect("tempdir");
-        let root = temp.path().join("runtime-dir-all");
-        let nested = root.join("deep");
-        let object = temp.path().join("i64-exit-dir-all.o");
-        let binary = temp.path().join("i64-exit-dir-all");
-        compile_i64_exit_program(
-            I64ExitProgram {
-                functions: Vec::new(),
-                locals: vec![I64Expr::MakeDirAll {
-                    path: nested.display().to_string(),
-                }],
-                stmts: Vec::new(),
-                body: I64ExitBody::Return(I64Expr::Binary {
-                    op: I64BinaryOp::Add,
-                    lhs: Box::new(I64Expr::Binary {
-                        op: I64BinaryOp::Add,
-                        lhs: Box::new(I64Expr::Local(0)),
-                        rhs: Box::new(I64Expr::RemoveDir {
-                            path: nested.display().to_string(),
-                        }),
-                    }),
-                    rhs: Box::new(I64Expr::RemoveDir {
-                        path: root.display().to_string(),
-                    }),
-                }),
-            },
-            &object,
-            &binary,
-        )
-        .expect("compile i64 recursive directory exit program");
-
-        assert!(
-            !nested.exists(),
-            "compile should not create the nested directory fixture"
-        );
-        let output = Command::new(&binary)
-            .output()
-            .expect("run recursive directory binary");
-        assert_eq!(output.status.code(), Some(0));
-        assert!(
-            !root.exists(),
-            "runtime remove_dir should remove the recursive directory fixture"
-        );
-    }
-
-    #[test]
-    fn links_i64_exit_program_with_process_status() {
-        if std::env::var_os("AXIOM_SKIP_CRANELIFT_LINK_TEST").is_some() {
-            return;
-        }
-        if Command::new("cc").arg("--version").output().is_err() {
-            eprintln!("skipping cranelift link test because cc is unavailable");
-            return;
-        }
-        if !Path::new("/usr/bin/true").exists() || !Path::new("/usr/bin/false").exists() {
-            eprintln!(
-                "skipping cranelift process-status link test because /usr/bin/true or /usr/bin/false is unavailable"
-            );
-            return;
-        }
-        let temp = tempfile::tempdir().expect("tempdir");
-        let object = temp.path().join("i64-exit-process-status.o");
-        let binary = temp.path().join("i64-exit-process-status");
-        compile_i64_exit_program(
-            I64ExitProgram {
-                functions: Vec::new(),
-                locals: Vec::new(),
-                stmts: Vec::new(),
-                body: I64ExitBody::Return(I64Expr::Binary {
-                    op: I64BinaryOp::Add,
-                    lhs: Box::new(I64Expr::ProcessStatus {
-                        command: String::from("/usr/bin/false"),
-                    }),
-                    rhs: Box::new(I64Expr::ProcessStatus {
-                        command: String::from("__axiom_stage1_missing_binary__"),
-                    }),
-                }),
-            },
-            &object,
-            &binary,
-        )
-        .expect("compile i64 process status exit program");
-        let output = Command::new(&binary)
-            .output()
-            .expect("run process status binary");
-        assert_eq!(output.status.code(), Some(0));
-
-        let object = temp.path().join("i64-exit-process-true.o");
-        let binary = temp.path().join("i64-exit-process-true");
-        compile_i64_exit_program(
-            I64ExitProgram {
-                functions: Vec::new(),
-                locals: Vec::new(),
-                stmts: Vec::new(),
-                body: I64ExitBody::Return(I64Expr::ProcessStatus {
-                    command: String::from("/usr/bin/true"),
-                }),
-            },
-            &object,
-            &binary,
-        )
-        .expect("compile i64 true process status exit program");
-        let output = Command::new(&binary)
-            .output()
-            .expect("run true process status binary");
-        assert_eq!(output.status.code(), Some(0));
-    }
-
-    #[test]
     fn links_i64_exit_program_with_local() {
         if std::env::var_os("AXIOM_SKIP_CRANELIFT_LINK_TEST").is_some() {
             return;
@@ -4907,56 +3335,6 @@ mod tests {
         .expect("compile i64 local exit program");
         let output = Command::new(&binary).output().expect("run binary");
         assert_eq!(output.status.code(), Some(42));
-    }
-
-    #[test]
-    fn links_i64_exit_program_with_dynamic_integer_stdout() {
-        if std::env::var_os("AXIOM_SKIP_CRANELIFT_LINK_TEST").is_some() {
-            return;
-        }
-        if Command::new("cc").arg("--version").output().is_err() {
-            eprintln!("skipping cranelift link test because cc is unavailable");
-            return;
-        }
-        let temp = tempfile::tempdir().expect("tempdir");
-        let object = temp.path().join("i64-dynamic-stdout.o");
-        let binary = temp.path().join("i64-dynamic-stdout");
-        compile_i64_exit_program(
-            I64ExitProgram {
-                functions: Vec::new(),
-                locals: vec![
-                    I64Expr::Literal(40),
-                    I64Expr::Binary {
-                        op: I64BinaryOp::Add,
-                        lhs: Box::new(I64Expr::Local(0)),
-                        rhs: Box::new(I64Expr::Literal(2)),
-                    },
-                ],
-                stmts: vec![
-                    I64Stmt::WriteI64Line {
-                        stream: OutputStream::Stdout,
-                        value: I64Expr::Local(1),
-                    },
-                    I64Stmt::WriteI64Line {
-                        stream: OutputStream::Stdout,
-                        value: I64Expr::Literal(-3),
-                    },
-                    I64Stmt::WriteI64Line {
-                        stream: OutputStream::Stdout,
-                        value: I64Expr::Literal(0),
-                    },
-                ],
-                body: I64ExitBody::Return(I64Expr::Local(1)),
-            },
-            &object,
-            &binary,
-        )
-        .expect("compile i64 dynamic stdout program");
-        let output = Command::new(&binary)
-            .output()
-            .expect("run i64 dynamic stdout binary");
-        assert_eq!(output.status.code(), Some(42));
-        assert_eq!(String::from_utf8_lossy(&output.stdout), "42\n-3\n0\n");
     }
 
     #[test]

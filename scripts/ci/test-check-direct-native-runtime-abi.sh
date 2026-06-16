@@ -80,7 +80,7 @@ with open(sys.argv[2], "w", encoding="utf-8") as handle:
 PY
 
 if python3 "$script" --contract "$temp_dir/missing-evidence.json" --json >"$temp_dir/missing-evidence-report.json"; then
-  echo "expected implemented rows without evidence to fail" >&2
+  echo "expected partial rows without evidence to fail" >&2
   exit 1
 fi
 python3 - "$temp_dir/missing-evidence-report.json" <<'PY'
@@ -131,7 +131,6 @@ contract["value_features"][0]["runtime_evidence"] = [
     "stage1/runtime-abi/missing-runtime-evidence.rs"
 ]
 
-
 with open(sys.argv[2], "w", encoding="utf-8") as handle:
     json.dump(contract, handle)
 PY
@@ -158,7 +157,6 @@ with open(sys.argv[1], encoding="utf-8") as handle:
     contract = json.load(handle)
 
 contract["value_features"][0]["status"] = "implemented"
-contract["value_features"][0]["blockers"] = [1001]
 contract["value_features"][0]["runtime_evidence"] = [
     "stage1/crates/axiomc/tests/cranelift_backend.rs"
 ]
