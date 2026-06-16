@@ -147,6 +147,9 @@ branch statements into Cranelift loop, branch, return-block, and assignment
 instructions in both the entrypoint and helper functions, including helper
 function loop bodies with scoped runtime `let` declarations, then returns the
 computed value as the process exit status at runtime without generated Rust.
+The public scalar aggregate, numeric cross-width, and static scalar smokes now
+also assert that the build JSON reports `generated_rust: null`, so this evidence
+cannot silently drift back through generated Rust.
 The same path now has narrow boolean runtime
 evidence for signed i64 comparisons, bool local bindings backed by i64 slots,
 simple bool static values, and boolean literals composed with `&&`/`||` driving

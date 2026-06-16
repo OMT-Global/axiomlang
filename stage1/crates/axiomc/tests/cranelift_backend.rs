@@ -2435,6 +2435,7 @@ fn cranelift_backend_builds_scalar_aggregate_binary() {
 
     let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
     assert_eq!(payload["backend"], "cranelift");
+    assert_eq!(payload["generated_rust"], Value::Null);
     let binary = payload["binary"].as_str().expect("binary path");
     let run = Command::new(binary)
         .output()
@@ -2621,6 +2622,7 @@ fn cranelift_backend_builds_numeric_cross_width_binary() {
 
     let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
     assert_eq!(payload["backend"], "cranelift");
+    assert_eq!(payload["generated_rust"], Value::Null);
     let binary = payload["binary"].as_str().expect("binary path");
     let run = Command::new(binary)
         .output()
@@ -2710,6 +2712,7 @@ fn cranelift_backend_builds_static_scalar_binary() {
 
     let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
     assert_eq!(payload["backend"], "cranelift");
+    assert_eq!(payload["generated_rust"], Value::Null);
     let binary = payload["binary"].as_str().expect("binary path");
     let run = Command::new(binary)
         .output()
