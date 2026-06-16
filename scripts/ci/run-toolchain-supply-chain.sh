@@ -3,8 +3,7 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 manifest_path="$repo_root/stage1/Cargo.toml"
-target_dir="${CARGO_TARGET_DIR:-${RUNNER_TEMP:-/tmp}/axiom-stage1-target}"
-sbom_output_dir="${SBOM_OUTPUT_DIR:-$target_dir/sbom}"
+sbom_output_dir="${SBOM_OUTPUT_DIR:-$repo_root/stage1/target/sbom}"
 
 if ! command -v cargo-vet >/dev/null 2>&1; then
   echo "cargo-vet is required for supply-chain checks" >&2
@@ -28,8 +27,6 @@ cargo metadata --manifest-path "$manifest_path" --format-version 1 --locked --of
 cargo vet --manifest-path "$manifest_path" --locked --frozen
 
 export SOURCE_DATE_EPOCH="${SOURCE_DATE_EPOCH:-1704067200}"
-export CARGO_TARGET_DIR="$target_dir"
-mkdir -p "$target_dir" "$sbom_output_dir"
 if [[ -n "${RUSTFLAGS:-}" ]]; then
   export RUSTFLAGS="${RUSTFLAGS} --remap-path-prefix=$repo_root=."
 else

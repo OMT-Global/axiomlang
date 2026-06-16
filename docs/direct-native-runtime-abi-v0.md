@@ -23,33 +23,11 @@ Focused evidence gate:
 make stage1-direct-native-runtime-abi-evidence
 ```
 
-Checked-in example smoke:
-
-```bash
-make stage1-direct-native-example-smoke
-```
-
 The evidence gate validates the machine-readable ABI contract, runs the
 Cranelift backend evidence suite that backs the current `partial` and
 denial-evidence rows, and verifies the `axiomc run/test --backend cranelift`
 command paths can execute without generated-Rust artifacts. It is intentionally
 not a readiness claim while rows remain `partial` or `blocked`.
-
-The example smoke runs a bounded subset of checked-in value and stdlib examples
-through `check`, `build --backend cranelift`, and `run --backend cranelift`, and
-asserts the build/run JSON reports `generated_rust: null`. The current set
-covers 53 deterministic examples across scalar/aggregate values, borrowed
-shapes, generic aggregates, modules/packages/workspaces, governance/service
-fixtures, property fixtures, workspace-only package selection, outcome/result
-helpers, JSON value and serdes helpers, LSP/doc/testing helpers, plus async,
-CLI's no-argument path, collections, crypto hash/MAC, env allowlisted and
-unrestricted-migration reads, encoding, fs read/write, HTTP's closed-port
-client path, io, JSON, logging, process-status missing-binary handling, regex,
-sync, string builder, and time. It is direct-native example evidence for the
-checked runtime ABI contract, not a
-replacement for full
-`stage1-smoke` parity; examples that still require broader capability policy or
-runtime parity remain outside this smoke target.
 
 ## Contract Shape
 
@@ -173,58 +151,6 @@ assignment through a branch inside a loop after a scoped runtime bool `let`.
 Both rows remain partial because that runtime path does not yet cover the full
 supported scalar, function-call, control-flow, or boolean surface.
 
-The `string` row now has narrow direct-native runtime evidence for `len(...)`
-over string literals, string statics initialized from literals, and string locals
-initialized from known literal or static string values. Known-text
-`string_clone(...)`, `string_trim(...)`, and `string_trim_start(...)` results can
-also feed this same direct-native path, and `string_clone(...)` can pass through
-supported runtime string length projection locals. Pure helper calls with known
-string arguments can now fold string helper parameters and returns into the same
-direct-native length, comparison, and `string_starts_with(...)` condition paths
-without generated Rust when the helper body is a direct return, pure local
-`let` bindings followed by a return, a pure final `if` whose branches return,
-or a pure match-return expression or final match statement over known enum values
-such as `Option<string>`, including known string projections from tuple indexes
-and struct fields, plus direct indexes into known map literals. String length is
-represented as a byte-length projection local, matching the generated-Rust
-backend and Cranelift spike `.len()` semantics, and can feed direct-native
-integer locals, comparisons, helper calls, runtime branch-local string
-projection `let`s, and process exit status without generated Rust.
-String concatenation length also lowers for supported string length projection
-inputs by adding the operand byte lengths without materializing the concatenated
-runtime string.
-Literal-, static-, local-, and known-string-call-backed `string_starts_with(...)`
-predicates and known-text string comparisons now also lower directly to native
-boolean conditions, including bool locals, helper returns, composed branch
-conditions, and process exit status without generated Rust. Known-input
-`string_strip_prefix(...)`, `string_strip_suffix(...)`, and `string_line_at(...)`
-calls can also lower direct `match` expressions by selecting the `Some` or
-`None` arm at compile time and binding the `Some` payload as a known string fact
-for that arm, including static scalar `string_line_at(...)` indexes. Known-text
-`encoding_url_component_encode(...)`,
-`encoding_path_segment_encode(...)`, `encoding_url_query_pair_encode(...)`, and
-`encoding_path_join_segment(...)` calls can feed the same direct-native string
-length and comparison path, and known-input `encoding_url_component_decode(...)`
-can lower direct `Option<string>` matches by compile-time arm selection.
-Imported public `std/encoding.ax` wrappers now alias those same known-input
-encode, decode, query-pair, and path-join lowering paths.
-Known-input `crypto_sha256(...)`, `crypto_hmac_sha256(...)`, and
-`crypto_hmac_sha512(...)` calls can also feed direct-native string length and
-comparison paths after normal front-end crypto capability checks. Supported
-runtime scalar/bool string-projection inputs, directly or through
-`string_clone(...)` over a projection local, can feed crypto hash/MAC length
-projections without materializing a general runtime string value. Known-input
-`crypto_constant_time_eq(...)` over known string values can also feed
-direct-native boolean conditions after normal front-end crypto capability
-checks. Imported public `std/crypto_hash.ax` and `std/crypto_mac.ax` hash, HMAC,
-verify, and constant-time equality wrappers now alias those same known-input
-direct-native paths in runtime-exit programs. The row
-remains partial because direct-native codegen still does not provide a general
-string ABI, general runtime string parameters or returns, allocation or mutation
-behavior, non-literal string storage, general Option-string payload storage or
-helper ABI, broad string, encoding, or crypto string intrinsic lowering, or
-host-boundary representation.
-
 The `array.fixed` row now has narrow direct-native runtime evidence for
 immediate array-literal scalar indexing with literal indexes and scalar
 projection from local fixed-array bindings, including runtime-scope loop-body
@@ -235,25 +161,16 @@ Fixed-size scalar and bool array helper parameters lower across direct-native
 function-call boundaries as one ABI slot per element for local array values and
 inline array literals. Local and helper-parameter fixed-array scalar and bool
 projections also support narrow in-bounds dynamic indexes by selecting across
-projected element locals. Inline scalar and bool fixed-array literals also
-support narrow in-bounds dynamic indexes by selecting across lowered literal
-elements. Scalar and bool fixed-array-returning helpers now lower across
-direct-native function-call boundaries as one return slot per element, with
-caller-side projection locals populated from the multi-slot return; this covers
-literal array returns, local array binding returns, forwarded array parameters,
-and branch-selected array returns. The same
+projected element locals. Scalar and bool fixed-array-returning helpers now
+lower across direct-native function-call boundaries as one return slot per
+element, with caller-side projection locals populated from the multi-slot
+return; this covers literal array returns, local array binding returns,
+forwarded array parameters, and branch-selected array returns. The same
 projected element-slot representation now covers fixed-array payloads inside
-narrow `Option<[int; 2]>` and `Result<[int; 2], [int; 2]>` construction,
-tag/payload matches, helper parameters, helper returns, and forwarded helper
-values. Existing fixed-array locals can now be reassigned from fixed-array
-helper returns using the same element-slot ABI, including inside runtime loop
-blocks. Fixed-array `len`, `first`, and `last` over scalar and bool element
-arrays also lower through the same projected element-slot representation for
-local arrays, inline literals, helper parameters, and helper-returned arrays
-feeding a direct-native process exit status. The row remains partial because
-direct-native codegen still does not provide a general array ABI, array storage
-for non-scalar elements, full dynamic indexing semantics, bounds diagnostics,
-or a complete aggregate value passing contract.
+narrow local `Option<[int; 2]>` construction and tag/payload matches. The row
+remains partial because direct-native codegen still does not provide a general
+array ABI, array storage for non-scalar elements, full dynamic indexing
+semantics, bounds diagnostics, or a complete aggregate value passing contract.
 
 The `tuple` row now has narrow direct-native runtime evidence for immediate
 tuple-literal scalar indexing and scalar projection from local tuple bindings.
@@ -267,12 +184,11 @@ helpers now lower across direct-native function-call boundaries as one return
 slot per tuple element, with caller-side projection locals populated from the
 multi-slot return; this includes helpers whose final return is selected by
 branch blocks with branch-local scalar values, helpers returning local tuple
-bindings, and helpers forwarding tuple parameters. Existing tuple locals can
-now be reassigned from tuple helper returns using the same tuple-element ABI,
-including inside runtime loop blocks. The row remains partial because
-direct-native codegen still does not provide a general tuple ABI, tuple storage
-for non-scalar elements, tuple return expressions beyond the scalar/bool local,
-literal, and parameter slice, or a complete aggregate value passing contract.
+bindings, and helpers forwarding tuple parameters. The row remains partial
+because direct-native codegen still does not provide a general tuple ABI, tuple
+storage for non-scalar elements, tuple return expressions beyond the
+scalar/bool local, literal, and parameter slice, or a complete aggregate value
+passing contract.
 
 The `struct.field` row now has narrow direct-native runtime evidence for
 immediate struct-literal scalar field access and scalar projection from local
@@ -287,13 +203,7 @@ direct-native function-call boundaries as one return slot per declared field,
 with caller-side projection locals populated from the multi-slot return; this
 includes helpers whose final return is selected by branch blocks with
 branch-local scalar values, helpers returning local struct bindings, and
-helpers forwarding struct parameters. The same declared-field slot
-representation now backs narrow `Option<Step>` and `Result<Step, Step>` struct
-payload construction, matching, helper parameters, helper returns, forwarded
-helper values, and inline `Some(Step { ... })`/`None` and
-`Ok(Step { ... })`/`Err(Step { ... })` helper arguments. Existing struct locals
-can now be reassigned from struct helper returns using the declared-field slot
-ABI, including inside runtime branch blocks. The row remains partial because
+helpers forwarding struct parameters. The row remains partial because
 direct-native codegen still does not provide a general struct ABI, struct
 storage for non-scalar fields, owned field projection, field mutation, struct
 return expressions beyond the scalar/bool local, literal, and parameter slice,
@@ -311,25 +221,11 @@ direct-native path also has narrow evidence for `Option<(int, bool)>`
 construction, reassignment, matching, helper parameters, and helper returns for
 local values, forwarded local or parameter values, and inline `Some((...))`/`None`
 arguments represented as a tag plus multiple payload slots. The same
-tag/payload-slot representation now covers `Option<[int; 2]>` construction,
-matching, helper parameters, helper returns, forwarded helper values, and inline
-`Some([..])`/`None` helper arguments. The same representation now covers narrow
-`Option<Step>` struct payload construction, expression and statement matches,
-helper parameters, helper returns, forwarded helper values, and inline
-`Some(Step { ... })`/`None` helper arguments using declared field-order payload
-slots. Existing narrow `Option<Step>` locals can now be reassigned from option
-helper returns using the same tag/payload slots, including inside runtime branch
-blocks. The direct-native path also has narrow evidence for nested
-`Option<Option<int>>` construction, reassignment, matching, helper parameters,
-helper returns, forwarded helper values, and inline `Some(Some(...))`,
-`Some(None)`, and outer `None` helper arguments using nested tag/payload slots.
-The same nested slot representation now has narrow evidence for
-`Option<Result<int, int>>` construction, reassignment, matching, helper
-parameters, helper returns, forwarded helper values, and inline
-`Some(Ok(...))`, `Some(Err(...))`, and outer `None` helper arguments.
-The row remains partial because direct-native codegen still does not provide a
-general `Option<T>` ABI across broader payload shapes, deeper nested option or
-result values, or broad aggregate storage.
+tag/payload-slot representation now covers local `Option<[int; 2]>`
+construction and matching for inline `Some([..])`/`None` values. The row remains
+partial because direct-native codegen still does not provide a general
+`Option<T>` ABI across broader payload shapes, nested option values, helper ABI
+coverage for array payloads, or broad aggregate storage.
 
 The first executable guard for this boundary is a Cranelift regression that
 builds a package using `std/fs.ax` without the `fs` capability and verifies the
@@ -597,75 +493,21 @@ builds and runs pure string intrinsics including `string_clone`,
 `string_trim`, `string_trim_start`, and `string_line_at` without generated
 Rust. It also builds and runs `std/string_builder.ax` owned string accumulator
 helpers and `std/encoding.ax` percent encode/decode helpers, query-pair
-encoding, and path segment joining without generated Rust. Known-text encoding
-helpers now also feed narrow direct-native string length/comparison lowering,
-known-input `string_line_at(...)` also accepts static scalar indexes, and
-known-input percent decode can feed direct `Option<string>` matches without
-generated Rust. Pure known-text helper calls can now fold direct-return,
-local-let-return, final-if-return, match-return, and final-match-statement string
-helper arguments and returns, including tuple-index and struct-field string
-projections and direct map-index string projections over known map literals,
-into direct-native length, comparison, and `string_starts_with(...)` conditions
-without generated Rust.
-Imported public `std/string_builder.ax` builder, seed, push,
-line-push, and finish wrappers now alias known text facts that can feed
-direct-native string comparisons, length projections, and process exit status
-without generated Rust. Broader string ABI coverage, allocation behavior,
-general runtime string parameters and returns, non-literal storage, and
-host-boundary representation remain tracked by issue #1001.
+encoding, and path segment joining without generated Rust. Broader string ABI
+coverage, allocation behavior, and host-boundary representation remain tracked
+by issue #1001.
 
 The borrowed-slice row has partial direct-native evidence: the Cranelift spike
-evaluates array-backed borrowed slices through `len`, `first`, `last`, indexing,
-and function returns. The direct-native runtime path now also lowers narrow
-static-range fixed-array slices using literal or static scalar bounds such as
-`values[1:]`, `values[START:]`, `values[:2]`, and `values[:END]` through `len`,
-`first`, and `last` for scalar and bool elements by projecting the underlying
-fixed-array slots, including helper-parameter arrays feeding a direct-native
-process exit status. Static-range fixed-array slices also support narrow literal
-and dynamic indexing over the sliced window through the same projection slots,
-including pre-runtime slice locals that alias the projected fixed-array slots.
-Broader borrowed-slice aliasing, dynamic slice bounds, slice returns, and host
-ABI coverage remain tracked by issue #1001.
+now evaluates array-backed borrowed slices through `len`, `first`, `last`,
+indexing, and function returns. Broader borrowed-slice aliasing and host ABI
+coverage remain tracked by issue #1001.
 
 The map lookup row has partial direct-native evidence: the Cranelift spike now
 builds and runs direct map indexing, `get`, `get_or_default`,
 `map_contains_key`, `map_keys`, and the public `std/collections.ax` `contains`,
 `get`, `get_or_default`, and `keys` helpers for string and integer key/value
-shapes without generated Rust. The direct-native i64 path now also lowers
-inline-map-literal `get_or_default(...)` over scalar/string keys and
-i64-compatible values into native process exit status, including default
-fallback and duplicate-key replacement behavior. Inline-map-literal
-`map_contains_key(...)` over scalar/string keys now also lowers into native
-boolean conditions that can feed direct-native process exit status.
-Inline-map-literal `get(...)` over scalar/string keys and scalar integer,
-boolean, or known string values can now feed direct
-`Option<int>`/`Option<bool>`/`Option<string>` match expressions into native
-process exit status. Integer and boolean lookup results can also feed local
-`Option<int>`/`Option<bool>` tag/payload bindings that are matched later in the
-same direct-native body, and known string lookup results can feed pre-runtime
-local `Option<string>` facts that are matched later in the same body.
-Pre-runtime local map bindings initialized from inline map literals can feed the
-same `get_or_default`, `map_contains_key`, and `get` lowering, and
-`len(keys(...))`/`len(map_keys(...))` can count static map keys without
-materializing a runtime key array. Static scalar integer and boolean keys can
-also feed inline and pre-runtime map lookup, contains, and get-or-default
-lowering. Imported public `std/collections.ax` `contains`, `get`,
-`get_or_default`, and `keys` map wrappers now alias the same direct-native i64
-lowering for static string/int map-local cases. Literal indexes into static
-string key arrays can also feed known string length
-lowering, and non-literal scalar indexes into those static string key arrays can
-select among known key byte lengths. Dynamic key-array value projection locals
-whose index is derived from a prior collection predicate local can also feed
-equality/inequality predicates, `string_starts_with(...)` predicates, and
-`string_trim(...)`/`string_trim_start(...)` length projections for
-direct-native process exit status. Trimmed dynamic key-array projection locals
-can also feed `string_starts_with(...)` predicates without materializing runtime
-strings. Direct indexes into known map literals can also feed known string facts
-for helper returns, length projections, and `string_starts_with(...)`
-conditions.
-Broader map ownership, runtime map storage, general payload lookup bindings,
-runtime key array value projection, and host-boundary representation remain
-tracked by issue #1001.
+shapes without generated Rust. Broader map ownership and host-boundary
+representation remain tracked by issue #1001.
 
 The `env.read` row now has partial Cranelift evidence for `std/env.ax`
 `get_env` on present and missing environment names while the public smoke
@@ -751,24 +593,7 @@ generated Rust. The direct-native path also has narrow evidence for
 construction, reassignment, matching, and helper parameters for local values and
 inline `Ok`/`Err` arguments represented as a tag plus multiple payload slots.
 That same tag/payload representation now covers helper returns and forwarded
-local or parameter values for the `Result<(int, bool), int>` narrow slice. The
-direct-native path also has narrow evidence for `Result<[int; 2], [int; 2]>`
-construction, matching, helper parameters, helper returns, forwarded helper
-values, and inline `Ok([..])`/`Err([..])` helper arguments represented as a tag
-plus fixed-array payload slots. It also covers narrow `Result<Step, Step>`
-struct payload construction, expression and statement matches, helper
-parameters, helper returns, forwarded helper values, and inline
-`Ok(Step { ... })`/`Err(Step { ... })` helper arguments using declared
-field-order payload slots. Existing narrow `Result<Step, Step>` locals can now
-be reassigned from result helper returns using the same tag/payload slots,
-including inside runtime branch blocks. The nested option payload slice now also
-has narrow direct-native evidence for `Result<Option<int>, int>` construction,
-reassignment, matching, helper parameters, helper returns, forwarded helper
-values, and inline `Ok(Some(...))`, `Ok(None)`, and `Err(...)` helper arguments.
-The recursive result payload slice now also has narrow evidence for
-`Result<Result<int, int>, int>` construction, reassignment, matching, helper
-parameters, helper returns, forwarded helper values, and inline `Ok(Ok(...))`,
-`Ok(Err(...))`, and outer `Err(...)` helper arguments.
+local or parameter values for the `Result<(int, bool), int>` narrow slice.
 Broader Result ABI support, the full numeric-width matrix, additional aggregate
 payload shapes, and capability-shim coverage remain tracked by issue #1001.
 
@@ -783,15 +608,8 @@ bool }`. Scalar/bool custom enum helper parameters lower across direct-native
 function-call boundaries as explicit tag/payload ABI slots for local values and
 inline variant arguments. Narrow custom enum helper returns and forwarded local
 or parameter values also lower through the same tag/payload slots for scalar
-struct payload variants. Existing narrow custom enum locals can now be
-reassigned from enum helper returns using the same tag/payload slots, including
-inside runtime branch blocks. The same representation now has narrow evidence
-for positional custom enum payloads carrying nested `Option<Result<int, int>>`
-and `Result<Option<int>, int>` values, including runtime-scope literal
-construction, reassignment, value-producing matches, helper returns, forwarded
-helper values, and inline nested variant arguments. Broader enum ABI support,
-deeper nested payload shapes, and aggregate payload storage beyond the evidenced
-slices remain tracked by issue #1001.
+struct payload variants. Broader enum ABI support and aggregate payload storage
+beyond scalar tuples/structs remain tracked by issue #1001.
 
 The `json.serdes` row has expanded partial direct-native evidence: the
 Cranelift spike now builds and runs `std/json.ax` scalar/object helpers and

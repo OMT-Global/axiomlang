@@ -37,12 +37,12 @@ MAKE
 
 cat >"$temp_dir/open-issues.txt" <<'ISSUES'
 927 OPEN
+928 OPEN
 929 OPEN
 693 OPEN
 694 OPEN
 930 OPEN
 931 OPEN
-1001 OPEN
 562 OPEN
 563 OPEN
 564 OPEN
@@ -67,7 +67,7 @@ statuses = {check["name"]: check["status"] for check in payload["checks"]}
 assert statuses["readiness_doc_present"] == "pass"
 assert statuses["readiness_manifest_valid"] == "pass"
 assert statuses["readiness_blockers_closed"] == "fail"
-assert statuses["direct_native_runtime_abi_ready"] == "fail"
+assert statuses["direct_native_runtime_abi_ready"] == "pass"
 assert statuses["command_lsp_release_boundary"] == "pass"
 assert statuses["mir_backend_direct_native_boundary"] == "pass"
 PY
@@ -75,12 +75,12 @@ PY
 
 cat >"$temp_dir/issues.txt" <<'ISSUES'
 927 CLOSED
+928 CLOSED
 929 CLOSED
 693 CLOSED
 694 CLOSED
 930 CLOSED
 931 CLOSED
-1001 CLOSED
 562 CLOSED
 563 CLOSED
 564 CLOSED
@@ -105,7 +105,7 @@ statuses = {check["name"]: check["status"] for check in payload["checks"]}
 assert statuses["readiness_blockers_closed"] == "pass"
 assert statuses["rust_exit_issue_927_closed"] == "pass"
 assert statuses["rust_exit_issue_564_closed"] == "pass"
-assert statuses["direct_native_runtime_abi_ready"] == "fail"
+assert statuses["direct_native_runtime_abi_ready"] == "pass"
 assert statuses["command_lsp_release_boundary"] == "pass"
 assert statuses["mir_backend_direct_native_boundary"] == "pass"
 PY
