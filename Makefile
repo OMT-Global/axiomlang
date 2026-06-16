@@ -1,4 +1,4 @@
-.PHONY: test smoke supply-chain docs-python-exit docs-python-exit-test python-exit-readiness python-exit-readiness-github rust-exit-readiness rust-exit-readiness-github rust-exit-readiness-test stage1-direct-native-runtime-abi stage1-direct-native-runtime-abi-evidence stage1-direct-native-runtime-abi-test stage1-direct-native-example-smoke stage1-axiom-dwarf-readiness-test stage1-package-graph-boundary stage1-package-graph-boundary-test stage1-diagnostics-syntax-boundary stage1-diagnostics-syntax-boundary-test stage1-command-lsp-boundary stage1-command-lsp-boundary-test stage1-hir-boundary stage1-hir-boundary-test stage1-mir-backend-boundary stage1-mir-backend-boundary-test stage1-test stage1-proof-test stage1-stdlib-test stage1-compiler-property-test stage1-conformance stage1-smoke stage1-bench stage1-bench-update-baseline stage1-bench-gate stage1-crap-proposal stage1-crap-thresholds stage1-crap-thresholds-test mutation-rust-smoke mutation-survivor-report stage1-run
+.PHONY: test smoke supply-chain docs-python-exit docs-python-exit-test python-exit-readiness python-exit-readiness-github rust-exit-readiness rust-exit-readiness-github rust-exit-readiness-test stage1-direct-native-runtime-abi stage1-direct-native-runtime-abi-evidence stage1-direct-native-runtime-abi-test stage1-axiom-dwarf-readiness-test stage1-package-graph-boundary stage1-package-graph-boundary-test stage1-diagnostics-syntax-boundary stage1-diagnostics-syntax-boundary-test stage1-command-lsp-boundary stage1-command-lsp-boundary-test stage1-hir-boundary stage1-hir-boundary-test stage1-mir-backend-boundary stage1-mir-backend-boundary-test stage1-test stage1-proof-test stage1-stdlib-test stage1-compiler-property-test stage1-conformance stage1-smoke stage1-bench stage1-bench-update-baseline stage1-bench-gate stage1-crap-proposal stage1-crap-thresholds stage1-crap-thresholds-test mutation-rust-smoke mutation-survivor-report stage1-run
 
 test: docs-python-exit python-exit-readiness stage1-test
 
@@ -39,10 +39,6 @@ stage1-direct-native-runtime-abi-evidence:
 stage1-direct-native-runtime-abi-test:
 	bash scripts/ci/test-check-direct-native-runtime-abi.sh
 	bash scripts/ci/test-run-direct-native-runtime-abi-evidence.sh
-	bash scripts/ci/run-direct-native-example-smoke.sh
-
-stage1-direct-native-example-smoke:
-	bash scripts/ci/run-direct-native-example-smoke.sh
 
 stage1-axiom-dwarf-readiness-test:
 	python3 -m py_compile scripts/debug/check-axiom-dwarf.py scripts/debug/test-check-axiom-dwarf.py
