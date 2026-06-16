@@ -3539,6 +3539,7 @@ fn cranelift_backend_builds_owned_move_state_binary() {
 
     let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
     assert_eq!(payload["backend"], "cranelift");
+    assert_eq!(payload["generated_rust"], Value::Null);
     let binary = payload["binary"].as_str().expect("binary path");
     let run = Command::new(binary)
         .output()
@@ -3647,12 +3648,10 @@ fn cranelift_backend_debug_build_emits_sidecars_without_axiom_dwarf() {
     assert_eq!(manifest["native_debug"]["debuginfo"], 0);
     assert_eq!(manifest["native_debug"]["opt_level"], 0);
     assert_eq!(manifest["native_debug"]["axiom_dwarf"], false);
-    assert!(
-        manifest["native_debug"]["native_debug_info"]
-            .as_str()
-            .expect("native debug info")
-            .contains("does not emit native Axiom DWARF yet")
-    );
+    assert!(manifest["native_debug"]["native_debug_info"]
+        .as_str()
+        .expect("native debug info")
+        .contains("does not emit native Axiom DWARF yet"));
     assert!(
         manifest.get("rustc").is_none(),
         "cranelift debug manifests should not claim rustc debug settings"
