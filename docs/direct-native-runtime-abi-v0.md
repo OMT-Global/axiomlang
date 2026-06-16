@@ -93,11 +93,12 @@ native backend attempts lowering or native execution.
 
 ## Current Status
 
-The checked-in contract is intentionally not ready. It records compiler-side
-Cranelift/direct-native spike evidence and keeps the affected runtime rows
-partial until real runtime entrypoints or backend-emitted codegen land. This
-lets future backend slices update the contract as runtime support lands without
-pretending the spike already proves direct-native runtime coverage.
+The checked-in contract is now ready for the direct-native runtime rows. It
+records compiler-side Cranelift/direct-native spike evidence for the value
+feature rows and keeps the remaining capability shim rows partial until real
+runtime entrypoints or backend-emitted codegen land. This lets future backend
+slices update the contract as runtime support lands without pretending the spike
+already proves direct-native runtime coverage.
 
 The `numeric.scalars` row now has the first narrow `runtime_evidence`: the
 `axiomc` Cranelift build path can lower zero-argument `main(): int` and
