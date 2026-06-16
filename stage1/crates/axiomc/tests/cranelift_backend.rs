@@ -3662,10 +3662,12 @@ fn cranelift_backend_debug_build_emits_sidecars_without_axiom_dwarf() {
     assert_eq!(manifest["native_debug"]["debuginfo"], 0);
     assert_eq!(manifest["native_debug"]["opt_level"], 0);
     assert_eq!(manifest["native_debug"]["axiom_dwarf"], false);
-    assert!(manifest["native_debug"]["native_debug_info"]
-        .as_str()
-        .expect("native debug info")
-        .contains("does not emit native Axiom DWARF yet"));
+    assert!(
+        manifest["native_debug"]["native_debug_info"]
+            .as_str()
+            .expect("native debug info")
+            .contains("does not emit native Axiom DWARF yet")
+    );
     assert!(
         manifest.get("rustc").is_none(),
         "cranelift debug manifests should not claim rustc debug settings"
@@ -4603,7 +4605,7 @@ fn cranelift_backend_lowers_crypto_random_to_runtime_exit_code() {
     let audit_log = temp.path().join("crypto-random-audit.jsonl");
     let run = Command::new(binary)
         .env("AXIOM_HOST_AUDIT_LOG", &audit_log)
-        .env("AXIOM_TEST_RANDOM_BYTES", "0123456789abcdef")
+        .env("AXIOM_TEST_RANDOM_BYTES", "0123456789abcdefXYZ")
         .env("AXIOM_TEST_RANDOM_U64", "48")
         .output()
         .expect("run cranelift crypto random main binary");
@@ -4614,8 +4616,10 @@ fn cranelift_backend_lowers_crypto_random_to_runtime_exit_code() {
     assert!(audit.contains("\"intrinsic\":\"crypto_rand_u64\""));
     assert!(audit.contains("\"length\":\"int:16\""));
     assert!(audit.contains("\"length\":\"int:0\""));
+    assert!(audit.contains("\"length\":\"int\""));
     assert!(audit.contains("\"args\":{}"));
-    assert_eq!(audit.matches("\"outcome\":\"ok\"").count(), 3);
+    assert_eq!(audit.matches("\"outcome\":\"ok\"").count(), 4);
+    assert!(!audit.contains("\"int:17\""));
     assert!(!audit.contains("\"bytes\""));
 }
 
@@ -10289,7 +10293,7 @@ fn write_crypto_random_main_exit_project(project: &Path) {
     .expect("write crypto random main lockfile");
     fs::write(
         project.join("src/main.ax"),
-        "import \"std/crypto_rand.ax\"\n\nstatic RANDOM_LEN: int = 16\n\nfn main(): int {\nlet sample_len: int = len(random_bytes(RANDOM_LEN))\nlet empty_len: int = len(random_bytes(0))\nlet value: int = random_u64() as int\nif sample_len == RANDOM_LEN && empty_len == 0 && value == 48 {\nreturn 48\n} else {\nreturn 1\n}\n}\n",
+        "import \"std/crypto_rand.ax\"\n\nstatic RANDOM_LEN: int = 16\n\nfn choose_len(seed: int): int {\nreturn seed + 8\n}\n\nfn main(): int {\nlet dynamic_len: int = choose_len(9)\nlet sample_len: int = len(random_bytes(RANDOM_LEN))\nlet dynamic_sample_len: int = len(random_bytes(dynamic_len))\nlet empty_len: int = len(random_bytes(0))\nlet value: int = random_u64() as int\nif sample_len == RANDOM_LEN && dynamic_sample_len == dynamic_len && empty_len == 0 && value == 48 {\nreturn 48\n} else {\nreturn 1\n}\n}\n",
     )
     .expect("write crypto random main source");
 }

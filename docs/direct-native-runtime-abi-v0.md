@@ -489,10 +489,12 @@ spike can build and run `std/crypto_rand.ax` `random_bytes(...)` and
 `random_u64()` through a Unix OS-random source while the public smoke asserts
 `generated_rust` is null, preserving the generated-Rust helper's `0..=65536`
 byte length cap. The direct-native i64 path now also lowers
-`len(random_bytes(n))` for literal and static scalar nonnegative lengths up to
-the stage1 65,536 byte cap into a runtime scratch-buffer fill from the Unix
-OS-random source, returning the requested length on success without
-materializing a general byte-array value. Public `random_u64()` in the
+`len(random_bytes(n))` for literal, static scalar, local runtime scalar, and
+helper-derived scalar lengths through a native `0..=65536` bounds check into a
+runtime scratch-buffer fill from the Unix OS-random source, returning the
+requested length on success without materializing a general byte-array value.
+Dynamic length audit metadata records only the typed argument shape, not the
+runtime length value. Public `random_u64()` in the
 direct-native i64 path also reads eight bytes from the same Unix OS-random
 source at runtime and returns those bits through the native scalar path instead
 of embedding compiler-sampled bytes. Those native random reads append
