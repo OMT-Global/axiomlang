@@ -81,9 +81,9 @@ enum Command {
         path: PathBuf,
         #[arg(long)]
         json: bool,
-        /// Select the build backend. `cranelift` is the default; `generated-rust` remains available as an explicit fallback while direct-native parity converges.
-        #[arg(long, default_value_t = NativeBackendKind::Cranelift)]
-        backend: NativeBackendKind,
+        /// Select the build backend. When omitted, native builds default to `cranelift` while targeted builds keep `generated-rust` for compatibility.
+        #[arg(long)]
+        backend: Option<NativeBackendKind>,
         #[arg(long)]
         debug: bool,
         #[arg(long)]
@@ -504,6 +504,7 @@ fn main() {
             offline,
             package,
         } => {
+            let backend = effective_build_backend(backend, target.as_ref());
             match build_project_with_options(
                 &path,
                 &BuildOptions {
@@ -1312,6 +1313,19 @@ fn main() {
         },
     };
     std::process::exit(code);
+}
+
+fn effective_build_backend(
+    backend: Option<NativeBackendKind>,
+    target: Option<&String>,
+) -> NativeBackendKind {
+    backend.unwrap_or_else(|| {
+        if target.is_some() {
+            NativeBackendKind::GeneratedRust
+        } else {
+            NativeBackendKind::Cranelift
+        }
+    })
 }
 
 #[derive(Debug)]
@@ -7533,9 +7547,8 @@ mod tests {
             .expect("build subcommand")
             .render_long_help()
             .to_string();
-        assert!(build_help.contains(
-            "`cranelift` is the default; `generated-rust` remains available as an explicit fallback"
-        ));
+        assert!(build_help.contains("native builds default to `cranelift`"));
+        assert!(build_help.contains("targeted builds keep `generated-rust` for compatibility"));
         assert!(
             build_help.contains("Build a stage1 package through the default direct-native backend")
         );
@@ -7980,8 +7993,30 @@ return "ok"
     fn build_defaults_to_cranelift_backend() {
         let cli = Cli::parse_from(["axiomc", "build", "."]);
         match cli.command {
-            Command::Build { backend, .. } => {
-                assert_eq!(backend, NativeBackendKind::Cranelift);
+            Command::Build {
+                backend, target, ..
+            } => {
+                assert_eq!(
+                    effective_build_backend(backend, target.as_ref()),
+                    NativeBackendKind::Cranelift
+                );
+            }
+            other => panic!("expected build command, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn build_target_defaults_to_generated_rust_backend() {
+        let cli = Cli::parse_from(["axiomc", "build", ".", "--target", "wasm32"]);
+        match cli.command {
+            Command::Build {
+                backend, target, ..
+            } => {
+                assert_eq!(target.as_deref(), Some("wasm32"));
+                assert_eq!(
+                    effective_build_backend(backend, target.as_ref()),
+                    NativeBackendKind::GeneratedRust
+                );
             }
             other => panic!("expected build command, got {other:?}"),
         }
@@ -7992,7 +8027,32 @@ return "ok"
         let cli = Cli::parse_from(["axiomc", "build", ".", "--backend", "generated-rust"]);
         match cli.command {
             Command::Build { backend, .. } => {
-                assert_eq!(backend, NativeBackendKind::GeneratedRust);
+                assert_eq!(backend, Some(NativeBackendKind::GeneratedRust));
+            }
+            other => panic!("expected build command, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn build_target_accepts_explicit_cranelift_backend() {
+        let cli = Cli::parse_from([
+            "axiomc",
+            "build",
+            ".",
+            "--target",
+            "wasm32",
+            "--backend",
+            "cranelift",
+        ]);
+        match cli.command {
+            Command::Build {
+                backend, target, ..
+            } => {
+                assert_eq!(target.as_deref(), Some("wasm32"));
+                assert_eq!(
+                    effective_build_backend(backend, target.as_ref()),
+                    NativeBackendKind::Cranelift
+                );
             }
             other => panic!("expected build command, got {other:?}"),
         }
