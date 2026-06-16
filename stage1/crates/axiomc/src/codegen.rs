@@ -26,8 +26,8 @@ thread_local! {
 
 /// Preparatory selector for native-build backend plumbing.
 ///
-/// Stage1 currently implements only the generated-Rust path; additional
-/// native backends remain follow-on work under #105.
+/// Stage1 keeps generated Rust as an explicit compatibility backend while the
+/// direct-native Cranelift path expands toward full parity.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "kebab-case")]
 pub enum NativeBackendKind {
