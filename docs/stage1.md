@@ -335,10 +335,12 @@ still far from the stated 1.0 target for service and agent workloads.
 
 - `axiomc build` now defaults to the direct-native Cranelift backend for native
   builds, with `--backend generated-rust` retained as an explicit compatibility
-  fallback. Targeted builds such as `--target wasm32` continue to default to
-  generated Rust until direct-native target support lands. The direct-native
-  path folds the supported MIR subset into print lines, emits a Cranelift
-  object, and links it with the host linker.
+  fallback. `--backend rust` is accepted as a transition alias for the same
+  generated-Rust backend so existing fallback workflows can keep their current
+  spelling for one release. Targeted builds such as `--target wasm32` continue
+  to default to generated Rust until direct-native target support lands. The
+  direct-native path folds the supported MIR subset into print lines, emits a
+  Cranelift object, and links it with the host linker.
 - The backend-selection surface remains preparatory backend plumbing for later
   native-backend expansion. `generated-rust` remains the broad compatibility
   backend; `cranelift` is intentionally limited to scalar print-line programs,

@@ -81,7 +81,7 @@ enum Command {
         path: PathBuf,
         #[arg(long)]
         json: bool,
-        /// Select the build backend. When omitted, native builds default to `cranelift` while targeted builds keep `generated-rust` for compatibility.
+        /// Select the build backend. When omitted, native builds default to `cranelift` while targeted builds keep `generated-rust` for compatibility. `rust` is accepted as a transition alias for `generated-rust`.
         #[arg(long)]
         backend: Option<NativeBackendKind>,
         #[arg(long)]
@@ -7549,6 +7549,7 @@ mod tests {
             .to_string();
         assert!(build_help.contains("native builds default to `cranelift`"));
         assert!(build_help.contains("targeted builds keep `generated-rust` for compatibility"));
+        assert!(build_help.contains("`rust` is accepted as a transition alias"));
         assert!(
             build_help.contains("Build a stage1 package through the default direct-native backend")
         );
@@ -8034,6 +8035,17 @@ return "ok"
     }
 
     #[test]
+    fn build_accepts_rust_backend_alias() {
+        let cli = Cli::parse_from(["axiomc", "build", ".", "--backend", "rust"]);
+        match cli.command {
+            Command::Build { backend, .. } => {
+                assert_eq!(backend, Some(NativeBackendKind::GeneratedRust));
+            }
+            other => panic!("expected build command, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn build_target_accepts_explicit_cranelift_backend() {
         let cli = Cli::parse_from([
             "axiomc",
@@ -8097,7 +8109,7 @@ return "ok"
             );
         let rendered = error.to_string();
         assert!(rendered.contains("unsupported backend \"direct-native\""));
-        assert!(rendered.contains("supported backends: generated-rust, cranelift"));
+        assert!(rendered.contains("supported backends: generated-rust, rust, cranelift"));
     }
 
     #[test]
