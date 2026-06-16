@@ -2,7 +2,7 @@ use crate::diagnostics::Diagnostic;
 use crate::manifest::CapabilityConfig;
 use crate::mir::{
     ArithmeticOp, CompareOp, EnumDef, EnumVariantDef, Expr, Function, LiteralValue, LogicOp,
-    MatchArm, MatchExprArm, Program, StaticDef, Stmt, StructDef, Type,
+    MapEntry, MatchArm, MatchExprArm, Program, StaticDef, Stmt, StructDef, Type,
 };
 use crate::syntax::NumericType;
 use axiomc_backend_cranelift::{
@@ -12,9 +12,9 @@ use axiomc_backend_cranelift::{
     I64ExitProgram, I64Expr as CraneliftI64Expr, I64Function as CraneliftI64Function,
     I64ReturnBlock as CraneliftI64ReturnBlock, I64Stmt as CraneliftI64Stmt,
     I64ValueBody as CraneliftI64ValueBody, I64ValueReturnBlock as CraneliftI64ValueReturnBlock,
-    OutputLine,
+    OutputLine, OutputStream,
 };
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::env;
 use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream, ToSocketAddrs};
@@ -27,7 +27,7 @@ const SPIKE_MAX_FS_READ_BYTES: u64 = 64 * 1024 * 1024;
 const SPIKE_MAX_FS_WRITE_BYTES: usize = 64 * 1024 * 1024;
 const SPIKE_MAX_CLOCK_SLEEP_MS: i64 = 1_000;
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 struct I64StaticBindings {
     values: HashMap<String, CraneliftI64Expr>,
     conditions: HashMap<String, CraneliftI64Condition>,
@@ -119,6 +119,7 @@ struct I64StaticBindings {
     fs_root: Option<PathBuf>,
     structs: HashMap<String, StructDef>,
     enums: HashMap<String, EnumDef>,
+    functions: HashMap<String, Function>,
 }
 
 struct I64HelperSignature {
@@ -156,6 +157,27 @@ enum I64AggregateReturnShape {
         name: String,
         payload_slots: usize,
     },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum I64MapKey {
+    Int(i64),
+    Bool(bool),
+    Text(String),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct I64MapKeyArrayStringIndex {
+    array_name: String,
+    index: Expr,
+    transform: I64MapKeyArrayStringTransform,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum I64MapKeyArrayStringTransform {
+    Identity,
+    Trim,
+    TrimStart,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -236,9 +258,21 @@ struct SpikeHttpRequest {
     body: String,
 }
 
+struct SpikeTcpListener {
+    port: i64,
+}
+
+struct SpikeTcpStream {
+    received: String,
+    written: String,
+}
+
 static SPIKE_HTTP_NEXT_HANDLE: AtomicI64 = AtomicI64::new(1);
 static SPIKE_HTTP_SERVERS: OnceLock<Mutex<HashMap<i64, SpikeHttpServer>>> = OnceLock::new();
 static SPIKE_HTTP_REQUESTS: OnceLock<Mutex<HashMap<i64, SpikeHttpRequest>>> = OnceLock::new();
+static SPIKE_TCP_NEXT_HANDLE: AtomicI64 = AtomicI64::new(1);
+static SPIKE_TCP_LISTENERS: OnceLock<Mutex<HashMap<i64, SpikeTcpListener>>> = OnceLock::new();
+static SPIKE_TCP_STREAMS: OnceLock<Mutex<HashMap<i64, SpikeTcpStream>>> = OnceLock::new();
 
 pub fn compile_cranelift_hello_spike(
     program: &Program,
@@ -265,6 +299,16 @@ pub fn compile_cranelift_hello_spike(
             Diagnostic::new("build", err.to_string()).with_path(object_path.display().to_string())
         });
     }
+    if program.stmts.is_empty()
+        && program
+            .functions
+            .iter()
+            .any(|function| function.source_name == "main" && function.params.is_empty())
+    {
+        return Err(unsupported(
+            "main function is outside the direct-native i64 ABI subset",
+        ));
+    }
     let lines = collect_output_lines(program, package_root, fs_root)?;
     axiomc_backend_cranelift::compile_output_lines(&lines, object_path, binary_path).map_err(
         |err| {
@@ -290,11 +334,6 @@ fn lower_i64_exit_program(
             && !function.is_async
             && !function.is_extern
     })?;
-    let helper_functions = program
-        .functions
-        .iter()
-        .filter(|function| function.name != main.name)
-        .collect::<Vec<_>>();
     let struct_defs = program
         .structs
         .iter()
@@ -780,6 +819,66 @@ fn lower_i64_exit_program(
         .iter()
         .map(|enum_def| (enum_def.name.clone(), enum_def.clone()))
         .collect();
+    static_bindings.functions = program
+        .functions
+        .iter()
+        .filter(|function| function.name != main.name)
+        .map(|function| (function.name.clone(), function.clone()))
+        .collect();
+    let process_status_wrappers = static_bindings.process_status_wrappers.clone();
+    let env_get_wrappers = static_bindings.env_get_wrappers.clone();
+    let time_wrappers = static_bindings.time_wrappers.clone();
+    let fs_shim_wrappers = static_bindings.fs_shim_wrappers.clone();
+    let net_shim_wrappers = static_bindings.net_shim_wrappers.clone();
+    let http_shim_wrappers = static_bindings.http_shim_wrappers.clone();
+    let collection_wrappers = static_bindings.collection_wrappers.clone();
+    let regex_wrappers = static_bindings.regex_wrappers.clone();
+    let encoding_wrappers = static_bindings.encoding_wrappers.clone();
+    let json_wrappers = static_bindings.json_wrappers.clone();
+    let log_wrappers = static_bindings.log_wrappers.clone();
+    let string_builder_wrappers = static_bindings.string_builder_wrappers.clone();
+    let crypto_wrappers = static_bindings.crypto_wrappers.clone();
+    let ffi_strlen_symbols = static_bindings.ffi_strlen_symbols.clone();
+    let sync_once_wrappers = static_bindings.sync_once_wrappers.clone();
+    let sync_once_with_wrappers = static_bindings.sync_once_with_wrappers.clone();
+    let sync_once_is_set_wrappers = static_bindings.sync_once_is_set_wrappers.clone();
+    let sync_once_take_wrappers = static_bindings.sync_once_take_wrappers.clone();
+    let sync_channel_wrappers = static_bindings.sync_channel_wrappers.clone();
+    let sync_send_wrappers = static_bindings.sync_send_wrappers.clone();
+    let sync_try_recv_wrappers = static_bindings.sync_try_recv_wrappers.clone();
+    let helper_functions = program
+        .functions
+        .iter()
+        .filter(|function| {
+            function.name != main.name
+                && !process_status_wrappers.contains(&function.name)
+                && !env_get_wrappers.contains(&function.name)
+                && !time_wrappers.contains(&function.name)
+                && !fs_shim_wrappers.contains(&function.name)
+                && !net_shim_wrappers.contains(&function.name)
+                && !http_shim_wrappers.contains(&function.name)
+                && !collection_wrappers.contains(&function.name)
+                && !regex_wrappers.contains(&function.name)
+                && !encoding_wrappers.contains(&function.name)
+                && !json_wrappers.contains(&function.name)
+                && !log_wrappers.contains(&function.name)
+                && !string_builder_wrappers.contains(&function.name)
+                && !crypto_wrappers.contains(&function.name)
+                && !ffi_strlen_symbols.contains(&function.name)
+                && !sync_once_wrappers.contains(&function.name)
+                && !sync_once_with_wrappers.contains(&function.name)
+                && !sync_once_is_set_wrappers.contains(&function.name)
+                && !sync_once_take_wrappers.contains(&function.name)
+                && !sync_channel_wrappers.contains(&function.name)
+                && !sync_send_wrappers.contains(&function.name)
+                && !sync_try_recv_wrappers.contains(&function.name)
+                && is_i64_function_return_type(&function.return_ty, &struct_defs, &static_bindings)
+                && function
+                    .params
+                    .iter()
+                    .all(|param| is_i64_param_type(&param.ty, &struct_defs, &static_bindings))
+        })
+        .collect::<Vec<_>>();
     let helper_signatures = helper_functions
         .iter()
         .enumerate()
@@ -855,7 +954,7 @@ fn lower_i64_function(
         return None;
     }
     if let Type::Option(inner) = &function.return_ty {
-        if is_i64_option_local_payload_type(inner) {
+        if is_i64_option_local_payload_type_static(inner, static_bindings) {
             return lower_i64_option_return_function(
                 function,
                 helper_signatures,
@@ -865,7 +964,7 @@ fn lower_i64_function(
         }
     }
     if let Type::Result(ok, err) = &function.return_ty {
-        if is_i64_result_local_payload_type(ok, err) {
+        if is_i64_result_local_payload_type_static(ok, err, static_bindings) {
             return lower_i64_result_return_function(
                 function,
                 helper_signatures,
@@ -1036,12 +1135,12 @@ fn lower_i64_option_return_function(
     let Type::Option(inner) = &function.return_ty else {
         return None;
     };
-    if !is_i64_option_local_payload_type(inner) {
+    if !is_i64_option_local_payload_type_static(inner, static_bindings) {
         return None;
     }
     let shape = I64AggregateReturnShape::Option {
         inner: inner.as_ref().clone(),
-        payload_slots: i64_option_payload_slot_count(inner.as_ref()),
+        payload_slots: i64_option_payload_slot_count_static(inner.as_ref(), static_bindings)?,
     };
     let (locals, stmts, body) = lower_i64_aggregate_return_body(
         &function.params,
@@ -1069,14 +1168,15 @@ fn lower_i64_result_return_function(
     let Type::Result(ok, err) = &function.return_ty else {
         return None;
     };
-    if !is_i64_result_local_payload_type(ok, err) {
+    if !is_i64_result_local_payload_type_static(ok, err, static_bindings) {
         return None;
     }
     let shape = I64AggregateReturnShape::Result {
         ok: ok.as_ref().clone(),
         err: err.as_ref().clone(),
-        payload_slots: i64_result_payload_slot_count(ok.as_ref())
-            .max(i64_result_payload_slot_count(err.as_ref())),
+        payload_slots: i64_result_payload_slot_count_static(ok.as_ref(), static_bindings)?.max(
+            i64_result_payload_slot_count_static(err.as_ref(), static_bindings)?,
+        ),
     };
     let (locals, stmts, body) = lower_i64_aggregate_return_body(
         &function.params,
@@ -1144,6 +1244,8 @@ fn lower_i64_aggregate_return_body(
     let mut locals = Vec::new();
     let mut lowered_stmts = Vec::new();
     let mut seen_runtime_stmt = false;
+    let mut static_bindings = static_bindings.clone();
+    let static_bindings = &mut static_bindings;
     let (mut local_indexes, mut local_conditions) =
         i64_param_local_bindings(params, struct_defs, static_bindings)?;
     for stmt in body_stmts {
@@ -1239,6 +1341,19 @@ fn lower_i64_aggregate_return_body(
             }
             Stmt::Let {
                 name,
+                ty: Type::Struct(_),
+                expr: expr @ Expr::Call {
+                    name: call_name, ..
+                },
+                ..
+            } if is_i64_string_builder_constructor_name(call_name, static_bindings)
+                && !seen_runtime_stmt =>
+            {
+                let text = i64_string_builder_text(expr, static_bindings)?;
+                static_bindings.string_builders.insert(name.clone(), text);
+            }
+            Stmt::Let {
+                name,
                 ty: Type::Struct(struct_name),
                 expr:
                     Expr::Call {
@@ -1321,6 +1436,22 @@ fn lower_i64_aggregate_return_body(
             }
             Stmt::Let {
                 name,
+                ty: Type::Slice(_) | Type::MutSlice(_),
+                expr,
+                ..
+            } if !seen_runtime_stmt => {
+                lower_i64_slice_projection_aliases(
+                    name,
+                    expr,
+                    &mut locals,
+                    &mut local_indexes,
+                    &mut local_conditions,
+                    static_bindings,
+                    false,
+                )?;
+            }
+            Stmt::Let {
+                name,
                 ty: Type::Array(element, Some(size)),
                 expr:
                     Expr::Call {
@@ -1348,7 +1479,7 @@ fn lower_i64_aggregate_return_body(
                 name,
                 ty: Type::Option(inner),
                 expr:
-                    Expr::Call {
+                    expr @ Expr::Call {
                         name: call_name,
                         args,
                         ..
@@ -1381,46 +1512,45 @@ fn lower_i64_aggregate_return_body(
                 } else if let Some(assigns) = lower_i64_known_string_option_call_let_stmts(
                     name,
                     inner.as_ref(),
-                    call_name,
-                    args,
-                    &mut locals,
-                    &mut local_indexes,
-                    &mut local_conditions,
-                    helper_signatures,
-                    static_bindings,
-                )?);
-                seen_runtime_stmt = true;
-            }
-            Stmt::Let {
-                name,
-                ty: Type::Option(inner),
-                expr:
-                    Expr::Call {
-                        name: call_name,
-                        args,
-                        ..
-                    },
-                ..
-            } if is_i64_option_local_payload_type(inner) && !seen_runtime_stmt => {
-                lowered_stmts.extend(lower_i64_option_call_let_stmts(
+                    expr,
+                    &mut *static_bindings,
+                ) {
+                    let has_runtime_stmts = !assigns.is_empty();
+                    lowered_stmts.extend(assigns);
+                    seen_runtime_stmt = has_runtime_stmts;
+                } else if let Some(assigns) = lower_i64_known_scalar_option_call_let_stmts(
                     name,
                     inner.as_ref(),
-                    call_name,
-                    args,
+                    expr,
                     &mut locals,
                     &mut local_indexes,
-                    &mut local_conditions,
-                    helper_signatures,
                     static_bindings,
-                )?);
-                seen_runtime_stmt = true;
+                ) {
+                    lowered_stmts.extend(assigns);
+                    seen_runtime_stmt = true;
+                } else {
+                    lowered_stmts.extend(lower_i64_option_call_let_stmts(
+                        name,
+                        inner.as_ref(),
+                        call_name,
+                        args,
+                        &mut locals,
+                        &mut local_indexes,
+                        &mut local_conditions,
+                        helper_signatures,
+                        static_bindings,
+                    )?);
+                    seen_runtime_stmt = true;
+                }
             }
             Stmt::Let {
                 name,
                 ty: Type::Option(inner),
                 expr: Expr::EnumVariant { .. },
                 ..
-            } if is_i64_option_local_payload_type(inner) && !seen_runtime_stmt => {
+            } if is_i64_option_local_payload_type_static(inner, static_bindings)
+                && !seen_runtime_stmt =>
+            {
                 lower_i64_option_locals(
                     name,
                     stmt,
@@ -1505,7 +1635,9 @@ fn lower_i64_aggregate_return_body(
                         ..
                     },
                 ..
-            } if is_i64_result_local_payload_type(ok, err) && !seen_runtime_stmt => {
+            } if is_i64_result_local_payload_type_static(ok, err, static_bindings)
+                && !seen_runtime_stmt =>
+            {
                 lowered_stmts.extend(lower_i64_result_call_let_stmts(
                     name,
                     ok.as_ref(),
@@ -1530,7 +1662,9 @@ fn lower_i64_aggregate_return_body(
                         ..
                     },
                 ..
-            } if is_i64_result_local_payload_type(ok, err) && !seen_runtime_stmt => {
+            } if is_i64_result_local_payload_type_static(ok, err, static_bindings)
+                && !seen_runtime_stmt =>
+            {
                 lowered_stmts.extend(lower_i64_result_call_let_stmts(
                     name,
                     ok.as_ref(),
@@ -1550,7 +1684,9 @@ fn lower_i64_aggregate_return_body(
                 ty: Type::Result(ok, err),
                 expr: Expr::EnumVariant { .. },
                 ..
-            } if is_i64_result_local_payload_type(ok, err) && !seen_runtime_stmt => {
+            } if is_i64_result_local_payload_type_static(ok, err, static_bindings)
+                && !seen_runtime_stmt =>
+            {
                 lower_i64_result_locals(
                     name,
                     stmt,
@@ -1827,10 +1963,10 @@ fn insert_i64_param_local_bindings(
                 }
             }
         }
-        Type::Option(inner) if is_i64_option_local_payload_type(inner) => {
+        Type::Option(inner) if is_i64_option_local_payload_type_static(inner, static_bindings) => {
             let tag_local = local_indexes.len();
             local_indexes.insert(i64_option_tag_key(name), tag_local);
-            for index in 0..i64_option_payload_slot_count(inner.as_ref()) {
+            for index in 0..i64_option_payload_slot_count_static(inner.as_ref(), static_bindings)? {
                 let payload_local = local_indexes.len();
                 local_indexes.insert(i64_option_payload_slot_key(name, index), payload_local);
                 if index == 0 {
@@ -1838,11 +1974,15 @@ fn insert_i64_param_local_bindings(
                 }
             }
         }
-        Type::Result(ok, err) if is_i64_result_local_payload_type(ok, err) => {
+        Type::Result(ok, err)
+            if is_i64_result_local_payload_type_static(ok, err, static_bindings) =>
+        {
             let tag_local = local_indexes.len();
             local_indexes.insert(i64_result_tag_key(name), tag_local);
-            let slot_count = i64_result_payload_slot_count(ok.as_ref())
-                .max(i64_result_payload_slot_count(err.as_ref()));
+            let slot_count =
+                i64_result_payload_slot_count_static(ok.as_ref(), static_bindings)?.max(
+                    i64_result_payload_slot_count_static(err.as_ref(), static_bindings)?,
+                );
             for index in 0..slot_count {
                 let payload_local = local_indexes.len();
                 local_indexes.insert(i64_result_payload_slot_key(name, index), payload_local);
@@ -2031,7 +2171,7 @@ fn lower_i64_aggregate_return_values(
             let mut results = vec![CraneliftI64Expr::Local(
                 *local_indexes.get(i64_option_tag_key(name).as_str())?,
             )];
-            let payloads = i64_option_payload_locals(name, inner, local_indexes)?;
+            let payloads = i64_option_payload_locals(name, inner, local_indexes, static_bindings)?;
             if payloads.len() != *payload_slots {
                 return None;
             }
@@ -2087,7 +2227,8 @@ fn lower_i64_aggregate_return_values(
             let mut results = vec![CraneliftI64Expr::Local(
                 *local_indexes.get(i64_result_tag_key(name).as_str())?,
             )];
-            let payloads = i64_result_payload_locals(name, ok, err, local_indexes)?;
+            let payloads =
+                i64_result_payload_locals(name, ok, err, local_indexes, static_bindings)?;
             if payloads.len() != *payload_slots {
                 return None;
             }
@@ -2219,6 +2360,8 @@ fn lower_i64_body(
     let mut local_conditions = HashMap::new();
     let mut lowered_stmts = Vec::new();
     let mut seen_runtime_stmt = false;
+    let mut static_bindings = static_bindings.clone();
+    let static_bindings = &mut static_bindings;
     for param in params {
         if !is_i64_param_type(&param.ty, struct_defs, static_bindings) {
             return None;
@@ -2276,10 +2419,14 @@ fn lower_i64_body(
                     }
                 }
             }
-            Type::Option(inner) if is_i64_option_local_payload_type(inner) => {
+            Type::Option(inner)
+                if is_i64_option_local_payload_type_static(inner, static_bindings) =>
+            {
                 let tag_local = local_indexes.len();
                 local_indexes.insert(i64_option_tag_key(&param.name), tag_local);
-                for index in 0..i64_option_payload_slot_count(inner.as_ref()) {
+                for index in
+                    0..i64_option_payload_slot_count_static(inner.as_ref(), static_bindings)?
+                {
                     let payload_local = local_indexes.len();
                     local_indexes.insert(
                         i64_option_payload_slot_key(&param.name, index),
@@ -2290,11 +2437,15 @@ fn lower_i64_body(
                     }
                 }
             }
-            Type::Result(ok, err) if is_i64_result_local_payload_type(ok, err) => {
+            Type::Result(ok, err)
+                if is_i64_result_local_payload_type_static(ok, err, static_bindings) =>
+            {
                 let tag_local = local_indexes.len();
                 local_indexes.insert(i64_result_tag_key(&param.name), tag_local);
-                let slot_count = i64_result_payload_slot_count(ok.as_ref())
-                    .max(i64_result_payload_slot_count(err.as_ref()));
+                let slot_count =
+                    i64_result_payload_slot_count_static(ok.as_ref(), static_bindings)?.max(
+                        i64_result_payload_slot_count_static(err.as_ref(), static_bindings)?,
+                    );
                 for index in 0..slot_count {
                     let payload_local = local_indexes.len();
                     local_indexes.insert(
@@ -2429,6 +2580,19 @@ fn lower_i64_body(
             }
             Stmt::Let {
                 name,
+                ty: Type::Struct(_),
+                expr: expr @ Expr::Call {
+                    name: call_name, ..
+                },
+                ..
+            } if is_i64_string_builder_constructor_name(call_name, static_bindings)
+                && !seen_runtime_stmt =>
+            {
+                let text = i64_string_builder_text(expr, static_bindings)?;
+                static_bindings.string_builders.insert(name.clone(), text);
+            }
+            Stmt::Let {
+                name,
                 ty: Type::Struct(struct_name),
                 expr:
                     Expr::Call {
@@ -2507,6 +2671,22 @@ fn lower_i64_body(
                     &mut local_conditions,
                     helper_signatures,
                     static_bindings,
+                )?;
+            }
+            Stmt::Let {
+                name,
+                ty: Type::Slice(_) | Type::MutSlice(_),
+                expr,
+                ..
+            } if !seen_runtime_stmt => {
+                lower_i64_slice_projection_aliases(
+                    name,
+                    expr,
+                    &mut locals,
+                    &mut local_indexes,
+                    &mut local_conditions,
+                    static_bindings,
+                    false,
                 )?;
             }
             Stmt::Let {
@@ -2658,7 +2838,9 @@ fn lower_i64_body(
                 ty: Type::Option(inner),
                 expr: Expr::EnumVariant { .. },
                 ..
-            } if is_i64_option_local_payload_type(inner) && !seen_runtime_stmt => {
+            } if is_i64_option_local_payload_type_static(inner, static_bindings)
+                && !seen_runtime_stmt =>
+            {
                 lower_i64_option_locals(
                     name,
                     stmt,
@@ -2690,7 +2872,9 @@ fn lower_i64_body(
                 ty: Type::Result(ok, err),
                 expr: Expr::EnumVariant { .. },
                 ..
-            } if is_i64_result_local_payload_type(ok, err) && !seen_runtime_stmt => {
+            } if is_i64_result_local_payload_type_static(ok, err, static_bindings)
+                && !seen_runtime_stmt =>
+            {
                 lower_i64_result_locals(
                     name,
                     stmt,
@@ -2769,15 +2953,15 @@ fn lower_i64_body(
             then_block,
             else_block: Some(else_block),
             ..
-        } => I64ExitBody::IfBlockReturn {
-            cond: lower_i64_condition(
+        } => {
+            let cond = lower_i64_condition(
                 cond,
                 &local_indexes,
                 &local_conditions,
                 helper_signatures,
                 static_bindings,
-            )?,
-            then_block: lower_i64_return_block(
+            )?;
+            let then_block = lower_i64_return_block(
                 then_block,
                 &mut locals,
                 local_indexes.clone(),
@@ -2841,6 +3025,15 @@ fn lower_i64_runtime_stmt_stmts(
         return Some(assigns);
     }
     if let Some(assigns) = lower_i64_enum_assign_stmts(
+        stmt,
+        &local_indexes,
+        &local_conditions,
+        helper_signatures,
+        static_bindings,
+    ) {
+        return Some(assigns);
+    }
+    if let Some(assigns) = lower_i64_aggregate_call_assign_stmts(
         stmt,
         &local_indexes,
         &local_conditions,
@@ -3060,7 +3253,13 @@ fn lower_i64_option_match_stmt(
         return None;
     };
     let (cond, some_indexes, some_conditions, some_arm, none_arm) =
-        lower_i64_option_stmt_match_parts(expr, arms, &local_indexes, &local_conditions)?;
+        lower_i64_option_stmt_match_parts(
+            expr,
+            arms,
+            &local_indexes,
+            &local_conditions,
+            static_bindings,
+        )?;
     Some(CraneliftI64Stmt::If {
         cond,
         then_body: lower_i64_runtime_stmts(
@@ -3097,7 +3296,13 @@ fn lower_i64_result_match_stmt(
         return None;
     };
     let (cond, ok_indexes, ok_conditions, err_indexes, err_conditions, ok_arm, err_arm) =
-        lower_i64_result_stmt_match_parts(expr, arms, &local_indexes, &local_conditions)?;
+        lower_i64_result_stmt_match_parts(
+            expr,
+            arms,
+            &local_indexes,
+            &local_conditions,
+            static_bindings,
+        )?;
     Some(CraneliftI64Stmt::If {
         cond,
         then_body: lower_i64_runtime_stmts(
@@ -3263,7 +3468,7 @@ fn lower_i64_runtime_let(
             helper_signatures,
             static_bindings,
         )?,
-        ty if is_i64_compatible_type(ty) => lower_i64_expr(
+        ty if is_i64_compatible_type(ty) => lower_i64_return_value_expr(
             expr,
             local_indexes,
             local_conditions,
@@ -4530,22 +4735,34 @@ fn lower_i64_runtime_projection_let_stmts(
         ),
         (
             Type::Option(inner),
-            Expr::Call {
+            expr @ Expr::Call {
                 name: call_name,
                 args,
                 ..
             },
-        ) if is_i64_option_local_payload_type(inner) => lower_i64_option_call_let_stmts(
-            name,
-            inner.as_ref(),
-            call_name,
-            args,
-            locals,
-            local_indexes,
-            local_conditions,
-            helper_signatures,
-            static_bindings,
-        ),
+        ) if is_i64_option_local_payload_type_static(inner, static_bindings) => {
+            lower_i64_known_scalar_option_call_let_stmts(
+                name,
+                inner.as_ref(),
+                expr,
+                locals,
+                local_indexes,
+                static_bindings,
+            )
+            .or_else(|| {
+                lower_i64_option_call_let_stmts(
+                    name,
+                    inner.as_ref(),
+                    call_name,
+                    args,
+                    locals,
+                    local_indexes,
+                    local_conditions,
+                    helper_signatures,
+                    static_bindings,
+                )
+            })
+        }
         (
             Type::Option(inner),
             Expr::EnumVariant {
@@ -4554,7 +4771,9 @@ fn lower_i64_runtime_projection_let_stmts(
                 payloads,
                 ..
             },
-        ) if enum_name == "Option" && is_i64_option_local_payload_type(inner) => {
+        ) if enum_name == "Option"
+            && is_i64_option_local_payload_type_static(inner, static_bindings) =>
+        {
             lower_i64_option_literal_let_stmts(
                 name,
                 inner.as_ref(),
@@ -4574,18 +4793,20 @@ fn lower_i64_runtime_projection_let_stmts(
                 args,
                 ..
             },
-        ) if is_i64_result_local_payload_type(ok, err) => lower_i64_result_call_let_stmts(
-            name,
-            ok.as_ref(),
-            err.as_ref(),
-            call_name,
-            args,
-            locals,
-            local_indexes,
-            local_conditions,
-            helper_signatures,
-            static_bindings,
-        ),
+        ) if is_i64_result_local_payload_type_static(ok, err, static_bindings) => {
+            lower_i64_result_call_let_stmts(
+                name,
+                ok.as_ref(),
+                err.as_ref(),
+                call_name,
+                args,
+                locals,
+                local_indexes,
+                local_conditions,
+                helper_signatures,
+                static_bindings,
+            )
+        }
         (
             Type::Result(ok, err),
             Expr::EnumVariant {
@@ -4594,11 +4815,34 @@ fn lower_i64_runtime_projection_let_stmts(
                 payloads,
                 ..
             },
-        ) if enum_name == "Result" && is_i64_result_local_payload_type(ok, err) => {
+        ) if enum_name == "Result"
+            && is_i64_result_local_payload_type_static(ok, err, static_bindings) =>
+        {
             lower_i64_result_literal_let_stmts(
                 name,
                 ok.as_ref(),
                 err.as_ref(),
+                variant,
+                payloads,
+                locals,
+                local_indexes,
+                local_conditions,
+                helper_signatures,
+                static_bindings,
+            )
+        }
+        (
+            Type::Enum(enum_name),
+            Expr::EnumVariant {
+                enum_name: expr_enum,
+                variant,
+                payloads,
+                ..
+            },
+        ) if enum_name == expr_enum && is_i64_enum_payload_type(enum_name, static_bindings) => {
+            lower_i64_enum_literal_let_stmts(
+                name,
+                enum_name,
                 variant,
                 payloads,
                 locals,
@@ -4672,7 +4916,7 @@ fn lower_i64_option_literal_let_stmts(
     helper_signatures: &HashMap<&str, I64HelperSignature>,
     static_bindings: &I64StaticBindings,
 ) -> Option<Vec<CraneliftI64Stmt>> {
-    let payload_slots = i64_option_payload_slot_count(inner);
+    let payload_slots = i64_option_payload_slot_count_static(inner, static_bindings)?;
     let (tag, payloads) = match (variant, payloads) {
         ("Some", [payload]) => (
             CraneliftI64Expr::Literal(1),
@@ -4931,7 +5175,8 @@ fn lower_i64_result_literal_let_stmts(
     helper_signatures: &HashMap<&str, I64HelperSignature>,
     static_bindings: &I64StaticBindings,
 ) -> Option<Vec<CraneliftI64Stmt>> {
-    let payload_slots = i64_result_payload_slot_count(ok).max(i64_result_payload_slot_count(err));
+    let payload_slots = i64_result_payload_slot_count_static(ok, static_bindings)?
+        .max(i64_result_payload_slot_count_static(err, static_bindings)?);
     let (tag, payloads) = lower_i64_result_variant_parts(
         variant,
         payloads,
@@ -4956,6 +5201,54 @@ fn lower_i64_result_literal_let_stmts(
         local_indexes.insert(i64_result_payload_slot_key(name, index), payload_local);
         if index == 0 {
             local_indexes.insert(i64_result_payload_key(name), payload_local);
+        }
+        locals.push(CraneliftI64Expr::Literal(0));
+        assigns.push(CraneliftI64Stmt::Assign(
+            axiomc_backend_cranelift::I64Assign {
+                local: payload_local,
+                value: payload,
+            },
+        ));
+    }
+    Some(assigns)
+}
+
+fn lower_i64_enum_literal_let_stmts(
+    name: &str,
+    enum_name: &str,
+    variant: &str,
+    payloads: &[Expr],
+    locals: &mut Vec<CraneliftI64Expr>,
+    local_indexes: &mut HashMap<String, usize>,
+    local_conditions: &mut HashMap<String, CraneliftI64Condition>,
+    helper_signatures: &HashMap<&str, I64HelperSignature>,
+    static_bindings: &I64StaticBindings,
+) -> Option<Vec<CraneliftI64Stmt>> {
+    let payload_slots = i64_enum_payload_slot_count(enum_name, static_bindings)?;
+    let (tag, payloads) = lower_i64_enum_variant_parts(
+        enum_name,
+        variant,
+        payloads,
+        local_indexes,
+        local_conditions,
+        helper_signatures,
+        static_bindings,
+    )?;
+    let mut assigns = Vec::with_capacity(1 + payload_slots);
+    let tag_local = local_indexes.len();
+    local_indexes.insert(i64_enum_tag_key(name), tag_local);
+    locals.push(CraneliftI64Expr::Literal(0));
+    assigns.push(CraneliftI64Stmt::Assign(
+        axiomc_backend_cranelift::I64Assign {
+            local: tag_local,
+            value: tag,
+        },
+    ));
+    for (index, payload) in payloads.into_iter().enumerate() {
+        let payload_local = local_indexes.len();
+        local_indexes.insert(i64_enum_payload_slot_key(name, index), payload_local);
+        if index == 0 {
+            local_indexes.insert(i64_enum_payload_key(name), payload_local);
         }
         locals.push(CraneliftI64Expr::Literal(0));
         assigns.push(CraneliftI64Stmt::Assign(
@@ -5136,7 +5429,7 @@ fn lower_i64_option_call_let_stmts(
     static_bindings: &I64StaticBindings,
 ) -> Option<Vec<CraneliftI64Stmt>> {
     let signature = helper_signatures.get(call_name)?;
-    let payload_slots = i64_option_payload_slot_count(inner);
+    let payload_slots = i64_option_payload_slot_count_static(inner, static_bindings)?;
     if args.len() != signature.params
         || signature.returns != 1 + payload_slots
         || !matches!(&signature.return_ty, Type::Option(return_inner) if return_inner.as_ref() == inner)
@@ -5185,7 +5478,8 @@ fn lower_i64_result_call_let_stmts(
     static_bindings: &I64StaticBindings,
 ) -> Option<Vec<CraneliftI64Stmt>> {
     let signature = helper_signatures.get(call_name)?;
-    let payload_slots = i64_result_payload_slot_count(ok).max(i64_result_payload_slot_count(err));
+    let payload_slots = i64_result_payload_slot_count_static(ok, static_bindings)?
+        .max(i64_result_payload_slot_count_static(err, static_bindings)?);
     if args.len() != signature.params
         || signature.returns != 1 + payload_slots
         || !matches!(&signature.return_ty, Type::Result(return_ok, return_err) if return_ok.as_ref() == ok && return_err.as_ref() == err)
@@ -5380,11 +5674,11 @@ fn lower_i64_option_assign_stmts(
     else {
         return None;
     };
-    if enum_name != "Option" || !is_i64_option_local_payload_type(inner) {
+    if enum_name != "Option" || !is_i64_option_local_payload_type_static(inner, static_bindings) {
         return None;
     }
     let tag_local = *local_indexes.get(i64_option_tag_key(name).as_str())?;
-    let payload_slot_count = i64_option_payload_slot_count(inner.as_ref());
+    let payload_slot_count = i64_option_payload_slot_count_static(inner.as_ref(), static_bindings)?;
     let (tag, payloads) = match (variant.as_str(), payloads.as_slice()) {
         ("Some", [payload]) => (
             CraneliftI64Expr::Literal(1),
@@ -5442,12 +5736,14 @@ fn lower_i64_result_assign_stmts(
     else {
         return None;
     };
-    if enum_name != "Result" || !is_i64_result_local_payload_type(ok, err) {
+    if enum_name != "Result" || !is_i64_result_local_payload_type_static(ok, err, static_bindings) {
         return None;
     }
     let tag_local = *local_indexes.get(i64_result_tag_key(name).as_str())?;
     let payload_slot_count =
-        i64_result_payload_slot_count(ok.as_ref()).max(i64_result_payload_slot_count(err.as_ref()));
+        i64_result_payload_slot_count_static(ok.as_ref(), static_bindings)?.max(
+            i64_result_payload_slot_count_static(err.as_ref(), static_bindings)?,
+        );
     let (tag, payload) = lower_i64_result_variant_parts(
         variant,
         payloads,
@@ -5470,6 +5766,146 @@ fn lower_i64_result_assign_stmts(
         ));
     }
     Some(assigns)
+}
+
+fn lower_i64_aggregate_call_assign_stmts(
+    stmt: &Stmt,
+    local_indexes: &HashMap<String, usize>,
+    local_conditions: &HashMap<String, CraneliftI64Condition>,
+    helper_signatures: &HashMap<&str, I64HelperSignature>,
+    static_bindings: &I64StaticBindings,
+) -> Option<Vec<CraneliftI64Stmt>> {
+    let Stmt::Assign {
+        target: Expr::VarRef { name, ty },
+        expr: Expr::Call {
+            name: call_name,
+            args,
+            ..
+        },
+        ..
+    } = stmt
+    else {
+        return None;
+    };
+    let signature = helper_signatures.get(call_name.as_str())?;
+    let assign_locals = match ty {
+        Type::Struct(struct_name) => {
+            let struct_def = i64_scalar_static_struct_def(struct_name, static_bindings)?;
+            if signature.returns != struct_def.fields.len()
+                || !matches!(&signature.return_ty, Type::Struct(return_name) if return_name == struct_name)
+            {
+                return None;
+            }
+            struct_def
+                .fields
+                .iter()
+                .map(|field| {
+                    local_indexes
+                        .get(i64_struct_projection_key(name, &field.name).as_str())
+                        .copied()
+                })
+                .collect::<Option<Vec<_>>>()?
+        }
+        Type::Tuple(elements) if is_i64_tuple_param_type(elements) => {
+            if signature.returns != elements.len()
+                || !matches!(&signature.return_ty, Type::Tuple(return_elements) if return_elements == elements)
+            {
+                return None;
+            }
+            (0..elements.len())
+                .map(|index| {
+                    local_indexes
+                        .get(i64_tuple_projection_key(name, index).as_str())
+                        .copied()
+                })
+                .collect::<Option<Vec<_>>>()?
+        }
+        Type::Array(element, Some(size)) if is_i64_array_param_element_type(element) => {
+            if signature.returns != *size
+                || !matches!(&signature.return_ty, Type::Array(return_element, Some(return_size)) if return_element.as_ref() == element.as_ref() && *return_size == *size)
+            {
+                return None;
+            }
+            (0..*size)
+                .map(|index| {
+                    local_indexes
+                        .get(i64_array_projection_key(name, index).as_str())
+                        .copied()
+                })
+                .collect::<Option<Vec<_>>>()?
+        }
+        Type::Option(inner) if is_i64_option_local_payload_type_static(inner, static_bindings) => {
+            let payload_slots =
+                i64_option_payload_slot_count_static(inner.as_ref(), static_bindings)?;
+            if signature.returns != 1 + payload_slots
+                || !matches!(&signature.return_ty, Type::Option(return_inner) if return_inner.as_ref() == inner.as_ref())
+            {
+                return None;
+            }
+            let mut locals = vec![*local_indexes.get(i64_option_tag_key(name).as_str())?];
+            locals.extend(i64_option_payload_locals(
+                name,
+                inner.as_ref(),
+                local_indexes,
+                static_bindings,
+            )?);
+            locals
+        }
+        Type::Result(ok, err)
+            if is_i64_result_local_payload_type_static(ok, err, static_bindings) =>
+        {
+            let payload_slots =
+                i64_result_payload_slot_count_static(ok.as_ref(), static_bindings)?.max(
+                    i64_result_payload_slot_count_static(err.as_ref(), static_bindings)?,
+                );
+            if signature.returns != 1 + payload_slots
+                || !matches!(&signature.return_ty, Type::Result(return_ok, return_err) if return_ok.as_ref() == ok.as_ref() && return_err.as_ref() == err.as_ref())
+            {
+                return None;
+            }
+            let mut locals = vec![*local_indexes.get(i64_result_tag_key(name).as_str())?];
+            locals.extend(i64_result_payload_locals(
+                name,
+                ok.as_ref(),
+                err.as_ref(),
+                local_indexes,
+                static_bindings,
+            )?);
+            locals
+        }
+        Type::Enum(enum_name) if is_i64_enum_payload_type(enum_name, static_bindings) => {
+            let payload_slots = i64_enum_payload_slot_count(enum_name, static_bindings)?;
+            if signature.returns != 1 + payload_slots
+                || !matches!(&signature.return_ty, Type::Enum(return_name) if return_name == enum_name)
+            {
+                return None;
+            }
+            let mut locals = vec![*local_indexes.get(i64_enum_tag_key(name).as_str())?];
+            locals.extend(i64_enum_payload_locals(
+                name,
+                enum_name,
+                static_bindings,
+                local_indexes,
+            )?);
+            locals
+        }
+        _ => return None,
+    };
+    if args.len() != signature.params {
+        return None;
+    }
+    Some(vec![CraneliftI64Stmt::CallAssign {
+        locals: assign_locals,
+        function: signature.function,
+        args: lower_i64_flat_call_args(
+            args,
+            signature,
+            local_indexes,
+            local_conditions,
+            helper_signatures,
+            static_bindings,
+        )?,
+    }])
 }
 
 fn lower_i64_enum_assign_stmts(
@@ -5604,10 +6040,7 @@ fn lower_i64_return_block(
     static_bindings: &I64StaticBindings,
     allow_stdio_effects: bool,
 ) -> Option<CraneliftI64ReturnBlock> {
-    let (return_stmt, body_stmts) = stmts.split_last()?;
-    let Stmt::Return { expr, .. } = return_stmt else {
-        return None;
-    };
+    let (terminal_stmt, body_stmts) = stmts.split_last()?;
     let mut stmts = Vec::new();
     let mut scoped_static_bindings = static_bindings.clone();
     let static_bindings = &mut scoped_static_bindings;
@@ -5658,13 +6091,26 @@ fn lower_i64_return_block(
             )?);
         }
     }
-    let result = lower_i64_return_value_expr(
-        expr,
-        &local_indexes,
-        &local_conditions,
-        helper_signatures,
-        static_bindings,
-    )?;
+    let result = match terminal_stmt {
+        Stmt::Return { expr, .. } => lower_i64_return_value_expr(
+            expr,
+            &local_indexes,
+            &local_conditions,
+            helper_signatures,
+            static_bindings,
+        )?,
+        Stmt::Panic { message, .. } => {
+            stmts.extend(lower_i64_panic_report_stmts(
+                message,
+                &local_indexes,
+                &local_conditions,
+                helper_signatures,
+                static_bindings,
+            )?);
+            CraneliftI64Expr::Literal(1)
+        }
+        _ => return None,
+    };
     Some(CraneliftI64ReturnBlock { stmts, result })
 }
 
@@ -6960,6 +7406,7 @@ fn lower_i64_option_match_parts<'a>(
     arms: &'a [MatchExprArm],
     local_indexes: &HashMap<String, usize>,
     local_conditions: &HashMap<String, CraneliftI64Condition>,
+    static_bindings: &I64StaticBindings,
 ) -> Option<(
     CraneliftI64Condition,
     HashMap<String, usize>,
@@ -6993,6 +7440,7 @@ fn lower_i64_option_match_parts<'a>(
         some_arm.bindings.first(),
         inner.as_ref(),
         &payloads,
+        static_bindings,
         &mut some_indexes,
         &mut some_conditions,
     );
@@ -7014,6 +7462,7 @@ fn lower_i64_option_stmt_match_parts<'a>(
     arms: &'a [MatchArm],
     local_indexes: &HashMap<String, usize>,
     local_conditions: &HashMap<String, CraneliftI64Condition>,
+    static_bindings: &I64StaticBindings,
 ) -> Option<(
     CraneliftI64Condition,
     HashMap<String, usize>,
@@ -7049,6 +7498,7 @@ fn lower_i64_option_stmt_match_parts<'a>(
             .flatten(),
         inner.as_ref(),
         &payloads,
+        static_bindings,
         &mut some_indexes,
         &mut some_conditions,
     );
@@ -7069,6 +7519,7 @@ fn insert_i64_option_payload_binding(
     binding: Option<&String>,
     payload_ty: &Type,
     payloads: &[usize],
+    static_bindings: &I64StaticBindings,
     indexes: &mut HashMap<String, usize>,
     conditions: &mut HashMap<String, CraneliftI64Condition>,
 ) {
@@ -7115,6 +7566,63 @@ fn insert_i64_option_payload_binding(
                         }),
                     );
                 }
+            }
+        }
+        Type::Struct(name) => {
+            let Some(struct_def) = i64_scalar_static_struct_def(name, static_bindings) else {
+                return;
+            };
+            for (index, field) in struct_def.fields.iter().enumerate() {
+                let Some(payload) = payloads.get(index).copied() else {
+                    return;
+                };
+                let key = i64_struct_projection_key(binding, &field.name);
+                indexes.insert(key.clone(), payload);
+                if matches!(field.ty, Type::Bool) {
+                    conditions.insert(
+                        key,
+                        CraneliftI64Condition::Compare(CraneliftI64Compare {
+                            op: CraneliftI64CompareOp::Ne,
+                            lhs: CraneliftI64Expr::Local(payload),
+                            rhs: CraneliftI64Expr::Literal(0),
+                        }),
+                    );
+                }
+            }
+        }
+        Type::Option(inner) if is_i64_option_local_payload_type_static(inner, static_bindings) => {
+            let Some(tag) = payloads.first().copied() else {
+                return;
+            };
+            indexes.insert(i64_option_tag_key(binding), tag);
+            for index in 0..i64_option_payload_slot_count_static(inner.as_ref(), static_bindings)
+                .unwrap_or(0)
+            {
+                let Some(payload) = payloads.get(1 + index).copied() else {
+                    return;
+                };
+                let key = i64_option_payload_slot_key(binding, index);
+                indexes.insert(key, payload);
+            }
+        }
+        Type::Result(ok, err)
+            if is_i64_result_local_payload_type_static(ok, err, static_bindings) =>
+        {
+            let Some(tag) = payloads.first().copied() else {
+                return;
+            };
+            indexes.insert(i64_result_tag_key(binding), tag);
+            let slot_count = i64_result_payload_slot_count_static(ok.as_ref(), static_bindings)
+                .and_then(|ok_slots| {
+                    i64_result_payload_slot_count_static(err.as_ref(), static_bindings)
+                        .map(|err_slots| ok_slots.max(err_slots))
+                })
+                .unwrap_or(0);
+            for index in 0..slot_count {
+                let Some(payload) = payloads.get(1 + index).copied() else {
+                    return;
+                };
+                indexes.insert(i64_result_payload_slot_key(binding, index), payload);
             }
         }
         Type::Bool => {
@@ -7198,7 +7706,13 @@ fn lower_i64_result_match_exit_return(
         return None;
     }
     let (cond, ok_indexes, ok_conditions, err_indexes, err_conditions, ok_arm, err_arm) =
-        lower_i64_result_match_parts(matched, arms, local_indexes, local_conditions)?;
+        lower_i64_result_match_parts(
+            matched,
+            arms,
+            local_indexes,
+            local_conditions,
+            static_bindings,
+        )?;
     Some(I64ExitBody::IfReturn {
         cond,
         then_result: lower_i64_return_value_expr(
@@ -7237,7 +7751,13 @@ fn lower_i64_result_match_value_expr(
         return None;
     }
     let (cond, ok_indexes, ok_conditions, err_indexes, err_conditions, ok_arm, err_arm) =
-        lower_i64_result_match_parts(matched, arms, local_indexes, local_conditions)?;
+        lower_i64_result_match_parts(
+            matched,
+            arms,
+            local_indexes,
+            local_conditions,
+            static_bindings,
+        )?;
     Some(CraneliftI64Expr::Select {
         cond: Box::new(cond),
         then_result: Box::new(lower_i64_return_value_expr(
@@ -7410,6 +7930,40 @@ fn insert_i64_enum_payload_binding(
                 }
             }
         }
+        Type::Option(inner) if is_i64_option_local_payload_type_static(inner, static_bindings) => {
+            let Some(tag) = payloads.first().copied() else {
+                return;
+            };
+            indexes.insert(i64_option_tag_key(binding), tag);
+            for index in 0..i64_option_payload_slot_count_static(inner.as_ref(), static_bindings)
+                .unwrap_or(0)
+            {
+                let Some(payload) = payloads.get(1 + index).copied() else {
+                    return;
+                };
+                indexes.insert(i64_option_payload_slot_key(binding, index), payload);
+            }
+        }
+        Type::Result(ok, err)
+            if is_i64_result_local_payload_type_static(ok, err, static_bindings) =>
+        {
+            let Some(tag) = payloads.first().copied() else {
+                return;
+            };
+            indexes.insert(i64_result_tag_key(binding), tag);
+            let slot_count = i64_result_payload_slot_count_static(ok.as_ref(), static_bindings)
+                .and_then(|ok_slots| {
+                    i64_result_payload_slot_count_static(err.as_ref(), static_bindings)
+                        .map(|err_slots| ok_slots.max(err_slots))
+                })
+                .unwrap_or(0);
+            for index in 0..slot_count {
+                let Some(payload) = payloads.get(1 + index).copied() else {
+                    return;
+                };
+                indexes.insert(i64_result_payload_slot_key(binding, index), payload);
+            }
+        }
         Type::Bool => {
             let Some(payload) = payloads.first().copied() else {
                 return;
@@ -7524,6 +8078,7 @@ fn lower_i64_result_match_parts<'a>(
     arms: &'a [MatchExprArm],
     local_indexes: &HashMap<String, usize>,
     local_conditions: &HashMap<String, CraneliftI64Condition>,
+    static_bindings: &I64StaticBindings,
 ) -> Option<(
     CraneliftI64Condition,
     HashMap<String, usize>,
@@ -7540,11 +8095,17 @@ fn lower_i64_result_match_parts<'a>(
     else {
         return None;
     };
-    if !is_i64_result_local_payload_type(ok, err) {
+    if !is_i64_result_local_payload_type_static(ok, err, static_bindings) {
         return None;
     }
     let tag = *local_indexes.get(i64_result_tag_key(name).as_str())?;
-    let payloads = i64_result_payload_locals(name, ok.as_ref(), err.as_ref(), local_indexes)?;
+    let payloads = i64_result_payload_locals(
+        name,
+        ok.as_ref(),
+        err.as_ref(),
+        local_indexes,
+        static_bindings,
+    )?;
     let (ok_arm, err_arm) = i64_result_match_arms(arms)?;
     let mut ok_indexes = local_indexes.clone();
     let mut ok_conditions = local_conditions.clone();
@@ -7552,6 +8113,7 @@ fn lower_i64_result_match_parts<'a>(
         ok_arm.bindings.first(),
         ok.as_ref(),
         &payloads,
+        static_bindings,
         &mut ok_indexes,
         &mut ok_conditions,
     );
@@ -7561,6 +8123,7 @@ fn lower_i64_result_match_parts<'a>(
         err_arm.bindings.first(),
         err.as_ref(),
         &payloads,
+        static_bindings,
         &mut err_indexes,
         &mut err_conditions,
     );
@@ -7584,6 +8147,7 @@ fn lower_i64_result_stmt_match_parts<'a>(
     arms: &'a [MatchArm],
     local_indexes: &HashMap<String, usize>,
     local_conditions: &HashMap<String, CraneliftI64Condition>,
+    static_bindings: &I64StaticBindings,
 ) -> Option<(
     CraneliftI64Condition,
     HashMap<String, usize>,
@@ -7600,11 +8164,17 @@ fn lower_i64_result_stmt_match_parts<'a>(
     else {
         return None;
     };
-    if !is_i64_result_local_payload_type(ok, err) {
+    if !is_i64_result_local_payload_type_static(ok, err, static_bindings) {
         return None;
     }
     let tag = *local_indexes.get(i64_result_tag_key(name).as_str())?;
-    let payloads = i64_result_payload_locals(name, ok.as_ref(), err.as_ref(), local_indexes)?;
+    let payloads = i64_result_payload_locals(
+        name,
+        ok.as_ref(),
+        err.as_ref(),
+        local_indexes,
+        static_bindings,
+    )?;
     let (ok_arm, err_arm) = i64_result_stmt_match_arms(arms)?;
     let mut ok_indexes = local_indexes.clone();
     let mut ok_conditions = local_conditions.clone();
@@ -7614,6 +8184,7 @@ fn lower_i64_result_stmt_match_parts<'a>(
             .flatten(),
         ok.as_ref(),
         &payloads,
+        static_bindings,
         &mut ok_indexes,
         &mut ok_conditions,
     );
@@ -7625,6 +8196,7 @@ fn lower_i64_result_stmt_match_parts<'a>(
             .flatten(),
         err.as_ref(),
         &payloads,
+        static_bindings,
         &mut err_indexes,
         &mut err_conditions,
     );
@@ -7647,6 +8219,7 @@ fn insert_i64_result_payload_binding(
     binding: Option<&String>,
     payload_ty: &Type,
     payloads: &[usize],
+    static_bindings: &I64StaticBindings,
     indexes: &mut HashMap<String, usize>,
     conditions: &mut HashMap<String, CraneliftI64Condition>,
 ) {
@@ -7693,6 +8266,62 @@ fn insert_i64_result_payload_binding(
                         }),
                     );
                 }
+            }
+        }
+        Type::Struct(name) => {
+            let Some(struct_def) = i64_scalar_static_struct_def(name, static_bindings) else {
+                return;
+            };
+            for (index, field) in struct_def.fields.iter().enumerate() {
+                let Some(payload) = payloads.get(index).copied() else {
+                    return;
+                };
+                let key = i64_struct_projection_key(binding, &field.name);
+                indexes.insert(key.clone(), payload);
+                if matches!(field.ty, Type::Bool) {
+                    conditions.insert(
+                        key,
+                        CraneliftI64Condition::Compare(CraneliftI64Compare {
+                            op: CraneliftI64CompareOp::Ne,
+                            lhs: CraneliftI64Expr::Local(payload),
+                            rhs: CraneliftI64Expr::Literal(0),
+                        }),
+                    );
+                }
+            }
+        }
+        Type::Option(inner) if is_i64_option_local_payload_type_static(inner, static_bindings) => {
+            let Some(tag) = payloads.first().copied() else {
+                return;
+            };
+            indexes.insert(i64_option_tag_key(binding), tag);
+            for index in 0..i64_option_payload_slot_count_static(inner.as_ref(), static_bindings)
+                .unwrap_or(0)
+            {
+                let Some(payload) = payloads.get(1 + index).copied() else {
+                    return;
+                };
+                indexes.insert(i64_option_payload_slot_key(binding, index), payload);
+            }
+        }
+        Type::Result(ok, err)
+            if is_i64_result_local_payload_type_static(ok, err, static_bindings) =>
+        {
+            let Some(tag) = payloads.first().copied() else {
+                return;
+            };
+            indexes.insert(i64_result_tag_key(binding), tag);
+            let slot_count = i64_result_payload_slot_count_static(ok.as_ref(), static_bindings)
+                .and_then(|ok_slots| {
+                    i64_result_payload_slot_count_static(err.as_ref(), static_bindings)
+                        .map(|err_slots| ok_slots.max(err_slots))
+                })
+                .unwrap_or(0);
+            for index in 0..slot_count {
+                let Some(payload) = payloads.get(1 + index).copied() else {
+                    return;
+                };
+                indexes.insert(i64_result_payload_slot_key(binding, index), payload);
             }
         }
         Type::Bool => {
@@ -7870,6 +8499,17 @@ fn lower_i64_condition(
                 static_bindings,
             ) {
                 Some(condition)
+            } else if let Some(condition) = lower_i64_map_key_array_string_index_compare(
+                expr,
+                local_indexes,
+                local_conditions,
+                helper_signatures,
+                static_bindings,
+            ) {
+                Some(condition)
+            } else if let Some(condition) = lower_i64_string_literal_compare(expr, static_bindings)
+            {
+                Some(condition)
             } else {
                 Some(CraneliftI64Condition::Compare(lower_i64_compare(
                     expr,
@@ -7885,15 +8525,43 @@ fn lower_i64_condition(
             args,
             ty: Type::Bool,
         } => {
-            let call = lower_i64_call_expr(
+            if let Some(condition) =
+                lower_i64_map_contains_key_condition(name, args, static_bindings)
+            {
+                return Some(condition);
+            }
+            if let Some(condition) = lower_i64_known_bool_intrinsic_condition(
                 name,
                 args,
-                true,
                 local_indexes,
                 local_conditions,
                 helper_signatures,
                 static_bindings,
-            )?;
+            ) {
+                return Some(condition);
+            }
+            if let Some(condition) = i64_known_helper_call_condition(name, args, static_bindings) {
+                return Some(condition);
+            }
+            let call = lower_i64_fixed_array_bool_intrinsic_expr(
+                name,
+                args,
+                local_indexes,
+                local_conditions,
+                helper_signatures,
+                static_bindings,
+            )
+            .or_else(|| {
+                lower_i64_call_expr(
+                    name,
+                    args,
+                    true,
+                    local_indexes,
+                    local_conditions,
+                    helper_signatures,
+                    static_bindings,
+                )
+            })?;
             Some(CraneliftI64Condition::Compare(CraneliftI64Compare {
                 op: CraneliftI64CompareOp::Ne,
                 lhs: call,
@@ -7926,6 +8594,20 @@ fn lower_i64_condition(
             index,
             ty: Type::Bool,
         } => {
+            if let Some(value) = lower_i64_slice_projection_index_expr(
+                base,
+                index,
+                local_indexes,
+                local_conditions,
+                helper_signatures,
+                static_bindings,
+            ) {
+                return Some(CraneliftI64Condition::Compare(CraneliftI64Compare {
+                    op: CraneliftI64CompareOp::Ne,
+                    lhs: value,
+                    rhs: CraneliftI64Expr::Literal(0),
+                }));
+            }
             if let Expr::VarRef {
                 name,
                 ty: Type::Array(_, Some(size)),
@@ -7945,6 +8627,20 @@ fn lower_i64_condition(
                     helper_signatures,
                     static_bindings,
                 )?;
+                return Some(CraneliftI64Condition::Compare(CraneliftI64Compare {
+                    op: CraneliftI64CompareOp::Ne,
+                    lhs: value,
+                    rhs: CraneliftI64Expr::Literal(0),
+                }));
+            }
+            if let Some(value) = lower_i64_array_literal_projection_index_expr(
+                base,
+                index,
+                local_indexes,
+                local_conditions,
+                helper_signatures,
+                static_bindings,
+            ) {
                 return Some(CraneliftI64Condition::Compare(CraneliftI64Compare {
                     op: CraneliftI64CompareOp::Ne,
                     lhs: value,
@@ -8049,6 +8745,1424 @@ fn lower_i64_bool_value_compare(
             static_bindings,
         )?,
     }))
+}
+
+fn lower_i64_map_key_array_string_index_compare(
+    expr: &Expr,
+    local_indexes: &HashMap<String, usize>,
+    local_conditions: &HashMap<String, CraneliftI64Condition>,
+    helper_signatures: &HashMap<&str, I64HelperSignature>,
+    static_bindings: &I64StaticBindings,
+) -> Option<CraneliftI64Condition> {
+    let Expr::BinaryCompare {
+        op,
+        lhs,
+        rhs,
+        ty: Type::Bool,
+    } = expr
+    else {
+        return None;
+    };
+    let selected = if let Some(known) = i64_string_text(rhs, static_bindings) {
+        lower_i64_map_key_array_string_index_match_expr(
+            lhs,
+            &known,
+            local_indexes,
+            local_conditions,
+            helper_signatures,
+            static_bindings,
+        )
+    } else if let Some(known) = i64_string_text(lhs, static_bindings) {
+        lower_i64_map_key_array_string_index_match_expr(
+            rhs,
+            &known,
+            local_indexes,
+            local_conditions,
+            helper_signatures,
+            static_bindings,
+        )
+    } else {
+        None
+    }?;
+    let expected = match op {
+        CompareOp::Eq => 1,
+        CompareOp::Ne => 0,
+        CompareOp::Lt | CompareOp::Le | CompareOp::Gt | CompareOp::Ge => return None,
+    };
+    Some(CraneliftI64Condition::Compare(CraneliftI64Compare {
+        op: CraneliftI64CompareOp::Eq,
+        lhs: selected,
+        rhs: CraneliftI64Expr::Literal(expected),
+    }))
+}
+
+fn lower_i64_map_key_array_string_index_match_expr(
+    expr: &Expr,
+    expected: &str,
+    local_indexes: &HashMap<String, usize>,
+    local_conditions: &HashMap<String, CraneliftI64Condition>,
+    helper_signatures: &HashMap<&str, I64HelperSignature>,
+    static_bindings: &I64StaticBindings,
+) -> Option<CraneliftI64Expr> {
+    lower_i64_map_key_array_string_index_predicate_expr(
+        expr,
+        local_indexes,
+        local_conditions,
+        helper_signatures,
+        static_bindings,
+        |value| value == expected,
+    )
+}
+
+fn lower_i64_map_key_array_string_index_predicate_expr(
+    expr: &Expr,
+    local_indexes: &HashMap<String, usize>,
+    local_conditions: &HashMap<String, CraneliftI64Condition>,
+    helper_signatures: &HashMap<&str, I64HelperSignature>,
+    static_bindings: &I64StaticBindings,
+    predicate: impl Fn(&str) -> bool,
+) -> Option<CraneliftI64Expr> {
+    lower_i64_map_key_array_string_index_mapped_i64_expr(
+        expr,
+        local_indexes,
+        local_conditions,
+        helper_signatures,
+        static_bindings,
+        |value| predicate(value) as i64,
+    )
+}
+
+fn lower_i64_map_key_array_string_index_mapped_i64_expr(
+    expr: &Expr,
+    local_indexes: &HashMap<String, usize>,
+    local_conditions: &HashMap<String, CraneliftI64Condition>,
+    helper_signatures: &HashMap<&str, I64HelperSignature>,
+    static_bindings: &I64StaticBindings,
+    mapper: impl Fn(&str) -> i64,
+) -> Option<CraneliftI64Expr> {
+    let (keys, index, transform) = i64_map_key_array_string_index_source(expr, static_bindings)?;
+    if keys.is_empty() {
+        return None;
+    }
+    if let Some(index) = lower_i64_literal_index(&index) {
+        return match keys.get(index)? {
+            I64MapKey::Text(value) => Some(CraneliftI64Expr::Literal(mapper(
+                i64_apply_map_key_array_string_transform(value, transform),
+            ))),
+            _ => None,
+        };
+    }
+    let index = lower_i64_expr(
+        &index,
+        local_indexes,
+        local_conditions,
+        helper_signatures,
+        static_bindings,
+    )?;
+    let last = keys.len() - 1;
+    let mut result = match keys.get(last)? {
+        I64MapKey::Text(value) => CraneliftI64Expr::Literal(mapper(
+            i64_apply_map_key_array_string_transform(value, transform),
+        )),
+        _ => return None,
+    };
+    for candidate in (0..last).rev() {
+        let mapped = match keys.get(candidate)? {
+            I64MapKey::Text(value) => {
+                mapper(i64_apply_map_key_array_string_transform(value, transform))
+            }
+            _ => return None,
+        };
+        result = CraneliftI64Expr::Select {
+            cond: Box::new(CraneliftI64Condition::Compare(CraneliftI64Compare {
+                op: CraneliftI64CompareOp::Eq,
+                lhs: index.clone(),
+                rhs: CraneliftI64Expr::Literal(candidate as i64),
+            })),
+            then_result: Box::new(CraneliftI64Expr::Literal(mapped)),
+            else_result: Box::new(result),
+        };
+    }
+    Some(result)
+}
+
+fn i64_map_key_array_string_index_source(
+    expr: &Expr,
+    static_bindings: &I64StaticBindings,
+) -> Option<(Vec<I64MapKey>, Expr, I64MapKeyArrayStringTransform)> {
+    let binding = i64_map_key_array_string_index_binding(expr, static_bindings)?;
+    let keys = static_bindings
+        .map_key_arrays
+        .get(binding.array_name.as_str())?
+        .clone();
+    Some((keys, binding.index, binding.transform))
+}
+
+fn i64_map_key_array_string_index_binding(
+    expr: &Expr,
+    static_bindings: &I64StaticBindings,
+) -> Option<I64MapKeyArrayStringIndex> {
+    if let Expr::StringBorrow { expr, .. } = expr {
+        return i64_map_key_array_string_index_binding(expr, static_bindings);
+    }
+    if let Some((array_name, index)) = i64_map_key_array_string_index_parts(expr) {
+        return Some(I64MapKeyArrayStringIndex {
+            array_name: array_name.to_string(),
+            index: index.clone(),
+            transform: I64MapKeyArrayStringTransform::Identity,
+        });
+    }
+    if let Expr::Call {
+        name,
+        args,
+        ty: Type::String | Type::Str,
+    } = expr
+        && (name == "string_trim" || name == "string_trim_start")
+    {
+        let [text] = args.as_slice() else {
+            return None;
+        };
+        let mut binding = i64_map_key_array_string_index_binding(text, static_bindings)?;
+        binding.transform = i64_map_key_array_string_transform_compose(
+            binding.transform,
+            if name == "string_trim" {
+                I64MapKeyArrayStringTransform::Trim
+            } else {
+                I64MapKeyArrayStringTransform::TrimStart
+            },
+        );
+        return Some(binding);
+    }
+    let Expr::VarRef {
+        name,
+        ty: Type::String | Type::Str,
+    } = expr
+    else {
+        return None;
+    };
+    static_bindings
+        .map_key_array_string_indexes
+        .get(name)
+        .cloned()
+}
+
+fn i64_map_key_array_string_transform_compose(
+    existing: I64MapKeyArrayStringTransform,
+    next: I64MapKeyArrayStringTransform,
+) -> I64MapKeyArrayStringTransform {
+    match (existing, next) {
+        (_, I64MapKeyArrayStringTransform::Identity) => existing,
+        (I64MapKeyArrayStringTransform::Identity, transform) => transform,
+        (I64MapKeyArrayStringTransform::Trim, _) => I64MapKeyArrayStringTransform::Trim,
+        (I64MapKeyArrayStringTransform::TrimStart, I64MapKeyArrayStringTransform::Trim) => {
+            I64MapKeyArrayStringTransform::Trim
+        }
+        (I64MapKeyArrayStringTransform::TrimStart, I64MapKeyArrayStringTransform::TrimStart) => {
+            I64MapKeyArrayStringTransform::TrimStart
+        }
+    }
+}
+
+fn i64_apply_map_key_array_string_transform<'a>(
+    value: &'a str,
+    transform: I64MapKeyArrayStringTransform,
+) -> &'a str {
+    match transform {
+        I64MapKeyArrayStringTransform::Identity => value,
+        I64MapKeyArrayStringTransform::Trim => value.trim(),
+        I64MapKeyArrayStringTransform::TrimStart => value.trim_start(),
+    }
+}
+
+fn i64_map_key_array_string_index_parts(expr: &Expr) -> Option<(&str, &Expr)> {
+    let Expr::Index {
+        base,
+        index,
+        ty: Type::String | Type::Str,
+    } = expr
+    else {
+        return None;
+    };
+    let Expr::VarRef {
+        name,
+        ty: Type::Array(element, None),
+    } = base.as_ref()
+    else {
+        return None;
+    };
+    if !matches!(element.as_ref(), Type::String | Type::Str) {
+        return None;
+    }
+    Some((name, index))
+}
+
+fn lower_i64_string_literal_compare(
+    expr: &Expr,
+    static_bindings: &I64StaticBindings,
+) -> Option<CraneliftI64Condition> {
+    let Expr::BinaryCompare {
+        op,
+        lhs,
+        rhs,
+        ty: Type::Bool,
+    } = expr
+    else {
+        return None;
+    };
+    let lhs = i64_string_text(lhs, static_bindings)?;
+    let rhs = i64_string_text(rhs, static_bindings)?;
+    let value = match op {
+        CompareOp::Eq => lhs == rhs,
+        CompareOp::Ne => lhs != rhs,
+        CompareOp::Lt => lhs < rhs,
+        CompareOp::Le => lhs <= rhs,
+        CompareOp::Gt => lhs > rhs,
+        CompareOp::Ge => lhs >= rhs,
+    };
+    Some(CraneliftI64Condition::Literal(value))
+}
+
+fn lower_i64_map_key_array_string_index_starts_with_condition(
+    text: &Expr,
+    prefix: &Expr,
+    local_indexes: &HashMap<String, usize>,
+    local_conditions: &HashMap<String, CraneliftI64Condition>,
+    helper_signatures: &HashMap<&str, I64HelperSignature>,
+    static_bindings: &I64StaticBindings,
+) -> Option<CraneliftI64Condition> {
+    let prefix = i64_string_text(prefix, static_bindings)?;
+    let selected = lower_i64_map_key_array_string_index_predicate_expr(
+        text,
+        local_indexes,
+        local_conditions,
+        helper_signatures,
+        static_bindings,
+        |value| value.starts_with(prefix.as_str()),
+    )?;
+    Some(CraneliftI64Condition::Compare(CraneliftI64Compare {
+        op: CraneliftI64CompareOp::Eq,
+        lhs: selected,
+        rhs: CraneliftI64Expr::Literal(1),
+    }))
+}
+
+fn lower_i64_known_bool_intrinsic_condition(
+    name: &str,
+    args: &[Expr],
+    local_indexes: &HashMap<String, usize>,
+    local_conditions: &HashMap<String, CraneliftI64Condition>,
+    helper_signatures: &HashMap<&str, I64HelperSignature>,
+    static_bindings: &I64StaticBindings,
+) -> Option<CraneliftI64Condition> {
+    match name {
+        "string_starts_with" => {
+            let [text, prefix] = args else {
+                return None;
+            };
+            if let Some(condition) = lower_i64_map_key_array_string_index_starts_with_condition(
+                text,
+                prefix,
+                local_indexes,
+                local_conditions,
+                helper_signatures,
+                static_bindings,
+            ) {
+                return Some(condition);
+            }
+            Some(CraneliftI64Condition::Literal(
+                i64_string_text(text, static_bindings)?
+                    .starts_with(i64_string_text(prefix, static_bindings)?.as_str()),
+            ))
+        }
+        name if is_i64_regex_is_match_name(name, static_bindings) => {
+            let [pattern, text] = args else {
+                return None;
+            };
+            Some(CraneliftI64Condition::Literal(
+                regex_find_span(
+                    &i64_string_text(pattern, static_bindings)?,
+                    &i64_string_text(text, static_bindings)?,
+                )
+                .is_some(),
+            ))
+        }
+        name if is_i64_http_serve_once_name(name, static_bindings) => {
+            let [bind, body] = args else {
+                return None;
+            };
+            Some(CraneliftI64Condition::Literal(http_serve_once(
+                &i64_string_text(bind, static_bindings)?,
+                &i64_string_text(body, static_bindings)?,
+            )))
+        }
+        name if is_i64_http_serve_route_name(name) => {
+            let [bind, route_path, body, max_requests] = args else {
+                return None;
+            };
+            Some(CraneliftI64Condition::Literal(http_serve_route(
+                &i64_string_text(bind, static_bindings)?,
+                &i64_string_text(route_path, static_bindings)?,
+                &i64_string_text(body, static_bindings)?,
+                i64_static_scalar_value(max_requests, static_bindings)?,
+            )))
+        }
+        name if is_i64_crypto_constant_time_eq_name(name, static_bindings) => {
+            let [left, right] = args else {
+                return None;
+            };
+            Some(CraneliftI64Condition::Literal(constant_time_eq_bytes(
+                i64_string_text(left, static_bindings)?.as_bytes(),
+                i64_string_text(right, static_bindings)?.as_bytes(),
+            )))
+        }
+        name if is_i64_crypto_constant_time_eq_u8_name(name, static_bindings) => {
+            lower_i64_byte_slice_eq_condition(
+                args,
+                local_indexes,
+                local_conditions,
+                helper_signatures,
+                static_bindings,
+            )
+        }
+        name if is_i64_crypto_verify_sha256_name(name, static_bindings)
+            || is_i64_crypto_verify_sha512_name(name, static_bindings) =>
+        {
+            let [tag, key, message] = args else {
+                return None;
+            };
+            let expected = if is_i64_crypto_verify_sha256_name(name, static_bindings) {
+                hmac_hex(
+                    i64_string_text(key, static_bindings)?.as_bytes(),
+                    i64_string_text(message, static_bindings)?.as_bytes(),
+                    64,
+                    sha256_bytes,
+                )
+            } else {
+                hmac_hex(
+                    i64_string_text(key, static_bindings)?.as_bytes(),
+                    i64_string_text(message, static_bindings)?.as_bytes(),
+                    128,
+                    sha512_bytes,
+                )
+            };
+            Some(CraneliftI64Condition::Literal(constant_time_eq_bytes(
+                i64_string_text(tag, static_bindings)?.as_bytes(),
+                expected.as_bytes(),
+            )))
+        }
+        name if is_i64_sync_once_is_set_name(name, static_bindings) => {
+            let [cell] = args else {
+                return None;
+            };
+            if let Some(value) = i64_i64_once_cell_value(cell, static_bindings) {
+                return Some(CraneliftI64Condition::Literal(value.is_some()));
+            }
+            Some(CraneliftI64Condition::Literal(
+                i64_bool_once_cell_value(cell, static_bindings)?.is_some(),
+            ))
+        }
+        _ => None,
+    }
+}
+
+fn lower_i64_byte_slice_eq_condition(
+    args: &[Expr],
+    local_indexes: &HashMap<String, usize>,
+    local_conditions: &HashMap<String, CraneliftI64Condition>,
+    helper_signatures: &HashMap<&str, I64HelperSignature>,
+    static_bindings: &I64StaticBindings,
+) -> Option<CraneliftI64Condition> {
+    let [left, right] = args else {
+        return None;
+    };
+    if !matches!(
+        i64_fixed_array_or_slice_element(left, static_bindings)?,
+        Type::Numeric(NumericType::U8)
+    ) || !matches!(
+        i64_fixed_array_or_slice_element(right, static_bindings)?,
+        Type::Numeric(NumericType::U8)
+    ) {
+        return None;
+    }
+    let left = lower_i64_array_or_slice_call_arg_exprs(
+        left,
+        local_indexes,
+        local_conditions,
+        helper_signatures,
+        static_bindings,
+    )?;
+    let right = lower_i64_array_or_slice_call_arg_exprs(
+        right,
+        local_indexes,
+        local_conditions,
+        helper_signatures,
+        static_bindings,
+    )?;
+    if left.len() != right.len() {
+        return Some(CraneliftI64Condition::Literal(false));
+    }
+    left.into_iter()
+        .zip(right)
+        .map(|(lhs, rhs)| {
+            CraneliftI64Condition::Compare(CraneliftI64Compare {
+                op: CraneliftI64CompareOp::Eq,
+                lhs,
+                rhs,
+            })
+        })
+        .reduce(|lhs, rhs| CraneliftI64Condition::And {
+            lhs: Box::new(lhs),
+            rhs: Box::new(rhs),
+        })
+        .or(Some(CraneliftI64Condition::Literal(true)))
+}
+
+fn i64_string_literal_text(expr: &Expr) -> Option<&str> {
+    match expr {
+        Expr::Literal(LiteralValue::String(value)) | Expr::Literal(LiteralValue::Str(value)) => {
+            Some(value.as_str())
+        }
+        Expr::StringBorrow { expr, .. } => i64_string_literal_text(expr),
+        _ => None,
+    }
+}
+
+fn i64_string_text(expr: &Expr, static_bindings: &I64StaticBindings) -> Option<String> {
+    if let Some(value) = i64_string_literal_text(expr) {
+        return Some(value.to_string());
+    }
+    match expr {
+        Expr::VarRef {
+            name,
+            ty: Type::String | Type::Str,
+        } => static_bindings.strings.get(name).cloned(),
+        Expr::BinaryAdd {
+            op: ArithmeticOp::Add,
+            lhs,
+            rhs,
+            ty: Type::String | Type::Str,
+        } => Some(format!(
+            "{}{}",
+            i64_string_text(lhs, static_bindings)?,
+            i64_string_text(rhs, static_bindings)?
+        )),
+        Expr::Call {
+            name,
+            args,
+            ty: Type::String | Type::Str,
+        } => i64_string_call_text(name, args, static_bindings),
+        Expr::Index {
+            base,
+            index,
+            ty: Type::String | Type::Str,
+        } => i64_map_key_array_string_index_text(base, index, static_bindings),
+        Expr::StringBorrow { expr, .. } => i64_string_text(expr, static_bindings),
+        _ => None,
+    }
+}
+
+fn i64_string_builder_text(expr: &Expr, static_bindings: &I64StaticBindings) -> Option<String> {
+    match expr {
+        Expr::VarRef {
+            name,
+            ty: Type::Struct(_),
+        } => static_bindings.string_builders.get(name).cloned(),
+        Expr::Call { name, args, .. } if is_i64_string_builder_new_name(name, static_bindings) => {
+            let [] = args.as_slice() else {
+                return None;
+            };
+            Some(String::new())
+        }
+        Expr::Call { name, args, .. }
+            if is_i64_string_builder_from_string_name(name, static_bindings) =>
+        {
+            let [value] = args.as_slice() else {
+                return None;
+            };
+            i64_string_text(value, static_bindings)
+        }
+        Expr::Call { name, args, .. }
+            if is_i64_string_builder_push_str_name(name, static_bindings)
+                || is_i64_string_builder_push_line_name(name, static_bindings) =>
+        {
+            let [builder, text] = args.as_slice() else {
+                return None;
+            };
+            let mut value = i64_string_builder_text(builder, static_bindings)?;
+            value.push_str(&i64_string_text(text, static_bindings)?);
+            if is_i64_string_builder_push_line_name(name, static_bindings) {
+                value.push('\n');
+            }
+            Some(value)
+        }
+        Expr::StructLiteral { fields, .. } => fields
+            .iter()
+            .find(|field| field.name == "value")
+            .and_then(|field| i64_string_text(&field.expr, static_bindings)),
+        _ => None,
+    }
+}
+
+fn i64_map_key_array_string_index_text(
+    base: &Expr,
+    index: &Expr,
+    static_bindings: &I64StaticBindings,
+) -> Option<String> {
+    let Expr::VarRef {
+        name,
+        ty: Type::Array(element, None),
+    } = base
+    else {
+        return None;
+    };
+    if !matches!(element.as_ref(), Type::String | Type::Str) {
+        return None;
+    }
+    let index = lower_i64_literal_index(index)?;
+    match static_bindings.map_key_arrays.get(name)?.get(index)? {
+        I64MapKey::Text(value) => Some(value.clone()),
+        _ => None,
+    }
+}
+
+fn i64_string_call_text(
+    name: &str,
+    args: &[Expr],
+    static_bindings: &I64StaticBindings,
+) -> Option<String> {
+    match name {
+        "string_clone" => {
+            let [text] = args else {
+                return None;
+            };
+            i64_string_text(text, static_bindings)
+        }
+        "string_trim" | "string_trim_start" => {
+            let [text] = args else {
+                return None;
+            };
+            let text = i64_string_text(text, static_bindings)?;
+            let trimmed = if name == "string_trim" {
+                text.trim()
+            } else {
+                text.trim_start()
+            };
+            Some(trimmed.to_string())
+        }
+        name if is_i64_encoding_percent_encode_name(name, static_bindings) => {
+            let [text] = args else {
+                return None;
+            };
+            Some(percent_encode(&i64_string_text(text, static_bindings)?))
+        }
+        name if is_i64_encoding_url_query_pair_encode_name(name, static_bindings) => {
+            let [key, value] = args else {
+                return None;
+            };
+            Some(format!(
+                "{}={}",
+                percent_encode(&i64_string_text(key, static_bindings)?),
+                percent_encode(&i64_string_text(value, static_bindings)?)
+            ))
+        }
+        name if is_i64_encoding_path_join_segment_name(name, static_bindings) => {
+            let [base, segment] = args else {
+                return None;
+            };
+            let base = i64_string_text(base, static_bindings)?;
+            let encoded = percent_encode(&i64_string_text(segment, static_bindings)?);
+            Some(if base.is_empty() {
+                encoded
+            } else if base.ends_with('/') {
+                format!("{base}{encoded}")
+            } else {
+                format!("{base}/{encoded}")
+            })
+        }
+        name if is_i64_crypto_sha256_name(name, static_bindings) => {
+            let [input] = args else {
+                return None;
+            };
+            Some(sha256_hex(
+                i64_string_text(input, static_bindings)?.as_bytes(),
+            ))
+        }
+        name if is_i64_crypto_hmac_sha256_name(name, static_bindings)
+            || is_i64_crypto_hmac_sha512_name(name, static_bindings) =>
+        {
+            let [key, message] = args else {
+                return None;
+            };
+            let key = i64_string_text(key, static_bindings)?;
+            let message = i64_string_text(message, static_bindings)?;
+            Some(if is_i64_crypto_hmac_sha256_name(name, static_bindings) {
+                hmac_hex(key.as_bytes(), message.as_bytes(), 64, sha256_bytes)
+            } else {
+                hmac_hex(key.as_bytes(), message.as_bytes(), 128, sha512_bytes)
+            })
+        }
+        name if is_i64_regex_replace_all_name(name, static_bindings) => {
+            let [pattern, text, replacement] = args else {
+                return None;
+            };
+            Some(regex_replace_all(
+                &i64_string_text(pattern, static_bindings)?,
+                &i64_string_text(text, static_bindings)?,
+                &i64_string_text(replacement, static_bindings)?,
+            ))
+        }
+        name if is_i64_json_stringify_string_name(name, static_bindings) => {
+            let [text] = args else {
+                return None;
+            };
+            Some(json_escape_string(&i64_string_text(text, static_bindings)?))
+        }
+        "json_stringify_value" => {
+            let [text] = args else {
+                return None;
+            };
+            let text = i64_string_text(text, static_bindings)?;
+            Some(json_parse_value(&text).unwrap_or(text))
+        }
+        name if is_i64_json_stringify_int_name(name, static_bindings) => {
+            let [value] = args else {
+                return None;
+            };
+            Some(i64_static_scalar_value(value, static_bindings)?.to_string())
+        }
+        name if is_i64_json_stringify_bool_name(name, static_bindings) => {
+            let [value] = args else {
+                return None;
+            };
+            Some(i64_static_bool_value(value, static_bindings)?.to_string())
+        }
+        name if is_i64_log_field_string_name(name, static_bindings) => {
+            let [key, value] = args else {
+                return None;
+            };
+            Some(format!(
+                "{}:{}",
+                json_escape_string(&i64_string_text(key, static_bindings)?),
+                json_escape_string(&i64_string_text(value, static_bindings)?)
+            ))
+        }
+        name if is_i64_log_field_int_name(name, static_bindings) => {
+            let [key, value] = args else {
+                return None;
+            };
+            Some(format!(
+                "{}:{}",
+                json_escape_string(&i64_string_text(key, static_bindings)?),
+                i64_static_scalar_value(value, static_bindings)?
+            ))
+        }
+        name if is_i64_log_field_bool_name(name, static_bindings) => {
+            let [key, value] = args else {
+                return None;
+            };
+            Some(format!(
+                "{}:{}",
+                json_escape_string(&i64_string_text(key, static_bindings)?),
+                i64_static_bool_value(value, static_bindings)?
+            ))
+        }
+        name if is_i64_log_fields2_name(name, static_bindings) => {
+            let [first, second] = args else {
+                return None;
+            };
+            Some(format!(
+                "{},{}",
+                i64_string_text(first, static_bindings)?,
+                i64_string_text(second, static_bindings)?
+            ))
+        }
+        name if is_i64_log_fields3_name(name, static_bindings) => {
+            let [first, second, third] = args else {
+                return None;
+            };
+            Some(format!(
+                "{},{},{}",
+                i64_string_text(first, static_bindings)?,
+                i64_string_text(second, static_bindings)?,
+                i64_string_text(third, static_bindings)?
+            ))
+        }
+        name if is_i64_log_event_name(name, static_bindings) => {
+            let [level, message, attributes] = args else {
+                return None;
+            };
+            Some(format!(
+                "{{\"level\":{},\"message\":{},\"attributes\":{{{}}}}}",
+                json_escape_string(&i64_string_text(level, static_bindings)?),
+                json_escape_string(&i64_string_text(message, static_bindings)?),
+                i64_string_text(attributes, static_bindings)?
+            ))
+        }
+        name if is_i64_string_builder_finish_name(name, static_bindings) => {
+            let [builder] = args else {
+                return None;
+            };
+            i64_string_builder_text(builder, static_bindings)
+        }
+        _ => match i64_known_helper_call_value(name, args, static_bindings)? {
+            SpikeValue::Text(value) => Some(value),
+            _ => None,
+        },
+    }
+}
+
+fn i64_known_helper_call_i64_expr(
+    name: &str,
+    args: &[Expr],
+    static_bindings: &I64StaticBindings,
+) -> Option<CraneliftI64Expr> {
+    match i64_known_helper_call_value(name, args, static_bindings)? {
+        SpikeValue::Int(value) => Some(CraneliftI64Expr::Literal(value)),
+        SpikeValue::UInt(value) => i64::try_from(value).ok().map(CraneliftI64Expr::Literal),
+        SpikeValue::Bool(value) => Some(CraneliftI64Expr::Literal(i64::from(value))),
+        _ => None,
+    }
+}
+
+fn i64_known_helper_call_condition(
+    name: &str,
+    args: &[Expr],
+    static_bindings: &I64StaticBindings,
+) -> Option<CraneliftI64Condition> {
+    match i64_known_helper_call_value(name, args, static_bindings)? {
+        SpikeValue::Bool(value) => Some(CraneliftI64Condition::Literal(value)),
+        _ => None,
+    }
+}
+
+fn i64_known_helper_call_value(
+    name: &str,
+    args: &[Expr],
+    static_bindings: &I64StaticBindings,
+) -> Option<SpikeValue> {
+    let function = static_bindings.functions.get(name)?;
+    if function.params.len() != args.len()
+        || !i64_known_helper_function_is_pure(function, static_bindings, 0)
+    {
+        return None;
+    }
+    let functions = static_bindings
+        .functions
+        .iter()
+        .map(|(name, function)| (name.as_str(), function))
+        .collect::<HashMap<_, _>>();
+    let mut lines = Vec::new();
+    let base_env = i64_known_static_env(static_bindings)?;
+    let mut env = base_env.clone();
+    for (param, arg) in function.params.iter().zip(args) {
+        if !i64_known_expr_is_pure(arg, static_bindings, 0) {
+            return None;
+        }
+        let value = eval_expr(arg, &functions, &base_env, &mut lines).ok()?;
+        env.insert(param.name.clone(), value);
+    }
+    let value = eval_block(&function.body, &functions, &mut env, &mut lines)
+        .ok()
+        .flatten()?;
+    lines.is_empty().then_some(value)
+}
+
+fn i64_known_static_env(static_bindings: &I64StaticBindings) -> Option<SpikeEnv> {
+    let mut env = SpikeEnv::new();
+    if let Some(root) = &static_bindings.fs_root {
+        env.insert(
+            SPIKE_FS_ROOT_BINDING.to_string(),
+            SpikeValue::Text(root.display().to_string()),
+        );
+    }
+    for (name, value) in &static_bindings.values {
+        let value = match value {
+            CraneliftI64Expr::Literal(value) => SpikeValue::Int(*value),
+            _ => return None,
+        };
+        env.insert(name.clone(), value);
+    }
+    for (name, condition) in &static_bindings.conditions {
+        let value = match condition {
+            CraneliftI64Condition::Literal(value) => SpikeValue::Bool(*value),
+            _ => return None,
+        };
+        env.insert(name.clone(), value);
+    }
+    for (name, value) in &static_bindings.strings {
+        env.insert(name.clone(), SpikeValue::Text(value.clone()));
+    }
+    Some(env)
+}
+
+fn i64_known_helper_function_is_pure(
+    function: &Function,
+    static_bindings: &I64StaticBindings,
+    depth: usize,
+) -> bool {
+    if depth > 8 || function.is_property || function.is_async || function.is_extern {
+        return false;
+    }
+    i64_known_helper_body_is_pure(&function.body, static_bindings, depth + 1)
+}
+
+fn i64_known_helper_body_is_pure(
+    body: &[Stmt],
+    static_bindings: &I64StaticBindings,
+    depth: usize,
+) -> bool {
+    if depth > 8 {
+        return false;
+    }
+    if body.is_empty() {
+        return false;
+    }
+    body.iter().enumerate().all(|(index, stmt)| match stmt {
+        Stmt::Let { expr, .. } => {
+            index + 1 < body.len() && i64_known_expr_is_pure(expr, static_bindings, depth + 1)
+        }
+        Stmt::Return { expr, .. } => {
+            index + 1 == body.len() && i64_known_expr_is_pure(expr, static_bindings, depth + 1)
+        }
+        Stmt::If {
+            cond,
+            then_block,
+            else_block,
+            ..
+        } => {
+            index + 1 == body.len()
+                && i64_known_expr_is_pure(cond, static_bindings, depth + 1)
+                && i64_known_helper_body_is_pure(then_block, static_bindings, depth + 1)
+                && else_block.as_ref().is_some_and(|else_block| {
+                    i64_known_helper_body_is_pure(else_block, static_bindings, depth + 1)
+                })
+        }
+        Stmt::Match { expr, arms, .. } => {
+            index + 1 == body.len()
+                && i64_known_expr_is_pure(expr, static_bindings, depth + 1)
+                && arms
+                    .iter()
+                    .all(|arm| i64_known_helper_body_is_pure(&arm.body, static_bindings, depth + 1))
+        }
+        _ => false,
+    })
+}
+
+fn i64_known_expr_is_pure(expr: &Expr, static_bindings: &I64StaticBindings, depth: usize) -> bool {
+    if depth > 8 {
+        return false;
+    }
+    match expr {
+        Expr::Literal(_) | Expr::VarRef { .. } => true,
+        Expr::StringBorrow { expr, .. } | Expr::Cast { expr, .. } => {
+            i64_known_expr_is_pure(expr, static_bindings, depth + 1)
+        }
+        Expr::BinaryAdd { lhs, rhs, .. }
+        | Expr::BinaryCompare { lhs, rhs, .. }
+        | Expr::BinaryLogic { lhs, rhs, .. } => {
+            i64_known_expr_is_pure(lhs, static_bindings, depth + 1)
+                && i64_known_expr_is_pure(rhs, static_bindings, depth + 1)
+        }
+        Expr::Call { name, args, .. } => {
+            args.iter()
+                .all(|arg| i64_known_expr_is_pure(arg, static_bindings, depth + 1))
+                && (i64_known_pure_intrinsic_call(name, static_bindings)
+                    || static_bindings.functions.get(name).is_some_and(|function| {
+                        i64_known_helper_function_is_pure(function, static_bindings, depth + 1)
+                    }))
+        }
+        Expr::Index { base, index, .. } => {
+            i64_known_expr_is_pure(base, static_bindings, depth + 1)
+                && i64_known_expr_is_pure(index, static_bindings, depth + 1)
+        }
+        Expr::FieldAccess { base, .. } | Expr::TupleIndex { base, .. } => {
+            i64_known_expr_is_pure(base, static_bindings, depth + 1)
+        }
+        Expr::ArrayLiteral { elements, .. } | Expr::TupleLiteral { elements, .. } => elements
+            .iter()
+            .all(|element| i64_known_expr_is_pure(element, static_bindings, depth + 1)),
+        Expr::MapLiteral { entries, .. } => entries.iter().all(|entry| {
+            i64_known_expr_is_pure(&entry.key, static_bindings, depth + 1)
+                && i64_known_expr_is_pure(&entry.value, static_bindings, depth + 1)
+        }),
+        Expr::EnumVariant { payloads, .. } => payloads
+            .iter()
+            .all(|payload| i64_known_expr_is_pure(payload, static_bindings, depth + 1)),
+        Expr::StructLiteral { fields, .. } => fields
+            .iter()
+            .all(|field| i64_known_expr_is_pure(&field.expr, static_bindings, depth + 1)),
+        Expr::Match { expr, arms, .. } => {
+            i64_known_expr_is_pure(expr, static_bindings, depth + 1)
+                && arms
+                    .iter()
+                    .all(|arm| i64_known_expr_is_pure(&arm.expr, static_bindings, depth + 1))
+        }
+        _ => false,
+    }
+}
+
+fn i64_known_pure_intrinsic_call(name: &str, static_bindings: &I64StaticBindings) -> bool {
+    matches!(
+        name,
+        "len"
+            | "first"
+            | "last"
+            | "string_clone"
+            | "string_starts_with"
+            | "string_strip_prefix"
+            | "string_strip_suffix"
+            | "string_trim"
+            | "string_trim_start"
+            | "string_line_at"
+            | "encoding_url_component_encode"
+            | "encoding_url_component_decode"
+            | "encoding_path_segment_encode"
+            | "encoding_url_query_pair_encode"
+            | "encoding_path_join_segment"
+            | "json_parse_int"
+            | "json_parse_bool"
+            | "json_parse_string"
+            | "json_stringify_int"
+            | "json_stringify_bool"
+            | "json_stringify_string"
+            | "json_serdes_parse"
+            | "json_serdes_parse_str"
+            | "json_serdes_value_to_json"
+            | "json_serdes_to_json"
+    ) || is_i64_encoding_percent_encode_name(name, static_bindings)
+        || is_i64_encoding_url_query_pair_encode_name(name, static_bindings)
+        || is_i64_encoding_path_join_segment_name(name, static_bindings)
+        || is_i64_json_stringify_int_name(name, static_bindings)
+        || is_i64_json_stringify_bool_name(name, static_bindings)
+        || is_i64_json_stringify_string_name(name, static_bindings)
+}
+
+fn i64_static_scalar_value(expr: &Expr, static_bindings: &I64StaticBindings) -> Option<i64> {
+    if let Some(value) = lower_i64_literal_value(expr) {
+        return Some(value);
+    }
+    let Expr::VarRef { name, .. } = expr else {
+        return None;
+    };
+    match static_bindings.values.get(name)? {
+        CraneliftI64Expr::Literal(value) => Some(*value),
+        _ => None,
+    }
+}
+
+fn i64_static_bool_value(expr: &Expr, static_bindings: &I64StaticBindings) -> Option<bool> {
+    if let Expr::Literal(LiteralValue::Bool(value)) = expr {
+        return Some(*value);
+    }
+    let Expr::VarRef {
+        name,
+        ty: Type::Bool,
+    } = expr
+    else {
+        return None;
+    };
+    match static_bindings.conditions.get(name)? {
+        CraneliftI64Condition::Literal(value) => Some(*value),
+        _ => None,
+    }
+}
+
+fn i64_string_option_text(
+    expr: &Expr,
+    static_bindings: &I64StaticBindings,
+) -> Option<Option<String>> {
+    if let Expr::VarRef {
+        name,
+        ty: Type::Option(inner),
+    } = expr
+        && is_i64_known_string_option_call_let_type(inner)
+    {
+        return static_bindings.string_options.get(name).cloned();
+    }
+    let Expr::Call { name, args, .. } = expr else {
+        return None;
+    };
+    if let Some(value) = i64_map_get_value_expr(name, args, static_bindings) {
+        return match value {
+            Some(value) => Some(Some(i64_string_text(value, static_bindings)?)),
+            None => Some(None),
+        };
+    }
+    match name.as_str() {
+        "string_strip_prefix" => {
+            let [text, prefix] = args.as_slice() else {
+                return None;
+            };
+            let text = i64_string_text(text, static_bindings)?;
+            let prefix = i64_string_text(prefix, static_bindings)?;
+            Some(
+                text.strip_prefix(&prefix)
+                    .map(std::string::ToString::to_string),
+            )
+        }
+        "string_strip_suffix" => {
+            let [text, suffix] = args.as_slice() else {
+                return None;
+            };
+            let text = i64_string_text(text, static_bindings)?;
+            let suffix = i64_string_text(suffix, static_bindings)?;
+            Some(
+                text.strip_suffix(&suffix)
+                    .map(std::string::ToString::to_string),
+            )
+        }
+        "string_line_at" => {
+            let [text, index] = args.as_slice() else {
+                return None;
+            };
+            let text = i64_string_text(text, static_bindings)?;
+            let index = i64_static_scalar_value(index, static_bindings)?;
+            if index < 0 {
+                return Some(None);
+            }
+            Some(
+                text.lines()
+                    .nth(index as usize)
+                    .map(std::string::ToString::to_string),
+            )
+        }
+        name if is_i64_encoding_url_component_decode_name(name, static_bindings) => {
+            let [text] = args.as_slice() else {
+                return None;
+            };
+            Some(percent_decode(&i64_string_text(text, static_bindings)?))
+        }
+        name if is_i64_regex_find_name(name, static_bindings) => {
+            let [pattern, text] = args.as_slice() else {
+                return None;
+            };
+            let pattern = i64_string_text(pattern, static_bindings)?;
+            let text = i64_string_text(text, static_bindings)?;
+            Some(regex_find_span(&pattern, &text).map(|(start, end)| text[start..end].to_string()))
+        }
+        "env_get" => {
+            let [key] = args.as_slice() else {
+                return None;
+            };
+            Some(std::env::var(i64_string_text(key, static_bindings)?).ok())
+        }
+        name if static_bindings.env_get_wrappers.contains(name) => {
+            let [key] = args.as_slice() else {
+                return None;
+            };
+            Some(std::env::var(i64_string_text(key, static_bindings)?).ok())
+        }
+        "fs_read" | "read_file" | "std_fs_read_file" => {
+            let [path] = args.as_slice() else {
+                return None;
+            };
+            let fs_root = static_bindings.fs_root.as_deref()?;
+            Some(spike_fs_read_text_for_root(
+                fs_root,
+                &i64_string_text(path, static_bindings)?,
+            ))
+        }
+        "net_resolve" | "resolve" | "std_net_resolve" => {
+            let [host] = args.as_slice() else {
+                return None;
+            };
+            Some(i64_net_resolve_text(&i64_string_text(
+                host,
+                static_bindings,
+            )?))
+        }
+        name if is_i64_http_get_name(name, static_bindings) => {
+            let [url] = args.as_slice() else {
+                return None;
+            };
+            Some(http_get(&i64_string_text(url, static_bindings)?))
+        }
+        name if static_bindings.fs_read_wrappers.contains(name) => {
+            let [path] = args.as_slice() else {
+                return None;
+            };
+            let fs_root = static_bindings.fs_root.as_deref()?;
+            Some(spike_fs_read_text_for_root(
+                fs_root,
+                &i64_string_text(path, static_bindings)?,
+            ))
+        }
+        name if is_i64_json_parse_string_name(name, static_bindings) => {
+            let [text] = args.as_slice() else {
+                return None;
+            };
+            Some(json_parse_string(&i64_string_text(text, static_bindings)?))
+        }
+        "json_parse_value" => {
+            let [text] = args.as_slice() else {
+                return None;
+            };
+            Some(json_parse_value(&i64_string_text(text, static_bindings)?))
+        }
+        name if is_i64_json_parse_field_string_name(name, static_bindings) => {
+            let [text, key] = args.as_slice() else {
+                return None;
+            };
+            let text = i64_string_text(text, static_bindings)?;
+            let key = i64_string_text(key, static_bindings)?;
+            Some(json_object_field(&text, &key).and_then(|value| json_parse_string(&value)))
+        }
+        "json_parse_field_value" => {
+            let [text, key] = args.as_slice() else {
+                return None;
+            };
+            let text = i64_string_text(text, static_bindings)?;
+            let key = i64_string_text(key, static_bindings)?;
+            Some(json_object_field(&text, &key).and_then(|value| json_parse_value(&value)))
+        }
+        _ => None,
+    }
+}
+
+fn i64_i64_option_value(expr: &Expr, static_bindings: &I64StaticBindings) -> Option<Option<i64>> {
+    let Expr::Call { name, args, .. } = expr else {
+        return None;
+    };
+    if is_i64_sync_once_take_name(name, static_bindings) {
+        let [cell] = args.as_slice() else {
+            return None;
+        };
+        return i64_i64_once_cell_value(cell, static_bindings);
+    }
+    if is_i64_sync_try_recv_name(name, static_bindings) {
+        let [channel] = args.as_slice() else {
+            return None;
+        };
+        return i64_i64_channel_cell_value(channel, static_bindings);
+    }
+    if let Some(value) = i64_map_get_value_expr(name, args, static_bindings) {
+        return match value {
+            Some(value) => Some(Some(i64_static_scalar_value(value, static_bindings)?)),
+            None => Some(None),
+        };
+    }
+    match name.as_str() {
+        name if is_i64_json_parse_int_name(name, static_bindings) => {
+            let [text] = args.as_slice() else {
+                return None;
+            };
+            Some(json_parse_int(&i64_string_text(text, static_bindings)?))
+        }
+        name if is_i64_json_parse_field_int_name(name, static_bindings) => {
+            let [text, key] = args.as_slice() else {
+                return None;
+            };
+            let text = i64_string_text(text, static_bindings)?;
+            let key = i64_string_text(key, static_bindings)?;
+            Some(json_object_field(&text, &key).and_then(|value| json_parse_int(&value)))
+        }
+        name if is_i64_net_tcp_loopback_once_name(name) => {
+            let [response, timeout_ms] = args.as_slice() else {
+                return None;
+            };
+            let response = i64_string_text(response, static_bindings)?;
+            let timeout = net_timeout(i64_static_scalar_value(timeout_ms, static_bindings)?);
+            Some(net_tcp_listen_loopback_once(response, timeout))
+        }
+        name if is_i64_net_udp_loopback_once_name(name) => {
+            let [response, timeout_ms] = args.as_slice() else {
+                return None;
+            };
+            let response = i64_string_text(response, static_bindings)?;
+            let timeout = net_timeout(i64_static_scalar_value(timeout_ms, static_bindings)?);
+            Some(net_udp_bind_loopback_once(response, timeout))
+        }
+        _ => None,
+    }
+}
+
+fn i64_bool_option_value(expr: &Expr, static_bindings: &I64StaticBindings) -> Option<Option<bool>> {
+    let Expr::Call { name, args, .. } = expr else {
+        return None;
+    };
+    if is_i64_sync_once_take_name(name, static_bindings) {
+        let [cell] = args.as_slice() else {
+            return None;
+        };
+        return i64_bool_once_cell_value(cell, static_bindings);
+    }
+    if is_i64_sync_try_recv_name(name, static_bindings) {
+        let [channel] = args.as_slice() else {
+            return None;
+        };
+        return i64_bool_channel_cell_value(channel, static_bindings);
+    }
+    if let Some(value) = i64_map_get_value_expr(name, args, static_bindings) {
+        return match value {
+            Some(value) => Some(Some(i64_static_bool_value(value, static_bindings)?)),
+            None => Some(None),
+        };
+    }
+    match name.as_str() {
+        name if is_i64_json_parse_bool_name(name, static_bindings) => {
+            let [text] = args.as_slice() else {
+                return None;
+            };
+            Some(json_parse_bool(&i64_string_text(text, static_bindings)?))
+        }
+        name if is_i64_json_parse_field_bool_name(name, static_bindings) => {
+            let [text, key] = args.as_slice() else {
+                return None;
+            };
+            let text = i64_string_text(text, static_bindings)?;
+            let key = i64_string_text(key, static_bindings)?;
+            Some(json_object_field(&text, &key).and_then(|value| json_parse_bool(&value)))
+        }
+        _ => None,
+    }
+}
+
+fn i64_i64_once_cell_value(
+    expr: &Expr,
+    static_bindings: &I64StaticBindings,
+) -> Option<Option<i64>> {
+    if let Expr::VarRef { name, .. } = expr {
+        return static_bindings.i64_once_cells.get(name).copied();
+    }
+    let Expr::Call { name, args, .. } = expr else {
+        return None;
+    };
+    if is_i64_sync_once_with_name(name, static_bindings) {
+        let [value] = args.as_slice() else {
+            return None;
+        };
+        return Some(Some(i64_static_scalar_value(value, static_bindings)?));
+    }
+    if is_i64_sync_once_name(name, static_bindings) {
+        let [value] = args.as_slice() else {
+            return None;
+        };
+        return i64_i64_option_expr_value(value, static_bindings);
+    }
+    None
+}
+
+fn i64_i64_option_expr_value(
+    expr: &Expr,
+    static_bindings: &I64StaticBindings,
+) -> Option<Option<i64>> {
+    match expr {
+        Expr::EnumVariant {
+            enum_name,
+            variant,
+            payloads,
+            ty: Type::Option(inner),
+            ..
+        } if enum_name == "Option" && is_i64_compatible_type(inner.as_ref()) => {
+            match (variant.as_str(), payloads.as_slice()) {
+                ("Some", [payload]) => {
+                    Some(Some(i64_static_scalar_value(payload, static_bindings)?))
+                }
+                ("None", []) => Some(None),
+                _ => None,
+            }
+        }
+        Expr::Call { .. } => i64_i64_option_value(expr, static_bindings),
+        _ => None,
+    }
+}
+
+fn i64_bool_once_cell_value(
+    expr: &Expr,
+    static_bindings: &I64StaticBindings,
+) -> Option<Option<bool>> {
+    if let Expr::VarRef { name, .. } = expr {
+        return static_bindings.bool_once_cells.get(name).copied();
+    }
+    let Expr::Call { name, args, .. } = expr else {
+        return None;
+    };
+    if is_i64_sync_once_with_name(name, static_bindings) {
+        let [value] = args.as_slice() else {
+            return None;
+        };
+        return Some(Some(i64_static_bool_value(value, static_bindings)?));
+    }
+    if is_i64_sync_once_name(name, static_bindings) {
+        let [value] = args.as_slice() else {
+            return None;
+        };
+        return i64_bool_option_expr_value(value, static_bindings);
+    }
+    None
+}
+
+fn i64_bool_option_expr_value(
+    expr: &Expr,
+    static_bindings: &I64StaticBindings,
+) -> Option<Option<bool>> {
+    match expr {
+        Expr::EnumVariant {
+            enum_name,
+            variant,
+            payloads,
+            ty: Type::Option(inner),
+            ..
+        } if enum_name == "Option" && matches!(inner.as_ref(), Type::Bool) => {
+            match (variant.as_str(), payloads.as_slice()) {
+                ("Some", [payload]) => Some(Some(i64_static_bool_value(payload, static_bindings)?)),
+                ("None", []) => Some(None),
+                _ => None,
+            }
+        }
+        Expr::Call { .. } => i64_bool_option_value(expr, static_bindings),
+        _ => None,
+    }
+}
+
+fn i64_i64_channel_cell_value(
+    expr: &Expr,
+    static_bindings: &I64StaticBindings,
+) -> Option<Option<i64>> {
+    if let Expr::VarRef { name, .. } = expr {
+        return static_bindings.i64_channels.get(name).copied();
+    }
+    let Expr::Call { name, args, .. } = expr else {
+        return None;
+    };
+    if is_i64_sync_channel_name(name, static_bindings) {
+        let [slot] = args.as_slice() else {
+            return None;
+        };
+        return i64_i64_option_expr_value(slot, static_bindings);
+    }
+    if is_i64_sync_send_name(name, static_bindings) {
+        let [_channel, value] = args.as_slice() else {
+            return None;
+        };
+        return Some(Some(i64_static_scalar_value(value, static_bindings)?));
+    }
+    None
+}
+
+fn i64_bool_channel_cell_value(
+    expr: &Expr,
+    static_bindings: &I64StaticBindings,
+) -> Option<Option<bool>> {
+    if let Expr::VarRef { name, .. } = expr {
+        return static_bindings.bool_channels.get(name).copied();
+    }
+    let Expr::Call { name, args, .. } = expr else {
+        return None;
+    };
+    if is_i64_sync_channel_name(name, static_bindings) {
+        let [slot] = args.as_slice() else {
+            return None;
+        };
+        return i64_bool_option_expr_value(slot, static_bindings);
+    }
+    if is_i64_sync_send_name(name, static_bindings) {
+        let [_channel, value] = args.as_slice() else {
+            return None;
+        };
+        return Some(Some(i64_static_bool_value(value, static_bindings)?));
+    }
+    None
 }
 
 fn lower_i64_bool_literal_compare(
@@ -8204,6 +10318,9 @@ fn lower_i64_expr(
         Expr::Literal(LiteralValue::Numeric { raw, ty }) => {
             lower_i64_numeric_literal(raw, *ty).map(CraneliftI64Expr::Literal)
         }
+        Expr::Call { name, args, .. } if is_i64_crypto_random_u64_name(name, static_bindings) => {
+            lower_i64_crypto_random_intrinsic_expr(name, args, static_bindings)
+        }
         Expr::VarRef { name, ty } if is_i64_compatible_type(ty) => local_indexes
             .get(name.as_str())
             .copied()
@@ -8323,6 +10440,16 @@ fn lower_i64_expr(
             lower_i64_cast_expr(expr, ty)
         }
         Expr::Index { base, index, ty } if is_i64_compatible_type(ty) => {
+            if let Some(expr) = lower_i64_slice_projection_index_expr(
+                base,
+                index,
+                local_indexes,
+                local_conditions,
+                helper_signatures,
+                static_bindings,
+            ) {
+                return lower_i64_cast_expr(expr, ty);
+            }
             if let Expr::VarRef {
                 name,
                 ty: Type::Array(_, Some(size)),
@@ -8344,6 +10471,16 @@ fn lower_i64_expr(
                         static_bindings,
                     )?
                 };
+                return lower_i64_cast_expr(expr, ty);
+            }
+            if let Some(expr) = lower_i64_array_literal_projection_index_expr(
+                base,
+                index,
+                local_indexes,
+                local_conditions,
+                helper_signatures,
+                static_bindings,
+            ) {
                 return lower_i64_cast_expr(expr, ty);
             }
             let element = lower_i64_array_literal_element(base, index)?;
@@ -8426,6 +10563,57 @@ fn lower_i64_struct_projection_locals(
     Some(())
 }
 
+fn lower_i64_slice_projection_aliases(
+    name: &str,
+    expr: &Expr,
+    locals: &mut Vec<CraneliftI64Expr>,
+    local_indexes: &mut HashMap<String, usize>,
+    local_conditions: &mut HashMap<String, CraneliftI64Condition>,
+    static_bindings: &I64StaticBindings,
+    runtime: bool,
+) -> Option<Vec<CraneliftI64Stmt>> {
+    let Expr::Slice {
+        base, start, end, ..
+    } = expr
+    else {
+        return None;
+    };
+    let Expr::VarRef {
+        name: base_name,
+        ty: Type::Array(_, Some(base_size)),
+    } = base.as_ref()
+    else {
+        return None;
+    };
+    let (start, end) = i64_static_slice_range(
+        *base_size,
+        start.as_deref(),
+        end.as_deref(),
+        static_bindings,
+    )?;
+    let mut assigns = Vec::new();
+    for (slice_index, base_index) in (start..end).enumerate() {
+        let base_key = i64_array_projection_key(base_name, base_index);
+        let base_local = *local_indexes.get(base_key.as_str())?;
+        let local = locals.len();
+        if runtime {
+            locals.push(CraneliftI64Expr::Literal(0));
+            assigns.push(CraneliftI64Stmt::Assign(
+                axiomc_backend_cranelift::I64Assign {
+                    local,
+                    value: CraneliftI64Expr::Local(base_local),
+                },
+            ));
+        } else {
+            locals.push(CraneliftI64Expr::Local(base_local));
+        }
+        let slice_key = i64_array_projection_key(name, slice_index);
+        local_indexes.insert(slice_key.clone(), local);
+        local_conditions.insert(slice_key, i64_local_truthy_condition(local));
+    }
+    Some(assigns)
+}
+
 fn lower_i64_projection_local(
     key: String,
     expr: &Expr,
@@ -8494,7 +10682,7 @@ fn lower_i64_option_locals(
     if enum_name != "Option" {
         return None;
     }
-    let payload_slot_count = i64_option_payload_slot_count(inner.as_ref());
+    let payload_slot_count = i64_option_payload_slot_count_static(inner.as_ref(), static_bindings)?;
     let (tag, payloads) = match (variant.as_str(), payloads.as_slice()) {
         ("Some", [payload]) => (
             CraneliftI64Expr::Literal(1),
@@ -8691,6 +10879,60 @@ fn lower_i64_enum_payload_exprs(
                 })
                 .collect()
         }
+        Expr::VarRef {
+            ty: Type::Option(inner),
+            ..
+        } if is_i64_option_local_payload_type_static(inner, static_bindings) => {
+            lower_i64_option_call_arg_exprs(
+                payload,
+                local_indexes,
+                local_conditions,
+                helper_signatures,
+                static_bindings,
+            )
+        }
+        Expr::EnumVariant {
+            enum_name,
+            ty: Type::Option(inner),
+            ..
+        } if enum_name == "Option"
+            && is_i64_option_local_payload_type_static(inner, static_bindings) =>
+        {
+            lower_i64_option_call_arg_exprs(
+                payload,
+                local_indexes,
+                local_conditions,
+                helper_signatures,
+                static_bindings,
+            )
+        }
+        Expr::VarRef {
+            ty: Type::Result(ok, err),
+            ..
+        } if is_i64_result_local_payload_type_static(ok, err, static_bindings) => {
+            lower_i64_result_call_arg_exprs(
+                payload,
+                local_indexes,
+                local_conditions,
+                helper_signatures,
+                static_bindings,
+            )
+        }
+        Expr::EnumVariant {
+            enum_name,
+            ty: Type::Result(ok, err),
+            ..
+        } if enum_name == "Result"
+            && is_i64_result_local_payload_type_static(ok, err, static_bindings) =>
+        {
+            lower_i64_result_call_arg_exprs(
+                payload,
+                local_indexes,
+                local_conditions,
+                helper_signatures,
+                static_bindings,
+            )
+        }
         _ => Some(vec![lower_i64_option_payload_expr(
             payload,
             local_indexes,
@@ -8724,11 +10966,13 @@ fn lower_i64_result_locals(
     else {
         return None;
     };
-    if enum_name != "Result" || !is_i64_result_local_payload_type(ok, err) {
+    if enum_name != "Result" || !is_i64_result_local_payload_type_static(ok, err, static_bindings) {
         return None;
     }
     let payload_slot_count =
-        i64_result_payload_slot_count(ok.as_ref()).max(i64_result_payload_slot_count(err.as_ref()));
+        i64_result_payload_slot_count_static(ok.as_ref(), static_bindings)?.max(
+            i64_result_payload_slot_count_static(err.as_ref(), static_bindings)?,
+        );
     let (tag, payloads) = lower_i64_result_variant_parts(
         variant,
         payloads,
@@ -8849,6 +11093,100 @@ fn lower_i64_result_payload_exprs(
                     .map(CraneliftI64Expr::Local)
             })
             .collect::<Option<Vec<_>>>()?,
+        Expr::StructLiteral {
+            fields,
+            ty: Type::Struct(name),
+            ..
+        } => {
+            let struct_def = i64_scalar_static_struct_def(name, static_bindings)?;
+            struct_def
+                .fields
+                .iter()
+                .map(|field| {
+                    let value = fields
+                        .iter()
+                        .find(|value| value.name == field.name)
+                        .map(|value| &value.expr)?;
+                    lower_i64_option_payload_expr(
+                        value,
+                        local_indexes,
+                        local_conditions,
+                        helper_signatures,
+                        static_bindings,
+                    )
+                })
+                .collect::<Option<Vec<_>>>()?
+        }
+        Expr::VarRef {
+            name,
+            ty: Type::Struct(struct_name),
+        } => {
+            let struct_def = i64_scalar_static_struct_def(struct_name, static_bindings)?;
+            struct_def
+                .fields
+                .iter()
+                .map(|field| {
+                    local_indexes
+                        .get(i64_struct_projection_key(name, &field.name).as_str())
+                        .copied()
+                        .map(CraneliftI64Expr::Local)
+                })
+                .collect::<Option<Vec<_>>>()?
+        }
+        Expr::VarRef {
+            ty: Type::Option(inner),
+            ..
+        } if is_i64_option_local_payload_type_static(inner, static_bindings) => {
+            lower_i64_option_call_arg_exprs(
+                payload,
+                local_indexes,
+                local_conditions,
+                helper_signatures,
+                static_bindings,
+            )?
+        }
+        Expr::EnumVariant {
+            enum_name,
+            ty: Type::Option(inner),
+            ..
+        } if enum_name == "Option"
+            && is_i64_option_local_payload_type_static(inner, static_bindings) =>
+        {
+            lower_i64_option_call_arg_exprs(
+                payload,
+                local_indexes,
+                local_conditions,
+                helper_signatures,
+                static_bindings,
+            )?
+        }
+        Expr::VarRef {
+            ty: Type::Result(ok, err),
+            ..
+        } if is_i64_result_local_payload_type_static(ok, err, static_bindings) => {
+            lower_i64_result_call_arg_exprs(
+                payload,
+                local_indexes,
+                local_conditions,
+                helper_signatures,
+                static_bindings,
+            )?
+        }
+        Expr::EnumVariant {
+            enum_name,
+            ty: Type::Result(ok, err),
+            ..
+        } if enum_name == "Result"
+            && is_i64_result_local_payload_type_static(ok, err, static_bindings) =>
+        {
+            lower_i64_result_call_arg_exprs(
+                payload,
+                local_indexes,
+                local_conditions,
+                helper_signatures,
+                static_bindings,
+            )?
+        }
         _ => vec![lower_i64_option_payload_expr(
             payload,
             local_indexes,
@@ -8924,6 +11262,100 @@ fn lower_i64_option_payload_exprs(
                     .map(CraneliftI64Expr::Local)
             })
             .collect::<Option<Vec<_>>>()?,
+        Expr::StructLiteral {
+            fields,
+            ty: Type::Struct(name),
+            ..
+        } => {
+            let struct_def = i64_scalar_static_struct_def(name, static_bindings)?;
+            struct_def
+                .fields
+                .iter()
+                .map(|field| {
+                    let value = fields
+                        .iter()
+                        .find(|value| value.name == field.name)
+                        .map(|value| &value.expr)?;
+                    lower_i64_option_payload_expr(
+                        value,
+                        local_indexes,
+                        local_conditions,
+                        helper_signatures,
+                        static_bindings,
+                    )
+                })
+                .collect::<Option<Vec<_>>>()?
+        }
+        Expr::VarRef {
+            name,
+            ty: Type::Struct(struct_name),
+        } => {
+            let struct_def = i64_scalar_static_struct_def(struct_name, static_bindings)?;
+            struct_def
+                .fields
+                .iter()
+                .map(|field| {
+                    local_indexes
+                        .get(i64_struct_projection_key(name, &field.name).as_str())
+                        .copied()
+                        .map(CraneliftI64Expr::Local)
+                })
+                .collect::<Option<Vec<_>>>()?
+        }
+        Expr::VarRef {
+            ty: Type::Option(inner),
+            ..
+        } if is_i64_option_local_payload_type_static(inner, static_bindings) => {
+            lower_i64_option_call_arg_exprs(
+                payload,
+                local_indexes,
+                local_conditions,
+                helper_signatures,
+                static_bindings,
+            )?
+        }
+        Expr::EnumVariant {
+            enum_name,
+            ty: Type::Option(inner),
+            ..
+        } if enum_name == "Option"
+            && is_i64_option_local_payload_type_static(inner, static_bindings) =>
+        {
+            lower_i64_option_call_arg_exprs(
+                payload,
+                local_indexes,
+                local_conditions,
+                helper_signatures,
+                static_bindings,
+            )?
+        }
+        Expr::VarRef {
+            ty: Type::Result(ok, err),
+            ..
+        } if is_i64_result_local_payload_type_static(ok, err, static_bindings) => {
+            lower_i64_result_call_arg_exprs(
+                payload,
+                local_indexes,
+                local_conditions,
+                helper_signatures,
+                static_bindings,
+            )?
+        }
+        Expr::EnumVariant {
+            enum_name,
+            ty: Type::Result(ok, err),
+            ..
+        } if enum_name == "Result"
+            && is_i64_result_local_payload_type_static(ok, err, static_bindings) =>
+        {
+            lower_i64_result_call_arg_exprs(
+                payload,
+                local_indexes,
+                local_conditions,
+                helper_signatures,
+                static_bindings,
+            )?
+        }
         _ => vec![lower_i64_option_payload_expr(
             payload,
             local_indexes,
@@ -9070,6 +11502,14 @@ fn i64_array_projection_key(name: &str, index: usize) -> String {
     format!("{name}[{index}]")
 }
 
+fn i64_string_len_key(name: &str) -> String {
+    format!("{name}$len")
+}
+
+fn i64_json_safe_string_len_key(name: &str) -> String {
+    format!("{name}$json_safe_len")
+}
+
 fn i64_option_tag_key(name: &str) -> String {
     format!("{name}?tag")
 }
@@ -9090,8 +11530,9 @@ fn i64_option_payload_locals(
     name: &str,
     payload_ty: &Type,
     local_indexes: &HashMap<String, usize>,
+    static_bindings: &I64StaticBindings,
 ) -> Option<Vec<usize>> {
-    (0..i64_option_payload_slot_count(payload_ty))
+    (0..i64_option_payload_slot_count_static(payload_ty, static_bindings)?)
         .map(|index| {
             local_indexes
                 .get(i64_option_payload_slot_key(name, index).as_str())
@@ -9146,8 +11587,10 @@ fn i64_result_payload_locals(
     ok: &Type,
     err: &Type,
     local_indexes: &HashMap<String, usize>,
+    static_bindings: &I64StaticBindings,
 ) -> Option<Vec<usize>> {
-    let slot_count = i64_result_payload_slot_count(ok).max(i64_result_payload_slot_count(err));
+    let slot_count = i64_result_payload_slot_count_static(ok, static_bindings)?
+        .max(i64_result_payload_slot_count_static(err, static_bindings)?);
     (0..slot_count)
         .map(|index| {
             local_indexes
@@ -11736,12 +14179,12 @@ fn lower_i64_option_call_arg_exprs(
         Expr::VarRef {
             name,
             ty: Type::Option(inner),
-        } if is_i64_option_local_payload_type(inner) => {
+        } if is_i64_option_local_payload_type_static(inner, static_bindings) => {
             let mut args = vec![CraneliftI64Expr::Local(
                 *local_indexes.get(i64_option_tag_key(name).as_str())?,
             )];
             args.extend(
-                i64_option_payload_locals(name, inner.as_ref(), local_indexes)?
+                i64_option_payload_locals(name, inner.as_ref(), local_indexes, static_bindings)?
                     .into_iter()
                     .map(CraneliftI64Expr::Local),
             );
@@ -11753,8 +14196,11 @@ fn lower_i64_option_call_arg_exprs(
             payloads,
             ty: Type::Option(inner),
             ..
-        } if enum_name == "Option" && is_i64_option_local_payload_type(inner) => {
-            let payload_slot_count = i64_option_payload_slot_count(inner.as_ref());
+        } if enum_name == "Option"
+            && is_i64_option_local_payload_type_static(inner, static_bindings) =>
+        {
+            let payload_slot_count =
+                i64_option_payload_slot_count_static(inner.as_ref(), static_bindings)?;
             let (tag, payloads) = match (variant.as_str(), payloads.as_slice()) {
                 ("Some", [payload]) => (
                     CraneliftI64Expr::Literal(1),
@@ -11838,14 +14284,20 @@ fn lower_i64_result_call_arg_exprs(
         Expr::VarRef {
             name,
             ty: Type::Result(ok, err),
-        } if is_i64_result_local_payload_type(ok, err) => {
+        } if is_i64_result_local_payload_type_static(ok, err, static_bindings) => {
             let mut args = vec![CraneliftI64Expr::Local(
                 *local_indexes.get(i64_result_tag_key(name).as_str())?,
             )];
             args.extend(
-                i64_result_payload_locals(name, ok.as_ref(), err.as_ref(), local_indexes)?
-                    .into_iter()
-                    .map(CraneliftI64Expr::Local),
+                i64_result_payload_locals(
+                    name,
+                    ok.as_ref(),
+                    err.as_ref(),
+                    local_indexes,
+                    static_bindings,
+                )?
+                .into_iter()
+                .map(CraneliftI64Expr::Local),
             );
             Some(args)
         }
@@ -11855,9 +14307,13 @@ fn lower_i64_result_call_arg_exprs(
             payloads,
             ty: Type::Result(ok, err),
             ..
-        } if enum_name == "Result" && is_i64_result_local_payload_type(ok, err) => {
-            let payload_slot_count = i64_result_payload_slot_count(ok.as_ref())
-                .max(i64_result_payload_slot_count(err.as_ref()));
+        } if enum_name == "Result"
+            && is_i64_result_local_payload_type_static(ok, err, static_bindings) =>
+        {
+            let payload_slot_count =
+                i64_result_payload_slot_count_static(ok.as_ref(), static_bindings)?.max(
+                    i64_result_payload_slot_count_static(err.as_ref(), static_bindings)?,
+                );
             let (tag, payload) = lower_i64_result_variant_parts(
                 variant,
                 payloads,
@@ -12037,6 +14493,78 @@ fn lower_i64_array_call_arg_exprs(
     }
 }
 
+fn lower_i64_array_or_slice_call_arg_exprs(
+    arg: &Expr,
+    local_indexes: &HashMap<String, usize>,
+    local_conditions: &HashMap<String, CraneliftI64Condition>,
+    helper_signatures: &HashMap<&str, I64HelperSignature>,
+    static_bindings: &I64StaticBindings,
+) -> Option<Vec<CraneliftI64Expr>> {
+    if let Some(values) = lower_i64_array_call_arg_exprs(
+        arg,
+        local_indexes,
+        local_conditions,
+        helper_signatures,
+        static_bindings,
+    ) {
+        return Some(values);
+    }
+    if let Expr::VarRef {
+        name,
+        ty: Type::Slice(_) | Type::MutSlice(_),
+    } = arg
+    {
+        return lower_i64_slice_local_call_arg_exprs(name, local_indexes);
+    }
+    let Expr::Slice {
+        base, start, end, ..
+    } = arg
+    else {
+        return None;
+    };
+    let Expr::VarRef {
+        name,
+        ty: Type::Array(element, Some(base_size)),
+    } = base.as_ref()
+    else {
+        return None;
+    };
+    if !is_i64_array_param_element_type(element) {
+        return None;
+    }
+    let (start, end) = i64_static_slice_range(
+        *base_size,
+        start.as_deref(),
+        end.as_deref(),
+        static_bindings,
+    )?;
+    (start..end)
+        .map(|index| {
+            local_indexes
+                .get(i64_array_projection_key(name, index).as_str())
+                .copied()
+                .map(CraneliftI64Expr::Local)
+        })
+        .collect()
+}
+
+fn lower_i64_slice_local_call_arg_exprs(
+    name: &str,
+    local_indexes: &HashMap<String, usize>,
+) -> Option<Vec<CraneliftI64Expr>> {
+    let mut values = Vec::new();
+    for index in 0.. {
+        let Some(local) = local_indexes
+            .get(i64_array_projection_key(name, index).as_str())
+            .copied()
+        else {
+            break;
+        };
+        values.push(CraneliftI64Expr::Local(local));
+    }
+    (!values.is_empty()).then_some(values)
+}
+
 fn lower_i64_bool_argument_expr(
     expr: &Expr,
     local_indexes: &HashMap<String, usize>,
@@ -12123,6 +14651,12 @@ fn lower_i64_static_bindings(statics: &[StaticDef]) -> Option<I64StaticBindings>
                     .conditions
                     .insert(static_def.name.clone(), condition);
             }
+            Type::String | Type::Str => {
+                let value = i64_string_text(&static_def.expr, &static_bindings)?;
+                static_bindings
+                    .strings
+                    .insert(static_def.name.clone(), value);
+            }
             _ => return None,
         }
     }
@@ -12164,8 +14698,38 @@ fn i64_option_payload_slot_count(ty: &Type) -> usize {
     }
 }
 
-fn is_i64_result_local_payload_type(ok: &Type, err: &Type) -> bool {
-    is_i64_result_local_payload_variant_type(ok) && is_i64_result_local_payload_variant_type(err)
+fn is_i64_option_local_payload_type_static(ty: &Type, static_bindings: &I64StaticBindings) -> bool {
+    is_i64_option_local_payload_type(ty)
+        || matches!(ty, Type::Option(inner) if is_i64_option_local_payload_type_static(inner, static_bindings))
+        || matches!(ty, Type::Result(ok, err) if is_i64_result_local_payload_type_static(ok, err, static_bindings))
+        || matches!(ty, Type::Struct(name) if i64_scalar_static_struct_def(name, static_bindings).is_some())
+}
+
+fn i64_option_payload_slot_count_static(
+    ty: &Type,
+    static_bindings: &I64StaticBindings,
+) -> Option<usize> {
+    match ty {
+        Type::Struct(name) => Some(
+            i64_scalar_static_struct_def(name, static_bindings)?
+                .fields
+                .len(),
+        ),
+        Type::Option(inner) if is_i64_option_local_payload_type_static(inner, static_bindings) => {
+            Some(1 + i64_option_payload_slot_count_static(inner.as_ref(), static_bindings)?)
+        }
+        Type::Result(ok, err)
+            if is_i64_result_local_payload_type_static(ok, err, static_bindings) =>
+        {
+            Some(
+                1 + i64_result_payload_slot_count_static(ok.as_ref(), static_bindings)?.max(
+                    i64_result_payload_slot_count_static(err.as_ref(), static_bindings)?,
+                ),
+            )
+        }
+        ty if is_i64_option_local_payload_type(ty) => Some(i64_option_payload_slot_count(ty)),
+        _ => None,
+    }
 }
 
 fn is_i64_result_local_payload_variant_type(ty: &Type) -> bool {
@@ -12179,6 +14743,54 @@ fn i64_result_payload_slot_count(ty: &Type) -> usize {
         Type::Tuple(elements) if is_i64_tuple_param_type(elements) => elements.len(),
         Type::Array(element, Some(size)) if is_i64_array_param_element_type(element) => *size,
         _ => 1,
+    }
+}
+
+fn is_i64_result_local_payload_type_static(
+    ok: &Type,
+    err: &Type,
+    static_bindings: &I64StaticBindings,
+) -> bool {
+    is_i64_result_local_payload_variant_type_static(ok, static_bindings)
+        && is_i64_result_local_payload_variant_type_static(err, static_bindings)
+}
+
+fn is_i64_result_local_payload_variant_type_static(
+    ty: &Type,
+    static_bindings: &I64StaticBindings,
+) -> bool {
+    is_i64_result_local_payload_variant_type(ty)
+        || matches!(ty, Type::Option(inner) if is_i64_option_local_payload_type_static(inner, static_bindings))
+        || matches!(ty, Type::Result(ok, err) if is_i64_result_local_payload_type_static(ok, err, static_bindings))
+        || matches!(ty, Type::Struct(name) if i64_scalar_static_struct_def(name, static_bindings).is_some())
+}
+
+fn i64_result_payload_slot_count_static(
+    ty: &Type,
+    static_bindings: &I64StaticBindings,
+) -> Option<usize> {
+    match ty {
+        Type::Struct(name) => Some(
+            i64_scalar_static_struct_def(name, static_bindings)?
+                .fields
+                .len(),
+        ),
+        Type::Option(inner) if is_i64_option_local_payload_type_static(inner, static_bindings) => {
+            Some(1 + i64_option_payload_slot_count_static(inner.as_ref(), static_bindings)?)
+        }
+        Type::Result(ok, err)
+            if is_i64_result_local_payload_type_static(ok, err, static_bindings) =>
+        {
+            Some(
+                1 + i64_result_payload_slot_count_static(ok.as_ref(), static_bindings)?.max(
+                    i64_result_payload_slot_count_static(err.as_ref(), static_bindings)?,
+                ),
+            )
+        }
+        ty if is_i64_result_local_payload_variant_type(ty) => {
+            Some(i64_result_payload_slot_count(ty))
+        }
+        _ => None,
     }
 }
 
@@ -12220,8 +14832,8 @@ fn is_i64_function_return_type(
         || matches!(ty, Type::Tuple(elements) if is_i64_tuple_param_type(elements))
         || matches!(ty, Type::Array(element, Some(_)) if is_i64_array_param_element_type(element))
         || matches!(ty, Type::Struct(name) if i64_scalar_struct_def(name, struct_defs).is_some())
-        || matches!(ty, Type::Option(inner) if is_i64_option_local_payload_type(inner))
-        || matches!(ty, Type::Result(ok, err) if is_i64_result_local_payload_type(ok, err))
+        || matches!(ty, Type::Option(inner) if is_i64_option_local_payload_type_static(inner, static_bindings))
+        || matches!(ty, Type::Result(ok, err) if is_i64_result_local_payload_type_static(ok, err, static_bindings))
         || matches!(ty, Type::Enum(enum_name) if is_i64_enum_payload_type(enum_name, static_bindings))
 }
 
@@ -12235,13 +14847,18 @@ fn i64_return_slot_count_for_type(
         Type::Array(element, Some(size)) if is_i64_array_param_element_type(element) => Some(*size),
         Type::Tuple(elements) if is_i64_tuple_param_type(elements) => Some(elements.len()),
         Type::Struct(name) => Some(i64_scalar_struct_def(name, struct_defs)?.fields.len()),
-        Type::Option(inner) if is_i64_option_local_payload_type(inner) => {
-            Some(1 + i64_option_payload_slot_count(inner.as_ref()))
+        Type::Option(inner) if is_i64_option_local_payload_type_static(inner, static_bindings) => {
+            Some(1 + i64_option_payload_slot_count_static(inner.as_ref(), static_bindings)?)
         }
-        Type::Result(ok, err) if is_i64_result_local_payload_type(ok, err) => Some(
-            1 + i64_result_payload_slot_count(ok.as_ref())
-                .max(i64_result_payload_slot_count(err.as_ref())),
-        ),
+        Type::Result(ok, err)
+            if is_i64_result_local_payload_type_static(ok, err, static_bindings) =>
+        {
+            Some(
+                1 + i64_result_payload_slot_count_static(ok.as_ref(), static_bindings)?.max(
+                    i64_result_payload_slot_count_static(err.as_ref(), static_bindings)?,
+                ),
+            )
+        }
         Type::Enum(enum_name) if is_i64_enum_payload_type(enum_name, static_bindings) => {
             Some(1 + i64_enum_payload_slot_count(enum_name, static_bindings)?)
         }
@@ -12259,8 +14876,8 @@ fn is_i64_param_type(
         || matches!(ty, Type::Struct(name) if i64_scalar_struct_def(name, struct_defs).is_some())
         || matches!(ty, Type::Tuple(elements) if is_i64_tuple_param_type(elements))
         || matches!(ty, Type::Array(element, Some(_)) if is_i64_array_param_element_type(element))
-        || matches!(ty, Type::Option(inner) if is_i64_option_local_payload_type(inner))
-        || matches!(ty, Type::Result(ok, err) if is_i64_result_local_payload_type(ok, err))
+        || matches!(ty, Type::Option(inner) if is_i64_option_local_payload_type_static(inner, static_bindings))
+        || matches!(ty, Type::Result(ok, err) if is_i64_result_local_payload_type_static(ok, err, static_bindings))
         || matches!(ty, Type::Enum(enum_name) if is_i64_enum_payload_type(enum_name, static_bindings))
 }
 
@@ -12348,6 +14965,18 @@ fn i64_enum_payload_variant_slot_count(
                 .fields
                 .len(),
         ),
+        Type::Option(inner) if is_i64_option_local_payload_type_static(inner, static_bindings) => {
+            Some(1 + i64_option_payload_slot_count_static(inner.as_ref(), static_bindings)?)
+        }
+        Type::Result(ok, err)
+            if is_i64_result_local_payload_type_static(ok, err, static_bindings) =>
+        {
+            Some(
+                1 + i64_result_payload_slot_count_static(ok.as_ref(), static_bindings)?.max(
+                    i64_result_payload_slot_count_static(err.as_ref(), static_bindings)?,
+                ),
+            )
+        }
         _ => Some(1),
     }
 }
@@ -12389,6 +15018,8 @@ fn is_i64_enum_payload_variant_type(ty: &Type, static_bindings: &I64StaticBindin
         || matches!(ty, Type::Bool)
         || matches!(ty, Type::Tuple(elements) if is_i64_tuple_param_type(elements))
         || matches!(ty, Type::Struct(name) if i64_scalar_static_struct_def(name, static_bindings).is_some())
+        || matches!(ty, Type::Option(inner) if is_i64_option_local_payload_type_static(inner, static_bindings))
+        || matches!(ty, Type::Result(ok, err) if is_i64_result_local_payload_type_static(ok, err, static_bindings))
 }
 
 fn i64_abi_param_count(
@@ -12412,13 +15043,18 @@ fn i64_abi_param_count_for_type(
         Type::Struct(name) => Some(i64_scalar_struct_def(name, struct_defs)?.fields.len()),
         Type::Tuple(elements) if is_i64_tuple_param_type(elements) => Some(elements.len()),
         Type::Array(element, Some(size)) if is_i64_array_param_element_type(element) => Some(*size),
-        Type::Option(inner) if is_i64_option_local_payload_type(inner) => {
-            Some(1 + i64_option_payload_slot_count(inner.as_ref()))
+        Type::Option(inner) if is_i64_option_local_payload_type_static(inner, static_bindings) => {
+            Some(1 + i64_option_payload_slot_count_static(inner.as_ref(), static_bindings)?)
         }
-        Type::Result(ok, err) if is_i64_result_local_payload_type(ok, err) => Some(
-            1 + i64_result_payload_slot_count(ok.as_ref())
-                .max(i64_result_payload_slot_count(err.as_ref())),
-        ),
+        Type::Result(ok, err)
+            if is_i64_result_local_payload_type_static(ok, err, static_bindings) =>
+        {
+            Some(
+                1 + i64_result_payload_slot_count_static(ok.as_ref(), static_bindings)?.max(
+                    i64_result_payload_slot_count_static(err.as_ref(), static_bindings)?,
+                ),
+            )
+        }
         Type::Enum(enum_name) if is_i64_enum_payload_type(enum_name, static_bindings) => {
             Some(1 + i64_enum_payload_slot_count(enum_name, static_bindings)?)
         }
@@ -12926,6 +15562,9 @@ fn eval_call(
     env: &SpikeEnv,
     lines: &mut Vec<OutputLine>,
 ) -> Result<SpikeValue, Diagnostic> {
+    if is_assert_call(name) {
+        return eval_assert_call(name, args, functions, env, lines);
+    }
     if name == "len" {
         return eval_len_call(args, functions, env, lines);
     }
@@ -12964,6 +15603,9 @@ fn eval_call(
     }
     if is_async_call(name) {
         return eval_async_call(name, args, functions, env, lines);
+    }
+    if is_cli_call(name) {
+        return eval_cli_call(name, args, functions, env, lines);
     }
     if name == "env_get" {
         return eval_env_get_call(args, functions, env, lines);
@@ -13017,6 +15659,100 @@ fn eval_call(
     }
 }
 
+fn is_assert_call(name: &str) -> bool {
+    matches!(
+        name,
+        "assert_true"
+            | "assert_property"
+            | "assert_snapshot"
+            | "assert_contains"
+            | "assert_eq"
+            | "assert_case_eq"
+            | "assert_ne"
+    )
+}
+
+fn eval_assert_call(
+    name: &str,
+    args: &[Expr],
+    functions: &HashMap<&str, &Function>,
+    env: &SpikeEnv,
+    lines: &mut Vec<OutputLine>,
+) -> Result<SpikeValue, Diagnostic> {
+    match name {
+        "assert_true" => {
+            let [condition, _line, _column] = args else {
+                return Err(unsupported(
+                    "assert_true expects condition, line, and column",
+                ));
+            };
+            let condition = expect_bool(eval_expr(condition, functions, env, lines)?)?;
+            assert_result(condition, "assert_true failed")
+        }
+        "assert_property" => {
+            let [_label, condition, _line, _column] = args else {
+                return Err(unsupported(
+                    "assert_property expects label, condition, line, and column",
+                ));
+            };
+            let condition = expect_bool(eval_expr(condition, functions, env, lines)?)?;
+            assert_result(condition, "assert_property failed")
+        }
+        "assert_snapshot" => {
+            let [_label, actual, expected, _line, _column] = args else {
+                return Err(unsupported(
+                    "assert_snapshot expects label, actual, expected, line, and column",
+                ));
+            };
+            let actual = expect_text(eval_expr(actual, functions, env, lines)?, name)?;
+            let expected = expect_text(eval_expr(expected, functions, env, lines)?, name)?;
+            assert_result(actual == expected, "assert_snapshot failed")
+        }
+        "assert_contains" => {
+            let [haystack, needle, _line, _column] = args else {
+                return Err(unsupported(
+                    "assert_contains expects haystack, needle, line, and column",
+                ));
+            };
+            let haystack = expect_text(eval_expr(haystack, functions, env, lines)?, name)?;
+            let needle = expect_text(eval_expr(needle, functions, env, lines)?, name)?;
+            assert_result(haystack.contains(&needle), "assert_contains failed")
+        }
+        "assert_eq" | "assert_ne" => {
+            let [left, right, _line, _column] = args else {
+                return Err(unsupported(
+                    "assert_eq/assert_ne expects left, right, line, and column",
+                ));
+            };
+            let left = eval_expr(left, functions, env, lines)?;
+            let right = eval_expr(right, functions, env, lines)?;
+            let equal = spike_values_equal(&left, &right)?;
+            assert_result(equal == (name == "assert_eq"), &format!("{name} failed"))
+        }
+        "assert_case_eq" => {
+            let [_label, left, right, _line, _column] = args else {
+                return Err(unsupported(
+                    "assert_case_eq expects label, left, right, line, and column",
+                ));
+            };
+            let left = eval_expr(left, functions, env, lines)?;
+            let right = eval_expr(right, functions, env, lines)?;
+            assert_result(spike_values_equal(&left, &right)?, "assert_case_eq failed")
+        }
+        _ => Err(unsupported(&format!(
+            "unsupported cranelift spike assertion call {name:?}"
+        ))),
+    }
+}
+
+fn assert_result(condition: bool, message: &str) -> Result<SpikeValue, Diagnostic> {
+    if condition {
+        Ok(SpikeValue::Int(0))
+    } else {
+        Err(unsupported(message))
+    }
+}
+
 fn eval_extern_call(
     function: &Function,
     args: &[Expr],
@@ -13044,6 +15780,43 @@ fn eval_extern_call(
         _ => Err(unsupported(&format!(
             "unsupported cranelift spike extern call {:?} from {:?}",
             function.name, function.extern_library
+        ))),
+    }
+}
+
+fn is_cli_call(name: &str) -> bool {
+    matches!(name, "cli_args" | "cli_arg_count" | "cli_arg")
+}
+
+fn eval_cli_call(
+    name: &str,
+    args: &[Expr],
+    functions: &HashMap<&str, &Function>,
+    env: &SpikeEnv,
+    lines: &mut Vec<OutputLine>,
+) -> Result<SpikeValue, Diagnostic> {
+    match name {
+        "cli_args" => {
+            let [] = args else {
+                return Err(unsupported("cli_args expects no arguments"));
+            };
+            Ok(SpikeValue::Array(Vec::new()))
+        }
+        "cli_arg_count" => {
+            let [] = args else {
+                return Err(unsupported("cli_arg_count expects no arguments"));
+            };
+            Ok(SpikeValue::Int(0))
+        }
+        "cli_arg" => {
+            let [index] = args else {
+                return Err(unsupported("cli_arg expects exactly one argument"));
+            };
+            let _index = expect_signed_integer(eval_expr(index, functions, env, lines)?)?;
+            Ok(spike_option(None))
+        }
+        _ => Err(unsupported(&format!(
+            "unsupported cranelift spike CLI call {name:?}"
         ))),
     }
 }
@@ -15399,6 +18172,13 @@ fn is_net_call(name: &str) -> bool {
     matches!(
         name,
         "net_resolve"
+            | "net_tcp_listen"
+            | "net_tcp_listener_port"
+            | "net_tcp_accept"
+            | "net_tcp_read_string"
+            | "net_tcp_write_string"
+            | "net_tcp_close"
+            | "net_tcp_close_listener"
             | "net_tcp_listen_loopback_once"
             | "net_tcp_dial"
             | "net_udp_bind_loopback_once"
@@ -15437,6 +18217,76 @@ fn eval_net_call(
             Ok(spike_option(
                 net_tcp_listen_loopback_once(response, timeout).map(SpikeValue::Int),
             ))
+        }
+        "net_tcp_listen" => {
+            let [bind] = args else {
+                return Err(unsupported("net_tcp_listen expects exactly one argument"));
+            };
+            let bind = expect_text(eval_expr(bind, functions, env, lines)?, name)?;
+            Ok(SpikeValue::Int(net_tcp_listen(&bind).ok_or_else(|| {
+                unsupported("net_tcp_listen failed in cranelift spike")
+            })?))
+        }
+        "net_tcp_listener_port" => {
+            let [listener] = args else {
+                return Err(unsupported(
+                    "net_tcp_listener_port expects exactly one argument",
+                ));
+            };
+            let listener = expect_int(eval_expr(listener, functions, env, lines)?)?;
+            Ok(SpikeValue::Int(
+                net_tcp_listener_port(listener).ok_or_else(|| {
+                    unsupported("net_tcp_listener_port failed in cranelift spike")
+                })?,
+            ))
+        }
+        "net_tcp_accept" => {
+            let [listener] = args else {
+                return Err(unsupported("net_tcp_accept expects exactly one argument"));
+            };
+            let listener = expect_int(eval_expr(listener, functions, env, lines)?)?;
+            Ok(SpikeValue::Int(net_tcp_accept(listener).ok_or_else(
+                || unsupported("net_tcp_accept failed in cranelift spike"),
+            )?))
+        }
+        "net_tcp_read_string" => {
+            let [stream, max_bytes] = args else {
+                return Err(unsupported(
+                    "net_tcp_read_string expects exactly two arguments",
+                ));
+            };
+            let stream = expect_int(eval_expr(stream, functions, env, lines)?)?;
+            let max_bytes = expect_int(eval_expr(max_bytes, functions, env, lines)?)?;
+            Ok(SpikeValue::Text(
+                net_tcp_read_string(stream, max_bytes)
+                    .ok_or_else(|| unsupported("net_tcp_read_string failed in cranelift spike"))?,
+            ))
+        }
+        "net_tcp_write_string" => {
+            let [stream, message] = args else {
+                return Err(unsupported(
+                    "net_tcp_write_string expects exactly two arguments",
+                ));
+            };
+            let stream = expect_int(eval_expr(stream, functions, env, lines)?)?;
+            let message = expect_text(eval_expr(message, functions, env, lines)?, name)?;
+            Ok(SpikeValue::Int(net_tcp_write_string(stream, &message)))
+        }
+        "net_tcp_close" => {
+            let [stream] = args else {
+                return Err(unsupported("net_tcp_close expects exactly one argument"));
+            };
+            let stream = expect_int(eval_expr(stream, functions, env, lines)?)?;
+            Ok(SpikeValue::Int(net_tcp_close(stream)))
+        }
+        "net_tcp_close_listener" => {
+            let [listener] = args else {
+                return Err(unsupported(
+                    "net_tcp_close_listener expects exactly one argument",
+                ));
+            };
+            let listener = expect_int(eval_expr(listener, functions, env, lines)?)?;
+            Ok(SpikeValue::Int(net_tcp_close_listener(listener)))
         }
         "net_tcp_dial" => {
             let [host, port, message, timeout_ms] = args else {
@@ -15495,6 +18345,106 @@ fn net_loopback_socket_addr(host: &str, port: i64) -> Option<SocketAddr> {
     }
 }
 
+fn spike_tcp_listeners() -> &'static Mutex<HashMap<i64, SpikeTcpListener>> {
+    SPIKE_TCP_LISTENERS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn spike_tcp_streams() -> &'static Mutex<HashMap<i64, SpikeTcpStream>> {
+    SPIKE_TCP_STREAMS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn spike_tcp_next_handle() -> i64 {
+    SPIKE_TCP_NEXT_HANDLE.fetch_add(1, Ordering::Relaxed)
+}
+
+fn net_tcp_listen(bind: &str) -> Option<i64> {
+    let addr = http_parse_loopback_bind(bind)?;
+    let handle = spike_tcp_next_handle();
+    let port = if addr.port() == 0 {
+        20_000 + handle.rem_euclid(30_000)
+    } else {
+        i64::from(addr.port())
+    };
+    spike_tcp_listeners()
+        .lock()
+        .ok()?
+        .insert(handle, SpikeTcpListener { port });
+    Some(handle)
+}
+
+fn net_tcp_listener_port(listener: i64) -> Option<i64> {
+    let listeners = spike_tcp_listeners().lock().ok()?;
+    Some(listeners.get(&listener)?.port)
+}
+
+fn net_tcp_accept(listener: i64) -> Option<i64> {
+    let listeners = spike_tcp_listeners().lock().ok()?;
+    listeners.get(&listener)?;
+    drop(listeners);
+    let handle = spike_tcp_next_handle();
+    spike_tcp_streams().lock().ok()?.insert(
+        handle,
+        SpikeTcpStream {
+            received: String::new(),
+            written: String::new(),
+        },
+    );
+    Some(handle)
+}
+
+fn net_tcp_read_string(stream: i64, max_bytes: i64) -> Option<String> {
+    let streams = spike_tcp_streams().lock().ok()?;
+    let stream = streams.get(&stream)?;
+    let max_bytes = usize::try_from(max_bytes.max(0)).ok()?;
+    Some(stream.received.chars().take(max_bytes).collect())
+}
+
+fn net_tcp_write_string(stream: i64, message: &str) -> i64 {
+    let Ok(mut streams) = spike_tcp_streams().lock() else {
+        return -1;
+    };
+    let Some(stream) = streams.get_mut(&stream) else {
+        return -1;
+    };
+    stream.written.push_str(message);
+    i64::try_from(message.len()).unwrap_or(-1)
+}
+
+fn net_tcp_close(stream: i64) -> i64 {
+    if spike_tcp_streams()
+        .lock()
+        .ok()
+        .and_then(|mut streams| streams.remove(&stream))
+        .is_some()
+    {
+        0
+    } else {
+        -1
+    }
+}
+
+fn net_tcp_close_listener(listener: i64) -> i64 {
+    if spike_tcp_listeners()
+        .lock()
+        .ok()
+        .and_then(|mut listeners| listeners.remove(&listener))
+        .is_some()
+    {
+        0
+    } else {
+        -1
+    }
+}
+
+fn net_tcp_registered_loopback_echo(host: &str, port: i64, message: &str) -> Option<String> {
+    net_loopback_socket_addr(host, port)?;
+    let listeners = spike_tcp_listeners().lock().ok()?;
+    listeners
+        .values()
+        .any(|listener| listener.port == port)
+        .then(|| message.to_string())
+}
+
 fn net_tcp_listen_loopback_once(response: String, timeout: std::time::Duration) -> Option<i64> {
     let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).ok()?;
     listener.set_nonblocking(true).ok()?;
@@ -15551,6 +18501,9 @@ fn net_tcp_dial(
     message: String,
     timeout: std::time::Duration,
 ) -> Option<String> {
+    if let Some(response) = net_tcp_registered_loopback_echo(&host, port, &message) {
+        return Some(response);
+    }
     let addr = net_loopback_socket_addr(&host, port)?;
     let mut stream = std::net::TcpStream::connect_timeout(&addr, timeout).ok()?;
     stream.set_read_timeout(Some(timeout)).ok()?;
@@ -16139,26 +19092,174 @@ fn eval_fs_read_call(
         return Err(unsupported("fs_read expects exactly one argument"));
     };
     let path = expect_text(eval_expr(path, functions, env, lines)?, "fs_read")?;
-    let Some(candidate) = spike_fs_existing_candidate(env, &path)? else {
-        return Ok(spike_option(None));
-    };
-    let Some(metadata) = std::fs::metadata(&candidate).ok() else {
-        return Ok(spike_option(None));
-    };
+    Ok(spike_option(
+        spike_fs_read_text(env, &path)?.map(SpikeValue::Text),
+    ))
+}
+
+fn spike_fs_read_text(env: &SpikeEnv, path: &str) -> Result<Option<String>, Diagnostic> {
+    let fs_root = spike_fs_root(env)?;
+    Ok(spike_fs_read_text_for_root(&fs_root, path))
+}
+
+fn spike_fs_read_text_for_root(fs_root: &Path, path: &str) -> Option<String> {
+    let candidate = spike_fs_existing_candidate_for_root(fs_root, path)?;
+    let metadata = std::fs::metadata(&candidate).ok()?;
     if !metadata.is_file() || metadata.len() > SPIKE_MAX_FS_READ_BYTES {
-        return Ok(spike_option(None));
+        return None;
     }
-    let Some(file) = std::fs::File::open(&candidate).ok() else {
-        return Ok(spike_option(None));
-    };
+    let file = std::fs::File::open(&candidate).ok()?;
     let mut reader = file.take(SPIKE_MAX_FS_READ_BYTES + 1);
     let mut content = String::new();
     if reader.read_to_string(&mut content).is_err()
         || content.len() as u64 > SPIKE_MAX_FS_READ_BYTES
     {
-        return Ok(spike_option(None));
+        return None;
     }
-    Ok(spike_option(Some(SpikeValue::Text(content))))
+    Some(content)
+}
+
+fn i64_fs_write_result(
+    name: &str,
+    args: &[Expr],
+    static_bindings: &I64StaticBindings,
+) -> Option<i64> {
+    let fs_root = static_bindings.fs_root.as_deref()?;
+    match name {
+        "fs_write" => {
+            let (path, content) = i64_fs_path_content(args, static_bindings)?;
+            if content.len() > SPIKE_MAX_FS_WRITE_BYTES {
+                return Some(-1);
+            }
+            Some(
+                spike_fs_write_candidate_for_root(fs_root, &path, false)
+                    .and_then(|candidate| std::fs::write(candidate, content).ok())
+                    .map(|()| 0)
+                    .unwrap_or(-1),
+            )
+        }
+        "fs_create" => {
+            let path = i64_fs_path(args, static_bindings)?;
+            Some(
+                spike_fs_write_candidate_for_root(fs_root, &path, false)
+                    .and_then(|candidate| {
+                        std::fs::OpenOptions::new()
+                            .write(true)
+                            .create_new(true)
+                            .open(candidate)
+                            .ok()
+                    })
+                    .map(|_| 0)
+                    .unwrap_or(-1),
+            )
+        }
+        "fs_append" => {
+            let (path, content) = i64_fs_path_content(args, static_bindings)?;
+            if content.len() > SPIKE_MAX_FS_WRITE_BYTES {
+                return Some(-1);
+            }
+            Some(
+                spike_fs_write_candidate_for_root(fs_root, &path, false)
+                    .and_then(|candidate| {
+                        let mut file = std::fs::OpenOptions::new()
+                            .append(true)
+                            .create(true)
+                            .open(candidate)
+                            .ok()?;
+                        std::io::Write::write_all(&mut file, content.as_bytes()).ok()
+                    })
+                    .map(|()| 0)
+                    .unwrap_or(-1),
+            )
+        }
+        "fs_mkdir" => {
+            let path = i64_fs_path(args, static_bindings)?;
+            Some(
+                spike_fs_write_candidate_for_root(fs_root, &path, false)
+                    .and_then(|candidate| std::fs::create_dir(candidate).ok())
+                    .map(|()| 0)
+                    .unwrap_or(-1),
+            )
+        }
+        "fs_mkdir_all" => {
+            let path = i64_fs_path(args, static_bindings)?;
+            Some(
+                spike_fs_write_candidate_for_root(fs_root, &path, true)
+                    .and_then(|candidate| std::fs::create_dir_all(candidate).ok())
+                    .map(|()| 0)
+                    .unwrap_or(-1),
+            )
+        }
+        "fs_remove_file" => {
+            let path = i64_fs_path(args, static_bindings)?;
+            Some(
+                spike_fs_existing_candidate_for_root(fs_root, &path)
+                    .and_then(|candidate| {
+                        std::fs::metadata(&candidate)
+                            .ok()
+                            .filter(|metadata| metadata.is_file())?;
+                        std::fs::remove_file(candidate).ok()
+                    })
+                    .map(|()| 0)
+                    .unwrap_or(-1),
+            )
+        }
+        "fs_remove_dir" => {
+            let path = i64_fs_path(args, static_bindings)?;
+            Some(
+                spike_fs_existing_candidate_for_root(fs_root, &path)
+                    .and_then(|candidate| {
+                        std::fs::metadata(&candidate)
+                            .ok()
+                            .filter(|metadata| metadata.is_dir())?;
+                        std::fs::remove_dir(candidate).ok()
+                    })
+                    .map(|()| 0)
+                    .unwrap_or(-1),
+            )
+        }
+        "fs_replace" => {
+            let (path, content) = i64_fs_path_content(args, static_bindings)?;
+            if content.len() > SPIKE_MAX_FS_WRITE_BYTES {
+                return Some(-1);
+            }
+            Some(
+                spike_fs_write_candidate_for_root(fs_root, &path, false)
+                    .and_then(|candidate| std::fs::write(candidate, content).ok())
+                    .map(|()| 0)
+                    .unwrap_or(-1),
+            )
+        }
+        _ => None,
+    }
+}
+
+fn i64_fs_path(args: &[Expr], static_bindings: &I64StaticBindings) -> Option<String> {
+    let [path] = args else {
+        return None;
+    };
+    i64_string_text(path, static_bindings)
+}
+
+fn i64_fs_path_content(
+    args: &[Expr],
+    static_bindings: &I64StaticBindings,
+) -> Option<(String, String)> {
+    let [path, content] = args else {
+        return None;
+    };
+    Some((
+        i64_string_text(path, static_bindings)?,
+        i64_string_text(content, static_bindings)?,
+    ))
+}
+
+fn i64_net_resolve_text(host: &str) -> Option<String> {
+    (host, 0)
+        .to_socket_addrs()
+        .ok()
+        .and_then(|mut addrs| addrs.next())
+        .map(|addr| addr.ip().to_string())
 }
 
 fn eval_fs_write_call(
@@ -16310,18 +19411,16 @@ fn spike_fs_root(env: &SpikeEnv) -> Result<PathBuf, Diagnostic> {
 
 fn spike_fs_existing_candidate(env: &SpikeEnv, path: &str) -> Result<Option<PathBuf>, Diagnostic> {
     let fs_root = spike_fs_root(env)?;
-    let Some(candidate) = spike_fs_join_candidate(&fs_root, path) else {
-        return Ok(None);
-    };
-    let Ok(canonical_root) = std::fs::canonicalize(fs_root) else {
-        return Ok(None);
-    };
-    let Ok(canonical_candidate) = std::fs::canonicalize(candidate) else {
-        return Ok(None);
-    };
-    Ok(canonical_candidate
+    Ok(spike_fs_existing_candidate_for_root(&fs_root, path))
+}
+
+fn spike_fs_existing_candidate_for_root(fs_root: &Path, path: &str) -> Option<PathBuf> {
+    let candidate = spike_fs_join_candidate(fs_root, path)?;
+    let canonical_root = std::fs::canonicalize(fs_root).ok()?;
+    let canonical_candidate = std::fs::canonicalize(candidate).ok()?;
+    canonical_candidate
         .starts_with(canonical_root)
-        .then_some(canonical_candidate))
+        .then_some(canonical_candidate)
 }
 
 fn spike_fs_write_candidate(
@@ -16330,16 +19429,26 @@ fn spike_fs_write_candidate(
     allow_missing_ancestors: bool,
 ) -> Result<Option<PathBuf>, Diagnostic> {
     let fs_root = spike_fs_root(env)?;
-    let Some(candidate) = spike_fs_join_candidate(&fs_root, path) else {
-        return Ok(None);
-    };
-    let Ok(canonical_root) = std::fs::canonicalize(&fs_root) else {
-        return Ok(None);
+    Ok(spike_fs_write_candidate_for_root(
+        &fs_root,
+        path,
+        allow_missing_ancestors,
+    ))
+}
+
+fn spike_fs_write_candidate_for_root(
+    fs_root: &Path,
+    path: &str,
+    allow_missing_ancestors: bool,
+) -> Option<PathBuf> {
+    let candidate = spike_fs_join_candidate(fs_root, path)?;
+    let Ok(canonical_root) = std::fs::canonicalize(fs_root) else {
+        return None;
     };
     if let Ok(canonical_candidate) = std::fs::canonicalize(&candidate) {
-        return Ok(canonical_candidate
+        return canonical_candidate
             .starts_with(canonical_root)
-            .then_some(canonical_candidate));
+            .then_some(canonical_candidate);
     }
     if matches!(
         std::fs::symlink_metadata(&candidate),
@@ -16350,29 +19459,25 @@ fn spike_fs_write_candidate(
     let parent = candidate.parent()?;
     if !allow_missing_ancestors {
         let Ok(canonical_parent) = std::fs::canonicalize(parent) else {
-            return Ok(None);
+            return None;
         };
         if !canonical_parent.starts_with(&canonical_root) {
-            return Ok(None);
+            return None;
         }
-        let Some(file_name) = candidate.file_name() else {
-            return Ok(None);
-        };
-        return Ok(Some(canonical_parent.join(file_name)));
+        let file_name = candidate.file_name()?;
+        return Some(canonical_parent.join(file_name));
     }
     let mut ancestor = parent;
     while !ancestor.exists() {
-        let Some(parent) = ancestor.parent() else {
-            return Ok(None);
-        };
+        let parent = ancestor.parent()?;
         ancestor = parent;
     }
     let Ok(canonical_ancestor) = std::fs::canonicalize(ancestor) else {
-        return Ok(None);
+        return None;
     };
-    Ok(canonical_ancestor
+    canonical_ancestor
         .starts_with(canonical_root)
-        .then_some(candidate))
+        .then_some(candidate)
 }
 
 fn spike_fs_join_candidate(package_root: &Path, path: &str) -> Option<PathBuf> {
@@ -16404,6 +19509,7 @@ fn eval_process_status_call(
     let status = match command.as_str() {
         "/usr/bin/true" => 0,
         "/usr/bin/false" => 1,
+        "__axiom_stage1_missing_binary__" => -1,
         _ => {
             return Err(unsupported(
                 "process_status spike only permits allowlisted deterministic commands",
@@ -17313,12 +20419,18 @@ fn eval_compare(
 ) -> Result<SpikeValue, Diagnostic> {
     let left = eval_expr(lhs, functions, env, lines)?;
     let right = eval_expr(rhs, functions, env, lines)?;
-    let result = match (left, right) {
-        (SpikeValue::Int(left), SpikeValue::Int(right)) => compare_ord(op, left, right),
-        (SpikeValue::UInt(left), SpikeValue::UInt(right)) => compare_ord(op, left, right),
-        (SpikeValue::Float(left), SpikeValue::Float(right)) => compare_float(op, left, right)?,
-        (SpikeValue::Bool(left), SpikeValue::Bool(right)) => compare_eq(op, left, right)?,
-        (SpikeValue::Text(left), SpikeValue::Text(right)) => compare_eq(op, left, right)?,
+    let result = match (&left, &right) {
+        (SpikeValue::Int(left), SpikeValue::Int(right)) => compare_ord(op, *left, *right),
+        (SpikeValue::UInt(left), SpikeValue::UInt(right)) => compare_ord(op, *left, *right),
+        (SpikeValue::Float(left), SpikeValue::Float(right)) => compare_float(op, *left, *right)?,
+        (SpikeValue::Bool(left), SpikeValue::Bool(right)) => compare_eq(op, *left, *right)?,
+        (SpikeValue::Text(left), SpikeValue::Text(right)) => {
+            compare_eq(op, left.as_str(), right.as_str())?
+        }
+        _ if matches!(op, CompareOp::Eq | CompareOp::Ne) => {
+            let equal = spike_values_equal(&left, &right)?;
+            matches!(op, CompareOp::Eq) == equal
+        }
         _ => return Err(unsupported("mismatched comparison operands")),
     };
     Ok(SpikeValue::Bool(result))
@@ -17355,6 +20467,126 @@ fn compare_eq<T: Eq>(op: CompareOp, left: T, right: T) -> Result<bool, Diagnosti
         CompareOp::Ne => Ok(left != right),
         _ => Err(unsupported("only equality comparisons are supported here")),
     }
+}
+
+fn spike_values_equal(left: &SpikeValue, right: &SpikeValue) -> Result<bool, Diagnostic> {
+    match (left, right) {
+        (SpikeValue::Int(left), SpikeValue::Int(right)) => Ok(left == right),
+        (SpikeValue::UInt(left), SpikeValue::UInt(right)) => Ok(left == right),
+        (SpikeValue::Float(left), SpikeValue::Float(right)) => {
+            if !left.is_finite() || !right.is_finite() {
+                return Err(unsupported("non-finite float comparison"));
+            }
+            Ok(left == right)
+        }
+        (SpikeValue::Bool(left), SpikeValue::Bool(right)) => Ok(left == right),
+        (SpikeValue::Text(left), SpikeValue::Text(right)) => Ok(left == right),
+        (
+            SpikeValue::Struct {
+                name: left_name,
+                fields: left_fields,
+            },
+            SpikeValue::Struct {
+                name: right_name,
+                fields: right_fields,
+            },
+        ) => Ok(left_name == right_name && named_spike_values_equal(left_fields, right_fields)?),
+        (
+            SpikeValue::Enum {
+                enum_name: left_enum,
+                variant: left_variant,
+                field_names: left_fields,
+                payloads: left_payloads,
+            },
+            SpikeValue::Enum {
+                enum_name: right_enum,
+                variant: right_variant,
+                field_names: right_fields,
+                payloads: right_payloads,
+            },
+        ) => Ok(left_enum == right_enum
+            && left_variant == right_variant
+            && left_fields == right_fields
+            && spike_value_slices_equal(left_payloads, right_payloads)?),
+        (SpikeValue::Tuple(left), SpikeValue::Tuple(right))
+        | (SpikeValue::Array(left), SpikeValue::Array(right)) => {
+            spike_value_slices_equal(left, right)
+        }
+        (SpikeValue::Map(left), SpikeValue::Map(right)) => spike_maps_equal(left, right),
+        (
+            SpikeValue::Task { .. }
+            | SpikeValue::JoinHandle(_)
+            | SpikeValue::AsyncChannel { .. }
+            | SpikeValue::SelectResult { .. },
+            _,
+        )
+        | (
+            _,
+            SpikeValue::Task { .. }
+            | SpikeValue::JoinHandle(_)
+            | SpikeValue::AsyncChannel { .. }
+            | SpikeValue::SelectResult { .. },
+        ) => Err(unsupported(
+            "runtime handle equality is not supported by the cranelift spike",
+        )),
+        _ => Ok(false),
+    }
+}
+
+fn named_spike_values_equal(
+    left: &[(String, SpikeValue)],
+    right: &[(String, SpikeValue)],
+) -> Result<bool, Diagnostic> {
+    if left.len() != right.len() {
+        return Ok(false);
+    }
+    left.iter().zip(right.iter()).try_fold(
+        true,
+        |equal, ((left_name, left), (right_name, right))| {
+            Ok::<_, Diagnostic>(
+                equal && left_name == right_name && spike_values_equal(left, right)?,
+            )
+        },
+    )
+}
+
+fn spike_value_slices_equal(left: &[SpikeValue], right: &[SpikeValue]) -> Result<bool, Diagnostic> {
+    if left.len() != right.len() {
+        return Ok(false);
+    }
+    left.iter()
+        .zip(right.iter())
+        .try_fold(true, |equal, (left, right)| {
+            Ok::<_, Diagnostic>(equal && spike_values_equal(left, right)?)
+        })
+}
+
+fn spike_maps_equal(
+    left: &[(SpikeValue, SpikeValue)],
+    right: &[(SpikeValue, SpikeValue)],
+) -> Result<bool, Diagnostic> {
+    if left.len() != right.len() {
+        return Ok(false);
+    }
+    let mut matched = vec![false; right.len()];
+    for (left_key, left_value) in left {
+        let mut found = false;
+        for (index, (right_key, right_value)) in right.iter().enumerate() {
+            if matched[index] || !map_keys_equal(left_key, right_key)? {
+                continue;
+            }
+            if !spike_values_equal(left_value, right_value)? {
+                return Ok(false);
+            }
+            matched[index] = true;
+            found = true;
+            break;
+        }
+        if !found {
+            return Ok(false);
+        }
+    }
+    Ok(true)
 }
 
 fn expect_bool(value: SpikeValue) -> Result<bool, Diagnostic> {

@@ -1173,6 +1173,7 @@ fn i64_function_refs(
 }
 
 fn emit_i64_stmts(
+    module: &mut ObjectModule,
     builder: &mut FunctionBuilder<'_>,
     locals: &[Variable],
     function_refs: &[FuncRef],
@@ -1197,6 +1198,7 @@ fn emit_i64_stmts(
 }
 
 fn emit_i64_stmt(
+    module: &mut ObjectModule,
     builder: &mut FunctionBuilder<'_>,
     locals: &[Variable],
     function_refs: &[FuncRef],
@@ -1650,6 +1652,7 @@ fn emit_i64_call_assign(
 }
 
 fn emit_i64_exit_body(
+    module: &mut ObjectModule,
     builder: &mut FunctionBuilder<'_>,
     locals: &[Variable],
     function_refs: &[FuncRef],
@@ -1755,6 +1758,7 @@ fn emit_i64_exit_body(
 }
 
 fn emit_i64_value_body(
+    module: &mut ObjectModule,
     builder: &mut FunctionBuilder<'_>,
     locals: &[Variable],
     function_refs: &[FuncRef],
