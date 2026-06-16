@@ -333,13 +333,12 @@ still far from the stated 1.0 target for service and agent workloads.
 
 ### Backend and tooling gaps
 
-- Native builds still default to generating Rust and invoking `rustc`.
-  `axiomc build stage1/examples/hello --backend cranelift` is an opt-in
-  direct-object spike: it folds the supported scalar MIR subset into print
-  lines, emits a Cranelift object, links it with the host linker, and leaves
-  generated Rust as the production backend.
+- `axiomc build` now defaults to the direct-native Cranelift backend, with
+  `--backend generated-rust` retained as an explicit compatibility fallback.
+  The direct-native path folds the supported MIR subset into print lines, emits
+  a Cranelift object, and links it with the host linker.
 - The backend-selection surface remains preparatory backend plumbing for later
-  native-backend expansion. `generated-rust` is still the default and only broad
+  native-backend expansion. `generated-rust` remains the broad compatibility
   backend; `cranelift` is intentionally limited to scalar print-line programs,
   typed numeric scalars with width- and signedness-aware casts, static scalar
   globals, enum variants with direct match arms, struct literals and field
