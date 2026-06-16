@@ -45,8 +45,8 @@ helpers, JSON value and serdes helpers, LSP/doc/testing helpers, plus async,
 CLI's no-argument path, collections, crypto hash/MAC, env allowlisted and
 unrestricted-migration reads, encoding, fs read/write, HTTP's closed-port
 client path, io, JSON, logging, process-status missing-binary handling, regex,
-sync, string builder, and time. It is direct-native example evidence for the
-checked runtime ABI contract, not a
+sync, string builder, and time. It is direct-native example evidence for #1001,
+not a
 replacement for full
 `stage1-smoke` parity; examples that still require broader capability policy or
 runtime parity remain outside this smoke target.
@@ -338,134 +338,200 @@ The `fs.read` row now has partial Cranelift evidence for `std/fs.ax`
 package without the `fs` capability fails before backend lowering. The
 direct-native i64 path now also lowers literal-path `fs_read(...)` calls and the
 public `std/fs.ax` `read_file(...)` wrapper into native process exit status by
-selecting `Option<string>` match arms at compile time for present and missing
-package-root-scoped files, using the same canonicalized `fs_root`, file-only,
-UTF-8, and maximum-size guard as the Cranelift spike. Full runtime-time
-filesystem access, write-side filesystem wrappers, manifest policy parity,
-runtime filesystem binding, and audit parity remain open under #1001.
+performing runtime native file length checks for direct `Option<string>` matches
+that use `len(value)`, returning the runtime byte length or the `None` arm when
+the file is absent, inaccessible, or above the read cap. Literal paths are still
+resolved through the package-root `fs_root` guard before codegen and are now
+revalidated with `realpath(...)` against the canonical `fs_root` immediately
+before runtime length checks. The symlink regression smoke builds while the
+literal read target is an in-root file, swaps that target to an out-of-root
+symlink before runtime, and proves the native binary selects the denied `None`
+arm. These read-length paths now append best-effort host audit JSONL to
+`AXIOM_HOST_AUDIT_LOG` without including path or file-content secrets, recording
+nonnegative read lengths as `ok` and missing/denied reads as `denied`. This
+runtime native file length check can now also be stored in a local
+`Option<string>` and matched later for supported `len(value)` expression and
+statement matches without reading the build-time fixture contents. This native
+read path currently opts out for programs that contain write-side filesystem
+calls so existing write/read sequencing stays on the prior path. General string
+file contents beyond length projection, non-literal path binding, write-side
+filesystem wrappers, manifest policy parity, and runtime filesystem binding
+remain open under #1001.
 
 The DNS row now has partial Cranelift evidence: the spike builds and runs a
-`std/net.ax` package resolving `localhost` through host DNS without generated
-Rust and returns the public `Option<string>` shape. The direct-native i64 path
-now also lowers known-host `net_resolve(...)` calls and the public `std/net.ax`
+`std/net.ax` package resolving `localhost` through host DNS while the public
+smoke asserts `generated_rust` is null and returns the public `Option<string>`
+shape. The direct-native i64 path now also lowers known-host `net_resolve(...)`
+calls and the public `std/net.ax`
 `resolve(...)` wrapper into native process exit status by selecting
-`Option<string>` match arms at compile time for `localhost`. Packages without
-the `net` capability still fail before backend lowering. Full runtime-time DNS
-policy, non-loopback coverage, resolver portability, and audit parity remain
-open under #1001.
+`Option<string>` match arms at compile time for `localhost`; those known-host
+results can also be stored in local `Option<string>` values and matched later in
+supported length-projection expression and statement contexts without generated
+Rust. Packages without the `net` capability still fail before backend lowering.
+Full runtime-time DNS policy, non-loopback coverage, resolver portability, and
+audit parity remain open under #1001.
 
 The TCP row now has partial Cranelift evidence: the spike builds and runs
-`std/net.ax` `tcp_listen_loopback_once(...)` over `127.0.0.1` without generated
-Rust and returns a loopback port. The spike now also builds and runs
-`std/async_net.ax` loopback TCP `listen`, `local_port`, `accept`, `recv_text`,
-`send_text`, `close`, `close_listener`, and paired `tcp_dial` flows without
-generated Rust. The direct-native i64 path now also lowers known-response
+`std/net.ax` `tcp_listen_loopback_once(...)` over `127.0.0.1` while the public
+smoke asserts `generated_rust` is null and returns a loopback port. The spike
+now also builds and runs `std/async_net.ax` loopback TCP `listen`, `local_port`,
+`accept`, `recv_text`, `send_text`, `close`, `close_listener`, and paired
+`tcp_dial` flows without generated Rust. The direct-native i64 path now also lowers known-response
 `net_tcp_listen_loopback_once(...)` and public `std/net.ax`
 `tcp_listen_loopback_once(...)` calls into native process exit status by
 selecting `Option<int>` match arms at compile time for successful loopback
-binds. Packages without the `net` capability still fail before backend
+binds; public loopback results can also be stored in local `Option<int>` values
+and matched later in supported expression and statement contexts without
+generated Rust. Packages without the `net` capability still fail before backend
 lowering. General runtime-time TCP socket lifecycle APIs, non-loopback policy
 coverage, timeout parity, and audit parity remain open under #1001.
 
 The UDP row now has partial Cranelift evidence: the spike builds and runs
-`std/net.ax` `udp_bind_loopback_once(...)` over `127.0.0.1` without generated
-Rust and returns a loopback port. The direct-native i64 path now also lowers
+`std/net.ax` `udp_bind_loopback_once(...)` over `127.0.0.1` while the same
+public loopback smoke asserts `generated_rust` is null and returns a loopback
+port. The direct-native i64 path now also lowers
 known-response `net_udp_bind_loopback_once(...)` and public `std/net.ax`
 `udp_bind_loopback_once(...)` calls into native process exit status by selecting
-`Option<int>` match arms at compile time for successful loopback binds. Packages
-without the `net` capability still fail before backend lowering. Paired
-dynamic-port send/recv coverage, full UDP socket lifecycle APIs, non-loopback
-policy coverage, timeout parity, and audit parity remain open under #1001.
+`Option<int>` match arms at compile time for successful loopback binds; public
+loopback results can also be stored in local `Option<int>` values and matched
+later in supported expression and statement contexts without generated Rust.
+Packages without the `net` capability still fail before backend lowering.
+Paired dynamic-port send/recv coverage, full UDP socket lifecycle APIs,
+non-loopback policy coverage, timeout parity, and audit parity remain open under
+#1001.
 
-The filesystem write row now has partial Cranelift evidence: the spike
-evaluates `std/fs.ax` write helpers over configured `fs_root`-scoped literal
-paths during compilation and emits the resulting output, covering `mkdir_all`,
-`write_file`, `append_file`, readback, `replace_file`, `create_file`,
-`remove_file`, and `remove_dir`. It also covers `fs_root` scoping and preserves
-the public manifest-policy denial for a package with `fs = true` and
-`"fs:write" = false` that calls `std/fs.ax` `write_file(...)`. The
-direct-native i64 path now also lowers literal-path `mkdir_all`, `write_file`,
-`append_file`, `replace_file`, `create_file`, `remove_file`, and `remove_dir`
-calls, including public `std/fs.ax` wrappers, into native process exit status
-without generated Rust by executing the same `fs_root`-scoped candidate checks
-and status-code convention used by the spike. Full runtime-time filesystem
-writes, atomic replace parity, TOCTOU hardening, and audit parity remain open
-under #1001.
+The filesystem write row now has partial Cranelift evidence: the spike evaluates
+`std/fs.ax` write helpers over configured `fs_root`-scoped literal paths during
+compilation and emits the resulting output, covering `mkdir_all`, `write_file`,
+`append_file`, readback, `replace_file`, `create_file`, `remove_file`, and
+`remove_dir`, with public write and `fs_root` smokes now asserting
+`generated_rust` is null. It also covers `fs_root` scoping and preserves the
+public manifest-policy denial for a package with `fs = true` and `"fs:write" =
+false` that calls `std/fs.ax` `write_file(...)`. The direct-native i64 path now
+also lowers literal-path `fs_write(...)` calls and public `std/fs.ax`
+`write_file(...)` wrappers into native object code that performs the
+`fs_root`-guarded create/truncate/write/close sequence at runtime, and lowers
+literal-path `fs_append(...)` calls and public `std/fs.ax` `append_file(...)`
+wrappers into native append-mode open/write/close execution. Literal-path
+`fs_replace(...)` calls and public `std/fs.ax` `replace_file(...)` wrappers now
+lower into adjacent temp-file write/close followed by native `rename(...)`, with
+temp cleanup on failure.
+Literal-path `fs_remove_file(...)` calls and public `std/fs.ax`
+`remove_file(...)` wrappers now lower into native `unlink(...)` execution.
+Literal-path `fs_create(...)` calls and public `std/fs.ax` `create_file(...)`
+wrappers now lower into native exclusive file creation. Literal-path
+`fs_mkdir(...)`/`fs_remove_dir(...)` calls and public `std/fs.ax`
+`mkdir(...)`/`remove_dir(...)` wrappers now lower into native directory
+create/remove execution. Literal-path `fs_mkdir_all(...)` calls and public
+`std/fs.ax` `mkdir_all(...)` wrappers now lower into runtime native recursive
+directory creation with final directory verification. These paths return the
+existing status-code convention without generated Rust and now append
+best-effort host audit JSONL to `AXIOM_HOST_AUDIT_LOG` without including path or
+content secrets. The runtime smoke asserts the target files and directories are
+not created or removed during build, then appear, are replaced or removed, and
+the created empty file remains only after the native binary runs. The native
+runtime now revalidates write-side filesystem targets with `realpath(...)`
+against the canonical `fs_root` immediately before mutation, falling back to
+the parent or nearest existing ancestor when creating missing paths; the
+regression smoke builds while an allowed target is absent, swaps it to an
+out-of-root symlink before runtime, and proves the native binary returns a
+denied status without overwriting the outside file.
 
 The direct-native crypto hash slice is still marked partial: the Cranelift
-spike can build and run `std/crypto_hash.ax` `sha256(...)` without generated
-Rust, and crypto capability denials still happen before backend lowering. The
-direct-native i64 path now also lowers known-input `crypto_sha256(...)` string
+spike can build and run `std/crypto_hash.ax` `sha256(...)` while the public
+smoke asserts `generated_rust` is null, and crypto capability denials still
+happen before backend lowering. The direct-native i64 path now also lowers
+known-input `crypto_sha256(...)` string
 results and imported public `std/crypto_hash.ax` `sha256(...)` wrapper results
 into length and comparison conditions that can feed a native process exit
 status without generated Rust. Supported runtime string-projection inputs can
 also feed fixed SHA-256 hex length projections directly or through
 `string_clone(...)` over a projection local without materializing a general
-runtime string value.
+runtime string value. Those direct-native SHA-256 length projections now append
+best-effort host audit JSONL to `AXIOM_HOST_AUDIT_LOG`, recording only typed
+input metadata and outcome without recording input text or digest values.
 Random, signature, AEAD, dynamic runtime hash execution, and broader crypto
 audit parity remain open.
 
 The direct-native crypto MAC slice is now marked partial: the Cranelift spike
 can build and run `std/crypto_mac.ax` HMAC-SHA256, HMAC-SHA512, verification
 helpers, string constant-time equality, and byte-slice constant-time equality
-without generated Rust. A package without the `crypto` capability fails before
-backend lowering. The direct-native i64 path now also lowers known-input
+while the public smoke asserts `generated_rust` is null. A package without the
+`crypto` capability fails before backend lowering. The direct-native i64 path
+now also lowers known-input
 `crypto_hmac_sha256(...)` and `crypto_hmac_sha512(...)` string results into
 length and comparison conditions that can feed a native process exit status
 without generated Rust. Supported runtime string-projection inputs can also feed
 fixed HMAC hex length projections directly or through `string_clone(...)` over
-a projection local without materializing a general runtime string value. Known-input
-`crypto_constant_time_eq(...)` over known string values lowers into native
+a projection local without materializing a general runtime string value. Those
+direct-native HMAC length projections now append best-effort host audit JSONL
+to `AXIOM_HOST_AUDIT_LOG`, recording only typed input metadata and outcome
+without recording key, message, or tag values.
+Known-input `crypto_constant_time_eq(...)` over known string values lowers into native
 boolean conditions. It also lowers
 `crypto_constant_time_eq_u8(...)` over narrow fixed-array/static-slice `u8`
 inputs into native boolean conditions. Imported public `std/crypto_mac.ax`
 wrappers for `hmac_sha256(...)`, `hmac_sha512(...)`,
 `constant_time_eq(...)`, `constant_time_eq_u8(...)`, `verify_sha256(...)`, and
 `verify_sha512(...)` now alias those same known-input direct-native paths in a
-runtime-exit program without generated Rust. Runtime audit parity, dynamic
-runtime MAC execution, general byte-slice runtime equality, and broader crypto
-host-service coverage remain blocked under #1001.
+runtime-exit program without generated Rust. Dynamic runtime MAC execution,
+general byte-slice runtime equality, and broader crypto host-service audit
+coverage remain blocked under #1001.
 
 The direct-native crypto random slice is now marked partial: the Cranelift
 spike can build and run `std/crypto_rand.ax` `random_bytes(...)` and
-`random_u64()` through a Unix OS-random source without generated Rust, while
-preserving the generated-Rust helper's `0..=65536` byte length cap. The
-direct-native i64 path now also lowers public `std/crypto_rand.ax`
-`random_u64()` into native process exit status through the same Unix OS-random
-source. It also lowers `len(random_bytes(n))` for literal and static scalar
-nonnegative lengths up to the stage1 65,536 byte cap into native process exit
-status without materializing a general byte-array value. A package without the
-`crypto` capability still fails before backend lowering. Direct-native
-`random_bytes(...)` byte storage and contents, portable entropy source parity,
-deterministic test hooks, and runtime audit parity remain open under #1001.
+`random_u64()` through a Unix OS-random source while the public smoke asserts
+`generated_rust` is null, preserving the generated-Rust helper's `0..=65536`
+byte length cap. The direct-native i64 path now also lowers
+`len(random_bytes(n))` for literal and static scalar nonnegative lengths up to
+the stage1 65,536 byte cap into a runtime scratch-buffer fill from the Unix
+OS-random source, returning the requested length on success without
+materializing a general byte-array value. Public `random_u64()` in the
+direct-native i64 path also reads eight bytes from the same Unix OS-random
+source at runtime and returns those bits through the native scalar path instead
+of embedding compiler-sampled bytes. Those native random reads append
+best-effort host audit JSONL to `AXIOM_HOST_AUDIT_LOG`, recording typed
+requested length metadata for byte reads, empty args for `random_u64()`, and
+outcome without recording generated bytes or integer values. Deterministic
+direct-native test hooks are now available through `AXIOM_TEST_RANDOM_BYTES`
+for byte-length reads and `AXIOM_TEST_RANDOM_U64` for scalar random output,
+without recording hook contents in audit logs. A package without the `crypto`
+capability still fails before backend lowering. Direct-native `random_bytes(...)`
+byte storage and contents, portable entropy source parity, and broader runtime
+audit parity remain open under #1001.
 
 The direct-native crypto signature slice is now marked partial: the Cranelift
 spike builds and runs `std/crypto_sign.ax` Ed25519 key generation, signing, and
-verification without generated Rust by dynamically loading the host libcrypto
-EVP provider for real cryptographic operations. Packages without the `crypto`
-capability still fail before backend lowering. Runtime-integrated crypto
-provider selection, deterministic test hooks, audit parity, and non-Unix support
-remain open under #1001.
+verification while the public smoke asserts `generated_rust` is null by
+dynamically loading the host libcrypto EVP provider for real cryptographic
+operations. Packages without the `crypto` capability still fail before backend
+lowering. Runtime-integrated crypto provider selection, deterministic test
+hooks, audit parity, and non-Unix support remain open under #1001.
 
 The direct-native crypto AEAD slice is now marked partial: the Cranelift spike
-builds and runs `std/crypto_aead.ax` AES-256-GCM seal/open without generated
-Rust through a dynamically loaded host OpenSSL EVP provider. Packages without
-the `crypto` capability still fail before backend lowering. Runtime-integrated
-crypto provider selection, broader algorithm coverage, deterministic test
-hooks, audit parity, and non-Unix support remain open under #1001.
+builds and runs `std/crypto_aead.ax` AES-256-GCM seal/open while the public
+smoke asserts `generated_rust` is null through a dynamically loaded host OpenSSL
+EVP provider. Packages without the `crypto` capability still fail before
+backend lowering. Runtime-integrated crypto provider selection, broader
+algorithm coverage, deterministic test hooks, audit parity, and non-Unix
+support remain open under #1001.
 
 The HTTP client row now has partial Cranelift evidence: the spike builds
 `std/http.ax` `get(...)` against a static allowlisted `http://127.0.0.1` URL
-and fetches a local one-shot HTTP response without generated Rust. The
-direct-native i64 path now also lowers known-url `http_get(...)` and public
+and fetches a local one-shot HTTP response while the public smoke asserts
+`generated_rust` is null. The direct-native i64 path now also lowers known-url
+`http_get(...)` and public
 `std/http.ax` `get(...)` calls into native process exit status by selecting
-`Option<string>` match arms at compile time for local HTTP responses. Packages
-without the `net` capability still fail before backend lowering. HTTPS,
-nonlocal HTTP policy coverage, redirects, richer response handling, timeout
-parity, and audit parity remain open under #1001.
+`Option<string>` match arms at compile time for local HTTP responses; public
+`get(...)` results can also be stored in local `Option<string>` values and
+matched later in supported length-projection expression and statement contexts
+without generated Rust. Packages without the `net` capability still fail before
+backend lowering. HTTPS, nonlocal HTTP policy coverage, redirects, richer
+response handling, timeout parity, and audit parity remain open under #1001.
 
 The HTTP server row now has partial Cranelift evidence: the spike builds and
-runs loopback HTTP server entrypoints without generated Rust, covering
+runs loopback HTTP server entrypoints while the public smoke asserts
+`generated_rust` is null, covering
 `http_server_listen`, `http_server_local_port`, `http_server_accept`,
 `http_request_method`, `http_request_path`, `http_request_body`,
 `http_response_write`, and `http_server_close` over a one-request HTTP/1.0
@@ -473,36 +539,47 @@ fixture. The direct-native i64 path now also lowers known-bind
 `http_serve_once(...)`, `http_serve_route(...)`, and public `std/http.ax`
 `serve_once(...)` calls into native process exit status by selecting bool
 branches at compile time for local HTTP responses, including a two-request
-routed fixture. Packages without the `net` capability still fail before backend
-lowering. Non-loopback policy coverage, richer response metadata, timeout
-parity, and audit parity remain open under #1001.
+routed fixture; public `serve_once(...)` and primitive `http_serve_route(...)`
+results can also be stored in local bool values and used by later branch
+conditions without generated Rust. Packages without the `net` capability still
+fail before backend lowering. Non-loopback policy coverage, richer response
+metadata, timeout parity, and audit parity remain open under #1001.
 
 The async HTTP server row now has partial Cranelift evidence: the spike builds
-and runs `http_async_serve_route` over a loopback server handle without
-generated Rust, returns a `Task<bool>`, and serves a one-request HTTP/1.0 route
-fixture. It also proves the async gate separately: with `net` present and
-`async` missing, `std/http_async.ax` `async_serve_route(...)` must fail through
-the public `async` capability denial before backend lowering. Real
-scheduler-backed serving, concurrent clients, cancellation, timeout parity,
-non-loopback policy coverage, and audit parity remain open under #1001.
+and runs `http_async_serve_route` over a loopback server handle while the public
+smoke asserts `generated_rust` is null, returns a `Task<bool>`, and serves a
+one-request HTTP/1.0 route fixture. The awaited serve result can be stored in a
+local bool value before later output without generated Rust. It also proves the
+async gate separately: with `net` present and `async` missing,
+`std/http_async.ax` `async_serve_route(...)` must fail through the public
+`async` capability denial before backend lowering. Real scheduler-backed
+serving, concurrent clients, cancellation, timeout parity, non-loopback policy
+coverage, and audit parity remain open under #1001.
 
 The process status row now has partial direct-native evidence: the Cranelift
 spike builds and runs `std/process.ax` `run_status(...)` for literal,
 allowlisted deterministic commands and the checked-in missing-binary sentinel
-through compiler-side spike evaluation and emits their exit statuses without
-generated Rust. The direct-native i64 path also lowers literal
-`process_status(...)` calls and the `std/process.ax` `run_status(...)` wrapper
+through compiler-side spike evaluation and emits their exit statuses while the
+public smoke asserts `generated_rust` is null. The direct-native i64 path also
+lowers literal `process_status(...)` calls and the `std/process.ax`
+`run_status(...)` wrapper
 for deterministic `/usr/bin/true`, `/usr/bin/false`, and
-`__axiom_stage1_missing_binary__` commands into native process exit status
-without generated Rust. Denied `process` capability use still fails through the
-manifest policy before Cranelift lowering or native execution. Full
-runtime-time process execution, argument handling, audit parity, and
-host-process policy coverage remain open under #1001.
+`__axiom_stage1_missing_binary__` commands into native runtime executable checks
+and process-status execution through the object backend without generated Rust.
+The missing sentinel maps to `-1` through the native executable check, while the
+existing true/false helpers run and normalize their process status at runtime.
+Denied `process` capability use still fails through the manifest policy before
+Cranelift lowering or native execution. The direct-native i64 path also appends
+host audit JSONL entries when `AXIOM_HOST_AUDIT_LOG` is set, recording only the
+command string length and the `ok`/`denied` outcome without recording command
+text. Arguments, broader command policy, environment control, and host-process
+policy coverage remain open under #1001.
 
 The regex row now has partial direct-native evidence: the Cranelift spike covers
 `std/regex.ax` `is_match`, `find`, and `replace_all` for the stage1-safe NFA
-subset without generated Rust, including anchored replacement behavior. The
-direct-native i64 path now also lowers known-input `regex_is_match(...)`
+subset without generated Rust, and the public stdlib smoke now asserts
+`generated_rust` is null while covering find/match/replace output and anchored
+replacement behavior. The direct-native i64 path now also lowers known-input `regex_is_match(...)`
 conditions, known-input `regex_replace_all(...)` string results, and known-input
 `regex_find(...)` direct `Option<string>` matches into native process exit status
 without generated Rust. Imported public `std/regex.ax` `is_match`, `find`, and
@@ -588,31 +665,46 @@ runtime key array value projection, and host-boundary representation remain
 tracked by issue #1001.
 
 The `env.read` row now has partial Cranelift evidence for `std/env.ax`
-`get_env` on present and missing environment names without generated Rust, plus
-denial evidence that a package without the `env` capability fails before
-backend lowering. The direct-native i64 path now also lowers literal-key
-`env_get(...)` calls and the public `std/env.ax` `get_env(...)` wrapper into
-native process exit status by selecting `Option<string>` match arms at compile
-time for present and missing test environment names. Full runtime-time lookup,
-manifest allowlist parity, runtime environment binding, and audit parity remain
-open under #1001.
+`get_env` on present and missing environment names while the public smoke
+asserts `generated_rust` is null, plus denial evidence that a package without the
+`env` capability fails before backend lowering. The direct-native i64 path now
+also lowers literal-key `env_get(...)` calls and the public `std/env.ax`
+`get_env(...)` wrapper into native runtime environment lookups through the
+object backend for direct `Option<string>` matches that use `len(value)`,
+returning the runtime string length or the `None` arm when absent. That
+direct-native path also appends host audit JSONL entries when
+`AXIOM_HOST_AUDIT_LOG` is set, recording only the environment key length and the
+`ok`/`denied` outcome without recording environment values. Literal-key
+direct-native environment reads now also honor manifest env allowlists at
+runtime, returning the `None` arm for non-allowlisted keys even when those names
+exist in the host process. The same runtime env lookup can now be stored in a
+local `Option<string>` and matched later for supported `len(value)` expression
+and statement matches without capturing the compiler process environment.
+Broader runtime environment binding, stored string value materialization beyond
+length projection, and dynamic-key allowlist handling remain open under #1001.
 
 The FFI call row now has partial direct-native evidence: the spike builds and
 runs a narrow C ABI `extern fn strlen(value: string): int from "c"` fixture
-without generated Rust, using the source-level extern declaration. The
-direct-native i64 path also lowers that same narrow `strlen` declaration for
-supported literal and string-projection inputs into native process exit status
-without generated Rust. A package with an `extern fn` declaration and no `ffi`
-capability must still receive its public manifest-policy denial before any
+while the public smoke asserts `generated_rust` is null, using the source-level
+extern declaration. The direct-native i64 path also lowers that same narrow
+`strlen` declaration for supported literal and string-projection inputs into
+native process exit status without generated Rust, including dynamic
+key-array string selections that feed the direct-native length projection path.
+Known-string inputs now call the native `strlen` import at runtime instead of
+relying on compile-time length folding. That path also appends host audit JSONL
+entries when `AXIOM_HOST_AUDIT_LOG` is set, recording only the library, symbol,
+argument type, and `ok`/`denied` outcome without recording string argument
+values. A package with an `extern fn`
+declaration and no `ffi` capability must still receive its public manifest-policy denial before any
 Cranelift-specific lowering diagnostic. Broad dynamic symbol loading, pointer
 and mutable-pointer ABI shapes, non-string arguments, ownership safety, platform
-library resolution, and audit parity remain open under #1001.
+library resolution, and broader FFI audit coverage remain open under #1001.
 
 The async runtime row now has partial Cranelift evidence for `std/async.ax`
 `ready`, `await`, `spawn`, `join`, `cancel`, `is_canceled`, `timeout`,
 single-slot channel `send`/`recv`, `select`, `selected`, and `selected_value`
-without generated Rust. The spike now also builds and runs the
-`std/async_net.ax` loopback TCP example through async `listen`, `accept`,
+while the public smoke asserts `generated_rust` is null. The spike now also
+builds and runs the `std/async_net.ax` loopback TCP example through async `listen`, `accept`,
 `recv_text`, `send_text`, `tcp_dial`, and `join` flows without generated Rust. A
 package importing `std/async.ax` with no `async` capability must still receive
 the public manifest-policy denial before backend lowering. Full scheduler,
@@ -620,11 +712,12 @@ timer, blocking, wakeup, cancellation, and audit parity remain open under #1001.
 
 The sync-primitives row has partial direct-native evidence: the Cranelift spike
 now evaluates ownership-shaped `std/sync.ax` mutex, once, and channel wrappers
-and emits the expected native output. The direct-native i64 path now also lowers
-public `std/sync.ax` `mutex(...)`, `lock(...)`, `replace(...)`, and
-`into_inner(...)` wrappers over a scalar `int` payload into native process exit
-status without generated Rust. It also lowers public `std/sync.ax`
-`once_with(...)`, `once(...)`, `once_is_set(...)`, and `once_take(...)` wrappers
+while the public smoke asserts `generated_rust` is null and emits the expected
+native output. The direct-native i64 path now also lowers public `std/sync.ax`
+`mutex(...)`, `lock(...)`, `replace(...)`, and `into_inner(...)` wrappers over a
+scalar `int` payload into native process exit status without generated Rust. It
+also lowers public `std/sync.ax` `once_with(...)`, `once(...)`,
+`once_is_set(...)`, and `once_take(...)` wrappers
 over scalar `int`/`bool` payloads when the one-shot cell value is compile-time
 known, including pre-runtime `Once` locals, letting present and missing once
 cells feed direct-native process exit status without generated Rust. It also
@@ -726,14 +819,34 @@ issue #1001. Imported public `std/json.ax` scalar parse/stringify wrappers for
 `parse_int(...)`, `parse_bool(...)`, `parse_string(...)`,
 `parse_field_int(...)`, `parse_field_bool(...)`, `parse_field_string(...)`,
 `stringify_int(...)`, `stringify_bool(...)`, and `stringify_string(...)` now
-alias those same direct-native paths in runtime-exit programs. Imported public
-`std/serdes.ax` known-input `to_json(...)`, `stringify(...)`,
+alias those same direct-native paths in runtime-exit programs; scalar
+`stringify_int(...)` and `stringify_bool(...)` results can also be assigned to
+string locals that feed native stdout `print` without materializing a general
+runtime string value, and `stringify_string(...)` over those supported
+projection locals can now feed quoted native stdout lines directly. Public
+`value_int(...)`, `value_bool(...)`, and `value_string(...)` `JsonValue`
+wrappers over supported dynamic scalar/bool string projections can also feed
+`stringify_value(...)` and native stdout output without generated Rust. Public
+`field_value(...)`, `object2(...)`, `value_object2(...)`, and `array3(...)`
+composition over those supported dynamic `JsonValue` wrappers can also feed
+native stdout and `stringify_value(...)` without generated Rust. Public schema
+helpers such as `schema_field_*` and `schema_object3(...)`, plus
+`parse_field_value(...)` over the evidenced dynamic object wrappers, can also
+feed native stdout without generated Rust. The public `std/serdes.ax` binary
+smoke now also asserts `generated_rust: null` while exercising `to_json(...)`,
+deep `Value` equality, typed text/int/bool field access, object field access,
+array field access, `value_item(...)` over text and int elements,
+`is_null(...)`, `as_bool(...)`, `as_array(...)`, `as_object(...)`,
+`as_text(...)`, `as_int(...)`, `stringify(...)`, and parse-error output.
+Imported public `std/serdes.ax` known-input `to_json(...)`,
+`stringify(...)`,
 `from_json_str(...)`, `as_text(...)`, and `parse_error_message(...)` wrapper
 paths now also feed direct-native known string comparisons, length projections,
 `Result` matches, `Option` matches, and process exit status without generated
 Rust for literal `Value`/object-map and literal JSON inputs. Broader dynamic
 runtime JSON parsing, broad `std/serdes` `Value` storage, `JsonValue` wrapper
-construction, and schema helper coverage remain tracked by issue #1001.
+construction beyond the evidenced scalar/string/object/array source wrappers,
+and broader schema helper coverage remain tracked by issue #1001.
 
 The owned move-state row has partial direct-native evidence: the Cranelift
 spike builds and runs projection-sensitive owned field moves while preserving
@@ -743,30 +856,117 @@ ABI coverage remain tracked by issue #1001.
 The logging/stdio row has partial direct-native evidence: the Cranelift spike
 now evaluates `std/io.ax` stderr writes and `std/log.ax` structured event
 formatting plus `info_attrs` stderr emission, then emits the resulting stdout
-and stderr streams from the native binary. The direct-native i64 path now also
+and stderr streams from the native binary while the public smokes assert
+`generated_rust` is null. The direct-native i64 path now also
 lowers deterministic public `std/log.ax` formatting wrappers for field
 construction, field-list joining, and event rendering into known string facts
 that can feed comparisons, length projections, and native process exit status
-without generated Rust. Terminal source-level `panic(...)` statements with
-known string messages, including terminal branch arms, also lower into native
-stderr JSON panic reports and exit status `1` without generated Rust. Stdin
-reads, runtime stderr emission, and broader streaming/runtime buffering remain
-tracked by issue #1001.
+without generated Rust. Runtime-selected known string projections from map-key
+arrays can also feed `std/log.ax` `field_string` and `event` length projections
+by selecting among finite JSON-escaped text lengths without materializing a
+general string runtime. Runtime scalar and boolean values can now feed
+`std/log.ax` `field_int`, `field_bool`, `fields2`, and `event` length
+projections by computing JSON-rendered byte lengths directly in native scalar
+IR without materializing log strings through generated Rust. The same supported
+dynamic scalar and boolean log event shape can now feed public `std/log.ax`
+`info_attrs` stderr output by emitting native JSON punctuation, scalar field
+values, boolean field values, and newline-inclusive byte counts without
+generated Rust. Public `std/log.ax` level wrappers such as `info(...)` can
+reuse that native event writer for supported dynamic JSON-safe message
+projections and empty attribute objects. Supported dynamic `std/log.ax`
+`event(...)` expressions can also feed source-level `print` statements as
+native stdout JSON-line writes without generated Rust, including event messages
+and `field_string(...)` values backed by `std/json.ax` `stringify_string(...)`
+over supported scalar/bool projection locals. It also lowers known-string public
+`std/io.ax`
+`eprintln` lets in direct-native i64 `main` functions and helper functions,
+including runtime-scope lets after assignments and inside branches, into native
+stderr writes while preserving newline-inclusive byte-count return values and
+`generated_rust` null. Those stderr writes cover known string literals, locals,
+statics, `string_clone(...)`, concatenation, pure helper string returns, and
+branch-local known string lets; scalar and aggregate-return helper functions can
+emit the same known stderr writes and return byte counts through native calls.
+Dynamic scalar `std/json.ax` `stringify_int` and `stringify_bool` expressions,
+including scalar stringify results first assigned to string locals, can also
+feed public `std/io.ax` `eprintln` lets in direct-native i64 `main` functions,
+scalar helpers, and aggregate-return helpers as native stderr writes while
+preserving newline-inclusive byte-count return values and without materializing
+general runtime strings. Dynamic `std/json.ax` `stringify_string` over those
+supported scalar/bool projection locals can also stream quoted JSON string
+values to native stderr lines while preserving newline-inclusive byte-count
+return values and without materializing a general runtime string.
+Runtime-selected known string projections from map-key
+arrays, either directly or through string locals backed by those projections,
+can also feed public `std/io.ax` `eprintln` lets in direct-native i64 `main`
+functions, scalar helpers, and aggregate-return helpers as native stderr writes
+by selecting among finite known text values while preserving newline-inclusive
+byte-count return values and without materializing a general string runtime.
+Known-string source-level
+`print` statements now lower known string literals, locals, statics,
+`string_clone(...)`, concatenation, pure helper string returns, and branch-local
+known string lets to native stdout writes in direct-native i64 `main` functions
+and scalar and aggregate-return helpers without generated Rust. Boolean and
+integer source-level `print` statements also lower to native stdout writes in
+direct-native i64 `main` functions and scalar and aggregate-return helpers
+without generated Rust, including runtime integer values formatted through the
+native object backend. Dynamic scalar `std/json.ax`
+`stringify_int` and
+`stringify_bool` print expressions, including scalar stringify results first
+assigned to string locals, reuse those same native stdout writers in
+direct-native i64 `main` functions and scalar and aggregate-return helpers
+without materializing general runtime strings. Dynamic `std/json.ax`
+`stringify_string` over those supported scalar/bool projection locals can also
+stream quoted JSON string values to native stdout lines without materializing a
+general runtime string. Runtime-selected known string
+projections from map-key arrays, either directly or through string locals backed
+by those projections, can also lower to native stdout writes in direct-native
+i64 `main` functions, scalar helpers, and aggregate-return helpers by selecting
+among finite known text values without materializing a general string runtime.
+Terminal source-level
+`panic(...)` statements with known string messages, including literals, locals,
+statics, `string_clone(...)`, concatenation, pure helper string returns, and
+branch-local known string lets in terminal branch arms, also lower into native
+stderr JSON panic reports and exit status `1` without generated Rust. Terminal
+panic messages backed by dynamic `std/json.ax` `stringify_int(...)` and
+`stringify_bool(...)` expressions, including string locals assigned from those
+expressions in terminal branch arms, also lower to native stderr JSON panic
+reports without materializing a general string runtime. Terminal panic messages
+backed by `std/json.ax` `stringify_string(...)` over supported runtime
+scalar/bool string projections also stream quoted JSON string values directly
+into native stderr panic reports without materializing a general string runtime.
+Supported dynamic `std/log.ax` `event(...)` messages with scalar and boolean
+fields also lower to native stderr JSON panic reports as nested escaped
+log-record strings without generated Rust. Terminal panic messages backed by
+runtime-selected known string
+projections from map-key arrays, either directly or through string locals backed
+by those projections, also lower to native stderr JSON panic reports by
+selecting among finite known text values without materializing a general string
+runtime. Supported direct-native stdout/stderr write primitives now append
+best-effort host audit JSONL to `AXIOM_HOST_AUDIT_LOG`, recording only the
+stream, byte-count shape, and outcome without recording printed text, formatted
+integer values, log messages, field names, or field values. Stdin reads, dynamic
+stdout/stderr text beyond boolean, integer, JSON scalar formatting, and finite
+known-string projection selection, dynamic panic messages beyond scalar/string
+JSON stringify and finite known-string projection selection, and broader
+streaming/runtime buffering remain tracked by issue #1001.
 
 The `clock.now_sleep` row now has partial Cranelift evidence for `std/time.ax`
-`now_ms`, `now`, `elapsed_ms`, and zero-duration `sleep`, plus guards that a
-package without the `clock` capability fails before backend lowering and that
-nonzero sleep fails fast instead of ever reaching host sleep during
-compiler-side spike evaluation. The direct-native i64 path now also lowers
-literal and static scalar `clock_sleep_ms(...)` nonpositive durations through
-entrypoint and helper functions to a native process exit status without
-generated Rust. Imported public `std/time.ax` `sleep(duration_ms(...))`
-wrappers now alias that same deterministic path for literal and static scalar
-zero-duration and negative-duration calls in runtime-exit programs. The
-supported sleep shape remains limited to compile-time-known nonpositive
-durations until the real runtime clock path lands. Full runtime-time
-clock/sleep execution, timer scheduling, async clock integration, nonzero
-sleep, and audit parity remain open under #1001.
+`now_ms`, `now`, `elapsed_ms`, zero-duration `sleep`, and a bounded positive
+`sleep` smoke, plus guards that a package without the `clock` capability fails
+before backend lowering. The public clock smokes now assert `generated_rust` is
+null. The direct-native i64 path now also lowers literal and static scalar
+`clock_sleep_ms(...)` calls through entrypoint and helper functions to a native
+process exit status without generated Rust. Negative durations return `-1`,
+bounded nonnegative durations call the native object backend's `usleep` import,
+and durations above the current 1000 ms direct-native cap return `-1` without
+sleeping. Imported public `std/time.ax` `sleep(duration_ms(...))` wrappers now
+alias that same deterministic path for literal, static scalar, and runtime
+scalar durations in runtime-exit programs. Those sleep paths now append host
+audit JSONL entries when `AXIOM_HOST_AUDIT_LOG` is set, recording only the
+integer argument type and the `ok`/`denied` outcome without recording duration
+values. Full clock values across the native ABI, timer scheduling, async clock
+integration, and broader positive-duration sleep policy remain open under
+#1001.
 
 
 
