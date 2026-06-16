@@ -56,10 +56,10 @@ impl FromStr for NativeBackendKind {
 
     fn from_str(value: &str) -> Result<Self, Self::Err> {
         match value {
-            "generated-rust" => Ok(Self::GeneratedRust),
+            "generated-rust" | "rust" => Ok(Self::GeneratedRust),
             "cranelift" => Ok(Self::Cranelift),
             other => Err(format!(
-                "unsupported backend {other:?}; supported backends: generated-rust, cranelift"
+                "unsupported backend {other:?}; supported backends: generated-rust, rust, cranelift"
             )),
         }
     }
@@ -86,6 +86,14 @@ mod tests {
     }
 
     #[test]
+    fn parses_rust_backend_alias() {
+        assert_eq!(
+            NativeBackendKind::from_str("rust").expect("parse rust alias"),
+            NativeBackendKind::GeneratedRust
+        );
+    }
+
+    #[test]
     fn parses_cranelift_backend() {
         assert_eq!(
             NativeBackendKind::from_str("cranelift").expect("parse cranelift"),
@@ -97,7 +105,7 @@ mod tests {
     fn rejects_unsupported_backend_value() {
         let error = NativeBackendKind::from_str("direct-native")
             .expect_err("unsupported backend values should be rejected");
-        assert!(error.contains("supported backends: generated-rust, cranelift"));
+        assert!(error.contains("supported backends: generated-rust, rust, cranelift"));
     }
 
     #[test]
