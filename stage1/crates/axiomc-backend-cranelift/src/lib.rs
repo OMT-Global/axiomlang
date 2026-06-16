@@ -155,10 +155,6 @@ pub struct I64Assign {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum I64Stmt {
     Assign(I64Assign),
-    WriteLine {
-        stream: OutputStream,
-        text: String,
-    },
     CallAssign {
         locals: Vec<usize>,
         function: usize,
@@ -371,29 +367,10 @@ fn emit_i64_exit_object(
             CraneliftBackendError::new(format!("cranelift object setup: {message}"))
         })?;
     let mut module = ObjectModule::new(builder);
-    let mut write_sig = module.make_signature();
-    write_sig.params.push(AbiParam::new(types::I32));
-    let pointer_type = module.target_config().pointer_type();
-    write_sig.params.push(AbiParam::new(pointer_type));
-    write_sig.params.push(AbiParam::new(pointer_type));
-    write_sig.returns.push(AbiParam::new(pointer_type));
-    let write_id = module
-        .declare_function("write", Linkage::Import, &write_sig)
-        .map_err(|message| {
-            CraneliftBackendError::new(format!("declare write import: {message}"))
-        })?;
-    let output_data_ids = declare_i64_output_data(&mut module, &program)?;
     let function_ids = declare_i64_functions(&mut module, &program.functions)?;
 
     for (index, function) in program.functions.iter().enumerate() {
-        define_i64_function(
-            &mut module,
-            &function_ids,
-            write_id,
-            &output_data_ids,
-            index,
-            function,
-        )?;
+        define_i64_function(&mut module, &function_ids, index, function)?;
     }
 
     let mut context = module.make_context();
@@ -412,7 +389,6 @@ fn emit_i64_exit_object(
         builder.switch_to_block(block);
         builder.seal_block(block);
         let function_refs = i64_function_refs(&mut module, &mut builder, &function_ids);
-        let write_ref = module.declare_func_in_func(write_id, builder.func);
         let mut locals = Vec::new();
         for local_expr in &program.locals {
             let local = builder.declare_var(types::I64);
@@ -420,24 +396,8 @@ fn emit_i64_exit_object(
             builder.def_var(local, value);
             locals.push(local);
         }
-        emit_i64_stmts(
-            &mut module,
-            &mut builder,
-            &locals,
-            &function_refs,
-            write_ref,
-            &output_data_ids,
-            &program.stmts,
-        )?;
-        emit_i64_exit_body(
-            &mut module,
-            &mut builder,
-            &locals,
-            &function_refs,
-            write_ref,
-            &output_data_ids,
-            &program.body,
-        )?;
+        emit_i64_stmts(&mut builder, &locals, &function_refs, &program.stmts)?;
+        emit_i64_exit_body(&mut builder, &locals, &function_refs, &program.body)?;
         builder.finalize();
     }
     module
@@ -451,95 +411,6 @@ fn emit_i64_exit_object(
     fs::write(object_path, bytes).map_err(|err| {
         CraneliftBackendError::new(format!("failed to write {}: {err}", object_path.display()))
     })
-}
-
-fn declare_i64_output_data(
-    module: &mut ObjectModule,
-    program: &I64ExitProgram,
-) -> Result<Vec<(OutputStream, String, cranelift_module::DataId, usize)>, CraneliftBackendError> {
-    let mut lines = Vec::new();
-    collect_i64_output_lines(&program.stmts, &mut lines);
-    collect_i64_exit_body_output_lines(&program.body, &mut lines);
-    for function in &program.functions {
-        collect_i64_output_lines(&function.stmts, &mut lines);
-        collect_i64_value_body_output_lines(&function.body, &mut lines);
-    }
-    lines
-        .into_iter()
-        .enumerate()
-        .map(|(index, (stream, text))| {
-            let data_id = module
-                .declare_data(
-                    &format!("__axiom_i64_line_{index}"),
-                    Linkage::Local,
-                    false,
-                    false,
-                )
-                .map_err(|message| {
-                    CraneliftBackendError::new(format!("declare i64 output data: {message}"))
-                })?;
-            let mut description = DataDescription::new();
-            let mut bytes = text.as_bytes().to_vec();
-            bytes.push(b'\n');
-            let byte_len = bytes.len();
-            description.define(bytes.into_boxed_slice());
-            module.define_data(data_id, &description).map_err(|message| {
-                CraneliftBackendError::new(format!("define i64 output data: {message}"))
-            })?;
-            Ok((stream, text, data_id, byte_len))
-        })
-        .collect()
-}
-
-fn collect_i64_output_lines(stmts: &[I64Stmt], lines: &mut Vec<(OutputStream, String)>) {
-    for stmt in stmts {
-        match stmt {
-            I64Stmt::WriteLine { stream, text } => lines.push((*stream, text.clone())),
-            I64Stmt::If {
-                then_body,
-                else_body,
-                ..
-            } => {
-                collect_i64_output_lines(then_body, lines);
-                collect_i64_output_lines(else_body, lines);
-            }
-            I64Stmt::While { body, .. } => collect_i64_output_lines(body, lines),
-            I64Stmt::Assign(_) | I64Stmt::CallAssign { .. } => {}
-        }
-    }
-}
-
-fn collect_i64_exit_body_output_lines(body: &I64ExitBody, lines: &mut Vec<(OutputStream, String)>) {
-    match body {
-        I64ExitBody::BlockReturn(block) => collect_i64_output_lines(&block.stmts, lines),
-        I64ExitBody::IfBlockReturn {
-            then_block,
-            else_block,
-            ..
-        } => {
-            collect_i64_output_lines(&then_block.stmts, lines);
-            collect_i64_output_lines(&else_block.stmts, lines);
-        }
-        I64ExitBody::Return(_) | I64ExitBody::IfReturn { .. } => {}
-    }
-}
-
-fn collect_i64_value_body_output_lines(
-    body: &I64ValueBody,
-    lines: &mut Vec<(OutputStream, String)>,
-) {
-    match body {
-        I64ValueBody::BlockReturn(block) => collect_i64_output_lines(&block.stmts, lines),
-        I64ValueBody::IfBlockReturn {
-            then_block,
-            else_block,
-            ..
-        } => {
-            collect_i64_output_lines(&then_block.stmts, lines);
-            collect_i64_output_lines(&else_block.stmts, lines);
-        }
-        I64ValueBody::Return(_) | I64ValueBody::IfReturn { .. } => {}
-    }
 }
 
 fn declare_i64_functions(
@@ -573,8 +444,6 @@ fn declare_i64_functions(
 fn define_i64_function(
     module: &mut ObjectModule,
     function_ids: &[FuncId],
-    write_id: FuncId,
-    output_data_ids: &[(OutputStream, String, cranelift_module::DataId, usize)],
     index: usize,
     function: &I64Function,
 ) -> Result<(), CraneliftBackendError> {
@@ -604,7 +473,6 @@ fn define_i64_function(
         builder.switch_to_block(block);
         builder.seal_block(block);
         let function_refs = i64_function_refs(module, &mut builder, function_ids);
-        let write_ref = module.declare_func_in_func(write_id, builder.func);
         let mut locals = Vec::new();
         for param in builder.block_params(block).to_vec() {
             let local = builder.declare_var(types::I64);
@@ -617,22 +485,11 @@ fn define_i64_function(
             builder.def_var(local, value);
             locals.push(local);
         }
-        emit_i64_stmts(
-            module,
-            &mut builder,
-            &locals,
-            &function_refs,
-            write_ref,
-            output_data_ids,
-            &function.stmts,
-        )?;
+        emit_i64_stmts(&mut builder, &locals, &function_refs, &function.stmts)?;
         emit_i64_value_body(
-            module,
             &mut builder,
             &locals,
             &function_refs,
-            write_ref,
-            output_data_ids,
             function.returns,
             &function.body,
         )?;
@@ -657,42 +514,25 @@ fn i64_function_refs(
 }
 
 fn emit_i64_stmts(
-    module: &mut ObjectModule,
     builder: &mut FunctionBuilder<'_>,
     locals: &[Variable],
     function_refs: &[FuncRef],
-    write_ref: FuncRef,
-    output_data_ids: &[(OutputStream, String, cranelift_module::DataId, usize)],
     stmts: &[I64Stmt],
 ) -> Result<(), CraneliftBackendError> {
     for stmt in stmts {
-        emit_i64_stmt(
-            module,
-            builder,
-            locals,
-            function_refs,
-            write_ref,
-            output_data_ids,
-            stmt,
-        )?;
+        emit_i64_stmt(builder, locals, function_refs, stmt)?;
     }
     Ok(())
 }
 
 fn emit_i64_stmt(
-    module: &mut ObjectModule,
     builder: &mut FunctionBuilder<'_>,
     locals: &[Variable],
     function_refs: &[FuncRef],
-    write_ref: FuncRef,
-    output_data_ids: &[(OutputStream, String, cranelift_module::DataId, usize)],
     stmt: &I64Stmt,
 ) -> Result<(), CraneliftBackendError> {
     match stmt {
         I64Stmt::Assign(assign) => emit_i64_assign(builder, locals, function_refs, assign),
-        I64Stmt::WriteLine { stream, text } => {
-            emit_i64_write_line(module, builder, write_ref, output_data_ids, *stream, text)
-        }
         I64Stmt::CallAssign {
             locals: assign_locals,
             function,
@@ -720,28 +560,12 @@ fn emit_i64_stmt(
 
             builder.switch_to_block(then_block);
             builder.seal_block(then_block);
-            emit_i64_stmts(
-                module,
-                builder,
-                locals,
-                function_refs,
-                write_ref,
-                output_data_ids,
-                then_body,
-            )?;
+            emit_i64_stmts(builder, locals, function_refs, then_body)?;
             builder.ins().jump(after_if, &[]);
 
             builder.switch_to_block(else_block);
             builder.seal_block(else_block);
-            emit_i64_stmts(
-                module,
-                builder,
-                locals,
-                function_refs,
-                write_ref,
-                output_data_ids,
-                else_body,
-            )?;
+            emit_i64_stmts(builder, locals, function_refs, else_body)?;
             builder.ins().jump(after_if, &[]);
 
             builder.switch_to_block(after_if);
@@ -762,15 +586,7 @@ fn emit_i64_stmt(
 
             builder.switch_to_block(loop_body);
             builder.seal_block(loop_body);
-            emit_i64_stmts(
-                module,
-                builder,
-                locals,
-                function_refs,
-                write_ref,
-                output_data_ids,
-                body,
-            )?;
+            emit_i64_stmts(builder, locals, function_refs, body)?;
             builder.ins().jump(loop_header, &[]);
             builder.seal_block(loop_header);
 
@@ -779,35 +595,6 @@ fn emit_i64_stmt(
             Ok(())
         }
     }
-}
-
-fn emit_i64_write_line(
-    module: &mut ObjectModule,
-    builder: &mut FunctionBuilder<'_>,
-    write_ref: FuncRef,
-    output_data_ids: &[(OutputStream, String, cranelift_module::DataId, usize)],
-    stream: OutputStream,
-    text: &str,
-) -> Result<(), CraneliftBackendError> {
-    let (data_id, byte_len) = output_data_ids
-        .iter()
-        .find_map(|(candidate_stream, candidate_text, data_id, byte_len)| {
-            (*candidate_stream == stream && candidate_text == text).then_some((data_id, byte_len))
-        })
-        .ok_or_else(|| CraneliftBackendError::new("missing i64 output line data"))?;
-    let data_ref = module.declare_data_in_func(*data_id, builder.func);
-    let pointer_type = module.target_config().pointer_type();
-    let pointer = builder.ins().global_value(pointer_type, data_ref);
-    let fd = builder.ins().iconst(
-        types::I32,
-        match stream {
-            OutputStream::Stdout => 1,
-            OutputStream::Stderr => 2,
-        },
-    );
-    let len = builder.ins().iconst(pointer_type, *byte_len as i64);
-    builder.ins().call(write_ref, &[fd, pointer, len]);
-    Ok(())
 }
 
 fn emit_i64_assign(
@@ -863,26 +650,15 @@ fn emit_i64_call_assign(
 }
 
 fn emit_i64_exit_body(
-    module: &mut ObjectModule,
     builder: &mut FunctionBuilder<'_>,
     locals: &[Variable],
     function_refs: &[FuncRef],
-    write_ref: FuncRef,
-    output_data_ids: &[(OutputStream, String, cranelift_module::DataId, usize)],
     body: &I64ExitBody,
 ) -> Result<(), CraneliftBackendError> {
     match body {
         I64ExitBody::Return(result) => emit_i64_return(builder, locals, function_refs, result),
         I64ExitBody::BlockReturn(block) => {
-            emit_i64_stmts(
-                module,
-                builder,
-                locals,
-                function_refs,
-                write_ref,
-                output_data_ids,
-                &block.stmts,
-            )?;
+            emit_i64_stmts(builder, locals, function_refs, &block.stmts)?;
             emit_i64_return(builder, locals, function_refs, &block.result)
         }
         I64ExitBody::IfReturn {
@@ -923,40 +699,21 @@ fn emit_i64_exit_body(
 
             builder.switch_to_block(then_cranelift_block);
             builder.seal_block(then_cranelift_block);
-            emit_i64_stmts(
-                module,
-                builder,
-                locals,
-                function_refs,
-                write_ref,
-                output_data_ids,
-                &then_block.stmts,
-            )?;
+            emit_i64_stmts(builder, locals, function_refs, &then_block.stmts)?;
             emit_i64_return(builder, locals, function_refs, &then_block.result)?;
 
             builder.switch_to_block(else_cranelift_block);
             builder.seal_block(else_cranelift_block);
-            emit_i64_stmts(
-                module,
-                builder,
-                locals,
-                function_refs,
-                write_ref,
-                output_data_ids,
-                &else_block.stmts,
-            )?;
+            emit_i64_stmts(builder, locals, function_refs, &else_block.stmts)?;
             emit_i64_return(builder, locals, function_refs, &else_block.result)
         }
     }
 }
 
 fn emit_i64_value_body(
-    module: &mut ObjectModule,
     builder: &mut FunctionBuilder<'_>,
     locals: &[Variable],
     function_refs: &[FuncRef],
-    write_ref: FuncRef,
-    output_data_ids: &[(OutputStream, String, cranelift_module::DataId, usize)],
     returns: usize,
     body: &I64ValueBody,
 ) -> Result<(), CraneliftBackendError> {
@@ -965,15 +722,7 @@ fn emit_i64_value_body(
             emit_i64_value_return(builder, locals, function_refs, returns, results)
         }
         I64ValueBody::BlockReturn(block) => {
-            emit_i64_stmts(
-                module,
-                builder,
-                locals,
-                function_refs,
-                write_ref,
-                output_data_ids,
-                &block.stmts,
-            )?;
+            emit_i64_stmts(builder, locals, function_refs, &block.stmts)?;
             emit_i64_value_return(builder, locals, function_refs, returns, &block.results)
         }
         I64ValueBody::IfReturn {
@@ -1014,28 +763,12 @@ fn emit_i64_value_body(
 
             builder.switch_to_block(then_cranelift_block);
             builder.seal_block(then_cranelift_block);
-            emit_i64_stmts(
-                module,
-                builder,
-                locals,
-                function_refs,
-                write_ref,
-                output_data_ids,
-                &then_block.stmts,
-            )?;
+            emit_i64_stmts(builder, locals, function_refs, &then_block.stmts)?;
             emit_i64_value_return(builder, locals, function_refs, returns, &then_block.results)?;
 
             builder.switch_to_block(else_cranelift_block);
             builder.seal_block(else_cranelift_block);
-            emit_i64_stmts(
-                module,
-                builder,
-                locals,
-                function_refs,
-                write_ref,
-                output_data_ids,
-                &else_block.stmts,
-            )?;
+            emit_i64_stmts(builder, locals, function_refs, &else_block.stmts)?;
             emit_i64_value_return(builder, locals, function_refs, returns, &else_block.results)
         }
     }
