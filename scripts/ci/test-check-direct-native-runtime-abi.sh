@@ -49,8 +49,8 @@ assert report["evidence_summary"]["value_features"] == {
 assert report["evidence_summary"]["capability_shims"] == {
     "with_evidence": 22,
     "without_evidence": 0,
-    "with_runtime_evidence": 3,
-    "without_runtime_evidence": 19,
+    "with_runtime_evidence": 9,
+    "without_runtime_evidence": 13,
     "with_denial_evidence": 18,
     "without_denial_evidence": 4,
 }
@@ -128,7 +128,16 @@ with open(sys.argv[1], encoding="utf-8") as handle:
     contract = json.load(handle)
 
 capability_rows = {row["id"]: row for row in contract["capability_shims"]}
-for row_id in ("regex.match_replace", "io.logging_stdio"):
+for row_id in (
+    "fs.read",
+    "fs.write",
+    "process.status",
+    "env.read",
+    "clock.now_sleep",
+    "ffi.call",
+    "regex.match_replace",
+    "io.logging_stdio",
+):
     runtime_evidence = capability_rows[row_id]["runtime_evidence"]
     assert "stage1/crates/axiomc/src/cranelift_backend.rs" in runtime_evidence
     assert "stage1/crates/axiomc-backend-cranelift/src/lib.rs" in runtime_evidence
