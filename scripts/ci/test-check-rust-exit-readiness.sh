@@ -24,6 +24,16 @@ cp "$repo_root/stage1/compiler-contracts/snapshots/command-lsp.json" "$case_dir/
 cp "$repo_root/stage1/compiler-contracts/snapshots/mir-backend.json" "$case_dir/stage1/compiler-contracts/snapshots/mir-backend.json"
 cp "$repo_root/stage1/crates/axiomc/tests/cranelift_backend.rs" "$case_dir/stage1/crates/axiomc/tests/cranelift_backend.rs"
 cp "$repo_root/stage1/crates/axiomc-backend-cranelift/src/lib.rs" "$case_dir/stage1/crates/axiomc-backend-cranelift/src/lib.rs"
+cat >"$case_dir/Makefile" <<'MAKE'
+rust-exit-readiness:
+	bash scripts/ci/check-rust-exit-readiness.sh --json
+
+rust-exit-readiness-github:
+	bash scripts/ci/check-rust-exit-readiness.sh --json --require-issue-states
+
+rust-exit-readiness-test:
+	bash scripts/ci/test-check-rust-exit-readiness.sh
+MAKE
 python3 - "$case_dir/stage1/runtime-abi/direct-native-v0.json" <<'PY'
 import json
 import sys
@@ -103,7 +113,7 @@ statuses = {check["name"]: check["status"] for check in payload["checks"]}
 assert statuses["readiness_doc_present"] == "pass"
 assert statuses["readiness_manifest_valid"] == "pass"
 assert statuses["readiness_blockers_closed"] == "fail"
-assert statuses["direct_native_runtime_abi_ready"] == "fail"
+assert statuses["direct_native_runtime_abi_ready"] == "pass"
 assert statuses["command_lsp_release_boundary"] == "pass"
 assert statuses["mir_backend_direct_native_boundary"] == "pass"
 PY
@@ -123,8 +133,8 @@ ISSUES
 
 (
   cd "$case_dir"
-  if bash scripts/ci/check-rust-exit-readiness.sh --json --issue-state-file "$temp_dir/issues.txt" >"$temp_dir/ready.json" 2>"$temp_dir/ready.err"; then
-    echo "expected readiness check to fail because the direct-native ABI report is still partial" >&2
+  if ! bash scripts/ci/check-rust-exit-readiness.sh --json --issue-state-file "$temp_dir/issues.txt" >"$temp_dir/ready.json" 2>"$temp_dir/ready.err"; then
+    echo "expected readiness check to pass once blocking issues are closed and the ABI report is ready" >&2
     exit 1
   fi
   python3 - "$temp_dir/ready.json" <<'PY'
@@ -134,12 +144,12 @@ import sys
 with open(sys.argv[1], encoding="utf-8") as handle:
     payload = json.load(handle)
 
-assert payload["ready"] is False
+assert payload["ready"] is True
 statuses = {check["name"]: check["status"] for check in payload["checks"]}
 assert statuses["readiness_blockers_closed"] == "pass"
 assert statuses["rust_exit_issue_927_closed"] == "pass"
 assert statuses["rust_exit_issue_564_closed"] == "pass"
-assert statuses["direct_native_runtime_abi_ready"] == "fail"
+assert statuses["direct_native_runtime_abi_ready"] == "pass"
 assert statuses["command_lsp_release_boundary"] == "pass"
 assert statuses["mir_backend_direct_native_boundary"] == "pass"
 PY
