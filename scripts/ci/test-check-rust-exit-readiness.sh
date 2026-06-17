@@ -24,6 +24,25 @@ cp "$repo_root/stage1/compiler-contracts/snapshots/command-lsp.json" "$case_dir/
 cp "$repo_root/stage1/compiler-contracts/snapshots/mir-backend.json" "$case_dir/stage1/compiler-contracts/snapshots/mir-backend.json"
 cp "$repo_root/stage1/crates/axiomc/tests/cranelift_backend.rs" "$case_dir/stage1/crates/axiomc/tests/cranelift_backend.rs"
 cp "$repo_root/stage1/crates/axiomc-backend-cranelift/src/lib.rs" "$case_dir/stage1/crates/axiomc-backend-cranelift/src/lib.rs"
+python3 - "$case_dir/stage1/runtime-abi/direct-native-v0.json" <<'PY'
+import json
+import sys
+
+path = sys.argv[1]
+with open(path, encoding="utf-8") as handle:
+    contract = json.load(handle)
+
+contract["status"] = "implemented"
+for group_name in ("value_features", "capability_shims"):
+    for row in contract[group_name]:
+        row["status"] = "implemented"
+        row.pop("blockers", None)
+        row["evidence"] = ["stage1/crates/axiomc/tests/cranelift_backend.rs"]
+        row["runtime_evidence"] = ["stage1/crates/axiomc/tests/cranelift_backend.rs"]
+
+with open(path, "w", encoding="utf-8") as handle:
+    json.dump(contract, handle)
+PY
 cat >"$case_dir/Makefile" <<'MAKE'
 rust-exit-readiness:
 	bash scripts/ci/check-rust-exit-readiness.sh --json

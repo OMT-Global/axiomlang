@@ -21000,7 +21000,6 @@ mod tests {
         );
     }
 
-
     #[test]
     fn fs_read_folding_is_disabled_when_program_writes() {
         let mut static_bindings = I64StaticBindings::default();
