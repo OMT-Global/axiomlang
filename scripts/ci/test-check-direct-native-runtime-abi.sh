@@ -58,6 +58,51 @@ assert report["blocker_issues"] == [1001]
 assert report["errors"] == []
 PY
 
+printf '{' >"$temp_dir/invalid-contract.json"
+if python3 "$script" --contract "$temp_dir/invalid-contract.json" --json >"$temp_dir/invalid-report.json"; then
+  echo "expected invalid contracts to fail" >&2
+  exit 1
+fi
+python3 - "$temp_dir/invalid-report.json" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    report = json.load(handle)
+
+assert report["schema"] == "axiom.direct_native.runtime_abi.check.v1"
+assert report["ready"] is False
+assert report["incomplete_rows"] == []
+assert report["incomplete_rows_by_group"] == {
+    "value_features": [],
+    "capability_shims": [],
+}
+assert report["blocked_rows"] == []
+assert report["blocked_rows_by_group"] == {
+    "value_features": [],
+    "capability_shims": [],
+}
+assert report["evidence_summary"] == {
+    "value_features": {
+        "with_evidence": 0,
+        "without_evidence": 0,
+        "with_runtime_evidence": 0,
+        "without_runtime_evidence": 0,
+        "with_denial_evidence": 0,
+        "without_denial_evidence": 0,
+    },
+    "capability_shims": {
+        "with_evidence": 0,
+        "without_evidence": 0,
+        "with_runtime_evidence": 0,
+        "without_runtime_evidence": 0,
+        "with_denial_evidence": 0,
+        "without_denial_evidence": 0,
+    },
+}
+assert report["errors"]
+PY
+
 python3 - "$contract" "$temp_dir/ready-contract.json" <<'PY'
 import json
 import sys
