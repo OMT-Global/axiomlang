@@ -25,6 +25,7 @@ assert report["status_counts"]["value_features"]["partial"] == 12
 assert report["status_counts"]["capability_shims"]["partial"] == 22
 assert report["blocked_rows"] == []
 assert len(report["incomplete_rows"]) == 34
+assert "env.read" in report["incomplete_rows"]
 assert "ffi.call" in report["incomplete_rows"]
 assert "json.serdes" in report["incomplete_rows"]
 assert report["blocker_issues"] == [1001]
