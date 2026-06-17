@@ -3651,10 +3651,12 @@ fn cranelift_backend_debug_build_emits_sidecars_without_axiom_dwarf() {
     assert_eq!(manifest["native_debug"]["debuginfo"], 0);
     assert_eq!(manifest["native_debug"]["opt_level"], 0);
     assert_eq!(manifest["native_debug"]["axiom_dwarf"], false);
-    assert!(manifest["native_debug"]["native_debug_info"]
-        .as_str()
-        .expect("native debug info")
-        .contains("does not emit native Axiom DWARF yet"));
+    assert!(
+        manifest["native_debug"]["native_debug_info"]
+            .as_str()
+            .expect("native debug info")
+            .contains("does not emit native Axiom DWARF yet")
+    );
     assert!(
         manifest.get("rustc").is_none(),
         "cranelift debug manifests should not claim rustc debug settings"
@@ -6387,10 +6389,12 @@ fn cranelift_backend_lowers_ffi_strlen_to_runtime_exit_code() {
     assert!(audit.contains("\"library\":\"c\""), "{audit}");
     assert!(audit.contains("\"symbol\":\"strlen\""), "{audit}");
     assert!(audit.contains("\"value\":\"string\""), "{audit}");
-    assert_eq!(audit.matches("\"outcome\":\"ok\"").count(), 4, "{audit}");
+    assert_eq!(audit.matches("\"outcome\":\"ok\"").count(), 7, "{audit}");
     assert!(
         !audit.contains("hello")
             && !audit.contains("direct-native")
+            && !audit.contains("helper")
+            && !audit.contains("helper-local")
             && !audit.contains("build")
             && !audit.contains("deploy"),
         "audit log should not contain FFI string argument values: {audit}"
@@ -12731,6 +12735,22 @@ source = "path"
         project.join("src/main.ax"),
         r#"extern fn strlen(value: string): int from "c"
 
+fn literal_probe(): int {
+return strlen("helper")
+}
+
+fn local_probe(): int {
+let text: string = "helper-local"
+return strlen(text)
+}
+
+fn selected_probe(): int {
+let scores: {string: int} = {"build": 7, "deploy": 9}
+let names: [string] = keys<string, int>(scores)
+let selected_index: int = 0
+return strlen(names[selected_index])
+}
+
 fn main(): int {
 let literal_len: int = strlen("hello")
 let empty_len: int = strlen("")
@@ -12740,7 +12760,10 @@ let scores: {string: int} = {"build": 7, "deploy": 9}
 let names: [string] = keys<string, int>(scores)
 let selected_index: int = 1
 let selected_len: int = strlen(names[selected_index])
-if literal_len == 5 && empty_len == 0 && local_len == 13 && selected_len == 6 {
+let helper_literal_len: int = literal_probe()
+let helper_local_len: int = local_probe()
+let helper_selected_len: int = selected_probe()
+if literal_len == 5 && empty_len == 0 && local_len == 13 && selected_len == 6 && helper_literal_len == 6 && helper_local_len == 12 && helper_selected_len == 5 {
 return 48
 } else {
 return 1

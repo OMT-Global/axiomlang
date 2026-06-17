@@ -16,15 +16,17 @@ with open(sys.argv[1], encoding="utf-8") as handle:
     report = json.load(handle)
 
 assert report["schema"] == "axiom.direct_native.runtime_abi.check.v1"
-assert report["ready"] is True
+assert report["ready"] is False
 assert report["target_id"] == "axiom://target/stage1-direct-native"
+assert report["contract_status"] == "partial"
 assert report["value_feature_count"] == 12
 assert report["capability_shim_count"] == 22
-assert report["status_counts"]["value_features"]["implemented"] == 12
-assert report["status_counts"]["capability_shims"]["implemented"] == 22
+assert report["status_counts"]["value_features"]["partial"] == 12
+assert report["status_counts"]["capability_shims"]["partial"] == 22
 assert report["blocked_rows"] == []
-assert report["incomplete_rows"] == []
-assert report["blocker_issues"] == []
+assert len(report["incomplete_rows"]) == 34
+assert "ffi.call" in report["incomplete_rows"]
+assert report["blocker_issues"] == [1001]
 assert report["errors"] == []
 PY
 
@@ -173,10 +175,28 @@ assert any("must name runtime_evidence" in error for error in report["errors"])
 PY
 
 if python3 "$script" --contract "$contract" --enforce-ready >/dev/null; then
-  :
-else
-  echo "expected --enforce-ready to pass once direct native runtime ABI rows are implemented" >&2
+  echo "expected --enforce-ready to fail while direct native runtime ABI rows are partial" >&2
   exit 1
 fi
+
+python3 - "$contract" "$temp_dir/ready-contract.json" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    contract = json.load(handle)
+
+contract["status"] = "implemented"
+for group_name in ("value_features", "capability_shims"):
+    for row in contract[group_name]:
+        row["status"] = "implemented"
+        row.pop("blockers", None)
+        row.setdefault("runtime_evidence", ["stage1/crates/axiomc/tests/cranelift_backend.rs"])
+
+with open(sys.argv[2], "w", encoding="utf-8") as handle:
+    json.dump(contract, handle)
+PY
+
+python3 "$script" --contract "$temp_dir/ready-contract.json" --enforce-ready >/dev/null
 
 echo "direct native runtime ABI contract regression cases passed"
