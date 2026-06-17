@@ -42,8 +42,8 @@ assert "process.status" in report["incomplete_rows_by_group"]["capability_shims"
 assert report["evidence_summary"]["value_features"] == {
     "with_evidence": 12,
     "without_evidence": 0,
-    "with_runtime_evidence": 5,
-    "without_runtime_evidence": 7,
+    "with_runtime_evidence": 11,
+    "without_runtime_evidence": 1,
     "with_denial_evidence": 0,
     "without_denial_evidence": 12,
 }
@@ -57,6 +57,29 @@ assert report["evidence_summary"]["capability_shims"] == {
 }
 assert report["blocker_issues"] == [1001]
 assert report["errors"] == []
+PY
+
+python3 - "$contract" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    contract = json.load(handle)
+
+value_rows = {row["id"]: row for row in contract["value_features"]}
+for row_id in (
+    "string",
+    "array.fixed",
+    "slice.borrowed",
+    "map.lookup",
+    "tuple",
+    "struct.field",
+):
+    assert value_rows[row_id]["runtime_evidence"] == [
+        "stage1/crates/axiomc-backend-cranelift/src/lib.rs"
+    ]
+
+assert "runtime_evidence" not in value_rows["owned.move_state"]
 PY
 
 printf '{' >"$temp_dir/invalid-contract.json"
