@@ -324,6 +324,10 @@
       "status": "partial",
       "capability": null,
       "evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"],
+      "runtime_evidence": [
+        "stage1/crates/axiomc/src/cranelift_backend.rs",
+        "stage1/crates/axiomc/tests/cranelift_backend.rs"
+      ],
       "blockers": [1001],
       "notes": "The Cranelift spike now builds and runs ownership-shaped std/sync mutex, once, and channel wrappers while the public sync smoke asserts generated_rust is null. The direct-native i64 path now also lowers public std/sync.ax mutex, lock, replace, and into_inner wrappers over a scalar int payload into native process exit status without generated Rust. It also lowers public std/sync.ax once_with, once, once_is_set, and once_take wrappers over scalar int/bool payloads when the one-shot cell value is compile-time known, including pre-runtime Once locals, letting present and missing once cells feed direct-native process exit status without generated Rust. Public std/sync.ax channel, send, and try_recv wrappers now lower known single-slot int/bool channel payloads, including pre-runtime channel locals, into direct-native process exit status as present or missing Option values without generated Rust. Concurrent execution, blocking behavior, dynamic channel or once state after runtime scalar lowering, and host runtime synchronization remain open."
     },
