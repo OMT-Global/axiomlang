@@ -12382,6 +12382,9 @@ fn lower_i64_crypto_random_intrinsic_expr(
 
 fn lower_i64_crypto_random_bytes_len_expr(
     expr: &Expr,
+    local_indexes: &HashMap<String, usize>,
+    local_conditions: &HashMap<String, CraneliftI64Condition>,
+    helper_signatures: &HashMap<&str, I64HelperSignature>,
     static_bindings: &I64StaticBindings,
 ) -> Option<CraneliftI64Expr> {
     let Expr::Call { name, args, .. } = expr else {
@@ -12393,15 +12396,23 @@ fn lower_i64_crypto_random_bytes_len_expr(
     let [length] = args.as_slice() else {
         return None;
     };
-    let length = i64_static_scalar_value(length, static_bindings)?;
-    if !(0..=65_536).contains(&length) {
-        return None;
-    }
+    let arg_value = i64_static_scalar_value(length, static_bindings)
+        .map(|length| format!("int:{length}"))
+        .unwrap_or_else(|| "int".to_string());
+    let length = lower_i64_expr(
+        length,
+        local_indexes,
+        local_conditions,
+        helper_signatures,
+        static_bindings,
+    )?;
     i64_audited_crypto_expr(
         "crypto_rand_bytes",
         "length",
-        format!("int:{length}"),
-        CraneliftI64Expr::RandomBytesLen { length },
+        arg_value,
+        CraneliftI64Expr::RandomBytesLen {
+            length: Box::new(length),
+        },
         static_bindings,
         CraneliftI64AuditSuccess::NonNegative,
     )
@@ -13047,7 +13058,13 @@ fn lower_i64_fixed_array_intrinsic_expr(
         ) {
             return Some(length);
         }
-        if let Some(length) = lower_i64_crypto_random_bytes_len_expr(arg, static_bindings) {
+        if let Some(length) = lower_i64_crypto_random_bytes_len_expr(
+            arg,
+            local_indexes,
+            local_conditions,
+            helper_signatures,
+            static_bindings,
+        ) {
             return Some(length);
         }
         if let Some(length) = lower_i64_map_keys_len_expr(arg, static_bindings) {

@@ -150,7 +150,7 @@ pub enum I64Expr {
         package: String,
     },
     RandomBytesLen {
-        length: i64,
+        length: Box<I64Expr>,
     },
     AuditCrypto {
         intrinsic: String,
@@ -2136,9 +2136,13 @@ fn emit_i64_expr(
         I64Expr::RandomU64 { intrinsic, package } => {
             emit_i64_random_u64_expr(builder, runtime_refs, intrinsic, package)
         }
-        I64Expr::RandomBytesLen { length } => {
-            emit_i64_random_bytes_len_expr(builder, runtime_refs, *length)
-        }
+        I64Expr::RandomBytesLen { length } => emit_i64_random_bytes_len_expr(
+            builder,
+            locals,
+            function_refs,
+            runtime_refs,
+            length,
+        ),
         I64Expr::AuditCrypto {
             intrinsic,
             package,
@@ -2469,29 +2473,42 @@ fn emit_i64_random_u64_expr(
 
 fn emit_i64_random_bytes_len_expr(
     builder: &mut FunctionBuilder<'_>,
+    locals: &[Variable],
+    function_refs: &[FuncRef],
     runtime_refs: I64RuntimeRefs,
-    length: i64,
+    length: &I64Expr,
 ) -> Result<cranelift_codegen::ir::Value, CraneliftBackendError> {
-    if !(0..=65_536).contains(&length) {
-        return Ok(builder.ins().iconst(types::I64, -1));
-    }
-    if length == 0 {
-        return Ok(builder.ins().iconst(types::I64, 0));
-    }
-
-    let hook_key_ptr = emit_i64_path_ptr(builder, "AXIOM_TEST_RANDOM_BYTES")?;
-    let hook_call = builder.ins().call(runtime_refs.getenv, &[hook_key_ptr]);
-    let hook_ptr = builder.inst_results(hook_call)[0];
-
+    let length = emit_i64_expr(builder, locals, function_refs, runtime_refs, length)?;
+    let failed_block = builder.create_block();
+    let success_block = builder.create_block();
+    let nonzero_block = builder.create_block();
+    let hook_check_block = builder.create_block();
     let hook_len_block = builder.create_block();
     let os_open_block = builder.create_block();
-    let failed_block = builder.create_block();
     let read_block = builder.create_block();
-    let success_block = builder.create_block();
     let merge_block = builder.create_block();
     builder.append_block_param(read_block, types::I32);
     builder.append_block_param(merge_block, types::I64);
 
+    let min_valid = builder.ins().icmp_imm(IntCC::SignedGreaterThanOrEqual, length, 0);
+    let max_valid = builder.ins().icmp_imm(IntCC::SignedLessThanOrEqual, length, 65_536);
+    let valid_length = builder.ins().band(min_valid, max_valid);
+    builder
+        .ins()
+        .brif(valid_length, nonzero_block, &[], failed_block, &[]);
+
+    builder.switch_to_block(nonzero_block);
+    builder.seal_block(nonzero_block);
+    let zero_length = builder.ins().icmp_imm(IntCC::Equal, length, 0);
+    builder
+        .ins()
+        .brif(zero_length, success_block, &[], hook_check_block, &[]);
+
+    builder.switch_to_block(hook_check_block);
+    builder.seal_block(hook_check_block);
+    let hook_key_ptr = emit_i64_path_ptr(builder, "AXIOM_TEST_RANDOM_BYTES")?;
+    let hook_call = builder.ins().call(runtime_refs.getenv, &[hook_key_ptr]);
+    let hook_ptr = builder.inst_results(hook_call)[0];
     let missing_hook = builder.ins().icmp_imm(IntCC::Equal, hook_ptr, 0);
     builder
         .ins()
@@ -2503,18 +2520,16 @@ fn emit_i64_random_bytes_len_expr(
     let hook_len = builder.inst_results(hook_len_call)[0];
     let hook_has_bytes = builder
         .ins()
-        .icmp_imm(IntCC::SignedGreaterThanOrEqual, hook_len, length);
+        .icmp(IntCC::SignedGreaterThanOrEqual, hook_len, length);
     builder
         .ins()
         .brif(hook_has_bytes, success_block, &[], failed_block, &[]);
 
     builder.switch_to_block(os_open_block);
     builder.seal_block(os_open_block);
-    let slot_len = u32::try_from(length)
-        .map_err(|_| CraneliftBackendError::new("crypto random length is too large"))?;
     let bytes_slot = builder.create_sized_stack_slot(StackSlotData::new(
         StackSlotKind::ExplicitSlot,
-        slot_len,
+        65_536,
         0,
     ));
     let bytes_ptr = builder.ins().stack_addr(types::I64, bytes_slot, 0);
@@ -2536,21 +2551,19 @@ fn emit_i64_random_bytes_len_expr(
     builder.switch_to_block(read_block);
     builder.seal_block(read_block);
     let fd = builder.block_params(read_block)[0];
-    let requested = builder.ins().iconst(types::I64, length);
     let read_call = builder
         .ins()
-        .call(runtime_refs.read, &[fd, bytes_ptr, requested]);
+        .call(runtime_refs.read, &[fd, bytes_ptr, length]);
     let bytes_read = builder.inst_results(read_call)[0];
     builder.ins().call(runtime_refs.close, &[fd]);
-    let read_complete = builder.ins().icmp(IntCC::Equal, bytes_read, requested);
+    let read_complete = builder.ins().icmp(IntCC::Equal, bytes_read, length);
     builder
         .ins()
         .brif(read_complete, success_block, &[], failed_block, &[]);
 
     builder.switch_to_block(success_block);
     builder.seal_block(success_block);
-    let success = builder.ins().iconst(types::I64, length);
-    builder.ins().jump(merge_block, &[BlockArg::Value(success)]);
+    builder.ins().jump(merge_block, &[BlockArg::Value(length)]);
 
     builder.switch_to_block(failed_block);
     builder.seal_block(failed_block);
