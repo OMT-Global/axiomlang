@@ -278,8 +278,11 @@ The `struct.field` row now has narrow direct-native runtime evidence for
 immediate struct-literal scalar field access and scalar projection from local
 struct bindings, including runtime-scope loop-body bindings. Numeric fields can
 feed `int` and typed integer locals; boolean fields can feed bool locals, helper
-return conditions, and composed boolean conditions. It also covers reassignment
-of scalar-projection struct locals. Scalar and bool struct helper parameters
+return conditions, and composed boolean conditions. The public struct-field
+smoke also asserts the Cranelift build JSON reports `generated_rust: null`
+while running scalar, boolean, and string field projection output. It also
+covers reassignment of scalar-projection struct locals. Scalar and bool struct
+helper parameters
 lower across direct-native function-call boundaries as one ABI slot per field
 in declared field order for local struct values and inline struct literal
 arguments. Scalar and bool struct-returning helpers now lower across
@@ -486,10 +489,12 @@ spike can build and run `std/crypto_rand.ax` `random_bytes(...)` and
 `random_u64()` through a Unix OS-random source while the public smoke asserts
 `generated_rust` is null, preserving the generated-Rust helper's `0..=65536`
 byte length cap. The direct-native i64 path now also lowers
-`len(random_bytes(n))` for literal and static scalar nonnegative lengths up to
-the stage1 65,536 byte cap into a runtime scratch-buffer fill from the Unix
-OS-random source, returning the requested length on success without
-materializing a general byte-array value. Public `random_u64()` in the
+`len(random_bytes(n))` for literal, static scalar, local runtime scalar, and
+helper-derived scalar lengths through a native `0..=65536` bounds check into a
+runtime scratch-buffer fill from the Unix OS-random source, returning the
+requested length on success without materializing a general byte-array value.
+Dynamic length audit metadata records only the typed argument shape, not the
+runtime length value. Public `random_u64()` in the
 direct-native i64 path also reads eight bytes from the same Unix OS-random
 source at runtime and returns those bits through the native scalar path instead
 of embedding compiler-sampled bytes. Those native random reads append
@@ -674,13 +679,13 @@ The `env.read` row now has partial Cranelift evidence for `std/env.ax`
 `get_env` on present and missing environment names while the public smoke
 asserts `generated_rust` is null, plus denial evidence that a package without the
 `env` capability fails before backend lowering. The direct-native i64 path now
-also lowers literal-key `env_get(...)` calls and the public `std/env.ax`
-`get_env(...)` wrapper into native runtime environment lookups through the
-object backend for direct `Option<string>` matches that use `len(value)`,
-returning the runtime string length or the `None` arm when absent. That
-direct-native path also appends host audit JSONL entries when
+also lowers literal- and static-string-key `env_get(...)` calls and the public
+`std/env.ax` `get_env(...)` wrapper into native runtime environment lookups
+through the object backend for direct `Option<string>` matches that use
+`len(value)`, returning the runtime string length or the `None` arm when absent.
+That direct-native path also appends host audit JSONL entries when
 `AXIOM_HOST_AUDIT_LOG` is set, recording only the environment key length and the
-`ok`/`denied` outcome without recording environment values. Literal-key
+`ok`/`denied` outcome without recording environment values. Literal- and static-key
 direct-native environment reads now also honor manifest env allowlists at
 runtime, returning the `None` arm for non-allowlisted keys even when those names
 exist in the host process. The same runtime env lookup can now be stored in a

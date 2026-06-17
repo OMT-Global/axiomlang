@@ -2762,6 +2762,11 @@ fn cranelift_backend_builds_struct_field_binary() {
 
     let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
     assert_eq!(payload["backend"], "cranelift");
+    assert_eq!(
+        payload.get("generated_rust"),
+        Some(&Value::Null),
+        "build JSON must explicitly report generated_rust: null"
+    );
     let binary = payload["binary"].as_str().expect("binary path");
     let run = Command::new(binary)
         .output()
@@ -4600,7 +4605,7 @@ fn cranelift_backend_lowers_crypto_random_to_runtime_exit_code() {
     let audit_log = temp.path().join("crypto-random-audit.jsonl");
     let run = Command::new(binary)
         .env("AXIOM_HOST_AUDIT_LOG", &audit_log)
-        .env("AXIOM_TEST_RANDOM_BYTES", "0123456789abcdef")
+        .env("AXIOM_TEST_RANDOM_BYTES", "0123456789abcdefXYZ")
         .env("AXIOM_TEST_RANDOM_U64", "48")
         .output()
         .expect("run cranelift crypto random main binary");
@@ -4611,8 +4616,10 @@ fn cranelift_backend_lowers_crypto_random_to_runtime_exit_code() {
     assert!(audit.contains("\"intrinsic\":\"crypto_rand_u64\""));
     assert!(audit.contains("\"length\":\"int:16\""));
     assert!(audit.contains("\"length\":\"int:0\""));
+    assert!(audit.contains("\"length\":\"int\""));
     assert!(audit.contains("\"args\":{}"));
-    assert_eq!(audit.matches("\"outcome\":\"ok\"").count(), 3);
+    assert_eq!(audit.matches("\"outcome\":\"ok\"").count(), 4);
+    assert!(!audit.contains("\"int:17\""));
     assert!(!audit.contains("\"bytes\""));
 }
 
@@ -10291,7 +10298,7 @@ fn write_crypto_random_main_exit_project(project: &Path) {
     .expect("write crypto random main lockfile");
     fs::write(
         project.join("src/main.ax"),
-        "import \"std/crypto_rand.ax\"\n\nstatic RANDOM_LEN: int = 16\n\nfn main(): int {\nlet sample_len: int = len(random_bytes(RANDOM_LEN))\nlet empty_len: int = len(random_bytes(0))\nlet value: int = random_u64() as int\nif sample_len == RANDOM_LEN && empty_len == 0 && value == 48 {\nreturn 48\n} else {\nreturn 1\n}\n}\n",
+        "import \"std/crypto_rand.ax\"\n\nstatic RANDOM_LEN: int = 16\n\nfn choose_len(seed: int): int {\nreturn seed + 8\n}\n\nfn main(): int {\nlet dynamic_len: int = choose_len(9)\nlet sample_len: int = len(random_bytes(RANDOM_LEN))\nlet dynamic_sample_len: int = len(random_bytes(dynamic_len))\nlet empty_len: int = len(random_bytes(0))\nlet value: int = random_u64() as int\nif sample_len == RANDOM_LEN && dynamic_sample_len == dynamic_len && empty_len == 0 && value == 48 {\nreturn 48\n} else {\nreturn 1\n}\n}\n",
     )
     .expect("write crypto random main source");
 }
@@ -12580,12 +12587,15 @@ source = "path"
         project.join("src/main.ax"),
         r#"import "std/env.ax"
 
+static PRESENT_ENV: string = "AXIOM_CRANELIFT_ENV_READ"
+static MISSING_ENV: string = "__AXIOM_CRANELIFT_ENV_MISSING__"
+
 fn main(): int {
-let present: int = match env_get("AXIOM_CRANELIFT_ENV_READ") { Some(value) => len(value), None => 0 }
-let missing: int = match get_env("__AXIOM_CRANELIFT_ENV_MISSING__") { Some(value) => len(value), None => 38 }
-let stored_present: Option<string> = get_env("AXIOM_CRANELIFT_ENV_READ")
-let stored_missing: Option<string> = env_get("__AXIOM_CRANELIFT_ENV_MISSING__")
-let stored_present_for_statement: Option<string> = get_env("AXIOM_CRANELIFT_ENV_READ")
+let present: int = match env_get(PRESENT_ENV) { Some(value) => len(value), None => 0 }
+let missing: int = match get_env(MISSING_ENV) { Some(value) => len(value), None => 38 }
+let stored_present: Option<string> = get_env(PRESENT_ENV)
+let stored_missing: Option<string> = env_get(MISSING_ENV)
+let stored_present_for_statement: Option<string> = get_env(PRESENT_ENV)
 let stored_present_len: int = match stored_present { Some(value) => len(value), None => 0 }
 let stored_missing_len: int = match stored_missing { Some(value) => len(value), None => 38 }
 let statement_present_len: int = 0
@@ -12645,11 +12655,14 @@ source = "path"
         project.join("src/main.ax"),
         r#"import "std/env.ax"
 
+static ALLOWED_ENV: string = "AXIOM_CRANELIFT_ENV_READ"
+static BLOCKED_ENV: string = "AXIOM_CRANELIFT_ENV_BLOCKED"
+
 fn main(): int {
-let allowed: int = match env_get("AXIOM_CRANELIFT_ENV_READ") { Some(value) => len(value), None => 0 }
-let blocked: int = match get_env("AXIOM_CRANELIFT_ENV_BLOCKED") { Some(value) => len(value), None => 0 }
-let stored_allowed: Option<string> = get_env("AXIOM_CRANELIFT_ENV_READ")
-let stored_blocked: Option<string> = env_get("AXIOM_CRANELIFT_ENV_BLOCKED")
+let allowed: int = match env_get(ALLOWED_ENV) { Some(value) => len(value), None => 0 }
+let blocked: int = match get_env(BLOCKED_ENV) { Some(value) => len(value), None => 0 }
+let stored_allowed: Option<string> = get_env(ALLOWED_ENV)
+let stored_blocked: Option<string> = env_get(BLOCKED_ENV)
 let stored_allowed_len: int = match stored_allowed { Some(value) => len(value), None => 0 }
 let stored_blocked_len: int = match stored_blocked { Some(value) => len(value), None => 0 }
 if allowed == 11 && blocked == 0 && stored_allowed_len == 11 && stored_blocked_len == 0 {
