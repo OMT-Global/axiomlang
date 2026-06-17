@@ -4907,7 +4907,10 @@ fn cranelift_backend_builds_std_async_net_tcp_binary() {
 
     let temp = tempfile::tempdir().expect("tempdir");
     let project = temp.path().join("std-async-net-tcp");
-    write_std_async_net_tcp_project(&project);
+    let Some(port) = reserve_loopback_port() else {
+        return;
+    };
+    write_std_async_net_tcp_project(&project, port);
 
     let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
         .args([
@@ -10632,11 +10635,12 @@ print "none"
     .expect("write std async source");
 }
 
-fn write_std_async_net_tcp_project(project: &Path) {
+fn write_std_async_net_tcp_project(project: &Path, port: u16) {
     fs::create_dir_all(project.join("src")).expect("create std async net TCP project src");
     fs::write(
         project.join("axiom.toml"),
-        r#"[package]
+        format!(
+            r#"[package]
 name = "cranelift-std-async-net-tcp"
 version = "0.1.0"
 
@@ -10647,7 +10651,7 @@ out_dir = "dist"
 [capabilities]
 fs = false
 "fs:write" = false
-net = true
+net = {{ hosts = ["127.0.0.1"], ports = [{port}] }}
 process = false
 env = false
 clock = false
@@ -10659,6 +10663,7 @@ async = true
 net = "Cranelift ABI regression covers compiler-side std/async_net.ax loopback TCP evaluation for issue 928."
 async = "Cranelift ABI regression covers compiler-side std/async_net.ax loopback TCP evaluation for issue 928."
 "#,
+        ),
     )
     .expect("write std async net TCP manifest");
     fs::write(
@@ -10674,45 +10679,46 @@ source = "path"
     .expect("write std async net TCP lockfile");
     fs::write(
         project.join("src/main.ax"),
-        r#"import "std/async.ax"
+        format!(
+            r#"import "std/async.ax"
 import "std/async_net.ax"
 
-async fn echo_once(listener: TcpListener): int {
+async fn echo_once(listener: TcpListener): int {{
 let stream: TcpStream = await accept(listener)
 let received: string = await recv_text(stream, 64)
 let _written: int = await send_text(stream, received)
 return close(stream)
-}
+}}
 
-let listener: TcpListener = await listen("127.0.0.1:0")
-let port: int = local_port(listener)
+let listener: TcpListener = await listen("127.0.0.1:{port}")
 let first_handler: JoinHandle<int> = spawn<int>(echo_once(listener))
 let second_handler: JoinHandle<int> = spawn<int>(echo_once(listener))
-let first_client: JoinHandle<Option<string>> = spawn<Option<string>>(tcp_dial("127.0.0.1", port, "alpha", 1000))
-let second_client: JoinHandle<Option<string>> = spawn<Option<string>>(tcp_dial("127.0.0.1", port, "beta", 1000))
+let first_client: JoinHandle<Option<string>> = spawn<Option<string>>(tcp_dial("127.0.0.1", {port}, "alpha", 1000))
+let second_client: JoinHandle<Option<string>> = spawn<Option<string>>(tcp_dial("127.0.0.1", {port}, "beta", 1000))
 
-match await join<Option<string>>(first_client) {
-Some(reply) {
+match await join<Option<string>>(first_client) {{
+Some(reply) {{
 print reply
-}
-None {
+}}
+None {{
 print "first none"
-}
-}
+}}
+}}
 
-match await join<Option<string>>(second_client) {
-Some(reply) {
+match await join<Option<string>>(second_client) {{
+Some(reply) {{
 print reply
-}
-None {
+}}
+None {{
 print "second none"
-}
-}
+}}
+}}
 
 let _first_done: int = await join<int>(first_handler)
 let _second_done: int = await join<int>(second_handler)
 let _listener_closed: int = close_listener(listener)
 "#,
+        ),
     )
     .expect("write std async net TCP source");
 }
