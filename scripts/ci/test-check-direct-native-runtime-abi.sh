@@ -49,8 +49,8 @@ assert report["evidence_summary"]["value_features"] == {
 assert report["evidence_summary"]["capability_shims"] == {
     "with_evidence": 22,
     "without_evidence": 0,
-    "with_runtime_evidence": 11,
-    "without_runtime_evidence": 11,
+    "with_runtime_evidence": 13,
+    "without_runtime_evidence": 9,
     "with_denial_evidence": 18,
     "without_denial_evidence": 4,
 }
@@ -192,6 +192,11 @@ for row_id in (
 assert capability_rows["json.serdes"]["runtime_evidence"] == [
     "stage1/crates/axiomc/src/cranelift_backend.rs"
 ]
+for row_id in ("crypto.hash", "crypto.mac"):
+    assert capability_rows[row_id]["runtime_evidence"] == [
+        "stage1/crates/axiomc/src/cranelift_backend.rs",
+        "stage1/crates/axiomc/tests/cranelift_backend.rs",
+    ]
 assert capability_rows["sync.primitives"]["runtime_evidence"] == [
     "stage1/crates/axiomc/src/cranelift_backend.rs",
     "stage1/crates/axiomc/tests/cranelift_backend.rs",
