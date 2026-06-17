@@ -674,13 +674,13 @@ The `env.read` row now has partial Cranelift evidence for `std/env.ax`
 `get_env` on present and missing environment names while the public smoke
 asserts `generated_rust` is null, plus denial evidence that a package without the
 `env` capability fails before backend lowering. The direct-native i64 path now
-also lowers literal-key `env_get(...)` calls and the public `std/env.ax`
-`get_env(...)` wrapper into native runtime environment lookups through the
-object backend for direct `Option<string>` matches that use `len(value)`,
-returning the runtime string length or the `None` arm when absent. That
-direct-native path also appends host audit JSONL entries when
+also lowers literal- and static-string-key `env_get(...)` calls and the public
+`std/env.ax` `get_env(...)` wrapper into native runtime environment lookups
+through the object backend for direct `Option<string>` matches that use
+`len(value)`, returning the runtime string length or the `None` arm when absent.
+That direct-native path also appends host audit JSONL entries when
 `AXIOM_HOST_AUDIT_LOG` is set, recording only the environment key length and the
-`ok`/`denied` outcome without recording environment values. Literal-key
+`ok`/`denied` outcome without recording environment values. Literal- and static-key
 direct-native environment reads now also honor manifest env allowlists at
 runtime, returning the `None` arm for non-allowlisted keys even when those names
 exist in the host process. The same runtime env lookup can now be stored in a
