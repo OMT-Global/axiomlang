@@ -4056,7 +4056,9 @@ fn cranelift_backend_lowers_numeric_net_resolve_to_runtime_exit_code() {
     let audit = fs::read_to_string(&audit_log).expect("read net audit log");
     assert!(audit.contains("\"intrinsic\":\"net_resolve\""));
     assert!(audit.contains("\"host\":\"string:9\""));
+    assert!(audit.contains("\"host\":\"string:15\""));
     assert!(!audit.contains("127.0.0.1"));
+    assert!(!audit.contains("0:0:0:0:0:0:0:1"));
 }
 
 #[cfg(not(windows))]
@@ -9658,7 +9660,7 @@ out_dir = "dist"
 
 [capabilities]
 fs = false
-net = { hosts = ["127.0.0.1"], ports = [] }
+net = { hosts = ["127.0.0.1", "0:0:0:0:0:0:0:1"], ports = [] }
 process = false
 env = false
 clock = false
@@ -9691,6 +9693,9 @@ let stored_direct: Option<string> = net_resolve("127.0.0.1")
 let stored_statement: Option<string> = resolve("127.0.0.1")
 let stored_resolved_len: int = match stored_resolved { Some(address) => len(address), None => 0 }
 let stored_direct_len: int = match stored_direct { Some(address) => len(address), None => 0 }
+let ipv6_resolved_len: int = match resolve("0:0:0:0:0:0:0:1") { Some(address) => len(address), None => 0 }
+let ipv6_direct: Option<string> = net_resolve("0:0:0:0:0:0:0:1")
+let ipv6_direct_len: int = match ipv6_direct { Some(address) => len(address), None => 0 }
 let statement_len: int = 0
 match stored_statement {
 Some(address) {
@@ -9700,7 +9705,7 @@ None {
 statement_len = 0
 }
 }
-if resolved_len == 9 && stored_resolved_len == 9 && stored_direct_len == 9 && statement_len == 9 {
+if resolved_len == 9 && stored_resolved_len == 9 && stored_direct_len == 9 && statement_len == 9 && ipv6_resolved_len == 3 && ipv6_direct_len == 3 {
 return 48
 } else {
 return 1

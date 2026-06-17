@@ -5054,20 +5054,26 @@ entry = "src/main.ax"
 out_dir = "dist"
 
 [capabilities]
-net = { hosts = ["LOCALHOST"], ports = [8080] }
+net = { hosts = ["LOCALHOST", "0:0:0:0:0:0:0:1"], ports = [8080] }
 "#,
         )
         .expect("write manifest");
 
         let manifest = load_manifest(&project).expect("load manifest");
         assert!(manifest.capabilities.net);
-        assert_eq!(manifest.capabilities.net_hosts, vec!["localhost"]);
+        assert_eq!(
+            manifest.capabilities.net_hosts,
+            vec!["localhost", "0:0:0:0:0:0:0:1"]
+        );
         assert_eq!(manifest.capabilities.net_ports, vec![8080]);
         let net = capability_descriptors(&manifest.capabilities)
             .into_iter()
             .find(|capability| capability.name == "net")
             .expect("net descriptor");
-        assert_eq!(net.allowed, vec!["host:localhost", "port:8080"]);
+        assert_eq!(
+            net.allowed,
+            vec!["host:localhost", "host:0:0:0:0:0:0:0:1", "port:8080"]
+        );
     }
 
     #[test]

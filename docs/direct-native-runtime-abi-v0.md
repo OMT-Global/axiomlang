@@ -376,7 +376,7 @@ supported length-projection expression and statement contexts without generated
 Rust. Literal numeric-address `net_resolve(...)` calls and imported public
 `resolve(...)` wrappers now also lower through a native runtime resolver success
 check backed by the object backend's `getaddrinfo` import, preserving the
-supported numeric address string length for direct matches, stored
+supported canonical resolved numeric address string length for direct matches, stored
 `Option<string>` values, and statement matches without generated Rust. Those
 numeric-address runtime resolver checks append host audit JSONL entries when
 `AXIOM_HOST_AUDIT_LOG` is set, recording only the host string length and

@@ -859,7 +859,10 @@ fn normalize_net_host_allowlist(
                     .with_path(path.display().to_string()),
             );
         }
-        if host.chars().any(char::is_whitespace) || host.contains('/') || host.contains(':') {
+        if host.chars().any(char::is_whitespace)
+            || host.contains('/')
+            || (host.contains(':') && host.parse::<std::net::IpAddr>().is_err())
+        {
             return Err(Diagnostic::new(
                 "manifest",
                 format!(
