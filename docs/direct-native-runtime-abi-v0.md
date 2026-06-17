@@ -1011,14 +1011,20 @@ null. The direct-native i64 path now also lowers literal and static scalar
 process exit status without generated Rust. Negative durations return `-1`,
 bounded nonnegative durations call the native object backend's `usleep` import,
 and durations above the current 1000 ms direct-native cap return `-1` without
-sleeping. Imported public `std/time.ax` `sleep(duration_ms(...))` wrappers now
-alias that same deterministic path for literal, static scalar, and runtime
-scalar durations in runtime-exit programs. Those sleep paths now append host
-audit JSONL entries when `AXIOM_HOST_AUDIT_LOG` is set, recording only the
-integer argument type and the `ok`/`denied` outcome without recording duration
-values. Full clock values across the native ABI, timer scheduling, async clock
-integration, and broader positive-duration sleep policy remain open under
-#1001.
+sleeping. Primitive `clock_now_ms()` and `clock_elapsed_ms(start)` calls,
+imported public `std/time.ax` `now_ms()`, and public
+`elapsed_ms(Instant)` calls over inline `Instant.ms` scalar projections,
+including `elapsed_ms(now())`, now lower to native scalar values backed by the
+object backend's host `time` import and can feed direct-native comparisons and
+process exit status without generated Rust. Imported public `std/time.ax`
+`sleep(duration_ms(...))` wrappers now alias that same deterministic path for
+literal, static scalar, and runtime scalar durations in runtime-exit programs.
+Those sleep paths now append host audit JSONL entries when
+`AXIOM_HOST_AUDIT_LOG` is set, recording only the integer argument type and the
+`ok`/`denied` outcome without recording duration values. Stored `Instant`
+aggregate locals, timer scheduling, async clock integration,
+monotonic/high-resolution clock policy, and broader positive-duration sleep
+policy remain open under #1001.
 
 
 

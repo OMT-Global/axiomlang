@@ -11944,7 +11944,12 @@ let dynamic_ms: int = 1
 let positive: int = sleep(duration_ms(dynamic_ms))
 let direct_positive: int = clock_sleep_ms(dynamic_ms)
 let capped: int = sleep(duration_ms(1001))
-if direct == 0 && helper == 0 && negative == -1 && positive == 0 && direct_positive == 0 && capped == -1 {
+let primitive_start: int = clock_now_ms()
+let primitive_elapsed: int = clock_elapsed_ms(primitive_start)
+let public_start: int = now_ms()
+let public_elapsed: int = elapsed_ms(Instant { ms: public_start })
+let inline_elapsed: int = elapsed_ms(now())
+if direct == 0 && helper == 0 && negative == -1 && positive == 0 && direct_positive == 0 && capped == -1 && primitive_start > 0 && primitive_elapsed >= 0 && public_start > 0 && public_elapsed >= 0 && inline_elapsed >= 0 {
 return 48
 } else {
 return 1

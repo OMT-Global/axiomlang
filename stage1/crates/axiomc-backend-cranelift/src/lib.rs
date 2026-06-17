@@ -45,6 +45,7 @@ struct I64RuntimeRefs {
     write: FuncRef,
     read: FuncRef,
     sleep: FuncRef,
+    time: FuncRef,
     getenv: FuncRef,
     strlen: FuncRef,
     atoll: FuncRef,
@@ -108,6 +109,10 @@ pub enum I64AuditSuccess {
 pub enum I64Expr {
     Literal(i64),
     Local(usize),
+    ClockNowMs,
+    ClockElapsedMs {
+        start: Box<I64Expr>,
+    },
     SleepMs {
         milliseconds: Box<I64Expr>,
     },
@@ -571,6 +576,12 @@ fn emit_i64_exit_object(
         .map_err(|message| {
             CraneliftBackendError::new(format!("declare usleep import: {message}"))
         })?;
+    let mut time_sig = module.make_signature();
+    time_sig.params.push(AbiParam::new(pointer_type));
+    time_sig.returns.push(AbiParam::new(types::I64));
+    let time_id = module
+        .declare_function("time", Linkage::Import, &time_sig)
+        .map_err(|message| CraneliftBackendError::new(format!("declare time import: {message}")))?;
     let mut getenv_sig = module.make_signature();
     getenv_sig.params.push(AbiParam::new(pointer_type));
     getenv_sig.returns.push(AbiParam::new(pointer_type));
@@ -818,6 +829,7 @@ fn emit_i64_exit_object(
             write_id,
             read_id,
             sleep_id,
+            time_id,
             getenv_id,
             strlen_id,
             atoll_id,
@@ -863,6 +875,7 @@ fn emit_i64_exit_object(
         let write_ref = module.declare_func_in_func(write_id, builder.func);
         let read_ref = module.declare_func_in_func(read_id, builder.func);
         let sleep_ref = module.declare_func_in_func(sleep_id, builder.func);
+        let time_ref = module.declare_func_in_func(time_id, builder.func);
         let getenv_ref = module.declare_func_in_func(getenv_id, builder.func);
         let strlen_ref = module.declare_func_in_func(strlen_id, builder.func);
         let atoll_ref = module.declare_func_in_func(atoll_id, builder.func);
@@ -891,6 +904,7 @@ fn emit_i64_exit_object(
             write: write_ref,
             read: read_ref,
             sleep: sleep_ref,
+            time: time_ref,
             getenv: getenv_ref,
             strlen: strlen_ref,
             atoll: atoll_ref,
@@ -1118,6 +1132,7 @@ fn define_i64_function(
     write_id: FuncId,
     read_id: FuncId,
     sleep_id: FuncId,
+    time_id: FuncId,
     getenv_id: FuncId,
     strlen_id: FuncId,
     atoll_id: FuncId,
@@ -1173,6 +1188,7 @@ fn define_i64_function(
         let write_ref = module.declare_func_in_func(write_id, builder.func);
         let read_ref = module.declare_func_in_func(read_id, builder.func);
         let sleep_ref = module.declare_func_in_func(sleep_id, builder.func);
+        let time_ref = module.declare_func_in_func(time_id, builder.func);
         let getenv_ref = module.declare_func_in_func(getenv_id, builder.func);
         let strlen_ref = module.declare_func_in_func(strlen_id, builder.func);
         let atoll_ref = module.declare_func_in_func(atoll_id, builder.func);
@@ -1201,6 +1217,7 @@ fn define_i64_function(
             write: write_ref,
             read: read_ref,
             sleep: sleep_ref,
+            time: time_ref,
             getenv: getenv_ref,
             strlen: strlen_ref,
             atoll: atoll_ref,
@@ -2181,6 +2198,10 @@ fn emit_i64_expr(
                 CraneliftBackendError::new(format!("i64 local index {index} is out of range"))
             })?;
             Ok(builder.use_var(local))
+        }
+        I64Expr::ClockNowMs => Ok(emit_i64_clock_now_ms_expr(builder, runtime_refs)),
+        I64Expr::ClockElapsedMs { start } => {
+            emit_i64_clock_elapsed_ms_expr(builder, locals, function_refs, runtime_refs, start)
         }
         I64Expr::SleepMs { milliseconds } => {
             emit_i64_sleep_ms_expr(builder, locals, function_refs, runtime_refs, milliseconds)
@@ -4163,6 +4184,32 @@ fn emit_i64_sleep_ms_expr(
     builder.switch_to_block(merge_block);
     builder.seal_block(merge_block);
     Ok(builder.block_params(merge_block)[0])
+}
+
+fn emit_i64_clock_now_ms_expr(
+    builder: &mut FunctionBuilder<'_>,
+    runtime_refs: I64RuntimeRefs,
+) -> cranelift_codegen::ir::Value {
+    let null = builder.ins().iconst(types::I64, 0);
+    let call = builder.ins().call(runtime_refs.time, &[null]);
+    let seconds = builder.inst_results(call)[0];
+    let millis_factor = builder.ins().iconst(types::I64, 1_000);
+    builder.ins().imul(seconds, millis_factor)
+}
+
+fn emit_i64_clock_elapsed_ms_expr(
+    builder: &mut FunctionBuilder<'_>,
+    locals: &[Variable],
+    function_refs: &[FuncRef],
+    runtime_refs: I64RuntimeRefs,
+    start: &I64Expr,
+) -> Result<cranelift_codegen::ir::Value, CraneliftBackendError> {
+    let start = emit_i64_expr(builder, locals, function_refs, runtime_refs, start)?;
+    let now = emit_i64_clock_now_ms_expr(builder, runtime_refs);
+    let elapsed = builder.ins().isub(now, start);
+    let moved_backwards = builder.ins().icmp(IntCC::SignedLessThan, now, start);
+    let denied = builder.ins().iconst(types::I64, -1);
+    Ok(builder.ins().select(moved_backwards, denied, elapsed))
 }
 
 fn emit_i64_cast(
