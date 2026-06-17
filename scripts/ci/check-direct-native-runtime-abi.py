@@ -141,6 +141,38 @@ def validate_rows(
     return seen, incomplete_rows, blocked_rows, status_counts, blocker_issues
 
 
+def evidence_summary(rows: object) -> dict[str, int]:
+    summary = {
+        "with_evidence": 0,
+        "without_evidence": 0,
+        "with_runtime_evidence": 0,
+        "without_runtime_evidence": 0,
+        "with_denial_evidence": 0,
+        "without_denial_evidence": 0,
+    }
+    if not isinstance(rows, list):
+        return summary
+
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        for field_name, present_key, missing_key in (
+            ("evidence", "with_evidence", "without_evidence"),
+            (
+                "runtime_evidence",
+                "with_runtime_evidence",
+                "without_runtime_evidence",
+            ),
+            ("denial_evidence", "with_denial_evidence", "without_denial_evidence"),
+        ):
+            value = row.get(field_name)
+            if isinstance(value, list) and value:
+                summary[present_key] += 1
+            else:
+                summary[missing_key] += 1
+    return summary
+
+
 def validate_evidence_paths(
     row: dict[str, Any],
     row_id: str,
@@ -220,6 +252,14 @@ def build_report(
     incomplete_rows = sorted(value_incomplete_rows + capability_incomplete_rows)
     blocked_rows = sorted(value_blocked_rows + capability_blocked_rows)
     blocker_issues = sorted(value_blocker_issues | capability_blocker_issues)
+    incomplete_rows_by_group = {
+        "value_features": sorted(value_incomplete_rows),
+        "capability_shims": sorted(capability_incomplete_rows),
+    }
+    blocked_rows_by_group = {
+        "value_features": sorted(value_blocked_rows),
+        "capability_shims": sorted(capability_blocked_rows),
+    }
     ready = not errors and not incomplete_rows and contract.get("status") == "implemented"
     report = {
         "schema": "axiom.direct_native.runtime_abi.check.v1",
@@ -237,8 +277,14 @@ def build_report(
         if isinstance(contract.get("capability_shims"), list)
         else 0,
         "incomplete_rows": incomplete_rows,
+        "incomplete_rows_by_group": incomplete_rows_by_group,
         "blocked_rows": blocked_rows,
+        "blocked_rows_by_group": blocked_rows_by_group,
         "blocker_issues": blocker_issues,
+        "evidence_summary": {
+            "value_features": evidence_summary(contract.get("value_features")),
+            "capability_shims": evidence_summary(contract.get("capability_shims")),
+        },
         "errors": errors,
     }
     return report, 1 if errors else 0
@@ -272,8 +318,20 @@ def main() -> int:
             "value_feature_count": 0,
             "capability_shim_count": 0,
             "incomplete_rows": [],
+            "incomplete_rows_by_group": {
+                "value_features": [],
+                "capability_shims": [],
+            },
             "blocked_rows": [],
+            "blocked_rows_by_group": {
+                "value_features": [],
+                "capability_shims": [],
+            },
             "blocker_issues": [],
+            "evidence_summary": {
+                "value_features": evidence_summary(None),
+                "capability_shims": evidence_summary(None),
+            },
             "errors": [str(error)],
         }
         if args.json:
@@ -295,6 +353,9 @@ def main() -> int:
         )
         if report["incomplete_rows"]:
             print(f"incomplete rows: {', '.join(report['incomplete_rows'])}")
+            for group_name, rows in report["incomplete_rows_by_group"].items():
+                if rows:
+                    print(f"incomplete {group_name}: {', '.join(rows)}")
         if report["blocked_rows"]:
             print(f"blocked rows: {', '.join(report['blocked_rows'])}")
         if report["blocker_issues"]:

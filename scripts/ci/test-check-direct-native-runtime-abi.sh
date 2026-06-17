@@ -25,11 +25,35 @@ assert report["status_counts"]["value_features"]["partial"] == 12
 assert report["status_counts"]["capability_shims"]["partial"] == 22
 assert report["blocked_rows"] == []
 assert len(report["incomplete_rows"]) == 34
+assert len(report["incomplete_rows_by_group"]["value_features"]) == 12
+assert len(report["incomplete_rows_by_group"]["capability_shims"]) == 22
+assert report["blocked_rows_by_group"] == {
+    "value_features": [],
+    "capability_shims": [],
+}
 assert "env.read" in report["incomplete_rows"]
 assert "ffi.call" in report["incomplete_rows"]
 assert "json.serdes" in report["incomplete_rows"]
 assert "crypto.random" in report["incomplete_rows"]
 assert "network.dns.resolve" in report["incomplete_rows"]
+assert "numeric.scalars" in report["incomplete_rows_by_group"]["value_features"]
+assert "process.status" in report["incomplete_rows_by_group"]["capability_shims"]
+assert report["evidence_summary"]["value_features"] == {
+    "with_evidence": 12,
+    "without_evidence": 0,
+    "with_runtime_evidence": 5,
+    "without_runtime_evidence": 7,
+    "with_denial_evidence": 0,
+    "without_denial_evidence": 12,
+}
+assert report["evidence_summary"]["capability_shims"] == {
+    "with_evidence": 22,
+    "without_evidence": 0,
+    "with_runtime_evidence": 2,
+    "without_runtime_evidence": 20,
+    "with_denial_evidence": 18,
+    "without_denial_evidence": 4,
+}
 assert report["blocker_issues"] == [1001]
 assert report["errors"] == []
 PY
