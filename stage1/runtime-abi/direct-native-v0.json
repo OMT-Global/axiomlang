@@ -96,6 +96,7 @@
       "id": "owned.move_state",
       "status": "partial",
       "evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"],
+      "runtime_evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"],
       "blockers": [1001],
       "notes": "The Cranelift spike builds and runs projection-sensitive owned field moves while preserving access to disjoint sibling projections, and the public smoke now asserts the build JSON reports generated_rust: null for that path. Broader move-state, lifetime, and host ABI coverage remain open."
     }

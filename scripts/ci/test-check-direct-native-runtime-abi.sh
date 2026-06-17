@@ -41,8 +41,8 @@ assert "process.status" in report["incomplete_rows_by_group"]["capability_shims"
 assert report["evidence_summary"]["value_features"] == {
     "with_evidence": 12,
     "without_evidence": 0,
-    "with_runtime_evidence": 11,
-    "without_runtime_evidence": 1,
+    "with_runtime_evidence": 12,
+    "without_runtime_evidence": 0,
     "with_denial_evidence": 0,
     "without_denial_evidence": 12,
 }
@@ -78,7 +78,9 @@ for row_id in (
         "stage1/crates/axiomc-backend-cranelift/src/lib.rs"
     ]
 
-assert "runtime_evidence" not in value_rows["owned.move_state"]
+assert value_rows["owned.move_state"]["runtime_evidence"] == [
+    "stage1/crates/axiomc/tests/cranelift_backend.rs"
+]
 PY
 
 printf '{' >"$temp_dir/invalid-contract.json"
