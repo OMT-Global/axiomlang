@@ -7448,7 +7448,7 @@ fn i64_net_resolve_host(
     let host = i64_string_text(host, static_bindings)?;
     let _addr: IpAddr = host.parse().ok()?;
     Some(I64NetResolveHost {
-        resolved_len: i64::try_from(host.len()).ok()?,
+        resolved_len: i64::try_from(i64_net_resolve_text(&host)?.len()).ok()?,
         host,
     })
 }
@@ -21300,6 +21300,14 @@ mod tests {
         assert_eq!(
             spike_fs_write_candidate_for_root(root, "dangling.txt", false),
             None
+        );
+    }
+
+    #[test]
+    fn i64_net_resolve_text_normalizes_ipv6_literals() {
+        assert_eq!(
+            super::i64_net_resolve_text("0:0:0:0:0:0:0:1").as_deref(),
+            Some("::1")
         );
     }
 }
