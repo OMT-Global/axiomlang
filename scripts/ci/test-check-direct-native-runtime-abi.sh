@@ -49,8 +49,8 @@ assert report["evidence_summary"]["value_features"] == {
 assert report["evidence_summary"]["capability_shims"] == {
     "with_evidence": 22,
     "without_evidence": 0,
-    "with_runtime_evidence": 2,
-    "without_runtime_evidence": 20,
+    "with_runtime_evidence": 3,
+    "without_runtime_evidence": 19,
     "with_denial_evidence": 18,
     "without_denial_evidence": 4,
 }
