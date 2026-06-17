@@ -49,8 +49,8 @@ assert report["evidence_summary"]["value_features"] == {
 assert report["evidence_summary"]["capability_shims"] == {
     "with_evidence": 22,
     "without_evidence": 0,
-    "with_runtime_evidence": 9,
-    "without_runtime_evidence": 13,
+    "with_runtime_evidence": 10,
+    "without_runtime_evidence": 12,
     "with_denial_evidence": 18,
     "without_denial_evidence": 4,
 }
@@ -186,6 +186,10 @@ for row_id in (
     runtime_evidence = capability_rows[row_id]["runtime_evidence"]
     assert "stage1/crates/axiomc/src/cranelift_backend.rs" in runtime_evidence
     assert "stage1/crates/axiomc-backend-cranelift/src/lib.rs" in runtime_evidence
+
+assert capability_rows["json.serdes"]["runtime_evidence"] == [
+    "stage1/crates/axiomc/src/cranelift_backend.rs"
+]
 PY
 
 python3 - "$contract" "$temp_dir/missing-evidence.json" <<'PY'
