@@ -8333,7 +8333,94 @@ fn write_known_json_text_main_exit_project(project: &Path) {
     .expect("write known json text lockfile");
     fs::write(
         project.join("src/main.ax"),
-        "static DOC: string = \"{\\\"name\\\":\\\"axiom\\\",\\\"count\\\":3,\\\"ready\\\":true,\\\"nested\\\":{\\\"ok\\\":true}}\"\nstatic STATIC_COUNT: int = 321\nstatic STATIC_READY: bool = true\n\nfn main(): int {\nlet quoted_len: int = len(json_stringify_string(\"axiom\"))\nlet int_len: int = len(json_stringify_int(42))\nlet static_int_len: int = len(json_stringify_int(STATIC_COUNT))\nlet bool_len: int = len(json_stringify_bool(false))\nlet static_bool_len: int = len(json_stringify_bool(STATIC_READY))\nlet value_len: int = len(json_stringify_value(DOC))\nlet parsed_int: int = match json_parse_int(\" 42 \") { Some(value) => value, None => 1 }\nlet parsed_int_for_len: int = match json_parse_int(\" 42 \") { Some(value) => value, None => 1 }\nlet parsed_int_for_clone_len: int = match json_parse_int(\" 42 \") { Some(value) => value, None => 1 }\nlet parsed_int_for_negative_len: int = match json_parse_int(\" 42 \") { Some(value) => value, None => 1 }\nlet parsed_int_for_quoted_len: int = match json_parse_int(\" 42 \") { Some(value) => value, None => 1 }\nlet parsed_int_for_negative_quoted_len: int = match json_parse_int(\" 42 \") { Some(value) => value, None => 1 }\nlet parsed_bool: bool = match json_parse_bool(\"true\") { Some(value) => value, None => false }\nlet parsed_bool_for_len: bool = match json_parse_bool(\"true\") { Some(value) => value, None => false }\nlet parsed_bool_for_clone_len: bool = match json_parse_bool(\"true\") { Some(value) => value, None => false }\nlet parsed_bool_for_quoted_len: bool = match json_parse_bool(\"true\") { Some(value) => value, None => false }\nlet parsed_int_for_branch_len: int = match json_parse_int(\" 42 \") { Some(value) => value, None => 1 }\nlet parsed_bool_for_branch_len: bool = match json_parse_bool(\"true\") { Some(value) => value, None => false }\nlet dynamic_int_len: int = len(json_stringify_int(parsed_int_for_len))\nlet negative_int_len: int = len(json_stringify_int(0 - parsed_int_for_negative_len))\nlet dynamic_bool_len: int = len(json_stringify_bool(parsed_bool_for_len))\nlet dynamic_quoted_int_text: string = json_stringify_int(parsed_int_for_quoted_len)\nlet dynamic_quoted_negative_int_text: string = json_stringify_int(0 - parsed_int_for_negative_quoted_len)\nlet dynamic_quoted_bool_text: string = json_stringify_bool(parsed_bool_for_quoted_len)\nlet dynamic_quoted_int_len: int = len(json_stringify_string(dynamic_quoted_int_text))\nlet dynamic_quoted_negative_int_len: int = len(json_stringify_string(dynamic_quoted_negative_int_text))\nlet dynamic_quoted_bool_len: int = len(json_stringify_string(dynamic_quoted_bool_text))\nlet dynamic_clone_int_text: string = json_stringify_int(parsed_int_for_clone_len)\nlet dynamic_clone_int_len: int = len(string_clone(dynamic_clone_int_text))\nlet dynamic_clone_bool_text: string = json_stringify_bool(parsed_bool_for_clone_len)\nlet dynamic_clone_bool_len: int = len(string_clone(dynamic_clone_bool_text))\nlet dynamic_concat_len: int = len(dynamic_clone_int_text + dynamic_clone_bool_text)\nlet branch_len: int = 0\nlet branch_quoted_len: int = 0\nif parsed_bool_for_branch_len {\nlet branch_text: string = json_stringify_int(parsed_int_for_branch_len)\nlet branch_clone_len: int = len(string_clone(branch_text))\nlet branch_quoted_text: string = json_stringify_bool(parsed_bool_for_branch_len)\nlet branch_quoted_len_value: int = len(json_stringify_string(branch_quoted_text))\nbranch_len = branch_clone_len\nbranch_quoted_len = branch_quoted_len_value\n} else {\nbranch_len = 1\nbranch_quoted_len = 1\n}\nlet count_value: int = match json_parse_field_int(DOC, \"count\") { Some(value) => value, None => 1 }\nlet ready_value: bool = match json_parse_field_bool(DOC, \"ready\") { Some(value) => value, None => false }\nlet name_len: int = match json_parse_field_string(DOC, \"name\") { Some(value) => len(value), None => 1 }\nlet field_value_len: int = match json_parse_field_value(DOC, \"nested\") { Some(value) => len(value), None => 1 }\nlet parsed_string_len: int = match json_parse_string(\"\\\"hello\\\"\") { Some(value) => len(value), None => 1 }\nlet parsed_value_len: int = match json_parse_value(\"[1,true]\") { Some(value) => len(value), None => 1 }\nlet missing_len: int = match json_parse_field_string(DOC, \"missing\") { Some(value) => len(value), None => 4 }\nlet missing_int: int = match json_parse_field_int(DOC, \"missing\") { Some(value) => value, None => 4 }\nif parsed_bool && ready_value && quoted_len == 7 && int_len == 2 && static_int_len == 3 && bool_len == 5 && static_bool_len == 4 && dynamic_int_len == 2 && negative_int_len == 3 && dynamic_bool_len == 4 && dynamic_quoted_int_len == 4 && dynamic_quoted_negative_int_len == 5 && dynamic_quoted_bool_len == 6 && dynamic_clone_int_len == 2 && dynamic_clone_bool_len == 4 && dynamic_concat_len == 6 && branch_len == 2 && branch_quoted_len == 6 && value_len == 60 && parsed_int == 42 && count_value == 3 && name_len == 5 && field_value_len == 11 && parsed_string_len == 5 && parsed_value_len == 8 && missing_len == 4 && missing_int == 4 {\nreturn 48\n} else {\nreturn 1\n}\n}\n",
+        r#"static DOC: string = "{\"name\":\"axiom\",\"count\":3,\"ready\":true,\"nested\":{\"ok\":true}}"
+static STATIC_COUNT: int = 321
+static STATIC_READY: bool = true
+
+fn json_int_len(value: int): int {
+let rendered: string = json_stringify_int(value)
+return len(rendered)
+}
+
+fn json_name_len(): int {
+return match json_parse_field_string(DOC, "name") { Some(value) => len(value), None => 1 }
+}
+
+fn json_value_len(): int {
+return match json_parse_value("[1,true]") { Some(value) => len(value), None => 1 }
+}
+
+fn quoted_static_bool_len(): int {
+let rendered: string = json_stringify_bool(STATIC_READY)
+return len(json_stringify_string(rendered))
+}
+
+fn main(): int {
+let quoted_len: int = len(json_stringify_string("axiom"))
+let int_len: int = len(json_stringify_int(42))
+let static_int_len: int = len(json_stringify_int(STATIC_COUNT))
+let bool_len: int = len(json_stringify_bool(false))
+let static_bool_len: int = len(json_stringify_bool(STATIC_READY))
+let value_len: int = len(json_stringify_value(DOC))
+let parsed_int: int = match json_parse_int(" 42 ") { Some(value) => value, None => 1 }
+let parsed_int_for_len: int = match json_parse_int(" 42 ") { Some(value) => value, None => 1 }
+let parsed_int_for_helper_len: int = match json_parse_int(" 42 ") { Some(value) => value, None => 1 }
+let parsed_int_for_clone_len: int = match json_parse_int(" 42 ") { Some(value) => value, None => 1 }
+let parsed_int_for_negative_len: int = match json_parse_int(" 42 ") { Some(value) => value, None => 1 }
+let parsed_int_for_quoted_len: int = match json_parse_int(" 42 ") { Some(value) => value, None => 1 }
+let parsed_int_for_negative_quoted_len: int = match json_parse_int(" 42 ") { Some(value) => value, None => 1 }
+let parsed_bool: bool = match json_parse_bool("true") { Some(value) => value, None => false }
+let parsed_bool_for_len: bool = match json_parse_bool("true") { Some(value) => value, None => false }
+let parsed_bool_for_clone_len: bool = match json_parse_bool("true") { Some(value) => value, None => false }
+let parsed_bool_for_quoted_len: bool = match json_parse_bool("true") { Some(value) => value, None => false }
+let parsed_int_for_branch_len: int = match json_parse_int(" 42 ") { Some(value) => value, None => 1 }
+let parsed_bool_for_branch_len: bool = match json_parse_bool("true") { Some(value) => value, None => false }
+let dynamic_int_len: int = len(json_stringify_int(parsed_int_for_len))
+let helper_int_len: int = json_int_len(parsed_int_for_helper_len)
+let helper_name_len: int = json_name_len()
+let helper_value_len: int = json_value_len()
+let helper_quoted_static_bool_len: int = quoted_static_bool_len()
+let negative_int_len: int = len(json_stringify_int(0 - parsed_int_for_negative_len))
+let dynamic_bool_len: int = len(json_stringify_bool(parsed_bool_for_len))
+let dynamic_quoted_int_text: string = json_stringify_int(parsed_int_for_quoted_len)
+let dynamic_quoted_negative_int_text: string = json_stringify_int(0 - parsed_int_for_negative_quoted_len)
+let dynamic_quoted_bool_text: string = json_stringify_bool(parsed_bool_for_quoted_len)
+let dynamic_quoted_int_len: int = len(json_stringify_string(dynamic_quoted_int_text))
+let dynamic_quoted_negative_int_len: int = len(json_stringify_string(dynamic_quoted_negative_int_text))
+let dynamic_quoted_bool_len: int = len(json_stringify_string(dynamic_quoted_bool_text))
+let dynamic_clone_int_text: string = json_stringify_int(parsed_int_for_clone_len)
+let dynamic_clone_int_len: int = len(string_clone(dynamic_clone_int_text))
+let dynamic_clone_bool_text: string = json_stringify_bool(parsed_bool_for_clone_len)
+let dynamic_clone_bool_len: int = len(string_clone(dynamic_clone_bool_text))
+let dynamic_concat_len: int = len(dynamic_clone_int_text + dynamic_clone_bool_text)
+let branch_len: int = 0
+let branch_quoted_len: int = 0
+if parsed_bool_for_branch_len {
+let branch_text: string = json_stringify_int(parsed_int_for_branch_len)
+let branch_clone_len: int = len(string_clone(branch_text))
+let branch_quoted_text: string = json_stringify_bool(parsed_bool_for_branch_len)
+let branch_quoted_len_value: int = len(json_stringify_string(branch_quoted_text))
+branch_len = branch_clone_len
+branch_quoted_len = branch_quoted_len_value
+} else {
+branch_len = 1
+branch_quoted_len = 1
+}
+let count_value: int = match json_parse_field_int(DOC, "count") { Some(value) => value, None => 1 }
+let ready_value: bool = match json_parse_field_bool(DOC, "ready") { Some(value) => value, None => false }
+let name_len: int = match json_parse_field_string(DOC, "name") { Some(value) => len(value), None => 1 }
+let field_value_len: int = match json_parse_field_value(DOC, "nested") { Some(value) => len(value), None => 1 }
+let parsed_string_len: int = match json_parse_string("\"hello\"") { Some(value) => len(value), None => 1 }
+let parsed_value_len: int = match json_parse_value("[1,true]") { Some(value) => len(value), None => 1 }
+let missing_len: int = match json_parse_field_string(DOC, "missing") { Some(value) => len(value), None => 4 }
+let missing_int: int = match json_parse_field_int(DOC, "missing") { Some(value) => value, None => 4 }
+if parsed_bool && ready_value && quoted_len == 7 && int_len == 2 && static_int_len == 3 && bool_len == 5 && static_bool_len == 4 && dynamic_int_len == 2 && helper_int_len == 2 && helper_name_len == 5 && helper_value_len == 8 && helper_quoted_static_bool_len == 6 && negative_int_len == 3 && dynamic_bool_len == 4 && dynamic_quoted_int_len == 4 && dynamic_quoted_negative_int_len == 5 && dynamic_quoted_bool_len == 6 && dynamic_clone_int_len == 2 && dynamic_clone_bool_len == 4 && dynamic_concat_len == 6 && branch_len == 2 && branch_quoted_len == 6 && value_len == 60 && parsed_int == 42 && count_value == 3 && name_len == 5 && field_value_len == 11 && parsed_string_len == 5 && parsed_value_len == 8 && missing_len == 4 && missing_int == 4 {
+return 48
+} else {
+return 1
+}
+}
+"#,
     )
     .expect("write known json text source");
 }

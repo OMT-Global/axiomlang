@@ -819,9 +819,13 @@ Known-input `json_parse_string` and
 `json_parse_field_string`/`json_parse_field_value` direct `Option<string>`
 matches, and known-input `json_parse_int`, `json_parse_bool`,
 `json_parse_field_int`, and `json_parse_field_bool` direct scalar option matches
-into native process exit status without generated Rust. Schema validation,
-dynamic runtime JSON parsing, and broader JSON value modeling remain tracked by
-issue #1001. Imported public `std/json.ax` scalar parse/stringify wrappers for
+into native process exit status without generated Rust. Known JSON parse and
+stringify results can also flow through Axiom helper functions that return
+native scalar length projections before driving process exit status, including
+helper-local JSON string locals, field extraction, parsed value length matches,
+and quoted static bool stringify length projections. Schema validation, dynamic
+runtime JSON parsing, and broader JSON value modeling remain tracked by issue
+#1001. Imported public `std/json.ax` scalar parse/stringify wrappers for
 `parse_int(...)`, `parse_bool(...)`, `parse_string(...)`,
 `parse_field_int(...)`, `parse_field_bool(...)`, `parse_field_string(...)`,
 `stringify_int(...)`, `stringify_bool(...)`, and `stringify_string(...)` now

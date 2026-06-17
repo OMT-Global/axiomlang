@@ -54,6 +54,24 @@ rust-exit-readiness-test:
 	bash scripts/ci/test-check-rust-exit-readiness.sh
 MAKE
 
+python3 - "$case_dir/stage1/runtime-abi/direct-native-v0.json" <<'PY'
+import json
+import sys
+
+path = sys.argv[1]
+with open(path, encoding="utf-8") as handle:
+    contract = json.load(handle)
+
+contract["status"] = "implemented"
+for row in contract["value_features"] + contract["capability_shims"]:
+    row["status"] = "implemented"
+    row.pop("blockers", None)
+    row.setdefault("runtime_evidence", ["stage1/crates/axiomc/tests/cranelift_backend.rs"])
+
+with open(path, "w", encoding="utf-8") as handle:
+    json.dump(contract, handle)
+PY
+
 cat >"$temp_dir/open-issues.txt" <<'ISSUES'
 927 OPEN
 929 OPEN

@@ -26,8 +26,26 @@ assert report["status_counts"]["capability_shims"]["partial"] == 22
 assert report["blocked_rows"] == []
 assert len(report["incomplete_rows"]) == 34
 assert "ffi.call" in report["incomplete_rows"]
+assert "json.serdes" in report["incomplete_rows"]
 assert report["blocker_issues"] == [1001]
 assert report["errors"] == []
+PY
+
+python3 - "$contract" "$temp_dir/ready-contract.json" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    contract = json.load(handle)
+
+contract["status"] = "implemented"
+for row in contract["value_features"] + contract["capability_shims"]:
+    row["status"] = "implemented"
+    row.pop("blockers", None)
+    row.setdefault("runtime_evidence", ["stage1/crates/axiomc/tests/cranelift_backend.rs"])
+
+with open(sys.argv[2], "w", encoding="utf-8") as handle:
+    json.dump(contract, handle)
 PY
 
 python3 - "$contract" "$temp_dir/missing-evidence.json" <<'PY'
@@ -178,24 +196,6 @@ if python3 "$script" --contract "$contract" --enforce-ready >/dev/null; then
   echo "expected --enforce-ready to fail while direct native runtime ABI rows are partial" >&2
   exit 1
 fi
-
-python3 - "$contract" "$temp_dir/ready-contract.json" <<'PY'
-import json
-import sys
-
-with open(sys.argv[1], encoding="utf-8") as handle:
-    contract = json.load(handle)
-
-contract["status"] = "implemented"
-for group_name in ("value_features", "capability_shims"):
-    for row in contract[group_name]:
-        row["status"] = "implemented"
-        row.pop("blockers", None)
-        row.setdefault("runtime_evidence", ["stage1/crates/axiomc/tests/cranelift_backend.rs"])
-
-with open(sys.argv[2], "w", encoding="utf-8") as handle:
-    json.dump(contract, handle)
-PY
 
 python3 "$script" --contract "$temp_dir/ready-contract.json" --enforce-ready >/dev/null
 
