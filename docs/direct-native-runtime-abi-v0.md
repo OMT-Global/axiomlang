@@ -373,9 +373,17 @@ calls and the public `std/net.ax`
 `Option<string>` match arms at compile time for `localhost`; those known-host
 results can also be stored in local `Option<string>` values and matched later in
 supported length-projection expression and statement contexts without generated
-Rust. Packages without the `net` capability still fail before backend lowering.
-Full runtime-time DNS policy, non-loopback coverage, resolver portability, and
-audit parity remain open under #1001.
+Rust. Literal numeric-address `net_resolve(...)` calls and imported public
+`resolve(...)` wrappers now also lower through a native runtime resolver success
+check backed by the object backend's `getaddrinfo` import, preserving the
+supported canonical resolved numeric address string length for direct matches, stored
+`Option<string>` values, and statement matches without generated Rust. Those
+numeric-address runtime resolver checks append host audit JSONL entries when
+`AXIOM_HOST_AUDIT_LOG` is set, recording only the host string length and
+ok/denied outcome without recording the host text. Packages without the `net`
+capability still fail before backend lowering. General DNS name resolution,
+address-string materialization beyond numeric-address length projection,
+resolver portability, and broader network audit parity remain open under #1001.
 
 The TCP row now has partial Cranelift evidence: the spike builds and runs
 `std/net.ax` `tcp_listen_loopback_once(...)` over `127.0.0.1` while the public

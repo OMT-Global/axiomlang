@@ -4014,6 +4014,55 @@ fn cranelift_backend_lowers_net_resolve_to_runtime_exit_code() {
 
 #[cfg(not(windows))]
 #[test]
+fn cranelift_backend_lowers_numeric_net_resolve_to_runtime_exit_code() {
+    if which::which("cc").is_err() {
+        eprintln!("skipping cranelift backend smoke test because cc is unavailable");
+        return;
+    }
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("net-resolve-numeric-main-exit");
+    write_net_resolve_numeric_main_exit_project(&project);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args([
+            "build",
+            project.to_str().expect("project path"),
+            "--backend",
+            "cranelift",
+            "--json",
+        ])
+        .output()
+        .expect("run axiomc build --backend cranelift");
+    assert!(
+        output.status.success(),
+        "cranelift numeric net resolve main build failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+    assert_eq!(payload["backend"], "cranelift");
+    assert_eq!(payload["generated_rust"], Value::Null);
+    let binary = payload["binary"].as_str().expect("binary path");
+    let audit_log = temp.path().join("net-audit.jsonl");
+    let run = Command::new(binary)
+        .env("AXIOM_HOST_AUDIT_LOG", &audit_log)
+        .output()
+        .expect("run cranelift numeric net resolve main binary");
+    assert_eq!(run.status.code(), Some(48));
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "");
+
+    let audit = fs::read_to_string(&audit_log).expect("read net audit log");
+    assert!(audit.contains("\"intrinsic\":\"net_resolve\""));
+    assert!(audit.contains("\"host\":\"string:9\""));
+    assert!(audit.contains("\"host\":\"string:15\""));
+    assert!(!audit.contains("127.0.0.1"));
+    assert!(!audit.contains("0:0:0:0:0:0:0:1"));
+}
+
+#[cfg(not(windows))]
+#[test]
 fn cranelift_backend_builds_net_loopback_binary() {
     if which::which("cc").is_err() {
         eprintln!("skipping cranelift backend smoke test because cc is unavailable");
@@ -9600,6 +9649,76 @@ return 1
 "#,
     )
     .expect("write net resolve main source");
+}
+
+fn write_net_resolve_numeric_main_exit_project(project: &Path) {
+    fs::create_dir_all(project.join("src")).expect("create numeric net resolve main project src");
+    fs::write(
+        project.join("axiom.toml"),
+        r#"[package]
+name = "cranelift-net-resolve-numeric-main-exit"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+fs = false
+net = { hosts = ["127.0.0.1", "0:0:0:0:0:0:0:1"], ports = [] }
+process = false
+env = false
+clock = false
+crypto = false
+
+[unsafe_rationale]
+net = "Direct-native DNS regression covers runtime numeric-address resolution for issue 1001."
+"#,
+    )
+    .expect("write numeric net resolve main manifest");
+    fs::write(
+        project.join("axiom.lock"),
+        r#"version = 1
+
+[[package]]
+name = "cranelift-net-resolve-numeric-main-exit"
+version = "0.1.0"
+source = "path"
+"#,
+    )
+    .expect("write numeric net resolve main lockfile");
+    fs::write(
+        project.join("src/main.ax"),
+        r#"import "std/net.ax"
+
+fn main(): int {
+let resolved_len: int = match resolve("127.0.0.1") { Some(address) => len(address), None => 0 }
+let stored_resolved: Option<string> = resolve("127.0.0.1")
+let stored_direct: Option<string> = net_resolve("127.0.0.1")
+let stored_statement: Option<string> = resolve("127.0.0.1")
+let stored_resolved_len: int = match stored_resolved { Some(address) => len(address), None => 0 }
+let stored_direct_len: int = match stored_direct { Some(address) => len(address), None => 0 }
+let ipv6_resolved_len: int = match resolve("0:0:0:0:0:0:0:1") { Some(address) => len(address), None => 0 }
+let ipv6_direct: Option<string> = net_resolve("0:0:0:0:0:0:0:1")
+let ipv6_direct_len: int = match ipv6_direct { Some(address) => len(address), None => 0 }
+let statement_len: int = 0
+match stored_statement {
+Some(address) {
+statement_len = len(address)
+}
+None {
+statement_len = 0
+}
+}
+if resolved_len == 9 && stored_resolved_len == 9 && stored_direct_len == 9 && statement_len == 9 && ipv6_resolved_len == 3 && ipv6_direct_len == 3 {
+return 48
+} else {
+return 1
+}
+}
+"#,
+    )
+    .expect("write numeric net resolve main source");
 }
 
 fn write_net_loopback_project(project: &Path) {
