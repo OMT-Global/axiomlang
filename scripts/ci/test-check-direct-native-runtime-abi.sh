@@ -44,7 +44,8 @@ assert report["evidence_summary"]["value_features"] == {
     "with_runtime_evidence": 12,
     "without_runtime_evidence": 0,
     "with_denial_evidence": 0,
-    "without_denial_evidence": 12,
+    "denial_evidence_not_applicable": 12,
+    "without_denial_evidence": 0,
 }
 assert report["evidence_summary"]["capability_shims"] == {
     "with_evidence": 22,
@@ -52,7 +53,8 @@ assert report["evidence_summary"]["capability_shims"] == {
     "with_runtime_evidence": 22,
     "without_runtime_evidence": 0,
     "with_denial_evidence": 18,
-    "without_denial_evidence": 4,
+    "denial_evidence_not_applicable": 4,
+    "without_denial_evidence": 0,
 }
 assert report["blocker_issues"] == [1001]
 assert report["errors"] == []
@@ -136,6 +138,7 @@ for report_path in sys.argv[1:]:
             "with_runtime_evidence": 0,
             "without_runtime_evidence": 0,
             "with_denial_evidence": 0,
+            "denial_evidence_not_applicable": 0,
             "without_denial_evidence": 0,
         },
         "capability_shims": {
@@ -144,6 +147,7 @@ for report_path in sys.argv[1:]:
             "with_runtime_evidence": 0,
             "without_runtime_evidence": 0,
             "with_denial_evidence": 0,
+            "denial_evidence_not_applicable": 0,
             "without_denial_evidence": 0,
         },
     }
@@ -296,6 +300,38 @@ with open(sys.argv[1], encoding="utf-8") as handle:
     report = json.load(handle)
 
 assert any("runtime_evidence" in error and "does not exist" in error for error in report["errors"])
+PY
+
+python3 - "$contract" "$temp_dir/denial-applicability-conflict.json" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    contract = json.load(handle)
+
+contract["value_features"][0]["denial_evidence"] = [
+    "stage1/crates/axiomc/tests/cranelift_backend.rs"
+]
+
+with open(sys.argv[2], "w", encoding="utf-8") as handle:
+    json.dump(contract, handle)
+PY
+
+if python3 "$script" --contract "$temp_dir/denial-applicability-conflict.json" --json >"$temp_dir/denial-applicability-conflict-report.json"; then
+  echo "expected denial evidence applicability conflicts to fail" >&2
+  exit 1
+fi
+python3 - "$temp_dir/denial-applicability-conflict-report.json" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    report = json.load(handle)
+
+assert any(
+    "must not combine denial_evidence with denial_evidence_not_applicable" in error
+    for error in report["errors"]
+)
 PY
 
 python3 - "$contract" "$temp_dir/implemented-with-blocker.json" <<'PY'
