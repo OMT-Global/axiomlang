@@ -792,22 +792,24 @@ The `enum.payload` row now has narrow direct-native runtime evidence for local
 custom enum construction, reassignment, value-producing matches, and statement
 matches over scalar/bool positional and named payload variants, represented as a
 tag plus payload slots and returned as process exit status without generated
-Rust. The same tag/payload-slot representation now covers narrow scalar tuple
-and scalar struct payload storage, matching, and helper parameters for named
-custom enum payloads such as `(int, bool)` and `Step { value: int, enabled:
-bool }`. Scalar/bool custom enum helper parameters lower across direct-native
-function-call boundaries as explicit tag/payload ABI slots for local values and
-inline variant arguments. Narrow custom enum helper returns and forwarded local
-or parameter values also lower through the same tag/payload slots for scalar
-struct payload variants. Existing narrow custom enum locals can now be
-reassigned from enum helper returns using the same tag/payload slots, including
-inside runtime branch blocks. The same representation now has narrow evidence
-for positional custom enum payloads carrying nested `Option<Result<int, int>>`
-and `Result<Option<int>, int>` values, including runtime-scope literal
-construction, reassignment, value-producing matches, helper returns, forwarded
-helper values, and inline nested variant arguments. Broader enum ABI support,
-deeper nested payload shapes, and aggregate payload storage beyond the evidenced
-slices remain tracked by issue #1001.
+Rust. The public enum-match smoke also asserts `generated_rust: null` while
+printing string, scalar, and boolean values derived from positional and named
+custom enum payload matches. The same tag/payload-slot representation now
+covers narrow scalar tuple and scalar struct payload storage, matching, and
+helper parameters for named custom enum payloads such as `(int, bool)` and
+`Step { value: int, enabled: bool }`. Scalar/bool custom enum helper parameters
+lower across direct-native function-call boundaries as explicit tag/payload ABI
+slots for local values and inline variant arguments. Narrow custom enum helper
+returns and forwarded local or parameter values also lower through the same
+tag/payload slots for scalar struct payload variants. Existing narrow custom
+enum locals can now be reassigned from enum helper returns using the same
+tag/payload slots, including inside runtime branch blocks. The same
+representation now has narrow evidence for positional custom enum payloads
+carrying nested `Option<Result<int, int>>` and `Result<Option<int>, int>` values,
+including runtime-scope literal construction, reassignment, value-producing
+matches, helper returns, forwarded helper values, and inline nested variant
+arguments. Broader enum ABI support, deeper nested payload shapes, and aggregate
+payload storage beyond the evidenced slices remain tracked by issue #1001.
 
 The `json.serdes` row has expanded partial direct-native evidence: the
 Cranelift spike now builds and runs `std/json.ax` scalar/object helpers and

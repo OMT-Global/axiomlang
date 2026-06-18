@@ -2825,7 +2825,7 @@ fn cranelift_backend_builds_enum_match_binary() {
     );
     assert_eq!(
         String::from_utf8_lossy(&run.stdout),
-        "multi\nnamed\npayload\n2\n8\n"
+        "multi\nnamed\npayload\n2\n8\n7\n9\ntrue\n"
     );
 }
 
@@ -9049,7 +9049,80 @@ fn write_enum_match_project(project: &Path) {
     .expect("write enum match lockfile");
     fs::write(
         project.join("src/main.ax"),
-        "enum Message {\nPair(int, string)\nJob { id: int, label: string }\nText(string)\n}\n\nenum Signal {\nRed\nYellow\nGreen\n}\n\nfn render(message: Message): string {\nmatch message {\nPair(count, label) {\nreturn label\n}\nJob { label, id } {\nreturn label\n}\nText(text) {\nreturn text\n}\n}\n}\n\nfn signal_priority(signal: Signal): int {\nreturn match signal { Red => 3, Yellow => 2, Green => 1 }\n}\n\nlet first: Message = Pair(7, \"multi\")\nlet second: Message = Job { id: 9, label: \"named\" }\nlet score: int = match Some(7) {\nSome(value) => value + 1\nNone => 0\n}\n\nprint render(first)\nprint render(second)\nprint render(Text(\"payload\"))\nprint signal_priority(Yellow)\nprint score\n",
+        r#"enum Message {
+Pair(int, string)
+Job { id: int, label: string }
+Text(string)
+}
+
+enum Signal {
+Red
+Yellow
+Green
+}
+
+fn render(message: Message): string {
+match message {
+Pair(count, label) {
+return label
+}
+Job { label, id } {
+return label
+}
+Text(text) {
+return text
+}
+}
+}
+
+fn signal_priority(signal: Signal): int {
+return match signal { Red => 3, Yellow => 2, Green => 1 }
+}
+
+fn metric(message: Message): int {
+match message {
+Pair(count, label) {
+return count
+}
+Job { id, label } {
+return id
+}
+Text(text) {
+return len(text)
+}
+}
+}
+
+fn active(message: Message): bool {
+match message {
+Pair(count, label) {
+return count == 7
+}
+Job { id, label } {
+return id == 9
+}
+Text(text) {
+return len(text) == 7
+}
+}
+}
+
+let first: Message = Pair(7, "multi")
+let second: Message = Job { id: 9, label: "named" }
+let score: int = match Some(7) {
+Some(value) => value + 1
+None => 0
+}
+
+print render(first)
+print render(second)
+print render(Text("payload"))
+print signal_priority(Yellow)
+print score
+print metric(Pair(7, "multi"))
+print metric(Job { id: 9, label: "named" })
+print active(Pair(7, "ok"))
+"#,
     )
     .expect("write enum match source");
 }
