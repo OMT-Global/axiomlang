@@ -442,9 +442,10 @@ facts, local string facts, and known string concatenation rather than only inlin
 literals. These paths return the existing status-code convention without
 generated Rust and now append best-effort host audit JSONL to
 `AXIOM_HOST_AUDIT_LOG` without including path or content secrets. The runtime
-smoke asserts the target files and directories are
-not created or removed during build, then appear, are replaced or removed, and
-the created empty file remains only after the native binary runs. The native
+smoke asserts the target files and directories are not created or removed during
+build, then reads back the exact written, appended, and replaced content after
+the native binary runs while also proving the remove target is deleted and the
+created empty file remains. The native
 runtime now revalidates write-side filesystem targets with `realpath(...)`
 against the canonical `fs_root` immediately before mutation, falling back to
 the parent or nearest existing ancestor when creating missing paths; the
