@@ -12285,14 +12285,21 @@ source = "path"
         project.join("src/main.ax"),
         r#"import "std/fs.ax"
 
+static READ_PATH: string = "src/fixture.txt"
+static MISSING_PREFIX: string = "src/"
+
 fn main(): int {
-let direct_len: int = match fs_read("src/fixture.txt") { Some(value) => len(value), None => 1 }
-let wrapper_len: int = match read_file("src/fixture.txt") { Some(value) => len(value), None => 1 }
-let missing_len: int = match read_file("src/missing.txt") { Some(value) => len(value), None => 28 }
-let stored_direct: Option<string> = fs_read("src/fixture.txt")
-let stored_wrapper: Option<string> = read_file("src/fixture.txt")
-let stored_missing: Option<string> = read_file("src/missing.txt")
-let stored_statement: Option<string> = read_file("src/fixture.txt")
+let wrapper_path: string = "src/fixture.txt"
+let stored_wrapper_path: string = "src/fixture.txt"
+let missing_name: string = "missing.txt"
+let stored_missing_name: string = "missing.txt"
+let direct_len: int = match fs_read(READ_PATH) { Some(value) => len(value), None => 1 }
+let wrapper_len: int = match read_file(wrapper_path) { Some(value) => len(value), None => 1 }
+let missing_len: int = match read_file(MISSING_PREFIX + missing_name) { Some(value) => len(value), None => 28 }
+let stored_direct: Option<string> = fs_read(READ_PATH)
+let stored_wrapper: Option<string> = read_file(stored_wrapper_path)
+let stored_missing: Option<string> = read_file(MISSING_PREFIX + stored_missing_name)
+let stored_statement: Option<string> = read_file(READ_PATH)
 let stored_direct_len: int = match stored_direct { Some(value) => len(value), None => 1 }
 let stored_wrapper_len: int = match stored_wrapper { Some(value) => len(value), None => 1 }
 let stored_missing_len: int = match stored_missing { Some(value) => len(value), None => 28 }
