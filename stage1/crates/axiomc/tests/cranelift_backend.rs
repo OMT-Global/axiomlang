@@ -496,6 +496,58 @@ panic(parsed_text())
         "{\"kind\":\"panic\",\"message\":\"direct-native\"}\n",
     );
 
+    let serdes_parsed_object_project = temp.path().join("terminal-panic-serdes-parsed-object");
+    write_terminal_panic_project(
+        &serdes_parsed_object_project,
+        r#"import "std/serdes.ax"
+
+fn parsed_object(): string {
+match from_json_str("{\"name\":\"axiom\",\"count\":3,\"ready\":true}") {
+Ok(value) {
+return stringify(value)
+}
+Err(error) {
+return parse_error_message(error)
+}
+}
+}
+
+fn main(): int {
+panic(parsed_object())
+}
+"#,
+    );
+    assert_terminal_panic_report(
+        &serdes_parsed_object_project,
+        "{\"kind\":\"panic\",\"message\":\"{\\\"count\\\":3,\\\"name\\\":\\\"axiom\\\",\\\"ready\\\":true}\"}\n",
+    );
+
+    let serdes_parsed_array_project = temp.path().join("terminal-panic-serdes-parsed-array");
+    write_terminal_panic_project(
+        &serdes_parsed_array_project,
+        r#"import "std/serdes.ax"
+
+fn parsed_array(): string {
+match from_json_str("[\"one\",2,true]") {
+Ok(value) {
+return stringify(value)
+}
+Err(error) {
+return parse_error_message(error)
+}
+}
+}
+
+fn main(): int {
+panic(parsed_array())
+}
+"#,
+    );
+    assert_terminal_panic_report(
+        &serdes_parsed_array_project,
+        "{\"kind\":\"panic\",\"message\":\"[\\\"one\\\",2,true]\"}\n",
+    );
+
     let serdes_error_project = temp.path().join("terminal-panic-serdes-error");
     write_terminal_panic_project(
         &serdes_error_project,

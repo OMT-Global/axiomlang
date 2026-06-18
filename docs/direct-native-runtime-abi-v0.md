@@ -920,8 +920,8 @@ can also feed public `std/io.ax` `eprintln(...)` statements in runtime-exit
 `main` functions, preserving exact native stderr JSON lines, parse-error text,
 and newline-inclusive byte-count return values without generated Rust.
 Known-input `std/serdes` JSON object, stringified text/int/bool values, parsed
-text/int/bool values, and parse-error string results can also feed terminal
-panic reports as escaped native stderr JSON while preserving
+text/int/bool/object/array values, and parse-error string results can also feed
+terminal panic reports as escaped native stderr JSON while preserving
 `generated_rust: null`. Broader dynamic
 runtime JSON parsing, broad `std/serdes` `Value` storage, `JsonValue` wrapper
 construction beyond the evidenced scalar/string/object/array source wrappers,
@@ -1019,9 +1019,9 @@ into native stderr panic reports without materializing a general string runtime.
 Supported dynamic `std/log.ax` `event(...)` messages with scalar and boolean
 fields also lower to native stderr JSON panic reports as nested escaped
 log-record strings without generated Rust. Known `std/serdes.ax` JSON object,
-stringified text/int/bool values, parsed text/int/bool values, and parse-error
-strings can also feed terminal panic reports as escaped native stderr JSON
-without generated Rust. Terminal
+stringified text/int/bool values, parsed text/int/bool/object/array values, and
+parse-error strings can also feed terminal panic reports as escaped native
+stderr JSON without generated Rust. Terminal
 panic messages backed by
 runtime-selected known string
 projections from map-key arrays, either directly or through string locals backed
