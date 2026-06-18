@@ -397,6 +397,72 @@ panic(stringified_bool())
         "{\"kind\":\"panic\",\"message\":\"false\"}\n",
     );
 
+    let serdes_parsed_int_project = temp.path().join("terminal-panic-serdes-parsed-int");
+    write_terminal_panic_project(
+        &serdes_parsed_int_project,
+        r#"import "std/serdes.ax"
+
+fn parsed_int(): string {
+match from_json_str("42") {
+Ok(value) {
+match as_int(value) {
+Some(number) {
+return stringify(Int(number))
+}
+None {
+return "not int"
+}
+}
+}
+Err(error) {
+return parse_error_message(error)
+}
+}
+}
+
+fn main(): int {
+panic(parsed_int())
+}
+"#,
+    );
+    assert_terminal_panic_report(
+        &serdes_parsed_int_project,
+        "{\"kind\":\"panic\",\"message\":\"42\"}\n",
+    );
+
+    let serdes_parsed_bool_project = temp.path().join("terminal-panic-serdes-parsed-bool");
+    write_terminal_panic_project(
+        &serdes_parsed_bool_project,
+        r#"import "std/serdes.ax"
+
+fn parsed_bool(): string {
+match from_json_str("false") {
+Ok(value) {
+match as_bool(value) {
+Some(flag) {
+return stringify(Bool(flag))
+}
+None {
+return "not bool"
+}
+}
+}
+Err(error) {
+return parse_error_message(error)
+}
+}
+}
+
+fn main(): int {
+panic(parsed_bool())
+}
+"#,
+    );
+    assert_terminal_panic_report(
+        &serdes_parsed_bool_project,
+        "{\"kind\":\"panic\",\"message\":\"false\"}\n",
+    );
+
     let serdes_parsed_text_project = temp.path().join("terminal-panic-serdes-parsed-text");
     write_terminal_panic_project(
         &serdes_parsed_text_project,
