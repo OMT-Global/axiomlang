@@ -321,6 +321,25 @@ panic(event("warn", message, fields2(field_int("count", count), field_bool("read
         "{\"kind\":\"panic\",\"message\":\"{\\\"level\\\":\\\"warn\\\",\\\"message\\\":\\\"12345\\\",\\\"attributes\\\":{\\\"count\\\":12345,\\\"ready\\\":false}}\"}\n",
     );
 
+    let serdes_json_project = temp.path().join("terminal-panic-serdes-json");
+    write_terminal_panic_project(
+        &serdes_json_project,
+        r#"import "std/serdes.ax"
+
+fn object_json(): string {
+return to_json({"name": Text("axiom"), "count": Int(3), "ready": Bool(true)})
+}
+
+fn main(): int {
+panic(object_json())
+}
+"#,
+    );
+    assert_terminal_panic_report(
+        &serdes_json_project,
+        "{\"kind\":\"panic\",\"message\":\"{\\\"count\\\":3,\\\"name\\\":\\\"axiom\\\",\\\"ready\\\":true}\"}\n",
+    );
+
     let else_branch_project = temp.path().join("terminal-panic-else-branch");
     write_terminal_panic_project(
         &else_branch_project,
