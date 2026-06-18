@@ -359,6 +359,44 @@ panic(stringified_text())
         "{\"kind\":\"panic\",\"message\":\"\\\"direct-native\\\"\"}\n",
     );
 
+    let serdes_int_project = temp.path().join("terminal-panic-serdes-int");
+    write_terminal_panic_project(
+        &serdes_int_project,
+        r#"import "std/serdes.ax"
+
+fn stringified_int(): string {
+return stringify(Int(42))
+}
+
+fn main(): int {
+panic(stringified_int())
+}
+"#,
+    );
+    assert_terminal_panic_report(
+        &serdes_int_project,
+        "{\"kind\":\"panic\",\"message\":\"42\"}\n",
+    );
+
+    let serdes_bool_project = temp.path().join("terminal-panic-serdes-bool");
+    write_terminal_panic_project(
+        &serdes_bool_project,
+        r#"import "std/serdes.ax"
+
+fn stringified_bool(): string {
+return stringify(Bool(false))
+}
+
+fn main(): int {
+panic(stringified_bool())
+}
+"#,
+    );
+    assert_terminal_panic_report(
+        &serdes_bool_project,
+        "{\"kind\":\"panic\",\"message\":\"false\"}\n",
+    );
+
     let serdes_parsed_text_project = temp.path().join("terminal-panic-serdes-parsed-text");
     write_terminal_panic_project(
         &serdes_parsed_text_project,
