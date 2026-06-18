@@ -5736,6 +5736,63 @@ fn cranelift_backend_lowers_std_io_read_to_string_len_branch_and_print_from_stdi
 
 #[cfg(not(windows))]
 #[test]
+fn cranelift_backend_lowers_std_io_readline_len_branch_and_print_from_stdin() {
+    if which::which("cc").is_err() {
+        eprintln!("skipping cranelift backend smoke test because cc is unavailable");
+        return;
+    }
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("stdio-readline-branch-print-len");
+    write_std_io_readline_branch_print_len_project(&project);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args([
+            "build",
+            project.to_str().expect("project path"),
+            "--backend",
+            "cranelift",
+            "--json",
+        ])
+        .output()
+        .expect("run axiomc build --backend cranelift");
+    assert!(
+        output.status.success(),
+        "cranelift stdio readline branch print len build failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+    assert_eq!(payload["backend"], "cranelift");
+    assert_eq!(payload["generated_rust"], Value::Null);
+    let binary = payload["binary"].as_str().expect("binary path");
+    let mut child = Command::new(binary)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn cranelift stdio readline branch print len binary");
+    {
+        let stdin = child.stdin.as_mut().expect("open child stdin");
+        std::io::Write::write_all(stdin, b"line\r\nignored\n").expect("write child stdin");
+    }
+    let run = child
+        .wait_with_output()
+        .expect("run cranelift stdio readline branch print len binary");
+    assert_eq!(
+        run.status.code(),
+        Some(11),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&run.stdout),
+        String::from_utf8_lossy(&run.stderr)
+    );
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "4\n");
+    assert_eq!(String::from_utf8_lossy(&run.stderr), "");
+}
+
+#[cfg(not(windows))]
+#[test]
 fn cranelift_backend_lowers_known_print_runtime_stdout_in_direct_native_main() {
     if which::which("cc").is_err() {
         eprintln!("skipping cranelift backend smoke test because cc is unavailable");
@@ -12224,6 +12281,68 @@ return 1
 "#,
     )
     .expect("write stdio read branch print len source");
+}
+
+fn write_std_io_readline_branch_print_len_project(project: &Path) {
+    fs::create_dir_all(project.join("src")).expect("create stdio readline project src");
+    fs::write(
+        project.join("axiom.toml"),
+        r#"[package]
+name = "cranelift-stdio-readline-branch-print-len"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+fs = false
+net = false
+process = false
+env = false
+clock = false
+crypto = false
+"#,
+    )
+    .expect("write stdio readline manifest");
+    fs::write(
+        project.join("axiom.lock"),
+        r#"version = 1
+
+[[package]]
+name = "cranelift-stdio-readline-branch-print-len"
+version = "0.1.0"
+source = "path"
+"#,
+    )
+    .expect("write stdio readline lockfile");
+    fs::write(
+        project.join("src/main.ax"),
+        r#"import "std/io.ax"
+
+fn main(): int {
+let status: int = 0
+let count: int = 0
+let first: Option<string> = readline()
+match first {
+Some(line) {
+count = len(line)
+print count
+if count == 4 {
+status = count + 7
+} else {
+status = 1
+}
+}
+None {
+status = 2
+}
+}
+return status
+}
+"#,
+    )
+    .expect("write stdio readline source");
 }
 
 fn write_print_stdio_main_exit_project(project: &Path) {

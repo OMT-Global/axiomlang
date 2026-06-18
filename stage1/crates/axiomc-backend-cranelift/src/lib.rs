@@ -126,6 +126,9 @@ pub enum I64Expr {
     StdinLen {
         max_bytes: u32,
     },
+    StdinLineLen {
+        max_bytes: u32,
+    },
     AuditEnv {
         intrinsic: String,
         package: String,
@@ -2223,6 +2226,9 @@ fn emit_i64_expr(
         I64Expr::StdinLen { max_bytes } => {
             emit_i64_stdin_len_expr(builder, runtime_refs, *max_bytes)
         }
+        I64Expr::StdinLineLen { max_bytes } => {
+            emit_i64_stdin_line_len_expr(builder, runtime_refs, *max_bytes)
+        }
         I64Expr::AuditEnv {
             intrinsic,
             package,
@@ -2550,6 +2556,135 @@ fn emit_i64_stdin_len_expr(
     let failed = builder.ins().icmp_imm(IntCC::SignedLessThan, bytes_read, 0);
     let failure_result = builder.ins().iconst(types::I64, -1);
     Ok(builder.ins().select(failed, failure_result, bytes_read))
+}
+
+fn emit_i64_stdin_line_len_expr(
+    builder: &mut FunctionBuilder<'_>,
+    runtime_refs: I64RuntimeRefs,
+    max_bytes: u32,
+) -> Result<cranelift_codegen::ir::Value, CraneliftBackendError> {
+    if max_bytes == 0 {
+        return Ok(builder.ins().iconst(types::I64, -1));
+    }
+    let byte_slot =
+        builder.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 1, 0));
+    let byte_ptr = builder.ins().stack_addr(types::I64, byte_slot, 0);
+    let fd = builder.ins().iconst(types::I32, 0);
+    let one = builder.ins().iconst(types::I64, 1);
+    let zero = builder.ins().iconst(types::I64, 0);
+    let failure = builder.ins().iconst(types::I64, -1);
+
+    let loop_block = builder.create_block();
+    let read_block = builder.create_block();
+    let continue_block = builder.create_block();
+    let byte_block = builder.create_block();
+    let finish_block = builder.create_block();
+    let merge_block = builder.create_block();
+    builder.append_block_param(loop_block, types::I64);
+    builder.append_block_param(loop_block, types::I64);
+    builder.append_block_param(loop_block, types::I64);
+    builder.append_block_param(loop_block, types::I64);
+    builder.append_block_param(finish_block, types::I64);
+    builder.append_block_param(finish_block, types::I64);
+    builder.append_block_param(finish_block, types::I64);
+    builder.append_block_param(merge_block, types::I64);
+
+    let requested = builder.ins().iconst(types::I64, i64::from(max_bytes));
+    builder.ins().jump(
+        loop_block,
+        &[
+            BlockArg::Value(zero),
+            BlockArg::Value(zero),
+            BlockArg::Value(requested),
+            BlockArg::Value(zero),
+        ],
+    );
+
+    builder.switch_to_block(loop_block);
+    let count = builder.block_params(loop_block)[0];
+    let last_was_cr = builder.block_params(loop_block)[1];
+    let remaining = builder.block_params(loop_block)[2];
+    let seen_any = builder.block_params(loop_block)[3];
+    let exhausted = builder.ins().icmp_imm(IntCC::Equal, remaining, 0);
+    builder.ins().brif(
+        exhausted,
+        finish_block,
+        &[
+            BlockArg::Value(count),
+            BlockArg::Value(last_was_cr),
+            BlockArg::Value(seen_any),
+        ],
+        read_block,
+        &[],
+    );
+
+    builder.switch_to_block(read_block);
+    builder.seal_block(read_block);
+    let read_call = builder.ins().call(runtime_refs.read, &[fd, byte_ptr, one]);
+    let bytes_read = builder.inst_results(read_call)[0];
+    let failed = builder.ins().icmp_imm(IntCC::SignedLessThan, bytes_read, 0);
+    builder
+        .ins()
+        .brif(failed, merge_block, &[BlockArg::Value(failure)], continue_block, &[]);
+
+    builder.switch_to_block(continue_block);
+    builder.seal_block(continue_block);
+    let eof = builder.ins().icmp_imm(IntCC::Equal, bytes_read, 0);
+    builder.ins().brif(
+        eof,
+        finish_block,
+        &[
+            BlockArg::Value(count),
+            BlockArg::Value(last_was_cr),
+            BlockArg::Value(seen_any),
+        ],
+        byte_block,
+        &[],
+    );
+
+    builder.switch_to_block(byte_block);
+    builder.seal_block(byte_block);
+    let byte = builder.ins().stack_load(types::I8, byte_slot, 0);
+    let is_lf = builder.ins().icmp_imm(IntCC::Equal, byte, i64::from(b'\n'));
+    let is_cr = builder.ins().icmp_imm(IntCC::Equal, byte, i64::from(b'\r'));
+    let next_count = builder.ins().iadd(count, one);
+    let next_remaining = builder.ins().isub(remaining, one);
+    let next_last_was_cr = builder.ins().select(is_cr, one, zero);
+    builder.ins().brif(
+        is_lf,
+        finish_block,
+        &[
+            BlockArg::Value(count),
+            BlockArg::Value(last_was_cr),
+            BlockArg::Value(one),
+        ],
+        loop_block,
+        &[
+            BlockArg::Value(next_count),
+            BlockArg::Value(next_last_was_cr),
+            BlockArg::Value(next_remaining),
+            BlockArg::Value(one),
+        ],
+    );
+
+    builder.switch_to_block(finish_block);
+    builder.seal_block(finish_block);
+    let finish_count = builder.block_params(finish_block)[0];
+    let finish_last_was_cr = builder.block_params(finish_block)[1];
+    let finish_seen_any = builder.block_params(finish_block)[2];
+    let strip_cr = builder
+        .ins()
+        .icmp_imm(IntCC::NotEqual, finish_last_was_cr, 0);
+    let stripped_count = builder.ins().isub(finish_count, one);
+    let adjusted_count = builder.ins().select(strip_cr, stripped_count, finish_count);
+    let has_value = builder.ins().icmp_imm(IntCC::NotEqual, finish_seen_any, 0);
+    let result = builder.ins().select(has_value, adjusted_count, failure);
+    builder.ins().jump(merge_block, &[BlockArg::Value(result)]);
+
+    builder.seal_block(loop_block);
+    builder.switch_to_block(merge_block);
+    builder.seal_block(merge_block);
+    Ok(builder.block_params(merge_block)[0])
 }
 
 fn emit_i64_c_string_len_expr(
