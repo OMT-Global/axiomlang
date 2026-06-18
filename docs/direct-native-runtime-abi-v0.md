@@ -69,6 +69,12 @@ are `implemented` must not name blockers. Compiler-side Cranelift spike
 evaluation can be recorded as `evidence` on a partial row, but it does not by
 itself satisfy `runtime_evidence` or prove runtime support.
 
+Rows may name `denial_evidence` when a manifest capability or host-service
+policy can reject the operation before direct-native lowering or native
+execution. Rows without a host-service denial policy should instead name
+`denial_evidence_not_applicable`, so the ABI report distinguishes missing
+denial coverage from rows where denial evidence is not part of the contract.
+
 ## Required Value Features
 
 The direct native backend must support:
