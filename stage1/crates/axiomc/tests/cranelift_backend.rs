@@ -3519,7 +3519,10 @@ fn cranelift_backend_builds_borrowed_slice_binary() {
         "cranelift borrowed-slice binary failed: stderr={}",
         String::from_utf8_lossy(&run.stderr)
     );
-    assert_eq!(String::from_utf8_lossy(&run.stdout), "3\n4\n8\n6\n3\n");
+    assert_eq!(
+        String::from_utf8_lossy(&run.stdout),
+        "3\n4\n8\n6\n3\n4\n8\n6\n"
+    );
 }
 
 #[cfg(not(windows))]
@@ -9204,7 +9207,7 @@ fn write_borrowed_slice_project(project: &Path) {
     .expect("write borrowed-slice lockfile");
     fs::write(
         project.join("src/main.ax"),
-        "fn tail(values: &[int]): &[int] {\nreturn values[1:]\n}\n\nlet values: [int] = [2, 4, 6, 8]\nlet window: &[int] = values[1:]\nprint len(window)\nprint first(window)\nprint last(window)\nprint window[1]\nlet nested: &[int] = tail(values[:])\nprint len(nested)\n",
+        "fn tail(values: &[int]): &[int] {\nreturn values[1:]\n}\n\nlet values: [int] = [2, 4, 6, 8]\nlet window: &[int] = values[1:]\nprint len(window)\nprint first(window)\nprint last(window)\nprint window[1]\nlet nested: &[int] = tail(values[:])\nprint len(nested)\nprint first(nested)\nprint last(nested)\nprint nested[1]\n",
     )
     .expect("write borrowed-slice source");
 }
