@@ -1009,11 +1009,16 @@ selecting among finite known text values without materializing a general string
 runtime. Supported direct-native stdout/stderr write primitives now append
 best-effort host audit JSONL to `AXIOM_HOST_AUDIT_LOG`, recording only the
 stream, byte-count shape, and outcome without recording printed text, formatted
-integer values, log messages, field names, or field values. Stdin reads, dynamic
-stdout/stderr text beyond boolean, integer, JSON scalar formatting, and finite
-known-string projection selection, dynamic panic messages beyond scalar/string
-JSON stringify and finite known-string projection selection, and broader
-streaming/runtime buffering remain tracked by issue #1001.
+integer values, log messages, field names, or field values. Public `std/io.ax`
+`read_to_string()` length projections now lower into a bounded native stdin
+`read(2)` byte-count path, and the evidence binary pipes fixed stdin into the
+generated native object output while asserting `generated_rust: null` and the
+native process exit status. Broader stdin reads beyond bounded
+`read_to_string()` length projections, dynamic stdout/stderr text beyond
+boolean, integer, JSON scalar formatting, and finite known-string projection
+selection, dynamic panic messages beyond scalar/string JSON stringify and finite
+known-string projection selection, and broader streaming/runtime buffering
+remain tracked by issue #1001.
 
 The `clock.now_sleep` row now has partial Cranelift evidence for `std/time.ax`
 `now_ms`, `now`, `elapsed_ms`, zero-duration `sleep`, and a bounded positive

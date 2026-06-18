@@ -6,10 +6,11 @@ use crate::mir::{
 };
 use crate::syntax::NumericType;
 use axiomc_backend_cranelift::{
-    I64AuditSuccess as CraneliftI64AuditSuccess, I64BinaryOp as CraneliftI64BinaryOp,
-    I64Cast as CraneliftI64Cast, I64Compare as CraneliftI64Compare,
-    I64CompareOp as CraneliftI64CompareOp, I64Condition as CraneliftI64Condition, I64ExitBody,
-    I64ExitProgram, I64Expr as CraneliftI64Expr, I64Function as CraneliftI64Function,
+    I64_STDIN_BUFFER_BYTES, I64AuditSuccess as CraneliftI64AuditSuccess,
+    I64BinaryOp as CraneliftI64BinaryOp, I64Cast as CraneliftI64Cast,
+    I64Compare as CraneliftI64Compare, I64CompareOp as CraneliftI64CompareOp,
+    I64Condition as CraneliftI64Condition, I64ExitBody, I64ExitProgram,
+    I64Expr as CraneliftI64Expr, I64Function as CraneliftI64Function,
     I64ReturnBlock as CraneliftI64ReturnBlock, I64Stmt as CraneliftI64Stmt,
     I64ValueBody as CraneliftI64ValueBody, I64ValueReturnBlock as CraneliftI64ValueReturnBlock,
     OutputLine, OutputStream,
@@ -83,6 +84,7 @@ struct I64StaticBindings {
     json_stringify_bool_wrappers: HashSet<String>,
     json_stringify_string_wrappers: HashSet<String>,
     io_eprintln_wrappers: HashSet<String>,
+    io_read_to_string_wrappers: HashSet<String>,
     log_wrappers: HashSet<String>,
     log_field_string_wrappers: HashSet<String>,
     log_field_int_wrappers: HashSet<String>,
@@ -592,6 +594,12 @@ fn lower_i64_exit_program(
         .functions
         .iter()
         .filter(|function| is_i64_std_io_wrapper(function, "eprintln"))
+        .flat_map(|function| [function.name.clone(), function.source_name.clone()])
+        .collect();
+    static_bindings.io_read_to_string_wrappers = program
+        .functions
+        .iter()
+        .filter(|function| is_i64_std_io_wrapper(function, "read_to_string"))
         .flat_map(|function| [function.name.clone(), function.source_name.clone()])
         .collect();
     static_bindings.log_wrappers = program
@@ -13132,6 +13140,10 @@ fn is_i64_io_eprintln_name(name: &str, static_bindings: &I64StaticBindings) -> b
     name == "io_eprintln" || static_bindings.io_eprintln_wrappers.contains(name)
 }
 
+fn is_i64_io_read_to_string_name(name: &str, static_bindings: &I64StaticBindings) -> bool {
+    name == "io_read_to_string" || static_bindings.io_read_to_string_wrappers.contains(name)
+}
+
 fn is_i64_log_field_string_name(name: &str, static_bindings: &I64StaticBindings) -> bool {
     static_bindings.log_field_string_wrappers.contains(name)
 }
@@ -13601,6 +13613,14 @@ fn lower_i64_string_len_expr(
                 static_bindings,
                 CraneliftI64AuditSuccess::NonNegative,
             )
+        }
+        Expr::Call { name, args, .. } if is_i64_io_read_to_string_name(name, static_bindings) => {
+            if !args.is_empty() {
+                return None;
+            }
+            Some(CraneliftI64Expr::StdinLen {
+                max_bytes: I64_STDIN_BUFFER_BYTES,
+            })
         }
         Expr::BinaryAdd {
             op: ArithmeticOp::Add,

@@ -14,6 +14,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 const I64_REALPATH_BUFFER_BYTES: u32 = 4096;
+pub const I64_STDIN_BUFFER_BYTES: u32 = 4096;
 
 #[derive(Debug)]
 pub struct CraneliftBackendError {
@@ -113,6 +114,9 @@ pub enum I64Expr {
     },
     EnvLen {
         key: String,
+    },
+    StdinLen {
+        max_bytes: u32,
     },
     AuditEnv {
         intrinsic: String,
@@ -2188,6 +2192,9 @@ fn emit_i64_expr(
         I64Expr::EnvLen { key } => {
             emit_i64_env_len_expr(builder, runtime_refs.getenv, runtime_refs.strlen, key)
         }
+        I64Expr::StdinLen { max_bytes } => {
+            emit_i64_stdin_len_expr(builder, runtime_refs, *max_bytes)
+        }
         I64Expr::AuditEnv {
             intrinsic,
             package,
@@ -2264,13 +2271,9 @@ fn emit_i64_expr(
         I64Expr::RandomU64 { intrinsic, package } => {
             emit_i64_random_u64_expr(builder, runtime_refs, intrinsic, package)
         }
-        I64Expr::RandomBytesLen { length } => emit_i64_random_bytes_len_expr(
-            builder,
-            locals,
-            function_refs,
-            runtime_refs,
-            length,
-        ),
+        I64Expr::RandomBytesLen { length } => {
+            emit_i64_random_bytes_len_expr(builder, locals, function_refs, runtime_refs, length)
+        }
         I64Expr::AuditCrypto {
             intrinsic,
             package,
@@ -2496,6 +2499,31 @@ fn emit_i64_env_len_expr(
     Ok(builder.block_params(merge_block)[0])
 }
 
+fn emit_i64_stdin_len_expr(
+    builder: &mut FunctionBuilder<'_>,
+    runtime_refs: I64RuntimeRefs,
+    max_bytes: u32,
+) -> Result<cranelift_codegen::ir::Value, CraneliftBackendError> {
+    if max_bytes == 0 {
+        return Ok(builder.ins().iconst(types::I64, 0));
+    }
+    let bytes_slot = builder.create_sized_stack_slot(StackSlotData::new(
+        StackSlotKind::ExplicitSlot,
+        max_bytes,
+        0,
+    ));
+    let bytes_ptr = builder.ins().stack_addr(types::I64, bytes_slot, 0);
+    let fd = builder.ins().iconst(types::I32, 0);
+    let requested = builder.ins().iconst(types::I64, i64::from(max_bytes));
+    let read_call = builder
+        .ins()
+        .call(runtime_refs.read, &[fd, bytes_ptr, requested]);
+    let bytes_read = builder.inst_results(read_call)[0];
+    let failed = builder.ins().icmp_imm(IntCC::SignedLessThan, bytes_read, 0);
+    let failure_result = builder.ins().iconst(types::I64, -1);
+    Ok(builder.ins().select(failed, failure_result, bytes_read))
+}
+
 fn emit_i64_c_string_len_expr(
     builder: &mut FunctionBuilder<'_>,
     runtime_refs: I64RuntimeRefs,
@@ -2638,8 +2666,12 @@ fn emit_i64_random_bytes_len_expr(
     builder.append_block_param(read_block, types::I32);
     builder.append_block_param(merge_block, types::I64);
 
-    let min_valid = builder.ins().icmp_imm(IntCC::SignedGreaterThanOrEqual, length, 0);
-    let max_valid = builder.ins().icmp_imm(IntCC::SignedLessThanOrEqual, length, 65_536);
+    let min_valid = builder
+        .ins()
+        .icmp_imm(IntCC::SignedGreaterThanOrEqual, length, 0);
+    let max_valid = builder
+        .ins()
+        .icmp_imm(IntCC::SignedLessThanOrEqual, length, 65_536);
     let valid_length = builder.ins().band(min_valid, max_valid);
     builder
         .ins()
@@ -2675,11 +2707,8 @@ fn emit_i64_random_bytes_len_expr(
 
     builder.switch_to_block(os_open_block);
     builder.seal_block(os_open_block);
-    let bytes_slot = builder.create_sized_stack_slot(StackSlotData::new(
-        StackSlotKind::ExplicitSlot,
-        65_536,
-        0,
-    ));
+    let bytes_slot =
+        builder.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 65_536, 0));
     let bytes_ptr = builder.ins().stack_addr(types::I64, bytes_slot, 0);
     let source_ptr = emit_i64_path_ptr(builder, "/dev/urandom")?;
     let open_flags = builder.ins().iconst(types::I32, 0);
@@ -4038,11 +4067,8 @@ fn emit_i64_net_resolve_len_expr(
     }
     let host_ptr = emit_i64_path_ptr(builder, host)?;
     let null_ptr = builder.ins().iconst(types::I64, 0);
-    let result_slot = builder.create_sized_stack_slot(StackSlotData::new(
-        StackSlotKind::ExplicitSlot,
-        8,
-        0,
-    ));
+    let result_slot =
+        builder.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 0));
     builder.ins().stack_store(null_ptr, result_slot, 0);
     let result_ptr = builder.ins().stack_addr(types::I64, result_slot, 0);
     #[cfg(not(windows))]
