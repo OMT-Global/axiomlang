@@ -6371,6 +6371,54 @@ fn cranelift_backend_builds_std_lsp_known_message_binary() {
 
 #[cfg(not(windows))]
 #[test]
+fn cranelift_backend_builds_std_doc_known_render_binary() {
+    if which::which("cc").is_err() {
+        eprintln!("skipping cranelift backend smoke test because cc is unavailable");
+        return;
+    }
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("std-doc-known-render");
+    write_std_doc_known_render_project(&project);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args([
+            "build",
+            project.to_str().expect("project path"),
+            "--backend",
+            "cranelift",
+            "--json",
+        ])
+        .output()
+        .expect("run axiomc build --backend cranelift");
+    assert!(
+        output.status.success(),
+        "cranelift std/doc known render build failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+    assert_eq!(payload["backend"], "cranelift");
+    assert_eq!(payload["generated_rust"], Value::Null);
+    let binary = payload["binary"].as_str().expect("binary path");
+    let run = Command::new(binary)
+        .output()
+        .expect("run cranelift std/doc known render binary");
+    assert!(
+        run.status.success(),
+        "cranelift std/doc known render binary failed: stderr={}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&run.stdout),
+        "true\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue\n"
+    );
+    assert_eq!(String::from_utf8_lossy(&run.stderr), "");
+}
+
+#[cfg(not(windows))]
+#[test]
 fn cranelift_backend_builds_std_cli_no_args_binary() {
     if which::which("cc").is_err() {
         eprintln!("skipping cranelift backend smoke test because cc is unavailable");
@@ -13004,6 +13052,67 @@ print no_response(response_for_request("{\"jsonrpc\":\"2.0\",\"method\":\"initia
 "#,
     )
     .expect("write std/lsp known message source");
+}
+
+fn write_std_doc_known_render_project(project: &Path) {
+    fs::create_dir_all(project.join("src")).expect("create std/doc known render project src");
+    fs::write(
+        project.join("axiom.toml"),
+        r#"[package]
+name = "cranelift-std-doc-known-render"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+fs = false
+net = false
+process = false
+env = false
+clock = false
+crypto = false
+"#,
+    )
+    .expect("write std/doc known render manifest");
+    fs::write(
+        project.join("axiom.lock"),
+        r#"version = 1
+
+[[package]]
+name = "cranelift-std-doc-known-render"
+version = "0.1.0"
+source = "path"
+"#,
+    )
+    .expect("write std/doc known render lockfile");
+    fs::write(
+        project.join("src/main.ax"),
+        r##"import "std/doc.ax"
+
+let first: DocItem = ("src/main.ax", "function", true, "pub fn hello(): int", "Says hello from the fixture.\nReturns a stable integer.", "")
+let second: DocItem = ("src/model.ax", "struct", true, "pub struct Greeting", "Carries the greeting text.", "")
+let escaped_kind: DocItem = ("src/quoted.ax", "function\" data-risk=\"x", true, "pub fn quoted(): int", "Exercises attribute quotes.", "")
+let source: string = "/// Says hello from source.\n/// Returns a stable integer.\npub fn hello(): int {\nreturn 1\n}\n\nfn hidden(): int {\nreturn 0\n}\n\n/// Runs async work.\nasync fn compute(): int {\nreturn 2\n}\n\n  /// Carries the greeting text.\n  pub struct Greeting {\ntext: string\n}\n"
+let hidden_source: string = "fn hidden(): int {\nreturn 0\n}\n"
+let markdown: string = render_markdown([first, second])
+let html: string = render_html([first, second, escaped_kind])
+let source_markdown: string = render_source_markdown("src/main.ax", source)
+let source_html: string = render_source_html("src/main.ax", source)
+let hidden_markdown: string = render_source_markdown("src/hidden.ax", hidden_source)
+print doc_file(first) == "src/main.ax"
+print doc_kind(second) == "struct"
+print doc_public(first)
+print doc_signature(first) == "pub fn hello(): int"
+print string_starts_with(markdown, "# Axiom API\n\n## `pub fn hello(): int`")
+print string_starts_with(html, "<section class=\"axiom-docs\">\n<h1>Axiom API</h1>")
+print string_starts_with(source_markdown, "# Axiom API\n\n## `pub fn hello(): int`")
+print string_starts_with(source_html, "<section class=\"axiom-docs\">\n<h1>Axiom API</h1>")
+print string_starts_with(hidden_markdown, "# Axiom API\n\nNo public")
+"##,
+    )
+    .expect("write std/doc known render source");
 }
 
 fn write_std_cli_project(project: &Path) {
