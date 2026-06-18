@@ -727,6 +727,9 @@ runtime, returning the `None` arm for non-allowlisted keys even when those names
 exist in the host process. The same runtime env lookup can now be stored in a
 local `Option<string>` and matched later for supported `len(value)` expression
 and statement matches without capturing the compiler process environment.
+Helper-local present and missing env lookups over static keys also lower through
+the same native runtime environment path and return through direct-native helper
+calls.
 Broader runtime environment binding, stored string value materialization beyond
 length projection, and dynamic-key allowlist handling remain open under #1001.
 
