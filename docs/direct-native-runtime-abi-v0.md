@@ -637,8 +637,11 @@ fixed-array slots, including helper-parameter arrays feeding a direct-native
 process exit status. Static-range fixed-array slices also support narrow literal
 and dynamic indexing over the sliced window through the same projection slots,
 including pre-runtime slice locals that alias the projected fixed-array slots.
-Broader borrowed-slice aliasing, dynamic slice bounds, slice returns, and host
-ABI coverage remain tracked by issue #1001.
+The public borrowed-slice smoke also prints `len`, `first`, `last`, and indexed
+projection output for both a local slice and a helper-returned slice while
+asserting `generated_rust: null`. Broader borrowed-slice aliasing, dynamic
+slice bounds, slice returns, and host ABI coverage remain tracked by issue
+#1001.
 
 The map lookup row has partial direct-native evidence: the Cranelift spike now
 builds and runs direct map indexing, `get`, `get_or_default`,
