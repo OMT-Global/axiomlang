@@ -283,8 +283,10 @@ struct bindings, including runtime-scope loop-body bindings. Numeric fields can
 feed `int` and typed integer locals; boolean fields can feed bool locals, helper
 return conditions, and composed boolean conditions. The public struct-field
 smoke also asserts the Cranelift build JSON reports `generated_rust: null`
-while running scalar, boolean, and string field projection output. It also
-covers reassignment of scalar-projection struct locals. Scalar and bool struct
+while running scalar, boolean, and string field projection output, including
+caller-side scalar and boolean projections from direct, branch-selected, and
+forwarded struct helper returns. It also covers reassignment of
+scalar-projection struct locals. Scalar and bool struct
 helper parameters
 lower across direct-native function-call boundaries as one ABI slot per field
 in declared field order for local struct values and inline struct literal

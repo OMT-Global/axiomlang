@@ -2823,7 +2823,7 @@ fn cranelift_backend_builds_struct_field_binary() {
     );
     assert_eq!(
         String::from_utf8_lossy(&run.stdout),
-        "3\ntrue\nstage1 structs\n"
+        "3\ntrue\nstage1 structs\n5\ntrue\n8\nfalse\n8\nfalse\n"
     );
 }
 
@@ -9342,7 +9342,7 @@ fn write_struct_field_project(project: &Path) {
     .expect("write struct lockfile");
     fs::write(
         project.join("src/main.ax"),
-        "struct Pipeline {\nname: string\nsteps: int\nready: bool\n}\n\nfn label(pipeline: Pipeline): string {\nreturn pipeline.name\n}\n\nlet pipeline: Pipeline = Pipeline { name: \"stage1 structs\", steps: 3, ready: true }\nprint pipeline.steps\nprint pipeline.ready\nprint label(pipeline)\n",
+        "struct Pipeline {\nname: string\nsteps: int\nready: bool\n}\n\nstruct Step {\nvalue: int\nready: bool\n}\n\nfn label(pipeline: Pipeline): string {\nreturn pipeline.name\n}\n\nfn make_step(value: int, ready: bool): Step {\nreturn Step { value: value, ready: ready }\n}\n\nfn choose_step(flag: bool): Step {\nif flag {\nreturn Step { value: 7, ready: true }\n} else {\nlet fallback: int = 8\nreturn Step { ready: false, value: fallback }\n}\n}\n\nfn forward_step(step: Step): Step {\nreturn step\n}\n\nlet pipeline: Pipeline = Pipeline { name: \"stage1 structs\", steps: 3, ready: true }\nlet returned: Step = make_step(5, true)\nlet branch: Step = choose_step(false)\nlet branch_to_forward: Step = choose_step(false)\nlet forwarded: Step = forward_step(branch_to_forward)\nprint pipeline.steps\nprint pipeline.ready\nprint label(pipeline)\nprint returned.value\nprint returned.ready\nprint branch.value\nprint branch.ready\nprint forwarded.value\nprint forwarded.ready\n",
     )
     .expect("write struct source");
 }
