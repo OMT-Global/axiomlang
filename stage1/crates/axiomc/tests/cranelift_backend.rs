@@ -6323,6 +6323,54 @@ unterminated JSON object
 
 #[cfg(not(windows))]
 #[test]
+fn cranelift_backend_builds_std_outcome_known_values_binary() {
+    if which::which("cc").is_err() {
+        eprintln!("skipping cranelift backend smoke test because cc is unavailable");
+        return;
+    }
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("std-outcome-known-values");
+    write_std_outcome_known_values_project(&project);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args([
+            "build",
+            project.to_str().expect("project path"),
+            "--backend",
+            "cranelift",
+            "--json",
+        ])
+        .output()
+        .expect("run axiomc build --backend cranelift");
+    assert!(
+        output.status.success(),
+        "cranelift std/outcome known values build failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+    assert_eq!(payload["backend"], "cranelift");
+    assert_eq!(payload["generated_rust"], Value::Null);
+    let binary = payload["binary"].as_str().expect("binary path");
+    let run = Command::new(binary)
+        .output()
+        .expect("run cranelift std/outcome known values binary");
+    assert!(
+        run.status.success(),
+        "cranelift std/outcome known values binary failed: stderr={}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&run.stdout),
+        "true\ntrue\n7\nfallback\ntrue\ntrue\n11\nfallback\n31\ntrue\n4\nfalse\n41\ntrue\n6\nfalse\n"
+    );
+    assert_eq!(String::from_utf8_lossy(&run.stderr), "");
+}
+
+#[cfg(not(windows))]
+#[test]
 fn cranelift_backend_builds_std_lsp_known_message_binary() {
     if which::which("cc").is_err() {
         eprintln!("skipping cranelift backend smoke test because cc is unavailable");
@@ -12669,6 +12717,84 @@ print "parse error"
 "#,
     )
     .expect("write std/serdes source");
+}
+
+fn write_std_outcome_known_values_project(project: &Path) {
+    fs::create_dir_all(project.join("src")).expect("create std/outcome known values project src");
+    fs::write(
+        project.join("axiom.toml"),
+        r#"[package]
+name = "cranelift-std-outcome-known-values"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+fs = false
+net = false
+process = false
+env = false
+clock = false
+crypto = false
+"#,
+    )
+    .expect("write std/outcome known values manifest");
+    fs::write(
+        project.join("axiom.lock"),
+        r#"version = 1
+
+[[package]]
+name = "cranelift-std-outcome-known-values"
+version = "0.1.0"
+source = "path"
+"#,
+    )
+    .expect("write std/outcome known values lockfile");
+    fs::write(
+        project.join("src/main.ax"),
+        r#"import "std/outcome.ax"
+
+struct Step {
+value: int
+enabled: bool
+}
+
+let ready: Option<int> = Some(7)
+let missing: Option<int> = None
+print option_is_some<int>(ready)
+print option_is_none<int>(missing)
+
+let absent: Option<string> = None
+print option_unwrap_or<int>(Some(7), 1)
+print option_unwrap_or<string>(absent, "fallback")
+
+let ok_value: Result<int, string> = Ok(11)
+let err_value: Result<int, string> = Err("nope")
+print result_is_ok<int, string>(ok_value)
+print result_is_err<int, string>(err_value)
+print result_unwrap_or<int, string>(Ok(11), 1)
+print result_unwrap_or<string, string>(Err("failed"), "fallback")
+
+let selected_step: Step = option_unwrap_or<Step>(Some(Step { value: 31, enabled: true }), Step { value: 2, enabled: false })
+print selected_step.value
+print selected_step.enabled
+
+let fallback_step: Step = option_unwrap_or<Step>(None, Step { value: 4, enabled: false })
+print fallback_step.value
+print fallback_step.enabled
+
+let result_step: Step = result_unwrap_or<Step, Step>(Ok(Step { value: 41, enabled: true }), Step { value: 5, enabled: false })
+print result_step.value
+print result_step.enabled
+
+let result_fallback: Step = result_unwrap_or<Step, Step>(Err(Step { value: 3, enabled: true }), Step { value: 6, enabled: false })
+print result_fallback.value
+print result_fallback.enabled
+"#,
+    )
+    .expect("write std/outcome known values source");
 }
 
 fn write_std_serdes_known_json_main_exit_project(project: &Path) {

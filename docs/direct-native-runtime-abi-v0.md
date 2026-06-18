@@ -330,6 +330,11 @@ The same nested slot representation now has narrow evidence for
 `Option<Result<int, int>>` construction, reassignment, matching, helper
 parameters, helper returns, forwarded helper values, and inline
 `Some(Ok(...))`, `Some(Err(...))`, and outer `None` helper arguments.
+The Cranelift evidence suite now also builds and runs public `std/outcome.ax`
+`option_is_some(...)`, `option_is_none(...)`, and `option_unwrap_or(...)`
+wrappers without generated Rust for known scalar, string, and struct payloads,
+including struct field projections from selected and fallback `Option<Step>`
+values.
 The row remains partial because direct-native codegen still does not provide a
 general `Option<T>` ABI across broader payload shapes, deeper nested option or
 result values, or broad aggregate storage.
@@ -755,8 +760,13 @@ remain tracked by issue #1001.
 The `Result<T, E>` row has partial direct-native evidence: the Cranelift spike
 now builds and runs a package importing `std/outcome.ax`, using result
 predicates, fallback unwrap helpers, direct match arms over `Result<T, E>`
-values, scalar payloads, string errors, and struct payloads. The direct-native
-runtime path now also has narrow evidence for local `Result<int, int>`,
+values, scalar payloads, string errors, and struct payloads. The dedicated
+std/outcome evidence binary now also asserts `generated_rust: null` while
+running public `result_is_ok(...)`, `result_is_err(...)`, and
+`result_unwrap_or(...)` wrappers over known scalar, string, and struct payloads,
+including field projections from selected and fallback `Result<Step, Step>`
+values. The direct-native runtime path now also has narrow evidence for local
+`Result<int, int>`,
 `Result<bool, bool>`, `Result<int, bool>`, and `Result<bool, int>` `Ok` and
 `Err` construction and reassignment, plus typed numeric `Result<i32, u32>`
 `Result<i64, u16>`, and `Result<u8, i8>` `Ok`/`Err` construction and
