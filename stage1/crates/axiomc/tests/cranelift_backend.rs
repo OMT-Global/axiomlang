@@ -340,6 +340,32 @@ panic(object_json())
         "{\"kind\":\"panic\",\"message\":\"{\\\"count\\\":3,\\\"name\\\":\\\"axiom\\\",\\\"ready\\\":true}\"}\n",
     );
 
+    let serdes_error_project = temp.path().join("terminal-panic-serdes-error");
+    write_terminal_panic_project(
+        &serdes_error_project,
+        r#"import "std/serdes.ax"
+
+fn parse_error_text(): string {
+match from_json_str("{") {
+Ok(value) {
+return stringify(value)
+}
+Err(error) {
+return parse_error_message(error)
+}
+}
+}
+
+fn main(): int {
+panic(parse_error_text())
+}
+"#,
+    );
+    assert_terminal_panic_report(
+        &serdes_error_project,
+        "{\"kind\":\"panic\",\"message\":\"unterminated JSON object\"}\n",
+    );
+
     let else_branch_project = temp.path().join("terminal-panic-else-branch");
     write_terminal_panic_project(
         &else_branch_project,
