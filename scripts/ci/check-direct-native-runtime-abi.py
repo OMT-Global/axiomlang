@@ -105,6 +105,7 @@ def validate_rows(
         validate_evidence_paths(
             row, row_id, group_name, "runtime_evidence", errors, contract_root
         )
+        validate_denial_applicability(row, row_id, group_name, errors)
         if status in {"implemented", "partial"} and "evidence" not in row:
             errors.append(
                 f"{group_name} row {row_id!r} must name evidence for status {status!r}"
@@ -148,6 +149,7 @@ def evidence_summary(rows: object) -> dict[str, int]:
         "with_runtime_evidence": 0,
         "without_runtime_evidence": 0,
         "with_denial_evidence": 0,
+        "denial_evidence_not_applicable": 0,
         "without_denial_evidence": 0,
     }
     if not isinstance(rows, list):
@@ -163,14 +165,48 @@ def evidence_summary(rows: object) -> dict[str, int]:
                 "with_runtime_evidence",
                 "without_runtime_evidence",
             ),
-            ("denial_evidence", "with_denial_evidence", "without_denial_evidence"),
         ):
             value = row.get(field_name)
             if isinstance(value, list) and value:
                 summary[present_key] += 1
             else:
                 summary[missing_key] += 1
+
+        denial_evidence = row.get("denial_evidence")
+        if isinstance(denial_evidence, list) and denial_evidence:
+            summary["with_denial_evidence"] += 1
+        elif (
+            isinstance(row.get("denial_evidence_not_applicable"), str)
+            and row["denial_evidence_not_applicable"].strip()
+        ):
+            summary["denial_evidence_not_applicable"] += 1
+        else:
+            summary["without_denial_evidence"] += 1
     return summary
+
+
+def validate_denial_applicability(
+    row: dict[str, Any],
+    row_id: str,
+    group_name: str,
+    errors: list[str],
+) -> None:
+    if "denial_evidence_not_applicable" not in row:
+        return
+
+    if "denial_evidence" in row:
+        errors.append(
+            f"{group_name} row {row_id!r} must not combine denial_evidence "
+            "with denial_evidence_not_applicable"
+        )
+        return
+
+    reason = row["denial_evidence_not_applicable"]
+    if not isinstance(reason, str) or not reason.strip():
+        errors.append(
+            f"{group_name} row {row_id!r} denial_evidence_not_applicable "
+            "must be a non-empty string"
+        )
 
 
 def validate_evidence_paths(
