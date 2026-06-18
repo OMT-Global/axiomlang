@@ -595,15 +595,17 @@ allowlisted deterministic commands and the checked-in missing-binary sentinel
 through compiler-side spike evaluation and emits their exit statuses while the
 public smoke asserts `generated_rust` is null. The direct-native i64 path also
 lowers literal `process_status(...)` calls and the `std/process.ax`
-`run_status(...)` wrapper
-for deterministic `/usr/bin/true`, `/usr/bin/false`, and
-`__axiom_stage1_missing_binary__` commands into native runtime executable checks
-and process-status execution through the object backend without generated Rust.
-The missing sentinel maps to `-1` through the native executable check, while the
-existing true/false helpers run and normalize their process status at runtime.
-The runtime-exit smoke now also passes those deterministic command names through
-static string facts before invoking the direct-native process-status path, so
-the evidence is not limited to inline string literals.
+`run_status(...)` wrapper for deterministic `/usr/bin/true`, `/usr/bin/false`,
+and `__axiom_stage1_missing_binary__` commands into native runtime executable
+checks and process-status execution through the object backend without generated
+Rust. The missing sentinel maps to `-1` through the native executable check,
+while the existing true/false helpers run and normalize their process status at
+runtime. The runtime-exit smoke now also passes those deterministic command
+names through static string facts before invoking the direct-native
+process-status path, and deterministic true/false `run_status(...)` and
+`process_status(...)` calls can also return through direct-native helper
+functions before the entrypoint uses their integer statuses, so the evidence is
+not limited to inline string literals.
 Denied `process` capability use still fails through the manifest policy before
 Cranelift lowering or native execution. The direct-native i64 path also appends
 host audit JSONL entries when `AXIOM_HOST_AUDIT_LOG` is set, recording only the

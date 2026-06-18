@@ -9471,16 +9471,25 @@ source = "path"
         project.join("src/main.ax"),
         r#"import "std/process.ax"
 
+fn ok_status(): int {
+return run_status("/usr/bin/true")
+}
+
+fn fail_status(): int {
+return process_status("/usr/bin/false")
+}
+
 static TRUE_CMD: string = "/usr/bin/true"
 static FALSE_CMD: string = "/usr/bin/false"
 static MISSING_CMD: string = "__axiom_stage1_missing_binary__"
 
 fn main(): int {
-let ok: int = process_status("/usr/bin/true")
+let ok: int = ok_status()
 let static_ok: int = run_status(TRUE_CMD)
-let fail: int = run_status(FALSE_CMD)
+let fail: int = fail_status()
+let static_fail: int = run_status(FALSE_CMD)
 let missing: int = run_status(MISSING_CMD)
-if ok == 0 && static_ok == 0 && fail == 1 && missing == -1 {
+if ok == 0 && static_ok == 0 && fail == 1 && static_fail == 1 && missing == -1 {
 return 48
 } else {
 return 1
