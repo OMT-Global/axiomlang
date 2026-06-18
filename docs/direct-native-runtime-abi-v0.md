@@ -197,7 +197,7 @@ integer locals, comparisons, helper calls, runtime branch-local string
 projection `let`s, and process exit status without generated Rust.
 String concatenation length also lowers for supported string length projection
 inputs by adding the operand byte lengths without materializing the concatenated
-runtime string.
+runtime string, including bounded stdin-backed `read_to_string()` projections.
 Literal-, static-, local-, and known-string-call-backed `string_starts_with(...)`
 predicates and known-text string comparisons now also lower directly to native
 boolean conditions, including bool locals, helper returns, composed branch
@@ -1062,12 +1062,14 @@ locals assigned from `read_to_string()` when those locals are used only for
 `len(local)` projections in direct-native `main` return values. `string_clone(...)`
 over those stdin-backed local projections also preserves the same bounded
 byte-count path for `len(cloned)` without materializing a general runtime
-string. Broader stdin reads beyond bounded `read_to_string()` length projections,
-materialized stdin strings, dynamic stdout/stderr text beyond boolean, integer,
-JSON scalar formatting, and finite known-string projection selection, dynamic
-panic messages beyond scalar/string JSON stringify and finite known-string
-projection selection, and broader streaming/runtime buffering remain tracked by
-issue #1001.
+string. String concatenation over those stdin-backed projections also computes
+the combined byte length for `len(combined)` without materializing a general
+runtime string. Broader stdin reads beyond bounded `read_to_string()` length
+projections, materialized stdin strings, dynamic stdout/stderr text beyond
+boolean, integer, JSON scalar formatting, and finite known-string projection
+selection, dynamic panic messages beyond scalar/string JSON stringify and finite
+known-string projection selection, and broader streaming/runtime buffering
+remain tracked by issue #1001.
 
 The `clock.now_sleep` row now has partial Cranelift evidence for `std/time.ax`
 `now_ms`, `now`, `elapsed_ms`, zero-duration `sleep`, and a bounded positive
