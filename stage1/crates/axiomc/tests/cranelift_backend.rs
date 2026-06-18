@@ -340,6 +340,58 @@ panic(object_json())
         "{\"kind\":\"panic\",\"message\":\"{\\\"count\\\":3,\\\"name\\\":\\\"axiom\\\",\\\"ready\\\":true}\"}\n",
     );
 
+    let serdes_stringify_project = temp.path().join("terminal-panic-serdes-stringify");
+    write_terminal_panic_project(
+        &serdes_stringify_project,
+        r#"import "std/serdes.ax"
+
+fn stringified_text(): string {
+return stringify(Text("direct-native"))
+}
+
+fn main(): int {
+panic(stringified_text())
+}
+"#,
+    );
+    assert_terminal_panic_report(
+        &serdes_stringify_project,
+        "{\"kind\":\"panic\",\"message\":\"\\\"direct-native\\\"\"}\n",
+    );
+
+    let serdes_parsed_text_project = temp.path().join("terminal-panic-serdes-parsed-text");
+    write_terminal_panic_project(
+        &serdes_parsed_text_project,
+        r#"import "std/serdes.ax"
+
+fn parsed_text(): string {
+match from_json_str("\"direct-native\"") {
+Ok(value) {
+match as_text(value) {
+Some(text) {
+return text
+}
+None {
+return "not text"
+}
+}
+}
+Err(error) {
+return parse_error_message(error)
+}
+}
+}
+
+fn main(): int {
+panic(parsed_text())
+}
+"#,
+    );
+    assert_terminal_panic_report(
+        &serdes_parsed_text_project,
+        "{\"kind\":\"panic\",\"message\":\"direct-native\"}\n",
+    );
+
     let serdes_error_project = temp.path().join("terminal-panic-serdes-error");
     write_terminal_panic_project(
         &serdes_error_project,
