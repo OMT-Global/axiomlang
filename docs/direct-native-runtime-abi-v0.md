@@ -665,19 +665,19 @@ host-boundary representation remain tracked by issue #1001.
 
 The borrowed-slice row has partial direct-native evidence: the Cranelift spike
 evaluates array-backed borrowed slices through `len`, `first`, `last`, indexing,
-and function returns. The direct-native runtime path now also lowers narrow
-static-range fixed-array slices using literal or static scalar bounds such as
-`values[1:]`, `values[START:]`, `values[:2]`, and `values[:END]` through `len`,
-`first`, and `last` for scalar and bool elements by projecting the underlying
-fixed-array slots, including helper-parameter arrays feeding a direct-native
-process exit status. Static-range fixed-array slices also support narrow literal
-and dynamic indexing over the sliced window through the same projection slots,
-including pre-runtime slice locals that alias the projected fixed-array slots.
-The public borrowed-slice smoke also prints `len`, `first`, `last`, and indexed
-projection output for both a local slice and a helper-returned slice while
-asserting `generated_rust: null`. Broader borrowed-slice aliasing, dynamic
-slice bounds, slice returns, and host ABI coverage remain tracked by issue
-#1001.
+and function returns. The public borrowed-slice smoke asserts `generated_rust:
+null` while printing `len`, `first`, `last`, and index projections from both
+direct local borrowed slices and helper-returned borrowed slices. The
+direct-native runtime path now also lowers narrow static-range fixed-array
+slices using literal or static scalar bounds such as `values[1:]`,
+`values[START:]`, `values[:2]`, and `values[:END]` through `len`, `first`, and
+`last` for scalar and bool elements by projecting the underlying fixed-array
+slots, including helper-parameter arrays feeding a direct-native process exit
+status. Static-range fixed-array slices also support narrow literal and dynamic
+indexing over the sliced window through the same projection slots, including
+pre-runtime slice locals that alias the projected fixed-array slots. Broader
+borrowed-slice aliasing, dynamic slice bounds, slice returns, and host ABI
+coverage remain tracked by issue #1001.
 
 The map lookup row has partial direct-native evidence: the Cranelift spike now
 builds and runs direct map indexing, `get`, `get_or_default`,
