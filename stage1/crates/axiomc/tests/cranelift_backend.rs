@@ -5507,7 +5507,7 @@ fn cranelift_backend_lowers_aggregate_helper_print_to_native_stdout() {
     assert_eq!(run.status.code(), Some(48));
     assert_eq!(
         String::from_utf8_lossy(&run.stdout),
-        "aggregate stdout\naggregate stdout\naggregate static\naggregate stdout suffix\naggregate helper text\n17\ndeploy\n"
+        "aggregate stdout\naggregate stdout\naggregate static\naggregate stdout suffix\naggregate helper text\n17\ntrue\n19\n\"19\"\ndeploy\n"
     );
     assert_eq!(String::from_utf8_lossy(&run.stderr), "");
 }
@@ -11759,7 +11759,9 @@ source = "path"
     .expect("write aggregate helper print lockfile");
     fs::write(
         project.join("src/main.ax"),
-        r#"static STATIC_LINE: string = "aggregate static"
+        r#"import "std/json.ax"
+
+static STATIC_LINE: string = "aggregate static"
 
 fn helper_line(): string {
 return "aggregate helper text"
@@ -11778,6 +11780,10 @@ print line + " suffix"
 print helper_line()
 let value: int = 17
 print value
+print stringify_bool(value == 17)
+let text: string = stringify_int(value + 2)
+print text
+print stringify_string(text)
 print selected_line
 return (value, 31)
 }

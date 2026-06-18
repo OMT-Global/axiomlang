@@ -1009,7 +1009,10 @@ and scalar and aggregate-return helpers without generated Rust. Boolean and
 integer source-level `print` statements also lower to native stdout writes in
 direct-native i64 `main` functions and scalar and aggregate-return helpers
 without generated Rust, including runtime integer values formatted through the
-native object backend. Dynamic scalar `std/json.ax`
+native object backend. The aggregate-return helper stdout smoke now asserts
+`generated_rust` null while printing boolean values, dynamic `std/json.ax`
+`stringify_bool(...)` and `stringify_int(...)` output, and
+`stringify_string(...)` over the supported scalar stringify result. Dynamic scalar `std/json.ax`
 `stringify_int` and
 `stringify_bool` print expressions, including scalar stringify results first
 assigned to string locals, reuse those same native stdout writers in
