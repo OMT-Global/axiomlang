@@ -744,9 +744,11 @@ lowers public `std/sync.ax`
 `channel(...)`, `send(...)`, and `try_recv(...)` wrappers for compile-time-known
 single-slot `int`/`bool` payloads, including pre-runtime channel locals, so
 present and missing channel receives can feed direct-native process exit status
-without generated Rust. Concurrent execution, blocking behavior, dynamic channel
-or once state after runtime scalar lowering, and host runtime synchronization
-remain tracked by issue #1001.
+without generated Rust. The same known mutex, once, and channel wrapper shapes
+now also lower inside helper functions and return through direct-native helper
+calls before driving process exit status. Concurrent execution, blocking
+behavior, dynamic channel or once state after runtime scalar lowering, and host
+runtime synchronization remain tracked by issue #1001.
 
 The `Result<T, E>` row has partial direct-native evidence: the Cranelift spike
 now builds and runs a package importing `std/outcome.ax`, using result
