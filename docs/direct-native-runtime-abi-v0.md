@@ -517,8 +517,9 @@ byte length cap. The direct-native i64 path now also lowers
 helper-derived scalar lengths through a native `0..=65536` bounds check into a
 runtime scratch-buffer fill from the Unix OS-random source, returning the
 requested length on success without materializing a general byte-array value.
-Dynamic length audit metadata records only the typed argument shape, not the
-runtime length value. Public `random_u64()` in the
+Runtime-derived negative and over-cap byte lengths now return the existing
+`-1` denial code and append denied host audit records while recording only the
+typed argument shape, not the runtime length value. Public `random_u64()` in the
 direct-native i64 path also reads eight bytes from the same Unix OS-random
 source at runtime and returns those bits through the native scalar path instead
 of embedding compiler-sampled bytes. Those native random reads append
