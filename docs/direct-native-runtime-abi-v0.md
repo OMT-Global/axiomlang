@@ -876,6 +876,9 @@ parsing, typed field accessors, value indexing, stringify, and parse-error
 reporting without generated Rust. The checked-in `stdlib_serdes` example now
 also runs through the direct-native example smoke, including deep `Value`
 equality and `std/testing.ax` assertion helpers without generated Rust. The
+Cranelift evidence suite now also builds and runs public `std/testing.ax`
+typed equality, table-case, property, and snapshot wrappers over known scalar,
+boolean, and string inputs while asserting `generated_rust: null`. The
 Cranelift evidence suite now also builds and runs known-message `std/lsp.ax`
 JSON-RPC wrapper flows without generated Rust, covering request construction,
 method/id dispatch, response framing, text-document field extraction, and
