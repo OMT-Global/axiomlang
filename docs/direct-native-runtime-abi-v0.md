@@ -35,21 +35,14 @@ denial-evidence rows, and verifies the `axiomc run/test --backend cranelift`
 command paths can execute without generated-Rust artifacts. It is intentionally
 not a readiness claim while rows remain `partial` or `blocked`.
 
-The example smoke runs a bounded subset of checked-in value and stdlib examples
-through `check`, `build --backend cranelift`, and `run --backend cranelift`, and
-asserts the build/run JSON reports `generated_rust: null`. The current set
-covers 53 deterministic examples across scalar/aggregate values, borrowed
-shapes, generic aggregates, modules/packages/workspaces, governance/service
-fixtures, property fixtures, workspace-only package selection, outcome/result
-helpers, JSON value and serdes helpers, LSP/doc/testing helpers, plus async,
-CLI's no-argument path, collections, crypto hash/MAC, env allowlisted and
-unrestricted-migration reads, encoding, fs read/write, HTTP's closed-port
-client path, io, JSON, logging, process-status missing-binary handling, regex,
-sync, string builder, and time. It is direct-native example evidence for #1001,
-not a
-replacement for full
-`stage1-smoke` parity; examples that still require broader capability policy or
-runtime parity remain outside this smoke target.
+The example smoke runs a bounded subset of checked-in stdlib examples through
+`check`, `build --backend cranelift`, `run --backend cranelift`, and
+`test --backend cranelift`, and asserts the build/test JSON reports
+`generated_rust: null`. The current set focuses on the stdlib crypto ABI rows:
+hash, MAC, random bytes and scalar random, Ed25519 signing/verification, and
+AES-256-GCM AEAD round-trips. It is direct-native example evidence for #1001,
+not a replacement for full `stage1-smoke` parity; examples that still require
+broader capability policy or runtime parity remain outside this smoke target.
 
 ## Contract Shape
 
