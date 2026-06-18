@@ -8,6 +8,11 @@
       "check": "Direct native backend parity readiness matrix has no blocked rows."
     },
     {
+      "issue": 1001,
+      "lane": "backend",
+      "check": "Direct native runtime ABI and capability shims cover the supported stage1 surface."
+    },
+    {
       "issue": 929,
       "lane": "backend",
       "check": "Direct native diagnostics, provenance, and debug evidence are at parity with the supported toolchain."
