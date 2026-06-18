@@ -623,9 +623,13 @@ without generated Rust.
 Imported public `std/string_builder.ax` builder, seed, push,
 line-push, and finish wrappers now alias known text facts that can feed
 direct-native string comparisons, length projections, and process exit status
-without generated Rust. Broader string ABI coverage, allocation behavior,
-general runtime string parameters and returns, non-literal storage, and
-host-boundary representation remain tracked by issue #1001.
+without generated Rust. The Cranelift evidence suite now also builds and runs
+known `std/doc.ax` markdown and HTML rendering without generated Rust, covering
+public tuple-backed `DocItem` projections, known-source declaration extraction,
+comment-line scanning, trimming, prefix/suffix stripping, and no-public-docs
+fallback rendering over literal inputs. Broader string ABI coverage, allocation
+behavior, general runtime string parameters and returns, non-literal storage,
+and host-boundary representation remain tracked by issue #1001.
 
 The borrowed-slice row has partial direct-native evidence: the Cranelift spike
 evaluates array-backed borrowed slices through `len`, `first`, `last`, indexing,
