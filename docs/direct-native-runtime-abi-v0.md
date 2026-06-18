@@ -818,6 +818,10 @@ parsing, typed field accessors, value indexing, stringify, and parse-error
 reporting without generated Rust. The checked-in `stdlib_serdes` example now
 also runs through the direct-native example smoke, including deep `Value`
 equality and `std/testing.ax` assertion helpers without generated Rust. The
+Cranelift evidence suite now also builds and runs known-message `std/lsp.ax`
+JSON-RPC wrapper flows without generated Rust, covering request construction,
+method/id dispatch, response framing, text-document field extraction, and
+invalid-message rejection over literal payloads. The
 direct-native i64 path now also lowers
 known-input `json_stringify_*` string results, including literal and static
 scalar/bool stringify inputs. Runtime scalar/bool `json_stringify_*` calls can
@@ -880,9 +884,10 @@ text/int/bool/object/array values, parsed aggregate field/item projections, and
 parse-error string results can also feed terminal panic reports as escaped
 native stderr JSON while preserving
 `generated_rust: null`. Broader dynamic
-runtime JSON parsing, broad `std/serdes` `Value` storage, `JsonValue` wrapper
-construction beyond the evidenced scalar/string/object/array source wrappers,
-and broader schema helper coverage remain tracked by issue #1001.
+runtime JSON parsing, broad `std/serdes` `Value` storage, general dynamic LSP
+message handling, `JsonValue` wrapper construction beyond the evidenced
+scalar/string/object/array source wrappers, and broader schema helper coverage
+remain tracked by issue #1001.
 
 The owned move-state row has partial direct-native evidence: the Cranelift
 spike builds and runs projection-sensitive owned field moves while preserving

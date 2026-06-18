@@ -6323,6 +6323,54 @@ unterminated JSON object
 
 #[cfg(not(windows))]
 #[test]
+fn cranelift_backend_builds_std_lsp_known_message_binary() {
+    if which::which("cc").is_err() {
+        eprintln!("skipping cranelift backend smoke test because cc is unavailable");
+        return;
+    }
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("std-lsp-known-messages");
+    write_std_lsp_known_messages_project(&project);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args([
+            "build",
+            project.to_str().expect("project path"),
+            "--backend",
+            "cranelift",
+            "--json",
+        ])
+        .output()
+        .expect("run axiomc build --backend cranelift");
+    assert!(
+        output.status.success(),
+        "cranelift std/lsp known message build failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+    assert_eq!(payload["backend"], "cranelift");
+    assert_eq!(payload["generated_rust"], Value::Null);
+    let binary = payload["binary"].as_str().expect("binary path");
+    let run = Command::new(binary)
+        .output()
+        .expect("run cranelift std/lsp known message binary");
+    assert!(
+        run.status.success(),
+        "cranelift std/lsp known message binary failed: stderr={}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&run.stdout),
+        "true\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue\n"
+    );
+    assert_eq!(String::from_utf8_lossy(&run.stderr), "");
+}
+
+#[cfg(not(windows))]
+#[test]
 fn cranelift_backend_builds_std_cli_no_args_binary() {
     if which::which("cc").is_err() {
         eprintln!("skipping cranelift backend smoke test because cc is unavailable");
@@ -12882,6 +12930,80 @@ return object_written + text_written + parsed_written + value_written + error_wr
 "#,
     )
     .expect("write std/serdes known JSON eprintln source");
+}
+
+fn write_std_lsp_known_messages_project(project: &Path) {
+    fs::create_dir_all(project.join("src")).expect("create std/lsp known message project src");
+    fs::write(
+        project.join("axiom.toml"),
+        r#"[package]
+name = "cranelift-std-lsp-known-messages"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+fs = false
+net = false
+process = false
+env = false
+clock = false
+crypto = false
+"#,
+    )
+    .expect("write std/lsp known message manifest");
+    fs::write(
+        project.join("axiom.lock"),
+        r#"version = 1
+
+[[package]]
+name = "cranelift-std-lsp-known-messages"
+version = "0.1.0"
+source = "path"
+"#,
+    )
+    .expect("write std/lsp known message lockfile");
+    fs::write(
+        project.join("src/main.ax"),
+        r#"import "std/lsp.ax"
+
+fn no_response(value: Option<string>): bool {
+match value {
+Some(_text) {
+return false
+}
+None {
+return true
+}
+}
+}
+
+let initialize_payload: string = request(7, method_initialize(), {"rootUri": Text("file:///tmp/axiom")})
+let completion_payload: string = request_with_text_id("completion-1", method_completion(), {"textDocument": Object({"uri": Text("file:///tmp/axiom/main.ax")})})
+let open_payload: string = did_open("file:///tmp/axiom/main.ax", "axiom", 3, "print 1")
+let change_payload: string = did_change("file:///tmp/axiom/main.ax", 4, "print 2")
+print message_method(initialize_payload) == Some(method_initialize())
+print message_number_id(initialize_payload) == Some(7)
+print response_for_request(initialize_payload) == Some(initialize_response(7))
+print message_text_id(completion_payload) == Some("completion-1")
+print response_for_request(completion_payload) == Some(completion_response_id(TextId("completion-1")))
+print message_method(open_payload) == Some(method_did_open())
+print did_open_uri(open_payload) == Some("file:///tmp/axiom/main.ax")
+print did_open_language_id(open_payload) == Some("axiom")
+print did_open_version(open_payload) == Some(3)
+print did_open_text(open_payload) == Some("print 1")
+print message_method(change_payload) == Some(method_did_change())
+print did_change_uri(change_payload) == Some("file:///tmp/axiom/main.ax")
+print did_change_version(change_payload) == Some(4)
+print did_change_text(change_payload) == Some("print 2")
+print response_frame_for_request(initialize_payload) == Some(frame_message(initialize_response(7)))
+print message_supported("{") == false
+print no_response(response_for_request("{\"jsonrpc\":\"2.0\",\"method\":\"initialized\"}"))
+"#,
+    )
+    .expect("write std/lsp known message source");
 }
 
 fn write_std_cli_project(project: &Path) {
