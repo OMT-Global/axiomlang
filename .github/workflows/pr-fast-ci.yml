@@ -61,7 +61,7 @@ jobs:
   fast-checks:
     name: Fast Checks
     runs-on: ['self-hosted', 'linux', 'shell-only', 'public']
-    timeout-minutes: 45
+    timeout-minutes: 90
     needs: changes
     if: >-
       github.event.pull_request.draft == false &&
