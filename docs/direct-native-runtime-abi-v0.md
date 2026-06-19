@@ -425,28 +425,30 @@ compilation and emits the resulting output, covering `mkdir_all`, `write_file`,
 `generated_rust` is null. It also covers `fs_root` scoping and preserves the
 public manifest-policy denial for a package with `fs = true` and `"fs:write" =
 false` that calls `std/fs.ax` `write_file(...)`. The direct-native i64 path now
-also lowers literal-path `fs_write(...)` calls and public `std/fs.ax`
-`write_file(...)` wrappers into native object code that performs the
-`fs_root`-guarded create/truncate/write/close sequence at runtime, and lowers
-literal-path `fs_append(...)` calls and public `std/fs.ax` `append_file(...)`
-wrappers into native append-mode open/write/close execution. Literal-path
-`fs_replace(...)` calls and public `std/fs.ax` `replace_file(...)` wrappers now
-lower into adjacent temp-file write/close followed by native `rename(...)`, with
-temp cleanup on failure.
-Literal-path `fs_remove_file(...)` calls and public `std/fs.ax`
-`remove_file(...)` wrappers now lower into native `unlink(...)` execution.
-Literal-path `fs_create(...)` calls and public `std/fs.ax` `create_file(...)`
-wrappers now lower into native exclusive file creation. Literal-path
-`fs_mkdir(...)`/`fs_remove_dir(...)` calls and public `std/fs.ax`
+also lowers `fs_write(...)` calls and public `std/fs.ax` `write_file(...)`
+wrappers into native object code that performs the `fs_root`-guarded
+create/truncate/write/close sequence at runtime, and lowers `fs_append(...)`
+calls and public `std/fs.ax` `append_file(...)` wrappers into native append-mode
+open/write/close execution. `fs_replace(...)` calls and public `std/fs.ax`
+`replace_file(...)` wrappers now lower into adjacent temp-file write/close
+followed by native `rename(...)`, with temp cleanup on failure.
+`fs_remove_file(...)` calls and public `std/fs.ax` `remove_file(...)` wrappers
+now lower into native `unlink(...)` execution. `fs_create(...)` calls and public
+`std/fs.ax` `create_file(...)` wrappers now lower into native exclusive file
+creation. `fs_mkdir(...)`/`fs_remove_dir(...)` calls and public `std/fs.ax`
 `mkdir(...)`/`remove_dir(...)` wrappers now lower into native directory
-create/remove execution. Literal-path `fs_mkdir_all(...)` calls and public
-`std/fs.ax` `mkdir_all(...)` wrappers now lower into runtime native recursive
-directory creation with final directory verification. These paths return the
-existing status-code convention without generated Rust and now append
-best-effort host audit JSONL to `AXIOM_HOST_AUDIT_LOG` without including path or
-content secrets. The runtime smoke asserts the target files and directories are
-not created or removed during build, then appear, are replaced or removed, and
-the created empty file remains only after the native binary runs. The native
+create/remove execution. `fs_mkdir_all(...)` calls and public `std/fs.ax`
+`mkdir_all(...)` wrappers now lower into runtime native recursive directory
+creation with final directory verification. Those direct-native write paths now
+cover package-root-relative paths and bounded content supplied by static string
+facts, local string facts, and known string concatenation rather than only inline
+literals. These paths return the existing status-code convention without
+generated Rust and now append best-effort host audit JSONL to
+`AXIOM_HOST_AUDIT_LOG` without including path or content secrets. The runtime
+smoke asserts the target files and directories are not created or removed during
+build, then reads back the exact written, appended, and replaced content after
+the native binary runs while also proving the remove target is deleted and the
+created empty file remains. The native
 runtime now revalidates write-side filesystem targets with `realpath(...)`
 against the canonical `fs_root` immediately before mutation, falling back to
 the parent or nearest existing ancestor when creating missing paths; the

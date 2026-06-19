@@ -3273,7 +3273,10 @@ fn cranelift_backend_lowers_fs_write_to_runtime_exit_code() {
     assert_eq!(payload["generated_rust"], Value::Null);
     let binary = payload["binary"].as_str().expect("binary path");
     let runtime_file = project.join("scratch/data.txt");
-    let replace_temp_file = project.join("scratch/.data.txt.axiom-replace.tmp");
+    let append_file = project.join("scratch/append.txt");
+    let replace_file = project.join("scratch/replace.txt");
+    let replace_temp_file = project.join("scratch/.replace.txt.axiom-replace.tmp");
+    let removed_file = project.join("scratch/remove.txt");
     let created_file = project.join("scratch/created.txt");
     let runtime_dir = project.join("scratch/native-dir");
     let runtime_dir_all = project.join("scratch/native-all");
@@ -3284,8 +3287,20 @@ fn cranelift_backend_lowers_fs_write_to_runtime_exit_code() {
         "build should not create the fs_write runtime fixture"
     );
     assert!(
+        !append_file.exists(),
+        "build should not create the fs_append runtime fixture"
+    );
+    assert!(
+        !replace_file.exists(),
+        "build should not create the fs_replace runtime fixture"
+    );
+    assert!(
         !replace_temp_file.exists(),
         "build should not create the fs_replace temp fixture"
+    );
+    assert!(
+        !removed_file.exists(),
+        "build should not create the remove_file runtime fixture"
     );
     assert!(
         !created_file.exists(),
@@ -3309,9 +3324,21 @@ fn cranelift_backend_lowers_fs_write_to_runtime_exit_code() {
         .expect("run cranelift fs-write main binary");
     assert_eq!(run.status.code(), Some(48));
     assert_eq!(String::from_utf8_lossy(&run.stdout), "");
+    assert_eq!(
+        fs::read_to_string(&runtime_file).expect("read fs_write runtime fixture"),
+        "runtime-write"
+    );
+    assert_eq!(
+        fs::read_to_string(&append_file).expect("read fs_append runtime fixture"),
+        "runtime-seed+runtime-append"
+    );
+    assert_eq!(
+        fs::read_to_string(&replace_file).expect("read fs_replace runtime fixture"),
+        "runtime-replace"
+    );
     assert!(
-        !runtime_file.exists(),
-        "runtime remove_file should remove the fs_write fixture"
+        !removed_file.exists(),
+        "runtime remove_file should remove the remove_file fixture"
     );
     assert!(
         !replace_temp_file.exists(),
@@ -12877,17 +12904,39 @@ source = "path"
         project.join("src/main.ax"),
         r#"import "std/fs.ax"
 
+static DATA_PATH: string = "scratch/data.txt"
+static APPEND_PATH: string = "scratch/append.txt"
+static REPLACE_PATH: string = "scratch/replace.txt"
+static REMOVE_PATH: string = "scratch/remove.txt"
+static RUNTIME_PREFIX: string = "runtime-"
+static DIR_PREFIX: string = "scratch/"
+
 fn main(): int {
-let wrote: int = write_file("scratch/data.txt", "runtime-write")
-let appended: int = append_file("scratch/data.txt", "+runtime-append")
-let replaced: int = replace_file("scratch/data.txt", "runtime-replace")
-let removed: int = remove_file("scratch/data.txt")
-let created: int = create_file("scratch/created.txt")
-let made_dir: int = mkdir("scratch/native-dir")
-let removed_dir: int = remove_dir("scratch/native-dir")
-let made_all: int = mkdir_all("scratch/native-all/deep")
-let blocked: int = write_file("../escape.txt", "blocked")
-if wrote == 0 && appended == 0 && replaced == 0 && removed == 0 && created == 0 && made_dir == 0 && removed_dir == 0 && made_all == 0 && blocked == -1 {
+let append_path: string = APPEND_PATH
+let replace_path: string = REPLACE_PATH
+let remove_path: string = REMOVE_PATH
+let create_path: string = "scratch/created.txt"
+let mkdir_name: string = "native-dir"
+let remove_dir_name: string = "native-dir"
+let nested_leaf: string = "deep"
+let blocked_path: string = "../escape.txt"
+let write_content: string = "runtime-write"
+let append_suffix: string = "append"
+let replace_suffix: string = "replace"
+let blocked_content: string = "blocked"
+let wrote: int = write_file(DATA_PATH, write_content)
+let append_seeded: int = write_file(APPEND_PATH, RUNTIME_PREFIX + "seed")
+let appended: int = append_file(append_path, "+" + RUNTIME_PREFIX + append_suffix)
+let replace_seeded: int = write_file(REPLACE_PATH, "stale")
+let replaced: int = replace_file(replace_path, RUNTIME_PREFIX + replace_suffix)
+let remove_seeded: int = write_file(REMOVE_PATH, "remove-me")
+let removed: int = remove_file(remove_path)
+let created: int = create_file(create_path)
+let made_dir: int = mkdir(DIR_PREFIX + mkdir_name)
+let removed_dir: int = remove_dir(DIR_PREFIX + remove_dir_name)
+let made_all: int = mkdir_all(DIR_PREFIX + "native-all/" + nested_leaf)
+let blocked: int = write_file(blocked_path, blocked_content)
+if wrote == 0 && append_seeded == 0 && appended == 0 && replace_seeded == 0 && replaced == 0 && remove_seeded == 0 && removed == 0 && created == 0 && made_dir == 0 && removed_dir == 0 && made_all == 0 && blocked == -1 {
 return 48
 } else {
 return 1
