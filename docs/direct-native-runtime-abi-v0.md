@@ -150,6 +150,9 @@ computed value as the process exit status at runtime without generated Rust.
 The public scalar aggregate, numeric cross-width, and static scalar smokes now
 also assert that the build JSON reports `generated_rust: null`, so this evidence
 cannot silently drift back through generated Rust.
+The public integer stdout smoke also asserts `generated_rust: null` while
+printing helper-returned integer locals and arithmetic derived from those locals
+from a direct-native main function.
 The same path now has narrow boolean runtime
 evidence for signed i64 comparisons, bool local bindings backed by i64 slots,
 simple bool static values, and boolean literals composed with `&&`/`||` driving
@@ -642,9 +645,11 @@ ABI coverage remain tracked by issue #1001.
 
 The map lookup row has partial direct-native evidence: the Cranelift spike now
 builds and runs direct map indexing, `get`, `get_or_default`,
-`map_contains_key`, `map_keys`, and the public `std/collections.ax` `contains`,
-`get`, `get_or_default`, and `keys` helpers for string and integer key/value
-shapes without generated Rust. The direct-native i64 path now also lowers
+`map_contains_key`, `map_keys`, and helper-returned direct index,
+contains-key, and defaulted-miss lookup values, plus the public
+`std/collections.ax` `contains`, `get`, `get_or_default`, and `keys` helpers
+for string and integer key/value shapes without generated Rust. The
+direct-native i64 path now also lowers
 inline-map-literal `get_or_default(...)` over scalar/string keys and
 i64-compatible values into native process exit status, including default
 fallback and duplicate-key replacement behavior. Inline-map-literal
