@@ -5653,7 +5653,7 @@ fn cranelift_backend_lowers_std_io_read_to_string_len_branch_and_print_from_stdi
         String::from_utf8_lossy(&run.stdout),
         String::from_utf8_lossy(&run.stderr)
     );
-    assert_eq!(String::from_utf8_lossy(&run.stdout), "13\n");
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "branch stdout\n");
     assert_eq!(String::from_utf8_lossy(&run.stderr), "");
 }
 
@@ -12100,8 +12100,8 @@ source = "path"
 fn main(): int {
 let content: string = read_to_string()
 let count: int = len(content)
-print count
 if count == 13 {
+print "branch stdout"
 return count + 5
 } else {
 return 1
