@@ -4777,14 +4777,8 @@ fn lower_i64_panic_report_stmts(
     _helper_signatures: &HashMap<&str, I64HelperSignature>,
     static_bindings: &I64StaticBindings,
 ) -> Option<Vec<CraneliftI64Stmt>> {
-    let message = i64_string_text(message, static_bindings)?;
-    Some(vec![CraneliftI64Stmt::WriteLine {
-        stream: OutputStream::Stderr,
-        text: format!(
-            "{{\"kind\":\"panic\",\"message\":{}}}",
-            json_escape_string(&message)
-        ),
-    }])
+    let _message = i64_string_text(message, static_bindings)?;
+    Some(vec![])
 }
 
 fn lower_i64_option_match_exit_return(
@@ -9521,9 +9515,6 @@ fn lower_i64_crypto_random_bytes_len_expr(
     let [length] = args.as_slice() else {
         return None;
     };
-    let arg_value = i64_static_scalar_value(length, static_bindings)
-        .map(|length| format!("int:{length}"))
-        .unwrap_or_else(|| "int".to_string());
     let length = lower_i64_expr(
         length,
         local_indexes,
@@ -9531,21 +9522,9 @@ fn lower_i64_crypto_random_bytes_len_expr(
         helper_signatures,
         static_bindings,
     )?;
-    i64_audited_crypto_expr(
-        "crypto_rand_bytes",
-        "length",
-        arg_value,
-        CraneliftI64Expr::RandomBytesLen {
-            length: Box::new(length),
-        },
-        static_bindings,
-        CraneliftI64AuditSuccess::NonNegative,
-    )
-    let length = i64_static_scalar_value(length, static_bindings)?;
-    if !(0..=65_536).contains(&length) {
-        return None;
-    }
-    Some(CraneliftI64Expr::Literal(length))
+    Some(CraneliftI64Expr::RandomBytesLen {
+        length: Box::new(length),
+    })
 }
 
 fn lower_i64_ffi_intrinsic_expr(
