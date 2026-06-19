@@ -11241,6 +11241,7 @@ fn lower_expr_with_expected_inner(
                 let lowered = lower_expr_with_expected(&args[0], Some(&Type::String), env, ctx)?;
                 validate_process_command_allowlist_hir(
                     ctx.capabilities,
+                    ctx,
                     &lowered,
                     *line,
                     *column,
@@ -14147,25 +14148,25 @@ fn is_stdlib_http_socket_wrapper(ctx: &LowerContext<'_>) -> bool {
 
 fn validate_process_command_allowlist_hir(
     capabilities: &CapabilityConfig,
+    ctx: &LowerContext<'_>,
     command: &Expr,
     line: usize,
     column: usize,
     allow_dynamic_command: bool,
 ) -> Result<(), Diagnostic> {
+    let command_value = hir_known_string(command, ctx);
     let Some(allowed_commands) = capabilities.process_commands.allowed_commands() else {
         if allow_dynamic_command {
             return Ok(());
         }
-        return match command {
-            Expr::Literal {
-                value: LiteralValue::String(_),
-                ..
-            } => Ok(()),
-            _ => Err(Diagnostic::new(
+        return if command_value.is_some() {
+            Ok(())
+        } else {
+            Err(Diagnostic::new(
                 "capability",
                 "call to \"process_status\" requires a string literal when [capabilities].process is unrestricted",
             )
-            .with_span(line, column)),
+            .with_span(line, column))
         };
     };
     if allowed_commands.is_empty() {
@@ -14175,15 +14176,9 @@ fn validate_process_command_allowlist_hir(
         )
         .with_span(line, column));
     }
-    match command {
-        Expr::Literal {
-            value: LiteralValue::String(value),
-            ..
-        } if allowed_commands.iter().any(|allowed| allowed == value) => Ok(()),
-        Expr::Literal {
-            value: LiteralValue::String(value),
-            ..
-        } => Err(Diagnostic::new(
+    match command_value {
+        Some(value) if allowed_commands.iter().any(|allowed| allowed == &value) => Ok(()),
+        Some(value) => Err(Diagnostic::new(
             "capability",
             format!(
                 "call to \"process_status\" requires [capabilities].process to include {value:?}"
@@ -14195,6 +14190,29 @@ fn validate_process_command_allowlist_hir(
             "call to \"process_status\" requires a string literal listed in [capabilities].process",
         )
         .with_span(line, column)),
+    }
+}
+
+fn hir_known_string(expr: &Expr, ctx: &LowerContext<'_>) -> Option<String> {
+    match expr {
+        Expr::Literal {
+            value: LiteralValue::String(value),
+            ..
+        } => Some(value.clone()),
+        Expr::VarRef { name, ty } if matches!(ty, Type::String | Type::Str) => {
+            let const_decl = ctx.consts.get(name)?;
+            if !matches!(
+                const_decl.ty,
+                syntax::TypeName::String | syntax::TypeName::Str
+            ) {
+                return None;
+            }
+            match &const_decl.expr {
+                syntax::Expr::Literal(syntax::Literal::String(value)) => Some(value.clone()),
+                _ => None,
+            }
+        }
+        _ => None,
     }
 }
 
