@@ -589,6 +589,9 @@ for deterministic `/usr/bin/true`, `/usr/bin/false`, and
 and process-status execution through the object backend without generated Rust.
 The missing sentinel maps to `-1` through the native executable check, while the
 existing true/false helpers run and normalize their process status at runtime.
+The runtime-exit smoke now also passes those deterministic command names through
+static string facts before invoking the direct-native process-status path, so
+the evidence is not limited to inline string literals.
 Denied `process` capability use still fails through the manifest policy before
 Cranelift lowering or native execution. The direct-native i64 path also appends
 host audit JSONL entries when `AXIOM_HOST_AUDIT_LOG` is set, recording only the
