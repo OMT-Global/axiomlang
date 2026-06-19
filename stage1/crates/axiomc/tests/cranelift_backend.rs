@@ -321,6 +321,51 @@ panic(event("warn", message, fields2(field_int("count", count), field_bool("read
         "{\"kind\":\"panic\",\"message\":\"{\\\"level\\\":\\\"warn\\\",\\\"message\\\":\\\"12345\\\",\\\"attributes\\\":{\\\"count\\\":12345,\\\"ready\\\":false}}\"}\n",
     );
 
+    let serdes_json_project = temp.path().join("terminal-panic-serdes-json");
+    write_terminal_panic_project(
+        &serdes_json_project,
+        r#"import "std/serdes.ax"
+
+fn object_json(): string {
+return to_json({"name": Text("axiom"), "count": Int(3), "ready": Bool(true)})
+}
+
+fn main(): int {
+panic(object_json())
+}
+"#,
+    );
+    assert_terminal_panic_report(
+        &serdes_json_project,
+        "{\"kind\":\"panic\",\"message\":\"{\\\"count\\\":3,\\\"name\\\":\\\"axiom\\\",\\\"ready\\\":true}\"}\n",
+    );
+
+    let serdes_error_project = temp.path().join("terminal-panic-serdes-error");
+    write_terminal_panic_project(
+        &serdes_error_project,
+        r#"import "std/serdes.ax"
+
+fn parse_error_text(): string {
+match from_json_str("{") {
+Ok(value) {
+return stringify(value)
+}
+Err(error) {
+return parse_error_message(error)
+}
+}
+}
+
+fn main(): int {
+panic(parse_error_text())
+}
+"#,
+    );
+    assert_terminal_panic_report(
+        &serdes_error_project,
+        "{\"kind\":\"panic\",\"message\":\"unterminated JSON object\"}\n",
+    );
+
     let else_branch_project = temp.path().join("terminal-panic-else-branch");
     write_terminal_panic_project(
         &else_branch_project,
@@ -3228,7 +3273,10 @@ fn cranelift_backend_lowers_fs_write_to_runtime_exit_code() {
     assert_eq!(payload["generated_rust"], Value::Null);
     let binary = payload["binary"].as_str().expect("binary path");
     let runtime_file = project.join("scratch/data.txt");
-    let replace_temp_file = project.join("scratch/.data.txt.axiom-replace.tmp");
+    let append_file = project.join("scratch/append.txt");
+    let replace_file = project.join("scratch/replace.txt");
+    let replace_temp_file = project.join("scratch/.replace.txt.axiom-replace.tmp");
+    let removed_file = project.join("scratch/remove.txt");
     let created_file = project.join("scratch/created.txt");
     let runtime_dir = project.join("scratch/native-dir");
     let runtime_dir_all = project.join("scratch/native-all");
@@ -3239,8 +3287,20 @@ fn cranelift_backend_lowers_fs_write_to_runtime_exit_code() {
         "build should not create the fs_write runtime fixture"
     );
     assert!(
+        !append_file.exists(),
+        "build should not create the fs_append runtime fixture"
+    );
+    assert!(
+        !replace_file.exists(),
+        "build should not create the fs_replace runtime fixture"
+    );
+    assert!(
         !replace_temp_file.exists(),
         "build should not create the fs_replace temp fixture"
+    );
+    assert!(
+        !removed_file.exists(),
+        "build should not create the remove_file runtime fixture"
     );
     assert!(
         !created_file.exists(),
@@ -3264,9 +3324,21 @@ fn cranelift_backend_lowers_fs_write_to_runtime_exit_code() {
         .expect("run cranelift fs-write main binary");
     assert_eq!(run.status.code(), Some(48));
     assert_eq!(String::from_utf8_lossy(&run.stdout), "");
+    assert_eq!(
+        fs::read_to_string(&runtime_file).expect("read fs_write runtime fixture"),
+        "runtime-write"
+    );
+    assert_eq!(
+        fs::read_to_string(&append_file).expect("read fs_append runtime fixture"),
+        "runtime-seed+runtime-append"
+    );
+    assert_eq!(
+        fs::read_to_string(&replace_file).expect("read fs_replace runtime fixture"),
+        "runtime-replace"
+    );
     assert!(
-        !runtime_file.exists(),
-        "runtime remove_file should remove the fs_write fixture"
+        !removed_file.exists(),
+        "runtime remove_file should remove the remove_file fixture"
     );
     assert!(
         !replace_temp_file.exists(),
@@ -5292,11 +5364,11 @@ fn cranelift_backend_lowers_aggregate_helper_eprintln_to_native_stderr() {
     let run = Command::new(binary)
         .output()
         .expect("run cranelift aggregate helper eprintln binary");
-    assert_eq!(run.status.code(), Some(144));
+    assert_eq!(run.status.code(), Some(149));
     assert_eq!(String::from_utf8_lossy(&run.stdout), "");
     assert_eq!(
         String::from_utf8_lossy(&run.stderr),
-        "aggregate helper\naggregate helper\naggregate static\naggregate helper suffix\naggregate helper text\n31\nfalse\ndeploy\n"
+        "aggregate helper\naggregate helper\naggregate static\naggregate helper suffix\naggregate helper text\n31\nfalse\n\"31\"\ndeploy\n"
     );
 }
 
@@ -5891,6 +5963,104 @@ fn cranelift_backend_lowers_std_serdes_known_json_to_runtime_exit_code() {
         .expect("run cranelift std/serdes known JSON main binary");
     assert_eq!(run.status.code(), Some(48));
     assert_eq!(String::from_utf8_lossy(&run.stdout), "");
+}
+
+#[cfg(not(windows))]
+#[test]
+fn cranelift_backend_lowers_std_serdes_known_json_print_to_runtime_stdout() {
+    if which::which("cc").is_err() {
+        eprintln!("skipping cranelift backend smoke test because cc is unavailable");
+        return;
+    }
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("std-serdes-known-json-print-main-exit");
+    write_std_serdes_known_json_print_main_exit_project(&project);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args([
+            "build",
+            project.to_str().expect("project path"),
+            "--backend",
+            "cranelift",
+            "--json",
+        ])
+        .output()
+        .expect("run axiomc build --backend cranelift");
+    assert!(
+        output.status.success(),
+        "cranelift std/serdes known JSON print main build failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+    assert_eq!(payload["backend"], "cranelift");
+    assert_eq!(payload["generated_rust"], Value::Null);
+    let binary = payload["binary"].as_str().expect("binary path");
+    let run = Command::new(binary)
+        .output()
+        .expect("run cranelift std/serdes known JSON print main binary");
+    assert_eq!(run.status.code(), Some(48));
+    assert_eq!(
+        String::from_utf8_lossy(&run.stdout),
+        r#"{"count":3,"name":"axiom","ready":true}
+"direct-native"
+{"count":3,"name":"axiom"}
+direct-native
+unterminated JSON object
+"#,
+    );
+    assert_eq!(String::from_utf8_lossy(&run.stderr), "");
+}
+
+#[cfg(not(windows))]
+#[test]
+fn cranelift_backend_lowers_std_serdes_known_json_eprintln_to_runtime_stderr() {
+    if which::which("cc").is_err() {
+        eprintln!("skipping cranelift backend smoke test because cc is unavailable");
+        return;
+    }
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("std-serdes-known-json-eprintln-main-exit");
+    write_std_serdes_known_json_eprintln_main_exit_project(&project);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args([
+            "build",
+            project.to_str().expect("project path"),
+            "--backend",
+            "cranelift",
+            "--json",
+        ])
+        .output()
+        .expect("run axiomc build --backend cranelift");
+    assert!(
+        output.status.success(),
+        "cranelift std/serdes known JSON eprintln main build failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+    assert_eq!(payload["backend"], "cranelift");
+    assert_eq!(payload["generated_rust"], Value::Null);
+    let binary = payload["binary"].as_str().expect("binary path");
+    let run = Command::new(binary)
+        .output()
+        .expect("run cranelift std/serdes known JSON eprintln main binary");
+    assert_eq!(run.status.code(), Some(122));
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "");
+    assert_eq!(
+        String::from_utf8_lossy(&run.stderr),
+        r#"{"count":3,"name":"axiom","ready":true}
+"direct-native"
+{"count":3,"name":"axiom"}
+direct-native
+unterminated JSON object
+"#,
+    );
 }
 
 #[cfg(not(windows))]
@@ -8366,7 +8536,7 @@ fn write_known_regex_text_main_exit_project(project: &Path) {
     .expect("write known regex text lockfile");
     fs::write(
         project.join("src/main.ax"),
-        "static ISSUE_TEXT: string = \"issue-238-ready\"\n\nfn main(): int {\nlet replaced: string = regex_replace_all(\"[0-9]+\", ISSUE_TEXT, \"#\")\nlet anchored: string = regex_replace_all(\"^a\", \"aaa\", \"x\")\nlet match_gate: bool = regex_is_match(\"^issue-[0-9]+-ready$\", ISSUE_TEXT)\nlet replaced_gate: bool = replaced == \"issue-#-ready\"\nlet anchored_gate: bool = anchored == \"xaa\"\nlet found_len: int = match regex_find(\"[0-9]+\", ISSUE_TEXT) { Some(value) => len(value), None => 1 }\nlet missing_len: int = match regex_find(\"z+\", ISSUE_TEXT) { Some(value) => len(value), None => 4 }\nlet replaced_len: int = len(regex_replace_all(\"[a-z]+\", \"abc-123\", \"x\"))\nif match_gate && replaced_gate && anchored_gate && found_len == 3 && missing_len == 4 && replaced_len == 5 {\nreturn 48\n} else {\nreturn 1\n}\n}\n",
+        "static ISSUE_TEXT: string = \"issue-238-ready\"\nstatic ISSUE_PREFIX: string = \"issue-\"\nstatic ISSUE_NUMBER: string = \"238\"\nstatic ISSUE_SUFFIX: string = \"-ready\"\n\nfn helper_find_len(): int {\nlet pattern: string = \"[0-\" + \"9]+\"\nlet text: string = ISSUE_PREFIX + ISSUE_NUMBER + ISSUE_SUFFIX\nreturn match regex_find(pattern, text) { Some(value) => len(value), None => 1 }\n}\n\nfn helper_replace_len(): int {\nlet pattern: string = \"[0-\" + \"9]+\"\nlet text: string = ISSUE_PREFIX + ISSUE_NUMBER + ISSUE_SUFFIX\nlet replacement: string = \"#\" + \"\"\nreturn len(regex_replace_all(pattern, text, replacement))\n}\n\nfn main(): int {\nlet replaced: string = regex_replace_all(\"[0-9]+\", ISSUE_TEXT, \"#\")\nlet anchored: string = regex_replace_all(\"^a\", \"aaa\", \"x\")\nlet concat_text: string = ISSUE_PREFIX + ISSUE_NUMBER + ISSUE_SUFFIX\nlet concat_pattern: string = \"^issue-\" + \"[0-9]+\" + \"-ready$\"\nlet match_gate: bool = regex_is_match(\"^issue-[0-9]+-ready$\", ISSUE_TEXT)\nlet concat_match_gate: bool = regex_is_match(concat_pattern, concat_text)\nlet replaced_gate: bool = replaced == \"issue-#-ready\"\nlet anchored_gate: bool = anchored == \"xaa\"\nlet found_len: int = match regex_find(\"[0-9]+\", ISSUE_TEXT) { Some(value) => len(value), None => 1 }\nlet missing_len: int = match regex_find(\"z+\", ISSUE_TEXT) { Some(value) => len(value), None => 4 }\nlet replaced_len: int = len(regex_replace_all(\"[a-z]+\", \"abc-123\", \"x\"))\nlet helper_found_len: int = helper_find_len()\nlet helper_replaced_len: int = helper_replace_len()\nif match_gate && concat_match_gate && replaced_gate && anchored_gate && found_len == 3 && missing_len == 4 && replaced_len == 5 && helper_found_len == 3 && helper_replaced_len == 13 {\nreturn 48\n} else {\nreturn 1\n}\n}\n",
     )
     .expect("write known regex text source");
 }
@@ -8385,7 +8555,7 @@ fn write_std_regex_wrapper_main_exit_project(project: &Path) {
     .expect("write std regex wrapper lockfile");
     fs::write(
         project.join("src/main.ax"),
-        "import \"std/regex.ax\"\n\nstatic ISSUE_TEXT: string = \"issue-238-ready\"\n\nfn main(): int {\nlet replaced: string = replace_all(\"[0-9]+\", ISSUE_TEXT, \"#\")\nlet anchored: string = replace_all(\"^a\", \"aaa\", \"x\")\nlet match_gate: bool = is_match(\"^issue-[0-9]+-ready$\", ISSUE_TEXT)\nlet replaced_gate: bool = replaced == \"issue-#-ready\"\nlet anchored_gate: bool = anchored == \"xaa\"\nlet found_len: int = match find(\"[0-9]+\", ISSUE_TEXT) { Some(value) => len(value), None => 1 }\nlet missing_len: int = match find(\"z+\", ISSUE_TEXT) { Some(value) => len(value), None => 4 }\nlet replaced_len: int = len(replace_all(\"[a-z]+\", \"abc-123\", \"x\"))\nif match_gate && replaced_gate && anchored_gate && found_len == 3 && missing_len == 4 && replaced_len == 5 {\nreturn 48\n} else {\nreturn 1\n}\n}\n",
+        "import \"std/regex.ax\"\n\nstatic ISSUE_TEXT: string = \"issue-238-ready\"\nstatic ISSUE_PREFIX: string = \"issue-\"\nstatic ISSUE_NUMBER: string = \"238\"\nstatic ISSUE_SUFFIX: string = \"-ready\"\n\nfn helper_find_len(): int {\nlet pattern: string = \"[0-\" + \"9]+\"\nlet text: string = ISSUE_PREFIX + ISSUE_NUMBER + ISSUE_SUFFIX\nreturn match find(pattern, text) { Some(value) => len(value), None => 1 }\n}\n\nfn helper_replace_len(): int {\nlet pattern: string = \"[0-\" + \"9]+\"\nlet text: string = ISSUE_PREFIX + ISSUE_NUMBER + ISSUE_SUFFIX\nlet replacement: string = \"#\" + \"\"\nreturn len(replace_all(pattern, text, replacement))\n}\n\nfn main(): int {\nlet replaced: string = replace_all(\"[0-9]+\", ISSUE_TEXT, \"#\")\nlet anchored: string = replace_all(\"^a\", \"aaa\", \"x\")\nlet concat_text: string = ISSUE_PREFIX + ISSUE_NUMBER + ISSUE_SUFFIX\nlet concat_pattern: string = \"^issue-\" + \"[0-9]+\" + \"-ready$\"\nlet match_gate: bool = is_match(\"^issue-[0-9]+-ready$\", ISSUE_TEXT)\nlet concat_match_gate: bool = is_match(concat_pattern, concat_text)\nlet replaced_gate: bool = replaced == \"issue-#-ready\"\nlet anchored_gate: bool = anchored == \"xaa\"\nlet found_len: int = match find(\"[0-9]+\", ISSUE_TEXT) { Some(value) => len(value), None => 1 }\nlet missing_len: int = match find(\"z+\", ISSUE_TEXT) { Some(value) => len(value), None => 4 }\nlet replaced_len: int = len(replace_all(\"[a-z]+\", \"abc-123\", \"x\"))\nlet helper_found_len: int = helper_find_len()\nlet helper_replaced_len: int = helper_replace_len()\nif match_gate && concat_match_gate && replaced_gate && anchored_gate && found_len == 3 && missing_len == 4 && replaced_len == 5 && helper_found_len == 3 && helper_replaced_len == 13 {\nreturn 48\n} else {\nreturn 1\n}\n}\n",
     )
     .expect("write std regex wrapper source");
 }
@@ -11346,8 +11516,10 @@ let value: int = 31
 let text: string = stringify_int(value)
 let int_written: int = eprintln(text)
 let bool_written: int = eprintln(stringify_bool(value == 32))
+let quoted_text: string = stringify_int(value)
+let quoted_written: int = eprintln(stringify_string(quoted_text))
 let selected_written: int = eprintln(selected_line)
-let written: int = first + cloned + static_written + concat_written + helper_written + int_written + bool_written + selected_written
+let written: int = first + cloned + static_written + concat_written + helper_written + int_written + bool_written + quoted_written + selected_written
 return (written, 31)
 }
 
@@ -12303,6 +12475,208 @@ return 1
     .expect("write std/serdes known JSON source");
 }
 
+fn write_std_serdes_known_json_print_main_exit_project(project: &Path) {
+    fs::create_dir_all(project.join("src"))
+        .expect("create std/serdes known JSON print project src");
+    fs::write(
+        project.join("axiom.toml"),
+        r#"[package]
+name = "cranelift-std-serdes-known-json-print-main-exit"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+fs = false
+net = false
+process = false
+env = false
+clock = false
+crypto = false
+"#,
+    )
+    .expect("write std/serdes known JSON print manifest");
+    fs::write(
+        project.join("axiom.lock"),
+        r#"version = 1
+
+[[package]]
+name = "cranelift-std-serdes-known-json-print-main-exit"
+version = "0.1.0"
+source = "path"
+"#,
+    )
+    .expect("write std/serdes known JSON print lockfile");
+    fs::write(
+        project.join("src/main.ax"),
+        r#"import "std/serdes.ax"
+
+fn object_json(): string {
+return to_json({"name": Text("axiom"), "count": Int(3), "ready": Bool(true)})
+}
+
+fn stringified_text(): string {
+return stringify(Text("direct-native"))
+}
+
+fn parsed_value_json(): string {
+match from_json_str("{\"name\":\"axiom\",\"count\":3}") {
+Ok(value) {
+return stringify(value)
+}
+Err(error) {
+return parse_error_message(error)
+}
+}
+}
+
+fn parsed_text(): string {
+match from_json_str("\"direct-native\"") {
+Ok(value) {
+match as_text(value) {
+Some(text) {
+return text
+}
+None {
+return "not text"
+}
+}
+}
+Err(error) {
+return parse_error_message(error)
+}
+}
+}
+
+fn parse_error_text(): string {
+match from_json_str("{") {
+Ok(value) {
+return stringify(value)
+}
+Err(error) {
+return parse_error_message(error)
+}
+}
+}
+
+fn main(): int {
+print object_json()
+print stringified_text()
+print parsed_value_json()
+print parsed_text()
+print parse_error_text()
+return 48
+}
+"#,
+    )
+    .expect("write std/serdes known JSON print source");
+}
+
+fn write_std_serdes_known_json_eprintln_main_exit_project(project: &Path) {
+    fs::create_dir_all(project.join("src"))
+        .expect("create std/serdes known JSON eprintln project src");
+    fs::write(
+        project.join("axiom.toml"),
+        r#"[package]
+name = "cranelift-std-serdes-known-json-eprintln-main-exit"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+fs = false
+net = false
+process = false
+env = false
+clock = false
+crypto = false
+
+[unsafe_rationale]
+stdio = "Direct-native stderr regression covers std/serdes known JSON eprintln output for issue 1001."
+"#,
+    )
+    .expect("write std/serdes known JSON eprintln manifest");
+    fs::write(
+        project.join("axiom.lock"),
+        r#"version = 1
+
+[[package]]
+name = "cranelift-std-serdes-known-json-eprintln-main-exit"
+version = "0.1.0"
+source = "path"
+"#,
+    )
+    .expect("write std/serdes known JSON eprintln lockfile");
+    fs::write(
+        project.join("src/main.ax"),
+        r#"import "std/io.ax"
+import "std/serdes.ax"
+
+fn object_json(): string {
+return to_json({"name": Text("axiom"), "count": Int(3), "ready": Bool(true)})
+}
+
+fn stringified_text(): string {
+return stringify(Text("direct-native"))
+}
+
+fn parsed_value_json(): string {
+match from_json_str("{\"name\":\"axiom\",\"count\":3}") {
+Ok(value) {
+return stringify(value)
+}
+Err(error) {
+return parse_error_message(error)
+}
+}
+}
+
+fn parsed_text(): string {
+match from_json_str("\"direct-native\"") {
+Ok(value) {
+match as_text(value) {
+Some(text) {
+return text
+}
+None {
+return "not text"
+}
+}
+}
+Err(error) {
+return parse_error_message(error)
+}
+}
+}
+
+fn parse_error_text(): string {
+match from_json_str("{") {
+Ok(value) {
+return stringify(value)
+}
+Err(error) {
+return parse_error_message(error)
+}
+}
+}
+
+fn main(): int {
+let object_written: int = eprintln(object_json())
+let text_written: int = eprintln(stringified_text())
+let parsed_written: int = eprintln(parsed_value_json())
+let value_written: int = eprintln(parsed_text())
+let error_written: int = eprintln(parse_error_text())
+return object_written + text_written + parsed_written + value_written + error_written
+}
+"#,
+    )
+    .expect("write std/serdes known JSON eprintln source");
+}
+
 fn write_std_cli_project(project: &Path) {
     fs::create_dir_all(project.join("src")).expect("create std/cli project src");
     fs::write(
@@ -12533,17 +12907,39 @@ source = "path"
         project.join("src/main.ax"),
         r#"import "std/fs.ax"
 
+static DATA_PATH: string = "scratch/data.txt"
+static APPEND_PATH: string = "scratch/append.txt"
+static REPLACE_PATH: string = "scratch/replace.txt"
+static REMOVE_PATH: string = "scratch/remove.txt"
+static RUNTIME_PREFIX: string = "runtime-"
+static DIR_PREFIX: string = "scratch/"
+
 fn main(): int {
-let wrote: int = write_file("scratch/data.txt", "runtime-write")
-let appended: int = append_file("scratch/data.txt", "+runtime-append")
-let replaced: int = replace_file("scratch/data.txt", "runtime-replace")
-let removed: int = remove_file("scratch/data.txt")
-let created: int = create_file("scratch/created.txt")
-let made_dir: int = mkdir("scratch/native-dir")
-let removed_dir: int = remove_dir("scratch/native-dir")
-let made_all: int = mkdir_all("scratch/native-all/deep")
-let blocked: int = write_file("../escape.txt", "blocked")
-if wrote == 0 && appended == 0 && replaced == 0 && removed == 0 && created == 0 && made_dir == 0 && removed_dir == 0 && made_all == 0 && blocked == -1 {
+let append_path: string = APPEND_PATH
+let replace_path: string = REPLACE_PATH
+let remove_path: string = REMOVE_PATH
+let create_path: string = "scratch/created.txt"
+let mkdir_name: string = "native-dir"
+let remove_dir_name: string = "native-dir"
+let nested_leaf: string = "deep"
+let blocked_path: string = "../escape.txt"
+let write_content: string = "runtime-write"
+let append_suffix: string = "append"
+let replace_suffix: string = "replace"
+let blocked_content: string = "blocked"
+let wrote: int = write_file(DATA_PATH, write_content)
+let append_seeded: int = write_file(APPEND_PATH, RUNTIME_PREFIX + "seed")
+let appended: int = append_file(append_path, "+" + RUNTIME_PREFIX + append_suffix)
+let replace_seeded: int = write_file(REPLACE_PATH, "stale")
+let replaced: int = replace_file(replace_path, RUNTIME_PREFIX + replace_suffix)
+let remove_seeded: int = write_file(REMOVE_PATH, "remove-me")
+let removed: int = remove_file(remove_path)
+let created: int = create_file(create_path)
+let made_dir: int = mkdir(DIR_PREFIX + mkdir_name)
+let removed_dir: int = remove_dir(DIR_PREFIX + remove_dir_name)
+let made_all: int = mkdir_all(DIR_PREFIX + "native-all/" + nested_leaf)
+let blocked: int = write_file(blocked_path, blocked_content)
+if wrote == 0 && append_seeded == 0 && appended == 0 && replace_seeded == 0 && replaced == 0 && remove_seeded == 0 && removed == 0 && created == 0 && made_dir == 0 && removed_dir == 0 && made_all == 0 && blocked == -1 {
 return 48
 } else {
 return 1
