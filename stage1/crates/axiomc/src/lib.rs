@@ -4814,6 +4814,66 @@ process = ["/bin/true"]
     }
 
     #[test]
+    fn check_project_accepts_static_process_command_in_manifest_allowlist() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("process-static-allowlisted");
+        create_project(&project, Some("process-static-allowlisted-app")).expect("create project");
+        fs::write(
+            project.join("axiom.toml"),
+            r#"[package]
+name = "process-static-allowlisted-app"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+process = ["/bin/true"]
+"#,
+        )
+        .expect("write manifest");
+        fs::write(
+            project.join("src/main.ax"),
+            "static TRUE_CMD: string = \"/bin/true\"\nprint process_status(TRUE_CMD)\n",
+        )
+        .expect("write source");
+
+        check_project(&project).expect("static allowlisted process command should be accepted");
+    }
+
+    #[test]
+    fn check_project_accepts_static_stdlib_process_command_with_unrestricted_process() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("stdlib-process-static-unrestricted");
+        create_project(&project, Some("stdlib-process-static-unrestricted-app"))
+            .expect("create project");
+        fs::write(
+            project.join("axiom.toml"),
+            r#"[package]
+name = "stdlib-process-static-unrestricted-app"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+process = true
+unsafe_rationale = "test fixture accepts static stdlib process command facts"
+"#,
+        )
+        .expect("write manifest");
+        fs::write(
+            project.join("src/main.ax"),
+            "import \"std/process.ax\"\nstatic TRUE_CMD: string = \"/bin/true\"\nprint run_status(TRUE_CMD)\n",
+        )
+        .expect("write source");
+
+        check_project(&project).expect("static stdlib process command should be accepted");
+    }
+
+    #[test]
     fn load_manifest_rejects_empty_process_allowlist() {
         let dir = tempdir().expect("tempdir");
         let project = dir.path().join("process-empty-allowlist");
