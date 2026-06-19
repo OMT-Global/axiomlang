@@ -4293,13 +4293,14 @@ fn validate_program_capabilities(
     program: &syntax::Program,
     capabilities: &CapabilityConfig,
 ) -> Result<(), Diagnostic> {
+    let known_strings = syntax_program_known_strings(program);
     for function in &program.functions {
         for stmt in &function.body {
-            validate_stmt_capabilities(module_path, stmt, capabilities)?;
+            validate_stmt_capabilities(module_path, stmt, capabilities, &known_strings)?;
         }
     }
     for stmt in &program.stmts {
-        validate_stmt_capabilities(module_path, stmt, capabilities)?;
+        validate_stmt_capabilities(module_path, stmt, capabilities, &known_strings)?;
     }
     Ok(())
 }
@@ -4308,18 +4309,21 @@ fn validate_stmt_capabilities(
     module_path: &Path,
     stmt: &syntax::Stmt,
     capabilities: &CapabilityConfig,
+    known_strings: &HashMap<String, String>,
 ) -> Result<(), Diagnostic> {
     match stmt {
-        syntax::Stmt::Let { expr, .. }
-        | syntax::Stmt::Print { expr, .. }
+        syntax::Stmt::Let { expr, .. } => {
+            validate_expr_capabilities(module_path, expr, capabilities, known_strings)?;
+        }
+        syntax::Stmt::Print { expr, .. }
         | syntax::Stmt::Panic { expr, .. }
         | syntax::Stmt::Defer { expr, .. }
         | syntax::Stmt::Return { expr, .. } => {
-            validate_expr_capabilities(module_path, expr, capabilities)?;
+            validate_expr_capabilities(module_path, expr, capabilities, known_strings)?;
         }
         syntax::Stmt::Assign { target, expr, .. } => {
-            validate_expr_capabilities(module_path, target, capabilities)?;
-            validate_expr_capabilities(module_path, expr, capabilities)?;
+            validate_expr_capabilities(module_path, target, capabilities, known_strings)?;
+            validate_expr_capabilities(module_path, expr, capabilities, known_strings)?;
         }
         syntax::Stmt::If {
             cond,
@@ -4327,13 +4331,13 @@ fn validate_stmt_capabilities(
             else_block,
             ..
         } => {
-            validate_expr_capabilities(module_path, cond, capabilities)?;
+            validate_expr_capabilities(module_path, cond, capabilities, known_strings)?;
             for stmt in then_block {
-                validate_stmt_capabilities(module_path, stmt, capabilities)?;
+                validate_stmt_capabilities(module_path, stmt, capabilities, known_strings)?;
             }
             if let Some(else_block) = else_block {
                 for stmt in else_block {
-                    validate_stmt_capabilities(module_path, stmt, capabilities)?;
+                    validate_stmt_capabilities(module_path, stmt, capabilities, known_strings)?;
                 }
             }
         }
@@ -4343,27 +4347,27 @@ fn validate_stmt_capabilities(
             else_block,
             ..
         } => {
-            validate_expr_capabilities(module_path, expr, capabilities)?;
+            validate_expr_capabilities(module_path, expr, capabilities, known_strings)?;
             for stmt in then_block {
-                validate_stmt_capabilities(module_path, stmt, capabilities)?;
+                validate_stmt_capabilities(module_path, stmt, capabilities, known_strings)?;
             }
             if let Some(else_block) = else_block {
                 for stmt in else_block {
-                    validate_stmt_capabilities(module_path, stmt, capabilities)?;
+                    validate_stmt_capabilities(module_path, stmt, capabilities, known_strings)?;
                 }
             }
         }
         syntax::Stmt::While { cond, body, .. } => {
-            validate_expr_capabilities(module_path, cond, capabilities)?;
+            validate_expr_capabilities(module_path, cond, capabilities, known_strings)?;
             for stmt in body {
-                validate_stmt_capabilities(module_path, stmt, capabilities)?;
+                validate_stmt_capabilities(module_path, stmt, capabilities, known_strings)?;
             }
         }
         syntax::Stmt::Match { expr, arms, .. } => {
-            validate_expr_capabilities(module_path, expr, capabilities)?;
+            validate_expr_capabilities(module_path, expr, capabilities, known_strings)?;
             for arm in arms {
                 for stmt in &arm.body {
-                    validate_stmt_capabilities(module_path, stmt, capabilities)?;
+                    validate_stmt_capabilities(module_path, stmt, capabilities, known_strings)?;
                 }
             }
         }
@@ -4375,6 +4379,7 @@ fn validate_expr_capabilities(
     module_path: &Path,
     expr: &syntax::Expr,
     capabilities: &CapabilityConfig,
+    known_strings: &HashMap<String, String>,
 ) -> Result<(), Diagnostic> {
     match expr {
         syntax::Expr::Literal(_) | syntax::Expr::VarRef { .. } => Ok(()),
@@ -4408,83 +4413,84 @@ fn validate_expr_capabilities(
                     name,
                     args,
                     capabilities,
+                    known_strings,
                     *line,
                     *column,
                 )?;
             }
             for arg in args {
-                validate_expr_capabilities(module_path, arg, capabilities)?;
+                validate_expr_capabilities(module_path, arg, capabilities, known_strings)?;
             }
             Ok(())
         }
         syntax::Expr::MethodCall { base, args, .. } => {
-            validate_expr_capabilities(module_path, base, capabilities)?;
+            validate_expr_capabilities(module_path, base, capabilities, known_strings)?;
             for arg in args {
-                validate_expr_capabilities(module_path, arg, capabilities)?;
+                validate_expr_capabilities(module_path, arg, capabilities, known_strings)?;
             }
             Ok(())
         }
         syntax::Expr::BinaryAdd { lhs, rhs, .. }
         | syntax::Expr::BinaryCompare { lhs, rhs, .. }
         | syntax::Expr::BinaryLogic { lhs, rhs, .. } => {
-            validate_expr_capabilities(module_path, lhs, capabilities)?;
-            validate_expr_capabilities(module_path, rhs, capabilities)
+            validate_expr_capabilities(module_path, lhs, capabilities, known_strings)?;
+            validate_expr_capabilities(module_path, rhs, capabilities, known_strings)
         }
         syntax::Expr::Cast { expr, .. } => {
-            validate_expr_capabilities(module_path, expr, capabilities)
+            validate_expr_capabilities(module_path, expr, capabilities, known_strings)
         }
         syntax::Expr::Try { expr, .. }
         | syntax::Expr::Await { expr, .. }
         | syntax::Expr::MutBorrow { expr, .. }
         | syntax::Expr::Deref { expr, .. } => {
-            validate_expr_capabilities(module_path, expr, capabilities)
+            validate_expr_capabilities(module_path, expr, capabilities, known_strings)
         }
         syntax::Expr::StructLiteral { fields, .. } => {
             for field in fields {
-                validate_expr_capabilities(module_path, &field.expr, capabilities)?;
+                validate_expr_capabilities(module_path, &field.expr, capabilities, known_strings)?;
             }
             Ok(())
         }
         syntax::Expr::FieldAccess { base, .. } | syntax::Expr::TupleIndex { base, .. } => {
-            validate_expr_capabilities(module_path, base, capabilities)
+            validate_expr_capabilities(module_path, base, capabilities, known_strings)
         }
         syntax::Expr::TupleLiteral { elements, .. }
         | syntax::Expr::ArrayLiteral { elements, .. } => {
             for element in elements {
-                validate_expr_capabilities(module_path, element, capabilities)?;
+                validate_expr_capabilities(module_path, element, capabilities, known_strings)?;
             }
             Ok(())
         }
         syntax::Expr::MapLiteral { entries, .. } => {
             for entry in entries {
-                validate_expr_capabilities(module_path, &entry.key, capabilities)?;
-                validate_expr_capabilities(module_path, &entry.value, capabilities)?;
+                validate_expr_capabilities(module_path, &entry.key, capabilities, known_strings)?;
+                validate_expr_capabilities(module_path, &entry.value, capabilities, known_strings)?;
             }
             Ok(())
         }
         syntax::Expr::Slice {
             base, start, end, ..
         } => {
-            validate_expr_capabilities(module_path, base, capabilities)?;
+            validate_expr_capabilities(module_path, base, capabilities, known_strings)?;
             if let Some(start) = start {
-                validate_expr_capabilities(module_path, start, capabilities)?;
+                validate_expr_capabilities(module_path, start, capabilities, known_strings)?;
             }
             if let Some(end) = end {
-                validate_expr_capabilities(module_path, end, capabilities)?;
+                validate_expr_capabilities(module_path, end, capabilities, known_strings)?;
             }
             Ok(())
         }
         syntax::Expr::Index { base, index, .. } => {
-            validate_expr_capabilities(module_path, base, capabilities)?;
-            validate_expr_capabilities(module_path, index, capabilities)
+            validate_expr_capabilities(module_path, base, capabilities, known_strings)?;
+            validate_expr_capabilities(module_path, index, capabilities, known_strings)
         }
         syntax::Expr::Closure { body, .. } => {
-            validate_expr_capabilities(module_path, body, capabilities)
+            validate_expr_capabilities(module_path, body, capabilities, known_strings)
         }
         syntax::Expr::Match { expr, arms, .. } => {
-            validate_expr_capabilities(module_path, expr, capabilities)?;
+            validate_expr_capabilities(module_path, expr, capabilities, known_strings)?;
             for arm in arms {
-                validate_expr_capabilities(module_path, &arm.expr, capabilities)?;
+                validate_expr_capabilities(module_path, &arm.expr, capabilities, known_strings)?;
             }
             Ok(())
         }
@@ -4496,20 +4502,25 @@ fn validate_process_command_allowlist(
     call_name: &str,
     args: &[syntax::Expr],
     capabilities: &CapabilityConfig,
+    known_strings: &HashMap<String, String>,
     line: usize,
     column: usize,
 ) -> Result<(), Diagnostic> {
+    let command = args
+        .first()
+        .and_then(|arg| syntax_known_string(arg, known_strings));
     let Some(allowed_commands) = capabilities.process_commands.allowed_commands() else {
-        return match args.first() {
-            Some(syntax::Expr::Literal(syntax::Literal::String(_))) => Ok(()),
-            _ => Err(Diagnostic::new(
+        return if command.is_some() {
+            Ok(())
+        } else {
+            Err(Diagnostic::new(
                 "capability",
                 format!(
                     "call to {call_name:?} requires a string literal when [capabilities].process is unrestricted"
                 ),
             )
             .with_path(module_path.display().to_string())
-            .with_span(line, column)),
+            .with_span(line, column))
         };
     };
     if allowed_commands.is_empty() {
@@ -4520,13 +4531,9 @@ fn validate_process_command_allowlist(
         .with_path(module_path.display().to_string())
         .with_span(line, column));
     }
-    match args.first() {
-        Some(syntax::Expr::Literal(syntax::Literal::String(command)))
-            if allowed_commands.iter().any(|allowed| allowed == command) =>
-        {
-            Ok(())
-        }
-        Some(syntax::Expr::Literal(syntax::Literal::String(command))) => Err(Diagnostic::new(
+    match command {
+        Some(command) if allowed_commands.iter().any(|allowed| allowed == &command) => Ok(()),
+        Some(command) => Err(Diagnostic::new(
             "capability",
             format!("call to {call_name:?} requires [capabilities].process to include {command:?}"),
         )
@@ -4540,6 +4547,31 @@ fn validate_process_command_allowlist(
         )
         .with_path(module_path.display().to_string())
         .with_span(line, column)),
+    }
+}
+
+fn syntax_program_known_strings(program: &syntax::Program) -> HashMap<String, String> {
+    let mut known_strings = HashMap::new();
+    for const_decl in &program.consts {
+        if matches!(
+            const_decl.ty,
+            syntax::TypeName::String | syntax::TypeName::Str
+        ) && let syntax::Expr::Literal(syntax::Literal::String(value)) = &const_decl.expr
+        {
+            known_strings.insert(const_decl.name.clone(), value.clone());
+        }
+    }
+    known_strings
+}
+
+fn syntax_known_string(
+    expr: &syntax::Expr,
+    known_strings: &HashMap<String, String>,
+) -> Option<String> {
+    match expr {
+        syntax::Expr::Literal(syntax::Literal::String(value)) => Some(value.clone()),
+        syntax::Expr::VarRef { name, .. } => known_strings.get(name).cloned(),
+        _ => None,
     }
 }
 
