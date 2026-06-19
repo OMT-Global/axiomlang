@@ -425,28 +425,30 @@ compilation and emits the resulting output, covering `mkdir_all`, `write_file`,
 `generated_rust` is null. It also covers `fs_root` scoping and preserves the
 public manifest-policy denial for a package with `fs = true` and `"fs:write" =
 false` that calls `std/fs.ax` `write_file(...)`. The direct-native i64 path now
-also lowers literal-path `fs_write(...)` calls and public `std/fs.ax`
-`write_file(...)` wrappers into native object code that performs the
-`fs_root`-guarded create/truncate/write/close sequence at runtime, and lowers
-literal-path `fs_append(...)` calls and public `std/fs.ax` `append_file(...)`
-wrappers into native append-mode open/write/close execution. Literal-path
-`fs_replace(...)` calls and public `std/fs.ax` `replace_file(...)` wrappers now
-lower into adjacent temp-file write/close followed by native `rename(...)`, with
-temp cleanup on failure.
-Literal-path `fs_remove_file(...)` calls and public `std/fs.ax`
-`remove_file(...)` wrappers now lower into native `unlink(...)` execution.
-Literal-path `fs_create(...)` calls and public `std/fs.ax` `create_file(...)`
-wrappers now lower into native exclusive file creation. Literal-path
-`fs_mkdir(...)`/`fs_remove_dir(...)` calls and public `std/fs.ax`
+also lowers `fs_write(...)` calls and public `std/fs.ax` `write_file(...)`
+wrappers into native object code that performs the `fs_root`-guarded
+create/truncate/write/close sequence at runtime, and lowers `fs_append(...)`
+calls and public `std/fs.ax` `append_file(...)` wrappers into native append-mode
+open/write/close execution. `fs_replace(...)` calls and public `std/fs.ax`
+`replace_file(...)` wrappers now lower into adjacent temp-file write/close
+followed by native `rename(...)`, with temp cleanup on failure.
+`fs_remove_file(...)` calls and public `std/fs.ax` `remove_file(...)` wrappers
+now lower into native `unlink(...)` execution. `fs_create(...)` calls and public
+`std/fs.ax` `create_file(...)` wrappers now lower into native exclusive file
+creation. `fs_mkdir(...)`/`fs_remove_dir(...)` calls and public `std/fs.ax`
 `mkdir(...)`/`remove_dir(...)` wrappers now lower into native directory
-create/remove execution. Literal-path `fs_mkdir_all(...)` calls and public
-`std/fs.ax` `mkdir_all(...)` wrappers now lower into runtime native recursive
-directory creation with final directory verification. These paths return the
-existing status-code convention without generated Rust and now append
-best-effort host audit JSONL to `AXIOM_HOST_AUDIT_LOG` without including path or
-content secrets. The runtime smoke asserts the target files and directories are
-not created or removed during build, then appear, are replaced or removed, and
-the created empty file remains only after the native binary runs. The native
+create/remove execution. `fs_mkdir_all(...)` calls and public `std/fs.ax`
+`mkdir_all(...)` wrappers now lower into runtime native recursive directory
+creation with final directory verification. Those direct-native write paths now
+cover package-root-relative paths and bounded content supplied by static string
+facts, local string facts, and known string concatenation rather than only inline
+literals. These paths return the existing status-code convention without
+generated Rust and now append best-effort host audit JSONL to
+`AXIOM_HOST_AUDIT_LOG` without including path or content secrets. The runtime
+smoke asserts the target files and directories are not created or removed during
+build, then reads back the exact written, appended, and replaced content after
+the native binary runs while also proving the remove target is deleted and the
+created empty file remains. The native
 runtime now revalidates write-side filesystem targets with `realpath(...)`
 against the canonical `fs_root` immediately before mutation, falling back to
 the parent or nearest existing ancestor when creating missing paths; the
@@ -587,6 +589,9 @@ for deterministic `/usr/bin/true`, `/usr/bin/false`, and
 and process-status execution through the object backend without generated Rust.
 The missing sentinel maps to `-1` through the native executable check, while the
 existing true/false helpers run and normalize their process status at runtime.
+The runtime-exit smoke now also passes those deterministic command names through
+static string facts before invoking the direct-native process-status path, so
+the evidence is not limited to inline string literals.
 Denied `process` capability use still fails through the manifest policy before
 Cranelift lowering or native execution. The direct-native i64 path also appends
 host audit JSONL entries when `AXIOM_HOST_AUDIT_LOG` is set, recording only the
@@ -598,11 +603,14 @@ The regex row now has partial direct-native evidence: the Cranelift spike covers
 `std/regex.ax` `is_match`, `find`, and `replace_all` for the stage1-safe NFA
 subset without generated Rust, and the public stdlib smoke now asserts
 `generated_rust` is null while covering find/match/replace output and anchored
-replacement behavior. The direct-native i64 path now also lowers known-input `regex_is_match(...)`
-conditions, known-input `regex_replace_all(...)` string results, and known-input
-`regex_find(...)` direct `Option<string>` matches into native process exit status
-without generated Rust. Imported public `std/regex.ax` `is_match`, `find`, and
-`replace_all` wrappers now alias that same direct-native known-input lowering.
+replacement behavior. The direct-native i64 path now also lowers known-input
+`regex_is_match(...)` conditions, known-input `regex_replace_all(...)` string
+results, and known-input `regex_find(...)` direct `Option<string>` matches into
+native process exit status without generated Rust, including known-concatenated
+patterns, text, and replacement strings in entrypoints and helper-local regex
+calls. Imported public `std/regex.ax` `is_match`, `find`, and `replace_all`
+wrappers now alias that same direct-native known-input lowering, including those
+known-concatenated and helper-local input shapes.
 Broader regex syntax, dynamic runtime regex execution, capture groups,
 replacement expansion semantics, and conformance coverage remain open under
 #1001.
@@ -879,10 +887,13 @@ statements in runtime-exit `main` functions, preserving exact native stdout JSON
 lines and parse-error text while still reporting `generated_rust: null`. They
 can also feed public `std/io.ax` `eprintln(...)` statements in runtime-exit
 `main` functions, preserving exact native stderr JSON lines, parse-error text,
-and newline-inclusive byte-count return values without generated Rust. Broader
-dynamic runtime JSON parsing, broad `std/serdes` `Value` storage, `JsonValue`
-wrapper construction beyond the evidenced scalar/string/object/array source
-wrappers, and broader schema helper coverage remain tracked by issue #1001.
+and newline-inclusive byte-count return values without generated Rust.
+Known-input `std/serdes` JSON object and parse-error string results can also
+feed terminal panic reports as escaped native stderr JSON while preserving
+`generated_rust: null`. Broader dynamic runtime JSON parsing, broad
+`std/serdes` `Value` storage, `JsonValue` wrapper construction beyond the
+evidenced scalar/string/object/array source wrappers, and broader schema helper
+coverage remain tracked by issue #1001.
 
 The owned move-state row has partial direct-native evidence: the Cranelift
 spike builds and runs projection-sensitive owned field moves while preserving
@@ -975,7 +986,9 @@ scalar/bool string projections also stream quoted JSON string values directly
 into native stderr panic reports without materializing a general string runtime.
 Supported dynamic `std/log.ax` `event(...)` messages with scalar and boolean
 fields also lower to native stderr JSON panic reports as nested escaped
-log-record strings without generated Rust. Terminal panic messages backed by
+log-record strings without generated Rust. Known `std/serdes.ax` JSON object and
+parse-error strings can also feed terminal panic reports as escaped native
+stderr JSON without generated Rust. Terminal panic messages backed by
 runtime-selected known string
 projections from map-key arrays, either directly or through string locals backed
 by those projections, also lower to native stderr JSON panic reports by
