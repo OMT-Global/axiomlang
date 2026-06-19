@@ -84,6 +84,7 @@ struct I64StaticBindings {
     json_stringify_bool_wrappers: HashSet<String>,
     json_stringify_string_wrappers: HashSet<String>,
     io_eprintln_wrappers: HashSet<String>,
+    io_readline_wrappers: HashSet<String>,
     io_read_to_string_wrappers: HashSet<String>,
     log_wrappers: HashSet<String>,
     log_field_string_wrappers: HashSet<String>,
@@ -594,6 +595,12 @@ fn lower_i64_exit_program(
         .functions
         .iter()
         .filter(|function| is_i64_std_io_wrapper(function, "eprintln"))
+        .flat_map(|function| [function.name.clone(), function.source_name.clone()])
+        .collect();
+    static_bindings.io_readline_wrappers = program
+        .functions
+        .iter()
+        .filter(|function| is_i64_std_io_wrapper(function, "readline"))
         .flat_map(|function| [function.name.clone(), function.source_name.clone()])
         .collect();
     static_bindings.io_read_to_string_wrappers = program
@@ -1505,6 +1512,16 @@ fn lower_i64_aggregate_return_body(
                 && !seen_runtime_stmt =>
             {
                 if let Some(assigns) = lower_i64_env_option_call_let_stmts(
+                    name,
+                    inner.as_ref(),
+                    expr,
+                    &mut locals,
+                    &mut local_indexes,
+                    static_bindings,
+                ) {
+                    lowered_stmts.extend(assigns);
+                    seen_runtime_stmt = true;
+                } else if let Some(assigns) = lower_i64_readline_option_call_let_stmts(
                     name,
                     inner.as_ref(),
                     expr,
@@ -2763,6 +2780,16 @@ fn lower_i64_body(
                 ) {
                     lowered_stmts.extend(assigns);
                     seen_runtime_stmt = true;
+                } else if let Some(assigns) = lower_i64_readline_option_call_let_stmts(
+                    name,
+                    inner.as_ref(),
+                    expr,
+                    &mut locals,
+                    &mut local_indexes,
+                    static_bindings,
+                ) {
+                    lowered_stmts.extend(assigns);
+                    seen_runtime_stmt = true;
                 } else if let Some(assigns) = lower_i64_fs_read_option_call_let_stmts(
                     name,
                     inner.as_ref(),
@@ -3595,6 +3622,23 @@ fn lower_i64_runtime_let_stmts(
         ..
     } = stmt
         && let Some(assigns) = lower_i64_env_option_call_let_stmts(
+            name,
+            inner.as_ref(),
+            expr,
+            locals,
+            local_indexes,
+            static_bindings,
+        )
+    {
+        return Some(assigns);
+    }
+    if let Stmt::Let {
+        name,
+        ty: Type::Option(inner),
+        expr,
+        ..
+    } = stmt
+        && let Some(assigns) = lower_i64_readline_option_call_let_stmts(
             name,
             inner.as_ref(),
             expr,
@@ -5164,6 +5208,61 @@ fn lower_i64_env_option_call_let_stmts(
         CraneliftI64Stmt::Assign(axiomc_backend_cranelift::I64Assign {
             local: payload_local,
             value: env_len,
+        }),
+        CraneliftI64Stmt::Assign(axiomc_backend_cranelift::I64Assign {
+            local: tag_local,
+            value: tag,
+        }),
+    ])
+}
+
+fn lower_i64_readline_option_call_let_stmts(
+    name: &str,
+    inner: &Type,
+    expr: &Expr,
+    locals: &mut Vec<CraneliftI64Expr>,
+    local_indexes: &mut HashMap<String, usize>,
+    static_bindings: &I64StaticBindings,
+) -> Option<Vec<CraneliftI64Stmt>> {
+    if !matches!(inner, Type::String | Type::Str) {
+        return None;
+    }
+    let Expr::Call {
+        name: call_name,
+        args,
+        ..
+    } = expr
+    else {
+        return None;
+    };
+    if !is_i64_io_readline_name(call_name, static_bindings) || !args.is_empty() {
+        return None;
+    }
+    let payload_local = local_indexes.len();
+    local_indexes.insert(i64_option_payload_slot_key(name, 0), payload_local);
+    local_indexes.insert(i64_option_payload_key(name), payload_local);
+    locals.push(CraneliftI64Expr::Literal(0));
+
+    let tag_local = local_indexes.len();
+    local_indexes.insert(i64_option_tag_key(name), tag_local);
+    locals.push(CraneliftI64Expr::Literal(0));
+
+    let line_len = CraneliftI64Expr::StdinLineLen {
+        max_bytes: I64_STDIN_BUFFER_BYTES,
+    };
+    let tag = CraneliftI64Expr::Select {
+        cond: Box::new(CraneliftI64Condition::Compare(CraneliftI64Compare {
+            op: CraneliftI64CompareOp::Ge,
+            lhs: CraneliftI64Expr::Local(payload_local),
+            rhs: CraneliftI64Expr::Literal(0),
+        })),
+        then_result: Box::new(CraneliftI64Expr::Literal(1)),
+        else_result: Box::new(CraneliftI64Expr::Literal(0)),
+    };
+    Some(vec![
+        CraneliftI64Stmt::Assign(axiomc_backend_cranelift::I64Assign {
+            local: payload_local,
+            value: line_len,
         }),
         CraneliftI64Stmt::Assign(axiomc_backend_cranelift::I64Assign {
             local: tag_local,
@@ -13138,6 +13237,10 @@ fn is_i64_std_io_wrapper(function: &Function, source_name: &str) -> bool {
 
 fn is_i64_io_eprintln_name(name: &str, static_bindings: &I64StaticBindings) -> bool {
     name == "io_eprintln" || static_bindings.io_eprintln_wrappers.contains(name)
+}
+
+fn is_i64_io_readline_name(name: &str, static_bindings: &I64StaticBindings) -> bool {
+    name == "io_readline" || static_bindings.io_readline_wrappers.contains(name)
 }
 
 fn is_i64_io_read_to_string_name(name: &str, static_bindings: &I64StaticBindings) -> bool {
