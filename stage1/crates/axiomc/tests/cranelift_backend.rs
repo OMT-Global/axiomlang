@@ -3749,6 +3749,9 @@ high
 9
 9
 13
+11
+true
+21
 "
     );
 }
@@ -5158,7 +5161,7 @@ fn cranelift_backend_lowers_integer_print_runtime_stdout_in_direct_native_main()
         .output()
         .expect("run cranelift integer print stdio main binary");
     assert_eq!(run.status.code(), Some(42));
-    assert_eq!(String::from_utf8_lossy(&run.stdout), "42\n-3\n0\n");
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "42\n-3\n0\n45\n");
     assert_eq!(String::from_utf8_lossy(&run.stderr), "");
 }
 
@@ -9416,7 +9419,56 @@ fn write_map_index_project(project: &Path) {
     .expect("write map lockfile");
     fs::write(
         project.join("src/main.ax"),
-        "let scores: {string: int} = {\"build\": 7, \"deploy\": 9, \"deploy\": 11}\nprint scores[\"deploy\"]\n\nlet available: {string: int} = {\"build\": 7, \"deploy\": 9}\nprint map_contains_key<string, int>(available, \"build\")\n\nlet missing: {string: int} = {\"build\": 7, \"deploy\": 9}\nprint map_contains_key<string, int>(missing, \"test\")\n\nlet labels: {int: string} = {1: \"low\", 2: \"high\"}\nprint labels[2]\n\nlet direct_get_scores: {string: int} = {\"build\": 7, \"deploy\": 9}\nlet direct_found: Option<int> = get<string, int>(direct_get_scores, \"deploy\")\nmatch direct_found {\nSome(value) {\nprint value\n}\nNone {\nprint 0\n}\n}\n\nlet direct_hit_scores: {string: int} = {\"build\": 7, \"deploy\": 9}\nprint get_or_default<string, int>(direct_hit_scores, \"deploy\", 13)\n\nlet direct_missing_scores: {string: int} = {\"build\": 7, \"deploy\": 9}\nprint get_or_default<string, int>(direct_missing_scores, \"test\", 13)\n",
+        r#"fn deploy_score(scores: {string: int}): int {
+return scores["deploy"]
+}
+
+fn has_key(scores: {string: int}, key: string): bool {
+return map_contains_key<string, int>(scores, key)
+}
+
+fn score_or_default(scores: {string: int}, key: string, fallback: int): int {
+return get_or_default<string, int>(scores, key, fallback)
+}
+
+let scores: {string: int} = {"build": 7, "deploy": 9, "deploy": 11}
+print scores["deploy"]
+
+let available: {string: int} = {"build": 7, "deploy": 9}
+print map_contains_key<string, int>(available, "build")
+
+let missing: {string: int} = {"build": 7, "deploy": 9}
+print map_contains_key<string, int>(missing, "test")
+
+let labels: {int: string} = {1: "low", 2: "high"}
+print labels[2]
+
+let direct_get_scores: {string: int} = {"build": 7, "deploy": 9}
+let direct_found: Option<int> = get<string, int>(direct_get_scores, "deploy")
+match direct_found {
+Some(value) {
+print value
+}
+None {
+print 0
+}
+}
+
+let direct_hit_scores: {string: int} = {"build": 7, "deploy": 9}
+print get_or_default<string, int>(direct_hit_scores, "deploy", 13)
+
+let direct_missing_scores: {string: int} = {"build": 7, "deploy": 9}
+print get_or_default<string, int>(direct_missing_scores, "test", 13)
+
+let helper_scores: {string: int} = {"build": 7, "deploy": 9, "deploy": 11}
+print deploy_score(helper_scores)
+
+let helper_available: {string: int} = {"build": 7, "deploy": 9}
+print has_key(helper_available, "deploy")
+
+let helper_missing: {string: int} = {"build": 7, "deploy": 9}
+print score_or_default(helper_missing, "test", 21)
+"#,
     )
     .expect("write map source");
 }
@@ -11085,6 +11137,8 @@ let negative: int = negative_score()
 print negative
 let zero: int = zero_score()
 print zero
+let adjusted: int = value + 3
+print adjusted
 return value
 }
 "#,
