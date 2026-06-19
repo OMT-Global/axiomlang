@@ -3355,7 +3355,7 @@ fn cranelift_backend_lowers_process_status_to_runtime_exit_code() {
         audit.contains("\"intrinsic\":\"process_status\""),
         "{audit}"
     );
-    assert_eq!(audit.matches("\"outcome\":\"ok\"").count(), 2, "{audit}");
+    assert_eq!(audit.matches("\"outcome\":\"ok\"").count(), 3, "{audit}");
     assert_eq!(
         audit.matches("\"outcome\":\"denied\"").count(),
         1,
@@ -3564,7 +3564,10 @@ fn cranelift_backend_lowers_fs_write_to_runtime_exit_code() {
     assert_eq!(payload["generated_rust"], Value::Null);
     let binary = payload["binary"].as_str().expect("binary path");
     let runtime_file = project.join("scratch/data.txt");
-    let replace_temp_file = project.join("scratch/.data.txt.axiom-replace.tmp");
+    let append_file = project.join("scratch/append.txt");
+    let replace_file = project.join("scratch/replace.txt");
+    let replace_temp_file = project.join("scratch/.replace.txt.axiom-replace.tmp");
+    let removed_file = project.join("scratch/remove.txt");
     let created_file = project.join("scratch/created.txt");
     let runtime_dir = project.join("scratch/native-dir");
     let runtime_dir_all = project.join("scratch/native-all");
@@ -3575,8 +3578,20 @@ fn cranelift_backend_lowers_fs_write_to_runtime_exit_code() {
         "build should not create the fs_write runtime fixture"
     );
     assert!(
+        !append_file.exists(),
+        "build should not create the fs_append runtime fixture"
+    );
+    assert!(
+        !replace_file.exists(),
+        "build should not create the fs_replace runtime fixture"
+    );
+    assert!(
         !replace_temp_file.exists(),
         "build should not create the fs_replace temp fixture"
+    );
+    assert!(
+        !removed_file.exists(),
+        "build should not create the remove_file runtime fixture"
     );
     assert!(
         !created_file.exists(),
@@ -3600,9 +3615,21 @@ fn cranelift_backend_lowers_fs_write_to_runtime_exit_code() {
         .expect("run cranelift fs-write main binary");
     assert_eq!(run.status.code(), Some(48));
     assert_eq!(String::from_utf8_lossy(&run.stdout), "");
+    assert_eq!(
+        fs::read_to_string(&runtime_file).expect("read fs_write runtime fixture"),
+        "runtime-write"
+    );
+    assert_eq!(
+        fs::read_to_string(&append_file).expect("read fs_append runtime fixture"),
+        "runtime-seed+runtime-append"
+    );
+    assert_eq!(
+        fs::read_to_string(&replace_file).expect("read fs_replace runtime fixture"),
+        "runtime-replace"
+    );
     assert!(
-        !runtime_file.exists(),
-        "runtime remove_file should remove the fs_write fixture"
+        !removed_file.exists(),
+        "runtime remove_file should remove the remove_file fixture"
     );
     assert!(
         !replace_temp_file.exists(),
@@ -4083,6 +4110,9 @@ high
 9
 9
 13
+11
+true
+21
 "
     );
 }
@@ -5777,7 +5807,7 @@ fn cranelift_backend_lowers_integer_print_runtime_stdout_in_direct_native_main()
         .output()
         .expect("run cranelift integer print stdio main binary");
     assert_eq!(run.status.code(), Some(42));
-    assert_eq!(String::from_utf8_lossy(&run.stdout), "42\n-3\n0\n");
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "42\n-3\n0\n45\n");
     assert_eq!(String::from_utf8_lossy(&run.stderr), "");
 }
 
@@ -9269,7 +9299,7 @@ fn write_known_regex_text_main_exit_project(project: &Path) {
     .expect("write known regex text lockfile");
     fs::write(
         project.join("src/main.ax"),
-        "static ISSUE_TEXT: string = \"issue-238-ready\"\n\nfn main(): int {\nlet replaced: string = regex_replace_all(\"[0-9]+\", ISSUE_TEXT, \"#\")\nlet anchored: string = regex_replace_all(\"^a\", \"aaa\", \"x\")\nlet match_gate: bool = regex_is_match(\"^issue-[0-9]+-ready$\", ISSUE_TEXT)\nlet replaced_gate: bool = replaced == \"issue-#-ready\"\nlet anchored_gate: bool = anchored == \"xaa\"\nlet found_len: int = match regex_find(\"[0-9]+\", ISSUE_TEXT) { Some(value) => len(value), None => 1 }\nlet missing_len: int = match regex_find(\"z+\", ISSUE_TEXT) { Some(value) => len(value), None => 4 }\nlet replaced_len: int = len(regex_replace_all(\"[a-z]+\", \"abc-123\", \"x\"))\nif match_gate && replaced_gate && anchored_gate && found_len == 3 && missing_len == 4 && replaced_len == 5 {\nreturn 48\n} else {\nreturn 1\n}\n}\n",
+        "static ISSUE_TEXT: string = \"issue-238-ready\"\nstatic ISSUE_PREFIX: string = \"issue-\"\nstatic ISSUE_NUMBER: string = \"238\"\nstatic ISSUE_SUFFIX: string = \"-ready\"\n\nfn helper_find_len(): int {\nlet pattern: string = \"[0-\" + \"9]+\"\nlet text: string = ISSUE_PREFIX + ISSUE_NUMBER + ISSUE_SUFFIX\nreturn match regex_find(pattern, text) { Some(value) => len(value), None => 1 }\n}\n\nfn helper_replace_len(): int {\nlet pattern: string = \"[0-\" + \"9]+\"\nlet text: string = ISSUE_PREFIX + ISSUE_NUMBER + ISSUE_SUFFIX\nlet replacement: string = \"#\" + \"\"\nreturn len(regex_replace_all(pattern, text, replacement))\n}\n\nfn main(): int {\nlet replaced: string = regex_replace_all(\"[0-9]+\", ISSUE_TEXT, \"#\")\nlet anchored: string = regex_replace_all(\"^a\", \"aaa\", \"x\")\nlet concat_text: string = ISSUE_PREFIX + ISSUE_NUMBER + ISSUE_SUFFIX\nlet concat_pattern: string = \"^issue-\" + \"[0-9]+\" + \"-ready$\"\nlet match_gate: bool = regex_is_match(\"^issue-[0-9]+-ready$\", ISSUE_TEXT)\nlet concat_match_gate: bool = regex_is_match(concat_pattern, concat_text)\nlet replaced_gate: bool = replaced == \"issue-#-ready\"\nlet anchored_gate: bool = anchored == \"xaa\"\nlet found_len: int = match regex_find(\"[0-9]+\", ISSUE_TEXT) { Some(value) => len(value), None => 1 }\nlet missing_len: int = match regex_find(\"z+\", ISSUE_TEXT) { Some(value) => len(value), None => 4 }\nlet replaced_len: int = len(regex_replace_all(\"[a-z]+\", \"abc-123\", \"x\"))\nlet helper_found_len: int = helper_find_len()\nlet helper_replaced_len: int = helper_replace_len()\nif match_gate && concat_match_gate && replaced_gate && anchored_gate && found_len == 3 && missing_len == 4 && replaced_len == 5 && helper_found_len == 3 && helper_replaced_len == 13 {\nreturn 48\n} else {\nreturn 1\n}\n}\n",
     )
     .expect("write known regex text source");
 }
@@ -9288,7 +9318,7 @@ fn write_std_regex_wrapper_main_exit_project(project: &Path) {
     .expect("write std regex wrapper lockfile");
     fs::write(
         project.join("src/main.ax"),
-        "import \"std/regex.ax\"\n\nstatic ISSUE_TEXT: string = \"issue-238-ready\"\n\nfn main(): int {\nlet replaced: string = replace_all(\"[0-9]+\", ISSUE_TEXT, \"#\")\nlet anchored: string = replace_all(\"^a\", \"aaa\", \"x\")\nlet match_gate: bool = is_match(\"^issue-[0-9]+-ready$\", ISSUE_TEXT)\nlet replaced_gate: bool = replaced == \"issue-#-ready\"\nlet anchored_gate: bool = anchored == \"xaa\"\nlet found_len: int = match find(\"[0-9]+\", ISSUE_TEXT) { Some(value) => len(value), None => 1 }\nlet missing_len: int = match find(\"z+\", ISSUE_TEXT) { Some(value) => len(value), None => 4 }\nlet replaced_len: int = len(replace_all(\"[a-z]+\", \"abc-123\", \"x\"))\nif match_gate && replaced_gate && anchored_gate && found_len == 3 && missing_len == 4 && replaced_len == 5 {\nreturn 48\n} else {\nreturn 1\n}\n}\n",
+        "import \"std/regex.ax\"\n\nstatic ISSUE_TEXT: string = \"issue-238-ready\"\nstatic ISSUE_PREFIX: string = \"issue-\"\nstatic ISSUE_NUMBER: string = \"238\"\nstatic ISSUE_SUFFIX: string = \"-ready\"\n\nfn helper_find_len(): int {\nlet pattern: string = \"[0-\" + \"9]+\"\nlet text: string = ISSUE_PREFIX + ISSUE_NUMBER + ISSUE_SUFFIX\nreturn match find(pattern, text) { Some(value) => len(value), None => 1 }\n}\n\nfn helper_replace_len(): int {\nlet pattern: string = \"[0-\" + \"9]+\"\nlet text: string = ISSUE_PREFIX + ISSUE_NUMBER + ISSUE_SUFFIX\nlet replacement: string = \"#\" + \"\"\nreturn len(replace_all(pattern, text, replacement))\n}\n\nfn main(): int {\nlet replaced: string = replace_all(\"[0-9]+\", ISSUE_TEXT, \"#\")\nlet anchored: string = replace_all(\"^a\", \"aaa\", \"x\")\nlet concat_text: string = ISSUE_PREFIX + ISSUE_NUMBER + ISSUE_SUFFIX\nlet concat_pattern: string = \"^issue-\" + \"[0-9]+\" + \"-ready$\"\nlet match_gate: bool = is_match(\"^issue-[0-9]+-ready$\", ISSUE_TEXT)\nlet concat_match_gate: bool = is_match(concat_pattern, concat_text)\nlet replaced_gate: bool = replaced == \"issue-#-ready\"\nlet anchored_gate: bool = anchored == \"xaa\"\nlet found_len: int = match find(\"[0-9]+\", ISSUE_TEXT) { Some(value) => len(value), None => 1 }\nlet missing_len: int = match find(\"z+\", ISSUE_TEXT) { Some(value) => len(value), None => 4 }\nlet replaced_len: int = len(replace_all(\"[a-z]+\", \"abc-123\", \"x\"))\nlet helper_found_len: int = helper_find_len()\nlet helper_replaced_len: int = helper_replace_len()\nif match_gate && concat_match_gate && replaced_gate && anchored_gate && found_len == 3 && missing_len == 4 && replaced_len == 5 && helper_found_len == 3 && helper_replaced_len == 13 {\nreturn 48\n} else {\nreturn 1\n}\n}\n",
     )
     .expect("write std regex wrapper source");
 }
@@ -10201,11 +10231,16 @@ source = "path"
         project.join("src/main.ax"),
         r#"import "std/process.ax"
 
+static TRUE_CMD: string = "/usr/bin/true"
+static FALSE_CMD: string = "/usr/bin/false"
+static MISSING_CMD: string = "__axiom_stage1_missing_binary__"
+
 fn main(): int {
 let ok: int = process_status("/usr/bin/true")
-let fail: int = run_status("/usr/bin/false")
-let missing: int = run_status("__axiom_stage1_missing_binary__")
-if ok == 0 && fail == 1 && missing == -1 {
+let static_ok: int = run_status(TRUE_CMD)
+let fail: int = run_status(FALSE_CMD)
+let missing: int = run_status(MISSING_CMD)
+if ok == 0 && static_ok == 0 && fail == 1 && missing == -1 {
 return 48
 } else {
 return 1
@@ -10325,7 +10360,56 @@ fn write_map_index_project(project: &Path) {
     .expect("write map lockfile");
     fs::write(
         project.join("src/main.ax"),
-        "let scores: {string: int} = {\"build\": 7, \"deploy\": 9, \"deploy\": 11}\nprint scores[\"deploy\"]\n\nlet available: {string: int} = {\"build\": 7, \"deploy\": 9}\nprint map_contains_key<string, int>(available, \"build\")\n\nlet missing: {string: int} = {\"build\": 7, \"deploy\": 9}\nprint map_contains_key<string, int>(missing, \"test\")\n\nlet labels: {int: string} = {1: \"low\", 2: \"high\"}\nprint labels[2]\n\nlet direct_get_scores: {string: int} = {\"build\": 7, \"deploy\": 9}\nlet direct_found: Option<int> = get<string, int>(direct_get_scores, \"deploy\")\nmatch direct_found {\nSome(value) {\nprint value\n}\nNone {\nprint 0\n}\n}\n\nlet direct_hit_scores: {string: int} = {\"build\": 7, \"deploy\": 9}\nprint get_or_default<string, int>(direct_hit_scores, \"deploy\", 13)\n\nlet direct_missing_scores: {string: int} = {\"build\": 7, \"deploy\": 9}\nprint get_or_default<string, int>(direct_missing_scores, \"test\", 13)\n",
+        r#"fn deploy_score(scores: {string: int}): int {
+return scores["deploy"]
+}
+
+fn has_key(scores: {string: int}, key: string): bool {
+return map_contains_key<string, int>(scores, key)
+}
+
+fn score_or_default(scores: {string: int}, key: string, fallback: int): int {
+return get_or_default<string, int>(scores, key, fallback)
+}
+
+let scores: {string: int} = {"build": 7, "deploy": 9, "deploy": 11}
+print scores["deploy"]
+
+let available: {string: int} = {"build": 7, "deploy": 9}
+print map_contains_key<string, int>(available, "build")
+
+let missing: {string: int} = {"build": 7, "deploy": 9}
+print map_contains_key<string, int>(missing, "test")
+
+let labels: {int: string} = {1: "low", 2: "high"}
+print labels[2]
+
+let direct_get_scores: {string: int} = {"build": 7, "deploy": 9}
+let direct_found: Option<int> = get<string, int>(direct_get_scores, "deploy")
+match direct_found {
+Some(value) {
+print value
+}
+None {
+print 0
+}
+}
+
+let direct_hit_scores: {string: int} = {"build": 7, "deploy": 9}
+print get_or_default<string, int>(direct_hit_scores, "deploy", 13)
+
+let direct_missing_scores: {string: int} = {"build": 7, "deploy": 9}
+print get_or_default<string, int>(direct_missing_scores, "test", 13)
+
+let helper_scores: {string: int} = {"build": 7, "deploy": 9, "deploy": 11}
+print deploy_score(helper_scores)
+
+let helper_available: {string: int} = {"build": 7, "deploy": 9}
+print has_key(helper_available, "deploy")
+
+let helper_missing: {string: int} = {"build": 7, "deploy": 9}
+print score_or_default(helper_missing, "test", 21)
+"#,
     )
     .expect("write map source");
 }
@@ -12232,6 +12316,8 @@ let negative: int = negative_score()
 print negative
 let zero: int = zero_score()
 print zero
+let adjusted: int = value + 3
+print adjusted
 return value
 }
 "#,
@@ -14097,17 +14183,39 @@ source = "path"
         project.join("src/main.ax"),
         r#"import "std/fs.ax"
 
+static DATA_PATH: string = "scratch/data.txt"
+static APPEND_PATH: string = "scratch/append.txt"
+static REPLACE_PATH: string = "scratch/replace.txt"
+static REMOVE_PATH: string = "scratch/remove.txt"
+static RUNTIME_PREFIX: string = "runtime-"
+static DIR_PREFIX: string = "scratch/"
+
 fn main(): int {
-let wrote: int = write_file("scratch/data.txt", "runtime-write")
-let appended: int = append_file("scratch/data.txt", "+runtime-append")
-let replaced: int = replace_file("scratch/data.txt", "runtime-replace")
-let removed: int = remove_file("scratch/data.txt")
-let created: int = create_file("scratch/created.txt")
-let made_dir: int = mkdir("scratch/native-dir")
-let removed_dir: int = remove_dir("scratch/native-dir")
-let made_all: int = mkdir_all("scratch/native-all/deep")
-let blocked: int = write_file("../escape.txt", "blocked")
-if wrote == 0 && appended == 0 && replaced == 0 && removed == 0 && created == 0 && made_dir == 0 && removed_dir == 0 && made_all == 0 && blocked == -1 {
+let append_path: string = APPEND_PATH
+let replace_path: string = REPLACE_PATH
+let remove_path: string = REMOVE_PATH
+let create_path: string = "scratch/created.txt"
+let mkdir_name: string = "native-dir"
+let remove_dir_name: string = "native-dir"
+let nested_leaf: string = "deep"
+let blocked_path: string = "../escape.txt"
+let write_content: string = "runtime-write"
+let append_suffix: string = "append"
+let replace_suffix: string = "replace"
+let blocked_content: string = "blocked"
+let wrote: int = write_file(DATA_PATH, write_content)
+let append_seeded: int = write_file(APPEND_PATH, RUNTIME_PREFIX + "seed")
+let appended: int = append_file(append_path, "+" + RUNTIME_PREFIX + append_suffix)
+let replace_seeded: int = write_file(REPLACE_PATH, "stale")
+let replaced: int = replace_file(replace_path, RUNTIME_PREFIX + replace_suffix)
+let remove_seeded: int = write_file(REMOVE_PATH, "remove-me")
+let removed: int = remove_file(remove_path)
+let created: int = create_file(create_path)
+let made_dir: int = mkdir(DIR_PREFIX + mkdir_name)
+let removed_dir: int = remove_dir(DIR_PREFIX + remove_dir_name)
+let made_all: int = mkdir_all(DIR_PREFIX + "native-all/" + nested_leaf)
+let blocked: int = write_file(blocked_path, blocked_content)
+if wrote == 0 && append_seeded == 0 && appended == 0 && replace_seeded == 0 && replaced == 0 && remove_seeded == 0 && removed == 0 && created == 0 && made_dir == 0 && removed_dir == 0 && made_all == 0 && blocked == -1 {
 return 48
 } else {
 return 1
