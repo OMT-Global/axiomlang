@@ -11,5 +11,6 @@ fs = false
 net = false
 process = false
 env_unrestricted = true
+unsafe_rationale = "example intentionally exercises unrestricted environment migration behavior"
 clock = false
 crypto = false
