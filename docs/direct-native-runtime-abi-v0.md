@@ -873,10 +873,19 @@ Imported public `std/serdes.ax` known-input `to_json(...)`,
 `from_json_str(...)`, `as_text(...)`, and `parse_error_message(...)` wrapper
 paths now also feed direct-native known string comparisons, length projections,
 `Result` matches, `Option` matches, and process exit status without generated
-Rust for literal `Value`/object-map and literal JSON inputs. Broader dynamic
-runtime JSON parsing, broad `std/serdes` `Value` storage, `JsonValue` wrapper
-construction beyond the evidenced scalar/string/object/array source wrappers,
-and broader schema helper coverage remain tracked by issue #1001.
+Rust for literal `Value`/object-map and literal JSON inputs. Those same
+known-input `std/serdes` string results can now feed source-level `print`
+statements in runtime-exit `main` functions, preserving exact native stdout JSON
+lines and parse-error text while still reporting `generated_rust: null`. They
+can also feed public `std/io.ax` `eprintln(...)` statements in runtime-exit
+`main` functions, preserving exact native stderr JSON lines, parse-error text,
+and newline-inclusive byte-count return values without generated Rust.
+Known-input `std/serdes` JSON object and parse-error string results can also
+feed terminal panic reports as escaped native stderr JSON while preserving
+`generated_rust: null`. Broader dynamic runtime JSON parsing, broad
+`std/serdes` `Value` storage, `JsonValue` wrapper construction beyond the
+evidenced scalar/string/object/array source wrappers, and broader schema helper
+coverage remain tracked by issue #1001.
 
 The owned move-state row has partial direct-native evidence: the Cranelift
 spike builds and runs projection-sensitive owned field moves while preserving
@@ -922,7 +931,9 @@ including scalar stringify results first assigned to string locals, can also
 feed public `std/io.ax` `eprintln` lets in direct-native i64 `main` functions,
 scalar helpers, and aggregate-return helpers as native stderr writes while
 preserving newline-inclusive byte-count return values and without materializing
-general runtime strings. Dynamic `std/json.ax` `stringify_string` over those
+general runtime strings. The aggregate-return helper stderr smoke now asserts
+`generated_rust` null while preserving the byte-count return value for
+`stringify_string(...)` over a supported scalar stringify result. Dynamic `std/json.ax` `stringify_string` over those
 supported scalar/bool projection locals can also stream quoted JSON string
 values to native stderr lines while preserving newline-inclusive byte-count
 return values and without materializing a general runtime string.
@@ -967,7 +978,9 @@ scalar/bool string projections also stream quoted JSON string values directly
 into native stderr panic reports without materializing a general string runtime.
 Supported dynamic `std/log.ax` `event(...)` messages with scalar and boolean
 fields also lower to native stderr JSON panic reports as nested escaped
-log-record strings without generated Rust. Terminal panic messages backed by
+log-record strings without generated Rust. Known `std/serdes.ax` JSON object and
+parse-error strings can also feed terminal panic reports as escaped native
+stderr JSON without generated Rust. Terminal panic messages backed by
 runtime-selected known string
 projections from map-key arrays, either directly or through string locals backed
 by those projections, also lower to native stderr JSON panic reports by
