@@ -150,6 +150,9 @@ computed value as the process exit status at runtime without generated Rust.
 The public scalar aggregate, numeric cross-width, and static scalar smokes now
 also assert that the build JSON reports `generated_rust: null`, so this evidence
 cannot silently drift back through generated Rust.
+The public integer stdout smoke also asserts `generated_rust: null` while
+printing helper-returned integer locals and arithmetic derived from those locals
+from a direct-native main function.
 The same path now has narrow boolean runtime
 evidence for signed i64 comparisons, bool local bindings backed by i64 slots,
 simple bool static values, and boolean literals composed with `&&`/`||` driving
@@ -427,28 +430,30 @@ compilation and emits the resulting output, covering `mkdir_all`, `write_file`,
 `generated_rust` is null. It also covers `fs_root` scoping and preserves the
 public manifest-policy denial for a package with `fs = true` and `"fs:write" =
 false` that calls `std/fs.ax` `write_file(...)`. The direct-native i64 path now
-also lowers literal-path `fs_write(...)` calls and public `std/fs.ax`
-`write_file(...)` wrappers into native object code that performs the
-`fs_root`-guarded create/truncate/write/close sequence at runtime, and lowers
-literal-path `fs_append(...)` calls and public `std/fs.ax` `append_file(...)`
-wrappers into native append-mode open/write/close execution. Literal-path
-`fs_replace(...)` calls and public `std/fs.ax` `replace_file(...)` wrappers now
-lower into adjacent temp-file write/close followed by native `rename(...)`, with
-temp cleanup on failure.
-Literal-path `fs_remove_file(...)` calls and public `std/fs.ax`
-`remove_file(...)` wrappers now lower into native `unlink(...)` execution.
-Literal-path `fs_create(...)` calls and public `std/fs.ax` `create_file(...)`
-wrappers now lower into native exclusive file creation. Literal-path
-`fs_mkdir(...)`/`fs_remove_dir(...)` calls and public `std/fs.ax`
+also lowers `fs_write(...)` calls and public `std/fs.ax` `write_file(...)`
+wrappers into native object code that performs the `fs_root`-guarded
+create/truncate/write/close sequence at runtime, and lowers `fs_append(...)`
+calls and public `std/fs.ax` `append_file(...)` wrappers into native append-mode
+open/write/close execution. `fs_replace(...)` calls and public `std/fs.ax`
+`replace_file(...)` wrappers now lower into adjacent temp-file write/close
+followed by native `rename(...)`, with temp cleanup on failure.
+`fs_remove_file(...)` calls and public `std/fs.ax` `remove_file(...)` wrappers
+now lower into native `unlink(...)` execution. `fs_create(...)` calls and public
+`std/fs.ax` `create_file(...)` wrappers now lower into native exclusive file
+creation. `fs_mkdir(...)`/`fs_remove_dir(...)` calls and public `std/fs.ax`
 `mkdir(...)`/`remove_dir(...)` wrappers now lower into native directory
-create/remove execution. Literal-path `fs_mkdir_all(...)` calls and public
-`std/fs.ax` `mkdir_all(...)` wrappers now lower into runtime native recursive
-directory creation with final directory verification. These paths return the
-existing status-code convention without generated Rust and now append
-best-effort host audit JSONL to `AXIOM_HOST_AUDIT_LOG` without including path or
-content secrets. The runtime smoke asserts the target files and directories are
-not created or removed during build, then appear, are replaced or removed, and
-the created empty file remains only after the native binary runs. The native
+create/remove execution. `fs_mkdir_all(...)` calls and public `std/fs.ax`
+`mkdir_all(...)` wrappers now lower into runtime native recursive directory
+creation with final directory verification. Those direct-native write paths now
+cover package-root-relative paths and bounded content supplied by static string
+facts, local string facts, and known string concatenation rather than only inline
+literals. These paths return the existing status-code convention without
+generated Rust and now append best-effort host audit JSONL to
+`AXIOM_HOST_AUDIT_LOG` without including path or content secrets. The runtime
+smoke asserts the target files and directories are not created or removed during
+build, then reads back the exact written, appended, and replaced content after
+the native binary runs while also proving the remove target is deleted and the
+created empty file remains. The native
 runtime now revalidates write-side filesystem targets with `realpath(...)`
 against the canonical `fs_root` immediately before mutation, falling back to
 the parent or nearest existing ancestor when creating missing paths; the
@@ -647,9 +652,11 @@ ABI coverage remain tracked by issue #1001.
 
 The map lookup row has partial direct-native evidence: the Cranelift spike now
 builds and runs direct map indexing, `get`, `get_or_default`,
-`map_contains_key`, `map_keys`, and the public `std/collections.ax` `contains`,
-`get`, `get_or_default`, and `keys` helpers for string and integer key/value
-shapes without generated Rust. The direct-native i64 path now also lowers
+`map_contains_key`, `map_keys`, and helper-returned direct index,
+contains-key, and defaulted-miss lookup values, plus the public
+`std/collections.ax` `contains`, `get`, `get_or_default`, and `keys` helpers
+for string and integer key/value shapes without generated Rust. The
+direct-native i64 path now also lowers
 inline-map-literal `get_or_default(...)` over scalar/string keys and
 i64-compatible values into native process exit status, including default
 fallback and duplicate-key replacement behavior. Inline-map-literal
@@ -797,22 +804,24 @@ The `enum.payload` row now has narrow direct-native runtime evidence for local
 custom enum construction, reassignment, value-producing matches, and statement
 matches over scalar/bool positional and named payload variants, represented as a
 tag plus payload slots and returned as process exit status without generated
-Rust. The same tag/payload-slot representation now covers narrow scalar tuple
-and scalar struct payload storage, matching, and helper parameters for named
-custom enum payloads such as `(int, bool)` and `Step { value: int, enabled:
-bool }`. Scalar/bool custom enum helper parameters lower across direct-native
-function-call boundaries as explicit tag/payload ABI slots for local values and
-inline variant arguments. Narrow custom enum helper returns and forwarded local
-or parameter values also lower through the same tag/payload slots for scalar
-struct payload variants. Existing narrow custom enum locals can now be
-reassigned from enum helper returns using the same tag/payload slots, including
-inside runtime branch blocks. The same representation now has narrow evidence
-for positional custom enum payloads carrying nested `Option<Result<int, int>>`
-and `Result<Option<int>, int>` values, including runtime-scope literal
-construction, reassignment, value-producing matches, helper returns, forwarded
-helper values, and inline nested variant arguments. Broader enum ABI support,
-deeper nested payload shapes, and aggregate payload storage beyond the evidenced
-slices remain tracked by issue #1001.
+Rust. The public enum-match smoke also asserts `generated_rust: null` while
+printing string, scalar, and boolean values derived from positional and named
+custom enum payload matches. The same tag/payload-slot representation now
+covers narrow scalar tuple and scalar struct payload storage, matching, and
+helper parameters for named custom enum payloads such as `(int, bool)` and
+`Step { value: int, enabled: bool }`. Scalar/bool custom enum helper parameters
+lower across direct-native function-call boundaries as explicit tag/payload ABI
+slots for local values and inline variant arguments. Narrow custom enum helper
+returns and forwarded local or parameter values also lower through the same
+tag/payload slots for scalar struct payload variants. Existing narrow custom
+enum locals can now be reassigned from enum helper returns using the same
+tag/payload slots, including inside runtime branch blocks. The same
+representation now has narrow evidence for positional custom enum payloads
+carrying nested `Option<Result<int, int>>` and `Result<Option<int>, int>` values,
+including runtime-scope literal construction, reassignment, value-producing
+matches, helper returns, forwarded helper values, and inline nested variant
+arguments. Broader enum ABI support, deeper nested payload shapes, and aggregate
+payload storage beyond the evidenced slices remain tracked by issue #1001.
 
 The `json.serdes` row has expanded partial direct-native evidence: the
 Cranelift spike now builds and runs `std/json.ax` scalar/object helpers and
@@ -871,10 +880,19 @@ Imported public `std/serdes.ax` known-input `to_json(...)`,
 `from_json_str(...)`, `as_text(...)`, and `parse_error_message(...)` wrapper
 paths now also feed direct-native known string comparisons, length projections,
 `Result` matches, `Option` matches, and process exit status without generated
-Rust for literal `Value`/object-map and literal JSON inputs. Broader dynamic
-runtime JSON parsing, broad `std/serdes` `Value` storage, `JsonValue` wrapper
-construction beyond the evidenced scalar/string/object/array source wrappers,
-and broader schema helper coverage remain tracked by issue #1001.
+Rust for literal `Value`/object-map and literal JSON inputs. Those same
+known-input `std/serdes` string results can now feed source-level `print`
+statements in runtime-exit `main` functions, preserving exact native stdout JSON
+lines and parse-error text while still reporting `generated_rust: null`. They
+can also feed public `std/io.ax` `eprintln(...)` statements in runtime-exit
+`main` functions, preserving exact native stderr JSON lines, parse-error text,
+and newline-inclusive byte-count return values without generated Rust.
+Known-input `std/serdes` JSON object and parse-error string results can also
+feed terminal panic reports as escaped native stderr JSON while preserving
+`generated_rust: null`. Broader dynamic runtime JSON parsing, broad
+`std/serdes` `Value` storage, `JsonValue` wrapper construction beyond the
+evidenced scalar/string/object/array source wrappers, and broader schema helper
+coverage remain tracked by issue #1001.
 
 The owned move-state row has partial direct-native evidence: the Cranelift
 spike builds and runs projection-sensitive owned field moves while preserving
@@ -920,7 +938,9 @@ including scalar stringify results first assigned to string locals, can also
 feed public `std/io.ax` `eprintln` lets in direct-native i64 `main` functions,
 scalar helpers, and aggregate-return helpers as native stderr writes while
 preserving newline-inclusive byte-count return values and without materializing
-general runtime strings. Dynamic `std/json.ax` `stringify_string` over those
+general runtime strings. The aggregate-return helper stderr smoke now asserts
+`generated_rust` null while preserving the byte-count return value for
+`stringify_string(...)` over a supported scalar stringify result. Dynamic `std/json.ax` `stringify_string` over those
 supported scalar/bool projection locals can also stream quoted JSON string
 values to native stderr lines while preserving newline-inclusive byte-count
 return values and without materializing a general runtime string.
@@ -965,7 +985,9 @@ scalar/bool string projections also stream quoted JSON string values directly
 into native stderr panic reports without materializing a general string runtime.
 Supported dynamic `std/log.ax` `event(...)` messages with scalar and boolean
 fields also lower to native stderr JSON panic reports as nested escaped
-log-record strings without generated Rust. Terminal panic messages backed by
+log-record strings without generated Rust. Known `std/serdes.ax` JSON object and
+parse-error strings can also feed terminal panic reports as escaped native
+stderr JSON without generated Rust. Terminal panic messages backed by
 runtime-selected known string
 projections from map-key arrays, either directly or through string locals backed
 by those projections, also lower to native stderr JSON panic reports by
