@@ -1025,9 +1025,13 @@ string. String concatenation over those stdin-backed projections also computes
 the combined byte length for `len(combined)` without materializing a general
 runtime string. The same stdin-backed byte-count projection can feed
 source-level integer print statements and branch conditions before returning a
-native process exit status. Broader stdin reads beyond bounded
-`read_to_string()` length
-projections, materialized stdin strings, dynamic stdout/stderr text beyond
+native process exit status. Public `std/io.ax` `readline()` now also lowers
+into a bounded native stdin line read for `Option<string>` matches when the
+`Some(line)` payload is used only as a byte-length projection. That path strips
+one trailing line ending before feeding integer stdout writes, branch
+conditions, and native process exit status while preserving EOF as `None` and
+`generated_rust: null`. Materialized stdin strings, broader stdin reads beyond
+bounded length projections, dynamic stdout/stderr text beyond
 boolean, integer, JSON scalar formatting, and finite known-string projection
 selection, dynamic panic messages beyond scalar/string JSON stringify and finite
 known-string projection selection, and broader streaming/runtime buffering
