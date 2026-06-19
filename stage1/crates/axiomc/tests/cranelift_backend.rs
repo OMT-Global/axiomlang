@@ -9818,7 +9818,27 @@ let dynamic_key_trimmed_value: string = string_trim(dynamic_key_trim_value)
 let dynamic_key_trim_start_value: string = string_trim_start(dynamic_key_trim_value)
 let dynamic_key_trimmed_has_prefix: bool = string_starts_with(dynamic_key_trimmed_value, "dep")
 let dynamic_key_trim_start_has_prefix: bool = string_starts_with(dynamic_key_trim_start_value, "dep")
-if contains_hit && contains_miss && get_hit_code == 9 && get_miss_code == 13 && fallback == 13 && key_count == 2 && first_key_len == 5 && second_key_len == 6 && dynamic_key_len == 6 && dynamic_key_is_deploy && dynamic_key_not_build && dynamic_key_has_prefix && dynamic_key_trim_len == 6 && dynamic_key_trim_start_len == 7 && dynamic_key_trimmed_has_prefix && dynamic_key_trim_start_has_prefix {
+let dynamic_lookup_contains_scores: {string: int} = {"build": 7, "deploy": 9}
+let dynamic_lookup_contains_names: [string] = keys<string, int>(dynamic_lookup_contains_scores)
+let dynamic_lookup_contains_key: string = dynamic_lookup_contains_names[dynamic_key_index]
+let dynamic_lookup_contains_map: {string: int} = {"build": 7, "deploy": 9}
+let dynamic_lookup_contains: bool = contains<string, int>(dynamic_lookup_contains_map, dynamic_lookup_contains_key)
+let dynamic_lookup_value_scores: {string: int} = {"build": 7, "deploy": 9}
+let dynamic_lookup_value_names: [string] = keys<string, int>(dynamic_lookup_value_scores)
+let dynamic_lookup_value_key: string = dynamic_lookup_value_names[dynamic_key_index]
+let dynamic_lookup_value_map: {string: int} = {"build": 7, "deploy": 9}
+let dynamic_lookup_value: int = get_or_default<string, int>(dynamic_lookup_value_map, dynamic_lookup_value_key, 13)
+let dynamic_missing_contains_scores: {string: int} = {"build": 7, "deploy": 9}
+let dynamic_missing_contains_names: [string] = keys<string, int>(dynamic_missing_contains_scores)
+let dynamic_missing_contains_key: string = dynamic_missing_contains_names[dynamic_key_index]
+let dynamic_missing_contains_map: {string: int} = {"build": 7}
+let dynamic_missing_contains: bool = contains<string, int>(dynamic_missing_contains_map, dynamic_missing_contains_key) == false
+let dynamic_missing_value_scores: {string: int} = {"build": 7, "deploy": 9}
+let dynamic_missing_value_names: [string] = keys<string, int>(dynamic_missing_value_scores)
+let dynamic_missing_value_key: string = dynamic_missing_value_names[dynamic_key_index]
+let dynamic_missing_value_map: {string: int} = {"build": 7}
+let dynamic_missing_value: int = get_or_default<string, int>(dynamic_missing_value_map, dynamic_missing_value_key, 13)
+if contains_hit && contains_miss && get_hit_code == 9 && get_miss_code == 13 && fallback == 13 && key_count == 2 && first_key_len == 5 && second_key_len == 6 && dynamic_key_len == 6 && dynamic_key_is_deploy && dynamic_key_not_build && dynamic_key_has_prefix && dynamic_key_trim_len == 6 && dynamic_key_trim_start_len == 7 && dynamic_key_trimmed_has_prefix && dynamic_key_trim_start_has_prefix && dynamic_lookup_contains && dynamic_lookup_value == 9 && dynamic_missing_contains && dynamic_missing_value == 13 {
 return 48
 } else {
 return 1

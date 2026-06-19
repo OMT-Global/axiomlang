@@ -8738,9 +8738,14 @@ fn lower_i64_condition(
             args,
             ty: Type::Bool,
         } => {
-            if let Some(condition) =
-                lower_i64_map_contains_key_condition(name, args, static_bindings)
-            {
+            if let Some(condition) = lower_i64_map_contains_key_condition(
+                name,
+                args,
+                local_indexes,
+                local_conditions,
+                helper_signatures,
+                static_bindings,
+            ) {
                 return Some(condition);
             }
             if let Some(condition) = lower_i64_known_bool_intrinsic_condition(
@@ -12728,21 +12733,53 @@ fn lower_i64_map_get_or_default_expr(
         return None;
     };
     let entries = i64_map_literal_entries(map, static_bindings)?;
-    let key = lower_i64_map_key_expr(key, static_bindings)?;
-    let mut selected = None;
-    for entry in entries.iter().rev() {
-        if lower_i64_map_key_expr(&entry.key, static_bindings)? == key {
-            selected = Some(&entry.value);
-            break;
+    if let Some(key) = lower_i64_map_key_expr(key, static_bindings) {
+        let mut selected = None;
+        for entry in entries.iter().rev() {
+            if lower_i64_map_key_expr(&entry.key, static_bindings)? == key {
+                selected = Some(&entry.value);
+                break;
+            }
         }
+        return lower_i64_expr(
+            selected.unwrap_or(default),
+            local_indexes,
+            local_conditions,
+            helper_signatures,
+            static_bindings,
+        );
     }
-    lower_i64_expr(
-        selected.unwrap_or(default),
+    let mut result = lower_i64_expr(
+        default,
         local_indexes,
         local_conditions,
         helper_signatures,
         static_bindings,
-    )
+    )?;
+    for entry in entries {
+        let candidate = lower_i64_map_key_expr(&entry.key, static_bindings)?;
+        let cond = lower_i64_map_key_match_condition(
+            key,
+            &candidate,
+            local_indexes,
+            local_conditions,
+            helper_signatures,
+            static_bindings,
+        )?;
+        let value = lower_i64_expr(
+            &entry.value,
+            local_indexes,
+            local_conditions,
+            helper_signatures,
+            static_bindings,
+        )?;
+        result = CraneliftI64Expr::Select {
+            cond: Box::new(cond),
+            then_result: Box::new(value),
+            else_result: Box::new(result),
+        };
+    }
+    Some(result)
 }
 
 fn i64_map_get_value_expr<'a>(
@@ -12770,6 +12807,9 @@ fn i64_map_get_value_expr<'a>(
 fn lower_i64_map_contains_key_condition(
     name: &str,
     args: &[Expr],
+    local_indexes: &HashMap<String, usize>,
+    local_conditions: &HashMap<String, CraneliftI64Condition>,
+    helper_signatures: &HashMap<&str, I64HelperSignature>,
     static_bindings: &I64StaticBindings,
 ) -> Option<CraneliftI64Condition> {
     if name != "map_contains_key"
@@ -12782,13 +12822,60 @@ fn lower_i64_map_contains_key_condition(
         return None;
     };
     let entries = i64_map_literal_entries(map, static_bindings)?;
-    let key = lower_i64_map_key_expr(key, static_bindings)?;
-    for entry in entries.iter().rev() {
-        if lower_i64_map_key_expr(&entry.key, static_bindings)? == key {
-            return Some(CraneliftI64Condition::Literal(true));
+    if let Some(key) = lower_i64_map_key_expr(key, static_bindings) {
+        for entry in entries.iter().rev() {
+            if lower_i64_map_key_expr(&entry.key, static_bindings)? == key {
+                return Some(CraneliftI64Condition::Literal(true));
+            }
         }
+        return Some(CraneliftI64Condition::Literal(false));
     }
-    Some(CraneliftI64Condition::Literal(false))
+    let mut result = CraneliftI64Condition::Literal(false);
+    for entry in entries {
+        let candidate = lower_i64_map_key_expr(&entry.key, static_bindings)?;
+        let cond = lower_i64_map_key_match_condition(
+            key,
+            &candidate,
+            local_indexes,
+            local_conditions,
+            helper_signatures,
+            static_bindings,
+        )?;
+        result = CraneliftI64Condition::Or {
+            lhs: Box::new(cond),
+            rhs: Box::new(result),
+        };
+    }
+    Some(result)
+}
+
+fn lower_i64_map_key_match_condition(
+    key: &Expr,
+    candidate: &I64MapKey,
+    local_indexes: &HashMap<String, usize>,
+    local_conditions: &HashMap<String, CraneliftI64Condition>,
+    helper_signatures: &HashMap<&str, I64HelperSignature>,
+    static_bindings: &I64StaticBindings,
+) -> Option<CraneliftI64Condition> {
+    if let Some(key) = lower_i64_map_key_expr(key, static_bindings) {
+        return Some(CraneliftI64Condition::Literal(key == *candidate));
+    }
+    let I64MapKey::Text(candidate) = candidate else {
+        return None;
+    };
+    let selected = lower_i64_map_key_array_string_index_match_expr(
+        key,
+        candidate,
+        local_indexes,
+        local_conditions,
+        helper_signatures,
+        static_bindings,
+    )?;
+    Some(CraneliftI64Condition::Compare(CraneliftI64Compare {
+        op: CraneliftI64CompareOp::Eq,
+        lhs: selected,
+        rhs: CraneliftI64Expr::Literal(1),
+    }))
 }
 
 fn lower_i64_map_keys_len_expr(
@@ -21217,13 +21304,23 @@ mod tests {
             Some(Some(&expected_value))
         );
         assert_eq!(
-            lower_i64_map_contains_key_condition("contains", &args, &static_bindings),
+            lower_i64_map_contains_key_condition(
+                "contains",
+                &args,
+                &HashMap::new(),
+                &HashMap::new(),
+                &HashMap::new(),
+                &static_bindings
+            ),
             Some(CraneliftI64Condition::Literal(true))
         );
         assert_eq!(
             lower_i64_map_contains_key_condition(
                 "contains",
                 &[map.clone(), missing_key],
+                &HashMap::new(),
+                &HashMap::new(),
+                &HashMap::new(),
                 &static_bindings
             ),
             Some(CraneliftI64Condition::Literal(false))

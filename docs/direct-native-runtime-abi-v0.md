@@ -698,10 +698,13 @@ direct-native process exit status. Trimmed dynamic key-array projection locals
 can also feed `string_starts_with(...)` predicates without materializing runtime
 strings. Direct indexes into known map literals can also feed known string facts
 for helper returns, length projections, and `string_starts_with(...)`
-conditions.
+conditions. Dynamic finite string-key projections from `keys(...)` over known
+map literals can now also feed public `std/collections.ax` `contains(...)` and
+`get_or_default(...)` wrappers by lowering the selected-key lookup to native
+candidate-key selection without generated Rust.
 Broader map ownership, runtime map storage, general payload lookup bindings,
-runtime key array value projection, and host-boundary representation remain
-tracked by issue #1001.
+general `get(...)` Option payload selection for dynamic keys, key/value
+ownership, and host-boundary representation remain tracked by issue #1001.
 
 The `env.read` row now has partial Cranelift evidence for `std/env.ax`
 `get_env` on present and missing environment names while the public smoke
