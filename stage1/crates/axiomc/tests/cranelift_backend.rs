@@ -2637,6 +2637,46 @@ fn cranelift_backend_lowers_struct_literal_field_to_runtime_exit_code() {
 
 #[cfg(not(windows))]
 #[test]
+fn cranelift_backend_lowers_struct_branch_reassignment_to_runtime_exit_code() {
+    if which::which("cc").is_err() {
+        eprintln!("skipping cranelift backend smoke test because cc is unavailable");
+        return;
+    }
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("struct-branch-reassignment-main-exit");
+    write_struct_branch_reassignment_main_exit_project(&project);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args([
+            "build",
+            project.to_str().expect("project path"),
+            "--backend",
+            "cranelift",
+            "--json",
+        ])
+        .output()
+        .expect("run axiomc build --backend cranelift");
+    assert!(
+        output.status.success(),
+        "cranelift struct branch reassignment main build failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+    assert_eq!(payload["backend"], "cranelift");
+    assert_eq!(payload["generated_rust"], Value::Null);
+    let binary = payload["binary"].as_str().expect("binary path");
+    let run = Command::new(binary)
+        .output()
+        .expect("run cranelift struct branch reassignment main binary");
+    assert_eq!(run.status.code(), Some(48));
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "");
+}
+
+#[cfg(not(windows))]
+#[test]
 fn cranelift_backend_lowers_i64_while_loop_to_runtime_exit_code() {
     if which::which("cc").is_err() {
         eprintln!("skipping cranelift backend smoke test because cc is unavailable");
@@ -9436,6 +9476,26 @@ fn write_struct_literal_field_main_exit_project(project: &Path) {
         "struct Step {\nvalue: int\nready: bool\nsmall: u8\n}\n\nfn make_step(value: int, ready: bool): Step {\nreturn Step { small: 2u8, ready: ready, value: value }\n}\n\nfn make_local_step(value: int): Step {\nlet step: Step = Step { small: 2u8, ready: true, value: value }\nreturn step\n}\n\nfn forward_step(step: Step): Step {\nreturn step\n}\n\nfn choose_step(flag: bool, value: int): Step {\nlet ready: bool = value == 12\nif flag {\nlet local_value: int = value\nreturn Step { ready: ready, small: 2u8, value: local_value }\n} else {\nlet fallback: int = 1\nreturn Step { small: 0u8, value: fallback, ready: false }\n}\n}\n\nfn step_score(step: Step): int {\nlet value: int = step.value\nlet small: int = step.small as int\nif step.ready {\nreturn value + small\n} else {\nreturn 1\n}\n}\n\nfn field_gate(step: Step): bool {\nlet ready: bool = step.ready\nreturn ready && step.value == 1 && step.small == 2u8\n}\n\nfn main(): int {\nlet step: Step = Step { ready: true, small: 2u8, value: 12 }\nlet returned_step: Step = make_step(12, true)\nlet local_step: Step = make_local_step(12)\nlet step_to_forward: Step = make_step(12, true)\nlet forwarded_step: Step = forward_step(step_to_forward)\nlet branch_step: Step = choose_step(true, 12)\nlet fallback_step: Step = choose_step(false, 12)\nlet blocked_step: Step = Step { small: 2u8, value: step.value, ready: false }\nlet gate_step: Step = Step { small: 2u8, ready: true, value: 1 }\nlet value: int = step.value\nlet small: int = step.small as int\nlet ready: bool = step.ready\nlet blocked: bool = blocked_step.ready\nlet returned_score: int = step_score(returned_step)\nlet local_score: int = step_score(local_step)\nlet forwarded_score: int = step_score(forwarded_step)\nlet branch_score: int = step_score(branch_step)\nlet fallback_score: int = step_score(fallback_step)\nlet helper_score: int = step_score(step)\nlet blocked_score: int = step_score(blocked_step)\nlet inline_score: int = step_score(Step { small: 2u8, ready: true, value: 12 })\nif ready && blocked == false && field_gate(gate_step) && helper_score == 14 && returned_score == 14 && local_score == 14 && forwarded_score == 14 && branch_score == 14 && fallback_score == 1 && blocked_score == 1 && inline_score == 14 {\nreturn value + small + 34\n} else {\nreturn 1\n}\n}\n",
     )
     .expect("write struct literal field main exit source");
+}
+
+fn write_struct_branch_reassignment_main_exit_project(project: &Path) {
+    fs::create_dir_all(project.join("src"))
+        .expect("create struct branch reassignment main exit project src");
+    fs::write(
+        project.join("axiom.toml"),
+        "[package]\nname = \"cranelift-struct-branch-reassignment-main-exit\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n",
+    )
+    .expect("write struct branch reassignment main exit manifest");
+    fs::write(
+        project.join("axiom.lock"),
+        "version = 1\n\n[[package]]\nname = \"cranelift-struct-branch-reassignment-main-exit\"\nversion = \"0.1.0\"\nsource = \"path\"\n",
+    )
+    .expect("write struct branch reassignment main exit lockfile");
+    fs::write(
+        project.join("src/main.ax"),
+        "struct Step {\nvalue: int\nready: bool\nsmall: u8\n}\n\nfn make_step(value: int, ready: bool): Step {\nif ready {\nreturn Step { small: 2u8, ready: ready, value: value }\n} else {\nreturn Step { small: 0u8, value: 1, ready: false }\n}\n}\n\nfn score(step: Step): int {\nif step.ready {\nreturn step.value + (step.small as int)\n} else {\nreturn 1\n}\n}\n\nfn main(): int {\nlet selected: Step = Step { value: 0, ready: false, small: 0u8 }\nlet fallback: Step = Step { value: 0, ready: false, small: 0u8 }\nlet gate: bool = true\nif gate {\nselected = make_step(46, true)\nfallback = make_step(49, false)\n} else {\nselected = Step { value: 1, ready: false, small: 0u8 }\nfallback = Step { value: 1, ready: false, small: 0u8 }\n}\nlet selected_ready: bool = selected.ready\nlet selected_code: int = score(selected)\nlet fallback_code: int = score(fallback)\nif selected_ready && selected_code == 48 && fallback_code == 1 {\nreturn selected_code\n} else {\nreturn fallback_code\n}\n}\n",
+    )
+    .expect("write struct branch reassignment main exit source");
 }
 
 fn write_i64_while_loop_exit_project(project: &Path) {

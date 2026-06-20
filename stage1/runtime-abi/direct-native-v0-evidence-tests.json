@@ -84,6 +84,7 @@
     ],
     "struct.field": [
       "cranelift_backend_lowers_struct_literal_field_to_runtime_exit_code",
+      "cranelift_backend_lowers_struct_branch_reassignment_to_runtime_exit_code",
       "cranelift_backend_builds_struct_field_binary",
       "cranelift_backend_lowers_i64_while_loop_to_runtime_exit_code",
       "cranelift_backend_lowers_aggregate_helper_args_to_runtime_exit_code",

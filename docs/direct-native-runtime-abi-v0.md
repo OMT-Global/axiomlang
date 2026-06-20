@@ -366,10 +366,12 @@ payload construction, matching, helper parameters, helper returns, forwarded
 helper values, and inline `Some(Step { ... })`/`None` and
 `Ok(Step { ... })`/`Err(Step { ... })` helper arguments. Existing struct locals
 can now be reassigned from struct helper returns using the declared-field slot
-ABI, including inside runtime branch blocks. The row remains partial because
-direct-native codegen still does not provide a general struct ABI, struct
-storage for non-scalar fields, owned field projection, field mutation, struct
-return expressions beyond the scalar/bool local, literal, and parameter slice,
+ABI, including inside runtime branch blocks; a focused runtime-exit test now
+tracks branch-local struct reassignment from helper returns. The row remains
+partial because direct-native codegen still does not provide a general struct
+ABI, struct storage for non-scalar fields, owned field projection, field
+mutation, struct return expressions beyond the scalar/bool local, literal, and
+parameter slice,
 or a complete aggregate value passing contract.
 
 The focused value-feature evidence manifest also records aggregate smoke
