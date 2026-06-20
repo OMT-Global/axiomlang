@@ -5,6 +5,7 @@
   "value_features": {
     "array.fixed": [
       "cranelift_backend_lowers_array_literal_index_to_runtime_exit_code",
+      "cranelift_backend_lowers_array_branch_reassignment_to_runtime_exit_code",
       "cranelift_backend_lowers_fixed_array_intrinsics_to_runtime_exit_code",
       "cranelift_backend_builds_const_sized_array_conformance_binary",
       "cranelift_backend_builds_array_helpers_binary",
@@ -16,6 +17,7 @@
     "boolean": [
       "cranelift_backend_lowers_i64_bool_returning_main_to_runtime_exit_code",
       "cranelift_backend_lowers_bool_conditions_to_runtime_exit_code",
+      "cranelift_backend_lowers_bool_branch_reassignment_to_runtime_exit_code",
       "cranelift_backend_lowers_bool_tuple_index_to_runtime_exit_code",
       "cranelift_backend_lowers_bool_aggregate_projections_to_runtime_exit_code",
       "cranelift_backend_lowers_bool_print_runtime_stdout_in_direct_native_main"
@@ -50,6 +52,7 @@
       "cranelift_backend_lowers_option_tuple_payload_match_to_runtime_exit_code",
       "cranelift_backend_lowers_option_array_payload_match_to_runtime_exit_code",
       "cranelift_backend_lowers_option_struct_payload_match_to_runtime_exit_code",
+      "cranelift_backend_lowers_option_branch_reassignment_to_runtime_exit_code",
       "cranelift_backend_lowers_nested_option_match_to_runtime_exit_code"
     ],
     "owned.move_state": [
@@ -66,6 +69,7 @@
       "cranelift_backend_lowers_result_dual_tuple_payload_match_to_runtime_exit_code",
       "cranelift_backend_lowers_result_array_payload_match_to_runtime_exit_code",
       "cranelift_backend_lowers_result_struct_payload_match_to_runtime_exit_code",
+      "cranelift_backend_lowers_result_branch_reassignment_to_runtime_exit_code",
       "cranelift_backend_lowers_nested_result_match_to_runtime_exit_code"
     ],
     "slice.borrowed": [
