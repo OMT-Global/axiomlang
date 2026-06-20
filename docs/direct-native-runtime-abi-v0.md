@@ -304,13 +304,15 @@ narrow `Option<[int; 2]>` and `Result<[int; 2], [int; 2]>` construction,
 tag/payload matches, helper parameters, helper returns, and forwarded helper
 values. Existing fixed-array locals can now be reassigned from fixed-array
 helper returns using the same element-slot ABI, including inside runtime loop
-blocks. Fixed-array `len`, `first`, and `last` over scalar and bool element
-arrays also lower through the same projected element-slot representation for
-local arrays, inline literals, helper parameters, and helper-returned arrays
-feeding a direct-native process exit status. The row remains partial because
-direct-native codegen still does not provide a general array ABI, array storage
-for non-scalar elements, full dynamic indexing semantics, bounds diagnostics,
-or a complete aggregate value passing contract.
+blocks; a focused runtime-exit test now also tracks branch-local fixed-array
+reassignment from helper returns. Fixed-array `len`, `first`, and `last` over
+scalar and bool element arrays also lower through the same projected
+element-slot representation for local arrays, inline literals, helper
+parameters, and helper-returned arrays feeding a direct-native process exit
+status. The row remains partial because direct-native codegen still does not
+provide a general array ABI, array storage for non-scalar elements, full
+dynamic indexing semantics, bounds diagnostics, or a complete aggregate value
+passing contract.
 
 The focused value-feature evidence manifest also links the public scalar
 aggregate smoke, the while-loop aggregate reassignment smoke, and the aggregate

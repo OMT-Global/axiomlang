@@ -5,6 +5,7 @@
   "value_features": {
     "array.fixed": [
       "cranelift_backend_lowers_array_literal_index_to_runtime_exit_code",
+      "cranelift_backend_lowers_array_branch_reassignment_to_runtime_exit_code",
       "cranelift_backend_lowers_fixed_array_intrinsics_to_runtime_exit_code",
       "cranelift_backend_builds_const_sized_array_conformance_binary",
       "cranelift_backend_builds_array_helpers_binary",
