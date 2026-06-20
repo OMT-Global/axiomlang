@@ -165,7 +165,10 @@ expressions, helper `int -> int` and `int/i64` boundary functions, simple
 returns, and casts, narrow unsigned `u8`/`u16`/`u32` helper arguments, locals,
 returns, and casts, explicit narrow integer casts with unsigned truncation and
 signed extension, typed narrow integer arithmetic and helper return values cast
-back to their source width, immediate tuple-literal scalar indexing,
+back to their source width, and a focused runtime-exit cross-width smoke
+covering signed `i8` helper parameters and returns, `u16`-to-`int` widening,
+`u8` truncation, `i8` signed narrowing, and `i64` round-trip process exit
+status, immediate tuple-literal scalar indexing,
 scalar projection from local tuple bindings, immediate array-literal scalar
 indexing with literal indexes, scalar projection from local fixed-array
 bindings, immediate struct-literal scalar field access, scalar projection from
@@ -184,9 +187,15 @@ computed value as the process exit status at runtime without generated Rust.
 The public scalar aggregate, numeric cross-width, and static scalar smokes now
 also assert that the build JSON reports `generated_rust: null`, so this evidence
 cannot silently drift back through generated Rust.
+The focused evidence manifest now also links the `main(): i64` runtime-exit
+smoke to the numeric row so that direct i64 entrypoint process-status lowering
+is counted explicitly.
 The public integer stdout smoke also asserts `generated_rust: null` while
 printing helper-returned integer locals and arithmetic derived from those locals
 from a direct-native main function.
+The focused evidence manifest now links that smoke to both the numeric scalar
+row and the stdio capability row so native integer formatting and native stdout
+emission are counted together.
 The same path now has narrow boolean runtime
 evidence for signed i64 comparisons, bool local bindings backed by i64 slots,
 simple bool static values, and boolean literals composed with `&&`/`||` driving
@@ -199,14 +208,21 @@ bool locals, and comparison expressions. Bool-returning helpers can return
 condition expressions directly, use bool parameters in branch conditions, and
 cover final `if` branches whose arms return bool expressions. It also covers
 boolean equality/inequality between dynamic bool expressions, local/static bool
-values, and boolean literals in conditions, plus immediate tuple-literal bool
+values, and boolean literals in conditions, plus a focused runtime-exit smoke
+proving helper bool equality/inequality predicates, chosen bool branches, and
+composed `&&`/`||` conditions can drive native process exit status `48` without
+generated Rust. A focused runtime-exit test now also covers branch-local bool
+reassignment from helper-returned comparisons before the reassigned booleans
+drive process exit status. It also covers immediate tuple-literal bool
 indexing, bool projection from local tuple bindings, immediate array-literal
 bool indexing, bool projection from local fixed-array bindings, immediate
 struct-literal bool field access, and bool projection from local struct
-bindings for bool locals, helper returns, and boolean conditions. The backend
-crate has narrow object-link evidence for composed `&&`/`||` comparison conditions,
-condition-to-i64 value lowering for helper-call arguments, and bool local
-assignment through a branch inside a loop after a scoped runtime bool `let`.
+bindings for bool locals, helper returns, and boolean conditions. The focused
+evidence manifest now links a boolean aggregate projection runtime-exit smoke to
+this row so fixed-array and struct bool projections are counted explicitly. The
+backend crate has narrow object-link evidence for composed `&&`/`||` comparison
+conditions, condition-to-i64 value lowering for helper-call arguments, and bool
+local assignment through a branch inside a loop after a scoped runtime bool `let`.
 Both rows remain partial because that runtime path does not yet cover the full
 supported scalar, function-call, control-flow, or boolean surface.
 
@@ -244,7 +260,13 @@ for that arm, including static scalar `string_line_at(...)` indexes. Known-text
 length and comparison path, and known-input `encoding_url_component_decode(...)`
 can lower direct `Option<string>` matches by compile-time arm selection.
 Imported public `std/encoding.ax` wrappers now alias those same known-input
-encode, decode, query-pair, and path-join lowering paths.
+encode, decode, query-pair, and path-join lowering paths; the focused evidence
+manifest now links the encoding wrapper runtime-exit smoke to this row.
+Imported public `std/string_builder.ax` builder, seed, push, line-push, and
+finish wrappers now alias known text facts that can feed direct-native string
+comparisons, length projections, and process exit status without generated
+Rust; the focused evidence manifest now links the wrapper runtime-exit smoke to
+this row.
 Known-input `crypto_sha256(...)`, `crypto_hmac_sha256(...)`, and
 `crypto_hmac_sha512(...)` calls can also feed direct-native string length and
 comparison paths after normal front-end crypto capability checks. Supported
@@ -284,19 +306,26 @@ narrow `Option<[int; 2]>` and `Result<[int; 2], [int; 2]>` construction,
 tag/payload matches, helper parameters, helper returns, and forwarded helper
 values. Existing fixed-array locals can now be reassigned from fixed-array
 helper returns using the same element-slot ABI, including inside runtime loop
-blocks. Fixed-array `len`, `first`, and `last` over scalar and bool element
-arrays also lower through the same projected element-slot representation for
-local arrays, inline literals, helper parameters, and helper-returned arrays
-feeding a direct-native process exit status. The row remains partial because
-direct-native codegen still does not provide a general array ABI, array storage
-for non-scalar elements, full dynamic indexing semantics, bounds diagnostics,
-or a complete aggregate value passing contract.
+blocks; a focused runtime-exit test now also tracks branch-local fixed-array
+reassignment from helper returns. Fixed-array `len`, `first`, and `last` over
+scalar and bool element arrays also lower through the same projected
+element-slot representation for local arrays, inline literals, helper
+parameters, and helper-returned arrays feeding a direct-native process exit
+status. The row remains partial because direct-native codegen still does not
+provide a general array ABI, array storage for non-scalar elements, full
+dynamic indexing semantics, bounds diagnostics, or a complete aggregate value
+passing contract.
 
 The focused value-feature evidence manifest also links the public scalar
-aggregate smoke and the while-loop aggregate reassignment smoke to the
-fixed-array row, because those tests prove fixed-array helper arguments,
-scalar projection, and loop-body reassignment paths through direct-native output
-without generated Rust.
+aggregate smoke, the while-loop aggregate reassignment smoke, and the aggregate
+helper reassignment smoke to the fixed-array row, because those tests prove
+fixed-array helper arguments, scalar projection, loop-body reassignment, and
+helper-return reassignment paths through direct-native output without generated
+Rust.
+
+The aggregate helper-argument smoke also proves local fixed arrays and inline
+fixed-array literals can cross direct-native helper-call boundaries and feed
+process exit status through element-slot lowering.
 
 The `tuple` row now has narrow direct-native runtime evidence for immediate
 tuple-literal scalar indexing and scalar projection from local tuple bindings.
@@ -312,10 +341,12 @@ multi-slot return; this includes helpers whose final return is selected by
 branch blocks with branch-local scalar values, helpers returning local tuple
 bindings, and helpers forwarding tuple parameters. Existing tuple locals can
 now be reassigned from tuple helper returns using the same tuple-element ABI,
-including inside runtime loop blocks. The row remains partial because
-direct-native codegen still does not provide a general tuple ABI, tuple storage
-for non-scalar elements, tuple return expressions beyond the scalar/bool local,
-literal, and parameter slice, or a complete aggregate value passing contract.
+including inside runtime loop blocks; a focused runtime-exit test now also
+tracks branch-local tuple reassignment from helper returns. The row remains
+partial because direct-native codegen still does not provide a general tuple
+ABI, tuple storage for non-scalar elements, tuple return expressions beyond the
+scalar/bool local, literal, and parameter slice, or a complete aggregate value
+passing contract.
 
 The `struct.field` row now has narrow direct-native runtime evidence for
 immediate struct-literal scalar field access and scalar projection from local
@@ -339,17 +370,26 @@ payload construction, matching, helper parameters, helper returns, forwarded
 helper values, and inline `Some(Step { ... })`/`None` and
 `Ok(Step { ... })`/`Err(Step { ... })` helper arguments. Existing struct locals
 can now be reassigned from struct helper returns using the declared-field slot
-ABI, including inside runtime branch blocks. The row remains partial because
-direct-native codegen still does not provide a general struct ABI, struct
-storage for non-scalar fields, owned field projection, field mutation, struct
-return expressions beyond the scalar/bool local, literal, and parameter slice,
+ABI, including inside runtime branch blocks; a focused runtime-exit test now
+tracks branch-local struct reassignment from helper returns. The row remains
+partial because direct-native codegen still does not provide a general struct
+ABI, struct storage for non-scalar fields, owned field projection, field
+mutation, struct return expressions beyond the scalar/bool local, literal, and
+parameter slice,
 or a complete aggregate value passing contract.
 
 The focused value-feature evidence manifest also records aggregate smoke
 coverage for tuple and struct rows: scalar aggregate output covers public
 string/int tuple projection, and the while-loop aggregate reassignment smoke
 covers tuple, fixed-array, and struct projection/reassignment through runtime
-loop blocks without generated Rust.
+loop blocks without generated Rust. The aggregate helper reassignment smoke now
+also links to tuple and struct rows because it proves helper-returned aggregate
+reassignment can feed process exit status without generated Rust.
+
+The aggregate helper-argument smoke adds focused runtime-exit evidence that
+local tuple values, inline tuple literals, local structs, and inline struct
+literals lower across direct-native helper-call boundaries without generated
+Rust.
 
 The `option` row now has narrow direct-native runtime evidence for local
 `Option<int>` and `Option<bool>` construction represented as tag/payload locals,
@@ -371,10 +411,12 @@ helper parameters, helper returns, forwarded helper values, and inline
 `Some(Step { ... })`/`None` helper arguments using declared field-order payload
 slots. Existing narrow `Option<Step>` locals can now be reassigned from option
 helper returns using the same tag/payload slots, including inside runtime branch
-blocks. The direct-native path also has narrow evidence for nested
-`Option<Option<int>>` construction, reassignment, matching, helper parameters,
-helper returns, forwarded helper values, and inline `Some(Some(...))`,
-`Some(None)`, and outer `None` helper arguments using nested tag/payload slots.
+blocks; a focused runtime-exit test now tracks branch-local `Option<Step>`
+reassignment from helper returns. The direct-native path also has narrow
+evidence for nested `Option<Option<int>>` construction, reassignment, matching,
+helper parameters, helper returns, forwarded helper values, and inline
+`Some(Some(...))`, `Some(None)`, and outer `None` helper arguments using nested
+tag/payload slots.
 The same nested slot representation now has narrow evidence for
 `Option<Result<int, int>>` construction, reassignment, matching, helper
 parameters, helper returns, forwarded helper values, and inline
@@ -671,16 +713,21 @@ encoding, and path segment joining without generated Rust. Known-text encoding
 helpers now also feed narrow direct-native string length/comparison lowering,
 known-input `string_line_at(...)` also accepts static scalar indexes, and
 known-input percent decode can feed direct `Option<string>` matches without
-generated Rust. Pure known-text helper calls can now fold direct-return,
-local-let-return, final-if-return, match-return, and final-match-statement string
-helper arguments and returns, including tuple-index and struct-field string
-projections and direct map-index string projections over known map literals,
-into direct-native length, comparison, and `string_starts_with(...)` conditions
-without generated Rust.
+generated Rust; the focused evidence manifest now links the encoding wrapper
+runtime-exit smoke to this row. Pure known-text helper calls can now fold
+direct-return, local-let-return, final-if-return, match-return, and
+final-match-statement string helper arguments and returns, including tuple-index
+and struct-field string projections and direct map-index string projections
+over known map literals, into direct-native length, comparison, and
+`string_starts_with(...)` conditions without generated Rust.
+The focused evidence manifest now also links the unsupported string-helper
+`main` smoke to this row, proving side-effecting string helper bodies still
+fail closed at the direct-native i64 ABI boundary.
 Imported public `std/string_builder.ax` builder, seed, push,
 line-push, and finish wrappers now alias known text facts that can feed
 direct-native string comparisons, length projections, and process exit status
-without generated Rust. Broader string ABI coverage, allocation behavior,
+without generated Rust; the focused evidence manifest now links the wrapper
+runtime-exit smoke to this row. Broader string ABI coverage, allocation behavior,
 general runtime string parameters and returns, non-literal storage, and
 host-boundary representation remain tracked by issue #1124.
 
@@ -694,6 +741,9 @@ fixed-array slots, including helper-parameter arrays feeding a direct-native
 process exit status. Static-range fixed-array slices also support narrow literal
 and dynamic indexing over the sliced window through the same projection slots,
 including pre-runtime slice locals that alias the projected fixed-array slots.
+The focused evidence manifest now also links the borrowed-slice helper-parameter
+rejection smoke to this row, proving general `&[T]` helper parameters still
+fail closed at the direct-native i64 ABI boundary.
 Broader borrowed-slice aliasing, dynamic slice bounds, slice returns, and host
 ABI coverage remain tracked by issue #1124.
 
@@ -717,14 +767,16 @@ process exit status. Integer and boolean lookup results can also feed local
 same direct-native body, and known string lookup results can feed pre-runtime
 local `Option<string>` facts that are matched later in the same body.
 Pre-runtime local map bindings initialized from inline map literals can feed the
-same `get_or_default`, `map_contains_key`, and `get` lowering, and
+same `get_or_default`, `map_contains_key`, `get`, and scalar direct-index
+lowering, and
 `len(keys(...))`/`len(map_keys(...))` can count static map keys without
 materializing a runtime key array. Static scalar integer and boolean keys can
 also feed inline and pre-runtime map lookup, contains, and get-or-default
 lowering. Imported public `std/collections.ax` `contains`, `get`,
 `get_or_default`, and `keys` map wrappers now alias the same direct-native i64
-lowering for static string/int map-local cases. Literal indexes into static
-string key arrays can also feed known string length
+lowering for static string/int map-local cases, and the focused evidence
+manifest now links the wrapper runtime-exit smoke to this row. Literal indexes
+into static string key arrays can also feed known string length
 lowering, and non-literal scalar indexes into those static string key arrays can
 select among known key byte lengths. Dynamic key-array value projection locals
 whose index is derived from a prior collection predicate local can also feed
@@ -735,9 +787,18 @@ can also feed `string_starts_with(...)` predicates without materializing runtime
 strings. Direct indexes into known map literals can also feed known string facts
 for helper returns, length projections, and `string_starts_with(...)`
 conditions.
+The map helper-local runtime-exit smoke proves a known map direct index can be
+lowered inside an Axiom helper and returned through a native helper call into
+process exit status.
+The focused evidence manifest now also links the runtime-selected `keys(...)`
+projection smoke to this row, covering finite map-key selection through public
+`std/log.ax` length projection without generated Rust.
+The focused evidence manifest now also links the float-key rejection smoke to
+this row, covering the unsupported map-key boundary alongside supported
+scalar/string key lowering.
 Broader map ownership, runtime map storage, general payload lookup bindings,
-runtime key array value projection, and host-boundary representation remain
-tracked by issue #1124.
+map helper parameters, runtime key array value projection, and host-boundary
+representation remain tracked by issue #1124.
 
 The `env.read` row now has partial Cranelift evidence for `std/env.ax`
 `get_env` on present and missing environment names while the public smoke
@@ -839,10 +900,12 @@ parameters, helper returns, forwarded helper values, and inline
 `Ok(Step { ... })`/`Err(Step { ... })` helper arguments using declared
 field-order payload slots. Existing narrow `Result<Step, Step>` locals can now
 be reassigned from result helper returns using the same tag/payload slots,
-including inside runtime branch blocks. The nested option payload slice now also
-has narrow direct-native evidence for `Result<Option<int>, int>` construction,
-reassignment, matching, helper parameters, helper returns, forwarded helper
-values, and inline `Ok(Some(...))`, `Ok(None)`, and `Err(...)` helper arguments.
+including inside runtime branch blocks; a focused runtime-exit test now tracks
+branch-local `Result<Step, Step>` reassignment from helper returns. The nested
+option payload slice now also has narrow direct-native evidence for
+`Result<Option<int>, int>` construction, reassignment, matching, helper
+parameters, helper returns, forwarded helper values, and inline
+`Ok(Some(...))`, `Ok(None)`, and `Err(...)` helper arguments.
 The recursive result payload slice now also has narrow evidence for
 `Result<Result<int, int>, int>` construction, reassignment, matching, helper
 parameters, helper returns, forwarded helper values, and inline `Ok(Ok(...))`,
@@ -865,13 +928,15 @@ slots for local values and inline variant arguments. Narrow custom enum helper
 returns and forwarded local or parameter values also lower through the same
 tag/payload slots for scalar struct payload variants. Existing narrow custom
 enum locals can now be reassigned from enum helper returns using the same
-tag/payload slots, including inside runtime branch blocks. The same
-representation now has narrow evidence for positional custom enum payloads
-carrying nested `Option<Result<int, int>>` and `Result<Option<int>, int>` values,
-including runtime-scope literal construction, reassignment, value-producing
-matches, helper returns, forwarded helper values, and inline nested variant
-arguments. Broader enum ABI support, deeper nested payload shapes, and aggregate
-payload storage beyond the evidenced slices remain tracked by issue #1124.
+tag/payload slots, including inside runtime branch blocks; a focused
+runtime-exit test now tracks this branch-local helper-return reassignment path
+for the enum row. The same representation now has narrow evidence for
+positional custom enum payloads carrying nested `Option<Result<int, int>>` and
+`Result<Option<int>, int>` values, including runtime-scope literal construction,
+reassignment, value-producing matches, helper returns, forwarded helper values,
+and inline nested variant arguments. Broader enum ABI support, deeper nested
+payload shapes, and aggregate payload storage beyond the evidenced slices
+remain tracked by issue #1124.
 
 The `json.serdes` row has expanded partial direct-native evidence: the
 Cranelift spike now builds and runs `std/json.ax` scalar/object helpers and
@@ -976,7 +1041,10 @@ projections and empty attribute objects. Supported dynamic `std/log.ax`
 `event(...)` expressions can also feed source-level `print` statements as
 native stdout JSON-line writes without generated Rust, including event messages
 and `field_string(...)` values backed by `std/json.ax` `stringify_string(...)`
-over supported scalar/bool projection locals. It also lowers known-string public
+over supported scalar/bool projection locals. The focused evidence manifest now
+links the selected projection, dynamic scalar length, dynamic `info_attrs`
+stderr, and dynamic event stdout smokes to this stdio row so the evidence
+runner exercises those public logging paths explicitly. It also lowers known-string public
 `std/io.ax`
 `eprintln` lets in direct-native i64 `main` functions and helper functions,
 including runtime-scope lets after assignments and inside branches, into native
@@ -985,6 +1053,9 @@ stderr writes while preserving newline-inclusive byte-count return values and
 statics, `string_clone(...)`, concatenation, pure helper string returns, and
 branch-local known string lets; scalar and aggregate-return helper functions can
 emit the same known stderr writes and return byte counts through native calls.
+The focused evidence manifest now links the scalar-helper and aggregate-helper
+stderr smokes to this row so those helper-call paths are exercised by the
+stdio evidence runner.
 Dynamic scalar `std/json.ax` `stringify_int` and `stringify_bool` expressions,
 including scalar stringify results first assigned to string locals, can also
 feed public `std/io.ax` `eprintln` lets in direct-native i64 `main` functions,
@@ -1010,7 +1081,10 @@ and scalar and aggregate-return helpers without generated Rust. Boolean and
 integer source-level `print` statements also lower to native stdout writes in
 direct-native i64 `main` functions and scalar and aggregate-return helpers
 without generated Rust, including runtime integer values formatted through the
-native object backend. Dynamic scalar `std/json.ax`
+native object backend.
+The focused evidence manifest now also links the scalar-helper and
+aggregate-helper stdout smokes to this row so native helper-call output remains
+explicitly covered. Dynamic scalar `std/json.ax`
 `stringify_int` and
 `stringify_bool` print expressions, including scalar stringify results first
 assigned to string locals, reuse those same native stdout writers in
@@ -1027,8 +1101,12 @@ Terminal source-level
 `panic(...)` statements with known string messages, including literals, locals,
 statics, `string_clone(...)`, concatenation, pure helper string returns, and
 branch-local known string lets in terminal branch arms, also lower into native
-stderr JSON panic reports and exit status `1` without generated Rust. Terminal
-panic messages backed by dynamic `std/json.ax` `stringify_int(...)` and
+stderr JSON panic reports and exit status `1` without generated Rust.
+The focused evidence manifest now links the terminal panic native-report smoke
+and the helper panic-as-value-return rejection smoke to this row so the evidence
+runner covers both the allowed terminal-report path and the rejected helper-value
+boundary.
+Terminal panic messages backed by dynamic `std/json.ax` `stringify_int(...)` and
 `stringify_bool(...)` expressions, including string locals assigned from those
 expressions in terminal branch arms, also lower to native stderr JSON panic
 reports without materializing a general string runtime. Terminal panic messages
