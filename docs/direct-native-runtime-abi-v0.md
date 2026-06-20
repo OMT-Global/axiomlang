@@ -775,6 +775,9 @@ process exit status.
 The focused evidence manifest now also links the runtime-selected `keys(...)`
 projection smoke to this row, covering finite map-key selection through public
 `std/log.ax` length projection without generated Rust.
+The focused evidence manifest now also links the float-key rejection smoke to
+this row, covering the unsupported map-key boundary alongside supported
+scalar/string key lowering.
 Broader map ownership, runtime map storage, general payload lookup bindings,
 map helper parameters, runtime key array value projection, and host-boundary
 representation remain tracked by issue #1124.
