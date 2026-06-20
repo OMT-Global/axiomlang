@@ -17,6 +17,7 @@
     "boolean": [
       "cranelift_backend_lowers_i64_bool_returning_main_to_runtime_exit_code",
       "cranelift_backend_lowers_bool_conditions_to_runtime_exit_code",
+      "cranelift_backend_lowers_bool_branch_reassignment_to_runtime_exit_code",
       "cranelift_backend_lowers_bool_tuple_index_to_runtime_exit_code",
       "cranelift_backend_lowers_bool_aggregate_projections_to_runtime_exit_code",
       "cranelift_backend_lowers_bool_print_runtime_stdout_in_direct_native_main"
