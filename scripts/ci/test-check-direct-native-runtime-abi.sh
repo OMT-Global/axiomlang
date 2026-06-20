@@ -82,6 +82,17 @@ value_rows = {row["id"]: row for row in contract["value_features"]}
 capability_rows = {row["id"]: row for row in contract["capability_shims"]}
 assert "stage1/crates/axiomc/src/hir.rs" in value_rows["owned.move_state"]["runtime_evidence"]
 for row_id in (
+    "boolean",
+    "enum.payload",
+    "numeric.scalars",
+    "option",
+    "result",
+):
+    runtime_evidence = value_rows[row_id]["runtime_evidence"]
+    assert "stage1/crates/axiomc/src/cranelift_backend.rs" in runtime_evidence
+    assert "stage1/crates/axiomc-backend-cranelift/src/lib.rs" in runtime_evidence
+
+for row_id in (
     "array.fixed",
     "map.lookup",
     "slice.borrowed",
