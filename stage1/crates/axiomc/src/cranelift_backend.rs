@@ -9280,6 +9280,20 @@ fn lower_i64_condition(
             index,
             ty: Type::Bool,
         } => {
+            if let Some(value) = lower_i64_map_key_array_projection_index_expr(
+                base,
+                index,
+                local_indexes,
+                local_conditions,
+                helper_signatures,
+                static_bindings,
+            ) {
+                return Some(CraneliftI64Condition::Compare(CraneliftI64Compare {
+                    op: CraneliftI64CompareOp::Ne,
+                    lhs: value,
+                    rhs: CraneliftI64Expr::Literal(0),
+                }));
+            }
             if let Some(value) = lower_i64_slice_projection_index_expr(
                 base,
                 index,
@@ -11164,6 +11178,16 @@ fn lower_i64_expr(
             ) {
                 return lower_i64_cast_expr(expr, ty);
             }
+            if let Some(expr) = lower_i64_map_key_array_projection_index_expr(
+                base,
+                index,
+                local_indexes,
+                local_conditions,
+                helper_signatures,
+                static_bindings,
+            ) {
+                return lower_i64_cast_expr(expr, ty);
+            }
             if let Some(expr) = lower_i64_slice_projection_index_expr(
                 base,
                 index,
@@ -12378,6 +12402,67 @@ fn lower_i64_array_projection_index_expr(
         };
     }
     Some(result)
+}
+
+fn lower_i64_map_key_array_projection_index_expr(
+    base: &Expr,
+    index: &Expr,
+    local_indexes: &HashMap<String, usize>,
+    local_conditions: &HashMap<String, CraneliftI64Condition>,
+    helper_signatures: &HashMap<&str, I64HelperSignature>,
+    static_bindings: &I64StaticBindings,
+) -> Option<CraneliftI64Expr> {
+    let Expr::VarRef {
+        name,
+        ty: Type::Array(element, None),
+    } = base
+    else {
+        return None;
+    };
+    let keys = static_bindings.map_key_arrays.get(name)?;
+    if keys.is_empty() {
+        return None;
+    }
+    if let Some(index) = lower_i64_literal_index(index) {
+        return lower_i64_map_key_array_element_expr(keys.get(index)?, element);
+    }
+    let index = lower_i64_expr(
+        index,
+        local_indexes,
+        local_conditions,
+        helper_signatures,
+        static_bindings,
+    )?;
+    let last = keys.len() - 1;
+    let mut result = lower_i64_map_key_array_element_expr(keys.get(last)?, element)?;
+    for candidate in (0..last).rev() {
+        result = CraneliftI64Expr::Select {
+            cond: Box::new(CraneliftI64Condition::Compare(CraneliftI64Compare {
+                op: CraneliftI64CompareOp::Eq,
+                lhs: index.clone(),
+                rhs: CraneliftI64Expr::Literal(candidate as i64),
+            })),
+            then_result: Box::new(lower_i64_map_key_array_element_expr(
+                keys.get(candidate)?,
+                element,
+            )?),
+            else_result: Box::new(result),
+        };
+    }
+    Some(result)
+}
+
+fn lower_i64_map_key_array_element_expr(
+    key: &I64MapKey,
+    element: &Type,
+) -> Option<CraneliftI64Expr> {
+    match (key, element) {
+        (I64MapKey::Int(value), ty) if is_i64_compatible_type(ty) => {
+            lower_i64_cast_expr(CraneliftI64Expr::Literal(*value), ty)
+        }
+        (I64MapKey::Bool(value), Type::Bool) => Some(CraneliftI64Expr::Literal(i64::from(*value))),
+        _ => None,
+    }
 }
 
 fn lower_i64_slice_projection_index_expr(

@@ -12483,6 +12483,18 @@ let int_get_miss_scores: {int: int} = {2: 29}
 let int_get_miss_code: int = match get<int, int>(int_get_miss_scores, 1) { Some(value) => value, None => 13 }
 let int_fallback_scores: {int: int} = {2: 29}
 let int_fallback: int = get_or_default<int, int>(int_fallback_scores, 1, 13)
+let int_key_scores: {int: int} = {1: 7, 2: 29}
+let int_key_names: [int] = keys<int, int>(int_key_scores)
+let int_key_count: int = len(int_key_names)
+let first_int_key: int = int_key_names[0]
+let dynamic_int_key_index: int = choose_key_index(int_contains_hit)
+let selected_int_key: int = int_key_names[dynamic_int_key_index]
+let bool_key_scores: {bool: int} = {false: 7, true: 29}
+let bool_key_names: [bool] = keys<bool, int>(bool_key_scores)
+let bool_key_count: int = len(bool_key_names)
+let first_bool_key_missing: bool = bool_key_names[0] == false
+let dynamic_bool_key_index: int = choose_key_index(bool_contains_hit)
+let selected_bool_key: bool = bool_key_names[dynamic_bool_key_index]
 let key_count_scores: {string: int} = {"build": 7, "deploy": 9, "deploy": 11}
 let key_count_names: [string] = keys<string, int>(key_count_scores)
 let key_count: int = len(key_count_names)
@@ -12517,7 +12529,7 @@ let dynamic_key_trimmed_value: string = string_trim(dynamic_key_trim_value)
 let dynamic_key_trim_start_value: string = string_trim_start(dynamic_key_trim_value)
 let dynamic_key_trimmed_has_prefix: bool = string_starts_with(dynamic_key_trimmed_value, "dep")
 let dynamic_key_trim_start_has_prefix: bool = string_starts_with(dynamic_key_trim_start_value, "dep")
-if contains_hit && contains_miss && get_hit_code == 9 && get_miss_code == 13 && fallback == 13 && bool_contains_hit && bool_contains_miss && bool_get_hit_code == 29 && bool_get_miss_code == 13 && bool_fallback == 13 && bool_value_hit && int_contains_hit && int_contains_miss && int_get_hit_code == 29 && int_get_miss_code == 13 && int_fallback == 13 && key_count == 2 && first_key_len == 5 && second_key_len == 6 && dynamic_key_len == 6 && dynamic_key_is_deploy && dynamic_key_not_build && dynamic_key_has_prefix && dynamic_key_trim_len == 6 && dynamic_key_trim_start_len == 7 && dynamic_key_trimmed_has_prefix && dynamic_key_trim_start_has_prefix {
+if contains_hit && contains_miss && get_hit_code == 9 && get_miss_code == 13 && fallback == 13 && bool_contains_hit && bool_contains_miss && bool_get_hit_code == 29 && bool_get_miss_code == 13 && bool_fallback == 13 && bool_value_hit && int_contains_hit && int_contains_miss && int_get_hit_code == 29 && int_get_miss_code == 13 && int_fallback == 13 && int_key_count == 2 && first_int_key == 1 && selected_int_key == 2 && bool_key_count == 2 && first_bool_key_missing && selected_bool_key && key_count == 2 && first_key_len == 5 && second_key_len == 6 && dynamic_key_len == 6 && dynamic_key_is_deploy && dynamic_key_not_build && dynamic_key_has_prefix && dynamic_key_trim_len == 6 && dynamic_key_trim_start_len == 7 && dynamic_key_trimmed_has_prefix && dynamic_key_trim_start_has_prefix {
 return 48
 } else {
 return 1
