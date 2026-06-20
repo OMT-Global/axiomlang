@@ -2067,6 +2067,46 @@ fn cranelift_backend_lowers_slice_helper_params_to_runtime_exit_code() {
 
 #[cfg(not(windows))]
 #[test]
+fn cranelift_backend_lowers_slice_helper_returns_to_runtime_exit_code() {
+    if which::which("cc").is_err() {
+        eprintln!("skipping cranelift backend smoke test because cc is unavailable");
+        return;
+    }
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("slice-helper-returns-main-exit");
+    write_slice_helper_returns_main_exit_project(&project);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args([
+            "build",
+            project.to_str().expect("project path"),
+            "--backend",
+            "cranelift",
+            "--json",
+        ])
+        .output()
+        .expect("run axiomc build --backend cranelift");
+    assert!(
+        output.status.success(),
+        "cranelift slice helper returns main build failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+    assert_eq!(payload["backend"], "cranelift");
+    assert_eq!(payload["generated_rust"], Value::Null);
+    let binary = payload["binary"].as_str().expect("binary path");
+    let run = Command::new(binary)
+        .output()
+        .expect("run cranelift slice helper returns main binary");
+    assert_eq!(run.status.code(), Some(48));
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "");
+}
+
+#[cfg(not(windows))]
+#[test]
 fn cranelift_backend_lowers_string_literal_len_to_runtime_exit_code() {
     if which::which("cc").is_err() {
         eprintln!("skipping cranelift backend smoke test because cc is unavailable");
@@ -9410,6 +9450,26 @@ fn write_slice_helper_params_main_exit_project(project: &Path) {
         "fn score(values: &[int]): int {\nreturn len(values) + first(values) + last(values)\n}\n\nfn pick(values: &[int], index: int): int {\nreturn values[index]\n}\n\nfn gate(flags: &[bool], index: int): bool {\nreturn first(flags) == false && last(flags) && flags[index]\n}\n\nfn main(): int {\nlet values: [int; 3] = [1, 20, 26]\nlet local_values: [int; 3] = [1, 20, 26]\nlet pick_values: [int; 3] = [1, 20, 26]\nlet local_pick_values: [int; 3] = [1, 20, 26]\nlet flags: [bool; 3] = [true, false, true]\nlet local_flags: [bool; 3] = [true, false, true]\nlet index: int = 1\nlet window: &[int] = local_values[1:]\nlet pick_window: &[int] = local_pick_values[1:]\nlet flag_window: &[bool] = local_flags[1:]\nlet inline_score: int = score(values[1:])\nlet local_score: int = score(window)\nlet inline_pick: int = pick(pick_values[1:], index) + 22\nlet local_pick: int = pick(pick_window, index) + 22\nlet inline_gate: bool = gate(flags[1:], index)\nlet local_gate: bool = gate(flag_window, index)\nif inline_gate && local_gate && inline_score == 48 && local_score == 48 && inline_pick == 48 && local_pick == 48 {\nreturn 48\n} else {\nreturn 1\n}\n}\n",
     )
     .expect("write slice helper params main exit source");
+}
+
+fn write_slice_helper_returns_main_exit_project(project: &Path) {
+    fs::create_dir_all(project.join("src"))
+        .expect("create slice helper returns main exit project src");
+    fs::write(
+        project.join("axiom.toml"),
+        "[package]\nname = \"cranelift-slice-helper-returns-main-exit\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n",
+    )
+    .expect("write slice helper returns main exit manifest");
+    fs::write(
+        project.join("axiom.lock"),
+        "version = 1\n\n[[package]]\nname = \"cranelift-slice-helper-returns-main-exit\"\nversion = \"0.1.0\"\nsource = \"path\"\n",
+    )
+    .expect("write slice helper returns main exit lockfile");
+    fs::write(
+        project.join("src/main.ax"),
+        "fn identity(values: &[int]): &[int] {\nreturn values\n}\n\nfn main(): int {\nlet values: [int; 4] = [1, 20, 26, 9]\nlet window: &[int] = values[1:3]\nlet pick_index: int = 1\nlet returned: &[int] = identity(window)\nif len(returned) + first(returned) + last(returned) == 48 && returned[pick_index] + 22 == 48 {\nreturn 48\n} else {\nreturn 1\n}\n}\n",
+    )
+    .expect("write slice helper returns main exit source");
 }
 
 fn write_string_literal_len_main_exit_project(project: &Path) {

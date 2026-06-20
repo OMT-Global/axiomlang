@@ -75,7 +75,8 @@
     "slice.borrowed": [
       "cranelift_backend_lowers_static_slice_bounds_to_runtime_exit_code",
       "cranelift_backend_builds_borrowed_slice_binary",
-      "cranelift_backend_lowers_slice_helper_params_to_runtime_exit_code"
+      "cranelift_backend_lowers_slice_helper_params_to_runtime_exit_code",
+      "cranelift_backend_lowers_slice_helper_returns_to_runtime_exit_code"
     ],
     "string": [
       "cranelift_backend_lowers_string_literal_len_to_runtime_exit_code",

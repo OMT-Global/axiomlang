@@ -763,9 +763,11 @@ and dynamic indexing over the sliced window through the same projection slots,
 including pre-runtime slice locals that alias the projected fixed-array slots.
 The focused evidence manifest now also links borrowed-slice helper-parameter
 runtime-exit evidence for scalar and bool slices whose helper ABI width is
-statically witnessed by call sites. Broader borrowed-slice aliasing, dynamic
-slice bounds, slice returns, unconstrained helper-parameter widths, and host ABI
-coverage remain tracked by issue #1124.
+statically witnessed by call sites. Static-width borrowed-slice helper returns
+can also flow back through the same multi-slot ABI when the returned borrowed
+parameter width is statically witnessed by call sites. Broader borrowed-slice
+aliasing, dynamic slice bounds, unconstrained helper-parameter or helper-return
+widths, and host ABI coverage remain tracked by issue #1124.
 
 The map lookup row has partial direct-native evidence: the Cranelift spike now
 builds and runs direct map indexing, `get`, `get_or_default`,
