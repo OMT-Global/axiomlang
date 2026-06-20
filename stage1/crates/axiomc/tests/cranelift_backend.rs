@@ -5136,6 +5136,46 @@ fn cranelift_backend_lowers_static_bool_map_keys_to_runtime_exit_code() {
 
 #[cfg(not(windows))]
 #[test]
+fn cranelift_backend_lowers_tuple_map_keys_to_runtime_exit_code() {
+    if which::which("cc").is_err() {
+        eprintln!("skipping cranelift backend smoke test because cc is unavailable");
+        return;
+    }
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("tuple-map-keys-main-exit");
+    write_tuple_map_keys_main_exit_project(&project);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args([
+            "build",
+            project.to_str().expect("project path"),
+            "--backend",
+            "cranelift",
+            "--json",
+        ])
+        .output()
+        .expect("run axiomc build --backend cranelift");
+    assert!(
+        output.status.success(),
+        "cranelift tuple map keys main build failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+    assert_eq!(payload["backend"], "cranelift");
+    assert_eq!(payload["generated_rust"], Value::Null);
+    let binary = payload["binary"].as_str().expect("binary path");
+    let run = Command::new(binary)
+        .output()
+        .expect("run cranelift tuple map keys main binary");
+    assert_eq!(run.status.code(), Some(48));
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "");
+}
+
+#[cfg(not(windows))]
+#[test]
 fn cranelift_backend_lowers_std_collection_wrappers_to_runtime_exit_code() {
     if which::which("cc").is_err() {
         eprintln!("skipping cranelift backend smoke test because cc is unavailable");
@@ -12366,6 +12406,25 @@ fn write_static_bool_map_keys_main_exit_project(project: &Path) {
     .expect("write static bool map keys source");
 }
 
+fn write_tuple_map_keys_main_exit_project(project: &Path) {
+    fs::create_dir_all(project.join("src")).expect("create tuple map keys project src");
+    fs::write(
+        project.join("axiom.toml"),
+        "[package]\nname = \"cranelift-tuple-map-keys-main-exit\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n",
+    )
+    .expect("write tuple map keys manifest");
+    fs::write(
+        project.join("axiom.lock"),
+        "version = 1\n\n[[package]]\nname = \"cranelift-tuple-map-keys-main-exit\"\nversion = \"0.1.0\"\nsource = \"path\"\n",
+    )
+    .expect("write tuple map keys lockfile");
+    fs::write(
+        project.join("src/main.ax"),
+        "static STATIC_KEY_ID: int = 1\nstatic STATIC_READY: bool = true\n\nfn choose_tuple_key_index(found: bool): int {\nif found {\nreturn 1\n} else {\nreturn 0\n}\n}\n\nfn main(): int {\nlet tuple_hit: int = get_or_default<(int, bool), int>({(1, true): 29, (2, false): 7}, (1, true), 13)\nlet tuple_miss: int = get_or_default<(int, bool), int>({(1, true): 29}, (2, false), 13)\nlet tuple_contains: bool = map_contains_key<(int, bool), int>({(1, true): 29, (2, false): 7}, (2, false))\nlet tuple_missing: bool = map_contains_key<(int, bool), int>({(1, true): 29}, (2, false)) == false\nlet tuple_get_hit: int = match get<(int, bool), int>({(1, true): 29, (2, false): 7}, (2, false)) { Some(value) => value, None => 1 }\nlet tuple_get_miss: int = match get<(int, bool), int>({(1, true): 29}, (2, false)) { Some(value) => value, None => 13 }\nlet duplicate_hit: int = get_or_default<(int, bool), int>({(1, true): 7, (1, true): 11}, (1, true), 13)\nlet stored_scores: {(int, bool): int} = {(1, true): 29, (2, false): 7}\nlet stored_direct: int = stored_scores[(1, true)]\nlet static_hit: int = get_or_default<(int, bool), int>({(STATIC_KEY_ID, STATIC_READY): 48}, (STATIC_KEY_ID, STATIC_READY), 13)\nlet tuple_key_scores: {(int, bool): int} = {(1, true): 29, (2, false): 7}\nlet tuple_keys: [(int, bool)] = keys<(int, bool), int>(tuple_key_scores)\nlet first_tuple_key_id: int = tuple_keys[0].0\nlet first_tuple_key_ready: bool = tuple_keys[0].1\nlet selected_tuple_key_index: int = choose_tuple_key_index(tuple_contains)\nlet selected_tuple_key_id: int = tuple_keys[selected_tuple_key_index].0\nlet selected_tuple_key_ready: bool = tuple_keys[selected_tuple_key_index].1\nif tuple_hit == 29 && tuple_miss == 13 && tuple_contains && tuple_missing && tuple_get_hit == 7 && tuple_get_miss == 13 && duplicate_hit == 11 && stored_direct == 29 && static_hit == 48 && first_tuple_key_id == 1 && first_tuple_key_ready && selected_tuple_key_id == 2 && selected_tuple_key_ready == false {\nreturn static_hit\n} else {\nreturn 1\n}\n}\n",
+    )
+    .expect("write tuple map keys source");
+}
+
 fn write_std_collection_lookup_project(project: &Path) {
     fs::create_dir_all(project.join("src")).expect("create collection lookup project src");
     fs::write(
@@ -12483,6 +12542,18 @@ let int_get_miss_scores: {int: int} = {2: 29}
 let int_get_miss_code: int = match get<int, int>(int_get_miss_scores, 1) { Some(value) => value, None => 13 }
 let int_fallback_scores: {int: int} = {2: 29}
 let int_fallback: int = get_or_default<int, int>(int_fallback_scores, 1, 13)
+let int_key_scores: {int: int} = {1: 7, 2: 29}
+let int_key_names: [int] = keys<int, int>(int_key_scores)
+let int_key_count: int = len(int_key_names)
+let first_int_key: int = int_key_names[0]
+let dynamic_int_key_index: int = choose_key_index(int_contains_hit)
+let selected_int_key: int = int_key_names[dynamic_int_key_index]
+let bool_key_scores: {bool: int} = {false: 7, true: 29}
+let bool_key_names: [bool] = keys<bool, int>(bool_key_scores)
+let bool_key_count: int = len(bool_key_names)
+let first_bool_key_missing: bool = bool_key_names[0] == false
+let dynamic_bool_key_index: int = choose_key_index(bool_contains_hit)
+let selected_bool_key: bool = bool_key_names[dynamic_bool_key_index]
 let key_count_scores: {string: int} = {"build": 7, "deploy": 9, "deploy": 11}
 let key_count_names: [string] = keys<string, int>(key_count_scores)
 let key_count: int = len(key_count_names)
@@ -12517,7 +12588,7 @@ let dynamic_key_trimmed_value: string = string_trim(dynamic_key_trim_value)
 let dynamic_key_trim_start_value: string = string_trim_start(dynamic_key_trim_value)
 let dynamic_key_trimmed_has_prefix: bool = string_starts_with(dynamic_key_trimmed_value, "dep")
 let dynamic_key_trim_start_has_prefix: bool = string_starts_with(dynamic_key_trim_start_value, "dep")
-if contains_hit && contains_miss && get_hit_code == 9 && get_miss_code == 13 && fallback == 13 && bool_contains_hit && bool_contains_miss && bool_get_hit_code == 29 && bool_get_miss_code == 13 && bool_fallback == 13 && bool_value_hit && int_contains_hit && int_contains_miss && int_get_hit_code == 29 && int_get_miss_code == 13 && int_fallback == 13 && key_count == 2 && first_key_len == 5 && second_key_len == 6 && dynamic_key_len == 6 && dynamic_key_is_deploy && dynamic_key_not_build && dynamic_key_has_prefix && dynamic_key_trim_len == 6 && dynamic_key_trim_start_len == 7 && dynamic_key_trimmed_has_prefix && dynamic_key_trim_start_has_prefix {
+if contains_hit && contains_miss && get_hit_code == 9 && get_miss_code == 13 && fallback == 13 && bool_contains_hit && bool_contains_miss && bool_get_hit_code == 29 && bool_get_miss_code == 13 && bool_fallback == 13 && bool_value_hit && int_contains_hit && int_contains_miss && int_get_hit_code == 29 && int_get_miss_code == 13 && int_fallback == 13 && int_key_count == 2 && first_int_key == 1 && selected_int_key == 2 && bool_key_count == 2 && first_bool_key_missing && selected_bool_key && key_count == 2 && first_key_len == 5 && second_key_len == 6 && dynamic_key_len == 6 && dynamic_key_is_deploy && dynamic_key_not_build && dynamic_key_has_prefix && dynamic_key_trim_len == 6 && dynamic_key_trim_start_len == 7 && dynamic_key_trimmed_has_prefix && dynamic_key_trim_start_has_prefix {
 return 48
 } else {
 return 1

@@ -32,6 +32,7 @@
       "cranelift_backend_builds_map_index_binary",
       "cranelift_backend_lowers_map_get_or_default_to_runtime_exit_code",
       "cranelift_backend_lowers_static_bool_map_keys_to_runtime_exit_code",
+      "cranelift_backend_lowers_tuple_map_keys_to_runtime_exit_code",
       "cranelift_backend_lowers_std_collection_wrappers_to_runtime_exit_code",
       "cranelift_backend_lowers_std_log_selected_projection_lengths_to_runtime_exit_code",
       "cranelift_backend_lowers_map_helper_local_lookups_to_runtime_exit_code",
