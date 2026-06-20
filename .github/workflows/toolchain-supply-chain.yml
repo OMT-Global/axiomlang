@@ -20,6 +20,10 @@ on:
     - cron: '17 6 * * *'
   workflow_dispatch:
 
+concurrency:
+  group: toolchain-supply-chain-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
@@ -31,7 +35,7 @@ jobs:
   supply-chain:
     name: Lockfile Integrity, Vetting, and SBOM
     runs-on: ['self-hosted', 'linux', 'shell-only', 'public']
-    timeout-minutes: 20
+    timeout-minutes: 90
     if: >-
       github.event_name != 'pull_request' ||
       github.event.pull_request.head.repo.full_name == github.repository
