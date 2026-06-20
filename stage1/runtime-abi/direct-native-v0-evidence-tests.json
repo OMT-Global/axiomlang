@@ -93,6 +93,7 @@
       "cranelift_backend_lowers_std_encoding_wrappers_to_runtime_exit_code",
       "cranelift_backend_lowers_std_encoding_wrapper_reassignment_to_runtime_exit_code",
       "cranelift_backend_lowers_std_string_builder_wrappers_to_runtime_exit_code",
+      "cranelift_backend_lowers_std_string_builder_reassignment_to_runtime_exit_code",
       "cranelift_backend_builds_std_string_builder_binary",
       "cranelift_backend_builds_string_intrinsics_binary",
       "cranelift_backend_rejects_unsupported_string_helper_main"

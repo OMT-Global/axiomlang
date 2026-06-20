@@ -3526,6 +3526,46 @@ fn cranelift_backend_lowers_std_string_builder_wrappers_to_runtime_exit_code() {
 
 #[cfg(not(windows))]
 #[test]
+fn cranelift_backend_lowers_std_string_builder_reassignment_to_runtime_exit_code() {
+    if which::which("cc").is_err() {
+        eprintln!("skipping cranelift backend smoke test because cc is unavailable");
+        return;
+    }
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("string-builder-reassignment-main-exit");
+    write_std_string_builder_reassignment_main_exit_project(&project);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args([
+            "build",
+            project.to_str().expect("project path"),
+            "--backend",
+            "cranelift",
+            "--json",
+        ])
+        .output()
+        .expect("run axiomc build --backend cranelift");
+    assert!(
+        output.status.success(),
+        "cranelift string builder reassignment main build failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+    assert_eq!(payload["backend"], "cranelift");
+    assert_eq!(payload["generated_rust"], Value::Null);
+    let binary = payload["binary"].as_str().expect("binary path");
+    let run = Command::new(binary)
+        .output()
+        .expect("run cranelift string builder reassignment main binary");
+    assert_eq!(run.status.code(), Some(48));
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "");
+}
+
+#[cfg(not(windows))]
+#[test]
 fn cranelift_backend_builds_string_intrinsics_binary() {
     if which::which("cc").is_err() {
         eprintln!("skipping cranelift backend smoke test because cc is unavailable");
@@ -11020,6 +11060,74 @@ return 1
 "#,
     )
     .expect("write string builder main source");
+}
+
+fn write_std_string_builder_reassignment_main_exit_project(project: &Path) {
+    fs::create_dir_all(project.join("src"))
+        .expect("create string builder reassignment main project src");
+    fs::write(
+        project.join("axiom.toml"),
+        "[package]\nname = \"cranelift-string-builder-reassignment-main-exit\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n",
+    )
+    .expect("write string builder reassignment main manifest");
+    fs::write(
+        project.join("axiom.lock"),
+        "version = 1\n\n[[package]]\nname = \"cranelift-string-builder-reassignment-main-exit\"\nversion = \"0.1.0\"\nsource = \"path\"\n",
+    )
+    .expect("write string builder reassignment main lockfile");
+    fs::write(
+        project.join("src/main.ax"),
+        r#"import "std/string_builder.ax"
+
+fn helper_score(flag: bool): int {
+let seeded: StringBuilder = from_string("first")
+let second: StringBuilder = push_line(seeded, " line")
+let third: StringBuilder = push_str(second, "second line")
+let helper_message: string = finish(third)
+let selected: string = "unset"
+if flag {
+selected = helper_message
+} else {
+selected = "bad"
+}
+return len(selected)
+}
+
+fn main(): int {
+let empty: StringBuilder = builder()
+let greeting: StringBuilder = push_str(empty, "hello")
+let finished: StringBuilder = push_str(greeting, " stdlib")
+let branch_message: string = finish(finished)
+let branch_selected: string = "unset"
+if true {
+branch_selected = branch_message
+} else {
+branch_selected = "bad"
+}
+let loop_message: string = finish(push_line(from_string("loop"), " ok"))
+let loop_selected: string = "unset"
+let index: int = 0
+while index < 2 {
+if index == 0 {
+loop_selected = "bad"
+} else {
+loop_selected = string_clone(loop_message)
+}
+index = index + 1
+}
+let branch_len: int = len(branch_selected)
+let loop_len: int = len(loop_selected)
+let helper_true_len: int = helper_score(true)
+let helper_false_len: int = helper_score(false)
+if branch_len == 12 && loop_len == 8 && helper_true_len == 22 && helper_false_len == 3 && index == 2 {
+return 48
+} else {
+return 1
+}
+}
+"#,
+    )
+    .expect("write string builder reassignment main source");
 }
 
 fn write_string_intrinsics_project(project: &Path) {
