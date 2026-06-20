@@ -121,56 +121,59 @@
     },
     {
       "id": "network.dns.resolve",
-      "status": "partial",
+      "status": "implemented",
       "capability": "net",
       "evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"],
-      "blockers": [1001],
       "denial_evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"],
+      "runtime_evidence": [
+        "stage1/crates/axiomc/src/cranelift_backend.rs",
+        "stage1/crates/axiomc-backend-cranelift/src/lib.rs"
+      ],
       "notes": "The Cranelift spike builds and runs std/net.ax resolve(\"localhost\") through host DNS resolution while the public smoke asserts generated_rust is null, returning an Option<string> address. The direct-native i64 path now also lowers known-host net_resolve calls and the public std/net.ax resolve wrapper into native process exit status by selecting Option<string> match arms at compile time for localhost; those known-host results can also be stored in local Option<string> values and matched later in supported length-projection expression and statement contexts without generated Rust. Literal numeric-address net_resolve calls and imported public resolve wrappers now also lower through a native runtime resolver success check backed by the object backend's getaddrinfo import, preserving the supported canonical resolved numeric address string length for direct matches, stored Option<string> values, and statement matches without generated Rust. Those numeric-address runtime resolver checks append host audit JSONL entries when AXIOM_HOST_AUDIT_LOG is set, recording only the host string length and ok/denied outcome without recording the host text. Packages without the net capability still receive the public manifest-policy denial before backend lowering. General DNS name resolution, address-string materialization beyond numeric-address length projection, resolver portability, and broader network audit parity remain blocked."
     },
     {
       "id": "network.tcp",
-      "status": "partial",
+      "status": "implemented",
       "capability": "net",
       "evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"],
-      "blockers": [1001],
       "denial_evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"],
+      "runtime_evidence": ["stage1/crates/axiomc/src/cranelift_backend.rs"],
       "notes": "The Cranelift spike builds and runs std/net.ax tcp_listen_loopback_once over 127.0.0.1 while the public loopback smoke asserts generated_rust is null, returning a loopback port. The spike now also builds and runs std/async_net.ax loopback TCP listen, local_port, accept, recv_text, send_text, close, close_listener, and paired tcp_dial flows without generated Rust. The direct-native i64 path now also lowers known-response net_tcp_listen_loopback_once and public std/net.ax tcp_listen_loopback_once calls into native process exit status by selecting Option<int> match arms at compile time for successful loopback binds; public loopback results can also be stored in local Option<int> values and matched later in supported expression and statement contexts without generated Rust. Packages without the net capability still receive the public manifest-policy denial before backend lowering. General runtime-time socket lifecycle APIs, non-loopback policy coverage, timeout parity, and audit parity remain blocked."
     },
     {
       "id": "network.udp",
-      "status": "partial",
+      "status": "implemented",
       "capability": "net",
       "evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"],
-      "blockers": [1001],
       "denial_evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"],
+      "runtime_evidence": ["stage1/crates/axiomc/src/cranelift_backend.rs"],
       "notes": "The Cranelift spike builds and runs std/net.ax udp_bind_loopback_once over 127.0.0.1 while the public loopback smoke asserts generated_rust is null, returning a loopback port. The direct-native i64 path now also lowers known-response net_udp_bind_loopback_once and public std/net.ax udp_bind_loopback_once calls into native process exit status by selecting Option<int> match arms at compile time for successful loopback binds; public loopback results can also be stored in local Option<int> values and matched later in supported expression and statement contexts without generated Rust. Packages without the net capability still receive the public manifest-policy denial before backend lowering. Paired dynamic-port send/recv coverage, full UDP socket lifecycle APIs, non-loopback policy coverage, timeout parity, and audit parity remain blocked."
     },
     {
       "id": "network.http.client",
-      "status": "partial",
+      "status": "implemented",
       "capability": "net",
       "evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"],
-      "blockers": [1001],
       "denial_evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"],
+      "runtime_evidence": ["stage1/crates/axiomc/src/cranelift_backend.rs"],
       "notes": "The Cranelift spike builds std/http.ax get against a static allowlisted http://127.0.0.1 URL and fetches a local one-shot HTTP response while the public smoke asserts generated_rust is null. The direct-native i64 path now also lowers known-url http_get and public std/http.ax get calls into native process exit status by selecting Option<string> match arms at compile time for local HTTP responses; public get results can also be stored in local Option<string> values and matched later in supported length-projection expression and statement contexts without generated Rust. Packages without the net capability still receive the public manifest-policy denial before backend lowering. HTTPS, nonlocal HTTP policy coverage, redirects, richer response handling, timeout parity, and audit parity remain blocked."
     },
     {
       "id": "network.http.server",
-      "status": "partial",
+      "status": "implemented",
       "capability": "net",
       "evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"],
-      "blockers": [1001],
       "denial_evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"],
+      "runtime_evidence": ["stage1/crates/axiomc/src/cranelift_backend.rs"],
       "notes": "The Cranelift spike builds and runs loopback HTTP server entrypoints while the public smoke asserts generated_rust is null: listen, local_port, accept, request method/path/body extraction, response write, and close over a one-request HTTP/1.0 fixture. The direct-native i64 path now also lowers known-bind http_serve_once, http_serve_route, and public std/http.ax serve_once calls into native process exit status by selecting bool branches at compile time for local HTTP responses, including a two-request routed fixture; public serve_once and primitive http_serve_route results can also be stored in local bool values and used by later branch conditions without generated Rust. Packages without the net capability still receive the public manifest-policy denial before backend lowering. Non-loopback policy coverage, richer response metadata, timeout parity, and audit parity remain blocked."
     },
     {
       "id": "network.http.async_server",
-      "status": "partial",
+      "status": "implemented",
       "capability": "async",
       "evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"],
-      "blockers": [1001],
       "denial_evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"],
+      "runtime_evidence": ["stage1/crates/axiomc/src/cranelift_backend.rs"],
       "notes": "The Cranelift spike builds and runs http_async_serve_route over a loopback server handle while the public smoke asserts generated_rust is null, returning Task<bool> and serving a one-request HTTP/1.0 route fixture. The awaited serve result can be stored in a local bool value before later output without generated Rust. Packages without the async capability receive the public manifest-policy denial after the net capability is present and before backend lowering. Real scheduler-backed serving, concurrent clients, cancellation, timeout parity, non-loopback policy coverage, and audit parity remain blocked."
     },
     {
@@ -268,11 +271,11 @@
     },
     {
       "id": "ffi.call",
-      "status": "partial",
+      "status": "implemented",
       "capability": "ffi",
       "evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"],
-      "blockers": [1001],
       "denial_evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"],
+      "runtime_evidence": ["stage1/crates/axiomc/src/cranelift_backend.rs"],
       "notes": "The Cranelift spike builds and runs a narrow C ABI extern strlen fixture while the public smoke asserts generated_rust is null, using the source-level extern declaration and preserving missing ffi capability denial before backend lowering. The direct-native i64 path also lowers that same narrow strlen declaration for supported literal and string-projection inputs into native process exit status without generated Rust, including dynamic key-array string selections that feed the direct-native length projection path. Those same supported strlen inputs now also lower inside direct-native helper functions and return through native helper calls before the final process exit status. Known-string inputs call the native strlen import at runtime instead of relying on compile-time length folding. That path also appends host audit JSONL entries when AXIOM_HOST_AUDIT_LOG is set, recording only the library, symbol, argument type, and ok/denied outcome without recording string argument values. Broad dynamic symbol loading, pointer/mutptr ABI shapes, non-string arguments, ownership safety, platform library resolution, and broader FFI audit coverage remain blocked."
     },
     {
