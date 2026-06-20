@@ -2773,6 +2773,49 @@ fn cranelift_backend_lowers_std_crypto_wrappers_to_runtime_exit_code() {
     assert!(!audit.contains("164b7a7b"));
 }
 
+#[test]
+fn cranelift_backend_rejects_std_crypto_wrapper_reassignment_as_i64_abi() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp
+        .path()
+        .join("std-crypto-wrapper-reassignment-main-exit");
+    write_std_crypto_wrapper_reassignment_main_exit_project(&project);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args([
+            "build",
+            project.to_str().expect("project path"),
+            "--backend",
+            "cranelift",
+            "--json",
+        ])
+        .output()
+        .expect("run axiomc build --backend cranelift");
+    assert!(
+        !output.status.success(),
+        "cranelift std crypto wrapper reassignment unexpectedly built: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    if output.stdout.is_empty() {
+        assert!(
+            stderr.contains("main function is outside the direct-native i64 ABI subset"),
+            "unexpected cranelift std crypto wrapper reassignment error: stdout={stdout} stderr={stderr}"
+        );
+        return;
+    }
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+    assert_eq!(payload["ok"], Value::Bool(false));
+    let message = payload["error"]["message"].as_str().expect("error message");
+    assert!(
+        message.contains("main function is outside the direct-native i64 ABI subset"),
+        "unexpected cranelift std crypto wrapper reassignment error: {message}"
+    );
+}
+
 #[cfg(not(windows))]
 #[test]
 fn cranelift_backend_lowers_known_regex_text_to_runtime_exit_code() {
@@ -10430,6 +10473,26 @@ fn write_std_crypto_wrapper_main_exit_project(project: &Path) {
         "import \"std/crypto_hash.ax\"\nimport \"std/crypto_mac.ax\"\n\nstatic KEY: string = \"key\"\n\nfn main(): int {\nlet message_for_len: string = \"The quick brown fox jumps over the lazy dog\"\nlet message_for_gate: string = \"The quick brown fox jumps over the lazy dog\"\nlet message_for_verify: string = \"The quick brown fox jumps over the lazy dog\"\nlet sha_for_gate: string = sha256(\"abc\")\nlet hmac256_for_gate: string = hmac_sha256(KEY, message_for_gate)\nlet hmac512_for_gate: string = hmac_sha512(\"Jefe\", \"what do ya want for nothing?\")\nlet sha_len: int = len(sha256(\"abc\"))\nlet hmac256_len: int = len(hmac_sha256(KEY, message_for_len))\nlet hmac512_len: int = len(hmac_sha512(\"Jefe\", \"what do ya want for nothing?\"))\nlet sha_gate: bool = string_starts_with(sha_for_gate, \"ba7816bf\")\nlet hmac256_gate: bool = string_starts_with(hmac256_for_gate, \"f7bc83f4\")\nlet hmac512_gate: bool = string_starts_with(hmac512_for_gate, \"164b7a7b\")\nlet constant_gate: bool = constant_time_eq(sha256(\"abc\"), \"ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad\")\nlet verify256_gate: bool = verify_sha256(\"f7bc83f430538424b13298e6aa6fb143ef4d59a14946175997479dbc2d1a3cd8\", KEY, message_for_verify)\nlet verify512_gate: bool = verify_sha512(\"164b7a7bfcf819e2e395fbe73b56e0a387bd64222e831fd610270cd7ea2505549758bf75c05a994a6d034f65f8f0e6fdcaeab1a34d4a6b4b636e070a38bce737\", \"Jefe\", \"what do ya want for nothing?\")\nlet mismatch_gate: bool = constant_time_eq(\"short\", \"shorter\") == false\nlet byte_left: [u8; 3] = [1u8, 2u8, 3u8]\nlet byte_same: [u8; 3] = [1u8, 2u8, 3u8]\nlet byte_different: [u8; 3] = [1u8, 2u8, 4u8]\nlet byte_gate: bool = constant_time_eq_u8(byte_left[:], byte_same[:])\nlet byte_mismatch_gate: bool = constant_time_eq_u8(byte_left[:], byte_different[:]) == false\nif sha_gate && hmac256_gate && hmac512_gate && constant_gate && verify256_gate && verify512_gate && mismatch_gate && byte_gate && byte_mismatch_gate && sha_len == 64 && hmac256_len == 64 && hmac512_len == 128 {\nreturn 48\n} else {\nreturn 1\n}\n}\n",
     )
     .expect("write std crypto wrapper source");
+}
+
+fn write_std_crypto_wrapper_reassignment_main_exit_project(project: &Path) {
+    fs::create_dir_all(project.join("src"))
+        .expect("create std crypto wrapper reassignment project src");
+    fs::write(
+        project.join("axiom.toml"),
+        "[package]\nname = \"cranelift-std-crypto-wrapper-reassignment-main-exit\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = true\n",
+    )
+    .expect("write std crypto wrapper reassignment manifest");
+    fs::write(
+        project.join("axiom.lock"),
+        "version = 1\n\n[[package]]\nname = \"cranelift-std-crypto-wrapper-reassignment-main-exit\"\nversion = \"0.1.0\"\nsource = \"path\"\n",
+    )
+    .expect("write std crypto wrapper reassignment lockfile");
+    fs::write(
+        project.join("src/main.ax"),
+        "import \"std/crypto_hash.ax\"\nimport \"std/crypto_mac.ax\"\n\nstatic KEY: string = \"key\"\n\nfn helper_score(flag: bool): int {\nlet helper_mac: string = hmac_sha512(\"Jefe\", \"what do ya want for nothing?\")\nlet selected: string = \"unset\"\nif flag {\nselected = helper_mac\n} else {\nselected = \"bad\"\n}\nreturn len(selected)\n}\n\nfn main(): int {\nlet branch_hash: string = sha256(\"abc\")\nlet branch_selected: string = \"unset\"\nif true {\nbranch_selected = branch_hash\n} else {\nbranch_selected = \"bad\"\n}\nlet loop_mac: string = hmac_sha256(KEY, \"The quick brown fox jumps over the lazy dog\")\nlet loop_selected: string = \"unset\"\nlet index: int = 0\nwhile index < 2 {\nif index == 0 {\nloop_selected = \"bad\"\n} else {\nloop_selected = string_clone(loop_mac)\n}\nindex = index + 1\n}\nlet branch_len: int = len(branch_selected)\nlet loop_len: int = len(loop_selected)\nlet helper_true_len: int = helper_score(true)\nlet helper_false_len: int = helper_score(false)\nlet branch_gate: bool = string_starts_with(branch_selected, \"ba7816bf\")\nlet loop_gate: bool = string_starts_with(loop_selected, \"f7bc83f4\")\nif branch_gate && loop_gate && branch_len == 64 && loop_len == 64 && helper_true_len == 128 && helper_false_len == 3 && index == 2 {\nreturn 48\n} else {\nreturn 1\n}\n}\n",
+    )
+    .expect("write std crypto wrapper reassignment source");
 }
 
 fn write_known_regex_text_main_exit_project(project: &Path) {
