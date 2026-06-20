@@ -895,6 +895,46 @@ fn cranelift_backend_lowers_enum_nested_payload_match_to_runtime_exit_code() {
 
 #[cfg(not(windows))]
 #[test]
+fn cranelift_backend_lowers_enum_branch_reassignment_to_runtime_exit_code() {
+    if which::which("cc").is_err() {
+        eprintln!("skipping cranelift backend smoke test because cc is unavailable");
+        return;
+    }
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("enum-branch-reassignment-main-exit");
+    write_enum_branch_reassignment_main_exit_project(&project);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args([
+            "build",
+            project.to_str().expect("project path"),
+            "--backend",
+            "cranelift",
+            "--json",
+        ])
+        .output()
+        .expect("run axiomc build --backend cranelift");
+    assert!(
+        output.status.success(),
+        "cranelift enum branch reassignment main build failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+    assert_eq!(payload["backend"], "cranelift");
+    assert_eq!(payload["generated_rust"], Value::Null);
+    let binary = payload["binary"].as_str().expect("binary path");
+    let run = Command::new(binary)
+        .output()
+        .expect("run cranelift enum branch reassignment main binary");
+    assert_eq!(run.status.code(), Some(48));
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "");
+}
+
+#[cfg(not(windows))]
+#[test]
 fn cranelift_backend_lowers_result_match_to_runtime_exit_code() {
     if which::which("cc").is_err() {
         eprintln!("skipping cranelift backend smoke test because cc is unavailable");
@@ -9677,6 +9717,68 @@ fn write_enum_payload_match_main_exit_project(project: &Path, variant: &str) {
         format!("struct Step {{\nvalue: int\nenabled: bool\n}}\n\nenum Choice {{\nReady {{ step: Step }}\nFallback {{ step: Step }}\nOff\n}}\n\nfn choose_choice(mode: int): Choice {{\nif mode == 0 {{\nlet value: int = 48\nreturn Ready {{ step: Step {{ value: value, enabled: true }} }}\n}} else {{\nlet fallback: int = 49\nreturn Fallback {{ step: Step {{ enabled: true, value: fallback }} }}\n}}\n}}\n\nfn forward_choice(value: Choice): Choice {{\nreturn value\n}}\n\nfn score(choice: Choice): int {{\nlet code: int = 0\nmatch choice {{\nReady {{ step }} {{\nif step.enabled {{\ncode = step.value\n}} else {{\ncode = 2\n}}\n}}\nFallback {{ step }} {{\nif step.enabled {{\ncode = step.value\n}} else {{\ncode = 2\n}}\n}}\nOff {{\ncode = 1\n}}\n}}\nreturn code\n}}\n\nfn main(): int {{\nlet helper_choice: Choice = Off\nlet value_choice: Choice = Off\nlet stmt_choice: Choice = Off\nhelper_choice = {value}\nvalue_choice = {value}\nstmt_choice = {value}\nlet returned_ready: Choice = choose_choice(0)\nlet returned_fallback: Choice = choose_choice(1)\nlet ready_to_forward: Choice = choose_choice(0)\nlet fallback_to_forward: Choice = choose_choice(1)\nlet forwarded_ready: Choice = forward_choice(ready_to_forward)\nlet forwarded_fallback: Choice = forward_choice(fallback_to_forward)\nlet helper_code: int = score(helper_choice)\nlet inline_code: int = score({value})\nlet returned_ready_code: int = score(returned_ready)\nlet returned_fallback_code: int = score(returned_fallback)\nlet forwarded_ready_code: int = score(forwarded_ready)\nlet forwarded_fallback_code: int = score(forwarded_fallback)\nlet match_code: int = match value_choice {{ Ready {{ step }} => step.value, Fallback {{ step }} => step.value, Off => 1 }}\nlet statement_code: int = 0\nmatch stmt_choice {{\nReady {{ step }} {{\nif step.enabled {{\nstatement_code = step.value\n}} else {{\nstatement_code = 2\n}}\n}}\nFallback {{ step }} {{\nif step.enabled {{\nstatement_code = step.value\n}} else {{\nstatement_code = 2\n}}\n}}\nOff {{\nstatement_code = 1\n}}\n}}\nif match_code == statement_code && helper_code == match_code && inline_code == match_code && returned_ready_code == 48 && returned_fallback_code == 49 && forwarded_ready_code == 48 && forwarded_fallback_code == 49 {{\nreturn match_code\n}} else {{\nreturn 2\n}}\n}}\n"),
     )
     .expect("write enum payload match source");
+}
+
+fn write_enum_branch_reassignment_main_exit_project(project: &Path) {
+    fs::create_dir_all(project.join("src"))
+        .expect("create enum branch reassignment main exit project src");
+    fs::write(
+        project.join("axiom.toml"),
+        "[package]\nname = \"cranelift-enum-branch-reassignment-main-exit\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n",
+    )
+    .expect("write enum branch reassignment main exit manifest");
+    fs::write(
+        project.join("axiom.lock"),
+        "version = 1\n\n[[package]]\nname = \"cranelift-enum-branch-reassignment-main-exit\"\nversion = \"0.1.0\"\nsource = \"path\"\n",
+    )
+    .expect("write enum branch reassignment main exit lockfile");
+    fs::write(
+        project.join("src/main.ax"),
+        r#"struct Step {
+value: int
+enabled: bool
+}
+
+enum Choice {
+Ready { step: Step }
+Fallback { step: Step }
+Off
+}
+
+fn make_choice(value: int, enabled: bool): Choice {
+if enabled {
+return Ready { step: Step { value: value, enabled: enabled } }
+} else {
+return Fallback { step: Step { value: 1, enabled: false } }
+}
+}
+
+fn score(choice: Choice): int {
+return match choice { Ready { step } => step.value, Fallback { step } => step.value, Off => 1 }
+}
+
+fn main(): int {
+let selected: Choice = Off
+let fallback: Choice = Off
+let gate: bool = true
+if gate {
+selected = make_choice(48, true)
+fallback = make_choice(49, false)
+} else {
+selected = Off
+fallback = Off
+}
+let selected_code: int = score(selected)
+let fallback_code: int = score(fallback)
+if selected_code == 48 && fallback_code == 1 {
+return selected_code
+} else {
+return fallback_code
+}
+}
+"#,
+    )
+    .expect("write enum branch reassignment main exit source");
 }
 
 fn write_struct_field_project(project: &Path) {

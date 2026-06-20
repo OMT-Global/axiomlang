@@ -23,7 +23,8 @@
     "enum.payload": [
       "cranelift_backend_builds_enum_match_binary",
       "cranelift_backend_lowers_enum_payload_match_to_runtime_exit_code",
-      "cranelift_backend_lowers_enum_nested_payload_match_to_runtime_exit_code"
+      "cranelift_backend_lowers_enum_nested_payload_match_to_runtime_exit_code",
+      "cranelift_backend_lowers_enum_branch_reassignment_to_runtime_exit_code"
     ],
     "map.lookup": [
       "cranelift_backend_builds_map_index_binary",
