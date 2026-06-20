@@ -187,9 +187,15 @@ computed value as the process exit status at runtime without generated Rust.
 The public scalar aggregate, numeric cross-width, and static scalar smokes now
 also assert that the build JSON reports `generated_rust: null`, so this evidence
 cannot silently drift back through generated Rust.
+The focused evidence manifest now also links the `main(): i64` runtime-exit
+smoke to the numeric row so that direct i64 entrypoint process-status lowering
+is counted explicitly.
 The public integer stdout smoke also asserts `generated_rust: null` while
 printing helper-returned integer locals and arithmetic derived from those locals
 from a direct-native main function.
+The focused evidence manifest now links that smoke to both the numeric scalar
+row and the stdio capability row so native integer formatting and native stdout
+emission are counted together.
 The same path now has narrow boolean runtime
 evidence for signed i64 comparisons, bool local bindings backed by i64 slots,
 simple bool static values, and boolean literals composed with `&&`/`||` driving
@@ -250,7 +256,8 @@ for that arm, including static scalar `string_line_at(...)` indexes. Known-text
 length and comparison path, and known-input `encoding_url_component_decode(...)`
 can lower direct `Option<string>` matches by compile-time arm selection.
 Imported public `std/encoding.ax` wrappers now alias those same known-input
-encode, decode, query-pair, and path-join lowering paths.
+encode, decode, query-pair, and path-join lowering paths; the focused evidence
+manifest now links the encoding wrapper runtime-exit smoke to this row.
 Imported public `std/string_builder.ax` builder, seed, push, line-push, and
 finish wrappers now alias known text facts that can feed direct-native string
 comparisons, length projections, and process exit status without generated
@@ -304,10 +311,11 @@ for non-scalar elements, full dynamic indexing semantics, bounds diagnostics,
 or a complete aggregate value passing contract.
 
 The focused value-feature evidence manifest also links the public scalar
-aggregate smoke and the while-loop aggregate reassignment smoke to the
-fixed-array row, because those tests prove fixed-array helper arguments,
-scalar projection, and loop-body reassignment paths through direct-native output
-without generated Rust.
+aggregate smoke, the while-loop aggregate reassignment smoke, and the aggregate
+helper reassignment smoke to the fixed-array row, because those tests prove
+fixed-array helper arguments, scalar projection, loop-body reassignment, and
+helper-return reassignment paths through direct-native output without generated
+Rust.
 
 The aggregate helper-argument smoke also proves local fixed arrays and inline
 fixed-array literals can cross direct-native helper-call boundaries and feed
@@ -364,7 +372,9 @@ The focused value-feature evidence manifest also records aggregate smoke
 coverage for tuple and struct rows: scalar aggregate output covers public
 string/int tuple projection, and the while-loop aggregate reassignment smoke
 covers tuple, fixed-array, and struct projection/reassignment through runtime
-loop blocks without generated Rust.
+loop blocks without generated Rust. The aggregate helper reassignment smoke now
+also links to tuple and struct rows because it proves helper-returned aggregate
+reassignment can feed process exit status without generated Rust.
 
 The aggregate helper-argument smoke adds focused runtime-exit evidence that
 local tuple values, inline tuple literals, local structs, and inline struct
@@ -691,12 +701,13 @@ encoding, and path segment joining without generated Rust. Known-text encoding
 helpers now also feed narrow direct-native string length/comparison lowering,
 known-input `string_line_at(...)` also accepts static scalar indexes, and
 known-input percent decode can feed direct `Option<string>` matches without
-generated Rust. Pure known-text helper calls can now fold direct-return,
-local-let-return, final-if-return, match-return, and final-match-statement string
-helper arguments and returns, including tuple-index and struct-field string
-projections and direct map-index string projections over known map literals,
-into direct-native length, comparison, and `string_starts_with(...)` conditions
-without generated Rust.
+generated Rust; the focused evidence manifest now links the encoding wrapper
+runtime-exit smoke to this row. Pure known-text helper calls can now fold
+direct-return, local-let-return, final-if-return, match-return, and
+final-match-statement string helper arguments and returns, including tuple-index
+and struct-field string projections and direct map-index string projections
+over known map literals, into direct-native length, comparison, and
+`string_starts_with(...)` conditions without generated Rust.
 Imported public `std/string_builder.ax` builder, seed, push,
 line-push, and finish wrappers now alias known text facts that can feed
 direct-native string comparisons, length projections, and process exit status
@@ -745,8 +756,9 @@ materializing a runtime key array. Static scalar integer and boolean keys can
 also feed inline and pre-runtime map lookup, contains, and get-or-default
 lowering. Imported public `std/collections.ax` `contains`, `get`,
 `get_or_default`, and `keys` map wrappers now alias the same direct-native i64
-lowering for static string/int map-local cases. Literal indexes into static
-string key arrays can also feed known string length
+lowering for static string/int map-local cases, and the focused evidence
+manifest now links the wrapper runtime-exit smoke to this row. Literal indexes
+into static string key arrays can also feed known string length
 lowering, and non-literal scalar indexes into those static string key arrays can
 select among known key byte lengths. Dynamic key-array value projection locals
 whose index is derived from a prior collection predicate local can also feed
@@ -760,6 +772,9 @@ conditions.
 The map helper-local runtime-exit smoke proves a known map direct index can be
 lowered inside an Axiom helper and returned through a native helper call into
 process exit status.
+The focused evidence manifest now also links the runtime-selected `keys(...)`
+projection smoke to this row, covering finite map-key selection through public
+`std/log.ax` length projection without generated Rust.
 Broader map ownership, runtime map storage, general payload lookup bindings,
 map helper parameters, runtime key array value projection, and host-boundary
 representation remain tracked by issue #1124.
@@ -1001,7 +1016,10 @@ projections and empty attribute objects. Supported dynamic `std/log.ax`
 `event(...)` expressions can also feed source-level `print` statements as
 native stdout JSON-line writes without generated Rust, including event messages
 and `field_string(...)` values backed by `std/json.ax` `stringify_string(...)`
-over supported scalar/bool projection locals. It also lowers known-string public
+over supported scalar/bool projection locals. The focused evidence manifest now
+links the selected projection, dynamic scalar length, dynamic `info_attrs`
+stderr, and dynamic event stdout smokes to this stdio row so the evidence
+runner exercises those public logging paths explicitly. It also lowers known-string public
 `std/io.ax`
 `eprintln` lets in direct-native i64 `main` functions and helper functions,
 including runtime-scope lets after assignments and inside branches, into native
@@ -1010,6 +1028,9 @@ stderr writes while preserving newline-inclusive byte-count return values and
 statics, `string_clone(...)`, concatenation, pure helper string returns, and
 branch-local known string lets; scalar and aggregate-return helper functions can
 emit the same known stderr writes and return byte counts through native calls.
+The focused evidence manifest now links the scalar-helper and aggregate-helper
+stderr smokes to this row so those helper-call paths are exercised by the
+stdio evidence runner.
 Dynamic scalar `std/json.ax` `stringify_int` and `stringify_bool` expressions,
 including scalar stringify results first assigned to string locals, can also
 feed public `std/io.ax` `eprintln` lets in direct-native i64 `main` functions,
@@ -1035,7 +1056,10 @@ and scalar and aggregate-return helpers without generated Rust. Boolean and
 integer source-level `print` statements also lower to native stdout writes in
 direct-native i64 `main` functions and scalar and aggregate-return helpers
 without generated Rust, including runtime integer values formatted through the
-native object backend. Dynamic scalar `std/json.ax`
+native object backend.
+The focused evidence manifest now also links the scalar-helper and
+aggregate-helper stdout smokes to this row so native helper-call output remains
+explicitly covered. Dynamic scalar `std/json.ax`
 `stringify_int` and
 `stringify_bool` print expressions, including scalar stringify results first
 assigned to string locals, reuse those same native stdout writers in

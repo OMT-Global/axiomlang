@@ -10,7 +10,8 @@
       "cranelift_backend_builds_array_helpers_binary",
       "cranelift_backend_builds_scalar_aggregate_binary",
       "cranelift_backend_lowers_i64_while_loop_to_runtime_exit_code",
-      "cranelift_backend_lowers_aggregate_helper_args_to_runtime_exit_code"
+      "cranelift_backend_lowers_aggregate_helper_args_to_runtime_exit_code",
+      "cranelift_backend_lowers_aggregate_helper_reassignment_to_runtime_exit_code"
     ],
     "boolean": [
       "cranelift_backend_lowers_i64_bool_returning_main_to_runtime_exit_code",
@@ -27,13 +28,17 @@
       "cranelift_backend_builds_map_index_binary",
       "cranelift_backend_lowers_map_get_or_default_to_runtime_exit_code",
       "cranelift_backend_lowers_static_bool_map_keys_to_runtime_exit_code",
+      "cranelift_backend_lowers_std_collection_wrappers_to_runtime_exit_code",
+      "cranelift_backend_lowers_std_log_selected_projection_lengths_to_runtime_exit_code",
       "cranelift_backend_lowers_map_helper_local_lookups_to_runtime_exit_code"
     ],
     "numeric.scalars": [
       "cranelift_backend_lowers_i64_main_to_runtime_exit_code",
+      "cranelift_backend_lowers_i64_returning_main_to_runtime_exit_code",
       "cranelift_backend_lowers_i64_typed_numeric_returning_main_to_runtime_exit_code",
       "cranelift_backend_lowers_numeric_cross_width_to_runtime_exit_code",
       "cranelift_backend_builds_numeric_cross_width_binary",
+      "cranelift_backend_lowers_integer_print_runtime_stdout_in_direct_native_main",
       "cranelift_backend_lowers_i64_while_loop_to_runtime_exit_code"
     ],
     "option": [
@@ -67,6 +72,7 @@
     "string": [
       "cranelift_backend_lowers_string_literal_len_to_runtime_exit_code",
       "cranelift_backend_lowers_known_string_helpers_to_runtime_exit_code",
+      "cranelift_backend_lowers_std_encoding_wrappers_to_runtime_exit_code",
       "cranelift_backend_lowers_std_string_builder_wrappers_to_runtime_exit_code",
       "cranelift_backend_builds_std_string_builder_binary",
       "cranelift_backend_builds_string_intrinsics_binary"
@@ -75,14 +81,16 @@
       "cranelift_backend_lowers_struct_literal_field_to_runtime_exit_code",
       "cranelift_backend_builds_struct_field_binary",
       "cranelift_backend_lowers_i64_while_loop_to_runtime_exit_code",
-      "cranelift_backend_lowers_aggregate_helper_args_to_runtime_exit_code"
+      "cranelift_backend_lowers_aggregate_helper_args_to_runtime_exit_code",
+      "cranelift_backend_lowers_aggregate_helper_reassignment_to_runtime_exit_code"
     ],
     "tuple": [
       "cranelift_backend_lowers_bool_tuple_index_to_runtime_exit_code",
       "cranelift_backend_lowers_tuple_returning_helper_to_runtime_exit_code",
       "cranelift_backend_builds_scalar_aggregate_binary",
       "cranelift_backend_lowers_i64_while_loop_to_runtime_exit_code",
-      "cranelift_backend_lowers_aggregate_helper_args_to_runtime_exit_code"
+      "cranelift_backend_lowers_aggregate_helper_args_to_runtime_exit_code",
+      "cranelift_backend_lowers_aggregate_helper_reassignment_to_runtime_exit_code"
     ]
   },
   "capability_shims": {
@@ -149,8 +157,17 @@
       "cranelift_backend_builds_logging_stdio_binary",
       "cranelift_backend_lowers_known_eprintln_runtime_stderr_in_direct_native_main",
       "cranelift_backend_lowers_known_print_runtime_stdout_in_direct_native_main",
+      "cranelift_backend_lowers_integer_print_runtime_stdout_in_direct_native_main",
       "cranelift_backend_lowers_json_scalar_stringify_print_to_native_stdout",
       "cranelift_backend_lowers_std_log_format_wrappers_to_runtime_exit_code",
+      "cranelift_backend_lowers_std_log_selected_projection_lengths_to_runtime_exit_code",
+      "cranelift_backend_lowers_std_log_dynamic_scalar_lengths_to_runtime_exit_code",
+      "cranelift_backend_lowers_std_log_dynamic_scalar_info_attrs_to_runtime_stderr",
+      "cranelift_backend_lowers_std_log_dynamic_event_print_to_runtime_stdout",
+      "cranelift_backend_lowers_helper_eprintln_to_native_stderr",
+      "cranelift_backend_lowers_aggregate_helper_eprintln_to_native_stderr",
+      "cranelift_backend_lowers_helper_print_to_native_stdout",
+      "cranelift_backend_lowers_aggregate_helper_print_to_native_stdout",
       "cranelift_backend_lowers_std_log_level_wrapper_to_runtime_stderr"
     ],
     "json.serdes": [
