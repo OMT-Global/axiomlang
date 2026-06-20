@@ -202,7 +202,10 @@ bool locals, and comparison expressions. Bool-returning helpers can return
 condition expressions directly, use bool parameters in branch conditions, and
 cover final `if` branches whose arms return bool expressions. It also covers
 boolean equality/inequality between dynamic bool expressions, local/static bool
-values, and boolean literals in conditions, plus immediate tuple-literal bool
+values, and boolean literals in conditions, plus a focused runtime-exit smoke
+proving helper bool equality/inequality predicates, chosen bool branches, and
+composed `&&`/`||` conditions can drive native process exit status `48` without
+generated Rust. It also covers immediate tuple-literal bool
 indexing, bool projection from local tuple bindings, immediate array-literal
 bool indexing, bool projection from local fixed-array bindings, immediate
 struct-literal bool field access, and bool projection from local struct
