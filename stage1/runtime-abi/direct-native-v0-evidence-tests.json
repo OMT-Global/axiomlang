@@ -88,6 +88,7 @@
       "cranelift_backend_lowers_string_loop_reassignment_to_runtime_exit_code",
       "cranelift_backend_lowers_string_helper_reassignment_to_runtime_exit_code",
       "cranelift_backend_lowers_string_helper_dynamic_projection_reassignment_to_runtime_exit_code",
+      "cranelift_backend_lowers_string_clone_projection_reassignment_to_runtime_exit_code",
       "cranelift_backend_lowers_known_string_helpers_to_runtime_exit_code",
       "cranelift_backend_lowers_std_encoding_wrappers_to_runtime_exit_code",
       "cranelift_backend_lowers_std_string_builder_wrappers_to_runtime_exit_code",

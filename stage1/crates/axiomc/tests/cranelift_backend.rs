@@ -2482,6 +2482,48 @@ fn cranelift_backend_lowers_string_helper_dynamic_projection_reassignment_to_run
     assert_eq!(String::from_utf8_lossy(&run.stdout), "");
 }
 
+#[cfg(not(windows))]
+#[test]
+fn cranelift_backend_lowers_string_clone_projection_reassignment_to_runtime_exit_code() {
+    if which::which("cc").is_err() {
+        eprintln!("skipping cranelift backend smoke test because cc is unavailable");
+        return;
+    }
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp
+        .path()
+        .join("string-clone-projection-reassignment-main-exit");
+    write_string_clone_projection_reassignment_main_exit_project(&project);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args([
+            "build",
+            project.to_str().expect("project path"),
+            "--backend",
+            "cranelift",
+            "--json",
+        ])
+        .output()
+        .expect("run axiomc build --backend cranelift");
+    assert!(
+        output.status.success(),
+        "cranelift string clone projection reassignment main build failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+    assert_eq!(payload["backend"], "cranelift");
+    assert_eq!(payload["generated_rust"], Value::Null);
+    let binary = payload["binary"].as_str().expect("binary path");
+    let run = Command::new(binary)
+        .output()
+        .expect("run cranelift string clone projection reassignment main binary");
+    assert_eq!(run.status.code(), Some(48));
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "");
+}
+
 #[test]
 fn cranelift_backend_rejects_unsupported_string_helper_main() {
     let temp = tempfile::tempdir().expect("tempdir");
@@ -9861,6 +9903,92 @@ return 1
 "#,
     )
     .expect("write string helper dynamic projection reassignment main exit source");
+}
+
+fn write_string_clone_projection_reassignment_main_exit_project(project: &Path) {
+    fs::create_dir_all(project.join("src"))
+        .expect("create string clone projection reassignment main exit project src");
+    fs::write(
+        project.join("axiom.toml"),
+        r#"[package]
+name = "cranelift-string-clone-projection-reassignment-main-exit"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+fs = false
+net = false
+process = false
+env = false
+clock = false
+crypto = false
+"#,
+    )
+    .expect("write string clone projection reassignment main exit manifest");
+    fs::write(
+        project.join("axiom.lock"),
+        r#"version = 1
+
+[[package]]
+name = "cranelift-string-clone-projection-reassignment-main-exit"
+version = "0.1.0"
+source = "path"
+"#,
+    )
+    .expect("write string clone projection reassignment main exit lockfile");
+    fs::write(
+        project.join("src/main.ax"),
+        r#"fn helper_score(flag: bool): int {
+let selected: string = "unset"
+if flag {
+let parsed: int = match json_parse_int("6789") { Some(value) => value, None => 1 }
+let helper_text: string = json_stringify_int(parsed)
+selected = string_clone(helper_text)
+} else {
+selected = "0"
+}
+return len(selected)
+}
+
+fn main(): int {
+let branch_parsed: int = match json_parse_int("12345") { Some(value) => value, None => 1 }
+let branch_text: string = json_stringify_int(branch_parsed)
+let branch_selected: string = "unset"
+if true {
+branch_selected = string_clone(branch_text)
+} else {
+branch_selected = "bad"
+}
+
+let loop_flag: bool = match json_parse_bool("true") { Some(value) => value, None => false }
+let loop_selected: string = "unset"
+let index: int = 0
+while index < 2 {
+if index == 0 {
+loop_selected = "false"
+} else {
+let loop_text: string = json_stringify_bool(loop_flag)
+loop_selected = string_clone(loop_text)
+}
+index = index + 1
+}
+
+let branch_len: int = len(branch_selected)
+let loop_len: int = len(loop_selected)
+let helper_true_len: int = helper_score(true)
+let helper_false_len: int = helper_score(false)
+if branch_len == 5 && loop_len == 4 && helper_true_len == 4 && helper_false_len == 1 && index == 2 {
+return 48
+} else {
+return 1
+}
+}
+"#,
+    )
+    .expect("write string clone projection reassignment main exit source");
 }
 
 fn write_unsupported_string_helper_main_project(project: &Path) {
