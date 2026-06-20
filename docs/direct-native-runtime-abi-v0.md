@@ -821,12 +821,14 @@ also feed inline and pre-runtime map lookup, contains, and get-or-default
 lowering. Static scalar tuple keys can also feed inline-map-literal
 `get_or_default(...)`, `map_contains_key(...)`, `get(...)`, direct indexing,
 duplicate-key replacement, and statically initialized component lookups without
-generated Rust. Imported public `std/collections.ax` `contains`, `get`,
-`get_or_default`, and `keys` map wrappers now alias the same direct-native i64
-lowering for static string/int map-local cases, and the focused evidence
-manifest now links the wrapper runtime-exit smoke to this row. A dedicated
-bool-key wrapper runtime-exit smoke now also proves public `contains`, `get`,
-`get_or_default`, and `keys` wrapper lowering over static bool-keyed maps.
+generated Rust. Imported public `std/collections.ax` `contains`, `get`, and
+`get_or_default` map wrappers now alias the same direct-native i64 lowering for
+static string-, int-, and bool-keyed map-local cases, and `keys` wrapper calls
+cover static string-, int-, and bool-keyed map-local key-array counts plus
+literal and dynamic key projections for supported scalar/bool keys. The focused
+evidence manifest now links the wrapper runtime-exit smoke to this row. A
+dedicated bool-key wrapper runtime-exit smoke now also proves public `contains`,
+`get`, `get_or_default`, and `keys` wrapper lowering over static bool-keyed maps.
 Imported public `std/collections.ax` tuple-keyed `contains`, `get`, and
 `get_or_default` map wrappers can also feed the same direct-native i64 lowering
 without generated Rust, and `keys` wrappers over static tuple-keyed maps can
