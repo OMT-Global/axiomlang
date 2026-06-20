@@ -12231,6 +12231,21 @@ fn matched_label_len(labels: {string: string}, key: string): int {
 return match get<string, string>(labels, key) { Some(value) => len(value), None => 13 }
 }
 
+fn bound_score(scores: {string: int}, key: string): int {
+let found: Option<int> = get<string, int>(scores, key)
+return match found { Some(value) => value, None => 13 }
+}
+
+fn bound_flag(flags: {string: bool}, key: string): bool {
+let found: Option<bool> = get<string, bool>(flags, key)
+return match found { Some(value) => value, None => false }
+}
+
+fn bound_label_len(labels: {string: string}, key: string): int {
+let found: Option<string> = get<string, string>(labels, key)
+return match found { Some(value) => len(value), None => 13 }
+}
+
 fn key_count(scores: {string: int}): int {
 let names: [string] = keys<string, int>(scores)
 return len(names)
@@ -12253,6 +12268,9 @@ let duplicate_scores: {string: int} = {"deploy": 9, "deploy": 48}
 let local_match_scores: {string: int} = {"build": 7, "deploy": 48}
 let local_match_flags: {string: bool} = {"build": false, "deploy": true}
 let local_match_labels: {string: string} = {"build": "forge", "deploy": "ship"}
+let local_bound_scores: {string: int} = {"build": 7, "deploy": 48}
+let local_bound_flags: {string: bool} = {"build": false, "deploy": true}
+let local_bound_labels: {string: string} = {"build": "forge", "deploy": "ship"}
 let key_count_scores: {string: int} = {"build": 7, "deploy": 9, "deploy": 11}
 let first_key_scores: {string: int} = {"build": 7, "deploy": 9}
 let inline_score: int = deploy_score({"build": 7, "deploy": 48})
@@ -12267,10 +12285,16 @@ let local_match_flag: bool = matched_flag(local_match_flags, "deploy")
 let inline_match_flag_miss: bool = matched_flag({"build": true}, "deploy") == false
 let local_match_label_len: int = matched_label_len(local_match_labels, "deploy")
 let inline_match_label_miss: int = matched_label_len({"build": "forge"}, "deploy")
+let local_bound_score: int = bound_score(local_bound_scores, "deploy")
+let inline_bound_miss: int = bound_score({"build": 7}, "deploy")
+let local_bound_flag: bool = bound_flag(local_bound_flags, "deploy")
+let inline_bound_flag_miss: bool = bound_flag({"build": true}, "deploy") == false
+let local_bound_label_len: int = bound_label_len(local_bound_labels, "deploy")
+let inline_bound_label_miss: int = bound_label_len({"build": "forge"}, "deploy")
 let key_count_score: int = key_count(key_count_scores)
 let first_key_score: int = first_key_len(first_key_scores)
 let second_key_score: int = second_key_len({"build": 7, "deploy": 9})
-if inline_score == 48 && local_score == 48 && default_score == 13 && duplicate_score == 48 && local_contains && inline_missing && local_match_score == 48 && inline_match_miss == 13 && local_match_flag && inline_match_flag_miss && local_match_label_len == 4 && inline_match_label_miss == 13 && key_count_score == 2 && first_key_score == 5 && second_key_score == 6 {
+if inline_score == 48 && local_score == 48 && default_score == 13 && duplicate_score == 48 && local_contains && inline_missing && local_match_score == 48 && inline_match_miss == 13 && local_match_flag && inline_match_flag_miss && local_match_label_len == 4 && inline_match_label_miss == 13 && local_bound_score == 48 && inline_bound_miss == 13 && local_bound_flag && inline_bound_flag_miss && local_bound_label_len == 4 && inline_bound_label_miss == 13 && key_count_score == 2 && first_key_score == 5 && second_key_score == 6 {
 return 48
 } else {
 return 1
