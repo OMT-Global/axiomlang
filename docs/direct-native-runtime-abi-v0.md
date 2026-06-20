@@ -38,6 +38,12 @@ List the focused tests for a row without running Cargo:
 python3 scripts/ci/check-direct-native-runtime-abi.py --evidence-row fs.read
 ```
 
+Inspect a row's contract status, blockers, evidence paths, and focused tests:
+
+```bash
+python3 scripts/ci/check-direct-native-runtime-abi.py --evidence-row boolean --json
+```
+
 Single-test evidence loop:
 
 ```bash

@@ -59,6 +59,57 @@ assert report["blocker_issues"] == [1001]
 assert report["errors"] == []
 PY
 
+python3 "$script" --contract "$contract" --list-evidence-rows --json >"$temp_dir/row-list.json"
+python3 - "$temp_dir/row-list.json" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    report = json.load(handle)
+
+assert report["schema"] == "axiom.direct_native.runtime_abi.evidence_rows.v1"
+assert report["ready"] is False
+assert report["target_id"] == "axiom://target/stage1-direct-native"
+assert report["contract_status"] == "partial"
+assert report["value_feature_count"] == 12
+assert report["capability_shim_count"] == 22
+assert len(report["rows"]) == 34
+assert report["status_counts"]["value_features"]["implemented"] == 1
+assert report["status_counts"]["capability_shims"]["implemented"] == 22
+assert report["blocker_issues"] == [1001]
+assert report["errors"] == []
+
+rows = {row["row_id"]: row for row in report["rows"]}
+assert rows["option"]["group"] == "value_features"
+assert rows["option"]["status"] == "partial"
+assert rows["option"]["blockers"] == [1001]
+assert rows["option"]["test_count"] >= 1
+assert "cranelift_backend_lowers_option_int_match_to_runtime_exit_code" in rows["option"]["tests"]
+assert "stage1/crates/axiomc/tests/cranelift_backend.rs" in rows["option"]["evidence"]
+assert "stage1/crates/axiomc/src/cranelift_backend.rs" in rows["option"]["runtime_evidence"]
+assert "general Option ABI" in rows["option"]["notes"]
+
+assert rows["fs.read"]["group"] == "capability_shims"
+assert rows["fs.read"]["status"] == "implemented"
+assert rows["fs.read"]["blockers"] == []
+assert rows["fs.read"]["test_count"] >= 2
+assert "cranelift_backend_lowers_fs_read_to_runtime_exit_code" in rows["fs.read"]["tests"]
+assert "stage1/crates/axiomc/tests/cranelift_backend.rs" in rows["fs.read"]["denial_evidence"]
+assert "stage1/crates/axiomc/src/cranelift_backend.rs" in rows["fs.read"]["runtime_evidence"]
+PY
+
+python3 "$script" --contract "$contract" --list-evidence-rows >"$temp_dir/row-list.txt"
+grep -Fq "value_features option partial" "$temp_dir/row-list.txt"
+grep -Fq "capability_shims fs.read implemented" "$temp_dir/row-list.txt"
+grep -Fq "blockers=#1001" "$temp_dir/row-list.txt"
+grep -Fq "blockers=-" "$temp_dir/row-list.txt"
+
+if python3 "$script" --contract "$contract" --list-evidence-rows --evidence-row fs.read >"$temp_dir/row-list-conflict.txt" 2>"$temp_dir/row-list-conflict.err"; then
+  echo "expected conflicting row inspection modes to fail" >&2
+  exit 1
+fi
+grep -Fq -- "--list-evidence-rows and --evidence-row cannot be combined" "$temp_dir/row-list-conflict.err"
+
 python3 "$script" --contract "$contract" --evidence-row fs.read >"$temp_dir/fs-read-row.txt"
 grep -Fxq "cranelift_backend_lowers_fs_read_to_runtime_exit_code" "$temp_dir/fs-read-row.txt"
 grep -Fxq "cranelift_backend_denies_fs_read_symlink_escape_at_runtime" "$temp_dir/fs-read-row.txt"
@@ -74,7 +125,32 @@ with open(sys.argv[1], encoding="utf-8") as handle:
 assert report["schema"] == "axiom.direct_native.runtime_abi.evidence_row.v1"
 assert report["row_id"] == "option"
 assert report["group"] == "value_features"
+assert report["status"] == "partial"
+assert report["blockers"] == [1001]
+assert "stage1/crates/axiomc/tests/cranelift_backend.rs" in report["evidence"]
+assert "stage1/crates/axiomc/src/cranelift_backend.rs" in report["runtime_evidence"]
+assert "stage1/crates/axiomc-backend-cranelift/src/lib.rs" in report["runtime_evidence"]
+assert "general Option ABI" in report["notes"]
 assert "cranelift_backend_lowers_option_int_match_to_runtime_exit_code" in report["tests"]
+assert report["errors"] == []
+PY
+
+python3 "$script" --contract "$contract" --evidence-row fs.read --json >"$temp_dir/fs-read-row.json"
+python3 - "$temp_dir/fs-read-row.json" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    report = json.load(handle)
+
+assert report["row_id"] == "fs.read"
+assert report["group"] == "capability_shims"
+assert report["status"] == "implemented"
+assert report["blockers"] == []
+assert "stage1/crates/axiomc/tests/cranelift_backend.rs" in report["evidence"]
+assert "stage1/crates/axiomc/tests/cranelift_backend.rs" in report["denial_evidence"]
+assert "stage1/crates/axiomc/src/cranelift_backend.rs" in report["runtime_evidence"]
+assert "cranelift_backend_lowers_fs_read_to_runtime_exit_code" in report["tests"]
 assert report["errors"] == []
 PY
 
@@ -83,6 +159,7 @@ if python3 "$script" --contract "$contract" --evidence-row missing.row >"$temp_d
   exit 1
 fi
 grep -Fq "unknown direct native runtime ABI evidence row: missing.row" "$temp_dir/missing-row.err"
+grep -Fq "unknown direct native runtime ABI contract row: missing.row" "$temp_dir/missing-row.err"
 
 python3 - "$contract" "$temp_dir/ready-contract.json" <<'PY'
 import json

@@ -4,6 +4,8 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 script="$repo_root/scripts/ci/run-direct-native-runtime-abi-evidence.sh"
 makefile="$repo_root/Makefile"
+temp_dir="$(mktemp -d)"
+trap 'rm -rf "$temp_dir"' EXIT
 
 [[ -x "$script" ]] || {
   echo "missing executable direct native runtime ABI evidence runner: $script" >&2
@@ -30,13 +32,23 @@ grep -Fq 'AXIOM_DIRECT_NATIVE_RUNTIME_ABI_ROW' "$script" || {
   exit 1
 }
 
+grep -Fq 'AXIOM_DIRECT_NATIVE_RUNTIME_ABI_STATUS' "$script" || {
+  echo "evidence runner must expose a row-status-focused test filter for ABI evidence loops" >&2
+  exit 1
+}
+
 grep -Fq -- '--evidence-row "$AXIOM_DIRECT_NATIVE_RUNTIME_ABI_ROW"' "$script" || {
   echo "evidence runner must resolve row-focused tests through the ABI checker" >&2
   exit 1
 }
 
-grep -Fq 'set either AXIOM_DIRECT_NATIVE_RUNTIME_ABI_ROW or AXIOM_DIRECT_NATIVE_RUNTIME_ABI_TEST_FILTER, not both' "$script" || {
-  echo "evidence runner must reject ambiguous row and test filter combinations" >&2
+grep -Fq -- '--list-evidence-rows' "$script" || {
+  echo "evidence runner must resolve row-status tests through the ABI row inventory" >&2
+  exit 1
+}
+
+grep -Fq 'set only one of AXIOM_DIRECT_NATIVE_RUNTIME_ABI_ROW, AXIOM_DIRECT_NATIVE_RUNTIME_ABI_STATUS, or AXIOM_DIRECT_NATIVE_RUNTIME_ABI_TEST_FILTER' "$script" || {
+  echo "evidence runner must reject ambiguous row, status, and test filter combinations" >&2
   exit 1
 }
 
@@ -44,6 +56,28 @@ grep -Fq 'direct native runtime ABI evidence row has no tests' "$script" || {
   echo "evidence runner must fail clearly for unknown ABI evidence rows" >&2
   exit 1
 }
+
+grep -Fq 'direct native runtime ABI status has no tests' "$script" || {
+  echo "evidence runner must fail clearly for ABI statuses without focused tests" >&2
+  exit 1
+}
+
+grep -Fq 'unknown direct native runtime ABI row status' "$script" || {
+  echo "evidence runner must fail clearly for unknown ABI row statuses" >&2
+  exit 1
+}
+
+if AXIOM_DIRECT_NATIVE_RUNTIME_ABI_STATUS=unknown "$script" >"$temp_dir/unknown-status.out" 2>"$temp_dir/unknown-status.err"; then
+  echo "expected unknown ABI row statuses to fail" >&2
+  exit 1
+fi
+grep -Fq 'unknown direct native runtime ABI row status: unknown' "$temp_dir/unknown-status.err"
+
+if AXIOM_DIRECT_NATIVE_RUNTIME_ABI_STATUS=blocked "$script" >"$temp_dir/blocked-status.out" 2>"$temp_dir/blocked-status.err"; then
+  echo "expected ABI row statuses without focused tests to fail" >&2
+  exit 1
+fi
+grep -Fq 'direct native runtime ABI status has no tests: blocked' "$temp_dir/blocked-status.err"
 
 grep -Fq -- '--test-threads=1' "$script" || {
   echo "evidence runner must serialize localhost-backed Cranelift evidence tests" >&2
