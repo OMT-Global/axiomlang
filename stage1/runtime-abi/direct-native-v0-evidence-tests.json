@@ -7,7 +7,9 @@
       "cranelift_backend_lowers_array_literal_index_to_runtime_exit_code",
       "cranelift_backend_lowers_fixed_array_intrinsics_to_runtime_exit_code",
       "cranelift_backend_builds_const_sized_array_conformance_binary",
-      "cranelift_backend_builds_array_helpers_binary"
+      "cranelift_backend_builds_array_helpers_binary",
+      "cranelift_backend_builds_scalar_aggregate_binary",
+      "cranelift_backend_lowers_i64_while_loop_to_runtime_exit_code"
     ],
     "boolean": [
       "cranelift_backend_lowers_i64_bool_returning_main_to_runtime_exit_code",
@@ -66,11 +68,14 @@
     ],
     "struct.field": [
       "cranelift_backend_lowers_struct_literal_field_to_runtime_exit_code",
-      "cranelift_backend_builds_struct_field_binary"
+      "cranelift_backend_builds_struct_field_binary",
+      "cranelift_backend_lowers_i64_while_loop_to_runtime_exit_code"
     ],
     "tuple": [
       "cranelift_backend_lowers_bool_tuple_index_to_runtime_exit_code",
-      "cranelift_backend_lowers_tuple_returning_helper_to_runtime_exit_code"
+      "cranelift_backend_lowers_tuple_returning_helper_to_runtime_exit_code",
+      "cranelift_backend_builds_scalar_aggregate_binary",
+      "cranelift_backend_lowers_i64_while_loop_to_runtime_exit_code"
     ]
   },
   "capability_shims": {

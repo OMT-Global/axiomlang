@@ -292,6 +292,12 @@ direct-native codegen still does not provide a general array ABI, array storage
 for non-scalar elements, full dynamic indexing semantics, bounds diagnostics,
 or a complete aggregate value passing contract.
 
+The focused value-feature evidence manifest also links the public scalar
+aggregate smoke and the while-loop aggregate reassignment smoke to the
+fixed-array row, because those tests prove fixed-array helper arguments,
+scalar projection, and loop-body reassignment paths through direct-native output
+without generated Rust.
+
 The `tuple` row now has narrow direct-native runtime evidence for immediate
 tuple-literal scalar indexing and scalar projection from local tuple bindings.
 This includes runtime-scope loop-body bindings. Numeric projections can feed
@@ -338,6 +344,12 @@ direct-native codegen still does not provide a general struct ABI, struct
 storage for non-scalar fields, owned field projection, field mutation, struct
 return expressions beyond the scalar/bool local, literal, and parameter slice,
 or a complete aggregate value passing contract.
+
+The focused value-feature evidence manifest also records aggregate smoke
+coverage for tuple and struct rows: scalar aggregate output covers public
+string/int tuple projection, and the while-loop aggregate reassignment smoke
+covers tuple, fixed-array, and struct projection/reassignment through runtime
+loop blocks without generated Rust.
 
 The `option` row now has narrow direct-native runtime evidence for local
 `Option<int>` and `Option<bool>` construction represented as tag/payload locals,
