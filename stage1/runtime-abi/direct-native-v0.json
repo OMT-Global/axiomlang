@@ -160,11 +160,11 @@
     },
     {
       "id": "network.http.server",
-      "status": "partial",
+      "status": "implemented",
       "capability": "net",
       "evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"],
-      "blockers": [1001],
       "denial_evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"],
+      "runtime_evidence": ["stage1/crates/axiomc/src/cranelift_backend.rs"],
       "notes": "The Cranelift spike builds and runs loopback HTTP server entrypoints while the public smoke asserts generated_rust is null: listen, local_port, accept, request method/path/body extraction, response write, and close over a one-request HTTP/1.0 fixture. The direct-native i64 path now also lowers known-bind http_serve_once, http_serve_route, and public std/http.ax serve_once calls into native process exit status by selecting bool branches at compile time for local HTTP responses, including a two-request routed fixture; public serve_once and primitive http_serve_route results can also be stored in local bool values and used by later branch conditions without generated Rust. Packages without the net capability still receive the public manifest-policy denial before backend lowering. Non-loopback policy coverage, richer response metadata, timeout parity, and audit parity remain blocked."
     },
     {
