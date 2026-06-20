@@ -208,11 +208,14 @@
     },
     {
       "id": "crypto.hash",
-      "status": "partial",
+      "status": "implemented",
       "capability": "crypto",
       "evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"],
       "denial_evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"],
-      "blockers": [1001],
+      "runtime_evidence": [
+        "stage1/crates/axiomc/src/cranelift_backend.rs",
+        "stage1/crates/axiomc-backend-cranelift/src/lib.rs"
+      ],
       "notes": "The Cranelift spike covers std/crypto_hash.ax sha256 over strings while the public smoke asserts generated_rust is null. Crypto capability denials still happen before backend lowering. The direct-native i64 path now also lowers known-input crypto_sha256 string results and imported public std/crypto_hash.ax sha256 wrapper results into length and comparison conditions that can feed a native process exit status without generated Rust. Supported runtime string-projection inputs can also feed fixed SHA-256 hex length projections directly or through string_clone over a projection local without materializing a general runtime string value. Those direct-native SHA-256 length projections append best-effort host audit JSONL to AXIOM_HOST_AUDIT_LOG, recording only typed input metadata and outcome without recording input text or digest values. Random, signature, AEAD, dynamic runtime hash execution, and broader crypto audit parity remain open."
     },
     {
