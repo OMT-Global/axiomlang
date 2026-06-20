@@ -30,6 +30,8 @@ assert len(report["incomplete_rows"]) == 11
 assert report["evidence_test_manifest"]["present"] is True
 assert report["evidence_test_manifest"]["value_feature_rows"] == 12
 assert report["evidence_test_manifest"]["value_feature_test_count"] >= 40
+assert report["evidence_test_manifest"]["capability_shim_rows"] == 22
+assert report["evidence_test_manifest"]["capability_shim_test_count"] >= 70
 assert "owned.move_state" not in report["incomplete_rows"]
 assert "ffi.call" not in report["incomplete_rows"]
 assert "json.serdes" not in report["incomplete_rows"]
@@ -227,6 +229,7 @@ with open(sys.argv[1], encoding="utf-8") as handle:
     manifest = json.load(handle)
 
 manifest["value_features"]["numeric.scalars"][0] = "missing_cranelift_runtime_abi_test"
+manifest["capability_shims"]["fs.read"][0] = "missing_cranelift_capability_abi_test"
 
 with open(sys.argv[1], "w", encoding="utf-8") as handle:
     json.dump(manifest, handle)
@@ -247,6 +250,10 @@ with open(sys.argv[1], encoding="utf-8") as handle:
     report = json.load(handle)
 
 assert any("names missing test" in error for error in report["errors"])
+assert any(
+    "capability_shims" in error and "names missing test" in error
+    for error in report["errors"]
+)
 PY
 
 python3 - "$contract" "$temp_dir/implemented-with-blocker.json" <<'PY'
