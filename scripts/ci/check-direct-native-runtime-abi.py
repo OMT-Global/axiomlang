@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -12,7 +13,11 @@ from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_CONTRACT = REPO_ROOT / "stage1/runtime-abi/direct-native-v0.json"
+DEFAULT_EVIDENCE_TEST_MANIFEST = (
+    REPO_ROOT / "stage1/runtime-abi/direct-native-v0-evidence-tests.json"
+)
 VALID_STATUSES = {"implemented", "partial", "blocked"}
+RUST_TEST_FN_RE = re.compile(r"(?m)^fn\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(")
 REQUIRED_VALUE_FEATURES = {
     "numeric.scalars",
     "boolean",
@@ -58,6 +63,16 @@ def load_contract(path: Path) -> dict[str, Any]:
         payload = json.load(handle)
     if not isinstance(payload, dict):
         raise ValueError("contract root must be an object")
+    return payload
+
+
+def load_optional_manifest(path: Path | None) -> dict[str, Any] | None:
+    if path is None:
+        return None
+    with path.open(encoding="utf-8") as handle:
+        payload = json.load(handle)
+    if not isinstance(payload, dict):
+        raise ValueError("evidence test manifest root must be an object")
     return payload
 
 
@@ -178,8 +193,126 @@ def validate_evidence_paths(
             )
 
 
+def validate_evidence_test_manifest(
+    manifest: dict[str, Any] | None,
+    errors: list[str],
+    contract_root: Path,
+) -> dict[str, int] | None:
+    if manifest is None:
+        return None
+
+    if (
+        manifest.get("schema_version")
+        != "axiom.direct_native.runtime_abi.evidence_tests.v0"
+    ):
+        errors.append(
+            "evidence test manifest schema_version must be "
+            "axiom.direct_native.runtime_abi.evidence_tests.v0"
+        )
+    if manifest.get("target_id") != "axiom://target/stage1-direct-native":
+        errors.append(
+            "evidence test manifest target_id must be "
+            "axiom://target/stage1-direct-native"
+        )
+
+    test_source_value = manifest.get("test_source")
+    test_names: set[str] = set()
+    if not isinstance(test_source_value, str) or not test_source_value:
+        errors.append("evidence test manifest test_source must be a non-empty string")
+    else:
+        test_source = Path(test_source_value)
+        if test_source.is_absolute() or ".." in test_source.parts:
+            errors.append(
+                "evidence test manifest test_source must be a repository-relative path"
+            )
+        else:
+            test_source_path = contract_root / test_source
+            if not test_source_path.is_file():
+                errors.append(
+                    "evidence test manifest test_source does not exist: "
+                    f"{test_source_value}"
+                )
+            else:
+                test_names = set(
+                    RUST_TEST_FN_RE.findall(test_source_path.read_text(encoding="utf-8"))
+                )
+
+    counts: dict[str, int] = {}
+    validate_evidence_test_group(
+        manifest.get("value_features"),
+        REQUIRED_VALUE_FEATURES,
+        test_names,
+        "value_features",
+        errors,
+        counts,
+    )
+    return counts
+
+
+def validate_evidence_test_group(
+    group: object,
+    required_ids: set[str],
+    test_names: set[str],
+    group_name: str,
+    errors: list[str],
+    counts: dict[str, int],
+) -> None:
+    if not isinstance(group, dict):
+        errors.append(f"evidence test manifest {group_name} must be an object")
+        return
+
+    seen = set(group)
+    missing = sorted(required_ids - seen)
+    if missing:
+        errors.append(
+            f"evidence test manifest {group_name} missing required rows: "
+            f"{', '.join(missing)}"
+        )
+    extra = sorted(seen - required_ids)
+    if extra:
+        errors.append(
+            f"evidence test manifest {group_name} has unknown rows: "
+            f"{', '.join(extra)}"
+        )
+
+    for row_id, tests in sorted(group.items()):
+        if not isinstance(row_id, str) or not row_id:
+            errors.append(
+                f"evidence test manifest {group_name} row ids must be non-empty strings"
+            )
+            continue
+        if not isinstance(tests, list) or not tests:
+            errors.append(
+                f"evidence test manifest {group_name} row {row_id!r} "
+                "must name at least one focused test"
+            )
+            continue
+        row_tests: set[str] = set()
+        for index, test_name in enumerate(tests):
+            if not isinstance(test_name, str) or not test_name:
+                errors.append(
+                    f"evidence test manifest {group_name} row {row_id!r} "
+                    f"test[{index}] must be a non-empty string"
+                )
+                continue
+            if test_name in row_tests:
+                errors.append(
+                    f"evidence test manifest {group_name} row {row_id!r} "
+                    f"contains duplicate test {test_name!r}"
+                )
+            row_tests.add(test_name)
+            if test_names and test_name not in test_names:
+                errors.append(
+                    f"evidence test manifest {group_name} row {row_id!r} "
+                    f"names missing test {test_name!r}"
+                )
+        counts[row_id] = len(row_tests)
+
+
 def build_report(
-    contract: dict[str, Any], contract_root: Path = REPO_ROOT
+    contract: dict[str, Any],
+    contract_root: Path = REPO_ROOT,
+    evidence_test_manifest: dict[str, Any] | None = None,
 ) -> tuple[dict[str, Any], int]:
     errors: list[str] = []
 
@@ -216,6 +349,11 @@ def build_report(
         errors,
         contract_root,
     )
+    evidence_test_counts = validate_evidence_test_manifest(
+        evidence_test_manifest,
+        errors,
+        contract_root,
+    )
 
     incomplete_rows = sorted(value_incomplete_rows + capability_incomplete_rows)
     blocked_rows = sorted(value_blocked_rows + capability_blocked_rows)
@@ -239,6 +377,11 @@ def build_report(
         "incomplete_rows": incomplete_rows,
         "blocked_rows": blocked_rows,
         "blocker_issues": blocker_issues,
+        "evidence_test_manifest": {
+            "present": evidence_test_manifest is not None,
+            "value_feature_rows": len(evidence_test_counts or {}),
+            "value_feature_test_count": sum((evidence_test_counts or {}).values()),
+        },
         "errors": errors,
     }
     return report, 1 if errors else 0
@@ -249,6 +392,17 @@ def main() -> int:
         description="Validate the direct native runtime ABI contract."
     )
     parser.add_argument("--contract", type=Path, default=DEFAULT_CONTRACT)
+    parser.add_argument(
+        "--evidence-test-manifest",
+        type=Path,
+        default=DEFAULT_EVIDENCE_TEST_MANIFEST,
+        help="focused test manifest to validate with the ABI contract",
+    )
+    parser.add_argument(
+        "--no-evidence-test-manifest",
+        action="store_true",
+        help="skip focused test manifest validation",
+    )
     parser.add_argument("--json", action="store_true", help="emit machine-readable JSON")
     parser.add_argument(
         "--enforce-ready",
@@ -259,6 +413,10 @@ def main() -> int:
 
     try:
         contract = load_contract(args.contract)
+        manifest_path = (
+            None if args.no_evidence_test_manifest else args.evidence_test_manifest
+        )
+        evidence_test_manifest = load_optional_manifest(manifest_path)
     except (OSError, ValueError, json.JSONDecodeError) as error:
         report = {
             "schema": "axiom.direct_native.runtime_abi.check.v1",
@@ -274,6 +432,11 @@ def main() -> int:
             "incomplete_rows": [],
             "blocked_rows": [],
             "blocker_issues": [],
+            "evidence_test_manifest": {
+                "present": False,
+                "value_feature_rows": 0,
+                "value_feature_test_count": 0,
+            },
             "errors": [str(error)],
         }
         if args.json:
@@ -282,7 +445,11 @@ def main() -> int:
             print(f"direct native runtime ABI: invalid ({error})", file=sys.stderr)
         return 1
 
-    report, validation_status = build_report(contract, REPO_ROOT)
+    report, validation_status = build_report(
+        contract,
+        REPO_ROOT,
+        evidence_test_manifest,
+    )
     if args.json:
         print(json.dumps(report, indent=2))
     elif report["ready"]:

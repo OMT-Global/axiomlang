@@ -4189,6 +4189,9 @@ fn cranelift_backend_builds_net_loopback_binary() {
         eprintln!("skipping cranelift backend smoke test because cc is unavailable");
         return;
     }
+    if !loopback_socket_bind_available() {
+        return;
+    }
 
     let temp = tempfile::tempdir().expect("tempdir");
     let project = temp.path().join("net-loopback");
@@ -4238,6 +4241,9 @@ fn cranelift_backend_lowers_net_loopback_to_runtime_exit_code() {
         eprintln!("skipping cranelift backend smoke test because cc is unavailable");
         return;
     }
+    if !loopback_socket_bind_available() {
+        return;
+    }
 
     let temp = tempfile::tempdir().expect("tempdir");
     let project = temp.path().join("net-loopback-main-exit");
@@ -4281,7 +4287,9 @@ fn cranelift_backend_builds_http_client_binary() {
 
     let temp = tempfile::tempdir().expect("tempdir");
     let project = temp.path().join("http-client");
-    let (port, server) = start_http_fixture_server("axiom-http-ok");
+    let Some((port, server)) = start_http_fixture_server("axiom-http-ok") else {
+        return;
+    };
     write_http_client_project(&project, port);
 
     let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
@@ -4327,7 +4335,9 @@ fn cranelift_backend_lowers_http_client_to_runtime_exit_code() {
 
     let temp = tempfile::tempdir().expect("tempdir");
     let project = temp.path().join("http-client-main-exit");
-    let (port, server) = start_http_fixture_server_requests("axiom-http-ok", 2);
+    let Some((port, server)) = start_http_fixture_server_requests("axiom-http-ok", 2) else {
+        return;
+    };
     write_http_client_main_exit_project(&project, port);
 
     let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
@@ -10240,15 +10250,21 @@ return 1
     .expect("write net loopback main source");
 }
 
-fn start_http_fixture_server(body: &'static str) -> (u16, std::thread::JoinHandle<()>) {
+fn start_http_fixture_server(body: &'static str) -> Option<(u16, std::thread::JoinHandle<()>)> {
     start_http_fixture_server_requests(body, 1)
 }
 
 fn start_http_fixture_server_requests(
     body: &'static str,
     requests: usize,
-) -> (u16, std::thread::JoinHandle<()>) {
-    let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).expect("bind http fixture");
+) -> Option<(u16, std::thread::JoinHandle<()>)> {
+    let listener = match std::net::TcpListener::bind(("127.0.0.1", 0)) {
+        Ok(listener) => listener,
+        Err(err) => {
+            eprintln!("skipping cranelift http client test; cannot bind 127.0.0.1:0: {err}");
+            return None;
+        }
+    };
     listener
         .set_nonblocking(true)
         .expect("set http fixture nonblocking");
@@ -10282,7 +10298,19 @@ fn start_http_fixture_server_requests(
             }
         }
     });
-    (port, handle)
+    Some((port, handle))
+}
+
+fn loopback_socket_bind_available() -> bool {
+    if let Err(err) = std::net::TcpListener::bind(("127.0.0.1", 0)) {
+        eprintln!("skipping cranelift net loopback test; cannot bind TCP 127.0.0.1:0: {err}");
+        return false;
+    }
+    if let Err(err) = std::net::UdpSocket::bind(("127.0.0.1", 0)) {
+        eprintln!("skipping cranelift net loopback test; cannot bind UDP 127.0.0.1:0: {err}");
+        return false;
+    }
+    true
 }
 
 fn reserve_loopback_port() -> Option<u16> {
