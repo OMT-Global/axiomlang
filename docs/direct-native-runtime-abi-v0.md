@@ -813,11 +813,11 @@ The map helper-local runtime-exit smoke proves a known map direct index can be
 lowered inside an Axiom helper and returned through a native helper call into
 process exit status.
 Known local and inline map facts can now also cross pure helper-call
-boundaries for direct index, `get_or_default(...)`, and
-`map_contains_key(...)` lookups, `get(...)` `Option<int>`/`Option<bool>`/
-`Option<string>` payload matches, helper-local `Option` lookup bindings, and
-`keys(...)` key-array projections without materializing a general runtime map
-ABI.
+boundaries for string-, int-, and bool-keyed direct index,
+`get_or_default(...)`, and `map_contains_key(...)` lookups, `get(...)`
+`Option<int>`/`Option<bool>`/`Option<string>` payload matches, helper-local
+`Option` lookup bindings, and `keys(...)` key-array projections without
+materializing a general runtime map ABI.
 The focused evidence manifest now also links the runtime-selected `keys(...)`
 projection smoke to this row, covering finite map-key selection through public
 `std/log.ax` length projection without generated Rust.
@@ -827,8 +827,10 @@ scalar/string key lowering.
 Broader map ownership, runtime map storage, general payload lookup bindings
 beyond the evidenced scalar/bool/known-string pure helper direct-match and
 helper-local binding paths, map helper parameters outside compile-time-known
-local and inline map facts, runtime key array value projection, and
-host-boundary representation remain tracked by issue #1124.
+local and inline map facts, map key/value shapes beyond the evidenced
+string/int/bool key and scalar/bool/known-string value slice, runtime key array
+value projection, and host-boundary representation remain tracked by issue
+#1124.
 
 The `env.read` row now has partial Cranelift evidence for `std/env.ax`
 `get_env` on present and missing environment names while the public smoke

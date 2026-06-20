@@ -12219,6 +12219,30 @@ fn has_key(scores: {string: int}, key: string): bool {
 return map_contains_key<string, int>(scores, key)
 }
 
+fn int_score_or_default(scores: {int: int}, key: int): int {
+return get_or_default<int, int>(scores, key, 13)
+}
+
+fn has_int_key(scores: {int: int}, key: int): bool {
+return map_contains_key<int, int>(scores, key)
+}
+
+fn matched_int_score(scores: {int: int}, key: int): int {
+return match get<int, int>(scores, key) { Some(value) => value, None => 13 }
+}
+
+fn bool_score_or_default(scores: {bool: int}, key: bool): int {
+return get_or_default<bool, int>(scores, key, 13)
+}
+
+fn has_bool_key(scores: {bool: int}, key: bool): bool {
+return map_contains_key<bool, int>(scores, key)
+}
+
+fn matched_bool_score(scores: {bool: int}, key: bool): int {
+return match get<bool, int>(scores, key) { Some(value) => value, None => 13 }
+}
+
 fn matched_score(scores: {string: int}, key: string): int {
 return match get<string, int>(scores, key) { Some(value) => value, None => 13 }
 }
@@ -12265,6 +12289,12 @@ fn main(): int {
 let local_lookup_scores: {string: int} = {"build": 7, "deploy": 48}
 let local_contains_scores: {string: int} = {"build": 7, "deploy": 48}
 let duplicate_scores: {string: int} = {"deploy": 9, "deploy": 48}
+let local_int_default_scores: {int: int} = {1: 7, 2: 48}
+let local_int_contains_scores: {int: int} = {1: 7, 2: 48}
+let local_int_match_scores: {int: int} = {1: 7, 2: 48}
+let local_bool_default_scores: {bool: int} = {false: 7, true: 48}
+let local_bool_contains_scores: {bool: int} = {false: 7, true: 48}
+let local_bool_match_scores: {bool: int} = {false: 7, true: 48}
 let local_match_scores: {string: int} = {"build": 7, "deploy": 48}
 let local_match_flags: {string: bool} = {"build": false, "deploy": true}
 let local_match_labels: {string: string} = {"build": "forge", "deploy": "ship"}
@@ -12279,6 +12309,18 @@ let default_score: int = score_or_default({"build": 7}, "test")
 let duplicate_score: int = deploy_score(duplicate_scores)
 let local_contains: bool = has_key(local_contains_scores, "deploy")
 let inline_missing: bool = has_key({"build": 7}, "deploy") == false
+let local_int_default_score: int = int_score_or_default(local_int_default_scores, 2)
+let inline_int_default_miss: int = int_score_or_default({1: 7}, 2)
+let local_int_contains: bool = has_int_key(local_int_contains_scores, 2)
+let inline_int_missing: bool = has_int_key({1: 7}, 2) == false
+let local_int_match_score: int = matched_int_score(local_int_match_scores, 2)
+let inline_int_match_miss: int = matched_int_score({1: 7}, 2)
+let local_bool_default_score: int = bool_score_or_default(local_bool_default_scores, true)
+let inline_bool_default_miss: int = bool_score_or_default({false: 7}, true)
+let local_bool_contains: bool = has_bool_key(local_bool_contains_scores, true)
+let inline_bool_missing: bool = has_bool_key({false: 7}, true) == false
+let local_bool_match_score: int = matched_bool_score(local_bool_match_scores, true)
+let inline_bool_match_miss: int = matched_bool_score({false: 7}, true)
 let local_match_score: int = matched_score(local_match_scores, "deploy")
 let inline_match_miss: int = matched_score({"build": 7}, "deploy")
 let local_match_flag: bool = matched_flag(local_match_flags, "deploy")
@@ -12294,7 +12336,7 @@ let inline_bound_label_miss: int = bound_label_len({"build": "forge"}, "deploy")
 let key_count_score: int = key_count(key_count_scores)
 let first_key_score: int = first_key_len(first_key_scores)
 let second_key_score: int = second_key_len({"build": 7, "deploy": 9})
-if inline_score == 48 && local_score == 48 && default_score == 13 && duplicate_score == 48 && local_contains && inline_missing && local_match_score == 48 && inline_match_miss == 13 && local_match_flag && inline_match_flag_miss && local_match_label_len == 4 && inline_match_label_miss == 13 && local_bound_score == 48 && inline_bound_miss == 13 && local_bound_flag && inline_bound_flag_miss && local_bound_label_len == 4 && inline_bound_label_miss == 13 && key_count_score == 2 && first_key_score == 5 && second_key_score == 6 {
+if inline_score == 48 && local_score == 48 && default_score == 13 && duplicate_score == 48 && local_contains && inline_missing && local_int_default_score == 48 && inline_int_default_miss == 13 && local_int_contains && inline_int_missing && local_int_match_score == 48 && inline_int_match_miss == 13 && local_bool_default_score == 48 && inline_bool_default_miss == 13 && local_bool_contains && inline_bool_missing && local_bool_match_score == 48 && inline_bool_match_miss == 13 && local_match_score == 48 && inline_match_miss == 13 && local_match_flag && inline_match_flag_miss && local_match_label_len == 4 && inline_match_label_miss == 13 && local_bound_score == 48 && inline_bound_miss == 13 && local_bound_flag && inline_bound_flag_miss && local_bound_label_len == 4 && inline_bound_label_miss == 13 && key_count_score == 2 && first_key_score == 5 && second_key_score == 6 {
 return 48
 } else {
 return 1
