@@ -10278,6 +10278,21 @@ fn i64_known_static_env(static_bindings: &I64StaticBindings) -> Option<SpikeEnv>
     for (name, value) in &static_bindings.strings {
         env.insert(name.clone(), SpikeValue::Text(value.clone()));
     }
+    let functions = HashMap::new();
+    let mut lines = Vec::new();
+    for (name, entries) in &static_bindings.map_literals {
+        let mut values = Vec::new();
+        for entry in entries {
+            let key = eval_expr(&entry.key, &functions, &env, &mut lines).ok()?;
+            validate_map_key(&key).ok()?;
+            let value = eval_expr(&entry.value, &functions, &env, &mut lines).ok()?;
+            insert_map_entry(&mut values, key, value).ok()?;
+        }
+        env.insert(name.clone(), SpikeValue::Map(values));
+    }
+    if !lines.is_empty() {
+        return None;
+    }
     Some(env)
 }
 
@@ -10415,9 +10430,22 @@ fn i64_known_pure_intrinsic_call(name: &str, static_bindings: &I64StaticBindings
             | "json_serdes_parse_str"
             | "json_serdes_value_to_json"
             | "json_serdes_to_json"
+            | "contains"
+            | "map_contains_key"
+            | "get"
+            | "map_get"
+            | "get_or_default"
+            | "keys"
+            | "map_keys"
     ) || is_i64_encoding_percent_encode_name(name, static_bindings)
         || is_i64_encoding_url_query_pair_encode_name(name, static_bindings)
         || is_i64_encoding_path_join_segment_name(name, static_bindings)
+        || static_bindings.collection_contains_wrappers.contains(name)
+        || static_bindings.collection_get_wrappers.contains(name)
+        || static_bindings
+            .collection_get_or_default_wrappers
+            .contains(name)
+        || static_bindings.collection_keys_wrappers.contains(name)
         || is_i64_json_stringify_int_name(name, static_bindings)
         || is_i64_json_stringify_bool_name(name, static_bindings)
         || is_i64_json_stringify_string_name(name, static_bindings)

@@ -5056,6 +5056,46 @@ fn cranelift_backend_lowers_map_helper_local_lookups_to_runtime_exit_code() {
 
 #[cfg(not(windows))]
 #[test]
+fn cranelift_backend_lowers_map_helper_params_to_runtime_exit_code() {
+    if which::which("cc").is_err() {
+        eprintln!("skipping cranelift backend smoke test because cc is unavailable");
+        return;
+    }
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("map-helper-params-main-exit");
+    write_map_helper_params_main_exit_project(&project);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args([
+            "build",
+            project.to_str().expect("project path"),
+            "--backend",
+            "cranelift",
+            "--json",
+        ])
+        .output()
+        .expect("run axiomc build --backend cranelift");
+    assert!(
+        output.status.success(),
+        "cranelift map helper params main build failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+    assert_eq!(payload["backend"], "cranelift");
+    assert_eq!(payload["generated_rust"], Value::Null);
+    let binary = payload["binary"].as_str().expect("binary path");
+    let run = Command::new(binary)
+        .output()
+        .expect("run cranelift map helper params main binary");
+    assert_eq!(run.status.code(), Some(48));
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "");
+}
+
+#[cfg(not(windows))]
+#[test]
 fn cranelift_backend_lowers_static_bool_map_keys_to_runtime_exit_code() {
     if which::which("cc").is_err() {
         eprintln!("skipping cranelift backend smoke test because cc is unavailable");
@@ -12151,6 +12191,53 @@ return 1
 "#,
     )
     .expect("write map helper lookup source");
+}
+
+fn write_map_helper_params_main_exit_project(project: &Path) {
+    fs::create_dir_all(project.join("src")).expect("create map helper params project src");
+    fs::write(
+        project.join("axiom.toml"),
+        "[package]\nname = \"cranelift-map-helper-params-main-exit\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n",
+    )
+    .expect("write map helper params manifest");
+    fs::write(
+        project.join("axiom.lock"),
+        "version = 1\n\n[[package]]\nname = \"cranelift-map-helper-params-main-exit\"\nversion = \"0.1.0\"\nsource = \"path\"\n",
+    )
+    .expect("write map helper params lockfile");
+    fs::write(
+        project.join("src/main.ax"),
+        r#"fn deploy_score(scores: {string: int}): int {
+return scores["deploy"]
+}
+
+fn score_or_default(scores: {string: int}, key: string): int {
+return get_or_default<string, int>(scores, key, 13)
+}
+
+fn has_key(scores: {string: int}, key: string): bool {
+return map_contains_key<string, int>(scores, key)
+}
+
+fn main(): int {
+let local_lookup_scores: {string: int} = {"build": 7, "deploy": 48}
+let local_contains_scores: {string: int} = {"build": 7, "deploy": 48}
+let duplicate_scores: {string: int} = {"deploy": 9, "deploy": 48}
+let inline_score: int = deploy_score({"build": 7, "deploy": 48})
+let local_score: int = deploy_score(local_lookup_scores)
+let default_score: int = score_or_default({"build": 7}, "test")
+let duplicate_score: int = deploy_score(duplicate_scores)
+let local_contains: bool = has_key(local_contains_scores, "deploy")
+let inline_missing: bool = has_key({"build": 7}, "deploy") == false
+if inline_score == 48 && local_score == 48 && default_score == 13 && duplicate_score == 48 && local_contains && inline_missing {
+return 48
+} else {
+return 1
+}
+}
+"#,
+    )
+    .expect("write map helper params source");
 }
 
 fn write_static_bool_map_keys_main_exit_project(project: &Path) {
