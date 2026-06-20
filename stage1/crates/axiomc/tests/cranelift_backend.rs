@@ -2773,8 +2773,14 @@ fn cranelift_backend_lowers_std_crypto_wrappers_to_runtime_exit_code() {
     assert!(!audit.contains("164b7a7b"));
 }
 
+#[cfg(not(windows))]
 #[test]
-fn cranelift_backend_rejects_std_crypto_wrapper_reassignment_as_i64_abi() {
+fn cranelift_backend_lowers_std_crypto_wrapper_reassignment_to_runtime_exit_code() {
+    if which::which("cc").is_err() {
+        eprintln!("skipping cranelift backend smoke test because cc is unavailable");
+        return;
+    }
+
     let temp = tempfile::tempdir().expect("tempdir");
     let project = temp
         .path()
@@ -2792,28 +2798,31 @@ fn cranelift_backend_rejects_std_crypto_wrapper_reassignment_as_i64_abi() {
         .output()
         .expect("run axiomc build --backend cranelift");
     assert!(
-        !output.status.success(),
-        "cranelift std crypto wrapper reassignment unexpectedly built: stdout={} stderr={}",
+        output.status.success(),
+        "cranelift std crypto wrapper reassignment build failed: stdout={} stderr={}",
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
 
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    if output.stdout.is_empty() {
-        assert!(
-            stderr.contains("main function is outside the direct-native i64 ABI subset"),
-            "unexpected cranelift std crypto wrapper reassignment error: stdout={stdout} stderr={stderr}"
-        );
-        return;
-    }
     let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
-    assert_eq!(payload["ok"], Value::Bool(false));
-    let message = payload["error"]["message"].as_str().expect("error message");
-    assert!(
-        message.contains("main function is outside the direct-native i64 ABI subset"),
-        "unexpected cranelift std crypto wrapper reassignment error: {message}"
-    );
+    assert_eq!(payload["backend"], "cranelift");
+    assert_eq!(payload["generated_rust"], Value::Null);
+    let binary = payload["binary"].as_str().expect("binary path");
+    let audit_log = temp.path().join("std-crypto-reassignment-audit.jsonl");
+    let run = Command::new(binary)
+        .env("AXIOM_HOST_AUDIT_LOG", &audit_log)
+        .output()
+        .expect("run cranelift std crypto wrapper reassignment binary");
+    assert_eq!(run.status.code(), Some(48));
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "");
+    let audit = fs::read_to_string(&audit_log).expect("read std crypto reassignment audit log");
+    assert!(audit.contains("\"intrinsic\":\"crypto_sha256\""));
+    assert!(audit.contains("\"intrinsic\":\"crypto_hmac_sha256\""));
+    assert!(audit.contains("\"intrinsic\":\"crypto_hmac_sha512\""));
+    assert_eq!(audit.matches("\"outcome\":\"ok\"").count(), 3, "{audit}");
+    assert!(!audit.contains("ba7816bf"));
+    assert!(!audit.contains("f7bc83f4"));
+    assert!(!audit.contains("164b7a7b"));
 }
 
 #[cfg(not(windows))]
@@ -10572,7 +10581,49 @@ fn write_std_crypto_wrapper_reassignment_main_exit_project(project: &Path) {
     .expect("write std crypto wrapper reassignment lockfile");
     fs::write(
         project.join("src/main.ax"),
-        "import \"std/crypto_hash.ax\"\nimport \"std/crypto_mac.ax\"\n\nstatic KEY: string = \"key\"\n\nfn helper_score(flag: bool): int {\nlet helper_mac: string = hmac_sha512(\"Jefe\", \"what do ya want for nothing?\")\nlet selected: string = \"unset\"\nif flag {\nselected = helper_mac\n} else {\nselected = \"bad\"\n}\nreturn len(selected)\n}\n\nfn main(): int {\nlet branch_hash: string = sha256(\"abc\")\nlet branch_selected: string = \"unset\"\nif true {\nbranch_selected = branch_hash\n} else {\nbranch_selected = \"bad\"\n}\nlet loop_mac: string = hmac_sha256(KEY, \"The quick brown fox jumps over the lazy dog\")\nlet loop_selected: string = \"unset\"\nlet index: int = 0\nwhile index < 2 {\nif index == 0 {\nloop_selected = \"bad\"\n} else {\nloop_selected = string_clone(loop_mac)\n}\nindex = index + 1\n}\nlet branch_len: int = len(branch_selected)\nlet loop_len: int = len(loop_selected)\nlet helper_true_len: int = helper_score(true)\nlet helper_false_len: int = helper_score(false)\nlet branch_gate: bool = string_starts_with(branch_selected, \"ba7816bf\")\nlet loop_gate: bool = string_starts_with(loop_selected, \"f7bc83f4\")\nif branch_gate && loop_gate && branch_len == 64 && loop_len == 64 && helper_true_len == 128 && helper_false_len == 3 && index == 2 {\nreturn 48\n} else {\nreturn 1\n}\n}\n",
+        r#"import "std/crypto_hash.ax"
+import "std/crypto_mac.ax"
+
+static KEY: string = "key"
+
+fn helper_score(flag: bool): int {
+let selected: string = "unset"
+if flag {
+selected = hmac_sha512("Jefe", "what do ya want for nothing?")
+} else {
+selected = "bad"
+}
+return len(selected)
+}
+
+fn main(): int {
+let branch_selected: string = "unset"
+if true {
+branch_selected = sha256("abc")
+} else {
+branch_selected = "bad"
+}
+let loop_selected: string = "unset"
+let index: int = 0
+while index < 2 {
+if index == 0 {
+loop_selected = "bad"
+} else {
+loop_selected = hmac_sha256(KEY, "The quick brown fox jumps over the lazy dog")
+}
+index = index + 1
+}
+let branch_len: int = len(branch_selected)
+let loop_len: int = len(loop_selected)
+let helper_true_len: int = helper_score(true)
+let helper_false_len: int = helper_score(false)
+if branch_len == 64 && loop_len == 64 && helper_true_len == 128 && helper_false_len == 3 && index == 2 {
+return 48
+} else {
+return 1
+}
+}
+"#,
     )
     .expect("write std crypto wrapper reassignment source");
 }

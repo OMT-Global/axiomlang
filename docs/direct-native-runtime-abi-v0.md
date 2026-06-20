@@ -282,11 +282,12 @@ projections without materializing a general runtime string value. Known-input
 direct-native boolean conditions after normal front-end crypto capability
 checks. Imported public `std/crypto_hash.ax` and `std/crypto_mac.ax` hash, HMAC,
 verify, and constant-time equality wrappers now alias those same known-input
-direct-native paths in runtime-exit programs. Focused boundary evidence now
-records branch-, loop-, and helper-body reassignment of public
-`std/crypto_hash.ax`/`std/crypto_mac.ax` wrapper-backed string results as
-failing closed at the direct-native i64 ABI boundary. The row
-remains partial because direct-native codegen still does not provide a general
+direct-native paths in runtime-exit programs. Public `std/crypto_hash.ax` and
+`std/crypto_mac.ax` wrapper-backed SHA/HMAC string results can now be
+reassigned through branch, loop, and helper-body string locals, feeding
+direct-native length projections, process exit status, and typed host-audit
+metadata without generated Rust. The row remains partial because direct-native
+codegen still does not provide a general
 string ABI, general runtime string parameters or returns, allocation or mutation
 behavior, non-literal string storage, general Option-string payload storage or
 helper ABI, broad string, encoding, or crypto string intrinsic lowering, or
@@ -562,9 +563,10 @@ into length and comparison conditions that can feed a native process exit
 status without generated Rust. Supported runtime string-projection inputs can
 also feed fixed SHA-256 hex length projections directly or through
 `string_clone(...)` over a projection local without materializing a general
-runtime string value. Those direct-native SHA-256 length projections now append
-best-effort host audit JSONL to `AXIOM_HOST_AUDIT_LOG`, recording only typed
-input metadata and outcome without recording input text or digest values.
+runtime string value, including public wrapper results reassigned through
+branch-local string slots. Those direct-native SHA-256 length projections now
+append best-effort host audit JSONL to `AXIOM_HOST_AUDIT_LOG`, recording only
+typed input metadata and outcome without recording input text or digest values.
 Random, signature, AEAD, dynamic runtime hash execution, and broader crypto
 audit parity remain open.
 
@@ -578,10 +580,11 @@ now also lowers known-input
 length and comparison conditions that can feed a native process exit status
 without generated Rust. Supported runtime string-projection inputs can also feed
 fixed HMAC hex length projections directly or through `string_clone(...)` over
-a projection local without materializing a general runtime string value. Those
-direct-native HMAC length projections now append best-effort host audit JSONL
-to `AXIOM_HOST_AUDIT_LOG`, recording only typed input metadata and outcome
-without recording key, message, or tag values.
+a projection local without materializing a general runtime string value,
+including public wrapper results reassigned through loop and helper-body string
+slots. Those direct-native HMAC length projections now append best-effort host
+audit JSONL to `AXIOM_HOST_AUDIT_LOG`, recording only typed input metadata and
+outcome without recording key, message, or tag values.
 Known-input `crypto_constant_time_eq(...)` over known string values lowers into native
 boolean conditions. It also lowers
 `crypto_constant_time_eq_u8(...)` over narrow fixed-array/static-slice `u8`
