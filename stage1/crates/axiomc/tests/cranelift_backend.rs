@@ -1467,6 +1467,46 @@ fn cranelift_backend_lowers_result_struct_payload_match_to_runtime_exit_code() {
 
 #[cfg(not(windows))]
 #[test]
+fn cranelift_backend_lowers_result_branch_reassignment_to_runtime_exit_code() {
+    if which::which("cc").is_err() {
+        eprintln!("skipping cranelift backend smoke test because cc is unavailable");
+        return;
+    }
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("result-branch-reassignment-main-exit");
+    write_result_branch_reassignment_main_exit_project(&project);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args([
+            "build",
+            project.to_str().expect("project path"),
+            "--backend",
+            "cranelift",
+            "--json",
+        ])
+        .output()
+        .expect("run axiomc build --backend cranelift");
+    assert!(
+        output.status.success(),
+        "cranelift result branch reassignment main build failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+    assert_eq!(payload["backend"], "cranelift");
+    assert_eq!(payload["generated_rust"], Value::Null);
+    let binary = payload["binary"].as_str().expect("binary path");
+    let run = Command::new(binary)
+        .output()
+        .expect("run cranelift result branch reassignment main binary");
+    assert_eq!(run.status.code(), Some(48));
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "");
+}
+
+#[cfg(not(windows))]
+#[test]
 fn cranelift_backend_lowers_aggregate_helper_reassignment_to_runtime_exit_code() {
     if which::which("cc").is_err() {
         eprintln!("skipping cranelift backend smoke test because cc is unavailable");
@@ -8434,6 +8474,26 @@ fn write_result_struct_payload_match_main_exit_project(
         format!("struct Step {{\nvalue: int\nenabled: bool\nsmall: u8\n}}\n\nfn choose_result(flag: bool): Result<Step, Step> {{\nif flag {{\nreturn Ok(Step {{ value: 48, enabled: true, small: 2u8 }})\n}} else {{\nreturn Err(Step {{ value: 49, enabled: false, small: 3u8 }})\n}}\n}}\n\nfn forward_result(value: Result<Step, Step>): Result<Step, Step> {{\nreturn value\n}}\n\nfn score(value: Result<Step, Step>): int {{\nreturn match value {{ Ok(step) => step.value, Err(error) => error.value }}\n}}\n\nfn main(): int {{\nlet ready_for_match: Result<Step, Step> = {value}\nlet ready_for_statement: Result<Step, Step> = {value}\nlet ready_for_helper: Result<Step, Step> = {value}\nlet returned_ok_for_score: Result<Step, Step> = choose_result(true)\nlet returned_err_for_score: Result<Step, Step> = choose_result(false)\nlet returned_ok_for_forward: Result<Step, Step> = choose_result(true)\nlet returned_err_for_forward: Result<Step, Step> = choose_result(false)\nlet forwarded_ok: Result<Step, Step> = forward_result(returned_ok_for_forward)\nlet forwarded_err: Result<Step, Step> = forward_result(returned_err_for_forward)\nlet match_code: int = match ready_for_match {{ Ok(step) => step.value, Err(error) => error.value }}\nlet statement_code: int = 0\nmatch ready_for_statement {{\nOk(step) {{\nif step.enabled {{\nstatement_code = step.value\n}} else {{\nstatement_code = 1\n}}\n}}\nErr(error) {{\nif error.enabled {{\nstatement_code = 1\n}} else {{\nstatement_code = error.value\n}}\n}}\n}}\nlet helper_code: int = score(ready_for_helper)\nlet returned_ok_code: int = score(returned_ok_for_score)\nlet returned_err_code: int = score(returned_err_for_score)\nlet forwarded_ok_code: int = score(forwarded_ok)\nlet forwarded_err_code: int = score(forwarded_err)\nlet literal_ok_code: int = score(Ok(Step {{ small: 2u8, enabled: true, value: 48 }}))\nlet literal_err_code: int = score(Err(Step {{ small: 3u8, enabled: false, value: 49 }}))\nif match_code == statement_code && statement_code == helper_code && returned_ok_code == 48 && returned_err_code == 49 && forwarded_ok_code == 48 && forwarded_err_code == 49 && literal_ok_code == 48 && literal_err_code == 49 {{\nreturn match_code\n}} else {{\nreturn 1\n}}\n}}\n"),
     )
     .expect("write result struct payload match main exit source");
+}
+
+fn write_result_branch_reassignment_main_exit_project(project: &Path) {
+    fs::create_dir_all(project.join("src"))
+        .expect("create result branch reassignment main exit project src");
+    fs::write(
+        project.join("axiom.toml"),
+        "[package]\nname = \"cranelift-result-branch-reassignment-main-exit\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n",
+    )
+    .expect("write result branch reassignment main exit manifest");
+    fs::write(
+        project.join("axiom.lock"),
+        "version = 1\n\n[[package]]\nname = \"cranelift-result-branch-reassignment-main-exit\"\nversion = \"0.1.0\"\nsource = \"path\"\n",
+    )
+    .expect("write result branch reassignment main exit lockfile");
+    fs::write(
+        project.join("src/main.ax"),
+        "struct Step {\nvalue: int\nenabled: bool\nsmall: u8\n}\n\nfn make_result(value: int, enabled: bool): Result<Step, Step> {\nif enabled {\nreturn Ok(Step { small: 2u8, enabled: enabled, value: value })\n} else {\nreturn Err(Step { small: 3u8, enabled: enabled, value: value })\n}\n}\n\nfn score(value: Result<Step, Step>): int {\nreturn match value { Ok(step) => step.value + (step.small as int), Err(error) => error.value }\n}\n\nfn main(): int {\nlet selected: Result<Step, Step> = Err(Step { value: 1, enabled: false, small: 0u8 })\nlet fallback: Result<Step, Step> = Err(Step { value: 1, enabled: false, small: 0u8 })\nlet gate: bool = true\nif gate {\nselected = make_result(46, true)\nfallback = make_result(49, false)\n} else {\nselected = Err(Step { value: 1, enabled: false, small: 0u8 })\nfallback = Err(Step { value: 1, enabled: false, small: 0u8 })\n}\nlet selected_code: int = score(selected)\nlet fallback_code: int = score(fallback)\nif selected_code == 48 && fallback_code == 49 {\nreturn selected_code\n} else {\nreturn fallback_code\n}\n}\n",
+    )
+    .expect("write result branch reassignment main exit source");
 }
 
 fn write_aggregate_helper_reassignment_main_exit_project(project: &Path) {

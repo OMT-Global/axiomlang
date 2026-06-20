@@ -898,10 +898,12 @@ parameters, helper returns, forwarded helper values, and inline
 `Ok(Step { ... })`/`Err(Step { ... })` helper arguments using declared
 field-order payload slots. Existing narrow `Result<Step, Step>` locals can now
 be reassigned from result helper returns using the same tag/payload slots,
-including inside runtime branch blocks. The nested option payload slice now also
-has narrow direct-native evidence for `Result<Option<int>, int>` construction,
-reassignment, matching, helper parameters, helper returns, forwarded helper
-values, and inline `Ok(Some(...))`, `Ok(None)`, and `Err(...)` helper arguments.
+including inside runtime branch blocks; a focused runtime-exit test now tracks
+branch-local `Result<Step, Step>` reassignment from helper returns. The nested
+option payload slice now also has narrow direct-native evidence for
+`Result<Option<int>, int>` construction, reassignment, matching, helper
+parameters, helper returns, forwarded helper values, and inline
+`Ok(Some(...))`, `Ok(None)`, and `Err(...)` helper arguments.
 The recursive result payload slice now also has narrow evidence for
 `Result<Result<int, int>, int>` construction, reassignment, matching, helper
 parameters, helper returns, forwarded helper values, and inline `Ok(Ok(...))`,

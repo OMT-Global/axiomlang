@@ -68,6 +68,7 @@
       "cranelift_backend_lowers_result_dual_tuple_payload_match_to_runtime_exit_code",
       "cranelift_backend_lowers_result_array_payload_match_to_runtime_exit_code",
       "cranelift_backend_lowers_result_struct_payload_match_to_runtime_exit_code",
+      "cranelift_backend_lowers_result_branch_reassignment_to_runtime_exit_code",
       "cranelift_backend_lowers_nested_result_match_to_runtime_exit_code"
     ],
     "slice.borrowed": [
