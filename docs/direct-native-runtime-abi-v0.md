@@ -215,10 +215,12 @@ generated Rust. It also covers immediate tuple-literal bool
 indexing, bool projection from local tuple bindings, immediate array-literal
 bool indexing, bool projection from local fixed-array bindings, immediate
 struct-literal bool field access, and bool projection from local struct
-bindings for bool locals, helper returns, and boolean conditions. The backend
-crate has narrow object-link evidence for composed `&&`/`||` comparison conditions,
-condition-to-i64 value lowering for helper-call arguments, and bool local
-assignment through a branch inside a loop after a scoped runtime bool `let`.
+bindings for bool locals, helper returns, and boolean conditions. The focused
+evidence manifest now links a boolean aggregate projection runtime-exit smoke to
+this row so fixed-array and struct bool projections are counted explicitly. The
+backend crate has narrow object-link evidence for composed `&&`/`||` comparison
+conditions, condition-to-i64 value lowering for helper-call arguments, and bool
+local assignment through a branch inside a loop after a scoped runtime bool `let`.
 Both rows remain partial because that runtime path does not yet cover the full
 supported scalar, function-call, control-flow, or boolean surface.
 

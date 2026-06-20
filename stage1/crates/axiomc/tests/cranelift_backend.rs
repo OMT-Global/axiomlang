@@ -1547,6 +1547,46 @@ fn cranelift_backend_lowers_bool_tuple_index_to_runtime_exit_code() {
 
 #[cfg(not(windows))]
 #[test]
+fn cranelift_backend_lowers_bool_aggregate_projections_to_runtime_exit_code() {
+    if which::which("cc").is_err() {
+        eprintln!("skipping cranelift backend smoke test because cc is unavailable");
+        return;
+    }
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("bool-aggregate-projections-main-exit");
+    write_bool_aggregate_projections_main_exit_project(&project);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args([
+            "build",
+            project.to_str().expect("project path"),
+            "--backend",
+            "cranelift",
+            "--json",
+        ])
+        .output()
+        .expect("run axiomc build --backend cranelift");
+    assert!(
+        output.status.success(),
+        "cranelift bool aggregate projections main build failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+    assert_eq!(payload["backend"], "cranelift");
+    assert_eq!(payload["generated_rust"], Value::Null);
+    let binary = payload["binary"].as_str().expect("binary path");
+    let run = Command::new(binary)
+        .output()
+        .expect("run cranelift bool aggregate projections main binary");
+    assert_eq!(run.status.code(), Some(48));
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "");
+}
+
+#[cfg(not(windows))]
+#[test]
 fn cranelift_backend_lowers_tuple_returning_helper_to_runtime_exit_code() {
     if which::which("cc").is_err() {
         eprintln!("skipping cranelift backend smoke test because cc is unavailable");
@@ -8251,6 +8291,26 @@ fn write_bool_tuple_index_main_exit_project(project: &Path) {
         "fn tuple_gate(pair: (bool, bool)): bool {\nlet first: bool = pair.0\nlet second: bool = pair.1\nreturn first && second == false\n}\n\nfn tuple_score(pair: (int, u8, bool)): int {\nlet base: int = pair.0\nlet bump: int = pair.1 as int\nlet enabled: bool = pair.2\nif enabled {\nreturn base + bump\n} else {\nreturn 1\n}\n}\n\nfn main(): bool {\nlet dynamic: bool = 40 + 2 == 42\nlet pair: (bool, bool) = (dynamic, false)\nlet gate: bool = pair.0\nlet blocked: bool = pair.1\nlet score: int = tuple_score((40, 2u8, true))\nlet local_score: int = tuple_score((39, 3u8, dynamic))\nreturn gate && blocked == false && tuple_gate(pair) && tuple_gate((true, false)) && score == 42 && local_score == 42\n}\n",
     )
     .expect("write bool tuple index main exit source");
+}
+
+fn write_bool_aggregate_projections_main_exit_project(project: &Path) {
+    fs::create_dir_all(project.join("src"))
+        .expect("create bool aggregate projections main exit project src");
+    fs::write(
+        project.join("axiom.toml"),
+        "[package]\nname = \"cranelift-bool-aggregate-projections-main-exit\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n",
+    )
+    .expect("write bool aggregate projections main exit manifest");
+    fs::write(
+        project.join("axiom.lock"),
+        "version = 1\n\n[[package]]\nname = \"cranelift-bool-aggregate-projections-main-exit\"\nversion = \"0.1.0\"\nsource = \"path\"\n",
+    )
+    .expect("write bool aggregate projections main exit lockfile");
+    fs::write(
+        project.join("src/main.ax"),
+        "struct Step {\nvalue: int\nenabled: bool\nblocked: bool\n}\n\nfn array_gate(flags: [bool; 2]): bool {\nreturn flags[0] && flags[1] == false\n}\n\nfn make_flags(flag: bool): [bool; 2] {\nreturn [flag, false]\n}\n\nfn step_gate(step: Step): bool {\nreturn step.enabled && step.blocked == false && step.value == 12\n}\n\nfn make_step(flag: bool): Step {\nreturn Step { value: 12, enabled: flag, blocked: false }\n}\n\nfn main(): int {\nlet dynamic: bool = 40 + 2 == 42\nlet flags: [bool; 2] = [dynamic, false]\nlet returned_flags: [bool; 2] = make_flags(dynamic)\nlet step: Step = Step { value: 12, enabled: flags[0], blocked: flags[1] }\nlet returned_step: Step = make_step(returned_flags[0])\nlet local_gate: bool = flags[0] && flags[1] == false\nlet returned_gate: bool = returned_flags[0] && returned_flags[1] == false\nlet helper_array_gate: bool = array_gate(flags)\nlet inline_array_gate: bool = array_gate([true, false])\nlet step_local_gate: bool = step.enabled && step.blocked == false\nlet step_helper_gate: bool = step_gate(step)\nlet returned_step_gate: bool = step_gate(returned_step)\nlet inline_step_gate: bool = step_gate(Step { blocked: false, enabled: true, value: 12 })\nif local_gate && returned_gate && helper_array_gate && inline_array_gate && step_local_gate && step_helper_gate && returned_step_gate && inline_step_gate {\nreturn 48\n} else {\nreturn 1\n}\n}\n",
+    )
+    .expect("write bool aggregate projections main exit source");
 }
 
 fn write_tuple_returning_helper_main_exit_project(project: &Path) {
