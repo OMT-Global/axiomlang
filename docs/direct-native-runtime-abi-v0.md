@@ -282,7 +282,10 @@ projections without materializing a general runtime string value. Known-input
 direct-native boolean conditions after normal front-end crypto capability
 checks. Imported public `std/crypto_hash.ax` and `std/crypto_mac.ax` hash, HMAC,
 verify, and constant-time equality wrappers now alias those same known-input
-direct-native paths in runtime-exit programs. The row
+direct-native paths in runtime-exit programs. Focused boundary evidence now
+records branch-, loop-, and helper-body reassignment of public
+`std/crypto_hash.ax`/`std/crypto_mac.ax` wrapper-backed string results as
+failing closed at the direct-native i64 ABI boundary. The row
 remains partial because direct-native codegen still does not provide a general
 string ABI, general runtime string parameters or returns, allocation or mutation
 behavior, non-literal string storage, general Option-string payload storage or
@@ -703,7 +706,10 @@ native process exit status without generated Rust, including known-concatenated
 patterns, text, and replacement strings in entrypoints and helper-local regex
 calls. Imported public `std/regex.ax` `is_match`, `find`, and `replace_all`
 wrappers now alias that same direct-native known-input lowering, including those
-known-concatenated and helper-local input shapes.
+known-concatenated and helper-local input shapes. Focused boundary evidence now
+records branch-, loop-, and helper-body reassignment of public `std/regex.ax`
+wrapper-backed string results as failing closed at the direct-native i64 ABI
+boundary.
 Broader regex syntax, dynamic runtime regex execution, capture groups,
 replacement expansion semantics, and conformance coverage remain open under
 #1001.
@@ -986,7 +992,10 @@ alias those same direct-native paths in runtime-exit programs; scalar
 `stringify_int(...)` and `stringify_bool(...)` results can also be assigned to
 string locals that feed native stdout `print` without materializing a general
 runtime string value, and `stringify_string(...)` over those supported
-projection locals can now feed quoted native stdout lines directly. Public
+projection locals can now feed quoted native stdout lines directly. Focused
+boundary evidence now records branch-, loop-, and helper-body reassignment of
+public `std/json.ax` wrapper-backed string results as failing closed at the
+direct-native i64 ABI boundary. Public
 `value_int(...)`, `value_bool(...)`, and `value_string(...)` `JsonValue`
 wrappers over supported dynamic scalar/bool string projections can also feed
 `stringify_value(...)` and native stdout output without generated Rust. Public
