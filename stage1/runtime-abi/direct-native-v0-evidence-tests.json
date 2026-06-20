@@ -92,6 +92,7 @@
     "tuple": [
       "cranelift_backend_lowers_bool_tuple_index_to_runtime_exit_code",
       "cranelift_backend_lowers_tuple_returning_helper_to_runtime_exit_code",
+      "cranelift_backend_lowers_tuple_branch_reassignment_to_runtime_exit_code",
       "cranelift_backend_builds_scalar_aggregate_binary",
       "cranelift_backend_lowers_i64_while_loop_to_runtime_exit_code",
       "cranelift_backend_lowers_aggregate_helper_args_to_runtime_exit_code",

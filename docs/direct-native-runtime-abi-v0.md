@@ -337,10 +337,12 @@ multi-slot return; this includes helpers whose final return is selected by
 branch blocks with branch-local scalar values, helpers returning local tuple
 bindings, and helpers forwarding tuple parameters. Existing tuple locals can
 now be reassigned from tuple helper returns using the same tuple-element ABI,
-including inside runtime loop blocks. The row remains partial because
-direct-native codegen still does not provide a general tuple ABI, tuple storage
-for non-scalar elements, tuple return expressions beyond the scalar/bool local,
-literal, and parameter slice, or a complete aggregate value passing contract.
+including inside runtime loop blocks; a focused runtime-exit test now also
+tracks branch-local tuple reassignment from helper returns. The row remains
+partial because direct-native codegen still does not provide a general tuple
+ABI, tuple storage for non-scalar elements, tuple return expressions beyond the
+scalar/bool local, literal, and parameter slice, or a complete aggregate value
+passing contract.
 
 The `struct.field` row now has narrow direct-native runtime evidence for
 immediate struct-literal scalar field access and scalar projection from local
