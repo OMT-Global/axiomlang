@@ -187,6 +187,9 @@ computed value as the process exit status at runtime without generated Rust.
 The public scalar aggregate, numeric cross-width, and static scalar smokes now
 also assert that the build JSON reports `generated_rust: null`, so this evidence
 cannot silently drift back through generated Rust.
+The focused evidence manifest now also links the `main(): i64` runtime-exit
+smoke to the numeric row so that direct i64 entrypoint process-status lowering
+is counted explicitly.
 The public integer stdout smoke also asserts `generated_rust: null` while
 printing helper-returned integer locals and arithmetic derived from those locals
 from a direct-native main function.
