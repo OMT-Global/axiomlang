@@ -34,6 +34,17 @@ command/MIR boundary fixtures, and live issue state; this Markdown page is
 descriptive evidence only. Closing #721 also requires the governing issues and
 review gates to be satisfied.
 
+For agent triage, the direct-native ABI checker can also emit the full row
+inventory with row status, blockers, evidence paths, runtime evidence paths,
+and focused test names:
+
+```bash
+python3 scripts/ci/check-direct-native-runtime-abi.py --list-evidence-rows --json
+```
+
+Use `--evidence-row <row-id>` for the focused single-row test list when running
+or repairing one ABI row.
+
 ## Backend Matrix
 
 | Surface | Required state | Current disposition | Governing issue |

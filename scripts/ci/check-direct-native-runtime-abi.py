@@ -369,6 +369,74 @@ def resolve_evidence_row(
     return row_report, 1
 
 
+def build_evidence_row_list(
+    manifest: dict[str, Any] | None,
+    contract: dict[str, Any],
+    check_report: dict[str, Any],
+) -> tuple[dict[str, Any], int]:
+    rows: list[dict[str, Any]] = []
+    for group_name in ("value_features", "capability_shims"):
+        contract_rows = contract.get(group_name)
+        if not isinstance(contract_rows, list):
+            continue
+        for row in contract_rows:
+            if not isinstance(row, dict):
+                continue
+            row_id = row.get("id")
+            if not isinstance(row_id, str) or not row_id:
+                continue
+            tests = evidence_tests_for_row(manifest, group_name, row_id)
+            rows.append(
+                {
+                    "row_id": row_id,
+                    "group": group_name,
+                    "status": row.get("status"),
+                    "blockers": row.get("blockers", []),
+                    "evidence": row.get("evidence", []),
+                    "denial_evidence": row.get("denial_evidence", []),
+                    "runtime_evidence": row.get("runtime_evidence", []),
+                    "test_source": manifest.get("test_source")
+                    if isinstance(manifest, dict)
+                    else None,
+                    "tests": tests,
+                    "test_count": len(tests),
+                    "notes": row.get("notes"),
+                }
+            )
+
+    row_list_report = {
+        "schema": "axiom.direct_native.runtime_abi.evidence_rows.v1",
+        "ready": check_report["ready"],
+        "target_id": contract.get("target_id"),
+        "contract_status": contract.get("status"),
+        "status_counts": check_report["status_counts"],
+        "value_feature_count": check_report["value_feature_count"],
+        "capability_shim_count": check_report["capability_shim_count"],
+        "incomplete_rows": check_report["incomplete_rows"],
+        "blocked_rows": check_report["blocked_rows"],
+        "blocker_issues": check_report["blocker_issues"],
+        "rows": rows,
+        "errors": check_report["errors"],
+    }
+    return row_list_report, 1 if check_report["errors"] else 0
+
+
+def evidence_tests_for_row(
+    manifest: dict[str, Any] | None,
+    group_name: str,
+    row_id: str,
+) -> list[str]:
+    if manifest is None:
+        return []
+    group = manifest.get(group_name)
+    if not isinstance(group, dict):
+        return []
+    tests = group.get(row_id)
+    if not isinstance(tests, list):
+        return []
+    return [test for test in tests if isinstance(test, str)]
+
+
 def find_contract_row(
     contract: dict[str, Any],
     row_id: str,
@@ -493,11 +561,19 @@ def main() -> int:
         help="emit focused Cranelift test names for one runtime ABI row",
     )
     parser.add_argument(
+        "--list-evidence-rows",
+        action="store_true",
+        help="emit the runtime ABI row inventory with status, evidence, and tests",
+    )
+    parser.add_argument(
         "--enforce-ready",
         action="store_true",
         help="fail while any runtime ABI row remains partial or blocked",
     )
     args = parser.parse_args()
+
+    if args.list_evidence_rows and args.evidence_row:
+        parser.error("--list-evidence-rows and --evidence-row cannot be combined")
 
     try:
         contract = load_contract(args.contract)
@@ -540,6 +616,28 @@ def main() -> int:
         REPO_ROOT,
         evidence_test_manifest,
     )
+    if args.list_evidence_rows:
+        row_list_report, row_list_status = build_evidence_row_list(
+            evidence_test_manifest,
+            contract,
+            report,
+        )
+        if args.json:
+            print(json.dumps(row_list_report, indent=2))
+        elif row_list_report["errors"]:
+            for error in row_list_report["errors"]:
+                print(error, file=sys.stderr)
+        else:
+            for row in row_list_report["rows"]:
+                blockers = ", ".join(f"#{issue}" for issue in row["blockers"]) or "-"
+                print(
+                    f"{row['group']} {row['row_id']} {row['status']} "
+                    f"tests={row['test_count']} blockers={blockers}"
+                )
+        if validation_status:
+            return validation_status
+        return row_list_status
+
     if args.evidence_row:
         row_report, row_status = resolve_evidence_row(
             evidence_test_manifest,
