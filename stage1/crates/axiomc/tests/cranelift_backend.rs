@@ -3064,7 +3064,7 @@ fn cranelift_backend_lowers_process_status_to_runtime_exit_code() {
         audit.contains("\"intrinsic\":\"process_status\""),
         "{audit}"
     );
-    assert_eq!(audit.matches("\"outcome\":\"ok\"").count(), 2, "{audit}");
+    assert_eq!(audit.matches("\"outcome\":\"ok\"").count(), 3, "{audit}");
     assert_eq!(
         audit.matches("\"outcome\":\"denied\"").count(),
         1,
@@ -9468,11 +9468,16 @@ source = "path"
         project.join("src/main.ax"),
         r#"import "std/process.ax"
 
+static TRUE_CMD: string = "/usr/bin/true"
+static FALSE_CMD: string = "/usr/bin/false"
+static MISSING_CMD: string = "__axiom_stage1_missing_binary__"
+
 fn main(): int {
 let ok: int = process_status("/usr/bin/true")
-let fail: int = run_status("/usr/bin/false")
-let missing: int = run_status("__axiom_stage1_missing_binary__")
-if ok == 0 && fail == 1 && missing == -1 {
+let static_ok: int = run_status(TRUE_CMD)
+let fail: int = run_status(FALSE_CMD)
+let missing: int = run_status(MISSING_CMD)
+if ok == 0 && static_ok == 0 && fail == 1 && missing == -1 {
 return 48
 } else {
 return 1
@@ -10790,7 +10795,7 @@ fn write_sync_mutex_main_exit_project(project: &Path) {
     .expect("write sync mutex main lockfile");
     fs::write(
         project.join("src/main.ax"),
-        "import \"std/sync.ax\"\n\nfn main(): int {\nlet counter: Mutex<int> = mutex<int>(1)\nlet guard: MutexGuard<int> = lock<int>(counter)\nlet updated: Mutex<int> = replace<int>(guard, 48)\nlet final_guard: MutexGuard<int> = lock<int>(updated)\nreturn into_inner<int>(final_guard)\n}\n",
+        "import \"std/sync.ax\"\n\nfn helper_mutex_score(): int {\nlet counter: Mutex<int> = mutex<int>(2)\nlet guard: MutexGuard<int> = lock<int>(counter)\nlet updated: Mutex<int> = replace<int>(guard, 12)\nlet final_guard: MutexGuard<int> = lock<int>(updated)\nreturn into_inner<int>(final_guard)\n}\n\nfn main(): int {\nlet counter: Mutex<int> = mutex<int>(1)\nlet guard: MutexGuard<int> = lock<int>(counter)\nlet updated: Mutex<int> = replace<int>(guard, 48)\nlet final_guard: MutexGuard<int> = lock<int>(updated)\nlet direct: int = into_inner<int>(final_guard)\nlet helper: int = helper_mutex_score()\nif direct == 48 && helper == 12 {\nreturn direct\n} else {\nreturn 1\n}\n}\n",
     )
     .expect("write sync mutex main source");
 }
@@ -10809,7 +10814,7 @@ fn write_sync_once_main_exit_project(project: &Path) {
     .expect("write sync once main lockfile");
     fs::write(
         project.join("src/main.ax"),
-        "import \"std/sync.ax\"\n\nfn main(): int {\nlet present_cell: Once<int> = once_with<int>(21)\nlet missing_cell: Once<int> = once<int>(None)\nlet ready_cell: Once<int> = once_with<int>(0)\nlet empty_cell: Once<int> = once<int>(None)\nlet bool_cell: Once<bool> = once_with<bool>(true)\nlet present: Option<int> = once_take<int>(present_cell)\nlet present_score: int = match present { Some(value) => value, None => 4 }\nlet missing: Option<int> = once_take<int>(missing_cell)\nlet missing_score: int = match missing { Some(value) => value, None => 19 }\nlet ready: bool = once_is_set<int>(ready_cell)\nlet empty: bool = once_is_set<int>(empty_cell)\nlet bool_ready: Option<bool> = once_take<bool>(bool_cell)\nlet bool_present: bool = match bool_ready { Some(value) => value, None => false }\nif ready && (empty == false) && bool_present {\nreturn present_score + missing_score\n} else {\nreturn 2\n}\n}\n",
+        "import \"std/sync.ax\"\n\nfn helper_once_score(): int {\nlet present_cell: Once<int> = once_with<int>(8)\nlet missing_cell: Once<int> = once<int>(None)\nlet ready_cell: Once<bool> = once_with<bool>(true)\nlet present: Option<int> = once_take<int>(present_cell)\nlet present_score: int = match present { Some(value) => value, None => 1 }\nlet missing: Option<int> = once_take<int>(missing_cell)\nlet missing_score: int = match missing { Some(value) => value, None => 4 }\nlet ready: bool = once_is_set<bool>(ready_cell)\nif ready {\nreturn present_score + missing_score\n} else {\nreturn 1\n}\n}\n\nfn main(): int {\nlet present_cell: Once<int> = once_with<int>(21)\nlet missing_cell: Once<int> = once<int>(None)\nlet ready_cell: Once<int> = once_with<int>(0)\nlet empty_cell: Once<int> = once<int>(None)\nlet bool_cell: Once<bool> = once_with<bool>(true)\nlet present: Option<int> = once_take<int>(present_cell)\nlet present_score: int = match present { Some(value) => value, None => 4 }\nlet missing: Option<int> = once_take<int>(missing_cell)\nlet missing_score: int = match missing { Some(value) => value, None => 19 }\nlet ready: bool = once_is_set<int>(ready_cell)\nlet empty: bool = once_is_set<int>(empty_cell)\nlet bool_ready: Option<bool> = once_take<bool>(bool_cell)\nlet bool_present: bool = match bool_ready { Some(value) => value, None => false }\nlet helper: int = helper_once_score()\nif ready && (empty == false) && bool_present && helper == 12 {\nreturn present_score + missing_score\n} else {\nreturn 2\n}\n}\n",
     )
     .expect("write sync once main source");
 }
@@ -10828,7 +10833,7 @@ fn write_sync_channel_main_exit_project(project: &Path) {
     .expect("write sync channel main lockfile");
     fs::write(
         project.join("src/main.ax"),
-        "import \"std/sync.ax\"\n\nfn main(): int {\nlet channel: Channel<int> = channel<int>(None)\nlet sent: Channel<int> = send<int>(channel, 31)\nlet empty: Channel<int> = channel<int>(None)\nlet bool_channel: Channel<bool> = channel<bool>(None)\nlet bool_sent: Channel<bool> = send<bool>(bool_channel, true)\nlet present: Option<int> = try_recv<int>(sent)\nlet present_score: int = match present { Some(value) => value, None => 4 }\nlet missing: Option<int> = try_recv<int>(empty)\nlet missing_score: int = match missing { Some(value) => value, None => 17 }\nlet ready: Option<bool> = try_recv<bool>(bool_sent)\nlet ready_present: bool = match ready { Some(value) => value, None => false }\nif ready_present {\nreturn present_score + missing_score + 2\n} else {\nreturn 5\n}\n}\n",
+        "import \"std/sync.ax\"\n\nfn helper_channel_score(): int {\nlet channel: Channel<int> = channel<int>(None)\nlet sent: Channel<int> = send<int>(channel, 7)\nlet empty: Channel<int> = channel<int>(None)\nlet present: Option<int> = try_recv<int>(sent)\nlet present_score: int = match present { Some(value) => value, None => 1 }\nlet missing: Option<int> = try_recv<int>(empty)\nlet missing_score: int = match missing { Some(value) => value, None => 5 }\nreturn present_score + missing_score\n}\n\nfn main(): int {\nlet channel: Channel<int> = channel<int>(None)\nlet sent: Channel<int> = send<int>(channel, 31)\nlet empty: Channel<int> = channel<int>(None)\nlet bool_channel: Channel<bool> = channel<bool>(None)\nlet bool_sent: Channel<bool> = send<bool>(bool_channel, true)\nlet present: Option<int> = try_recv<int>(sent)\nlet present_score: int = match present { Some(value) => value, None => 4 }\nlet missing: Option<int> = try_recv<int>(empty)\nlet missing_score: int = match missing { Some(value) => value, None => 17 }\nlet ready: Option<bool> = try_recv<bool>(bool_sent)\nlet ready_present: bool = match ready { Some(value) => value, None => false }\nlet helper: int = helper_channel_score()\nif ready_present && helper == 12 {\nreturn present_score + missing_score + 2\n} else {\nreturn 5\n}\n}\n",
     )
     .expect("write sync channel main source");
 }
