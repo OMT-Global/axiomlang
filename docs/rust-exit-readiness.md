@@ -58,7 +58,7 @@ commands without executing them.
 
 | Surface | Required state | Current disposition | Governing issue |
 | --- | --- | --- | --- |
-| Direct native parity matrix | Every supported stage1 surface has a direct-native status row and linked blocker when incomplete. | Implemented as the checked runtime ABI matrix; individual incomplete rows still block through #1001. | [#927](https://github.com/OMT-Global/axiom/issues/927) |
+| Direct native parity matrix | Every supported stage1 surface has a direct-native status row and linked blocker when incomplete. | Implemented as the checked runtime ABI matrix; remaining incomplete value-feature rows block through #1124. | [#927](https://github.com/OMT-Global/axiom/issues/927) |
 | Direct native runtime ABI | Supported values, ownership shapes, stdlib calls, and capability host calls lower through backend-neutral direct-native runtime entrypoints. | Implemented and checked by `scripts/ci/check-direct-native-runtime-abi.py`. | contract |
 | Direct native diagnostics and evidence | Direct native builds preserve source diagnostics, provenance, debug manifests, and operator evidence without generated Rust. | Implemented for the Cranelift direct-native spike; broader coverage remains gated by runtime ABI and default-backend blockers. | [#929](https://github.com/OMT-Global/axiom/issues/929) |
 | Default backend | `axiomc build` defaults to direct native output and no longer invokes `rustc` for supported broad builds. | `blocked` | [#693](https://github.com/OMT-Global/axiom/issues/693) |

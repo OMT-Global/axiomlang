@@ -670,7 +670,7 @@ line-push, and finish wrappers now alias known text facts that can feed
 direct-native string comparisons, length projections, and process exit status
 without generated Rust. Broader string ABI coverage, allocation behavior,
 general runtime string parameters and returns, non-literal storage, and
-host-boundary representation remain tracked by issue #1001.
+host-boundary representation remain tracked by issue #1124.
 
 The borrowed-slice row has partial direct-native evidence: the Cranelift spike
 evaluates array-backed borrowed slices through `len`, `first`, `last`, indexing,
@@ -683,7 +683,7 @@ process exit status. Static-range fixed-array slices also support narrow literal
 and dynamic indexing over the sliced window through the same projection slots,
 including pre-runtime slice locals that alias the projected fixed-array slots.
 Broader borrowed-slice aliasing, dynamic slice bounds, slice returns, and host
-ABI coverage remain tracked by issue #1001.
+ABI coverage remain tracked by issue #1124.
 
 The map lookup row has partial direct-native evidence: the Cranelift spike now
 builds and runs direct map indexing, `get`, `get_or_default`,
@@ -725,7 +725,7 @@ for helper returns, length projections, and `string_starts_with(...)`
 conditions.
 Broader map ownership, runtime map storage, general payload lookup bindings,
 runtime key array value projection, and host-boundary representation remain
-tracked by issue #1001.
+tracked by issue #1124.
 
 The `env.read` row now has partial Cranelift evidence for `std/env.ax`
 `get_env` on present and missing environment names while the public smoke
@@ -836,7 +836,7 @@ The recursive result payload slice now also has narrow evidence for
 parameters, helper returns, forwarded helper values, and inline `Ok(Ok(...))`,
 `Ok(Err(...))`, and outer `Err(...)` helper arguments.
 Broader Result ABI support, the full numeric-width matrix, additional aggregate
-payload shapes, and capability-shim coverage remain tracked by issue #1001.
+payload shapes, and capability-shim coverage remain tracked by issue #1124.
 
 The `enum.payload` row now has narrow direct-native runtime evidence for local
 custom enum construction, reassignment, value-producing matches, and statement
@@ -859,7 +859,7 @@ carrying nested `Option<Result<int, int>>` and `Result<Option<int>, int>` values
 including runtime-scope literal construction, reassignment, value-producing
 matches, helper returns, forwarded helper values, and inline nested variant
 arguments. Broader enum ABI support, deeper nested payload shapes, and aggregate
-payload storage beyond the evidenced slices remain tracked by issue #1001.
+payload storage beyond the evidenced slices remain tracked by issue #1124.
 
 The `json.serdes` row has expanded partial direct-native evidence: the
 Cranelift spike now builds and runs `std/json.ax` scalar/object helpers and
