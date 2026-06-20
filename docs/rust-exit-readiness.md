@@ -43,7 +43,13 @@ python3 scripts/ci/check-direct-native-runtime-abi.py --list-evidence-rows --jso
 ```
 
 Use `--evidence-row <row-id>` for the focused single-row test list when running
-or repairing one ABI row.
+or repairing one ABI row. To execute all focused evidence tests for rows with a
+shared status, use the evidence runner status selector, for example:
+
+```bash
+AXIOM_DIRECT_NATIVE_RUNTIME_ABI_STATUS=partial \
+  bash scripts/ci/run-direct-native-runtime-abi-evidence.sh
+```
 
 ## Backend Matrix
 
