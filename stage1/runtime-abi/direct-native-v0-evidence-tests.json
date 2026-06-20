@@ -51,6 +51,7 @@
       "cranelift_backend_lowers_option_tuple_payload_match_to_runtime_exit_code",
       "cranelift_backend_lowers_option_array_payload_match_to_runtime_exit_code",
       "cranelift_backend_lowers_option_struct_payload_match_to_runtime_exit_code",
+      "cranelift_backend_lowers_option_branch_reassignment_to_runtime_exit_code",
       "cranelift_backend_lowers_nested_option_match_to_runtime_exit_code"
     ],
     "owned.move_state": [

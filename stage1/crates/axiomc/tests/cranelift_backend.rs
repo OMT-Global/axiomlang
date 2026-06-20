@@ -775,6 +775,46 @@ fn cranelift_backend_lowers_option_struct_payload_match_to_runtime_exit_code() {
 
 #[cfg(not(windows))]
 #[test]
+fn cranelift_backend_lowers_option_branch_reassignment_to_runtime_exit_code() {
+    if which::which("cc").is_err() {
+        eprintln!("skipping cranelift backend smoke test because cc is unavailable");
+        return;
+    }
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("option-branch-reassignment-main-exit");
+    write_option_branch_reassignment_main_exit_project(&project);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args([
+            "build",
+            project.to_str().expect("project path"),
+            "--backend",
+            "cranelift",
+            "--json",
+        ])
+        .output()
+        .expect("run axiomc build --backend cranelift");
+    assert!(
+        output.status.success(),
+        "cranelift option branch reassignment main build failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+    assert_eq!(payload["backend"], "cranelift");
+    assert_eq!(payload["generated_rust"], Value::Null);
+    let binary = payload["binary"].as_str().expect("binary path");
+    let run = Command::new(binary)
+        .output()
+        .expect("run cranelift option branch reassignment main binary");
+    assert_eq!(run.status.code(), Some(48));
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "");
+}
+
+#[cfg(not(windows))]
+#[test]
 fn cranelift_backend_lowers_nested_option_match_to_runtime_exit_code() {
     if which::which("cc").is_err() {
         eprintln!("skipping cranelift backend smoke test because cc is unavailable");
@@ -7908,6 +7948,26 @@ fn write_option_struct_payload_match_main_exit_project(project: &Path, variant: 
         format!("struct Step {{\nvalue: int\nenabled: bool\nsmall: u8\n}}\n\nfn choose_option(flag: bool): Option<Step> {{\nif flag {{\nreturn Some(Step {{ value: 48, enabled: true, small: 2u8 }})\n}} else {{\nreturn None\n}}\n}}\n\nfn forward_option(value: Option<Step>): Option<Step> {{\nreturn value\n}}\n\nfn score(value: Option<Step>): int {{\nreturn match value {{ Some(step) => step.value, None => 49 }}\n}}\n\nfn main(): int {{\nlet ready_for_match: Option<Step> = {value}\nlet ready_for_statement: Option<Step> = {value}\nlet ready_for_helper: Option<Step> = {value}\nlet returned_some_for_score: Option<Step> = choose_option(true)\nlet returned_none_for_score: Option<Step> = choose_option(false)\nlet returned_some_for_forward: Option<Step> = choose_option(true)\nlet returned_none_for_forward: Option<Step> = choose_option(false)\nlet forwarded_some: Option<Step> = forward_option(returned_some_for_forward)\nlet forwarded_none: Option<Step> = forward_option(returned_none_for_forward)\nlet match_code: int = match ready_for_match {{ Some(step) => step.value, None => 49 }}\nlet statement_code: int = 0\nmatch ready_for_statement {{\nSome(step) {{\nif step.enabled {{\nstatement_code = step.value\n}} else {{\nstatement_code = 1\n}}\n}}\nNone {{\nstatement_code = 49\n}}\n}}\nlet helper_code: int = score(ready_for_helper)\nlet returned_some_code: int = score(returned_some_for_score)\nlet returned_none_code: int = score(returned_none_for_score)\nlet forwarded_some_code: int = score(forwarded_some)\nlet forwarded_none_code: int = score(forwarded_none)\nlet literal_some_code: int = score(Some(Step {{ small: 2u8, enabled: true, value: 48 }}))\nlet literal_none_code: int = score(None)\nif match_code == statement_code && statement_code == helper_code && returned_some_code == 48 && returned_none_code == 49 && forwarded_some_code == 48 && forwarded_none_code == 49 && literal_some_code == 48 && literal_none_code == 49 {{\nreturn match_code\n}} else {{\nreturn 1\n}}\n}}\n"),
     )
     .expect("write option struct payload match main exit source");
+}
+
+fn write_option_branch_reassignment_main_exit_project(project: &Path) {
+    fs::create_dir_all(project.join("src"))
+        .expect("create option branch reassignment main exit project src");
+    fs::write(
+        project.join("axiom.toml"),
+        "[package]\nname = \"cranelift-option-branch-reassignment-main-exit\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n",
+    )
+    .expect("write option branch reassignment main exit manifest");
+    fs::write(
+        project.join("axiom.lock"),
+        "version = 1\n\n[[package]]\nname = \"cranelift-option-branch-reassignment-main-exit\"\nversion = \"0.1.0\"\nsource = \"path\"\n",
+    )
+    .expect("write option branch reassignment main exit lockfile");
+    fs::write(
+        project.join("src/main.ax"),
+        "struct Step {\nvalue: int\nenabled: bool\nsmall: u8\n}\n\nfn make_option(value: int, enabled: bool): Option<Step> {\nif enabled {\nreturn Some(Step { small: 2u8, enabled: enabled, value: value })\n} else {\nreturn None\n}\n}\n\nfn score(value: Option<Step>): int {\nreturn match value { Some(step) => step.value + (step.small as int), None => 1 }\n}\n\nfn main(): int {\nlet selected: Option<Step> = None\nlet fallback: Option<Step> = None\nlet gate: bool = true\nif gate {\nselected = make_option(46, true)\nfallback = make_option(49, false)\n} else {\nselected = None\nfallback = None\n}\nlet selected_code: int = score(selected)\nlet fallback_code: int = score(fallback)\nif selected_code == 48 && fallback_code == 1 {\nreturn selected_code\n} else {\nreturn fallback_code\n}\n}\n",
+    )
+    .expect("write option branch reassignment main exit source");
 }
 
 fn write_nested_option_match_main_exit_project(project: &Path) {

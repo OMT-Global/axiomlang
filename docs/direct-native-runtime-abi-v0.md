@@ -409,10 +409,12 @@ helper parameters, helper returns, forwarded helper values, and inline
 `Some(Step { ... })`/`None` helper arguments using declared field-order payload
 slots. Existing narrow `Option<Step>` locals can now be reassigned from option
 helper returns using the same tag/payload slots, including inside runtime branch
-blocks. The direct-native path also has narrow evidence for nested
-`Option<Option<int>>` construction, reassignment, matching, helper parameters,
-helper returns, forwarded helper values, and inline `Some(Some(...))`,
-`Some(None)`, and outer `None` helper arguments using nested tag/payload slots.
+blocks; a focused runtime-exit test now tracks branch-local `Option<Step>`
+reassignment from helper returns. The direct-native path also has narrow
+evidence for nested `Option<Option<int>>` construction, reassignment, matching,
+helper parameters, helper returns, forwarded helper values, and inline
+`Some(Some(...))`, `Some(None)`, and outer `None` helper arguments using nested
+tag/payload slots.
 The same nested slot representation now has narrow evidence for
 `Option<Result<int, int>>` construction, reassignment, matching, helper
 parameters, helper returns, forwarded helper values, and inline
