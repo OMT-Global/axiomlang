@@ -13,6 +13,16 @@ grep -Fq 'stage1/supply-chain/config.toml' "$workflow" || {
   exit 1
 }
 
+grep -Fq 'group: toolchain-supply-chain-${{ github.event.pull_request.number || github.ref }}' "$workflow" || {
+  echo "workflow must group supply-chain runs by PR or ref for cancellation" >&2
+  exit 1
+}
+
+grep -Fq 'cancel-in-progress: true' "$workflow" || {
+  echo "workflow must cancel superseded supply-chain runs" >&2
+  exit 1
+}
+
 grep -Fq 'cargo-vet --version' "$workflow" || {
   echo "workflow must validate an existing cargo-vet binary before reusing it" >&2
   exit 1
@@ -25,6 +35,11 @@ grep -Fq 'cargo install cargo-vet --version "$install_version" --locked --force'
 
 grep -Fq 'Ensure Rust linker availability' "$workflow" || {
   echo "workflow must provision a Rust linker before installing cargo-vet" >&2
+  exit 1
+}
+
+grep -Fq 'timeout-minutes: 90' "$workflow" || {
+  echo "workflow must leave enough budget for cold release builds and SBOM emission" >&2
   exit 1
 }
 
