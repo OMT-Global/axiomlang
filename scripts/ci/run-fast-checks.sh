@@ -42,6 +42,18 @@ smoke_rust_lld() {
   [[ -x "$rust_lld" ]] && smoke_linker "$rust_lld"
 }
 
+accept_rust_linker_candidate() {
+  local candidate_linker="$1"
+
+  if [[ -n "$candidate_linker" ]] && smoke_linker "$candidate_linker"; then
+    rust_linker="$candidate_linker"
+    export AXIOM_FAST_CI_RUST_LINKER="$rust_linker"
+    return 0
+  fi
+
+  return 1
+}
+
 if [[ -n "$rust_linker" ]]; then
   if [[ ! -x "$rust_linker" ]] || ! smoke_linker "$rust_linker"; then
     echo "error: AXIOM_FAST_CI_RUST_LINKER must point to a usable Rust linker for PR fast checks." >&2
@@ -50,11 +62,7 @@ if [[ -n "$rust_linker" ]]; then
 else
   for candidate in cc gcc clang; do
     candidate_linker="$(command -v "$candidate" 2>/dev/null || true)"
-    [[ -n "$candidate_linker" ]] || continue
-    smoke_linker "$candidate_linker" || continue
-    rust_linker="$candidate_linker"
-    export AXIOM_FAST_CI_RUST_LINKER="$rust_linker"
-    break
+    accept_rust_linker_candidate "$candidate_linker" && break
   done
 
   if [[ -z "$rust_linker" ]] && smoke_rust_lld; then
