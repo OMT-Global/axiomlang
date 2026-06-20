@@ -11,6 +11,9 @@ the semantic model.
 Machine-readable contract:
 `stage1/runtime-abi/direct-native-v0.json`
 
+Focused value-row evidence manifest:
+`stage1/runtime-abi/direct-native-v0-evidence-tests.json`
+
 Validation:
 
 ```bash
@@ -29,11 +32,13 @@ Checked-in example smoke:
 make stage1-direct-native-example-smoke
 ```
 
-The evidence gate validates the machine-readable ABI contract, runs the
-Cranelift backend evidence suite that backs the current `partial` and
-denial-evidence rows, and verifies the `axiomc run/test --backend cranelift`
-command paths can execute without generated-Rust artifacts. It is intentionally
-not a readiness claim while rows remain `partial` or `blocked`.
+The evidence gate validates the machine-readable ABI contract, validates the
+focused value-row evidence manifest against the checked-in Cranelift backend
+test names, runs the Cranelift backend evidence suite that backs the current
+`partial` and denial-evidence rows, and verifies the
+`axiomc run/test --backend cranelift` command paths can execute without
+generated-Rust artifacts. It is intentionally not a readiness claim while rows
+remain `partial` or `blocked`.
 
 The example smoke runs a bounded subset of checked-in value and stdlib examples
 through `check`, `build --backend cranelift`, and `run --backend cranelift`, and
@@ -898,11 +903,13 @@ feed terminal panic reports as escaped native stderr JSON while preserving
 evidenced scalar/string/object/array source wrappers, and broader schema helper
 coverage remain tracked by issue #1001.
 
-The owned move-state row has partial direct-native evidence: the Cranelift
-spike builds and runs projection-sensitive owned field moves while preserving
-access to disjoint sibling projections, and the public smoke now asserts the
-build JSON reports `generated_rust: null` for that path. Broader move-state,
-lifetime, and host ABI coverage remain tracked by issue #1001.
+The owned move-state row is now marked implemented: the Cranelift spike builds
+and runs projection-sensitive owned field moves while preserving access to
+disjoint sibling projections, and the public smoke now asserts the build JSON
+reports `generated_rust: null` for that path. HIR ownership lowering tracks
+moved projections independently, rejects conflicting whole-value or ancestor
+reuse, and keeps disjoint sibling projections traversable. Broader lifetime and
+host ABI coverage remain tracked by issue #1001.
 
 The logging/stdio row has partial direct-native evidence: the Cranelift spike
 now evaluates `std/io.ax` stderr writes and `std/log.ax` structured event

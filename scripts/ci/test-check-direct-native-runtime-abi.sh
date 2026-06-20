@@ -21,11 +21,16 @@ assert report["target_id"] == "axiom://target/stage1-direct-native"
 assert report["contract_status"] == "partial"
 assert report["value_feature_count"] == 12
 assert report["capability_shim_count"] == 22
-assert report["status_counts"]["value_features"]["partial"] == 12
+assert report["status_counts"]["value_features"]["implemented"] == 1
+assert report["status_counts"]["value_features"]["partial"] == 11
 assert report["status_counts"]["capability_shims"]["implemented"] == 22
 assert report["status_counts"]["capability_shims"]["partial"] == 0
 assert report["blocked_rows"] == []
-assert len(report["incomplete_rows"]) == 12
+assert len(report["incomplete_rows"]) == 11
+assert report["evidence_test_manifest"]["present"] is True
+assert report["evidence_test_manifest"]["value_feature_rows"] == 12
+assert report["evidence_test_manifest"]["value_feature_test_count"] >= 40
+assert "owned.move_state" not in report["incomplete_rows"]
 assert "ffi.call" not in report["incomplete_rows"]
 assert "json.serdes" not in report["incomplete_rows"]
 assert "crypto.hash" not in report["incomplete_rows"]
@@ -76,7 +81,30 @@ import sys
 with open(sys.argv[1], encoding="utf-8") as handle:
     contract = json.load(handle)
 
+value_rows = {row["id"]: row for row in contract["value_features"]}
 capability_rows = {row["id"]: row for row in contract["capability_shims"]}
+assert "stage1/crates/axiomc/src/hir.rs" in value_rows["owned.move_state"]["runtime_evidence"]
+for row_id in (
+    "boolean",
+    "enum.payload",
+    "numeric.scalars",
+    "option",
+    "result",
+):
+    runtime_evidence = value_rows[row_id]["runtime_evidence"]
+    assert "stage1/crates/axiomc/src/cranelift_backend.rs" in runtime_evidence
+    assert "stage1/crates/axiomc-backend-cranelift/src/lib.rs" in runtime_evidence
+
+for row_id in (
+    "array.fixed",
+    "map.lookup",
+    "slice.borrowed",
+    "string",
+    "struct.field",
+    "tuple",
+):
+    assert "stage1/crates/axiomc/src/cranelift_backend.rs" in value_rows[row_id]["runtime_evidence"]
+
 for row_id in (
     "clock.now_sleep",
     "crypto.hash",
@@ -188,6 +216,37 @@ with open(sys.argv[1], encoding="utf-8") as handle:
     report = json.load(handle)
 
 assert any("runtime_evidence" in error and "does not exist" in error for error in report["errors"])
+PY
+
+cp "$repo_root/stage1/runtime-abi/direct-native-v0-evidence-tests.json" "$temp_dir/stale-evidence-tests.json"
+python3 - "$temp_dir/stale-evidence-tests.json" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    manifest = json.load(handle)
+
+manifest["value_features"]["numeric.scalars"][0] = "missing_cranelift_runtime_abi_test"
+
+with open(sys.argv[1], "w", encoding="utf-8") as handle:
+    json.dump(manifest, handle)
+PY
+
+if python3 "$script" \
+  --contract "$contract" \
+  --evidence-test-manifest "$temp_dir/stale-evidence-tests.json" \
+  --json >"$temp_dir/stale-evidence-tests-report.json"; then
+  echo "expected stale focused evidence test names to fail" >&2
+  exit 1
+fi
+python3 - "$temp_dir/stale-evidence-tests-report.json" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    report = json.load(handle)
+
+assert any("names missing test" in error for error in report["errors"])
 PY
 
 python3 - "$contract" "$temp_dir/implemented-with-blocker.json" <<'PY'
