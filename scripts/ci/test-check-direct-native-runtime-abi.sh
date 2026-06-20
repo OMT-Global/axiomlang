@@ -22,10 +22,10 @@ assert report["contract_status"] == "partial"
 assert report["value_feature_count"] == 12
 assert report["capability_shim_count"] == 22
 assert report["status_counts"]["value_features"]["partial"] == 12
-assert report["status_counts"]["capability_shims"]["implemented"] == 1
-assert report["status_counts"]["capability_shims"]["partial"] == 21
+assert report["status_counts"]["capability_shims"]["implemented"] == 3
+assert report["status_counts"]["capability_shims"]["partial"] == 19
 assert report["blocked_rows"] == []
-assert len(report["incomplete_rows"]) == 33
+assert len(report["incomplete_rows"]) == 31
 assert "env.read" in report["incomplete_rows"]
 assert "ffi.call" in report["incomplete_rows"]
 assert "json.serdes" in report["incomplete_rows"]
@@ -33,6 +33,8 @@ assert "process.status" in report["incomplete_rows"]
 assert "crypto.random" in report["incomplete_rows"]
 assert "network.dns.resolve" in report["incomplete_rows"]
 assert "sync.primitives" not in report["incomplete_rows"]
+assert "regex.match_replace" not in report["incomplete_rows"]
+assert "io.logging_stdio" not in report["incomplete_rows"]
 assert report["blocker_issues"] == [1001]
 assert report["errors"] == []
 PY
