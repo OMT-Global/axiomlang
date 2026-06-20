@@ -22,16 +22,19 @@ assert report["contract_status"] == "partial"
 assert report["value_feature_count"] == 12
 assert report["capability_shim_count"] == 22
 assert report["status_counts"]["value_features"]["partial"] == 12
-assert report["status_counts"]["capability_shims"]["implemented"] == 3
-assert report["status_counts"]["capability_shims"]["partial"] == 19
+assert report["status_counts"]["capability_shims"]["implemented"] == 8
+assert report["status_counts"]["capability_shims"]["partial"] == 14
 assert report["blocked_rows"] == []
-assert len(report["incomplete_rows"]) == 31
-assert "env.read" in report["incomplete_rows"]
+assert len(report["incomplete_rows"]) == 26
 assert "ffi.call" in report["incomplete_rows"]
 assert "json.serdes" in report["incomplete_rows"]
-assert "process.status" in report["incomplete_rows"]
 assert "crypto.random" in report["incomplete_rows"]
 assert "network.dns.resolve" in report["incomplete_rows"]
+assert "crypto.hash" not in report["incomplete_rows"]
+assert "crypto.mac" not in report["incomplete_rows"]
+assert "clock.now_sleep" not in report["incomplete_rows"]
+assert "env.read" not in report["incomplete_rows"]
+assert "process.status" not in report["incomplete_rows"]
 assert "sync.primitives" not in report["incomplete_rows"]
 assert "regex.match_replace" not in report["incomplete_rows"]
 assert "io.logging_stdio" not in report["incomplete_rows"]
@@ -64,7 +67,15 @@ with open(sys.argv[1], encoding="utf-8") as handle:
     contract = json.load(handle)
 
 capability_rows = {row["id"]: row for row in contract["capability_shims"]}
-for row_id in ("regex.match_replace", "io.logging_stdio"):
+for row_id in (
+    "clock.now_sleep",
+    "crypto.hash",
+    "crypto.mac",
+    "env.read",
+    "process.status",
+    "regex.match_replace",
+    "io.logging_stdio",
+):
     runtime_evidence = capability_rows[row_id]["runtime_evidence"]
     assert "stage1/crates/axiomc/src/cranelift_backend.rs" in runtime_evidence
     assert "stage1/crates/axiomc-backend-cranelift/src/lib.rs" in runtime_evidence
