@@ -170,6 +170,7 @@ enum I64MapKey {
     Int(i64),
     Bool(bool),
     Text(String),
+    Tuple(Vec<I64MapKey>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -13465,7 +13466,31 @@ fn lower_i64_map_key_expr(expr: &Expr, static_bindings: &I64StaticBindings) -> O
     if let Some(value) = i64_static_bool_value(expr, static_bindings) {
         return Some(I64MapKey::Bool(value));
     }
-    i64_static_scalar_value(expr, static_bindings).map(I64MapKey::Int)
+    if let Some(value) = i64_static_scalar_value(expr, static_bindings) {
+        return Some(I64MapKey::Int(value));
+    }
+    let Expr::TupleLiteral { elements, ty } = expr else {
+        return None;
+    };
+    let Type::Tuple(element_tys) = ty else {
+        return None;
+    };
+    if elements.len() != element_tys.len() || !element_tys.iter().all(is_i64_static_map_key_type) {
+        return None;
+    }
+    elements
+        .iter()
+        .map(|element| lower_i64_map_key_expr(element, static_bindings))
+        .collect::<Option<Vec<_>>>()
+        .map(I64MapKey::Tuple)
+}
+
+fn is_i64_static_map_key_type(ty: &Type) -> bool {
+    match ty {
+        Type::Int | Type::Numeric(_) | Type::Bool | Type::String | Type::Str => true,
+        Type::Tuple(elements) => elements.iter().all(is_i64_static_map_key_type),
+        _ => false,
+    }
 }
 
 fn i64_map_literal_entries<'a>(

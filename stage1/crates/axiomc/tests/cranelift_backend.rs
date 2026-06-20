@@ -5136,6 +5136,46 @@ fn cranelift_backend_lowers_static_bool_map_keys_to_runtime_exit_code() {
 
 #[cfg(not(windows))]
 #[test]
+fn cranelift_backend_lowers_tuple_map_keys_to_runtime_exit_code() {
+    if which::which("cc").is_err() {
+        eprintln!("skipping cranelift backend smoke test because cc is unavailable");
+        return;
+    }
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("tuple-map-keys-main-exit");
+    write_tuple_map_keys_main_exit_project(&project);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args([
+            "build",
+            project.to_str().expect("project path"),
+            "--backend",
+            "cranelift",
+            "--json",
+        ])
+        .output()
+        .expect("run axiomc build --backend cranelift");
+    assert!(
+        output.status.success(),
+        "cranelift tuple map keys main build failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+    assert_eq!(payload["backend"], "cranelift");
+    assert_eq!(payload["generated_rust"], Value::Null);
+    let binary = payload["binary"].as_str().expect("binary path");
+    let run = Command::new(binary)
+        .output()
+        .expect("run cranelift tuple map keys main binary");
+    assert_eq!(run.status.code(), Some(48));
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "");
+}
+
+#[cfg(not(windows))]
+#[test]
 fn cranelift_backend_lowers_std_collection_wrappers_to_runtime_exit_code() {
     if which::which("cc").is_err() {
         eprintln!("skipping cranelift backend smoke test because cc is unavailable");
@@ -12364,6 +12404,25 @@ fn write_static_bool_map_keys_main_exit_project(project: &Path) {
         "static ENABLED: bool = true\nstatic DISABLED: bool = false\n\nfn main(): int {\nlet static_hit: int = get_or_default<bool, int>({DISABLED: 7, ENABLED: 29}, ENABLED, 13)\nlet static_contains: bool = map_contains_key<bool, int>({DISABLED: 7, ENABLED: 29}, DISABLED)\nlet static_missing: bool = map_contains_key<bool, int>({DISABLED: 7}, ENABLED) == false\nlet direct_bool_hit: bool = match get<bool, bool>({DISABLED: false, ENABLED: true}, ENABLED) { Some(value) => value, None => false }\nlet direct_bool_miss: bool = match get<bool, bool>({DISABLED: true}, ENABLED) { Some(value) => false, None => true }\nlet local_hit: Option<int> = get<bool, int>({DISABLED: 7, ENABLED: 29}, ENABLED)\nlet local_miss: Option<int> = get<bool, int>({DISABLED: 7}, ENABLED)\nlet local_hit_code: int = match local_hit { Some(value) => value, None => 1 }\nlet local_miss_code: int = match local_miss { Some(value) => value, None => 13 }\nif static_hit == 29 && static_contains && static_missing && direct_bool_hit && direct_bool_miss && local_hit_code == 29 && local_miss_code == 13 {\nreturn 48\n} else {\nreturn 1\n}\n}\n",
     )
     .expect("write static bool map keys source");
+}
+
+fn write_tuple_map_keys_main_exit_project(project: &Path) {
+    fs::create_dir_all(project.join("src")).expect("create tuple map keys project src");
+    fs::write(
+        project.join("axiom.toml"),
+        "[package]\nname = \"cranelift-tuple-map-keys-main-exit\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n",
+    )
+    .expect("write tuple map keys manifest");
+    fs::write(
+        project.join("axiom.lock"),
+        "version = 1\n\n[[package]]\nname = \"cranelift-tuple-map-keys-main-exit\"\nversion = \"0.1.0\"\nsource = \"path\"\n",
+    )
+    .expect("write tuple map keys lockfile");
+    fs::write(
+        project.join("src/main.ax"),
+        "static STATIC_KEY_ID: int = 1\nstatic STATIC_READY: bool = true\n\nfn main(): int {\nlet tuple_hit: int = get_or_default<(int, bool), int>({(1, true): 29, (2, false): 7}, (1, true), 13)\nlet tuple_miss: int = get_or_default<(int, bool), int>({(1, true): 29}, (2, false), 13)\nlet tuple_contains: bool = map_contains_key<(int, bool), int>({(1, true): 29, (2, false): 7}, (2, false))\nlet tuple_missing: bool = map_contains_key<(int, bool), int>({(1, true): 29}, (2, false)) == false\nlet tuple_get_hit: int = match get<(int, bool), int>({(1, true): 29, (2, false): 7}, (2, false)) { Some(value) => value, None => 1 }\nlet tuple_get_miss: int = match get<(int, bool), int>({(1, true): 29}, (2, false)) { Some(value) => value, None => 13 }\nlet duplicate_hit: int = get_or_default<(int, bool), int>({(1, true): 7, (1, true): 11}, (1, true), 13)\nlet stored_scores: {(int, bool): int} = {(1, true): 29, (2, false): 7}\nlet stored_direct: int = stored_scores[(1, true)]\nlet static_hit: int = get_or_default<(int, bool), int>({(STATIC_KEY_ID, STATIC_READY): 48}, (STATIC_KEY_ID, STATIC_READY), 13)\nif tuple_hit == 29 && tuple_miss == 13 && tuple_contains && tuple_missing && tuple_get_hit == 7 && tuple_get_miss == 13 && duplicate_hit == 11 && stored_direct == 29 && static_hit == 48 {\nreturn static_hit\n} else {\nreturn 1\n}\n}\n",
+    )
+    .expect("write tuple map keys source");
 }
 
 fn write_std_collection_lookup_project(project: &Path) {
