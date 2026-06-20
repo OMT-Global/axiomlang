@@ -32,6 +32,12 @@ Row-focused evidence loop:
 AXIOM_DIRECT_NATIVE_RUNTIME_ABI_ROW=fs.read make stage1-direct-native-runtime-abi-evidence
 ```
 
+List the focused tests for a row without running Cargo:
+
+```bash
+python3 scripts/ci/check-direct-native-runtime-abi.py --evidence-row fs.read
+```
+
 Single-test evidence loop:
 
 ```bash

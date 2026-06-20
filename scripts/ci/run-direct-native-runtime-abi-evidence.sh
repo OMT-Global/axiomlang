@@ -28,26 +28,8 @@ cranelift_cargo_base=(
 if [[ -n "${AXIOM_DIRECT_NATIVE_RUNTIME_ABI_ROW:-}" ]]; then
   row_test_file="$target_dir/abi-row-tests-$$.txt"
   row_tests=()
-  python3 - "$AXIOM_DIRECT_NATIVE_RUNTIME_ABI_ROW" >"$row_test_file" <<'PY'
-import json
-import sys
-from pathlib import Path
-
-row_id = sys.argv[1]
-manifest_path = Path("stage1/runtime-abi/direct-native-v0-evidence-tests.json")
-with manifest_path.open(encoding="utf-8") as handle:
-    manifest = json.load(handle)
-
-tests = (
-    manifest.get("value_features", {}).get(row_id)
-    or manifest.get("capability_shims", {}).get(row_id)
-)
-if not tests:
-    raise SystemExit(f"unknown direct native runtime ABI evidence row: {row_id}")
-
-for test in tests:
-    print(test)
-PY
+  python3 scripts/ci/check-direct-native-runtime-abi.py \
+    --evidence-row "$AXIOM_DIRECT_NATIVE_RUNTIME_ABI_ROW" >"$row_test_file"
 
   while IFS= read -r test_name; do
     row_tests+=("$test_name")

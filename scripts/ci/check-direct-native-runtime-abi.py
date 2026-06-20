@@ -320,6 +320,37 @@ def validate_evidence_test_group(
         counts[row_id] = len(row_tests)
 
 
+def resolve_evidence_row(
+    manifest: dict[str, Any] | None,
+    row_id: str,
+) -> tuple[dict[str, Any], int]:
+    row_report = {
+        "schema": "axiom.direct_native.runtime_abi.evidence_row.v1",
+        "target_id": None,
+        "row_id": row_id,
+        "group": None,
+        "test_source": None,
+        "tests": [],
+        "errors": [],
+    }
+    if manifest is None:
+        row_report["errors"].append("evidence test manifest is not available")
+        return row_report, 1
+
+    row_report["target_id"] = manifest.get("target_id")
+    row_report["test_source"] = manifest.get("test_source")
+    for group_name in ("value_features", "capability_shims"):
+        group = manifest.get(group_name)
+        if isinstance(group, dict) and row_id in group:
+            tests = group[row_id]
+            row_report["group"] = group_name
+            row_report["tests"] = tests if isinstance(tests, list) else []
+            return row_report, 0
+
+    row_report["errors"].append(f"unknown direct native runtime ABI evidence row: {row_id}")
+    return row_report, 1
+
+
 def build_report(
     contract: dict[str, Any],
     contract_root: Path = REPO_ROOT,
@@ -426,6 +457,10 @@ def main() -> int:
     )
     parser.add_argument("--json", action="store_true", help="emit machine-readable JSON")
     parser.add_argument(
+        "--evidence-row",
+        help="emit focused Cranelift test names for one runtime ABI row",
+    )
+    parser.add_argument(
         "--enforce-ready",
         action="store_true",
         help="fail while any runtime ABI row remains partial or blocked",
@@ -473,6 +508,24 @@ def main() -> int:
         REPO_ROOT,
         evidence_test_manifest,
     )
+    if args.evidence_row:
+        row_report, row_status = resolve_evidence_row(
+            evidence_test_manifest,
+            args.evidence_row,
+        )
+        row_report["errors"] = [*report["errors"], *row_report["errors"]]
+        if args.json:
+            print(json.dumps(row_report, indent=2))
+        elif row_report["errors"]:
+            for error in row_report["errors"]:
+                print(error, file=sys.stderr)
+        else:
+            for test_name in row_report["tests"]:
+                print(test_name)
+        if validation_status:
+            return validation_status
+        return row_status
+
     if args.json:
         print(json.dumps(report, indent=2))
     elif report["ready"]:

@@ -30,8 +30,8 @@ grep -Fq 'AXIOM_DIRECT_NATIVE_RUNTIME_ABI_ROW' "$script" || {
   exit 1
 }
 
-grep -Fq 'direct-native-v0-evidence-tests.json' "$script" || {
-  echo "evidence runner must resolve row-focused tests from the ABI evidence manifest" >&2
+grep -Fq -- '--evidence-row "$AXIOM_DIRECT_NATIVE_RUNTIME_ABI_ROW"' "$script" || {
+  echo "evidence runner must resolve row-focused tests through the ABI checker" >&2
   exit 1
 }
 
@@ -40,7 +40,7 @@ grep -Fq 'set either AXIOM_DIRECT_NATIVE_RUNTIME_ABI_ROW or AXIOM_DIRECT_NATIVE_
   exit 1
 }
 
-grep -Fq 'unknown direct native runtime ABI evidence row' "$script" || {
+grep -Fq 'direct native runtime ABI evidence row has no tests' "$script" || {
   echo "evidence runner must fail clearly for unknown ABI evidence rows" >&2
   exit 1
 }

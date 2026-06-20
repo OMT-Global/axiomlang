@@ -59,6 +59,31 @@ assert report["blocker_issues"] == [1001]
 assert report["errors"] == []
 PY
 
+python3 "$script" --contract "$contract" --evidence-row fs.read >"$temp_dir/fs-read-row.txt"
+grep -Fxq "cranelift_backend_lowers_fs_read_to_runtime_exit_code" "$temp_dir/fs-read-row.txt"
+grep -Fxq "cranelift_backend_denies_fs_read_symlink_escape_at_runtime" "$temp_dir/fs-read-row.txt"
+
+python3 "$script" --contract "$contract" --evidence-row option --json >"$temp_dir/option-row.json"
+python3 - "$temp_dir/option-row.json" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    report = json.load(handle)
+
+assert report["schema"] == "axiom.direct_native.runtime_abi.evidence_row.v1"
+assert report["row_id"] == "option"
+assert report["group"] == "value_features"
+assert "cranelift_backend_lowers_option_int_match_to_runtime_exit_code" in report["tests"]
+assert report["errors"] == []
+PY
+
+if python3 "$script" --contract "$contract" --evidence-row missing.row >"$temp_dir/missing-row.txt" 2>"$temp_dir/missing-row.err"; then
+  echo "expected unknown evidence rows to fail" >&2
+  exit 1
+fi
+grep -Fq "unknown direct native runtime ABI evidence row: missing.row" "$temp_dir/missing-row.err"
+
 python3 - "$contract" "$temp_dir/ready-contract.json" <<'PY'
 import json
 import sys
