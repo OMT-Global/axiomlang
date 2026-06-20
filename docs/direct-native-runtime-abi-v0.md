@@ -708,6 +708,9 @@ final-match-statement string helper arguments and returns, including tuple-index
 and struct-field string projections and direct map-index string projections
 over known map literals, into direct-native length, comparison, and
 `string_starts_with(...)` conditions without generated Rust.
+The focused evidence manifest now also links the unsupported string-helper
+`main` smoke to this row, proving side-effecting string helper bodies still
+fail closed at the direct-native i64 ABI boundary.
 Imported public `std/string_builder.ax` builder, seed, push,
 line-push, and finish wrappers now alias known text facts that can feed
 direct-native string comparisons, length projections, and process exit status
