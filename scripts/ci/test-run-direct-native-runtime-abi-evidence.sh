@@ -25,6 +25,26 @@ grep -Fq 'AXIOM_DIRECT_NATIVE_RUNTIME_ABI_TEST_FILTER' "$script" || {
   exit 1
 }
 
+grep -Fq 'AXIOM_DIRECT_NATIVE_RUNTIME_ABI_ROW' "$script" || {
+  echo "evidence runner must expose a row-focused test filter for ABI evidence loops" >&2
+  exit 1
+}
+
+grep -Fq 'direct-native-v0-evidence-tests.json' "$script" || {
+  echo "evidence runner must resolve row-focused tests from the ABI evidence manifest" >&2
+  exit 1
+}
+
+grep -Fq 'set either AXIOM_DIRECT_NATIVE_RUNTIME_ABI_ROW or AXIOM_DIRECT_NATIVE_RUNTIME_ABI_TEST_FILTER, not both' "$script" || {
+  echo "evidence runner must reject ambiguous row and test filter combinations" >&2
+  exit 1
+}
+
+grep -Fq 'unknown direct native runtime ABI evidence row' "$script" || {
+  echo "evidence runner must fail clearly for unknown ABI evidence rows" >&2
+  exit 1
+}
+
 grep -Fq -- '--test-threads=1' "$script" || {
   echo "evidence runner must serialize localhost-backed Cranelift evidence tests" >&2
   exit 1

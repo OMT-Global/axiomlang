@@ -26,6 +26,18 @@ Focused evidence gate:
 make stage1-direct-native-runtime-abi-evidence
 ```
 
+Row-focused evidence loop:
+
+```bash
+AXIOM_DIRECT_NATIVE_RUNTIME_ABI_ROW=fs.read make stage1-direct-native-runtime-abi-evidence
+```
+
+Single-test evidence loop:
+
+```bash
+AXIOM_DIRECT_NATIVE_RUNTIME_ABI_TEST_FILTER=cranelift_backend_lowers_fs_read_to_runtime_exit_code make stage1-direct-native-runtime-abi-evidence
+```
+
 Checked-in example smoke:
 
 ```bash
@@ -39,6 +51,11 @@ current `partial` and denial-evidence rows, and verifies the
 `axiomc run/test --backend cranelift` command paths can execute without
 generated-Rust artifacts. It is intentionally not a readiness claim while rows
 remain `partial` or `blocked`.
+When `AXIOM_DIRECT_NATIVE_RUNTIME_ABI_ROW` is set, the evidence gate runs only
+the focused Cranelift tests named for that value or capability row in
+`direct-native-v0-evidence-tests.json`, plus the command-path generated-Rust
+absence checks. `AXIOM_DIRECT_NATIVE_RUNTIME_ABI_TEST_FILTER` remains available
+for one-off single-test repair loops; the two filters are mutually exclusive.
 
 The example smoke runs a bounded subset of checked-in value and stdlib examples
 through `check`, `build --backend cranelift`, and `run --backend cranelift`, and
