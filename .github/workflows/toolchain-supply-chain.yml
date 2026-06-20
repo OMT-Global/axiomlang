@@ -49,11 +49,17 @@ jobs:
 
       - name: Ensure Rust linker availability
         run: |
+          rust_lld="$(rustc --print sysroot)/lib/rustlib/$(rustc -vV | awk '/^host:/ { print $2 }')/bin/rust-lld"
+
           for candidate in cc gcc clang; do
             if command -v "$candidate" >/dev/null 2>&1; then
               exit 0
             fi
           done
+
+          if [[ -x "$rust_lld" ]]; then
+            exit 0
+          fi
 
           if command -v apt-get >/dev/null 2>&1; then
             apt_cache="${RUNNER_TEMP:-/tmp}/axiom-supply-chain-apt-cache"
@@ -80,6 +86,10 @@ jobs:
               exit 0
             fi
           done
+
+          if [[ -x "$rust_lld" ]]; then
+            exit 0
+          fi
 
           echo "::error::no usable Rust linker found; cargo-vet installation requires a linker"
           exit 1
