@@ -11,6 +11,9 @@ the semantic model.
 Machine-readable contract:
 `stage1/runtime-abi/direct-native-v0.json`
 
+Focused value-row evidence manifest:
+`stage1/runtime-abi/direct-native-v0-evidence-tests.json`
+
 Validation:
 
 ```bash
@@ -29,11 +32,13 @@ Checked-in example smoke:
 make stage1-direct-native-example-smoke
 ```
 
-The evidence gate validates the machine-readable ABI contract, runs the
-Cranelift backend evidence suite that backs the current `partial` and
-denial-evidence rows, and verifies the `axiomc run/test --backend cranelift`
-command paths can execute without generated-Rust artifacts. It is intentionally
-not a readiness claim while rows remain `partial` or `blocked`.
+The evidence gate validates the machine-readable ABI contract, validates the
+focused value-row evidence manifest against the checked-in Cranelift backend
+test names, runs the Cranelift backend evidence suite that backs the current
+`partial` and denial-evidence rows, and verifies the
+`axiomc run/test --backend cranelift` command paths can execute without
+generated-Rust artifacts. It is intentionally not a readiness claim while rows
+remain `partial` or `blocked`.
 
 The example smoke runs a bounded subset of checked-in value and stdlib examples
 through `check`, `build --backend cranelift`, and `run --backend cranelift`, and
