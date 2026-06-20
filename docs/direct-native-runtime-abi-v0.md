@@ -1028,6 +1028,9 @@ stderr writes while preserving newline-inclusive byte-count return values and
 statics, `string_clone(...)`, concatenation, pure helper string returns, and
 branch-local known string lets; scalar and aggregate-return helper functions can
 emit the same known stderr writes and return byte counts through native calls.
+The focused evidence manifest now links the scalar-helper and aggregate-helper
+stderr smokes to this row so those helper-call paths are exercised by the
+stdio evidence runner.
 Dynamic scalar `std/json.ax` `stringify_int` and `stringify_bool` expressions,
 including scalar stringify results first assigned to string locals, can also
 feed public `std/io.ax` `eprintln` lets in direct-native i64 `main` functions,
@@ -1053,7 +1056,10 @@ and scalar and aggregate-return helpers without generated Rust. Boolean and
 integer source-level `print` statements also lower to native stdout writes in
 direct-native i64 `main` functions and scalar and aggregate-return helpers
 without generated Rust, including runtime integer values formatted through the
-native object backend. Dynamic scalar `std/json.ax`
+native object backend.
+The focused evidence manifest now also links the scalar-helper and
+aggregate-helper stdout smokes to this row so native helper-call output remains
+explicitly covered. Dynamic scalar `std/json.ax`
 `stringify_int` and
 `stringify_bool` print expressions, including scalar stringify results first
 assigned to string locals, reuse those same native stdout writers in

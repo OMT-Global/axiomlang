@@ -164,6 +164,10 @@
       "cranelift_backend_lowers_std_log_dynamic_scalar_lengths_to_runtime_exit_code",
       "cranelift_backend_lowers_std_log_dynamic_scalar_info_attrs_to_runtime_stderr",
       "cranelift_backend_lowers_std_log_dynamic_event_print_to_runtime_stdout",
+      "cranelift_backend_lowers_helper_eprintln_to_native_stderr",
+      "cranelift_backend_lowers_aggregate_helper_eprintln_to_native_stderr",
+      "cranelift_backend_lowers_helper_print_to_native_stdout",
+      "cranelift_backend_lowers_aggregate_helper_print_to_native_stdout",
       "cranelift_backend_lowers_std_log_level_wrapper_to_runtime_stderr"
     ],
     "json.serdes": [
