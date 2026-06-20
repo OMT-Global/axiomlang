@@ -80,6 +80,7 @@
     "string": [
       "cranelift_backend_lowers_string_literal_len_to_runtime_exit_code",
       "cranelift_backend_lowers_string_branch_reassignment_to_runtime_exit_code",
+      "cranelift_backend_lowers_string_concat_reassignment_to_runtime_exit_code",
       "cranelift_backend_lowers_string_loop_reassignment_to_runtime_exit_code",
       "cranelift_backend_lowers_string_helper_reassignment_to_runtime_exit_code",
       "cranelift_backend_lowers_known_string_helpers_to_runtime_exit_code",
