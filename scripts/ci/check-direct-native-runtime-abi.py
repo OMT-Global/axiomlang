@@ -197,7 +197,7 @@ def validate_evidence_test_manifest(
     manifest: dict[str, Any] | None,
     errors: list[str],
     contract_root: Path,
-) -> dict[str, int] | None:
+) -> dict[str, dict[str, int]] | None:
     if manifest is None:
         return None
 
@@ -237,14 +237,25 @@ def validate_evidence_test_manifest(
                     RUST_TEST_FN_RE.findall(test_source_path.read_text(encoding="utf-8"))
                 )
 
-    counts: dict[str, int] = {}
+    counts: dict[str, dict[str, int]] = {
+        "value_features": {},
+        "capability_shims": {},
+    }
     validate_evidence_test_group(
         manifest.get("value_features"),
         REQUIRED_VALUE_FEATURES,
         test_names,
         "value_features",
         errors,
-        counts,
+        counts["value_features"],
+    )
+    validate_evidence_test_group(
+        manifest.get("capability_shims"),
+        REQUIRED_CAPABILITY_SHIMS,
+        test_names,
+        "capability_shims",
+        errors,
+        counts["capability_shims"],
     )
     return counts
 
@@ -379,8 +390,18 @@ def build_report(
         "blocker_issues": blocker_issues,
         "evidence_test_manifest": {
             "present": evidence_test_manifest is not None,
-            "value_feature_rows": len(evidence_test_counts or {}),
-            "value_feature_test_count": sum((evidence_test_counts or {}).values()),
+            "value_feature_rows": len(
+                (evidence_test_counts or {}).get("value_features", {})
+            ),
+            "value_feature_test_count": sum(
+                (evidence_test_counts or {}).get("value_features", {}).values()
+            ),
+            "capability_shim_rows": len(
+                (evidence_test_counts or {}).get("capability_shims", {})
+            ),
+            "capability_shim_test_count": sum(
+                (evidence_test_counts or {}).get("capability_shims", {}).values()
+            ),
         },
         "errors": errors,
     }
@@ -436,6 +457,8 @@ def main() -> int:
                 "present": False,
                 "value_feature_rows": 0,
                 "value_feature_test_count": 0,
+                "capability_shim_rows": 0,
+                "capability_shim_test_count": 0,
             },
             "errors": [str(error)],
         }
