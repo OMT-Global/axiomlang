@@ -10653,6 +10653,16 @@ fn lower_i64_expr(
             lower_i64_cast_expr(expr, ty)
         }
         Expr::Index { base, index, ty } if is_i64_compatible_type(ty) => {
+            if let Some(expr) = lower_i64_map_index_expr(
+                base,
+                index,
+                local_indexes,
+                local_conditions,
+                helper_signatures,
+                static_bindings,
+            ) {
+                return lower_i64_cast_expr(expr, ty);
+            }
             if let Some(expr) = lower_i64_slice_projection_index_expr(
                 base,
                 index,
@@ -12743,6 +12753,30 @@ fn lower_i64_map_get_or_default_expr(
         helper_signatures,
         static_bindings,
     )
+}
+
+fn lower_i64_map_index_expr(
+    map: &Expr,
+    key: &Expr,
+    local_indexes: &HashMap<String, usize>,
+    local_conditions: &HashMap<String, CraneliftI64Condition>,
+    helper_signatures: &HashMap<&str, I64HelperSignature>,
+    static_bindings: &I64StaticBindings,
+) -> Option<CraneliftI64Expr> {
+    let entries = i64_map_literal_entries(map, static_bindings)?;
+    let key = lower_i64_map_key_expr(key, static_bindings)?;
+    for entry in entries.iter().rev() {
+        if lower_i64_map_key_expr(&entry.key, static_bindings)? == key {
+            return lower_i64_expr(
+                &entry.value,
+                local_indexes,
+                local_conditions,
+                helper_signatures,
+                static_bindings,
+            );
+        }
+    }
+    None
 }
 
 fn i64_map_get_value_expr<'a>(

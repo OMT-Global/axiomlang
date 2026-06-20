@@ -726,7 +726,8 @@ process exit status. Integer and boolean lookup results can also feed local
 same direct-native body, and known string lookup results can feed pre-runtime
 local `Option<string>` facts that are matched later in the same body.
 Pre-runtime local map bindings initialized from inline map literals can feed the
-same `get_or_default`, `map_contains_key`, and `get` lowering, and
+same `get_or_default`, `map_contains_key`, `get`, and scalar direct-index
+lowering, and
 `len(keys(...))`/`len(map_keys(...))` can count static map keys without
 materializing a runtime key array. Static scalar integer and boolean keys can
 also feed inline and pre-runtime map lookup, contains, and get-or-default
@@ -744,9 +745,12 @@ can also feed `string_starts_with(...)` predicates without materializing runtime
 strings. Direct indexes into known map literals can also feed known string facts
 for helper returns, length projections, and `string_starts_with(...)`
 conditions.
+The map helper-local runtime-exit smoke proves a known map direct index can be
+lowered inside an Axiom helper and returned through a native helper call into
+process exit status.
 Broader map ownership, runtime map storage, general payload lookup bindings,
-runtime key array value projection, and host-boundary representation remain
-tracked by issue #1124.
+map helper parameters, runtime key array value projection, and host-boundary
+representation remain tracked by issue #1124.
 
 The `env.read` row now has partial Cranelift evidence for `std/env.ax`
 `get_env` on present and missing environment names while the public smoke
