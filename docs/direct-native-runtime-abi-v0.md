@@ -304,10 +304,11 @@ for non-scalar elements, full dynamic indexing semantics, bounds diagnostics,
 or a complete aggregate value passing contract.
 
 The focused value-feature evidence manifest also links the public scalar
-aggregate smoke and the while-loop aggregate reassignment smoke to the
-fixed-array row, because those tests prove fixed-array helper arguments,
-scalar projection, and loop-body reassignment paths through direct-native output
-without generated Rust.
+aggregate smoke, the while-loop aggregate reassignment smoke, and the aggregate
+helper reassignment smoke to the fixed-array row, because those tests prove
+fixed-array helper arguments, scalar projection, loop-body reassignment, and
+helper-return reassignment paths through direct-native output without generated
+Rust.
 
 The aggregate helper-argument smoke also proves local fixed arrays and inline
 fixed-array literals can cross direct-native helper-call boundaries and feed
@@ -364,7 +365,9 @@ The focused value-feature evidence manifest also records aggregate smoke
 coverage for tuple and struct rows: scalar aggregate output covers public
 string/int tuple projection, and the while-loop aggregate reassignment smoke
 covers tuple, fixed-array, and struct projection/reassignment through runtime
-loop blocks without generated Rust.
+loop blocks without generated Rust. The aggregate helper reassignment smoke now
+also links to tuple and struct rows because it proves helper-returned aggregate
+reassignment can feed process exit status without generated Rust.
 
 The aggregate helper-argument smoke adds focused runtime-exit evidence that
 local tuple values, inline tuple literals, local structs, and inline struct
