@@ -22,10 +22,10 @@ assert report["contract_status"] == "partial"
 assert report["value_feature_count"] == 12
 assert report["capability_shim_count"] == 22
 assert report["status_counts"]["value_features"]["partial"] == 12
-assert report["status_counts"]["capability_shims"]["implemented"] == 14
-assert report["status_counts"]["capability_shims"]["partial"] == 8
+assert report["status_counts"]["capability_shims"]["implemented"] == 15
+assert report["status_counts"]["capability_shims"]["partial"] == 7
 assert report["blocked_rows"] == []
-assert len(report["incomplete_rows"]) == 20
+assert len(report["incomplete_rows"]) == 19
 assert "ffi.call" in report["incomplete_rows"]
 assert "json.serdes" in report["incomplete_rows"]
 assert "crypto.hash" not in report["incomplete_rows"]
@@ -40,6 +40,7 @@ assert "sync.primitives" not in report["incomplete_rows"]
 assert "regex.match_replace" not in report["incomplete_rows"]
 assert "io.logging_stdio" not in report["incomplete_rows"]
 assert "network.dns.resolve" not in report["incomplete_rows"]
+assert "network.http.client" not in report["incomplete_rows"]
 assert "network.tcp" not in report["incomplete_rows"]
 assert "network.udp" not in report["incomplete_rows"]
 assert report["blocker_issues"] == [1001]
@@ -90,6 +91,7 @@ for row_id in (
 
 assert "stage1/crates/axiomc/src/cranelift_backend.rs" in capability_rows["network.tcp"]["runtime_evidence"]
 assert "stage1/crates/axiomc/src/cranelift_backend.rs" in capability_rows["network.udp"]["runtime_evidence"]
+assert "stage1/crates/axiomc/src/cranelift_backend.rs" in capability_rows["network.http.client"]["runtime_evidence"]
 PY
 
 python3 - "$contract" "$temp_dir/missing-evidence.json" <<'PY'
