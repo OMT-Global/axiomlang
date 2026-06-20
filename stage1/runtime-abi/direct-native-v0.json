@@ -196,11 +196,14 @@
     },
     {
       "id": "clock.now_sleep",
-      "status": "partial",
+      "status": "implemented",
       "capability": "clock",
       "evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"],
       "denial_evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"],
-      "blockers": [1001],
+      "runtime_evidence": [
+        "stage1/crates/axiomc/src/cranelift_backend.rs",
+        "stage1/crates/axiomc-backend-cranelift/src/lib.rs"
+      ],
       "notes": "The Cranelift spike can build a std/time.ax package covering now_ms, now, elapsed_ms, and zero-duration sleep while the public clock smoke asserts generated_rust is null, rejects missing clock capability before backend lowering, and now also builds and runs a bounded positive-duration std/time.ax sleep smoke without generated Rust. The direct-native i64 path now also lowers clock_sleep_ms(...) calls through entrypoint and helper functions to native process exit status without generated Rust: negative durations return -1, bounded nonnegative durations call the native object backend's usleep import, and durations above the current 1000 ms direct-native cap return -1 without sleeping. Imported public std/time.ax sleep(duration_ms(...)) wrappers now alias that same deterministic path for literal, static scalar, and runtime scalar durations in runtime-exit programs. Those sleep paths now append host audit JSONL entries when AXIOM_HOST_AUDIT_LOG is set, recording only the integer argument type and the ok/denied outcome without recording duration values. Full clock values across the native ABI, timer scheduling, async clock integration, and broader positive-duration sleep policy remain open."
     },
     {
