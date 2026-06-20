@@ -345,27 +345,32 @@ diagnostic.
 The `fs.read` row now has partial Cranelift evidence for `std/fs.ax`
 `read_file` on present and missing filesystem names, plus denial evidence that a
 package without the `fs` capability fails before backend lowering. The
-direct-native i64 path now also lowers literal-path `fs_read(...)` calls and the
-public `std/fs.ax` `read_file(...)` wrapper into native process exit status by
+direct-native i64 path now also lowers `fs_read(...)` calls and the public
+`std/fs.ax` `read_file(...)` wrapper into native process exit status by
 performing runtime native file length checks for direct `Option<string>` matches
 that use `len(value)`, returning the runtime byte length or the `None` arm when
-the file is absent, inaccessible, or above the read cap. Literal paths are still
-resolved through the package-root `fs_root` guard before codegen and are now
-revalidated with `realpath(...)` against the canonical `fs_root` immediately
-before runtime length checks. The symlink regression smoke builds while the
-literal read target is an in-root file, swaps that target to an out-of-root
-symlink before runtime, and proves the native binary selects the denied `None`
-arm. These read-length paths now append best-effort host audit JSONL to
-`AXIOM_HOST_AUDIT_LOG` without including path or file-content secrets, recording
-nonnegative read lengths as `ok` and missing/denied reads as `denied`. This
+the file is absent, inaccessible, or above the read cap. Those direct-native
+read paths now cover package-root-relative paths supplied by static string
+facts, local string facts, and known string concatenation rather than only inline
+literals, including a concatenated existing fixture path that returns the
+runtime byte length and a separate concatenated missing path that selects the
+`None` arm. Paths are still resolved through the package-root `fs_root` guard
+before codegen and are now revalidated with `realpath(...)` against the
+canonical `fs_root` immediately before runtime length checks. The symlink
+regression smoke builds while the read target is an in-root file, swaps that
+target to an out-of-root symlink before runtime, and proves the native binary
+selects the denied `None` arm. These read-length paths now append best-effort
+host audit JSONL to `AXIOM_HOST_AUDIT_LOG` without including path or
+file-content secrets, recording nonnegative read lengths as `ok` and
+missing/denied reads as `denied`. This
 runtime native file length check can now also be stored in a local
 `Option<string>` and matched later for supported `len(value)` expression and
 statement matches without reading the build-time fixture contents. This native
 read path currently opts out for programs that contain write-side filesystem
 calls so existing write/read sequencing stays on the prior path. General string
-file contents beyond length projection, non-literal path binding, write-side
-filesystem wrappers, manifest policy parity, and runtime filesystem binding
-remain open under #1001.
+file contents beyond length projection, dynamic path binding beyond known string
+facts, write-side filesystem wrappers, manifest policy parity, and runtime
+filesystem binding remain open under #1001.
 
 The DNS row now has partial Cranelift evidence: the spike builds and runs a
 `std/net.ax` package resolving `localhost` through host DNS while the public
