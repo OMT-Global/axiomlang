@@ -243,6 +243,9 @@ represented as a byte-length projection local, matching the generated-Rust
 backend and Cranelift spike `.len()` semantics, and can feed direct-native
 integer locals, comparisons, helper calls, runtime branch-local string
 projection `let`s, and process exit status without generated Rust.
+Branch-, loop-, and helper-body string reassignment can update those projection
+locals for reassigned known literals, known-text helper returns, and known-text
+string intrinsic results without materializing a general string value.
 String concatenation length also lowers for supported string length projection
 inputs by adding the operand byte lengths without materializing the concatenated
 runtime string.
@@ -720,10 +723,10 @@ final-match-statement string helper arguments and returns, including tuple-index
 and struct-field string projections and direct map-index string projections
 over known map literals, into direct-native length, comparison, and
 `string_starts_with(...)` conditions without generated Rust.
-Branch- and loop-local string reassignment now update direct-native string
-length projection locals so reassigned known literals, known-text helper
+Branch-, loop-, and helper-body string reassignment now update direct-native
+string length projection locals so reassigned known literals, known-text helper
 returns, and known-text string intrinsic results can feed post-control-flow
-length checks and process exit status without generated Rust.
+length checks, helper returns, and process exit status without generated Rust.
 The focused evidence manifest now also links the unsupported string-helper
 `main` smoke to this row, proving side-effecting string helper bodies still
 fail closed at the direct-native i64 ABI boundary.
