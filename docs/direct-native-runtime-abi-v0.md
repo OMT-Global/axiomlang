@@ -796,19 +796,20 @@ materializing a runtime key array. Static scalar integer and boolean keys can
 also feed inline and pre-runtime map lookup, contains, and get-or-default
 lowering. Imported public `std/collections.ax` `contains`, `get`,
 `get_or_default`, and `keys` map wrappers now alias the same direct-native i64
-lowering for static string/int map-local cases, and the focused evidence
-manifest now links the wrapper runtime-exit smoke to this row. Literal indexes
-into static string key arrays can also feed known string length
-lowering, and non-literal scalar indexes into those static string key arrays can
-select among known key byte lengths. Dynamic key-array value projection locals
-whose index is derived from a prior collection predicate local can also feed
-equality/inequality predicates, `string_starts_with(...)` predicates, and
-`string_trim(...)`/`string_trim_start(...)` length projections for
-direct-native process exit status. Trimmed dynamic key-array projection locals
-can also feed `string_starts_with(...)` predicates without materializing runtime
-strings. Direct indexes into known map literals can also feed known string facts
-for helper returns, length projections, and `string_starts_with(...)`
-conditions.
+lowering for static string/int map-local cases, and `contains`, `get`, and
+`get_or_default` wrapper calls also cover static bool-keyed map-local cases.
+The focused evidence manifest now links the wrapper runtime-exit smoke to this
+row. Literal indexes into static string key arrays can also feed known string
+length lowering, and non-literal scalar indexes into those static string key
+arrays can select among known key byte lengths. Dynamic key-array value
+projection locals whose index is derived from a prior collection predicate local
+can also feed equality/inequality predicates, `string_starts_with(...)`
+predicates, and `string_trim(...)`/`string_trim_start(...)` length projections
+for direct-native process exit status. Trimmed dynamic key-array projection
+locals can also feed `string_starts_with(...)` predicates without materializing
+runtime strings. Direct indexes into known map literals can also feed known
+string facts for helper returns, length projections, and
+`string_starts_with(...)` conditions.
 The map helper-local runtime-exit smoke proves a known map direct index can be
 lowered inside an Axiom helper and returned through a native helper call into
 process exit status.
