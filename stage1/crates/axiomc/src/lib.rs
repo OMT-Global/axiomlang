@@ -5584,6 +5584,49 @@ net = true
     }
 
     #[test]
+    fn check_project_accepts_stdlib_async_net_loopback_listener_port() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("stdlib-async-net-loopback-port");
+        create_project(&project, Some("stdlib-async-net-loopback-port")).expect("create project");
+        fs::write(
+            project.join("axiom.toml"),
+            render_manifest_with_capabilities(
+                "stdlib-async-net-loopback-port",
+                false,
+                true,
+                false,
+                false,
+                false,
+                false,
+            )
+            .replace("async = false", "async = true"),
+        )
+        .expect("write manifest");
+        let manifest = load_manifest(&project).expect("load manifest");
+        fs::write(
+            project.join("axiom.lock"),
+            render_lockfile_for_project(&project, &manifest).expect("lockfile"),
+        )
+        .expect("write lockfile");
+        fs::write(
+            project.join("src/main.ax"),
+            r#"import "std/async.ax"
+import "std/async_net.ax"
+
+let listener: TcpListener = await listen("127.0.0.1:0")
+let port: int = local_port(listener)
+let client: JoinHandle<Option<string>> = spawn<Option<string>>(tcp_dial("127.0.0.1", port, "ping", 1000))
+let _reply: Option<string> = await join<Option<string>>(client)
+let _listener_closed: int = close_listener(listener)
+print "ok"
+"#,
+        )
+        .expect("write source");
+
+        check_project(&project).expect("loopback listener port should satisfy network policy");
+    }
+
+    #[test]
     fn check_project_rejects_dynamic_udp_network_port_with_unrestricted_net() {
         let dir = tempdir().expect("tempdir");
         let project = dir.path().join("net-dynamic-udp-port-unrestricted-denied");
