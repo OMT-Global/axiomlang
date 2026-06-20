@@ -12219,17 +12219,37 @@ fn has_key(scores: {string: int}, key: string): bool {
 return map_contains_key<string, int>(scores, key)
 }
 
+fn key_count(scores: {string: int}): int {
+let names: [string] = keys<string, int>(scores)
+return len(names)
+}
+
+fn first_key_len(scores: {string: int}): int {
+let names: [string] = keys<string, int>(scores)
+return len(names[0])
+}
+
+fn second_key_len(scores: {string: int}): int {
+let names: [string] = keys<string, int>(scores)
+return len(names[1])
+}
+
 fn main(): int {
 let local_lookup_scores: {string: int} = {"build": 7, "deploy": 48}
 let local_contains_scores: {string: int} = {"build": 7, "deploy": 48}
 let duplicate_scores: {string: int} = {"deploy": 9, "deploy": 48}
+let key_count_scores: {string: int} = {"build": 7, "deploy": 9, "deploy": 11}
+let first_key_scores: {string: int} = {"build": 7, "deploy": 9}
 let inline_score: int = deploy_score({"build": 7, "deploy": 48})
 let local_score: int = deploy_score(local_lookup_scores)
 let default_score: int = score_or_default({"build": 7}, "test")
 let duplicate_score: int = deploy_score(duplicate_scores)
 let local_contains: bool = has_key(local_contains_scores, "deploy")
 let inline_missing: bool = has_key({"build": 7}, "deploy") == false
-if inline_score == 48 && local_score == 48 && default_score == 13 && duplicate_score == 48 && local_contains && inline_missing {
+let key_count_score: int = key_count(key_count_scores)
+let first_key_score: int = first_key_len(first_key_scores)
+let second_key_score: int = second_key_len({"build": 7, "deploy": 9})
+if inline_score == 48 && local_score == 48 && default_score == 13 && duplicate_score == 48 && local_contains && inline_missing && key_count_score == 2 && first_key_score == 5 && second_key_score == 6 {
 return 48
 } else {
 return 1

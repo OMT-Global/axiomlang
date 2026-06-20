@@ -814,8 +814,8 @@ lowered inside an Axiom helper and returned through a native helper call into
 process exit status.
 Known local and inline map facts can now also cross pure helper-call
 boundaries for direct index, `get_or_default(...)`, and
-`map_contains_key(...)` lookups without materializing a general runtime map
-ABI.
+`map_contains_key(...)` lookups and `keys(...)` key-array projections without
+materializing a general runtime map ABI.
 The focused evidence manifest now also links the runtime-selected `keys(...)`
 projection smoke to this row, covering finite map-key selection through public
 `std/log.ax` length projection without generated Rust.
