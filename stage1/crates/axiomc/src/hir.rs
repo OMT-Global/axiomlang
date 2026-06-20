@@ -8117,74 +8117,54 @@ fn is_assignment_target(expr: &Expr, ctx: &LowerContext<'_>) -> bool {
 }
 
 fn is_local_assignment_type(ty: &Type, ctx: &LowerContext<'_>) -> bool {
-    is_scalar_local_assignment_type(ty)
-        || is_scalar_option_assignment_type(ty)
-        || is_scalar_result_assignment_type(ty)
-        || is_scalar_enum_assignment_type(ty, ctx)
-        || is_scalar_projection_assignment_type(ty, ctx)
+    is_supported_local_assignment_type(ty, ctx)
 }
 
 fn is_scalar_local_assignment_type(ty: &Type) -> bool {
     matches!(ty, Type::Int | Type::Numeric(_) | Type::Bool)
 }
 
-fn is_scalar_option_assignment_type(ty: &Type) -> bool {
-    matches!(ty, Type::Option(inner) if is_scalar_option_assignment_payload_type(inner))
+fn is_supported_local_assignment_type(ty: &Type, ctx: &LowerContext<'_>) -> bool {
+    is_supported_local_assignment_type_inner(ty, ctx, 0)
 }
 
-fn is_scalar_option_assignment_payload_type(ty: &Type) -> bool {
-    is_scalar_local_assignment_type(ty)
-        || matches!(ty, Type::Tuple(elements) if elements.iter().all(is_scalar_local_assignment_type))
-}
-
-fn is_scalar_result_assignment_type(ty: &Type) -> bool {
-    matches!(ty, Type::Result(ok, err) if is_scalar_result_assignment_payload_type(ok) && is_scalar_result_assignment_payload_type(err))
-}
-
-fn is_scalar_result_assignment_payload_type(ty: &Type) -> bool {
-    is_scalar_local_assignment_type(ty)
-        || matches!(ty, Type::Tuple(elements) if elements.iter().all(is_scalar_local_assignment_type))
-}
-
-fn is_scalar_enum_assignment_type(ty: &Type, ctx: &LowerContext<'_>) -> bool {
-    let Type::Enum(name) = ty else {
+fn is_supported_local_assignment_type_inner(
+    ty: &Type,
+    ctx: &LowerContext<'_>,
+    depth: usize,
+) -> bool {
+    if depth > 8 {
         return false;
-    };
-    ctx.enums
-        .get(name)
-        .map(|enum_def| {
-            enum_def.variants.iter().all(|variant| {
-                variant
-                    .payload_tys
-                    .iter()
-                    .all(|ty| is_scalar_enum_assignment_payload_type(ty, ctx))
-            })
-        })
-        .unwrap_or(false)
-}
-
-fn is_scalar_enum_assignment_payload_type(ty: &Type, ctx: &LowerContext<'_>) -> bool {
-    is_scalar_result_assignment_payload_type(ty)
-        || matches!(ty, Type::Struct(name) if ctx.structs.get(name).map(|struct_def| {
-            struct_def
-                .fields
-                .iter()
-                .all(|field| is_scalar_local_assignment_type(&field.ty))
-        }).unwrap_or(false))
-}
-
-fn is_scalar_projection_assignment_type(ty: &Type, ctx: &LowerContext<'_>) -> bool {
+    }
     match ty {
-        Type::Tuple(elements) => elements.iter().all(is_scalar_local_assignment_type),
+        Type::Int | Type::Numeric(_) | Type::Bool => true,
+        Type::Option(inner) => is_supported_local_assignment_type_inner(inner, ctx, depth + 1),
+        Type::Result(ok, err) => {
+            is_supported_local_assignment_type_inner(ok, ctx, depth + 1)
+                && is_supported_local_assignment_type_inner(err, ctx, depth + 1)
+        }
+        Type::Tuple(elements) => elements
+            .iter()
+            .all(|element| is_supported_local_assignment_type_inner(element, ctx, depth + 1)),
         Type::Array(element, Some(_)) => is_scalar_local_assignment_type(element),
         Type::Struct(name) => ctx
             .structs
             .get(name)
             .map(|struct_def| {
-                struct_def
-                    .fields
-                    .iter()
-                    .all(|field| is_scalar_local_assignment_type(&field.ty))
+                struct_def.fields.iter().all(|field| {
+                    is_supported_local_assignment_type_inner(&field.ty, ctx, depth + 1)
+                })
+            })
+            .unwrap_or(false),
+        Type::Enum(name) => ctx
+            .enums
+            .get(name)
+            .map(|enum_def| {
+                enum_def.variants.iter().all(|variant| {
+                    variant.payload_tys.iter().all(|payload| {
+                        is_supported_local_assignment_type_inner(payload, ctx, depth + 1)
+                    })
+                })
             })
             .unwrap_or(false),
         _ => false,
