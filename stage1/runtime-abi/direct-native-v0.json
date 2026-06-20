@@ -142,11 +142,11 @@
     },
     {
       "id": "network.udp",
-      "status": "partial",
+      "status": "implemented",
       "capability": "net",
       "evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"],
-      "blockers": [1001],
       "denial_evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"],
+      "runtime_evidence": ["stage1/crates/axiomc/src/cranelift_backend.rs"],
       "notes": "The Cranelift spike builds and runs std/net.ax udp_bind_loopback_once over 127.0.0.1 while the public loopback smoke asserts generated_rust is null, returning a loopback port. The direct-native i64 path now also lowers known-response net_udp_bind_loopback_once and public std/net.ax udp_bind_loopback_once calls into native process exit status by selecting Option<int> match arms at compile time for successful loopback binds; public loopback results can also be stored in local Option<int> values and matched later in supported expression and statement contexts without generated Rust. Packages without the net capability still receive the public manifest-policy denial before backend lowering. Paired dynamic-port send/recv coverage, full UDP socket lifecycle APIs, non-loopback policy coverage, timeout parity, and audit parity remain blocked."
     },
     {
