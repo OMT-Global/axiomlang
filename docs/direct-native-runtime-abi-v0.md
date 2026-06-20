@@ -1076,8 +1076,12 @@ Terminal source-level
 `panic(...)` statements with known string messages, including literals, locals,
 statics, `string_clone(...)`, concatenation, pure helper string returns, and
 branch-local known string lets in terminal branch arms, also lower into native
-stderr JSON panic reports and exit status `1` without generated Rust. Terminal
-panic messages backed by dynamic `std/json.ax` `stringify_int(...)` and
+stderr JSON panic reports and exit status `1` without generated Rust.
+The focused evidence manifest now links the terminal panic native-report smoke
+and the helper panic-as-value-return rejection smoke to this row so the evidence
+runner covers both the allowed terminal-report path and the rejected helper-value
+boundary.
+Terminal panic messages backed by dynamic `std/json.ax` `stringify_int(...)` and
 `stringify_bool(...)` expressions, including string locals assigned from those
 expressions in terminal branch arms, also lower to native stderr JSON panic
 reports without materializing a general string runtime. Terminal panic messages

@@ -168,6 +168,8 @@
       "cranelift_backend_lowers_aggregate_helper_eprintln_to_native_stderr",
       "cranelift_backend_lowers_helper_print_to_native_stdout",
       "cranelift_backend_lowers_aggregate_helper_print_to_native_stdout",
+      "cranelift_backend_lowers_terminal_panic_to_native_report",
+      "cranelift_backend_rejects_helper_terminal_panic_as_native_value_return",
       "cranelift_backend_lowers_std_log_level_wrapper_to_runtime_stderr"
     ],
     "json.serdes": [
