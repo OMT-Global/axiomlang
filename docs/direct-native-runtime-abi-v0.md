@@ -721,8 +721,9 @@ and struct-field string projections and direct map-index string projections
 over known map literals, into direct-native length, comparison, and
 `string_starts_with(...)` conditions without generated Rust.
 Branch-local string reassignment now also updates direct-native string length
-projection locals so reassigned literal strings can feed post-branch length
-checks and process exit status without generated Rust.
+projection locals so reassigned known literals, known-text helper returns, and
+known-text string intrinsic results can feed post-branch length checks and
+process exit status without generated Rust.
 The focused evidence manifest now also links the unsupported string-helper
 `main` smoke to this row, proving side-effecting string helper bodies still
 fail closed at the direct-native i64 ABI boundary.

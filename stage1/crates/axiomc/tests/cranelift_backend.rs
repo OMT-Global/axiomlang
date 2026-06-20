@@ -8971,13 +8971,23 @@ source = "path"
     .expect("write string branch reassignment main exit lockfile");
     fs::write(
         project.join("src/main.ax"),
-        r#"fn main(): int {
+        r#"static STATIC_BANNER: string = "direct-native"
+
+fn choose_text(flag: bool): string {
+if flag {
+return string_clone(STATIC_BANNER)
+} else {
+return "rust"
+}
+}
+
+fn main(): int {
 let selected: string = "unset"
 let fallback: string = "unset"
 let gate: bool = true
 if gate {
-selected = "direct-native"
-fallback = "fallback"
+selected = choose_text(true)
+fallback = string_trim("  fallback  ")
 } else {
 selected = "rust"
 fallback = "rust"
