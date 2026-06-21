@@ -31,7 +31,7 @@ assert "json.serdes" in report["incomplete_rows"]
 assert "process.status" in report["incomplete_rows"]
 assert "crypto.random" in report["incomplete_rows"]
 assert "network.dns.resolve" in report["incomplete_rows"]
-assert report["blocker_issues"] == [1001]
+assert report["blocker_issues"] == [1124]
 assert report["errors"] == []
 PY
 
@@ -158,7 +158,7 @@ with open(sys.argv[1], encoding="utf-8") as handle:
     contract = json.load(handle)
 
 contract["value_features"][0]["status"] = "implemented"
-contract["value_features"][0]["blockers"] = [1001]
+contract["value_features"][0]["blockers"] = [1124]
 contract["value_features"][0]["runtime_evidence"] = [
     "stage1/crates/axiomc/tests/cranelift_backend.rs"
 ]
