@@ -39,6 +39,7 @@ stage1-direct-native-runtime-abi-evidence:
 stage1-direct-native-runtime-abi-test:
 	bash scripts/ci/test-check-direct-native-runtime-abi.sh
 	bash scripts/ci/test-run-direct-native-runtime-abi-evidence.sh
+	bash scripts/ci/test-render-direct-native-runtime-abi-status.sh
 
 stage1-axiom-dwarf-readiness-test:
 	python3 -m py_compile scripts/debug/check-axiom-dwarf.py scripts/debug/test-check-axiom-dwarf.py
