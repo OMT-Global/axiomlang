@@ -741,12 +741,13 @@ The FFI call row now has partial direct-native evidence: the spike builds and
 runs a narrow C ABI `extern fn strlen(value: string): int from "c"` fixture
 while the public smoke asserts `generated_rust` is null, using the source-level
 extern declaration. The direct-native i64 path also lowers that same narrow
-`strlen` declaration for supported literal and string-projection inputs into
-native process exit status without generated Rust, including dynamic
-key-array string selections that feed the direct-native length projection path.
+`strlen` declaration for supported literal, static, known-concatenated, and
+string-projection inputs into native process exit status without generated Rust,
+including dynamic key-array string selections that feed the direct-native length
+projection path.
 Those same supported `strlen` inputs now also lower inside direct-native helper
-functions and return through native helper calls before the final process exit
-status.
+functions, including helper-local known-concatenated arguments, and return
+through native helper calls before the final process exit status.
 Known-string inputs now call the native `strlen` import at runtime instead of
 relying on compile-time length folding. That path also appends host audit JSONL
 entries when `AXIOM_HOST_AUDIT_LOG` is set, recording only the library, symbol,

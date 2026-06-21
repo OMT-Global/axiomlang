@@ -8,6 +8,11 @@
       "check": "Direct native runtime ABI and capability shims cover the supported stage1 surface."
     },
     {
+      "issue": 1191,
+      "lane": "backend",
+      "check": "Generated-Rust backend, rustc targeted-build fallback, and compatibility alias are removed from the supported toolchain."
+    },
+    {
       "issue": 731,
       "lane": "tooling",
       "check": "LSP server and protocol path are AxiOM-owned."

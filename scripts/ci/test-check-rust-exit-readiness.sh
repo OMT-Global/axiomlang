@@ -84,6 +84,7 @@ PY
 
 cat >"$temp_dir/open-issues.txt" <<'ISSUES'
 1124 OPEN
+1191 OPEN
 731 OPEN
 721 OPEN
 ISSUES
@@ -116,6 +117,7 @@ PY
 
 cat >"$temp_dir/issues.txt" <<'ISSUES'
 1124 CLOSED
+1191 CLOSED
 731 CLOSED
 721 OPEN
 ISSUES
