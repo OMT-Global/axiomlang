@@ -5214,7 +5214,17 @@ fn cranelift_backend_lowers_std_collection_wrappers_to_runtime_exit_code() {
         .expect("run cranelift std collection wrapper main binary");
     assert_eq!(string_run.status.code(), Some(48));
     assert_eq!(String::from_utf8_lossy(&string_run.stdout), "");
+}
 
+#[cfg(not(windows))]
+#[test]
+fn cranelift_backend_lowers_bool_std_collection_wrappers_to_runtime_exit_code() {
+    if which::which("cc").is_err() {
+        eprintln!("skipping cranelift backend smoke test because cc is unavailable");
+        return;
+    }
+
+    let temp = tempfile::tempdir().expect("tempdir");
     let bool_project = temp.path().join("bool-std-collection-wrapper-main-exit");
     write_bool_collection_wrapper_main_exit_project(&bool_project);
 
@@ -12552,40 +12562,6 @@ let get_miss_scores: {string: int} = {"build": 7, "deploy": 9}
 let get_miss_code: int = match get<string, int>(get_miss_scores, "test") { Some(value) => value, None => 13 }
 let fallback_scores: {string: int} = {"build": 7, "deploy": 9}
 let fallback: int = get_or_default<string, int>(fallback_scores, "test", 13)
-let bool_contains_scores: {bool: int} = {false: 7, true: 29}
-let bool_contains_hit: bool = contains<bool, int>(bool_contains_scores, true)
-let bool_contains_miss_scores: {bool: int} = {true: 29}
-let bool_contains_miss: bool = contains<bool, int>(bool_contains_miss_scores, false) == false
-let bool_get_hit_scores: {bool: int} = {false: 7, true: 29}
-let bool_get_hit_code: int = match get<bool, int>(bool_get_hit_scores, true) { Some(value) => value, None => 1 }
-let bool_get_miss_scores: {bool: int} = {true: 29}
-let bool_get_miss_code: int = match get<bool, int>(bool_get_miss_scores, false) { Some(value) => value, None => 13 }
-let bool_fallback_scores: {bool: int} = {true: 29}
-let bool_fallback: int = get_or_default<bool, int>(bool_fallback_scores, false, 13)
-let bool_value_scores: {bool: bool} = {false: false, true: true}
-let bool_value_hit: bool = match get<bool, bool>(bool_value_scores, true) { Some(value) => value, None => false }
-let int_contains_scores: {int: int} = {1: 7, 2: 29}
-let int_contains_hit: bool = contains<int, int>(int_contains_scores, 2)
-let int_contains_miss_scores: {int: int} = {2: 29}
-let int_contains_miss: bool = contains<int, int>(int_contains_miss_scores, 1) == false
-let int_get_hit_scores: {int: int} = {1: 7, 2: 29}
-let int_get_hit_code: int = match get<int, int>(int_get_hit_scores, 2) { Some(value) => value, None => 1 }
-let int_get_miss_scores: {int: int} = {2: 29}
-let int_get_miss_code: int = match get<int, int>(int_get_miss_scores, 1) { Some(value) => value, None => 13 }
-let int_fallback_scores: {int: int} = {2: 29}
-let int_fallback: int = get_or_default<int, int>(int_fallback_scores, 1, 13)
-let int_key_scores: {int: int} = {1: 7, 2: 29}
-let int_key_names: [int] = keys<int, int>(int_key_scores)
-let int_key_count: int = len(int_key_names)
-let first_int_key: int = int_key_names[0]
-let dynamic_int_key_index: int = choose_key_index(int_contains_hit)
-let selected_int_key: int = int_key_names[dynamic_int_key_index]
-let bool_key_scores: {bool: int} = {false: 7, true: 29}
-let bool_key_names: [bool] = keys<bool, int>(bool_key_scores)
-let bool_key_count: int = len(bool_key_names)
-let first_bool_key_missing: bool = bool_key_names[0] == false
-let dynamic_bool_key_index: int = choose_key_index(bool_contains_hit)
-let selected_bool_key: bool = bool_key_names[dynamic_bool_key_index]
 let key_count_scores: {string: int} = {"build": 7, "deploy": 9, "deploy": 11}
 let key_count_names: [string] = keys<string, int>(key_count_scores)
 let key_count: int = len(key_count_names)
@@ -12620,7 +12596,7 @@ let dynamic_key_trimmed_value: string = string_trim(dynamic_key_trim_value)
 let dynamic_key_trim_start_value: string = string_trim_start(dynamic_key_trim_value)
 let dynamic_key_trimmed_has_prefix: bool = string_starts_with(dynamic_key_trimmed_value, "dep")
 let dynamic_key_trim_start_has_prefix: bool = string_starts_with(dynamic_key_trim_start_value, "dep")
-if contains_hit && contains_miss && get_hit_code == 9 && get_miss_code == 13 && fallback == 13 && bool_contains_hit && bool_contains_miss && bool_get_hit_code == 29 && bool_get_miss_code == 13 && bool_fallback == 13 && bool_value_hit && int_contains_hit && int_contains_miss && int_get_hit_code == 29 && int_get_miss_code == 13 && int_fallback == 13 && int_key_count == 2 && first_int_key == 1 && selected_int_key == 2 && bool_key_count == 2 && first_bool_key_missing && selected_bool_key && key_count == 2 && first_key_len == 5 && second_key_len == 6 && dynamic_key_len == 6 && dynamic_key_is_deploy && dynamic_key_not_build && dynamic_key_has_prefix && dynamic_key_trim_len == 6 && dynamic_key_trim_start_len == 7 && dynamic_key_trimmed_has_prefix && dynamic_key_trim_start_has_prefix {
+if contains_hit && contains_miss && get_hit_code == 9 && get_miss_code == 13 && fallback == 13 && key_count == 2 && first_key_len == 5 && second_key_len == 6 && dynamic_key_len == 6 && dynamic_key_is_deploy && dynamic_key_not_build && dynamic_key_has_prefix && dynamic_key_trim_len == 6 && dynamic_key_trim_start_len == 7 && dynamic_key_trimmed_has_prefix && dynamic_key_trim_start_has_prefix {
 return 48
 } else {
 return 1
