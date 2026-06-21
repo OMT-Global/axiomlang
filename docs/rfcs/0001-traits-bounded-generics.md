@@ -1,7 +1,7 @@
 # RFC 0001: Traits, bounded generics, and dynamic dispatch
 
 Status: Draft
-Governing issue: [OMT-Global/axiom#216](https://github.com/OMT-Global/axiom/issues/216)
+Governing issue: [OMT-Global/axiomlang#216](https://github.com/OMT-Global/axiomlang/issues/216)
 Closure: This RFC scopes follow-up implementation work and deliberately does not close #216.
 
 ## Summary
