@@ -799,13 +799,14 @@ lowering. Static scalar tuple keys can also feed inline-map-literal
 duplicate-key replacement, and statically initialized component lookups without
 generated Rust. Imported public `std/collections.ax` `contains`, `get`, and
 `get_or_default` map wrappers now alias the same direct-native i64 lowering for
-static string-, int-, and bool-keyed map-local cases, and `keys` wrapper calls
-cover static string-, int-, and bool-keyed map-local key-array counts plus
+static string-, int-, bool-, and tuple-keyed map-local cases, and `keys` wrapper
+calls cover static string-, int-, and bool-keyed map-local key-array counts plus
 literal and dynamic key projections for supported scalar/bool keys. The focused
-evidence manifest now links the wrapper runtime-exit smoke to this row. Static
-tuple key arrays can also feed literal and dynamic scalar/bool component
-projections from `keys(...)[index].field` without materializing a general tuple
-key-array value. Literal indexes into static string key arrays can also feed
+evidence manifest now links the wrapper runtime-exit smoke to this row. Imported
+public `std/collections.ax` `keys` wrappers over static tuple-keyed maps can
+also feed literal and dynamic scalar/bool component projections from
+`keys(...)[index].field` without materializing a general tuple key-array value.
+Literal indexes into static string key arrays can also feed
 known string length lowering, and non-literal scalar indexes into those static
 string key arrays can select among known key byte lengths. Dynamic key-array value
 projection locals whose index is derived from a prior collection predicate local
