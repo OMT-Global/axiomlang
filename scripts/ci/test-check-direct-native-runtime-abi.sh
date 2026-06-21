@@ -101,10 +101,12 @@ assert "stage1/crates/axiomc/src/cranelift_backend.rs" in rows["fs.read"]["runti
 assert rows["cli.args"]["group"] == "capability_shims"
 assert rows["cli.args"]["status"] == "implemented"
 assert rows["cli.args"]["blockers"] == []
-assert rows["cli.args"]["test_count"] >= 1
+assert rows["cli.args"]["test_count"] >= 2
 assert "cranelift_backend_builds_std_cli_no_args_binary" in rows["cli.args"]["tests"]
+assert "cranelift_backend_builds_std_cli_forwarded_args_binary" in rows["cli.args"]["tests"]
 assert "stage1/crates/axiomc/tests/cranelift_backend.rs" in rows["cli.args"]["evidence"]
 assert "stage1/crates/axiomc/src/cranelift_backend.rs" in rows["cli.args"]["runtime_evidence"]
+assert "stage1/crates/axiomc-backend-cranelift/src/lib.rs" in rows["cli.args"]["runtime_evidence"]
 PY
 
 python3 "$script" --contract "$contract" --list-evidence-rows >"$temp_dir/row-list.txt"

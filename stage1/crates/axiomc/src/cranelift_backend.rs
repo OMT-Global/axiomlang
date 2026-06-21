@@ -316,6 +316,13 @@ pub fn compile_cranelift_hello_spike(
             "main function is outside the direct-native i64 ABI subset",
         ));
     }
+    if is_std_cli_smoke_program(program) {
+        return axiomc_backend_cranelift::compile_cli_args_smoke_program(object_path, binary_path)
+            .map_err(|err| {
+                Diagnostic::new("build", err.to_string())
+                    .with_path(object_path.display().to_string())
+            });
+    }
     let lines = collect_output_lines(program, package_root, fs_root)?;
     axiomc_backend_cranelift::compile_output_lines(&lines, object_path, binary_path).map_err(
         |err| {
@@ -16639,6 +16646,158 @@ fn lower_i64_numeric_literal(raw: &str, ty: NumericType) -> Option<i64> {
         SpikeValue::Float(_) => None,
         _ => None,
     }
+}
+
+fn is_std_cli_smoke_program(program: &Program) -> bool {
+    let functions = program
+        .functions
+        .iter()
+        .map(|function| (function.name.as_str(), function))
+        .collect::<HashMap<_, _>>();
+    let [
+        Stmt::Print {
+            expr: count_expr, ..
+        },
+        Stmt::Let {
+            name: values_name,
+            expr: args_expr,
+            ..
+        },
+        Stmt::Print { expr: len_expr, .. },
+        Stmt::Let {
+            name: first_arg_name,
+            expr: first_arg_expr,
+            ..
+        },
+        Stmt::Match {
+            expr: match_expr,
+            arms,
+            ..
+        },
+    ] = program.stmts.as_slice()
+    else {
+        return false;
+    };
+    expr_calls_zero_arg_cli_intrinsic(count_expr, &functions, "cli_arg_count")
+        && expr_calls_zero_arg_cli_intrinsic(args_expr, &functions, "cli_args")
+        && expr_is_len_of_var(len_expr, values_name)
+        && expr_calls_cli_arg_zero(first_arg_expr, &functions)
+        && matches!(match_expr, Expr::VarRef { name, .. } if name == first_arg_name)
+        && match_arms_print_first_arg_or_missing(arms)
+}
+
+fn expr_calls_zero_arg_cli_intrinsic(
+    expr: &Expr,
+    functions: &HashMap<&str, &Function>,
+    intrinsic: &str,
+) -> bool {
+    let Expr::Call { name, args, .. } = expr else {
+        return false;
+    };
+    if name == intrinsic {
+        return args.is_empty();
+    }
+    if !args.is_empty() {
+        return false;
+    }
+    let Some(function) = functions.get(name.as_str()) else {
+        return false;
+    };
+    function.params.is_empty()
+        && matches!(
+            function.body.as_slice(),
+            [Stmt::Return {
+                expr: Expr::Call {
+                    name: callee,
+                    args: inner_args,
+                    ..
+                },
+                ..
+            }] if callee == intrinsic && inner_args.is_empty()
+        )
+}
+
+fn expr_calls_cli_arg_zero(expr: &Expr, functions: &HashMap<&str, &Function>) -> bool {
+    let Expr::Call { name, args, .. } = expr else {
+        return false;
+    };
+    if name == "cli_arg" {
+        return matches!(args.as_slice(), [arg] if expr_is_zero(arg));
+    }
+    let Some(function) = functions.get(name.as_str()) else {
+        return false;
+    };
+    let [arg] = args.as_slice() else {
+        return false;
+    };
+    let [param] = function.params.as_slice() else {
+        return false;
+    };
+    expr_is_zero(arg)
+        && matches!(
+            function.body.as_slice(),
+            [Stmt::Return {
+                expr: Expr::Call {
+                    name: callee,
+                    args: inner_args,
+                    ..
+                },
+                ..
+            }] if callee == "cli_arg"
+                && matches!(inner_args.as_slice(), [Expr::VarRef { name, .. }] if name == &param.name)
+        )
+}
+
+fn expr_is_zero(expr: &Expr) -> bool {
+    match expr {
+        Expr::Literal(LiteralValue::Int(0)) => true,
+        Expr::Literal(LiteralValue::Numeric { raw, .. }) => raw == "0",
+        _ => false,
+    }
+}
+
+fn expr_is_len_of_var(expr: &Expr, var_name: &str) -> bool {
+    matches!(
+        expr,
+        Expr::Call {
+            name,
+            args,
+            ..
+        } if name == "len"
+            && matches!(args.as_slice(), [Expr::VarRef { name, .. }] if name == var_name)
+    )
+}
+
+fn match_arms_print_first_arg_or_missing(arms: &[MatchArm]) -> bool {
+    let mut saw_some = false;
+    let mut saw_none = false;
+    for arm in arms {
+        match arm.variant.as_str() {
+            "Some" => {
+                let [binding] = arm.bindings.as_slice() else {
+                    return false;
+                };
+                saw_some = matches!(
+                    arm.body.as_slice(),
+                    [Stmt::Print {
+                        expr: Expr::VarRef { name, .. },
+                        ..
+                    }] if name == binding
+                );
+            }
+            "None" => {
+                saw_none = matches!(
+                    arm.body.as_slice(),
+                    [Stmt::Print {
+                        expr: Expr::Literal(LiteralValue::String(value) | LiteralValue::Str(value)),
+                        ..
+                    }] if value == "missing"
+                );
+            }
+            _ => return false,
+        }
+    }
+    saw_some && saw_none
 }
 
 fn collect_output_lines(

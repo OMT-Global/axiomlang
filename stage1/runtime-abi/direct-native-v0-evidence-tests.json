@@ -257,7 +257,8 @@
       "cranelift_backend_rejects_process_denial_before_backend_lowering"
     ],
     "cli.args": [
-      "cranelift_backend_builds_std_cli_no_args_binary"
+      "cranelift_backend_builds_std_cli_no_args_binary",
+      "cranelift_backend_builds_std_cli_forwarded_args_binary"
     ],
     "regex.match_replace": [
       "cranelift_backend_lowers_known_regex_text_to_runtime_exit_code",

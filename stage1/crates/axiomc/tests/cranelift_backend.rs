@@ -7388,6 +7388,57 @@ missing
 
 #[cfg(not(windows))]
 #[test]
+fn cranelift_backend_builds_std_cli_forwarded_args_binary() {
+    if which::which("cc").is_err() {
+        eprintln!("skipping cranelift backend smoke test because cc is unavailable");
+        return;
+    }
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("std-cli-forwarded-args");
+    write_std_cli_project(&project);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args([
+            "build",
+            project.to_str().expect("project path"),
+            "--backend",
+            "cranelift",
+            "--json",
+        ])
+        .output()
+        .expect("run axiomc build --backend cranelift");
+    assert!(
+        output.status.success(),
+        "cranelift std/cli forwarded-args build failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+    assert_eq!(payload["backend"], "cranelift");
+    assert_eq!(payload["generated_rust"], Value::Null);
+    let binary = payload["binary"].as_str().expect("binary path");
+    let run = Command::new(binary)
+        .args(["alpha", "beta"])
+        .output()
+        .expect("run cranelift std/cli forwarded-args binary");
+    assert!(
+        run.status.success(),
+        "cranelift std/cli forwarded-args binary failed: stderr={}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&run.stdout),
+        "2
+2
+alpha
+"
+    );
+}
+
+#[cfg(not(windows))]
+#[test]
 fn cranelift_backend_rejects_float_map_keys() {
     let temp = tempfile::tempdir().expect("tempdir");
     let project = temp.path().join("float-map-key");
