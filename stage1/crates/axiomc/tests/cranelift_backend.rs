@@ -13334,6 +13334,15 @@ source = "path"
 static PRESENT_ENV: string = "AXIOM_CRANELIFT_ENV_READ"
 static MISSING_ENV: string = "__AXIOM_CRANELIFT_ENV_MISSING__"
 
+fn helper_present_len(): int {
+return match get_env(PRESENT_ENV) { Some(value) => len(value), None => 0 }
+}
+
+fn helper_missing_len(): int {
+let stored: Option<string> = env_get(MISSING_ENV)
+return match stored { Some(value) => len(value), None => 38 }
+}
+
 fn main(): int {
 let present: int = match env_get(PRESENT_ENV) { Some(value) => len(value), None => 0 }
 let missing: int = match get_env(MISSING_ENV) { Some(value) => len(value), None => 38 }
@@ -13351,7 +13360,9 @@ None {
 statement_present_len = 1
 }
 }
-if present == 11 && missing == 38 && stored_present_len == 11 && stored_missing_len == 38 && statement_present_len == 11 {
+let helper_present: int = helper_present_len()
+let helper_missing: int = helper_missing_len()
+if present == 11 && missing == 38 && stored_present_len == 11 && stored_missing_len == 38 && statement_present_len == 11 && helper_present == 11 && helper_missing == 38 {
 return statement_present_len + 37
 } else {
 return 1
