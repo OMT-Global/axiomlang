@@ -173,6 +173,8 @@ bindings for bool locals, helper returns, and boolean conditions. The backend
 crate has narrow object-link evidence for composed `&&`/`||` comparison conditions,
 condition-to-i64 value lowering for helper-call arguments, and bool local
 assignment through a branch inside a loop after a scoped runtime bool `let`.
+The public bool stdout smoke also asserts `generated_rust: null` while printing
+both true and false boolean expressions from a direct-native main function.
 Both rows remain partial because that runtime path does not yet cover the full
 supported scalar, function-call, control-flow, or boolean surface.
 
@@ -253,10 +255,12 @@ helper returns using the same element-slot ABI, including inside runtime loop
 blocks. Fixed-array `len`, `first`, and `last` over scalar and bool element
 arrays also lower through the same projected element-slot representation for
 local arrays, inline literals, helper parameters, and helper-returned arrays
-feeding a direct-native process exit status. The row remains partial because
-direct-native codegen still does not provide a general array ABI, array storage
-for non-scalar elements, full dynamic indexing semantics, bounds diagnostics,
-or a complete aggregate value passing contract.
+feeding a direct-native process exit status. The public array helper smoke also
+prints `len`, `first`, `last`, and a first-plus-last sum for both a local fixed
+array and a helper-returned fixed array while asserting `generated_rust: null`.
+The row remains partial because direct-native codegen still does not provide a
+general array ABI, array storage for non-scalar elements, full dynamic indexing
+semantics, bounds diagnostics, or a complete aggregate value passing contract.
 
 The `tuple` row now has narrow direct-native runtime evidence for immediate
 tuple-literal scalar indexing and scalar projection from local tuple bindings.
@@ -740,12 +744,13 @@ The FFI call row now has partial direct-native evidence: the spike builds and
 runs a narrow C ABI `extern fn strlen(value: string): int from "c"` fixture
 while the public smoke asserts `generated_rust` is null, using the source-level
 extern declaration. The direct-native i64 path also lowers that same narrow
-`strlen` declaration for supported literal and string-projection inputs into
-native process exit status without generated Rust, including dynamic
-key-array string selections that feed the direct-native length projection path.
+`strlen` declaration for supported literal, static, known-concatenated, and
+string-projection inputs into native process exit status without generated Rust,
+including dynamic key-array string selections that feed the direct-native length
+projection path.
 Those same supported `strlen` inputs now also lower inside direct-native helper
-functions and return through native helper calls before the final process exit
-status.
+functions, including helper-local known-concatenated arguments, and return
+through native helper calls before the final process exit status.
 Known-string inputs now call the native `strlen` import at runtime instead of
 relying on compile-time length folding. That path also appends host audit JSONL
 entries when `AXIOM_HOST_AUDIT_LOG` is set, recording only the library, symbol,
