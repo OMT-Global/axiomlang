@@ -797,12 +797,12 @@ can also flow back through the same multi-slot ABI when the returned borrowed
 parameter width is statically witnessed by call sites, including same-origin,
 same-width branch-selected returns whose branch arms return statically
 witnessed borrowed slices; those returned slice locals can also feed scalar and
-bool helper-call arguments. Branch-returned slice locals can also be sliced
-again with static bounds before direct projection or helper-call argument
-lowering. Broader dynamic slice bounds, unconstrained
-helper-parameter or helper-return widths, mixed-origin or mixed-width
-branch-selected borrowed-slice returns, and host ABI coverage remain tracked by
-issue #1124.
+bool helper-call arguments, including when the branch selector is a computed
+direct-native boolean condition. Branch-returned slice locals can also be
+sliced again with static bounds before direct projection or helper-call argument
+lowering. Broader dynamic slice bounds, unconstrained helper-parameter or
+helper-return widths, mixed-origin or mixed-width branch-selected borrowed-slice
+returns, and host ABI coverage remain tracked by issue #1124.
 
 The map lookup row has partial direct-native evidence: the Cranelift spike now
 builds and runs direct map indexing, `get`, `get_or_default`,

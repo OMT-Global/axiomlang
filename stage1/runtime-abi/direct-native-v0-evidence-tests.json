@@ -84,6 +84,7 @@
       "cranelift_backend_lowers_slice_helper_params_to_runtime_exit_code",
       "cranelift_backend_lowers_slice_helper_returns_to_runtime_exit_code",
       "cranelift_backend_lowers_slice_branch_returns_to_runtime_exit_code",
+      "cranelift_backend_lowers_slice_dynamic_branch_returns_to_runtime_exit_code",
       "cranelift_backend_lowers_slice_branch_return_helper_args_to_runtime_exit_code",
       "cranelift_backend_lowers_slice_return_subranges_to_runtime_exit_code",
       "cranelift_backend_lowers_slice_subrange_aliases_to_runtime_exit_code"
