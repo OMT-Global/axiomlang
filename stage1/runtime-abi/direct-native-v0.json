@@ -217,8 +217,11 @@
       "status": "implemented",
       "capability": "ambient process arguments exposed through std/cli.ax",
       "evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"],
-      "runtime_evidence": ["stage1/crates/axiomc/src/cranelift_backend.rs"],
-      "notes": "The direct-native path builds and runs the public std/cli.ax no-argument program without generated Rust, covering arg_count(), args(), arg(0), empty argument-array length, and the None arm for missing arguments from the native binary. The surface is ambient process input and remains separate from std/process.ax command execution; argument forwarding through axiomc run -- and broader argv string storage remain open."
+      "runtime_evidence": [
+        "stage1/crates/axiomc/src/cranelift_backend.rs",
+        "stage1/crates/axiomc-backend-cranelift/src/lib.rs"
+      ],
+      "notes": "The direct-native path builds and runs the public std/cli.ax no-argument program without generated Rust, covering arg_count(), args(), arg(0), empty argument-array length, and the None arm for missing arguments from the native binary. It also builds the same program and runs the produced native binary with forwarded alpha/beta argv values, proving arg_count(), args(), and arg(0) observe non-empty process arguments without generated Rust. The surface is ambient process input and remains separate from std/process.ax command execution; broader argv string storage remains open."
     },
     {
       "id": "env.read",

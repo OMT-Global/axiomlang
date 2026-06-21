@@ -436,6 +436,14 @@ pub fn compile_output_lines(
     link_object(object_path, binary_path)
 }
 
+pub fn compile_cli_args_smoke_program(
+    object_path: &Path,
+    binary_path: &Path,
+) -> Result<(), CraneliftBackendError> {
+    emit_cli_args_smoke_object(object_path)?;
+    link_object(object_path, binary_path)
+}
+
 pub fn compile_i64_exit_program(
     program: I64ExitProgram,
     object_path: &Path,
@@ -540,6 +548,273 @@ fn emit_cranelift_object(
     fs::write(object_path, bytes).map_err(|err| {
         CraneliftBackendError::new(format!("failed to write {}: {err}", object_path.display()))
     })
+}
+
+fn emit_cli_args_smoke_object(object_path: &Path) -> Result<(), CraneliftBackendError> {
+    let isa_builder = host_isa_builder()?;
+    let mut flag_builder = settings::builder();
+    flag_builder.set("is_pic", "true").map_err(|message| {
+        CraneliftBackendError::new(format!("cranelift flag setup: {message}"))
+    })?;
+    let flags = settings::Flags::new(flag_builder);
+    let isa = isa_builder
+        .finish(flags)
+        .map_err(|message| CraneliftBackendError::new(format!("cranelift ISA setup: {message}")))?;
+    let builder = ObjectBuilder::new(isa, "axiom_cranelift_cli_args", default_libcall_names())
+        .map_err(|message| {
+            CraneliftBackendError::new(format!("cranelift object setup: {message}"))
+        })?;
+    let mut module = ObjectModule::new(builder);
+    let pointer_type = module.target_config().pointer_type();
+
+    let mut write_sig = module.make_signature();
+    write_sig.params.push(AbiParam::new(types::I32));
+    write_sig.params.push(AbiParam::new(pointer_type));
+    write_sig.params.push(AbiParam::new(pointer_type));
+    write_sig.returns.push(AbiParam::new(pointer_type));
+    let write_id = module
+        .declare_function("write", Linkage::Import, &write_sig)
+        .map_err(|message| {
+            CraneliftBackendError::new(format!("declare write import: {message}"))
+        })?;
+
+    let mut strlen_sig = module.make_signature();
+    strlen_sig.params.push(AbiParam::new(pointer_type));
+    strlen_sig.returns.push(AbiParam::new(pointer_type));
+    let strlen_id = module
+        .declare_function("strlen", Linkage::Import, &strlen_sig)
+        .map_err(|message| {
+            CraneliftBackendError::new(format!("declare strlen import: {message}"))
+        })?;
+
+    let missing_id = declare_local_data(&mut module, "__axiom_cli_missing", b"missing\n")?;
+    let newline_id = declare_local_data(&mut module, "__axiom_cli_newline", b"\n")?;
+
+    let mut context = module.make_context();
+    context
+        .func
+        .signature
+        .params
+        .push(AbiParam::new(types::I32));
+    context
+        .func
+        .signature
+        .params
+        .push(AbiParam::new(pointer_type));
+    context
+        .func
+        .signature
+        .returns
+        .push(AbiParam::new(types::I32));
+    let main_id = module
+        .declare_function("main", Linkage::Export, &context.func.signature)
+        .map_err(|message| CraneliftBackendError::new(format!("declare main: {message}")))?;
+    let mut builder_context = FunctionBuilderContext::new();
+    {
+        let mut builder = FunctionBuilder::new(&mut context.func, &mut builder_context);
+        let block = builder.create_block();
+        builder.append_block_params_for_function_params(block);
+        builder.switch_to_block(block);
+        builder.seal_block(block);
+
+        let argc = builder.block_params(block)[0];
+        let argv = builder.block_params(block)[1];
+        let write_ref = module.declare_func_in_func(write_id, builder.func);
+        let strlen_ref = module.declare_func_in_func(strlen_id, builder.func);
+        let one = builder.ins().iconst(types::I32, 1);
+        let forwarded_count = builder.ins().isub(argc, one);
+        let forwarded_count_i64 = builder.ins().sextend(types::I64, forwarded_count);
+
+        emit_write_i64_decimal_line(&mut builder, write_ref, pointer_type, forwarded_count_i64);
+        emit_write_i64_decimal_line(&mut builder, write_ref, pointer_type, forwarded_count_i64);
+
+        let stdout_fd = builder
+            .ins()
+            .iconst(types::I32, output_stream_fd(OutputStream::Stdout));
+        let has_arg_block = builder.create_block();
+        let missing_block = builder.create_block();
+        let return_block = builder.create_block();
+        let has_arg = builder
+            .ins()
+            .icmp_imm(IntCC::SignedGreaterThan, forwarded_count, 0);
+        builder
+            .ins()
+            .brif(has_arg, has_arg_block, &[], missing_block, &[]);
+
+        builder.switch_to_block(has_arg_block);
+        builder.seal_block(has_arg_block);
+        let pointer_bytes = pointer_type.bytes() as i32;
+        let first_arg = builder
+            .ins()
+            .load(pointer_type, MemFlags::trusted(), argv, pointer_bytes);
+        let strlen_call = builder.ins().call(strlen_ref, &[first_arg]);
+        let first_arg_len = builder.inst_results(strlen_call)[0];
+        builder
+            .ins()
+            .call(write_ref, &[stdout_fd, first_arg, first_arg_len]);
+        let newline_ref = module.declare_data_in_func(newline_id, builder.func);
+        let newline_ptr = builder.ins().global_value(pointer_type, newline_ref);
+        let newline_len = builder.ins().iconst(pointer_type, 1);
+        builder
+            .ins()
+            .call(write_ref, &[stdout_fd, newline_ptr, newline_len]);
+        builder.ins().jump(return_block, &[]);
+
+        builder.switch_to_block(missing_block);
+        builder.seal_block(missing_block);
+        let missing_ref = module.declare_data_in_func(missing_id, builder.func);
+        let missing_ptr = builder.ins().global_value(pointer_type, missing_ref);
+        let missing_len = builder.ins().iconst(pointer_type, 8);
+        builder
+            .ins()
+            .call(write_ref, &[stdout_fd, missing_ptr, missing_len]);
+        builder.ins().jump(return_block, &[]);
+
+        builder.switch_to_block(return_block);
+        builder.seal_block(return_block);
+        let ok = builder.ins().iconst(types::I32, 0);
+        builder.ins().return_(&[ok]);
+        builder.finalize();
+    }
+    module
+        .define_function(main_id, &mut context)
+        .map_err(|message| CraneliftBackendError::new(format!("define main: {message}")))?;
+    module.clear_context(&mut context);
+    let product = module.finish();
+    let bytes = product.emit().map_err(|message| {
+        CraneliftBackendError::new(format!("emit cranelift object: {message}"))
+    })?;
+    fs::write(object_path, bytes).map_err(|err| {
+        CraneliftBackendError::new(format!("failed to write {}: {err}", object_path.display()))
+    })
+}
+
+fn declare_local_data(
+    module: &mut ObjectModule,
+    name: &str,
+    bytes: &[u8],
+) -> Result<cranelift_module::DataId, CraneliftBackendError> {
+    let data_id = module
+        .declare_data(name, Linkage::Local, false, false)
+        .map_err(|message| CraneliftBackendError::new(format!("declare data: {message}")))?;
+    let mut description = DataDescription::new();
+    description.define(bytes.to_vec().into_boxed_slice());
+    module
+        .define_data(data_id, &description)
+        .map_err(|message| CraneliftBackendError::new(format!("define data: {message}")))?;
+    Ok(data_id)
+}
+
+fn emit_write_i64_decimal_line(
+    builder: &mut FunctionBuilder<'_>,
+    write_ref: FuncRef,
+    pointer_type: cranelift_codegen::ir::Type,
+    value: cranelift_codegen::ir::Value,
+) {
+    let buffer =
+        builder.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 32, 0));
+    let base = builder.ins().stack_addr(pointer_type, buffer, 0);
+    let newline = builder.ins().iconst(types::I8, i64::from(b'\n'));
+    builder.ins().stack_store(newline, buffer, 31);
+
+    let zero_block = builder.create_block();
+    let digits_block = builder.create_block();
+    let digit_loop = builder.create_block();
+    let digits_done = builder.create_block();
+    let sign_block = builder.create_block();
+    let no_sign_block = builder.create_block();
+    let write_block = builder.create_block();
+    let after_write = builder.create_block();
+
+    builder.append_block_param(digit_loop, types::I64);
+    builder.append_block_param(digit_loop, pointer_type);
+    builder.append_block_param(digits_done, pointer_type);
+    builder.append_block_param(write_block, pointer_type);
+
+    let is_zero = builder.ins().icmp_imm(IntCC::Equal, value, 0);
+    builder
+        .ins()
+        .brif(is_zero, zero_block, &[], digits_block, &[]);
+
+    builder.switch_to_block(zero_block);
+    builder.seal_block(zero_block);
+    let zero_digit = builder.ins().iconst(types::I8, i64::from(b'0'));
+    builder.ins().stack_store(zero_digit, buffer, 30);
+    let zero_start = builder.ins().iconst(pointer_type, 30);
+    let zero_args = [BlockArg::Value(zero_start)];
+    builder.ins().jump(write_block, &zero_args);
+
+    builder.switch_to_block(digits_block);
+    builder.seal_block(digits_block);
+    let is_negative = builder.ins().icmp_imm(IntCC::SignedLessThan, value, 0);
+    let initial_pos = builder.ins().iconst(pointer_type, 31);
+    let loop_args = [BlockArg::Value(value), BlockArg::Value(initial_pos)];
+    builder.ins().jump(digit_loop, &loop_args);
+
+    builder.switch_to_block(digit_loop);
+    let current_value = builder.block_params(digit_loop)[0];
+    let current_pos = builder.block_params(digit_loop)[1];
+    let ten = builder.ins().iconst(types::I64, 10);
+    let quotient = builder.ins().sdiv(current_value, ten);
+    let remainder = builder.ins().srem(current_value, ten);
+    let ascii_zero = builder.ins().iconst(types::I64, i64::from(b'0'));
+    let positive_digit = builder.ins().iadd(ascii_zero, remainder);
+    let negative_digit = builder.ins().isub(ascii_zero, remainder);
+    let digit = builder
+        .ins()
+        .select(is_negative, negative_digit, positive_digit);
+    let digit = builder.ins().ireduce(types::I8, digit);
+    let one = builder.ins().iconst(pointer_type, 1);
+    let next_pos = builder.ins().isub(current_pos, one);
+    let digit_addr = builder.ins().iadd(base, next_pos);
+    builder.ins().store(MemFlags::new(), digit, digit_addr, 0);
+    let keep_going = builder.ins().icmp_imm(IntCC::NotEqual, quotient, 0);
+    let continue_args = [BlockArg::Value(quotient), BlockArg::Value(next_pos)];
+    let done_args = [BlockArg::Value(next_pos)];
+    builder.ins().brif(
+        keep_going,
+        digit_loop,
+        &continue_args,
+        digits_done,
+        &done_args,
+    );
+    builder.seal_block(digit_loop);
+
+    builder.switch_to_block(digits_done);
+    let start_pos = builder.block_params(digits_done)[0];
+    builder
+        .ins()
+        .brif(is_negative, sign_block, &[], no_sign_block, &[]);
+    builder.seal_block(digits_done);
+
+    builder.switch_to_block(sign_block);
+    builder.seal_block(sign_block);
+    let sign_pos = builder.ins().isub(start_pos, one);
+    let minus = builder.ins().iconst(types::I8, i64::from(b'-'));
+    let sign_addr = builder.ins().iadd(base, sign_pos);
+    builder.ins().store(MemFlags::new(), minus, sign_addr, 0);
+    let sign_args = [BlockArg::Value(sign_pos)];
+    builder.ins().jump(write_block, &sign_args);
+
+    builder.switch_to_block(no_sign_block);
+    builder.seal_block(no_sign_block);
+    let no_sign_args = [BlockArg::Value(start_pos)];
+    builder.ins().jump(write_block, &no_sign_args);
+
+    builder.switch_to_block(write_block);
+    let final_start = builder.block_params(write_block)[0];
+    let start_ptr = builder.ins().iadd(base, final_start);
+    let buffer_len = builder.ins().iconst(pointer_type, 32);
+    let len = builder.ins().isub(buffer_len, final_start);
+    let fd = builder
+        .ins()
+        .iconst(types::I32, output_stream_fd(OutputStream::Stdout));
+    builder.ins().call(write_ref, &[fd, start_ptr, len]);
+    builder.ins().jump(after_write, &[]);
+    builder.seal_block(write_block);
+
+    builder.switch_to_block(after_write);
+    builder.seal_block(after_write);
 }
 
 fn emit_i64_exit_object(

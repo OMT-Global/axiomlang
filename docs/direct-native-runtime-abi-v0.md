@@ -716,11 +716,13 @@ The CLI arguments row now has narrow direct-native evidence: the native
 `std/cli.ax` no-argument smoke builds with `generated_rust: null`, runs the
 produced binary, and proves `arg_count()`, `args()`, and `arg(0)` cover the
 empty forwarded-argument surface by printing `0`, `0`, and the `None` arm's
-`missing` text. This row tracks ambient process input separately from
-`std/process.ax` command execution because the CLI surface does not require the
-filesystem, network, process, environment, clock, or crypto capability gates.
-Forwarded arguments through `axiomc run --`, broader argv string storage, and
-host-audit treatment remain open under #1001.
+`missing` text. The focused forwarded-args smoke builds the same program and
+runs the produced native binary with `alpha beta`, proving `arg_count()`,
+`args()`, and `arg(0)` observe non-empty process arguments without generated
+Rust. This row tracks ambient process input separately from `std/process.ax`
+command execution because the CLI surface does not require the filesystem,
+network, process, environment, clock, or crypto capability gates. Broader argv
+string storage and host-audit treatment remain open under #1001.
 
 The regex row now has partial direct-native evidence: the Cranelift spike covers
 `std/regex.ax` `is_match`, `find`, and `replace_all` for the stage1-safe NFA
