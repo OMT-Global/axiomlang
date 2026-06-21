@@ -6676,12 +6676,15 @@ fn cranelift_backend_lowers_ffi_strlen_to_runtime_exit_code() {
     assert!(audit.contains("\"library\":\"c\""), "{audit}");
     assert!(audit.contains("\"symbol\":\"strlen\""), "{audit}");
     assert!(audit.contains("\"value\":\"string\""), "{audit}");
-    assert_eq!(audit.matches("\"outcome\":\"ok\"").count(), 7, "{audit}");
+    assert_eq!(audit.matches("\"outcome\":\"ok\"").count(), 10, "{audit}");
     assert!(
         !audit.contains("hello")
             && !audit.contains("direct-native")
+            && !audit.contains("static-ffi")
+            && !audit.contains("known-concat")
             && !audit.contains("helper")
             && !audit.contains("helper-local")
+            && !audit.contains("helper-concat")
             && !audit.contains("build")
             && !audit.contains("deploy"),
         "audit log should not contain FFI string argument values: {audit}"
@@ -13608,6 +13611,9 @@ source = "path"
         project.join("src/main.ax"),
         r#"extern fn strlen(value: string): int from "c"
 
+static STATIC_TEXT: string = "static-ffi"
+static CONCAT_PREFIX: string = "known-"
+
 fn literal_probe(): int {
 return strlen("helper")
 }
@@ -13615,6 +13621,11 @@ return strlen("helper")
 fn local_probe(): int {
 let text: string = "helper-local"
 return strlen(text)
+}
+
+fn concat_probe(): int {
+let suffix: string = "concat"
+return strlen("helper-" + suffix)
 }
 
 fn selected_probe(): int {
@@ -13629,14 +13640,18 @@ let literal_len: int = strlen("hello")
 let empty_len: int = strlen("")
 let text: string = "direct-native"
 let local_len: int = strlen(text)
+let static_len: int = strlen(STATIC_TEXT)
+let concat_suffix: string = "concat"
+let concat_len: int = strlen(CONCAT_PREFIX + concat_suffix)
 let scores: {string: int} = {"build": 7, "deploy": 9}
 let names: [string] = keys<string, int>(scores)
 let selected_index: int = 1
 let selected_len: int = strlen(names[selected_index])
 let helper_literal_len: int = literal_probe()
 let helper_local_len: int = local_probe()
+let helper_concat_len: int = concat_probe()
 let helper_selected_len: int = selected_probe()
-if literal_len == 5 && empty_len == 0 && local_len == 13 && selected_len == 6 && helper_literal_len == 6 && helper_local_len == 12 && helper_selected_len == 5 {
+if literal_len == 5 && empty_len == 0 && local_len == 13 && static_len == 10 && concat_len == 12 && selected_len == 6 && helper_literal_len == 6 && helper_local_len == 12 && helper_concat_len == 13 && helper_selected_len == 5 {
 return 48
 } else {
 return 1
