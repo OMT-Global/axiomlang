@@ -4960,6 +4960,43 @@ process = ["/bin/true"]
     }
 
     #[test]
+    fn check_project_rejects_shadowed_const_process_command_with_manifest_allowlist() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("process-shadowed-const-denied");
+        create_project(&project, Some("process-shadowed-const-denied-app"))
+            .expect("create project");
+        fs::write(
+            project.join("axiom.toml"),
+            r#"[package]
+name = "process-shadowed-const-denied-app"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+process = ["/bin/true"]
+"#,
+        )
+        .expect("write manifest");
+        fs::write(
+            project.join("src/main.ax"),
+            "const command: string = \"/bin/true\"\nlet command: string = \"/bin/false\"\nprint process_status(command)\n",
+        )
+        .expect("write source");
+
+        let error =
+            check_project(&project).expect_err("shadowed const process command should fail");
+        assert_eq!(error.kind, "capability");
+        assert!(
+            error
+                .message
+                .contains("requires a string literal listed in [capabilities].process")
+        );
+    }
+
+    #[test]
     fn check_project_rejects_dynamic_process_command_with_unrestricted_process() {
         let dir = tempdir().expect("tempdir");
         let project = dir.path().join("process-dynamic-unrestricted-denied");
