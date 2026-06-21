@@ -14,12 +14,14 @@ Python `stage0` and its bytecode VM are not supported execution paths; see
 
 ## Current Status
 
-Axiom currently supports a Rust-only `axiomc` workflow with:
+Axiom currently supports a Rust-hosted `axiomc` workflow with:
 
 - `axiom.toml` and `axiom.lock` package manifests.
 - Package-local modules, local path dependencies, and workspace member
   selection.
-- Native builds through generated Rust and `rustc`.
+- Native builds through the Cranelift direct-native backend by default.
+- Generated-Rust and `rustc` compatibility for targeted builds and transition
+  fallback paths.
 - `check`, `build`, `run`, `test`, and capability inspection commands.
 - A stage1 conformance corpus under `stage1/conformance`.
 - Synthetic standard library modules under the `std/` import prefix.
@@ -138,10 +140,9 @@ expectations.
 
 ## Repo Map
 
-- `stage1/crates/axiomc/`: Rust compiler, CLI, manifest, diagnostics, HIR/MIR,
-  stdlib, and the current generated-Rust backend; native backend expansion
-  beyond generated Rust remains future work, and this backend plumbing is only preparatory
-  groundwork (part of #105).
+- `stage1/crates/axiomc/`: Rust compiler host, CLI, manifest, diagnostics,
+  HIR/MIR, stdlib, Cranelift direct-native backend, and generated-Rust
+  compatibility backend.
 - `stage1/examples/`: checked-in package examples for language, package,
   workspace, stdlib, and capability behavior.
 - `stage1/conformance/`: Rust-run pass/fail conformance fixtures.
