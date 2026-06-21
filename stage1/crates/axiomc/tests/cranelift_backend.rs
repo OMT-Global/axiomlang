@@ -5311,7 +5311,7 @@ fn cranelift_backend_lowers_bool_print_runtime_stdout_in_direct_native_main() {
         .output()
         .expect("run cranelift bool print stdio main binary");
     assert_eq!(run.status.code(), Some(13));
-    assert_eq!(String::from_utf8_lossy(&run.stdout), "true\ntrue\n");
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "true\ntrue\nfalse\n");
     assert_eq!(String::from_utf8_lossy(&run.stderr), "hello stderr\n");
 }
 
@@ -11497,6 +11497,7 @@ fn main(): int {
 let direct: int = eprintln("hello stderr")
 print direct > 0
 print direct == 13
+print direct == 0
 return direct
 }
 "#,

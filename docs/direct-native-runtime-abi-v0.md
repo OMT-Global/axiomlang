@@ -173,6 +173,8 @@ bindings for bool locals, helper returns, and boolean conditions. The backend
 crate has narrow object-link evidence for composed `&&`/`||` comparison conditions,
 condition-to-i64 value lowering for helper-call arguments, and bool local
 assignment through a branch inside a loop after a scoped runtime bool `let`.
+The public bool stdout smoke also asserts `generated_rust: null` while printing
+both true and false boolean expressions from a direct-native main function.
 Both rows remain partial because that runtime path does not yet cover the full
 supported scalar, function-call, control-flow, or boolean surface.
 
