@@ -5022,9 +5022,11 @@ fn flatten_modules(
             )?);
         }
         if module.is_entry {
+            let mut bound_names = HashSet::new();
             for stmt in &module.program.stmts {
                 flattened_stmts.push(rewrite_stmt(
                     stmt,
+                    &mut bound_names,
                     &visible_functions,
                     &visible_consts,
                     &visible_structs,
@@ -5797,7 +5799,11 @@ fn rewrite_function(
     module_path: &Path,
 ) -> Result<syntax::Function, Diagnostic> {
     let mut rewritten = function.clone();
-    let mut bound_names: HashSet<String> = function.params.iter().map(|param| param.name.clone()).collect();
+    let mut bound_names: HashSet<String> = function
+        .params
+        .iter()
+        .map(|param| param.name.clone())
+        .collect();
     let symbol_key = function_symbol_key(function);
     rewritten.name = module_symbols
         .functions
@@ -5926,7 +5932,7 @@ fn rewrite_stmt(
             };
             bound_names.insert(name.clone());
             rewritten
-        },
+        }
         syntax::Stmt::Print { expr, line, column } => syntax::Stmt::Print {
             expr: rewrite_expr(
                 expr,
@@ -6074,7 +6080,7 @@ fn rewrite_stmt(
                 line: *line,
                 column: *column,
             }
-        },
+        }
         syntax::Stmt::IfLet {
             variant,
             bindings,
@@ -6148,7 +6154,7 @@ fn rewrite_stmt(
                 line: *line,
                 column: *column,
             }
-        },
+        }
         syntax::Stmt::While {
             cond,
             body,
@@ -6190,7 +6196,7 @@ fn rewrite_stmt(
                 line: *line,
                 column: *column,
             }
-        },
+        }
         syntax::Stmt::Match {
             expr,
             arms,
@@ -6259,7 +6265,7 @@ fn rewrite_stmt(
                 line: *line,
                 column: *column,
             }
-        },
+        }
         syntax::Stmt::Return { expr, line, column } => syntax::Stmt::Return {
             expr: rewrite_expr(
                 expr,
@@ -7485,7 +7491,7 @@ fn resolve_const_expr(
         }),
         _ => rewrite_expr(
             expr,
-            bound_names,
+            &HashSet::new(),
             visible_functions,
             visible_consts,
             visible_structs,

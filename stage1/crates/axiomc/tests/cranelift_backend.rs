@@ -3171,6 +3171,41 @@ fn cranelift_backend_rejects_unapproved_process_status_command() {
 
 #[cfg(not(windows))]
 #[test]
+fn cranelift_backend_rejects_shadowed_process_status_const_allowlist() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("process-status-shadowed-const");
+    write_process_status_shadowed_const_project(&project);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args([
+            "build",
+            project.to_str().expect("project path"),
+            "--backend",
+            "cranelift",
+            "--json",
+        ])
+        .output()
+        .expect("run axiomc build --backend cranelift");
+
+    assert!(
+        !output.status.success(),
+        "cranelift process-status shadowed const build unexpectedly succeeded: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let diagnostic = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        diagnostic.contains("requires a string literal listed in [capabilities].process"),
+        "unexpected diagnostic: {diagnostic}"
+    );
+}
+
+#[cfg(not(windows))]
+#[test]
 fn cranelift_backend_lowers_fs_read_to_runtime_exit_code() {
     if which::which("cc").is_err() {
         eprintln!("skipping cranelift backend smoke test because cc is unavailable");
@@ -9601,6 +9636,52 @@ print run_status("/bin/sh")
 "#,
     )
     .expect("write process-status source");
+}
+
+fn write_process_status_shadowed_const_project(project: &Path) {
+    fs::create_dir_all(project.join("src")).expect("create process-status shadowed project src");
+    fs::write(
+        project.join("axiom.toml"),
+        r#"[package]
+name = "cranelift-process-status-shadowed-const"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+fs = false
+net = false
+process = ["/usr/bin/true"]
+env = false
+clock = false
+crypto = false
+"#,
+    )
+    .expect("write process-status shadowed manifest");
+    fs::write(
+        project.join("axiom.lock"),
+        r#"version = 1
+
+[[package]]
+name = "cranelift-process-status-shadowed-const"
+version = "0.1.0"
+source = "path"
+"#,
+    )
+    .expect("write process-status shadowed lockfile");
+    fs::write(
+        project.join("src/main.ax"),
+        r#"import "std/process.ax"
+
+static COMMAND: string = "/usr/bin/true"
+
+let COMMAND: string = "/bin/sh"
+print run_status(COMMAND)
+"#,
+    )
+    .expect("write process-status shadowed source");
 }
 
 fn write_owned_move_state_project(project: &Path) {
