@@ -14,6 +14,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 const I64_REALPATH_BUFFER_BYTES: u32 = 4096;
+pub const I64_STDIN_BUFFER_BYTES: u32 = 4096;
 const I64_TIMESPEC_BYTES: u32 = 16;
 const I64_TIMESPEC_SECONDS_OFFSET: i32 = 0;
 const I64_TIMESPEC_NANOS_OFFSET: i32 = 8;
