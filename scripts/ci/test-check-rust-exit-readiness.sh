@@ -83,7 +83,14 @@ with open(path, "w", encoding="utf-8") as handle:
 PY
 
 cat >"$temp_dir/open-issues.txt" <<'ISSUES'
-731 OPEN
+927 OPEN
+929 OPEN
+1191 OPEN
+930 OPEN
+931 OPEN
+562 OPEN
+563 OPEN
+564 OPEN
 721 OPEN
 ISSUES
 
@@ -114,7 +121,14 @@ PY
 )
 
 cat >"$temp_dir/issues.txt" <<'ISSUES'
-731 CLOSED
+927 CLOSED
+929 CLOSED
+1191 CLOSED
+930 CLOSED
+931 CLOSED
+562 CLOSED
+563 CLOSED
+564 CLOSED
 721 CLOSED
 ISSUES
 
@@ -135,7 +149,8 @@ assert payload["ready"] is True
 statuses = {check["name"]: check["status"] for check in payload["checks"]}
 assert statuses["readiness_blockers_closed"] == "pass"
 assert statuses["readiness_blockers_live_when_not_ready"] == "pass"
-assert statuses["rust_exit_issue_731_closed"] == "pass"
+assert statuses["rust_exit_issue_927_closed"] == "pass"
+assert statuses["rust_exit_issue_1191_closed"] == "pass"
 assert statuses["rust_exit_issue_721_closed"] == "pass"
 assert statuses["direct_native_runtime_abi_ready"] == "pass"
 assert statuses["command_lsp_release_boundary"] == "pass"
@@ -155,7 +170,7 @@ with open(path, encoding="utf-8") as handle:
 
 contract["status"] = "partial"
 contract["value_features"][0]["status"] = "partial"
-contract["value_features"][0]["blockers"] = [731]
+contract["value_features"][0]["blockers"] = [1191]
 
 with open(path, "w", encoding="utf-8") as handle:
     json.dump(contract, handle)

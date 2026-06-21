@@ -41,8 +41,8 @@ review gates to be satisfied.
 | Direct native parity matrix | Every supported stage1 surface has a direct-native status row and linked blocker when incomplete. | Implemented as the checked runtime ABI matrix; no runtime ABI rows remain incomplete. | [#927](https://github.com/OMT-Global/axiom/issues/927) |
 | Direct native runtime ABI | Supported values, ownership shapes, stdlib calls, and capability host calls lower through backend-neutral direct-native runtime entrypoints. | Implemented and checked by `scripts/ci/check-direct-native-runtime-abi.py`; default-backend, LSP, and final Rust-removal gates remain separate blockers. | [#1124](https://github.com/OMT-Global/axiom/issues/1124) |
 | Direct native diagnostics and evidence | Direct native builds preserve source diagnostics, provenance, debug manifests, and operator evidence without generated Rust. | Implemented for the Cranelift direct-native spike; broader coverage remains gated by runtime ABI and default-backend blockers. | [#929](https://github.com/OMT-Global/axiom/issues/929) |
-| Default backend | `axiomc build` defaults to direct native output and no longer invokes `rustc` for supported broad builds. | `blocked` | [#693](https://github.com/OMT-Global/axiom/issues/693) |
-| Generated-Rust removal | The generated-Rust backend and `--backend rust` compatibility path are removed after a release with direct native as default. | `blocked` | [#694](https://github.com/OMT-Global/axiom/issues/694) |
+| Default backend | `axiomc build` defaults to direct native output and no longer invokes `rustc` for supported broad builds. | Host/native builds default to the direct-native Cranelift backend; targeted builds still keep generated Rust for compatibility until #1191 is complete. | [#1191](https://github.com/OMT-Global/axiom/issues/1191) |
+| Generated-Rust removal | The generated-Rust backend and `--backend rust` compatibility path are removed after a release with direct native as default. | Generated Rust remains present as the targeted-build compatibility backend and must leave the supported toolchain before Rust exit completes. | [#1191](https://github.com/OMT-Global/axiom/issues/1191) |
 
 ## Bootstrap Matrix
 
@@ -64,8 +64,9 @@ review gates to be satisfied.
   Cranelift spike evaluation alone is not sufficient.
 - #721 may close only after the backend matrix and bootstrap matrix have no
   incomplete rows.
-- Generated Rust may remain as a compatibility backend while #693 is being
-  proven, but #694 may not close until it is removed from the supported toolchain.
+- Generated Rust may remain as a targeted-build compatibility backend while
+  #1191 is open, but Rust exit may not complete until it is removed from the
+  supported toolchain.
 - Cargo may remain as a developer convenience while #931 is being proven, but it
   may not be required by the official release-chain path.
 - Any new blocked row must name a GitHub issue in
