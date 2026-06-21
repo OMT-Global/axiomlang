@@ -5183,13 +5183,13 @@ fn cranelift_backend_lowers_std_collection_wrappers_to_runtime_exit_code() {
     }
 
     let temp = tempfile::tempdir().expect("tempdir");
-    let project = temp.path().join("std-collection-wrapper-main-exit");
-    write_std_collection_wrapper_main_exit_project(&project);
+    let string_project = temp.path().join("std-collection-wrapper-main-exit");
+    write_std_collection_wrapper_main_exit_project(&string_project);
 
-    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+    let string_output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
         .args([
             "build",
-            project.to_str().expect("project path"),
+            string_project.to_str().expect("project path"),
             "--backend",
             "cranelift",
             "--json",
@@ -5197,22 +5197,52 @@ fn cranelift_backend_lowers_std_collection_wrappers_to_runtime_exit_code() {
         .output()
         .expect("run axiomc build --backend cranelift");
     assert!(
-        output.status.success(),
+        string_output.status.success(),
         "cranelift std collection wrapper main build failed: stdout={} stderr={}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
+        String::from_utf8_lossy(&string_output.stdout),
+        String::from_utf8_lossy(&string_output.stderr)
     );
 
-    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
-    assert_eq!(payload["backend"], "cranelift");
-    assert_eq!(payload["generated_rust"], Value::Null);
-    let binary = payload["binary"].as_str().expect("binary path");
-    let run = Command::new(binary)
+    let string_payload: Value = serde_json::from_slice(&string_output.stdout).expect("parse build JSON");
+    assert_eq!(string_payload["backend"], "cranelift");
+    assert_eq!(string_payload["generated_rust"], Value::Null);
+    let string_binary = string_payload["binary"].as_str().expect("binary path");
+    let string_run = Command::new(string_binary)
         .env("AXIOM_CRANELIFT_DYNAMIC_KEY_INDEX", "deploy")
         .output()
         .expect("run cranelift std collection wrapper main binary");
-    assert_eq!(run.status.code(), Some(48));
-    assert_eq!(String::from_utf8_lossy(&run.stdout), "");
+    assert_eq!(string_run.status.code(), Some(48));
+    assert_eq!(String::from_utf8_lossy(&string_run.stdout), "");
+
+    let bool_project = temp.path().join("bool-std-collection-wrapper-main-exit");
+    write_bool_collection_wrapper_main_exit_project(&bool_project);
+
+    let bool_output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args([
+            "build",
+            bool_project.to_str().expect("project path"),
+            "--backend",
+            "cranelift",
+            "--json",
+        ])
+        .output()
+        .expect("run axiomc build --backend cranelift");
+    assert!(
+        bool_output.status.success(),
+        "cranelift bool std collection wrapper main build failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&bool_output.stdout),
+        String::from_utf8_lossy(&bool_output.stderr)
+    );
+
+    let bool_payload: Value = serde_json::from_slice(&bool_output.stdout).expect("parse build JSON");
+    assert_eq!(bool_payload["backend"], "cranelift");
+    assert_eq!(bool_payload["generated_rust"], Value::Null);
+    let bool_binary = bool_payload["binary"].as_str().expect("binary path");
+    let bool_run = Command::new(bool_binary)
+        .output()
+        .expect("run cranelift bool std collection wrapper main binary");
+    assert_eq!(bool_run.status.code(), Some(48));
+    assert_eq!(String::from_utf8_lossy(&bool_run.stdout), "");
 }
 
 #[cfg(not(windows))]
@@ -12597,6 +12627,62 @@ return 1
 "#,
     )
     .expect("write std collection wrapper main source");
+}
+
+
+fn write_bool_collection_wrapper_main_exit_project(project: &Path) {
+    fs::create_dir_all(project.join("src"))
+        .expect("create bool std collection wrapper main project src");
+    fs::write(
+        project.join("axiom.toml"),
+        "[package]\nname = \"cranelift-bool-std-collection-wrapper-main-exit\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n",
+    )
+    .expect("write bool std collection wrapper main manifest");
+    fs::write(
+        project.join("axiom.lock"),
+        "version = 1\n\n[[package]]\nname = \"cranelift-bool-std-collection-wrapper-main-exit\"\nversion = \"0.1.0\"\nsource = \"path\"\n",
+    )
+    .expect("write bool std collection wrapper main lockfile");
+    fs::write(
+        project.join("src/main.ax"),
+        r#"import "std/collections.ax"
+
+fn choose_bool_index(found: bool): int {
+if found {
+return 1
+} else {
+return 0
+}
+}
+
+fn main(): int {
+let contains_scores: {bool: int} = {false: 7, true: 29}
+let contains_hit: bool = contains<bool, int>(contains_scores, true)
+let contains_miss_scores: {bool: int} = {true: 29}
+let contains_miss: bool = contains<bool, int>(contains_miss_scores, false) == false
+let get_hit_scores: {bool: int} = {false: 7, true: 29}
+let get_hit_code: int = match get<bool, int>(get_hit_scores, true) { Some(value) => value, None => 1 }
+let get_miss_scores: {bool: int} = {true: 29}
+let get_miss_code: int = match get<bool, int>(get_miss_scores, false) { Some(value) => value, None => 13 }
+let fallback_scores: {bool: int} = {true: 29}
+let fallback: int = get_or_default<bool, int>(fallback_scores, false, 13)
+let bool_value_scores: {bool: bool} = {false: false, true: true}
+let bool_value_hit: bool = match get<bool, bool>(bool_value_scores, true) { Some(value) => value, None => false }
+let bool_key_scores: {bool: int} = {false: 7, true: 29}
+let bool_key_names: [bool] = keys<bool, int>(bool_key_scores)
+let bool_key_count: int = len(bool_key_names)
+let first_bool_key_missing: bool = bool_key_names[0] == false
+let selected_bool_key_index: int = choose_bool_index(contains_hit)
+let selected_bool_key: bool = bool_key_names[selected_bool_key_index]
+if contains_hit && contains_miss && get_hit_code == 29 && get_miss_code == 13 && fallback == 13 && bool_value_hit && bool_key_count == 2 && first_bool_key_missing && selected_bool_key {
+return 48
+} else {
+return 1
+}
+}
+"#,
+    )
+    .expect("write bool std collection wrapper main source");
 }
 
 fn write_net_resolve_project(project: &Path) {
