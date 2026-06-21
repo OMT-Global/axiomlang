@@ -975,6 +975,48 @@ fn cranelift_backend_lowers_enum_branch_reassignment_to_runtime_exit_code() {
 
 #[cfg(not(windows))]
 #[test]
+fn cranelift_backend_lowers_enum_nested_branch_reassignment_to_runtime_exit_code() {
+    if which::which("cc").is_err() {
+        eprintln!("skipping cranelift backend smoke test because cc is unavailable");
+        return;
+    }
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp
+        .path()
+        .join("enum-nested-branch-reassignment-main-exit");
+    write_enum_nested_branch_reassignment_main_exit_project(&project);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args([
+            "build",
+            project.to_str().expect("project path"),
+            "--backend",
+            "cranelift",
+            "--json",
+        ])
+        .output()
+        .expect("run axiomc build --backend cranelift");
+    assert!(
+        output.status.success(),
+        "cranelift enum nested branch reassignment main build failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+    assert_eq!(payload["backend"], "cranelift");
+    assert_eq!(payload["generated_rust"], Value::Null);
+    let binary = payload["binary"].as_str().expect("binary path");
+    let run = Command::new(binary)
+        .output()
+        .expect("run cranelift enum nested branch reassignment main binary");
+    assert_eq!(run.status.code(), Some(48));
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "");
+}
+
+#[cfg(not(windows))]
+#[test]
 fn cranelift_backend_lowers_result_match_to_runtime_exit_code() {
     if which::which("cc").is_err() {
         eprintln!("skipping cranelift backend smoke test because cc is unavailable");
@@ -12396,6 +12438,71 @@ return fallback_code
 "#,
     )
     .expect("write enum branch reassignment main exit source");
+}
+
+fn write_enum_nested_branch_reassignment_main_exit_project(project: &Path) {
+    fs::create_dir_all(project.join("src"))
+        .expect("create enum nested branch reassignment main exit project src");
+    fs::write(
+        project.join("axiom.toml"),
+        "[package]\nname = \"cranelift-enum-nested-branch-reassignment-main-exit\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n",
+    )
+    .expect("write enum nested branch reassignment main exit manifest");
+    fs::write(
+        project.join("axiom.lock"),
+        "version = 1\n\n[[package]]\nname = \"cranelift-enum-nested-branch-reassignment-main-exit\"\nversion = \"0.1.0\"\nsource = \"path\"\n",
+    )
+    .expect("write enum nested branch reassignment main exit lockfile");
+    fs::write(
+        project.join("src/main.ax"),
+        r#"enum Choice {
+Wrapped(Option<Result<int, int>>)
+Done(Result<Option<int>, int>)
+Off
+}
+
+fn choose_wrapped(flag: bool): Choice {
+if flag {
+return Wrapped(Some(Ok(48)))
+} else {
+return Wrapped(Some(Err(49)))
+}
+}
+
+fn choose_done(flag: bool): Choice {
+if flag {
+return Done(Ok(Some(48)))
+} else {
+return Done(Ok(None))
+}
+}
+
+fn score(choice: Choice): int {
+return match choice { Wrapped(nested) => match nested { Some(inner) => match inner { Ok(payload) => payload, Err(error) => error }, None => 1 }, Done(nested) => match nested { Ok(inner) => match inner { Some(payload) => payload, None => 49 }, Err(error) => error }, Off => 1 }
+}
+
+fn main(): int {
+let selected: Choice = Off
+let fallback: Choice = Off
+let gate: bool = true
+if gate {
+selected = choose_wrapped(true)
+fallback = choose_done(false)
+} else {
+selected = Off
+fallback = choose_wrapped(false)
+}
+let selected_code: int = score(selected)
+let fallback_code: int = score(fallback)
+if selected_code == 48 && fallback_code == 49 {
+return selected_code
+} else {
+return fallback_code
+}
+}
+"#,
+    )
+    .expect("write enum nested branch reassignment main exit source");
 }
 
 fn write_struct_field_project(project: &Path) {
