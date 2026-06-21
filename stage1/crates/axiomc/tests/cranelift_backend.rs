@@ -6512,7 +6512,7 @@ fn cranelift_backend_lowers_json_scalar_stringify_print_to_native_stdout() {
     assert_eq!(run.status.code(), Some(42));
     assert_eq!(
         String::from_utf8_lossy(&run.stdout),
-        "42\n\"42\"\ntrue\nfalse\n\"false\"\n"
+        "42\n\"42\"\ntrue\nfalse\n\"false\"\n200\ntrue\n"
     );
     assert_eq!(String::from_utf8_lossy(&run.stderr), "");
 }
@@ -14069,6 +14069,12 @@ print stringify_bool(value == 42)
 let disabled: string = stringify_bool(false)
 print disabled
 print stringify_string(disabled)
+let reassigned: string = stringify_int(1)
+reassigned = stringify_int(200)
+print reassigned
+let reassigned_bool: string = stringify_bool(false)
+reassigned_bool = stringify_bool(value == 42)
+print reassigned_bool
 return value
 }
 "#,

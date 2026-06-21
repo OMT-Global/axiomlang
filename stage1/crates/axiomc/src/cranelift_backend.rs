@@ -6532,6 +6532,33 @@ fn lower_i64_string_assign_stmts(
             },
         ));
     }
+    let printable_i64_key = i64_printable_i64_string_key(name);
+    let printable_bool_key = i64_printable_bool_string_key(name);
+    let printable_i64_local = local_indexes.get(printable_i64_key.as_str()).copied();
+    let printable_bool_local = local_indexes.get(printable_bool_key.as_str()).copied();
+    if printable_i64_local.is_some() || printable_bool_local.is_some() {
+        let (key, value, _) = lower_i64_printable_string_alias_parts(
+            name,
+            expr,
+            local_indexes,
+            local_conditions,
+            helper_signatures,
+            static_bindings,
+        )?;
+        match (key.as_str(), printable_i64_local, printable_bool_local) {
+            (key, Some(local), None) if key == printable_i64_key.as_str() => {
+                assigns.push(CraneliftI64Stmt::Assign(
+                    axiomc_backend_cranelift::I64Assign { local, value },
+                ));
+            }
+            (key, None, Some(local)) if key == printable_bool_key.as_str() => {
+                assigns.push(CraneliftI64Stmt::Assign(
+                    axiomc_backend_cranelift::I64Assign { local, value },
+                ));
+            }
+            _ => return None,
+        }
+    }
     Some(assigns)
 }
 
