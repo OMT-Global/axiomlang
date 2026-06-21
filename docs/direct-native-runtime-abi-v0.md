@@ -794,18 +794,12 @@ lowering, and
 `len(keys(...))`/`len(map_keys(...))` can count static map keys without
 materializing a runtime key array. Static scalar integer and boolean keys can
 also feed inline and pre-runtime map lookup, contains, and get-or-default
-lowering. Static scalar tuple keys can also feed inline-map-literal
-`get_or_default(...)`, `map_contains_key(...)`, `get(...)`, direct indexing,
-duplicate-key replacement, and statically initialized component lookups without
-generated Rust. Imported public `std/collections.ax` `contains`, `get`, and
+lowering. Imported public `std/collections.ax` `contains`, `get`, and
 `get_or_default` map wrappers now alias the same direct-native i64 lowering for
-static string-, int-, bool-, and tuple-keyed map-local cases, and `keys` wrapper
+static string-, int-, and bool-keyed map-local cases, and `keys` wrapper
 calls cover static string-, int-, and bool-keyed map-local key-array counts plus
 literal and dynamic key projections for supported scalar/bool keys. The focused
 evidence manifest now links the wrapper runtime-exit smoke to this row. Imported
-public `std/collections.ax` `keys` wrappers over static tuple-keyed maps can
-also feed literal and dynamic scalar/bool component projections from
-`keys(...)[index].field` without materializing a general tuple key-array value.
 Literal indexes into static string key arrays can also feed
 known string length lowering, and non-literal scalar indexes into those static
 string key arrays can select among known key byte lengths. Dynamic key-array value
@@ -831,14 +825,13 @@ projection smoke to this row, covering finite map-key selection through public
 `std/log.ax` length projection without generated Rust.
 The focused evidence manifest now also links the float-key rejection smoke to
 this row, covering the unsupported map-key boundary alongside supported
-scalar/string/tuple key lowering.
+scalar/string/bool key lowering.
 Broader map ownership, runtime map storage, general payload lookup bindings
 beyond the evidenced scalar/bool/known-string pure helper direct-match and
 helper-local binding paths, map helper parameters outside compile-time-known
 local and inline map facts, map key/value shapes beyond the evidenced
-string/int/bool/tuple key and scalar/bool/known-string value slice, runtime key
-array value projection beyond static known-key arrays, full tuple key-array
-value materialization, and host-boundary
+string/int/bool key and scalar/bool/known-string value slice, runtime key
+array value projection beyond static known-key arrays, and host-boundary
 representation remain tracked by issue #1124.
 
 The `env.read` row now has partial Cranelift evidence for `std/env.ax`

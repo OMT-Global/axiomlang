@@ -5203,7 +5203,8 @@ fn cranelift_backend_lowers_std_collection_wrappers_to_runtime_exit_code() {
         String::from_utf8_lossy(&string_output.stderr)
     );
 
-    let string_payload: Value = serde_json::from_slice(&string_output.stdout).expect("parse build JSON");
+    let string_payload: Value =
+        serde_json::from_slice(&string_output.stdout).expect("parse build JSON");
     assert_eq!(string_payload["backend"], "cranelift");
     assert_eq!(string_payload["generated_rust"], Value::Null);
     let string_binary = string_payload["binary"].as_str().expect("binary path");
@@ -5234,7 +5235,8 @@ fn cranelift_backend_lowers_std_collection_wrappers_to_runtime_exit_code() {
         String::from_utf8_lossy(&bool_output.stderr)
     );
 
-    let bool_payload: Value = serde_json::from_slice(&bool_output.stdout).expect("parse build JSON");
+    let bool_payload: Value =
+        serde_json::from_slice(&bool_output.stdout).expect("parse build JSON");
     assert_eq!(bool_payload["backend"], "cranelift");
     assert_eq!(bool_payload["generated_rust"], Value::Null);
     let bool_binary = bool_payload["binary"].as_str().expect("binary path");
@@ -12628,7 +12630,6 @@ return 1
     )
     .expect("write std collection wrapper main source");
 }
-
 
 fn write_bool_collection_wrapper_main_exit_project(project: &Path) {
     fs::create_dir_all(project.join("src"))
