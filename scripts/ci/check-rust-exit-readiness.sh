@@ -217,7 +217,7 @@ if payload.get("finalBootstrapIssue") != 721:
     print("finalBootstrapIssue must be 721", file=sys.stderr)
     sys.exit(1)
 issues = [entry.get("issue") for entry in payload.get("blockingIssues", [])]
-required = {562, 563, 564, 693, 694, 927, 929, 930, 931, 1001}
+required = {562, 563, 564, 927, 929, 930, 931, 1001, 1191}
 missing = sorted(required - set(issues))
 if missing:
     print("missing required blocking issues: " + ", ".join(f"#{issue}" for issue in missing), file=sys.stderr)
