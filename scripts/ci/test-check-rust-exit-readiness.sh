@@ -91,7 +91,6 @@ cat >"$temp_dir/open-issues.txt" <<'ISSUES'
 562 OPEN
 563 OPEN
 564 OPEN
-721 OPEN
 ISSUES
 
 (
@@ -129,7 +128,6 @@ cat >"$temp_dir/issues.txt" <<'ISSUES'
 562 CLOSED
 563 CLOSED
 564 CLOSED
-721 CLOSED
 ISSUES
 
 (
@@ -151,12 +149,48 @@ assert statuses["readiness_blockers_closed"] == "pass"
 assert statuses["readiness_blockers_live_when_not_ready"] == "pass"
 assert statuses["rust_exit_issue_927_closed"] == "pass"
 assert statuses["rust_exit_issue_1191_closed"] == "pass"
-assert statuses["rust_exit_issue_721_closed"] == "pass"
 assert statuses["direct_native_runtime_abi_ready"] == "pass"
 assert statuses["command_lsp_release_boundary"] == "pass"
 assert statuses["mir_backend_direct_native_boundary"] == "pass"
 PY
 )
+
+cp "$repo_root/docs/rust-exit-readiness.json" "$case_dir/docs/rust-exit-readiness.json"
+
+python3 - "$case_dir/docs/rust-exit-readiness.json" <<'PY'
+import json
+import sys
+
+path = sys.argv[1]
+with open(path, encoding="utf-8") as handle:
+    payload = json.load(handle)
+
+payload["blockingIssues"].append(
+    {
+        "issue": payload["finalBootstrapIssue"],
+        "lane": "bootstrap",
+        "check": "Rust bootstrap is no longer needed for the supported toolchain.",
+    }
+)
+
+with open(path, "w", encoding="utf-8") as handle:
+    json.dump(payload, handle)
+PY
+
+(
+  cd "$case_dir"
+  if bash scripts/ci/check-rust-exit-readiness.sh --json --issue-state-file "$temp_dir/issues.txt" >"$temp_dir/final-self-blocker.json" 2>"$temp_dir/final-self-blocker.err"; then
+    echo "expected readiness check to fail when finalBootstrapIssue is also listed as a blocker" >&2
+    exit 1
+  fi
+  if ! rg -q "finalBootstrapIssue must not also be listed as a blocker" "$temp_dir/final-self-blocker.err"; then
+    echo "expected finalBootstrapIssue self-blocker validation error" >&2
+    cat "$temp_dir/final-self-blocker.err" >&2
+    exit 1
+  fi
+)
+
+cp "$repo_root/docs/rust-exit-readiness.json" "$case_dir/docs/rust-exit-readiness.json"
 
 cp "$repo_root/stage1/runtime-abi/direct-native-v0.json" "$case_dir/stage1/runtime-abi/direct-native-v0.json"
 

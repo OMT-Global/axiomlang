@@ -41,11 +41,6 @@
       "issue": 564,
       "lane": "tooling",
       "check": "LSP server and protocol path are AxiOM-owned."
-    },
-    {
-      "issue": 721,
-      "lane": "bootstrap",
-      "check": "Rust bootstrap is no longer needed for the supported toolchain."
     }
   ]
 }

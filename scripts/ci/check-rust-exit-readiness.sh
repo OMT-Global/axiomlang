@@ -253,11 +253,11 @@ for index, entry in enumerate(blocking_entries):
         sys.exit(1)
     issues.append(issue)
 
-if payload["finalBootstrapIssue"] not in issues:
-    print("finalBootstrapIssue must also be listed as a blocker", file=sys.stderr)
+if payload["finalBootstrapIssue"] in issues:
+    print("finalBootstrapIssue must not also be listed as a blocker", file=sys.stderr)
     sys.exit(1)
 
-required = {562, 563, 564, 721, 927, 929, 930, 931, 1191}
+required = {562, 563, 564, 927, 929, 930, 931, 1191}
 missing = sorted(required - set(issues))
 if missing:
     print("missing required blocking issues: " + ", ".join(f"#{issue}" for issue in missing), file=sys.stderr)
