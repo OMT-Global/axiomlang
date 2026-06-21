@@ -5797,6 +5797,7 @@ fn rewrite_function(
     module_path: &Path,
 ) -> Result<syntax::Function, Diagnostic> {
     let mut rewritten = function.clone();
+    let mut bound_names: HashSet<String> = function.params.iter().map(|param| param.name.clone()).collect();
     let symbol_key = function_symbol_key(function);
     rewritten.name = module_symbols
         .functions
@@ -5809,6 +5810,7 @@ fn rewrite_function(
         .map(|stmt| {
             rewrite_stmt(
                 stmt,
+                &mut bound_names,
                 visible_functions,
                 visible_consts,
                 visible_structs,
@@ -5878,6 +5880,7 @@ fn rewrite_function(
 
 fn rewrite_stmt(
     stmt: &syntax::Stmt,
+    bound_names: &mut HashSet<String>,
     visible_functions: &HashMap<String, String>,
     visible_consts: &HashMap<String, syntax::ConstDecl>,
     visible_structs: &HashMap<String, String>,
@@ -5894,34 +5897,40 @@ fn rewrite_stmt(
             expr,
             line,
             column,
-        } => syntax::Stmt::Let {
-            name: name.clone(),
-            ty: rewrite_type_name(
-                ty,
-                visible_consts,
-                visible_types,
-                private_imported_types,
-                module_path,
-                *line,
-                *column,
-            )?,
-            expr: rewrite_expr(
-                expr,
-                visible_functions,
-                visible_consts,
-                visible_structs,
-                visible_types,
-                private_imported,
-                private_imported_consts,
-                private_imported_types,
-                module_path,
-            )?,
-            line: *line,
-            column: *column,
+        } => {
+            let rewritten = syntax::Stmt::Let {
+                name: name.clone(),
+                ty: rewrite_type_name(
+                    ty,
+                    visible_consts,
+                    visible_types,
+                    private_imported_types,
+                    module_path,
+                    *line,
+                    *column,
+                )?,
+                expr: rewrite_expr(
+                    expr,
+                    bound_names,
+                    visible_functions,
+                    visible_consts,
+                    visible_structs,
+                    visible_types,
+                    private_imported,
+                    private_imported_consts,
+                    private_imported_types,
+                    module_path,
+                )?,
+                line: *line,
+                column: *column,
+            };
+            bound_names.insert(name.clone());
+            rewritten
         },
         syntax::Stmt::Print { expr, line, column } => syntax::Stmt::Print {
             expr: rewrite_expr(
                 expr,
+                bound_names,
                 visible_functions,
                 visible_consts,
                 visible_structs,
@@ -5942,6 +5951,7 @@ fn rewrite_stmt(
         } => syntax::Stmt::Assign {
             target: rewrite_expr(
                 target,
+                bound_names,
                 visible_functions,
                 visible_consts,
                 visible_structs,
@@ -5953,6 +5963,7 @@ fn rewrite_stmt(
             )?,
             expr: rewrite_expr(
                 expr,
+                bound_names,
                 visible_functions,
                 visible_consts,
                 visible_structs,
@@ -5968,6 +5979,7 @@ fn rewrite_stmt(
         syntax::Stmt::Panic { expr, line, column } => syntax::Stmt::Panic {
             expr: rewrite_expr(
                 expr,
+                bound_names,
                 visible_functions,
                 visible_consts,
                 visible_structs,
@@ -5983,6 +5995,7 @@ fn rewrite_stmt(
         syntax::Stmt::Defer { expr, line, column } => syntax::Stmt::Defer {
             expr: rewrite_expr(
                 expr,
+                bound_names,
                 visible_functions,
                 visible_consts,
                 visible_structs,
@@ -6001,23 +6014,14 @@ fn rewrite_stmt(
             else_block,
             line,
             column,
-        } => syntax::Stmt::If {
-            cond: rewrite_expr(
-                cond,
-                visible_functions,
-                visible_consts,
-                visible_structs,
-                visible_types,
-                private_imported,
-                private_imported_consts,
-                private_imported_types,
-                module_path,
-            )?,
-            then_block: then_block
+        } => {
+            let mut then_names = bound_names.clone();
+            let then_block = then_block
                 .iter()
                 .map(|stmt| {
                     rewrite_stmt(
                         stmt,
+                        &mut then_names,
                         visible_functions,
                         visible_consts,
                         visible_structs,
@@ -6028,15 +6032,17 @@ fn rewrite_stmt(
                         module_path,
                     )
                 })
-                .collect::<Result<Vec<_>, _>>()?,
-            else_block: else_block
+                .collect::<Result<Vec<_>, _>>()?;
+            let else_block = else_block
                 .as_ref()
                 .map(|block| {
+                    let mut else_names = bound_names.clone();
                     block
                         .iter()
                         .map(|stmt| {
                             rewrite_stmt(
                                 stmt,
+                                &mut else_names,
                                 visible_functions,
                                 visible_consts,
                                 visible_structs,
@@ -6049,9 +6055,25 @@ fn rewrite_stmt(
                         })
                         .collect::<Result<Vec<_>, _>>()
                 })
-                .transpose()?,
-            line: *line,
-            column: *column,
+                .transpose()?;
+            syntax::Stmt::If {
+                cond: rewrite_expr(
+                    cond,
+                    bound_names,
+                    visible_functions,
+                    visible_consts,
+                    visible_structs,
+                    visible_types,
+                    private_imported,
+                    private_imported_consts,
+                    private_imported_types,
+                    module_path,
+                )?,
+                then_block,
+                else_block,
+                line: *line,
+                column: *column,
+            }
         },
         syntax::Stmt::IfLet {
             variant,
@@ -6062,26 +6084,15 @@ fn rewrite_stmt(
             else_block,
             line,
             column,
-        } => syntax::Stmt::IfLet {
-            variant: variant.clone(),
-            bindings: bindings.clone(),
-            is_named: *is_named,
-            expr: rewrite_expr(
-                expr,
-                visible_functions,
-                visible_consts,
-                visible_structs,
-                visible_types,
-                private_imported,
-                private_imported_consts,
-                private_imported_types,
-                module_path,
-            )?,
-            then_block: then_block
+        } => {
+            let mut then_names = bound_names.clone();
+            then_names.extend(bindings.iter().cloned());
+            let then_block = then_block
                 .iter()
                 .map(|stmt| {
                     rewrite_stmt(
                         stmt,
+                        &mut then_names,
                         visible_functions,
                         visible_consts,
                         visible_structs,
@@ -6092,15 +6103,17 @@ fn rewrite_stmt(
                         module_path,
                     )
                 })
-                .collect::<Result<Vec<_>, _>>()?,
-            else_block: else_block
+                .collect::<Result<Vec<_>, _>>()?;
+            let else_block = else_block
                 .as_ref()
                 .map(|block| {
+                    let mut else_names = bound_names.clone();
                     block
                         .iter()
                         .map(|stmt| {
                             rewrite_stmt(
                                 stmt,
+                                &mut else_names,
                                 visible_functions,
                                 visible_consts,
                                 visible_structs,
@@ -6113,32 +6126,42 @@ fn rewrite_stmt(
                         })
                         .collect::<Result<Vec<_>, _>>()
                 })
-                .transpose()?,
-            line: *line,
-            column: *column,
+                .transpose()?;
+            syntax::Stmt::IfLet {
+                variant: variant.clone(),
+                bindings: bindings.clone(),
+                is_named: *is_named,
+                expr: rewrite_expr(
+                    expr,
+                    bound_names,
+                    visible_functions,
+                    visible_consts,
+                    visible_structs,
+                    visible_types,
+                    private_imported,
+                    private_imported_consts,
+                    private_imported_types,
+                    module_path,
+                )?,
+                then_block,
+                else_block,
+                line: *line,
+                column: *column,
+            }
         },
         syntax::Stmt::While {
             cond,
             body,
             line,
             column,
-        } => syntax::Stmt::While {
-            cond: rewrite_expr(
-                cond,
-                visible_functions,
-                visible_consts,
-                visible_structs,
-                visible_types,
-                private_imported,
-                private_imported_consts,
-                private_imported_types,
-                module_path,
-            )?,
-            body: body
+        } => {
+            let mut body_names = bound_names.clone();
+            let body = body
                 .iter()
                 .map(|stmt| {
                     rewrite_stmt(
                         stmt,
+                        &mut body_names,
                         visible_functions,
                         visible_consts,
                         visible_structs,
@@ -6149,18 +6172,34 @@ fn rewrite_stmt(
                         module_path,
                     )
                 })
-                .collect::<Result<Vec<_>, _>>()?,
-            line: *line,
-            column: *column,
+                .collect::<Result<Vec<_>, _>>()?;
+            syntax::Stmt::While {
+                cond: rewrite_expr(
+                    cond,
+                    bound_names,
+                    visible_functions,
+                    visible_consts,
+                    visible_structs,
+                    visible_types,
+                    private_imported,
+                    private_imported_consts,
+                    private_imported_types,
+                    module_path,
+                )?,
+                body,
+                line: *line,
+                column: *column,
+            }
         },
         syntax::Stmt::Match {
             expr,
             arms,
             line,
             column,
-        } => syntax::Stmt::Match {
-            expr: rewrite_expr(
+        } => {
+            let expr = rewrite_expr(
                 expr,
+                bound_names,
                 visible_functions,
                 visible_consts,
                 visible_structs,
@@ -6169,8 +6208,8 @@ fn rewrite_stmt(
                 private_imported_consts,
                 private_imported_types,
                 module_path,
-            )?,
-            arms: arms
+            )?;
+            let arms = arms
                 .iter()
                 .map(|arm| {
                     let variant = rewrite_const_match_pattern(
@@ -6185,6 +6224,8 @@ fn rewrite_stmt(
                         module_path,
                     )?
                     .unwrap_or_else(|| arm.variant.clone());
+                    let mut arm_names = bound_names.clone();
+                    arm_names.extend(arm.bindings.iter().cloned());
                     Ok(syntax::MatchArm {
                         variant,
                         bindings: arm.bindings.clone(),
@@ -6195,6 +6236,7 @@ fn rewrite_stmt(
                             .map(|stmt| {
                                 rewrite_stmt(
                                     stmt,
+                                    &mut arm_names,
                                     visible_functions,
                                     visible_consts,
                                     visible_structs,
@@ -6210,13 +6252,18 @@ fn rewrite_stmt(
                         column: arm.column,
                     })
                 })
-                .collect::<Result<Vec<_>, Diagnostic>>()?,
-            line: *line,
-            column: *column,
+                .collect::<Result<Vec<_>, Diagnostic>>()?;
+            syntax::Stmt::Match {
+                expr,
+                arms,
+                line: *line,
+                column: *column,
+            }
         },
         syntax::Stmt::Return { expr, line, column } => syntax::Stmt::Return {
             expr: rewrite_expr(
                 expr,
+                bound_names,
                 visible_functions,
                 visible_consts,
                 visible_structs,
@@ -6234,6 +6281,7 @@ fn rewrite_stmt(
 
 fn rewrite_expr(
     expr: &syntax::Expr,
+    bound_names: &HashSet<String>,
     visible_functions: &HashMap<String, String>,
     visible_consts: &HashMap<String, syntax::ConstDecl>,
     visible_structs: &HashMap<String, String>,
@@ -6246,26 +6294,30 @@ fn rewrite_expr(
     Ok(match expr {
         syntax::Expr::Literal(_) => expr.clone(),
         syntax::Expr::VarRef { name, line, column } => {
-            if let Some(const_decl) = visible_consts.get(name) {
-                resolve_const_decl(
-                    const_decl,
-                    visible_consts,
-                    visible_functions,
-                    visible_structs,
-                    visible_types,
-                    private_imported,
-                    private_imported_consts,
-                    private_imported_types,
-                    module_path,
-                    &mut HashSet::new(),
-                )?
-            } else if private_imported_consts.contains(name) {
-                return Err(Diagnostic::new(
-                    "import",
-                    format!("const {name:?} is not visible from this module"),
-                )
-                .with_path(module_path.display().to_string())
-                .with_span(*line, *column));
+            if !bound_names.contains(name) {
+                if let Some(const_decl) = visible_consts.get(name) {
+                    resolve_const_decl(
+                        const_decl,
+                        visible_consts,
+                        visible_functions,
+                        visible_structs,
+                        visible_types,
+                        private_imported,
+                        private_imported_consts,
+                        private_imported_types,
+                        module_path,
+                        &mut HashSet::new(),
+                    )?
+                } else if private_imported_consts.contains(name) {
+                    return Err(Diagnostic::new(
+                        "import",
+                        format!("const {name:?} is not visible from this module"),
+                    )
+                    .with_path(module_path.display().to_string())
+                    .with_span(*line, *column));
+                } else {
+                    expr.clone()
+                }
             } else {
                 expr.clone()
             }
@@ -6309,6 +6361,7 @@ fn rewrite_expr(
                     .map(|arg| {
                         rewrite_expr(
                             arg,
+                            bound_names,
                             visible_functions,
                             visible_consts,
                             visible_structs,
@@ -6334,6 +6387,7 @@ fn rewrite_expr(
         } => {
             let rewritten_base = rewrite_expr(
                 base,
+                bound_names,
                 visible_functions,
                 visible_consts,
                 visible_structs,
@@ -6379,6 +6433,7 @@ fn rewrite_expr(
                     .map(|arg| {
                         rewrite_expr(
                             arg,
+                            bound_names,
                             visible_functions,
                             visible_consts,
                             visible_structs,
@@ -6404,6 +6459,7 @@ fn rewrite_expr(
             op: *op,
             lhs: Box::new(rewrite_expr(
                 lhs,
+                bound_names,
                 visible_functions,
                 visible_consts,
                 visible_structs,
@@ -6415,6 +6471,7 @@ fn rewrite_expr(
             )?),
             rhs: Box::new(rewrite_expr(
                 rhs,
+                bound_names,
                 visible_functions,
                 visible_consts,
                 visible_structs,
@@ -6437,6 +6494,7 @@ fn rewrite_expr(
             op: *op,
             lhs: Box::new(rewrite_expr(
                 lhs,
+                bound_names,
                 visible_functions,
                 visible_consts,
                 visible_structs,
@@ -6448,6 +6506,7 @@ fn rewrite_expr(
             )?),
             rhs: Box::new(rewrite_expr(
                 rhs,
+                bound_names,
                 visible_functions,
                 visible_consts,
                 visible_structs,
@@ -6470,6 +6529,7 @@ fn rewrite_expr(
             op: *op,
             lhs: Box::new(rewrite_expr(
                 lhs,
+                bound_names,
                 visible_functions,
                 visible_consts,
                 visible_structs,
@@ -6481,6 +6541,7 @@ fn rewrite_expr(
             )?),
             rhs: Box::new(rewrite_expr(
                 rhs,
+                bound_names,
                 visible_functions,
                 visible_consts,
                 visible_structs,
@@ -6501,6 +6562,7 @@ fn rewrite_expr(
         } => syntax::Expr::Cast {
             expr: Box::new(rewrite_expr(
                 expr,
+                bound_names,
                 visible_functions,
                 visible_consts,
                 visible_structs,
@@ -6525,6 +6587,7 @@ fn rewrite_expr(
         syntax::Expr::Try { expr, line, column } => syntax::Expr::Try {
             expr: Box::new(rewrite_expr(
                 expr,
+                bound_names,
                 visible_functions,
                 visible_consts,
                 visible_structs,
@@ -6540,6 +6603,7 @@ fn rewrite_expr(
         syntax::Expr::MutBorrow { expr, line, column } => syntax::Expr::MutBorrow {
             expr: Box::new(rewrite_expr(
                 expr,
+                bound_names,
                 visible_functions,
                 visible_consts,
                 visible_structs,
@@ -6555,6 +6619,7 @@ fn rewrite_expr(
         syntax::Expr::Deref { expr, line, column } => syntax::Expr::Deref {
             expr: Box::new(rewrite_expr(
                 expr,
+                bound_names,
                 visible_functions,
                 visible_consts,
                 visible_structs,
@@ -6570,6 +6635,7 @@ fn rewrite_expr(
         syntax::Expr::Await { expr, line, column } => syntax::Expr::Await {
             expr: Box::new(rewrite_expr(
                 expr,
+                bound_names,
                 visible_functions,
                 visible_consts,
                 visible_structs,
@@ -6610,6 +6676,7 @@ fn rewrite_expr(
                             name: field.name.clone(),
                             expr: rewrite_expr(
                                 &field.expr,
+                                bound_names,
                                 visible_functions,
                                 visible_consts,
                                 visible_structs,
@@ -6636,6 +6703,7 @@ fn rewrite_expr(
         } => syntax::Expr::FieldAccess {
             base: Box::new(rewrite_expr(
                 base,
+                bound_names,
                 visible_functions,
                 visible_consts,
                 visible_structs,
@@ -6659,6 +6727,7 @@ fn rewrite_expr(
                 .map(|element| {
                     rewrite_expr(
                         element,
+                        bound_names,
                         visible_functions,
                         visible_consts,
                         visible_structs,
@@ -6681,6 +6750,7 @@ fn rewrite_expr(
         } => syntax::Expr::TupleIndex {
             base: Box::new(rewrite_expr(
                 base,
+                bound_names,
                 visible_functions,
                 visible_consts,
                 visible_structs,
@@ -6705,6 +6775,7 @@ fn rewrite_expr(
                     Ok(syntax::MapEntry {
                         key: rewrite_expr(
                             &entry.key,
+                            bound_names,
                             visible_functions,
                             visible_consts,
                             visible_structs,
@@ -6716,6 +6787,7 @@ fn rewrite_expr(
                         )?,
                         value: rewrite_expr(
                             &entry.value,
+                            bound_names,
                             visible_functions,
                             visible_consts,
                             visible_structs,
@@ -6743,6 +6815,7 @@ fn rewrite_expr(
                 .map(|element| {
                     rewrite_expr(
                         element,
+                        bound_names,
                         visible_functions,
                         visible_consts,
                         visible_structs,
@@ -6766,6 +6839,7 @@ fn rewrite_expr(
         } => syntax::Expr::Slice {
             base: Box::new(rewrite_expr(
                 base,
+                bound_names,
                 visible_functions,
                 visible_consts,
                 visible_structs,
@@ -6780,6 +6854,7 @@ fn rewrite_expr(
                 .map(|expr| {
                     rewrite_expr(
                         expr,
+                        bound_names,
                         visible_functions,
                         visible_consts,
                         visible_structs,
@@ -6797,6 +6872,7 @@ fn rewrite_expr(
                 .map(|expr| {
                     rewrite_expr(
                         expr,
+                        bound_names,
                         visible_functions,
                         visible_consts,
                         visible_structs,
@@ -6820,6 +6896,7 @@ fn rewrite_expr(
         } => syntax::Expr::Index {
             base: Box::new(rewrite_expr(
                 base,
+                bound_names,
                 visible_functions,
                 visible_consts,
                 visible_structs,
@@ -6831,6 +6908,7 @@ fn rewrite_expr(
             )?),
             index: Box::new(rewrite_expr(
                 index,
+                bound_names,
                 visible_functions,
                 visible_consts,
                 visible_structs,
@@ -6870,6 +6948,7 @@ fn rewrite_expr(
                 .collect::<Result<Vec<_>, Diagnostic>>()?,
             body: Box::new(rewrite_expr(
                 body,
+                bound_names,
                 visible_functions,
                 visible_consts,
                 visible_structs,
@@ -6890,6 +6969,7 @@ fn rewrite_expr(
         } => syntax::Expr::Match {
             expr: Box::new(rewrite_expr(
                 expr,
+                bound_names,
                 visible_functions,
                 visible_consts,
                 visible_structs,
@@ -6908,6 +6988,7 @@ fn rewrite_expr(
                         is_named: arm.is_named,
                         expr: rewrite_expr(
                             &arm.expr,
+                            bound_names,
                             visible_functions,
                             visible_consts,
                             visible_structs,
@@ -7404,6 +7485,7 @@ fn resolve_const_expr(
         }),
         _ => rewrite_expr(
             expr,
+            bound_names,
             visible_functions,
             visible_consts,
             visible_structs,
