@@ -20,7 +20,8 @@
       "cranelift_backend_lowers_bool_branch_reassignment_to_runtime_exit_code",
       "cranelift_backend_lowers_bool_tuple_index_to_runtime_exit_code",
       "cranelift_backend_lowers_bool_aggregate_projections_to_runtime_exit_code",
-      "cranelift_backend_lowers_bool_print_runtime_stdout_in_direct_native_main"
+      "cranelift_backend_lowers_bool_print_runtime_stdout_in_direct_native_main",
+      "cranelift_backend_lowers_json_scalar_stringify_print_to_native_stdout"
     ],
     "enum.payload": [
       "cranelift_backend_builds_enum_match_binary",
@@ -101,6 +102,7 @@
       "cranelift_backend_lowers_std_regex_wrapper_reassignment_to_runtime_exit_code",
       "cranelift_backend_builds_std_string_builder_binary",
       "cranelift_backend_builds_string_intrinsics_binary",
+      "cranelift_backend_lowers_json_scalar_stringify_print_to_native_stdout",
       "cranelift_backend_rejects_unsupported_string_helper_main"
     ],
     "struct.field": [

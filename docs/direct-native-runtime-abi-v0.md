@@ -220,6 +220,10 @@ struct-literal bool field access, and bool projection from local struct
 bindings for bool locals, helper returns, and boolean conditions. The focused
 evidence manifest now links a boolean aggregate projection runtime-exit smoke to
 this row so fixed-array and struct bool projections are counted explicitly. The
+focused evidence manifest also links the JSON scalar stringify stdout smoke to
+this row, proving dynamic boolean comparisons can flow through public
+`std/json.ax` `stringify_bool(...)`, direct-native string locals, reassignment,
+native stdout, and process exit status without generated Rust.
 backend crate has narrow object-link evidence for composed `&&`/`||` comparison
 conditions, condition-to-i64 value lowering for helper-call arguments, and bool
 local assignment through a branch inside a loop after a scoped runtime bool `let`.
@@ -248,6 +252,10 @@ locals for reassigned known literals, known-text helper returns, known-text
 string intrinsic results, supported known-text concatenations, and supported
 runtime scalar/bool stringify projections without materializing a general string
 value.
+The focused evidence manifest now links the JSON scalar stringify stdout smoke
+to this row, proving public `std/json.ax` scalar stringify results can flow
+through direct-native string locals, reassignment, quoting, native stdout, and
+process exit status without generated Rust.
 String concatenation length also lowers for supported string length projection
 inputs by adding the operand byte lengths without materializing the concatenated
 runtime string.
