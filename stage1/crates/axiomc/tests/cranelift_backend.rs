@@ -775,6 +775,46 @@ fn cranelift_backend_lowers_nested_option_match_to_runtime_exit_code() {
 
 #[cfg(not(windows))]
 #[test]
+fn cranelift_backend_builds_result_helper_output_binary() {
+    if which::which("cc").is_err() {
+        eprintln!("skipping cranelift backend smoke test because cc is unavailable");
+        return;
+    }
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("result-helper-output");
+    write_result_helper_output_project(&project);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args([
+            "build",
+            project.to_str().expect("project path"),
+            "--backend",
+            "cranelift",
+            "--json",
+        ])
+        .output()
+        .expect("run axiomc build --backend cranelift");
+    assert!(
+        output.status.success(),
+        "cranelift result helper output build failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+    assert_eq!(payload["backend"], "cranelift");
+    assert_eq!(payload["generated_rust"], Value::Null);
+    let binary = payload["binary"].as_str().expect("binary path");
+    let run = Command::new(binary)
+        .output()
+        .expect("run cranelift result helper output binary");
+    assert!(run.status.success(), "result helper output binary failed");
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "12\n8\ntrue\nfalse\n");
+}
+
+#[cfg(not(windows))]
+#[test]
 fn cranelift_backend_lowers_nested_result_match_to_runtime_exit_code() {
     if which::which("cc").is_err() {
         eprintln!("skipping cranelift backend smoke test because cc is unavailable");
@@ -2823,7 +2863,7 @@ fn cranelift_backend_builds_struct_field_binary() {
     );
     assert_eq!(
         String::from_utf8_lossy(&run.stdout),
-        "3\ntrue\nstage1 structs\n"
+        "3\ntrue\nstage1 structs\n5\ntrue\n8\nfalse\n8\nfalse\n"
     );
 }
 
@@ -3591,7 +3631,10 @@ fn cranelift_backend_builds_borrowed_slice_binary() {
         "cranelift borrowed-slice binary failed: stderr={}",
         String::from_utf8_lossy(&run.stderr)
     );
-    assert_eq!(String::from_utf8_lossy(&run.stdout), "3\n4\n8\n6\n3\n");
+    assert_eq!(
+        String::from_utf8_lossy(&run.stdout),
+        "3\n4\n8\n6\n3\n4\n8\n6\n"
+    );
 }
 
 #[cfg(not(windows))]
@@ -4743,7 +4786,10 @@ fn cranelift_backend_lowers_crypto_random_to_runtime_exit_code() {
     assert!(audit.contains("\"length\":\"int\""));
     assert!(audit.contains("\"args\":{}"));
     assert_eq!(audit.matches("\"outcome\":\"ok\"").count(), 4);
+    assert_eq!(audit.matches("\"outcome\":\"denied\"").count(), 2);
     assert!(!audit.contains("\"int:17\""));
+    assert!(!audit.contains("65537"));
+    assert!(!audit.contains("-2"));
     assert!(!audit.contains("\"bytes\""));
 }
 
@@ -5697,7 +5743,7 @@ fn cranelift_backend_lowers_std_time_sleep_wrappers_to_runtime_exit_code() {
         audit.contains("\"args\":{\"milliseconds\":\"int\"}"),
         "{audit}"
     );
-    assert_eq!(audit.matches("\"outcome\":\"ok\"").count(), 4, "{audit}");
+    assert_eq!(audit.matches("\"outcome\":\"ok\"").count(), 5, "{audit}");
     assert_eq!(
         audit.matches("\"outcome\":\"denied\"").count(),
         2,
@@ -7488,9 +7534,28 @@ fn write_nested_option_match_main_exit_project(project: &Path) {
     .expect("write nested option match main exit lockfile");
     fs::write(
         project.join("src/main.ax"),
-        "fn choose_nested(flag: bool): Option<Option<int>> {\nif flag {\nreturn Some(Some(48))\n} else {\nreturn Some(None)\n}\n}\n\nfn forward_nested(value: Option<Option<int>>): Option<Option<int>> {\nreturn value\n}\n\nfn score(value: Option<Option<int>>): int {\nreturn match value { Some(inner) => match inner { Some(payload) => payload, None => 49 }, None => 1 }\n}\n\nfn choose_result(flag: bool): Result<Option<int>, int> {\nif flag {\nreturn Ok(Some(48))\n} else {\nreturn Ok(None)\n}\n}\n\nfn forward_result(value: Result<Option<int>, int>): Result<Option<int>, int> {\nreturn value\n}\n\nfn score_result(value: Result<Option<int>, int>): int {\nreturn match value { Ok(inner) => match inner { Some(payload) => payload, None => 49 }, Err(error) => error }\n}\n\nfn main(): int {\nlet ready: Option<Option<int>> = None\nready = Some(Some(48))\nlet returned_some: Option<Option<int>> = choose_nested(true)\nlet returned_none: Option<Option<int>> = choose_nested(false)\nlet forwarded_some: Option<Option<int>> = forward_nested(returned_some)\nlet forwarded_none: Option<Option<int>> = forward_nested(returned_none)\nlet result_ready: Result<Option<int>, int> = Err(1)\nresult_ready = Ok(Some(48))\nlet result_returned_some: Result<Option<int>, int> = choose_result(true)\nlet result_returned_none: Result<Option<int>, int> = choose_result(false)\nlet result_forwarded_some: Result<Option<int>, int> = forward_result(result_returned_some)\nlet result_forwarded_none: Result<Option<int>, int> = forward_result(result_returned_none)\nlet match_code: int = match ready { Some(inner) => match inner { Some(payload) => payload, None => 49 }, None => 1 }\nlet helper_code: int = score(ready)\nlet returned_some_code: int = score(returned_some)\nlet returned_none_code: int = score(returned_none)\nlet forwarded_some_code: int = score(forwarded_some)\nlet forwarded_none_code: int = score(forwarded_none)\nlet inline_some_code: int = score(Some(Some(48)))\nlet inline_inner_none_code: int = score(Some(None))\nlet inline_outer_none_code: int = score(None)\nlet result_match_code: int = match result_ready { Ok(inner) => match inner { Some(payload) => payload, None => 49 }, Err(error) => error }\nlet result_helper_code: int = score_result(result_ready)\nlet result_returned_some_code: int = score_result(result_returned_some)\nlet result_returned_none_code: int = score_result(result_returned_none)\nlet result_forwarded_some_code: int = score_result(result_forwarded_some)\nlet result_forwarded_none_code: int = score_result(result_forwarded_none)\nlet result_inline_some_code: int = score_result(Ok(Some(48)))\nlet result_inline_inner_none_code: int = score_result(Ok(None))\nlet result_inline_err_code: int = score_result(Err(1))\nif match_code == 48 && helper_code == 48 && returned_some_code == 48 && returned_none_code == 49 && forwarded_some_code == 48 && forwarded_none_code == 49 && inline_some_code == 48 && inline_inner_none_code == 49 && inline_outer_none_code == 1 && result_match_code == 48 && result_helper_code == 48 && result_returned_some_code == 48 && result_returned_none_code == 49 && result_forwarded_some_code == 48 && result_forwarded_none_code == 49 && result_inline_some_code == 48 && result_inline_inner_none_code == 49 && result_inline_err_code == 1 {\nreturn match_code\n} else {\nreturn 2\n}\n}\n",
+        "fn choose_nested(flag: bool): Option<Option<int>> {\nif flag {\nreturn Some(Some(48))\n} else {\nreturn Some(None)\n}\n}\n\nfn forward_nested(value: Option<Option<int>>): Option<Option<int>> {\nreturn value\n}\n\nfn score(value: Option<Option<int>>): int {\nreturn match value { Some(inner) => match inner { Some(payload) => payload, None => 49 }, None => 1 }\n}\n\nfn choose_result(flag: bool): Result<Option<int>, int> {\nif flag {\nreturn Ok(Some(48))\n} else {\nreturn Ok(None)\n}\n}\n\nfn forward_result(value: Result<Option<int>, int>): Result<Option<int>, int> {\nreturn value\n}\n\nfn score_result(value: Result<Option<int>, int>): int {\nreturn match value { Ok(inner) => match inner { Some(payload) => payload, None => 49 }, Err(error) => error }\n}\n\nfn main(): int {\nlet ready: Option<Option<int>> = Some(Some(48))\nlet returned_some: Option<Option<int>> = choose_nested(true)\nlet returned_none: Option<Option<int>> = choose_nested(false)\nlet forwarded_some: Option<Option<int>> = forward_nested(returned_some)\nlet forwarded_none: Option<Option<int>> = forward_nested(returned_none)\nlet result_ready: Result<Option<int>, int> = Ok(Some(48))\nlet result_returned_some: Result<Option<int>, int> = choose_result(true)\nlet result_returned_none: Result<Option<int>, int> = choose_result(false)\nlet result_forwarded_some: Result<Option<int>, int> = forward_result(result_returned_some)\nlet result_forwarded_none: Result<Option<int>, int> = forward_result(result_returned_none)\nlet match_code: int = match ready { Some(inner) => match inner { Some(payload) => payload, None => 49 }, None => 1 }\nlet helper_code: int = score(ready)\nlet returned_some_code: int = score(returned_some)\nlet returned_none_code: int = score(returned_none)\nlet forwarded_some_code: int = score(forwarded_some)\nlet forwarded_none_code: int = score(forwarded_none)\nlet inline_some_code: int = score(Some(Some(48)))\nlet inline_inner_none_code: int = score(Some(None))\nlet inline_outer_none_code: int = score(None)\nlet result_match_code: int = match result_ready { Ok(inner) => match inner { Some(payload) => payload, None => 49 }, Err(error) => error }\nlet result_helper_code: int = score_result(result_ready)\nlet result_returned_some_code: int = score_result(result_returned_some)\nlet result_returned_none_code: int = score_result(result_returned_none)\nlet result_forwarded_some_code: int = score_result(result_forwarded_some)\nlet result_forwarded_none_code: int = score_result(result_forwarded_none)\nlet result_inline_some_code: int = score_result(Ok(Some(48)))\nlet result_inline_inner_none_code: int = score_result(Ok(None))\nlet result_inline_err_code: int = score_result(Err(1))\nif match_code == 48 && helper_code == 48 && returned_some_code == 48 && returned_none_code == 49 && forwarded_some_code == 48 && forwarded_none_code == 49 && inline_some_code == 48 && inline_inner_none_code == 49 && inline_outer_none_code == 1 && result_match_code == 48 && result_helper_code == 48 && result_returned_some_code == 48 && result_returned_none_code == 49 && result_forwarded_some_code == 48 && result_forwarded_none_code == 49 && result_inline_some_code == 48 && result_inline_inner_none_code == 49 && result_inline_err_code == 1 {\nreturn match_code\n} else {\nreturn 2\n}\n}\n",
     )
     .expect("write nested option match main exit source");
+}
+
+fn write_result_helper_output_project(project: &Path) {
+    fs::create_dir_all(project.join("src")).expect("create result helper output src");
+    fs::write(
+        project.join("axiom.toml"),
+        "[package]\nname = \"cranelift-result-helper-output\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n",
+    )
+    .expect("write result helper output manifest");
+    fs::write(
+        project.join("axiom.lock"),
+        "version = 1\n\n[[package]]\nname = \"cranelift-result-helper-output\"\nversion = \"0.1.0\"\nsource = \"path\"\n",
+    )
+    .expect("write result helper output lockfile");
+    fs::write(
+        project.join("src/main.ax"),
+        "fn choose_score(ok: bool): Result<int, int> {\nif ok {\nreturn Ok(12)\n} else {\nreturn Err(8)\n}\n}\n\nfn score(value: Result<int, int>): int {\nreturn match value { Ok(payload) => payload, Err(error) => error }\n}\n\nfn choose_enabled(ok: bool): Result<bool, bool> {\nif ok {\nreturn Ok(true)\n} else {\nreturn Err(false)\n}\n}\n\nfn enabled(value: Result<bool, bool>): bool {\nreturn match value { Ok(payload) => payload, Err(error) => error }\n}\n\nprint score(choose_score(true))\nprint score(choose_score(false))\nprint enabled(choose_enabled(true))\nprint enabled(choose_enabled(false))\n",
+    )
+    .expect("write result helper output source");
 }
 
 fn write_nested_result_match_main_exit_project(project: &Path) {
@@ -7540,14 +7605,12 @@ return match value { Ok(inner) => match inner { Ok(payload) => payload, Err(erro
 }
 
 fn main(): int {
-let option_ready: Option<Result<int, int>> = None
-option_ready = Some(Ok(48))
+let option_ready: Option<Result<int, int>> = Some(Ok(48))
 let option_returned_ok: Option<Result<int, int>> = choose_option_result(true)
 let option_returned_err: Option<Result<int, int>> = choose_option_result(false)
 let option_forwarded_ok: Option<Result<int, int>> = forward_option_result(option_returned_ok)
 let option_forwarded_err: Option<Result<int, int>> = forward_option_result(option_returned_err)
-let result_ready: Result<Result<int, int>, int> = Err(1)
-result_ready = Ok(Ok(48))
+let result_ready: Result<Result<int, int>, int> = Ok(Ok(48))
 let result_returned_ok: Result<Result<int, int>, int> = choose_result_result(true)
 let result_returned_err: Result<Result<int, int>, int> = choose_result_result(false)
 let result_forwarded_ok: Result<Result<int, int>, int> = forward_result_result(result_returned_ok)
@@ -8495,7 +8558,7 @@ fn write_known_crypto_text_main_exit_project(project: &Path) {
     .expect("write known crypto text lockfile");
     fs::write(
         project.join("src/main.ax"),
-        "static KEY: string = \"key\"\n\nfn main(): int {\nlet message_for_len: string = \"The quick brown fox jumps over the lazy dog\"\nlet message_for_gate: string = \"The quick brown fox jumps over the lazy dog\"\nlet sha_for_gate: string = crypto_sha256(\"abc\")\nlet hmac256_for_gate: string = crypto_hmac_sha256(KEY, message_for_gate)\nlet hmac512_for_gate: string = crypto_hmac_sha512(\"Jefe\", \"what do ya want for nothing?\")\nlet sha_len: int = len(crypto_sha256(\"abc\"))\nlet hmac256_len: int = len(crypto_hmac_sha256(KEY, message_for_len))\nlet hmac512_len: int = len(crypto_hmac_sha512(\"Jefe\", \"what do ya want for nothing?\"))\nlet dynamic_sha_input: int = match json_parse_int(\"12345\") { Some(value) => value, None => 1 }\nlet dynamic_clone_sha_input: int = match json_parse_int(\"12345\") { Some(value) => value, None => 1 }\nlet dynamic_hmac_key: int = match json_parse_int(\"321\") { Some(value) => value, None => 1 }\nlet dynamic_hmac256_message: bool = match json_parse_bool(\"true\") { Some(value) => value, None => false }\nlet dynamic_hmac512_message: bool = match json_parse_bool(\"false\") { Some(value) => value, None => true }\nlet dynamic_sha_len: int = len(crypto_sha256(json_stringify_int(dynamic_sha_input)))\nlet dynamic_clone_sha_text: string = json_stringify_int(dynamic_clone_sha_input)\nlet dynamic_clone_sha_len: int = len(crypto_sha256(string_clone(dynamic_clone_sha_text)))\nlet dynamic_hmac256_len: int = len(crypto_hmac_sha256(json_stringify_int(dynamic_hmac_key), json_stringify_bool(dynamic_hmac256_message)))\nlet dynamic_hmac512_len: int = len(crypto_hmac_sha512(KEY, json_stringify_bool(dynamic_hmac512_message)))\nlet sha_gate: bool = string_starts_with(sha_for_gate, \"ba7816bf\")\nlet hmac256_gate: bool = string_starts_with(hmac256_for_gate, \"f7bc83f4\")\nlet hmac512_gate: bool = string_starts_with(hmac512_for_gate, \"164b7a7b\")\nlet constant_gate: bool = crypto_constant_time_eq(crypto_sha256(\"abc\"), \"ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad\")\nlet mismatch_gate: bool = crypto_constant_time_eq(\"short\", \"shorter\") == false\nlet byte_left: [u8; 3] = [1u8, 2u8, 3u8]\nlet byte_same: [u8; 3] = [1u8, 2u8, 3u8]\nlet byte_different: [u8; 3] = [1u8, 2u8, 4u8]\nlet byte_literal_left: [u8; 2] = [4u8, 5u8]\nlet byte_literal_same: [u8; 2] = [4u8, 5u8]\nlet byte_short: [u8; 1] = [4u8]\nlet byte_gate: bool = crypto_constant_time_eq_u8(byte_left[:], byte_same[:])\nlet byte_mismatch_gate: bool = crypto_constant_time_eq_u8(byte_left[:], byte_different[:]) == false\nlet byte_literal_gate: bool = crypto_constant_time_eq_u8(byte_literal_left[:], byte_literal_same[:])\nlet byte_len_gate: bool = crypto_constant_time_eq_u8(byte_literal_left[:], byte_short[:]) == false\nif sha_gate && hmac256_gate && hmac512_gate && constant_gate && mismatch_gate && byte_gate && byte_mismatch_gate && byte_literal_gate && byte_len_gate && sha_len == 64 && hmac256_len == 64 && hmac512_len == 128 && dynamic_sha_len == 64 && dynamic_clone_sha_len == 64 && dynamic_hmac256_len == 64 && dynamic_hmac512_len == 128 {\nreturn 48\n} else {\nreturn 1\n}\n}\n",
+        "static KEY: string = \"key\"\n\nfn helper_sha_len(): int {\nreturn len(crypto_sha256(\"abc\"))\n}\n\nfn helper_hmac256_len(): int {\nreturn len(crypto_hmac_sha256(KEY, \"The quick brown fox jumps over the lazy dog\"))\n}\n\nfn helper_hmac512_len(): int {\nreturn len(crypto_hmac_sha512(\"Jefe\", \"what do ya want for nothing?\"))\n}\n\nfn main(): int {\nlet message_for_len: string = \"The quick brown fox jumps over the lazy dog\"\nlet message_for_gate: string = \"The quick brown fox jumps over the lazy dog\"\nlet sha_for_gate: string = crypto_sha256(\"abc\")\nlet hmac256_for_gate: string = crypto_hmac_sha256(KEY, message_for_gate)\nlet hmac512_for_gate: string = crypto_hmac_sha512(\"Jefe\", \"what do ya want for nothing?\")\nlet sha_len: int = len(crypto_sha256(\"abc\"))\nlet hmac256_len: int = len(crypto_hmac_sha256(KEY, message_for_len))\nlet hmac512_len: int = len(crypto_hmac_sha512(\"Jefe\", \"what do ya want for nothing?\"))\nlet helper_sha_len_value: int = helper_sha_len()\nlet helper_hmac256_len_value: int = helper_hmac256_len()\nlet helper_hmac512_len_value: int = helper_hmac512_len()\nlet dynamic_sha_input: int = match json_parse_int(\"12345\") { Some(value) => value, None => 1 }\nlet dynamic_clone_sha_input: int = match json_parse_int(\"12345\") { Some(value) => value, None => 1 }\nlet dynamic_hmac_key: int = match json_parse_int(\"321\") { Some(value) => value, None => 1 }\nlet dynamic_hmac256_message: bool = match json_parse_bool(\"true\") { Some(value) => value, None => false }\nlet dynamic_hmac512_message: bool = match json_parse_bool(\"false\") { Some(value) => value, None => true }\nlet dynamic_sha_len: int = len(crypto_sha256(json_stringify_int(dynamic_sha_input)))\nlet dynamic_clone_sha_text: string = json_stringify_int(dynamic_clone_sha_input)\nlet dynamic_clone_sha_len: int = len(crypto_sha256(string_clone(dynamic_clone_sha_text)))\nlet dynamic_hmac256_len: int = len(crypto_hmac_sha256(json_stringify_int(dynamic_hmac_key), json_stringify_bool(dynamic_hmac256_message)))\nlet dynamic_hmac512_len: int = len(crypto_hmac_sha512(KEY, json_stringify_bool(dynamic_hmac512_message)))\nlet sha_gate: bool = string_starts_with(sha_for_gate, \"ba7816bf\")\nlet hmac256_gate: bool = string_starts_with(hmac256_for_gate, \"f7bc83f4\")\nlet hmac512_gate: bool = string_starts_with(hmac512_for_gate, \"164b7a7b\")\nlet constant_gate: bool = crypto_constant_time_eq(crypto_sha256(\"abc\"), \"ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad\")\nlet mismatch_gate: bool = crypto_constant_time_eq(\"short\", \"shorter\") == false\nlet byte_left: [u8; 3] = [1u8, 2u8, 3u8]\nlet byte_same: [u8; 3] = [1u8, 2u8, 3u8]\nlet byte_different: [u8; 3] = [1u8, 2u8, 4u8]\nlet byte_literal_left: [u8; 2] = [4u8, 5u8]\nlet byte_literal_same: [u8; 2] = [4u8, 5u8]\nlet byte_short: [u8; 1] = [4u8]\nlet byte_gate: bool = crypto_constant_time_eq_u8(byte_left[:], byte_same[:])\nlet byte_mismatch_gate: bool = crypto_constant_time_eq_u8(byte_left[:], byte_different[:]) == false\nlet byte_literal_gate: bool = crypto_constant_time_eq_u8(byte_literal_left[:], byte_literal_same[:])\nlet byte_len_gate: bool = crypto_constant_time_eq_u8(byte_literal_left[:], byte_short[:]) == false\nif sha_gate && hmac256_gate && hmac512_gate && constant_gate && mismatch_gate && byte_gate && byte_mismatch_gate && byte_literal_gate && byte_len_gate && sha_len == 64 && hmac256_len == 64 && hmac512_len == 128 && helper_sha_len_value == 64 && helper_hmac256_len_value == 64 && helper_hmac512_len_value == 128 && dynamic_sha_len == 64 && dynamic_clone_sha_len == 64 && dynamic_hmac256_len == 64 && dynamic_hmac512_len == 128 {\nreturn 48\n} else {\nreturn 1\n}\n}\n",
     )
     .expect("write known crypto text source");
 }
@@ -9339,7 +9402,7 @@ fn write_struct_field_project(project: &Path) {
     .expect("write struct lockfile");
     fs::write(
         project.join("src/main.ax"),
-        "struct Pipeline {\nname: string\nsteps: int\nready: bool\n}\n\nfn label(pipeline: Pipeline): string {\nreturn pipeline.name\n}\n\nlet pipeline: Pipeline = Pipeline { name: \"stage1 structs\", steps: 3, ready: true }\nprint pipeline.steps\nprint pipeline.ready\nprint label(pipeline)\n",
+        "struct Pipeline {\nname: string\nsteps: int\nready: bool\n}\n\nstruct Step {\nvalue: int\nready: bool\n}\n\nfn label(pipeline: Pipeline): string {\nreturn pipeline.name\n}\n\nfn make_step(value: int, ready: bool): Step {\nreturn Step { value: value, ready: ready }\n}\n\nfn choose_step(flag: bool): Step {\nif flag {\nreturn Step { value: 7, ready: true }\n} else {\nlet fallback: int = 8\nreturn Step { ready: false, value: fallback }\n}\n}\n\nfn forward_step(step: Step): Step {\nreturn step\n}\n\nlet pipeline: Pipeline = Pipeline { name: \"stage1 structs\", steps: 3, ready: true }\nlet returned: Step = make_step(5, true)\nlet branch: Step = choose_step(false)\nlet branch_to_forward: Step = choose_step(false)\nlet forwarded: Step = forward_step(branch_to_forward)\nprint pipeline.steps\nprint pipeline.ready\nprint label(pipeline)\nprint returned.value\nprint returned.ready\nprint branch.value\nprint branch.ready\nprint forwarded.value\nprint forwarded.ready\n",
     )
     .expect("write struct source");
 }
@@ -9377,7 +9440,7 @@ fn write_borrowed_slice_project(project: &Path) {
     .expect("write borrowed-slice lockfile");
     fs::write(
         project.join("src/main.ax"),
-        "fn tail(values: &[int]): &[int] {\nreturn values[1:]\n}\n\nlet values: [int] = [2, 4, 6, 8]\nlet window: &[int] = values[1:]\nprint len(window)\nprint first(window)\nprint last(window)\nprint window[1]\nlet nested: &[int] = tail(values[:])\nprint len(nested)\n",
+        "fn tail(values: &[int]): &[int] {\nreturn values[1:]\n}\n\nlet values: [int] = [2, 4, 6, 8]\nlet window: &[int] = values[1:]\nprint len(window)\nprint first(window)\nprint last(window)\nprint window[1]\nlet nested: &[int] = tail(values[:])\nprint len(nested)\nprint first(nested)\nprint last(nested)\nprint nested[1]\n",
     )
     .expect("write borrowed-slice source");
 }
@@ -9815,7 +9878,27 @@ let dynamic_key_trimmed_value: string = string_trim(dynamic_key_trim_value)
 let dynamic_key_trim_start_value: string = string_trim_start(dynamic_key_trim_value)
 let dynamic_key_trimmed_has_prefix: bool = string_starts_with(dynamic_key_trimmed_value, "dep")
 let dynamic_key_trim_start_has_prefix: bool = string_starts_with(dynamic_key_trim_start_value, "dep")
-if contains_hit && contains_miss && get_hit_code == 9 && get_miss_code == 13 && fallback == 13 && key_count == 2 && first_key_len == 5 && second_key_len == 6 && dynamic_key_len == 6 && dynamic_key_is_deploy && dynamic_key_not_build && dynamic_key_has_prefix && dynamic_key_trim_len == 6 && dynamic_key_trim_start_len == 7 && dynamic_key_trimmed_has_prefix && dynamic_key_trim_start_has_prefix {
+let dynamic_lookup_contains_scores: {string: int} = {"build": 7, "deploy": 9}
+let dynamic_lookup_contains_names: [string] = keys<string, int>(dynamic_lookup_contains_scores)
+let dynamic_lookup_contains_key: string = dynamic_lookup_contains_names[dynamic_key_index]
+let dynamic_lookup_contains_map: {string: int} = {"build": 7, "deploy": 9}
+let dynamic_lookup_contains: bool = contains<string, int>(dynamic_lookup_contains_map, dynamic_lookup_contains_key)
+let dynamic_lookup_value_scores: {string: int} = {"build": 7, "deploy": 9}
+let dynamic_lookup_value_names: [string] = keys<string, int>(dynamic_lookup_value_scores)
+let dynamic_lookup_value_key: string = dynamic_lookup_value_names[dynamic_key_index]
+let dynamic_lookup_value_map: {string: int} = {"build": 7, "deploy": 9}
+let dynamic_lookup_value: int = get_or_default<string, int>(dynamic_lookup_value_map, dynamic_lookup_value_key, 13)
+let dynamic_missing_contains_scores: {string: int} = {"build": 7, "deploy": 9}
+let dynamic_missing_contains_names: [string] = keys<string, int>(dynamic_missing_contains_scores)
+let dynamic_missing_contains_key: string = dynamic_missing_contains_names[dynamic_key_index]
+let dynamic_missing_contains_map: {string: int} = {"build": 7}
+let dynamic_missing_contains: bool = contains<string, int>(dynamic_missing_contains_map, dynamic_missing_contains_key) == false
+let dynamic_missing_value_scores: {string: int} = {"build": 7, "deploy": 9}
+let dynamic_missing_value_names: [string] = keys<string, int>(dynamic_missing_value_scores)
+let dynamic_missing_value_key: string = dynamic_missing_value_names[dynamic_key_index]
+let dynamic_missing_value_map: {string: int} = {"build": 7}
+let dynamic_missing_value: int = get_or_default<string, int>(dynamic_missing_value_map, dynamic_missing_value_key, 13)
+if contains_hit && contains_miss && get_hit_code == 9 && get_miss_code == 13 && fallback == 13 && key_count == 2 && first_key_len == 5 && second_key_len == 6 && dynamic_key_len == 6 && dynamic_key_is_deploy && dynamic_key_not_build && dynamic_key_has_prefix && dynamic_key_trim_len == 6 && dynamic_key_trim_start_len == 7 && dynamic_key_trimmed_has_prefix && dynamic_key_trim_start_has_prefix && dynamic_lookup_contains && dynamic_lookup_value == 9 && dynamic_missing_contains && dynamic_missing_value == 13 {
 return 48
 } else {
 return 1
@@ -10712,7 +10795,7 @@ fn write_crypto_random_main_exit_project(project: &Path) {
     .expect("write crypto random main lockfile");
     fs::write(
         project.join("src/main.ax"),
-        "import \"std/crypto_rand.ax\"\n\nstatic RANDOM_LEN: int = 16\n\nfn choose_len(seed: int): int {\nreturn seed + 8\n}\n\nfn main(): int {\nlet dynamic_len: int = choose_len(9)\nlet sample_len: int = len(random_bytes(RANDOM_LEN))\nlet dynamic_sample_len: int = len(random_bytes(dynamic_len))\nlet empty_len: int = len(random_bytes(0))\nlet value: int = random_u64() as int\nif sample_len == RANDOM_LEN && dynamic_sample_len == dynamic_len && empty_len == 0 && value == 48 {\nreturn 48\n} else {\nreturn 1\n}\n}\n",
+        "import \"std/crypto_rand.ax\"\n\nstatic RANDOM_LEN: int = 16\n\nfn choose_len(seed: int): int {\nreturn seed + 8\n}\n\nfn main(): int {\nlet dynamic_len: int = choose_len(9)\nlet negative_len: int = choose_len(-10)\nlet too_large_len: int = choose_len(65529)\nlet sample_len: int = len(random_bytes(RANDOM_LEN))\nlet dynamic_sample_len: int = len(random_bytes(dynamic_len))\nlet empty_len: int = len(random_bytes(0))\nlet denied_negative: int = len(random_bytes(negative_len))\nlet denied_too_large: int = len(random_bytes(too_large_len))\nlet value: int = random_u64() as int\nif sample_len == RANDOM_LEN && dynamic_sample_len == dynamic_len && empty_len == 0 && denied_negative == -1 && denied_too_large == -1 && value == 48 {\nreturn 48\n} else {\nreturn 1\n}\n}\n",
     )
     .expect("write crypto random main source");
 }
@@ -11944,7 +12027,15 @@ let dynamic_ms: int = 1
 let positive: int = sleep(duration_ms(dynamic_ms))
 let direct_positive: int = clock_sleep_ms(dynamic_ms)
 let capped: int = sleep(duration_ms(1001))
-if direct == 0 && helper == 0 && negative == -1 && positive == 0 && direct_positive == 0 && capped == -1 {
+let primitive_start: int = clock_now_ms()
+let primitive_elapsed: int = clock_elapsed_ms(primitive_start)
+let public_start: int = now_ms()
+let public_elapsed: int = elapsed_ms(Instant { ms: public_start })
+let inline_elapsed: int = elapsed_ms(now())
+let precision_start: int = clock_now_ms()
+let precision_sleep: int = clock_sleep_ms(10)
+let precision_elapsed: int = clock_elapsed_ms(precision_start)
+if direct == 0 && helper == 0 && negative == -1 && positive == 0 && direct_positive == 0 && capped == -1 && primitive_start > 0 && primitive_elapsed >= 0 && public_start > 0 && public_elapsed >= 0 && inline_elapsed >= 0 && precision_sleep == 0 && precision_elapsed > 0 && precision_elapsed < 1000 {
 return 48
 } else {
 return 1
