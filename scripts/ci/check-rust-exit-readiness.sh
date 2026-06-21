@@ -253,8 +253,8 @@ for index, entry in enumerate(blocking_entries):
         sys.exit(1)
     issues.append(issue)
 
-if payload["finalBootstrapIssue"] not in issues:
-    print("finalBootstrapIssue must also be listed as a blocker", file=sys.stderr)
+if payload["finalBootstrapIssue"] in issues:
+    print("finalBootstrapIssue is metadata and must not also be listed as a blocker", file=sys.stderr)
     sys.exit(1)
 if len(set(issues)) != len(issues):
     print("blocking issue list contains duplicates", file=sys.stderr)

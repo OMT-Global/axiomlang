@@ -117,7 +117,7 @@ PY
 cat >"$temp_dir/issues.txt" <<'ISSUES'
 1124 CLOSED
 731 CLOSED
-721 CLOSED
+721 OPEN
 ISSUES
 
 (
@@ -139,12 +139,47 @@ assert statuses["readiness_blockers_closed"] == "pass"
 assert statuses["readiness_blockers_live_when_not_ready"] == "pass"
 assert statuses["rust_exit_issue_1124_closed"] == "pass"
 assert statuses["rust_exit_issue_731_closed"] == "pass"
-assert statuses["rust_exit_issue_721_closed"] == "pass"
+assert "rust_exit_issue_721_closed" not in statuses
 assert statuses["direct_native_runtime_abi_ready"] == "pass"
 assert statuses["command_lsp_release_boundary"] == "pass"
 assert statuses["mir_backend_direct_native_boundary"] == "pass"
 PY
 )
+
+python3 - "$case_dir/docs/rust-exit-readiness.json" <<'PY'
+import json
+import sys
+
+path = sys.argv[1]
+with open(path, encoding="utf-8") as handle:
+    payload = json.load(handle)
+
+payload["blockingIssues"].append(
+    {
+        "issue": payload["finalBootstrapIssue"],
+        "lane": "bootstrap",
+        "check": "Rust bootstrap is no longer needed for the supported toolchain.",
+    }
+)
+
+with open(path, "w", encoding="utf-8") as handle:
+    json.dump(payload, handle)
+PY
+
+(
+  cd "$case_dir"
+  if bash scripts/ci/check-rust-exit-readiness.sh --json --issue-state-file "$temp_dir/issues.txt" >"$temp_dir/self-referential-final.json" 2>"$temp_dir/self-referential-final.err"; then
+    echo "expected readiness check to fail when finalBootstrapIssue is also listed as a blocker" >&2
+    exit 1
+  fi
+  if ! grep -q "finalBootstrapIssue is metadata" "$temp_dir/self-referential-final.err"; then
+    echo "expected finalBootstrapIssue metadata error" >&2
+    cat "$temp_dir/self-referential-final.err" >&2
+    exit 1
+  fi
+)
+
+cp "$repo_root/docs/rust-exit-readiness.json" "$case_dir/docs/rust-exit-readiness.json"
 
 cp "$repo_root/stage1/runtime-abi/direct-native-v0.json" "$case_dir/stage1/runtime-abi/direct-native-v0.json"
 

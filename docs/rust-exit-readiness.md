@@ -21,8 +21,10 @@ make rust-exit-readiness
 
 It emits `axiom.rust_exit.readiness.v1` JSON and fails while blocker issues in
 `docs/rust-exit-readiness.json` are open or unavailable, or while the
-machine-readable direct-native runtime ABI reports `ready: false`. Deletion or
-release-chain PRs can require live GitHub state:
+machine-readable direct-native runtime ABI reports `ready: false`. The final
+bootstrap issue is tracked as `finalBootstrapIssue` metadata, not as a blocker,
+so the PR that closes it can pass before GitHub marks that issue closed.
+Deletion or release-chain PRs can require live GitHub state:
 
 ```bash
 make rust-exit-readiness-github
@@ -63,7 +65,9 @@ review gates to be satisfied.
   runtime-entrypoint or backend-emitted codegen evidence; compiler-side
   Cranelift spike evaluation alone is not sufficient.
 - #721 may close only after the backend matrix and bootstrap matrix have no
-  incomplete rows.
+  incomplete rows. It must remain `finalBootstrapIssue` metadata instead of a
+  `blockingIssues` entry, because the final closing PR cannot require itself to
+  already be closed.
 - Generated Rust may remain as a compatibility backend while #693 is being
   proven, but #694 may not close until it is removed from the supported toolchain.
 - Cargo may remain as a developer convenience while #931 is being proven, but it
