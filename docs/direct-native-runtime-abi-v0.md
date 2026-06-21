@@ -328,12 +328,12 @@ helper parameters, helper returns, forwarded helper values, and inline
 slots. Existing narrow `Option<Step>` locals can now be reassigned from option
 helper returns using the same tag/payload slots, including inside runtime branch
 blocks. The direct-native path also has narrow evidence for nested
-`Option<Option<int>>` construction, reassignment, matching, helper parameters,
-helper returns, forwarded helper values, and inline `Some(Some(...))`,
-`Some(None)`, and outer `None` helper arguments using nested tag/payload slots.
-The same nested slot representation now has narrow evidence for
-`Option<Result<int, int>>` construction, reassignment, matching, helper
-parameters, helper returns, forwarded helper values, and inline
+`Option<Option<int>>` construction, matching, helper parameters, helper returns,
+forwarded helper values, and inline `Some(Some(...))`, `Some(None)`, and outer
+`None` helper arguments using nested tag/payload slots. The same nested slot
+representation now has narrow evidence for `Option<Result<int, int>>`
+construction, matching, helper parameters, helper returns, forwarded helper
+values, and inline
 `Some(Ok(...))`, `Some(Err(...))`, and outer `None` helper arguments.
 The row remains partial because direct-native codegen still does not provide a
 general `Option<T>` ABI across broader payload shapes, deeper nested option or
@@ -729,6 +729,9 @@ exist in the host process. The same runtime env lookup can now be stored in a
 local `Option<string>` and matched later for supported `len(value)` expression
 and statement matches, including known-concatenated keys and helper-local
 lookups, without capturing the compiler process environment.
+Helper-local present and missing env lookups over static keys also lower through
+the same native runtime environment path and return through direct-native helper
+calls.
 Broader runtime environment binding, stored string value materialization beyond
 length projection, and dynamic-key allowlist handling remain open under #1001.
 
@@ -797,7 +800,10 @@ locals and the process exit status. It also covers `match` statements that
 assign scalar and bool locals from `Ok`/`Err` arms. Those Result helper
 parameters lower across direct-native function-call boundaries as explicit
 tag/payload ABI slots for local values and inline `Ok`/`Err` arguments without
-generated Rust. The direct-native path also has narrow evidence for
+generated Rust. The public result helper stdout smoke also asserts
+`generated_rust: null` while helper-returned `Result<int, int>` and
+`Result<bool, bool>` values feed native scalar and boolean stdout projections.
+The direct-native path also has narrow evidence for
 `Result<(int, bool), int>` and `Result<(int, bool), (int, bool)>` `Ok`/`Err`
 construction, reassignment, matching, and helper parameters for local values and
 inline `Ok`/`Err` arguments represented as a tag plus multiple payload slots.
@@ -814,11 +820,11 @@ field-order payload slots. Existing narrow `Result<Step, Step>` locals can now
 be reassigned from result helper returns using the same tag/payload slots,
 including inside runtime branch blocks. The nested option payload slice now also
 has narrow direct-native evidence for `Result<Option<int>, int>` construction,
-reassignment, matching, helper parameters, helper returns, forwarded helper
-values, and inline `Ok(Some(...))`, `Ok(None)`, and `Err(...)` helper arguments.
-The recursive result payload slice now also has narrow evidence for
-`Result<Result<int, int>, int>` construction, reassignment, matching, helper
-parameters, helper returns, forwarded helper values, and inline `Ok(Ok(...))`,
+matching, helper parameters, helper returns, forwarded helper values, and inline
+`Ok(Some(...))`, `Ok(None)`, and `Err(...)` helper arguments. The recursive
+result payload slice now also has narrow evidence for `Result<Result<int, int>,
+int>` construction, matching, helper parameters, helper returns, forwarded
+helper values, and inline `Ok(Ok(...))`,
 `Ok(Err(...))`, and outer `Err(...)` helper arguments.
 Broader Result ABI support, the full numeric-width matrix, additional aggregate
 payload shapes, and capability-shim coverage remain tracked by issue #1001.
@@ -1033,14 +1039,27 @@ null. The direct-native i64 path now also lowers literal and static scalar
 process exit status without generated Rust. Negative durations return `-1`,
 bounded nonnegative durations call the native object backend's `usleep` import,
 and durations above the current 1000 ms direct-native cap return `-1` without
-sleeping. Imported public `std/time.ax` `sleep(duration_ms(...))` wrappers now
-alias that same deterministic path for literal, static scalar, and runtime
-scalar durations in runtime-exit programs. Those sleep paths now append host
-audit JSONL entries when `AXIOM_HOST_AUDIT_LOG` is set, recording only the
-integer argument type and the `ok`/`denied` outcome without recording duration
-values. Full clock values across the native ABI, timer scheduling, async clock
-integration, and broader positive-duration sleep policy remain open under
-#1001.
+sleeping. Primitive `clock_now_ms()` and `clock_elapsed_ms(start)` calls,
+imported public `std/time.ax` `now_ms()`, and public
+`elapsed_ms(Instant)` calls over inline `Instant.ms` scalar projections,
+including `elapsed_ms(now())`, now lower to native scalar values backed by the
+object backend's host `timespec_get` import and can feed direct-native
+comparisons and process exit status without generated Rust. The backend symbol
+regression asserts the generated object imports `timespec_get` and does not
+import the second-resolution host clock symbol, the deterministic backend
+lowering-boundary regression links the generated object against a `timespec_get`
+shim returning `7s + 456ms` and asserts `clock_now_ms()` observes `7456ms`, and
+the public runtime smoke requires a 10 ms sleep to report a positive elapsed
+value below one second. Imported public
+`std/time.ax` `sleep(duration_ms(...))` wrappers now alias that same
+deterministic path for literal, static scalar, and runtime scalar durations in
+runtime-exit programs.
+Those sleep paths now append host audit JSONL entries when
+`AXIOM_HOST_AUDIT_LOG` is set, recording only the integer argument type and the
+`ok`/`denied` outcome without recording duration values. Stored `Instant`
+aggregate locals, timer scheduling, async clock integration,
+monotonic/high-resolution clock policy, and broader positive-duration sleep
+policy remain open under #1001.
 
 
 
