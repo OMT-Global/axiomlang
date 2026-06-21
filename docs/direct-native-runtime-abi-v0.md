@@ -283,8 +283,10 @@ struct bindings, including runtime-scope loop-body bindings. Numeric fields can
 feed `int` and typed integer locals; boolean fields can feed bool locals, helper
 return conditions, and composed boolean conditions. The public struct-field
 smoke also asserts the Cranelift build JSON reports `generated_rust: null`
-while running scalar, boolean, and string field projection output. It also
-covers reassignment of scalar-projection struct locals. Scalar and bool struct
+while running scalar, boolean, and string field projection output, including
+caller-side scalar and boolean projections from direct, branch-selected, and
+forwarded struct helper returns. It also covers reassignment of
+scalar-projection struct locals. Scalar and bool struct
 helper parameters
 lower across direct-native function-call boundaries as one ABI slot per field
 in declared field order for local struct values and inline struct literal
@@ -653,8 +655,11 @@ fixed-array slots, including helper-parameter arrays feeding a direct-native
 process exit status. Static-range fixed-array slices also support narrow literal
 and dynamic indexing over the sliced window through the same projection slots,
 including pre-runtime slice locals that alias the projected fixed-array slots.
-Broader borrowed-slice aliasing, dynamic slice bounds, slice returns, and host
-ABI coverage remain tracked by issue #1001.
+The public borrowed-slice smoke also prints `len`, `first`, `last`, and indexed
+projection output for both a local slice and a helper-returned slice while
+asserting `generated_rust: null`. Broader borrowed-slice aliasing, dynamic
+slice bounds, slice returns, and host ABI coverage remain tracked by issue
+#1001.
 
 The map lookup row has partial direct-native evidence: the Cranelift spike now
 builds and runs direct map indexing, `get`, `get_or_default`,
