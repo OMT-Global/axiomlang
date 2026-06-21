@@ -2999,7 +2999,10 @@ fn cranelift_backend_builds_array_helpers_binary() {
         "cranelift array-helpers binary failed: stderr={}",
         String::from_utf8_lossy(&run.stderr)
     );
-    assert_eq!(String::from_utf8_lossy(&run.stdout), "3\n10\n30\n40\n");
+    assert_eq!(
+        String::from_utf8_lossy(&run.stdout),
+        "3\n10\n30\n40\n3\n10\n30\n40\n"
+    );
 }
 
 #[cfg(not(windows))]
@@ -5238,7 +5241,7 @@ fn cranelift_backend_lowers_bool_print_runtime_stdout_in_direct_native_main() {
         .output()
         .expect("run cranelift bool print stdio main binary");
     assert_eq!(run.status.code(), Some(13));
-    assert_eq!(String::from_utf8_lossy(&run.stdout), "true\ntrue\n");
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "true\ntrue\nfalse\n");
     assert_eq!(String::from_utf8_lossy(&run.stderr), "hello stderr\n");
 }
 
@@ -9421,7 +9424,7 @@ fn write_array_helpers_project(project: &Path) {
     .expect("write array-helpers lockfile");
     fs::write(
         project.join("src/main.ax"),
-        "let values: [int; 3] = [10, 20, 30]\nprint len(values)\nprint first(values)\nprint last(values)\nprint first(values) + last(values)\n",
+        "fn make_values(): [int; 3] {\nreturn [10, 20, 30]\n}\n\nlet values: [int; 3] = [10, 20, 30]\nlet returned: [int; 3] = make_values()\nprint len(values)\nprint first(values)\nprint last(values)\nprint first(values) + last(values)\nprint len(returned)\nprint first(returned)\nprint last(returned)\nprint first(returned) + last(returned)\n",
     )
     .expect("write array-helpers source");
 }
@@ -11331,6 +11334,7 @@ fn main(): int {
 let direct: int = eprintln("hello stderr")
 print direct > 0
 print direct == 13
+print direct == 0
 return direct
 }
 "#,
