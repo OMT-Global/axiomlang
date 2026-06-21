@@ -37,6 +37,16 @@ grep -Fq 'AXIOM_DIRECT_NATIVE_RUNTIME_ABI_STATUS' "$script" || {
   exit 1
 }
 
+grep -Fq 'AXIOM_DIRECT_NATIVE_RUNTIME_ABI_DRY_RUN' "$script" || {
+  echo "evidence runner must expose a dry-run mode for focused evidence planning" >&2
+  exit 1
+}
+
+grep -Fq 'dry-run:' "$script" || {
+  echo "evidence runner dry-run mode must print the resolved cargo commands" >&2
+  exit 1
+}
+
 grep -Fq -- '--evidence-row "$AXIOM_DIRECT_NATIVE_RUNTIME_ABI_ROW"' "$script" || {
   echo "evidence runner must resolve row-focused tests through the ABI checker" >&2
   exit 1
@@ -78,6 +88,23 @@ if AXIOM_DIRECT_NATIVE_RUNTIME_ABI_STATUS=blocked "$script" >"$temp_dir/blocked-
   exit 1
 fi
 grep -Fq 'direct native runtime ABI status has no tests: blocked' "$temp_dir/blocked-status.err"
+
+AXIOM_DIRECT_NATIVE_RUNTIME_ABI_DRY_RUN=1 \
+  AXIOM_DIRECT_NATIVE_RUNTIME_ABI_ROW=fs.read \
+  "$script" >"$temp_dir/row-dry-run.out"
+grep -Fq 'dry-run: cargo test --manifest-path stage1/Cargo.toml -p axiomc --test cranelift_backend cranelift_backend_lowers_fs_read_to_runtime_exit_code -- --nocapture --test-threads=1' "$temp_dir/row-dry-run.out"
+grep -Fq 'dry-run: cargo test --manifest-path stage1/Cargo.toml -p axiomc --lib cranelift_run_report_executes_without_generated_rust_artifact -- --nocapture' "$temp_dir/row-dry-run.out"
+
+AXIOM_DIRECT_NATIVE_RUNTIME_ABI_DRY_RUN=1 \
+  AXIOM_DIRECT_NATIVE_RUNTIME_ABI_STATUS=partial \
+  "$script" >"$temp_dir/partial-status-dry-run.out"
+grep -Fq 'cranelift_backend_lowers_option_int_match_to_runtime_exit_code' "$temp_dir/partial-status-dry-run.out"
+grep -Fq 'cranelift_backend_lowers_array_literal_index_to_runtime_exit_code' "$temp_dir/partial-status-dry-run.out"
+
+AXIOM_DIRECT_NATIVE_RUNTIME_ABI_DRY_RUN=1 \
+  AXIOM_DIRECT_NATIVE_RUNTIME_ABI_TEST_FILTER=cranelift_backend_lowers_i64_main_to_runtime_exit_code \
+  "$script" >"$temp_dir/test-filter-dry-run.out"
+grep -Fq 'dry-run: cargo test --manifest-path stage1/Cargo.toml -p axiomc --test cranelift_backend cranelift_backend_lowers_i64_main_to_runtime_exit_code -- --nocapture --test-threads=1' "$temp_dir/test-filter-dry-run.out"
 
 grep -Fq -- '--test-threads=1' "$script" || {
   echo "evidence runner must serialize localhost-backed Cranelift evidence tests" >&2

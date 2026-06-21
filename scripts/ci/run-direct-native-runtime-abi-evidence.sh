@@ -13,6 +13,11 @@ trap '[[ -z "${row_test_file:-}" ]] || rm -f "$row_test_file"; [[ -z "${row_list
 
 python3 scripts/ci/check-direct-native-runtime-abi.py --json
 
+dry_run=0
+if [[ -n "${AXIOM_DIRECT_NATIVE_RUNTIME_ABI_DRY_RUN:-}" ]]; then
+  dry_run=1
+fi
+
 selector_count=0
 for selector in \
   "${AXIOM_DIRECT_NATIVE_RUNTIME_ABI_ROW:-}" \
@@ -37,6 +42,17 @@ cranelift_cargo_base=(
   --test cranelift_backend
 )
 
+run_or_print() {
+  if ((dry_run)); then
+    printf 'dry-run:'
+    printf ' %q' "$@"
+    printf '\n'
+    return 0
+  fi
+
+  "$@"
+}
+
 if [[ -n "${AXIOM_DIRECT_NATIVE_RUNTIME_ABI_ROW:-}" ]]; then
   row_test_file="$target_dir/abi-row-tests-$$.txt"
   row_tests=()
@@ -54,7 +70,7 @@ if [[ -n "${AXIOM_DIRECT_NATIVE_RUNTIME_ABI_ROW:-}" ]]; then
   fi
 
   for row_test in "${row_tests[@]}"; do
-    "${cranelift_cargo_base[@]}" "$row_test" -- --nocapture --test-threads=1
+    run_or_print "${cranelift_cargo_base[@]}" "$row_test" -- --nocapture --test-threads=1
   done
 elif [[ -n "${AXIOM_DIRECT_NATIVE_RUNTIME_ABI_STATUS:-}" ]]; then
   row_test_file="$target_dir/abi-row-status-tests-$$.txt"
@@ -102,7 +118,7 @@ PY
   fi
 
   for row_test in "${row_tests[@]}"; do
-    "${cranelift_cargo_base[@]}" "$row_test" -- --nocapture --test-threads=1
+    run_or_print "${cranelift_cargo_base[@]}" "$row_test" -- --nocapture --test-threads=1
   done
 else
   cargo_args=("${cranelift_cargo_base[@]}")
@@ -113,14 +129,15 @@ else
 
   cargo_args+=(-- --nocapture --test-threads=1)
 
-  "${cargo_args[@]}"
+  run_or_print "${cargo_args[@]}"
 fi
 
 for command_evidence in \
   cranelift_run_report_executes_without_generated_rust_artifact \
   cranelift_test_case_executes_without_generated_rust_artifact
 do
-  cargo test \
+  run_or_print \
+    cargo test \
     --manifest-path stage1/Cargo.toml \
     -p axiomc \
     --lib \

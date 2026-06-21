@@ -364,12 +364,12 @@ helper parameters, helper returns, forwarded helper values, and inline
 slots. Existing narrow `Option<Step>` locals can now be reassigned from option
 helper returns using the same tag/payload slots, including inside runtime branch
 blocks. The direct-native path also has narrow evidence for nested
-`Option<Option<int>>` construction, matching, helper parameters, helper returns,
-forwarded helper values, and inline `Some(Some(...))`, `Some(None)`, and outer
-`None` helper arguments using nested tag/payload slots. The same nested slot
-representation now has narrow evidence for `Option<Result<int, int>>`
-construction, matching, helper parameters, helper returns, forwarded helper
-values, and inline
+`Option<Option<int>>` construction, reassignment, matching, helper parameters,
+helper returns, forwarded helper values, and inline `Some(Some(...))`,
+`Some(None)`, and outer `None` helper arguments using nested tag/payload slots.
+The same nested slot representation now has narrow evidence for
+`Option<Result<int, int>>` construction, reassignment, matching, helper
+parameters, helper returns, forwarded helper values, and inline
 `Some(Ok(...))`, `Some(Err(...))`, and outer `None` helper arguments.
 The row remains partial because direct-native codegen still does not provide a
 general `Option<T>` ABI across broader payload shapes, deeper nested option or
@@ -504,9 +504,7 @@ into length and comparison conditions that can feed a native process exit
 status without generated Rust. Supported runtime string-projection inputs can
 also feed fixed SHA-256 hex length projections directly or through
 `string_clone(...)` over a projection local without materializing a general
-runtime string value. Known-input SHA-256 hex length projections can also
-return through direct-native helper functions as integer values before feeding
-process exit status. Those direct-native SHA-256 length projections now append
+runtime string value. Those direct-native SHA-256 length projections now append
 best-effort host audit JSONL to `AXIOM_HOST_AUDIT_LOG`, recording only typed
 input metadata and outcome without recording input text or digest values.
 Random, signature, AEAD, dynamic runtime hash execution, and broader crypto
@@ -522,12 +520,10 @@ now also lowers known-input
 length and comparison conditions that can feed a native process exit status
 without generated Rust. Supported runtime string-projection inputs can also feed
 fixed HMAC hex length projections directly or through `string_clone(...)` over
-a projection local without materializing a general runtime string value.
-Known-input HMAC-SHA256 and HMAC-SHA512 hex length projections can also return
-through direct-native helper functions as integer values before feeding process
-exit status. Those direct-native HMAC length projections now append best-effort
-host audit JSONL to `AXIOM_HOST_AUDIT_LOG`, recording only typed input metadata
-and outcome without recording key, message, or tag values.
+a projection local without materializing a general runtime string value. Those
+direct-native HMAC length projections now append best-effort host audit JSONL
+to `AXIOM_HOST_AUDIT_LOG`, recording only typed input metadata and outcome
+without recording key, message, or tag values.
 Known-input `crypto_constant_time_eq(...)` over known string values lowers into native
 boolean conditions. It also lowers
 `crypto_constant_time_eq_u8(...)` over narrow fixed-array/static-slice `u8`
@@ -548,9 +544,8 @@ byte length cap. The direct-native i64 path now also lowers
 helper-derived scalar lengths through a native `0..=65536` bounds check into a
 runtime scratch-buffer fill from the Unix OS-random source, returning the
 requested length on success without materializing a general byte-array value.
-Runtime-derived negative and over-cap byte lengths now return the existing
-`-1` denial code and append denied host audit records while recording only the
-typed argument shape, not the runtime length value. Public `random_u64()` in the
+Dynamic length audit metadata records only the typed argument shape, not the
+runtime length value. Public `random_u64()` in the
 direct-native i64 path also reads eight bytes from the same Unix OS-random
 source at runtime and returns those bits through the native scalar path instead
 of embedding compiler-sampled bytes. Those native random reads append
@@ -679,7 +674,7 @@ line-push, and finish wrappers now alias known text facts that can feed
 direct-native string comparisons, length projections, and process exit status
 without generated Rust. Broader string ABI coverage, allocation behavior,
 general runtime string parameters and returns, non-literal storage, and
-host-boundary representation remain tracked by issue #1001.
+host-boundary representation remain tracked by issue #1124.
 
 The borrowed-slice row has partial direct-native evidence: the Cranelift spike
 evaluates array-backed borrowed slices through `len`, `first`, `last`, indexing,
@@ -695,7 +690,7 @@ The public borrowed-slice smoke also prints `len`, `first`, `last`, and indexed
 projection output for both a local slice and a helper-returned slice while
 asserting `generated_rust: null`. Broader borrowed-slice aliasing, dynamic
 slice bounds, slice returns, and host ABI coverage remain tracked by issue
-#1001.
+#1124.
 
 The map lookup row has partial direct-native evidence: the Cranelift spike now
 builds and runs direct map indexing, `get`, `get_or_default`,
@@ -734,13 +729,10 @@ direct-native process exit status. Trimmed dynamic key-array projection locals
 can also feed `string_starts_with(...)` predicates without materializing runtime
 strings. Direct indexes into known map literals can also feed known string facts
 for helper returns, length projections, and `string_starts_with(...)`
-conditions. Dynamic finite string-key projections from `keys(...)` over known
-map literals can now also feed public `std/collections.ax` `contains(...)` and
-`get_or_default(...)` wrappers by lowering the selected-key lookup to native
-candidate-key selection without generated Rust.
+conditions.
 Broader map ownership, runtime map storage, general payload lookup bindings,
-general `get(...)` Option payload selection for dynamic keys, key/value
-ownership, and host-boundary representation remain tracked by issue #1001.
+runtime key array value projection, and host-boundary representation remain
+tracked by issue #1124.
 
 The `env.read` row now has partial Cranelift evidence for `std/env.ax`
 `get_env` on present and missing environment names while the public smoke
@@ -830,10 +822,7 @@ locals and the process exit status. It also covers `match` statements that
 assign scalar and bool locals from `Ok`/`Err` arms. Those Result helper
 parameters lower across direct-native function-call boundaries as explicit
 tag/payload ABI slots for local values and inline `Ok`/`Err` arguments without
-generated Rust. The public result helper stdout smoke also asserts
-`generated_rust: null` while helper-returned `Result<int, int>` and
-`Result<bool, bool>` values feed native scalar and boolean stdout projections.
-The direct-native path also has narrow evidence for
+generated Rust. The direct-native path also has narrow evidence for
 `Result<(int, bool), int>` and `Result<(int, bool), (int, bool)>` `Ok`/`Err`
 construction, reassignment, matching, and helper parameters for local values and
 inline `Ok`/`Err` arguments represented as a tag plus multiple payload slots.
@@ -850,14 +839,14 @@ field-order payload slots. Existing narrow `Result<Step, Step>` locals can now
 be reassigned from result helper returns using the same tag/payload slots,
 including inside runtime branch blocks. The nested option payload slice now also
 has narrow direct-native evidence for `Result<Option<int>, int>` construction,
-matching, helper parameters, helper returns, forwarded helper values, and inline
-`Ok(Some(...))`, `Ok(None)`, and `Err(...)` helper arguments. The recursive
-result payload slice now also has narrow evidence for `Result<Result<int, int>,
-int>` construction, matching, helper parameters, helper returns, forwarded
-helper values, and inline `Ok(Ok(...))`,
+reassignment, matching, helper parameters, helper returns, forwarded helper
+values, and inline `Ok(Some(...))`, `Ok(None)`, and `Err(...)` helper arguments.
+The recursive result payload slice now also has narrow evidence for
+`Result<Result<int, int>, int>` construction, reassignment, matching, helper
+parameters, helper returns, forwarded helper values, and inline `Ok(Ok(...))`,
 `Ok(Err(...))`, and outer `Err(...)` helper arguments.
 Broader Result ABI support, the full numeric-width matrix, additional aggregate
-payload shapes, and capability-shim coverage remain tracked by issue #1001.
+payload shapes, and capability-shim coverage remain tracked by issue #1124.
 
 The `enum.payload` row now has narrow direct-native runtime evidence for local
 custom enum construction, reassignment, value-producing matches, and statement
@@ -880,7 +869,7 @@ carrying nested `Option<Result<int, int>>` and `Result<Option<int>, int>` values
 including runtime-scope literal construction, reassignment, value-producing
 matches, helper returns, forwarded helper values, and inline nested variant
 arguments. Broader enum ABI support, deeper nested payload shapes, and aggregate
-payload storage beyond the evidenced slices remain tracked by issue #1001.
+payload storage beyond the evidenced slices remain tracked by issue #1124.
 
 The `json.serdes` row has expanded partial direct-native evidence: the
 Cranelift spike now builds and runs `std/json.ax` scalar/object helpers and
@@ -1071,27 +1060,14 @@ null. The direct-native i64 path now also lowers literal and static scalar
 process exit status without generated Rust. Negative durations return `-1`,
 bounded nonnegative durations call the native object backend's `usleep` import,
 and durations above the current 1000 ms direct-native cap return `-1` without
-sleeping. Primitive `clock_now_ms()` and `clock_elapsed_ms(start)` calls,
-imported public `std/time.ax` `now_ms()`, and public
-`elapsed_ms(Instant)` calls over inline `Instant.ms` scalar projections,
-including `elapsed_ms(now())`, now lower to native scalar values backed by the
-object backend's host `timespec_get` import and can feed direct-native
-comparisons and process exit status without generated Rust. The backend symbol
-regression asserts the generated object imports `timespec_get` and does not
-import the second-resolution host clock symbol, the deterministic backend
-lowering-boundary regression links the generated object against a `timespec_get`
-shim returning `7s + 456ms` and asserts `clock_now_ms()` observes `7456ms`, and
-the public runtime smoke requires a 10 ms sleep to report a positive elapsed
-value below one second. Imported public
-`std/time.ax` `sleep(duration_ms(...))` wrappers now alias that same
-deterministic path for literal, static scalar, and runtime scalar durations in
-runtime-exit programs.
-Those sleep paths now append host audit JSONL entries when
-`AXIOM_HOST_AUDIT_LOG` is set, recording only the integer argument type and the
-`ok`/`denied` outcome without recording duration values. Stored `Instant`
-aggregate locals, timer scheduling, async clock integration,
-monotonic/high-resolution clock policy, and broader positive-duration sleep
-policy remain open under #1001.
+sleeping. Imported public `std/time.ax` `sleep(duration_ms(...))` wrappers now
+alias that same deterministic path for literal, static scalar, and runtime
+scalar durations in runtime-exit programs. Those sleep paths now append host
+audit JSONL entries when `AXIOM_HOST_AUDIT_LOG` is set, recording only the
+integer argument type and the `ok`/`denied` outcome without recording duration
+values. Full clock values across the native ABI, timer scheduling, async clock
+integration, and broader positive-duration sleep policy remain open under
+#1001.
 
 
 

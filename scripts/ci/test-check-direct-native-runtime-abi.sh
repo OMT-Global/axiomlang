@@ -55,7 +55,7 @@ assert "network.http.async_server" not in report["incomplete_rows"]
 assert "network.tcp" not in report["incomplete_rows"]
 assert "network.udp" not in report["incomplete_rows"]
 assert "async.runtime" not in report["incomplete_rows"]
-assert report["blocker_issues"] == [1001]
+assert report["blocker_issues"] == [1124]
 assert report["errors"] == []
 PY
 
@@ -76,13 +76,13 @@ assert report["capability_shim_count"] == 22
 assert len(report["rows"]) == 34
 assert report["status_counts"]["value_features"]["implemented"] == 1
 assert report["status_counts"]["capability_shims"]["implemented"] == 22
-assert report["blocker_issues"] == [1001]
+assert report["blocker_issues"] == [1124]
 assert report["errors"] == []
 
 rows = {row["row_id"]: row for row in report["rows"]}
 assert rows["option"]["group"] == "value_features"
 assert rows["option"]["status"] == "partial"
-assert rows["option"]["blockers"] == [1001]
+assert rows["option"]["blockers"] == [1124]
 assert rows["option"]["test_count"] >= 1
 assert "cranelift_backend_lowers_option_int_match_to_runtime_exit_code" in rows["option"]["tests"]
 assert "stage1/crates/axiomc/tests/cranelift_backend.rs" in rows["option"]["evidence"]
@@ -101,7 +101,7 @@ PY
 python3 "$script" --contract "$contract" --list-evidence-rows >"$temp_dir/row-list.txt"
 grep -Fq "value_features option partial" "$temp_dir/row-list.txt"
 grep -Fq "capability_shims fs.read implemented" "$temp_dir/row-list.txt"
-grep -Fq "blockers=#1001" "$temp_dir/row-list.txt"
+grep -Fq "blockers=#1124" "$temp_dir/row-list.txt"
 grep -Fq "blockers=-" "$temp_dir/row-list.txt"
 
 if python3 "$script" --contract "$contract" --list-evidence-rows --evidence-row fs.read >"$temp_dir/row-list-conflict.txt" 2>"$temp_dir/row-list-conflict.err"; then
@@ -126,7 +126,7 @@ assert report["schema"] == "axiom.direct_native.runtime_abi.evidence_row.v1"
 assert report["row_id"] == "option"
 assert report["group"] == "value_features"
 assert report["status"] == "partial"
-assert report["blockers"] == [1001]
+assert report["blockers"] == [1124]
 assert "stage1/crates/axiomc/tests/cranelift_backend.rs" in report["evidence"]
 assert "stage1/crates/axiomc/src/cranelift_backend.rs" in report["runtime_evidence"]
 assert "stage1/crates/axiomc-backend-cranelift/src/lib.rs" in report["runtime_evidence"]
@@ -366,7 +366,7 @@ with open(sys.argv[1], encoding="utf-8") as handle:
     contract = json.load(handle)
 
 contract["value_features"][0]["status"] = "implemented"
-contract["value_features"][0]["blockers"] = [1001]
+contract["value_features"][0]["blockers"] = [1124]
 contract["value_features"][0]["runtime_evidence"] = [
     "stage1/crates/axiomc/tests/cranelift_backend.rs"
 ]
