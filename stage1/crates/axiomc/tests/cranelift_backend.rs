@@ -5136,15 +5136,15 @@ fn cranelift_backend_lowers_static_bool_map_keys_to_runtime_exit_code() {
 
 #[cfg(not(windows))]
 #[test]
-fn cranelift_backend_lowers_std_collection_wrappers_to_runtime_exit_code() {
+fn cranelift_backend_lowers_tuple_map_keys_to_runtime_exit_code() {
     if which::which("cc").is_err() {
         eprintln!("skipping cranelift backend smoke test because cc is unavailable");
         return;
     }
 
     let temp = tempfile::tempdir().expect("tempdir");
-    let project = temp.path().join("std-collection-wrapper-main-exit");
-    write_std_collection_wrapper_main_exit_project(&project);
+    let project = temp.path().join("tuple-map-keys-main-exit");
+    write_tuple_map_keys_main_exit_project(&project);
 
     let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
         .args([
@@ -5158,7 +5158,7 @@ fn cranelift_backend_lowers_std_collection_wrappers_to_runtime_exit_code() {
         .expect("run axiomc build --backend cranelift");
     assert!(
         output.status.success(),
-        "cranelift std collection wrapper main build failed: stdout={} stderr={}",
+        "cranelift tuple map keys main build failed: stdout={} stderr={}",
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
@@ -5168,11 +5168,93 @@ fn cranelift_backend_lowers_std_collection_wrappers_to_runtime_exit_code() {
     assert_eq!(payload["generated_rust"], Value::Null);
     let binary = payload["binary"].as_str().expect("binary path");
     let run = Command::new(binary)
+        .output()
+        .expect("run cranelift tuple map keys main binary");
+    assert_eq!(run.status.code(), Some(48));
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "");
+}
+
+#[cfg(not(windows))]
+#[test]
+fn cranelift_backend_lowers_std_collection_wrappers_to_runtime_exit_code() {
+    if which::which("cc").is_err() {
+        eprintln!("skipping cranelift backend smoke test because cc is unavailable");
+        return;
+    }
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let string_project = temp.path().join("std-collection-wrapper-main-exit");
+    write_std_collection_wrapper_main_exit_project(&string_project);
+
+    let string_output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args([
+            "build",
+            string_project.to_str().expect("project path"),
+            "--backend",
+            "cranelift",
+            "--json",
+        ])
+        .output()
+        .expect("run axiomc build --backend cranelift");
+    assert!(
+        string_output.status.success(),
+        "cranelift std collection wrapper main build failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&string_output.stdout),
+        String::from_utf8_lossy(&string_output.stderr)
+    );
+
+    let string_payload: Value =
+        serde_json::from_slice(&string_output.stdout).expect("parse build JSON");
+    assert_eq!(string_payload["backend"], "cranelift");
+    assert_eq!(string_payload["generated_rust"], Value::Null);
+    let string_binary = string_payload["binary"].as_str().expect("binary path");
+    let string_run = Command::new(string_binary)
         .env("AXIOM_CRANELIFT_DYNAMIC_KEY_INDEX", "deploy")
         .output()
         .expect("run cranelift std collection wrapper main binary");
-    assert_eq!(run.status.code(), Some(48));
-    assert_eq!(String::from_utf8_lossy(&run.stdout), "");
+    assert_eq!(string_run.status.code(), Some(48));
+    assert_eq!(String::from_utf8_lossy(&string_run.stdout), "");
+}
+
+#[cfg(not(windows))]
+#[test]
+fn cranelift_backend_lowers_bool_std_collection_wrappers_to_runtime_exit_code() {
+    if which::which("cc").is_err() {
+        eprintln!("skipping cranelift backend smoke test because cc is unavailable");
+        return;
+    }
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let bool_project = temp.path().join("bool-std-collection-wrapper-main-exit");
+    write_bool_collection_wrapper_main_exit_project(&bool_project);
+
+    let bool_output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args([
+            "build",
+            bool_project.to_str().expect("project path"),
+            "--backend",
+            "cranelift",
+            "--json",
+        ])
+        .output()
+        .expect("run axiomc build --backend cranelift");
+    assert!(
+        bool_output.status.success(),
+        "cranelift bool std collection wrapper main build failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&bool_output.stdout),
+        String::from_utf8_lossy(&bool_output.stderr)
+    );
+
+    let bool_payload: Value =
+        serde_json::from_slice(&bool_output.stdout).expect("parse build JSON");
+    assert_eq!(bool_payload["backend"], "cranelift");
+    assert_eq!(bool_payload["generated_rust"], Value::Null);
+    let bool_binary = bool_payload["binary"].as_str().expect("binary path");
+    let bool_run = Command::new(bool_binary)
+        .output()
+        .expect("run cranelift bool std collection wrapper main binary");
+    assert_eq!(bool_run.status.code(), Some(48));
+    assert_eq!(String::from_utf8_lossy(&bool_run.stdout), "");
 }
 
 #[cfg(not(windows))]
@@ -12366,6 +12448,25 @@ fn write_static_bool_map_keys_main_exit_project(project: &Path) {
     .expect("write static bool map keys source");
 }
 
+fn write_tuple_map_keys_main_exit_project(project: &Path) {
+    fs::create_dir_all(project.join("src")).expect("create tuple map keys project src");
+    fs::write(
+        project.join("axiom.toml"),
+        "[package]\nname = \"cranelift-tuple-map-keys-main-exit\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n",
+    )
+    .expect("write tuple map keys manifest");
+    fs::write(
+        project.join("axiom.lock"),
+        "version = 1\n\n[[package]]\nname = \"cranelift-tuple-map-keys-main-exit\"\nversion = \"0.1.0\"\nsource = \"path\"\n",
+    )
+    .expect("write tuple map keys lockfile");
+    fs::write(
+        project.join("src/main.ax"),
+        "import \"std/collections.ax\"\n\nstatic STATIC_KEY_ID: int = 1\nstatic STATIC_READY: bool = true\n\nfn choose_tuple_key_index(found: bool): int {\nif found {\nreturn 1\n} else {\nreturn 0\n}\n}\n\nfn main(): int {\nlet tuple_hit: int = get_or_default<(int, bool), int>({(1, true): 29, (2, false): 7}, (1, true), 13)\nlet tuple_miss: int = get_or_default<(int, bool), int>({(1, true): 29}, (2, false), 13)\nlet tuple_contains: bool = map_contains_key<(int, bool), int>({(1, true): 29, (2, false): 7}, (2, false))\nlet tuple_missing: bool = map_contains_key<(int, bool), int>({(1, true): 29}, (2, false)) == false\nlet tuple_get_hit: int = match get<(int, bool), int>({(1, true): 29, (2, false): 7}, (2, false)) { Some(value) => value, None => 1 }\nlet tuple_get_miss: int = match get<(int, bool), int>({(1, true): 29}, (2, false)) { Some(value) => value, None => 13 }\nlet duplicate_hit: int = get_or_default<(int, bool), int>({(1, true): 7, (1, true): 11}, (1, true), 13)\nlet stored_scores: {(int, bool): int} = {(1, true): 29, (2, false): 7}\nlet stored_direct: int = stored_scores[(1, true)]\nlet static_hit: int = get_or_default<(int, bool), int>({(STATIC_KEY_ID, STATIC_READY): 48}, (STATIC_KEY_ID, STATIC_READY), 13)\nlet wrapper_contains_scores: {(int, bool): int} = {(1, true): 29, (2, false): 7}\nlet wrapper_contains: bool = contains<(int, bool), int>(wrapper_contains_scores, (2, false))\nlet wrapper_hit_scores: {(int, bool): int} = {(1, true): 29, (2, false): 7}\nlet wrapper_hit: int = match get<(int, bool), int>(wrapper_hit_scores, (1, true)) { Some(value) => value, None => 1 }\nlet wrapper_miss_scores: {(int, bool): int} = {(1, true): 29, (2, false): 7}\nlet wrapper_miss: int = match get<(int, bool), int>(wrapper_miss_scores, (3, true)) { Some(value) => value, None => 13 }\nlet wrapper_default_scores: {(int, bool): int} = {(1, true): 29, (2, false): 7}\nlet wrapper_default: int = get_or_default<(int, bool), int>(wrapper_default_scores, (3, true), 13)\nlet wrapper_key_scores: {(int, bool): int} = {(1, true): 29, (2, false): 7}\nlet wrapper_keys: [(int, bool)] = keys<(int, bool), int>(wrapper_key_scores)\nlet wrapper_selected_index: int = choose_tuple_key_index(wrapper_contains)\nlet wrapper_selected_id: int = wrapper_keys[wrapper_selected_index].0\nlet wrapper_selected_ready: bool = wrapper_keys[wrapper_selected_index].1\nlet tuple_key_scores: {(int, bool): int} = {(1, true): 29, (2, false): 7}\nlet tuple_keys: [(int, bool)] = keys<(int, bool), int>(tuple_key_scores)\nlet first_tuple_key_id: int = tuple_keys[0].0\nlet first_tuple_key_ready: bool = tuple_keys[0].1\nlet selected_tuple_key_index: int = choose_tuple_key_index(tuple_contains)\nlet selected_tuple_key_id: int = tuple_keys[selected_tuple_key_index].0\nlet selected_tuple_key_ready: bool = tuple_keys[selected_tuple_key_index].1\nif tuple_hit == 29 && tuple_miss == 13 && tuple_contains && tuple_missing && tuple_get_hit == 7 && tuple_get_miss == 13 && duplicate_hit == 11 && stored_direct == 29 && static_hit == 48 && wrapper_contains && wrapper_hit == 29 && wrapper_miss == 13 && wrapper_default == 13 && wrapper_selected_id == 2 && wrapper_selected_ready == false && first_tuple_key_id == 1 && first_tuple_key_ready && selected_tuple_key_id == 2 && selected_tuple_key_ready == false {\nreturn static_hit\n} else {\nreturn 1\n}\n}\n",
+    )
+    .expect("write tuple map keys source");
+}
+
 fn write_std_collection_lookup_project(project: &Path) {
     fs::create_dir_all(project.join("src")).expect("create collection lookup project src");
     fs::write(
@@ -12504,6 +12605,61 @@ return 1
 "#,
     )
     .expect("write std collection wrapper main source");
+}
+
+fn write_bool_collection_wrapper_main_exit_project(project: &Path) {
+    fs::create_dir_all(project.join("src"))
+        .expect("create bool std collection wrapper main project src");
+    fs::write(
+        project.join("axiom.toml"),
+        "[package]\nname = \"cranelift-bool-std-collection-wrapper-main-exit\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n",
+    )
+    .expect("write bool std collection wrapper main manifest");
+    fs::write(
+        project.join("axiom.lock"),
+        "version = 1\n\n[[package]]\nname = \"cranelift-bool-std-collection-wrapper-main-exit\"\nversion = \"0.1.0\"\nsource = \"path\"\n",
+    )
+    .expect("write bool std collection wrapper main lockfile");
+    fs::write(
+        project.join("src/main.ax"),
+        r#"import "std/collections.ax"
+
+fn choose_bool_index(found: bool): int {
+if found {
+return 1
+} else {
+return 0
+}
+}
+
+fn main(): int {
+let contains_scores: {bool: int} = {false: 7, true: 29}
+let contains_hit: bool = contains<bool, int>(contains_scores, true)
+let contains_miss_scores: {bool: int} = {true: 29}
+let contains_miss: bool = contains<bool, int>(contains_miss_scores, false) == false
+let get_hit_scores: {bool: int} = {false: 7, true: 29}
+let get_hit_code: int = match get<bool, int>(get_hit_scores, true) { Some(value) => value, None => 1 }
+let get_miss_scores: {bool: int} = {true: 29}
+let get_miss_code: int = match get<bool, int>(get_miss_scores, false) { Some(value) => value, None => 13 }
+let fallback_scores: {bool: int} = {true: 29}
+let fallback: int = get_or_default<bool, int>(fallback_scores, false, 13)
+let bool_value_scores: {bool: bool} = {false: false, true: true}
+let bool_value_hit: bool = match get<bool, bool>(bool_value_scores, true) { Some(value) => value, None => false }
+let bool_key_scores: {bool: int} = {false: 7, true: 29}
+let bool_key_names: [bool] = keys<bool, int>(bool_key_scores)
+let bool_key_count: int = len(bool_key_names)
+let first_bool_key_missing: bool = bool_key_names[0] == false
+let selected_bool_key_index: int = choose_bool_index(contains_hit)
+let selected_bool_key: bool = bool_key_names[selected_bool_key_index]
+if contains_hit && contains_miss && get_hit_code == 29 && get_miss_code == 13 && fallback == 13 && bool_value_hit && bool_key_count == 2 && first_bool_key_missing && selected_bool_key {
+return 48
+} else {
+return 1
+}
+}
+"#,
+    )
+    .expect("write bool std collection wrapper main source");
 }
 
 fn write_net_resolve_project(project: &Path) {
