@@ -328,12 +328,12 @@ helper parameters, helper returns, forwarded helper values, and inline
 slots. Existing narrow `Option<Step>` locals can now be reassigned from option
 helper returns using the same tag/payload slots, including inside runtime branch
 blocks. The direct-native path also has narrow evidence for nested
-`Option<Option<int>>` construction, reassignment, matching, helper parameters,
-helper returns, forwarded helper values, and inline `Some(Some(...))`,
-`Some(None)`, and outer `None` helper arguments using nested tag/payload slots.
-The same nested slot representation now has narrow evidence for
-`Option<Result<int, int>>` construction, reassignment, matching, helper
-parameters, helper returns, forwarded helper values, and inline
+`Option<Option<int>>` construction, matching, helper parameters, helper returns,
+forwarded helper values, and inline `Some(Some(...))`, `Some(None)`, and outer
+`None` helper arguments using nested tag/payload slots. The same nested slot
+representation now has narrow evidence for `Option<Result<int, int>>`
+construction, matching, helper parameters, helper returns, forwarded helper
+values, and inline
 `Some(Ok(...))`, `Some(Err(...))`, and outer `None` helper arguments.
 The row remains partial because direct-native codegen still does not provide a
 general `Option<T>` ABI across broader payload shapes, deeper nested option or
@@ -795,7 +795,10 @@ locals and the process exit status. It also covers `match` statements that
 assign scalar and bool locals from `Ok`/`Err` arms. Those Result helper
 parameters lower across direct-native function-call boundaries as explicit
 tag/payload ABI slots for local values and inline `Ok`/`Err` arguments without
-generated Rust. The direct-native path also has narrow evidence for
+generated Rust. The public result helper stdout smoke also asserts
+`generated_rust: null` while helper-returned `Result<int, int>` and
+`Result<bool, bool>` values feed native scalar and boolean stdout projections.
+The direct-native path also has narrow evidence for
 `Result<(int, bool), int>` and `Result<(int, bool), (int, bool)>` `Ok`/`Err`
 construction, reassignment, matching, and helper parameters for local values and
 inline `Ok`/`Err` arguments represented as a tag plus multiple payload slots.
@@ -812,11 +815,11 @@ field-order payload slots. Existing narrow `Result<Step, Step>` locals can now
 be reassigned from result helper returns using the same tag/payload slots,
 including inside runtime branch blocks. The nested option payload slice now also
 has narrow direct-native evidence for `Result<Option<int>, int>` construction,
-reassignment, matching, helper parameters, helper returns, forwarded helper
-values, and inline `Ok(Some(...))`, `Ok(None)`, and `Err(...)` helper arguments.
-The recursive result payload slice now also has narrow evidence for
-`Result<Result<int, int>, int>` construction, reassignment, matching, helper
-parameters, helper returns, forwarded helper values, and inline `Ok(Ok(...))`,
+matching, helper parameters, helper returns, forwarded helper values, and inline
+`Ok(Some(...))`, `Ok(None)`, and `Err(...)` helper arguments. The recursive
+result payload slice now also has narrow evidence for `Result<Result<int, int>,
+int>` construction, matching, helper parameters, helper returns, forwarded
+helper values, and inline `Ok(Ok(...))`,
 `Ok(Err(...))`, and outer `Err(...)` helper arguments.
 Broader Result ABI support, the full numeric-width matrix, additional aggregate
 payload shapes, and capability-shim coverage remain tracked by issue #1001.
