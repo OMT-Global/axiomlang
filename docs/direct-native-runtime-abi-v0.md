@@ -473,7 +473,9 @@ into length and comparison conditions that can feed a native process exit
 status without generated Rust. Supported runtime string-projection inputs can
 also feed fixed SHA-256 hex length projections directly or through
 `string_clone(...)` over a projection local without materializing a general
-runtime string value. Those direct-native SHA-256 length projections now append
+runtime string value. Known-input SHA-256 hex length projections can also
+return through direct-native helper functions as integer values before feeding
+process exit status. Those direct-native SHA-256 length projections now append
 best-effort host audit JSONL to `AXIOM_HOST_AUDIT_LOG`, recording only typed
 input metadata and outcome without recording input text or digest values.
 Random, signature, AEAD, dynamic runtime hash execution, and broader crypto
@@ -489,10 +491,12 @@ now also lowers known-input
 length and comparison conditions that can feed a native process exit status
 without generated Rust. Supported runtime string-projection inputs can also feed
 fixed HMAC hex length projections directly or through `string_clone(...)` over
-a projection local without materializing a general runtime string value. Those
-direct-native HMAC length projections now append best-effort host audit JSONL
-to `AXIOM_HOST_AUDIT_LOG`, recording only typed input metadata and outcome
-without recording key, message, or tag values.
+a projection local without materializing a general runtime string value.
+Known-input HMAC-SHA256 and HMAC-SHA512 hex length projections can also return
+through direct-native helper functions as integer values before feeding process
+exit status. Those direct-native HMAC length projections now append best-effort
+host audit JSONL to `AXIOM_HOST_AUDIT_LOG`, recording only typed input metadata
+and outcome without recording key, message, or tag values.
 Known-input `crypto_constant_time_eq(...)` over known string values lowers into native
 boolean conditions. It also lowers
 `crypto_constant_time_eq_u8(...)` over narrow fixed-array/static-slice `u8`
