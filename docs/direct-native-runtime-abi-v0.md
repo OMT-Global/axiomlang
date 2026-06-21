@@ -473,7 +473,9 @@ into length and comparison conditions that can feed a native process exit
 status without generated Rust. Supported runtime string-projection inputs can
 also feed fixed SHA-256 hex length projections directly or through
 `string_clone(...)` over a projection local without materializing a general
-runtime string value. Those direct-native SHA-256 length projections now append
+runtime string value. Known-input SHA-256 hex length projections can also
+return through direct-native helper functions as integer values before feeding
+process exit status. Those direct-native SHA-256 length projections now append
 best-effort host audit JSONL to `AXIOM_HOST_AUDIT_LOG`, recording only typed
 input metadata and outcome without recording input text or digest values.
 Random, signature, AEAD, dynamic runtime hash execution, and broader crypto
@@ -489,10 +491,12 @@ now also lowers known-input
 length and comparison conditions that can feed a native process exit status
 without generated Rust. Supported runtime string-projection inputs can also feed
 fixed HMAC hex length projections directly or through `string_clone(...)` over
-a projection local without materializing a general runtime string value. Those
-direct-native HMAC length projections now append best-effort host audit JSONL
-to `AXIOM_HOST_AUDIT_LOG`, recording only typed input metadata and outcome
-without recording key, message, or tag values.
+a projection local without materializing a general runtime string value.
+Known-input HMAC-SHA256 and HMAC-SHA512 hex length projections can also return
+through direct-native helper functions as integer values before feeding process
+exit status. Those direct-native HMAC length projections now append best-effort
+host audit JSONL to `AXIOM_HOST_AUDIT_LOG`, recording only typed input metadata
+and outcome without recording key, message, or tag values.
 Known-input `crypto_constant_time_eq(...)` over known string values lowers into native
 boolean conditions. It also lowers
 `crypto_constant_time_eq_u8(...)` over narrow fixed-array/static-slice `u8`
@@ -513,8 +517,9 @@ byte length cap. The direct-native i64 path now also lowers
 helper-derived scalar lengths through a native `0..=65536` bounds check into a
 runtime scratch-buffer fill from the Unix OS-random source, returning the
 requested length on success without materializing a general byte-array value.
-Dynamic length audit metadata records only the typed argument shape, not the
-runtime length value. Public `random_u64()` in the
+Runtime-derived negative and over-cap byte lengths now return the existing
+`-1` denial code and append denied host audit records while recording only the
+typed argument shape, not the runtime length value. Public `random_u64()` in the
 direct-native i64 path also reads eight bytes from the same Unix OS-random
 source at runtime and returns those bits through the native scalar path instead
 of embedding compiler-sampled bytes. Those native random reads append
@@ -698,10 +703,13 @@ direct-native process exit status. Trimmed dynamic key-array projection locals
 can also feed `string_starts_with(...)` predicates without materializing runtime
 strings. Direct indexes into known map literals can also feed known string facts
 for helper returns, length projections, and `string_starts_with(...)`
-conditions.
+conditions. Dynamic finite string-key projections from `keys(...)` over known
+map literals can now also feed public `std/collections.ax` `contains(...)` and
+`get_or_default(...)` wrappers by lowering the selected-key lookup to native
+candidate-key selection without generated Rust.
 Broader map ownership, runtime map storage, general payload lookup bindings,
-runtime key array value projection, and host-boundary representation remain
-tracked by issue #1001.
+general `get(...)` Option payload selection for dynamic keys, key/value
+ownership, and host-boundary representation remain tracked by issue #1001.
 
 The `env.read` row now has partial Cranelift evidence for `std/env.ax`
 `get_env` on present and missing environment names while the public smoke
