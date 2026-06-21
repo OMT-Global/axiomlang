@@ -185,6 +185,37 @@ def evidence_summary(rows: object) -> dict[str, int]:
     return summary
 
 
+def empty_report(*, errors: list[str]) -> dict[str, Any]:
+    return {
+        "schema": "axiom.direct_native.runtime_abi.check.v1",
+        "ready": False,
+        "target_id": None,
+        "contract_status": None,
+        "status_counts": {
+            "value_features": {status: 0 for status in sorted(VALID_STATUSES)},
+            "capability_shims": {status: 0 for status in sorted(VALID_STATUSES)},
+        },
+        "value_feature_count": 0,
+        "capability_shim_count": 0,
+        "incomplete_rows": [],
+        "incomplete_rows_by_group": {
+            "value_features": [],
+            "capability_shims": [],
+        },
+        "blocked_rows": [],
+        "blocked_rows_by_group": {
+            "value_features": [],
+            "capability_shims": [],
+        },
+        "blocker_issues": [],
+        "evidence_summary": {
+            "value_features": evidence_summary(None),
+            "capability_shims": evidence_summary(None),
+        },
+        "errors": errors,
+    }
+
+
 def validate_denial_applicability(
     row: dict[str, Any],
     row_id: str,
@@ -342,34 +373,7 @@ def main() -> int:
     try:
         contract = load_contract(args.contract)
     except (OSError, ValueError, json.JSONDecodeError) as error:
-        report = {
-            "schema": "axiom.direct_native.runtime_abi.check.v1",
-            "ready": False,
-            "target_id": None,
-            "contract_status": None,
-            "status_counts": {
-                "value_features": {status: 0 for status in sorted(VALID_STATUSES)},
-                "capability_shims": {status: 0 for status in sorted(VALID_STATUSES)},
-            },
-            "value_feature_count": 0,
-            "capability_shim_count": 0,
-            "incomplete_rows": [],
-            "incomplete_rows_by_group": {
-                "value_features": [],
-                "capability_shims": [],
-            },
-            "blocked_rows": [],
-            "blocked_rows_by_group": {
-                "value_features": [],
-                "capability_shims": [],
-            },
-            "blocker_issues": [],
-            "evidence_summary": {
-                "value_features": evidence_summary(None),
-                "capability_shims": evidence_summary(None),
-            },
-            "errors": [str(error)],
-        }
+        report = empty_report(errors=[str(error)])
         if args.json:
             print(json.dumps(report, indent=2))
         else:
