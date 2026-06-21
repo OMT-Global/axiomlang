@@ -5425,6 +5425,75 @@ mod tests {
     }
 
     #[test]
+    fn clock_now_ms_reads_timespec_nanoseconds_at_lowering_boundary() {
+        if std::env::var_os("AXIOM_SKIP_CRANELIFT_LINK_TEST").is_some() {
+            return;
+        }
+        if Command::new("cc").arg("--version").output().is_err() {
+            eprintln!("skipping cranelift link test because cc is unavailable");
+            return;
+        }
+        let temp = tempfile::tempdir().expect("tempdir");
+        let object = temp.path().join("i64-exit-clock-now-shim.o");
+        let binary = temp.path().join("i64-exit-clock-now-shim");
+        let shim = temp.path().join("timespec_get_shim.c");
+        fs::write(
+            &shim,
+            r#"#include <time.h>
+
+#ifndef TIME_UTC
+#define TIME_UTC 1
+#endif
+
+int timespec_get(struct timespec *ts, int base) {
+    if (base != TIME_UTC) {
+        return 0;
+    }
+    ts->tv_sec = 7;
+    ts->tv_nsec = 456000000L;
+    return TIME_UTC;
+}
+"#,
+        )
+        .expect("write deterministic timespec_get shim");
+        emit_i64_exit_object(
+            I64ExitProgram {
+                functions: Vec::new(),
+                locals: Vec::new(),
+                stmts: Vec::new(),
+                body: I64ExitBody::IfReturn {
+                    cond: I64Condition::Compare(I64Compare {
+                        op: I64CompareOp::Eq,
+                        lhs: I64Expr::ClockNowMs,
+                        rhs: I64Expr::Literal(7_456),
+                    }),
+                    then_result: I64Expr::Literal(48),
+                    else_result: I64Expr::Literal(1),
+                },
+            },
+            &object,
+        )
+        .expect("emit i64 clock now exit object");
+        let link = Command::new("cc")
+            .arg(&object)
+            .arg(&shim)
+            .arg("-o")
+            .arg(&binary)
+            .output()
+            .expect("link clock shim binary");
+        assert!(
+            link.status.success(),
+            "cc failed: stdout={} stderr={}",
+            String::from_utf8_lossy(&link.stdout),
+            String::from_utf8_lossy(&link.stderr)
+        );
+        let output = Command::new(&binary)
+            .output()
+            .expect("run clock shim binary");
+        assert_eq!(output.status.code(), Some(48));
+    }
+
+    #[test]
     fn clock_now_ms_tracks_subsecond_elapsed_after_sleep() {
         if std::env::var_os("AXIOM_SKIP_CRANELIFT_LINK_TEST").is_some() {
             return;
