@@ -4746,7 +4746,10 @@ fn cranelift_backend_lowers_crypto_random_to_runtime_exit_code() {
     assert!(audit.contains("\"length\":\"int\""));
     assert!(audit.contains("\"args\":{}"));
     assert_eq!(audit.matches("\"outcome\":\"ok\"").count(), 4);
+    assert_eq!(audit.matches("\"outcome\":\"denied\"").count(), 2);
     assert!(!audit.contains("\"int:17\""));
+    assert!(!audit.contains("65537"));
+    assert!(!audit.contains("-2"));
     assert!(!audit.contains("\"bytes\""));
 }
 
@@ -10735,7 +10738,7 @@ fn write_crypto_random_main_exit_project(project: &Path) {
     .expect("write crypto random main lockfile");
     fs::write(
         project.join("src/main.ax"),
-        "import \"std/crypto_rand.ax\"\n\nstatic RANDOM_LEN: int = 16\n\nfn choose_len(seed: int): int {\nreturn seed + 8\n}\n\nfn main(): int {\nlet dynamic_len: int = choose_len(9)\nlet sample_len: int = len(random_bytes(RANDOM_LEN))\nlet dynamic_sample_len: int = len(random_bytes(dynamic_len))\nlet empty_len: int = len(random_bytes(0))\nlet value: int = random_u64() as int\nif sample_len == RANDOM_LEN && dynamic_sample_len == dynamic_len && empty_len == 0 && value == 48 {\nreturn 48\n} else {\nreturn 1\n}\n}\n",
+        "import \"std/crypto_rand.ax\"\n\nstatic RANDOM_LEN: int = 16\n\nfn choose_len(seed: int): int {\nreturn seed + 8\n}\n\nfn main(): int {\nlet dynamic_len: int = choose_len(9)\nlet negative_len: int = choose_len(-10)\nlet too_large_len: int = choose_len(65529)\nlet sample_len: int = len(random_bytes(RANDOM_LEN))\nlet dynamic_sample_len: int = len(random_bytes(dynamic_len))\nlet empty_len: int = len(random_bytes(0))\nlet denied_negative: int = len(random_bytes(negative_len))\nlet denied_too_large: int = len(random_bytes(too_large_len))\nlet value: int = random_u64() as int\nif sample_len == RANDOM_LEN && dynamic_sample_len == dynamic_len && empty_len == 0 && denied_negative == -1 && denied_too_large == -1 && value == 48 {\nreturn 48\n} else {\nreturn 1\n}\n}\n",
     )
     .expect("write crypto random main source");
 }
