@@ -165,14 +165,16 @@ bool locals, and comparison expressions. Bool-returning helpers can return
 condition expressions directly, use bool parameters in branch conditions, and
 cover final `if` branches whose arms return bool expressions. It also covers
 boolean equality/inequality between dynamic bool expressions, local/static bool
-values, and boolean literals in conditions, plus immediate tuple-literal bool
-indexing, bool projection from local tuple bindings, immediate array-literal
-bool indexing, bool projection from local fixed-array bindings, immediate
-struct-literal bool field access, and bool projection from local struct
-bindings for bool locals, helper returns, and boolean conditions. The backend
-crate has narrow object-link evidence for composed `&&`/`||` comparison conditions,
-condition-to-i64 value lowering for helper-call arguments, and bool local
-assignment through a branch inside a loop after a scoped runtime bool `let`.
+values, boolean literals in conditions, and composed `&&`/`||` boolean
+expressions compared against `false` by recursively inverting the native
+condition, plus immediate tuple-literal bool indexing, bool projection from
+local tuple bindings, immediate array-literal bool indexing, bool projection
+from local fixed-array bindings, immediate struct-literal bool field access,
+and bool projection from local struct bindings for bool locals, helper returns,
+and boolean conditions. The backend crate has narrow object-link evidence for
+composed `&&`/`||` comparison conditions, condition-to-i64 value lowering for
+helper-call arguments, and bool local assignment through a branch inside a loop
+after a scoped runtime bool `let`.
 Both rows remain partial because that runtime path does not yet cover the full
 supported scalar, function-call, control-flow, or boolean surface.
 
