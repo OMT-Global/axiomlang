@@ -136,10 +136,12 @@ jobs:
             DEBIAN_FRONTEND=noninteractive "${apt_get[@]}" install -y --no-install-recommends gcc libc6-dev || true
           fi
 
-          if command -v cc >/dev/null 2>&1; then
-            echo "AXIOM_FAST_CI_PROOF_WORKLOADS=1" >> "$GITHUB_ENV"
-            exit 0
-          fi
+          for candidate in cc gcc clang; do
+            if command -v "$candidate" >/dev/null 2>&1; then
+              echo "AXIOM_FAST_CI_PROOF_WORKLOADS=1" >> "$GITHUB_ENV"
+              exit 0
+            fi
+          done
 
           echo "::error::no usable Rust linker found; proof workloads are a required PR gate"
           exit 1
