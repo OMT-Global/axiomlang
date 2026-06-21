@@ -6932,41 +6932,45 @@ fn rewrite_expr(
             body,
             line,
             column,
-        } => syntax::Expr::Closure {
-            params: params
-                .iter()
-                .map(|param| {
-                    Ok(syntax::Param {
-                        name: param.name.clone(),
-                        ty: rewrite_type_name(
-                            &param.ty,
-                            visible_consts,
-                            visible_types,
-                            private_imported_types,
-                            module_path,
-                            param.line,
-                            param.column,
-                        )?,
-                        line: param.line,
-                        column: param.column,
+        } => {
+            let mut body_names = bound_names.clone();
+            body_names.extend(params.iter().map(|param| param.name.clone()));
+            syntax::Expr::Closure {
+                params: params
+                    .iter()
+                    .map(|param| {
+                        Ok(syntax::Param {
+                            name: param.name.clone(),
+                            ty: rewrite_type_name(
+                                &param.ty,
+                                visible_consts,
+                                visible_types,
+                                private_imported_types,
+                                module_path,
+                                param.line,
+                                param.column,
+                            )?,
+                            line: param.line,
+                            column: param.column,
+                        })
                     })
-                })
-                .collect::<Result<Vec<_>, Diagnostic>>()?,
-            body: Box::new(rewrite_expr(
-                body,
-                bound_names,
-                visible_functions,
-                visible_consts,
-                visible_structs,
-                visible_types,
-                private_imported,
-                private_imported_consts,
-                private_imported_types,
-                module_path,
-            )?),
-            line: *line,
-            column: *column,
-        },
+                    .collect::<Result<Vec<_>, Diagnostic>>()?,
+                body: Box::new(rewrite_expr(
+                    body,
+                    &body_names,
+                    visible_functions,
+                    visible_consts,
+                    visible_structs,
+                    visible_types,
+                    private_imported,
+                    private_imported_consts,
+                    private_imported_types,
+                    module_path,
+                )?),
+                line: *line,
+                column: *column,
+            }
+        }
         syntax::Expr::Match {
             expr,
             arms,
@@ -6988,13 +6992,15 @@ fn rewrite_expr(
             arms: arms
                 .iter()
                 .map(|arm| {
+                    let mut arm_names = bound_names.clone();
+                    arm_names.extend(arm.bindings.iter().cloned());
                     Ok(syntax::MatchExprArm {
                         variant: arm.variant.clone(),
                         bindings: arm.bindings.clone(),
                         is_named: arm.is_named,
                         expr: rewrite_expr(
                             &arm.expr,
-                            bound_names,
+                            &arm_names,
                             visible_functions,
                             visible_consts,
                             visible_structs,
