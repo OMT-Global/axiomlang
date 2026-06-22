@@ -3385,27 +3385,16 @@ fn run_http_fixture_case(
     test: &crate::manifest::TestTarget,
 ) -> io::Result<std::process::Output> {
     let fixture = test.http.as_ref().expect("http fixture present");
-    let (host, port, injected_bind) = if let Some(bind) = &fixture.bind {
-        let (host, port) = bind.rsplit_once(':').ok_or_else(|| {
-            io::Error::new(
-                io::ErrorKind::InvalidInput,
-                format!("http fixture bind must be host:port, got {bind:?}"),
-            )
-        })?;
-        let port = port.parse::<u16>().map_err(|err| {
-            io::Error::new(
-                io::ErrorKind::InvalidInput,
-                format!("http fixture bind has invalid port {port:?}: {err}"),
-            )
-        })?;
-        (host.to_string(), port, None)
+    let (target_addr, injected_bind) = if let Some(bind) = &fixture.bind {
+        (parse_http_fixture_bind(bind)?, None)
     } else {
         let listener = std::net::TcpListener::bind(("127.0.0.1", 0))?;
-        let port = listener.local_addr()?.port();
+        let target_addr = listener.local_addr()?;
         drop(listener);
-        let bind = format!("127.0.0.1:{port}");
-        (String::from("127.0.0.1"), port, Some(bind))
+        let bind = target_addr.to_string();
+        (target_addr, Some(bind))
     };
+    let path = normalize_http_fixture_path(&fixture.path)?;
 
     let mut command = command_for_build_output(binary, build_output_dir)?;
     if let Some(bind) = injected_bind {
@@ -3416,7 +3405,7 @@ fn run_http_fixture_case(
 
     let deadline = Instant::now() + Duration::from_secs(5);
     let mut stream = loop {
-        match std::net::TcpStream::connect((host.as_str(), port)) {
+        match std::net::TcpStream::connect(target_addr) {
             Ok(stream) => break stream,
             Err(err) if Instant::now() < deadline => {
                 let _ = err;
@@ -3433,11 +3422,6 @@ fn run_http_fixture_case(
         }
     };
 
-    let path = if fixture.path.starts_with('/') {
-        fixture.path.clone()
-    } else {
-        format!("/{}", fixture.path)
-    };
     stream.write_all(format!("GET {path} HTTP/1.0\r\nHost: 127.0.0.1\r\n\r\n").as_bytes())?;
     let mut response = String::new();
     stream.read_to_string(&mut response)?;
@@ -3446,12 +3430,47 @@ fn run_http_fixture_case(
         let _ = child.kill();
         let _ = child.wait();
         return Err(io::Error::other(format!(
-            "http response body expected {:?}, got {:?}",
-            fixture.expected_body, body
+            "http response body expected {:?}, got {} bytes",
+            fixture.expected_body,
+            body.len()
         )));
     }
 
     child.wait_with_output()
+}
+
+fn parse_http_fixture_bind(bind: &str) -> io::Result<std::net::SocketAddr> {
+    let addr = bind.parse::<std::net::SocketAddr>().map_err(|err| {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("http fixture bind must be a loopback IP socket address, got {bind:?}: {err}"),
+        )
+    })?;
+    if !addr.ip().is_loopback() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("http fixture bind must use a loopback address, got {bind:?}"),
+        ));
+    }
+    Ok(addr)
+}
+
+fn normalize_http_fixture_path(path: &str) -> io::Result<String> {
+    if path.is_empty()
+        || path
+            .bytes()
+            .any(|byte| byte.is_ascii_control() || byte == b' ' || byte == b'\t')
+    {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "http fixture path must be a non-empty HTTP request target without whitespace or control characters",
+        ));
+    }
+    if path.starts_with('/') {
+        Ok(path.to_string())
+    } else {
+        Ok(format!("/{path}"))
+    }
 }
 
 fn run_manifest_compile_fail_case(
@@ -7841,6 +7860,35 @@ mod tests {
     #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
     use tempfile::tempdir;
+
+    #[test]
+    fn http_fixture_bind_accepts_only_loopback_socket_addresses() {
+        assert_eq!(
+            parse_http_fixture_bind("127.0.0.1:18080").expect("loopback ipv4"),
+            "127.0.0.1:18080".parse().expect("socket addr")
+        );
+        assert_eq!(
+            parse_http_fixture_bind("[::1]:18080").expect("loopback ipv6"),
+            "[::1]:18080".parse().expect("socket addr")
+        );
+        assert!(parse_http_fixture_bind("169.254.169.254:80").is_err());
+        assert!(parse_http_fixture_bind("example.com:80").is_err());
+    }
+
+    #[test]
+    fn http_fixture_path_rejects_request_shaping_characters() {
+        assert_eq!(
+            normalize_http_fixture_path("health").expect("relative path"),
+            "/health"
+        );
+        assert_eq!(
+            normalize_http_fixture_path("/health?ok=true").expect("absolute path"),
+            "/health?ok=true"
+        );
+        assert!(normalize_http_fixture_path("/metadata\r\nX-Injected: yes").is_err());
+        assert!(normalize_http_fixture_path("/has space").is_err());
+        assert!(normalize_http_fixture_path("").is_err());
+    }
 
     fn workspace_only_manifest() -> Manifest {
         Manifest {
