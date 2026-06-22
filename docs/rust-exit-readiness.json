@@ -18,14 +18,9 @@
       "check": "Direct native diagnostics, provenance, and debug evidence are at parity with the supported toolchain."
     },
     {
-      "issue": 693,
+      "issue": 1191,
       "lane": "backend",
-      "check": "Direct native backend is the default for supported broad builds and no longer invokes rustc."
-    },
-    {
-      "issue": 694,
-      "lane": "backend",
-      "check": "Generated-Rust backend and compatibility flag are removed from the supported toolchain."
+      "check": "Generated-Rust backend, rustc targeted-build fallback, and compatibility alias are removed from the supported toolchain."
     },
     {
       "issue": 930,

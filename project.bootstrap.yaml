@@ -1,6 +1,6 @@
 version: 1
 project:
-  name: axiom
+  name: axiomlang
   description: An experimental, end-to-end inspectable programming language with a Rust-based native
     bootstrap compiler.
   visibility: public
