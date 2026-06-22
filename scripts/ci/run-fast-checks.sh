@@ -55,9 +55,4 @@ if [[ -z "$rust_linker" ]]; then
   exit 1
 fi
 
-for example in proof_cli proof_worker proof_http_service; do
-  cargo run --manifest-path stage1/Cargo.toml -p axiomc -- check "stage1/examples/${example}" --json
-  cargo run --manifest-path stage1/Cargo.toml -p axiomc -- build "stage1/examples/${example}" --json
-  cargo run --manifest-path stage1/Cargo.toml -p axiomc -- run "stage1/examples/${example}"
-  cargo run --manifest-path stage1/Cargo.toml -p axiomc -- test "stage1/examples/${example}" --json
-done
+bash scripts/ci/run-stage1-proof-test.sh
