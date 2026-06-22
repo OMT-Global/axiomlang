@@ -3032,7 +3032,7 @@ fn cache_matches(
     generated_rust: &Path,
     binary: &Path,
 ) -> bool {
-    let Some(binary_hash) = stored.binary_hash.as_ref() else {
+    let Some(expected_binary_hash) = expected.binary_hash.as_ref() else {
         return false;
     };
     let generated_rust_matches = match backend {
@@ -3043,11 +3043,7 @@ fn cache_matches(
     let Ok(actual_binary_hash) = hash_file_bytes(binary) else {
         return false;
     };
-    let mut stored_key = stored.clone();
-    let mut expected_key = expected.clone();
-    stored_key.binary_hash = None;
-    expected_key.binary_hash = None;
-    stored_key == expected_key && generated_rust_matches && actual_binary_hash == *binary_hash
+    stored == expected && generated_rust_matches && actual_binary_hash == *expected_binary_hash
 }
 
 fn write_build_cache(path: &Path, cache: &BuildCacheFile) -> Result<(), Diagnostic> {
@@ -7994,7 +7990,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_rust_cache_matches_hashed_source_not_raw_source() {
+    fn build_cache_does_not_trust_project_controlled_binary_hash() {
         let dir = tempdir().unwrap_or_else(|err| panic!("tempdir: {err}"));
         let generated_rust = dir.path().join("dist/main.rs");
         let binary = dir.path().join("dist/main");
@@ -8021,9 +8017,21 @@ mod tests {
             ..stored.clone()
         };
 
+        assert!(
+            !cache_matches(
+                &stored,
+                &expected,
+                NativeBackendKind::GeneratedRust,
+                &generated_rust,
+                &binary,
+            ),
+            "project-local cache metadata must not be trusted to validate a native binary"
+        );
+
+        let trusted_expected = stored.clone();
         assert!(cache_matches(
             &stored,
-            &expected,
+            &trusted_expected,
             NativeBackendKind::GeneratedRust,
             &generated_rust,
             &binary,
@@ -8031,7 +8039,7 @@ mod tests {
 
         let raw_source_expected = BuildCacheFile {
             rust_hash: generated_source.to_string(),
-            ..expected
+            ..trusted_expected
         };
         assert!(!cache_matches(
             &stored,
