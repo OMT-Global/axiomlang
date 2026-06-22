@@ -10339,7 +10339,7 @@ fn lower_expr_with_expected_inner(
                     &lowered,
                     *line,
                     *column,
-                    is_stdlib_net_host_wrapper(ctx),
+                    stdlib_dynamic_net_host_allowed(ctx.capabilities, ctx),
                 )?;
                 move_lowered_value(&lowered, env)?;
                 return Ok(Expr::Call {
@@ -10375,7 +10375,7 @@ fn lower_expr_with_expected_inner(
                     &bind,
                     *line,
                     *column,
-                    is_stdlib_net_socket_wrapper(ctx),
+                    stdlib_dynamic_net_socket_allowed(ctx.capabilities, ctx),
                 )?;
                 move_lowered_value(&bind, env)?;
                 return Ok(Expr::Call {
@@ -10529,7 +10529,7 @@ fn lower_expr_with_expected_inner(
                     &bind,
                     *line,
                     *column,
-                    is_stdlib_net_socket_wrapper(ctx),
+                    stdlib_dynamic_net_socket_allowed(ctx.capabilities, ctx),
                 )?;
                 move_lowered_value(&bind, env)?;
                 return Ok(Expr::Call {
@@ -10627,7 +10627,7 @@ fn lower_expr_with_expected_inner(
                         &peer,
                         *line,
                         *column,
-                        is_stdlib_net_socket_wrapper(ctx),
+                        stdlib_dynamic_net_socket_allowed(ctx.capabilities, ctx),
                     )?;
                     move_lowered_value(&peer, env)?;
                     return Ok(Expr::Call {
@@ -10745,7 +10745,7 @@ fn lower_expr_with_expected_inner(
                     &host,
                     *line,
                     *column,
-                    is_stdlib_net_peer_wrapper(ctx),
+                    stdlib_dynamic_net_peer_host_allowed(ctx.capabilities, ctx),
                 )?;
                 validate_net_port_allowlist_hir(
                     ctx.capabilities,
@@ -10753,7 +10753,7 @@ fn lower_expr_with_expected_inner(
                     &port,
                     *line,
                     *column,
-                    is_stdlib_net_peer_wrapper(ctx),
+                    stdlib_dynamic_net_peer_port_allowed(ctx.capabilities, ctx),
                 )?;
                 move_lowered_value(&host, env)?;
                 move_lowered_value(&message, env)?;
@@ -10865,7 +10865,7 @@ fn lower_expr_with_expected_inner(
                     &host,
                     *line,
                     *column,
-                    is_stdlib_net_peer_wrapper(ctx),
+                    stdlib_dynamic_net_peer_host_allowed(ctx.capabilities, ctx),
                 )?;
                 validate_net_port_allowlist_hir(
                     ctx.capabilities,
@@ -10873,7 +10873,7 @@ fn lower_expr_with_expected_inner(
                     &port,
                     *line,
                     *column,
-                    is_stdlib_net_peer_wrapper(ctx),
+                    stdlib_dynamic_net_peer_port_allowed(ctx.capabilities, ctx),
                 )?;
                 move_lowered_value(&host, env)?;
                 move_lowered_value(&message, env)?;
@@ -10961,7 +10961,7 @@ fn lower_expr_with_expected_inner(
                     &bind,
                     *line,
                     *column,
-                    is_stdlib_http_socket_wrapper(ctx),
+                    stdlib_dynamic_http_socket_allowed(ctx.capabilities, ctx),
                 )?;
                 move_lowered_value(&bind, env)?;
                 move_lowered_value(&body, env)?;
@@ -11033,7 +11033,7 @@ fn lower_expr_with_expected_inner(
                     &bind,
                     *line,
                     *column,
-                    is_stdlib_http_socket_wrapper(ctx),
+                    stdlib_dynamic_http_socket_allowed(ctx.capabilities, ctx),
                 )?;
                 move_lowered_value(&bind, env)?;
                 move_lowered_value(&route_path, env)?;
@@ -11071,7 +11071,7 @@ fn lower_expr_with_expected_inner(
                     &bind,
                     *line,
                     *column,
-                    is_stdlib_http_socket_wrapper(ctx),
+                    stdlib_dynamic_http_socket_allowed(ctx.capabilities, ctx),
                 )?;
                 move_lowered_value(&bind, env)?;
                 return Ok(Expr::Call {
@@ -14064,7 +14064,7 @@ fn validate_stdlib_network_wrapper_call_hir(
                 &args[1],
                 line,
                 column,
-                false,
+                capabilities.net_ports.is_empty(),
             )
         }
         ("<stdlib>/net_tcp.ax", "listen")
@@ -14075,7 +14075,7 @@ fn validate_stdlib_network_wrapper_call_hir(
             &args[0],
             line,
             column,
-            false,
+            net_socket_allowlist_is_unrestricted(capabilities),
         ),
         ("<stdlib>/net_udp.ax", "send_to") => validate_net_socket_allowlist_hir(
             capabilities,
@@ -14083,7 +14083,7 @@ fn validate_stdlib_network_wrapper_call_hir(
             &args[2],
             line,
             column,
-            false,
+            net_socket_allowlist_is_unrestricted(capabilities),
         ),
         ("<stdlib>/http.ax", "get") => validate_http_get_net_allowlist_hir(
             capabilities,
@@ -14111,6 +14111,13 @@ fn is_stdlib_net_host_wrapper(ctx: &LowerContext<'_>) -> bool {
     ctx.current_path == "<stdlib>/net.ax" && ctx.current_function.as_deref() == Some("resolve")
 }
 
+fn stdlib_dynamic_net_host_allowed(
+    capabilities: &CapabilityConfig,
+    ctx: &LowerContext<'_>,
+) -> bool {
+    is_stdlib_net_host_wrapper(ctx) && capabilities.net_hosts.is_empty()
+}
+
 fn is_stdlib_net_peer_wrapper(ctx: &LowerContext<'_>) -> bool {
     matches!(
         (ctx.current_path, ctx.current_function.as_deref()),
@@ -14123,6 +14130,20 @@ fn is_stdlib_net_peer_wrapper(ctx: &LowerContext<'_>) -> bool {
     )
 }
 
+fn stdlib_dynamic_net_peer_host_allowed(
+    capabilities: &CapabilityConfig,
+    ctx: &LowerContext<'_>,
+) -> bool {
+    is_stdlib_net_peer_wrapper(ctx) && capabilities.net_hosts.is_empty()
+}
+
+fn stdlib_dynamic_net_peer_port_allowed(
+    capabilities: &CapabilityConfig,
+    ctx: &LowerContext<'_>,
+) -> bool {
+    is_stdlib_net_peer_wrapper(ctx) && capabilities.net_ports.is_empty()
+}
+
 fn is_stdlib_net_socket_wrapper(ctx: &LowerContext<'_>) -> bool {
     matches!(
         (ctx.current_path, ctx.current_function.as_deref()),
@@ -14131,6 +14152,17 @@ fn is_stdlib_net_socket_wrapper(ctx: &LowerContext<'_>) -> bool {
             | ("<stdlib>/net_udp.ax", Some("send_to"))
             | ("<stdlib>/async_net.ax", Some("listen"))
     )
+}
+
+fn net_socket_allowlist_is_unrestricted(capabilities: &CapabilityConfig) -> bool {
+    capabilities.net_hosts.is_empty() && capabilities.net_ports.is_empty()
+}
+
+fn stdlib_dynamic_net_socket_allowed(
+    capabilities: &CapabilityConfig,
+    ctx: &LowerContext<'_>,
+) -> bool {
+    is_stdlib_net_socket_wrapper(ctx) && net_socket_allowlist_is_unrestricted(capabilities)
 }
 
 fn is_stdlib_http_get_wrapper(ctx: &LowerContext<'_>) -> bool {
@@ -14144,6 +14176,13 @@ fn is_stdlib_http_socket_wrapper(ctx: &LowerContext<'_>) -> bool {
             | ("<stdlib>/http.ax", Some("serve"))
             | ("<stdlib>/http.ax", Some("serve_once"))
     )
+}
+
+fn stdlib_dynamic_http_socket_allowed(
+    capabilities: &CapabilityConfig,
+    ctx: &LowerContext<'_>,
+) -> bool {
+    is_stdlib_http_socket_wrapper(ctx) && net_socket_allowlist_is_unrestricted(capabilities)
 }
 
 fn validate_process_command_allowlist_hir(

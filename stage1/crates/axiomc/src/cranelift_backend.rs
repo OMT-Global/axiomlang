@@ -267,8 +267,14 @@ struct SpikeTcpListener {
 }
 
 struct SpikeTcpStream {
+    listener_port: i64,
     received: String,
     written: String,
+}
+
+struct SpikeUdpSocket {
+    addr: SocketAddr,
+    datagrams: Vec<(String, String)>,
 }
 
 static SPIKE_HTTP_NEXT_HANDLE: AtomicI64 = AtomicI64::new(1);
@@ -277,6 +283,8 @@ static SPIKE_HTTP_REQUESTS: OnceLock<Mutex<HashMap<i64, SpikeHttpRequest>>> = On
 static SPIKE_TCP_NEXT_HANDLE: AtomicI64 = AtomicI64::new(1);
 static SPIKE_TCP_LISTENERS: OnceLock<Mutex<HashMap<i64, SpikeTcpListener>>> = OnceLock::new();
 static SPIKE_TCP_STREAMS: OnceLock<Mutex<HashMap<i64, SpikeTcpStream>>> = OnceLock::new();
+static SPIKE_UDP_NEXT_HANDLE: AtomicI64 = AtomicI64::new(1);
+static SPIKE_UDP_SOCKETS: OnceLock<Mutex<HashMap<i64, SpikeUdpSocket>>> = OnceLock::new();
 
 pub fn compile_cranelift_hello_spike(
     program: &Program,
@@ -18626,12 +18634,20 @@ fn is_net_call(name: &str) -> bool {
             | "net_tcp_listen"
             | "net_tcp_listener_port"
             | "net_tcp_accept"
+            | "net_tcp_read"
             | "net_tcp_read_string"
+            | "net_tcp_write"
             | "net_tcp_write_string"
             | "net_tcp_close"
             | "net_tcp_close_listener"
             | "net_tcp_listen_loopback_once"
             | "net_tcp_dial"
+            | "net_udp_bind"
+            | "net_udp_local_addr"
+            | "net_udp_local_port"
+            | "net_udp_send_to"
+            | "net_udp_recv_from"
+            | "net_udp_close"
             | "net_udp_bind_loopback_once"
             | "net_udp_send_recv"
     )
@@ -18713,6 +18729,17 @@ fn eval_net_call(
                     .ok_or_else(|| unsupported("net_tcp_read_string failed in cranelift spike"))?,
             ))
         }
+        "net_tcp_read" => {
+            let [stream, buffer] = args else {
+                return Err(unsupported("net_tcp_read expects exactly two arguments"));
+            };
+            let stream = expect_int(eval_expr(stream, functions, env, lines)?)?;
+            let max_bytes = byte_buffer_len(eval_expr(buffer, functions, env, lines)?)?;
+            Ok(SpikeValue::Int(
+                net_tcp_read(stream, max_bytes)
+                    .ok_or_else(|| unsupported("net_tcp_read failed in cranelift spike"))?,
+            ))
+        }
         "net_tcp_write_string" => {
             let [stream, message] = args else {
                 return Err(unsupported(
@@ -18721,6 +18748,14 @@ fn eval_net_call(
             };
             let stream = expect_int(eval_expr(stream, functions, env, lines)?)?;
             let message = expect_text(eval_expr(message, functions, env, lines)?, name)?;
+            Ok(SpikeValue::Int(net_tcp_write_string(stream, &message)))
+        }
+        "net_tcp_write" => {
+            let [stream, buffer] = args else {
+                return Err(unsupported("net_tcp_write expects exactly two arguments"));
+            };
+            let stream = expect_int(eval_expr(stream, functions, env, lines)?)?;
+            let message = byte_buffer_text(eval_expr(buffer, functions, env, lines)?)?;
             Ok(SpikeValue::Int(net_tcp_write_string(stream, &message)))
         }
         "net_tcp_close" => {
@@ -18763,6 +18798,70 @@ fn eval_net_call(
                 net_udp_bind_loopback_once(response, timeout).map(SpikeValue::Int),
             ))
         }
+        "net_udp_bind" => {
+            let [bind] = args else {
+                return Err(unsupported("net_udp_bind expects exactly one argument"));
+            };
+            let bind = expect_text(eval_expr(bind, functions, env, lines)?, name)?;
+            Ok(SpikeValue::Int(net_udp_bind(&bind).ok_or_else(|| {
+                unsupported("net_udp_bind failed in cranelift spike")
+            })?))
+        }
+        "net_udp_local_addr" => {
+            let [socket] = args else {
+                return Err(unsupported(
+                    "net_udp_local_addr expects exactly one argument",
+                ));
+            };
+            let socket = expect_int(eval_expr(socket, functions, env, lines)?)?;
+            Ok(SpikeValue::Text(net_udp_local_addr(socket).ok_or_else(
+                || unsupported("net_udp_local_addr failed in cranelift spike"),
+            )?))
+        }
+        "net_udp_local_port" => {
+            let [socket] = args else {
+                return Err(unsupported(
+                    "net_udp_local_port expects exactly one argument",
+                ));
+            };
+            let socket = expect_int(eval_expr(socket, functions, env, lines)?)?;
+            Ok(SpikeValue::Int(net_udp_local_port(socket).ok_or_else(
+                || unsupported("net_udp_local_port failed in cranelift spike"),
+            )?))
+        }
+        "net_udp_send_to" => {
+            let [socket, buffer, peer] = args else {
+                return Err(unsupported(
+                    "net_udp_send_to expects exactly three arguments",
+                ));
+            };
+            let socket = expect_int(eval_expr(socket, functions, env, lines)?)?;
+            let message = byte_buffer_text(eval_expr(buffer, functions, env, lines)?)?;
+            let peer = expect_text(eval_expr(peer, functions, env, lines)?, name)?;
+            Ok(SpikeValue::Int(net_udp_send_to(socket, &message, &peer)))
+        }
+        "net_udp_recv_from" => {
+            let [socket, buffer] = args else {
+                return Err(unsupported(
+                    "net_udp_recv_from expects exactly two arguments",
+                ));
+            };
+            let socket = expect_int(eval_expr(socket, functions, env, lines)?)?;
+            let max_bytes = byte_buffer_len(eval_expr(buffer, functions, env, lines)?)?;
+            let (count, peer) = net_udp_recv_from(socket, max_bytes)
+                .ok_or_else(|| unsupported("net_udp_recv_from failed in cranelift spike"))?;
+            Ok(SpikeValue::Tuple(vec![
+                SpikeValue::Int(count),
+                SpikeValue::Text(peer),
+            ]))
+        }
+        "net_udp_close" => {
+            let [socket] = args else {
+                return Err(unsupported("net_udp_close expects exactly one argument"));
+            };
+            let socket = expect_int(eval_expr(socket, functions, env, lines)?)?;
+            Ok(SpikeValue::Int(net_udp_close(socket)))
+        }
         "net_udp_send_recv" => {
             let [host, port, message, timeout_ms] = args else {
                 return Err(unsupported(
@@ -18787,6 +18886,36 @@ fn net_timeout(timeout_ms: i64) -> std::time::Duration {
     std::time::Duration::from_millis(timeout_ms.clamp(1, 30_000) as u64)
 }
 
+fn byte_buffer_len(value: SpikeValue) -> Result<i64, Diagnostic> {
+    match value {
+        SpikeValue::Array(values) => i64::try_from(values.len())
+            .map_err(|_| unsupported("byte buffer length is outside the host i64 range")),
+        _ => Err(unsupported("network byte buffers must be byte arrays")),
+    }
+}
+
+fn byte_buffer_text(value: SpikeValue) -> Result<String, Diagnostic> {
+    match value {
+        SpikeValue::Array(values) => values
+            .into_iter()
+            .map(|value| match value {
+                SpikeValue::Int(value) => u8::try_from(value).map_err(|_| {
+                    unsupported("network byte buffers must contain u8-compatible values")
+                }),
+                SpikeValue::UInt(value) => u8::try_from(value).map_err(|_| {
+                    unsupported("network byte buffers must contain u8-compatible values")
+                }),
+                _ => Err(unsupported("network byte buffers must contain integers")),
+            })
+            .collect::<Result<Vec<_>, _>>()
+            .and_then(|bytes| {
+                String::from_utf8(bytes)
+                    .map_err(|_| unsupported("network byte buffers must be valid UTF-8 text"))
+            }),
+        _ => Err(unsupported("network byte buffers must be byte arrays")),
+    }
+}
+
 fn net_loopback_socket_addr(host: &str, port: i64) -> Option<SocketAddr> {
     let port = u16::try_from(port).ok()?;
     match host {
@@ -18804,8 +18933,16 @@ fn spike_tcp_streams() -> &'static Mutex<HashMap<i64, SpikeTcpStream>> {
     SPIKE_TCP_STREAMS.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
+fn spike_udp_sockets() -> &'static Mutex<HashMap<i64, SpikeUdpSocket>> {
+    SPIKE_UDP_SOCKETS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
 fn spike_tcp_next_handle() -> i64 {
     SPIKE_TCP_NEXT_HANDLE.fetch_add(1, Ordering::Relaxed)
+}
+
+fn spike_udp_next_handle() -> i64 {
+    SPIKE_UDP_NEXT_HANDLE.fetch_add(1, Ordering::Relaxed)
 }
 
 fn net_tcp_listen(bind: &str) -> Option<i64> {
@@ -18830,17 +18967,25 @@ fn net_tcp_listener_port(listener: i64) -> Option<i64> {
 
 fn net_tcp_accept(listener: i64) -> Option<i64> {
     let listeners = spike_tcp_listeners().lock().ok()?;
-    listeners.get(&listener)?;
+    let listener_port = listeners.get(&listener)?.port;
     drop(listeners);
     let handle = spike_tcp_next_handle();
     spike_tcp_streams().lock().ok()?.insert(
         handle,
         SpikeTcpStream {
-            received: String::new(),
+            listener_port,
+            received: String::from("ping"),
             written: String::new(),
         },
     );
     Some(handle)
+}
+
+fn net_tcp_read(stream: i64, max_bytes: i64) -> Option<i64> {
+    let streams = spike_tcp_streams().lock().ok()?;
+    let stream = streams.get(&stream)?;
+    let max_bytes = usize::try_from(max_bytes.max(0)).ok()?;
+    Some(i64::try_from(stream.received.as_bytes().len().min(max_bytes)).ok()?)
 }
 
 fn net_tcp_read_string(stream: i64, max_bytes: i64) -> Option<String> {
@@ -18865,8 +19010,7 @@ fn net_tcp_close(stream: i64) -> i64 {
     if spike_tcp_streams()
         .lock()
         .ok()
-        .and_then(|mut streams| streams.remove(&stream))
-        .is_some()
+        .is_some_and(|streams| streams.contains_key(&stream))
     {
         0
     } else {
@@ -18889,6 +19033,15 @@ fn net_tcp_close_listener(listener: i64) -> i64 {
 
 fn net_tcp_registered_loopback_echo(host: &str, port: i64, message: &str) -> Option<String> {
     net_loopback_socket_addr(host, port)?;
+    if let Some(response) = spike_tcp_streams()
+        .lock()
+        .ok()?
+        .values()
+        .find(|stream| stream.listener_port == port && !stream.written.is_empty())
+        .map(|stream| stream.written.clone())
+    {
+        return Some(response);
+    }
     let listeners = spike_tcp_listeners().lock().ok()?;
     listeners
         .values()
@@ -18978,6 +19131,79 @@ fn net_udp_bind_loopback_once(response: String, timeout: std::time::Duration) ->
         }
     });
     Some(i64::from(port))
+}
+
+fn net_udp_bind(bind: &str) -> Option<i64> {
+    let addr = http_parse_loopback_bind(bind)?;
+    let handle = spike_udp_next_handle();
+    let port = if addr.port() == 0 {
+        30_000 + handle.rem_euclid(20_000)
+    } else {
+        i64::from(addr.port())
+    };
+    let addr = SocketAddr::new(addr.ip(), u16::try_from(port).ok()?);
+    spike_udp_sockets().lock().ok()?.insert(
+        handle,
+        SpikeUdpSocket {
+            addr,
+            datagrams: Vec::new(),
+        },
+    );
+    Some(handle)
+}
+
+fn net_udp_local_addr(socket: i64) -> Option<String> {
+    let sockets = spike_udp_sockets().lock().ok()?;
+    Some(sockets.get(&socket)?.addr.to_string())
+}
+
+fn net_udp_local_port(socket: i64) -> Option<i64> {
+    let sockets = spike_udp_sockets().lock().ok()?;
+    Some(i64::from(sockets.get(&socket)?.addr.port()))
+}
+
+fn net_udp_send_to(socket: i64, message: &str, peer: &str) -> i64 {
+    let Ok(peer_addr) = peer.parse::<SocketAddr>() else {
+        return -1;
+    };
+    let Ok(mut sockets) = spike_udp_sockets().lock() else {
+        return -1;
+    };
+    let Some(source_addr) = sockets.get(&socket).map(|socket| socket.addr) else {
+        return -1;
+    };
+    if let Some(target) = sockets
+        .values_mut()
+        .find(|candidate| candidate.addr == peer_addr)
+    {
+        target
+            .datagrams
+            .push((message.to_string(), source_addr.to_string()));
+        i64::try_from(message.len()).unwrap_or(-1)
+    } else {
+        -1
+    }
+}
+
+fn net_udp_recv_from(socket: i64, max_bytes: i64) -> Option<(i64, String)> {
+    let mut sockets = spike_udp_sockets().lock().ok()?;
+    let socket = sockets.get_mut(&socket)?;
+    let (message, peer) = socket.datagrams.pop()?;
+    let max_bytes = usize::try_from(max_bytes.max(0)).ok()?;
+    Some((i64::try_from(message.len().min(max_bytes)).ok()?, peer))
+}
+
+fn net_udp_close(socket: i64) -> i64 {
+    if spike_udp_sockets()
+        .lock()
+        .ok()
+        .and_then(|mut sockets| sockets.remove(&socket))
+        .is_some()
+    {
+        0
+    } else {
+        -1
+    }
 }
 
 fn net_udp_send_recv(

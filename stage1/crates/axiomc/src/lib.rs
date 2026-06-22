@@ -5423,20 +5423,20 @@ net = true
     }
 
     #[test]
-    fn check_project_rejects_dynamic_stdlib_peer_network_port_with_unrestricted_net() {
+    fn check_project_accepts_dynamic_stdlib_peer_network_port_with_unrestricted_net() {
         let dir = tempdir().expect("tempdir");
         let project = dir
             .path()
-            .join("stdlib-net-peer-dynamic-port-unrestricted-denied");
+            .join("stdlib-net-peer-dynamic-port-unrestricted-allowed");
         create_project(
             &project,
-            Some("stdlib-net-peer-dynamic-port-unrestricted-denied-app"),
+            Some("stdlib-net-peer-dynamic-port-unrestricted-allowed-app"),
         )
         .expect("create project");
         fs::write(
             project.join("axiom.toml"),
             r#"[package]
-name = "stdlib-net-peer-dynamic-port-unrestricted-denied-app"
+name = "stdlib-net-peer-dynamic-port-unrestricted-allowed-app"
 version = "0.1.0"
 
 [build]
@@ -5454,14 +5454,7 @@ net = true
         )
         .expect("write source");
 
-        let error = check_project(&project).expect_err("dynamic stdlib peer port should fail");
-        assert_eq!(error.kind, "capability");
-        assert!(
-            error.message.contains(
-                "requires an integer literal when [capabilities].net ports are unrestricted"
-            ),
-            "unexpected diagnostic: {error:?}",
-        );
+        check_project(&project).expect("dynamic stdlib peer port should check");
     }
 
     #[test]
@@ -5542,20 +5535,20 @@ net = true
     }
 
     #[test]
-    fn check_project_rejects_dynamic_stdlib_network_port_with_unrestricted_net() {
+    fn check_project_accepts_dynamic_stdlib_network_port_with_unrestricted_net() {
         let dir = tempdir().expect("tempdir");
         let project = dir
             .path()
-            .join("stdlib-net-dynamic-port-unrestricted-denied");
+            .join("stdlib-net-dynamic-port-unrestricted-allowed");
         create_project(
             &project,
-            Some("stdlib-net-dynamic-port-unrestricted-denied-app"),
+            Some("stdlib-net-dynamic-port-unrestricted-allowed-app"),
         )
         .expect("create project");
         fs::write(
             project.join("axiom.toml"),
             r#"[package]
-name = "stdlib-net-dynamic-port-unrestricted-denied-app"
+name = "stdlib-net-dynamic-port-unrestricted-allowed-app"
 version = "0.1.0"
 
 [build]
@@ -5573,14 +5566,7 @@ net = true
         )
         .expect("write source");
 
-        let error = check_project(&project).expect_err("dynamic stdlib port should fail");
-        assert_eq!(error.kind, "capability");
-        assert!(
-            error.message.contains(
-                "requires an integer literal when [capabilities].net ports are unrestricted"
-            ),
-            "unexpected diagnostic: {error:?}",
-        );
+        check_project(&project).expect("dynamic stdlib port should check");
     }
 
     #[test]
@@ -5619,6 +5605,83 @@ net = true
             error.message.contains(
                 "requires an integer literal when [capabilities].net ports are unrestricted"
             ),
+            "unexpected diagnostic: {error:?}",
+        );
+    }
+
+    #[test]
+    fn check_project_accepts_dynamic_stdlib_udp_peer_with_unrestricted_net() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir
+            .path()
+            .join("stdlib-net-udp-dynamic-peer-unrestricted-allowed");
+        create_project(
+            &project,
+            Some("stdlib-net-udp-dynamic-peer-unrestricted-allowed-app"),
+        )
+        .expect("create project");
+        fs::write(
+            project.join("axiom.toml"),
+            r#"[package]
+name = "stdlib-net-udp-dynamic-peer-unrestricted-allowed-app"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+net = true
+"#,
+        )
+        .expect("write manifest");
+        fs::write(
+            project.join("src/main.ax"),
+            "import \"std/net_udp.ax\"\nlet socket: UdpSocket = bind(\"127.0.0.1:0\")\nlet peer: string = local_addr(socket)\nlet message: [u8] = [112u8]\nprint send_to(socket, message[:], peer)\n",
+        )
+        .expect("write source");
+
+        check_project(&project).expect("dynamic stdlib UDP peer should check");
+    }
+
+    #[test]
+    fn check_project_rejects_dynamic_stdlib_udp_peer_with_network_allowlist() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir
+            .path()
+            .join("stdlib-net-udp-dynamic-peer-allowlist-denied");
+        create_project(
+            &project,
+            Some("stdlib-net-udp-dynamic-peer-allowlist-denied-app"),
+        )
+        .expect("create project");
+        fs::write(
+            project.join("axiom.toml"),
+            r#"[package]
+name = "stdlib-net-udp-dynamic-peer-allowlist-denied-app"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+net = { hosts = ["127.0.0.1"] }
+"#,
+        )
+        .expect("write manifest");
+        fs::write(
+            project.join("src/main.ax"),
+            "import \"std/net_udp.ax\"\nlet socket: UdpSocket = bind(\"127.0.0.1:0\")\nlet peer: string = local_addr(socket)\nlet message: [u8] = [112u8]\nprint send_to(socket, message[:], peer)\n",
+        )
+        .expect("write source");
+
+        let error = check_project(&project).expect_err("dynamic stdlib UDP peer should fail");
+        assert_eq!(error.kind, "capability");
+        assert!(
+            error
+                .message
+                .contains("requires a static host:port literal"),
             "unexpected diagnostic: {error:?}",
         );
     }
