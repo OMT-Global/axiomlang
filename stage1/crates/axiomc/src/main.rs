@@ -65,6 +65,8 @@ enum Command {
         #[arg(long)]
         properties: bool,
         /// Select the backend used when --properties executes property fixtures.
+        /// Defaults to the supported direct-native `cranelift` backend;
+        /// `generated-rust` is compatibility-only.
         #[arg(long, default_value_t = NativeBackendKind::Cranelift)]
         backend: NativeBackendKind,
         #[arg(long)]
@@ -84,7 +86,9 @@ enum Command {
         path: PathBuf,
         #[arg(long)]
         json: bool,
-        /// Select the build backend. When omitted, builds use the supported direct-native `cranelift` backend. `generated-rust` remains available only as an explicit compatibility backend.
+        /// Select the build backend. When omitted, builds use the supported
+        /// direct-native `cranelift` backend. `generated-rust` is
+        /// compatibility-only and must be requested explicitly.
         #[arg(long)]
         backend: Option<NativeBackendKind>,
         #[arg(long)]
@@ -109,6 +113,8 @@ enum Command {
         #[arg(long)]
         json: bool,
         /// Select the backend used to build the executable before running it.
+        /// Defaults to the supported direct-native `cranelift` backend;
+        /// `generated-rust` is compatibility-only.
         #[arg(long, default_value_t = NativeBackendKind::Cranelift)]
         backend: NativeBackendKind,
         #[arg(short = 'p', long = "package")]
@@ -129,6 +135,8 @@ enum Command {
         #[arg(long)]
         json: bool,
         /// Select the backend used to build executable test cases.
+        /// Defaults to the supported direct-native `cranelift` backend;
+        /// `generated-rust` is compatibility-only.
         #[arg(long, default_value_t = NativeBackendKind::Cranelift)]
         backend: NativeBackendKind,
         #[arg(long)]
@@ -7548,7 +7556,7 @@ mod tests {
             .render_long_help()
             .to_string();
         assert!(build_help.contains("builds use the supported direct-native `cranelift` backend"));
-        assert!(build_help.contains("explicit compatibility backend"));
+        assert!(build_help.contains("compatibility-only and must be requested explicitly"));
         assert!(!build_help.contains("`rust` is accepted as a transition alias"));
         assert!(
             build_help.contains("Build a stage1 package through the default direct-native backend")
@@ -8079,7 +8087,8 @@ return "ok"
             .expect_err("rust backend alias should be removed from the supported command surface");
         let rendered = error.to_string();
         assert!(rendered.contains("unsupported backend \"rust\""));
-        assert!(rendered.contains("supported backends: generated-rust, cranelift"));
+        assert!(rendered.contains("supported backends: cranelift"));
+        assert!(rendered.contains("compatibility backends: generated-rust"));
     }
 
     #[test]
@@ -8157,7 +8166,8 @@ return "ok"
             );
         let rendered = error.to_string();
         assert!(rendered.contains("unsupported backend \"direct-native\""));
-        assert!(rendered.contains("supported backends: generated-rust, cranelift"));
+        assert!(rendered.contains("supported backends: cranelift"));
+        assert!(rendered.contains("compatibility backends: generated-rust"));
     }
 
     #[test]

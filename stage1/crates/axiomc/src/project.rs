@@ -404,7 +404,8 @@ impl Default for CheckOptions {
 
 #[derive(Debug, Clone, Default)]
 pub struct BuildOptions {
-    /// Preparatory backend plumbing; `generated-rust` remains the only implemented option today.
+    /// Build backend selected by the command surface. Cranelift is the supported default;
+    /// generated-rust is retained only as an explicit compatibility backend.
     pub backend: NativeBackendKind,
     pub target: Option<String>,
     pub package: Option<String>,
