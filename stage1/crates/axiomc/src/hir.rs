@@ -14112,10 +14112,10 @@ fn is_stdlib_net_host_wrapper(ctx: &LowerContext<'_>) -> bool {
 }
 
 fn stdlib_dynamic_net_host_allowed(
-    capabilities: &CapabilityConfig,
+    _capabilities: &CapabilityConfig,
     ctx: &LowerContext<'_>,
 ) -> bool {
-    is_stdlib_net_host_wrapper(ctx) && capabilities.net_hosts.is_empty()
+    is_stdlib_net_host_wrapper(ctx)
 }
 
 fn is_stdlib_net_peer_wrapper(ctx: &LowerContext<'_>) -> bool {
@@ -14131,17 +14131,17 @@ fn is_stdlib_net_peer_wrapper(ctx: &LowerContext<'_>) -> bool {
 }
 
 fn stdlib_dynamic_net_peer_host_allowed(
-    capabilities: &CapabilityConfig,
+    _capabilities: &CapabilityConfig,
     ctx: &LowerContext<'_>,
 ) -> bool {
-    is_stdlib_net_peer_wrapper(ctx) && capabilities.net_hosts.is_empty()
+    is_stdlib_net_peer_wrapper(ctx)
 }
 
 fn stdlib_dynamic_net_peer_port_allowed(
-    capabilities: &CapabilityConfig,
+    _capabilities: &CapabilityConfig,
     ctx: &LowerContext<'_>,
 ) -> bool {
-    is_stdlib_net_peer_wrapper(ctx) && capabilities.net_ports.is_empty()
+    is_stdlib_net_peer_wrapper(ctx)
 }
 
 fn is_stdlib_net_socket_wrapper(ctx: &LowerContext<'_>) -> bool {
@@ -14159,10 +14159,10 @@ fn net_socket_allowlist_is_unrestricted(capabilities: &CapabilityConfig) -> bool
 }
 
 fn stdlib_dynamic_net_socket_allowed(
-    capabilities: &CapabilityConfig,
+    _capabilities: &CapabilityConfig,
     ctx: &LowerContext<'_>,
 ) -> bool {
-    is_stdlib_net_socket_wrapper(ctx) && net_socket_allowlist_is_unrestricted(capabilities)
+    is_stdlib_net_socket_wrapper(ctx)
 }
 
 fn is_stdlib_http_get_wrapper(ctx: &LowerContext<'_>) -> bool {
@@ -14179,10 +14179,10 @@ fn is_stdlib_http_socket_wrapper(ctx: &LowerContext<'_>) -> bool {
 }
 
 fn stdlib_dynamic_http_socket_allowed(
-    capabilities: &CapabilityConfig,
+    _capabilities: &CapabilityConfig,
     ctx: &LowerContext<'_>,
 ) -> bool {
-    is_stdlib_http_socket_wrapper(ctx) && net_socket_allowlist_is_unrestricted(capabilities)
+    is_stdlib_http_socket_wrapper(ctx)
 }
 
 fn validate_process_command_allowlist_hir(
