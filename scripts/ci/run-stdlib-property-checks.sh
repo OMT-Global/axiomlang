@@ -29,6 +29,9 @@ stdlib_projects=(
   stage1/examples/stdlib_collections
   stage1/examples/stdlib_crypto_hash
   stage1/examples/stdlib_crypto_mac
+  stage1/examples/stdlib_crypto_random
+  stage1/examples/stdlib_crypto_signature
+  stage1/examples/stdlib_crypto_aead
   stage1/examples/stdlib_encoding
   stage1/examples/stdlib_env
   stage1/examples/stdlib_fs

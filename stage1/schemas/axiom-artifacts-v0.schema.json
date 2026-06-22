@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://axiom.dev/schemas/axiom-artifacts-v0.schema.json",
+  "$id": "https://axiomlang.dev/schemas/axiom-artifacts-v0.schema.json",
   "title": "Axiom Artifact Plan v0",
   "type": "object",
   "required": ["schema_version", "ok", "command", "project", "package", "artifacts"],

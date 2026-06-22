@@ -173,7 +173,7 @@ def main() -> int:
         "dataLicense": "CC0-1.0",
         "SPDXID": "SPDXRef-DOCUMENT",
         "name": "axiom-stage1-sbom",
-        "documentNamespace": f"https://github.com/OMT-Global/axiom/sbom/stage1/{namespace_hash}",
+        "documentNamespace": f"https://github.com/OMT-Global/axiomlang/sbom/stage1/{namespace_hash}",
         "creationInfo": {
             "created": created_timestamp(),
             "creators": ["Tool: scripts/ci/emit-stage1-sbom.py"],

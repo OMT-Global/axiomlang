@@ -115,7 +115,7 @@ BODY
 - Tighten PR validation.
 
 ## Governing Issue
-- Closes OMT-Global/axiom#262
+- Closes OMT-Global/axiomlang#262
 
 ## Validation
 - [x] bash scripts/ci/test-validate-pr-description.sh
@@ -134,7 +134,7 @@ BODY
 - Tighten PR validation.
 
 ## Governing Issue
-- Closes https://github.com/OMT-Global/axiom/issues/262
+- Closes https://github.com/OMT-Global/axiomlang/issues/262
 
 ## Validation
 - [x] bash scripts/ci/test-validate-pr-description.sh
@@ -153,7 +153,7 @@ BODY
 - Tighten PR validation.
 
 ## Governing Issue
-- Fixes https://github.com/OMT-Global/axiom/issues/262
+- Fixes https://github.com/OMT-Global/axiomlang/issues/262
 
 ## Validation
 - [x] bash scripts/ci/test-validate-pr-description.sh
@@ -191,7 +191,7 @@ BODY
 - Tighten PR validation.
 
 ## Governing Issue
-- Fixes OMT-Global/axiom#262
+- Fixes OMT-Global/axiomlang#262
 
 ## Validation
 - [x] bash scripts/ci/test-validate-pr-description.sh
@@ -310,7 +310,7 @@ BODY
       ;;
     legacy_qualified_issue_valid)
       body=$(cat <<'BODY'
-Closes OMT-Global/axiom#262
+Closes OMT-Global/axiomlang#262
 
 Implements the Apollo-assigned fix for the contributor docs and CI guidance.
 BODY
@@ -318,7 +318,7 @@ BODY
       ;;
     legacy_issue_url_valid)
       body=$(cat <<'BODY'
-Closes https://github.com/OMT-Global/axiom/issues/262
+Closes https://github.com/OMT-Global/axiomlang/issues/262
 
 Implements the Apollo-assigned fix for the contributor docs and CI guidance.
 BODY
@@ -326,7 +326,7 @@ BODY
       ;;
     legacy_resolves_issue_url_valid)
       body=$(cat <<'BODY'
-Resolves https://github.com/OMT-Global/axiom/issues/262
+Resolves https://github.com/OMT-Global/axiomlang/issues/262
 
 Implements the Apollo-assigned fix for the contributor docs and CI guidance.
 BODY
@@ -350,7 +350,7 @@ BODY
       ;;
     legacy_qualified_resolves_issue_valid)
       body=$(cat <<'BODY'
-Resolves OMT-Global/axiom#262
+Resolves OMT-Global/axiomlang#262
 
 Implements the Apollo-assigned fix for the contributor docs and CI guidance.
 BODY

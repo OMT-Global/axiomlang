@@ -25,14 +25,134 @@ assert report["status_counts"]["value_features"]["partial"] == 12
 assert report["status_counts"]["capability_shims"]["partial"] == 22
 assert report["blocked_rows"] == []
 assert len(report["incomplete_rows"]) == 34
+assert len(report["incomplete_rows_by_group"]["value_features"]) == 12
+assert len(report["incomplete_rows_by_group"]["capability_shims"]) == 22
+assert report["blocked_rows_by_group"] == {
+    "value_features": [],
+    "capability_shims": [],
+}
 assert "env.read" in report["incomplete_rows"]
 assert "ffi.call" in report["incomplete_rows"]
 assert "json.serdes" in report["incomplete_rows"]
 assert "process.status" in report["incomplete_rows"]
 assert "crypto.random" in report["incomplete_rows"]
 assert "network.dns.resolve" in report["incomplete_rows"]
+assert "numeric.scalars" in report["incomplete_rows_by_group"]["value_features"]
+assert "process.status" in report["incomplete_rows_by_group"]["capability_shims"]
+assert report["evidence_summary"]["value_features"] == {
+    "with_evidence": 12,
+    "without_evidence": 0,
+    "with_runtime_evidence": 12,
+    "without_runtime_evidence": 0,
+    "with_denial_evidence": 0,
+    "denial_evidence_not_applicable": 12,
+    "without_denial_evidence": 0,
+}
+assert report["evidence_summary"]["capability_shims"] == {
+    "with_evidence": 22,
+    "without_evidence": 0,
+    "with_runtime_evidence": 22,
+    "without_runtime_evidence": 0,
+    "with_denial_evidence": 18,
+    "denial_evidence_not_applicable": 4,
+    "without_denial_evidence": 0,
+}
 assert report["blocker_issues"] == [1124]
 assert report["errors"] == []
+PY
+
+python3 - "$contract" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    contract = json.load(handle)
+
+value_rows = {row["id"]: row for row in contract["value_features"]}
+for row_id in (
+    "string",
+    "array.fixed",
+    "slice.borrowed",
+    "map.lookup",
+    "tuple",
+    "struct.field",
+):
+    assert value_rows[row_id]["runtime_evidence"] == [
+        "stage1/crates/axiomc-backend-cranelift/src/lib.rs"
+    ]
+
+assert value_rows["owned.move_state"]["runtime_evidence"] == [
+    "stage1/crates/axiomc/tests/cranelift_backend.rs"
+]
+PY
+
+printf '{' >"$temp_dir/invalid-contract.json"
+if python3 "$script" --contract "$temp_dir/invalid-contract.json" --json >"$temp_dir/invalid-report.json"; then
+  echo "expected invalid contracts to fail" >&2
+  exit 1
+fi
+
+printf '[]' >"$temp_dir/non-object-contract.json"
+if python3 "$script" --contract "$temp_dir/non-object-contract.json" --json >"$temp_dir/non-object-report.json"; then
+  echo "expected non-object contracts to fail" >&2
+  exit 1
+fi
+
+if python3 "$script" --contract "$temp_dir/missing-contract.json" --json >"$temp_dir/missing-report.json"; then
+  echo "expected missing contracts to fail" >&2
+  exit 1
+fi
+
+python3 - "$temp_dir/invalid-report.json" "$temp_dir/non-object-report.json" "$temp_dir/missing-report.json" <<'PY'
+import json
+import sys
+
+for report_path in sys.argv[1:]:
+    with open(report_path, encoding="utf-8") as handle:
+        report = json.load(handle)
+
+    assert report["schema"] == "axiom.direct_native.runtime_abi.check.v1"
+    assert report["ready"] is False
+    assert report["target_id"] is None
+    assert report["contract_status"] is None
+    assert report["status_counts"] == {
+        "value_features": {"blocked": 0, "implemented": 0, "partial": 0},
+        "capability_shims": {"blocked": 0, "implemented": 0, "partial": 0},
+    }
+    assert report["value_feature_count"] == 0
+    assert report["capability_shim_count"] == 0
+    assert report["incomplete_rows"] == []
+    assert report["incomplete_rows_by_group"] == {
+        "value_features": [],
+        "capability_shims": [],
+    }
+    assert report["blocked_rows"] == []
+    assert report["blocked_rows_by_group"] == {
+        "value_features": [],
+        "capability_shims": [],
+    }
+    assert report["blocker_issues"] == []
+    assert report["evidence_summary"] == {
+        "value_features": {
+            "with_evidence": 0,
+            "without_evidence": 0,
+            "with_runtime_evidence": 0,
+            "without_runtime_evidence": 0,
+            "with_denial_evidence": 0,
+            "denial_evidence_not_applicable": 0,
+            "without_denial_evidence": 0,
+        },
+        "capability_shims": {
+            "with_evidence": 0,
+            "without_evidence": 0,
+            "with_runtime_evidence": 0,
+            "without_runtime_evidence": 0,
+            "with_denial_evidence": 0,
+            "denial_evidence_not_applicable": 0,
+            "without_denial_evidence": 0,
+        },
+    }
+    assert report["errors"]
 PY
 
 python3 - "$contract" "$temp_dir/ready-contract.json" <<'PY'
@@ -60,10 +180,43 @@ with open(sys.argv[1], encoding="utf-8") as handle:
     contract = json.load(handle)
 
 capability_rows = {row["id"]: row for row in contract["capability_shims"]}
-for row_id in ("regex.match_replace", "io.logging_stdio"):
+for row_id in (
+    "fs.read",
+    "fs.write",
+    "network.dns.resolve",
+    "network.tcp",
+    "network.udp",
+    "network.http.client",
+    "network.http.server",
+    "network.http.async_server",
+    "process.status",
+    "env.read",
+    "clock.now_sleep",
+    "ffi.call",
+    "regex.match_replace",
+    "io.logging_stdio",
+):
     runtime_evidence = capability_rows[row_id]["runtime_evidence"]
     assert "stage1/crates/axiomc/src/cranelift_backend.rs" in runtime_evidence
     assert "stage1/crates/axiomc-backend-cranelift/src/lib.rs" in runtime_evidence
+
+assert capability_rows["json.serdes"]["runtime_evidence"] == [
+    "stage1/crates/axiomc/src/cranelift_backend.rs"
+]
+for row_id in ("crypto.hash", "crypto.mac"):
+    assert capability_rows[row_id]["runtime_evidence"] == [
+        "stage1/crates/axiomc/src/cranelift_backend.rs",
+        "stage1/crates/axiomc/tests/cranelift_backend.rs",
+    ]
+for row_id in ("crypto.signature", "crypto.aead", "async.runtime"):
+    assert capability_rows[row_id]["runtime_evidence"] == [
+        "stage1/crates/axiomc/src/cranelift_backend.rs",
+        "stage1/crates/axiomc/tests/cranelift_backend.rs",
+    ]
+assert capability_rows["sync.primitives"]["runtime_evidence"] == [
+    "stage1/crates/axiomc/src/cranelift_backend.rs",
+    "stage1/crates/axiomc/tests/cranelift_backend.rs",
+]
 PY
 
 python3 - "$contract" "$temp_dir/missing-evidence.json" <<'PY'
@@ -150,6 +303,38 @@ with open(sys.argv[1], encoding="utf-8") as handle:
 assert any("runtime_evidence" in error and "does not exist" in error for error in report["errors"])
 PY
 
+python3 - "$contract" "$temp_dir/denial-applicability-conflict.json" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    contract = json.load(handle)
+
+contract["value_features"][0]["denial_evidence"] = [
+    "stage1/crates/axiomc/tests/cranelift_backend.rs"
+]
+
+with open(sys.argv[2], "w", encoding="utf-8") as handle:
+    json.dump(contract, handle)
+PY
+
+if python3 "$script" --contract "$temp_dir/denial-applicability-conflict.json" --json >"$temp_dir/denial-applicability-conflict-report.json"; then
+  echo "expected denial evidence applicability conflicts to fail" >&2
+  exit 1
+fi
+python3 - "$temp_dir/denial-applicability-conflict-report.json" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    report = json.load(handle)
+
+assert any(
+    "must not combine denial_evidence with denial_evidence_not_applicable" in error
+    for error in report["errors"]
+)
+PY
+
 python3 - "$contract" "$temp_dir/implemented-with-blocker.json" <<'PY'
 import json
 import sys
@@ -158,7 +343,7 @@ with open(sys.argv[1], encoding="utf-8") as handle:
     contract = json.load(handle)
 
 contract["value_features"][0]["status"] = "implemented"
-contract["value_features"][0]["blockers"] = [1124]
+contract["value_features"][0]["blockers"] = [1001]
 contract["value_features"][0]["runtime_evidence"] = [
     "stage1/crates/axiomc/tests/cranelift_backend.rs"
 ]
