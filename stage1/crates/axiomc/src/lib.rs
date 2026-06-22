@@ -9714,6 +9714,49 @@ print serve_once("{bind}", "ok")
         assert!(case.ok);
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn run_project_tests_rejects_sibling_stdout_symlink() {
+        use std::os::unix::fs::symlink;
+
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("runner-symlink-golden");
+        create_project(&project, Some("runner-symlink-golden-app")).expect("create project");
+        let secret = dir.path().join("secret.txt");
+        fs::write(&secret, "do not leak\n").expect("write secret");
+        fs::write(project.join("src/main_test.ax"), "print true\n").expect("write test");
+        let stdout_path = project.join("src/main_test.stdout");
+        fs::remove_file(&stdout_path).expect("remove default golden");
+        symlink(&secret, &stdout_path).expect("symlink golden");
+
+        let error = run_project_tests(&project).expect_err("reject symlink golden");
+
+        assert!(error.message.contains("refusing to read stdout fixture"));
+        assert!(error.message.contains("not symlinks"));
+        assert!(
+            !format!("{error:?}").contains("do not leak"),
+            "diagnostic must not include symlink target contents: {error:?}"
+        );
+    }
+
+    #[test]
+    fn run_project_tests_rejects_oversized_sibling_stdout() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("runner-large-golden");
+        create_project(&project, Some("runner-large-golden-app")).expect("create project");
+        fs::write(project.join("src/main_test.ax"), "print true\n").expect("write test");
+        fs::write(
+            project.join("src/main_test.stdout"),
+            vec![b'x'; 1024 * 1024 + 1],
+        )
+        .expect("write oversized golden");
+
+        let error = run_project_tests(&project).expect_err("reject oversized golden");
+
+        assert!(error.message.contains("refusing to read stdout fixture"));
+        assert!(error.message.contains("above the 1048576 byte limit"));
+    }
+
     #[test]
     fn run_project_tests_supports_builtin_assertions() {
         let dir = tempdir().expect("tempdir");

@@ -25,6 +25,7 @@ use std::time::{Duration, Instant};
 
 const BUILD_CACHE_VERSION: u32 = 1;
 const BUILD_CACHE_COMPILER: &str = concat!("axiomc-stage1-", env!("CARGO_PKG_VERSION"));
+const MAX_TEST_EXPECTED_STREAM_BYTES: u64 = 1024 * 1024;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct CheckedPackage {
@@ -951,13 +952,7 @@ fn load_manifest_test_stream(
     if !path.exists() {
         return Ok(None);
     }
-    fs::read_to_string(&path).map(Some).map_err(|err| {
-        Diagnostic::new(
-            "test",
-            format!("failed to read {stream} fixture {}: {err}", path.display()),
-        )
-        .with_path(path.display().to_string())
-    })
+    read_test_expected_stream(project_root, &path, &format!("{stream} fixture")).map(Some)
 }
 
 fn discover_test_targets(
@@ -1023,13 +1018,11 @@ fn collect_discovered_tests(
         let relative = normalize_path(path.strip_prefix(project_root).unwrap_or(&path));
         let stdout_path = path.with_extension("stdout");
         let stdout = if stdout_path.exists() {
-            Some(fs::read_to_string(&stdout_path).map_err(|err| {
-                Diagnostic::new(
-                    "test",
-                    format!("failed to read {}: {err}", stdout_path.display()),
-                )
-                .with_path(stdout_path.display().to_string())
-            })?)
+            Some(read_test_expected_stream(
+                project_root,
+                &stdout_path,
+                "stdout fixture",
+            )?)
         } else if kind == TestKind::Benchmark {
             None
         } else {
@@ -1037,13 +1030,11 @@ fn collect_discovered_tests(
         };
         let stderr_path = path.with_extension("stderr");
         let stderr = if stderr_path.exists() {
-            Some(fs::read_to_string(&stderr_path).map_err(|err| {
-                Diagnostic::new(
-                    "test",
-                    format!("failed to read {}: {err}", stderr_path.display()),
-                )
-                .with_path(stderr_path.display().to_string())
-            })?)
+            Some(read_test_expected_stream(
+                project_root,
+                &stderr_path,
+                "stderr fixture",
+            )?)
         } else {
             None
         };
@@ -1087,10 +1078,110 @@ fn load_package_expected_output(project_root: &Path) -> Result<Option<String>, D
     if !path.exists() {
         return Ok(None);
     }
-    fs::read_to_string(&path).map(Some).map_err(|err| {
-        Diagnostic::new("test", format!("failed to read {}: {err}", path.display()))
-            .with_path(path.display().to_string())
-    })
+    read_test_expected_stream(project_root, &path, "package stdout fixture").map(Some)
+}
+
+fn read_test_expected_stream(
+    project_root: &Path,
+    path: &Path,
+    label: &str,
+) -> Result<String, Diagnostic> {
+    let metadata = fs::symlink_metadata(path).map_err(|err| {
+        Diagnostic::new(
+            "test",
+            format!("failed to inspect {label} {}: {err}", path.display()),
+        )
+        .with_path(path.display().to_string())
+    })?;
+    let file_type = metadata.file_type();
+    if file_type.is_symlink() {
+        return Err(Diagnostic::new(
+            "test",
+            format!(
+                "refusing to read {label} {} because expected test streams must be regular files, not symlinks",
+                path.display()
+            ),
+        )
+        .with_path(path.display().to_string()));
+    }
+    if !file_type.is_file() {
+        return Err(Diagnostic::new(
+            "test",
+            format!(
+                "refusing to read {label} {} because expected test streams must be regular files",
+                path.display()
+            ),
+        )
+        .with_path(path.display().to_string()));
+    }
+    if metadata.len() > MAX_TEST_EXPECTED_STREAM_BYTES {
+        return Err(Diagnostic::new(
+            "test",
+            format!(
+                "refusing to read {label} {} because it is {} bytes, above the {} byte limit",
+                path.display(),
+                metadata.len(),
+                MAX_TEST_EXPECTED_STREAM_BYTES
+            ),
+        )
+        .with_path(path.display().to_string()));
+    }
+    let canonical_root = project_root.canonicalize().map_err(|err| {
+        Diagnostic::new(
+            "test",
+            format!(
+                "failed to canonicalize project root {}: {err}",
+                project_root.display()
+            ),
+        )
+        .with_path(project_root.display().to_string())
+    })?;
+    let canonical_path = path.canonicalize().map_err(|err| {
+        Diagnostic::new(
+            "test",
+            format!("failed to canonicalize {label} {}: {err}", path.display()),
+        )
+        .with_path(path.display().to_string())
+    })?;
+    if !canonical_path.starts_with(&canonical_root) {
+        return Err(Diagnostic::new(
+            "test",
+            format!(
+                "refusing to read {label} {} because it resolves outside project root {}",
+                path.display(),
+                project_root.display()
+            ),
+        )
+        .with_path(path.display().to_string()));
+    }
+    let file = fs::File::open(path).map_err(|err| {
+        Diagnostic::new(
+            "test",
+            format!("failed to open {label} {}: {err}", path.display()),
+        )
+        .with_path(path.display().to_string())
+    })?;
+    let mut content = String::new();
+    let mut limited = file.take(MAX_TEST_EXPECTED_STREAM_BYTES + 1);
+    limited.read_to_string(&mut content).map_err(|err| {
+        Diagnostic::new(
+            "test",
+            format!("failed to read {label} {}: {err}", path.display()),
+        )
+        .with_path(path.display().to_string())
+    })?;
+    if content.len() as u64 > MAX_TEST_EXPECTED_STREAM_BYTES {
+        return Err(Diagnostic::new(
+            "test",
+            format!(
+                "refusing to read {label} {} because it exceeds the {} byte limit",
+                path.display(),
+                MAX_TEST_EXPECTED_STREAM_BYTES
+            ),
+        )
+        .with_path(path.display().to_string()));
+    }
+    Ok(content)
 }
 
 pub fn project_capabilities(project_root: &Path) -> Result<Vec<CapabilityDescriptor>, Diagnostic> {
