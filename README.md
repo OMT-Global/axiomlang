@@ -53,8 +53,8 @@ if ready {
 
 ```bash
 # Clone
-git clone https://github.com/OMT-Global/axiom.git
-cd axiom
+git clone https://github.com/OMT-Global/axiomlang.git
+cd axiomlang
 
 # Create a starter cli, worker, or service workload
 cargo run --manifest-path stage1/Cargo.toml -p axiomc -- new /tmp/axiom-worker --template worker

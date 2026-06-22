@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://axiom.dev/schemas/axiom-effects-v0.schema.json",
+  "$id": "https://axiomlang.dev/schemas/axiom-effects-v0.schema.json",
   "title": "Axiom Effects v0",
   "type": "object",
   "required": ["schema_version", "ok", "command", "project", "effects"],

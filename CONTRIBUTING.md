@@ -172,7 +172,7 @@ Please use the generated PR template in `.github/PULL_REQUEST_TEMPLATE.md` and f
 - `## Bootstrap Governance`
 - `## Notes`
 
-In particular, make sure the PR body clearly links or closes the governing issue with an accepted closing/reference form such as `Closes #262`, `Fixes #262`, `Resolves OMT-Global/axiom#262`, or a full GitHub issue URL, and records the validation you actually ran so the required `Validate PR Description` and `CI Gate` checks can pass.
+In particular, make sure the PR body clearly links or closes the governing issue with an accepted closing/reference form such as `Closes #262`, `Fixes #262`, `Resolves OMT-Global/axiomlang#262`, or a full GitHub issue URL, and records the validation you actually ran so the required `Validate PR Description` and `CI Gate` checks can pass.
 
 Older pull requests may still pass a temporary legacy fallback when they link an issue and include a short prose summary; that fallback also accepts qualified issue references and full GitHub issue URLs, but new pull requests should use the structured template above.
 
