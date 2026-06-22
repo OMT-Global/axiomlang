@@ -287,8 +287,9 @@ The self-hosted diagnostics and syntax boundary fixture lives at
 `stage1/compiler-contracts/snapshots/diagnostics-syntax.json` and is validated
 with `make stage1-diagnostics-syntax-boundary`.
 Checked-in `build`, `test`, and `caps` JSON contract fixtures live under
-`stage1/json-fixtures/` and cover build target triples, build failures, test
-filters, duration fields, failing cases, and unsafe capability state.
+`stage1/json-fixtures/` and cover explicit generated-Rust compatibility target
+triples, default Cranelift targeted-build no-fallback failures, build failures,
+test filters, duration fields, failing cases, and unsafe capability state.
 
 ## Current gaps
 

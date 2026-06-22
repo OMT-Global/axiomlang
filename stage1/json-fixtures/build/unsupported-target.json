@@ -1,0 +1,13 @@
+{
+  "schema_version": "axiom.stage1.v1",
+  "ok": false,
+  "command": "build",
+  "error": {
+    "kind": "build",
+    "code": "build.failed",
+    "message": "unsupported by --backend cranelift spike: the cranelift backend spike currently supports only the host target",
+    "path": null,
+    "line": null,
+    "column": null
+  }
+}
