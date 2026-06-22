@@ -13349,6 +13349,13 @@ source = "path"
 
 static PRESENT_ENV: string = "AXIOM_CRANELIFT_ENV_READ"
 static MISSING_ENV: string = "__AXIOM_CRANELIFT_ENV_MISSING__"
+static ENV_PREFIX: string = "AXIOM_CRANELIFT_ENV_"
+static READ_SUFFIX: string = "READ"
+
+fn helper_env_len(): int {
+let suffix: string = "READ"
+return match get_env(ENV_PREFIX + suffix) { Some(value) => len(value), None => 0 }
+}
 
 fn helper_present_len(): int {
 return match get_env(PRESENT_ENV) { Some(value) => len(value), None => 0 }
@@ -13361,12 +13368,17 @@ return match stored { Some(value) => len(value), None => 38 }
 
 fn main(): int {
 let present: int = match env_get(PRESENT_ENV) { Some(value) => len(value), None => 0 }
+let concat_key: string = ENV_PREFIX + READ_SUFFIX
+let concat_present: int = match env_get(concat_key) { Some(value) => len(value), None => 0 }
 let missing: int = match get_env(MISSING_ENV) { Some(value) => len(value), None => 38 }
 let stored_present: Option<string> = get_env(PRESENT_ENV)
+let stored_concat: Option<string> = get_env(ENV_PREFIX + READ_SUFFIX)
 let stored_missing: Option<string> = env_get(MISSING_ENV)
 let stored_present_for_statement: Option<string> = get_env(PRESENT_ENV)
 let stored_present_len: int = match stored_present { Some(value) => len(value), None => 0 }
+let stored_concat_len: int = match stored_concat { Some(value) => len(value), None => 0 }
 let stored_missing_len: int = match stored_missing { Some(value) => len(value), None => 38 }
+let helper_len: int = helper_env_len()
 let statement_present_len: int = 0
 match stored_present_for_statement {
 Some(value) {
@@ -13378,7 +13390,7 @@ statement_present_len = 1
 }
 let helper_present: int = helper_present_len()
 let helper_missing: int = helper_missing_len()
-if present == 11 && missing == 38 && stored_present_len == 11 && stored_missing_len == 38 && statement_present_len == 11 && helper_present == 11 && helper_missing == 38 {
+if present == 11 && concat_present == 11 && missing == 38 && stored_present_len == 11 && stored_concat_len == 11 && stored_missing_len == 38 && helper_len == 11 && statement_present_len == 11 && helper_present == 11 && helper_missing == 38 {
 return statement_present_len + 37
 } else {
 return 1
