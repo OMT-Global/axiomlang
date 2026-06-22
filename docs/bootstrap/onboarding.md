@@ -4,7 +4,7 @@ Use this checklist after the first bootstrap render or whenever `project.bootstr
 
 ## Project
 
-- Repository: `OMT-Global/axiom`
+- Repository: `OMT-Global/axiomlang`
 - Manifest: `project.bootstrap.yaml`
 
 ## Repo Governance
@@ -25,7 +25,7 @@ Use this checklist after the first bootstrap render or whenever `project.bootstr
   - `## Bootstrap Governance`
   - `## Semantic Layer Checklist`
   - `## Notes`
-- Make sure the PR body links or closes the governing issue with an accepted form such as `Closes #262`, `Fixes #262`, `Resolves OMT-Global/axiom#262`, or a full GitHub issue URL.
+- Make sure the PR body links or closes the governing issue with an accepted form such as `Closes #262`, `Fixes #262`, `Resolves OMT-Global/axiomlang#262`, or a full GitHub issue URL.
 - PR Fast CI also emits an advisory issue-to-PR traceability report. It parses
   governing issue links, resolves issue state when a read token is available,
   and maps changed files to coarse semantic hints without adding a second

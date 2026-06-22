@@ -9,8 +9,8 @@ programs, while clearly marking future language work as roadmap material.
 Clone the repo and use the Rust bootstrap compiler:
 
 ```bash
-git clone https://github.com/OMT-Global/axiom.git
-cd axiom
+git clone https://github.com/OMT-Global/axiomlang.git
+cd axiomlang
 cargo run --manifest-path stage1/Cargo.toml -p axiomc -- check stage1/examples/hello --json
 cargo run --manifest-path stage1/Cargo.toml -p axiomc -- run stage1/examples/hello
 ```

@@ -240,7 +240,7 @@ def render_text(report: dict[str, Any]) -> str:
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--repo", default="OMT-Global/axiom")
+    parser.add_argument("--repo", default="OMT-Global/axiomlang")
     parser.add_argument("--input", type=Path, help="Fixture JSON from gh pr list")
     parser.add_argument("--limit", type=int, default=100)
     parser.add_argument("--rechecked-at", default=None)

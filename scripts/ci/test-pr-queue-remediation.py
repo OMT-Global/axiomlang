@@ -35,7 +35,7 @@ def pr(
     return {
         "number": number,
         "title": f"PR {number}",
-        "url": f"https://github.com/OMT-Global/axiom/pull/{number}",
+        "url": f"https://github.com/OMT-Global/axiomlang/pull/{number}",
         "baseRefName": "main",
         "headRefName": f"codex/pr-{number}",
         "headRefOid": f"sha-{number}",
@@ -51,7 +51,7 @@ def pr(
 class PrQueueRemediationTests(unittest.TestCase):
     def test_classifies_open_queue_by_remediation_state(self) -> None:
         report = queue.build_report(
-            repo="OMT-Global/axiom",
+            repo="OMT-Global/axiomlang",
             rechecked_at="2026-05-31T14:00:00Z",
             source="fixture",
             prs=[
@@ -82,7 +82,7 @@ class PrQueueRemediationTests(unittest.TestCase):
 
     def test_missing_check_rollup_requires_recheck_before_review_wait(self) -> None:
         report = queue.build_report(
-            repo="OMT-Global/axiom",
+            repo="OMT-Global/axiomlang",
             rechecked_at="2026-05-31T14:00:00Z",
             source="fixture",
             prs=[pr(10, checks=[])],
@@ -99,13 +99,13 @@ class PrQueueRemediationTests(unittest.TestCase):
         ]
 
         first = queue.build_report(
-            repo="OMT-Global/axiom",
+            repo="OMT-Global/axiomlang",
             rechecked_at="2026-05-31T14:00:00Z",
             source="fixture",
             prs=snapshot,
         )
         second = queue.build_report(
-            repo="OMT-Global/axiom",
+            repo="OMT-Global/axiomlang",
             rechecked_at="2026-05-31T14:05:00Z",
             source="fixture",
             prs=list(reversed(snapshot)),
@@ -117,7 +117,7 @@ class PrQueueRemediationTests(unittest.TestCase):
 
     def test_report_declares_non_mutating_operator_guards(self) -> None:
         report = queue.build_report(
-            repo="OMT-Global/axiom",
+            repo="OMT-Global/axiomlang",
             rechecked_at="2026-05-31T14:00:00Z",
             source="fixture",
             prs=[pr(1)],

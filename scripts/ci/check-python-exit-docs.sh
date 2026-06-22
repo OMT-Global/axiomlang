@@ -53,7 +53,7 @@ for pattern in "${required_patterns[@]}"; do
 done
 
 required_parity_patterns=(
-  "Final deletion issue: [#272](https://github.com/OMT-Global/axiom/issues/272)"
+  "Final deletion issue: [#272](https://github.com/OMT-Global/axiomlang/issues/272)"
   "The final Python deletion issue is blocked until"
   "| Python-facing surface | Status | Rust-only gate or disposition |"
   '| `check` | `ported` | `axiomc check <package>`'
@@ -152,7 +152,7 @@ else:
     try:
         for issue in required_issues:
             req = urllib.request.Request(
-                f"https://api.github.com/repos/OMT-Global/axiom/issues/{issue}",
+                f"https://api.github.com/repos/OMT-Global/axiomlang/issues/{issue}",
                 headers=headers,
             )
             with urllib.request.urlopen(req, timeout=20) as response:

@@ -2,11 +2,11 @@
 
 Status: accepted
 
-Parent issue: [#265](https://github.com/OMT-Global/axiom/issues/265)
+Parent issue: [#265](https://github.com/OMT-Global/axiomlang/issues/265)
 
-Governing issue: [#266](https://github.com/OMT-Global/axiom/issues/266)
+Governing issue: [#266](https://github.com/OMT-Global/axiomlang/issues/266)
 
-Final deletion issue: [#272](https://github.com/OMT-Global/axiom/issues/272)
+Final deletion issue: [#272](https://github.com/OMT-Global/axiomlang/issues/272)
 
 This matrix defines the technical bar for treating Rust `stage1` as the sole
 supported Axiom implementation. The final Python deletion issue is blocked until
@@ -26,8 +26,8 @@ make python-exit-readiness-github
 ```
 
 That variant fails unless the issue states are available and Python-exit blocker
-issues [#266](https://github.com/OMT-Global/axiom/issues/266) through
-[#271](https://github.com/OMT-Global/axiom/issues/271) are all closed. Offline
+issues [#266](https://github.com/OMT-Global/axiomlang/issues/266) through
+[#271](https://github.com/OMT-Global/axiomlang/issues/271) are all closed. Offline
 automation can provide the same contract with
 `scripts/ci/check-python-exit-readiness.sh --issue-state-file <path>
 --require-issue-states`, where the state file contains one `<issue> <state>`
@@ -129,7 +129,7 @@ The following are intentionally not part of the Rust-only parity bar:
 
 ## Deletion Rule
 
-[#272](https://github.com/OMT-Global/axiom/issues/272) may delete Python
+[#272](https://github.com/OMT-Global/axiomlang/issues/272) may delete Python
 implementation files only after this matrix still has no `blocked` rows at PR
 time, `make test` passes, and user-facing docs continue to avoid presenting
 Python `stage0` as a supported execution path.
