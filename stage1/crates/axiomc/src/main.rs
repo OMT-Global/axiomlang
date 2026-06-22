@@ -6124,12 +6124,16 @@ struct DocOutput {
 
 fn resolve_doc_out_dir(path: &Path, out_dir: Option<PathBuf>, markdown_only: bool) -> PathBuf {
     if let Some(out_dir) = out_dir {
-        return out_dir;
+        return if out_dir.is_absolute() {
+            out_dir
+        } else {
+            path.join(out_dir)
+        };
     }
     if markdown_only {
         path.join("dist/docs")
     } else {
-        PathBuf::from("docs/axiom")
+        path.join("docs/axiom")
     }
 }
 
@@ -6141,16 +6145,12 @@ fn generate_docs(path: &Path, out_dir: &Path, write_html: bool) -> Result<DocOut
             format!("no .ax files found under {}", path.display()),
         ));
     }
-    fs::create_dir_all(out_dir).map_err(|err| {
-        Diagnostic::new(
-            "doc",
-            format!("failed to create {}: {err}", out_dir.display()),
-        )
-    })?;
+    let out_dir = prepare_doc_out_dir(path, out_dir)?;
     let items = extract_doc_items(&files)?;
     let markdown = render_markdown_docs(&items);
     let markdown_path = out_dir.join("index.md");
     let html_path = out_dir.join("index.html");
+    reject_symlinked_doc_file(&markdown_path)?;
     fs::write(&markdown_path, &markdown).map_err(|err| {
         Diagnostic::new(
             "doc",
@@ -6158,6 +6158,7 @@ fn generate_docs(path: &Path, out_dir: &Path, write_html: bool) -> Result<DocOut
         )
     })?;
     if write_html {
+        reject_symlinked_doc_file(&html_path)?;
         let html = render_html_docs(&markdown);
         fs::write(&html_path, html).map_err(|err| {
             Diagnostic::new(
@@ -6195,6 +6196,125 @@ fn generate_docs(path: &Path, out_dir: &Path, write_html: bool) -> Result<DocOut
         items,
         capabilities,
     })
+}
+
+fn prepare_doc_out_dir(project: &Path, out_dir: &Path) -> Result<PathBuf, Diagnostic> {
+    let project_root = fs::canonicalize(project).map_err(|err| {
+        Diagnostic::new(
+            "doc",
+            format!("failed to resolve project {}: {err}", project.display()),
+        )
+    })?;
+    let out_dir = if out_dir.is_absolute() {
+        out_dir.to_path_buf()
+    } else {
+        std::env::current_dir()
+            .map_err(|err| Diagnostic::new("doc", format!("failed to resolve cwd: {err}")))?
+            .join(out_dir)
+    };
+    if !out_dir.starts_with(&project_root) {
+        return Err(Diagnostic::new(
+            "doc",
+            format!(
+                "documentation output {} must be inside project {}",
+                out_dir.display(),
+                project_root.display()
+            ),
+        ));
+    }
+    create_dir_without_symlinks(&project_root, &out_dir)?;
+    let resolved_out_dir = fs::canonicalize(&out_dir).map_err(|err| {
+        Diagnostic::new(
+            "doc",
+            format!("failed to resolve {}: {err}", out_dir.display()),
+        )
+    })?;
+    if !resolved_out_dir.starts_with(&project_root) {
+        return Err(Diagnostic::new(
+            "doc",
+            format!(
+                "documentation output {} resolves outside project {}",
+                resolved_out_dir.display(),
+                project_root.display()
+            ),
+        ));
+    }
+    Ok(resolved_out_dir)
+}
+
+fn create_dir_without_symlinks(project_root: &Path, out_dir: &Path) -> Result<(), Diagnostic> {
+    let relative = out_dir.strip_prefix(project_root).map_err(|_| {
+        Diagnostic::new(
+            "doc",
+            format!(
+                "documentation output {} must be inside project {}",
+                out_dir.display(),
+                project_root.display()
+            ),
+        )
+    })?;
+    let mut current = project_root.to_path_buf();
+    for component in relative.components() {
+        current.push(component);
+        match fs::symlink_metadata(&current) {
+            Ok(metadata) if metadata.file_type().is_symlink() => {
+                return Err(Diagnostic::new(
+                    "doc",
+                    format!(
+                        "refusing to write documentation through symlink {}",
+                        current.display()
+                    ),
+                ));
+            }
+            Ok(metadata) if metadata.is_dir() => {}
+            Ok(_) => {
+                return Err(Diagnostic::new(
+                    "doc",
+                    format!(
+                        "documentation output {} is not a directory",
+                        current.display()
+                    ),
+                ));
+            }
+            Err(err) if err.kind() == io::ErrorKind::NotFound => {
+                fs::create_dir(&current).map_err(|err| {
+                    Diagnostic::new(
+                        "doc",
+                        format!("failed to create {}: {err}", current.display()),
+                    )
+                })?;
+            }
+            Err(err) => {
+                return Err(Diagnostic::new(
+                    "doc",
+                    format!("failed to inspect {}: {err}", current.display()),
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn reject_symlinked_doc_file(path: &Path) -> Result<(), Diagnostic> {
+    match fs::symlink_metadata(path) {
+        Ok(metadata) if metadata.file_type().is_symlink() => Err(Diagnostic::new(
+            "doc",
+            format!(
+                "refusing to write documentation through symlink {}",
+                path.display()
+            ),
+        )),
+        Ok(metadata) if metadata.is_file() => Ok(()),
+        Ok(_) => Err(Diagnostic::new(
+            "doc",
+            format!("documentation output {} is not a file", path.display()),
+        )),
+        Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(()),
+        Err(err) => Err(Diagnostic::new(
+            "doc",
+            format!("failed to inspect {}: {err}", path.display()),
+        )),
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -9779,6 +9899,95 @@ print serve("127.0.0.1:0", selected_route, 1)
         assert_eq!(items[0].kind, "function");
         assert!(items[0].public);
         assert_eq!(items[0].docs, vec![String::from("Adds one.")]);
+    }
+
+    #[test]
+    fn doc_generation_rejects_output_outside_project() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let project = dir.path().join("doc-contained");
+        fs::create_dir_all(project.join("src")).expect("mkdir");
+        fs::write(project.join("src/main.ax"), "/// Main.\npub fn main() {}\n")
+            .expect("write source");
+
+        let outside = dir.path().join("outside-docs");
+        let error = generate_docs(&project, &outside, true).expect_err("reject outside output");
+
+        assert!(error.message.contains("must be inside project"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn doc_generation_rejects_symlinked_output_directory() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let project = dir.path().join("doc-dir-symlink");
+        let outside = dir.path().join("outside-docs");
+        fs::create_dir_all(project.join("src")).expect("mkdir project src");
+        fs::create_dir_all(&outside).expect("mkdir outside");
+        fs::write(project.join("src/main.ax"), "/// Main.\npub fn main() {}\n")
+            .expect("write source");
+        std::os::unix::fs::symlink(&outside, project.join("docs")).expect("symlink docs");
+
+        let error =
+            generate_docs(&project, &project.join("docs/axiom"), true).expect_err("reject symlink");
+
+        assert!(
+            error
+                .message
+                .contains("refusing to write documentation through symlink")
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn doc_generation_rejects_symlinked_output_file() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let project = dir.path().join("doc-file-symlink");
+        let outside = dir.path().join("outside.md");
+        fs::create_dir_all(project.join("src")).expect("mkdir project src");
+        fs::create_dir_all(project.join("docs/axiom")).expect("mkdir docs");
+        fs::write(project.join("src/main.ax"), "/// Main.\npub fn main() {}\n")
+            .expect("write source");
+        fs::write(&outside, "do not overwrite").expect("write outside");
+        std::os::unix::fs::symlink(&outside, project.join("docs/axiom/index.md"))
+            .expect("symlink index");
+
+        let error =
+            generate_docs(&project, &project.join("docs/axiom"), true).expect_err("reject symlink");
+
+        assert!(
+            error
+                .message
+                .contains("refusing to write documentation through symlink")
+        );
+        assert_eq!(
+            fs::read_to_string(outside).expect("read outside"),
+            "do not overwrite"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn markdown_doc_generation_removes_stale_symlinked_html() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let project = dir.path().join("doc-md-stale-html-symlink");
+        let outside = dir.path().join("outside.html");
+        fs::create_dir_all(project.join("src")).expect("mkdir project src");
+        fs::create_dir_all(project.join("dist/docs")).expect("mkdir docs");
+        fs::write(project.join("src/main.ax"), "/// Main.\npub fn main() {}\n")
+            .expect("write source");
+        fs::write(&outside, "do not overwrite").expect("write outside");
+        std::os::unix::fs::symlink(&outside, project.join("dist/docs/index.html"))
+            .expect("symlink index html");
+
+        let output = generate_docs(&project, &project.join("dist/docs"), false)
+            .expect("generate markdown docs");
+
+        assert!(output.markdown.exists());
+        assert!(!project.join("dist/docs/index.html").exists());
+        assert_eq!(
+            fs::read_to_string(outside).expect("read outside"),
+            "do not overwrite"
+        );
     }
 
     #[test]
