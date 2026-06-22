@@ -75,10 +75,15 @@ for row_id in (
     "slice.borrowed",
     "map.lookup",
     "tuple",
-    "struct.field",
 ):
     assert value_rows[row_id]["runtime_evidence"] == [
         "stage1/crates/axiomc-backend-cranelift/src/lib.rs"
+    ]
+
+for row_id in ("option", "result", "enum.payload", "struct.field"):
+    assert value_rows[row_id]["runtime_evidence"] == [
+        "stage1/crates/axiomc/src/hir.rs",
+        "stage1/crates/axiomc-backend-cranelift/src/lib.rs",
     ]
 
 assert value_rows["owned.move_state"]["runtime_evidence"] == [
