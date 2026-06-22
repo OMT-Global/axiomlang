@@ -35,21 +35,14 @@ denial-evidence rows, and verifies the `axiomc run/test --backend cranelift`
 command paths can execute without generated-Rust artifacts. It is intentionally
 not a readiness claim while rows remain `partial` or `blocked`.
 
-The example smoke runs a bounded subset of checked-in value and stdlib examples
-through `check`, `build --backend cranelift`, and `run --backend cranelift`, and
-asserts the build/run JSON reports `generated_rust: null`. The current set
-covers 53 deterministic examples across scalar/aggregate values, borrowed
-shapes, generic aggregates, modules/packages/workspaces, governance/service
-fixtures, property fixtures, workspace-only package selection, outcome/result
-helpers, JSON value and serdes helpers, LSP/doc/testing helpers, plus async,
-CLI's no-argument path, collections, crypto hash/MAC, env allowlisted and
-unrestricted-migration reads, encoding, fs read/write, HTTP's closed-port
-client path, io, JSON, logging, process-status missing-binary handling, regex,
-sync, string builder, and time. It is direct-native example evidence for #1001,
-not a
-replacement for full
-`stage1-smoke` parity; examples that still require broader capability policy or
-runtime parity remain outside this smoke target.
+The example smoke runs a bounded subset of checked-in stdlib examples through
+`check`, `build --backend cranelift`, `run --backend cranelift`, and
+`test --backend cranelift`, and asserts the build/test JSON reports
+`generated_rust: null`. The current set focuses on the stdlib crypto ABI rows:
+hash, MAC, random bytes and scalar random, Ed25519 signing/verification, and
+AES-256-GCM AEAD round-trips. It is direct-native example evidence for #1001,
+not a replacement for full `stage1-smoke` parity; examples that still require
+broader capability policy or runtime parity remain outside this smoke target.
 
 ## Contract Shape
 
@@ -75,6 +68,12 @@ Rows that are not `implemented` must name at least one blocker issue. Rows that
 are `implemented` must not name blockers. Compiler-side Cranelift spike
 evaluation can be recorded as `evidence` on a partial row, but it does not by
 itself satisfy `runtime_evidence` or prove runtime support.
+
+Rows may name `denial_evidence` when a manifest capability or host-service
+policy can reject the operation before direct-native lowering or native
+execution. Rows without a host-service denial policy should instead name
+`denial_evidence_not_applicable`, so the ABI report distinguishes missing
+denial coverage from rows where denial evidence is not part of the contract.
 
 ## Required Value Features
 
@@ -173,6 +172,8 @@ bindings for bool locals, helper returns, and boolean conditions. The backend
 crate has narrow object-link evidence for composed `&&`/`||` comparison conditions,
 condition-to-i64 value lowering for helper-call arguments, and bool local
 assignment through a branch inside a loop after a scoped runtime bool `let`.
+The public bool stdout smoke also asserts `generated_rust: null` while printing
+both true and false boolean expressions from a direct-native main function.
 Both rows remain partial because that runtime path does not yet cover the full
 supported scalar, function-call, control-flow, or boolean surface.
 
@@ -253,10 +254,12 @@ helper returns using the same element-slot ABI, including inside runtime loop
 blocks. Fixed-array `len`, `first`, and `last` over scalar and bool element
 arrays also lower through the same projected element-slot representation for
 local arrays, inline literals, helper parameters, and helper-returned arrays
-feeding a direct-native process exit status. The row remains partial because
-direct-native codegen still does not provide a general array ABI, array storage
-for non-scalar elements, full dynamic indexing semantics, bounds diagnostics,
-or a complete aggregate value passing contract.
+feeding a direct-native process exit status. The public array helper smoke also
+prints `len`, `first`, `last`, and a first-plus-last sum for both a local fixed
+array and a helper-returned fixed array while asserting `generated_rust: null`.
+The row remains partial because direct-native codegen still does not provide a
+general array ABI, array storage for non-scalar elements, full dynamic indexing
+semantics, bounds diagnostics, or a complete aggregate value passing contract.
 
 The `tuple` row now has narrow direct-native runtime evidence for immediate
 tuple-literal scalar indexing and scalar projection from local tuple bindings.
@@ -270,12 +273,15 @@ helpers now lower across direct-native function-call boundaries as one return
 slot per tuple element, with caller-side projection locals populated from the
 multi-slot return; this includes helpers whose final return is selected by
 branch blocks with branch-local scalar values, helpers returning local tuple
-bindings, and helpers forwarding tuple parameters. Existing tuple locals can
-now be reassigned from tuple helper returns using the same tuple-element ABI,
-including inside runtime loop blocks. The row remains partial because
-direct-native codegen still does not provide a general tuple ABI, tuple storage
-for non-scalar elements, tuple return expressions beyond the scalar/bool local,
-literal, and parameter slice, or a complete aggregate value passing contract.
+bindings, and helpers forwarding tuple parameters. The public tuple-returning
+helper smoke also asserts `generated_rust: null` while printing caller-side
+scalar and boolean projections from literal, local-binding, forwarded, typed,
+branch-selected, and fallback tuple returns. Existing tuple locals can now be
+reassigned from tuple helper returns using the same tuple-element ABI, including
+inside runtime loop blocks. The row remains partial because direct-native
+codegen still does not provide a general tuple ABI, tuple storage for non-scalar
+elements, tuple return expressions beyond the scalar/bool local, literal, and
+parameter slice, or a complete aggregate value passing contract.
 
 The `struct.field` row now has narrow direct-native runtime evidence for
 immediate struct-literal scalar field access and scalar projection from local
@@ -328,12 +334,12 @@ helper parameters, helper returns, forwarded helper values, and inline
 slots. Existing narrow `Option<Step>` locals can now be reassigned from option
 helper returns using the same tag/payload slots, including inside runtime branch
 blocks. The direct-native path also has narrow evidence for nested
-`Option<Option<int>>` construction, reassignment, matching, helper parameters,
-helper returns, forwarded helper values, and inline `Some(Some(...))`,
-`Some(None)`, and outer `None` helper arguments using nested tag/payload slots.
-The same nested slot representation now has narrow evidence for
-`Option<Result<int, int>>` construction, reassignment, matching, helper
-parameters, helper returns, forwarded helper values, and inline
+`Option<Option<int>>` construction, matching, helper parameters, helper returns,
+forwarded helper values, and inline `Some(Some(...))`, `Some(None)`, and outer
+`None` helper arguments using nested tag/payload slots. The same nested slot
+representation now has narrow evidence for `Option<Result<int, int>>`
+construction, matching, helper parameters, helper returns, forwarded helper
+values, and inline
 `Some(Ok(...))`, `Some(Err(...))`, and outer `None` helper arguments.
 The row remains partial because direct-native codegen still does not provide a
 general `Option<T>` ABI across broader payload shapes, deeper nested option or
@@ -537,9 +543,12 @@ The direct-native crypto signature slice is now marked partial: the Cranelift
 spike builds and runs `std/crypto_sign.ax` Ed25519 key generation, signing, and
 verification while the public smoke asserts `generated_rust` is null by
 dynamically loading the host libcrypto EVP provider for real cryptographic
-operations. Packages without the `crypto` capability still fail before backend
-lowering. Runtime-integrated crypto provider selection, deterministic test
-hooks, audit parity, and non-Unix support remain open under #1001.
+operations. The smoke now also sends Ed25519 verification, signature length, and
+public-key length projections through helper functions before native binary
+stdout, proving those crypto byte-array values can cross helper boundaries in
+the spike path. Packages without the `crypto` capability still fail before
+backend lowering. Runtime-integrated crypto provider selection, deterministic
+test hooks, audit parity, and non-Unix support remain open under #1001.
 
 The direct-native crypto AEAD slice is now marked partial: the Cranelift spike
 builds and runs `std/crypto_aead.ax` AES-256-GCM seal/open while the public
@@ -717,10 +726,11 @@ The `env.read` row now has partial Cranelift evidence for `std/env.ax`
 `get_env` on present and missing environment names while the public smoke
 asserts `generated_rust` is null, plus denial evidence that a package without the
 `env` capability fails before backend lowering. The direct-native i64 path now
-also lowers literal- and static-string-key `env_get(...)` calls and the public
-`std/env.ax` `get_env(...)` wrapper into native runtime environment lookups
-through the object backend for direct `Option<string>` matches that use
-`len(value)`, returning the runtime string length or the `None` arm when absent.
+also lowers literal-, static-string-key, and known-concatenated-key
+`env_get(...)` calls and the public `std/env.ax` `get_env(...)` wrapper into
+native runtime environment lookups through the object backend for direct
+`Option<string>` matches that use `len(value)`, returning the runtime string
+length or the `None` arm when absent.
 That direct-native path also appends host audit JSONL entries when
 `AXIOM_HOST_AUDIT_LOG` is set, recording only the environment key length and the
 `ok`/`denied` outcome without recording environment values. Literal- and static-key
@@ -728,7 +738,11 @@ direct-native environment reads now also honor manifest env allowlists at
 runtime, returning the `None` arm for non-allowlisted keys even when those names
 exist in the host process. The same runtime env lookup can now be stored in a
 local `Option<string>` and matched later for supported `len(value)` expression
-and statement matches without capturing the compiler process environment.
+and statement matches, including known-concatenated keys and helper-local
+lookups, without capturing the compiler process environment.
+Helper-local present and missing env lookups over static keys also lower through
+the same native runtime environment path and return through direct-native helper
+calls.
 Broader runtime environment binding, stored string value materialization beyond
 length projection, and dynamic-key allowlist handling remain open under #1001.
 
@@ -736,12 +750,13 @@ The FFI call row now has partial direct-native evidence: the spike builds and
 runs a narrow C ABI `extern fn strlen(value: string): int from "c"` fixture
 while the public smoke asserts `generated_rust` is null, using the source-level
 extern declaration. The direct-native i64 path also lowers that same narrow
-`strlen` declaration for supported literal and string-projection inputs into
-native process exit status without generated Rust, including dynamic
-key-array string selections that feed the direct-native length projection path.
+`strlen` declaration for supported literal, static, known-concatenated, and
+string-projection inputs into native process exit status without generated Rust,
+including dynamic key-array string selections that feed the direct-native length
+projection path.
 Those same supported `strlen` inputs now also lower inside direct-native helper
-functions and return through native helper calls before the final process exit
-status.
+functions, including helper-local known-concatenated arguments, and return
+through native helper calls before the final process exit status.
 Known-string inputs now call the native `strlen` import at runtime instead of
 relying on compile-time length folding. That path also appends host audit JSONL
 entries when `AXIOM_HOST_AUDIT_LOG` is set, recording only the library, symbol,
@@ -797,7 +812,10 @@ locals and the process exit status. It also covers `match` statements that
 assign scalar and bool locals from `Ok`/`Err` arms. Those Result helper
 parameters lower across direct-native function-call boundaries as explicit
 tag/payload ABI slots for local values and inline `Ok`/`Err` arguments without
-generated Rust. The direct-native path also has narrow evidence for
+generated Rust. The public result helper stdout smoke also asserts
+`generated_rust: null` while helper-returned `Result<int, int>` and
+`Result<bool, bool>` values feed native scalar and boolean stdout projections.
+The direct-native path also has narrow evidence for
 `Result<(int, bool), int>` and `Result<(int, bool), (int, bool)>` `Ok`/`Err`
 construction, reassignment, matching, and helper parameters for local values and
 inline `Ok`/`Err` arguments represented as a tag plus multiple payload slots.
@@ -814,11 +832,11 @@ field-order payload slots. Existing narrow `Result<Step, Step>` locals can now
 be reassigned from result helper returns using the same tag/payload slots,
 including inside runtime branch blocks. The nested option payload slice now also
 has narrow direct-native evidence for `Result<Option<int>, int>` construction,
-reassignment, matching, helper parameters, helper returns, forwarded helper
-values, and inline `Ok(Some(...))`, `Ok(None)`, and `Err(...)` helper arguments.
-The recursive result payload slice now also has narrow evidence for
-`Result<Result<int, int>, int>` construction, reassignment, matching, helper
-parameters, helper returns, forwarded helper values, and inline `Ok(Ok(...))`,
+matching, helper parameters, helper returns, forwarded helper values, and inline
+`Ok(Some(...))`, `Ok(None)`, and `Err(...)` helper arguments. The recursive
+result payload slice now also has narrow evidence for `Result<Result<int, int>,
+int>` construction, matching, helper parameters, helper returns, forwarded
+helper values, and inline `Ok(Ok(...))`,
 `Ok(Err(...))`, and outer `Err(...)` helper arguments.
 Broader Result ABI support, the full numeric-width matrix, additional aggregate
 payload shapes, and capability-shim coverage remain tracked by issue #1001.
