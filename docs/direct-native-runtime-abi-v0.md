@@ -539,9 +539,11 @@ dynamically loading the host libcrypto EVP provider for real cryptographic
 operations. The smoke now also sends Ed25519 verification, signature length, and
 public-key length projections through helper functions before native binary
 stdout, proving those crypto byte-array values can cross helper boundaries in
-the spike path. Packages without the `crypto` capability still fail before
-backend lowering. Runtime-integrated crypto provider selection, deterministic
-test hooks, audit parity, and non-Unix support remain open under #1001.
+the spike path, and it now also verifies that the same signature is rejected for
+a changed message, proving provider-backed negative verification semantics.
+Packages without the `crypto` capability still fail before backend lowering.
+Runtime-integrated crypto provider selection, deterministic test hooks, audit
+parity, and non-Unix support remain open under #1001.
 
 The direct-native crypto AEAD slice is now marked partial: the Cranelift spike
 builds and runs `std/crypto_aead.ax` AES-256-GCM seal/open while the public
@@ -550,10 +552,12 @@ EVP provider. The smoke now also sends AES-GCM seal length and opened plaintext
 length projections through helper functions before native binary stdout,
 proving helper-boundary coverage for the projected `int` lengths only. Moving
 dynamic sealed or opened AEAD byte-array values across helper boundaries remains
-open under #1001. Packages without the `crypto` capability still fail before
-backend lowering. Runtime-integrated crypto provider selection, broader
-algorithm coverage, deterministic test hooks, audit parity, and non-Unix
-support remain open under #1001.
+open under #1001, and it now also verifies that opening the ciphertext with
+changed associated data returns `None`, proving authenticated failure
+semantics on the provider-backed path. Packages without the `crypto`
+capability still fail before backend lowering. Runtime-integrated crypto
+provider selection, broader algorithm coverage, deterministic test hooks, audit
+parity, and non-Unix support remain open under #1001.
 
 The HTTP client row now has partial Cranelift evidence: the spike builds
 `std/http.ax` `get(...)` against a static allowlisted `http://127.0.0.1` URL
