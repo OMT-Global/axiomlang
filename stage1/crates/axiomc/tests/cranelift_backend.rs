@@ -1542,7 +1542,10 @@ fn cranelift_backend_lowers_tuple_returning_helper_to_runtime_exit_code() {
         .output()
         .expect("run cranelift tuple-returning helper main binary");
     assert_eq!(run.status.code(), Some(48));
-    assert_eq!(String::from_utf8_lossy(&run.stdout), "");
+    assert_eq!(
+        String::from_utf8_lossy(&run.stdout),
+        "48\ntrue\n48\ntrue\n48\ntrue\n42\ntrue\n42\ntrue\n48\ntrue\n1\nfalse\n"
+    );
 }
 
 #[cfg(not(windows))]
@@ -1906,7 +1909,7 @@ fn cranelift_backend_lowers_std_crypto_wrappers_to_runtime_exit_code() {
     assert!(audit.contains("\"intrinsic\":\"crypto_hmac_sha512\""));
     assert!(audit.contains("\"inputs\":\"strings:1\""));
     assert!(audit.contains("\"inputs\":\"strings:2\""));
-    assert_eq!(audit.matches("\"outcome\":\"ok\"").count(), 3, "{audit}");
+    assert_eq!(audit.matches("\"outcome\":\"ok\"").count(), 4, "{audit}");
     assert!(!audit.contains("ba7816bf"));
     assert!(!audit.contains("f7bc83f4"));
     assert!(!audit.contains("164b7a7b"));
@@ -3107,7 +3110,7 @@ fn cranelift_backend_lowers_process_status_to_runtime_exit_code() {
         audit.contains("\"intrinsic\":\"process_status\""),
         "{audit}"
     );
-    assert_eq!(audit.matches("\"outcome\":\"ok\"").count(), 3, "{audit}");
+    assert_eq!(audit.matches("\"outcome\":\"ok\"").count(), 4, "{audit}");
     assert_eq!(
         audit.matches("\"outcome\":\"denied\"").count(),
         1,
@@ -5328,7 +5331,7 @@ fn cranelift_backend_lowers_json_scalar_stringify_print_to_native_stdout() {
     assert_eq!(run.status.code(), Some(42));
     assert_eq!(
         String::from_utf8_lossy(&run.stdout),
-        "42\n\"42\"\ntrue\nfalse\n\"false\"\n"
+        "42\n\"42\"\ntrue\nfalse\n\"false\"\n43\n"
     );
     assert_eq!(String::from_utf8_lossy(&run.stderr), "");
 }
@@ -6390,7 +6393,10 @@ fn cranelift_backend_builds_crypto_signature_binary() {
         "cranelift crypto signature binary failed: stderr={}",
         String::from_utf8_lossy(&run.stderr)
     );
-    assert_eq!(String::from_utf8_lossy(&run.stdout), "true\ntrue\n64\n32\n");
+    assert_eq!(
+        String::from_utf8_lossy(&run.stdout),
+        "true\ntrue\n64\n32\nfalse\n"
+    );
 }
 
 #[test]
@@ -6472,7 +6478,7 @@ fn cranelift_backend_builds_crypto_aead_binary() {
         "cranelift crypto AEAD binary failed: stderr={}",
         String::from_utf8_lossy(&run.stderr)
     );
-    assert_eq!(String::from_utf8_lossy(&run.stdout), "5\n");
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "5\n21\n5\n21\nnone\n");
 }
 
 #[test]
@@ -8085,7 +8091,7 @@ fn write_tuple_returning_helper_main_exit_project(project: &Path) {
     .expect("write tuple returning helper main exit lockfile");
     fs::write(
         project.join("src/main.ax"),
-        "fn make_pair(base: int, enabled: bool): (int, bool) {\nreturn (base + 6, enabled)\n}\n\nfn make_local_pair(base: int): (int, bool) {\nlet pair: (int, bool) = (base + 6, true)\nreturn pair\n}\n\nfn forward_pair(pair: (int, bool)): (int, bool) {\nreturn pair\n}\n\nfn make_typed_pair(seed: u8): (u8, bool) {\nreturn (seed + 1u8, seed == 41u8)\n}\n\nfn forward_typed_pair(pair: (u8, bool)): (u8, bool) {\nreturn pair\n}\n\nfn choose_pair(flag: bool, base: int): (int, bool) {\nlet offset: int = 6\nlet ready: bool = base == 42\nif flag {\nlet value: int = base + offset\nreturn (value, ready)\n} else {\nlet fallback: int = 1\nreturn (fallback, false)\n}\n}\n\nfn main(): int {\nlet pair: (int, bool) = make_pair(42, true)\nlet local_pair: (int, bool) = make_local_pair(42)\nlet pair_to_forward: (int, bool) = make_pair(42, true)\nlet forwarded_pair: (int, bool) = forward_pair(pair_to_forward)\nlet typed: (u8, bool) = make_typed_pair(41u8)\nlet typed_to_forward: (u8, bool) = make_typed_pair(41u8)\nlet forwarded_typed: (u8, bool) = forward_typed_pair(typed_to_forward)\nlet branch_pair: (int, bool) = choose_pair(true, 42)\nlet blocked_pair: (int, bool) = choose_pair(false, 42)\nlet value: int = pair.0\nlet enabled: bool = pair.1\nlet local_value: int = local_pair.0\nlet local_enabled: bool = local_pair.1\nlet forwarded_value: int = forwarded_pair.0\nlet forwarded_enabled: bool = forwarded_pair.1\nlet typed_value: int = typed.0 as int\nlet typed_enabled: bool = typed.1\nlet forwarded_typed_value: int = forwarded_typed.0 as int\nlet forwarded_typed_enabled: bool = forwarded_typed.1\nlet branch_value: int = branch_pair.0\nlet branch_enabled: bool = branch_pair.1\nlet blocked_value: int = blocked_pair.0\nlet blocked_enabled: bool = blocked_pair.1\nif enabled && local_enabled && forwarded_enabled && typed_enabled && forwarded_typed_enabled && branch_enabled && blocked_enabled == false && value == 48 && local_value == 48 && forwarded_value == 48 && typed_value == 42 && forwarded_typed_value == 42 && branch_value == 48 && blocked_value == 1 {\nreturn value\n} else {\nreturn 1\n}\n}\n",
+        "fn make_pair(base: int, enabled: bool): (int, bool) {\nreturn (base + 6, enabled)\n}\n\nfn make_local_pair(base: int): (int, bool) {\nlet pair: (int, bool) = (base + 6, true)\nreturn pair\n}\n\nfn forward_pair(pair: (int, bool)): (int, bool) {\nreturn pair\n}\n\nfn make_typed_pair(seed: u8): (u8, bool) {\nreturn (seed + 1u8, seed == 41u8)\n}\n\nfn forward_typed_pair(pair: (u8, bool)): (u8, bool) {\nreturn pair\n}\n\nfn choose_pair(flag: bool, base: int): (int, bool) {\nlet offset: int = 6\nlet ready: bool = base == 42\nif flag {\nlet value: int = base + offset\nreturn (value, ready)\n} else {\nlet fallback: int = 1\nreturn (fallback, false)\n}\n}\n\nfn main(): int {\nlet pair: (int, bool) = make_pair(42, true)\nlet local_pair: (int, bool) = make_local_pair(42)\nlet pair_to_forward: (int, bool) = make_pair(42, true)\nlet forwarded_pair: (int, bool) = forward_pair(pair_to_forward)\nlet typed: (u8, bool) = make_typed_pair(41u8)\nlet typed_to_forward: (u8, bool) = make_typed_pair(41u8)\nlet forwarded_typed: (u8, bool) = forward_typed_pair(typed_to_forward)\nlet branch_pair: (int, bool) = choose_pair(true, 42)\nlet blocked_pair: (int, bool) = choose_pair(false, 42)\nlet value: int = pair.0\nlet enabled: bool = pair.1\nlet local_value: int = local_pair.0\nlet local_enabled: bool = local_pair.1\nlet forwarded_value: int = forwarded_pair.0\nlet forwarded_enabled: bool = forwarded_pair.1\nlet typed_value: int = typed.0 as int\nlet typed_enabled: bool = typed.1\nlet forwarded_typed_value: int = forwarded_typed.0 as int\nlet forwarded_typed_enabled: bool = forwarded_typed.1\nlet branch_value: int = branch_pair.0\nlet branch_enabled: bool = branch_pair.1\nlet blocked_value: int = blocked_pair.0\nlet blocked_enabled: bool = blocked_pair.1\nprint value\nprint enabled\nprint local_value\nprint local_enabled\nprint forwarded_value\nprint forwarded_enabled\nprint typed_value\nprint typed_enabled\nprint forwarded_typed_value\nprint forwarded_typed_enabled\nprint branch_value\nprint branch_enabled\nprint blocked_value\nprint blocked_enabled\nif enabled && local_enabled && forwarded_enabled && typed_enabled && forwarded_typed_enabled && branch_enabled && blocked_enabled == false && value == 48 && local_value == 48 && forwarded_value == 48 && typed_value == 42 && forwarded_typed_value == 42 && branch_value == 48 && blocked_value == 1 {\nreturn value\n} else {\nreturn 1\n}\n}\n",
     )
     .expect("write tuple returning helper main exit source");
 }
@@ -9537,16 +9543,25 @@ source = "path"
         project.join("src/main.ax"),
         r#"import "std/process.ax"
 
+fn ok_status(): int {
+return run_status("/usr/bin/true")
+}
+
+fn fail_status(): int {
+return process_status("/usr/bin/false")
+}
+
 static TRUE_CMD: string = "/usr/bin/true"
 static FALSE_CMD: string = "/usr/bin/false"
 static MISSING_CMD: string = "__axiom_stage1_missing_binary__"
 
 fn main(): int {
-let ok: int = process_status("/usr/bin/true")
+let ok: int = ok_status()
 let static_ok: int = run_status(TRUE_CMD)
-let fail: int = run_status(FALSE_CMD)
+let fail: int = fail_status()
+let static_fail: int = run_status(FALSE_CMD)
 let missing: int = run_status(MISSING_CMD)
-if ok == 0 && static_ok == 0 && fail == 1 && missing == -1 {
+if ok == 0 && static_ok == 0 && fail == 1 && static_fail == 1 && missing == -1 {
 return 48
 } else {
 return 1
@@ -10825,7 +10840,7 @@ fn write_crypto_signature_project(project: &Path, crypto: bool) {
     .expect("write crypto signature lockfile");
     fs::write(
         project.join("src/main.ax"),
-        "import \"std/crypto_sign.ax\"\n\nfn signature_ok(public_key: &[u8], message: &[u8], signature: &[u8]): bool {\nreturn ed25519_verify(public_key, message, signature)\n}\n\nfn signature_len(secret_key: &[u8], message: &[u8]): int {\nreturn len(ed25519_sign(secret_key, message))\n}\n\nfn public_key_len(public_key: &[u8]): int {\nreturn len(public_key)\n}\n\nlet message: [u8] = [104u8, 101u8, 108u8, 108u8, 111u8]\nlet keys: ([u8], [u8]) = ed25519_keygen()\nlet public_key: [u8] = keys.0\nlet secret_key: [u8] = keys.1\nlet signature: [u8] = ed25519_sign(secret_key[:], message[:])\nprint ed25519_verify(public_key[:], message[:], signature[:])\nprint signature_ok(public_key[:], message[:], signature[:])\nprint signature_len(secret_key[:], message[:])\nprint public_key_len(public_key[:])\n",
+        "import \"std/crypto_sign.ax\"\n\nfn signature_ok(public_key: &[u8], message: &[u8], signature: &[u8]): bool {\nreturn ed25519_verify(public_key, message, signature)\n}\n\nfn signature_len(secret_key: &[u8], message: &[u8]): int {\nreturn len(ed25519_sign(secret_key, message))\n}\n\nfn public_key_len(public_key: &[u8]): int {\nreturn len(public_key)\n}\n\nlet message: [u8] = [104u8, 101u8, 108u8, 108u8, 111u8]\nlet changed_message: [u8] = [72u8, 101u8, 108u8, 108u8, 111u8]\nlet keys: ([u8], [u8]) = ed25519_keygen()\nlet public_key: [u8] = keys.0\nlet secret_key: [u8] = keys.1\nlet signature: [u8] = ed25519_sign(secret_key[:], message[:])\nprint ed25519_verify(public_key[:], message[:], signature[:])\nprint signature_ok(public_key[:], message[:], signature[:])\nprint signature_len(secret_key[:], message[:])\nprint public_key_len(public_key[:])\nprint ed25519_verify(public_key[:], changed_message[:], signature[:])\n",
     )
     .expect("write crypto signature source");
 }
@@ -10846,7 +10861,7 @@ fn write_crypto_aead_project(project: &Path, crypto: bool) {
     .expect("write crypto AEAD lockfile");
     fs::write(
         project.join("src/main.ax"),
-        "import \"std/crypto_aead.ax\"\nlet key: [u8] = [0u8, 1u8, 2u8, 3u8, 4u8, 5u8, 6u8, 7u8, 8u8, 9u8, 10u8, 11u8, 12u8, 13u8, 14u8, 15u8, 16u8, 17u8, 18u8, 19u8, 20u8, 21u8, 22u8, 23u8, 24u8, 25u8, 26u8, 27u8, 28u8, 29u8, 30u8, 31u8]\nlet nonce: [u8] = [0u8, 1u8, 2u8, 3u8, 4u8, 5u8, 6u8, 7u8, 8u8, 9u8, 10u8, 11u8]\nlet aad: [u8] = [97u8, 97u8, 100u8]\nlet plaintext: [u8] = [104u8, 101u8, 108u8, 108u8, 111u8]\nlet ciphertext: [u8] = aead_seal(Aes256Gcm, key[:], nonce[:], aad[:], plaintext[:])\nmatch aead_open(Aes256Gcm, key[:], nonce[:], aad[:], ciphertext[:]) {\nSome(opened) {\nprint len(opened)\n}\nNone {\nprint 0\n}\n}\n",
+        "import \"std/crypto_aead.ax\"\n\nfn sealed_len(key: &[u8], nonce: &[u8], aad: &[u8], plaintext: &[u8]): int {\nreturn len(aead_seal(Aes256Gcm, key, nonce, aad, plaintext))\n}\n\nfn opened_len(key: &[u8], nonce: &[u8], aad: &[u8], ciphertext: &[u8]): int {\nreturn match aead_open(Aes256Gcm, key, nonce, aad, ciphertext) { Some(opened) => len(opened), None => 0 }\n}\n\nlet key: [u8] = [0u8, 1u8, 2u8, 3u8, 4u8, 5u8, 6u8, 7u8, 8u8, 9u8, 10u8, 11u8, 12u8, 13u8, 14u8, 15u8, 16u8, 17u8, 18u8, 19u8, 20u8, 21u8, 22u8, 23u8, 24u8, 25u8, 26u8, 27u8, 28u8, 29u8, 30u8, 31u8]\nlet nonce: [u8] = [0u8, 1u8, 2u8, 3u8, 4u8, 5u8, 6u8, 7u8, 8u8, 9u8, 10u8, 11u8]\nlet aad: [u8] = [97u8, 97u8, 100u8]\nlet changed_aad: [u8] = [98u8, 97u8, 100u8]\nlet plaintext: [u8] = [104u8, 101u8, 108u8, 108u8, 111u8]\nlet ciphertext: [u8] = aead_seal(Aes256Gcm, key[:], nonce[:], aad[:], plaintext[:])\nmatch aead_open(Aes256Gcm, key[:], nonce[:], aad[:], ciphertext[:]) {\nSome(opened) {\nprint len(opened)\n}\nNone {\nprint 0\n}\n}\nprint len(ciphertext)\nprint opened_len(key[:], nonce[:], aad[:], ciphertext[:])\nprint sealed_len(key[:], nonce[:], aad[:], plaintext[:])\nmatch aead_open(Aes256Gcm, key[:], nonce[:], changed_aad[:], ciphertext[:]) {\nSome(opened) {\nprint len(opened)\n}\nNone {\nprint \"none\"\n}\n}\n",
     )
     .expect("write crypto AEAD source");
 }
@@ -11467,6 +11482,8 @@ print stringify_bool(value == 42)
 let disabled: string = stringify_bool(false)
 print disabled
 print stringify_string(disabled)
+let next: int = value + 1
+print stringify_int(next)
 return value
 }
 "#,
