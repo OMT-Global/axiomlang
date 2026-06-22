@@ -102,7 +102,7 @@ stage1-compiler-property-test:
 	bash scripts/ci/run-compiler-property-checks.sh
 
 stage1-conformance:
-	cargo run --manifest-path stage1/Cargo.toml -p axiomc -- test --conformance --json
+	bash scripts/ci/run-stage1-conformance.sh
 
 stage1-bench:
 	python3 scripts/ci/run-stage1-bench.py --output stage1/benchmarks/generated/stage1-bench.json
