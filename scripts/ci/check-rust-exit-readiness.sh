@@ -124,7 +124,7 @@ direct_native_runtime_abi_ready() {
 }
 
 direct_native_runtime_abi_detail() {
-  python3 -c 'import json, sys; payload = json.load(sys.stdin); incomplete = payload.get("incomplete_rows", []); blocked = payload.get("blocked_rows", []); errors = payload.get("errors", []); issues = ", ".join("#%s" % issue for issue in payload.get("blocker_issues", [])); print("errors: " + ", ".join(map(str, errors)) if errors else ("%d incomplete rows, %d blocked rows; blocker issues: %s" % (len(incomplete), len(blocked), issues) if incomplete or blocked else "contract status: %s" % payload.get("contract_status")))'
+  python3 -c 'import json, sys; payload = json.load(sys.stdin); incomplete = payload.get("incomplete_rows", []); blocked = payload.get("blocked_rows", []); errors = payload.get("errors", []); by_group = payload.get("incomplete_rows_by_group", {}); value_count = len(by_group.get("value_features", [])); capability_count = len(by_group.get("capability_shims", [])); issues = ", ".join("#%s" % issue for issue in payload.get("blocker_issues", [])); print("errors: " + ", ".join(map(str, errors)) if errors else ("%d incomplete rows (%d value, %d capability), %d blocked rows; blocker issues: %s" % (len(incomplete), value_count, capability_count, len(blocked), issues) if incomplete or blocked else "contract status: %s" % payload.get("contract_status")))'
 }
 
 closed_blocking_issues_from_manifest() {
