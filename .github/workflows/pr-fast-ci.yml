@@ -70,9 +70,16 @@ jobs:
     env:
       GITHUB_TOKEN: ${{ github.token }}
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4 pinned 2026-05-30
+      - name: Checkout pull request contents
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4 pinned 2026-05-30
         with:
           ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Checkout trusted CI scripts
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4 pinned 2026-05-30
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: .trusted-ci
 
       - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable pinned 2026-04-19
 
@@ -150,7 +157,7 @@ jobs:
       - name: Run fast checks
         env:
           GITHUB_TOKEN: ${{ github.token }}
-        run: bash scripts/ci/run-fast-checks.sh
+        run: AXIOM_CHECKOUT_PATH="$GITHUB_WORKSPACE" bash .trusted-ci/scripts/ci/run-fast-checks.sh
 
   validate-pr-description:
     name: Validate PR Description
@@ -163,17 +170,23 @@ jobs:
       PR_BODY: ${{ github.event.pull_request.body }}
       PR_AUTHOR: ${{ github.event.pull_request.user.login }}
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4 pinned 2026-05-30
+      - name: Checkout pull request contents
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4 pinned 2026-05-30
         with:
           ref: ${{ github.event.pull_request.head.sha }}
+      - name: Checkout trusted CI scripts
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4 pinned 2026-05-30
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: .trusted-ci
       - name: Require generated PR template content
-        run: bash scripts/ci/validate-pr-description.sh
+        run: AXIOM_CHECKOUT_PATH="$GITHUB_WORKSPACE" bash .trusted-ci/scripts/ci/validate-pr-description.sh
       - name: Emit advisory issue traceability
         continue-on-error: true
         env:
           GITHUB_TOKEN: ${{ github.token }}
           PR_BODY: ${{ github.event.pull_request.body }}
-        run: scripts/ci/issue-pr-traceability.py --json
+        run: AXIOM_CHECKOUT_PATH="$GITHUB_WORKSPACE" .trusted-ci/scripts/ci/issue-pr-traceability.py --json
 
 
   validate-secrets:
@@ -184,11 +197,17 @@ jobs:
       github.event.pull_request.draft == false &&
       github.event.pull_request.head.repo.full_name == github.repository
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4 pinned 2026-05-30
+      - name: Checkout pull request contents
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4 pinned 2026-05-30
         with:
           ref: ${{ github.event.pull_request.head.sha }}
+      - name: Checkout trusted CI scripts
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4 pinned 2026-05-30
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: .trusted-ci
       - name: Scan repository for secret patterns
-        run: bash scripts/check-detect-secrets.sh --all-files
+        run: AXIOM_CHECKOUT_PATH="$GITHUB_WORKSPACE" bash .trusted-ci/scripts/check-detect-secrets.sh --all-files
 
   ci-gate:
     name: CI Gate
@@ -200,15 +219,17 @@ jobs:
       - validate-pr-description
       - validate-secrets
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4 pinned 2026-05-30
+      - name: Checkout trusted CI scripts
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4 pinned 2026-05-30
         with:
           ref: ${{ github.event.pull_request.base.sha }}
+          path: .trusted-ci
       - name: Validate fork PR description from trusted base
         if: ${{ github.event.pull_request.head.repo.full_name != github.repository }}
         env:
           PR_BODY: ${{ github.event.pull_request.body }}
           PR_AUTHOR: ${{ github.event.pull_request.user.login }}
-        run: bash scripts/ci/validate-pr-description.sh
+        run: AXIOM_CHECKOUT_PATH="$GITHUB_WORKSPACE" bash .trusted-ci/scripts/ci/validate-pr-description.sh
       - name: Check required PR jobs
         env:
           RESULTS: >-
@@ -218,4 +239,4 @@ jobs:
             validate-secrets=${{ needs.validate-secrets.result }}
           IS_FORK_PR: ${{ github.event.pull_request.head.repo.full_name != github.repository }}
           TRUSTED_FORK_PR_DESCRIPTION_VALIDATED: ${{ github.event.pull_request.head.repo.full_name != github.repository }}
-        run: bash scripts/ci/check-pr-fast-ci-gate.sh
+        run: bash .trusted-ci/scripts/ci/check-pr-fast-ci-gate.sh

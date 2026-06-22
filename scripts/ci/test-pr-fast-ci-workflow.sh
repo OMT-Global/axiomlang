@@ -23,7 +23,7 @@ if [[ -z "$section" ]]; then
 fi
 
 checkout_line=$(printf '%s\n' "$section" | nl -ba | grep 'actions/checkout@' | head -n1 | awk '{print $1}')
-run_line=$(printf '%s\n' "$section" | nl -ba | grep 'bash scripts/ci/validate-pr-description.sh' | head -n1 | awk '{print $1}')
+run_line=$(printf '%s\n' "$section" | nl -ba | grep 'bash .trusted-ci/scripts/ci/validate-pr-description.sh' | head -n1 | awk '{print $1}')
 pr_body_env_line=$(printf '%s\n' "$section" | nl -ba | grep -F 'PR_BODY: ${{ github.event.pull_request.body }}' | head -n1 | awk '{print $1}')
 ci_gate_needs_validate=$(awk '
   /^  ci-gate:$/ { in_job=1; next }
@@ -39,8 +39,8 @@ ci_gate_section="$({
   ' "$workflow"
 })"
 ci_gate_checkout_line=$(printf '%s\n' "$ci_gate_section" | nl -ba | grep 'actions/checkout@' | head -n1 | awk '{print $1}')
-ci_gate_run_line=$(printf '%s\n' "$ci_gate_section" | nl -ba | grep 'bash scripts/ci/check-pr-fast-ci-gate.sh' | head -n1 | awk '{print $1}')
-ci_gate_fork_validate_line=$(printf '%s\n' "$ci_gate_section" | nl -ba | grep 'bash scripts/ci/validate-pr-description.sh' | head -n1 | awk '{print $1}')
+ci_gate_run_line=$(printf '%s\n' "$ci_gate_section" | nl -ba | grep 'bash .trusted-ci/scripts/ci/check-pr-fast-ci-gate.sh' | head -n1 | awk '{print $1}')
+ci_gate_fork_validate_line=$(printf '%s\n' "$ci_gate_section" | nl -ba | grep 'bash .trusted-ci/scripts/ci/validate-pr-description.sh' | head -n1 | awk '{print $1}')
 ci_gate_base_ref_line=$(printf '%s\n' "$ci_gate_section" | nl -ba | grep -F 'ref: ${{ github.event.pull_request.base.sha }}' | head -n1 | awk '{print $1}')
 ci_gate_head_ref=$(printf '%s\n' "$ci_gate_section" | grep -F 'github.event.pull_request.head.sha' || true)
 benchmark_gate_reference=$(grep -nE 'check-stage1-benchmarks\.py|stage1-comparison-report\.json' "$workflow" || true)
@@ -86,7 +86,7 @@ if [[ -z "$ci_gate_checkout_line" ]]; then
 fi
 
 if [[ -z "$ci_gate_run_line" ]]; then
-  echo "ci-gate must delegate result policy to scripts/ci/check-pr-fast-ci-gate.sh" >&2
+  echo "ci-gate must delegate result policy to trusted scripts/ci/check-pr-fast-ci-gate.sh" >&2
   exit 1
 fi
 
@@ -127,6 +127,18 @@ if ! RESULTS='changes=success fast-checks=skipped validate-pr-description=skippe
   TRUSTED_FORK_PR_DESCRIPTION_VALIDATED=true \
   bash "$repo_root/scripts/ci/check-pr-fast-ci-gate.sh" >/dev/null 2>&1; then
   echo "ci-gate must allow fork PR branch validation jobs after PR description was validated from the trusted base checkout" >&2
+  exit 1
+fi
+
+
+trusted_checkout_count=$(grep -c 'ref: ${{ github.event.pull_request.base.sha }}' "$workflow")
+trusted_script_runs=$(grep -c '\.trusted-ci/scripts/' "$workflow")
+if (( trusted_checkout_count < 4 )); then
+  echo "PR jobs that run repository scripts must checkout trusted base-branch CI scripts" >&2
+  exit 1
+fi
+if (( trusted_script_runs < 4 )); then
+  echo "PR jobs must execute CI helper scripts from the trusted base checkout" >&2
   exit 1
 fi
 
