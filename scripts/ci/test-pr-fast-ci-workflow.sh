@@ -38,8 +38,9 @@ ci_gate_section="$({
     in_job { print }
   ' "$workflow"
 })"
-ci_gate_checkout_line=$(printf '%s\n' "$ci_gate_section" | nl -ba | grep 'actions/checkout@' | head -n1 | awk '{print $1}')
-ci_gate_run_line=$(printf '%s\n' "$ci_gate_section" | nl -ba | grep 'bash scripts/ci/check-pr-fast-ci-gate.sh' | head -n1 | awk '{print $1}')
+ci_gate_checkout_line=$(printf '%s\n' "$ci_gate_section" | nl -ba | grep 'actions/checkout@' | head -n1 | awk '{print $1}' || true)
+ci_gate_helper_run_line=$(printf '%s\n' "$ci_gate_section" | nl -ba | grep 'bash scripts/ci/check-pr-fast-ci-gate.sh' | head -n1 | awk '{print $1}' || true)
+ci_gate_inline_policy_line=$(printf '%s\n' "$ci_gate_section" | nl -ba | grep -F 'branch_validation_jobs=" fast-checks validate-pr-description validate-secrets "' | head -n1 | awk '{print $1}' || true)
 benchmark_gate_reference=$(grep -nE 'check-stage1-benchmarks\.py|stage1-comparison-report\.json' "$workflow" || true)
 
 if [[ -z "$checkout_line" ]]; then
@@ -72,18 +73,18 @@ if ! grep -q 'IS_FORK_PR:' <<<"$ci_gate_section"; then
   exit 1
 fi
 
-if [[ -z "$ci_gate_checkout_line" ]]; then
-  echo "ci-gate must checkout the repo before running the gate helper" >&2
+if [[ -n "$ci_gate_checkout_line" ]]; then
+  echo "ci-gate must not checkout pull request contents before evaluating gate policy" >&2
   exit 1
 fi
 
-if [[ -z "$ci_gate_run_line" ]]; then
-  echo "ci-gate must delegate result policy to scripts/ci/check-pr-fast-ci-gate.sh" >&2
+if [[ -n "$ci_gate_helper_run_line" ]]; then
+  echo "ci-gate must not execute a repository-controlled gate helper from pull request contents" >&2
   exit 1
 fi
 
-if (( ci_gate_checkout_line >= ci_gate_run_line )); then
-  echo "ci-gate must checkout the repo before running the gate helper" >&2
+if [[ -z "$ci_gate_inline_policy_line" ]]; then
+  echo "ci-gate must keep result policy inline so fork PRs cannot replace it" >&2
   exit 1
 fi
 
