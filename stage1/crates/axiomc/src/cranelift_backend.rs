@@ -19666,6 +19666,9 @@ fn is_blocked_network_ip(ip: std::net::IpAddr) -> bool {
             if let Some(mapped) = addr.to_ipv4_mapped() {
                 return is_blocked_network_ip(std::net::IpAddr::V4(mapped));
             }
+            if let Some(mapped) = nat64_embedded_ipv4(addr) {
+                return is_blocked_network_ip(std::net::IpAddr::V4(mapped));
+            }
             let segments = addr.segments();
             addr.is_loopback()
                 || addr.is_unspecified()
@@ -19675,6 +19678,30 @@ fn is_blocked_network_ip(ip: std::net::IpAddr) -> bool {
                 || (segments[0] == 0x2001 && segments[1] == 0x0db8)
         }
     }
+}
+
+fn nat64_embedded_ipv4(addr: std::net::Ipv6Addr) -> Option<std::net::Ipv4Addr> {
+    let segments = addr.segments();
+    let uses_well_known_prefix = segments[0] == 0x0064
+        && segments[1] == 0xff9b
+        && segments[2] == 0
+        && segments[3] == 0
+        && segments[4] == 0
+        && segments[5] == 0;
+    let uses_local_use_prefix = segments[0] == 0x0064
+        && segments[1] == 0xff9b
+        && segments[2] == 0x0001
+        && segments[3] == 0
+        && segments[4] == 0
+        && segments[5] == 0;
+
+    if !uses_well_known_prefix && !uses_local_use_prefix {
+        return None;
+    }
+
+    let high = segments[6].to_be_bytes();
+    let low = segments[7].to_be_bytes();
+    Some(std::net::Ipv4Addr::new(high[0], high[1], low[0], low[1]))
 }
 
 fn http_strip_crlf(value: &str) -> String {
@@ -21766,6 +21793,38 @@ mod tests {
         assert_eq!(regex_replace_all("^a", "aaa", "x"), "xaa");
         assert_eq!(regex_replace_all("^a", "ba", "x"), "ba");
         assert_eq!(regex_replace_all("a", "aaa", "x"), "xxx");
+    }
+
+    #[test]
+    fn cranelift_http_resolver_rejects_internal_addresses() {
+        for host in [
+            "127.0.0.1",
+            "10.0.0.1",
+            "172.16.0.1",
+            "192.168.0.1",
+            "169.254.169.254",
+            "192.0.2.1",
+            "198.51.100.1",
+            "203.0.113.1",
+            "::1",
+            "fc00::1",
+            "fe80::1",
+            "2001:db8::1",
+            "::ffff:127.0.0.1",
+        ] {
+            assert_eq!(
+                http_resolve_public_socket_addrs(host, 80),
+                None,
+                "host {host} should be rejected before connecting"
+            );
+        }
+    }
+
+    #[test]
+    fn cranelift_http_resolver_allows_public_addresses() {
+        let addrs = http_resolve_public_socket_addrs("93.184.216.34", 80)
+            .expect("public address should resolve");
+        assert_eq!(addrs, vec![SocketAddr::from(([93, 184, 216, 34], 80))]);
     }
 
     fn hello_program() -> Program {
