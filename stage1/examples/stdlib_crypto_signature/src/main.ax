@@ -1,0 +1,14 @@
+import "std/crypto_sign.ax"
+
+let message: [u8] = [104u8, 101u8, 108u8, 108u8, 111u8]
+let tampered: [u8] = [104u8, 101u8, 108u8, 108u8, 48u8]
+let keys: ([u8], [u8]) = ed25519_keygen()
+let public_key: [u8] = keys.0
+let secret_key: [u8] = keys.1
+let signature: [u8] = ed25519_sign(secret_key[:], message[:])
+
+print len(public_key)
+print len(secret_key)
+print len(signature)
+print ed25519_verify(public_key[:], message[:], signature[:])
+print ed25519_verify(public_key[:], tampered[:], signature[:])
