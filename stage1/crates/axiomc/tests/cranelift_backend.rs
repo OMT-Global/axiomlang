@@ -1909,7 +1909,7 @@ fn cranelift_backend_lowers_std_crypto_wrappers_to_runtime_exit_code() {
     assert!(audit.contains("\"intrinsic\":\"crypto_hmac_sha512\""));
     assert!(audit.contains("\"inputs\":\"strings:1\""));
     assert!(audit.contains("\"inputs\":\"strings:2\""));
-    assert_eq!(audit.matches("\"outcome\":\"ok\"").count(), 3, "{audit}");
+    assert_eq!(audit.matches("\"outcome\":\"ok\"").count(), 4, "{audit}");
     assert!(!audit.contains("ba7816bf"));
     assert!(!audit.contains("f7bc83f4"));
     assert!(!audit.contains("164b7a7b"));
@@ -3110,7 +3110,7 @@ fn cranelift_backend_lowers_process_status_to_runtime_exit_code() {
         audit.contains("\"intrinsic\":\"process_status\""),
         "{audit}"
     );
-    assert_eq!(audit.matches("\"outcome\":\"ok\"").count(), 3, "{audit}");
+    assert_eq!(audit.matches("\"outcome\":\"ok\"").count(), 4, "{audit}");
     assert_eq!(
         audit.matches("\"outcome\":\"denied\"").count(),
         1,
@@ -5331,7 +5331,7 @@ fn cranelift_backend_lowers_json_scalar_stringify_print_to_native_stdout() {
     assert_eq!(run.status.code(), Some(42));
     assert_eq!(
         String::from_utf8_lossy(&run.stdout),
-        "42\n\"42\"\ntrue\nfalse\n\"false\"\n"
+        "42\n\"42\"\ntrue\nfalse\n\"false\"\n43\n"
     );
     assert_eq!(String::from_utf8_lossy(&run.stderr), "");
 }
@@ -6393,7 +6393,10 @@ fn cranelift_backend_builds_crypto_signature_binary() {
         "cranelift crypto signature binary failed: stderr={}",
         String::from_utf8_lossy(&run.stderr)
     );
-    assert_eq!(String::from_utf8_lossy(&run.stdout), "true\ntrue\n64\n32\n");
+    assert_eq!(
+        String::from_utf8_lossy(&run.stdout),
+        "true\ntrue\n64\n32\nfalse\n"
+    );
 }
 
 #[test]
@@ -6475,7 +6478,7 @@ fn cranelift_backend_builds_crypto_aead_binary() {
         "cranelift crypto AEAD binary failed: stderr={}",
         String::from_utf8_lossy(&run.stderr)
     );
-    assert_eq!(String::from_utf8_lossy(&run.stdout), "5\n21\n5\n21\n");
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "5\n21\n5\n21\nnone\n");
 }
 
 #[test]
@@ -9551,16 +9554,25 @@ source = "path"
         project.join("src/main.ax"),
         r#"import "std/process.ax"
 
+fn ok_status(): int {
+return run_status("/usr/bin/true")
+}
+
+fn fail_status(): int {
+return process_status("/usr/bin/false")
+}
+
 static TRUE_CMD: string = "/usr/bin/true"
 static FALSE_CMD: string = "/usr/bin/false"
 static MISSING_CMD: string = "__axiom_stage1_missing_binary__"
 
 fn main(): int {
-let ok: int = process_status("/usr/bin/true")
+let ok: int = ok_status()
 let static_ok: int = run_status(TRUE_CMD)
-let fail: int = run_status(FALSE_CMD)
+let fail: int = fail_status()
+let static_fail: int = run_status(FALSE_CMD)
 let missing: int = run_status(MISSING_CMD)
-if ok == 0 && static_ok == 0 && fail == 1 && missing == -1 {
+if ok == 0 && static_ok == 0 && fail == 1 && static_fail == 1 && missing == -1 {
 return 48
 } else {
 return 1
@@ -10839,7 +10851,7 @@ fn write_crypto_signature_project(project: &Path, crypto: bool) {
     .expect("write crypto signature lockfile");
     fs::write(
         project.join("src/main.ax"),
-        "import \"std/crypto_sign.ax\"\n\nfn signature_ok(public_key: &[u8], message: &[u8], signature: &[u8]): bool {\nreturn ed25519_verify(public_key, message, signature)\n}\n\nfn signature_len(secret_key: &[u8], message: &[u8]): int {\nreturn len(ed25519_sign(secret_key, message))\n}\n\nfn public_key_len(public_key: &[u8]): int {\nreturn len(public_key)\n}\n\nlet message: [u8] = [104u8, 101u8, 108u8, 108u8, 111u8]\nlet keys: ([u8], [u8]) = ed25519_keygen()\nlet public_key: [u8] = keys.0\nlet secret_key: [u8] = keys.1\nlet signature: [u8] = ed25519_sign(secret_key[:], message[:])\nprint ed25519_verify(public_key[:], message[:], signature[:])\nprint signature_ok(public_key[:], message[:], signature[:])\nprint signature_len(secret_key[:], message[:])\nprint public_key_len(public_key[:])\n",
+        "import \"std/crypto_sign.ax\"\n\nfn signature_ok(public_key: &[u8], message: &[u8], signature: &[u8]): bool {\nreturn ed25519_verify(public_key, message, signature)\n}\n\nfn signature_len(secret_key: &[u8], message: &[u8]): int {\nreturn len(ed25519_sign(secret_key, message))\n}\n\nfn public_key_len(public_key: &[u8]): int {\nreturn len(public_key)\n}\n\nlet message: [u8] = [104u8, 101u8, 108u8, 108u8, 111u8]\nlet changed_message: [u8] = [72u8, 101u8, 108u8, 108u8, 111u8]\nlet keys: ([u8], [u8]) = ed25519_keygen()\nlet public_key: [u8] = keys.0\nlet secret_key: [u8] = keys.1\nlet signature: [u8] = ed25519_sign(secret_key[:], message[:])\nprint ed25519_verify(public_key[:], message[:], signature[:])\nprint signature_ok(public_key[:], message[:], signature[:])\nprint signature_len(secret_key[:], message[:])\nprint public_key_len(public_key[:])\nprint ed25519_verify(public_key[:], changed_message[:], signature[:])\n",
     )
     .expect("write crypto signature source");
 }
@@ -10860,7 +10872,7 @@ fn write_crypto_aead_project(project: &Path, crypto: bool) {
     .expect("write crypto AEAD lockfile");
     fs::write(
         project.join("src/main.ax"),
-        "import \"std/crypto_aead.ax\"\n\nfn sealed_len(key: &[u8], nonce: &[u8], aad: &[u8], plaintext: &[u8]): int {\nreturn len(aead_seal(Aes256Gcm, key, nonce, aad, plaintext))\n}\n\nfn opened_len(key: &[u8], nonce: &[u8], aad: &[u8], ciphertext: &[u8]): int {\nreturn match aead_open(Aes256Gcm, key, nonce, aad, ciphertext) { Some(opened) => len(opened), None => 0 }\n}\n\nlet key: [u8] = [0u8, 1u8, 2u8, 3u8, 4u8, 5u8, 6u8, 7u8, 8u8, 9u8, 10u8, 11u8, 12u8, 13u8, 14u8, 15u8, 16u8, 17u8, 18u8, 19u8, 20u8, 21u8, 22u8, 23u8, 24u8, 25u8, 26u8, 27u8, 28u8, 29u8, 30u8, 31u8]\nlet nonce: [u8] = [0u8, 1u8, 2u8, 3u8, 4u8, 5u8, 6u8, 7u8, 8u8, 9u8, 10u8, 11u8]\nlet aad: [u8] = [97u8, 97u8, 100u8]\nlet plaintext: [u8] = [104u8, 101u8, 108u8, 108u8, 111u8]\nlet ciphertext: [u8] = aead_seal(Aes256Gcm, key[:], nonce[:], aad[:], plaintext[:])\nmatch aead_open(Aes256Gcm, key[:], nonce[:], aad[:], ciphertext[:]) {\nSome(opened) {\nprint len(opened)\n}\nNone {\nprint 0\n}\n}\nprint len(ciphertext)\nprint opened_len(key[:], nonce[:], aad[:], ciphertext[:])\nprint sealed_len(key[:], nonce[:], aad[:], plaintext[:])\n",
+        "import \"std/crypto_aead.ax\"\n\nfn sealed_len(key: &[u8], nonce: &[u8], aad: &[u8], plaintext: &[u8]): int {\nreturn len(aead_seal(Aes256Gcm, key, nonce, aad, plaintext))\n}\n\nfn opened_len(key: &[u8], nonce: &[u8], aad: &[u8], ciphertext: &[u8]): int {\nreturn match aead_open(Aes256Gcm, key, nonce, aad, ciphertext) { Some(opened) => len(opened), None => 0 }\n}\n\nlet key: [u8] = [0u8, 1u8, 2u8, 3u8, 4u8, 5u8, 6u8, 7u8, 8u8, 9u8, 10u8, 11u8, 12u8, 13u8, 14u8, 15u8, 16u8, 17u8, 18u8, 19u8, 20u8, 21u8, 22u8, 23u8, 24u8, 25u8, 26u8, 27u8, 28u8, 29u8, 30u8, 31u8]\nlet nonce: [u8] = [0u8, 1u8, 2u8, 3u8, 4u8, 5u8, 6u8, 7u8, 8u8, 9u8, 10u8, 11u8]\nlet aad: [u8] = [97u8, 97u8, 100u8]\nlet changed_aad: [u8] = [98u8, 97u8, 100u8]\nlet plaintext: [u8] = [104u8, 101u8, 108u8, 108u8, 111u8]\nlet ciphertext: [u8] = aead_seal(Aes256Gcm, key[:], nonce[:], aad[:], plaintext[:])\nmatch aead_open(Aes256Gcm, key[:], nonce[:], aad[:], ciphertext[:]) {\nSome(opened) {\nprint len(opened)\n}\nNone {\nprint 0\n}\n}\nprint len(ciphertext)\nprint opened_len(key[:], nonce[:], aad[:], ciphertext[:])\nprint sealed_len(key[:], nonce[:], aad[:], plaintext[:])\nmatch aead_open(Aes256Gcm, key[:], nonce[:], changed_aad[:], ciphertext[:]) {\nSome(opened) {\nprint len(opened)\n}\nNone {\nprint \"none\"\n}\n}\n",
     )
     .expect("write crypto AEAD source");
 }
@@ -11481,6 +11493,8 @@ print stringify_bool(value == 42)
 let disabled: string = stringify_bool(false)
 print disabled
 print stringify_string(disabled)
+let next: int = value + 1
+print stringify_int(next)
 return value
 }
 "#,
