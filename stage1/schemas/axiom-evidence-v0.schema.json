@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://axiom.dev/schemas/axiom-evidence-v0.schema.json",
+  "$id": "https://axiomlang.dev/schemas/axiom-evidence-v0.schema.json",
   "title": "Axiom Evidence Report v0",
   "type": "object",
   "required": [

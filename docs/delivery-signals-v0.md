@@ -8,7 +8,7 @@ policy or auto-merging pull requests.
 ## Command
 
 ```bash
-python3 scripts/ci/report-delivery-signals.py --repo OMT-Global/axiom
+python3 scripts/ci/report-delivery-signals.py --repo OMT-Global/axiomlang
 ```
 
 Use `--issue <number>` to show the PRs linked to a governing issue. Use
@@ -22,8 +22,8 @@ runs are stable when GitHub state has not changed.
 ## Traceability Contract
 
 Each non-trivial PR should link a governing issue in the PR body or closing issue
-references. Accepted links include `Closes #123`, `Fixes OMT-Global/axiom#123`,
-`Resolves https://github.com/OMT-Global/axiom/issues/123`, and plain issue
+references. Accepted links include `Closes #123`, `Fixes OMT-Global/axiomlang#123`,
+`Resolves https://github.com/OMT-Global/axiomlang/issues/123`, and plain issue
 references. A PR may explicitly declare an exception with wording such as
 `no governing issue` when maintenance work has no durable issue.
 

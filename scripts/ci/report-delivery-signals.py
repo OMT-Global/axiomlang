@@ -21,7 +21,7 @@ from typing import Any
 from urllib.parse import quote
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_REPO = "OMT-Global/axiom"
+DEFAULT_REPO = "OMT-Global/axiomlang"
 REPORT_VERSION = "axiom.delivery_signals.v0"
 ISSUE_REF_RE = re.compile(
     r"(?:https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/issues/|"

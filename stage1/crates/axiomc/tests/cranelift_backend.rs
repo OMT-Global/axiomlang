@@ -1909,7 +1909,7 @@ fn cranelift_backend_lowers_std_crypto_wrappers_to_runtime_exit_code() {
     assert!(audit.contains("\"intrinsic\":\"crypto_hmac_sha512\""));
     assert!(audit.contains("\"inputs\":\"strings:1\""));
     assert!(audit.contains("\"inputs\":\"strings:2\""));
-    assert_eq!(audit.matches("\"outcome\":\"ok\"").count(), 3, "{audit}");
+    assert_eq!(audit.matches("\"outcome\":\"ok\"").count(), 4, "{audit}");
     assert!(!audit.contains("ba7816bf"));
     assert!(!audit.contains("f7bc83f4"));
     assert!(!audit.contains("164b7a7b"));
@@ -3110,7 +3110,7 @@ fn cranelift_backend_lowers_process_status_to_runtime_exit_code() {
         audit.contains("\"intrinsic\":\"process_status\""),
         "{audit}"
     );
-    assert_eq!(audit.matches("\"outcome\":\"ok\"").count(), 3, "{audit}");
+    assert_eq!(audit.matches("\"outcome\":\"ok\"").count(), 4, "{audit}");
     assert_eq!(
         audit.matches("\"outcome\":\"denied\"").count(),
         1,
@@ -5371,7 +5371,7 @@ fn cranelift_backend_lowers_json_scalar_stringify_print_to_native_stdout() {
     assert_eq!(run.status.code(), Some(42));
     assert_eq!(
         String::from_utf8_lossy(&run.stdout),
-        "42\n\"42\"\ntrue\nfalse\n\"false\"\n"
+        "42\n\"42\"\ntrue\nfalse\n\"false\"\n43\n"
     );
     assert_eq!(String::from_utf8_lossy(&run.stderr), "");
 }
@@ -9583,16 +9583,25 @@ source = "path"
         project.join("src/main.ax"),
         r#"import "std/process.ax"
 
+fn ok_status(): int {
+return run_status("/usr/bin/true")
+}
+
+fn fail_status(): int {
+return process_status("/usr/bin/false")
+}
+
 static TRUE_CMD: string = "/usr/bin/true"
 static FALSE_CMD: string = "/usr/bin/false"
 static MISSING_CMD: string = "__axiom_stage1_missing_binary__"
 
 fn main(): int {
-let ok: int = process_status("/usr/bin/true")
+let ok: int = ok_status()
 let static_ok: int = run_status(TRUE_CMD)
-let fail: int = run_status(FALSE_CMD)
+let fail: int = fail_status()
+let static_fail: int = run_status(FALSE_CMD)
 let missing: int = run_status(MISSING_CMD)
-if ok == 0 && static_ok == 0 && fail == 1 && missing == -1 {
+if ok == 0 && static_ok == 0 && fail == 1 && static_fail == 1 && missing == -1 {
 return 48
 } else {
 return 1
@@ -11572,6 +11581,8 @@ print stringify_bool(value == 42)
 let disabled: string = stringify_bool(false)
 print disabled
 print stringify_string(disabled)
+let next: int = value + 1
+print stringify_int(next)
 return value
 }
 "#,

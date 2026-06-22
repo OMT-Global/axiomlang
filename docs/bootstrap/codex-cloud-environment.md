@@ -4,7 +4,7 @@ Configure the Codex Web environment in Codex settings for this bootstrap-managed
 
 ## Project
 
-- Repository: `OMT-Global/axiom`
+- Repository: `OMT-Global/axiomlang`
 - Manifest: `project.bootstrap.yaml`
 
 ## Environment Settings

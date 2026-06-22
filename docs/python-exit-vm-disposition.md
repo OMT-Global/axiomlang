@@ -2,9 +2,9 @@
 
 Status: accepted
 
-Parent issue: [#265](https://github.com/OMT-Global/axiom/issues/265)
+Parent issue: [#265](https://github.com/OMT-Global/axiomlang/issues/265)
 
-Governing issue: [#269](https://github.com/OMT-Global/axiom/issues/269)
+Governing issue: [#269](https://github.com/OMT-Global/axiomlang/issues/269)
 
 Parity gate: [Python Exit Parity Gate](python-exit-parity-gate.md)
 
@@ -63,22 +63,22 @@ binary.
 - Final Python deletion is not blocked on bytecode VM ownership.
 - Any behavior formerly protected by Python VM tests must move into Rust-owned
   coverage before deletion, tracked by
-  [#267](https://github.com/OMT-Global/axiom/issues/267) and inventoried in
+  [#267](https://github.com/OMT-Global/axiomlang/issues/267) and inventoried in
   [Python Exit Conformance](python-exit-conformance.md).
 - CLI, package, and user-facing workflows must stay `axiomc`-owned, tracked by
-  [#268](https://github.com/OMT-Global/axiom/issues/268).
+  [#268](https://github.com/OMT-Global/axiomlang/issues/268).
 - Rust-only CI gates replace dual Python/Rust language gates, tracked by
-  [#270](https://github.com/OMT-Global/axiom/issues/270).
+  [#270](https://github.com/OMT-Global/axiomlang/issues/270).
 - User-facing docs and install paths must not direct users to Python `stage0`,
-  tracked by [#271](https://github.com/OMT-Global/axiom/issues/271).
+  tracked by [#271](https://github.com/OMT-Global/axiomlang/issues/271).
 - Source deletion remains the final cleanup, tracked by
-  [#272](https://github.com/OMT-Global/axiom/issues/272).
+  [#272](https://github.com/OMT-Global/axiomlang/issues/272).
   That issue remains blocked on the
   [Python Exit Parity Gate](python-exit-parity-gate.md) having no `blocked`
   rows.
 - A future direct native backend remains separate longer-term work and is not
   required for Python exit; see
-  [#105](https://github.com/OMT-Global/axiom/issues/105).
+  [#105](https://github.com/OMT-Global/axiomlang/issues/105).
 
 ## Validation Rule
 
