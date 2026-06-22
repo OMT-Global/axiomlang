@@ -9,7 +9,7 @@ the official check, build, run, test, documentation, LSP, and release paths can
 operate from AxiOM-owned sources and direct native artifacts without requiring
 Cargo, generated Rust, or `rustc`.
 
-Final Rust bootstrap issue: [#721](https://github.com/OMT-Global/axiom/issues/721)
+Final Rust bootstrap issue: [#721](https://github.com/OMT-Global/axiomlang/issues/721)
 
 ## Readiness Command
 
@@ -38,22 +38,22 @@ review gates to be satisfied.
 
 | Surface | Required state | Current disposition | Governing issue |
 | --- | --- | --- | --- |
-| Direct native parity matrix | Every supported stage1 surface has a direct-native status row and linked blocker when incomplete. | Implemented as the checked runtime ABI matrix; individual incomplete rows still block through #1001. | [#927](https://github.com/OMT-Global/axiom/issues/927) |
-| Direct native runtime ABI | Supported values, ownership shapes, stdlib calls, and capability host calls lower through backend-neutral direct-native runtime entrypoints. | Partial and checked by `scripts/ci/check-direct-native-runtime-abi.py`; remaining rows still block through #1001. | [#1001](https://github.com/OMT-Global/axiom/issues/1001) |
-| Direct native diagnostics and evidence | Direct native builds preserve source diagnostics, provenance, debug manifests, and operator evidence without generated Rust. | Implemented for the Cranelift direct-native spike; broader coverage remains gated by runtime ABI and default-backend blockers. | [#929](https://github.com/OMT-Global/axiom/issues/929) |
-| Default backend | `axiomc build` defaults to direct native output and no longer invokes `rustc` for supported broad builds. | Host/native builds default to the direct-native Cranelift backend; targeted builds still keep generated Rust for compatibility until #1191 is complete. | [#1191](https://github.com/OMT-Global/axiom/issues/1191) |
-| Generated-Rust removal | The generated-Rust backend and `--backend rust` compatibility path are removed after a release with direct native as default. | Generated Rust remains present as the targeted-build compatibility backend and must leave the supported toolchain before Rust exit completes. | [#1191](https://github.com/OMT-Global/axiom/issues/1191) |
+| Direct native parity matrix | Every supported stage1 surface has a direct-native status row and linked blocker when incomplete. | Implemented as the checked runtime ABI matrix; individual incomplete rows still block through #1001. | [#927](https://github.com/OMT-Global/axiomlang/issues/927) |
+| Direct native runtime ABI | Supported values, ownership shapes, stdlib calls, and capability host calls lower through backend-neutral direct-native runtime entrypoints. | Partial and checked by `scripts/ci/check-direct-native-runtime-abi.py`; remaining rows still block through #1001. | [#1001](https://github.com/OMT-Global/axiomlang/issues/1001) |
+| Direct native diagnostics and evidence | Direct native builds preserve source diagnostics, provenance, debug manifests, and operator evidence without generated Rust. | Implemented for the Cranelift direct-native spike; broader coverage remains gated by runtime ABI and default-backend blockers. | [#929](https://github.com/OMT-Global/axiomlang/issues/929) |
+| Default backend | `axiomc build` defaults to direct native output and no longer invokes `rustc` for supported broad builds. | Host/native builds default to the direct-native Cranelift backend; targeted builds still keep generated Rust for compatibility until #1191 is complete. | [#1191](https://github.com/OMT-Global/axiomlang/issues/1191) |
+| Generated-Rust removal | The generated-Rust backend and `--backend rust` compatibility path are removed after a release with direct native as default. | Generated Rust remains present as the targeted-build compatibility backend and must leave the supported toolchain before Rust exit completes. | [#1191](https://github.com/OMT-Global/axiomlang/issues/1191) |
 
 ## Bootstrap Matrix
 
 | Surface | Required state | Current disposition | Governing issue |
 | --- | --- | --- | --- |
-| AxiOM compiler source layout | Parser, checker, lowering, MIR, backend selection, diagnostics, packages, manifests, lockfiles, and command dispatch have AxiOM package boundaries. | Implemented as [AxiOM Compiler Source Layout and Self-Hosting Boundary](axiom-compiler-source-layout.md); source migration remains owned by child issues. | [#930](https://github.com/OMT-Global/axiom/issues/930) |
-| Snapshot bootstrap | A previously shipped `axiomc` snapshot builds the next working `axiomc` binary without invoking Cargo. | `blocked` | [#931](https://github.com/OMT-Global/axiom/issues/931) |
-| Final readiness gate | The Rust-exit command proves supported workflows, release builds, tests, docs, and LSP no longer require Rust-only infrastructure. | Implemented as `make rust-exit-readiness`; the gate still fails until the rows above and below are complete. | [#932](https://github.com/OMT-Global/axiom/issues/932) |
-| Compiler verification | Compiler-internal coverage is expressed in AxiOM property form instead of Rust-only tests. | `blocked` | [#562](https://github.com/OMT-Global/axiom/issues/562) |
-| Documentation generator | `axiomc doc` and structured/Markdown output are produced by AxiOM-owned code. | `blocked` | [#563](https://github.com/OMT-Global/axiom/issues/563) |
-| LSP server | `axiomc lsp` runs an AxiOM-owned LSP server and protocol stack. | `blocked` | [#564](https://github.com/OMT-Global/axiom/issues/564) |
+| AxiOM compiler source layout | Parser, checker, lowering, MIR, backend selection, diagnostics, packages, manifests, lockfiles, and command dispatch have AxiOM package boundaries. | Implemented as [AxiOM Compiler Source Layout and Self-Hosting Boundary](axiom-compiler-source-layout.md); source migration remains owned by child issues. | [#930](https://github.com/OMT-Global/axiomlang/issues/930) |
+| Snapshot bootstrap | A previously shipped `axiomc` snapshot builds the next working `axiomc` binary without invoking Cargo. | `blocked` | [#931](https://github.com/OMT-Global/axiomlang/issues/931) |
+| Final readiness gate | The Rust-exit command proves supported workflows, release builds, tests, docs, and LSP no longer require Rust-only infrastructure. | Implemented as `make rust-exit-readiness`; the gate still fails until the rows above and below are complete. | [#932](https://github.com/OMT-Global/axiomlang/issues/932) |
+| Compiler verification | Compiler-internal coverage is expressed in AxiOM property form instead of Rust-only tests. | `blocked` | [#562](https://github.com/OMT-Global/axiomlang/issues/562) |
+| Documentation generator | `axiomc doc` and structured/Markdown output are produced by AxiOM-owned code. | `blocked` | [#563](https://github.com/OMT-Global/axiomlang/issues/563) |
+| LSP server | `axiomc lsp` runs an AxiOM-owned LSP server and protocol stack. | `blocked` | [#564](https://github.com/OMT-Global/axiomlang/issues/564) |
 
 ## Closure Rules
 

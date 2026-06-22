@@ -27,20 +27,20 @@ def fixture_payload() -> dict:
                 "number": 852,
                 "state": "OPEN",
                 "title": "Delivery signals: improve issue-to-PR traceability",
-                "url": "https://github.com/OMT-Global/axiom/issues/852",
+                "url": "https://github.com/OMT-Global/axiomlang/issues/852",
             },
             {
                 "number": 700,
                 "state": "CLOSED",
                 "title": "Closed issue",
-                "url": "https://github.com/OMT-Global/axiom/issues/700",
+                "url": "https://github.com/OMT-Global/axiomlang/issues/700",
             },
         ],
         "prs": [
             {
                 "number": 10,
                 "title": "Trace delivery signals",
-                "url": "https://github.com/OMT-Global/axiom/pull/10",
+                "url": "https://github.com/OMT-Global/axiomlang/pull/10",
                 "headRefName": "codex/delivery-signals",
                 "baseRefName": "main",
                 "headRefOid": "abc123",
@@ -60,7 +60,7 @@ def fixture_payload() -> dict:
                         "number": 852,
                         "state": "OPEN",
                         "title": "Delivery signals: improve issue-to-PR traceability",
-                        "url": "https://github.com/OMT-Global/axiom/issues/852",
+                        "url": "https://github.com/OMT-Global/axiomlang/issues/852",
                     }
                 ],
                 "files": [
@@ -72,7 +72,7 @@ def fixture_payload() -> dict:
             {
                 "number": 11,
                 "title": "Missing issue link",
-                "url": "https://github.com/OMT-Global/axiom/pull/11",
+                "url": "https://github.com/OMT-Global/axiomlang/pull/11",
                 "headRefName": "codex/no-issue",
                 "baseRefName": "main",
                 "headRefOid": "def456",
@@ -94,7 +94,7 @@ def fixture_payload() -> dict:
             {
                 "number": 12,
                 "title": "Closed issue link",
-                "url": "https://github.com/OMT-Global/axiom/pull/12",
+                "url": "https://github.com/OMT-Global/axiomlang/pull/12",
                 "headRefName": "codex/closed-issue",
                 "baseRefName": "main",
                 "headRefOid": "fedcba",
@@ -130,7 +130,7 @@ class DeliverySignalsTests(unittest.TestCase):
 
     def build_report(self, fixture: Path, *issues: int) -> dict:
         args = argparse.Namespace(
-            repo="OMT-Global/axiom",
+            repo="OMT-Global/axiomlang",
             state="open",
             limit=50,
             pr=None,

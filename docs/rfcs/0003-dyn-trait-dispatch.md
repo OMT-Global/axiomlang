@@ -1,7 +1,7 @@
 # RFC 0003: Dynamic trait dispatch
 
 Status: Draft
-Governing issue: [OMT-Global/axiom#626](https://github.com/OMT-Global/axiom/issues/626)
+Governing issue: [OMT-Global/axiomlang#626](https://github.com/OMT-Global/axiomlang/issues/626)
 
 ## Summary
 

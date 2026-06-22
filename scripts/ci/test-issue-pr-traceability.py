@@ -22,21 +22,21 @@ spec.loader.exec_module(traceability)
 
 class IssuePrTraceabilityTests(unittest.TestCase):
     def test_parses_issue_links_with_relationships(self) -> None:
-        body = "Closes #852\nRefs OMT-Global/axiom#785\n"
+        body = "Closes #852\nRefs OMT-Global/axiomlang#785\n"
 
-        links = traceability.parse_issue_links(body, "OMT-Global/axiom")
+        links = traceability.parse_issue_links(body, "OMT-Global/axiomlang")
 
         self.assertEqual(
             [(link.repo, link.number, link.relationship) for link in links],
             [
-                ("OMT-Global/axiom", 852, "closes"),
-                ("OMT-Global/axiom", 785, "refs"),
+                ("OMT-Global/axiomlang", 852, "closes"),
+                ("OMT-Global/axiomlang", 785, "refs"),
             ],
         )
 
     def test_missing_issue_without_exception_is_flagged(self) -> None:
         report = traceability.build_report(
-            repo="OMT-Global/axiom",
+            repo="OMT-Global/axiomlang",
             body="## Summary\n- Update docs.\n",
             pr_number=1,
             pr_title="No issue",
@@ -50,7 +50,7 @@ class IssuePrTraceabilityTests(unittest.TestCase):
 
     def test_no_issue_exception_is_advisory_ok(self) -> None:
         report = traceability.build_report(
-            repo="OMT-Global/axiom",
+            repo="OMT-Global/axiomlang",
             body="No governing issue for this generated docs-only update.",
             pr_number=1,
             pr_title="No issue exception",
@@ -67,7 +67,7 @@ class IssuePrTraceabilityTests(unittest.TestCase):
             return {"repo": repo, "number": number, "resolved": True, "status": "closed"}
 
         report = traceability.build_report(
-            repo="OMT-Global/axiom",
+            repo="OMT-Global/axiomlang",
             body="Closes #852",
             pr_number=1,
             pr_title="Closed issue",
@@ -94,7 +94,7 @@ class IssuePrTraceabilityTests(unittest.TestCase):
                 [
                     str(SCRIPT_PATH),
                     "--repo",
-                    "OMT-Global/axiom",
+                    "OMT-Global/axiomlang",
                     "--body-file",
                     str(body_path),
                     "--changed-file",
