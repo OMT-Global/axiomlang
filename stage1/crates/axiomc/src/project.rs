@@ -889,18 +889,6 @@ fn collect_test_targets(
     conformance: bool,
 ) -> Result<Vec<crate::manifest::TestTarget>, Diagnostic> {
     let mut tests = manifest.tests.clone();
-    for test in &mut tests {
-        if let Some(expected_stdout) =
-            load_manifest_test_stream(project_root, test.stdout.as_deref(), "stdout")?
-        {
-            test.stdout = Some(expected_stdout);
-        }
-        if let Some(expected_stderr) =
-            load_manifest_test_stream(project_root, test.stderr.as_deref(), "stderr")?
-        {
-            test.stderr = Some(expected_stderr);
-        }
-    }
     if !include_benchmarks {
         tests.retain(|test| test.kind != TestKind::Benchmark);
     }
@@ -936,6 +924,18 @@ fn collect_test_targets(
     if let Some(filter) = filter {
         tests.retain(|test| test_matches_filter(test, filter));
     }
+    for test in &mut tests {
+        if let Some(expected_stdout) =
+            load_manifest_test_stream(project_root, test.stdout.as_deref(), "stdout")?
+        {
+            test.stdout = Some(expected_stdout);
+        }
+        if let Some(expected_stderr) =
+            load_manifest_test_stream(project_root, test.stderr.as_deref(), "stderr")?
+        {
+            test.stderr = Some(expected_stderr);
+        }
+    }
     Ok(tests)
 }
 
@@ -947,8 +947,27 @@ fn load_manifest_test_stream(
     let Some(configured) = configured else {
         return Ok(None);
     };
+    let configured_path = Path::new(configured);
+    if configured_path.is_absolute()
+        || configured_path
+            .components()
+            .any(|component| matches!(component, Component::ParentDir))
+    {
+        return Ok(None);
+    }
     let path = project_root.join(configured);
     if !path.exists() {
+        return Ok(None);
+    }
+    if fs::symlink_metadata(&path)
+        .map(|metadata| metadata.file_type().is_symlink())
+        .unwrap_or(false)
+    {
+        return Ok(None);
+    }
+    let package_root = canonicalize_existing_path(project_root, "package root")?;
+    let path = canonicalize_existing_path(&path, "test stream fixture")?;
+    if !path.starts_with(&package_root) {
         return Ok(None);
     }
     fs::read_to_string(&path).map(Some).map_err(|err| {
@@ -8600,6 +8619,51 @@ mod tests {
             Some(&Some("explicit\n"))
         );
         assert_eq!(stdout_by_name.get("manifest_bench"), Some(&None));
+    }
+
+    #[test]
+    fn manifest_test_streams_only_load_relative_package_fixtures() {
+        let dir = tempdir().unwrap_or_else(|err| panic!("tempdir: {err}"));
+        let root = dir.path().join("package");
+        fs::create_dir_all(&root).unwrap_or_else(|err| panic!("create package: {err}"));
+        let fixture_dir = root.join("fixtures");
+        fs::create_dir_all(&fixture_dir).unwrap_or_else(|err| panic!("create fixtures: {err}"));
+        fs::write(fixture_dir.join("stdout.txt"), "fixture\n")
+            .unwrap_or_else(|err| panic!("write fixture: {err}"));
+        fs::write(dir.path().join("secret.txt"), "secret\n")
+            .unwrap_or_else(|err| panic!("write outside secret: {err}"));
+
+        let loaded = load_manifest_test_stream(&root, Some("fixtures/stdout.txt"), "stdout")
+            .unwrap_or_else(|err| panic!("load fixture: {err:?}"));
+        assert_eq!(loaded.as_deref(), Some("fixture\n"));
+
+        let absolute = load_manifest_test_stream(
+            &root,
+            Some(dir.path().join("secret.txt").to_str().expect("utf-8 path")),
+            "stdout",
+        )
+        .unwrap_or_else(|err| panic!("load absolute: {err:?}"));
+        assert_eq!(absolute, None);
+
+        let traversal = load_manifest_test_stream(&root, Some("../secret.txt"), "stdout")
+            .unwrap_or_else(|err| panic!("load traversal: {err:?}"));
+        assert_eq!(traversal, None);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn manifest_test_streams_do_not_follow_symlinks() {
+        let dir = tempdir().unwrap_or_else(|err| panic!("tempdir: {err}"));
+        let root = dir.path().join("package");
+        fs::create_dir_all(&root).unwrap_or_else(|err| panic!("create package: {err}"));
+        fs::write(dir.path().join("secret.txt"), "secret\n")
+            .unwrap_or_else(|err| panic!("write outside secret: {err}"));
+        std::os::unix::fs::symlink(dir.path().join("secret.txt"), root.join("stdout.txt"))
+            .unwrap_or_else(|err| panic!("symlink stdout: {err}"));
+
+        let loaded = load_manifest_test_stream(&root, Some("stdout.txt"), "stdout")
+            .unwrap_or_else(|err| panic!("load symlink: {err:?}"));
+        assert_eq!(loaded, None);
     }
 
     #[cfg(unix)]
