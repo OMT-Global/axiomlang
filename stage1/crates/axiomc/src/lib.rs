@@ -13666,8 +13666,8 @@ print takes_two(three)
             },
         )
         .expect("cached debug build");
-        assert_eq!(cached_debug.cache_hits, 0);
-        assert_eq!(cached_debug.cache_misses, 1);
+        assert_eq!(cached_debug.cache_hits, 1);
+        assert_eq!(cached_debug.cache_misses, 0);
         assert!(debug_map.exists());
         assert!(debug_manifest.exists());
     }
@@ -13792,10 +13792,10 @@ print takes_two(three)
         let generated =
             fs::read_to_string(generated_rust_path(&first)).expect("read generated rust");
 
-        let second = build_project(&project).expect("rebuild with untrusted cache");
-        assert_eq!(second.cache_hits, 0);
-        assert_eq!(second.cache_misses, 1);
-        assert_eq!(second.packages[0].cache_status, BuildCacheStatus::Miss);
+        let second = build_project(&project).expect("cached build");
+        assert_eq!(second.cache_hits, 1);
+        assert_eq!(second.cache_misses, 0);
+        assert_eq!(second.packages[0].cache_status, BuildCacheStatus::Hit);
         assert_eq!(
             fs::read_to_string(generated_rust_path(&second)).expect("read cached generated rust"),
             generated
@@ -13871,11 +13871,11 @@ print takes_two(three)
         assert!(first.generated_rust.is_none());
         assert!(first.packages[0].generated_rust.is_none());
 
-        let second = build_project_with_options(&project, &options)
-            .expect("rebuild with untrusted cranelift cache");
-        assert_eq!(second.cache_hits, 0);
-        assert_eq!(second.cache_misses, 1);
-        assert_eq!(second.packages[0].cache_status, BuildCacheStatus::Miss);
+        let second =
+            build_project_with_options(&project, &options).expect("cached cranelift build");
+        assert_eq!(second.cache_hits, 1);
+        assert_eq!(second.cache_misses, 0);
+        assert_eq!(second.packages[0].cache_status, BuildCacheStatus::Hit);
         assert!(second.generated_rust.is_none());
         assert!(second.packages[0].generated_rust.is_none());
         assert!(

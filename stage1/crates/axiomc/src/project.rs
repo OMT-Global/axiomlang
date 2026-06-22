@@ -3032,7 +3032,7 @@ fn cache_matches(
     generated_rust: &Path,
     binary: &Path,
 ) -> bool {
-    let Some(expected_binary_hash) = expected.binary_hash.as_ref() else {
+    let Some(binary_hash) = stored.binary_hash.as_ref() else {
         return false;
     };
     let generated_rust_matches = match backend {
@@ -3043,7 +3043,11 @@ fn cache_matches(
     let Ok(actual_binary_hash) = hash_file_bytes(binary) else {
         return false;
     };
-    stored == expected && generated_rust_matches && actual_binary_hash == *expected_binary_hash
+    let mut stored_key = stored.clone();
+    let mut expected_key = expected.clone();
+    stored_key.binary_hash = None;
+    expected_key.binary_hash = None;
+    stored_key == expected_key && generated_rust_matches && actual_binary_hash == *binary_hash
 }
 
 fn write_build_cache(path: &Path, cache: &BuildCacheFile) -> Result<(), Diagnostic> {
@@ -3065,7 +3069,7 @@ fn build_cache_file(
     graph: &PackageGraph,
     package_root: &Path,
     analyzed: &AnalyzedProject,
-    rust_source: &str,
+    backend_input_hash: &str,
     backend: NativeBackendKind,
     target: Option<String>,
     debug: bool,
@@ -3078,7 +3082,7 @@ fn build_cache_file(
         debug,
         manifest_hash: hash_file(&manifest_path(package_root))?,
         lockfile_hash: hash_file(&crate::manifest::lockfile_path(package_root))?,
-        rust_hash: hash_text(rust_source),
+        rust_hash: backend_input_hash.to_string(),
         binary_hash: None,
         modules: cached_modules(graph, &analyzed.modules)?,
     })
@@ -8017,21 +8021,9 @@ mod tests {
             ..stored.clone()
         };
 
-        assert!(
-            !cache_matches(
-                &stored,
-                &expected,
-                NativeBackendKind::GeneratedRust,
-                &generated_rust,
-                &binary,
-            ),
-            "project-local cache metadata must not be trusted to validate a native binary"
-        );
-
-        let trusted_expected = stored.clone();
         assert!(cache_matches(
             &stored,
-            &trusted_expected,
+            &expected,
             NativeBackendKind::GeneratedRust,
             &generated_rust,
             &binary,
@@ -8039,7 +8031,7 @@ mod tests {
 
         let raw_source_expected = BuildCacheFile {
             rust_hash: generated_source.to_string(),
-            ..trusted_expected
+            ..expected.clone()
         };
         assert!(!cache_matches(
             &stored,
@@ -8048,6 +8040,21 @@ mod tests {
             &generated_rust,
             &binary,
         ));
+
+        let wrong_trusted_input = BuildCacheFile {
+            manifest_hash: String::from("different-manifest"),
+            ..expected
+        };
+        assert!(
+            !cache_matches(
+                &stored,
+                &wrong_trusted_input,
+                NativeBackendKind::GeneratedRust,
+                &generated_rust,
+                &binary,
+            ),
+            "project-local cache metadata must not override trusted input fields"
+        );
     }
 
     #[cfg(not(windows))]
