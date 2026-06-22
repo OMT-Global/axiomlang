@@ -1909,7 +1909,7 @@ fn cranelift_backend_lowers_std_crypto_wrappers_to_runtime_exit_code() {
     assert!(audit.contains("\"intrinsic\":\"crypto_hmac_sha512\""));
     assert!(audit.contains("\"inputs\":\"strings:1\""));
     assert!(audit.contains("\"inputs\":\"strings:2\""));
-    assert_eq!(audit.matches("\"outcome\":\"ok\"").count(), 3, "{audit}");
+    assert_eq!(audit.matches("\"outcome\":\"ok\"").count(), 4, "{audit}");
     assert!(!audit.contains("ba7816bf"));
     assert!(!audit.contains("f7bc83f4"));
     assert!(!audit.contains("164b7a7b"));
@@ -3110,7 +3110,7 @@ fn cranelift_backend_lowers_process_status_to_runtime_exit_code() {
         audit.contains("\"intrinsic\":\"process_status\""),
         "{audit}"
     );
-    assert_eq!(audit.matches("\"outcome\":\"ok\"").count(), 3, "{audit}");
+    assert_eq!(audit.matches("\"outcome\":\"ok\"").count(), 4, "{audit}");
     assert_eq!(
         audit.matches("\"outcome\":\"denied\"").count(),
         1,
