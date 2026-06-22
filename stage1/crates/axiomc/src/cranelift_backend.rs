@@ -27,6 +27,7 @@ const SPIKE_FS_ROOT_BINDING: &str = "$axiom_fs_root";
 const SPIKE_MAX_FS_READ_BYTES: u64 = 64 * 1024 * 1024;
 const SPIKE_MAX_FS_WRITE_BYTES: usize = 64 * 1024 * 1024;
 const SPIKE_MAX_CLOCK_SLEEP_MS: i64 = 1_000;
+const CRANELIFT_RUNTIME_TRAP_KIND: &str = "cranelift-runtime-trap";
 
 #[derive(Clone, Default)]
 struct I64StaticBindings {
@@ -371,12 +372,16 @@ pub fn compile_cranelift_hello_spike(
             "main function is outside the direct-native i64 ABI subset",
         ));
     }
-    let lines = collect_output_lines(program, package_root, fs_root, stdin)?;
-    axiomc_backend_cranelift::compile_output_lines(&lines, object_path, binary_path).map_err(
-        |err| {
-            Diagnostic::new("build", err.to_string()).with_path(object_path.display().to_string())
-        },
+    let output = collect_output_program(program, package_root, fs_root, stdin)?;
+    axiomc_backend_cranelift::compile_output_lines_with_exit_code(
+        &output.lines,
+        output.exit_code,
+        object_path,
+        binary_path,
     )
+    .map_err(|err| {
+        Diagnostic::new("build", err.to_string()).with_path(object_path.display().to_string())
+    })
 }
 
 fn lower_i64_exit_program(
@@ -15600,12 +15605,28 @@ fn lower_i64_numeric_literal(raw: &str, ty: NumericType) -> Option<i64> {
     }
 }
 
+#[cfg(test)]
 fn collect_output_lines(
     program: &Program,
     _package_root: &Path,
     fs_root: &Path,
     stdin: Option<&str>,
 ) -> Result<Vec<OutputLine>, Diagnostic> {
+    collect_output_program(program, _package_root, fs_root, stdin).map(|output| output.lines)
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct StaticOutputProgram {
+    lines: Vec<OutputLine>,
+    exit_code: i32,
+}
+
+fn collect_output_program(
+    program: &Program,
+    _package_root: &Path,
+    fs_root: &Path,
+    stdin: Option<&str>,
+) -> Result<StaticOutputProgram, Diagnostic> {
     with_spike_stdin(stdin, || {
         let functions = program
             .functions
@@ -15622,8 +15643,20 @@ fn collect_output_lines(
             let value = eval_expr(&static_def.expr, &functions, &env, &mut lines)?;
             env.insert(static_def.name.clone(), value);
         }
-        eval_block(&program.stmts, &functions, &mut env, &mut lines)?;
-        Ok(lines)
+        match eval_block(&program.stmts, &functions, &mut env, &mut lines) {
+            Ok(_) => Ok(StaticOutputProgram {
+                lines,
+                exit_code: 0,
+            }),
+            Err(diagnostic) if is_cranelift_runtime_trap(&diagnostic) => {
+                lines.push(OutputLine::stderr(runtime_trap_text(&diagnostic)));
+                Ok(StaticOutputProgram {
+                    lines,
+                    exit_code: 1,
+                })
+            }
+            Err(diagnostic) => Err(diagnostic),
+        }
     })
 }
 
@@ -15696,11 +15729,16 @@ fn eval_stmt(
         },
         Stmt::Match { expr, arms, .. } => eval_match_stmt(expr, arms, functions, env, lines),
         Stmt::Return { expr, .. } => Ok(Some(eval_expr_effectful(expr, functions, env, lines)?)),
+        Stmt::Panic { message, .. } => {
+            let message =
+                render_runtime_panic_message(eval_expr_effectful(message, functions, env, lines)?)?;
+            Err(cranelift_runtime_trap("panic", message))
+        }
         Stmt::Assign { target, expr, .. } => {
             eval_assign(target, expr, functions, env, lines)?;
             Ok(None)
         }
-        Stmt::Panic { .. } | Stmt::Defer { .. } => Err(unsupported(
+        Stmt::Defer { .. } => Err(unsupported(
             "only let, print, if, while false, match, return, and local assignment statements are supported by the cranelift hello spike",
         )),
     }
@@ -15948,7 +15986,7 @@ fn eval_expr(
                 elements
                     .get(index)
                     .cloned()
-                    .ok_or_else(|| unsupported("array index is outside the array length"))
+                    .ok_or_else(|| cranelift_runtime_trap("runtime", "array index out of bounds"))
             }
             SpikeValue::MutSlice { target, start, end } => {
                 let index = expect_non_negative_index(eval_expr(index, functions, env, lines)?)?;
@@ -21631,6 +21669,44 @@ fn render_map(entries: &[(SpikeValue, SpikeValue)]) -> String {
     rendered
 }
 
+fn render_runtime_panic_message(value: SpikeValue) -> Result<String, Diagnostic> {
+    match value {
+        SpikeValue::Text(message) => Ok(message),
+        SpikeValue::Int(_)
+        | SpikeValue::UInt(_)
+        | SpikeValue::Float(_)
+        | SpikeValue::Bool(_)
+        | SpikeValue::Struct { .. }
+        | SpikeValue::Enum { .. }
+        | SpikeValue::Tuple(_)
+        | SpikeValue::Map(_)
+        | SpikeValue::Array(_)
+        | SpikeValue::MutRef(_)
+        | SpikeValue::MutSlice { .. }
+        | SpikeValue::Closure { .. }
+        | SpikeValue::Task { .. }
+        | SpikeValue::JoinHandle(_)
+        | SpikeValue::AsyncChannel { .. }
+        | SpikeValue::SelectResult { .. } => Ok(render_value(&value)),
+    }
+}
+
+fn cranelift_runtime_trap(kind: &str, message: impl Into<String>) -> Diagnostic {
+    Diagnostic::new(CRANELIFT_RUNTIME_TRAP_KIND, message.into()).with_code(kind)
+}
+
+fn is_cranelift_runtime_trap(diagnostic: &Diagnostic) -> bool {
+    diagnostic.kind == CRANELIFT_RUNTIME_TRAP_KIND
+}
+
+fn runtime_trap_text(diagnostic: &Diagnostic) -> String {
+    let kind = diagnostic.code.as_deref().unwrap_or("runtime");
+    let kind = serde_json::to_string(kind).unwrap_or_else(|_| String::from("\"runtime\""));
+    let message =
+        serde_json::to_string(&diagnostic.message).unwrap_or_else(|_| String::from("\"\""));
+    format!("{{\"kind\":{kind},\"message\":{message}}}")
+}
+
 fn unsupported(message: &str) -> Diagnostic {
     Diagnostic::new(
         "build",
@@ -21833,6 +21909,28 @@ mod tests {
             collect_output_lines(&program, Path::new("."), Path::new("."), None)
                 .expect("fold match"),
             vec![OutputLine::stdout("ready")]
+        );
+    }
+
+    #[test]
+    fn folds_panic_into_stderr_exit_program() {
+        let program = Program {
+            stmts: vec![Stmt::Panic {
+                message: Expr::Literal(LiteralValue::String(String::from("conformance panic"))),
+                span: crate::mir::SourceSpan { line: 1, column: 1 },
+            }],
+            ..hello_program()
+        };
+
+        assert_eq!(
+            collect_output_program(&program, Path::new("."), Path::new("."), None)
+                .expect("fold panic"),
+            StaticOutputProgram {
+                lines: vec![OutputLine::stderr(
+                    "{\"kind\":\"panic\",\"message\":\"conformance panic\"}"
+                )],
+                exit_code: 1,
+            }
         );
     }
 
@@ -22307,6 +22405,35 @@ mod tests {
                 OutputLine::stdout("42"),
                 OutputLine::stdout("15")
             ]
+        );
+    }
+
+    #[test]
+    fn folds_array_bounds_trap_into_stderr_exit_program() {
+        let program = Program {
+            stmts: vec![Stmt::Print {
+                expr: Expr::Index {
+                    base: Box::new(Expr::ArrayLiteral {
+                        elements: vec![Expr::Literal(LiteralValue::Int(1))],
+                        ty: Type::Array(Box::new(Type::Int), None),
+                    }),
+                    index: Box::new(Expr::Literal(LiteralValue::Int(2))),
+                    ty: Type::Int,
+                },
+                span: crate::mir::SourceSpan { line: 1, column: 1 },
+            }],
+            ..hello_program()
+        };
+
+        assert_eq!(
+            collect_output_program(&program, Path::new("."), Path::new("."), None)
+                .expect("fold bounds trap"),
+            StaticOutputProgram {
+                lines: vec![OutputLine::stderr(
+                    "{\"kind\":\"runtime\",\"message\":\"array index out of bounds\"}"
+                )],
+                exit_code: 1,
+            }
         );
     }
 

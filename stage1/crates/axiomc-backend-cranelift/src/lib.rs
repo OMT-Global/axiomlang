@@ -425,7 +425,16 @@ pub fn compile_output_lines(
     object_path: &Path,
     binary_path: &Path,
 ) -> Result<(), CraneliftBackendError> {
-    emit_cranelift_object(lines, object_path)?;
+    compile_output_lines_with_exit_code(lines, 0, object_path, binary_path)
+}
+
+pub fn compile_output_lines_with_exit_code(
+    lines: &[OutputLine],
+    exit_code: i32,
+    object_path: &Path,
+    binary_path: &Path,
+) -> Result<(), CraneliftBackendError> {
+    emit_cranelift_object(lines, exit_code, object_path)?;
     link_object(object_path, binary_path)
 }
 
@@ -440,6 +449,7 @@ pub fn compile_i64_exit_program(
 
 fn emit_cranelift_object(
     lines: &[OutputLine],
+    exit_code: i32,
     object_path: &Path,
 ) -> Result<(), CraneliftBackendError> {
     let isa_builder = host_isa_builder()?;
@@ -518,8 +528,8 @@ fn emit_cranelift_object(
             let len = builder.ins().iconst(pointer_type, byte_len as i64);
             builder.ins().call(write_ref, &[fd, pointer, len]);
         }
-        let ok = builder.ins().iconst(types::I32, 0);
-        builder.ins().return_(&[ok]);
+        let status = builder.ins().iconst(types::I32, i64::from(exit_code));
+        builder.ins().return_(&[status]);
         builder.finalize();
     }
     module
