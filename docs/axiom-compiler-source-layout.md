@@ -76,6 +76,22 @@ official self-hosted API must be callable from an `axiomc` snapshot.
 7. Delete Cargo/Rust from the official release lane only after the snapshot
    bootstrap gate and Rust-exit readiness gate pass.
 
+## Decomposition Tracking
+
+The current Rust-hosted compiler still has several very large implementation
+files. The package map above is the ownership boundary, but source migration
+also needs a measurable decomposition plan so the largest files shrink instead
+of collecting every new feature slice.
+
+Use [Compiler Source Decomposition Plan](compiler-source-decomposition-plan.md)
+for the top-file migration order and advisory line-count trend report. The
+local evidence commands are:
+
+```bash
+make stage1-compiler-source-monoliths
+make stage1-compiler-source-monoliths-test
+```
+
 ## Allowed Rust Scaffolding
 
 The following Rust implementation details may remain during migration:
