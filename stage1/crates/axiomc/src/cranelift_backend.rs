@@ -18734,7 +18734,7 @@ fn eval_net_call(
                 return Err(unsupported("net_tcp_read expects exactly two arguments"));
             };
             let stream = expect_int(eval_expr(stream, functions, env, lines)?)?;
-            let max_bytes = byte_buffer_len(eval_expr(buffer, functions, env, lines)?, env)?;
+            let max_bytes = byte_buffer_len(eval_expr(buffer, functions, env, lines)?)?;
             Ok(SpikeValue::Int(
                 net_tcp_read(stream, max_bytes)
                     .ok_or_else(|| unsupported("net_tcp_read failed in cranelift spike"))?,
@@ -18755,7 +18755,7 @@ fn eval_net_call(
                 return Err(unsupported("net_tcp_write expects exactly two arguments"));
             };
             let stream = expect_int(eval_expr(stream, functions, env, lines)?)?;
-            let message = byte_buffer_text(eval_expr(buffer, functions, env, lines)?, env)?;
+            let message = byte_buffer_text(eval_expr(buffer, functions, env, lines)?)?;
             Ok(SpikeValue::Int(net_tcp_write_string(stream, &message)))
         }
         "net_tcp_close" => {
@@ -18836,7 +18836,7 @@ fn eval_net_call(
                 ));
             };
             let socket = expect_int(eval_expr(socket, functions, env, lines)?)?;
-            let message = byte_buffer_text(eval_expr(buffer, functions, env, lines)?, env)?;
+            let message = byte_buffer_text(eval_expr(buffer, functions, env, lines)?)?;
             let peer = expect_text(eval_expr(peer, functions, env, lines)?, name)?;
             Ok(SpikeValue::Int(net_udp_send_to(socket, &message, &peer)))
         }
@@ -18847,7 +18847,7 @@ fn eval_net_call(
                 ));
             };
             let socket = expect_int(eval_expr(socket, functions, env, lines)?)?;
-            let max_bytes = byte_buffer_len(eval_expr(buffer, functions, env, lines)?, env)?;
+            let max_bytes = byte_buffer_len(eval_expr(buffer, functions, env, lines)?)?;
             let (count, peer) = net_udp_recv_from(socket, max_bytes)
                 .ok_or_else(|| unsupported("net_udp_recv_from failed in cranelift spike"))?;
             Ok(SpikeValue::Tuple(vec![
@@ -18886,42 +18886,32 @@ fn net_timeout(timeout_ms: i64) -> std::time::Duration {
     std::time::Duration::from_millis(timeout_ms.clamp(1, 30_000) as u64)
 }
 
-fn byte_buffer_len(value: SpikeValue, env: &SpikeEnv) -> Result<i64, Diagnostic> {
-    i64::try_from(byte_buffer_values(value, env)?.len())
-        .map_err(|_| unsupported("byte buffer length is outside the host i64 range"))
-}
-
-fn byte_buffer_text(value: SpikeValue, env: &SpikeEnv) -> Result<String, Diagnostic> {
-    byte_buffer_values(value, env)?
-        .into_iter()
-        .map(|value| match value {
-            SpikeValue::Int(value) => u8::try_from(value)
-                .map_err(|_| unsupported("network byte buffers must contain u8-compatible values")),
-            SpikeValue::UInt(value) => u8::try_from(value)
-                .map_err(|_| unsupported("network byte buffers must contain u8-compatible values")),
-            _ => Err(unsupported("network byte buffers must contain integers")),
-        })
-        .collect::<Result<Vec<_>, _>>()
-        .and_then(|bytes| {
-            String::from_utf8(bytes)
-                .map_err(|_| unsupported("network byte buffers must be valid UTF-8 text"))
-        })
-}
-
-fn byte_buffer_values(value: SpikeValue, env: &SpikeEnv) -> Result<Vec<SpikeValue>, Diagnostic> {
+fn byte_buffer_len(value: SpikeValue) -> Result<i64, Diagnostic> {
     match value {
-        SpikeValue::Array(values) => Ok(values),
-        SpikeValue::MutSlice { target, start, end } => {
-            let Some(SpikeValue::Array(values)) = env.get(&target) else {
-                return Err(unsupported(
-                    "mutable byte buffers require a live local array",
-                ));
-            };
-            let Some(values) = values.get(start..end) else {
-                return Err(unsupported("byte buffer slice is outside the array length"));
-            };
-            Ok(values.to_vec())
-        }
+        SpikeValue::Array(values) => i64::try_from(values.len())
+            .map_err(|_| unsupported("byte buffer length is outside the host i64 range")),
+        _ => Err(unsupported("network byte buffers must be byte arrays")),
+    }
+}
+
+fn byte_buffer_text(value: SpikeValue) -> Result<String, Diagnostic> {
+    match value {
+        SpikeValue::Array(values) => values
+            .into_iter()
+            .map(|value| match value {
+                SpikeValue::Int(value) => u8::try_from(value).map_err(|_| {
+                    unsupported("network byte buffers must contain u8-compatible values")
+                }),
+                SpikeValue::UInt(value) => u8::try_from(value).map_err(|_| {
+                    unsupported("network byte buffers must contain u8-compatible values")
+                }),
+                _ => Err(unsupported("network byte buffers must contain integers")),
+            })
+            .collect::<Result<Vec<_>, _>>()
+            .and_then(|bytes| {
+                String::from_utf8(bytes)
+                    .map_err(|_| unsupported("network byte buffers must be valid UTF-8 text"))
+            }),
         _ => Err(unsupported("network byte buffers must be byte arrays")),
     }
 }
