@@ -9349,10 +9349,12 @@ fn lower_i64_known_bool_intrinsic_condition(
             let [left, right] = args else {
                 return None;
             };
-            Some(CraneliftI64Condition::Literal(constant_time_eq_bytes(
-                i64_string_text(left, static_bindings)?.as_bytes(),
-                i64_string_text(right, static_bindings)?.as_bytes(),
-            )))
+            let left_text = i64_string_text(left, static_bindings)?;
+            let right_text = i64_string_text(right, static_bindings)?;
+            let result = constant_time_eq_bytes(left_text.as_bytes(), right_text.as_bytes());
+            i64_audited_known_crypto_condition(left, result, static_bindings)
+                .or_else(|| i64_audited_known_crypto_condition(right, result, static_bindings))
+                .or(Some(CraneliftI64Condition::Literal(result)))
         }
         name if is_i64_crypto_constant_time_eq_u8_name(name, static_bindings) => {
             lower_i64_byte_slice_eq_condition(
@@ -9402,6 +9404,52 @@ fn lower_i64_known_bool_intrinsic_condition(
         }
         _ => None,
     }
+}
+
+fn i64_audited_known_crypto_condition(
+    expr: &Expr,
+    result: bool,
+    static_bindings: &I64StaticBindings,
+) -> Option<CraneliftI64Condition> {
+    let Expr::Call { name, args, .. } = expr else {
+        return None;
+    };
+    let (intrinsic, inputs) = if is_i64_crypto_sha256_name(name, static_bindings) {
+        let [input] = args.as_slice() else {
+            return None;
+        };
+        let _ = i64_string_text(input, static_bindings)?;
+        ("crypto_sha256", "strings:1")
+    } else if is_i64_crypto_hmac_sha256_name(name, static_bindings)
+        || is_i64_crypto_hmac_sha512_name(name, static_bindings)
+    {
+        let [key, message] = args.as_slice() else {
+            return None;
+        };
+        let _ = i64_string_text(key, static_bindings)?;
+        let _ = i64_string_text(message, static_bindings)?;
+        let intrinsic = if is_i64_crypto_hmac_sha256_name(name, static_bindings) {
+            "crypto_hmac_sha256"
+        } else {
+            "crypto_hmac_sha512"
+        };
+        (intrinsic, "strings:2")
+    } else {
+        return None;
+    };
+    let audited_result = i64_audited_crypto_expr(
+        intrinsic,
+        "inputs",
+        inputs.to_string(),
+        CraneliftI64Expr::Literal(i64::from(result)),
+        static_bindings,
+        CraneliftI64AuditSuccess::NonNegative,
+    )?;
+    Some(CraneliftI64Condition::Compare(CraneliftI64Compare {
+        op: CraneliftI64CompareOp::Eq,
+        lhs: audited_result,
+        rhs: CraneliftI64Expr::Literal(1),
+    }))
 }
 
 fn lower_i64_byte_slice_eq_condition(

@@ -504,7 +504,8 @@ exit status. Those direct-native HMAC length projections now append best-effort
 host audit JSONL to `AXIOM_HOST_AUDIT_LOG`, recording only typed input metadata
 and outcome without recording key, message, or tag values.
 Known-input `crypto_constant_time_eq(...)` over known string values lowers into native
-boolean conditions. It also lowers
+boolean conditions while preserving host-audit records for known hash or MAC
+operands without recording input or digest values. It also lowers
 `crypto_constant_time_eq_u8(...)` over narrow fixed-array/static-slice `u8`
 inputs into native boolean conditions. Imported public `std/crypto_mac.ax`
 wrappers for `hmac_sha256(...)`, `hmac_sha512(...)`,
