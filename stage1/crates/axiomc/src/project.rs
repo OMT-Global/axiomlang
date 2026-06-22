@@ -7747,6 +7747,22 @@ fn ensure_output_path_stays_inside_package(
                 .with_path(path.display().to_string()),
         );
     }
+    match fs::symlink_metadata(path) {
+        Ok(metadata) if metadata.file_type().is_symlink() => {
+            return Err(
+                Diagnostic::new("build", format!("{label} must not be a symlink"))
+                    .with_path(path.display().to_string()),
+            );
+        }
+        Ok(_) => {}
+        Err(err) if err.kind() == io::ErrorKind::NotFound => {}
+        Err(err) => {
+            return Err(
+                Diagnostic::new("build", format!("failed to inspect {label}: {err}"))
+                    .with_path(path.display().to_string()),
+            );
+        }
+    }
     Ok(())
 }
 
@@ -8679,6 +8695,37 @@ mod tests {
         assert_eq!(
             error.message,
             "generated Rust output resolves outside the package"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn output_path_rejects_final_symlink_inside_package() {
+        let dir = tempdir().unwrap_or_else(|err| panic!("tempdir: {err}"));
+        let package_dir = dir.path().join("package");
+        fs::create_dir_all(package_dir.join("dist"))
+            .unwrap_or_else(|err| panic!("create package dist: {err}"));
+        let root =
+            fs::canonicalize(&package_dir).unwrap_or_else(|err| panic!("canonical root: {err}"));
+        let outside = dir.path().join("outside-object.o");
+        fs::write(&outside, b"sentinel").unwrap_or_else(|err| panic!("write outside: {err}"));
+        let output = root.join("dist").join("demo.cranelift.o");
+        std::os::unix::fs::symlink(&outside, &output)
+            .unwrap_or_else(|err| panic!("symlink output: {err}"));
+
+        let error = match ensure_output_path_stays_inside_package(
+            &root,
+            &output,
+            "Cranelift object output",
+        ) {
+            Ok(()) => panic!("symlinked output file was accepted"),
+            Err(error) => error,
+        };
+
+        assert_eq!(error.kind, "build");
+        assert_eq!(
+            error.message,
+            "Cranelift object output must not be a symlink"
         );
     }
 }
