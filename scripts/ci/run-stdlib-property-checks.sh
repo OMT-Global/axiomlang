@@ -47,34 +47,6 @@ for case in payload.get("cases", []):
 PY
 }
 
-assert_generated_rust_compatibility_report() {
-  local report="$1"
-  local command_name="$2"
-  local project="$3"
-
-  python3 - "$report" "$command_name" "$project" <<'PY'
-import json
-import sys
-
-path, command_name, project = sys.argv[1:4]
-payload = json.load(open(path, encoding="utf-8"))
-if payload.get("backend") != "generated-rust":
-    raise SystemExit(
-        f"{command_name} compatibility check for {project} must run on generated-rust, got {payload.get('backend')!r}"
-    )
-if payload.get("ok") is not True:
-    raise SystemExit(f"{command_name} compatibility check for {project} must pass")
-cases = payload.get("cases", [])
-if not cases:
-    raise SystemExit(f"{command_name} compatibility check for {project} did not report any cases")
-for case in cases:
-    if case.get("generated_rust") is None:
-        raise SystemExit(
-            f"{command_name} compatibility case {case.get('name')} for {project} did not report generated Rust"
-        )
-PY
-}
-
 property_report="$(mktemp)"
 temp_reports+=("$property_report")
 capture_report "$property_report" \
@@ -122,6 +94,7 @@ cranelift_stdlib_projects=(
   stage1/examples/stdlib_json_value
   stage1/examples/stdlib_lsp
   stage1/examples/stdlib_log
+  stage1/examples/stdlib_net
   stage1/examples/stdlib_outcome
   stage1/examples/stdlib_process
   stage1/examples/stdlib_regex
@@ -137,13 +110,3 @@ for project in "${cranelift_stdlib_projects[@]}"; do
     cargo run --manifest-path stage1/Cargo.toml -p axiomc -- test "$project" --backend cranelift --json
   assert_cranelift_report "$report" "test" "$project"
 done
-
-# The generated-Rust stdlib_net fixture expects resolve("localhost") to return false,
-# while the Cranelift backend currently resolves it successfully. Keep that difference
-# explicit until network capability semantics are reconciled across backends.
-stdlib_net_report="$(mktemp)"
-temp_reports+=("$stdlib_net_report")
-capture_report "$stdlib_net_report" \
-  cargo run --manifest-path stage1/Cargo.toml -p axiomc -- test stage1/examples/stdlib_net \
-    --backend generated-rust --json
-assert_generated_rust_compatibility_report "$stdlib_net_report" "test" "stage1/examples/stdlib_net"
