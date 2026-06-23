@@ -254,6 +254,10 @@ helper returns, initialized from another local fixed array, or moved between
 existing locals using the same element-slot ABI, including inside runtime loop
 blocks. Fixed-array helper returns can also feed nested fixed-array helper
 arguments by materializing hidden element-slot locals before the outer call.
+Direct indexes over fixed-array helper-call results can now feed scalar and
+boolean locals and scalar or boolean helper-call arguments by materializing the
+helper return into hidden element-slot locals before indexing, including numeric
+indexes cast to wider scalar helper-call arguments.
 Fixed-array `len`,
 `first`, and `last` over scalar and bool element
 arrays also lower through the same projected element-slot representation for

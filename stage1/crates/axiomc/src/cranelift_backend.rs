@@ -1299,6 +1299,21 @@ fn lower_i64_aggregate_return_body(
             Stmt::Let { ty, expr, .. }
                 if !seen_runtime_stmt
                     && (matches!(ty, Type::Bool) || is_i64_compatible_type(ty))
+                    && i64_is_helper_call_array_index_expr(expr) =>
+            {
+                lowered_stmts.extend(lower_i64_helper_call_array_index_let_stmts(
+                    stmt,
+                    &mut locals,
+                    &mut local_indexes,
+                    &mut local_conditions,
+                    helper_signatures,
+                    static_bindings,
+                )?);
+                seen_runtime_stmt = true;
+            }
+            Stmt::Let { ty, expr, .. }
+                if !seen_runtime_stmt
+                    && (matches!(ty, Type::Bool) || is_i64_compatible_type(ty))
                     && i64_is_helper_call_projection_expr(expr) =>
             {
                 lowered_stmts.extend(lower_i64_helper_call_projection_let_stmts(
@@ -1318,6 +1333,7 @@ fn lower_i64_aggregate_return_body(
             } if !seen_runtime_stmt
                 && (matches!(ty, Type::Bool) || is_i64_compatible_type(ty))
                 && (i64_has_helper_call_slice_index_arg(args)
+                    || i64_has_helper_call_array_index_arg(args)
                     || i64_has_helper_call_projection_arg(args)) =>
             {
                 lowered_stmts.extend(lower_i64_nested_aggregate_call_let_stmts(
@@ -2706,6 +2722,21 @@ fn lower_i64_body(
             Stmt::Let { ty, expr, .. }
                 if !seen_runtime_stmt
                     && (matches!(ty, Type::Bool) || is_i64_compatible_type(ty))
+                    && i64_is_helper_call_array_index_expr(expr) =>
+            {
+                lowered_stmts.extend(lower_i64_helper_call_array_index_let_stmts(
+                    stmt,
+                    &mut locals,
+                    &mut local_indexes,
+                    &mut local_conditions,
+                    helper_signatures,
+                    static_bindings,
+                )?);
+                seen_runtime_stmt = true;
+            }
+            Stmt::Let { ty, expr, .. }
+                if !seen_runtime_stmt
+                    && (matches!(ty, Type::Bool) || is_i64_compatible_type(ty))
                     && i64_is_helper_call_projection_expr(expr) =>
             {
                 lowered_stmts.extend(lower_i64_helper_call_projection_let_stmts(
@@ -2725,6 +2756,7 @@ fn lower_i64_body(
             } if !seen_runtime_stmt
                 && (matches!(ty, Type::Bool) || is_i64_compatible_type(ty))
                 && (i64_has_helper_call_slice_index_arg(args)
+                    || i64_has_helper_call_array_index_arg(args)
                     || i64_has_helper_call_projection_arg(args)) =>
             {
                 lowered_stmts.extend(lower_i64_nested_aggregate_call_let_stmts(
@@ -3961,6 +3993,16 @@ fn lower_i64_runtime_let_stmts(
     ) {
         return Some(assigns);
     }
+    if let Some(assigns) = lower_i64_helper_call_array_index_let_stmts(
+        stmt,
+        locals,
+        local_indexes,
+        local_conditions,
+        helper_signatures,
+        static_bindings,
+    ) {
+        return Some(assigns);
+    }
     if let Some(assigns) = lower_i64_helper_call_projection_let_stmts(
         stmt,
         locals,
@@ -4159,6 +4201,99 @@ fn lower_i64_helper_call_slice_index_let_stmts(
     Some(lowered)
 }
 
+fn lower_i64_helper_call_array_index_let_stmts(
+    stmt: &Stmt,
+    locals: &mut Vec<CraneliftI64Expr>,
+    local_indexes: &mut HashMap<String, usize>,
+    local_conditions: &mut HashMap<String, CraneliftI64Condition>,
+    helper_signatures: &HashMap<&str, I64HelperSignature>,
+    static_bindings: &I64StaticBindings,
+) -> Option<Vec<CraneliftI64Stmt>> {
+    let Stmt::Let {
+        name,
+        ty,
+        expr,
+        span,
+    } = stmt
+    else {
+        return None;
+    };
+    if !matches!(ty, Type::Bool) && !is_i64_compatible_type(ty) {
+        return None;
+    }
+    let (base, index, index_ty, cast_ty) = match expr {
+        Expr::Index {
+            base,
+            index,
+            ty: index_ty,
+        } if matches!(base.as_ref(), Expr::Call { .. }) => (base, index, index_ty, None),
+        Expr::Cast {
+            expr: cast_expr,
+            ty: cast_ty,
+        } if is_i64_compatible_type(cast_ty) => match cast_expr.as_ref() {
+            Expr::Index {
+                base,
+                index,
+                ty: index_ty,
+            } if matches!(base.as_ref(), Expr::Call { .. }) => {
+                (base, index, index_ty, Some(cast_ty.clone()))
+            }
+            _ => return None,
+        },
+        _ => return None,
+    };
+
+    let mut trial_locals = locals.clone();
+    let mut trial_indexes = local_indexes.clone();
+    let mut trial_conditions = local_conditions.clone();
+    let temp_name = format!("__axiom_i64_array_index_{}", trial_indexes.len());
+    let base_ty = base.ty();
+    let mut lowered = lower_i64_aggregate_call_to_local_stmts(
+        &temp_name,
+        &base_ty,
+        base.as_ref(),
+        &mut trial_locals,
+        &mut trial_indexes,
+        &mut trial_conditions,
+        helper_signatures,
+        static_bindings,
+    )?;
+    let rewritten_expr = Expr::Index {
+        base: Box::new(Expr::VarRef {
+            name: temp_name,
+            ty: base_ty,
+        }),
+        index: index.clone(),
+        ty: index_ty.clone(),
+    };
+    let rewritten_expr = if let Some(cast_ty) = cast_ty {
+        Expr::Cast {
+            expr: Box::new(rewritten_expr),
+            ty: cast_ty,
+        }
+    } else {
+        rewritten_expr
+    };
+    let rewritten = Stmt::Let {
+        name: name.clone(),
+        ty: ty.clone(),
+        expr: rewritten_expr,
+        span: *span,
+    };
+    lowered.push(lower_i64_runtime_let(
+        &rewritten,
+        &mut trial_locals,
+        &mut trial_indexes,
+        &mut trial_conditions,
+        helper_signatures,
+        static_bindings,
+    )?);
+    *locals = trial_locals;
+    *local_indexes = trial_indexes;
+    *local_conditions = trial_conditions;
+    Some(lowered)
+}
+
 fn i64_is_helper_call_slice_expr(expr: &Expr) -> bool {
     matches!(
         expr,
@@ -4176,6 +4311,18 @@ fn i64_is_helper_call_slice_index_expr(expr: &Expr) -> bool {
 
 fn i64_has_helper_call_slice_index_arg(args: &[Expr]) -> bool {
     args.iter().any(i64_is_helper_call_slice_index_expr)
+}
+
+fn i64_is_helper_call_array_index_expr(expr: &Expr) -> bool {
+    match expr {
+        Expr::Index { base, .. } => matches!(base.as_ref(), Expr::Call { .. }),
+        Expr::Cast { expr, .. } => i64_is_helper_call_array_index_expr(expr),
+        _ => false,
+    }
+}
+
+fn i64_has_helper_call_array_index_arg(args: &[Expr]) -> bool {
+    args.iter().any(i64_is_helper_call_array_index_expr)
 }
 
 fn lower_i64_helper_call_projection_let_stmts(
@@ -4610,6 +4757,42 @@ fn rewrite_i64_nested_aggregate_call_arg(
             Expr::VarRef {
                 name: temp_name,
                 ty: arg.ty(),
+            },
+            assigns,
+        ));
+    }
+
+    if let Expr::Index {
+        base,
+        index,
+        ty: index_ty,
+    } = arg
+        && matches!(base.as_ref(), Expr::Call { .. })
+    {
+        let temp_name = format!(
+            "__axiom_i64_array_index_arg_{}_{}",
+            local_indexes.len(),
+            arg_index
+        );
+        let base_ty = base.ty();
+        let assigns = lower_i64_aggregate_call_to_local_stmts(
+            &temp_name,
+            &base_ty,
+            base.as_ref(),
+            locals,
+            local_indexes,
+            local_conditions,
+            helper_signatures,
+            static_bindings,
+        )?;
+        return Some((
+            Expr::Index {
+                base: Box::new(Expr::VarRef {
+                    name: temp_name,
+                    ty: base_ty,
+                }),
+                index: index.clone(),
+                ty: index_ty.clone(),
             },
             assigns,
         ));
