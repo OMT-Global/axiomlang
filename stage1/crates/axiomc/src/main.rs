@@ -8143,6 +8143,35 @@ return "ok"
         assert!(!victim_dir.join("index.md").exists());
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn doc_output_writes_through_held_directory_after_path_swap() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let docs = dir.path().join("project/dist/docs");
+        fs::create_dir_all(&docs).expect("mkdir docs dir");
+
+        let doc_dir = open_doc_output_dir(&docs).expect("open docs dir");
+
+        let held_docs = dir.path().join("held-docs");
+        fs::rename(&docs, &held_docs).expect("move opened docs dir");
+        let victim_dir = dir.path().join("victim-docs");
+        fs::create_dir_all(&victim_dir).expect("mkdir victim docs");
+        std::os::unix::fs::symlink(&victim_dir, &docs).expect("symlink visible docs path");
+
+        doc_dir
+            .write_file("index.md", b"# Safe docs\n", &docs.join("index.md"))
+            .expect("write through held docs dir");
+
+        assert_eq!(
+            fs::read_to_string(held_docs.join("index.md")).expect("read held docs"),
+            "# Safe docs\n"
+        );
+        assert!(
+            !victim_dir.join("index.md").exists(),
+            "path swap must not redirect writes through the visible symlink"
+        );
+    }
+
     #[test]
     fn registry_validate_cli_parses_integrity_options() {
         let cli = Cli::parse_from([
