@@ -2913,7 +2913,7 @@ fn cranelift_backend_builds_enum_match_binary() {
     );
     assert_eq!(
         String::from_utf8_lossy(&run.stdout),
-        "multi\nnamed\npayload\n2\n8\n7\n9\ntrue\n"
+        "multi\nnamed\npayload\n2\n8\n7\n9\ntrue\nreturned\n12\nfalse\n"
     );
 }
 
@@ -9358,6 +9358,14 @@ return len(text) == 7
 }
 }
 
+fn selected_message(mode: int): Message {
+if mode == 0 {
+return Pair(12, "returned")
+} else {
+return Job { id: 14, label: "forwarded" }
+}
+}
+
 let first: Message = Pair(7, "multi")
 let second: Message = Job { id: 9, label: "named" }
 let score: int = match Some(7) {
@@ -9373,6 +9381,9 @@ print score
 print metric(Pair(7, "multi"))
 print metric(Job { id: 9, label: "named" })
 print active(Pair(7, "ok"))
+print render(selected_message(0))
+print metric(selected_message(0))
+print active(selected_message(0))
 "#,
     )
     .expect("write enum match source");

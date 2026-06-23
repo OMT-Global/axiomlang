@@ -855,9 +855,11 @@ matches over scalar/bool positional and named payload variants, represented as a
 tag plus payload slots and returned as process exit status without generated
 Rust. The public enum-match smoke also asserts `generated_rust: null` while
 printing string, scalar, and boolean values derived from positional and named
-custom enum payload matches. The same tag/payload-slot representation now
-covers narrow scalar tuple and scalar struct payload storage, matching, and
-helper parameters for named custom enum payloads such as `(int, bool)` and
+custom enum payload matches, including string, scalar, and boolean projections
+from helper-returned custom enum values before native stdout. The same
+tag/payload-slot representation now covers narrow scalar tuple and scalar
+struct payload storage, matching, and helper parameters for named custom enum
+payloads such as `(int, bool)` and
 `Step { value: int, enabled: bool }`. Scalar/bool custom enum helper parameters
 lower across direct-native function-call boundaries as explicit tag/payload ABI
 slots for local values and inline variant arguments. Narrow custom enum helper
