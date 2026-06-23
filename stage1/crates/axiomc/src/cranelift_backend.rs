@@ -21410,8 +21410,13 @@ mod tests {
     #[test]
     fn folds_hello_subset_into_print_lines() {
         assert_eq!(
-            collect_output_lines(&hello_program(), Path::new("."), Path::new("."))
-                .expect("fold hello"),
+            collect_output_lines(
+                &hello_program(),
+                &CapabilityConfig::default(),
+                Path::new("."),
+                Path::new("."),
+            )
+            .expect("fold hello"),
             vec![
                 OutputLine::stdout("hello from stage1"),
                 OutputLine::stdout("42")
