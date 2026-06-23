@@ -6443,23 +6443,36 @@ crypto = false
             r#"print fs_write("data/inside.txt", "inside") == 0
 print fs_write("outside.txt", "outside") == -1
 print fs_write("data/../outside.txt", "traversal") == -1
+print fs_write("data/dangling", "escape") == -1
+print fs_append("data/dangling", "escape") == -1
 "#,
         )
         .expect("write source");
 
         let built = build_project(&project).expect("build project");
+        let outside_symlink_target = dir.path().join("outside-symlink-target.txt");
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&outside_symlink_target, project.join("data/dangling"))
+            .expect("create dangling fs_write symlink escape fixture");
+        #[cfg(windows)]
+        std::os::windows::fs::symlink_file(&outside_symlink_target, project.join("data/dangling"))
+            .expect("create dangling fs_write symlink escape fixture");
         let output = compiled_binary_command(&built.binary)
             .output()
             .expect("run compiled binary");
         assert_eq!(
             String::from_utf8_lossy(&output.stdout),
-            "true\ntrue\ntrue\n"
+            "true\ntrue\ntrue\ntrue\ntrue\n"
         );
         assert_eq!(
             fs::read_to_string(project.join("data/inside.txt")).expect("inside write"),
             "inside",
         );
         assert!(!project.join("outside.txt").exists());
+        assert!(
+            !outside_symlink_target.exists(),
+            "fs_write/fs_append must not create a dangling symlink target outside fs_root"
+        );
     }
 
     #[test]
