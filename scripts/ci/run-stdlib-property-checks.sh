@@ -4,15 +4,95 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$repo_root"
 
-property_log="$(mktemp)"
-trap 'rm -f "$property_log"' EXIT
+temp_reports=()
+cleanup() {
+  rm -f "${temp_reports[@]}"
+}
+trap cleanup EXIT
 
-cargo run --manifest-path stage1/Cargo.toml -p axiomc -- test stage1/examples/stdlib_testing --properties 2>&1 | tee "$property_log"
-property_ratio="$(sed -nE 's/^([0-9]+\/[0-9]+) properties passed$/\1/p' "$property_log" | tail -n 1)"
-if [[ -z "$property_ratio" ]]; then
-  echo "error: missing stdlib property summary from axiomc test --properties" >&2
-  exit 1
-fi
+capture_report() {
+  local report="$1"
+  shift
+
+  if ! "$@" >"$report"; then
+    cat "$report" >&2
+    exit 1
+  fi
+}
+
+assert_cranelift_report() {
+  local report="$1"
+  local command_name="$2"
+  local project="$3"
+
+  python3 - "$report" "$command_name" "$project" <<'PY'
+import json
+import sys
+
+path, command_name, project = sys.argv[1:4]
+payload = json.load(open(path, encoding="utf-8"))
+if payload.get("backend") != "cranelift":
+    raise SystemExit(
+        f"{command_name} for {project} must run on cranelift, got {payload.get('backend')!r}"
+    )
+if payload.get("ok") is not True:
+    raise SystemExit(f"{command_name} for {project} must pass on cranelift")
+if payload.get("generated_rust") is not None:
+    raise SystemExit(f"{command_name} for {project} emitted generated Rust")
+for case in payload.get("cases", []):
+    if case.get("generated_rust") is not None:
+        raise SystemExit(
+            f"{command_name} case {case.get('name')} for {project} emitted generated Rust"
+        )
+PY
+}
+
+assert_generated_rust_compatibility_report() {
+  local report="$1"
+  local command_name="$2"
+  local project="$3"
+
+  python3 - "$report" "$command_name" "$project" <<'PY'
+import json
+import sys
+
+path, command_name, project = sys.argv[1:4]
+payload = json.load(open(path, encoding="utf-8"))
+if payload.get("backend") != "generated-rust":
+    raise SystemExit(
+        f"{command_name} compatibility check for {project} must run on generated-rust, got {payload.get('backend')!r}"
+    )
+if payload.get("ok") is not True:
+    raise SystemExit(f"{command_name} compatibility check for {project} must pass")
+cases = payload.get("cases", [])
+if not cases:
+    raise SystemExit(f"{command_name} compatibility check for {project} did not report any cases")
+for case in cases:
+    if case.get("generated_rust") is None:
+        raise SystemExit(
+            f"{command_name} compatibility case {case.get('name')} for {project} did not report generated Rust"
+        )
+PY
+}
+
+property_report="$(mktemp)"
+temp_reports+=("$property_report")
+capture_report "$property_report" \
+  cargo run --manifest-path stage1/Cargo.toml -p axiomc -- test stage1/examples/stdlib_testing \
+    --properties --backend cranelift --json
+assert_cranelift_report "$property_report" "property test" "stage1/examples/stdlib_testing"
+
+property_ratio="$(
+  python3 - "$property_report" <<'PY'
+import json
+import sys
+
+payload = json.load(open(sys.argv[1], encoding="utf-8"))
+properties = payload.get("properties", {})
+print(f"{properties.get('passed', 0)}/{properties.get('total', 0)}")
+PY
+)"
+
 echo "properties passed: $property_ratio"
 if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
   {
@@ -22,7 +102,7 @@ if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
   } >>"$GITHUB_STEP_SUMMARY"
 fi
 
-stdlib_projects=(
+cranelift_stdlib_projects=(
   stage1/examples/stdlib_async
   stage1/examples/stdlib_cli
   stage1/examples/stdlib_collection_lookup
@@ -42,7 +122,6 @@ stdlib_projects=(
   stage1/examples/stdlib_json_value
   stage1/examples/stdlib_lsp
   stage1/examples/stdlib_log
-  stage1/examples/stdlib_net
   stage1/examples/stdlib_outcome
   stage1/examples/stdlib_process
   stage1/examples/stdlib_regex
@@ -51,6 +130,20 @@ stdlib_projects=(
   stage1/examples/stdlib_testing
 )
 
-for project in "${stdlib_projects[@]}"; do
-  cargo run --manifest-path stage1/Cargo.toml -p axiomc -- test "$project" --json
+for project in "${cranelift_stdlib_projects[@]}"; do
+  report="$(mktemp)"
+  temp_reports+=("$report")
+  capture_report "$report" \
+    cargo run --manifest-path stage1/Cargo.toml -p axiomc -- test "$project" --backend cranelift --json
+  assert_cranelift_report "$report" "test" "$project"
 done
+
+# The generated-Rust stdlib_net fixture expects resolve("localhost") to return false,
+# while the Cranelift backend currently resolves it successfully. Keep that difference
+# explicit until network capability semantics are reconciled across backends.
+stdlib_net_report="$(mktemp)"
+temp_reports+=("$stdlib_net_report")
+capture_report "$stdlib_net_report" \
+  cargo run --manifest-path stage1/Cargo.toml -p axiomc -- test stage1/examples/stdlib_net \
+    --backend generated-rust --json
+assert_generated_rust_compatibility_report "$stdlib_net_report" "test" "stage1/examples/stdlib_net"
