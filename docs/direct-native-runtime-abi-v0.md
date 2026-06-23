@@ -196,7 +196,10 @@ integer locals, comparisons, helper calls, runtime branch-local string
 projection `let`s, and process exit status without generated Rust.
 String concatenation length also lowers for supported string length projection
 inputs by adding the operand byte lengths without materializing the concatenated
-runtime string.
+runtime string, including bounded stdin-backed `read_to_string()` projections.
+Those stdin-backed byte-length projection locals can also feed direct-native
+integer stdout writes and branch conditions before returning a native process
+exit status.
 Literal-, static-, local-, and known-string-call-backed `string_starts_with(...)`
 predicates and known-text string comparisons now also lower directly to native
 boolean conditions, including bool locals, helper returns, composed branch
@@ -341,6 +344,11 @@ representation now has narrow evidence for `Option<Result<int, int>>`
 construction, matching, helper parameters, helper returns, forwarded helper
 values, and inline
 `Some(Ok(...))`, `Some(Err(...))`, and outer `None` helper arguments.
+The Cranelift evidence suite now also builds and runs public `std/outcome.ax`
+`option_is_some(...)`, `option_is_none(...)`, and `option_unwrap_or(...)`
+wrappers without generated Rust for known scalar, string, and struct payloads,
+including struct field projections from selected and fallback `Option<Step>`
+values.
 The row remains partial because direct-native codegen still does not provide a
 general `Option<T>` ABI across broader payload shapes, deeper nested option or
 result values, or broad aggregate storage.
@@ -665,9 +673,13 @@ without generated Rust.
 Imported public `std/string_builder.ax` builder, seed, push,
 line-push, and finish wrappers now alias known text facts that can feed
 direct-native string comparisons, length projections, and process exit status
-without generated Rust. Broader string ABI coverage, allocation behavior,
-general runtime string parameters and returns, non-literal storage, and
-host-boundary representation remain tracked by issue #1001.
+without generated Rust. The Cranelift evidence suite now also builds and runs
+known `std/doc.ax` markdown and HTML rendering without generated Rust, covering
+public tuple-backed `DocItem` projections, known-source declaration extraction,
+comment-line scanning, trimming, prefix/suffix stripping, and no-public-docs
+fallback rendering over literal inputs. Broader string ABI coverage, allocation
+behavior, general runtime string parameters and returns, non-literal storage,
+and host-boundary representation remain tracked by issue #1001.
 
 The borrowed-slice row has partial direct-native evidence: the Cranelift spike
 evaluates array-backed borrowed slices through `len`, `first`, `last`, indexing,
@@ -809,8 +821,13 @@ runtime synchronization remain tracked by issue #1001.
 The `Result<T, E>` row has partial direct-native evidence: the Cranelift spike
 now builds and runs a package importing `std/outcome.ax`, using result
 predicates, fallback unwrap helpers, direct match arms over `Result<T, E>`
-values, scalar payloads, string errors, and struct payloads. The direct-native
-runtime path now also has narrow evidence for local `Result<int, int>`,
+values, scalar payloads, string errors, and struct payloads. The dedicated
+std/outcome evidence binary now also asserts `generated_rust: null` while
+running public `result_is_ok(...)`, `result_is_err(...)`, and
+`result_unwrap_or(...)` wrappers over known scalar, string, and struct payloads,
+including field projections from selected and fallback `Result<Step, Step>`
+values. The direct-native runtime path now also has narrow evidence for local
+`Result<int, int>`,
 `Result<bool, bool>`, `Result<int, bool>`, and `Result<bool, int>` `Ok` and
 `Err` construction and reassignment, plus typed numeric `Result<i32, u32>`
 `Result<i64, u16>`, and `Result<u8, i8>` `Ok`/`Err` construction and
@@ -881,6 +898,13 @@ parsing, typed field accessors, value indexing, stringify, and parse-error
 reporting without generated Rust. The checked-in `stdlib_serdes` example now
 also runs through the direct-native example smoke, including deep `Value`
 equality and `std/testing.ax` assertion helpers without generated Rust. The
+Cranelift evidence suite now also builds and runs public `std/testing.ax`
+typed equality, table-case, property, and snapshot wrappers over known scalar,
+boolean, and string inputs while asserting `generated_rust: null`. The
+Cranelift evidence suite now also builds and runs known-message `std/lsp.ax`
+JSON-RPC wrapper flows without generated Rust, covering request construction,
+method/id dispatch, response framing, text-document field extraction, and
+invalid-message rejection over literal payloads. The
 direct-native i64 path now also lowers
 known-input `json_stringify_*` string results, including literal and static
 scalar/bool stringify inputs. Runtime scalar/bool `json_stringify_*` calls can
@@ -940,12 +964,15 @@ lines and parse-error text while still reporting `generated_rust: null`. They
 can also feed public `std/io.ax` `eprintln(...)` statements in runtime-exit
 `main` functions, preserving exact native stderr JSON lines, parse-error text,
 and newline-inclusive byte-count return values without generated Rust.
-Known-input `std/serdes` JSON object and parse-error string results can also
-feed terminal panic reports as escaped native stderr JSON while preserving
-`generated_rust: null`. Broader dynamic runtime JSON parsing, broad
-`std/serdes` `Value` storage, `JsonValue` wrapper construction beyond the
-evidenced scalar/string/object/array source wrappers, and broader schema helper
-coverage remain tracked by issue #1001.
+Known-input `std/serdes` JSON object, stringified text/int/bool values, parsed
+text/int/bool/object/array values, parsed aggregate field/item projections, and
+parse-error string results can also feed terminal panic reports as escaped
+native stderr JSON while preserving
+`generated_rust: null`. Broader dynamic
+runtime JSON parsing, broad `std/serdes` `Value` storage, general dynamic LSP
+message handling, `JsonValue` wrapper construction beyond the evidenced
+scalar/string/object/array source wrappers, and broader schema helper coverage
+remain tracked by issue #1001.
 
 The owned move-state row has partial direct-native evidence: the Cranelift
 spike builds and runs projection-sensitive owned field moves while preserving
@@ -1041,9 +1068,11 @@ scalar/bool string projections also stream quoted JSON string values directly
 into native stderr panic reports without materializing a general string runtime.
 Supported dynamic `std/log.ax` `event(...)` messages with scalar and boolean
 fields also lower to native stderr JSON panic reports as nested escaped
-log-record strings without generated Rust. Known `std/serdes.ax` JSON object and
-parse-error strings can also feed terminal panic reports as escaped native
-stderr JSON without generated Rust. Terminal panic messages backed by
+log-record strings without generated Rust. Known `std/serdes.ax` JSON object,
+stringified text/int/bool values, parsed text/int/bool/object/array values, and
+parsed aggregate field/item projections, and parse-error strings can also feed
+terminal panic reports as escaped native stderr JSON without generated Rust. Terminal
+panic messages backed by
 runtime-selected known string
 projections from map-key arrays, either directly or through string locals backed
 by those projections, also lower to native stderr JSON panic reports by
@@ -1051,11 +1080,30 @@ selecting among finite known text values without materializing a general string
 runtime. Supported direct-native stdout/stderr write primitives now append
 best-effort host audit JSONL to `AXIOM_HOST_AUDIT_LOG`, recording only the
 stream, byte-count shape, and outcome without recording printed text, formatted
-integer values, log messages, field names, or field values. Stdin reads, dynamic
-stdout/stderr text beyond boolean, integer, JSON scalar formatting, and finite
-known-string projection selection, dynamic panic messages beyond scalar/string
-JSON stringify and finite known-string projection selection, and broader
-streaming/runtime buffering remain tracked by issue #1001.
+integer values, log messages, field names, or field values. Public `std/io.ax`
+`read_to_string()` length projections now lower into a bounded native stdin
+`read(2)` byte-count path, and the evidence binary pipes fixed stdin into the
+generated native object output while asserting `generated_rust: null` and the
+native process exit status. The same bounded byte-count path also feeds string
+locals assigned from `read_to_string()` when those locals are used only for
+`len(local)` projections in direct-native `main` return values. `string_clone(...)`
+over those stdin-backed local projections also preserves the same bounded
+byte-count path for `len(cloned)` without materializing a general runtime
+string. String concatenation over those stdin-backed projections also computes
+the combined byte length for `len(combined)` without materializing a general
+runtime string. The same stdin-backed byte-count projection can feed
+source-level integer print statements and branch conditions before returning a
+native process exit status. Public `std/io.ax` `readline()` now also lowers
+into a bounded native stdin line read for `Option<string>` matches when the
+`Some(line)` payload is used only as a byte-length projection. That path strips
+one trailing line ending before feeding integer stdout writes, branch
+conditions, and native process exit status while preserving EOF as `None` and
+`generated_rust: null`. Materialized stdin strings, broader stdin reads beyond
+bounded length projections, dynamic stdout/stderr text beyond
+boolean, integer, JSON scalar formatting, and finite known-string projection
+selection, dynamic panic messages beyond scalar/string JSON stringify and finite
+known-string projection selection, and broader streaming/runtime buffering
+remain tracked by issue #1001.
 
 The `clock.now_sleep` row now has partial Cranelift evidence for `std/time.ax`
 `now_ms`, `now`, `elapsed_ms`, zero-duration `sleep`, and a bounded positive
