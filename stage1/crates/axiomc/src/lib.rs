@@ -12100,6 +12100,25 @@ print takes_two(three)
     }
 
     #[test]
+    fn check_project_rejects_aggregate_array_call_slice_base() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("aggregate-array-call-slice-base");
+        create_project(&project, Some("aggregate-array-call-slice-base-app"))
+            .expect("create project");
+        fs::write(
+            project.join("src/main.ax"),
+            "struct Step {\ncode: int\n}\nfn values(): [Step; 2] {\nreturn [Step { code: 1 }, Step { code: 2 }]\n}\nlet tail: &[Step] = values()[1:]\nprint len(tail)\n",
+        )
+        .expect("write source");
+        let error =
+            check_project(&project).expect_err("aggregate array call should not be a slice base");
+        assert!(error.message.contains(
+            "borrowed slices currently require a named array, field, tuple field, or slice value"
+        ));
+        assert_eq!(error.kind, "type");
+    }
+
+    #[test]
     fn check_project_rejects_non_copy_slice_index() {
         let dir = tempdir().expect("tempdir");
         let project = dir.path().join("slice-move");

@@ -14640,9 +14640,9 @@ fn is_borrowable_slice_base(expr: &Expr) -> bool {
         Expr::TupleIndex { base, .. } => is_borrowable_slice_base(base),
         Expr::Slice { .. } => true,
         Expr::Call {
-            ty: Type::Array(_, Some(_)),
+            ty: Type::Array(element, Some(_)),
             ..
-        } => true,
+        } => is_scalar_local_assignment_type(element),
         _ => false,
     }
 }
