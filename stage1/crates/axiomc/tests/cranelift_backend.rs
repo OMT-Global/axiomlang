@@ -8277,7 +8277,13 @@ source = "path"
     .expect("write aggregate helper-call return main exit lockfile");
     fs::write(
         project.join("src/main.ax"),
-        r#"fn make_values(): [int; 3] {
+        r#"struct Step {
+value: int
+ready: bool
+small: u8
+}
+
+fn make_values(): [int; 3] {
 return [20, 3, 25]
 }
 
@@ -8309,16 +8315,56 @@ return [false, true]
 }
 }
 
+fn make_pair(): (int, bool) {
+return (48, true)
+}
+
+fn forward_pair(): (int, bool) {
+return make_pair()
+}
+
+fn choose_pair(flag: bool): (int, bool) {
+if flag {
+return make_pair()
+} else {
+return (1, false)
+}
+}
+
+fn make_step(): Step {
+return Step { value: 46, ready: true, small: 2u8 }
+}
+
+fn forward_step(): Step {
+return make_step()
+}
+
+fn choose_step(flag: bool): Step {
+if flag {
+return make_step()
+} else {
+return Step { value: 1, ready: false, small: 0u8 }
+}
+}
+
 fn main(): int {
 let forwarded: [int; 3] = forward_values()
 let chosen: [int; 3] = choose_values(true)
 let forwarded_flags: [bool; 2] = forward_flags()
 let chosen_flags: [bool; 2] = choose_flags(true)
+let forwarded_pair: (int, bool) = forward_pair()
+let chosen_pair: (int, bool) = choose_pair(true)
+let forwarded_step: Step = forward_step()
+let chosen_step: Step = choose_step(true)
 let forwarded_score: int = len(forwarded) + first(forwarded) + last(forwarded)
 let chosen_score: int = len(chosen) + first(chosen) + last(chosen)
 let forwarded_gate: bool = first(forwarded_flags) && last(forwarded_flags) == false
 let chosen_gate: bool = first(chosen_flags) && last(chosen_flags) == false
-if forwarded_gate && chosen_gate && forwarded_score == 48 && chosen_score == 48 {
+let pair_gate: bool = forwarded_pair.1 && chosen_pair.1
+let struct_gate: bool = forwarded_step.ready && chosen_step.ready
+let struct_score: int = forwarded_step.value + (forwarded_step.small as int)
+let chosen_struct_score: int = chosen_step.value + (chosen_step.small as int)
+if forwarded_gate && chosen_gate && pair_gate && struct_gate && forwarded_score == 48 && chosen_score == 48 && forwarded_pair.0 == 48 && chosen_pair.0 == 48 && struct_score == 48 && chosen_struct_score == 48 {
 return 48
 } else {
 return 1

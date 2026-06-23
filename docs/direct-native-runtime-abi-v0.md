@@ -277,9 +277,10 @@ helpers now lower across direct-native function-call boundaries as one return
 slot per tuple element, with caller-side projection locals populated from the
 multi-slot return; this includes helpers whose final return is selected by
 branch blocks with branch-local scalar values, helpers returning local tuple
-bindings, and helpers forwarding tuple parameters. The public tuple-returning
-helper smoke also asserts `generated_rust: null` while printing caller-side
-scalar and boolean projections from literal, local-binding, forwarded, typed,
+bindings, helpers forwarding tuple parameters, and helpers whose final return
+forwards another tuple-returning helper call. The public tuple-returning helper
+smoke also asserts `generated_rust: null` while printing caller-side scalar and
+boolean projections from literal, local-binding, forwarded, typed,
 branch-selected, and fallback tuple returns. Existing tuple locals can now be
 reassigned from tuple helper returns, initialized from another local tuple, or
 moved between existing locals using the same tuple-element ABI, including inside
@@ -287,8 +288,9 @@ runtime loop blocks. Tuple helper returns can also feed nested tuple helper
 arguments by materializing hidden tuple-element locals before the outer call.
 The row remains partial because direct-native
 codegen still does not provide a general tuple ABI, tuple storage for non-scalar
-elements, tuple return expressions beyond the scalar/bool local, literal, and
-parameter slice, or a complete aggregate value passing contract.
+elements, broader tuple return expressions beyond the evidenced scalar/bool
+local, literal, parameter, branch, and helper-call forwarding slices, or a
+complete aggregate value passing contract.
 
 The `struct.field` row now has narrow direct-native runtime evidence for
 immediate struct-literal scalar field access and scalar projection from local
@@ -308,7 +310,8 @@ direct-native function-call boundaries as one return slot per declared field,
 with caller-side projection locals populated from the multi-slot return; this
 includes helpers whose final return is selected by branch blocks with
 branch-local scalar values, helpers returning local struct bindings, and
-helpers forwarding struct parameters. The same declared-field slot
+helpers forwarding struct parameters, and helpers whose final return forwards
+another struct-returning helper call. The same declared-field slot
 representation now backs narrow `Option<Step>` and `Result<Step, Step>` struct
 payload construction, matching, helper parameters, helper returns, forwarded
 helper values, and inline `Some(Step { ... })`/`None` and
@@ -320,8 +323,9 @@ nested struct helper arguments by materializing hidden declared-field locals
 before the outer call. The row remains partial because
 direct-native codegen still does not provide a general struct ABI, struct
 storage for non-scalar fields, owned field projection, field mutation, struct
-return expressions beyond the scalar/bool local, literal, and parameter slice,
-or a complete aggregate value passing contract.
+return expressions beyond the evidenced scalar/bool local, literal, parameter,
+branch, and helper-call forwarding slices, or a complete aggregate value passing
+contract.
 
 The `option` row now has narrow direct-native runtime evidence for local
 `Option<int>` and `Option<bool>` construction represented as tag/payload locals,
