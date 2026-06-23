@@ -349,7 +349,9 @@ slots. Existing narrow `Option<Step>` locals can now be reassigned from option
 helper returns, initialized from another local option, or moved between existing
 locals using the same tag/payload slots, including inside runtime branch blocks.
 Narrow option helper returns can also feed nested option helper arguments by
-materializing hidden tag/payload locals before the outer call.
+materializing hidden tag/payload locals before the outer call, and
+`Option<Step>` helpers can forward a final helper-call return through the same
+tag/payload slot representation.
 The direct-native path also has narrow evidence for nested
 `Option<Option<int>>` construction, matching, helper parameters, helper returns,
 forwarded helper values, and inline `Some(Some(...))`, `Some(None)`, and outer
@@ -859,7 +861,9 @@ be reassigned from result helper returns, initialized from another local result,
 or moved between existing locals using the same tag/payload slots, including
 inside runtime branch blocks. Narrow result helper returns can also feed nested
 result helper arguments by materializing hidden tag/payload locals before the
-outer call. The nested option payload slice now also has
+outer call, and `Result<Step, Step>` helpers can forward a final helper-call
+return through the same tag/payload slot representation. The nested option
+payload slice now also has
 narrow direct-native evidence for
 `Result<Option<int>, int>` construction,
 matching, helper parameters, helper returns, forwarded helper values, and inline

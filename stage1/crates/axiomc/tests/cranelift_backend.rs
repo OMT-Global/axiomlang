@@ -8347,6 +8347,46 @@ return Step { value: 1, ready: false, small: 0u8 }
 }
 }
 
+fn make_optional_step(): Option<Step> {
+return Some(Step { value: 46, ready: true, small: 2u8 })
+}
+
+fn forward_optional_step(): Option<Step> {
+return make_optional_step()
+}
+
+fn choose_optional_step(flag: bool): Option<Step> {
+if flag {
+return make_optional_step()
+} else {
+return None
+}
+}
+
+fn make_step_result(): Result<Step, Step> {
+return Ok(Step { value: 46, ready: true, small: 2u8 })
+}
+
+fn forward_step_result(): Result<Step, Step> {
+return make_step_result()
+}
+
+fn choose_step_result(flag: bool): Result<Step, Step> {
+if flag {
+return make_step_result()
+} else {
+return Err(Step { value: 1, ready: false, small: 0u8 })
+}
+}
+
+fn score_optional_step(value: Option<Step>): int {
+return match value { Some(step) => step.value + (step.small as int), None => 1 }
+}
+
+fn score_step_result(value: Result<Step, Step>): int {
+return match value { Ok(step) => step.value + (step.small as int), Err(error) => error.value }
+}
+
 fn main(): int {
 let forwarded: [int; 3] = forward_values()
 let chosen: [int; 3] = choose_values(true)
@@ -8356,6 +8396,10 @@ let forwarded_pair: (int, bool) = forward_pair()
 let chosen_pair: (int, bool) = choose_pair(true)
 let forwarded_step: Step = forward_step()
 let chosen_step: Step = choose_step(true)
+let forwarded_optional_step: Option<Step> = forward_optional_step()
+let chosen_optional_step: Option<Step> = choose_optional_step(true)
+let forwarded_step_result: Result<Step, Step> = forward_step_result()
+let chosen_step_result: Result<Step, Step> = choose_step_result(true)
 let forwarded_score: int = len(forwarded) + first(forwarded) + last(forwarded)
 let chosen_score: int = len(chosen) + first(chosen) + last(chosen)
 let forwarded_gate: bool = first(forwarded_flags) && last(forwarded_flags) == false
@@ -8364,7 +8408,11 @@ let pair_gate: bool = forwarded_pair.1 && chosen_pair.1
 let struct_gate: bool = forwarded_step.ready && chosen_step.ready
 let struct_score: int = forwarded_step.value + (forwarded_step.small as int)
 let chosen_struct_score: int = chosen_step.value + (chosen_step.small as int)
-if forwarded_gate && chosen_gate && pair_gate && struct_gate && forwarded_score == 48 && chosen_score == 48 && forwarded_pair.0 == 48 && chosen_pair.0 == 48 && struct_score == 48 && chosen_struct_score == 48 {
+let optional_score: int = score_optional_step(forwarded_optional_step)
+let chosen_optional_score: int = score_optional_step(chosen_optional_step)
+let result_score: int = score_step_result(forwarded_step_result)
+let chosen_result_score: int = score_step_result(chosen_step_result)
+if forwarded_gate && chosen_gate && pair_gate && struct_gate && forwarded_score == 48 && chosen_score == 48 && forwarded_pair.0 == 48 && chosen_pair.0 == 48 && struct_score == 48 && chosen_struct_score == 48 && optional_score == 48 && chosen_optional_score == 48 && result_score == 48 && chosen_result_score == 48 {
 return 48
 } else {
 return 1
