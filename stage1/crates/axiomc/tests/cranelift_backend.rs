@@ -1736,6 +1736,46 @@ fn cranelift_backend_lowers_static_slice_bounds_to_runtime_exit_code() {
 
 #[cfg(not(windows))]
 #[test]
+fn cranelift_backend_lowers_helper_call_slice_indexes_to_runtime_exit_code() {
+    if which::which("cc").is_err() {
+        eprintln!("skipping cranelift backend smoke test because cc is unavailable");
+        return;
+    }
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("helper-call-slice-index-main-exit");
+    write_helper_call_slice_index_main_exit_project(&project);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args([
+            "build",
+            project.to_str().expect("project path"),
+            "--backend",
+            "cranelift",
+            "--json",
+        ])
+        .output()
+        .expect("run axiomc build --backend cranelift");
+    assert!(
+        output.status.success(),
+        "cranelift helper-call slice index main build failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+    assert_eq!(payload["backend"], "cranelift");
+    assert_eq!(payload["generated_rust"], Value::Null);
+    let binary = payload["binary"].as_str().expect("binary path");
+    let run = Command::new(binary)
+        .output()
+        .expect("run cranelift helper-call slice index main binary");
+    assert_eq!(run.status.code(), Some(48));
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "");
+}
+
+#[cfg(not(windows))]
+#[test]
 fn cranelift_backend_lowers_string_literal_len_to_runtime_exit_code() {
     if which::which("cc").is_err() {
         eprintln!("skipping cranelift backend smoke test because cc is unavailable");
@@ -8567,6 +8607,82 @@ fn write_static_slice_bounds_main_exit_project(project: &Path) {
         "static TAIL_START: int = 1\nstatic PREFIX_END: int = 2\n\nfn make_tail_values(): [int; 3] {\nreturn [1, 20, 26]\n}\n\nfn make_prefix_values(): [int; 3] {\nreturn [20, 26, 1]\n}\n\nfn tail_score(values: [int; 3]): int {\nreturn len(values[TAIL_START:]) + first(values[TAIL_START:]) + last(values[TAIL_START:])\n}\n\nfn prefix_score(values: [int; 3]): int {\nreturn len(values[:PREFIX_END]) + first(values[:PREFIX_END]) + last(values[:PREFIX_END])\n}\n\nfn main(): int {\nlet tail_values: [int; 3] = [1, 20, 26]\nlet prefix_values: [int; 3] = [20, 26, 1]\nlet helper_tail_values: [int; 3] = [1, 20, 26]\nlet helper_prefix_values: [int; 3] = [20, 26, 1]\nlet returned_tail_values: [int; 3] = make_tail_values()\nlet returned_prefix_values: [int; 3] = make_prefix_values()\nlet tail_window: &[int] = tail_values[TAIL_START:]\nlet prefix_window: &[int] = prefix_values[:PREFIX_END]\nlet returned_tail_window: &[int] = returned_tail_values[TAIL_START:]\nlet returned_prefix_window: &[int] = returned_prefix_values[:PREFIX_END]\nlet direct_tail_window: &[int] = make_tail_values()[TAIL_START:]\nlet direct_prefix_window: &[int] = make_prefix_values()[:PREFIX_END]\nlet tail_code: int = len(tail_window) + first(tail_window) + last(tail_window)\nlet prefix_code: int = len(prefix_window) + first(prefix_window) + last(prefix_window)\nlet returned_tail_code: int = len(returned_tail_window) + first(returned_tail_window) + last(returned_tail_window)\nlet returned_prefix_code: int = len(returned_prefix_window) + first(returned_prefix_window) + last(returned_prefix_window)\nlet direct_tail_code: int = len(direct_tail_window) + first(direct_tail_window) + last(direct_tail_window)\nlet direct_prefix_code: int = len(direct_prefix_window) + first(direct_prefix_window) + last(direct_prefix_window)\nlet direct_tail_len: int = len(make_tail_values()[TAIL_START:])\nlet direct_tail_first: int = first(make_tail_values()[TAIL_START:])\nlet direct_tail_last: int = last(make_tail_values()[TAIL_START:])\nlet direct_prefix_len: int = len(make_prefix_values()[:PREFIX_END])\nlet direct_prefix_first: int = first(make_prefix_values()[:PREFIX_END])\nlet direct_prefix_last: int = last(make_prefix_values()[:PREFIX_END])\nlet direct_tail_intrinsic_code: int = direct_tail_len + direct_tail_first + direct_tail_last\nlet direct_prefix_intrinsic_code: int = direct_prefix_len + direct_prefix_first + direct_prefix_last\nlet helper_tail: int = tail_score(helper_tail_values)\nlet helper_prefix: int = prefix_score(helper_prefix_values)\nif tail_code == 48 && prefix_code == 48 && returned_tail_code == 48 && returned_prefix_code == 48 && direct_tail_code == 48 && direct_prefix_code == 48 && direct_tail_intrinsic_code == 48 && direct_prefix_intrinsic_code == 48 && helper_tail == 48 && helper_prefix == 48 {\nreturn 48\n} else {\nreturn 1\n}\n}\n",
     )
     .expect("write static slice bounds main exit source");
+}
+
+fn write_helper_call_slice_index_main_exit_project(project: &Path) {
+    fs::create_dir_all(project.join("src"))
+        .expect("create helper-call slice index main exit project src");
+    fs::write(
+        project.join("axiom.toml"),
+        r#"[package]
+name = "cranelift-helper-call-slice-index-main-exit"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+fs = false
+net = false
+process = false
+env = false
+clock = false
+crypto = false
+"#,
+    )
+    .expect("write helper-call slice index main exit manifest");
+    fs::write(
+        project.join("axiom.lock"),
+        r#"version = 1
+
+[[package]]
+name = "cranelift-helper-call-slice-index-main-exit"
+version = "0.1.0"
+source = "path"
+"#,
+    )
+    .expect("write helper-call slice index main exit lockfile");
+    fs::write(
+        project.join("src/main.ax"),
+        r#"static TAIL_START: int = 1
+static PREFIX_END: int = 2
+
+fn make_tail_values(): [int; 3] {
+return [1, 20, 26]
+}
+
+fn make_prefix_values(): [int; 3] {
+return [20, 26, 1]
+}
+
+fn tail_pick(index: int): int {
+let value: int = make_tail_values()[TAIL_START:][index]
+return value
+}
+
+fn prefix_pick(index: int): int {
+let value: int = make_prefix_values()[:PREFIX_END][index]
+return value
+}
+
+fn main(): int {
+let runtime_index: int = 1
+let literal_tail: int = make_tail_values()[TAIL_START:][0]
+let runtime_tail: int = make_tail_values()[TAIL_START:][runtime_index]
+let literal_prefix: int = make_prefix_values()[:PREFIX_END][0]
+let runtime_prefix: int = make_prefix_values()[:PREFIX_END][runtime_index]
+let helper_tail: int = tail_pick(runtime_index)
+let helper_prefix: int = prefix_pick(runtime_index)
+if literal_tail == 20 && runtime_tail == 26 && literal_prefix == 20 && runtime_prefix == 26 && helper_tail == 26 && helper_prefix == 26 {
+return 48
+} else {
+return 1
+}
+}
+"#,
+    )
+    .expect("write helper-call slice index main exit source");
 }
 
 fn write_string_literal_len_main_exit_project(project: &Path) {

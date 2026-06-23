@@ -1278,6 +1278,24 @@ fn lower_i64_aggregate_return_body(
         i64_param_local_bindings(params, struct_defs, static_bindings)?;
     for stmt in body_stmts {
         match stmt {
+            Stmt::Let {
+                ty,
+                expr: Expr::Index { base, .. },
+                ..
+            } if !seen_runtime_stmt
+                && (matches!(ty, Type::Bool) || is_i64_compatible_type(ty))
+                && i64_is_helper_call_slice_expr(base.as_ref()) =>
+            {
+                lowered_stmts.extend(lower_i64_helper_call_slice_index_let_stmts(
+                    stmt,
+                    &mut locals,
+                    &mut local_indexes,
+                    &mut local_conditions,
+                    helper_signatures,
+                    static_bindings,
+                )?);
+                seen_runtime_stmt = true;
+            }
             Stmt::Let { name, ty, expr, .. }
                 if is_i64_compatible_type(ty) && !seen_runtime_stmt =>
             {
@@ -2633,6 +2651,24 @@ fn lower_i64_body(
     }
     for stmt in body_stmts {
         match stmt {
+            Stmt::Let {
+                ty,
+                expr: Expr::Index { base, .. },
+                ..
+            } if !seen_runtime_stmt
+                && (matches!(ty, Type::Bool) || is_i64_compatible_type(ty))
+                && i64_is_helper_call_slice_expr(base.as_ref()) =>
+            {
+                lowered_stmts.extend(lower_i64_helper_call_slice_index_let_stmts(
+                    stmt,
+                    &mut locals,
+                    &mut local_indexes,
+                    &mut local_conditions,
+                    helper_signatures,
+                    static_bindings,
+                )?);
+                seen_runtime_stmt = true;
+            }
             Stmt::Let { name, ty, expr, .. }
                 if is_i64_compatible_type(ty) && !seen_runtime_stmt =>
             {
@@ -3847,6 +3883,16 @@ fn lower_i64_runtime_let_stmts(
     ) {
         return Some(assigns);
     }
+    if let Some(assigns) = lower_i64_helper_call_slice_index_let_stmts(
+        stmt,
+        locals,
+        local_indexes,
+        local_conditions,
+        helper_signatures,
+        static_bindings,
+    ) {
+        return Some(assigns);
+    }
     if let Some(assigns) = lower_i64_runtime_projection_let_stmts(
         stmt,
         locals,
@@ -3925,6 +3971,97 @@ fn lower_i64_runtime_let_stmts(
         helper_signatures,
         static_bindings,
     )?])
+}
+
+fn lower_i64_helper_call_slice_index_let_stmts(
+    stmt: &Stmt,
+    locals: &mut Vec<CraneliftI64Expr>,
+    local_indexes: &mut HashMap<String, usize>,
+    local_conditions: &mut HashMap<String, CraneliftI64Condition>,
+    helper_signatures: &HashMap<&str, I64HelperSignature>,
+    static_bindings: &I64StaticBindings,
+) -> Option<Vec<CraneliftI64Stmt>> {
+    let Stmt::Let {
+        name,
+        ty,
+        expr: Expr::Index {
+            base,
+            index,
+            ty: index_ty,
+        },
+        span,
+    } = stmt
+    else {
+        return None;
+    };
+    if !matches!(ty, Type::Bool) && !is_i64_compatible_type(ty) {
+        return None;
+    }
+    let Expr::Slice {
+        base: slice_base,
+        start,
+        end,
+        ty: slice_ty,
+    } = base.as_ref()
+    else {
+        return None;
+    };
+    if !matches!(slice_base.as_ref(), Expr::Call { .. }) {
+        return None;
+    }
+
+    let mut trial_locals = locals.clone();
+    let mut trial_indexes = local_indexes.clone();
+    let mut trial_conditions = local_conditions.clone();
+    let temp_name = format!("__axiom_i64_slice_index_{}", trial_indexes.len());
+    let base_ty = slice_base.ty();
+    let mut lowered = lower_i64_aggregate_call_to_local_stmts(
+        &temp_name,
+        &base_ty,
+        slice_base.as_ref(),
+        &mut trial_locals,
+        &mut trial_indexes,
+        &mut trial_conditions,
+        helper_signatures,
+        static_bindings,
+    )?;
+    let rewritten = Stmt::Let {
+        name: name.clone(),
+        ty: ty.clone(),
+        expr: Expr::Index {
+            base: Box::new(Expr::Slice {
+                base: Box::new(Expr::VarRef {
+                    name: temp_name,
+                    ty: base_ty,
+                }),
+                start: start.clone(),
+                end: end.clone(),
+                ty: slice_ty.clone(),
+            }),
+            index: index.clone(),
+            ty: index_ty.clone(),
+        },
+        span: *span,
+    };
+    lowered.push(lower_i64_runtime_let(
+        &rewritten,
+        &mut trial_locals,
+        &mut trial_indexes,
+        &mut trial_conditions,
+        helper_signatures,
+        static_bindings,
+    )?);
+    *locals = trial_locals;
+    *local_indexes = trial_indexes;
+    *local_conditions = trial_conditions;
+    Some(lowered)
+}
+
+fn i64_is_helper_call_slice_expr(expr: &Expr) -> bool {
+    matches!(
+        expr,
+        Expr::Slice { base, .. } if matches!(base.as_ref(), Expr::Call { .. })
+    )
 }
 
 fn lower_i64_aggregate_local_let_stmts(

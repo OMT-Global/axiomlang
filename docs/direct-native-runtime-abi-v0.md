@@ -704,11 +704,13 @@ process exit status. Helper-returned fixed arrays can also be materialized into
 projected element locals before being sliced through the same static-range
 borrowed-slice path, and fixed-array-returning helper calls can now be used
 directly as static borrowed-slice bases without a source-level temporary,
-including direct `len`, `first`, and `last` calls over those helper-call slice
-bases.
+including direct `len`, `first`, `last`, and indexed projection calls over
+those helper-call slice bases.
 Static-range fixed-array slices also support narrow literal
 and dynamic indexing over the sliced window through the same projection slots,
-including pre-runtime slice locals that alias the projected fixed-array slots.
+including pre-runtime slice locals that alias the projected fixed-array slots
+and direct helper-call slice bases materialized in entrypoint or helper-function
+bodies.
 The public borrowed-slice smoke also prints `len`, `first`, `last`, and indexed
 projection output for both a local slice and a helper-returned slice while
 asserting `generated_rust: null`. Broader borrowed-slice aliasing, dynamic
