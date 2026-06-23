@@ -3238,6 +3238,7 @@ fn lower_i64_body(
     let body = match return_stmt {
         Stmt::Return { expr, .. } => lower_i64_exit_return(
             expr,
+            &mut locals,
             &local_indexes,
             &local_conditions,
             helper_signatures,
@@ -7682,13 +7683,27 @@ fn lower_i64_return_block(
         }
     }
     let result = match terminal_stmt {
-        Stmt::Return { expr, .. } => lower_i64_return_value_expr(
-            expr,
-            &local_indexes,
-            &local_conditions,
-            helper_signatures,
-            static_bindings,
-        )?,
+        Stmt::Return { expr, .. } => {
+            if let Some(block) = lower_i64_helper_call_array_index_return_block(
+                expr,
+                locals,
+                &local_indexes,
+                &local_conditions,
+                helper_signatures,
+                static_bindings,
+            ) {
+                stmts.extend(block.stmts);
+                block.result
+            } else {
+                lower_i64_return_value_expr(
+                    expr,
+                    &local_indexes,
+                    &local_conditions,
+                    helper_signatures,
+                    static_bindings,
+                )?
+            }
+        }
         Stmt::Panic { message, .. } => {
             stmts.extend(lower_i64_panic_report_stmts(
                 message,
@@ -7724,13 +7739,99 @@ fn record_i64_known_string_let(
     Some(true)
 }
 
+fn lower_i64_helper_call_array_index_return_block(
+    expr: &Expr,
+    locals: &mut Vec<CraneliftI64Expr>,
+    local_indexes: &HashMap<String, usize>,
+    local_conditions: &HashMap<String, CraneliftI64Condition>,
+    helper_signatures: &HashMap<&str, I64HelperSignature>,
+    static_bindings: &I64StaticBindings,
+) -> Option<CraneliftI64ReturnBlock> {
+    if !i64_is_helper_call_array_index_expr(expr) {
+        return None;
+    }
+    let (base, index, index_ty, cast_ty) = match expr {
+        Expr::Index {
+            base,
+            index,
+            ty: index_ty,
+        } if matches!(base.as_ref(), Expr::Call { .. }) => (base, index, index_ty, None),
+        Expr::Cast {
+            expr: cast_expr,
+            ty: cast_ty,
+        } if is_i64_compatible_type(cast_ty) => match cast_expr.as_ref() {
+            Expr::Index {
+                base,
+                index,
+                ty: index_ty,
+            } if matches!(base.as_ref(), Expr::Call { .. }) => {
+                (base, index, index_ty, Some(cast_ty.clone()))
+            }
+            _ => return None,
+        },
+        _ => return None,
+    };
+
+    let mut trial_locals = locals.clone();
+    let mut trial_indexes = local_indexes.clone();
+    let mut trial_conditions = local_conditions.clone();
+    let temp_name = format!("__axiom_i64_array_index_return_{}", trial_indexes.len());
+    let base_ty = base.ty();
+    let stmts = lower_i64_aggregate_call_to_local_stmts(
+        &temp_name,
+        &base_ty,
+        base.as_ref(),
+        &mut trial_locals,
+        &mut trial_indexes,
+        &mut trial_conditions,
+        helper_signatures,
+        static_bindings,
+    )?;
+    let rewritten_expr = Expr::Index {
+        base: Box::new(Expr::VarRef {
+            name: temp_name,
+            ty: base_ty,
+        }),
+        index: index.clone(),
+        ty: index_ty.clone(),
+    };
+    let rewritten_expr = if let Some(cast_ty) = cast_ty {
+        Expr::Cast {
+            expr: Box::new(rewritten_expr),
+            ty: cast_ty,
+        }
+    } else {
+        rewritten_expr
+    };
+    let result = lower_i64_return_value_expr(
+        &rewritten_expr,
+        &trial_indexes,
+        &trial_conditions,
+        helper_signatures,
+        static_bindings,
+    )?;
+    *locals = trial_locals;
+    Some(CraneliftI64ReturnBlock { stmts, result })
+}
+
 fn lower_i64_exit_return(
     expr: &Expr,
+    locals: &mut Vec<CraneliftI64Expr>,
     local_indexes: &HashMap<String, usize>,
     local_conditions: &HashMap<String, CraneliftI64Condition>,
     helper_signatures: &HashMap<&str, I64HelperSignature>,
     static_bindings: &I64StaticBindings,
 ) -> Option<I64ExitBody> {
+    if let Some(block) = lower_i64_helper_call_array_index_return_block(
+        expr,
+        locals,
+        local_indexes,
+        local_conditions,
+        helper_signatures,
+        static_bindings,
+    ) {
+        return Some(I64ExitBody::BlockReturn(block));
+    }
     if let Some(body) = lower_i64_option_match_exit_return(
         expr,
         local_indexes,
