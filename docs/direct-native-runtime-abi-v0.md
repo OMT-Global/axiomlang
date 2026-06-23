@@ -872,9 +872,11 @@ matches over scalar/bool positional and named payload variants, represented as a
 tag plus payload slots and returned as process exit status without generated
 Rust. The public enum-match smoke also asserts `generated_rust: null` while
 printing string, scalar, and boolean values derived from positional and named
-custom enum payload matches. The same tag/payload-slot representation now
-covers narrow scalar tuple and scalar struct payload storage, matching, and
-helper parameters for named custom enum payloads such as `(int, bool)` and
+custom enum payload matches, including string, scalar, and boolean projections
+from helper-returned custom enum values before native stdout. The same
+tag/payload-slot representation now covers narrow scalar tuple and scalar
+struct payload storage, matching, and helper parameters for named custom enum
+payloads such as `(int, bool)` and
 `Step { value: int, enabled: bool }`. Scalar/bool custom enum helper parameters
 lower across direct-native function-call boundaries as explicit tag/payload ABI
 slots for local values and inline variant arguments. Narrow custom enum helper
@@ -1036,7 +1038,10 @@ and scalar and aggregate-return helpers without generated Rust. Boolean and
 integer source-level `print` statements also lower to native stdout writes in
 direct-native i64 `main` functions and scalar and aggregate-return helpers
 without generated Rust, including runtime integer values formatted through the
-native object backend. Dynamic scalar `std/json.ax`
+native object backend. The aggregate-return helper stdout smoke now asserts
+`generated_rust` null while printing boolean values, dynamic `std/json.ax`
+`stringify_bool(...)` and `stringify_int(...)` output, and
+`stringify_string(...)` over the supported scalar stringify result. Dynamic scalar `std/json.ax`
 `stringify_int` and
 `stringify_bool` print expressions, including scalar stringify results first
 assigned to string locals, reuse those same native stdout writers in

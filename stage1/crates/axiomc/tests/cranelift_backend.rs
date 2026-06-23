@@ -3204,7 +3204,7 @@ fn cranelift_backend_builds_enum_match_binary() {
     );
     assert_eq!(
         String::from_utf8_lossy(&run.stdout),
-        "multi\nnamed\npayload\n2\n8\n7\n9\ntrue\n"
+        "multi\nnamed\npayload\n2\n8\n7\n9\ntrue\nreturned\n12\nfalse\n"
     );
 }
 
@@ -6140,7 +6140,7 @@ fn cranelift_backend_lowers_aggregate_helper_print_to_native_stdout() {
     assert_eq!(run.status.code(), Some(48));
     assert_eq!(
         String::from_utf8_lossy(&run.stdout),
-        "aggregate stdout\naggregate stdout\naggregate static\naggregate stdout suffix\naggregate helper text\n17\ndeploy\n"
+        "aggregate stdout\naggregate stdout\naggregate static\naggregate stdout suffix\naggregate helper text\n17\ntrue\n19\n\"19\"\ndeploy\n"
     );
     assert_eq!(String::from_utf8_lossy(&run.stderr), "");
 }
@@ -10183,6 +10183,14 @@ return len(text) == 7
 }
 }
 
+fn selected_message(mode: int): Message {
+if mode == 0 {
+return Pair(12, "returned")
+} else {
+return Job { id: 14, label: "forwarded" }
+}
+}
+
 let first: Message = Pair(7, "multi")
 let second: Message = Job { id: 9, label: "named" }
 let score: int = match Some(7) {
@@ -10198,6 +10206,9 @@ print score
 print metric(Pair(7, "multi"))
 print metric(Job { id: 9, label: "named" })
 print active(Pair(7, "ok"))
+print render(selected_message(0))
+print metric(selected_message(0))
+print active(selected_message(0))
 "#,
     )
     .expect("write enum match source");
@@ -12884,7 +12895,9 @@ source = "path"
     .expect("write aggregate helper print lockfile");
     fs::write(
         project.join("src/main.ax"),
-        r#"static STATIC_LINE: string = "aggregate static"
+        r#"import "std/json.ax"
+
+static STATIC_LINE: string = "aggregate static"
 
 fn helper_line(): string {
 return "aggregate helper text"
@@ -12903,6 +12916,10 @@ print line + " suffix"
 print helper_line()
 let value: int = 17
 print value
+print stringify_bool(value == 17)
+let text: string = stringify_int(value + 2)
+print text
+print stringify_string(text)
 print selected_line
 return (value, 31)
 }
