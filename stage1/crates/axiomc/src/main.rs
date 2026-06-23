@@ -29,7 +29,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fs;
 use std::io::{self, BufRead, Write};
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::process::Command as ProcessCommand;
 use std::time::Instant;
 
@@ -6255,6 +6255,15 @@ fn create_dir_without_symlinks(project_root: &Path, out_dir: &Path) -> Result<()
     })?;
     let mut current = project_root.to_path_buf();
     for component in relative.components() {
+        if !matches!(component, Component::Normal(_)) {
+            return Err(Diagnostic::new(
+                "doc",
+                format!(
+                    "documentation output {} must not contain relative components",
+                    out_dir.display()
+                ),
+            ));
+        }
         current.push(component);
         match fs::symlink_metadata(&current) {
             Ok(metadata) if metadata.file_type().is_symlink() => {
@@ -9913,6 +9922,21 @@ print serve("127.0.0.1:0", selected_route, 1)
         let error = generate_docs(&project, &outside, true).expect_err("reject outside output");
 
         assert!(error.message.contains("must be inside project"));
+    }
+
+    #[test]
+    fn doc_generation_rejects_relative_escape_without_creating_output() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let project = dir.path().join("doc-relative-escape");
+        fs::create_dir_all(project.join("src")).expect("mkdir");
+        fs::write(project.join("src/main.ax"), "/// Main.\npub fn main() {}\n")
+            .expect("write source");
+
+        let outside = project.join("../outside-docs");
+        let error = generate_docs(&project, &outside, true).expect_err("reject outside output");
+
+        assert!(error.message.contains("relative components"));
+        assert!(!dir.path().join("outside-docs").exists());
     }
 
     #[cfg(unix)]
