@@ -1988,6 +1988,12 @@ fn axiom_fs_candidate(path: &str, allow_missing_ancestors: bool) -> Option<std::
         if !canonical_parent.starts_with(&canonical_fs_root) {
             return None;
         }
+        if std::fs::symlink_metadata(&candidate)
+            .map(|metadata| metadata.file_type().is_symlink())
+            .unwrap_or(false)
+        {
+            return None;
+        }
         let file_name = candidate.file_name()?;
         return Some(canonical_parent.join(file_name));
     }
