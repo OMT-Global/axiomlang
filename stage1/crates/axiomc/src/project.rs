@@ -18,7 +18,10 @@ use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::env;
 use std::fs;
+use std::fs::OpenOptions;
 use std::io::{self, Read, Write};
+#[cfg(unix)]
+use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Component, Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
@@ -2047,12 +2050,7 @@ fn build_artifacts(
         });
     }
     if let Some(rust_source) = generated_source {
-        fs::write(generated_rust, rust_source).map_err(|err| {
-            Diagnostic::new(
-                "build",
-                format!("failed to write {}: {err}", generated_rust.display()),
-            )
-        })?;
+        write_build_output_file(generated_rust, rust_source)?;
     }
     let started = Instant::now();
     match options.backend {
@@ -2687,12 +2685,7 @@ fn write_debug_source_map(generated_rust: &Path, debug_map: &Path) -> Result<(),
     let content = serde_json::to_string_pretty(&map).map_err(|err| {
         Diagnostic::new("build", format!("failed to render debug source map: {err}"))
     })?;
-    fs::write(debug_map, format!("{content}\n")).map_err(|err| {
-        Diagnostic::new(
-            "build",
-            format!("failed to write {}: {err}", debug_map.display()),
-        )
-    })
+    write_build_output_file(debug_map, format!("{content}\n"))
 }
 
 fn write_debug_manifest(
@@ -2726,12 +2719,7 @@ fn write_debug_manifest(
     let content = serde_json::to_string_pretty(&manifest).map_err(|err| {
         Diagnostic::new("build", format!("failed to render debug manifest: {err}"))
     })?;
-    fs::write(debug_manifest, format!("{content}\n")).map_err(|err| {
-        Diagnostic::new(
-            "build",
-            format!("failed to write {}: {err}", debug_manifest.display()),
-        )
-    })
+    write_build_output_file(debug_manifest, format!("{content}\n"))
 }
 
 fn write_direct_native_debug_source_map(
@@ -2752,12 +2740,7 @@ fn write_direct_native_debug_source_map(
             format!("failed to render direct-native debug source map: {err}"),
         )
     })?;
-    fs::write(debug_map, format!("{content}\n")).map_err(|err| {
-        Diagnostic::new(
-            "build",
-            format!("failed to write {}: {err}", debug_map.display()),
-        )
-    })
+    write_build_output_file(debug_map, format!("{content}\n"))
 }
 
 fn write_direct_native_debug_manifest(
@@ -2785,12 +2768,7 @@ fn write_direct_native_debug_manifest(
             format!("failed to render direct-native debug manifest: {err}"),
         )
     })?;
-    fs::write(debug_manifest, format!("{content}\n")).map_err(|err| {
-        Diagnostic::new(
-            "build",
-            format!("failed to write {}: {err}", debug_manifest.display()),
-        )
-    })
+    write_build_output_file(debug_manifest, format!("{content}\n"))
 }
 
 fn debug_native_info(backend: NativeBackendKind) -> DebugNativeInfo {
@@ -3057,7 +3035,26 @@ fn write_build_cache(path: &Path, cache: &BuildCacheFile) -> Result<(), Diagnost
             format!("failed to render build cache metadata: {err}"),
         )
     })?;
-    fs::write(path, content).map_err(|err| {
+    write_build_output_file(path, content).map_err(|err| {
+        Diagnostic::new(
+            "build",
+            format!("failed to write build cache {}: {err}", path.display()),
+        )
+    })
+}
+
+fn write_build_output_file(path: &Path, content: impl AsRef<[u8]>) -> Result<(), Diagnostic> {
+    let mut options = OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    options.custom_flags(libc::O_NOFOLLOW);
+    let mut file = options.open(path).map_err(|err| {
+        Diagnostic::new(
+            "build",
+            format!("failed to write {}: {err}", path.display()),
+        )
+    })?;
+    file.write_all(content.as_ref()).map_err(|err| {
         Diagnostic::new(
             "build",
             format!("failed to write {}: {err}", path.display()),
@@ -8727,5 +8724,32 @@ mod tests {
             error.message,
             "Cranelift object output must not be a symlink"
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn build_output_write_rejects_replaced_final_symlink() {
+        let dir = tempdir().unwrap_or_else(|err| panic!("tempdir: {err}"));
+        let package_dir = dir.path().join("package");
+        fs::create_dir_all(package_dir.join("dist"))
+            .unwrap_or_else(|err| panic!("create package dist: {err}"));
+        let root =
+            fs::canonicalize(&package_dir).unwrap_or_else(|err| panic!("canonical root: {err}"));
+        let outside = dir.path().join("outside-cache.toml");
+        fs::write(&outside, b"sentinel").unwrap_or_else(|err| panic!("write outside: {err}"));
+        let output = root.join("dist").join("demo.cache.toml");
+
+        ensure_output_path_stays_inside_package(&root, &output, "build cache output")
+            .unwrap_or_else(|err| panic!("preflight should accept absent output: {err:?}"));
+        std::os::unix::fs::symlink(&outside, &output)
+            .unwrap_or_else(|err| panic!("symlink output: {err}"));
+
+        let error = match write_build_output_file(&output, b"rewritten") {
+            Ok(()) => panic!("symlinked output file was written"),
+            Err(error) => error,
+        };
+
+        assert_eq!(error.kind, "build");
+        assert_eq!(fs::read(&outside).expect("read outside"), b"sentinel");
     }
 }
