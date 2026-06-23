@@ -4129,26 +4129,19 @@ fn lower_i64_nested_aggregate_call_let_stmts(
     let mut rewritten_args = Vec::with_capacity(args.len());
     let mut rewrote_any_arg = false;
     for (index, arg) in args.iter().enumerate() {
-        if matches!(arg, Expr::Call { .. }) {
-            let temp_name = format!("__axiom_i64_arg_{}_{}", trial_indexes.len(), index);
-            if let Some(mut assigns) = lower_i64_aggregate_call_to_local_stmts(
-                &temp_name,
-                &arg.ty(),
-                arg,
-                &mut trial_locals,
-                &mut trial_indexes,
-                &mut trial_conditions,
-                helper_signatures,
-                static_bindings,
-            ) {
-                lowered.append(&mut assigns);
-                rewritten_args.push(Expr::VarRef {
-                    name: temp_name,
-                    ty: arg.ty(),
-                });
-                rewrote_any_arg = true;
-                continue;
-            }
+        if let Some((rewritten, mut assigns)) = rewrite_i64_nested_aggregate_call_arg(
+            arg,
+            index,
+            &mut trial_locals,
+            &mut trial_indexes,
+            &mut trial_conditions,
+            helper_signatures,
+            static_bindings,
+        ) {
+            lowered.append(&mut assigns);
+            rewritten_args.push(rewritten);
+            rewrote_any_arg = true;
+            continue;
         }
         rewritten_args.push(arg.clone());
     }
@@ -4178,6 +4171,78 @@ fn lower_i64_nested_aggregate_call_let_stmts(
     *local_indexes = trial_indexes;
     *local_conditions = trial_conditions;
     Some(lowered)
+}
+
+fn rewrite_i64_nested_aggregate_call_arg(
+    arg: &Expr,
+    arg_index: usize,
+    locals: &mut Vec<CraneliftI64Expr>,
+    local_indexes: &mut HashMap<String, usize>,
+    local_conditions: &mut HashMap<String, CraneliftI64Condition>,
+    helper_signatures: &HashMap<&str, I64HelperSignature>,
+    static_bindings: &I64StaticBindings,
+) -> Option<(Expr, Vec<CraneliftI64Stmt>)> {
+    if matches!(arg, Expr::Call { .. }) {
+        let temp_name = format!("__axiom_i64_arg_{}_{}", local_indexes.len(), arg_index);
+        let assigns = lower_i64_aggregate_call_to_local_stmts(
+            &temp_name,
+            &arg.ty(),
+            arg,
+            locals,
+            local_indexes,
+            local_conditions,
+            helper_signatures,
+            static_bindings,
+        )?;
+        return Some((
+            Expr::VarRef {
+                name: temp_name,
+                ty: arg.ty(),
+            },
+            assigns,
+        ));
+    }
+
+    let Expr::Slice {
+        base,
+        start,
+        end,
+        ty,
+    } = arg
+    else {
+        return None;
+    };
+    if !matches!(base.as_ref(), Expr::Call { .. }) {
+        return None;
+    }
+    let temp_name = format!(
+        "__axiom_i64_slice_arg_{}_{}",
+        local_indexes.len(),
+        arg_index
+    );
+    let base_ty = base.ty();
+    let assigns = lower_i64_aggregate_call_to_local_stmts(
+        &temp_name,
+        &base_ty,
+        base.as_ref(),
+        locals,
+        local_indexes,
+        local_conditions,
+        helper_signatures,
+        static_bindings,
+    )?;
+    Some((
+        Expr::Slice {
+            base: Box::new(Expr::VarRef {
+                name: temp_name,
+                ty: base_ty,
+            }),
+            start: start.clone(),
+            end: end.clone(),
+            ty: ty.clone(),
+        },
+        assigns,
+    ))
 }
 
 fn lower_i64_aggregate_call_to_local_stmts(

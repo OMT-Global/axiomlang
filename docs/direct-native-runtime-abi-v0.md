@@ -703,7 +703,9 @@ fixed-array slots, including helper-parameter arrays feeding a direct-native
 process exit status. Helper-returned fixed arrays can also be materialized into
 projected element locals before being sliced through the same static-range
 borrowed-slice path, and fixed-array-returning helper calls can now be used
-directly as static borrowed-slice bases without a source-level temporary.
+directly as static borrowed-slice bases without a source-level temporary,
+including direct `len`, `first`, and `last` calls over those helper-call slice
+bases.
 Static-range fixed-array slices also support narrow literal
 and dynamic indexing over the sliced window through the same projection slots,
 including pre-runtime slice locals that alias the projected fixed-array slots.
