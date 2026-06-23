@@ -3054,6 +3054,11 @@ fn lower_i64_runtime_stmt_stmts(
     static_bindings: &I64StaticBindings,
     allow_stdio_effects: bool,
 ) -> Option<Vec<CraneliftI64Stmt>> {
+    if let Some(assigns) =
+        lower_i64_aggregate_local_assign_stmts(stmt, &local_indexes, static_bindings)
+    {
+        return Some(assigns);
+    }
     if let Some(assigns) = lower_i64_option_assign_stmts(
         stmt,
         &local_indexes,
@@ -3119,6 +3124,135 @@ fn lower_i64_runtime_stmt_stmts(
         static_bindings,
         allow_stdio_effects,
     )?])
+}
+
+fn lower_i64_aggregate_local_assign_stmts(
+    stmt: &Stmt,
+    local_indexes: &HashMap<String, usize>,
+    static_bindings: &I64StaticBindings,
+) -> Option<Vec<CraneliftI64Stmt>> {
+    let Stmt::Assign {
+        target: Expr::VarRef {
+            name: target,
+            ty: target_ty,
+        },
+        expr: Expr::VarRef {
+            name: source,
+            ty: source_ty,
+        },
+        ..
+    } = stmt
+    else {
+        return None;
+    };
+    if target_ty != source_ty {
+        return None;
+    }
+    let slot_pairs = match target_ty {
+        Type::Struct(struct_name) => {
+            let struct_def = i64_scalar_static_struct_def(struct_name, static_bindings)?;
+            struct_def
+                .fields
+                .iter()
+                .map(|field| {
+                    Some((
+                        *local_indexes
+                            .get(i64_struct_projection_key(target, &field.name).as_str())?,
+                        *local_indexes
+                            .get(i64_struct_projection_key(source, &field.name).as_str())?,
+                    ))
+                })
+                .collect::<Option<Vec<_>>>()?
+        }
+        Type::Tuple(elements) if is_i64_tuple_param_type(elements) => (0..elements.len())
+            .map(|index| {
+                Some((
+                    *local_indexes.get(i64_tuple_projection_key(target, index).as_str())?,
+                    *local_indexes.get(i64_tuple_projection_key(source, index).as_str())?,
+                ))
+            })
+            .collect::<Option<Vec<_>>>()?,
+        Type::Array(element, Some(size)) if is_i64_array_param_element_type(element) => (0..*size)
+            .map(|index| {
+                Some((
+                    *local_indexes.get(i64_array_projection_key(target, index).as_str())?,
+                    *local_indexes.get(i64_array_projection_key(source, index).as_str())?,
+                ))
+            })
+            .collect::<Option<Vec<_>>>()?,
+        Type::Option(inner) if is_i64_option_local_payload_type_static(inner, static_bindings) => {
+            let mut slots = vec![(
+                *local_indexes.get(i64_option_tag_key(target).as_str())?,
+                *local_indexes.get(i64_option_tag_key(source).as_str())?,
+            )];
+            slots.extend(
+                i64_option_payload_locals(target, inner.as_ref(), local_indexes, static_bindings)?
+                    .into_iter()
+                    .zip(i64_option_payload_locals(
+                        source,
+                        inner.as_ref(),
+                        local_indexes,
+                        static_bindings,
+                    )?),
+            );
+            slots
+        }
+        Type::Result(ok, err)
+            if is_i64_result_local_payload_type_static(ok, err, static_bindings) =>
+        {
+            let mut slots = vec![(
+                *local_indexes.get(i64_result_tag_key(target).as_str())?,
+                *local_indexes.get(i64_result_tag_key(source).as_str())?,
+            )];
+            slots.extend(
+                i64_result_payload_locals(
+                    target,
+                    ok.as_ref(),
+                    err.as_ref(),
+                    local_indexes,
+                    static_bindings,
+                )?
+                .into_iter()
+                .zip(i64_result_payload_locals(
+                    source,
+                    ok.as_ref(),
+                    err.as_ref(),
+                    local_indexes,
+                    static_bindings,
+                )?),
+            );
+            slots
+        }
+        Type::Enum(enum_name) if is_i64_enum_payload_type(enum_name, static_bindings) => {
+            let mut slots = vec![(
+                *local_indexes.get(i64_enum_tag_key(target).as_str())?,
+                *local_indexes.get(i64_enum_tag_key(source).as_str())?,
+            )];
+            slots.extend(
+                i64_enum_payload_locals(target, enum_name, static_bindings, local_indexes)?
+                    .into_iter()
+                    .zip(i64_enum_payload_locals(
+                        source,
+                        enum_name,
+                        static_bindings,
+                        local_indexes,
+                    )?),
+            );
+            slots
+        }
+        _ => return None,
+    };
+    Some(
+        slot_pairs
+            .into_iter()
+            .map(|(target, source)| {
+                CraneliftI64Stmt::Assign(axiomc_backend_cranelift::I64Assign {
+                    local: target,
+                    value: CraneliftI64Expr::Local(source),
+                })
+            })
+            .collect(),
+    )
 }
 
 fn lower_i64_runtime_stmt(
