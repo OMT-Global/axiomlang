@@ -47,6 +47,11 @@ ci_gate_section="$({
 ci_gate_checkout_line=$(printf '%s\n' "$ci_gate_section" | nl -ba | grep 'actions/checkout@' | head -n1 | awk '{print $1}')
 ci_gate_run_line=$(printf '%s\n' "$ci_gate_section" | nl -ba | grep 'bash scripts/ci/check-pr-fast-ci-gate.sh' | head -n1 | awk '{print $1}')
 benchmark_gate_reference=$(grep -nE 'check-stage1-benchmarks\.py|stage1-comparison-report\.json' "$workflow" || true)
+fast_checks_timeout=$(awk '
+  /^  fast-checks:$/ { in_job=1; next }
+  in_job && /^  [A-Za-z0-9_-]+:$/ { exit }
+  in_job && /timeout-minutes:/ { print $2; exit }
+' "$workflow")
 
 if [[ -z "$checkout_line" ]]; then
   echo "validate-pr-description job must checkout the repo before running validation" >&2
@@ -107,6 +112,11 @@ fi
 if [[ -n "$benchmark_gate_reference" ]]; then
   echo "pr-fast-ci must not run the Stage 1 comparison benchmark gate; keep it in extended, nightly, or manual validation" >&2
   printf '%s\n' "$benchmark_gate_reference" >&2
+  exit 1
+fi
+
+if [[ "$fast_checks_timeout" != "90" ]]; then
+  echo "fast-checks timeout must remain 90 minutes so self-hosted cold builds can finish" >&2
   exit 1
 fi
 
