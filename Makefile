@@ -1,4 +1,4 @@
-.PHONY: test smoke supply-chain docs-python-exit docs-python-exit-test python-exit-readiness python-exit-readiness-github rust-exit-readiness rust-exit-readiness-github rust-exit-readiness-test stage1-direct-native-runtime-abi stage1-direct-native-runtime-abi-evidence stage1-direct-native-runtime-abi-test stage1-direct-native-example-smoke stage1-direct-native-example-smoke-test stage1-axiom-dwarf-readiness-test stage1-package-graph-boundary stage1-package-graph-boundary-test stage1-diagnostics-syntax-boundary stage1-diagnostics-syntax-boundary-test stage1-command-lsp-boundary stage1-command-lsp-boundary-test stage1-hir-boundary stage1-hir-boundary-test stage1-mir-backend-boundary stage1-mir-backend-boundary-test stage1-test stage1-proof-test stage1-stdlib-test stage1-basic-smoke stage1-compiler-property-test stage1-conformance stage1-smoke stage1-bench stage1-bench-update-baseline stage1-bench-gate stage1-crap-proposal stage1-crap-thresholds stage1-crap-thresholds-test mutation-rust-smoke mutation-survivor-report stage1-run
+.PHONY: test smoke supply-chain docs-python-exit docs-python-exit-test python-exit-readiness python-exit-readiness-github rust-exit-readiness rust-exit-readiness-github rust-exit-readiness-test stage1-direct-native-runtime-abi stage1-direct-native-runtime-abi-evidence stage1-direct-native-runtime-abi-test stage1-direct-native-example-smoke stage1-direct-native-example-smoke-test stage1-axiom-dwarf-readiness-test stage1-package-graph-boundary stage1-package-graph-boundary-test stage1-diagnostics-syntax-boundary stage1-diagnostics-syntax-boundary-test stage1-command-lsp-boundary stage1-command-lsp-boundary-test stage1-hir-boundary stage1-hir-boundary-test stage1-mir-backend-boundary stage1-mir-backend-boundary-test stage1-test stage1-proof-test stage1-stdlib-test stage1-basic-smoke stage1-stdlib-smoke stage1-compiler-property-test stage1-conformance stage1-smoke stage1-bench stage1-bench-update-baseline stage1-bench-gate stage1-crap-proposal stage1-crap-thresholds stage1-crap-thresholds-test mutation-rust-smoke mutation-survivor-report stage1-run
 
 test: docs-python-exit python-exit-readiness stage1-test
 
@@ -129,66 +129,13 @@ stage1-crap-thresholds-test:
 stage1-basic-smoke:
 	bash scripts/ci/run-stage1-basic-smoke.sh
 
+stage1-stdlib-smoke:
+	bash scripts/ci/run-stage1-stdlib-smoke.sh
+
 stage1-smoke:
 	$(MAKE) stage1-basic-smoke
 	cargo run --manifest-path stage1/Cargo.toml -p axiomc -- test stage1/examples/capabilities --json
-	cargo run --manifest-path stage1/Cargo.toml -p axiomc -- check stage1/examples/stdlib_time --json
-	cargo run --manifest-path stage1/Cargo.toml -p axiomc -- build stage1/examples/stdlib_time --json
-	cargo run --manifest-path stage1/Cargo.toml -p axiomc -- run stage1/examples/stdlib_time
-	cargo run --manifest-path stage1/Cargo.toml -p axiomc -- check stage1/examples/stdlib_env --json
-	cargo run --manifest-path stage1/Cargo.toml -p axiomc -- build stage1/examples/stdlib_env --json
-	cargo run --manifest-path stage1/Cargo.toml -p axiomc -- run stage1/examples/stdlib_env
-	cargo run --manifest-path stage1/Cargo.toml -p axiomc -- check stage1/examples/stdlib_fs --json
-	cargo run --manifest-path stage1/Cargo.toml -p axiomc -- build stage1/examples/stdlib_fs --json
-	cargo run --manifest-path stage1/Cargo.toml -p axiomc -- run stage1/examples/stdlib_fs
-	cargo run --manifest-path stage1/Cargo.toml -p axiomc -- check stage1/examples/stdlib_net --json
-	cargo run --manifest-path stage1/Cargo.toml -p axiomc -- build stage1/examples/stdlib_net --json
-	cargo run --manifest-path stage1/Cargo.toml -p axiomc -- run stage1/examples/stdlib_net
-	cargo run --manifest-path stage1/Cargo.toml -p axiomc -- check stage1/examples/stdlib_process --json
-	cargo run --manifest-path stage1/Cargo.toml -p axiomc -- build stage1/examples/stdlib_process --json
-	cargo run --manifest-path stage1/Cargo.toml -p axiomc -- run stage1/examples/stdlib_process
-	cargo run --manifest-path stage1/Cargo.toml -p axiomc -- check stage1/examples/stdlib_crypto_hash --json
-	cargo run --manifest-path stage1/Cargo.toml -p axiomc -- build stage1/examples/stdlib_crypto_hash --json
-	cargo run --manifest-path stage1/Cargo.toml -p axiomc -- run stage1/examples/stdlib_crypto_hash
-	cargo run --manifest-path stage1/Cargo.toml -p axiomc -- check stage1/examples/stdlib_io --json
-	cargo run --manifest-path stage1/Cargo.toml -p axiomc -- build stage1/examples/stdlib_io --json
-	cargo run --manifest-path stage1/Cargo.toml -p axiomc -- run stage1/examples/stdlib_io
-	cargo run --manifest-path stage1/Cargo.toml -p axiomc -- check stage1/examples/stdlib_json --json
-	cargo run --manifest-path stage1/Cargo.toml -p axiomc -- build stage1/examples/stdlib_json --json
-	cargo run --manifest-path stage1/Cargo.toml -p axiomc -- run stage1/examples/stdlib_json
-
-	cargo run --manifest-path stage1/Cargo.toml -p axiomc -- check stage1/examples/stdlib_regex --json
-	cargo run --manifest-path stage1/Cargo.toml -p axiomc -- build stage1/examples/stdlib_regex --json
-	cargo run --manifest-path stage1/Cargo.toml -p axiomc -- run stage1/examples/stdlib_regex
-	cargo run --manifest-path stage1/Cargo.toml -p axiomc -- test stage1/examples/stdlib_regex --json
-
-	cargo run --manifest-path stage1/Cargo.toml -p axiomc -- check stage1/examples/stdlib_testing --json
-	cargo run --manifest-path stage1/Cargo.toml -p axiomc -- build stage1/examples/stdlib_testing --json
-	cargo run --manifest-path stage1/Cargo.toml -p axiomc -- run stage1/examples/stdlib_testing
-	cargo run --manifest-path stage1/Cargo.toml -p axiomc -- test stage1/examples/stdlib_testing --include-benchmarks --json
-	cargo run --manifest-path stage1/Cargo.toml -p axiomc -- check stage1/examples/stdlib_collections --json
-	cargo run --manifest-path stage1/Cargo.toml -p axiomc -- build stage1/examples/stdlib_collections --json
-	cargo run --manifest-path stage1/Cargo.toml -p axiomc -- run stage1/examples/stdlib_collections
-	cargo run --manifest-path stage1/Cargo.toml -p axiomc -- test stage1/examples/stdlib_collections --json
-	cargo run --manifest-path stage1/Cargo.toml -p axiomc -- check stage1/examples/stdlib_string_builder --json
-	cargo run --manifest-path stage1/Cargo.toml -p axiomc -- build stage1/examples/stdlib_string_builder --json
-	cargo run --manifest-path stage1/Cargo.toml -p axiomc -- run stage1/examples/stdlib_string_builder
-	cargo run --manifest-path stage1/Cargo.toml -p axiomc -- test stage1/examples/stdlib_string_builder --json
-	cargo run --manifest-path stage1/Cargo.toml -p axiomc -- check stage1/examples/stdlib_log --json
-	cargo run --manifest-path stage1/Cargo.toml -p axiomc -- build stage1/examples/stdlib_log --json
-	cargo run --manifest-path stage1/Cargo.toml -p axiomc -- run stage1/examples/stdlib_log
-	cargo run --manifest-path stage1/Cargo.toml -p axiomc -- test stage1/examples/stdlib_log --json
-	cargo run --manifest-path stage1/Cargo.toml -p axiomc -- check stage1/examples/stdlib_sync --json
-	cargo run --manifest-path stage1/Cargo.toml -p axiomc -- build stage1/examples/stdlib_sync --json
-	cargo run --manifest-path stage1/Cargo.toml -p axiomc -- run stage1/examples/stdlib_sync
-	cargo run --manifest-path stage1/Cargo.toml -p axiomc -- test stage1/examples/stdlib_sync --json
-	cargo run --manifest-path stage1/Cargo.toml -p axiomc -- check stage1/examples/stdlib_async --json
-	cargo run --manifest-path stage1/Cargo.toml -p axiomc -- build stage1/examples/stdlib_async --json
-	cargo run --manifest-path stage1/Cargo.toml -p axiomc -- run stage1/examples/stdlib_async
-	cargo run --manifest-path stage1/Cargo.toml -p axiomc -- test stage1/examples/stdlib_async --json
-	cargo run --manifest-path stage1/Cargo.toml -p axiomc -- check stage1/examples/stdlib_http --json
-	cargo run --manifest-path stage1/Cargo.toml -p axiomc -- build stage1/examples/stdlib_http --json
-	cargo run --manifest-path stage1/Cargo.toml -p axiomc -- run stage1/examples/stdlib_http
+	$(MAKE) stage1-stdlib-smoke
 	$(MAKE) stage1-proof-test
 	cargo run --manifest-path stage1/Cargo.toml -p axiomc -- caps stage1/examples/hello --json
 	cargo run --manifest-path stage1/Cargo.toml -p axiomc -- fmt stage1/examples/hello --check
