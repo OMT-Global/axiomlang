@@ -19111,11 +19111,7 @@ fn eval_net_call(
                 return Err(unsupported("net_resolve expects exactly one argument"));
             };
             let host = expect_text(eval_expr(host, functions, env, lines)?, name)?;
-            let resolved = (host.as_str(), 0)
-                .to_socket_addrs()
-                .ok()
-                .and_then(|mut addrs| addrs.next())
-                .map(|addr| SpikeValue::Text(addr.ip().to_string()));
+            let resolved = i64_net_resolve_text(host.as_str()).map(SpikeValue::Text);
             Ok(spike_option(resolved))
         }
         "net_tcp_listen_loopback_once" => {
@@ -20395,11 +20391,48 @@ fn i64_fs_path_content(
 }
 
 fn i64_net_resolve_text(host: &str) -> Option<String> {
-    (host, 0)
-        .to_socket_addrs()
-        .ok()
-        .and_then(|mut addrs| addrs.next())
-        .map(|addr| addr.ip().to_string())
+    let addrs: Vec<std::net::SocketAddr> = (host, 0).to_socket_addrs().ok()?.collect();
+    if addrs.is_empty()
+        || addrs
+            .iter()
+            .any(|addr| i64_is_blocked_network_ip(addr.ip()))
+    {
+        return None;
+    }
+    addrs.into_iter().next().map(|addr| addr.ip().to_string())
+}
+
+fn i64_is_blocked_network_ip(ip: std::net::IpAddr) -> bool {
+    match ip {
+        std::net::IpAddr::V4(addr) => {
+            let octets = addr.octets();
+            addr.is_private()
+                || addr.is_loopback()
+                || addr.is_link_local()
+                || addr.is_unspecified()
+                || addr.is_broadcast()
+                || addr.is_multicast()
+                || octets[0] == 0
+                || (octets[0] == 100 && (64..=127).contains(&octets[1]))
+                || (octets[0] == 192 && octets[1] == 0 && octets[2] == 0)
+                || (octets[0] == 192 && octets[1] == 0 && octets[2] == 2)
+                || (octets[0] == 198 && (18..=19).contains(&octets[1]))
+                || (octets[0] == 198 && octets[1] == 51 && octets[2] == 100)
+                || (octets[0] == 203 && octets[1] == 0 && octets[2] == 113)
+        }
+        std::net::IpAddr::V6(addr) => {
+            if let Some(mapped) = addr.to_ipv4_mapped() {
+                return i64_is_blocked_network_ip(std::net::IpAddr::V4(mapped));
+            }
+            let segments = addr.segments();
+            addr.is_loopback()
+                || addr.is_unspecified()
+                || addr.is_multicast()
+                || (segments[0] & 0xfe00) == 0xfc00
+                || (segments[0] & 0xffc0) == 0xfe80
+                || (segments[0] == 0x2001 && segments[1] == 0x0db8)
+        }
+    }
 }
 
 fn eval_fs_write_call(
@@ -22871,10 +22904,19 @@ mod tests {
     }
 
     #[test]
-    fn i64_net_resolve_text_normalizes_ipv6_literals() {
+    fn i64_net_resolve_text_rejects_blocked_loopback_literals() {
         assert_eq!(
             super::i64_net_resolve_text("0:0:0:0:0:0:0:1").as_deref(),
-            Some("::1")
+            None
+        );
+        assert_eq!(super::i64_net_resolve_text("127.0.0.1").as_deref(), None);
+    }
+
+    #[test]
+    fn i64_net_resolve_text_allows_public_numeric_literals() {
+        assert_eq!(
+            super::i64_net_resolve_text("8.8.8.8").as_deref(),
+            Some("8.8.8.8")
         );
     }
 
@@ -22883,7 +22925,7 @@ mod tests {
         let expr = Expr::Call {
             name: String::from("net_resolve"),
             args: vec![Expr::Literal(LiteralValue::String(String::from(
-                "0:0:0:0:0:0:0:1",
+                "2001:4860:4860:0:0:0:0:8888",
             )))],
             ty: Type::Option(Box::new(Type::String)),
         };
@@ -22891,8 +22933,8 @@ mod tests {
         let host = super::i64_net_resolve_host(&expr, &I64StaticBindings::default())
             .expect("numeric IPv6 host should lower");
 
-        assert_eq!(host.host, "0:0:0:0:0:0:0:1");
-        assert_eq!(host.resolved_len, 3);
+        assert_eq!(host.host, "2001:4860:4860:0:0:0:0:8888");
+        assert_eq!(host.resolved_len, 20);
         assert_ne!(host.resolved_len, host.host.len() as i64);
     }
 }

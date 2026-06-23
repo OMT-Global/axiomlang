@@ -134,7 +134,7 @@ stage1-stdlib-smoke:
 
 stage1-smoke:
 	$(MAKE) stage1-basic-smoke
-	cargo run --manifest-path stage1/Cargo.toml -p axiomc -- test stage1/examples/capabilities --backend generated-rust --json
+	cargo run --manifest-path stage1/Cargo.toml -p axiomc -- test stage1/examples/capabilities --json
 	$(MAKE) stage1-stdlib-smoke
 	$(MAKE) stage1-proof-test
 	cargo run --manifest-path stage1/Cargo.toml -p axiomc -- caps stage1/examples/hello --json
