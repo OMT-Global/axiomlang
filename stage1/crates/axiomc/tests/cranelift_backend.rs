@@ -8413,6 +8413,46 @@ fn score_choice(value: Choice): int {
 return match value { Ready { step } => step.value + (step.small as int), Fallback { step } => step.value, Off => 1 }
 }
 
+fn make_nested_option_result(): Option<Result<int, int>> {
+return Some(Ok(48))
+}
+
+fn forward_nested_option_result(): Option<Result<int, int>> {
+return make_nested_option_result()
+}
+
+fn choose_nested_option_result(flag: bool): Option<Result<int, int>> {
+if flag {
+return make_nested_option_result()
+} else {
+return None
+}
+}
+
+fn make_result_option(): Result<Option<int>, int> {
+return Ok(Some(48))
+}
+
+fn forward_result_option(): Result<Option<int>, int> {
+return make_result_option()
+}
+
+fn choose_result_option(flag: bool): Result<Option<int>, int> {
+if flag {
+return make_result_option()
+} else {
+return Err(1)
+}
+}
+
+fn score_nested_option_result(value: Option<Result<int, int>>): int {
+return match value { Some(outcome) => match outcome { Ok(payload) => payload, Err(error) => error }, None => 1 }
+}
+
+fn score_result_option(value: Result<Option<int>, int>): int {
+return match value { Ok(maybe) => match maybe { Some(payload) => payload, None => 1 }, Err(error) => error }
+}
+
 fn main(): int {
 let forwarded: [int; 3] = forward_values()
 let chosen: [int; 3] = choose_values(true)
@@ -8428,6 +8468,10 @@ let forwarded_step_result: Result<Step, Step> = forward_step_result()
 let chosen_step_result: Result<Step, Step> = choose_step_result(true)
 let forwarded_choice: Choice = forward_choice()
 let chosen_choice: Choice = choose_choice(true)
+let forwarded_nested_option_result: Option<Result<int, int>> = forward_nested_option_result()
+let chosen_nested_option_result: Option<Result<int, int>> = choose_nested_option_result(true)
+let forwarded_result_option: Result<Option<int>, int> = forward_result_option()
+let chosen_result_option: Result<Option<int>, int> = choose_result_option(true)
 let forwarded_score: int = len(forwarded) + first(forwarded) + last(forwarded)
 let chosen_score: int = len(chosen) + first(chosen) + last(chosen)
 let forwarded_gate: bool = first(forwarded_flags) && last(forwarded_flags) == false
@@ -8442,7 +8486,11 @@ let result_score: int = score_step_result(forwarded_step_result)
 let chosen_result_score: int = score_step_result(chosen_step_result)
 let choice_score: int = score_choice(forwarded_choice)
 let chosen_choice_score: int = score_choice(chosen_choice)
-if forwarded_gate && chosen_gate && pair_gate && struct_gate && forwarded_score == 48 && chosen_score == 48 && forwarded_pair.0 == 48 && chosen_pair.0 == 48 && struct_score == 48 && chosen_struct_score == 48 && optional_score == 48 && chosen_optional_score == 48 && result_score == 48 && chosen_result_score == 48 && choice_score == 48 && chosen_choice_score == 48 {
+let nested_option_result_score: int = score_nested_option_result(forwarded_nested_option_result)
+let chosen_nested_option_result_score: int = score_nested_option_result(chosen_nested_option_result)
+let result_option_score: int = score_result_option(forwarded_result_option)
+let chosen_result_option_score: int = score_result_option(chosen_result_option)
+if forwarded_gate && chosen_gate && pair_gate && struct_gate && forwarded_score == 48 && chosen_score == 48 && forwarded_pair.0 == 48 && chosen_pair.0 == 48 && struct_score == 48 && chosen_struct_score == 48 && optional_score == 48 && chosen_optional_score == 48 && result_score == 48 && chosen_result_score == 48 && choice_score == 48 && chosen_choice_score == 48 && nested_option_result_score == 48 && chosen_nested_option_result_score == 48 && result_option_score == 48 && chosen_result_option_score == 48 {
 return 48
 } else {
 return 1

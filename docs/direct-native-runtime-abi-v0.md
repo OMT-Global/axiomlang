@@ -359,7 +359,9 @@ forwarded helper values, and inline `Some(Some(...))`, `Some(None)`, and outer
 representation now has narrow evidence for `Option<Result<int, int>>`
 construction, matching, helper parameters, helper returns, forwarded helper
 values, and inline
-`Some(Ok(...))`, `Some(Err(...))`, and outer `None` helper arguments.
+`Some(Ok(...))`, `Some(Err(...))`, and outer `None` helper arguments. The
+`Option<Result<int, int>>` slice also supports final helper-call forwarding
+through the same nested tag/payload slot representation.
 The row remains partial because direct-native codegen still does not provide a
 general `Option<T>` ABI across broader payload shapes, deeper nested option or
 result values, or broad aggregate storage.
@@ -872,6 +874,8 @@ result payload slice now also has narrow evidence for `Result<Result<int, int>,
 int>` construction, matching, helper parameters, helper returns, forwarded
 helper values, and inline `Ok(Ok(...))`,
 `Ok(Err(...))`, and outer `Err(...)` helper arguments.
+The `Result<Option<int>, int>` slice also supports final helper-call forwarding
+through the same nested tag/payload slot representation.
 Broader Result ABI support, the full numeric-width matrix, additional aggregate
 payload shapes, and capability-shim coverage remain tracked by issue #1001.
 
