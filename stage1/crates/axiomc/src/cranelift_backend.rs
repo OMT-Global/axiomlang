@@ -6,10 +6,11 @@ use crate::mir::{
 };
 use crate::syntax::NumericType;
 use axiomc_backend_cranelift::{
-    I64AuditSuccess as CraneliftI64AuditSuccess, I64BinaryOp as CraneliftI64BinaryOp,
-    I64Cast as CraneliftI64Cast, I64Compare as CraneliftI64Compare,
-    I64CompareOp as CraneliftI64CompareOp, I64Condition as CraneliftI64Condition, I64ExitBody,
-    I64ExitProgram, I64Expr as CraneliftI64Expr, I64Function as CraneliftI64Function,
+    I64_STDIN_BUFFER_BYTES, I64AuditSuccess as CraneliftI64AuditSuccess,
+    I64BinaryOp as CraneliftI64BinaryOp, I64Cast as CraneliftI64Cast,
+    I64Compare as CraneliftI64Compare, I64CompareOp as CraneliftI64CompareOp,
+    I64Condition as CraneliftI64Condition, I64ExitBody, I64ExitProgram,
+    I64Expr as CraneliftI64Expr, I64Function as CraneliftI64Function,
     I64ReturnBlock as CraneliftI64ReturnBlock, I64Stmt as CraneliftI64Stmt,
     I64ValueBody as CraneliftI64ValueBody, I64ValueReturnBlock as CraneliftI64ValueReturnBlock,
     OutputLine, OutputStream,
@@ -87,6 +88,8 @@ struct I64StaticBindings {
     json_stringify_bool_wrappers: HashSet<String>,
     json_stringify_string_wrappers: HashSet<String>,
     io_eprintln_wrappers: HashSet<String>,
+    io_readline_wrappers: HashSet<String>,
+    io_read_to_string_wrappers: HashSet<String>,
     log_wrappers: HashSet<String>,
     log_field_string_wrappers: HashSet<String>,
     log_field_int_wrappers: HashSet<String>,
@@ -660,6 +663,18 @@ fn lower_i64_exit_program(
         .functions
         .iter()
         .filter(|function| is_i64_std_io_wrapper(function, "eprintln"))
+        .flat_map(|function| [function.name.clone(), function.source_name.clone()])
+        .collect();
+    static_bindings.io_readline_wrappers = program
+        .functions
+        .iter()
+        .filter(|function| is_i64_std_io_wrapper(function, "readline"))
+        .flat_map(|function| [function.name.clone(), function.source_name.clone()])
+        .collect();
+    static_bindings.io_read_to_string_wrappers = program
+        .functions
+        .iter()
+        .filter(|function| is_i64_std_io_wrapper(function, "read_to_string"))
         .flat_map(|function| [function.name.clone(), function.source_name.clone()])
         .collect();
     static_bindings.log_wrappers = program
@@ -1565,6 +1580,16 @@ fn lower_i64_aggregate_return_body(
                 && !seen_runtime_stmt =>
             {
                 if let Some(assigns) = lower_i64_env_option_call_let_stmts(
+                    name,
+                    inner.as_ref(),
+                    expr,
+                    &mut locals,
+                    &mut local_indexes,
+                    static_bindings,
+                ) {
+                    lowered_stmts.extend(assigns);
+                    seen_runtime_stmt = true;
+                } else if let Some(assigns) = lower_i64_readline_option_call_let_stmts(
                     name,
                     inner.as_ref(),
                     expr,
@@ -2823,6 +2848,16 @@ fn lower_i64_body(
                 ) {
                     lowered_stmts.extend(assigns);
                     seen_runtime_stmt = true;
+                } else if let Some(assigns) = lower_i64_readline_option_call_let_stmts(
+                    name,
+                    inner.as_ref(),
+                    expr,
+                    &mut locals,
+                    &mut local_indexes,
+                    static_bindings,
+                ) {
+                    lowered_stmts.extend(assigns);
+                    seen_runtime_stmt = true;
                 } else if let Some(assigns) = lower_i64_fs_read_option_call_let_stmts(
                     name,
                     inner.as_ref(),
@@ -3655,6 +3690,23 @@ fn lower_i64_runtime_let_stmts(
         ..
     } = stmt
         && let Some(assigns) = lower_i64_env_option_call_let_stmts(
+            name,
+            inner.as_ref(),
+            expr,
+            locals,
+            local_indexes,
+            static_bindings,
+        )
+    {
+        return Some(assigns);
+    }
+    if let Stmt::Let {
+        name,
+        ty: Type::Option(inner),
+        expr,
+        ..
+    } = stmt
+        && let Some(assigns) = lower_i64_readline_option_call_let_stmts(
             name,
             inner.as_ref(),
             expr,
@@ -5224,6 +5276,61 @@ fn lower_i64_env_option_call_let_stmts(
         CraneliftI64Stmt::Assign(axiomc_backend_cranelift::I64Assign {
             local: payload_local,
             value: env_len,
+        }),
+        CraneliftI64Stmt::Assign(axiomc_backend_cranelift::I64Assign {
+            local: tag_local,
+            value: tag,
+        }),
+    ])
+}
+
+fn lower_i64_readline_option_call_let_stmts(
+    name: &str,
+    inner: &Type,
+    expr: &Expr,
+    locals: &mut Vec<CraneliftI64Expr>,
+    local_indexes: &mut HashMap<String, usize>,
+    static_bindings: &I64StaticBindings,
+) -> Option<Vec<CraneliftI64Stmt>> {
+    if !matches!(inner, Type::String | Type::Str) {
+        return None;
+    }
+    let Expr::Call {
+        name: call_name,
+        args,
+        ..
+    } = expr
+    else {
+        return None;
+    };
+    if !is_i64_io_readline_name(call_name, static_bindings) || !args.is_empty() {
+        return None;
+    }
+    let payload_local = local_indexes.len();
+    local_indexes.insert(i64_option_payload_slot_key(name, 0), payload_local);
+    local_indexes.insert(i64_option_payload_key(name), payload_local);
+    locals.push(CraneliftI64Expr::Literal(0));
+
+    let tag_local = local_indexes.len();
+    local_indexes.insert(i64_option_tag_key(name), tag_local);
+    locals.push(CraneliftI64Expr::Literal(0));
+
+    let line_len = CraneliftI64Expr::StdinLineLen {
+        max_bytes: I64_STDIN_BUFFER_BYTES,
+    };
+    let tag = CraneliftI64Expr::Select {
+        cond: Box::new(CraneliftI64Condition::Compare(CraneliftI64Compare {
+            op: CraneliftI64CompareOp::Ge,
+            lhs: CraneliftI64Expr::Local(payload_local),
+            rhs: CraneliftI64Expr::Literal(0),
+        })),
+        then_result: Box::new(CraneliftI64Expr::Literal(1)),
+        else_result: Box::new(CraneliftI64Expr::Literal(0)),
+    };
+    Some(vec![
+        CraneliftI64Stmt::Assign(axiomc_backend_cranelift::I64Assign {
+            local: payload_local,
+            value: line_len,
         }),
         CraneliftI64Stmt::Assign(axiomc_backend_cranelift::I64Assign {
             local: tag_local,
@@ -9993,6 +10100,8 @@ fn i64_known_pure_intrinsic_call(name: &str, static_bindings: &I64StaticBindings
         "len"
             | "first"
             | "last"
+            | "get"
+            | "map_get"
             | "string_clone"
             | "string_starts_with"
             | "string_strip_prefix"
@@ -10015,6 +10124,19 @@ fn i64_known_pure_intrinsic_call(name: &str, static_bindings: &I64StaticBindings
             | "json_serdes_parse_str"
             | "json_serdes_value_to_json"
             | "json_serdes_to_json"
+            | "std_serdes_is_null"
+            | "std_serdes_as_bool"
+            | "std_serdes_as_int"
+            | "std_serdes_as_text"
+            | "std_serdes_as_array"
+            | "std_serdes_as_object"
+            | "std_serdes_field"
+            | "std_serdes_bool_field"
+            | "std_serdes_text_field"
+            | "std_serdes_int_field"
+            | "std_serdes_array_field"
+            | "std_serdes_object_field"
+            | "std_serdes_value_item"
     ) || is_i64_encoding_percent_encode_name(name, static_bindings)
         || is_i64_encoding_url_query_pair_encode_name(name, static_bindings)
         || is_i64_encoding_path_join_segment_name(name, static_bindings)
@@ -13359,6 +13481,14 @@ fn is_i64_io_eprintln_name(name: &str, static_bindings: &I64StaticBindings) -> b
     name == "io_eprintln" || static_bindings.io_eprintln_wrappers.contains(name)
 }
 
+fn is_i64_io_readline_name(name: &str, static_bindings: &I64StaticBindings) -> bool {
+    name == "io_readline" || static_bindings.io_readline_wrappers.contains(name)
+}
+
+fn is_i64_io_read_to_string_name(name: &str, static_bindings: &I64StaticBindings) -> bool {
+    name == "io_read_to_string" || static_bindings.io_read_to_string_wrappers.contains(name)
+}
+
 fn is_i64_log_field_string_name(name: &str, static_bindings: &I64StaticBindings) -> bool {
     static_bindings.log_field_string_wrappers.contains(name)
 }
@@ -13828,6 +13958,14 @@ fn lower_i64_string_len_expr(
                 static_bindings,
                 CraneliftI64AuditSuccess::NonNegative,
             )
+        }
+        Expr::Call { name, args, .. } if is_i64_io_read_to_string_name(name, static_bindings) => {
+            if !args.is_empty() {
+                return None;
+            }
+            Some(CraneliftI64Expr::StdinLen {
+                max_bytes: I64_STDIN_BUFFER_BYTES,
+            })
         }
         Expr::BinaryAdd {
             op: ArithmeticOp::Add,
@@ -16111,6 +16249,9 @@ fn eval_call(
     if is_json_serdes_call(name) {
         return eval_json_serdes_call(name, args, functions, env, lines);
     }
+    if is_std_serdes_call(name) {
+        return eval_std_serdes_call(name, args, functions, env, lines);
+    }
     if is_crypto_call(name) {
         return eval_crypto_call(name, args, functions, env, lines);
     }
@@ -17069,6 +17210,204 @@ fn eval_json_serdes_call(
             "unsupported cranelift spike JSON serdes call {name:?}"
         ))),
     }
+}
+
+fn is_std_serdes_call(name: &str) -> bool {
+    matches!(
+        name,
+        "std_serdes_is_null"
+            | "std_serdes_as_bool"
+            | "std_serdes_as_int"
+            | "std_serdes_as_text"
+            | "std_serdes_as_array"
+            | "std_serdes_as_object"
+            | "std_serdes_field"
+            | "std_serdes_bool_field"
+            | "std_serdes_text_field"
+            | "std_serdes_int_field"
+            | "std_serdes_array_field"
+            | "std_serdes_object_field"
+            | "std_serdes_value_item"
+    )
+}
+
+fn eval_std_serdes_call(
+    name: &str,
+    args: &[Expr],
+    functions: &HashMap<&str, &Function>,
+    env: &SpikeEnv,
+    lines: &mut Vec<OutputLine>,
+) -> Result<SpikeValue, Diagnostic> {
+    match name {
+        "std_serdes_is_null" => {
+            let value = eval_json_unary(name, args, functions, env, lines)?;
+            let (variant, payloads) = expect_std_serdes_value(&value, name)?;
+            Ok(SpikeValue::Bool(variant == "Null" && payloads.is_empty()))
+        }
+        "std_serdes_as_bool" => {
+            let value = eval_json_unary(name, args, functions, env, lines)?;
+            Ok(spike_option(std_serdes_as_bool_value(&value)?))
+        }
+        "std_serdes_as_int" => {
+            let value = eval_json_unary(name, args, functions, env, lines)?;
+            Ok(spike_option(std_serdes_as_int_value(&value)?))
+        }
+        "std_serdes_as_text" => {
+            let value = eval_json_unary(name, args, functions, env, lines)?;
+            Ok(spike_option(std_serdes_as_text_value(&value)?))
+        }
+        "std_serdes_as_array" => {
+            let value = eval_json_unary(name, args, functions, env, lines)?;
+            Ok(spike_option(std_serdes_as_array_value(&value)?))
+        }
+        "std_serdes_as_object" => {
+            let value = eval_json_unary(name, args, functions, env, lines)?;
+            Ok(spike_option(std_serdes_as_object_value(&value)?))
+        }
+        "std_serdes_field" => {
+            let value = eval_std_serdes_field_value(name, args, functions, env, lines)?;
+            Ok(spike_option(value))
+        }
+        "std_serdes_bool_field" => {
+            let value = eval_std_serdes_field_value(name, args, functions, env, lines)?;
+            Ok(spike_option(match value {
+                Some(value) => std_serdes_as_bool_value(&value)?,
+                None => None,
+            }))
+        }
+        "std_serdes_text_field" => {
+            let value = eval_std_serdes_field_value(name, args, functions, env, lines)?;
+            Ok(spike_option(match value {
+                Some(value) => std_serdes_as_text_value(&value)?,
+                None => None,
+            }))
+        }
+        "std_serdes_int_field" => {
+            let value = eval_std_serdes_field_value(name, args, functions, env, lines)?;
+            Ok(spike_option(match value {
+                Some(value) => std_serdes_as_int_value(&value)?,
+                None => None,
+            }))
+        }
+        "std_serdes_array_field" => {
+            let value = eval_std_serdes_field_value(name, args, functions, env, lines)?;
+            Ok(spike_option(match value {
+                Some(value) => std_serdes_as_array_value(&value)?,
+                None => None,
+            }))
+        }
+        "std_serdes_object_field" => {
+            let value = eval_std_serdes_field_value(name, args, functions, env, lines)?;
+            Ok(spike_option(match value {
+                Some(value) => std_serdes_as_object_value(&value)?,
+                None => None,
+            }))
+        }
+        "std_serdes_value_item" => {
+            let [value, index] = args else {
+                return Err(unsupported("std_serdes_value_item expects two arguments"));
+            };
+            let value = eval_expr(value, functions, env, lines)?;
+            let index = expect_signed_integer(eval_expr(index, functions, env, lines)?)?;
+            let (variant, payloads) = expect_std_serdes_value(&value, name)?;
+            let item = match (variant, payloads) {
+                ("Array", [SpikeValue::Array(items)]) if index >= 0 => usize::try_from(index)
+                    .ok()
+                    .and_then(|index| items.get(index).cloned()),
+                _ => None,
+            };
+            Ok(spike_option(item))
+        }
+        _ => Err(unsupported(&format!(
+            "unsupported cranelift spike std/serdes call {name:?}"
+        ))),
+    }
+}
+
+fn eval_std_serdes_field_value(
+    name: &str,
+    args: &[Expr],
+    functions: &HashMap<&str, &Function>,
+    env: &SpikeEnv,
+    lines: &mut Vec<OutputLine>,
+) -> Result<Option<SpikeValue>, Diagnostic> {
+    let [value, key] = args else {
+        return Err(unsupported(&format!("{name} expects two arguments")));
+    };
+    let value = eval_expr(value, functions, env, lines)?;
+    let key = match eval_expr(key, functions, env, lines)? {
+        SpikeValue::Text(value) => value,
+        _ => return Err(unsupported(&format!("{name} expects a string key"))),
+    };
+    let (variant, payloads) = expect_std_serdes_value(&value, name)?;
+    let ("Object", [SpikeValue::Map(entries)]) = (variant, payloads) else {
+        return Ok(None);
+    };
+    for (candidate, value) in entries {
+        if map_keys_equal(candidate, &SpikeValue::Text(key.clone()))? {
+            return Ok(Some(value.clone()));
+        }
+    }
+    Ok(None)
+}
+
+fn expect_std_serdes_value<'a>(
+    value: &'a SpikeValue,
+    name: &str,
+) -> Result<(&'a str, &'a [SpikeValue]), Diagnostic> {
+    let SpikeValue::Enum {
+        enum_name,
+        variant,
+        payloads,
+        ..
+    } = value
+    else {
+        return Err(unsupported(&format!("{name} expects std/serdes Value")));
+    };
+    if enum_name != "std_serdes_Value" {
+        return Err(unsupported(&format!("{name} expects std/serdes Value")));
+    }
+    Ok((variant.as_str(), payloads.as_slice()))
+}
+
+fn std_serdes_as_bool_value(value: &SpikeValue) -> Result<Option<SpikeValue>, Diagnostic> {
+    let (variant, payloads) = expect_std_serdes_value(value, "std_serdes_as_bool")?;
+    Ok(match (variant, payloads) {
+        ("Bool", [SpikeValue::Bool(value)]) => Some(SpikeValue::Bool(*value)),
+        _ => None,
+    })
+}
+
+fn std_serdes_as_int_value(value: &SpikeValue) -> Result<Option<SpikeValue>, Diagnostic> {
+    let (variant, payloads) = expect_std_serdes_value(value, "std_serdes_as_int")?;
+    Ok(match (variant, payloads) {
+        ("Int", [SpikeValue::Int(value)]) => Some(SpikeValue::Int(*value)),
+        _ => None,
+    })
+}
+
+fn std_serdes_as_text_value(value: &SpikeValue) -> Result<Option<SpikeValue>, Diagnostic> {
+    let (variant, payloads) = expect_std_serdes_value(value, "std_serdes_as_text")?;
+    Ok(match (variant, payloads) {
+        ("Text", [SpikeValue::Text(value)]) => Some(SpikeValue::Text(value.clone())),
+        _ => None,
+    })
+}
+
+fn std_serdes_as_array_value(value: &SpikeValue) -> Result<Option<SpikeValue>, Diagnostic> {
+    let (variant, payloads) = expect_std_serdes_value(value, "std_serdes_as_array")?;
+    Ok(match (variant, payloads) {
+        ("Array", [SpikeValue::Array(values)]) => Some(SpikeValue::Array(values.clone())),
+        _ => None,
+    })
+}
+
+fn std_serdes_as_object_value(value: &SpikeValue) -> Result<Option<SpikeValue>, Diagnostic> {
+    let (variant, payloads) = expect_std_serdes_value(value, "std_serdes_as_object")?;
+    Ok(match (variant, payloads) {
+        ("Object", [SpikeValue::Map(entries)]) => Some(SpikeValue::Map(entries.clone())),
+        _ => None,
+    })
 }
 
 fn json_serdes_result(value: Result<SpikeValue, String>) -> SpikeValue {
