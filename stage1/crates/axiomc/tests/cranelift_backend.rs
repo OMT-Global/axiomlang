@@ -8413,6 +8413,38 @@ fn score_choice(value: Choice): int {
 return match value { Ready { step } => step.value + (step.small as int), Fallback { step } => step.value, Off => 1 }
 }
 
+fn make_nested_option(): Option<Option<int>> {
+return Some(Some(48))
+}
+
+fn forward_nested_option(): Option<Option<int>> {
+return make_nested_option()
+}
+
+fn choose_nested_option(flag: bool): Option<Option<int>> {
+if flag {
+return make_nested_option()
+} else {
+return Some(None)
+}
+}
+
+fn make_result_result(): Result<Result<int, int>, int> {
+return Ok(Ok(48))
+}
+
+fn forward_result_result(): Result<Result<int, int>, int> {
+return make_result_result()
+}
+
+fn choose_result_result(flag: bool): Result<Result<int, int>, int> {
+if flag {
+return make_result_result()
+} else {
+return Err(1)
+}
+}
+
 fn make_nested_option_result(): Option<Result<int, int>> {
 return Some(Ok(48))
 }
@@ -8445,6 +8477,14 @@ return Err(1)
 }
 }
 
+fn score_nested_option(value: Option<Option<int>>): int {
+return match value { Some(inner) => match inner { Some(payload) => payload, None => 1 }, None => 1 }
+}
+
+fn score_result_result(value: Result<Result<int, int>, int>): int {
+return match value { Ok(inner) => match inner { Ok(payload) => payload, Err(error) => error }, Err(error) => error }
+}
+
 fn score_nested_option_result(value: Option<Result<int, int>>): int {
 return match value { Some(outcome) => match outcome { Ok(payload) => payload, Err(error) => error }, None => 1 }
 }
@@ -8468,6 +8508,10 @@ let forwarded_step_result: Result<Step, Step> = forward_step_result()
 let chosen_step_result: Result<Step, Step> = choose_step_result(true)
 let forwarded_choice: Choice = forward_choice()
 let chosen_choice: Choice = choose_choice(true)
+let forwarded_nested_option: Option<Option<int>> = forward_nested_option()
+let chosen_nested_option: Option<Option<int>> = choose_nested_option(true)
+let forwarded_result_result: Result<Result<int, int>, int> = forward_result_result()
+let chosen_result_result: Result<Result<int, int>, int> = choose_result_result(true)
 let forwarded_nested_option_result: Option<Result<int, int>> = forward_nested_option_result()
 let chosen_nested_option_result: Option<Result<int, int>> = choose_nested_option_result(true)
 let forwarded_result_option: Result<Option<int>, int> = forward_result_option()
@@ -8486,11 +8530,15 @@ let result_score: int = score_step_result(forwarded_step_result)
 let chosen_result_score: int = score_step_result(chosen_step_result)
 let choice_score: int = score_choice(forwarded_choice)
 let chosen_choice_score: int = score_choice(chosen_choice)
+let nested_option_score: int = score_nested_option(forwarded_nested_option)
+let chosen_nested_option_score: int = score_nested_option(chosen_nested_option)
+let result_result_score: int = score_result_result(forwarded_result_result)
+let chosen_result_result_score: int = score_result_result(chosen_result_result)
 let nested_option_result_score: int = score_nested_option_result(forwarded_nested_option_result)
 let chosen_nested_option_result_score: int = score_nested_option_result(chosen_nested_option_result)
 let result_option_score: int = score_result_option(forwarded_result_option)
 let chosen_result_option_score: int = score_result_option(chosen_result_option)
-if forwarded_gate && chosen_gate && pair_gate && struct_gate && forwarded_score == 48 && chosen_score == 48 && forwarded_pair.0 == 48 && chosen_pair.0 == 48 && struct_score == 48 && chosen_struct_score == 48 && optional_score == 48 && chosen_optional_score == 48 && result_score == 48 && chosen_result_score == 48 && choice_score == 48 && chosen_choice_score == 48 && nested_option_result_score == 48 && chosen_nested_option_result_score == 48 && result_option_score == 48 && chosen_result_option_score == 48 {
+if forwarded_gate && chosen_gate && pair_gate && struct_gate && forwarded_score == 48 && chosen_score == 48 && forwarded_pair.0 == 48 && chosen_pair.0 == 48 && struct_score == 48 && chosen_struct_score == 48 && optional_score == 48 && chosen_optional_score == 48 && result_score == 48 && chosen_result_score == 48 && choice_score == 48 && chosen_choice_score == 48 && nested_option_score == 48 && chosen_nested_option_score == 48 && result_result_score == 48 && chosen_result_result_score == 48 && nested_option_result_score == 48 && chosen_nested_option_result_score == 48 && result_option_score == 48 && chosen_result_option_score == 48 {
 return 48
 } else {
 return 1

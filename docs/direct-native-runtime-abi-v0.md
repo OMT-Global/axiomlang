@@ -355,7 +355,9 @@ tag/payload slot representation.
 The direct-native path also has narrow evidence for nested
 `Option<Option<int>>` construction, matching, helper parameters, helper returns,
 forwarded helper values, and inline `Some(Some(...))`, `Some(None)`, and outer
-`None` helper arguments using nested tag/payload slots. The same nested slot
+`None` helper arguments using nested tag/payload slots. The
+`Option<Option<int>>` slice also supports final helper-call forwarding through
+the same nested tag/payload slot representation. The same nested slot
 representation now has narrow evidence for `Option<Result<int, int>>`
 construction, matching, helper parameters, helper returns, forwarded helper
 values, and inline
@@ -874,6 +876,8 @@ result payload slice now also has narrow evidence for `Result<Result<int, int>,
 int>` construction, matching, helper parameters, helper returns, forwarded
 helper values, and inline `Ok(Ok(...))`,
 `Ok(Err(...))`, and outer `Err(...)` helper arguments.
+The `Result<Result<int, int>, int>` slice also supports final helper-call
+forwarding through the same nested tag/payload slot representation.
 The `Result<Option<int>, int>` slice also supports final helper-call forwarding
 through the same nested tag/payload slot representation.
 Broader Result ABI support, the full numeric-width matrix, additional aggregate
