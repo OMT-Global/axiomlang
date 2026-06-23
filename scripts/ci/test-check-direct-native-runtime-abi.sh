@@ -20,17 +20,17 @@ assert report["ready"] is False
 assert report["target_id"] == "axiom://target/stage1-direct-native"
 assert report["contract_status"] == "partial"
 assert report["value_feature_count"] == 12
-assert report["capability_shim_count"] == 22
+assert report["capability_shim_count"] == 23
 assert report["status_counts"]["value_features"]["implemented"] == 1
 assert report["status_counts"]["value_features"]["partial"] == 11
-assert report["status_counts"]["capability_shims"]["implemented"] == 22
+assert report["status_counts"]["capability_shims"]["implemented"] == 23
 assert report["status_counts"]["capability_shims"]["partial"] == 0
 assert report["blocked_rows"] == []
 assert len(report["incomplete_rows"]) == 11
 assert report["evidence_test_manifest"]["present"] is True
 assert report["evidence_test_manifest"]["value_feature_rows"] == 12
 assert report["evidence_test_manifest"]["value_feature_test_count"] >= 40
-assert report["evidence_test_manifest"]["capability_shim_rows"] == 22
+assert report["evidence_test_manifest"]["capability_shim_rows"] == 23
 assert report["evidence_test_manifest"]["capability_shim_test_count"] >= 70
 assert "owned.move_state" not in report["incomplete_rows"]
 assert "ffi.call" not in report["incomplete_rows"]
@@ -45,6 +45,7 @@ assert "env.read" not in report["incomplete_rows"]
 assert "fs.read" not in report["incomplete_rows"]
 assert "fs.write" not in report["incomplete_rows"]
 assert "process.status" not in report["incomplete_rows"]
+assert "cli.args" not in report["incomplete_rows"]
 assert "sync.primitives" not in report["incomplete_rows"]
 assert "regex.match_replace" not in report["incomplete_rows"]
 assert "io.logging_stdio" not in report["incomplete_rows"]
@@ -72,10 +73,10 @@ assert report["ready"] is False
 assert report["target_id"] == "axiom://target/stage1-direct-native"
 assert report["contract_status"] == "partial"
 assert report["value_feature_count"] == 12
-assert report["capability_shim_count"] == 22
-assert len(report["rows"]) == 34
+assert report["capability_shim_count"] == 23
+assert len(report["rows"]) == 35
 assert report["status_counts"]["value_features"]["implemented"] == 1
-assert report["status_counts"]["capability_shims"]["implemented"] == 22
+assert report["status_counts"]["capability_shims"]["implemented"] == 23
 assert report["blocker_issues"] == [1124]
 assert report["errors"] == []
 
@@ -96,11 +97,20 @@ assert rows["fs.read"]["test_count"] >= 2
 assert "cranelift_backend_lowers_fs_read_to_runtime_exit_code" in rows["fs.read"]["tests"]
 assert "stage1/crates/axiomc/tests/cranelift_backend.rs" in rows["fs.read"]["denial_evidence"]
 assert "stage1/crates/axiomc/src/cranelift_backend.rs" in rows["fs.read"]["runtime_evidence"]
+
+assert rows["cli.args"]["group"] == "capability_shims"
+assert rows["cli.args"]["status"] == "implemented"
+assert rows["cli.args"]["blockers"] == []
+assert rows["cli.args"]["test_count"] >= 1
+assert "cranelift_backend_builds_std_cli_no_args_binary" in rows["cli.args"]["tests"]
+assert "stage1/crates/axiomc/tests/cranelift_backend.rs" in rows["cli.args"]["evidence"]
+assert "stage1/crates/axiomc/src/cranelift_backend.rs" in rows["cli.args"]["runtime_evidence"]
 PY
 
 python3 "$script" --contract "$contract" --list-evidence-rows >"$temp_dir/row-list.txt"
 grep -Fq "value_features option partial" "$temp_dir/row-list.txt"
 grep -Fq "capability_shims fs.read implemented" "$temp_dir/row-list.txt"
+grep -Fq "capability_shims cli.args implemented" "$temp_dir/row-list.txt"
 grep -Fq "blockers=#1124" "$temp_dir/row-list.txt"
 grep -Fq "blockers=-" "$temp_dir/row-list.txt"
 
@@ -231,6 +241,7 @@ assert "stage1/crates/axiomc/src/cranelift_backend.rs" in capability_rows["netwo
 assert "stage1/crates/axiomc/src/cranelift_backend.rs" in capability_rows["network.http.client"]["runtime_evidence"]
 assert "stage1/crates/axiomc/src/cranelift_backend.rs" in capability_rows["network.http.server"]["runtime_evidence"]
 assert "stage1/crates/axiomc/src/cranelift_backend.rs" in capability_rows["network.http.async_server"]["runtime_evidence"]
+assert "stage1/crates/axiomc/src/cranelift_backend.rs" in capability_rows["cli.args"]["runtime_evidence"]
 assert "stage1/crates/axiomc/src/cranelift_backend.rs" in capability_rows["crypto.signature"]["runtime_evidence"]
 assert "stage1/crates/axiomc/src/cranelift_backend.rs" in capability_rows["crypto.aead"]["runtime_evidence"]
 assert "stage1/crates/axiomc/src/cranelift_backend.rs" in capability_rows["ffi.call"]["runtime_evidence"]

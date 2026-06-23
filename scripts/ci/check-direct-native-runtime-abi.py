@@ -42,6 +42,7 @@ REQUIRED_CAPABILITY_SHIMS = {
     "network.http.server",
     "network.http.async_server",
     "process.status",
+    "cli.args",
     "env.read",
     "clock.now_sleep",
     "crypto.hash",

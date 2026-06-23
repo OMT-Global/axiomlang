@@ -213,6 +213,14 @@
       "notes": "The Cranelift spike records positive compiler-side evidence for std/process.ax run_status over literal, allowlisted deterministic commands and the checked-in missing-binary sentinel while the public smoke asserts generated_rust is null, rejects unapproved commands, and rejects missing process capability before backend lowering. The direct-native i64 path also lowers literal process_status calls and the std/process.ax run_status wrapper for the deterministic /usr/bin/true, /usr/bin/false, and __axiom_stage1_missing_binary__ commands into native runtime executable checks and process-status execution through the object backend without generated Rust. The missing sentinel maps to -1 through the native executable check, while the existing true/false helpers run and normalize their process status at runtime. That direct-native path also appends host audit JSONL entries when AXIOM_HOST_AUDIT_LOG is set, recording only the command string length and the ok/denied outcome without recording command text. Arguments, broader command policy, environment control, and host-process policy coverage remain open."
     },
     {
+      "id": "cli.args",
+      "status": "implemented",
+      "capability": "ambient process arguments exposed through std/cli.ax",
+      "evidence": ["stage1/crates/axiomc/tests/cranelift_backend.rs"],
+      "runtime_evidence": ["stage1/crates/axiomc/src/cranelift_backend.rs"],
+      "notes": "The direct-native path builds and runs the public std/cli.ax no-argument program without generated Rust, covering arg_count(), args(), arg(0), empty argument-array length, and the None arm for missing arguments from the native binary. The surface is ambient process input and remains separate from std/process.ax command execution; argument forwarding through axiomc run -- and broader argv string storage remain open."
+    },
+    {
       "id": "env.read",
       "status": "implemented",
       "capability": "env",

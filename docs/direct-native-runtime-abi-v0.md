@@ -133,6 +133,7 @@ stage1 capability and stdlib surface:
 - network DNS, TCP, UDP, HTTP client, HTTP server, and async HTTP service
   operations;
 - process status execution;
+- ambient process argument reads through `std/cli.ax`;
 - environment reads with manifest allowlists;
 - clock and sleep operations;
 - crypto hash, MAC, random, signature, and AEAD helpers;
@@ -710,6 +711,16 @@ host audit JSONL entries when `AXIOM_HOST_AUDIT_LOG` is set, recording only the
 command string length and the `ok`/`denied` outcome without recording command
 text. Arguments, broader command policy, environment control, and host-process
 policy coverage remain open under #1001.
+
+The CLI arguments row now has narrow direct-native evidence: the native
+`std/cli.ax` no-argument smoke builds with `generated_rust: null`, runs the
+produced binary, and proves `arg_count()`, `args()`, and `arg(0)` cover the
+empty forwarded-argument surface by printing `0`, `0`, and the `None` arm's
+`missing` text. This row tracks ambient process input separately from
+`std/process.ax` command execution because the CLI surface does not require the
+filesystem, network, process, environment, clock, or crypto capability gates.
+Forwarded arguments through `axiomc run --`, broader argv string storage, and
+host-audit treatment remain open under #1001.
 
 The regex row now has partial direct-native evidence: the Cranelift spike covers
 `std/regex.ax` `is_match`, `find`, and `replace_all` for the stage1-safe NFA
