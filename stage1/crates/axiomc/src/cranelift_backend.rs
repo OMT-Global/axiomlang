@@ -1784,17 +1784,35 @@ fn lower_i64_aggregate_return_body(
         }
     }
     let body = match return_stmt {
-        Stmt::Return { expr, .. } => CraneliftI64ValueBody::Return(
-            lower_i64_aggregate_return_values(
+        Stmt::Return { expr, .. } => {
+            if let Some((mut call_stmts, results)) = lower_i64_aggregate_call_return_stmts(
                 expr,
                 shape,
-                &local_indexes,
-                &local_conditions,
+                &mut locals,
+                &mut local_indexes,
+                &mut local_conditions,
                 helper_signatures,
                 static_bindings,
-            )
-            .filter(|results| results.len() == shape.slot_count())?,
-        ),
+            ) {
+                lowered_stmts.append(&mut call_stmts);
+                CraneliftI64ValueBody::BlockReturn(CraneliftI64ValueReturnBlock {
+                    stmts: std::mem::take(&mut lowered_stmts),
+                    results,
+                })
+            } else {
+                CraneliftI64ValueBody::Return(
+                    lower_i64_aggregate_return_values(
+                        expr,
+                        shape,
+                        &local_indexes,
+                        &local_conditions,
+                        helper_signatures,
+                        static_bindings,
+                    )
+                    .filter(|results| results.len() == shape.slot_count())?,
+                )
+            }
+        }
         Stmt::If {
             cond,
             then_block,
@@ -1872,14 +1890,27 @@ fn lower_i64_aggregate_return_block(
             )?);
         }
     }
-    let results = lower_i64_aggregate_return_values(
+    let results = if let Some((mut call_stmts, results)) = lower_i64_aggregate_call_return_stmts(
         expr,
         shape,
-        &local_indexes,
-        &local_conditions,
+        locals,
+        &mut local_indexes,
+        &mut local_conditions,
         helper_signatures,
         static_bindings,
-    )?;
+    ) {
+        stmts.append(&mut call_stmts);
+        results
+    } else {
+        lower_i64_aggregate_return_values(
+            expr,
+            shape,
+            &local_indexes,
+            &local_conditions,
+            helper_signatures,
+            static_bindings,
+        )?
+    };
     if results.len() != shape.slot_count() {
         return None;
     }
@@ -1897,6 +1928,63 @@ impl I64AggregateReturnShape {
             | I64AggregateReturnShape::Enum { payload_slots, .. } => 1 + payload_slots,
         }
     }
+
+    fn ty(&self) -> Type {
+        match self {
+            I64AggregateReturnShape::Array { element, size } => {
+                Type::Array(Box::new(element.clone()), Some(*size))
+            }
+            I64AggregateReturnShape::Tuple(elements) => Type::Tuple(elements.clone()),
+            I64AggregateReturnShape::Struct { name, .. } => Type::Struct(name.clone()),
+            I64AggregateReturnShape::Option { inner, .. } => Type::Option(Box::new(inner.clone())),
+            I64AggregateReturnShape::Result { ok, err, .. } => {
+                Type::Result(Box::new(ok.clone()), Box::new(err.clone()))
+            }
+            I64AggregateReturnShape::Enum { name, .. } => Type::Enum(name.clone()),
+        }
+    }
+}
+
+fn lower_i64_aggregate_call_return_stmts(
+    expr: &Expr,
+    shape: &I64AggregateReturnShape,
+    locals: &mut Vec<CraneliftI64Expr>,
+    local_indexes: &mut HashMap<String, usize>,
+    local_conditions: &mut HashMap<String, CraneliftI64Condition>,
+    helper_signatures: &HashMap<&str, I64HelperSignature>,
+    static_bindings: &I64StaticBindings,
+) -> Option<(Vec<CraneliftI64Stmt>, Vec<CraneliftI64Expr>)> {
+    if !matches!(expr, Expr::Call { .. }) {
+        return None;
+    }
+    let ty = shape.ty();
+    if expr.ty() != ty {
+        return None;
+    }
+    let temp_name = format!("__axiom_i64_return_{}", local_indexes.len());
+    let stmts = lower_i64_aggregate_call_to_local_stmts(
+        &temp_name,
+        &ty,
+        expr,
+        locals,
+        local_indexes,
+        local_conditions,
+        helper_signatures,
+        static_bindings,
+    )?;
+    let temp = Expr::VarRef {
+        name: temp_name,
+        ty,
+    };
+    let results = lower_i64_aggregate_return_values(
+        &temp,
+        shape,
+        local_indexes,
+        local_conditions,
+        helper_signatures,
+        static_bindings,
+    )?;
+    (results.len() == shape.slot_count()).then_some((stmts, results))
 }
 
 fn i64_scalar_value_body(body: I64ExitBody) -> CraneliftI64ValueBody {

@@ -245,7 +245,7 @@ elements. Scalar and bool fixed-array-returning helpers now lower across
 direct-native function-call boundaries as one return slot per element, with
 caller-side projection locals populated from the multi-slot return; this covers
 literal array returns, local array binding returns, forwarded array parameters,
-and branch-selected array returns. The same
+branch-selected array returns, and final helper-call forwarding returns. The same
 projected element-slot representation now covers fixed-array payloads inside
 narrow `Option<[int; 2]>` and `Result<[int; 2], [int; 2]>` construction,
 tag/payload matches, helper parameters, helper returns, and forwarded helper

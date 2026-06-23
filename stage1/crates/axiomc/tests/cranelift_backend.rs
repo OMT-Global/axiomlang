@@ -1656,6 +1656,46 @@ fn cranelift_backend_lowers_fixed_array_intrinsics_to_runtime_exit_code() {
 
 #[cfg(not(windows))]
 #[test]
+fn cranelift_backend_lowers_aggregate_helper_call_returns_to_runtime_exit_code() {
+    if which::which("cc").is_err() {
+        eprintln!("skipping cranelift backend smoke test because cc is unavailable");
+        return;
+    }
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("aggregate-helper-call-return-main-exit");
+    write_aggregate_helper_call_return_main_exit_project(&project);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args([
+            "build",
+            project.to_str().expect("project path"),
+            "--backend",
+            "cranelift",
+            "--json",
+        ])
+        .output()
+        .expect("run axiomc build --backend cranelift");
+    assert!(
+        output.status.success(),
+        "cranelift aggregate helper-call return main build failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+    assert_eq!(payload["backend"], "cranelift");
+    assert_eq!(payload["generated_rust"], Value::Null);
+    let binary = payload["binary"].as_str().expect("binary path");
+    let run = Command::new(binary)
+        .output()
+        .expect("run cranelift aggregate helper-call return main binary");
+    assert_eq!(run.status.code(), Some(48));
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "");
+}
+
+#[cfg(not(windows))]
+#[test]
 fn cranelift_backend_lowers_static_slice_bounds_to_runtime_exit_code() {
     if which::which("cc").is_err() {
         eprintln!("skipping cranelift backend smoke test because cc is unavailable");
@@ -8199,6 +8239,94 @@ fn write_fixed_array_intrinsics_main_exit_project(project: &Path) {
         "fn score(values: [int; 3]): int {\nreturn len(values) + first(values) + last(values)\n}\n\nfn gate(flags: [bool; 2]): bool {\nreturn first(flags) && last(flags) == false\n}\n\nfn slice_score(len_values: [int; 3], first_values: [int; 3], last_values: [int; 3]): int {\nreturn len(len_values[1:]) + first(first_values[1:]) + last(last_values[1:])\n}\n\nfn prefix_score(len_values: [int; 3], first_values: [int; 3], last_values: [int; 3]): int {\nreturn len(len_values[:2]) + first(first_values[:2]) + last(last_values[:2])\n}\n\nfn slice_pick(values: [int; 3], index: int): int {\nreturn values[1:][index]\n}\n\nfn slice_gate(first_flags: [bool; 3], last_flags: [bool; 3]): bool {\nreturn first(first_flags[1:]) == false && last(last_flags[1:])\n}\n\nfn slice_index_gate(flags: [bool; 3], index: int): bool {\nreturn flags[1:][index]\n}\n\nfn make_values(): [int; 3] {\nreturn [20, 3, 25]\n}\n\nfn make_flags(): [bool; 2] {\nreturn [true, false]\n}\n\nfn main(): int {\nlet values: [int; 3] = [20, 3, 25]\nlet returned: [int; 3] = make_values()\nlet slice_len_values: [int; 3] = [1, 20, 26]\nlet slice_first_values: [int; 3] = [1, 20, 26]\nlet slice_last_values: [int; 3] = [1, 20, 26]\nlet prefix_len_values: [int; 3] = [20, 26, 1]\nlet prefix_first_values: [int; 3] = [20, 26, 1]\nlet prefix_last_values: [int; 3] = [20, 26, 1]\nlet slice_index_literal_values: [int; 3] = [1, 20, 26]\nlet slice_index_dynamic_values: [int; 3] = [1, 20, 26]\nlet slice_local_values: [int; 3] = [1, 20, 26]\nlet slice_local_index_values: [int; 3] = [1, 20, 26]\nlet helper_slice_index_values: [int; 3] = [1, 20, 26]\nlet helper_slice_len_values: [int; 3] = [1, 20, 26]\nlet helper_slice_first_values: [int; 3] = [1, 20, 26]\nlet helper_slice_last_values: [int; 3] = [1, 20, 26]\nlet helper_prefix_len_values: [int; 3] = [20, 26, 1]\nlet helper_prefix_first_values: [int; 3] = [20, 26, 1]\nlet helper_prefix_last_values: [int; 3] = [20, 26, 1]\nlet flags: [bool; 2] = [true, false]\nlet returned_flags: [bool; 2] = make_flags()\nlet slice_gate_first_flags: [bool; 3] = [false, false, true]\nlet slice_gate_last_flags: [bool; 3] = [false, false, true]\nlet slice_index_flags: [bool; 3] = [false, false, true]\nlet slice_local_flags: [bool; 3] = [false, false, true]\nlet helper_slice_gate_first_flags: [bool; 3] = [false, false, true]\nlet helper_slice_gate_last_flags: [bool; 3] = [false, false, true]\nlet helper_slice_index_flags: [bool; 3] = [false, false, true]\nlet dynamic_slice_index: int = 1\nlet local_code: int = len(values) + first(values) + last(values)\nlet literal_code: int = len([20, 3, 25]) + first([20, 3, 25]) + last([20, 3, 25])\nlet helper_code: int = score(values)\nlet returned_code: int = len(returned) + first(returned) + last(returned)\nlet slice_code: int = len(slice_len_values[1:]) + first(slice_first_values[1:]) + last(slice_last_values[1:])\nlet prefix_code: int = len(prefix_len_values[:2]) + first(prefix_first_values[:2]) + last(prefix_last_values[:2])\nlet slice_index_code: int = slice_index_literal_values[1:][0] + slice_index_dynamic_values[1:][dynamic_slice_index] + 2\nlet literal_dynamic_code: int = [20, 26][dynamic_slice_index] + 22\nlet slice_window: &[int] = slice_local_values[1:]\nlet slice_index_window: &[int] = slice_local_index_values[1:]\nlet slice_local_code: int = len(slice_window) + first(slice_window) + last(slice_window)\nlet slice_local_index_code: int = slice_index_window[0] + slice_index_window[dynamic_slice_index] + 2\nlet helper_slice_index_code: int = slice_pick(helper_slice_index_values, dynamic_slice_index) + 22\nlet helper_slice_code: int = slice_score(helper_slice_len_values, helper_slice_first_values, helper_slice_last_values)\nlet helper_prefix_code: int = prefix_score(helper_prefix_len_values, helper_prefix_first_values, helper_prefix_last_values)\nlet bool_len: int = len(flags)\nlet local_gate: bool = first(flags) && last(flags) == false\nlet literal_gate: bool = first([true, false]) && last([true, false]) == false\nlet helper_gate: bool = gate(flags)\nlet returned_gate: bool = first(returned_flags) && last(returned_flags) == false\nlet slice_gate_local: bool = first(slice_gate_first_flags[1:]) == false && last(slice_gate_last_flags[1:])\nlet slice_index_gate_local: bool = slice_index_flags[1:][dynamic_slice_index]\nlet flag_window: &[bool] = slice_local_flags[1:]\nlet slice_local_gate: bool = first(flag_window) == false && last(flag_window) && flag_window[dynamic_slice_index]\nlet literal_dynamic_gate: bool = [false, true][dynamic_slice_index]\nlet helper_slice_gate: bool = slice_gate(helper_slice_gate_first_flags, helper_slice_gate_last_flags)\nlet helper_slice_index_gate: bool = slice_index_gate(helper_slice_index_flags, dynamic_slice_index)\nif local_gate && literal_gate && helper_gate && returned_gate && slice_gate_local && slice_index_gate_local && slice_local_gate && literal_dynamic_gate && helper_slice_gate && helper_slice_index_gate && bool_len == 2 && local_code == 48 && literal_code == 48 && helper_code == 48 && returned_code == 48 && slice_code == 48 && prefix_code == 48 && slice_index_code == 48 && literal_dynamic_code == 48 && slice_local_code == 48 && slice_local_index_code == 48 && helper_slice_index_code == 48 && helper_slice_code == 48 && helper_prefix_code == 48 {\nreturn local_code\n} else {\nreturn 1\n}\n}\n",
     )
     .expect("write fixed array intrinsics main exit source");
+}
+
+fn write_aggregate_helper_call_return_main_exit_project(project: &Path) {
+    fs::create_dir_all(project.join("src"))
+        .expect("create aggregate helper-call return main exit project src");
+    fs::write(
+        project.join("axiom.toml"),
+        r#"[package]
+name = "cranelift-aggregate-helper-call-return-main-exit"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+fs = false
+net = false
+process = false
+env = false
+clock = false
+crypto = false
+"#,
+    )
+    .expect("write aggregate helper-call return main exit manifest");
+    fs::write(
+        project.join("axiom.lock"),
+        r#"version = 1
+
+[[package]]
+name = "cranelift-aggregate-helper-call-return-main-exit"
+version = "0.1.0"
+source = "path"
+"#,
+    )
+    .expect("write aggregate helper-call return main exit lockfile");
+    fs::write(
+        project.join("src/main.ax"),
+        r#"fn make_values(): [int; 3] {
+return [20, 3, 25]
+}
+
+fn forward_values(): [int; 3] {
+return make_values()
+}
+
+fn choose_values(flag: bool): [int; 3] {
+if flag {
+return make_values()
+} else {
+return [1, 0, 0]
+}
+}
+
+fn make_flags(): [bool; 2] {
+return [true, false]
+}
+
+fn forward_flags(): [bool; 2] {
+return make_flags()
+}
+
+fn choose_flags(flag: bool): [bool; 2] {
+if flag {
+return make_flags()
+} else {
+return [false, true]
+}
+}
+
+fn main(): int {
+let forwarded: [int; 3] = forward_values()
+let chosen: [int; 3] = choose_values(true)
+let forwarded_flags: [bool; 2] = forward_flags()
+let chosen_flags: [bool; 2] = choose_flags(true)
+let forwarded_score: int = len(forwarded) + first(forwarded) + last(forwarded)
+let chosen_score: int = len(chosen) + first(chosen) + last(chosen)
+let forwarded_gate: bool = first(forwarded_flags) && last(forwarded_flags) == false
+let chosen_gate: bool = first(chosen_flags) && last(chosen_flags) == false
+if forwarded_gate && chosen_gate && forwarded_score == 48 && chosen_score == 48 {
+return 48
+} else {
+return 1
+}
+}
+"#,
+    )
+    .expect("write aggregate helper-call return main exit source");
 }
 
 fn write_static_slice_bounds_main_exit_project(project: &Path) {
