@@ -1898,6 +1898,34 @@ fn cranelift_backend_lowers_helper_call_slice_indexes_to_runtime_exit_code() {
     assert_eq!(String::from_utf8_lossy(&run.stdout), "");
 }
 
+#[test]
+fn cranelift_backend_rejects_non_scalar_helper_call_slice_base_before_lowering() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp
+        .path()
+        .join("non-scalar-helper-call-slice-base-rejection");
+    write_non_scalar_helper_call_slice_base_project(&project);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args(["check", project.to_str().expect("project path"), "--json"])
+        .output()
+        .expect("run axiomc check --json");
+    assert!(
+        !output.status.success(),
+        "non-scalar helper-call slice base unexpectedly checked: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse check JSON");
+    assert_eq!(payload["ok"], Value::Bool(false));
+    let message = payload["error"]["message"].as_str().expect("error message");
+    assert!(
+        message.contains("borrowed slices currently require a named array"),
+        "unexpected non-scalar helper-call slice base error: {message}"
+    );
+}
+
 #[cfg(not(windows))]
 #[test]
 fn cranelift_backend_lowers_string_literal_len_to_runtime_exit_code() {
@@ -9098,6 +9126,60 @@ return 1
 "#,
     )
     .expect("write helper-call slice index main exit source");
+}
+
+fn write_non_scalar_helper_call_slice_base_project(project: &Path) {
+    fs::create_dir_all(project.join("src"))
+        .expect("create non-scalar helper-call slice base project src");
+    fs::write(
+        project.join("axiom.toml"),
+        r#"[package]
+name = "non-scalar-helper-call-slice-base"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+fs = false
+net = false
+process = false
+env = false
+clock = false
+crypto = false
+"#,
+    )
+    .expect("write non-scalar helper-call slice base manifest");
+    fs::write(
+        project.join("axiom.lock"),
+        r#"version = 1
+
+[[package]]
+name = "non-scalar-helper-call-slice-base"
+version = "0.1.0"
+source = "path"
+"#,
+    )
+    .expect("write non-scalar helper-call slice base lockfile");
+    fs::write(
+        project.join("src/main.ax"),
+        r#"struct Step {
+value: int
+enabled: bool
+}
+
+fn make_steps(): [Step; 2] {
+return [Step { value: 1, enabled: true }, Step { value: 2, enabled: false }]
+}
+
+fn main(): int {
+let tail: &[Step] = make_steps()[1:]
+return len(tail)
+}
+"#,
+    )
+    .expect("write non-scalar helper-call slice base source");
 }
 
 fn write_string_literal_len_main_exit_project(project: &Path) {
