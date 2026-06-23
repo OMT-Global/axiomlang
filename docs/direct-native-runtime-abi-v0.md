@@ -297,7 +297,7 @@ boolean locals and scalar or boolean helper-call arguments by materializing the
 helper return into hidden tuple-element locals before projection, including
 numeric projections cast to wider scalar helper-call arguments. The same
 materialization path now supports scalar, numeric-casted, and boolean direct
-helper returns plus final branch returns.
+helper returns, final branch returns, and direct branch-condition comparisons.
 The row remains partial because direct-native
 codegen still does not provide a general tuple ABI, tuple storage for non-scalar
 elements, broader tuple return expressions beyond the evidenced scalar/bool
@@ -338,7 +338,7 @@ boolean locals and scalar or boolean helper-call arguments by materializing the
 helper return into hidden declared-field locals before projection, including
 numeric field projections cast to wider scalar helper-call arguments. The same
 materialization path now supports scalar, numeric-casted, and boolean direct
-helper returns plus final branch returns.
+helper returns, final branch returns, and direct branch-condition comparisons.
 The row remains partial because
 direct-native codegen still does not provide a general struct ABI, struct
 storage for non-scalar fields, owned field projection, field mutation, struct
@@ -736,7 +736,7 @@ Numeric indexed projections over direct helper-call slice bases can now be
 cast into compatible scalar locals and helper-call arguments without requiring
 a source-level array temporary. The same materialization path now supports
 scalar, numeric-casted, and boolean direct helper returns plus final branch
-returns from direct helper-call slice indexes.
+returns and branch-condition comparisons from direct helper-call slice indexes.
 The public borrowed-slice smoke also prints `len`, `first`, `last`, and indexed
 projection output for both a local slice and a helper-returned slice while
 asserting `generated_rust: null`. Broader borrowed-slice aliasing, dynamic

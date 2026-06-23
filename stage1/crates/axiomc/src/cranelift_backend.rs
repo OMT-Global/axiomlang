@@ -1889,35 +1889,51 @@ fn lower_i64_aggregate_return_body(
             then_block,
             else_block: Some(else_block),
             ..
-        } => CraneliftI64ValueBody::IfBlockReturn {
-            cond: lower_i64_condition(
-                cond,
-                &local_indexes,
-                &local_conditions,
-                helper_signatures,
-                static_bindings,
-            )?,
-            then_block: lower_i64_aggregate_return_block(
-                then_block,
-                shape,
-                &mut locals,
-                local_indexes.clone(),
-                local_conditions.clone(),
-                helper_signatures,
-                static_bindings,
-                true,
-            )?,
-            else_block: lower_i64_aggregate_return_block(
-                else_block,
-                shape,
-                &mut locals,
-                local_indexes,
-                local_conditions,
-                helper_signatures,
-                static_bindings,
-                true,
-            )?,
-        },
+        } => {
+            let cond = if let Some((rewritten_cond, mut setup)) =
+                rewrite_i64_helper_call_aggregate_condition_expr(
+                    cond,
+                    &mut locals,
+                    &mut local_indexes,
+                    &mut local_conditions,
+                    helper_signatures,
+                    static_bindings,
+                ) {
+                lowered_stmts.append(&mut setup);
+                rewritten_cond
+            } else {
+                cond.clone()
+            };
+            CraneliftI64ValueBody::IfBlockReturn {
+                cond: lower_i64_condition(
+                    &cond,
+                    &local_indexes,
+                    &local_conditions,
+                    helper_signatures,
+                    static_bindings,
+                )?,
+                then_block: lower_i64_aggregate_return_block(
+                    then_block,
+                    shape,
+                    &mut locals,
+                    local_indexes.clone(),
+                    local_conditions.clone(),
+                    helper_signatures,
+                    static_bindings,
+                    true,
+                )?,
+                else_block: lower_i64_aggregate_return_block(
+                    else_block,
+                    shape,
+                    &mut locals,
+                    local_indexes,
+                    local_conditions,
+                    helper_signatures,
+                    static_bindings,
+                    true,
+                )?,
+            }
+        }
         _ => return None,
     };
     Some((locals, lowered_stmts, body))
@@ -3250,8 +3266,22 @@ fn lower_i64_body(
             else_block: Some(else_block),
             ..
         } => {
+            let cond = if let Some((rewritten_cond, mut setup)) =
+                rewrite_i64_helper_call_aggregate_condition_expr(
+                    cond,
+                    &mut locals,
+                    &mut local_indexes,
+                    &mut local_conditions,
+                    helper_signatures,
+                    static_bindings,
+                ) {
+                lowered_stmts.append(&mut setup);
+                rewritten_cond
+            } else {
+                cond.clone()
+            };
             let cond = lower_i64_condition(
-                cond,
+                &cond,
                 &local_indexes,
                 &local_conditions,
                 helper_signatures,
@@ -3363,6 +3393,17 @@ fn lower_i64_runtime_stmt_stmts(
             return Some(stmts);
         }
     }
+    if let Some(stmts) = lower_i64_helper_call_aggregate_condition_stmt_stmts(
+        stmt,
+        locals,
+        local_indexes.clone(),
+        local_conditions.clone(),
+        helper_signatures,
+        static_bindings,
+        allow_stdio_effects,
+    ) {
+        return Some(stmts);
+    }
     Some(vec![lower_i64_runtime_stmt(
         stmt,
         locals,
@@ -3372,6 +3413,252 @@ fn lower_i64_runtime_stmt_stmts(
         static_bindings,
         allow_stdio_effects,
     )?])
+}
+
+fn lower_i64_helper_call_aggregate_condition_stmt_stmts(
+    stmt: &Stmt,
+    locals: &mut Vec<CraneliftI64Expr>,
+    local_indexes: HashMap<String, usize>,
+    local_conditions: HashMap<String, CraneliftI64Condition>,
+    helper_signatures: &HashMap<&str, I64HelperSignature>,
+    static_bindings: &I64StaticBindings,
+    allow_stdio_effects: bool,
+) -> Option<Vec<CraneliftI64Stmt>> {
+    match stmt {
+        Stmt::If {
+            cond,
+            then_block,
+            else_block,
+            span,
+        } => {
+            let mut trial_locals = locals.clone();
+            let mut trial_indexes = local_indexes;
+            let mut trial_conditions = local_conditions;
+            let (rewritten_cond, mut setup) = rewrite_i64_helper_call_aggregate_condition_expr(
+                cond,
+                &mut trial_locals,
+                &mut trial_indexes,
+                &mut trial_conditions,
+                helper_signatures,
+                static_bindings,
+            )?;
+            let rewritten = Stmt::If {
+                cond: rewritten_cond,
+                then_block: then_block.clone(),
+                else_block: else_block.clone(),
+                span: *span,
+            };
+            setup.push(lower_i64_runtime_stmt(
+                &rewritten,
+                &mut trial_locals,
+                trial_indexes,
+                trial_conditions,
+                helper_signatures,
+                static_bindings,
+                allow_stdio_effects,
+            )?);
+            *locals = trial_locals;
+            Some(setup)
+        }
+        Stmt::While { cond, body, span } => {
+            let mut trial_locals = locals.clone();
+            let mut trial_indexes = local_indexes;
+            let mut trial_conditions = local_conditions;
+            let (rewritten_cond, mut setup) = rewrite_i64_helper_call_aggregate_condition_expr(
+                cond,
+                &mut trial_locals,
+                &mut trial_indexes,
+                &mut trial_conditions,
+                helper_signatures,
+                static_bindings,
+            )?;
+            let rewritten = Stmt::While {
+                cond: rewritten_cond,
+                body: body.clone(),
+                span: *span,
+            };
+            setup.push(lower_i64_runtime_stmt(
+                &rewritten,
+                &mut trial_locals,
+                trial_indexes,
+                trial_conditions,
+                helper_signatures,
+                static_bindings,
+                allow_stdio_effects,
+            )?);
+            *locals = trial_locals;
+            Some(setup)
+        }
+        _ => None,
+    }
+}
+
+fn rewrite_i64_helper_call_aggregate_condition_expr(
+    expr: &Expr,
+    locals: &mut Vec<CraneliftI64Expr>,
+    local_indexes: &mut HashMap<String, usize>,
+    local_conditions: &mut HashMap<String, CraneliftI64Condition>,
+    helper_signatures: &HashMap<&str, I64HelperSignature>,
+    static_bindings: &I64StaticBindings,
+) -> Option<(Expr, Vec<CraneliftI64Stmt>)> {
+    let mut setup = Vec::new();
+    let mut rewrote = false;
+    let rewritten = rewrite_i64_helper_call_aggregate_condition_expr_inner(
+        expr,
+        0,
+        locals,
+        local_indexes,
+        local_conditions,
+        helper_signatures,
+        static_bindings,
+        &mut setup,
+        &mut rewrote,
+    )?;
+    rewrote.then_some((rewritten, setup))
+}
+
+#[allow(clippy::too_many_arguments)]
+fn rewrite_i64_helper_call_aggregate_condition_expr_inner(
+    expr: &Expr,
+    arg_index: usize,
+    locals: &mut Vec<CraneliftI64Expr>,
+    local_indexes: &mut HashMap<String, usize>,
+    local_conditions: &mut HashMap<String, CraneliftI64Condition>,
+    helper_signatures: &HashMap<&str, I64HelperSignature>,
+    static_bindings: &I64StaticBindings,
+    setup: &mut Vec<CraneliftI64Stmt>,
+    rewrote: &mut bool,
+) -> Option<Expr> {
+    if let Some((rewritten, mut assigns)) = rewrite_i64_nested_aggregate_call_arg(
+        expr,
+        arg_index,
+        locals,
+        local_indexes,
+        local_conditions,
+        helper_signatures,
+        static_bindings,
+    ) {
+        setup.append(&mut assigns);
+        *rewrote = true;
+        return Some(rewritten);
+    }
+
+    match expr {
+        Expr::Call { name, args, ty } => {
+            let mut rewritten_args = Vec::with_capacity(args.len());
+            for (index, arg) in args.iter().enumerate() {
+                rewritten_args.push(rewrite_i64_helper_call_aggregate_condition_expr_inner(
+                    arg,
+                    index,
+                    locals,
+                    local_indexes,
+                    local_conditions,
+                    helper_signatures,
+                    static_bindings,
+                    setup,
+                    rewrote,
+                )?);
+            }
+            Some(Expr::Call {
+                name: name.clone(),
+                args: rewritten_args,
+                ty: ty.clone(),
+            })
+        }
+        Expr::BinaryCompare { op, lhs, rhs, ty } => Some(Expr::BinaryCompare {
+            op: *op,
+            lhs: Box::new(rewrite_i64_helper_call_aggregate_condition_expr_inner(
+                lhs,
+                arg_index,
+                locals,
+                local_indexes,
+                local_conditions,
+                helper_signatures,
+                static_bindings,
+                setup,
+                rewrote,
+            )?),
+            rhs: Box::new(rewrite_i64_helper_call_aggregate_condition_expr_inner(
+                rhs,
+                arg_index + 1,
+                locals,
+                local_indexes,
+                local_conditions,
+                helper_signatures,
+                static_bindings,
+                setup,
+                rewrote,
+            )?),
+            ty: ty.clone(),
+        }),
+        Expr::BinaryLogic { op, lhs, rhs, ty } => Some(Expr::BinaryLogic {
+            op: *op,
+            lhs: Box::new(rewrite_i64_helper_call_aggregate_condition_expr_inner(
+                lhs,
+                arg_index,
+                locals,
+                local_indexes,
+                local_conditions,
+                helper_signatures,
+                static_bindings,
+                setup,
+                rewrote,
+            )?),
+            rhs: Box::new(rewrite_i64_helper_call_aggregate_condition_expr_inner(
+                rhs,
+                arg_index + 1,
+                locals,
+                local_indexes,
+                local_conditions,
+                helper_signatures,
+                static_bindings,
+                setup,
+                rewrote,
+            )?),
+            ty: ty.clone(),
+        }),
+        Expr::BinaryAdd { op, lhs, rhs, ty } => Some(Expr::BinaryAdd {
+            op: *op,
+            lhs: Box::new(rewrite_i64_helper_call_aggregate_condition_expr_inner(
+                lhs,
+                arg_index,
+                locals,
+                local_indexes,
+                local_conditions,
+                helper_signatures,
+                static_bindings,
+                setup,
+                rewrote,
+            )?),
+            rhs: Box::new(rewrite_i64_helper_call_aggregate_condition_expr_inner(
+                rhs,
+                arg_index + 1,
+                locals,
+                local_indexes,
+                local_conditions,
+                helper_signatures,
+                static_bindings,
+                setup,
+                rewrote,
+            )?),
+            ty: ty.clone(),
+        }),
+        Expr::Cast { expr, ty } => Some(Expr::Cast {
+            expr: Box::new(rewrite_i64_helper_call_aggregate_condition_expr_inner(
+                expr,
+                arg_index,
+                locals,
+                local_indexes,
+                local_conditions,
+                helper_signatures,
+                static_bindings,
+                setup,
+                rewrote,
+            )?),
+            ty: ty.clone(),
+        }),
+        _ => Some(expr.clone()),
+    }
 }
 
 fn lower_i64_aggregate_local_assign_stmts(
