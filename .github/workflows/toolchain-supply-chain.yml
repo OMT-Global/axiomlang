@@ -49,17 +49,15 @@ jobs:
 
       - name: Ensure Rust linker availability
         run: |
-          rust_lld="$(rustc --print sysroot)/lib/rustlib/$(rustc -vV | awk '/^host:/ { print $2 }')/bin/rust-lld"
+          host_triple="$(rustc -vV | awk '/^host:/ { print $2 }')"
+          rust_lld="$(rustc --print sysroot)/lib/rustlib/${host_triple}/bin/rust-lld"
+          cargo_linker_var="CARGO_TARGET_$(printf '%s' "$host_triple" | tr '[:lower:]-' '[:upper:]_')_LINKER"
 
           for candidate in cc gcc clang; do
             if command -v "$candidate" >/dev/null 2>&1; then
               exit 0
             fi
           done
-
-          if [[ -x "$rust_lld" ]]; then
-            exit 0
-          fi
 
           if command -v apt-get >/dev/null 2>&1; then
             apt_cache="${RUNNER_TEMP:-/tmp}/axiom-supply-chain-apt-cache"
@@ -88,6 +86,10 @@ jobs:
           done
 
           if [[ -x "$rust_lld" ]]; then
+            {
+              printf '%s=%s\n' "$cargo_linker_var" "$rust_lld"
+              printf 'RUSTFLAGS=-C linker=%s\n' "$rust_lld"
+            } >> "$GITHUB_ENV"
             exit 0
           fi
 
