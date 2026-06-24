@@ -719,12 +719,16 @@ local `Option<string>` facts that are matched later in the same body.
 Pre-runtime local map bindings initialized from inline map literals can feed the
 same `get_or_default`, `map_contains_key`, and `get` lowering, and
 `len(keys(...))`/`len(map_keys(...))` can count static map keys without
-materializing a runtime key array. Static scalar integer and boolean keys can
-also feed inline and pre-runtime map lookup, contains, and get-or-default
-lowering. Imported public `std/collections.ax` `contains`, `get`,
-`get_or_default`, and `keys` map wrappers now alias the same direct-native i64
-lowering for static string/int map-local cases. Literal indexes into static
-string key arrays can also feed known string length
+materializing a runtime key array. Runtime branch-local map literals can now
+feed the same known `get`, `get_or_default`, `map_contains_key`, and
+`keys(...)` result paths into outer scalar, boolean, string-length, and
+key-count locals without materializing a general map runtime value. Static
+scalar integer and boolean keys can also feed inline and pre-runtime map
+lookup, contains, and get-or-default lowering. Imported public
+`std/collections.ax` `contains`, `get`, `get_or_default`, and `keys` map
+wrappers now alias the same direct-native i64 lowering for static string/int
+map-local cases. Literal indexes into static string key arrays can also feed
+known string length
 lowering, and non-literal scalar indexes into those static string key arrays can
 select among known key byte lengths. Dynamic key-array value projection locals
 whose index is derived from a prior collection predicate local can also feed
