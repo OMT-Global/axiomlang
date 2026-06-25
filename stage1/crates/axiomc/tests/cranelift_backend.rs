@@ -4250,6 +4250,46 @@ fn cranelift_backend_lowers_static_bool_map_keys_to_runtime_exit_code() {
 
 #[cfg(not(windows))]
 #[test]
+fn cranelift_backend_lowers_map_branch_local_lookups_to_runtime_exit_code() {
+    if which::which("cc").is_err() {
+        eprintln!("skipping cranelift backend smoke test because cc is unavailable");
+        return;
+    }
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("map-branch-local-lookups-main-exit");
+    write_map_branch_local_lookups_main_exit_project(&project);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args([
+            "build",
+            project.to_str().expect("project path"),
+            "--backend",
+            "cranelift",
+            "--json",
+        ])
+        .output()
+        .expect("run axiomc build --backend cranelift");
+    assert!(
+        output.status.success(),
+        "cranelift map branch local lookups main build failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+    assert_eq!(payload["backend"], "cranelift");
+    assert_eq!(payload["generated_rust"], Value::Null);
+    let binary = payload["binary"].as_str().expect("binary path");
+    let run = Command::new(binary)
+        .output()
+        .expect("run cranelift map branch local lookups main binary");
+    assert_eq!(run.status.code(), Some(48));
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "");
+}
+
+#[cfg(not(windows))]
+#[test]
 fn cranelift_backend_lowers_std_collection_wrappers_to_runtime_exit_code() {
     if which::which("cc").is_err() {
         eprintln!("skipping cranelift backend smoke test because cc is unavailable");
@@ -8877,7 +8917,7 @@ fn write_bool_returning_main_exit_project(project: &Path) {
     .expect("write bool returning main exit lockfile");
     fs::write(
         project.join("src/main.ax"),
-        "static ENABLED: bool = true\n\nfn is_answer(enabled: bool, value: int): bool {\nreturn enabled == true && value == 42\n}\n\nfn choose(flag: bool, lhs: bool, rhs: bool): bool {\nif flag {\nreturn lhs\n} else {\nreturn rhs\n}\n}\n\nfn both(lhs: bool, rhs: bool): bool {\nreturn lhs && rhs\n}\n\nfn main(): bool {\nlet lhs: int = 41\nlet rhs: int = 1\nlet matches: bool = is_answer(true, lhs + rhs)\nlet blocked: bool = is_answer(false, 42)\nlet exact: bool = lhs + rhs == 42\nlet forwarded: bool = both(matches, exact)\nlet chosen: bool = choose(matches, forwarded, blocked)\nlet same: bool = matches == exact\nlet differs: bool = chosen != blocked\nreturn same && differs && chosen == ENABLED && blocked == false\n}\n",
+        "static ENABLED: bool = true\n\nfn is_answer(enabled: bool, value: int): bool {\nreturn enabled == true && value == 42\n}\n\nfn choose(flag: bool, lhs: bool, rhs: bool): bool {\nif flag {\nreturn lhs\n} else {\nreturn rhs\n}\n}\n\nfn both(lhs: bool, rhs: bool): bool {\nreturn lhs && rhs\n}\n\nfn main(): bool {\nlet lhs: int = 41\nlet rhs: int = 1\nlet matches: bool = is_answer(true, lhs + rhs)\nlet blocked: bool = is_answer(false, 42)\nlet exact: bool = lhs + rhs == 42\nlet forwarded: bool = both(matches, exact)\nlet chosen: bool = choose(matches, forwarded, blocked)\nlet same: bool = matches == exact\nlet differs: bool = chosen != blocked\nlet composite_blocked: bool = (matches && blocked) == false\nlet fallback_blocked: bool = (blocked || false) == false\nreturn same && differs && composite_blocked && fallback_blocked && chosen == ENABLED && blocked == false\n}\n",
     )
     .expect("write bool returning main exit source");
 }
@@ -10607,6 +10647,65 @@ fn write_static_bool_map_keys_main_exit_project(project: &Path) {
         "static ENABLED: bool = true\nstatic DISABLED: bool = false\n\nfn main(): int {\nlet static_hit: int = get_or_default<bool, int>({DISABLED: 7, ENABLED: 29}, ENABLED, 13)\nlet static_contains: bool = map_contains_key<bool, int>({DISABLED: 7, ENABLED: 29}, DISABLED)\nlet static_missing: bool = map_contains_key<bool, int>({DISABLED: 7}, ENABLED) == false\nlet direct_bool_hit: bool = match get<bool, bool>({DISABLED: false, ENABLED: true}, ENABLED) { Some(value) => value, None => false }\nlet direct_bool_miss: bool = match get<bool, bool>({DISABLED: true}, ENABLED) { Some(value) => false, None => true }\nlet local_hit: Option<int> = get<bool, int>({DISABLED: 7, ENABLED: 29}, ENABLED)\nlet local_miss: Option<int> = get<bool, int>({DISABLED: 7}, ENABLED)\nlet local_hit_code: int = match local_hit { Some(value) => value, None => 1 }\nlet local_miss_code: int = match local_miss { Some(value) => value, None => 13 }\nif static_hit == 29 && static_contains && static_missing && direct_bool_hit && direct_bool_miss && local_hit_code == 29 && local_miss_code == 13 {\nreturn 48\n} else {\nreturn 1\n}\n}\n",
     )
     .expect("write static bool map keys source");
+}
+
+fn write_map_branch_local_lookups_main_exit_project(project: &Path) {
+    fs::create_dir_all(project.join("src")).expect("create map branch local lookup project src");
+    fs::write(
+        project.join("axiom.toml"),
+        "[package]\nname = \"cranelift-map-branch-local-lookups-main-exit\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n",
+    )
+    .expect("write map branch local lookup manifest");
+    fs::write(
+        project.join("axiom.lock"),
+        "version = 1\n\n[[package]]\nname = \"cranelift-map-branch-local-lookups-main-exit\"\nversion = \"0.1.0\"\nsource = \"path\"\n",
+    )
+    .expect("write map branch local lookup lockfile");
+    fs::write(
+        project.join("src/main.ax"),
+        r#"fn main(): int {
+let direct_code: int = 1
+let matched_code: int = 1
+let default_code: int = 1
+let contains: bool = false
+let label_len: int = 1
+let flag: bool = false
+let key_count: int = 1
+let gate: bool = true
+if gate {
+let direct_selected: {string: int} = {"build": 7, "deploy": 48}
+let matched_selected: {string: int} = {"build": 7, "deploy": 48}
+let default_selected: {string: int} = {"build": 7, "deploy": 48}
+let contains_selected: {string: int} = {"build": 7, "deploy": 48}
+let keys_selected: {string: int} = {"build": 7, "deploy": 48}
+let labels: {string: string} = {"deploy": "ship", "build": "forge"}
+let flags: {string: bool} = {"deploy": true, "build": false}
+direct_code = match get<string, int>(direct_selected, "deploy") { Some(value) => value, None => 1 }
+matched_code = match get<string, int>(matched_selected, "deploy") { Some(value) => value, None => 13 }
+default_code = get_or_default<string, int>(default_selected, "missing", 49)
+contains = map_contains_key<string, int>(contains_selected, "deploy")
+label_len = match get<string, string>(labels, "deploy") { Some(value) => len(value), None => 1 }
+flag = match get<string, bool>(flags, "deploy") { Some(value) => value, None => false }
+let names: [string] = keys<string, int>(keys_selected)
+key_count = len(names)
+} else {
+direct_code = 1
+matched_code = 1
+default_code = 1
+contains = false
+label_len = 1
+flag = false
+key_count = 1
+}
+if direct_code == 48 && matched_code == 48 && default_code == 49 && contains && label_len == 4 && flag && key_count == 2 {
+return direct_code
+} else {
+return 1
+}
+}
+"#,
+    )
+    .expect("write map branch local lookup source");
 }
 
 fn write_std_collection_lookup_project(project: &Path) {

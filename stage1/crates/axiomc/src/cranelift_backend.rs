@@ -1340,9 +1340,8 @@ fn lower_i64_aggregate_return_body(
                 expr: Expr::MapLiteral { entries, .. },
                 ..
             } if !seen_runtime_stmt => {
-                static_bindings
-                    .map_literals
-                    .insert(name.clone(), entries.clone());
+                let entries = i64_static_map_literal_entries(entries, static_bindings)?;
+                static_bindings.map_literals.insert(name.clone(), entries);
             }
             Stmt::Let {
                 name,
@@ -2599,9 +2598,8 @@ fn lower_i64_body(
                 expr: Expr::MapLiteral { entries, .. },
                 ..
             } if !seen_runtime_stmt => {
-                static_bindings
-                    .map_literals
-                    .insert(name.clone(), entries.clone());
+                let entries = i64_static_map_literal_entries(entries, static_bindings)?;
+                static_bindings.map_literals.insert(name.clone(), entries);
             }
             Stmt::Let {
                 name,
@@ -3506,6 +3504,12 @@ fn lower_i64_runtime_stmts(
     for stmt in stmts {
         if matches!(stmt, Stmt::Let { .. }) {
             if record_i64_known_string_let(stmt, static_bindings).unwrap_or(false) {
+                continue;
+            }
+            if record_i64_known_map_let(stmt, static_bindings).unwrap_or(false) {
+                continue;
+            }
+            if record_i64_known_map_key_array_let(stmt, static_bindings).unwrap_or(false) {
                 continue;
             }
             lowered.extend(lower_i64_runtime_let_stmts(
@@ -6265,6 +6269,12 @@ fn lower_i64_return_block(
                 if record_i64_known_string_let(stmt, static_bindings).unwrap_or(false) {
                     continue;
                 }
+                if record_i64_known_map_let(stmt, static_bindings).unwrap_or(false) {
+                    continue;
+                }
+                if record_i64_known_map_key_array_let(stmt, static_bindings).unwrap_or(false) {
+                    continue;
+                }
                 stmts.extend(lower_i64_runtime_let_stmts(
                     stmt,
                     locals,
@@ -6328,6 +6338,82 @@ fn record_i64_known_string_let(
         return Some(false);
     };
     static_bindings.strings.insert(name.clone(), text);
+    Some(true)
+}
+
+fn record_i64_known_map_let(stmt: &Stmt, static_bindings: &mut I64StaticBindings) -> Option<bool> {
+    let Stmt::Let {
+        name,
+        ty: Type::Map(_, _),
+        expr: Expr::MapLiteral { entries, .. },
+        ..
+    } = stmt
+    else {
+        return None;
+    };
+    let Some(entries) = i64_static_map_literal_entries(entries, static_bindings) else {
+        return Some(false);
+    };
+    static_bindings.map_literals.insert(name.clone(), entries);
+    Some(true)
+}
+
+fn i64_static_map_literal_entries(
+    entries: &[MapEntry],
+    static_bindings: &I64StaticBindings,
+) -> Option<Vec<MapEntry>> {
+    entries
+        .iter()
+        .map(|entry| {
+            Some(MapEntry {
+                key: i64_static_map_key_literal_expr(&entry.key, static_bindings)?,
+                value: i64_static_map_value_literal_expr(&entry.value, static_bindings)?,
+            })
+        })
+        .collect()
+}
+
+fn i64_static_map_key_literal_expr(
+    expr: &Expr,
+    static_bindings: &I64StaticBindings,
+) -> Option<Expr> {
+    Some(match lower_i64_map_key_expr(expr, static_bindings)? {
+        I64MapKey::Int(value) => Expr::Literal(LiteralValue::Int(value)),
+        I64MapKey::Bool(value) => Expr::Literal(LiteralValue::Bool(value)),
+        I64MapKey::Text(value) => Expr::Literal(LiteralValue::String(value)),
+    })
+}
+
+fn i64_static_map_value_literal_expr(
+    expr: &Expr,
+    static_bindings: &I64StaticBindings,
+) -> Option<Expr> {
+    if let Some(value) = i64_static_scalar_value(expr, static_bindings) {
+        return Some(Expr::Literal(LiteralValue::Int(value)));
+    }
+    if let Some(value) = i64_static_bool_value(expr, static_bindings) {
+        return Some(Expr::Literal(LiteralValue::Bool(value)));
+    }
+    i64_string_text(expr, static_bindings).map(|value| Expr::Literal(LiteralValue::String(value)))
+}
+
+fn record_i64_known_map_key_array_let(
+    stmt: &Stmt,
+    static_bindings: &mut I64StaticBindings,
+) -> Option<bool> {
+    let Stmt::Let {
+        name,
+        ty: Type::Array(_, None),
+        expr,
+        ..
+    } = stmt
+    else {
+        return None;
+    };
+    let Some(keys) = i64_map_keys_expr(expr, static_bindings) else {
+        return Some(false);
+    };
+    static_bindings.map_key_arrays.insert(name.clone(), keys);
     Some(true)
 }
 
@@ -10582,7 +10668,14 @@ fn invert_i64_simple_condition(condition: CraneliftI64Condition) -> Option<Crane
                 rhs: compare.rhs,
             }))
         }
-        CraneliftI64Condition::And { .. } | CraneliftI64Condition::Or { .. } => None,
+        CraneliftI64Condition::And { lhs, rhs } => Some(CraneliftI64Condition::Or {
+            lhs: Box::new(invert_i64_simple_condition(*lhs)?),
+            rhs: Box::new(invert_i64_simple_condition(*rhs)?),
+        }),
+        CraneliftI64Condition::Or { lhs, rhs } => Some(CraneliftI64Condition::And {
+            lhs: Box::new(invert_i64_simple_condition(*lhs)?),
+            rhs: Box::new(invert_i64_simple_condition(*rhs)?),
+        }),
     }
 }
 
@@ -19504,8 +19597,9 @@ fn http_get(url: &str) -> Option<String> {
         return None;
     }
     let request = http_request(&host, &path);
+    let addrs = resolve_public_socket_addrs(host.as_str(), port)?;
     let mut stream = None;
-    for addr in (host.as_str(), port).to_socket_addrs().ok()? {
+    for addr in addrs {
         if let Ok(candidate) =
             std::net::TcpStream::connect_timeout(&addr, std::time::Duration::from_secs(5))
         {
@@ -19522,6 +19616,47 @@ fn http_get(url: &str) -> Option<String> {
         .ok()?;
     stream.write_all(request.as_bytes()).ok()?;
     http_read_response(&mut stream)
+}
+
+fn resolve_public_socket_addrs(host: &str, port: u16) -> Option<Vec<std::net::SocketAddr>> {
+    let addrs: Vec<std::net::SocketAddr> = (host, port).to_socket_addrs().ok()?.collect();
+    if addrs.is_empty() || addrs.iter().any(|addr| is_blocked_network_ip(addr.ip())) {
+        return None;
+    }
+    Some(addrs)
+}
+
+fn is_blocked_network_ip(ip: std::net::IpAddr) -> bool {
+    match ip {
+        std::net::IpAddr::V4(addr) => {
+            let octets = addr.octets();
+            addr.is_private()
+                || addr.is_loopback()
+                || addr.is_link_local()
+                || addr.is_unspecified()
+                || addr.is_broadcast()
+                || addr.is_multicast()
+                || octets[0] == 0
+                || (octets[0] == 100 && (64..=127).contains(&octets[1]))
+                || (octets[0] == 192 && octets[1] == 0 && octets[2] == 0)
+                || (octets[0] == 192 && octets[1] == 0 && octets[2] == 2)
+                || (octets[0] == 198 && (18..=19).contains(&octets[1]))
+                || (octets[0] == 198 && octets[1] == 51 && octets[2] == 100)
+                || (octets[0] == 203 && octets[1] == 0 && octets[2] == 113)
+        }
+        std::net::IpAddr::V6(addr) => {
+            if let Some(mapped) = addr.to_ipv4_mapped() {
+                return is_blocked_network_ip(std::net::IpAddr::V4(mapped));
+            }
+            let segments = addr.segments();
+            addr.is_loopback()
+                || addr.is_unspecified()
+                || addr.is_multicast()
+                || (segments[0] & 0xfe00) == 0xfc00
+                || (segments[0] & 0xffc0) == 0xfe80
+                || (segments[0] == 0x2001 && segments[1] == 0x0db8)
+        }
+    }
 }
 
 fn http_strip_crlf(value: &str) -> String {
@@ -21819,6 +21954,64 @@ mod tests {
     }
 
     #[test]
+    fn static_map_literal_entries_snapshot_static_var_values() {
+        let mut static_bindings = I64StaticBindings::default();
+        static_bindings
+            .values
+            .insert(String::from("code"), CraneliftI64Expr::Literal(7));
+        let entries = vec![MapEntry {
+            key: Expr::Literal(LiteralValue::String(String::from("deploy"))),
+            value: Expr::VarRef {
+                name: String::from("code"),
+                ty: Type::Int,
+            },
+        }];
+
+        let recorded =
+            i64_static_map_literal_entries(&entries, &static_bindings).expect("static map entries");
+
+        static_bindings
+            .values
+            .insert(String::from("code"), CraneliftI64Expr::Literal(48));
+        static_bindings
+            .map_literals
+            .insert(String::from("codes"), recorded);
+
+        assert_eq!(
+            lower_i64_map_get_or_default_expr(
+                "get_or_default",
+                &[
+                    Expr::VarRef {
+                        name: String::from("codes"),
+                        ty: Type::Map(Box::new(Type::String), Box::new(Type::Int)),
+                    },
+                    Expr::Literal(LiteralValue::String(String::from("deploy"))),
+                    Expr::Literal(LiteralValue::Int(0)),
+                ],
+                &HashMap::new(),
+                &HashMap::new(),
+                &HashMap::new(),
+                &static_bindings,
+            ),
+            Some(CraneliftI64Expr::Literal(7))
+        );
+
+        assert_eq!(
+            i64_static_map_literal_entries(
+                &[MapEntry {
+                    key: Expr::Literal(LiteralValue::String(String::from("deploy"))),
+                    value: Expr::VarRef {
+                        name: String::from("runtime_code"),
+                        ty: Type::Int,
+                    },
+                }],
+                &I64StaticBindings::default(),
+            ),
+            None
+        );
+    }
+
+    #[test]
     fn fs_read_folding_is_disabled_when_program_writes() {
         let mut static_bindings = I64StaticBindings::default();
         static_bindings.fs_root = Some(PathBuf::from("."));
@@ -21845,6 +22038,50 @@ mod tests {
             spike_fs_write_candidate_for_root(root, "dangling.txt", false),
             None
         );
+    }
+
+    #[test]
+    fn cranelift_http_resolver_rejects_blocked_network_addresses() {
+        for ip in [
+            "0.0.0.0",
+            "10.0.0.1",
+            "100.64.0.1",
+            "127.0.0.1",
+            "169.254.169.254",
+            "172.16.0.1",
+            "192.0.2.1",
+            "192.168.0.1",
+            "198.18.0.1",
+            "198.51.100.1",
+            "203.0.113.1",
+            "224.0.0.1",
+            "::",
+            "::1",
+            "::ffff:127.0.0.1",
+            "fc00::1",
+            "fe80::1",
+            "2001:db8::1",
+        ] {
+            assert!(
+                is_blocked_network_ip(ip.parse().expect("valid IP literal")),
+                "{ip} should be blocked"
+            );
+        }
+
+        assert!(
+            resolve_public_socket_addrs("127.0.0.1", 80).is_none(),
+            "loopback HTTP targets must not be reachable during Cranelift folding"
+        );
+    }
+
+    #[test]
+    fn cranelift_http_resolver_allows_public_addresses() {
+        for ip in ["1.1.1.1", "8.8.8.8", "2001:4860:4860::8888"] {
+            assert!(
+                !is_blocked_network_ip(ip.parse().expect("valid IP literal")),
+                "{ip} should be allowed"
+            );
+        }
     }
 
     #[test]

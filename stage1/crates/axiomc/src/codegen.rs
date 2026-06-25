@@ -139,6 +139,31 @@ mod tests {
     }
 
     #[test]
+    fn generated_rust_crypto_random_helpers_fail_closed_on_rng_errors() {
+        let program = Program {
+            path: String::from("crypto-random-fail-closed"),
+            functions: vec![],
+            structs: vec![],
+            enums: vec![],
+            statics: vec![],
+            stmts: vec![],
+        };
+
+        let rendered = render_generated_rust(&GeneratedRustBackendInput::from_mir(program));
+
+        assert!(rendered.contains(
+            "axiom_runtime_error(\"crypto\", \"crypto_rand_bytes failed to obtain secure random bytes\")"
+        ));
+        assert!(rendered.contains(
+            "axiom_runtime_error(\"crypto\", \"crypto_rand_u64 failed to obtain secure random bytes\")"
+        ));
+        assert!(!rendered.contains("output.clear();"));
+        assert!(!rendered.contains(
+            "        0\n    }\n}\n\n#[allow(dead_code)]\nfn axiom_crypto_ed25519_keygen"
+        ));
+    }
+
+    #[test]
     fn generated_rust_backend_reports_internal_diagnostic_for_invalid_mir_shape() {
         let program = Program {
             path: String::from("invalid-mir"),
@@ -4096,14 +4121,13 @@ fn axiom_crypto_rand_bytes(n: i64) -> Vec<u8> {
         return Vec::new();
     }
     let mut output = vec![0u8; n as usize];
-    let status = if axiom_crypto_fill_random_bytes(&mut output) {
-        "ok"
+    if axiom_crypto_fill_random_bytes(&mut output) {
+        axiom_capability_audit("crypto_rand_bytes", "crypto", &arg_summary, "ok");
+        output
     } else {
-        output.clear();
-        "error"
-    };
-    axiom_capability_audit("crypto_rand_bytes", "crypto", &arg_summary, status);
-    output
+        axiom_capability_audit("crypto_rand_bytes", "crypto", &arg_summary, "error");
+        axiom_runtime_error("crypto", "crypto_rand_bytes failed to obtain secure random bytes")
+    }
 }
 
 #[allow(dead_code)]
@@ -4114,7 +4138,7 @@ fn axiom_crypto_rand_u64() -> u64 {
         u64::from_ne_bytes(output)
     } else {
         axiom_capability_audit("crypto_rand_u64", "crypto", "n=8", "error");
-        0
+        axiom_runtime_error("crypto", "crypto_rand_u64 failed to obtain secure random bytes")
     }
 }
 
