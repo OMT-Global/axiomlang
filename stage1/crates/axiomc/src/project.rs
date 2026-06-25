@@ -8769,6 +8769,25 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn optional_test_expected_stream_rejects_broken_symlink() {
+        let dir = tempdir().unwrap_or_else(|err| panic!("tempdir: {err}"));
+        let root = dir.path();
+        let link = root.join("main_test.stdout");
+        std::os::unix::fs::symlink(root.join("missing.stdout"), &link)
+            .unwrap_or_else(|err| panic!("broken symlink golden: {err}"));
+
+        let error = match read_optional_test_expected_stream(root, &link, "stdout fixture") {
+            Ok(_) => panic!("broken symlinked expected stream was treated as optional missing"),
+            Err(error) => error,
+        };
+
+        assert_eq!(error.kind, "test");
+        assert_eq!(error.path, Some(link.display().to_string()));
+        assert!(error.message.contains("not symlinks"));
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn load_module_rejects_symlinked_import_outside_package() {
         let dir = tempdir().unwrap_or_else(|err| panic!("tempdir: {err}"));
         let package_dir = dir.path().join("package");
