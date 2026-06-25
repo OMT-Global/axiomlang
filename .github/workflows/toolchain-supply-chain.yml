@@ -105,15 +105,16 @@ jobs:
           if [[ "$install_version" =~ ^[0-9]+[.][0-9]+$ ]]; then
             install_version="${install_version}.0"
           fi
+          if [[ "$install_version" == "0.10.0" ]]; then
+            install_version="0.10.2"
+          fi
 
           installed_version=""
           if command -v cargo-vet >/dev/null 2>&1; then
             installed_version="$(cargo-vet --version || true)"
           fi
 
-          if [[ "$installed_version" != "cargo-vet ${required_version}" &&
-                "$installed_version" != "cargo-vet ${required_version}."* &&
-                "$installed_version" != "cargo-vet ${install_version}" ]]; then
+          if [[ "$installed_version" != "cargo-vet ${install_version}" ]]; then
             cargo install cargo-vet --version "$install_version" --locked --force
           fi
       - name: Run supply-chain checks
