@@ -23109,17 +23109,22 @@ mod tests {
                     span: crate::mir::SourceSpan { line: 5, column: 1 },
                 },
                 Stmt::Print {
-                    expr: Expr::Call {
-                        name: String::from("bump_first"),
-                        args: vec![Expr::Slice {
-                            base: Box::new(Expr::VarRef {
-                                name: String::from("values"),
-                                ty: int_array.clone(),
-                            }),
-                            start: None,
-                            end: None,
-                            ty: mut_int_slice,
-                        }],
+                    expr: Expr::BinaryAdd {
+                        op: ArithmeticOp::Add,
+                        lhs: Box::new(Expr::Call {
+                            name: String::from("bump_first"),
+                            args: vec![Expr::Slice {
+                                base: Box::new(Expr::VarRef {
+                                    name: String::from("values"),
+                                    ty: int_array.clone(),
+                                }),
+                                start: None,
+                                end: None,
+                                ty: mut_int_slice,
+                            }],
+                            ty: Type::Int,
+                        }),
+                        rhs: Box::new(Expr::Literal(LiteralValue::Int(1))),
                         ty: Type::Int,
                     },
                     span: crate::mir::SourceSpan { line: 6, column: 1 },
@@ -23141,7 +23146,7 @@ mod tests {
         assert_eq!(
             collect_output_lines(&program, Path::new("."), Path::new("."), None)
                 .expect("fold mutable slice call writeback"),
-            vec![OutputLine::stdout("6"), OutputLine::stdout("6")]
+            vec![OutputLine::stdout("7"), OutputLine::stdout("6")]
         );
     }
 
