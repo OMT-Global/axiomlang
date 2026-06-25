@@ -15973,6 +15973,11 @@ fn eval_expr_effectful(
 ) -> Result<SpikeValue, Diagnostic> {
     match expr {
         Expr::Call { name, args, .. } => eval_call_effectful(name, args, functions, env, lines),
+        Expr::BinaryAdd { op, lhs, rhs, ty } => {
+            let left = eval_expr_effectful(lhs, functions, env, lines)?;
+            let right = eval_expr_effectful(rhs, functions, env, lines)?;
+            eval_arithmetic_values(*op, ty, left, right)
+        }
         _ => eval_expr(expr, functions, env, lines),
     }
 }
@@ -21470,6 +21475,15 @@ fn eval_arithmetic(
 ) -> Result<SpikeValue, Diagnostic> {
     let left = eval_expr(lhs, functions, env, lines)?;
     let right = eval_expr(rhs, functions, env, lines)?;
+    eval_arithmetic_values(op, ty, left, right)
+}
+
+fn eval_arithmetic_values(
+    op: ArithmeticOp,
+    ty: &Type,
+    left: SpikeValue,
+    right: SpikeValue,
+) -> Result<SpikeValue, Diagnostic> {
     match (ty, left, right) {
         (Type::Int, SpikeValue::Int(left), SpikeValue::Int(right)) => {
             let value = match op {
@@ -22371,6 +22385,133 @@ mod tests {
         assert_eq!(
             collect_output_lines(&program, Path::new("."), Path::new("."))
                 .expect("fold mutable slice call writeback"),
+            vec![OutputLine::stdout("6"), OutputLine::stdout("6")]
+        );
+    }
+
+    #[test]
+    fn folds_nested_mutable_slice_call_writeback_into_print_lines() {
+        let int_array = Type::Array(Box::new(Type::Int), None);
+        let mut_int_slice = Type::MutSlice(Box::new(Type::Int));
+        let program = Program {
+            path: String::from("nested-mut-slice-call"),
+            structs: vec![],
+            enums: vec![],
+            statics: vec![],
+            functions: vec![Function {
+                name: String::from("bump_first"),
+                source_name: String::from("bump_first"),
+                path: String::from("nested-mut-slice-call"),
+                params: vec![crate::mir::Param {
+                    name: String::from("values"),
+                    ty: mut_int_slice.clone(),
+                }],
+                return_ty: Type::Int,
+                body: vec![
+                    Stmt::Assign {
+                        target: Expr::Index {
+                            base: Box::new(Expr::VarRef {
+                                name: String::from("values"),
+                                ty: mut_int_slice.clone(),
+                            }),
+                            index: Box::new(Expr::Literal(LiteralValue::Int(0))),
+                            ty: Type::Int,
+                        },
+                        expr: Expr::BinaryAdd {
+                            op: ArithmeticOp::Add,
+                            lhs: Box::new(Expr::Call {
+                                name: String::from("first"),
+                                args: vec![Expr::VarRef {
+                                    name: String::from("values"),
+                                    ty: mut_int_slice.clone(),
+                                }],
+                                ty: Type::Int,
+                            }),
+                            rhs: Box::new(Expr::Literal(LiteralValue::Int(1))),
+                            ty: Type::Int,
+                        },
+                        span: crate::mir::SourceSpan { line: 2, column: 1 },
+                    },
+                    Stmt::Return {
+                        expr: Expr::Call {
+                            name: String::from("first"),
+                            args: vec![Expr::VarRef {
+                                name: String::from("values"),
+                                ty: mut_int_slice.clone(),
+                            }],
+                            ty: Type::Int,
+                        },
+                        span: crate::mir::SourceSpan { line: 3, column: 1 },
+                    },
+                ],
+                is_property: false,
+                is_async: false,
+                is_extern: false,
+                extern_abi: None,
+                extern_library: None,
+                line: 1,
+                column: 1,
+            }],
+            stmts: vec![
+                Stmt::Let {
+                    name: String::from("values"),
+                    ty: int_array.clone(),
+                    expr: Expr::ArrayLiteral {
+                        elements: vec![
+                            Expr::Literal(LiteralValue::Int(5)),
+                            Expr::Literal(LiteralValue::Int(8)),
+                        ],
+                        ty: int_array.clone(),
+                    },
+                    span: crate::mir::SourceSpan { line: 5, column: 1 },
+                },
+                Stmt::Let {
+                    name: String::from("result"),
+                    ty: Type::Int,
+                    expr: Expr::BinaryAdd {
+                        op: ArithmeticOp::Add,
+                        lhs: Box::new(Expr::Call {
+                            name: String::from("bump_first"),
+                            args: vec![Expr::Slice {
+                                base: Box::new(Expr::VarRef {
+                                    name: String::from("values"),
+                                    ty: int_array.clone(),
+                                }),
+                                start: None,
+                                end: None,
+                                ty: mut_int_slice,
+                            }],
+                            ty: Type::Int,
+                        }),
+                        rhs: Box::new(Expr::Literal(LiteralValue::Int(0))),
+                        ty: Type::Int,
+                    },
+                    span: crate::mir::SourceSpan { line: 6, column: 1 },
+                },
+                Stmt::Print {
+                    expr: Expr::VarRef {
+                        name: String::from("result"),
+                        ty: Type::Int,
+                    },
+                    span: crate::mir::SourceSpan { line: 7, column: 1 },
+                },
+                Stmt::Print {
+                    expr: Expr::Call {
+                        name: String::from("first"),
+                        args: vec![Expr::VarRef {
+                            name: String::from("values"),
+                            ty: int_array,
+                        }],
+                        ty: Type::Int,
+                    },
+                    span: crate::mir::SourceSpan { line: 8, column: 1 },
+                },
+            ],
+        };
+
+        assert_eq!(
+            collect_output_lines(&program, Path::new("."), Path::new("."))
+                .expect("fold nested mutable slice call writeback"),
             vec![OutputLine::stdout("6"), OutputLine::stdout("6")]
         );
     }
