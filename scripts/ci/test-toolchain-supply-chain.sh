@@ -33,6 +33,11 @@ grep -Fq 'cargo install cargo-vet --version "$install_version" --locked --force'
   exit 1
 }
 
+if grep -Fq '"$installed_version" != "cargo-vet ${required_version}."*' "$workflow"; then
+  echo "workflow must not reuse arbitrary cargo-vet patch versions for a shorthand config version" >&2
+  exit 1
+fi
+
 grep -Fq 'Ensure Rust linker availability' "$workflow" || {
   echo "workflow must provision a Rust linker before installing cargo-vet" >&2
   exit 1

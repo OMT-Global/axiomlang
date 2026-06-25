@@ -124,7 +124,6 @@ jobs:
           fi
 
           if [[ "$installed_version" != "cargo-vet ${required_version}" &&
-                "$installed_version" != "cargo-vet ${required_version}."* &&
                 "$installed_version" != "cargo-vet ${install_version}" ]]; then
             cargo install cargo-vet --version "$install_version" --locked --force
           fi
