@@ -1,8 +1,9 @@
 use cranelift_codegen::ir::{
-    AbiParam, BlockArg, FuncRef, InstBuilder, MemFlags, StackSlotData, StackSlotKind,
-    condcodes::IntCC, types,
+    AbiParam, ArgumentPurpose, BlockArg, FuncRef, InstBuilder, MemFlags, StackSlotData,
+    StackSlotKind, Value, condcodes::IntCC, types,
 };
 use cranelift_codegen::isa;
+use cranelift_codegen::isa::CallConv;
 use cranelift_codegen::settings::{self, Configurable};
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext, Variable};
 use cranelift_module::{DataDescription, FuncId, Linkage, Module, default_libcall_names};
@@ -14,6 +15,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 const I64_REALPATH_BUFFER_BYTES: u32 = 4096;
+pub const I64_STDIN_BUFFER_BYTES: u32 = 4096;
 const I64_TIMESPEC_BYTES: u32 = 16;
 const I64_TIMESPEC_SECONDS_OFFSET: i32 = 0;
 const I64_TIMESPEC_NANOS_OFFSET: i32 = 8;
@@ -122,6 +124,12 @@ pub enum I64Expr {
     },
     EnvLen {
         key: String,
+    },
+    StdinLen {
+        max_bytes: u32,
+    },
+    StdinLineLen {
+        max_bytes: u32,
     },
     AuditEnv {
         intrinsic: String,
@@ -1115,11 +1123,20 @@ fn declare_i64_functions(
         .enumerate()
         .map(|(index, function)| {
             let mut signature = module.make_signature();
+            signature.call_conv = CallConv::Fast;
+            if i64_function_uses_sret(function.returns) {
+                signature.params.push(AbiParam::special(
+                    module.target_config().pointer_type(),
+                    ArgumentPurpose::StructReturn,
+                ));
+            }
             for _ in 0..function.params {
                 signature.params.push(AbiParam::new(types::I64));
             }
-            for _ in 0..function.returns {
-                signature.returns.push(AbiParam::new(types::I64));
+            if !i64_function_uses_sret(function.returns) {
+                for _ in 0..function.returns {
+                    signature.returns.push(AbiParam::new(types::I64));
+                }
             }
             module
                 .declare_function(
@@ -1168,6 +1185,13 @@ fn define_i64_function(
     function: &I64Function,
 ) -> Result<(), CraneliftBackendError> {
     let mut context = module.make_context();
+    context.func.signature.call_conv = CallConv::Fast;
+    if i64_function_uses_sret(function.returns) {
+        context.func.signature.params.push(AbiParam::special(
+            module.target_config().pointer_type(),
+            ArgumentPurpose::StructReturn,
+        ));
+    }
     for _ in 0..function.params {
         context
             .func
@@ -1175,12 +1199,14 @@ fn define_i64_function(
             .params
             .push(AbiParam::new(types::I64));
     }
-    for _ in 0..function.returns {
-        context
-            .func
-            .signature
-            .returns
-            .push(AbiParam::new(types::I64));
+    if !i64_function_uses_sret(function.returns) {
+        for _ in 0..function.returns {
+            context
+                .func
+                .signature
+                .returns
+                .push(AbiParam::new(types::I64));
+        }
     }
     let function_id = *function_ids.get(index).ok_or_else(|| {
         CraneliftBackendError::new(format!("i64 helper function index {index} is out of range"))
@@ -1267,8 +1293,18 @@ fn define_i64_function(
                 }
             },
         };
+        let block_params = builder.block_params(block).to_vec();
+        let sret_ptr = if i64_function_uses_sret(function.returns) {
+            block_params.first().copied()
+        } else {
+            None
+        };
         let mut locals = Vec::new();
-        for param in builder.block_params(block).to_vec() {
+        for param in block_params
+            .iter()
+            .skip(usize::from(i64_function_uses_sret(function.returns)))
+            .copied()
+        {
             let local = builder.declare_var(types::I64);
             builder.def_var(local, param);
             locals.push(local);
@@ -1304,6 +1340,7 @@ fn define_i64_function(
             write_ref,
             output_data_ids,
             function.returns,
+            sret_ptr,
             &function.body,
         )?;
         builder.finalize();
@@ -1313,6 +1350,10 @@ fn define_i64_function(
         .map_err(|message| CraneliftBackendError::new(format!("define i64 helper: {message}")))?;
     module.clear_context(&mut context);
     Ok(())
+}
+
+fn i64_function_uses_sret(returns: usize) -> bool {
+    returns > 1
 }
 
 fn i64_function_refs(
@@ -1409,6 +1450,7 @@ fn emit_i64_stmt(
             args,
         } => emit_i64_call_assign(
             builder,
+            module.target_config().pointer_type(),
             locals,
             function_refs,
             runtime_refs,
@@ -1771,6 +1813,7 @@ fn emit_i64_assign(
 
 fn emit_i64_call_assign(
     builder: &mut FunctionBuilder<'_>,
+    pointer_type: types::Type,
     locals: &[Variable],
     function_refs: &[FuncRef],
     runtime_refs: I64RuntimeRefs,
@@ -1785,6 +1828,35 @@ fn emit_i64_call_assign(
         .iter()
         .map(|arg| emit_i64_expr(builder, locals, function_refs, runtime_refs, arg))
         .collect::<Result<Vec<_>, _>>()?;
+    if i64_function_uses_sret(assign_locals.len()) {
+        let result_slot = builder.create_sized_stack_slot(StackSlotData::new(
+            StackSlotKind::ExplicitSlot,
+            (assign_locals.len() * 8) as u32,
+            0,
+        ));
+        let result_ptr = builder.ins().stack_addr(pointer_type, result_slot, 0);
+        let mut call_args = Vec::with_capacity(args.len() + 1);
+        call_args.push(result_ptr);
+        call_args.extend(args);
+        let call = builder.ins().call(function_ref, &call_args);
+        let results = builder.inst_results(call);
+        if !results.is_empty() {
+            return Err(CraneliftBackendError::new(format!(
+                "i64 sret helper call returned {} direct values",
+                results.len()
+            )));
+        }
+        for (index, local_index) in assign_locals.iter().enumerate() {
+            let local = locals.get(*local_index).copied().ok_or_else(|| {
+                CraneliftBackendError::new(format!(
+                    "i64 call assignment local {local_index} is out of range"
+                ))
+            })?;
+            let value = builder.ins().stack_load(types::I64, result_slot, (index * 8) as i32);
+            builder.def_var(local, value);
+        }
+        return Ok(());
+    }
     let call = builder.ins().call(function_ref, &args);
     let results = builder.inst_results(call).to_vec();
     if results.len() != assign_locals.len() {
@@ -1920,6 +1992,7 @@ fn emit_i64_value_body(
     write_ref: FuncRef,
     output_data_ids: &[I64OutputData],
     returns: usize,
+    sret_ptr: Option<Value>,
     body: &I64ValueBody,
 ) -> Result<(), CraneliftBackendError> {
     match body {
@@ -1929,6 +2002,7 @@ fn emit_i64_value_body(
             function_refs,
             runtime_refs,
             returns,
+            sret_ptr,
             results,
         ),
         I64ValueBody::BlockReturn(block) => {
@@ -1948,6 +2022,7 @@ fn emit_i64_value_body(
                 function_refs,
                 runtime_refs,
                 returns,
+                sret_ptr,
                 &block.results,
             )
         }
@@ -1971,6 +2046,7 @@ fn emit_i64_value_body(
                 function_refs,
                 runtime_refs,
                 returns,
+                sret_ptr,
                 then_results,
             )?;
 
@@ -1982,6 +2058,7 @@ fn emit_i64_value_body(
                 function_refs,
                 runtime_refs,
                 returns,
+                sret_ptr,
                 else_results,
             )
         }
@@ -2019,6 +2096,7 @@ fn emit_i64_value_body(
                 function_refs,
                 runtime_refs,
                 returns,
+                sret_ptr,
                 &then_block.results,
             )?;
 
@@ -2040,6 +2118,7 @@ fn emit_i64_value_body(
                 function_refs,
                 runtime_refs,
                 returns,
+                sret_ptr,
                 &else_block.results,
             )
         }
@@ -2065,6 +2144,7 @@ fn emit_i64_value_return(
     function_refs: &[FuncRef],
     runtime_refs: I64RuntimeRefs,
     returns: usize,
+    sret_ptr: Option<Value>,
     results: &[I64Expr],
 ) -> Result<(), CraneliftBackendError> {
     if results.len() != returns {
@@ -2077,6 +2157,15 @@ fn emit_i64_value_return(
         .iter()
         .map(|result| emit_i64_expr(builder, locals, function_refs, runtime_refs, result))
         .collect::<Result<Vec<_>, _>>()?;
+    if let Some(sret_ptr) = sret_ptr {
+        for (index, result) in results.iter().enumerate() {
+            builder
+                .ins()
+                .store(MemFlags::new(), *result, sret_ptr, (index * 8) as i32);
+        }
+        builder.ins().return_(&[]);
+        return Ok(());
+    }
     builder.ins().return_(&results);
     Ok(())
 }
@@ -2216,6 +2305,12 @@ fn emit_i64_expr(
         }
         I64Expr::EnvLen { key } => {
             emit_i64_env_len_expr(builder, runtime_refs.getenv, runtime_refs.strlen, key)
+        }
+        I64Expr::StdinLen { max_bytes } => {
+            emit_i64_stdin_len_expr(builder, runtime_refs, *max_bytes)
+        }
+        I64Expr::StdinLineLen { max_bytes } => {
+            emit_i64_stdin_line_len_expr(builder, runtime_refs, *max_bytes)
         }
         I64Expr::AuditEnv {
             intrinsic,
@@ -2516,6 +2611,160 @@ fn emit_i64_env_len_expr(
     let length = builder.inst_results(call)[0];
     builder.ins().jump(merge_block, &[BlockArg::Value(length)]);
 
+    builder.switch_to_block(merge_block);
+    builder.seal_block(merge_block);
+    Ok(builder.block_params(merge_block)[0])
+}
+
+fn emit_i64_stdin_len_expr(
+    builder: &mut FunctionBuilder<'_>,
+    runtime_refs: I64RuntimeRefs,
+    max_bytes: u32,
+) -> Result<cranelift_codegen::ir::Value, CraneliftBackendError> {
+    if max_bytes == 0 {
+        return Ok(builder.ins().iconst(types::I64, 0));
+    }
+    let bytes_slot = builder.create_sized_stack_slot(StackSlotData::new(
+        StackSlotKind::ExplicitSlot,
+        max_bytes,
+        0,
+    ));
+    let bytes_ptr = builder.ins().stack_addr(types::I64, bytes_slot, 0);
+    let fd = builder.ins().iconst(types::I32, 0);
+    let requested = builder.ins().iconst(types::I64, i64::from(max_bytes));
+    let read_call = builder
+        .ins()
+        .call(runtime_refs.read, &[fd, bytes_ptr, requested]);
+    let bytes_read = builder.inst_results(read_call)[0];
+    let failed = builder.ins().icmp_imm(IntCC::SignedLessThan, bytes_read, 0);
+    let failure_result = builder.ins().iconst(types::I64, -1);
+    Ok(builder.ins().select(failed, failure_result, bytes_read))
+}
+
+fn emit_i64_stdin_line_len_expr(
+    builder: &mut FunctionBuilder<'_>,
+    runtime_refs: I64RuntimeRefs,
+    max_bytes: u32,
+) -> Result<cranelift_codegen::ir::Value, CraneliftBackendError> {
+    if max_bytes == 0 {
+        return Ok(builder.ins().iconst(types::I64, -1));
+    }
+    let byte_slot =
+        builder.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 1, 0));
+    let byte_ptr = builder.ins().stack_addr(types::I64, byte_slot, 0);
+    let fd = builder.ins().iconst(types::I32, 0);
+    let one = builder.ins().iconst(types::I64, 1);
+    let zero = builder.ins().iconst(types::I64, 0);
+    let failure = builder.ins().iconst(types::I64, -1);
+
+    let loop_block = builder.create_block();
+    let read_block = builder.create_block();
+    let continue_block = builder.create_block();
+    let byte_block = builder.create_block();
+    let finish_block = builder.create_block();
+    let merge_block = builder.create_block();
+    builder.append_block_param(loop_block, types::I64);
+    builder.append_block_param(loop_block, types::I64);
+    builder.append_block_param(loop_block, types::I64);
+    builder.append_block_param(loop_block, types::I64);
+    builder.append_block_param(finish_block, types::I64);
+    builder.append_block_param(finish_block, types::I64);
+    builder.append_block_param(finish_block, types::I64);
+    builder.append_block_param(merge_block, types::I64);
+
+    let requested = builder.ins().iconst(types::I64, i64::from(max_bytes));
+    builder.ins().jump(
+        loop_block,
+        &[
+            BlockArg::Value(zero),
+            BlockArg::Value(zero),
+            BlockArg::Value(requested),
+            BlockArg::Value(zero),
+        ],
+    );
+
+    builder.switch_to_block(loop_block);
+    let count = builder.block_params(loop_block)[0];
+    let last_was_cr = builder.block_params(loop_block)[1];
+    let remaining = builder.block_params(loop_block)[2];
+    let seen_any = builder.block_params(loop_block)[3];
+    let exhausted = builder.ins().icmp_imm(IntCC::Equal, remaining, 0);
+    builder.ins().brif(
+        exhausted,
+        finish_block,
+        &[
+            BlockArg::Value(count),
+            BlockArg::Value(last_was_cr),
+            BlockArg::Value(seen_any),
+        ],
+        read_block,
+        &[],
+    );
+
+    builder.switch_to_block(read_block);
+    builder.seal_block(read_block);
+    let read_call = builder.ins().call(runtime_refs.read, &[fd, byte_ptr, one]);
+    let bytes_read = builder.inst_results(read_call)[0];
+    let failed = builder.ins().icmp_imm(IntCC::SignedLessThan, bytes_read, 0);
+    builder
+        .ins()
+        .brif(failed, merge_block, &[BlockArg::Value(failure)], continue_block, &[]);
+
+    builder.switch_to_block(continue_block);
+    builder.seal_block(continue_block);
+    let eof = builder.ins().icmp_imm(IntCC::Equal, bytes_read, 0);
+    builder.ins().brif(
+        eof,
+        finish_block,
+        &[
+            BlockArg::Value(count),
+            BlockArg::Value(last_was_cr),
+            BlockArg::Value(seen_any),
+        ],
+        byte_block,
+        &[],
+    );
+
+    builder.switch_to_block(byte_block);
+    builder.seal_block(byte_block);
+    let byte = builder.ins().stack_load(types::I8, byte_slot, 0);
+    let is_lf = builder.ins().icmp_imm(IntCC::Equal, byte, i64::from(b'\n'));
+    let is_cr = builder.ins().icmp_imm(IntCC::Equal, byte, i64::from(b'\r'));
+    let next_count = builder.ins().iadd(count, one);
+    let next_remaining = builder.ins().isub(remaining, one);
+    let next_last_was_cr = builder.ins().select(is_cr, one, zero);
+    builder.ins().brif(
+        is_lf,
+        finish_block,
+        &[
+            BlockArg::Value(count),
+            BlockArg::Value(last_was_cr),
+            BlockArg::Value(one),
+        ],
+        loop_block,
+        &[
+            BlockArg::Value(next_count),
+            BlockArg::Value(next_last_was_cr),
+            BlockArg::Value(next_remaining),
+            BlockArg::Value(one),
+        ],
+    );
+
+    builder.switch_to_block(finish_block);
+    builder.seal_block(finish_block);
+    let finish_count = builder.block_params(finish_block)[0];
+    let finish_last_was_cr = builder.block_params(finish_block)[1];
+    let finish_seen_any = builder.block_params(finish_block)[2];
+    let strip_cr = builder
+        .ins()
+        .icmp_imm(IntCC::NotEqual, finish_last_was_cr, 0);
+    let stripped_count = builder.ins().isub(finish_count, one);
+    let adjusted_count = builder.ins().select(strip_cr, stripped_count, finish_count);
+    let has_value = builder.ins().icmp_imm(IntCC::NotEqual, finish_seen_any, 0);
+    let result = builder.ins().select(has_value, adjusted_count, failure);
+    builder.ins().jump(merge_block, &[BlockArg::Value(result)]);
+
+    builder.seal_block(loop_block);
     builder.switch_to_block(merge_block);
     builder.seal_block(merge_block);
     Ok(builder.block_params(merge_block)[0])
