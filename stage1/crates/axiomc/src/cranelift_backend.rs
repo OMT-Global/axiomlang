@@ -19010,7 +19010,8 @@ fn net_tcp_close(stream: i64) -> i64 {
     if spike_tcp_streams()
         .lock()
         .ok()
-        .is_some_and(|streams| streams.contains_key(&stream))
+        .and_then(|mut streams| streams.remove(&stream))
+        .is_some()
     {
         0
     } else {
