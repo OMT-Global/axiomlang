@@ -2624,9 +2624,13 @@ fn emit_i64_stdin_line_len_expr(
     let read_call = builder.ins().call(runtime_refs.read, &[fd, byte_ptr, one]);
     let bytes_read = builder.inst_results(read_call)[0];
     let failed = builder.ins().icmp_imm(IntCC::SignedLessThan, bytes_read, 0);
-    builder
-        .ins()
-        .brif(failed, merge_block, &[BlockArg::Value(failure)], continue_block, &[]);
+    builder.ins().brif(
+        failed,
+        merge_block,
+        &[BlockArg::Value(failure)],
+        continue_block,
+        &[],
+    );
 
     builder.switch_to_block(continue_block);
     builder.seal_block(continue_block);
