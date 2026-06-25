@@ -281,8 +281,8 @@ projections without materializing a general runtime string value. Known-input
 direct-native boolean conditions after normal front-end crypto capability
 checks. Imported public `std/crypto_hash.ax` and `std/crypto_mac.ax` hash, HMAC,
 verify, and constant-time equality wrappers now alias those same known-input
-direct-native paths in runtime-exit programs. The row
-remains partial because direct-native codegen still does not provide a general
+direct-native paths in runtime-exit programs. Remaining Rust-exit hardening work
+still includes a general
 string ABI, general runtime string parameters or returns, allocation or mutation
 behavior, non-literal string storage, general Option-string payload storage or
 helper ABI, broad string, encoding, or crypto string intrinsic lowering, or
@@ -316,7 +316,7 @@ local arrays, inline literals, helper parameters, and helper-returned arrays
 feeding a direct-native process exit status. The public array helper smoke also
 prints `len`, `first`, `last`, and a first-plus-last sum for both a local fixed
 array and a helper-returned fixed array while asserting `generated_rust: null`.
-The row remains partial because direct-native codegen still does not provide a
+Remaining Rust-exit hardening work still includes a
 general array ABI, array storage for non-scalar elements, full dynamic indexing
 semantics, bounds diagnostics, or a complete aggregate value passing contract.
 
@@ -337,8 +337,8 @@ helper smoke also asserts `generated_rust: null` while printing caller-side
 scalar and boolean projections from literal, local-binding, forwarded, typed,
 branch-selected, and fallback tuple returns. Existing tuple locals can now be
 reassigned from tuple helper returns using the same tuple-element ABI, including
-inside runtime loop blocks. The row remains partial because direct-native
-codegen still does not provide a general tuple ABI, tuple storage for non-scalar
+inside runtime loop blocks. Remaining Rust-exit hardening work still includes a
+general tuple ABI, tuple storage for non-scalar
 elements, tuple return expressions beyond the scalar/bool local, literal, and
 parameter slice, or a complete aggregate value passing contract.
 
@@ -366,8 +366,8 @@ payload construction, matching, helper parameters, helper returns, forwarded
 helper values, and inline `Some(Step { ... })`/`None` and
 `Ok(Step { ... })`/`Err(Step { ... })` helper arguments. Existing struct locals
 can now be reassigned from struct helper returns using the declared-field slot
-ABI, including inside runtime branch blocks. The row remains partial because
-direct-native codegen still does not provide a general struct ABI, struct
+ABI, including inside runtime branch blocks. Remaining Rust-exit hardening work
+still includes a general struct ABI, struct
 storage for non-scalar fields, owned field projection, field mutation, struct
 return expressions beyond the scalar/bool local, literal, and parameter slice,
 or a complete aggregate value passing contract.
@@ -405,9 +405,9 @@ The Cranelift evidence suite now also builds and runs public `std/outcome.ax`
 wrappers without generated Rust for known scalar, string, and struct payloads,
 including struct field projections from selected and fallback `Option<Step>`
 values.
-The row remains partial because direct-native codegen still does not provide a
-general `Option<T>` ABI across broader payload shapes, deeper nested option or
-result values, or broad aggregate storage.
+Remaining Rust-exit hardening work still includes a general `Option<T>` ABI
+across broader payload shapes, deeper nested option or result values, or broad
+aggregate storage.
 
 The first executable guard for this boundary is a Cranelift regression that
 builds a package using `std/fs.ax` without the `fs` capability and verifies the
