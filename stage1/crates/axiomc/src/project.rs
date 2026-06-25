@@ -18,6 +18,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::env;
 use std::fs;
+use std::io::ErrorKind;
 use std::io::{self, Read, Write};
 use std::path::{Component, Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -949,10 +950,7 @@ fn load_manifest_test_stream(
         return Ok(None);
     };
     let path = project_root.join(configured);
-    if !path.exists() {
-        return Ok(None);
-    }
-    read_test_expected_stream(project_root, &path, &format!("{stream} fixture")).map(Some)
+    read_optional_test_expected_stream(project_root, &path, &format!("{stream} fixture"))
 }
 
 fn discover_test_targets(
@@ -1017,27 +1015,18 @@ fn collect_discovered_tests(
         let kind = kind.expect("test kind checked");
         let relative = normalize_path(path.strip_prefix(project_root).unwrap_or(&path));
         let stdout_path = path.with_extension("stdout");
-        let stdout = if stdout_path.exists() {
-            Some(read_test_expected_stream(
-                project_root,
-                &stdout_path,
-                "stdout fixture",
-            )?)
+        let stdout = if let Some(stdout) =
+            read_optional_test_expected_stream(project_root, &stdout_path, "stdout fixture")?
+        {
+            Some(stdout)
         } else if kind == TestKind::Benchmark {
             None
         } else {
             package_expected_output.map(str::to_string)
         };
         let stderr_path = path.with_extension("stderr");
-        let stderr = if stderr_path.exists() {
-            Some(read_test_expected_stream(
-                project_root,
-                &stderr_path,
-                "stderr fixture",
-            )?)
-        } else {
-            None
-        };
+        let stderr =
+            read_optional_test_expected_stream(project_root, &stderr_path, "stderr fixture")?;
         tests.push(crate::manifest::TestTarget {
             name: relative.with_extension("").display().to_string(),
             entry: relative.display().to_string(),
@@ -1075,10 +1064,23 @@ fn discovered_test_kind(stem: &str, include_benchmarks: bool) -> Option<TestKind
 
 fn load_package_expected_output(project_root: &Path) -> Result<Option<String>, Diagnostic> {
     let path = project_root.join("expected-output.txt");
-    if !path.exists() {
-        return Ok(None);
+    read_optional_test_expected_stream(project_root, &path, "package stdout fixture")
+}
+
+fn read_optional_test_expected_stream(
+    project_root: &Path,
+    path: &Path,
+    label: &str,
+) -> Result<Option<String>, Diagnostic> {
+    match fs::symlink_metadata(path) {
+        Ok(_) => read_test_expected_stream(project_root, path, label).map(Some),
+        Err(err) if err.kind() == ErrorKind::NotFound => Ok(None),
+        Err(err) => Err(Diagnostic::new(
+            "test",
+            format!("failed to inspect {label} {}: {err}", path.display()),
+        )
+        .with_path(path.display().to_string())),
     }
-    read_test_expected_stream(project_root, &path, "package stdout fixture").map(Some)
 }
 
 fn read_test_expected_stream(

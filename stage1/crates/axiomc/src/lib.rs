@@ -9739,6 +9739,25 @@ print serve_once("{bind}", "ok")
         );
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn run_project_tests_rejects_broken_sibling_stdout_symlink() {
+        use std::os::unix::fs::symlink;
+
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("runner-broken-symlink-golden");
+        create_project(&project, Some("runner-broken-symlink-golden-app")).expect("create project");
+        fs::write(project.join("src/main_test.ax"), "print true\n").expect("write test");
+        let stdout_path = project.join("src/main_test.stdout");
+        fs::remove_file(&stdout_path).expect("remove default golden");
+        symlink(dir.path().join("missing-secret.txt"), &stdout_path).expect("symlink golden");
+
+        let error = run_project_tests(&project).expect_err("reject broken symlink golden");
+
+        assert!(error.message.contains("refusing to read stdout fixture"));
+        assert!(error.message.contains("not symlinks"));
+    }
+
     #[test]
     fn run_project_tests_rejects_oversized_sibling_stdout() {
         let dir = tempdir().expect("tempdir");
