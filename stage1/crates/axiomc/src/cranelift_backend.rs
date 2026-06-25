@@ -12896,7 +12896,14 @@ fn invert_i64_simple_condition(condition: CraneliftI64Condition) -> Option<Crane
                 rhs: compare.rhs,
             }))
         }
-        CraneliftI64Condition::And { .. } | CraneliftI64Condition::Or { .. } => None,
+        CraneliftI64Condition::And { lhs, rhs } => Some(CraneliftI64Condition::Or {
+            lhs: Box::new(invert_i64_simple_condition(*lhs)?),
+            rhs: Box::new(invert_i64_simple_condition(*rhs)?),
+        }),
+        CraneliftI64Condition::Or { lhs, rhs } => Some(CraneliftI64Condition::And {
+            lhs: Box::new(invert_i64_simple_condition(*lhs)?),
+            rhs: Box::new(invert_i64_simple_condition(*rhs)?),
+        }),
     }
 }
 
