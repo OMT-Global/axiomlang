@@ -40,7 +40,7 @@ The example smoke runs a bounded subset of checked-in stdlib examples through
 `test --backend cranelift`, and asserts the build/test JSON reports
 `generated_rust: null`. The current set focuses on the stdlib crypto ABI rows:
 hash, MAC, random bytes and scalar random, Ed25519 signing/verification, and
-AES-256-GCM AEAD round-trips. It is direct-native example evidence for #1001,
+AES-256-GCM AEAD round-trips. It is direct-native example evidence for #1124,
 not a replacement for full `stage1-smoke` parity; examples that still require
 broader capability policy or runtime parity remain outside this smoke target.
 
@@ -119,6 +119,59 @@ Cranelift/direct-native spike evidence and keeps the affected runtime rows
 partial until real runtime entrypoints or backend-emitted codegen land. This
 lets future backend slices update the contract as runtime support lands without
 pretending the spike already proves direct-native runtime coverage.
+
+<!-- direct-native-runtime-abi-status:start -->
+
+_Generated from `stage1/runtime-abi/direct-native-v0.json`; run `make stage1-direct-native-runtime-abi-test` after changing the contract._
+
+### Value Features
+
+| Row | Status | Blockers | Evidence | Scope |
+| --- | --- | --- | --- | --- |
+| `array.fixed` | `partial` | #1124 | evidence:1, runtime:1 | The direct-native path now has narrow runtime evidence for immediate array-literal scalar indexing with literal indexes and scalar projection from... |
+| `boolean` | `partial` | #1124 | evidence:1, runtime:1 | The Cranelift spike covers boolean values. |
+| `enum.payload` | `partial` | #1124 | evidence:1, runtime:2 | The Cranelift spike builds and runs custom enum matches with tuple, named, and string payloads without generated Rust. |
+| `map.lookup` | `partial` | #1124 | evidence:1, runtime:1 | The Cranelift spike covers direct map indexing, get, get_or_default, map_contains_key, map_keys, helper-returned direct index, contains-key, and de... |
+| `numeric.scalars` | `partial` | #1124 | evidence:1, runtime:1 | The Cranelift spike covers several scalar widths and casts. |
+| `option` | `partial` | #1124 | evidence:1, runtime:2 | The direct-native path now has narrow runtime evidence for local Option<int> and Option<bool> construction as tag/payload locals, scalar option rea... |
+| `owned.move_state` | `partial` | #1124 | evidence:1, runtime:1 | The Cranelift spike builds and runs projection-sensitive owned field moves while preserving access to disjoint sibling projections, and the public... |
+| `result` | `partial` | #1124 | evidence:1, runtime:2 | The Cranelift spike evaluates Result<T, E> through std/outcome.ax helpers, direct match arms, scalar payloads, string errors, and struct payloads. |
+| `slice.borrowed` | `partial` | #1124 | evidence:1, runtime:1 | The Cranelift spike evaluates borrowed array slices for len, first, last, indexing, and function returns. |
+| `string` | `partial` | #1124 | evidence:1, runtime:1 | The Cranelift spike builds and runs pure string intrinsics including string_clone, string_starts_with, string_strip_prefix, string_strip_suffix, st... |
+| `struct.field` | `partial` | #1124 | evidence:1, runtime:2 | The direct-native path now has narrow runtime evidence for immediate struct-literal scalar field access and scalar projection from local struct bin... |
+| `tuple` | `partial` | #1124 | evidence:1, runtime:1 | The direct-native path now has narrow runtime evidence for immediate tuple-literal scalar indexing and scalar projection from local tuple bindings,... |
+
+### Capability Shims
+
+| Row | Status | Blockers | Evidence | Scope |
+| --- | --- | --- | --- | --- |
+| `async.runtime` | `partial` | #1124 | evidence:1, runtime:2, denial:1 | The Cranelift spike now has compiler-side evidence for std/async.ax ready, await, spawn, join, cancel, is_canceled, timeout, channel send/recv, sel... |
+| `clock.now_sleep` | `partial` | #1124 | evidence:1, runtime:2, denial:1 | The Cranelift spike can build a std/time.ax package covering now_ms, now, elapsed_ms, and zero-duration sleep while the public clock smoke asserts... |
+| `crypto.aead` | `partial` | #1124 | evidence:1, runtime:2, denial:1 | The Cranelift spike builds and runs std/crypto_aead.ax AES-256-GCM seal/open while the public smoke asserts generated_rust is null through a dynami... |
+| `crypto.hash` | `partial` | #1124 | evidence:1, runtime:2, denial:1 | The Cranelift spike covers std/crypto_hash.ax sha256 over strings while the public smoke asserts generated_rust is null. |
+| `crypto.mac` | `partial` | #1124 | evidence:1, runtime:2, denial:1 | The Cranelift spike covers std/crypto_mac.ax HMAC-SHA256, HMAC-SHA512, verification helpers, string constant-time equality, and byte-slice constant... |
+| `crypto.random` | `partial` | #1124 | evidence:1, runtime:2, denial:1 | The Cranelift spike builds and runs std/crypto_rand.ax random_bytes and random_u64 through a Unix OS-random source while the public smoke asserts g... |
+| `crypto.signature` | `partial` | #1124 | evidence:1, runtime:2, denial:1 | The Cranelift spike builds and runs std/crypto_sign.ax Ed25519 key generation, signing, and verification while the public smoke asserts generated_r... |
+| `env.read` | `partial` | #1124 | evidence:1, runtime:2, denial:1 | The Cranelift spike can build a std/env.ax get_env package for present and missing environment reads while the public smoke asserts generated_rust... |
+| `ffi.call` | `partial` | #1124 | evidence:1, runtime:2, denial:1 | The Cranelift spike builds and runs a narrow C ABI extern strlen fixture while the public smoke asserts generated_rust is null, using the source-le... |
+| `fs.read` | `partial` | #1124 | evidence:1, runtime:2, denial:1 | The Cranelift spike can build a std/fs.ax read_file package for present and missing filesystem reads, and rejects missing fs capability before back... |
+| `fs.write` | `partial` | #1124 | evidence:1, runtime:2, denial:1 | The Cranelift spike records positive compiler-side evidence for std/fs.ax write helpers over configured fs_root-scoped literal paths, including mkd... |
+| `io.logging_stdio` | `partial` | #1124 | evidence:1, runtime:2 | The Cranelift spike now builds and runs std/io eprintln with stdout and stderr output from the native binary, and std/log.ax event formatting plus... |
+| `json.serdes` | `partial` | #1124 | evidence:2, runtime:1 | The Cranelift spike covers std/json.ax scalar parse/stringify, JsonValue string wrapping, object field extraction, and value normalization without... |
+| `network.dns.resolve` | `partial` | #1124 | evidence:1, runtime:2, denial:1 | The Cranelift spike builds and runs std/net.ax resolve("localhost") through host DNS resolution while the public smoke asserts generated_rust is nu... |
+| `network.http.async_server` | `partial` | #1124 | evidence:1, runtime:2, denial:1 | The Cranelift spike builds and runs http_async_serve_route over a loopback server handle while the public smoke asserts generated_rust is null, ret... |
+| `network.http.client` | `partial` | #1124 | evidence:1, runtime:2, denial:1 | The Cranelift spike builds std/http.ax get against a static allowlisted http://127.0.0.1 URL and fetches a local one-shot HTTP response while the p... |
+| `network.http.server` | `partial` | #1124 | evidence:1, runtime:2, denial:1 | The Cranelift spike builds and runs loopback HTTP server entrypoints while the public smoke asserts generated_rust is null: listen, local_port, acc... |
+| `network.tcp` | `partial` | #1124 | evidence:1, runtime:2, denial:1 | The Cranelift spike builds and runs std/net.ax tcp_listen_loopback_once over 127.0.0.1 while the public loopback smoke asserts generated_rust is nu... |
+| `network.udp` | `partial` | #1124 | evidence:1, runtime:2, denial:1 | The Cranelift spike builds and runs std/net.ax udp_bind_loopback_once over 127.0.0.1 while the public loopback smoke asserts generated_rust is null... |
+| `process.status` | `partial` | #1124 | evidence:2, runtime:2, denial:1 | The Cranelift spike records positive compiler-side evidence for std/process.ax run_status over literal, allowlisted deterministic commands and the... |
+| `regex.match_replace` | `partial` | #1124 | evidence:1, runtime:2 | The Cranelift spike covers std/regex.ax is_match, find, and replace_all for the stage1-safe NFA subset without generated Rust, and the public stdli... |
+| `sync.primitives` | `partial` | #1124 | evidence:1, runtime:2 | The Cranelift spike now builds and runs ownership-shaped std/sync mutex, once, and channel wrappers while the public sync smoke asserts generated_r... |
+
+<!-- direct-native-runtime-abi-status:end -->
+
+The detailed evidence notes below preserve row history, but the generated table
+above is the scannable status surface and the JSON contract is authoritative.
 
 The `numeric.scalars` row now has the first narrow `runtime_evidence`: the
 `axiomc` Cranelift build path can lower zero-argument `main(): int` and
@@ -445,7 +498,7 @@ read path currently opts out for programs that contain write-side filesystem
 calls so existing write/read sequencing stays on the prior path. General string
 file contents beyond length projection, dynamic path binding beyond known string
 facts, write-side filesystem wrappers, manifest policy parity, and runtime
-filesystem binding remain open under #1001.
+filesystem binding remain open under #1124.
 
 The DNS row now has partial Cranelift evidence: the spike builds and runs a
 `std/net.ax` package resolving `localhost` through host DNS while the public
@@ -466,7 +519,7 @@ numeric-address runtime resolver checks append host audit JSONL entries when
 ok/denied outcome without recording the host text. Packages without the `net`
 capability still fail before backend lowering. General DNS name resolution,
 address-string materialization beyond numeric-address length projection,
-resolver portability, and broader network audit parity remain open under #1001.
+resolver portability, and broader network audit parity remain open under #1124.
 
 The TCP row now has partial Cranelift evidence: the spike builds and runs
 `std/net.ax` `tcp_listen_loopback_once(...)` over `127.0.0.1` while the public
@@ -481,7 +534,7 @@ binds; public loopback results can also be stored in local `Option<int>` values
 and matched later in supported expression and statement contexts without
 generated Rust. Packages without the `net` capability still fail before backend
 lowering. General runtime-time TCP socket lifecycle APIs, non-loopback policy
-coverage, timeout parity, and audit parity remain open under #1001.
+coverage, timeout parity, and audit parity remain open under #1124.
 
 The UDP row now has partial Cranelift evidence: the spike builds and runs
 `std/net.ax` `udp_bind_loopback_once(...)` over `127.0.0.1` while the same
@@ -495,7 +548,7 @@ later in supported expression and statement contexts without generated Rust.
 Packages without the `net` capability still fail before backend lowering.
 Paired dynamic-port send/recv coverage, full UDP socket lifecycle APIs,
 non-loopback policy coverage, timeout parity, and audit parity remain open under
-#1001.
+#1124.
 
 The filesystem write row now has partial Cranelift evidence: the spike evaluates
 `std/fs.ax` write helpers over configured `fs_root`-scoped literal paths during
@@ -580,7 +633,7 @@ wrappers for `hmac_sha256(...)`, `hmac_sha512(...)`,
 `verify_sha512(...)` now alias those same known-input direct-native paths in a
 runtime-exit program without generated Rust. Dynamic runtime MAC execution,
 general byte-slice runtime equality, and broader crypto host-service audit
-coverage remain blocked under #1001.
+coverage remain blocked under #1124.
 
 The direct-native crypto random slice is now marked partial: the Cranelift
 spike can build and run `std/crypto_rand.ax` `random_bytes(...)` and
@@ -605,7 +658,7 @@ for byte-length reads and `AXIOM_TEST_RANDOM_U64` for scalar random output,
 without recording hook contents in audit logs. A package without the `crypto`
 capability still fails before backend lowering. Direct-native `random_bytes(...)`
 byte storage and contents, portable entropy source parity, and broader runtime
-audit parity remain open under #1001.
+audit parity remain open under #1124.
 
 The direct-native crypto signature slice is now marked partial: the Cranelift
 spike builds and runs `std/crypto_sign.ax` Ed25519 key generation, signing, and
@@ -618,7 +671,7 @@ the spike path, and it now also verifies that the same signature is rejected for
 a changed message, proving provider-backed negative verification semantics.
 Packages without the `crypto` capability still fail before backend lowering.
 Runtime-integrated crypto provider selection, deterministic test hooks, audit
-parity, and non-Unix support remain open under #1001.
+parity, and non-Unix support remain open under #1124.
 
 The direct-native crypto AEAD slice is now marked partial: the Cranelift spike
 builds and runs `std/crypto_aead.ax` AES-256-GCM seal/open while the public
@@ -627,12 +680,12 @@ EVP provider. The smoke now also sends AES-GCM seal length and opened plaintext
 length projections through helper functions before native binary stdout,
 proving helper-boundary coverage for the projected `int` lengths only. Moving
 dynamic sealed or opened AEAD byte-array values across helper boundaries remains
-open under #1001, and it now also verifies that opening the ciphertext with
+open under #1124, and it now also verifies that opening the ciphertext with
 changed associated data returns `None`, proving authenticated failure
 semantics on the provider-backed path. Packages without the `crypto`
 capability still fail before backend lowering. Runtime-integrated crypto
 provider selection, broader algorithm coverage, deterministic test hooks, audit
-parity, and non-Unix support remain open under #1001.
+parity, and non-Unix support remain open under #1124.
 
 The HTTP client row now has partial Cranelift evidence: the spike builds
 `std/http.ax` `get(...)` against a static allowlisted `http://127.0.0.1` URL
@@ -645,7 +698,7 @@ and fetches a local one-shot HTTP response while the public smoke asserts
 matched later in supported length-projection expression and statement contexts
 without generated Rust. Packages without the `net` capability still fail before
 backend lowering. HTTPS, nonlocal HTTP policy coverage, redirects, richer
-response handling, timeout parity, and audit parity remain open under #1001.
+response handling, timeout parity, and audit parity remain open under #1124.
 
 The HTTP server row now has partial Cranelift evidence: the spike builds and
 runs loopback HTTP server entrypoints while the public smoke asserts
@@ -661,7 +714,7 @@ routed fixture; public `serve_once(...)` and primitive `http_serve_route(...)`
 results can also be stored in local bool values and used by later branch
 conditions without generated Rust. Packages without the `net` capability still
 fail before backend lowering. Non-loopback policy coverage, richer response
-metadata, timeout parity, and audit parity remain open under #1001.
+metadata, timeout parity, and audit parity remain open under #1124.
 
 The async HTTP server row now has partial Cranelift evidence: the spike builds
 and runs `http_async_serve_route` over a loopback server handle while the public
@@ -672,7 +725,7 @@ async gate separately: with `net` present and `async` missing,
 `std/http_async.ax` `async_serve_route(...)` must fail through the public
 `async` capability denial before backend lowering. Real scheduler-backed
 serving, concurrent clients, cancellation, timeout parity, non-loopback policy
-coverage, and audit parity remain open under #1001.
+coverage, and audit parity remain open under #1124.
 
 The process status row now has partial direct-native evidence: the Cranelift
 spike builds and runs `std/process.ax` `run_status(...)` for literal,
@@ -696,7 +749,7 @@ Cranelift lowering or native execution. The direct-native i64 path also appends
 host audit JSONL entries when `AXIOM_HOST_AUDIT_LOG` is set, recording only the
 command string length and the `ok`/`denied` outcome without recording command
 text. Arguments, broader command policy, environment control, and host-process
-policy coverage remain open under #1001.
+policy coverage remain open under #1124.
 
 The regex row now has partial direct-native evidence: the Cranelift spike covers
 `std/regex.ax` `is_match`, `find`, and `replace_all` for the stage1-safe NFA
@@ -712,7 +765,7 @@ wrappers now alias that same direct-native known-input lowering, including those
 known-concatenated and helper-local input shapes.
 Broader regex syntax, dynamic runtime regex execution, capture groups,
 replacement expansion semantics, and conformance coverage remain open under
-#1001.
+#1124.
 
 The string row has partial direct-native evidence: the Cranelift spike now
 builds and runs pure string intrinsics including `string_clone`,
@@ -739,7 +792,7 @@ public tuple-backed `DocItem` projections, known-source declaration extraction,
 comment-line scanning, trimming, prefix/suffix stripping, and no-public-docs
 fallback rendering over literal inputs. Broader string ABI coverage, allocation
 behavior, general runtime string parameters and returns, non-literal storage,
-and host-boundary representation remain tracked by issue #1001.
+and host-boundary representation remain tracked by issue #1124.
 
 The borrowed-slice row has partial direct-native evidence: the Cranelift spike
 evaluates array-backed borrowed slices through `len`, `first`, `last`, indexing,
@@ -770,7 +823,7 @@ The public borrowed-slice smoke also prints `len`, `first`, `last`, and indexed
 projection output for both a local slice and a helper-returned slice while
 asserting `generated_rust: null`. Broader borrowed-slice aliasing, dynamic
 slice bounds, slice returns, and host ABI coverage remain tracked by issue
-#1001.
+#1124.
 
 The map lookup row has partial direct-native evidence: the Cranelift spike now
 builds and runs direct map indexing, `get`, `get_or_default`,
@@ -819,7 +872,7 @@ map literals can now also feed public `std/collections.ax` `contains(...)` and
 candidate-key selection without generated Rust.
 Broader map ownership, runtime map storage, general payload lookup bindings,
 general `get(...)` Option payload selection for dynamic keys, key/value
-ownership, and host-boundary representation remain tracked by issue #1001.
+ownership, and host-boundary representation remain tracked by issue #1124.
 
 The `env.read` row now has partial Cranelift evidence for `std/env.ax`
 `get_env` on present and missing environment names while the public smoke
@@ -843,7 +896,7 @@ Helper-local present and missing env lookups over static keys also lower through
 the same native runtime environment path and return through direct-native helper
 calls.
 Broader runtime environment binding, stored string value materialization beyond
-length projection, and dynamic-key allowlist handling remain open under #1001.
+length projection, and dynamic-key allowlist handling remain open under #1124.
 
 The FFI call row now has partial direct-native evidence: the spike builds and
 runs a narrow C ABI `extern fn strlen(value: string): int from "c"` fixture
@@ -864,7 +917,7 @@ values. A package with an `extern fn`
 declaration and no `ffi` capability must still receive its public manifest-policy denial before any
 Cranelift-specific lowering diagnostic. Broad dynamic symbol loading, pointer
 and mutable-pointer ABI shapes, non-string arguments, ownership safety, platform
-library resolution, and broader FFI audit coverage remain open under #1001.
+library resolution, and broader FFI audit coverage remain open under #1124.
 
 The async runtime row now has partial Cranelift evidence for `std/async.ax`
 `ready`, `await`, `spawn`, `join`, `cancel`, `is_canceled`, `timeout`,
@@ -874,7 +927,7 @@ builds and runs the `std/async_net.ax` loopback TCP example through async `liste
 `recv_text`, `send_text`, `tcp_dial`, and `join` flows without generated Rust. A
 package importing `std/async.ax` with no `async` capability must still receive
 the public manifest-policy denial before backend lowering. Full scheduler,
-timer, blocking, wakeup, cancellation, and audit parity remain open under #1001.
+timer, blocking, wakeup, cancellation, and audit parity remain open under #1124.
 
 The sync-primitives row has partial direct-native evidence: the Cranelift spike
 now evaluates ownership-shaped `std/sync.ax` mutex, once, and channel wrappers
@@ -895,7 +948,7 @@ without generated Rust. The same known mutex, once, and channel wrapper shapes
 now also lower inside helper functions and return through direct-native helper
 calls before driving process exit status. Concurrent execution, blocking
 behavior, dynamic channel or once state after runtime scalar lowering, and host
-runtime synchronization remain tracked by issue #1001.
+runtime synchronization remain tracked by issue #1124.
 
 The `Result<T, E>` row has partial direct-native evidence: the Cranelift spike
 now builds and runs a package importing `std/outcome.ax`, using result
@@ -956,7 +1009,7 @@ forwarding through the same nested tag/payload slot representation.
 The `Result<Option<int>, int>` slice also supports final helper-call forwarding
 through the same nested tag/payload slot representation.
 Broader Result ABI support, the full numeric-width matrix, additional aggregate
-payload shapes, and capability-shim coverage remain tracked by issue #1001.
+payload shapes, and capability-shim coverage remain tracked by issue #1124.
 
 The `enum.payload` row now has narrow direct-native runtime evidence for local
 custom enum construction, reassignment, value-producing matches, and statement
@@ -988,7 +1041,7 @@ carrying nested `Option<Result<int, int>>` and `Result<Option<int>, int>` values
 including runtime-scope literal construction, reassignment, value-producing
 matches, helper returns, forwarded helper values, and inline nested variant
 arguments. Broader enum ABI support, deeper nested payload shapes, and aggregate
-payload storage beyond the evidenced slices remain tracked by issue #1001.
+payload storage beyond the evidenced slices remain tracked by issue #1124.
 
 The `json.serdes` row has expanded partial direct-native evidence: the
 Cranelift spike now builds and runs `std/json.ax` scalar/object helpers and
@@ -1026,7 +1079,7 @@ native scalar length projections before driving process exit status, including
 helper-local JSON string locals, field extraction, parsed value length matches,
 and quoted static bool stringify length projections. Schema validation, dynamic
 runtime JSON parsing, and broader JSON value modeling remain tracked by issue
-#1001. Imported public `std/json.ax` scalar parse/stringify wrappers for
+#1124. Imported public `std/json.ax` scalar parse/stringify wrappers for
 `parse_int(...)`, `parse_bool(...)`, `parse_string(...)`,
 `parse_field_int(...)`, `parse_field_bool(...)`, `parse_field_string(...)`,
 `stringify_int(...)`, `stringify_bool(...)`, and `stringify_string(...)` now
@@ -1071,13 +1124,13 @@ native stderr JSON while preserving
 runtime JSON parsing, broad `std/serdes` `Value` storage, general dynamic LSP
 message handling, `JsonValue` wrapper construction beyond the evidenced
 scalar/string/object/array source wrappers, and broader schema helper coverage
-remain tracked by issue #1001.
+remain tracked by issue #1124.
 
 The owned move-state row has partial direct-native evidence: the Cranelift
 spike builds and runs projection-sensitive owned field moves while preserving
 access to disjoint sibling projections, and the public smoke now asserts the
 build JSON reports `generated_rust: null` for that path. Broader move-state,
-lifetime, and host ABI coverage remain tracked by issue #1001.
+lifetime, and host ABI coverage remain tracked by issue #1124.
 
 The logging/stdio row has partial direct-native evidence: the Cranelift spike
 now evaluates `std/io.ax` stderr writes and `std/log.ax` structured event
@@ -1202,7 +1255,7 @@ bounded length projections, dynamic stdout/stderr text beyond
 boolean, integer, JSON scalar formatting, and finite known-string projection
 selection, dynamic panic messages beyond scalar/string JSON stringify and finite
 known-string projection selection, and broader streaming/runtime buffering
-remain tracked by issue #1001.
+remain tracked by issue #1124.
 
 The `clock.now_sleep` row now has partial Cranelift evidence for `std/time.ax`
 `now_ms`, `now`, `elapsed_ms`, zero-duration `sleep`, and a bounded positive
@@ -1236,7 +1289,7 @@ Those sleep paths now append host audit JSONL entries when
 `AXIOM_HOST_AUDIT_LOG` is set, recording only the integer argument type and the
 `ok`/`denied` outcome without recording duration values. Timer scheduling, async
 clock integration, monotonic/high-resolution clock policy, and broader
-positive-duration sleep policy remain open under #1001.
+policy remain open under #1124.
 
 
 

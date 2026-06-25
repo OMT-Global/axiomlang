@@ -39,15 +39,9 @@ rust-exit-readiness-test:
 MAKE
 
 cat >"$temp_dir/partial-issues.txt" <<'ISSUES'
-927 CLOSED
-929 CLOSED
-693 CLOSED
-694 CLOSED
-930 CLOSED
-931 CLOSED
-562 CLOSED
-563 CLOSED
-564 CLOSED
+1124 CLOSED
+1191 CLOSED
+731 CLOSED
 ISSUES
 
 (
@@ -89,15 +83,9 @@ with open(path, "w", encoding="utf-8") as handle:
 PY
 
 cat >"$temp_dir/open-issues.txt" <<'ISSUES'
-927 OPEN
-1001 OPEN
-929 OPEN
+1124 OPEN
 1191 OPEN
-930 OPEN
-931 OPEN
-562 OPEN
-563 OPEN
-564 OPEN
+731 OPEN
 ISSUES
 
 (
@@ -126,15 +114,9 @@ PY
 )
 
 cat >"$temp_dir/issues.txt" <<'ISSUES'
-927 CLOSED
-1001 CLOSED
-929 CLOSED
+1124 CLOSED
 1191 CLOSED
-930 CLOSED
-931 CLOSED
-562 CLOSED
-563 CLOSED
-564 CLOSED
+731 CLOSED
 ISSUES
 
 (
@@ -153,9 +135,9 @@ with open(sys.argv[1], encoding="utf-8") as handle:
 assert payload["ready"] is True
 statuses = {check["name"]: check["status"] for check in payload["checks"]}
 assert statuses["readiness_blockers_closed"] == "pass"
-assert statuses["rust_exit_issue_927_closed"] == "pass"
-assert statuses["rust_exit_issue_1001_closed"] == "pass"
-assert statuses["rust_exit_issue_564_closed"] == "pass"
+assert statuses["rust_exit_issue_1124_closed"] == "pass"
+assert statuses["rust_exit_issue_1191_closed"] == "pass"
+assert statuses["rust_exit_issue_731_closed"] == "pass"
 assert statuses["direct_native_runtime_abi_ready"] == "pass"
 assert statuses["command_lsp_release_boundary"] == "pass"
 assert statuses["mir_backend_direct_native_boundary"] == "pass"
