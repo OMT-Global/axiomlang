@@ -16257,6 +16257,14 @@ fn eval_call(
     if is_assert_call(name) {
         return eval_assert_call(name, args, functions, env, lines);
     }
+    if let Some(SpikeValue::Closure {
+        params,
+        body,
+        env: captured_env,
+    }) = env.get(name)
+    {
+        return eval_closure_call(params, body, captured_env, args, functions, env, lines);
+    }
     if name == "len" {
         return eval_len_call(args, functions, env, lines);
     }
@@ -16331,14 +16339,6 @@ fn eval_call(
     }
     if is_regex_call(name) {
         return eval_regex_call(name, args, functions, env, lines);
-    }
-    if let Some(SpikeValue::Closure {
-        params,
-        body,
-        env: captured_env,
-    }) = env.get(name)
-    {
-        return eval_closure_call(params, body, captured_env, args, functions, env, lines);
     }
     let function = functions
         .get(name)
@@ -21960,6 +21960,32 @@ mod tests {
                     span: crate::mir::SourceSpan { line: 7, column: 1 },
                 },
                 Stmt::Let {
+                    name: String::from("len"),
+                    ty: int_to_int.clone(),
+                    expr: Expr::Closure {
+                        params: vec![int_param()],
+                        body: Box::new(Expr::BinaryAdd {
+                            op: ArithmeticOp::Add,
+                            lhs: Box::new(Expr::VarRef {
+                                name: String::from("x"),
+                                ty: Type::Int,
+                            }),
+                            rhs: Box::new(Expr::Literal(LiteralValue::Int(3))),
+                            ty: Type::Int,
+                        }),
+                        ty: int_to_int.clone(),
+                    },
+                    span: crate::mir::SourceSpan { line: 8, column: 1 },
+                },
+                Stmt::Print {
+                    expr: Expr::Call {
+                        name: String::from("len"),
+                        args: vec![Expr::Literal(LiteralValue::Int(39))],
+                        ty: Type::Int,
+                    },
+                    span: crate::mir::SourceSpan { line: 8, column: 8 },
+                },
+                Stmt::Let {
                     name: String::from("base"),
                     ty: Type::Int,
                     expr: Expr::Literal(LiteralValue::Int(10)),
@@ -22006,6 +22032,7 @@ mod tests {
         assert_eq!(
             collect_output_lines(&program, Path::new("."), Path::new(".")).expect("fold closures"),
             vec![
+                OutputLine::stdout("42"),
                 OutputLine::stdout("42"),
                 OutputLine::stdout("42"),
                 OutputLine::stdout("15")
