@@ -12060,7 +12060,7 @@ let _first_done: int = await join<int>(first_handler)
 let _second_done: int = await join<int>(second_handler)
 let _listener_closed: int = close_listener(listener)
 
-match tcp_dial("127.0.0.1", {port}, "gamma", 1000) {{
+match await tcp_dial("127.0.0.1", {port}, "gamma", 1000) {{
 Some(reply) {{
 print reply
 }}
