@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+script_repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+repo_root="${AXIOM_CHECKOUT_PATH:-$script_repo_root}"
 workflow="$repo_root/.github/workflows/pr-fast-ci.yml"
 
 if [[ ! -f "$workflow" ]]; then
@@ -112,12 +113,12 @@ fi
 
 RESULTS='changes=success fast-checks=skipped validate-pr-description=skipped validate-secrets=skipped' \
   IS_FORK_PR=false \
-  bash "$repo_root/scripts/ci/check-pr-fast-ci-gate.sh" >/dev/null
+  bash "$script_repo_root/scripts/ci/check-pr-fast-ci-gate.sh" >/dev/null
 
 if RESULTS='changes=success fast-checks=skipped validate-pr-description=skipped validate-secrets=skipped' \
   IS_FORK_PR=true \
   TRUSTED_FORK_PR_DESCRIPTION_VALIDATED=false \
-  bash "$repo_root/scripts/ci/check-pr-fast-ci-gate.sh" >/dev/null 2>&1; then
+  bash "$script_repo_root/scripts/ci/check-pr-fast-ci-gate.sh" >/dev/null 2>&1; then
   echo "ci-gate must not accept skipped fork PR description validation without the trusted-base validation step" >&2
   exit 1
 fi
@@ -125,7 +126,7 @@ fi
 if ! RESULTS='changes=success fast-checks=skipped validate-pr-description=skipped validate-secrets=skipped' \
   IS_FORK_PR=true \
   TRUSTED_FORK_PR_DESCRIPTION_VALIDATED=true \
-  bash "$repo_root/scripts/ci/check-pr-fast-ci-gate.sh" >/dev/null 2>&1; then
+  bash "$script_repo_root/scripts/ci/check-pr-fast-ci-gate.sh" >/dev/null 2>&1; then
   echo "ci-gate must allow fork PR branch validation jobs after PR description was validated from the trusted base checkout" >&2
   exit 1
 fi
@@ -141,6 +142,23 @@ if (( trusted_script_runs < 4 )); then
   echo "PR jobs must execute CI helper scripts from the trusted base checkout" >&2
   exit 1
 fi
+
+if ! grep -Fq 'reserved_trusted_path=".trusted-ci"' "$repo_root/scripts/check-detect-secrets.sh"; then
+  echo "secret scanning must reject tracked .trusted-ci paths before scanning PR contents" >&2
+  exit 1
+fi
+
+if ! grep -Fq 'repo_root="${AXIOM_CHECKOUT_PATH:-$script_repo_root}"' "$repo_root/scripts/ci/validate-capability-manifests.sh"; then
+  echo "capability manifest validation must inspect AXIOM_CHECKOUT_PATH when trusted scripts run from a base checkout" >&2
+  exit 1
+fi
+
+for helper in run-stdlib-property-checks.sh run-compiler-property-checks.sh; do
+  if ! grep -Fq 'repo_root="${AXIOM_CHECKOUT_PATH:-$script_repo_root}"' "$repo_root/scripts/ci/$helper"; then
+    echo "$helper must run content checks against AXIOM_CHECKOUT_PATH when trusted scripts run from a base checkout" >&2
+    exit 1
+  fi
+done
 
 if [[ -n "$benchmark_gate_reference" ]]; then
   echo "pr-fast-ci must not run the Stage 1 comparison benchmark gate; keep it in extended, nightly, or manual validation" >&2

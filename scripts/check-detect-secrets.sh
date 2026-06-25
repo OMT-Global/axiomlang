@@ -7,6 +7,13 @@ cd "$repo_root"
 
 mode="${1:-"--all-files"}"
 ignore_globs=("scripts/check-detect-secrets.sh")
+reserved_trusted_path=".trusted-ci"
+
+if [[ -n "$(git ls-files -- "$reserved_trusted_path" "$reserved_trusted_path/**")" ]]; then
+  echo "error: $reserved_trusted_path is reserved for trusted CI checkouts and must not be tracked by PR contents" >&2
+  exit 1
+fi
+
 if [[ -f .detect-secrets-ignore ]]; then
   while IFS= read -r ignore_glob; do
     if [[ -z "$ignore_glob" ]]; then
