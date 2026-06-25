@@ -7541,7 +7541,9 @@ mod tests {
         assert!(help.contains("Check a stage1 package or workspace member"));
         assert!(help.contains("Build a stage1 package through the default direct-native backend"));
         assert!(
-            help.contains("Build and run a stage1 package through the default direct-native backend")
+            help.contains(
+                "Build and run a stage1 package through the default direct-native backend"
+            )
         );
 
         let mut command = Cli::command();
