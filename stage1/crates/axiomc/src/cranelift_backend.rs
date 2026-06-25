@@ -19597,8 +19597,9 @@ fn http_get(url: &str) -> Option<String> {
         return None;
     }
     let request = http_request(&host, &path);
+    let addrs = resolve_public_socket_addrs(host.as_str(), port)?;
     let mut stream = None;
-    for addr in (host.as_str(), port).to_socket_addrs().ok()? {
+    for addr in addrs {
         if let Ok(candidate) =
             std::net::TcpStream::connect_timeout(&addr, std::time::Duration::from_secs(5))
         {
@@ -19615,6 +19616,47 @@ fn http_get(url: &str) -> Option<String> {
         .ok()?;
     stream.write_all(request.as_bytes()).ok()?;
     http_read_response(&mut stream)
+}
+
+fn resolve_public_socket_addrs(host: &str, port: u16) -> Option<Vec<std::net::SocketAddr>> {
+    let addrs: Vec<std::net::SocketAddr> = (host, port).to_socket_addrs().ok()?.collect();
+    if addrs.is_empty() || addrs.iter().any(|addr| is_blocked_network_ip(addr.ip())) {
+        return None;
+    }
+    Some(addrs)
+}
+
+fn is_blocked_network_ip(ip: std::net::IpAddr) -> bool {
+    match ip {
+        std::net::IpAddr::V4(addr) => {
+            let octets = addr.octets();
+            addr.is_private()
+                || addr.is_loopback()
+                || addr.is_link_local()
+                || addr.is_unspecified()
+                || addr.is_broadcast()
+                || addr.is_multicast()
+                || octets[0] == 0
+                || (octets[0] == 100 && (64..=127).contains(&octets[1]))
+                || (octets[0] == 192 && octets[1] == 0 && octets[2] == 0)
+                || (octets[0] == 192 && octets[1] == 0 && octets[2] == 2)
+                || (octets[0] == 198 && (18..=19).contains(&octets[1]))
+                || (octets[0] == 198 && octets[1] == 51 && octets[2] == 100)
+                || (octets[0] == 203 && octets[1] == 0 && octets[2] == 113)
+        }
+        std::net::IpAddr::V6(addr) => {
+            if let Some(mapped) = addr.to_ipv4_mapped() {
+                return is_blocked_network_ip(std::net::IpAddr::V4(mapped));
+            }
+            let segments = addr.segments();
+            addr.is_loopback()
+                || addr.is_unspecified()
+                || addr.is_multicast()
+                || (segments[0] & 0xfe00) == 0xfc00
+                || (segments[0] & 0xffc0) == 0xfe80
+                || (segments[0] == 0x2001 && segments[1] == 0x0db8)
+        }
+    }
 }
 
 fn http_strip_crlf(value: &str) -> String {
@@ -22018,6 +22060,50 @@ mod tests {
             spike_fs_write_candidate_for_root(root, "dangling.txt", false),
             None
         );
+    }
+
+    #[test]
+    fn cranelift_http_resolver_rejects_blocked_network_addresses() {
+        for ip in [
+            "0.0.0.0",
+            "10.0.0.1",
+            "100.64.0.1",
+            "127.0.0.1",
+            "169.254.169.254",
+            "172.16.0.1",
+            "192.0.2.1",
+            "192.168.0.1",
+            "198.18.0.1",
+            "198.51.100.1",
+            "203.0.113.1",
+            "224.0.0.1",
+            "::",
+            "::1",
+            "::ffff:127.0.0.1",
+            "fc00::1",
+            "fe80::1",
+            "2001:db8::1",
+        ] {
+            assert!(
+                is_blocked_network_ip(ip.parse().expect("valid IP literal")),
+                "{ip} should be blocked"
+            );
+        }
+
+        assert!(
+            resolve_public_socket_addrs("127.0.0.1", 80).is_none(),
+            "loopback HTTP targets must not be reachable during Cranelift folding"
+        );
+    }
+
+    #[test]
+    fn cranelift_http_resolver_allows_public_addresses() {
+        for ip in ["1.1.1.1", "8.8.8.8", "2001:4860:4860::8888"] {
+            assert!(
+                !is_blocked_network_ip(ip.parse().expect("valid IP literal")),
+                "{ip} should be allowed"
+            );
+        }
     }
 
     #[test]
