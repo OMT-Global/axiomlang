@@ -3,19 +3,9 @@
   "finalBootstrapIssue": 721,
   "blockingIssues": [
     {
-      "issue": 927,
-      "lane": "backend",
-      "check": "Direct native backend parity readiness matrix has no blocked rows."
-    },
-    {
-      "issue": 1001,
+      "issue": 1124,
       "lane": "backend",
       "check": "Direct native runtime ABI and capability shims cover the supported stage1 surface."
-    },
-    {
-      "issue": 929,
-      "lane": "backend",
-      "check": "Direct native diagnostics, provenance, and debug evidence are at parity with the supported toolchain."
     },
     {
       "issue": 1191,
@@ -23,29 +13,9 @@
       "check": "Generated-Rust backend, rustc targeted-build fallback, and compatibility alias are removed from the supported toolchain."
     },
     {
-      "issue": 930,
-      "lane": "bootstrap",
-      "check": "AxiOM compiler source layout and self-hosting boundaries are defined."
-    },
-    {
-      "issue": 931,
-      "lane": "bootstrap",
-      "check": "A previously shipped axiomc snapshot can build the next axiomc without Cargo."
-    },
-    {
-      "issue": 562,
-      "lane": "verification",
-      "check": "Compiler-internal verification is expressed in AxiOM property form."
-    },
-    {
-      "issue": 563,
+      "issue": 731,
       "lane": "tooling",
-      "check": "Documentation generator is AxiOM-owned."
-    },
-    {
-      "issue": 564,
-      "lane": "tooling",
-      "check": "LSP server and protocol path are AxiOM-owned."
+      "check": "Documentation generator, LSP server, and protocol path are AxiOM-owned."
     }
   ]
 }
