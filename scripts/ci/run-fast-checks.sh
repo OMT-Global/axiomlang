@@ -18,8 +18,8 @@ python3 scripts/ci/test-issue-pr-traceability.py
 bash scripts/ci/run-stdlib-property-checks.sh
 bash scripts/ci/run-compiler-property-checks.sh
 
-cargo test --manifest-path stage1/Cargo.toml -p axiomc render_rust_verifies_https_tls_certificates -- --nocapture
-cargo test --manifest-path stage1/Cargo.toml -p axiomc render_rust_uses_trusted_crypto_symbol_loading -- --nocapture
+cargo test --manifest-path stage1/Cargo.toml -p axiomc --lib render_rust_verifies_https_tls_certificates -- --nocapture
+cargo test --manifest-path stage1/Cargo.toml -p axiomc --lib render_rust_uses_trusted_crypto_symbol_loading -- --nocapture
 
 if [[ "${AXIOM_FAST_CI_PROOF_WORKLOADS:-1}" != "1" ]]; then
   echo "error: proof workload execution is required for PR fast checks." >&2
