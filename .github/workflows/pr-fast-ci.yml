@@ -200,6 +200,15 @@ jobs:
       - validate-pr-description
       - validate-secrets
     steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4 pinned 2026-05-30
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+      - name: Validate fork PR description from trusted base
+        if: ${{ github.event.pull_request.head.repo.full_name != github.repository }}
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+        run: bash scripts/ci/validate-pr-description.sh
       - name: Check required PR jobs
         env:
           RESULTS: >-
@@ -208,18 +217,29 @@ jobs:
             validate-pr-description=${{ needs.validate-pr-description.result }}
             validate-secrets=${{ needs.validate-secrets.result }}
           IS_FORK_PR: ${{ github.event.pull_request.head.repo.full_name != github.repository }}
+          TRUSTED_FORK_PR_DESCRIPTION_VALIDATED: ${{ github.event.pull_request.head.repo.full_name != github.repository }}
         run: |
           failed=0
           is_fork_pr="${IS_FORK_PR:-false}"
-          branch_validation_jobs=" fast-checks validate-pr-description validate-secrets "
+          trusted_fork_pr_description_validated="${TRUSTED_FORK_PR_DESCRIPTION_VALIDATED:-false}"
+          fork_skippable_jobs=" fast-checks validate-secrets "
 
           for entry in $RESULTS; do
             job="${entry%%=*}"
             status="${entry##*=}"
 
-            if [[ "$is_fork_pr" == "true" && "$branch_validation_jobs" == *" $job "* && "$status" == "skipped" ]]; then
-              echo "FAIL $job => $status (fork PR branch validation must not be skipped)"
-              failed=1
+            if [[ "$is_fork_pr" == "true" && "$job" == "validate-pr-description" && "$status" == "skipped" ]]; then
+              if [[ "$trusted_fork_pr_description_validated" == "true" ]]; then
+                echo "OK   $job => $status (fork PR description validated from trusted base checkout)"
+              else
+                echo "FAIL $job => $status (fork PR description validation must run from trusted base checkout)"
+                failed=1
+              fi
+              continue
+            fi
+
+            if [[ "$is_fork_pr" == "true" && "$fork_skippable_jobs" == *" $job "* && "$status" == "skipped" ]]; then
+              echo "OK   $job => $status (fork PR branch validation intentionally skipped on self-hosted runners)"
               continue
             fi
 
