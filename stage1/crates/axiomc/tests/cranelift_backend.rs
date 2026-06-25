@@ -4302,6 +4302,53 @@ fn cranelift_backend_lowers_net_loopback_to_runtime_exit_code() {
 
 #[cfg(not(windows))]
 #[test]
+fn cranelift_backend_writes_raw_net_reads_into_mutable_buffers() {
+    if which::which("cc").is_err() {
+        eprintln!("skipping cranelift backend smoke test because cc is unavailable");
+        return;
+    }
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("net-mutable-buffers");
+    let Some(udp_port) = reserve_loopback_port() else {
+        return;
+    };
+    write_net_mutable_buffers_project(&project, udp_port);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args([
+            "build",
+            project.to_str().expect("project path"),
+            "--backend",
+            "cranelift",
+            "--json",
+        ])
+        .output()
+        .expect("run axiomc build --backend cranelift");
+    assert!(
+        output.status.success(),
+        "cranelift net mutable buffers build failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+    assert_eq!(payload["backend"], "cranelift");
+    assert_eq!(payload["generated_rust"], Value::Null);
+    let binary = payload["binary"].as_str().expect("binary path");
+    let run = Command::new(binary)
+        .output()
+        .expect("run cranelift net mutable buffers binary");
+    assert!(
+        run.status.success(),
+        "cranelift net mutable buffers binary failed: stderr={}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "true\n");
+}
+
+#[cfg(not(windows))]
+#[test]
 fn cranelift_backend_builds_http_client_binary() {
     if which::which("cc").is_err() {
         eprintln!("skipping cranelift backend smoke test because cc is unavailable");
@@ -10324,6 +10371,88 @@ return 1
 "#,
     )
     .expect("write net loopback main source");
+}
+
+fn write_net_mutable_buffers_project(project: &Path, udp_port: u16) {
+    fs::create_dir_all(project.join("src")).expect("create net mutable buffers project src");
+    fs::write(
+        project.join("axiom.toml"),
+        r#"[package]
+name = "cranelift-net-mutable-buffers"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+fs = false
+net = true
+process = false
+env = false
+clock = false
+crypto = false
+
+[unsafe_rationale]
+net = "Direct-native mutable buffer regression covers raw TCP and UDP read writebacks."
+"#,
+    )
+    .expect("write net mutable buffers manifest");
+    fs::write(
+        project.join("axiom.lock"),
+        r#"version = 1
+
+[[package]]
+name = "cranelift-net-mutable-buffers"
+version = "0.1.0"
+source = "path"
+"#,
+    )
+    .expect("write net mutable buffers lockfile");
+    fs::write(
+        project.join("src/main.ax"),
+        format!(
+            r#"fn fill_tcp(buf: &mut [u8]): int {{
+let listener: int = net_tcp_listen("127.0.0.1:0")
+let stream: int = net_tcp_accept(listener)
+let read_plus_one: int = net_tcp_read(stream, buf) + 1
+let closed: int = net_tcp_close(stream)
+let write_after_close: int = net_tcp_write_string(stream, "stale")
+let second_close: int = net_tcp_close(stream)
+let listener_closed: int = net_tcp_close_listener(listener)
+if closed == 0 && write_after_close == -1 && second_close == -1 && listener_closed == 0 {{
+return read_plus_one
+}} else {{
+return 0
+}}
+}}
+
+fn fill_udp(buf: &mut [u8]): int {{
+let source: int = net_udp_bind("127.0.0.1:0")
+let target: int = net_udp_bind("127.0.0.1:{udp_port}")
+let target_addr: string = net_udp_local_addr(target)
+let payload: [u8; 4] = [112u8, 111u8, 110u8, 103u8]
+let sent: int = net_udp_send_to(source, payload[:], "127.0.0.1:{udp_port}")
+let received: (int, string) = net_udp_recv_from(target, buf)
+let source_closed: int = net_udp_close(source)
+let target_closed: int = net_udp_close(target)
+if target_addr == "127.0.0.1:{udp_port}" && sent == 4 && source_closed == 0 && target_closed == 0 {{
+return received.0
+}} else {{
+return 0
+}}
+}}
+
+let tcp_buf: [u8; 4] = [0u8, 0u8, 0u8, 0u8]
+let udp_buf: [u8; 4] = [0u8, 0u8, 0u8, 0u8]
+let tcp_score: int = fill_tcp(tcp_buf[:])
+let udp_read: int = fill_udp(udp_buf[:])
+let udp_score: int = udp_read + 1
+print tcp_score == 5 && tcp_buf[0] == 112u8 && tcp_buf[1] == 105u8 && tcp_buf[2] == 110u8 && tcp_buf[3] == 103u8 && udp_score == 5 && udp_buf[0] == 112u8 && udp_buf[1] == 111u8 && udp_buf[2] == 110u8 && udp_buf[3] == 103u8
+"#
+        ),
+    )
+    .expect("write net mutable buffers source");
 }
 
 fn start_http_fixture_server(body: &'static str) -> (u16, std::thread::JoinHandle<()>) {

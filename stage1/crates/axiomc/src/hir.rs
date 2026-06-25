@@ -8137,10 +8137,18 @@ fn is_scalar_result_assignment_type(ty: &Type, ctx: &LowerContext<'_>) -> bool {
 }
 
 fn is_slot_payload_assignment_type(ty: &Type, ctx: &LowerContext<'_>) -> bool {
-    is_scalar_local_assignment_type(ty)
-        || is_scalar_projection_assignment_type(ty, ctx)
-        || is_scalar_option_assignment_type(ty, ctx)
-        || is_scalar_result_assignment_type(ty, ctx)
+    match ty {
+        Type::Tuple(elements) => elements
+            .iter()
+            .all(|element| is_slot_payload_assignment_type(element, ctx)),
+        Type::Struct(_) => is_scalar_projection_assignment_type(ty, ctx),
+        _ => {
+            is_scalar_local_assignment_type(ty)
+                || is_scalar_projection_assignment_type(ty, ctx)
+                || is_scalar_option_assignment_type(ty, ctx)
+                || is_scalar_result_assignment_type(ty, ctx)
+        }
+    }
 }
 
 fn is_scalar_enum_assignment_type(ty: &Type, ctx: &LowerContext<'_>) -> bool {

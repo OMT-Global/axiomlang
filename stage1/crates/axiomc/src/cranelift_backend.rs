@@ -15885,6 +15885,34 @@ fn eval_expr_effectful(
 ) -> Result<SpikeValue, Diagnostic> {
     match expr {
         Expr::Call { name, args, .. } => eval_call_effectful(name, args, functions, env, lines),
+        Expr::BinaryAdd { op, lhs, rhs, ty } => {
+            let left = eval_expr_effectful(lhs, functions, env, lines)?;
+            let right = eval_expr_effectful(rhs, functions, env, lines)?;
+            eval_arithmetic_values(*op, left, right, ty)
+        }
+        Expr::BinaryCompare {
+            op,
+            lhs,
+            rhs,
+            ty: _,
+        } => {
+            let left = eval_expr_effectful(lhs, functions, env, lines)?;
+            let right = eval_expr_effectful(rhs, functions, env, lines)?;
+            eval_compare_values(*op, left, right)
+        }
+        Expr::BinaryLogic { op, lhs, rhs, .. } => {
+            let left = expect_bool(eval_expr_effectful(lhs, functions, env, lines)?)?;
+            match op {
+                crate::mir::LogicOp::And if !left => Ok(SpikeValue::Bool(false)),
+                crate::mir::LogicOp::Or if left => Ok(SpikeValue::Bool(true)),
+                crate::mir::LogicOp::And | crate::mir::LogicOp::Or => Ok(SpikeValue::Bool(
+                    expect_bool(eval_expr_effectful(rhs, functions, env, lines)?)?,
+                )),
+            }
+        }
+        Expr::Cast { expr, ty } => {
+            cast_spike_value(eval_expr_effectful(expr, functions, env, lines)?, ty)
+        }
         _ => eval_expr(expr, functions, env, lines),
     }
 }
@@ -16470,6 +16498,9 @@ fn eval_call_effectful(
     env: &mut SpikeEnv,
     lines: &mut Vec<OutputLine>,
 ) -> Result<SpikeValue, Diagnostic> {
+    if is_net_call(name) {
+        return eval_net_call_effectful(name, args, functions, env, lines);
+    }
     let Some(function) = functions.get(name) else {
         return eval_call(name, args, functions, env, lines);
     };
@@ -19323,6 +19354,49 @@ fn eval_net_call(
     }
 }
 
+fn eval_net_call_effectful(
+    name: &str,
+    args: &[Expr],
+    functions: &HashMap<&str, &Function>,
+    env: &mut SpikeEnv,
+    lines: &mut Vec<OutputLine>,
+) -> Result<SpikeValue, Diagnostic> {
+    match name {
+        "net_tcp_read" => {
+            let [stream, buffer] = args else {
+                return Err(unsupported("net_tcp_read expects exactly two arguments"));
+            };
+            let stream = expect_int(eval_expr(stream, functions, env, lines)?)?;
+            let buffer = eval_expr(buffer, functions, env, lines)?;
+            let max_bytes = byte_buffer_len(buffer.clone(), env)?;
+            let text = net_tcp_read_string(stream, max_bytes)
+                .ok_or_else(|| unsupported("net_tcp_read failed in cranelift spike"))?;
+            write_byte_buffer_text(buffer, env, &text)?;
+            Ok(SpikeValue::Int(
+                i64::try_from(text.len()).unwrap_or(i64::MAX),
+            ))
+        }
+        "net_udp_recv_from" => {
+            let [socket, buffer] = args else {
+                return Err(unsupported(
+                    "net_udp_recv_from expects exactly two arguments",
+                ));
+            };
+            let socket = expect_int(eval_expr(socket, functions, env, lines)?)?;
+            let buffer = eval_expr(buffer, functions, env, lines)?;
+            let max_bytes = byte_buffer_len(buffer.clone(), env)?;
+            let (count, peer, text) = net_udp_recv_from_text(socket, max_bytes)
+                .ok_or_else(|| unsupported("net_udp_recv_from failed in cranelift spike"))?;
+            write_byte_buffer_text(buffer, env, &text)?;
+            Ok(SpikeValue::Tuple(vec![
+                SpikeValue::Int(count),
+                SpikeValue::Text(peer),
+            ]))
+        }
+        _ => eval_net_call(name, args, functions, env, lines),
+    }
+}
+
 fn net_timeout(timeout_ms: i64) -> std::time::Duration {
     std::time::Duration::from_millis(timeout_ms.clamp(1, 30_000) as u64)
 }
@@ -19347,6 +19421,35 @@ fn byte_buffer_text(value: SpikeValue, env: &SpikeEnv) -> Result<String, Diagnos
             String::from_utf8(bytes)
                 .map_err(|_| unsupported("network byte buffers must be valid UTF-8 text"))
         })
+}
+
+fn write_byte_buffer_text(
+    value: SpikeValue,
+    env: &mut SpikeEnv,
+    text: &str,
+) -> Result<(), Diagnostic> {
+    let bytes = text
+        .bytes()
+        .map(|byte| SpikeValue::UInt(u64::from(byte)))
+        .collect::<Vec<_>>();
+    match value {
+        SpikeValue::MutSlice { target, start, end } => {
+            let Some(SpikeValue::Array(values)) = env.get_mut(&target) else {
+                return Err(unsupported(
+                    "mutable byte buffers require a live local array",
+                ));
+            };
+            if start > end || end > values.len() {
+                return Err(unsupported("byte buffer slice is outside the array length"));
+            }
+            for (index, byte) in bytes.into_iter().take(end - start).enumerate() {
+                values[start + index] = byte;
+            }
+            Ok(())
+        }
+        SpikeValue::Array(_) => Ok(()),
+        _ => Err(unsupported("network byte buffers must be byte arrays")),
+    }
 }
 
 fn byte_buffer_values(value: SpikeValue, env: &SpikeEnv) -> Result<Vec<SpikeValue>, Diagnostic> {
@@ -19461,7 +19564,8 @@ fn net_tcp_close(stream: i64) -> i64 {
     if spike_tcp_streams()
         .lock()
         .ok()
-        .is_some_and(|streams| streams.contains_key(&stream))
+        .and_then(|mut streams| streams.remove(&stream))
+        .is_some()
     {
         0
     } else {
@@ -19638,11 +19742,17 @@ fn net_udp_send_to(socket: i64, message: &str, peer: &str) -> i64 {
 }
 
 fn net_udp_recv_from(socket: i64, max_bytes: i64) -> Option<(i64, String)> {
+    let (count, peer, _message) = net_udp_recv_from_text(socket, max_bytes)?;
+    Some((count, peer))
+}
+
+fn net_udp_recv_from_text(socket: i64, max_bytes: i64) -> Option<(i64, String, String)> {
     let mut sockets = spike_udp_sockets().lock().ok()?;
     let socket = sockets.get_mut(&socket)?;
     let (message, peer) = socket.datagrams.pop()?;
     let max_bytes = usize::try_from(max_bytes.max(0)).ok()?;
-    Some((i64::try_from(message.len().min(max_bytes)).ok()?, peer))
+    let message = message.chars().take(max_bytes).collect::<String>();
+    Some((i64::try_from(message.len()).ok()?, peer, message))
 }
 
 fn net_udp_close(socket: i64) -> i64 {
@@ -21475,6 +21585,15 @@ fn eval_arithmetic(
 ) -> Result<SpikeValue, Diagnostic> {
     let left = eval_expr(lhs, functions, env, lines)?;
     let right = eval_expr(rhs, functions, env, lines)?;
+    eval_arithmetic_values(op, left, right, ty)
+}
+
+fn eval_arithmetic_values(
+    op: ArithmeticOp,
+    left: SpikeValue,
+    right: SpikeValue,
+    ty: &Type,
+) -> Result<SpikeValue, Diagnostic> {
     match (ty, left, right) {
         (Type::Int, SpikeValue::Int(left), SpikeValue::Int(right)) => {
             let value = match op {
@@ -21610,6 +21729,14 @@ fn eval_compare(
 ) -> Result<SpikeValue, Diagnostic> {
     let left = eval_expr(lhs, functions, env, lines)?;
     let right = eval_expr(rhs, functions, env, lines)?;
+    eval_compare_values(op, left, right)
+}
+
+fn eval_compare_values(
+    op: CompareOp,
+    left: SpikeValue,
+    right: SpikeValue,
+) -> Result<SpikeValue, Diagnostic> {
     let result = match (&left, &right) {
         (SpikeValue::Int(left), SpikeValue::Int(right)) => compare_ord(op, *left, *right),
         (SpikeValue::UInt(left), SpikeValue::UInt(right)) => compare_ord(op, *left, *right),
