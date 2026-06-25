@@ -20,6 +20,8 @@ use std::env;
 use std::fs;
 use std::io::ErrorKind;
 use std::io::{self, Read, Write};
+#[cfg(unix)]
+use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Component, Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
@@ -1156,13 +1158,36 @@ fn read_test_expected_stream(
         )
         .with_path(path.display().to_string()));
     }
-    let file = fs::File::open(path).map_err(|err| {
+    let file = open_test_expected_stream(path, label)?;
+    let opened_metadata = file.metadata().map_err(|err| {
         Diagnostic::new(
             "test",
-            format!("failed to open {label} {}: {err}", path.display()),
+            format!("failed to inspect opened {label} {}: {err}", path.display()),
         )
         .with_path(path.display().to_string())
     })?;
+    if !opened_metadata.file_type().is_file() {
+        return Err(Diagnostic::new(
+            "test",
+            format!(
+                "refusing to read {label} {} because expected test streams must be regular files",
+                path.display()
+            ),
+        )
+        .with_path(path.display().to_string()));
+    }
+    if opened_metadata.len() > MAX_TEST_EXPECTED_STREAM_BYTES {
+        return Err(Diagnostic::new(
+            "test",
+            format!(
+                "refusing to read {label} {} because it is {} bytes, above the {} byte limit",
+                path.display(),
+                opened_metadata.len(),
+                MAX_TEST_EXPECTED_STREAM_BYTES
+            ),
+        )
+        .with_path(path.display().to_string()));
+    }
     let mut content = String::new();
     let mut limited = file.take(MAX_TEST_EXPECTED_STREAM_BYTES + 1);
     limited.read_to_string(&mut content).map_err(|err| {
@@ -1184,6 +1209,32 @@ fn read_test_expected_stream(
         .with_path(path.display().to_string()));
     }
     Ok(content)
+}
+
+#[cfg(unix)]
+fn open_test_expected_stream(path: &Path, label: &str) -> Result<fs::File, Diagnostic> {
+    fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW)
+        .open(path)
+        .map_err(|err| {
+            Diagnostic::new(
+                "test",
+                format!("failed to open {label} {}: {err}", path.display()),
+            )
+            .with_path(path.display().to_string())
+        })
+}
+
+#[cfg(not(unix))]
+fn open_test_expected_stream(path: &Path, label: &str) -> Result<fs::File, Diagnostic> {
+    fs::File::open(path).map_err(|err| {
+        Diagnostic::new(
+            "test",
+            format!("failed to open {label} {}: {err}", path.display()),
+        )
+        .with_path(path.display().to_string())
+    })
 }
 
 pub fn project_capabilities(project_root: &Path) -> Result<Vec<CapabilityDescriptor>, Diagnostic> {
@@ -8693,6 +8744,27 @@ mod tests {
             Some(&Some("explicit\n"))
         );
         assert_eq!(stdout_by_name.get("manifest_bench"), Some(&None));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_expected_stream_open_rejects_symlink() {
+        let dir = tempdir().unwrap_or_else(|err| panic!("tempdir: {err}"));
+        let root = dir.path();
+        let target = root.join("target.stdout");
+        let link = root.join("main_test.stdout");
+        fs::write(&target, "leaked\n").unwrap_or_else(|err| panic!("write target: {err}"));
+        std::os::unix::fs::symlink(&target, &link)
+            .unwrap_or_else(|err| panic!("symlink golden: {err}"));
+
+        let error = match open_test_expected_stream(&link, "stdout fixture") {
+            Ok(_) => panic!("symlinked expected stream was opened"),
+            Err(error) => error,
+        };
+
+        assert_eq!(error.kind, "test");
+        assert_eq!(error.path, Some(link.display().to_string()));
+        assert!(error.message.contains("failed to open stdout fixture"));
     }
 
     #[cfg(unix)]

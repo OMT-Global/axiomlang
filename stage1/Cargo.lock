@@ -121,6 +121,7 @@ dependencies = [
  "axiomc-backend-cranelift",
  "clap",
  "jsonschema",
+ "libc",
  "serde",
  "serde_json",
  "tempfile",
