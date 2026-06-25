@@ -19,9 +19,9 @@ Axiom currently supports a Rust-hosted `axiomc` workflow with:
 - `axiom.toml` and `axiom.lock` package manifests.
 - Package-local modules, local path dependencies, and workspace member
   selection.
-- Native builds through the direct-native Cranelift backend for host builds, with
-  generated Rust and `rustc` still present as the targeted-build compatibility
-  path until Rust-exit removal work is complete.
+- Native builds through the direct-native Cranelift backend for the supported
+  subset, with generated Rust and `rustc` retained as explicit compatibility
+  and targeted-build fallback paths.
 - `check`, `build`, `run`, `test`, and capability inspection commands.
 - A stage1 conformance corpus under `stage1/conformance`.
 - Synthetic standard library modules under the `std/` import prefix.

@@ -120,6 +120,59 @@ partial until real runtime entrypoints or backend-emitted codegen land. This
 lets future backend slices update the contract as runtime support lands without
 pretending the spike already proves direct-native runtime coverage.
 
+<!-- direct-native-runtime-abi-status:start -->
+
+_Generated from `stage1/runtime-abi/direct-native-v0.json`; run `make stage1-direct-native-runtime-abi-test` after changing the contract._
+
+### Value Features
+
+| Row | Status | Blockers | Evidence | Scope |
+| --- | --- | --- | --- | --- |
+| `array.fixed` | `partial` | #1124 | evidence:1, runtime:1 | The direct-native path now has narrow runtime evidence for immediate array-literal scalar indexing with literal indexes and scalar projection from... |
+| `boolean` | `partial` | #1124 | evidence:1, runtime:1 | The Cranelift spike covers boolean values. |
+| `enum.payload` | `partial` | #1124 | evidence:1, runtime:1 | The Cranelift spike builds and runs custom enum matches with tuple, named, and string payloads without generated Rust. |
+| `map.lookup` | `partial` | #1124 | evidence:1, runtime:1 | The Cranelift spike covers direct map indexing, get, get_or_default, map_contains_key, map_keys, helper-returned direct index, contains-key, and de... |
+| `numeric.scalars` | `partial` | #1124 | evidence:1, runtime:1 | The Cranelift spike covers several scalar widths and casts. |
+| `option` | `partial` | #1124 | evidence:1, runtime:1 | The direct-native path now has narrow runtime evidence for local Option<int> and Option<bool> construction as tag/payload locals, scalar option rea... |
+| `owned.move_state` | `partial` | #1124 | evidence:1, runtime:1 | The Cranelift spike builds and runs projection-sensitive owned field moves while preserving access to disjoint sibling projections, and the public... |
+| `result` | `partial` | #1124 | evidence:1, runtime:1 | The Cranelift spike evaluates Result<T, E> through std/outcome.ax helpers, direct match arms, scalar payloads, string errors, and struct payloads. |
+| `slice.borrowed` | `partial` | #1124 | evidence:1, runtime:1 | The Cranelift spike evaluates borrowed array slices for len, first, last, indexing, and function returns. |
+| `string` | `partial` | #1124 | evidence:1, runtime:1 | The Cranelift spike builds and runs pure string intrinsics including string_clone, string_starts_with, string_strip_prefix, string_strip_suffix, st... |
+| `struct.field` | `partial` | #1124 | evidence:1, runtime:1 | The direct-native path now has narrow runtime evidence for immediate struct-literal scalar field access and scalar projection from local struct bin... |
+| `tuple` | `partial` | #1124 | evidence:1, runtime:1 | The direct-native path now has narrow runtime evidence for immediate tuple-literal scalar indexing and scalar projection from local tuple bindings,... |
+
+### Capability Shims
+
+| Row | Status | Blockers | Evidence | Scope |
+| --- | --- | --- | --- | --- |
+| `async.runtime` | `partial` | #1124 | evidence:1, runtime:2, denial:1 | The Cranelift spike now has compiler-side evidence for std/async.ax ready, await, spawn, join, cancel, is_canceled, timeout, channel send/recv, sel... |
+| `clock.now_sleep` | `partial` | #1124 | evidence:1, runtime:2, denial:1 | The Cranelift spike can build a std/time.ax package covering now_ms, now, elapsed_ms, and zero-duration sleep while the public clock smoke asserts... |
+| `crypto.aead` | `partial` | #1124 | evidence:1, runtime:2, denial:1 | The Cranelift spike builds and runs std/crypto_aead.ax AES-256-GCM seal/open while the public smoke asserts generated_rust is null through a dynami... |
+| `crypto.hash` | `partial` | #1124 | evidence:1, runtime:2, denial:1 | The Cranelift spike covers std/crypto_hash.ax sha256 over strings while the public smoke asserts generated_rust is null. |
+| `crypto.mac` | `partial` | #1124 | evidence:1, runtime:2, denial:1 | The Cranelift spike covers std/crypto_mac.ax HMAC-SHA256, HMAC-SHA512, verification helpers, string constant-time equality, and byte-slice constant... |
+| `crypto.random` | `partial` | #1124 | evidence:1, runtime:2, denial:1 | The Cranelift spike builds and runs std/crypto_rand.ax random_bytes and random_u64 through a Unix OS-random source while the public smoke asserts g... |
+| `crypto.signature` | `partial` | #1124 | evidence:1, runtime:2, denial:1 | The Cranelift spike builds and runs std/crypto_sign.ax Ed25519 key generation, signing, and verification while the public smoke asserts generated_r... |
+| `env.read` | `partial` | #1124 | evidence:1, runtime:2, denial:1 | The Cranelift spike can build a std/env.ax get_env package for present and missing environment reads while the public smoke asserts generated_rust... |
+| `ffi.call` | `partial` | #1124 | evidence:1, runtime:2, denial:1 | The Cranelift spike builds and runs a narrow C ABI extern strlen fixture while the public smoke asserts generated_rust is null, using the source-le... |
+| `fs.read` | `partial` | #1124 | evidence:1, runtime:2, denial:1 | The Cranelift spike can build a std/fs.ax read_file package for present and missing filesystem reads, and rejects missing fs capability before back... |
+| `fs.write` | `partial` | #1124 | evidence:1, runtime:2, denial:1 | The Cranelift spike records positive compiler-side evidence for std/fs.ax write helpers over configured fs_root-scoped literal paths, including mkd... |
+| `io.logging_stdio` | `partial` | #1124 | evidence:1, runtime:2 | The Cranelift spike now builds and runs std/io eprintln with stdout and stderr output from the native binary, and std/log.ax event formatting plus... |
+| `json.serdes` | `partial` | #1124 | evidence:2, runtime:1 | The Cranelift spike covers std/json.ax scalar parse/stringify, JsonValue string wrapping, object field extraction, and value normalization without... |
+| `network.dns.resolve` | `partial` | #1124 | evidence:1, runtime:2, denial:1 | The Cranelift spike builds and runs std/net.ax resolve("localhost") through host DNS resolution while the public smoke asserts generated_rust is nu... |
+| `network.http.async_server` | `partial` | #1124 | evidence:1, runtime:2, denial:1 | The Cranelift spike builds and runs http_async_serve_route over a loopback server handle while the public smoke asserts generated_rust is null, ret... |
+| `network.http.client` | `partial` | #1124 | evidence:1, runtime:2, denial:1 | The Cranelift spike builds std/http.ax get against a static allowlisted http://127.0.0.1 URL and fetches a local one-shot HTTP response while the p... |
+| `network.http.server` | `partial` | #1124 | evidence:1, runtime:2, denial:1 | The Cranelift spike builds and runs loopback HTTP server entrypoints while the public smoke asserts generated_rust is null: listen, local_port, acc... |
+| `network.tcp` | `partial` | #1124 | evidence:1, runtime:2, denial:1 | The Cranelift spike builds and runs std/net.ax tcp_listen_loopback_once over 127.0.0.1 while the public loopback smoke asserts generated_rust is nu... |
+| `network.udp` | `partial` | #1124 | evidence:1, runtime:2, denial:1 | The Cranelift spike builds and runs std/net.ax udp_bind_loopback_once over 127.0.0.1 while the public loopback smoke asserts generated_rust is null... |
+| `process.status` | `partial` | #1124 | evidence:2, runtime:2, denial:1 | The Cranelift spike records positive compiler-side evidence for std/process.ax run_status over literal, allowlisted deterministic commands and the... |
+| `regex.match_replace` | `partial` | #1124 | evidence:1, runtime:2 | The Cranelift spike covers std/regex.ax is_match, find, and replace_all for the stage1-safe NFA subset without generated Rust, and the public stdli... |
+| `sync.primitives` | `partial` | #1124 | evidence:1, runtime:2 | The Cranelift spike now builds and runs ownership-shaped std/sync mutex, once, and channel wrappers while the public sync smoke asserts generated_r... |
+
+<!-- direct-native-runtime-abi-status:end -->
+
+The detailed evidence notes below preserve row history, but the generated table
+above is the scannable status surface and the JSON contract is authoritative.
+
 The `numeric.scalars` row now has the first narrow `runtime_evidence`: the
 `axiomc` Cranelift build path can lower zero-argument `main(): int` and
 `main(): i64`, `main(): i32`, and `main(): u32` entrypoints with straight-line
@@ -164,14 +217,16 @@ bool locals, and comparison expressions. Bool-returning helpers can return
 condition expressions directly, use bool parameters in branch conditions, and
 cover final `if` branches whose arms return bool expressions. It also covers
 boolean equality/inequality between dynamic bool expressions, local/static bool
-values, and boolean literals in conditions, plus immediate tuple-literal bool
-indexing, bool projection from local tuple bindings, immediate array-literal
-bool indexing, bool projection from local fixed-array bindings, immediate
-struct-literal bool field access, and bool projection from local struct
-bindings for bool locals, helper returns, and boolean conditions. The backend
-crate has narrow object-link evidence for composed `&&`/`||` comparison conditions,
-condition-to-i64 value lowering for helper-call arguments, and bool local
-assignment through a branch inside a loop after a scoped runtime bool `let`.
+values, boolean literals in conditions, and composed `&&`/`||` boolean
+expressions compared against `false` by recursively inverting the native
+condition, plus immediate tuple-literal bool indexing, bool projection from
+local tuple bindings, immediate array-literal bool indexing, bool projection
+from local fixed-array bindings, immediate struct-literal bool field access,
+and bool projection from local struct bindings for bool locals, helper returns,
+and boolean conditions. The backend crate has narrow object-link evidence for
+composed `&&`/`||` comparison conditions, condition-to-i64 value lowering for
+helper-call arguments, and bool local assignment through a branch inside a loop
+after a scoped runtime bool `let`.
 The public bool stdout smoke also asserts `generated_rust: null` while printing
 both true and false boolean expressions from a direct-native main function.
 Both rows remain partial because that runtime path does not yet cover the full
@@ -719,12 +774,16 @@ local `Option<string>` facts that are matched later in the same body.
 Pre-runtime local map bindings initialized from inline map literals can feed the
 same `get_or_default`, `map_contains_key`, and `get` lowering, and
 `len(keys(...))`/`len(map_keys(...))` can count static map keys without
-materializing a runtime key array. Static scalar integer and boolean keys can
-also feed inline and pre-runtime map lookup, contains, and get-or-default
-lowering. Imported public `std/collections.ax` `contains`, `get`,
-`get_or_default`, and `keys` map wrappers now alias the same direct-native i64
-lowering for static string/int map-local cases. Literal indexes into static
-string key arrays can also feed known string length
+materializing a runtime key array. Runtime branch-local map literals can now
+feed the same known `get`, `get_or_default`, `map_contains_key`, and
+`keys(...)` result paths into outer scalar, boolean, string-length, and
+key-count locals without materializing a general map runtime value. Static
+scalar integer and boolean keys can also feed inline and pre-runtime map
+lookup, contains, and get-or-default lowering. Imported public
+`std/collections.ax` `contains`, `get`, `get_or_default`, and `keys` map
+wrappers now alias the same direct-native i64 lowering for static string/int
+map-local cases. Literal indexes into static string key arrays can also feed
+known string length
 lowering, and non-literal scalar indexes into those static string key arrays can
 select among known key byte lengths. Dynamic key-array value projection locals
 whose index is derived from a prior collection predicate local can also feed

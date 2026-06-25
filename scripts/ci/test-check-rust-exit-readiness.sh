@@ -38,15 +38,9 @@ rust-exit-readiness-test:
 MAKE
 
 cat >"$temp_dir/partial-issues.txt" <<'ISSUES'
-927 CLOSED
-929 CLOSED
-693 CLOSED
-694 CLOSED
-930 CLOSED
-931 CLOSED
-562 CLOSED
-563 CLOSED
-564 CLOSED
+1124 CLOSED
+1191 CLOSED
+731 CLOSED
 ISSUES
 
 (
@@ -145,6 +139,7 @@ statuses = {check["name"]: check["status"] for check in payload["checks"]}
 assert statuses["readiness_blockers_closed"] == "pass"
 assert statuses["readiness_blockers_live_when_not_ready"] == "pass"
 assert statuses["rust_exit_issue_1124_closed"] == "pass"
+assert statuses["rust_exit_issue_1191_closed"] == "pass"
 assert statuses["rust_exit_issue_731_closed"] == "pass"
 assert "rust_exit_issue_721_closed" not in statuses
 assert statuses["direct_native_runtime_abi_ready"] == "pass"

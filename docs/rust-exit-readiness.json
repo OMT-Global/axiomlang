@@ -15,7 +15,7 @@
     {
       "issue": 731,
       "lane": "tooling",
-      "check": "LSP server and protocol path are AxiOM-owned."
+      "check": "Documentation generator, LSP server, and protocol path are AxiOM-owned."
     }
   ]
 }
