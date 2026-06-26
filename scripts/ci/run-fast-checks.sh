@@ -24,6 +24,28 @@ smoke_rust_lld() {
   [[ -x "$rust_lld" ]] && smoke_linker "$rust_lld"
 }
 
+install_system_linker() {
+  command -v apt-get >/dev/null 2>&1 || return 1
+  local apt_cache apt_lists
+  apt_cache="${RUNNER_TEMP:-/tmp}/axiom-fast-ci-apt-cache"
+  apt_lists="${RUNNER_TEMP:-/tmp}/axiom-fast-ci-apt-lists"
+  mkdir -p "$apt_cache/partial" "$apt_lists/partial"
+  local apt_get=(
+    apt-get
+    -o Acquire::Retries=3
+    -o Dpkg::Use-Pty=0
+    -o APT::Sandbox::User=root
+    -o Dir::Cache::archives="$apt_cache"
+    -o Dir::State::lists="$apt_lists"
+  )
+  if [[ "$(id -u)" != "0" ]]; then
+    apt_get=(sudo "${apt_get[@]}")
+  fi
+
+  "${apt_get[@]}" update || true
+  DEBIAN_FRONTEND=noninteractive "${apt_get[@]}" install -y --no-install-recommends gcc libc6-dev || true
+}
+
 if [[ -n "$rust_linker" ]]; then
   if [[ ! -x "$rust_linker" ]] || ! smoke_linker "$rust_linker"; then
     echo "error: AXIOM_FAST_CI_RUST_LINKER must point to a usable Rust linker for PR fast checks." >&2
@@ -38,6 +60,18 @@ else
     export AXIOM_FAST_CI_RUST_LINKER="$rust_linker"
     break
   done
+
+  if [[ -z "$rust_linker" ]]; then
+    install_system_linker || true
+    for candidate in cc gcc clang; do
+      candidate_linker="$(command -v "$candidate" 2>/dev/null || true)"
+      [[ -n "$candidate_linker" ]] || continue
+      smoke_linker "$candidate_linker" || continue
+      rust_linker="$candidate_linker"
+      export AXIOM_FAST_CI_RUST_LINKER="$rust_linker"
+      break
+    done
+  fi
 
   if [[ -z "$rust_linker" ]] && smoke_rust_lld; then
     rust_linker="$(rustc --print sysroot)/lib/rustlib/$(rustc -vV | awk '/^host:/ { print $2 }')/bin/rust-lld"

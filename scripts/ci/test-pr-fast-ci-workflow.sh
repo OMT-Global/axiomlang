@@ -178,4 +178,14 @@ if (( rustflags_line >= compiler_property_line )); then
   exit 1
 fi
 
+grep -Fq 'install_system_linker' "$fast_checks_script" || {
+  echo "run-fast-checks must provision a system linker before falling back to rust-lld" >&2
+  exit 1
+}
+
+grep -Fq 'install -y --no-install-recommends gcc libc6-dev' "$fast_checks_script" || {
+  echo "run-fast-checks must install gcc/libc headers when shell-only runners lack cc" >&2
+  exit 1
+}
+
 echo "pr-fast-ci workflow validation passed"
