@@ -114,11 +114,10 @@ native backend attempts lowering or native execution.
 
 ## Current Status
 
-The checked-in contract is intentionally not ready. It records compiler-side
-Cranelift/direct-native spike evidence and keeps the affected runtime rows
-partial until real runtime entrypoints or backend-emitted codegen land. This
-lets future backend slices update the contract as runtime support lands without
-pretending the spike already proves direct-native runtime coverage.
+The checked-in contract is ready for the supported stage1 direct-native surface:
+every tracked value feature and capability shim row is implemented with runtime
+evidence. Future backend slices should extend the matrix with new rows before
+claiming support for additional stage1 runtime surface area.
 
 <!-- direct-native-runtime-abi-status:start -->
 
