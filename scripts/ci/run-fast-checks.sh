@@ -8,16 +8,6 @@ target_dir="${CARGO_TARGET_DIR:-${RUNNER_TEMP:-/tmp}/axiom-fast-ci-target}"
 mkdir -p "$target_dir"
 export CARGO_TARGET_DIR="$target_dir"
 
-bash scripts/ci/check-python-exit-docs.sh
-bash scripts/ci/validate-capability-manifests.sh
-bash scripts/ci/test-validate-capability-manifests.sh
-bash scripts/ci/test-pr-fast-ci-workflow.sh
-python3 scripts/ci/test-pr-queue-remediation.py
-python3 scripts/ci/test-report-delivery-signals.py
-python3 scripts/ci/test-issue-pr-traceability.py
-bash scripts/ci/run-stdlib-property-checks.sh
-bash scripts/ci/run-compiler-property-checks.sh
-
 rust_linker="${AXIOM_FAST_CI_RUST_LINKER:-}"
 smoke_linker() {
   local linker="$1"
@@ -61,6 +51,16 @@ if [[ -z "$rust_linker" ]]; then
 fi
 
 export RUSTFLAGS="${RUSTFLAGS:-} -C linker=${rust_linker}"
+
+bash scripts/ci/check-python-exit-docs.sh
+bash scripts/ci/validate-capability-manifests.sh
+bash scripts/ci/test-validate-capability-manifests.sh
+bash scripts/ci/test-pr-fast-ci-workflow.sh
+python3 scripts/ci/test-pr-queue-remediation.py
+python3 scripts/ci/test-report-delivery-signals.py
+python3 scripts/ci/test-issue-pr-traceability.py
+bash scripts/ci/run-stdlib-property-checks.sh
+bash scripts/ci/run-compiler-property-checks.sh
 
 cargo test --manifest-path stage1/Cargo.toml -p axiomc render_rust_verifies_https_tls_certificates -- --nocapture
 cargo test --manifest-path stage1/Cargo.toml -p axiomc render_rust_uses_trusted_crypto_symbol_loading -- --nocapture

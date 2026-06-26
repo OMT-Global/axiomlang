@@ -155,6 +155,8 @@ fi
 candidate_line=$(nl -ba "$fast_checks_script" | grep -F 'candidate_linker="$(command -v "$candidate" 2>/dev/null || true)"' | head -n1 | awk '{print $1}')
 smoke_line=$(nl -ba "$fast_checks_script" | grep -F 'smoke_linker "$candidate_linker" || continue' | head -n1 | awk '{print $1}')
 assign_line=$(nl -ba "$fast_checks_script" | grep -F 'rust_linker="$candidate_linker"' | head -n1 | awk '{print $1}')
+rustflags_line=$(nl -ba "$fast_checks_script" | grep -F 'export RUSTFLAGS="${RUSTFLAGS:-} -C linker=${rust_linker}"' | head -n1 | awk '{print $1}')
+compiler_property_line=$(nl -ba "$fast_checks_script" | grep -F 'bash scripts/ci/run-compiler-property-checks.sh' | head -n1 | awk '{print $1}')
 
 if [[ -z "$candidate_line" || -z "$smoke_line" || -z "$assign_line" ]]; then
   echo "run-fast-checks must keep linker candidates separate from the accepted Rust linker" >&2
@@ -163,6 +165,16 @@ fi
 
 if (( candidate_line >= smoke_line || smoke_line >= assign_line )); then
   echo "run-fast-checks must only assign AXIOM_FAST_CI_RUST_LINKER after smoke_linker succeeds" >&2
+  exit 1
+fi
+
+if [[ -z "$rustflags_line" || -z "$compiler_property_line" ]]; then
+  echo "run-fast-checks must export the selected linker before Cargo-backed property checks" >&2
+  exit 1
+fi
+
+if (( rustflags_line >= compiler_property_line )); then
+  echo "run-fast-checks must export the selected linker before Cargo-backed property checks" >&2
   exit 1
 fi
 
