@@ -117,9 +117,7 @@ jobs:
           if [[ -z "$installed_version" ]]; then
             install_cargo_vet=1
           elif (( required_is_minor )); then
-            if [[ "$installed_version" != "cargo-vet ${required_version}."* ]]; then
-              install_cargo_vet=1
-            fi
+            install_cargo_vet=1
           elif [[ "$installed_version" != "cargo-vet ${required_version}" ]]; then
             install_cargo_vet=1
           fi

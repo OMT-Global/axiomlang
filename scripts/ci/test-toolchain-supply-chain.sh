@@ -48,10 +48,15 @@ grep -Fq 'required_is_minor=1' "$workflow" || {
   exit 1
 }
 
-grep -Fq 'if [[ "$installed_version" != "cargo-vet ${required_version}."* ]]; then' "$workflow" || {
-  echo "workflow must not reuse an unpatched cargo-vet binary for major/minor config versions" >&2
+if ! awk '
+  /elif \(\( required_is_minor \)\); then/ { in_minor = 1; next }
+  in_minor && /install_cargo_vet=1/ { found = 1 }
+  in_minor && /elif \[\[ "\$installed_version"/ { in_minor = 0 }
+  END { exit found ? 0 : 1 }
+' "$workflow"; then
+  echo "workflow must force-install a patched cargo-vet binary for major/minor config versions" >&2
   exit 1
-}
+fi
 
 grep -Fq 'Ensure Rust linker availability' "$workflow" || {
   echo "workflow must provision a Rust linker before installing cargo-vet" >&2
