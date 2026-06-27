@@ -2234,12 +2234,7 @@ fn write_provenance_artifact(
     let report = provenance_report(package_root, analyzed, generated_rust, binary, backend)?;
     let content = serde_json::to_string_pretty(&report)
         .map_err(|err| Diagnostic::new("build", format!("failed to render provenance: {err}")))?;
-    fs::write(&path, format!("{content}\n")).map_err(|err| {
-        Diagnostic::new(
-            "build",
-            format!("failed to write {}: {err}", path.display()),
-        )
-    })
+    write_output_file(&path, format!("{content}\n"), "provenance output")
 }
 
 fn ensure_package_output_path_ready(
@@ -8024,6 +8019,61 @@ mod tests {
             relationship.kind == "emits"
                 && relationship.to == "axiom://package/demo/artifact/generated-rust"
         }));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn provenance_artifact_rejects_final_symlink() {
+        let dir = tempdir().unwrap_or_else(|err| panic!("tempdir: {err}"));
+        let root = dir.path();
+        fs::create_dir_all(root.join("src")).expect("create src");
+        fs::write(
+            root.join("axiom.toml"),
+            "[package]\nname = \"demo\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n",
+        )
+        .expect("write manifest");
+        fs::write(
+            root.join("axiom.lock"),
+            crate::lockfile::render_lockfile(&package_manifest()).expect("render lockfile"),
+        )
+        .expect("write lockfile");
+        fs::write(root.join("src/main.ax"), "fn main(): int {\nreturn 0\n}\n")
+            .expect("write source");
+
+        let graph = load_package_graph(root).expect("load graph");
+        let package_root =
+            canonicalize_existing_path(root, "project root").expect("canonical root");
+        let analyzed = analyze_package(&graph, &package_root).expect("analyze package");
+        let generated_rust = generated_rust_path(&package_root, &analyzed.manifest);
+        let binary = binary_path_for_target(&package_root, &analyzed.manifest, None);
+        fs::create_dir_all(generated_rust.parent().expect("generated parent"))
+            .expect("create dist");
+        fs::write(&generated_rust, "fn main() {}\n").expect("write generated rust");
+        fs::write(&binary, b"binary").expect("write binary");
+
+        let outside = dir.path().join("victim.json");
+        fs::write(&outside, "do not overwrite").expect("write victim");
+        let provenance = provenance_path(&package_root, &analyzed.manifest);
+        fs::create_dir_all(provenance.parent().expect("provenance parent"))
+            .expect("create provenance parent");
+        std::os::unix::fs::symlink(&outside, &provenance).expect("symlink provenance");
+
+        let error = match write_provenance_artifact(
+            &package_root,
+            &analyzed,
+            &generated_rust,
+            &binary,
+            NativeBackendKind::GeneratedRust,
+        ) {
+            Ok(()) => panic!("symlinked provenance artifact was written"),
+            Err(error) => error,
+        };
+
+        assert_eq!(error.kind, "build");
+        assert_eq!(
+            fs::read_to_string(&outside).expect("read victim"),
+            "do not overwrite"
+        );
     }
 
     #[test]
