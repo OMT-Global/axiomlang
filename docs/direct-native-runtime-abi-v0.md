@@ -131,7 +131,7 @@ _Generated from `stage1/runtime-abi/direct-native-v0.json`; run `make stage1-dir
 | `array.fixed` | `partial` | #1124 | evidence:1, runtime:1 | The direct-native path now has narrow runtime evidence for immediate array-literal scalar indexing with literal indexes and scalar projection from... |
 | `boolean` | `partial` | #1124 | evidence:1, runtime:1 | The Cranelift spike covers boolean values. |
 | `enum.payload` | `partial` | #1124 | evidence:1, runtime:1 | The Cranelift spike builds and runs custom enum matches with tuple, named, and string payloads without generated Rust. |
-| `map.lookup` | `partial` | #1124 | evidence:1, runtime:1 | The Cranelift spike covers direct map indexing, get, get_or_default, map_contains_key, map_keys, and public std/collections.ax contains, get, get_o... |
+| `map.lookup` | `partial` | #1124 | evidence:1, runtime:1 | The Cranelift spike covers direct map indexing, get, get_or_default, map_contains_key, map_keys, helper-returned direct index, contains-key, and de... |
 | `numeric.scalars` | `partial` | #1124 | evidence:1, runtime:1 | The Cranelift spike covers several scalar widths and casts. |
 | `option` | `partial` | #1124 | evidence:1, runtime:1 | The direct-native path now has narrow runtime evidence for local Option<int> and Option<bool> construction as tag/payload locals, scalar option rea... |
 | `owned.move_state` | `partial` | #1124 | evidence:1, runtime:1 | The Cranelift spike builds and runs projection-sensitive owned field moves while preserving access to disjoint sibling projections, and the public... |
@@ -303,7 +303,7 @@ elements. Scalar and bool fixed-array-returning helpers now lower across
 direct-native function-call boundaries as one return slot per element, with
 caller-side projection locals populated from the multi-slot return; this covers
 literal array returns, local array binding returns, forwarded array parameters,
-and branch-selected array returns. The same
+branch-selected array returns, and final helper-call forwarding returns. The same
 projected element-slot representation now covers fixed-array payloads inside
 narrow `Option<[int; 2]>` and `Result<[int; 2], [int; 2]>` construction,
 tag/payload matches, helper parameters, helper returns, and forwarded helper
@@ -331,10 +331,11 @@ helpers now lower across direct-native function-call boundaries as one return
 slot per tuple element, with caller-side projection locals populated from the
 multi-slot return; this includes helpers whose final return is selected by
 branch blocks with branch-local scalar values, helpers returning local tuple
-bindings, and helpers forwarding tuple parameters. The public tuple-returning
-helper smoke also asserts `generated_rust: null` while printing caller-side
-scalar and boolean projections from literal, local-binding, forwarded, typed,
-branch-selected, and fallback tuple returns. Existing tuple locals can now be
+bindings, helpers forwarding tuple parameters, and final helper-call forwarding
+returns. The public tuple-returning helper smoke also asserts
+`generated_rust: null` while printing caller-side scalar and boolean
+projections from literal, local-binding, forwarded, typed, branch-selected, and
+fallback tuple returns. Existing tuple locals can now be
 reassigned from tuple helper returns using the same tuple-element ABI, including
 inside runtime loop blocks. The row remains partial because direct-native
 codegen still does not provide a general tuple ABI, tuple storage for non-scalar
@@ -359,7 +360,8 @@ direct-native function-call boundaries as one return slot per declared field,
 with caller-side projection locals populated from the multi-slot return; this
 includes helpers whose final return is selected by branch blocks with
 branch-local scalar values, helpers returning local struct bindings, and
-helpers forwarding struct parameters. The same declared-field slot
+helpers forwarding struct parameters, and final helper-call forwarding returns.
+The same declared-field slot
 representation now backs narrow `Option<Step>` and `Result<Step, Step>` struct
 payload construction, matching, helper parameters, helper returns, forwarded
 helper values, and inline `Some(Step { ... })`/`None` and
