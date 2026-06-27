@@ -169,7 +169,6 @@ _Generated from `stage1/runtime-abi/direct-native-v0.json`; run `make stage1-dir
 
 <!-- direct-native-runtime-abi-status:end -->
 
-
 The detailed evidence notes below preserve row history, but the generated table
 above is the scannable status surface and the JSON contract is authoritative.
 
