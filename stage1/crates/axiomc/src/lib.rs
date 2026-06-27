@@ -3753,6 +3753,69 @@ crypto = false
     }
 
     #[test]
+    fn dependency_std_fs_wrapper_requires_dependency_fs_capability() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("dep-stdlib-fs-root");
+        let dependency = project.join("deps/core");
+        create_project(&project, Some("dep-stdlib-fs-root-app")).expect("create root");
+        create_project(&dependency, Some("dep-stdlib-fs-core")).expect("create dependency");
+
+        fs::write(
+            dependency.join("src/steal.ax"),
+            "import \"std/fs.ax\"\n\npub fn steal(path: string): Option<string> {\nreturn read_file(path)\n}\n",
+        )
+        .expect("write dependency source");
+        let dependency_manifest = load_manifest(&dependency).expect("load dependency manifest");
+        fs::write(
+            dependency.join("axiom.lock"),
+            render_lockfile_for_project(&dependency, &dependency_manifest)
+                .expect("dependency lockfile"),
+        )
+        .expect("write dependency lockfile");
+
+        fs::write(
+            project.join("axiom.toml"),
+            format!(
+                "{}\n[dependencies]\ncore = {{ path = \"deps/core\" }}\n",
+                render_manifest_with_capabilities(
+                    "dep-stdlib-fs-root-app",
+                    true,
+                    false,
+                    false,
+                    false,
+                    false,
+                    false,
+                )
+            ),
+        )
+        .expect("write root manifest");
+        fs::write(
+            project.join("src/main.ax"),
+            "import \"core/steal.ax\"\nlet contents: Option<string> = steal(\"fixture.txt\")\nprint true\n",
+        )
+        .expect("write root source");
+        fs::write(project.join("src/fixture.txt"), "secret\n").expect("write fixture");
+        let manifest = load_manifest(&project).expect("load root manifest");
+        fs::write(
+            project.join("axiom.lock"),
+            render_lockfile_for_project(&project, &manifest).expect("root lockfile"),
+        )
+        .expect("write root lockfile");
+
+        let error =
+            check_project(&project).expect_err("dependency std/fs wrapper should require fs");
+        assert_eq!(error.kind, "capability");
+        assert!(
+            error
+                .path
+                .as_ref()
+                .is_some_and(|path| path.ends_with("deps/core/src/steal.ax"))
+        );
+        assert!(error.message.contains("call to \"read_file\" requires"));
+        assert!(error.message.contains("[capabilities].fs = true"));
+    }
+
+    #[test]
     fn capability_view_reflects_manifest_flags() {
         let dir = tempdir().expect("tempdir");
         let project = dir.path().join("caps");
@@ -6400,23 +6463,36 @@ crypto = false
             r#"print fs_write("data/inside.txt", "inside") == 0
 print fs_write("outside.txt", "outside") == -1
 print fs_write("data/../outside.txt", "traversal") == -1
+print fs_write("data/dangling", "escape") == -1
+print fs_append("data/dangling", "escape") == -1
 "#,
         )
         .expect("write source");
 
         let built = build_project(&project).expect("build project");
+        let outside_symlink_target = dir.path().join("outside-symlink-target.txt");
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&outside_symlink_target, project.join("data/dangling"))
+            .expect("create dangling fs_write symlink escape fixture");
+        #[cfg(windows)]
+        std::os::windows::fs::symlink_file(&outside_symlink_target, project.join("data/dangling"))
+            .expect("create dangling fs_write symlink escape fixture");
         let output = compiled_binary_command(&built.binary)
             .output()
             .expect("run compiled binary");
         assert_eq!(
             String::from_utf8_lossy(&output.stdout),
-            "true\ntrue\ntrue\n"
+            "true\ntrue\ntrue\ntrue\ntrue\n"
         );
         assert_eq!(
             fs::read_to_string(project.join("data/inside.txt")).expect("inside write"),
             "inside",
         );
         assert!(!project.join("outside.txt").exists());
+        assert!(
+            !outside_symlink_target.exists(),
+            "fs_write/fs_append must not create a dangling symlink target outside fs_root"
+        );
     }
 
     #[test]
