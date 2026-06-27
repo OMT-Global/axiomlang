@@ -299,7 +299,12 @@ inline array literals. Local and helper-parameter fixed-array scalar and bool
 projections also support narrow in-bounds dynamic indexes by selecting across
 projected element locals. Inline scalar and bool fixed-array literals also
 support narrow in-bounds dynamic indexes by selecting across lowered literal
-elements. Scalar and bool fixed-array-returning helpers now lower across
+elements. Typed numeric fixed-array element coverage now proves i64-compatible
+element widths `i8`, `i16`, `i32`, `i64`, `isize`, `u8`, `u16`, and `u32`
+through direct literal projections, narrow dynamic indexes, helper parameters,
+helper returns, forwarded helper values, branch-selected helper returns, and
+inline array literal arguments without generated Rust. Scalar and bool
+fixed-array-returning helpers now lower across
 direct-native function-call boundaries as one return slot per element, with
 caller-side projection locals populated from the multi-slot return; this covers
 literal array returns, local array binding returns, forwarded array parameters,

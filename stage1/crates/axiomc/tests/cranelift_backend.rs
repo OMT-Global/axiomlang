@@ -2084,6 +2084,68 @@ fn cranelift_backend_lowers_array_literal_index_to_runtime_exit_code() {
 
 #[cfg(not(windows))]
 #[test]
+fn cranelift_backend_lowers_array_numeric_width_elements_to_runtime_exit_code() {
+    if which::which("cc").is_err() {
+        eprintln!("skipping cranelift backend smoke test because cc is unavailable");
+        return;
+    }
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    for (name, ty, ready_literal, fallback_literal) in [
+        ("array-i8-element-main-exit", "i8", "48i8", "1i8"),
+        ("array-i16-element-main-exit", "i16", "48i16", "1i16"),
+        ("array-i32-element-main-exit", "i32", "48i32", "1i32"),
+        ("array-i64-element-main-exit", "i64", "48i64", "1i64"),
+        (
+            "array-isize-element-main-exit",
+            "isize",
+            "48isize",
+            "1isize",
+        ),
+        ("array-u8-element-main-exit", "u8", "48u8", "1u8"),
+        ("array-u16-element-main-exit", "u16", "48u16", "1u16"),
+        ("array-u32-element-main-exit", "u32", "48u32", "1u32"),
+    ] {
+        let project = temp.path().join(name);
+        write_array_numeric_width_element_main_exit_project(
+            &project,
+            name,
+            ty,
+            ready_literal,
+            fallback_literal,
+        );
+
+        let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+            .args([
+                "build",
+                project.to_str().expect("project path"),
+                "--backend",
+                "cranelift",
+                "--json",
+            ])
+            .output()
+            .expect("run axiomc build --backend cranelift");
+        assert!(
+            output.status.success(),
+            "cranelift {ty} array numeric width element main build failed: stdout={} stderr={}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+
+        let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+        assert_eq!(payload["backend"], "cranelift");
+        assert_eq!(payload["generated_rust"], Value::Null);
+        let binary = payload["binary"].as_str().expect("binary path");
+        let run = Command::new(binary)
+            .output()
+            .expect("run cranelift array numeric width element main binary");
+        assert_eq!(run.status.code(), Some(48));
+        assert_eq!(String::from_utf8_lossy(&run.stdout), "");
+    }
+}
+
+#[cfg(not(windows))]
+#[test]
 fn cranelift_backend_lowers_fixed_array_intrinsics_to_runtime_exit_code() {
     if which::which("cc").is_err() {
         eprintln!("skipping cranelift backend smoke test because cc is unavailable");
@@ -9497,6 +9559,105 @@ fn write_array_literal_index_main_exit_project(project: &Path) {
         "fn sum_pair(values: [int; 2]): int {\nreturn values[0] + values[1]\n}\n\nfn pick_pair(values: [int; 2], index: int): int {\nreturn values[index]\n}\n\nfn make_pair(base: int): [int; 2] {\nreturn [base, 99]\n}\n\nfn make_local_pair(base: int): [int; 2] {\nlet values: [int; 2] = [base, 99]\nreturn values\n}\n\nfn forward_pair(values: [int; 2]): [int; 2] {\nreturn values\n}\n\nfn choose_pair(flag: bool): [int; 2] {\nif flag {\nlet value: int = 12\nreturn [value, 99]\n} else {\nreturn [1, 0]\n}\n}\n\nfn second_byte(values: [u8; 2]): int {\nreturn values[1] as int\n}\n\nfn pick_byte(values: [u8; 2], index: int): int {\nreturn values[index] as int\n}\n\nfn make_bytes(): [u8; 2] {\nreturn [1u8, 2u8]\n}\n\nfn forward_bytes(values: [u8; 2]): [u8; 2] {\nreturn values\n}\n\nfn array_gate(flags: [bool; 2]): bool {\nlet first: bool = flags[0]\nlet second: bool = flags[1]\nreturn first && second == false\n}\n\nfn pick_flag(flags: [bool; 2], index: int): bool {\nreturn flags[index]\n}\n\nfn make_flags(flag: bool): [bool; 2] {\nreturn [flag, false]\n}\n\nfn forward_flags(flags: [bool; 2]): [bool; 2] {\nreturn flags\n}\n\nfn main(): int {\nlet values: [int; 2] = [12, 99]\nlet helper_values: [int; 2] = [12, 99]\nlet returned_values: [int; 2] = make_pair(12)\nlet local_values: [int; 2] = make_local_pair(12)\nlet values_to_forward: [int; 2] = make_pair(12)\nlet forwarded_values: [int; 2] = forward_pair(values_to_forward)\nlet branch_values: [int; 2] = choose_pair(true)\nlet fallback_values: [int; 2] = choose_pair(false)\nlet bytes: [u8; 2] = [1u8, 2u8]\nlet helper_bytes: [u8; 2] = [1u8, 2u8]\nlet returned_bytes: [u8; 2] = make_bytes()\nlet bytes_to_forward: [u8; 2] = make_bytes()\nlet forwarded_bytes: [u8; 2] = forward_bytes(bytes_to_forward)\nlet first_index: int = 0\nlet second_index: int = 1\nlet first: int = values[first_index]\nlet typed: int = bytes[second_index] as int\nlet dynamic: bool = first + typed == 14\nlet flags: [bool; 2] = [dynamic, false]\nlet helper_flags: [bool; 2] = [dynamic, false]\nlet returned_flags: [bool; 2] = make_flags(dynamic)\nlet flags_to_forward: [bool; 2] = make_flags(dynamic)\nlet forwarded_flags: [bool; 2] = forward_flags(flags_to_forward)\nlet gate: bool = flags[first_index]\nlet blocked: bool = flags[second_index]\nlet local_sum: int = sum_pair(values)\nlet literal_sum: int = sum_pair([20, 28])\nlet helper_pick: int = pick_pair(helper_values, first_index)\nlet literal_pick: int = pick_pair([20, 28], second_index)\nlet returned_sum: int = sum_pair(returned_values)\nlet local_returned_sum: int = sum_pair(local_values)\nlet forwarded_sum: int = sum_pair(forwarded_values)\nlet branch_sum: int = sum_pair(branch_values)\nlet fallback_sum: int = sum_pair(fallback_values)\nlet typed_arg: int = second_byte(bytes)\nlet literal_typed_arg: int = second_byte([3u8, 4u8])\nlet dynamic_byte: int = pick_byte(helper_bytes, second_index)\nlet returned_byte: int = second_byte(returned_bytes)\nlet forwarded_byte: int = second_byte(forwarded_bytes)\nlet helper_flag: bool = pick_flag(helper_flags, first_index)\nlet literal_flag_blocked: bool = pick_flag([true, false], second_index)\nlet returned_flag: bool = pick_flag(returned_flags, first_index)\nlet forwarded_flag: bool = pick_flag(forwarded_flags, first_index)\nlet helper_numbers_ok: bool = local_sum == 111 && literal_sum == 48 && helper_pick == 12 && literal_pick == 28 && returned_sum == 111 && local_returned_sum == 111 && forwarded_sum == 111 && branch_sum == 111 && fallback_sum == 1\nlet helper_bytes_ok: bool = typed_arg == 2 && literal_typed_arg == 4 && dynamic_byte == 2 && returned_byte == 2 && forwarded_byte == 2\nlet helper_flags_ok: bool = array_gate([dynamic, false]) && array_gate([true, false]) && helper_flag && literal_flag_blocked == false && returned_flag && forwarded_flag\nif gate && blocked == false && helper_flags_ok && helper_numbers_ok && helper_bytes_ok {\nreturn first + typed + 34\n} else {\nreturn 1\n}\n}\n",
     )
     .expect("write array literal index main exit source");
+}
+
+fn write_array_numeric_width_element_main_exit_project(
+    project: &Path,
+    package_name: &str,
+    ty: &str,
+    ready_literal: &str,
+    fallback_literal: &str,
+) {
+    fs::create_dir_all(project.join("src"))
+        .expect("create array numeric width element main exit project src");
+    fs::write(
+        project.join("axiom.toml"),
+        format!("[package]\nname = \"cranelift-{package_name}\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n"),
+    )
+    .expect("write array numeric width element main exit manifest");
+    fs::write(
+        project.join("axiom.lock"),
+        format!("version = 1\n\n[[package]]\nname = \"cranelift-{package_name}\"\nversion = \"0.1.0\"\nsource = \"path\"\n"),
+    )
+    .expect("write array numeric width element main exit lockfile");
+    fs::write(
+        project.join("src/main.ax"),
+        format!(
+            r#"fn make_values(flag: bool): [{ty}; 2] {{
+if flag {{
+return [{ready_literal}, {fallback_literal}]
+}} else {{
+return [{fallback_literal}, {fallback_literal}]
+}}
+}}
+
+fn make_local_values(): [{ty}; 2] {{
+let values: [{ty}; 2] = [{ready_literal}, {fallback_literal}]
+return values
+}}
+
+fn forward_values(values: [{ty}; 2]): [{ty}; 2] {{
+return values
+}}
+
+fn choose_values(flag: bool): [{ty}; 2] {{
+if flag {{
+let value: {ty} = {ready_literal}
+return [value, {fallback_literal}]
+}} else {{
+return [{fallback_literal}, {fallback_literal}]
+}}
+}}
+
+fn score(values: [{ty}; 2]): int {{
+return (values[0] as int) + (values[1] as int)
+}}
+
+fn pick(values: [{ty}; 2], index: int): int {{
+return values[index] as int
+}}
+
+fn main(): int {{
+let local_values: [{ty}; 2] = [{ready_literal}, {fallback_literal}]
+let helper_pick_values: [{ty}; 2] = [{ready_literal}, {fallback_literal}]
+let helper_backup_values: [{ty}; 2] = [{ready_literal}, {fallback_literal}]
+let helper_score_values: [{ty}; 2] = [{ready_literal}, {fallback_literal}]
+let returned_values: [{ty}; 2] = make_values(true)
+let local_returned_values: [{ty}; 2] = make_local_values()
+let fallback_values: [{ty}; 2] = make_values(false)
+let forwarded_source: [{ty}; 2] = make_values(true)
+let forwarded_values: [{ty}; 2] = forward_values(forwarded_source)
+let branch_values: [{ty}; 2] = choose_values(true)
+let blocked_branch_values: [{ty}; 2] = choose_values(false)
+let first_index: int = 0
+let second_index: int = 1
+let direct_value: int = local_values[0] as int
+let direct_backup: int = local_values[1] as int
+let dynamic_value: int = local_values[first_index] as int
+let dynamic_backup: int = local_values[second_index] as int
+let helper_value: int = pick(helper_pick_values, first_index)
+let helper_backup: int = pick(helper_backup_values, second_index)
+let inline_value: int = pick([{ready_literal}, {fallback_literal}], first_index)
+let inline_backup: int = pick([{ready_literal}, {fallback_literal}], second_index)
+let local_score: int = score(local_values)
+let helper_score: int = score(helper_score_values)
+let returned_score: int = score(returned_values)
+let local_returned_score: int = score(local_returned_values)
+let fallback_score: int = score(fallback_values)
+let forwarded_score: int = score(forwarded_values)
+let branch_score: int = score(branch_values)
+let blocked_branch_score: int = score(blocked_branch_values)
+let inline_score: int = score([{ready_literal}, {fallback_literal}])
+if direct_value == 48 && direct_backup == 1 && dynamic_value == 48 && dynamic_backup == 1 && helper_value == 48 && helper_backup == 1 && inline_value == 48 && inline_backup == 1 && local_score == 49 && helper_score == 49 && returned_score == 49 && local_returned_score == 49 && fallback_score == 2 && forwarded_score == 49 && branch_score == 49 && blocked_branch_score == 2 && inline_score == 49 {{
+return direct_value
+}} else {{
+return 2
+}}
+}}
+"#
+        ),
+    )
+    .expect("write array numeric width element main exit source");
 }
 
 fn write_fixed_array_intrinsics_main_exit_project(project: &Path) {
