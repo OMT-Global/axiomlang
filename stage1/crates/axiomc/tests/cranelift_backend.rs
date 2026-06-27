@@ -2887,6 +2887,63 @@ fn cranelift_backend_lowers_struct_literal_field_to_runtime_exit_code() {
 
 #[cfg(not(windows))]
 #[test]
+fn cranelift_backend_lowers_struct_numeric_width_fields_to_runtime_exit_code() {
+    if which::which("cc").is_err() {
+        eprintln!("skipping cranelift backend smoke test because cc is unavailable");
+        return;
+    }
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    for (name, ty, ready_literal, fallback_literal) in [
+        ("struct-i8-field-main-exit", "i8", "48i8", "1i8"),
+        ("struct-i16-field-main-exit", "i16", "48i16", "1i16"),
+        ("struct-i32-field-main-exit", "i32", "48i32", "1i32"),
+        ("struct-i64-field-main-exit", "i64", "48i64", "1i64"),
+        ("struct-isize-field-main-exit", "isize", "48isize", "1isize"),
+        ("struct-u8-field-main-exit", "u8", "48u8", "1u8"),
+        ("struct-u16-field-main-exit", "u16", "48u16", "1u16"),
+        ("struct-u32-field-main-exit", "u32", "48u32", "1u32"),
+    ] {
+        let project = temp.path().join(name);
+        write_struct_numeric_width_field_main_exit_project(
+            &project,
+            name,
+            ty,
+            ready_literal,
+            fallback_literal,
+        );
+
+        let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+            .args([
+                "build",
+                project.to_str().expect("project path"),
+                "--backend",
+                "cranelift",
+                "--json",
+            ])
+            .output()
+            .expect("run axiomc build --backend cranelift");
+        assert!(
+            output.status.success(),
+            "cranelift {ty} struct numeric width field main build failed: stdout={} stderr={}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+
+        let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+        assert_eq!(payload["backend"], "cranelift");
+        assert_eq!(payload["generated_rust"], Value::Null);
+        let binary = payload["binary"].as_str().expect("binary path");
+        let run = Command::new(binary)
+            .output()
+            .expect("run cranelift struct numeric width field main binary");
+        assert_eq!(run.status.code(), Some(48));
+        assert_eq!(String::from_utf8_lossy(&run.stdout), "");
+    }
+}
+
+#[cfg(not(windows))]
+#[test]
 fn cranelift_backend_lowers_i64_while_loop_to_runtime_exit_code() {
     if which::which("cc").is_err() {
         eprintln!("skipping cranelift backend smoke test because cc is unavailable");
@@ -10405,6 +10462,32 @@ fn write_struct_literal_field_main_exit_project(project: &Path) {
         "struct Step {\nvalue: int\nready: bool\nsmall: u8\n}\n\nfn make_step(value: int, ready: bool): Step {\nreturn Step { small: 2u8, ready: ready, value: value }\n}\n\nfn make_local_step(value: int): Step {\nlet step: Step = Step { small: 2u8, ready: true, value: value }\nreturn step\n}\n\nfn forward_step(step: Step): Step {\nreturn step\n}\n\nfn choose_step(flag: bool, value: int): Step {\nlet ready: bool = value == 12\nif flag {\nlet local_value: int = value\nreturn Step { ready: ready, small: 2u8, value: local_value }\n} else {\nlet fallback: int = 1\nreturn Step { small: 0u8, value: fallback, ready: false }\n}\n}\n\nfn step_score(step: Step): int {\nlet value: int = step.value\nlet small: int = step.small as int\nif step.ready {\nreturn value + small\n} else {\nreturn 1\n}\n}\n\nfn field_gate(step: Step): bool {\nlet ready: bool = step.ready\nreturn ready && step.value == 1 && step.small == 2u8\n}\n\nfn main(): int {\nlet step: Step = Step { ready: true, small: 2u8, value: 12 }\nlet returned_step: Step = make_step(12, true)\nlet local_step: Step = make_local_step(12)\nlet step_to_forward: Step = make_step(12, true)\nlet forwarded_step: Step = forward_step(step_to_forward)\nlet branch_step: Step = choose_step(true, 12)\nlet fallback_step: Step = choose_step(false, 12)\nlet blocked_step: Step = Step { small: 2u8, value: step.value, ready: false }\nlet gate_step: Step = Step { small: 2u8, ready: true, value: 1 }\nlet value: int = step.value\nlet small: int = step.small as int\nlet ready: bool = step.ready\nlet blocked: bool = blocked_step.ready\nlet returned_score: int = step_score(returned_step)\nlet local_score: int = step_score(local_step)\nlet forwarded_score: int = step_score(forwarded_step)\nlet branch_score: int = step_score(branch_step)\nlet fallback_score: int = step_score(fallback_step)\nlet helper_score: int = step_score(step)\nlet blocked_score: int = step_score(blocked_step)\nlet inline_score: int = step_score(Step { small: 2u8, ready: true, value: 12 })\nif ready && blocked == false && field_gate(gate_step) && helper_score == 14 && returned_score == 14 && local_score == 14 && forwarded_score == 14 && branch_score == 14 && fallback_score == 1 && blocked_score == 1 && inline_score == 14 {\nreturn value + small + 34\n} else {\nreturn 1\n}\n}\n",
     )
     .expect("write struct literal field main exit source");
+}
+
+fn write_struct_numeric_width_field_main_exit_project(
+    project: &Path,
+    package_name: &str,
+    ty: &str,
+    ready_literal: &str,
+    fallback_literal: &str,
+) {
+    fs::create_dir_all(project.join("src"))
+        .expect("create struct numeric width field main exit project src");
+    fs::write(
+        project.join("axiom.toml"),
+        format!("[package]\nname = \"cranelift-{package_name}\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n"),
+    )
+    .expect("write struct numeric width field main exit manifest");
+    fs::write(
+        project.join("axiom.lock"),
+        format!("version = 1\n\n[[package]]\nname = \"cranelift-{package_name}\"\nversion = \"0.1.0\"\nsource = \"path\"\n"),
+    )
+    .expect("write struct numeric width field main exit lockfile");
+    fs::write(
+        project.join("src/main.ax"),
+        format!("struct Box {{\nvalue: {ty}\nbackup: {ty}\nready: bool\n}}\n\nfn make_box(flag: bool): Box {{\nif flag {{\nreturn Box {{ value: {ready_literal}, backup: {fallback_literal}, ready: true }}\n}} else {{\nreturn Box {{ ready: false, backup: {fallback_literal}, value: {fallback_literal} }}\n}}\n}}\n\nfn forward_box(value: Box): Box {{\nreturn value\n}}\n\nfn score(box: Box): int {{\nif box.ready {{\nreturn box.value as int\n}} else {{\nreturn box.backup as int\n}}\n}}\n\nfn main(): int {{\nlet local_box: Box = Box {{ ready: true, backup: {fallback_literal}, value: {ready_literal} }}\nlet reordered_box: Box = Box {{ backup: {fallback_literal}, value: {ready_literal}, ready: true }}\nlet returned_box: Box = make_box(true)\nlet fallback_box: Box = make_box(false)\nlet forwarded_source: Box = make_box(true)\nlet forwarded_box: Box = forward_box(forwarded_source)\nlet direct_value: int = local_box.value as int\nlet direct_backup: int = local_box.backup as int\nlet direct_ready: bool = local_box.ready\nlet reordered_score: int = score(reordered_box)\nlet returned_score: int = score(returned_box)\nlet fallback_score: int = score(fallback_box)\nlet forwarded_score: int = score(forwarded_box)\nlet inline_score: int = score(Box {{ value: {ready_literal}, ready: true, backup: {fallback_literal} }})\nif direct_ready && direct_value == 48 && direct_backup == 1 && reordered_score == 48 && returned_score == 48 && fallback_score == 1 && forwarded_score == 48 && inline_score == 48 {{\nreturn direct_value\n}} else {{\nreturn 2\n}}\n}}\n"),
+    )
+    .expect("write struct numeric width field main exit source");
 }
 
 fn write_i64_while_loop_exit_project(project: &Path) {

@@ -350,7 +350,11 @@ smoke also asserts the Cranelift build JSON reports `generated_rust: null`
 while running scalar, boolean, and string field projection output, including
 caller-side scalar and boolean projections from direct, branch-selected, and
 forwarded struct helper returns. It also covers reassignment of
-scalar-projection struct locals. Scalar and bool struct
+scalar-projection struct locals. Typed numeric struct field coverage now proves
+the i64-compatible field widths `i8`, `i16`, `i32`, `i64`, `isize`, `u8`,
+`u16`, and `u32` through direct field projections, reordered struct literals,
+helper parameters, helper returns, forwarded helper values, and inline struct
+literal arguments without generated Rust. Scalar and bool struct
 helper parameters
 lower across direct-native function-call boundaries as one ABI slot per field
 in declared field order for local struct values and inline struct literal
