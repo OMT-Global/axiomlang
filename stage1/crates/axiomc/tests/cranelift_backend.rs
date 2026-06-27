@@ -2044,6 +2044,68 @@ fn cranelift_backend_lowers_tuple_returning_helper_to_runtime_exit_code() {
 
 #[cfg(not(windows))]
 #[test]
+fn cranelift_backend_lowers_tuple_numeric_width_elements_to_runtime_exit_code() {
+    if which::which("cc").is_err() {
+        eprintln!("skipping cranelift backend smoke test because cc is unavailable");
+        return;
+    }
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    for (name, ty, ready_literal, fallback_literal) in [
+        ("tuple-i8-element-main-exit", "i8", "48i8", "1i8"),
+        ("tuple-i16-element-main-exit", "i16", "48i16", "1i16"),
+        ("tuple-i32-element-main-exit", "i32", "48i32", "1i32"),
+        ("tuple-i64-element-main-exit", "i64", "48i64", "1i64"),
+        (
+            "tuple-isize-element-main-exit",
+            "isize",
+            "48isize",
+            "1isize",
+        ),
+        ("tuple-u8-element-main-exit", "u8", "48u8", "1u8"),
+        ("tuple-u16-element-main-exit", "u16", "48u16", "1u16"),
+        ("tuple-u32-element-main-exit", "u32", "48u32", "1u32"),
+    ] {
+        let project = temp.path().join(name);
+        write_tuple_numeric_width_element_main_exit_project(
+            &project,
+            name,
+            ty,
+            ready_literal,
+            fallback_literal,
+        );
+
+        let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+            .args([
+                "build",
+                project.to_str().expect("project path"),
+                "--backend",
+                "cranelift",
+                "--json",
+            ])
+            .output()
+            .expect("run axiomc build --backend cranelift");
+        assert!(
+            output.status.success(),
+            "cranelift {ty} tuple numeric width element main build failed: stdout={} stderr={}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+
+        let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+        assert_eq!(payload["backend"], "cranelift");
+        assert_eq!(payload["generated_rust"], Value::Null);
+        let binary = payload["binary"].as_str().expect("binary path");
+        let run = Command::new(binary)
+            .output()
+            .expect("run cranelift tuple numeric width element main binary");
+        assert_eq!(run.status.code(), Some(48));
+        assert_eq!(String::from_utf8_lossy(&run.stdout), "");
+    }
+}
+
+#[cfg(not(windows))]
+#[test]
 fn cranelift_backend_lowers_array_literal_index_to_runtime_exit_code() {
     if which::which("cc").is_err() {
         eprintln!("skipping cranelift backend smoke test because cc is unavailable");
@@ -9539,6 +9601,105 @@ fn write_tuple_returning_helper_main_exit_project(project: &Path) {
         "fn make_pair(base: int, enabled: bool): (int, bool) {\nreturn (base + 6, enabled)\n}\n\nfn make_local_pair(base: int): (int, bool) {\nlet pair: (int, bool) = (base + 6, true)\nreturn pair\n}\n\nfn forward_pair(pair: (int, bool)): (int, bool) {\nreturn pair\n}\n\nfn make_typed_pair(seed: u8): (u8, bool) {\nreturn (seed + 1u8, seed == 41u8)\n}\n\nfn forward_typed_pair(pair: (u8, bool)): (u8, bool) {\nreturn pair\n}\n\nfn choose_pair(flag: bool, base: int): (int, bool) {\nlet offset: int = 6\nlet ready: bool = base == 42\nif flag {\nlet value: int = base + offset\nreturn (value, ready)\n} else {\nlet fallback: int = 1\nreturn (fallback, false)\n}\n}\n\nfn main(): int {\nlet pair: (int, bool) = make_pair(42, true)\nlet local_pair: (int, bool) = make_local_pair(42)\nlet pair_to_forward: (int, bool) = make_pair(42, true)\nlet forwarded_pair: (int, bool) = forward_pair(pair_to_forward)\nlet typed: (u8, bool) = make_typed_pair(41u8)\nlet typed_to_forward: (u8, bool) = make_typed_pair(41u8)\nlet forwarded_typed: (u8, bool) = forward_typed_pair(typed_to_forward)\nlet branch_pair: (int, bool) = choose_pair(true, 42)\nlet blocked_pair: (int, bool) = choose_pair(false, 42)\nlet value: int = pair.0\nlet enabled: bool = pair.1\nlet local_value: int = local_pair.0\nlet local_enabled: bool = local_pair.1\nlet forwarded_value: int = forwarded_pair.0\nlet forwarded_enabled: bool = forwarded_pair.1\nlet typed_value: int = typed.0 as int\nlet typed_enabled: bool = typed.1\nlet forwarded_typed_value: int = forwarded_typed.0 as int\nlet forwarded_typed_enabled: bool = forwarded_typed.1\nlet branch_value: int = branch_pair.0\nlet branch_enabled: bool = branch_pair.1\nlet blocked_value: int = blocked_pair.0\nlet blocked_enabled: bool = blocked_pair.1\nprint value\nprint enabled\nprint local_value\nprint local_enabled\nprint forwarded_value\nprint forwarded_enabled\nprint typed_value\nprint typed_enabled\nprint forwarded_typed_value\nprint forwarded_typed_enabled\nprint branch_value\nprint branch_enabled\nprint blocked_value\nprint blocked_enabled\nif enabled && local_enabled && forwarded_enabled && typed_enabled && forwarded_typed_enabled && branch_enabled && blocked_enabled == false && value == 48 && local_value == 48 && forwarded_value == 48 && typed_value == 42 && forwarded_typed_value == 42 && branch_value == 48 && blocked_value == 1 {\nreturn value\n} else {\nreturn 1\n}\n}\n",
     )
     .expect("write tuple returning helper main exit source");
+}
+
+fn write_tuple_numeric_width_element_main_exit_project(
+    project: &Path,
+    package_name: &str,
+    ty: &str,
+    ready_literal: &str,
+    fallback_literal: &str,
+) {
+    fs::create_dir_all(project.join("src"))
+        .expect("create tuple numeric width element main exit project src");
+    fs::write(
+        project.join("axiom.toml"),
+        format!("[package]\nname = \"cranelift-{package_name}\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n"),
+    )
+    .expect("write tuple numeric width element main exit manifest");
+    fs::write(
+        project.join("axiom.lock"),
+        format!("version = 1\n\n[[package]]\nname = \"cranelift-{package_name}\"\nversion = \"0.1.0\"\nsource = \"path\"\n"),
+    )
+    .expect("write tuple numeric width element main exit lockfile");
+    fs::write(
+        project.join("src/main.ax"),
+        format!(
+            r#"fn make_values(flag: bool): ({ty}, {ty}) {{
+if flag {{
+return ({ready_literal}, {fallback_literal})
+}} else {{
+return ({fallback_literal}, {fallback_literal})
+}}
+}}
+
+fn make_local_values(): ({ty}, {ty}) {{
+let values: ({ty}, {ty}) = ({ready_literal}, {fallback_literal})
+return values
+}}
+
+fn forward_values(values: ({ty}, {ty})): ({ty}, {ty}) {{
+return values
+}}
+
+fn choose_values(flag: bool): ({ty}, {ty}) {{
+if flag {{
+let value: {ty} = {ready_literal}
+return (value, {fallback_literal})
+}} else {{
+return ({fallback_literal}, {fallback_literal})
+}}
+}}
+
+fn score(values: ({ty}, {ty})): int {{
+return (values.0 as int) + (values.1 as int)
+}}
+
+fn pick_first(values: ({ty}, {ty})): int {{
+return values.0 as int
+}}
+
+fn pick_second(values: ({ty}, {ty})): int {{
+return values.1 as int
+}}
+
+fn main(): int {{
+let local_values: ({ty}, {ty}) = ({ready_literal}, {fallback_literal})
+let helper_pick_values: ({ty}, {ty}) = ({ready_literal}, {fallback_literal})
+let helper_backup_values: ({ty}, {ty}) = ({ready_literal}, {fallback_literal})
+let helper_score_values: ({ty}, {ty}) = ({ready_literal}, {fallback_literal})
+let returned_values: ({ty}, {ty}) = make_values(true)
+let local_returned_values: ({ty}, {ty}) = make_local_values()
+let fallback_values: ({ty}, {ty}) = make_values(false)
+let forwarded_source: ({ty}, {ty}) = make_values(true)
+let forwarded_values: ({ty}, {ty}) = forward_values(forwarded_source)
+let branch_values: ({ty}, {ty}) = choose_values(true)
+let blocked_branch_values: ({ty}, {ty}) = choose_values(false)
+let direct_value: int = local_values.0 as int
+let direct_backup: int = local_values.1 as int
+let helper_value: int = pick_first(helper_pick_values)
+let helper_backup: int = pick_second(helper_backup_values)
+let inline_value: int = pick_first(({ready_literal}, {fallback_literal}))
+let inline_backup: int = pick_second(({ready_literal}, {fallback_literal}))
+let local_score: int = score(local_values)
+let helper_score: int = score(helper_score_values)
+let returned_score: int = score(returned_values)
+let local_returned_score: int = score(local_returned_values)
+let fallback_score: int = score(fallback_values)
+let forwarded_score: int = score(forwarded_values)
+let branch_score: int = score(branch_values)
+let blocked_branch_score: int = score(blocked_branch_values)
+let inline_score: int = score(({ready_literal}, {fallback_literal}))
+if direct_value == 48 && direct_backup == 1 && helper_value == 48 && helper_backup == 1 && inline_value == 48 && inline_backup == 1 && local_score == 49 && helper_score == 49 && returned_score == 49 && local_returned_score == 49 && fallback_score == 2 && forwarded_score == 49 && branch_score == 49 && blocked_branch_score == 2 && inline_score == 49 {{
+return direct_value
+}} else {{
+return 2
+}}
+}}
+"#
+        ),
+    )
+    .expect("write tuple numeric width element main exit source");
 }
 
 fn write_array_literal_index_main_exit_project(project: &Path) {
