@@ -379,7 +379,12 @@ returning, and `match` statements that assign scalar and bool locals from
 `Some`/`None` arms. Scalar `Option<int>` and `Option<bool>` helper parameters
 lower across direct-native function-call boundaries as explicit tag/payload ABI
 slots for local option values and inline `Some`/`None` arguments. The
-direct-native path also has narrow evidence for `Option<(int, bool)>`
+typed numeric option payload slice now proves i64-compatible integer widths
+`i8`, `i16`, `i32`, `i64`, `isize`, `u8`, `u16`, and `u32` across both `Some`
+and `None` match paths, including expression matches, statement matches, helper
+parameters, inline `Some(...)` values, and inline `None` values without
+generated Rust. The direct-native path also has narrow evidence for
+`Option<(int, bool)>`
 construction, reassignment, matching, helper parameters, and helper returns for
 local values, forwarded local or parameter values, and inline `Some((...))`/`None`
 arguments represented as a tag plus multiple payload slots. The same

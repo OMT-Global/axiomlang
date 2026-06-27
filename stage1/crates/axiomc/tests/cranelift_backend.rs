@@ -894,6 +894,137 @@ fn cranelift_backend_lowers_option_bool_match_to_runtime_exit_code() {
 
 #[cfg(not(windows))]
 #[test]
+fn cranelift_backend_lowers_option_numeric_width_match_to_runtime_exit_code() {
+    if which::which("cc").is_err() {
+        eprintln!("skipping cranelift backend smoke test because cc is unavailable");
+        return;
+    }
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    for (name, ty, literal, variant, expected) in [
+        ("option-some-i8-match-main-exit", "i8", "48i8", "Some", 48),
+        ("option-none-i8-match-main-exit", "i8", "48i8", "None", 49),
+        (
+            "option-some-i16-match-main-exit",
+            "i16",
+            "48i16",
+            "Some",
+            48,
+        ),
+        (
+            "option-none-i16-match-main-exit",
+            "i16",
+            "48i16",
+            "None",
+            49,
+        ),
+        (
+            "option-some-i32-match-main-exit",
+            "i32",
+            "48i32",
+            "Some",
+            48,
+        ),
+        (
+            "option-none-i32-match-main-exit",
+            "i32",
+            "48i32",
+            "None",
+            49,
+        ),
+        (
+            "option-some-i64-match-main-exit",
+            "i64",
+            "48i64",
+            "Some",
+            48,
+        ),
+        (
+            "option-none-i64-match-main-exit",
+            "i64",
+            "48i64",
+            "None",
+            49,
+        ),
+        (
+            "option-some-isize-match-main-exit",
+            "isize",
+            "48isize",
+            "Some",
+            48,
+        ),
+        (
+            "option-none-isize-match-main-exit",
+            "isize",
+            "48isize",
+            "None",
+            49,
+        ),
+        ("option-some-u8-match-main-exit", "u8", "48u8", "Some", 48),
+        ("option-none-u8-match-main-exit", "u8", "48u8", "None", 49),
+        (
+            "option-some-u16-match-main-exit",
+            "u16",
+            "48u16",
+            "Some",
+            48,
+        ),
+        (
+            "option-none-u16-match-main-exit",
+            "u16",
+            "48u16",
+            "None",
+            49,
+        ),
+        (
+            "option-some-u32-match-main-exit",
+            "u32",
+            "48u32",
+            "Some",
+            48,
+        ),
+        (
+            "option-none-u32-match-main-exit",
+            "u32",
+            "48u32",
+            "None",
+            49,
+        ),
+    ] {
+        let project = temp.path().join(name);
+        write_option_numeric_width_match_main_exit_project(&project, name, ty, literal, variant);
+
+        let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+            .args([
+                "build",
+                project.to_str().expect("project path"),
+                "--backend",
+                "cranelift",
+                "--json",
+            ])
+            .output()
+            .expect("run axiomc build --backend cranelift");
+        assert!(
+            output.status.success(),
+            "cranelift {variant} option numeric width match main build failed: stdout={} stderr={}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+
+        let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+        assert_eq!(payload["backend"], "cranelift");
+        assert_eq!(payload["generated_rust"], Value::Null);
+        let binary = payload["binary"].as_str().expect("binary path");
+        let run = Command::new(binary)
+            .output()
+            .expect("run cranelift option numeric width match main binary");
+        assert_eq!(run.status.code(), Some(expected));
+        assert_eq!(String::from_utf8_lossy(&run.stdout), "");
+    }
+}
+
+#[cfg(not(windows))]
+#[test]
 fn cranelift_backend_lowers_option_tuple_payload_match_to_runtime_exit_code() {
     if which::which("cc").is_err() {
         eprintln!("skipping cranelift backend smoke test because cc is unavailable");
@@ -8444,6 +8575,37 @@ fn write_option_bool_match_main_exit_project(project: &Path) {
         "fn enabled(value: Option<bool>): bool {\nreturn match value { Some(payload) => payload, None => false }\n}\n\nfn main(): bool {\nlet ready: Option<bool> = None\nlet index: int = 0\nwhile index < 1 {\nready = Some(true)\nindex = index + 1\n}\nlet exit_ok: bool = match ready { Some(value) => value, None => false }\nlet statement_ok: bool = false\nmatch ready {\nSome(value) {\nstatement_ok = value\n}\nNone {\nstatement_ok = false\n}\n}\nlet helper_ok: bool = enabled(ready)\nlet literal_ok: bool = enabled(Some(true))\nlet none_ok: bool = enabled(None) == false\nreturn exit_ok && statement_ok && helper_ok && literal_ok && none_ok\n}\n",
     )
     .expect("write option bool match main exit source");
+}
+
+fn write_option_numeric_width_match_main_exit_project(
+    project: &Path,
+    package_name: &str,
+    ty: &str,
+    literal: &str,
+    variant: &str,
+) {
+    fs::create_dir_all(project.join("src"))
+        .expect("create option numeric width match main exit project src");
+    fs::write(
+        project.join("axiom.toml"),
+        format!("[package]\nname = \"cranelift-{package_name}\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n"),
+    )
+    .expect("write option numeric width match main exit manifest");
+    fs::write(
+        project.join("axiom.lock"),
+        format!("version = 1\n\n[[package]]\nname = \"cranelift-{package_name}\"\nversion = \"0.1.0\"\nsource = \"path\"\n"),
+    )
+    .expect("write option numeric width match main exit lockfile");
+    let value = if variant == "Some" {
+        format!("Some({literal})")
+    } else {
+        "None".to_string()
+    };
+    fs::write(
+        project.join("src/main.ax"),
+        format!("fn score(value: Option<{ty}>): int {{\nreturn match value {{ Some(payload) => payload as int, None => 49 }}\n}}\n\nfn main(): int {{\nlet ready: Option<{ty}> = None\nready = {value}\nlet match_code: int = match ready {{ Some(value) => value as int, None => 49 }}\nlet statement_code: int = 0\nmatch ready {{\nSome(value) {{\nstatement_code = value as int\n}}\nNone {{\nstatement_code = 49\n}}\n}}\nlet helper_code: int = score(ready)\nlet literal_some_code: int = score(Some({literal}))\nlet literal_none_code: int = score(None)\nif match_code == statement_code && statement_code == helper_code && literal_some_code == 48 && literal_none_code == 49 {{\nreturn match_code\n}} else {{\nreturn 1\n}}\n}}\n"),
+    )
+    .expect("write option numeric width match main exit source");
 }
 
 fn write_option_tuple_payload_match_main_exit_project(project: &Path, variant: &str) {
