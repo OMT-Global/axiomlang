@@ -131,7 +131,7 @@ _Generated from `stage1/runtime-abi/direct-native-v0.json`; run `make stage1-dir
 | `array.fixed` | `partial` | #1124 | evidence:1, runtime:1 | The direct-native path now has narrow runtime evidence for immediate array-literal scalar indexing with literal indexes and scalar projection from... |
 | `boolean` | `partial` | #1124 | evidence:1, runtime:1 | The Cranelift spike covers boolean values. |
 | `enum.payload` | `partial` | #1124 | evidence:1, runtime:1 | The Cranelift spike builds and runs custom enum matches with tuple, named, and string payloads without generated Rust. |
-| `map.lookup` | `partial` | #1124 | evidence:1, runtime:1 | The Cranelift spike covers direct map indexing, get, get_or_default, map_contains_key, map_keys, and public std/collections.ax contains, get, get_o... |
+| `map.lookup` | `partial` | #1124 | evidence:1, runtime:1 | The Cranelift spike covers direct map indexing, get, get_or_default, map_contains_key, map_keys, helper-returned direct index, contains-key, and de... |
 | `numeric.scalars` | `partial` | #1124 | evidence:1, runtime:1 | The Cranelift spike covers several scalar widths and casts. |
 | `option` | `partial` | #1124 | evidence:1, runtime:1 | The direct-native path now has narrow runtime evidence for local Option<int> and Option<bool> construction as tag/payload locals, scalar option rea... |
 | `owned.move_state` | `partial` | #1124 | evidence:1, runtime:1 | The Cranelift spike builds and runs projection-sensitive owned field moves while preserving access to disjoint sibling projections, and the public... |
@@ -888,12 +888,13 @@ including field projections from selected and fallback `Result<Step, Step>`
 values. The direct-native runtime path now also has narrow evidence for local
 `Result<int, int>`,
 `Result<bool, bool>`, `Result<int, bool>`, and `Result<bool, int>` `Ok` and
-`Err` construction and reassignment, plus typed numeric `Result<i32, u32>`
-`Result<i64, u16>`, and `Result<u8, i8>` `Ok`/`Err` construction and
-reassignment, represented as tag/payload locals and value-producing `match`
-expressions over `Ok(payload)` and `Err(error)` that can feed scalar or bool
-locals and the process exit status. It also covers `match` statements that
-assign scalar and bool locals from `Ok`/`Err` arms. Those Result helper
+`Err` construction and reassignment. Typed numeric result coverage now proves
+the i64-compatible integer payload widths `i8`, `i16`, `i32`, `i64`, `isize`,
+`u8`, `u16`, and `u32` across both `Ok` and `Err` arms, represented as
+tag/payload locals and value-producing `match` expressions over `Ok(payload)`
+and `Err(error)` that can feed scalar or bool locals and the process exit
+status. It also covers `match` statements that assign scalar and bool locals
+from `Ok`/`Err` arms. Those Result helper
 parameters lower across direct-native function-call boundaries as explicit
 tag/payload ABI slots for local values and inline `Ok`/`Err` arguments without
 generated Rust. The public result helper stdout smoke also asserts
@@ -922,8 +923,8 @@ result payload slice now also has narrow evidence for `Result<Result<int, int>,
 int>` construction, matching, helper parameters, helper returns, forwarded
 helper values, and inline `Ok(Ok(...))`,
 `Ok(Err(...))`, and outer `Err(...)` helper arguments.
-Broader Result ABI support, the full numeric-width matrix, additional aggregate
-payload shapes, and capability-shim coverage remain tracked by issue #1124.
+Broader Result ABI support, additional aggregate payload shapes, and
+capability-shim coverage remain tracked by issue #1124.
 
 The `enum.payload` row now has narrow direct-native runtime evidence for local
 custom enum construction, reassignment, value-producing matches, and statement
