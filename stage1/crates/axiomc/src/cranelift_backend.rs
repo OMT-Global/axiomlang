@@ -24,6 +24,8 @@ use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::{Mutex, OnceLock};
 
 const SPIKE_FS_ROOT_BINDING: &str = "$axiom_fs_root";
+const SPIKE_ENV_ALLOWLIST_BINDING: &str = "$axiom_env_allowlist";
+const SPIKE_ENV_UNRESTRICTED_BINDING: &str = "$axiom_env_unrestricted";
 const SPIKE_MAX_FS_READ_BYTES: u64 = 64 * 1024 * 1024;
 const SPIKE_MAX_FS_WRITE_BYTES: usize = 64 * 1024 * 1024;
 const SPIKE_MAX_CLOCK_SLEEP_MS: i64 = 1_000;
@@ -316,7 +318,7 @@ pub fn compile_cranelift_hello_spike(
             "main function is outside the direct-native i64 ABI subset",
         ));
     }
-    let lines = collect_output_lines(program, package_root, fs_root)?;
+    let lines = collect_output_lines(program, capabilities, package_root, fs_root)?;
     axiomc_backend_cranelift::compile_output_lines(&lines, object_path, binary_path).map_err(
         |err| {
             Diagnostic::new("build", err.to_string()).with_path(object_path.display().to_string())
@@ -15775,6 +15777,7 @@ fn lower_i64_numeric_literal(raw: &str, ty: NumericType) -> Option<i64> {
 
 fn collect_output_lines(
     program: &Program,
+    capabilities: &CapabilityConfig,
     _package_root: &Path,
     fs_root: &Path,
 ) -> Result<Vec<OutputLine>, Diagnostic> {
@@ -15787,6 +15790,21 @@ fn collect_output_lines(
     env.insert(
         SPIKE_FS_ROOT_BINDING.to_string(),
         SpikeValue::Text(fs_root.display().to_string()),
+    );
+    env.insert(
+        SPIKE_ENV_ALLOWLIST_BINDING.to_string(),
+        SpikeValue::Array(
+            capabilities
+                .env_vars
+                .iter()
+                .cloned()
+                .map(SpikeValue::Text)
+                .collect(),
+        ),
+    );
+    env.insert(
+        SPIKE_ENV_UNRESTRICTED_BINDING.to_string(),
+        SpikeValue::Bool(capabilities.env_unrestricted),
     );
     let mut lines = Vec::new();
     for static_def in &program.statics {
@@ -19997,7 +20015,26 @@ fn eval_env_get_call(
         return Err(unsupported("env_get expects exactly one argument"));
     };
     let name = expect_text(eval_expr(name, functions, env, lines)?, "env_get")?;
+    if !spike_env_name_allowed(env, &name) {
+        return Ok(spike_option(None));
+    }
     Ok(spike_option(env::var(name).ok().map(SpikeValue::Text)))
+}
+
+fn spike_env_name_allowed(env: &SpikeEnv, name: &str) -> bool {
+    if matches!(
+        env.get(SPIKE_ENV_UNRESTRICTED_BINDING),
+        Some(SpikeValue::Bool(true))
+    ) {
+        return true;
+    }
+    matches!(
+        env.get(SPIKE_ENV_ALLOWLIST_BINDING),
+        Some(SpikeValue::Array(names))
+            if names
+                .iter()
+                .any(|allowed| matches!(allowed, SpikeValue::Text(allowed) if allowed == name))
+    )
 }
 
 fn is_fs_write_call(name: &str) -> bool {
@@ -21854,8 +21891,13 @@ mod tests {
     #[test]
     fn folds_hello_subset_into_print_lines() {
         assert_eq!(
-            collect_output_lines(&hello_program(), Path::new("."), Path::new("."))
-                .expect("fold hello"),
+            collect_output_lines(
+                &hello_program(),
+                &CapabilityConfig::default(),
+                Path::new("."),
+                Path::new("."),
+            )
+            .expect("fold hello"),
             vec![
                 OutputLine::stdout("hello from stage1"),
                 OutputLine::stdout("42")
