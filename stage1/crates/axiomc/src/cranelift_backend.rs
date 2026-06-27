@@ -19989,7 +19989,14 @@ fn http_serve_route_on_server(
 }
 
 fn http_parse_loopback_bind(bind: &str) -> Option<SocketAddr> {
-    let addr = bind.parse::<SocketAddr>().ok()?;
+    let addr = bind.parse::<SocketAddr>().ok().or_else(|| {
+        let (host, port) = bind.rsplit_once(':')?;
+        if host != "localhost" {
+            return None;
+        }
+        let port = port.parse::<u16>().ok()?;
+        Some(SocketAddr::from(([127, 0, 0, 1], port)))
+    })?;
     if !addr.ip().is_loopback() {
         return None;
     }
@@ -22008,6 +22015,21 @@ mod tests {
             ]
         );
     }
+
+    #[test]
+    fn loopback_bind_parser_accepts_localhost() {
+        assert_eq!(
+            http_parse_loopback_bind("localhost:0"),
+            Some(SocketAddr::from(([127, 0, 0, 1], 0)))
+        );
+        assert_eq!(
+            http_parse_loopback_bind("127.0.0.1:8080"),
+            Some(SocketAddr::from(([127, 0, 0, 1], 8080)))
+        );
+        assert_eq!(http_parse_loopback_bind("example.com:80"), None);
+        assert_eq!(http_parse_loopback_bind("192.0.2.1:80"), None);
+    }
+
     #[test]
     fn static_map_lookups_respect_last_duplicate_key() {
         let map = Expr::MapLiteral {
