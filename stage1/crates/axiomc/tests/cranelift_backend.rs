@@ -7882,6 +7882,55 @@ fn cranelift_backend_builds_env_read_binary() {
 
 #[cfg(not(windows))]
 #[test]
+fn cranelift_backend_honors_env_allowlist_for_precomputed_output() {
+    if which::which("cc").is_err() {
+        eprintln!("skipping cranelift backend smoke test because cc is unavailable");
+        return;
+    }
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("env-allowlist-output");
+    write_env_allowlist_output_project(&project);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .env("AXIOM_CRANELIFT_ENV_READ", "allowed-env")
+        .env("AXIOM_CRANELIFT_ENV_BLOCKED", "blocked-env")
+        .args([
+            "build",
+            project.to_str().expect("project path"),
+            "--backend",
+            "cranelift",
+            "--json",
+        ])
+        .output()
+        .expect("run axiomc build --backend cranelift");
+    assert!(
+        output.status.success(),
+        "cranelift env allowlist output build failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+    let binary = payload["binary"].as_str().expect("binary path");
+    let run = Command::new(binary)
+        .env_remove("AXIOM_CRANELIFT_ENV_READ")
+        .env_remove("AXIOM_CRANELIFT_ENV_BLOCKED")
+        .output()
+        .expect("run cranelift env allowlist output binary");
+    assert!(
+        run.status.success(),
+        "cranelift env allowlist output binary failed: stderr={}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&run.stdout),
+        "allowed-env\nmissing blocked\n"
+    );
+}
+
+#[cfg(not(windows))]
+#[test]
 fn cranelift_backend_lowers_env_read_to_runtime_exit_code() {
     if which::which("cc").is_err() {
         eprintln!("skipping cranelift backend smoke test because cc is unavailable");
@@ -14830,6 +14879,63 @@ fn write_env_read_project(project: &Path) {
         "import \"std/env.ax\"\nmatch get_env(\"AXIOM_CRANELIFT_ENV_READ\") {\nSome(value) {\nprint value\n}\nNone {\nprint \"missing value\"\n}\n}\nmatch get_env(\"__AXIOM_CRANELIFT_ENV_MISSING__\") {\nSome(value) {\nprint value\n}\nNone {\nprint \"missing\"\n}\n}\n",
     )
     .expect("write env source");
+}
+
+fn write_env_allowlist_output_project(project: &Path) {
+    fs::create_dir_all(project.join("src")).expect("create env allowlist output project src");
+    fs::write(
+        project.join("axiom.toml"),
+        r#"[package]
+name = "cranelift-env-allowlist-output"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+fs = false
+net = false
+process = false
+env = ["AXIOM_CRANELIFT_ENV_READ"]
+clock = false
+crypto = false
+"#,
+    )
+    .expect("write env allowlist output manifest");
+    fs::write(
+        project.join("axiom.lock"),
+        r#"version = 1
+
+[[package]]
+name = "cranelift-env-allowlist-output"
+version = "0.1.0"
+source = "path"
+"#,
+    )
+    .expect("write env allowlist output lockfile");
+    fs::write(
+        project.join("src/main.ax"),
+        r#"import "std/env.ax"
+match get_env("AXIOM_CRANELIFT_ENV_READ") {
+Some(value) {
+print value
+}
+None {
+print "missing allowed"
+}
+}
+match get_env("AXIOM_CRANELIFT_ENV_BLOCKED") {
+Some(value) {
+print value
+}
+None {
+print "missing blocked"
+}
+}
+"#,
+    )
+    .expect("write env allowlist output source");
 }
 
 fn write_env_read_main_exit_project(project: &Path) {
