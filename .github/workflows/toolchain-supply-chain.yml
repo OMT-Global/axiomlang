@@ -103,7 +103,7 @@ jobs:
           fi
           install_version="$required_version"
           if [[ "$install_version" =~ ^[0-9]+[.][0-9]+$ ]]; then
-            install_version="${install_version}.0"
+            install_version="^${install_version}"
           fi
 
           installed_version=""

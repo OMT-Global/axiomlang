@@ -29,7 +29,17 @@ grep -Fq 'cargo-vet --version' "$workflow" || {
 }
 
 grep -Fq 'cargo install cargo-vet --version "$install_version" --locked --force' "$workflow" || {
-  echo "workflow must force-install the normalized cargo-vet version on mismatch" >&2
+  echo "workflow must force-install the configured cargo-vet version on mismatch" >&2
+  exit 1
+}
+
+if grep -Fq 'install_version="${install_version}.0"' "$workflow"; then
+  echo "workflow must not force a .0 cargo-vet patch release for major/minor config versions" >&2
+  exit 1
+fi
+
+grep -Fq 'install_version="^${install_version}"' "$workflow" || {
+  echo "workflow must install a compatible cargo-vet patch range for major/minor config versions" >&2
   exit 1
 }
 
