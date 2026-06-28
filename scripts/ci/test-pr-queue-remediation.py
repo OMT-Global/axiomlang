@@ -128,6 +128,15 @@ class PrQueueRemediationTests(unittest.TestCase):
         self.assertFalse(report["operator_guards"]["mutates_branches"])
         self.assertTrue(report["operator_guards"]["requires_fresh_recheck_after_remediation"])
 
+    def test_pr_entry_without_valid_number_raises_value_error(self) -> None:
+        with self.assertRaises(ValueError):
+            queue.build_report(
+                repo="OMT-Global/axiomlang",
+                rechecked_at="2026-05-31T14:00:00Z",
+                source="fixture",
+                prs=[{"title": "missing number"}],
+            )
+
     def test_cli_emits_json_from_fixture(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "prs.json"

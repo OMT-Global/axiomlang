@@ -8,5 +8,5 @@ return route_response("/health", selected_response)
 
 pub fn serve_health(started: bool): bool {
 let selected_route: HttpRoute = health_route(started)
-return serve("127.0.0.1:18080", selected_route, 1)
+return serve("127.0.0.1:18081", selected_route, 1)
 }
