@@ -16549,8 +16549,14 @@ fn eval_call(
         return eval_extern_call(function, args, functions, env, lines);
     }
     let mut local_env = env.clone();
+    let mut receiver_alias_bound = false;
     for (param, arg) in function.params.iter().zip(args) {
-        local_env.insert(param.name.clone(), eval_expr(arg, functions, env, lines)?);
+        let value = eval_expr(arg, functions, env, lines)?;
+        if param.name == "self_" && !receiver_alias_bound {
+            local_env.insert(String::from("self"), value.clone());
+            receiver_alias_bound = true;
+        }
+        local_env.insert(param.name.clone(), value);
     }
     let returned = eval_block(&function.body, functions, &mut local_env, lines)?
         .ok_or_else(|| unsupported("cranelift spike functions must return a value"))?;
@@ -22120,6 +22126,89 @@ mod tests {
                 OutputLine::stdout("hello from stage1"),
                 OutputLine::stdout("42")
             ]
+        );
+    }
+
+    #[test]
+    fn function_receiver_alias_is_not_overwritten_by_later_self_param() {
+        let point_ty = Type::Struct(String::from("Point"));
+        let function = Function {
+            name: String::from("Point__same_x"),
+            source_name: String::from("same_x"),
+            path: String::from("test"),
+            params: vec![
+                crate::mir::Param {
+                    name: String::from("self_"),
+                    ty: point_ty.clone(),
+                },
+                crate::mir::Param {
+                    name: String::from("self_"),
+                    ty: point_ty.clone(),
+                },
+            ],
+            return_ty: Type::Bool,
+            body: vec![Stmt::Return {
+                expr: Expr::BinaryCompare {
+                    op: CompareOp::Eq,
+                    lhs: Box::new(Expr::FieldAccess {
+                        base: Box::new(Expr::VarRef {
+                            name: String::from("self"),
+                            ty: point_ty.clone(),
+                        }),
+                        field: String::from("x"),
+                        ty: Type::Int,
+                    }),
+                    rhs: Box::new(Expr::FieldAccess {
+                        base: Box::new(Expr::VarRef {
+                            name: String::from("self_"),
+                            ty: point_ty.clone(),
+                        }),
+                        field: String::from("x"),
+                        ty: Type::Int,
+                    }),
+                    ty: Type::Bool,
+                },
+                span: crate::mir::SourceSpan { line: 1, column: 1 },
+            }],
+            is_property: false,
+            is_async: false,
+            is_extern: false,
+            extern_abi: None,
+            extern_library: None,
+            line: 1,
+            column: 1,
+        };
+        let mut lines = Vec::new();
+        let functions = HashMap::from([(function.name.as_str(), &function)]);
+        let args = vec![
+            Expr::StructLiteral {
+                name: String::from("Point"),
+                fields: vec![crate::mir::StructFieldValue {
+                    name: String::from("x"),
+                    expr: Expr::Literal(LiteralValue::Int(7)),
+                }],
+                ty: point_ty.clone(),
+            },
+            Expr::StructLiteral {
+                name: String::from("Point"),
+                fields: vec![crate::mir::StructFieldValue {
+                    name: String::from("x"),
+                    expr: Expr::Literal(LiteralValue::Int(9)),
+                }],
+                ty: point_ty,
+            },
+        ];
+
+        assert_eq!(
+            eval_call(
+                "Point__same_x",
+                &args,
+                &functions,
+                &HashMap::new(),
+                &mut lines
+            )
+            .expect("receiver alias should evaluate"),
+            SpikeValue::Bool(false)
         );
     }
 
