@@ -4348,15 +4348,37 @@ fn validate_module_capabilities(
     graph: &PackageGraph,
     modules: &[LoadedModule],
 ) -> Result<(), Diagnostic> {
+    let mut package_extern_functions: HashMap<PathBuf, HashSet<String>> = HashMap::new();
+    for module in modules {
+        let extern_functions = package_extern_functions
+            .entry(module.package_root.clone())
+            .or_default();
+        extern_functions.extend(extern_function_names(&module.program));
+    }
+
+    let empty_extern_functions = HashSet::new();
     for module in modules {
         let package = graph.context(&module.package_root)?;
+        let extern_functions = package_extern_functions
+            .get(&module.package_root)
+            .unwrap_or(&empty_extern_functions);
         validate_program_capabilities(
             &module.path,
             &module.program,
             &package.manifest.capabilities,
+            extern_functions,
         )?;
     }
     Ok(())
+}
+
+fn extern_function_names(program: &syntax::Program) -> HashSet<String> {
+    program
+        .functions
+        .iter()
+        .filter(|function| function.is_extern)
+        .map(|function| function.name.clone())
+        .collect()
 }
 
 fn validate_stdlib_wrapper_capabilities(
@@ -4680,6 +4702,7 @@ fn validate_program_capabilities(
     module_path: &Path,
     program: &syntax::Program,
     capabilities: &CapabilityConfig,
+    extern_functions: &HashSet<String>,
 ) -> Result<(), Diagnostic> {
     let visible_consts = program
         .consts
@@ -4700,6 +4723,7 @@ fn validate_program_capabilities(
                 capabilities,
                 &visible_consts,
                 &stdlib_wrapper_capabilities,
+                extern_functions,
                 &mut bound_names,
             )?;
         }
@@ -4712,6 +4736,7 @@ fn validate_program_capabilities(
             capabilities,
             &visible_consts,
             &stdlib_wrapper_capabilities,
+            extern_functions,
             &mut bound_names,
         )?;
     }
@@ -4724,6 +4749,7 @@ fn validate_stmt_capabilities(
     capabilities: &CapabilityConfig,
     visible_consts: &HashMap<String, syntax::ConstDecl>,
     stdlib_wrapper_capabilities: &HashMap<String, CapabilityKind>,
+    extern_functions: &HashSet<String>,
     bound_names: &mut HashSet<String>,
 ) -> Result<(), Diagnostic> {
     match stmt {
@@ -4734,6 +4760,7 @@ fn validate_stmt_capabilities(
                 capabilities,
                 visible_consts,
                 stdlib_wrapper_capabilities,
+                extern_functions,
                 bound_names,
             )?;
             bound_names.insert(name.clone());
@@ -4748,6 +4775,7 @@ fn validate_stmt_capabilities(
                 capabilities,
                 visible_consts,
                 stdlib_wrapper_capabilities,
+                extern_functions,
                 bound_names,
             )?;
         }
@@ -4758,6 +4786,7 @@ fn validate_stmt_capabilities(
                 capabilities,
                 visible_consts,
                 stdlib_wrapper_capabilities,
+                extern_functions,
                 bound_names,
             )?;
             validate_expr_capabilities(
@@ -4766,6 +4795,7 @@ fn validate_stmt_capabilities(
                 capabilities,
                 visible_consts,
                 stdlib_wrapper_capabilities,
+                extern_functions,
                 bound_names,
             )?;
         }
@@ -4781,6 +4811,7 @@ fn validate_stmt_capabilities(
                 capabilities,
                 visible_consts,
                 stdlib_wrapper_capabilities,
+                extern_functions,
                 bound_names,
             )?;
             let mut then_names = bound_names.clone();
@@ -4791,6 +4822,7 @@ fn validate_stmt_capabilities(
                     capabilities,
                     visible_consts,
                     stdlib_wrapper_capabilities,
+                    extern_functions,
                     &mut then_names,
                 )?;
             }
@@ -4803,6 +4835,7 @@ fn validate_stmt_capabilities(
                         capabilities,
                         visible_consts,
                         stdlib_wrapper_capabilities,
+                        extern_functions,
                         &mut else_names,
                     )?;
                 }
@@ -4821,6 +4854,7 @@ fn validate_stmt_capabilities(
                 capabilities,
                 visible_consts,
                 stdlib_wrapper_capabilities,
+                extern_functions,
                 bound_names,
             )?;
             let mut then_names = bound_names.clone();
@@ -4832,6 +4866,7 @@ fn validate_stmt_capabilities(
                     capabilities,
                     visible_consts,
                     stdlib_wrapper_capabilities,
+                    extern_functions,
                     &mut then_names,
                 )?;
             }
@@ -4844,6 +4879,7 @@ fn validate_stmt_capabilities(
                         capabilities,
                         visible_consts,
                         stdlib_wrapper_capabilities,
+                        extern_functions,
                         &mut else_names,
                     )?;
                 }
@@ -4856,6 +4892,7 @@ fn validate_stmt_capabilities(
                 capabilities,
                 visible_consts,
                 stdlib_wrapper_capabilities,
+                extern_functions,
                 bound_names,
             )?;
             let mut body_names = bound_names.clone();
@@ -4866,6 +4903,7 @@ fn validate_stmt_capabilities(
                     capabilities,
                     visible_consts,
                     stdlib_wrapper_capabilities,
+                    extern_functions,
                     &mut body_names,
                 )?;
             }
@@ -4877,6 +4915,7 @@ fn validate_stmt_capabilities(
                 capabilities,
                 visible_consts,
                 stdlib_wrapper_capabilities,
+                extern_functions,
                 bound_names,
             )?;
             for arm in arms {
@@ -4889,6 +4928,7 @@ fn validate_stmt_capabilities(
                         capabilities,
                         visible_consts,
                         stdlib_wrapper_capabilities,
+                        extern_functions,
                         &mut arm_names,
                     )?;
                 }
@@ -4904,6 +4944,7 @@ fn validate_expr_capabilities(
     capabilities: &CapabilityConfig,
     visible_consts: &HashMap<String, syntax::ConstDecl>,
     stdlib_wrapper_capabilities: &HashMap<String, CapabilityKind>,
+    extern_functions: &HashSet<String>,
     bound_names: &HashSet<String>,
 ) -> Result<(), Diagnostic> {
     match expr {
@@ -4915,6 +4956,14 @@ fn validate_expr_capabilities(
             line,
             column,
         } => {
+            if extern_functions.contains(name) && !capabilities.enabled(CapabilityKind::Ffi) {
+                return Err(Diagnostic::new(
+                    "capability",
+                    format!("call to {name:?} requires [capabilities].ffi = true"),
+                )
+                .with_path(module_path.display().to_string())
+                .with_span(*line, *column));
+            }
             if let Some(kind) = intrinsic_capability(name)
                 .or_else(|| stdlib_wrapper_capabilities.get(name.as_str()).copied())
                 && !capabilities.enabled(kind)
@@ -4952,6 +5001,7 @@ fn validate_expr_capabilities(
                     capabilities,
                     visible_consts,
                     stdlib_wrapper_capabilities,
+                    extern_functions,
                     bound_names,
                 )?;
             }
@@ -4964,6 +5014,7 @@ fn validate_expr_capabilities(
                 capabilities,
                 visible_consts,
                 stdlib_wrapper_capabilities,
+                extern_functions,
                 bound_names,
             )?;
             for arg in args {
@@ -4973,6 +5024,7 @@ fn validate_expr_capabilities(
                     capabilities,
                     visible_consts,
                     stdlib_wrapper_capabilities,
+                    extern_functions,
                     bound_names,
                 )?;
             }
@@ -4987,6 +5039,7 @@ fn validate_expr_capabilities(
                 capabilities,
                 visible_consts,
                 stdlib_wrapper_capabilities,
+                extern_functions,
                 bound_names,
             )?;
             validate_expr_capabilities(
@@ -4995,6 +5048,7 @@ fn validate_expr_capabilities(
                 capabilities,
                 visible_consts,
                 stdlib_wrapper_capabilities,
+                extern_functions,
                 bound_names,
             )
         }
@@ -5004,6 +5058,7 @@ fn validate_expr_capabilities(
             capabilities,
             visible_consts,
             stdlib_wrapper_capabilities,
+            extern_functions,
             bound_names,
         ),
         syntax::Expr::Try { expr, .. }
@@ -5015,6 +5070,7 @@ fn validate_expr_capabilities(
             capabilities,
             visible_consts,
             stdlib_wrapper_capabilities,
+            extern_functions,
             bound_names,
         ),
         syntax::Expr::StructLiteral { fields, .. } => {
@@ -5025,6 +5081,7 @@ fn validate_expr_capabilities(
                     capabilities,
                     visible_consts,
                     stdlib_wrapper_capabilities,
+                    extern_functions,
                     bound_names,
                 )?;
             }
@@ -5037,6 +5094,7 @@ fn validate_expr_capabilities(
                 capabilities,
                 visible_consts,
                 stdlib_wrapper_capabilities,
+                extern_functions,
                 bound_names,
             )
         }
@@ -5049,6 +5107,7 @@ fn validate_expr_capabilities(
                     capabilities,
                     visible_consts,
                     stdlib_wrapper_capabilities,
+                    extern_functions,
                     bound_names,
                 )?;
             }
@@ -5062,6 +5121,7 @@ fn validate_expr_capabilities(
                     capabilities,
                     visible_consts,
                     stdlib_wrapper_capabilities,
+                    extern_functions,
                     bound_names,
                 )?;
                 validate_expr_capabilities(
@@ -5070,6 +5130,7 @@ fn validate_expr_capabilities(
                     capabilities,
                     visible_consts,
                     stdlib_wrapper_capabilities,
+                    extern_functions,
                     bound_names,
                 )?;
             }
@@ -5084,6 +5145,7 @@ fn validate_expr_capabilities(
                 capabilities,
                 visible_consts,
                 stdlib_wrapper_capabilities,
+                extern_functions,
                 bound_names,
             )?;
             if let Some(start) = start {
@@ -5093,6 +5155,7 @@ fn validate_expr_capabilities(
                     capabilities,
                     visible_consts,
                     stdlib_wrapper_capabilities,
+                    extern_functions,
                     bound_names,
                 )?;
             }
@@ -5103,6 +5166,7 @@ fn validate_expr_capabilities(
                     capabilities,
                     visible_consts,
                     stdlib_wrapper_capabilities,
+                    extern_functions,
                     bound_names,
                 )?;
             }
@@ -5115,6 +5179,7 @@ fn validate_expr_capabilities(
                 capabilities,
                 visible_consts,
                 stdlib_wrapper_capabilities,
+                extern_functions,
                 bound_names,
             )?;
             validate_expr_capabilities(
@@ -5123,6 +5188,7 @@ fn validate_expr_capabilities(
                 capabilities,
                 visible_consts,
                 stdlib_wrapper_capabilities,
+                extern_functions,
                 bound_names,
             )
         }
@@ -5135,6 +5201,7 @@ fn validate_expr_capabilities(
                 capabilities,
                 visible_consts,
                 stdlib_wrapper_capabilities,
+                extern_functions,
                 &closure_names,
             )
         }
@@ -5145,6 +5212,7 @@ fn validate_expr_capabilities(
                 capabilities,
                 visible_consts,
                 stdlib_wrapper_capabilities,
+                extern_functions,
                 bound_names,
             )?;
             for arm in arms {
@@ -5156,6 +5224,7 @@ fn validate_expr_capabilities(
                     capabilities,
                     visible_consts,
                     stdlib_wrapper_capabilities,
+                    extern_functions,
                     &arm_names,
                 )?;
             }
@@ -9501,6 +9570,52 @@ return async_serve_route(1, "/", "ok", 1)
             !capabilities.enabled(CapabilityKind::FsWrite),
             "read-only fs grants must not imply future write API access"
         );
+    }
+
+    #[test]
+    fn module_capability_validation_rejects_extern_calls_without_ffi() {
+        let program = syntax::parse_program(
+            "extern fn strlen(value: string): int from \"c\"\nfn run(): int {\nreturn strlen(\"hello\")\n}\n",
+            Path::new("dep/src/lib.ax"),
+        )
+        .expect("parse program");
+        let extern_functions = extern_function_names(&program);
+
+        let error = validate_program_capabilities(
+            Path::new("dep/src/lib.ax"),
+            &program,
+            &CapabilityConfig::default(),
+            &extern_functions,
+        )
+        .expect_err("extern call should require ffi capability");
+
+        assert_eq!(error.kind, "capability");
+        assert_eq!(
+            error.message,
+            "call to \"strlen\" requires [capabilities].ffi = true"
+        );
+    }
+
+    #[test]
+    fn module_capability_validation_allows_extern_calls_with_ffi() {
+        let program = syntax::parse_program(
+            "extern fn strlen(value: string): int from \"c\"\nfn run(): int {\nreturn strlen(\"hello\")\n}\n",
+            Path::new("dep/src/lib.ax"),
+        )
+        .expect("parse program");
+        let extern_functions = extern_function_names(&program);
+        let capabilities = CapabilityConfig {
+            ffi: true,
+            ..CapabilityConfig::default()
+        };
+
+        validate_program_capabilities(
+            Path::new("dep/src/lib.ax"),
+            &program,
+            &capabilities,
+            &extern_functions,
+        )
+        .expect("ffi capability should allow extern call");
     }
 
     #[test]
