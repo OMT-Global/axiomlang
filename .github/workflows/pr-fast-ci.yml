@@ -270,9 +270,15 @@ jobs:
       - validate-pr-description
       - validate-secrets
     steps:
+      # SECURITY: ci-gate runs on a persistent self-hosted runner with no fork
+      # guard (if: always), so it must never execute code from the PR head tree.
+      # The gate only needs the result envs below plus the trusted gate helper,
+      # so check out the base ref (target-repo, trusted) instead of the fork head
+      # and drop persisted credentials. See scripts/ci/check-pr-fast-ci-gate.sh.
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4 pinned 2026-05-30
         with:
           ref: ${{ github.event.pull_request.base.sha }}
+          persist-credentials: false
       - name: Validate fork PR description from trusted base
         if: ${{ github.event.pull_request.head.repo.full_name != github.repository }}
         env:

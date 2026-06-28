@@ -39,11 +39,26 @@ class IssueLink:
     relationship: str
 
 
+def _is_safe_repo_slug(repo: str) -> bool:
+    """Reject owner/name slugs with empty or '.'/'..' path segments.
+
+    The slug can come from attacker-controlled PR-body text and is interpolated
+    into an api.github.com path by issue_api_url, so a '.' or '..' segment could
+    redirect the authenticated request to a different endpoint (path confusion).
+    """
+    parts = repo.split("/")
+    if len(parts) != 2:
+        return False
+    return all(part and part not in (".", "..") for part in parts)
+
+
 def parse_issue_links(body: str, default_repo: str) -> list[IssueLink]:
     links: list[IssueLink] = []
     seen: set[tuple[str, int, str]] = set()
     for match in ISSUE_REF_RE.finditer(body):
         repo = match.group("url_repo") or match.group("qual_repo") or default_repo
+        if not _is_safe_repo_slug(repo):
+            continue
         raw_number = match.group("url_number") or match.group("hash_number")
         if not raw_number:
             continue
