@@ -921,18 +921,73 @@ fn registry_release_file_response(
     }
 
     let path = packages_root.join(&package).join(&version).join(&file);
-    let body = fs::read(&path).map_err(|err| {
-        Diagnostic::new(
-            "registry",
-            format!("failed to read registry artifact {}: {err}", path.display()),
-        )
-        .with_path(path.display().to_string())
-    })?;
+    let body = read_registry_artifact(packages_root, &path)?;
     Ok(RegistryHttpResponse {
         status: "200 OK",
         content_type: registry_content_type(&file),
         body,
     })
+}
+
+fn read_registry_artifact(packages_root: &Path, path: &Path) -> Result<Vec<u8>, Diagnostic> {
+    let root = packages_root.canonicalize().map_err(|err| {
+        Diagnostic::new(
+            "registry",
+            format!(
+                "failed to canonicalize registry root {}: {err}",
+                packages_root.display()
+            ),
+        )
+        .with_path(packages_root.display().to_string())
+    })?;
+    let metadata = fs::symlink_metadata(path).map_err(|err| {
+        Diagnostic::new(
+            "registry",
+            format!(
+                "failed to inspect registry artifact {}: {err}",
+                path.display()
+            ),
+        )
+        .with_path(path.display().to_string())
+    })?;
+    if metadata.file_type().is_symlink() {
+        return Err(Diagnostic::new(
+            "registry",
+            format!(
+                "refusing to serve symlinked registry artifact {}",
+                path.display()
+            ),
+        )
+        .with_path(path.display().to_string()));
+    }
+    let canonical = path.canonicalize().map_err(|err| {
+        Diagnostic::new(
+            "registry",
+            format!(
+                "failed to canonicalize registry artifact {}: {err}",
+                path.display()
+            ),
+        )
+        .with_path(path.display().to_string())
+    })?;
+    if !canonical.starts_with(&root) {
+        return Err(Diagnostic::new(
+            "registry",
+            format!(
+                "refusing to serve registry artifact outside registry root {}",
+                canonical.display()
+            ),
+        )
+        .with_path(canonical.display().to_string()));
+    }
+    let body = fs::read(&canonical).map_err(|err| {
+        Diagnostic::new(
+            "registry",
+            format!("failed to read registry artifact {}: {err}", path.display()),
+        )
+        .with_path(canonical.display().to_string())
+    })?;
+    Ok(body)
 }
 
 fn registry_release_allows_file(release: &RegistryRelease, file: &str) -> Result<bool, Diagnostic> {
@@ -1635,6 +1690,37 @@ mod tests {
                 .as_deref()
                 .is_some_and(|path| path.ends_with("package.axp.sig"))
         );
+    }
+
+    #[test]
+    fn registry_http_rejects_symlinked_lockfile_artifact() {
+        let dir = tempdir().expect("tempdir");
+        let registry = dir.path().join("registry");
+        let release = write_release(
+            &registry,
+            "core",
+            "1.0.0",
+            "[package]\nname = \"core\"\nversion = \"1.0.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n",
+        );
+        let outside = dir.path().join("outside-lock.toml");
+        fs::write(&outside, "secret = true\n").expect("write outside file");
+        let lock_path = release.join(LOCK_FILENAME);
+
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&outside, &lock_path).expect("create symlink");
+        #[cfg(windows)]
+        std::os::windows::fs::symlink_file(&outside, &lock_path).expect("create symlink");
+
+        let error = registry_http_response(
+            &registry,
+            "https://packages.example.test",
+            "test-key",
+            "GET /core/1.0.0/axiom.lock HTTP/1.1\r\n\r\n",
+        )
+        .expect_err("symlinked lockfile should not be served");
+
+        assert_eq!(error.kind, "registry");
+        assert!(error.message.contains("symlinked registry artifact"));
     }
 
     #[test]
