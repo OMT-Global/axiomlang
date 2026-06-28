@@ -803,9 +803,12 @@ same `get_or_default`, `map_contains_key`, and `get` lowering, and
 materializing a runtime key array. Runtime branch-local map literals can now
 feed the same known `get`, `get_or_default`, `map_contains_key`, and
 `keys(...)` result paths into outer scalar, boolean, string-length, and
-key-count locals without materializing a general map runtime value. Static
-scalar integer and boolean keys can also feed inline and pre-runtime map
-lookup, contains, and get-or-default lowering. Imported public
+key-count locals without materializing a general map runtime value. Scalar
+helper return blocks can also use branch-local known map facts for scalar
+lookups, string-length projections, and key counts before returning through the
+direct-native helper ABI. Static scalar integer and boolean keys can also feed
+inline and pre-runtime map lookup, contains, and get-or-default lowering.
+Imported public
 `std/collections.ax` `contains`, `get`, `get_or_default`, and `keys` map
 wrappers now alias the same direct-native i64 lowering for static string/int
 map-local cases. Literal indexes into static string key arrays can also feed

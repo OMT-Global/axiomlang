@@ -4332,6 +4332,48 @@ fn cranelift_backend_lowers_map_branch_local_lookups_to_runtime_exit_code() {
 
 #[cfg(not(windows))]
 #[test]
+fn cranelift_backend_lowers_map_helper_branch_local_lookups_to_runtime_exit_code() {
+    if which::which("cc").is_err() {
+        eprintln!("skipping cranelift backend smoke test because cc is unavailable");
+        return;
+    }
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp
+        .path()
+        .join("map-helper-branch-local-lookups-main-exit");
+    write_map_helper_branch_local_lookups_main_exit_project(&project);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args([
+            "build",
+            project.to_str().expect("project path"),
+            "--backend",
+            "cranelift",
+            "--json",
+        ])
+        .output()
+        .expect("run axiomc build --backend cranelift");
+    assert!(
+        output.status.success(),
+        "cranelift map helper branch local lookups main build failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+    assert_eq!(payload["backend"], "cranelift");
+    assert_eq!(payload["generated_rust"], Value::Null);
+    let binary = payload["binary"].as_str().expect("binary path");
+    let run = Command::new(binary)
+        .output()
+        .expect("run cranelift map helper branch local lookups main binary");
+    assert_eq!(run.status.code(), Some(48));
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "");
+}
+
+#[cfg(not(windows))]
+#[test]
 fn cranelift_backend_lowers_std_collection_wrappers_to_runtime_exit_code() {
     if which::which("cc").is_err() {
         eprintln!("skipping cranelift backend smoke test because cc is unavailable");
@@ -10953,6 +10995,50 @@ return 1
 "#,
     )
     .expect("write map branch local lookup source");
+}
+
+fn write_map_helper_branch_local_lookups_main_exit_project(project: &Path) {
+    fs::create_dir_all(project.join("src"))
+        .expect("create map helper branch local lookup project src");
+    fs::write(
+        project.join("axiom.toml"),
+        "[package]\nname = \"cranelift-map-helper-branch-local-lookups-main-exit\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n",
+    )
+    .expect("write map helper branch local lookup manifest");
+    fs::write(
+        project.join("axiom.lock"),
+        "version = 1\n\n[[package]]\nname = \"cranelift-map-helper-branch-local-lookups-main-exit\"\nversion = \"0.1.0\"\nsource = \"path\"\n",
+    )
+    .expect("write map helper branch local lookup lockfile");
+    fs::write(
+        project.join("src/main.ax"),
+        r#"fn branch_lookup_code(gate: bool): int {
+if gate {
+let direct_scores: {string: int} = {"build": 7, "deploy": 48}
+let key_scores: {string: int} = {"build": 7, "deploy": 48}
+let labels: {string: string} = {"deploy": "ship", "build": "forge"}
+let names: [string] = keys<string, int>(key_scores)
+let code: int = match get<string, int>(direct_scores, "deploy") { Some(value) => value, None => 1 }
+let label_len: int = match get<string, string>(labels, "deploy") { Some(value) => len(value), None => 1 }
+return code + label_len + len(names) - 6
+} else {
+let fallback: {string: int} = {"build": 7, "deploy": 48}
+return get_or_default<string, int>(fallback, "missing", 49)
+}
+}
+
+fn main(): int {
+let selected: int = branch_lookup_code(true)
+let fallback: int = branch_lookup_code(false)
+if selected == 48 && fallback == 49 {
+return selected
+} else {
+return 1
+}
+}
+"#,
+    )
+    .expect("write map helper branch local lookup source");
 }
 
 fn write_std_collection_lookup_project(project: &Path) {
