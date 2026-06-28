@@ -1499,6 +1499,21 @@ fn analyze_entry(
     entry: PathBuf,
     macro_recursion_limit: usize,
 ) -> Result<AnalyzedProject, Diagnostic> {
+    // SECURITY: confine the entry module to the package, resolving symlinks,
+    // before any file is read. The build path canonicalizes the entry before
+    // calling us, but the test-runner entry points (run_test_case and
+    // run_*compile_fail_case) pass project_root.join(entry) unconfined; without
+    // this an untrusted package could ship its entry as a symlink escaping the
+    // package tree (e.g. src/main_test.ax -> /etc/passwd) and have it read as
+    // Axiom source and echoed back through diagnostics. We only gate access
+    // here and keep using `entry` for loading, so module paths and diagnostics
+    // are unchanged for legitimate (non-symlinked) entries.
+    canonicalize_package_path(
+        &entry,
+        package_root,
+        "manifest",
+        "build.entry resolves outside the package",
+    )?;
     let modules = load_modules(graph, package_root, &entry, macro_recursion_limit)?;
     validate_module_capabilities(graph, &modules)?;
     validate_semantic_declarations(&modules)?;
@@ -8999,6 +9014,53 @@ mod tests {
 
         assert_eq!(error.kind, "import");
         assert_eq!(error.message, "stage1 imports must stay inside the package");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn analyze_entry_rejects_symlinked_entry_outside_package() {
+        let dir = tempdir().unwrap_or_else(|err| panic!("tempdir: {err}"));
+        let package_dir = dir.path().join("package");
+        fs::create_dir_all(&package_dir).unwrap_or_else(|err| panic!("create package: {err}"));
+        let root =
+            fs::canonicalize(&package_dir).unwrap_or_else(|err| panic!("canonical root: {err}"));
+        let source_root = root.join("src");
+        fs::create_dir_all(&source_root).unwrap_or_else(|err| panic!("create src: {err}"));
+        // A sensitive file outside the package that the untrusted package wants read.
+        let outside = dir.path().join("outside.ax");
+        fs::write(&outside, "fn leaked(): int {\nreturn 7\n}\n")
+            .unwrap_or_else(|err| panic!("write outside module: {err}"));
+        // The package ships its entry as a symlink escaping the package tree.
+        let entry = source_root.join("main_test.ax");
+        std::os::unix::fs::symlink(&outside, &entry)
+            .unwrap_or_else(|err| panic!("symlink entry: {err}"));
+
+        let mut graph = PackageGraph::default();
+        graph.packages.insert(
+            root.clone(),
+            PackageContext {
+                root: root.clone(),
+                manifest: package_manifest(),
+                source_root: fs::canonicalize(&source_root)
+                    .unwrap_or_else(|err| panic!("canonical source root: {err}")),
+                dependencies: BTreeMap::new(),
+                workspace_members: Vec::new(),
+            },
+        );
+
+        let error = match analyze_entry(
+            &graph,
+            &root,
+            package_manifest(),
+            entry.clone(),
+            syntax::DEFAULT_MACRO_RECURSION_LIMIT,
+        ) {
+            Ok(_) => panic!("symlinked entry outside package was analyzed"),
+            Err(error) => error,
+        };
+
+        assert_eq!(error.kind, "manifest");
+        assert_eq!(error.message, "build.entry resolves outside the package");
     }
 
     #[cfg(unix)]
