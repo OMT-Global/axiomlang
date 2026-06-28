@@ -410,6 +410,8 @@ pub struct BuildOptions {
     pub target: Option<String>,
     pub package: Option<String>,
     pub debug: bool,
+    /// Deterministic stdin used by direct-native manifest test builds.
+    pub stdin: Option<String>,
     /// Require the checked-in axiom.lock graph to match the local manifest graph.
     pub locked: bool,
     /// Resolve the build graph without network access. Stage1 currently supports local path graphs only.
@@ -678,6 +680,7 @@ fn prepare_run_project(
             target: None,
             package: options.package.clone(),
             debug: false,
+            stdin: None,
             locked: true,
             offline: true,
         },
@@ -2014,6 +2017,7 @@ struct BuildCacheFile {
     manifest_hash: String,
     lockfile_hash: String,
     rust_hash: String,
+    stdin_hash: Option<String>,
     binary_hash: Option<String>,
     modules: Vec<CachedModule>,
 }
@@ -2057,6 +2061,7 @@ fn build_artifacts(
         options.backend,
         resolved_target.map(str::to_string),
         options.debug,
+        direct_native_stdin_hash(options),
     )?;
     if read_build_cache(&cache_path)
         .as_ref()
@@ -2111,6 +2116,7 @@ fn build_artifacts(
                 &analyzed.manifest.capabilities,
                 package_root,
                 &fs_root,
+                options.stdin.as_deref(),
                 &object_path,
                 binary,
                 resolved_target,
@@ -3108,6 +3114,7 @@ fn build_cache_file(
     backend: NativeBackendKind,
     target: Option<String>,
     debug: bool,
+    stdin_hash: Option<String>,
 ) -> Result<BuildCacheFile, Diagnostic> {
     Ok(BuildCacheFile {
         version: BUILD_CACHE_VERSION,
@@ -3118,9 +3125,16 @@ fn build_cache_file(
         manifest_hash: hash_file(&manifest_path(package_root))?,
         lockfile_hash: hash_file(&crate::manifest::lockfile_path(package_root))?,
         rust_hash: hash_text(rust_source),
+        stdin_hash,
         binary_hash: None,
         modules: cached_modules(graph, &analyzed.modules)?,
     })
+}
+
+fn direct_native_stdin_hash(options: &BuildOptions) -> Option<String> {
+    matches!(options.backend, NativeBackendKind::Cranelift)
+        .then(|| options.stdin.as_deref().map(hash_text))
+        .flatten()
 }
 
 fn cached_modules(
@@ -3255,6 +3269,9 @@ fn run_test_case(
         None,
         &BuildOptions {
             backend,
+            stdin: matches!(backend, NativeBackendKind::Cranelift)
+                .then(|| test.stdin.clone())
+                .flatten(),
             ..BuildOptions::default()
         },
     ) {
@@ -8332,6 +8349,7 @@ mod tests {
             manifest_hash: String::from("manifest"),
             lockfile_hash: String::from("lockfile"),
             rust_hash: hash_text(generated_source),
+            stdin_hash: None,
             binary_hash: Some(hash_file_bytes(&binary).expect("binary hash")),
             modules: Vec::new(),
         };

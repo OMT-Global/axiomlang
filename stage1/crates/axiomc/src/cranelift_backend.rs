@@ -15,6 +15,7 @@ use axiomc_backend_cranelift::{
     I64ValueBody as CraneliftI64ValueBody, I64ValueReturnBlock as CraneliftI64ValueReturnBlock,
     OutputLine, OutputStream,
 };
+use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::env;
 use std::io::{Read, Write};
@@ -276,6 +277,47 @@ struct SpikeTcpStream {
     written: String,
 }
 
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+struct SpikeStdin {
+    content: String,
+    offset: usize,
+}
+
+impl SpikeStdin {
+    fn new(content: Option<&str>) -> Self {
+        Self {
+            content: content.unwrap_or_default().to_string(),
+            offset: 0,
+        }
+    }
+
+    fn readline(&mut self) -> Option<String> {
+        if self.offset >= self.content.len() {
+            return None;
+        }
+        let remaining = &self.content[self.offset..];
+        let (line_end, next_offset) = match remaining.find('\n') {
+            Some(newline) => (self.offset + newline, self.offset + newline + 1),
+            None => (self.content.len(), self.content.len()),
+        };
+        let mut line = self.content[self.offset..line_end].to_string();
+        if line.ends_with('\r') {
+            line.pop();
+        }
+        self.offset = next_offset;
+        Some(line)
+    }
+
+    fn read_to_string(&mut self) -> String {
+        if self.offset >= self.content.len() {
+            return String::new();
+        }
+        let remaining = self.content[self.offset..].to_string();
+        self.offset = self.content.len();
+        remaining
+    }
+}
+
 static SPIKE_HTTP_NEXT_HANDLE: AtomicI64 = AtomicI64::new(1);
 static SPIKE_HTTP_SERVERS: OnceLock<Mutex<HashMap<i64, SpikeHttpServer>>> = OnceLock::new();
 static SPIKE_HTTP_REQUESTS: OnceLock<Mutex<HashMap<i64, SpikeHttpRequest>>> = OnceLock::new();
@@ -283,11 +325,16 @@ static SPIKE_TCP_NEXT_HANDLE: AtomicI64 = AtomicI64::new(1);
 static SPIKE_TCP_LISTENERS: OnceLock<Mutex<HashMap<i64, SpikeTcpListener>>> = OnceLock::new();
 static SPIKE_TCP_STREAMS: OnceLock<Mutex<HashMap<i64, SpikeTcpStream>>> = OnceLock::new();
 
+thread_local! {
+    static SPIKE_STDIN: RefCell<SpikeStdin> = RefCell::new(SpikeStdin::default());
+}
+
 pub fn compile_cranelift_hello_spike(
     program: &Program,
     capabilities: &CapabilityConfig,
     package_root: &Path,
     fs_root: &Path,
+    stdin: Option<&str>,
     object_path: &Path,
     binary_path: &Path,
     target: Option<&str>,
@@ -318,7 +365,7 @@ pub fn compile_cranelift_hello_spike(
             "main function is outside the direct-native i64 ABI subset",
         ));
     }
-    let lines = collect_output_lines(program, capabilities, package_root, fs_root)?;
+    let lines = collect_output_lines(program, capabilities, package_root, fs_root, stdin)?;
     axiomc_backend_cranelift::compile_output_lines(&lines, object_path, binary_path).map_err(
         |err| {
             Diagnostic::new("build", err.to_string()).with_path(object_path.display().to_string())
@@ -15891,39 +15938,54 @@ fn collect_output_lines(
     capabilities: &CapabilityConfig,
     _package_root: &Path,
     fs_root: &Path,
+    stdin: Option<&str>,
 ) -> Result<Vec<OutputLine>, Diagnostic> {
-    let functions = program
-        .functions
-        .iter()
-        .map(|function| (function.name.as_str(), function))
-        .collect::<HashMap<_, _>>();
-    let mut env = SpikeEnv::new();
-    env.insert(
-        SPIKE_FS_ROOT_BINDING.to_string(),
-        SpikeValue::Text(fs_root.display().to_string()),
-    );
-    env.insert(
-        SPIKE_ENV_ALLOWLIST_BINDING.to_string(),
-        SpikeValue::Array(
-            capabilities
-                .env_vars
-                .iter()
-                .cloned()
-                .map(SpikeValue::Text)
-                .collect(),
-        ),
-    );
-    env.insert(
-        SPIKE_ENV_UNRESTRICTED_BINDING.to_string(),
-        SpikeValue::Bool(capabilities.env_unrestricted),
-    );
-    let mut lines = Vec::new();
-    for static_def in &program.statics {
-        let value = eval_expr(&static_def.expr, &functions, &env, &mut lines)?;
-        env.insert(static_def.name.clone(), value);
-    }
-    eval_block(&program.stmts, &functions, &mut env, &mut lines)?;
-    Ok(lines)
+    with_spike_stdin(stdin, || {
+        let functions = program
+            .functions
+            .iter()
+            .map(|function| (function.name.as_str(), function))
+            .collect::<HashMap<_, _>>();
+        let mut env = SpikeEnv::new();
+        env.insert(
+            SPIKE_FS_ROOT_BINDING.to_string(),
+            SpikeValue::Text(fs_root.display().to_string()),
+        );
+        env.insert(
+            SPIKE_ENV_ALLOWLIST_BINDING.to_string(),
+            SpikeValue::Array(
+                capabilities
+                    .env_vars
+                    .iter()
+                    .cloned()
+                    .map(SpikeValue::Text)
+                    .collect(),
+            ),
+        );
+        env.insert(
+            SPIKE_ENV_UNRESTRICTED_BINDING.to_string(),
+            SpikeValue::Bool(capabilities.env_unrestricted),
+        );
+        let mut lines = Vec::new();
+        for static_def in &program.statics {
+            let value = eval_expr(&static_def.expr, &functions, &env, &mut lines)?;
+            env.insert(static_def.name.clone(), value);
+        }
+        eval_block(&program.stmts, &functions, &mut env, &mut lines)?;
+        Ok(lines)
+    })
+}
+
+fn with_spike_stdin<T>(
+    stdin: Option<&str>,
+    body: impl FnOnce() -> Result<T, Diagnostic>,
+) -> Result<T, Diagnostic> {
+    SPIKE_STDIN.with(|state| {
+        let previous = state.replace(SpikeStdin::new(stdin));
+        let result = body();
+        state.replace(previous);
+        result
+    })
 }
 
 fn eval_block(
@@ -16416,6 +16478,12 @@ fn eval_call(
     }
     if name == "io_eprintln" {
         return eval_io_eprintln_call(args, functions, env, lines);
+    }
+    if name == "io_readline" {
+        return eval_io_readline_call(args);
+    }
+    if name == "io_read_to_string" {
+        return eval_io_read_to_string_call(args);
     }
     if is_json_call(name) {
         return eval_json_call(name, args, functions, env, lines);
@@ -21018,6 +21086,24 @@ fn eval_io_eprintln_call(
     Ok(SpikeValue::Int(written))
 }
 
+fn eval_io_readline_call(args: &[Expr]) -> Result<SpikeValue, Diagnostic> {
+    let [] = args else {
+        return Err(unsupported("io_readline expects no arguments"));
+    };
+    Ok(spike_option(SPIKE_STDIN.with(|state| {
+        state.borrow_mut().readline().map(SpikeValue::Text)
+    })))
+}
+
+fn eval_io_read_to_string_call(args: &[Expr]) -> Result<SpikeValue, Diagnostic> {
+    let [] = args else {
+        return Err(unsupported("io_read_to_string expects no arguments"));
+    };
+    Ok(SpikeValue::Text(
+        SPIKE_STDIN.with(|state| state.borrow_mut().read_to_string()),
+    ))
+}
+
 fn eval_clock_now_ms_call(args: &[Expr]) -> Result<SpikeValue, Diagnostic> {
     let [] = args else {
         return Err(unsupported("clock_now_ms expects no arguments"));
@@ -22027,6 +22113,7 @@ mod tests {
                 &CapabilityConfig::default(),
                 Path::new("."),
                 Path::new("."),
+                None,
             )
             .expect("fold hello"),
             vec![
@@ -22034,6 +22121,27 @@ mod tests {
                 OutputLine::stdout("42")
             ]
         );
+    }
+
+    #[test]
+    fn stdio_stdin_calls_consume_manifest_input() {
+        with_spike_stdin(Some("first\r\nsecond\nremaining"), || {
+            assert_eq!(
+                eval_io_readline_call(&[]).expect("first line"),
+                spike_option(Some(SpikeValue::Text(String::from("first"))))
+            );
+            assert_eq!(
+                eval_io_readline_call(&[]).expect("second line"),
+                spike_option(Some(SpikeValue::Text(String::from("second"))))
+            );
+            assert_eq!(
+                eval_io_read_to_string_call(&[]).expect("remaining input"),
+                SpikeValue::Text(String::from("remaining"))
+            );
+            assert_eq!(eval_io_readline_call(&[]).expect("eof"), spike_option(None));
+            Ok(())
+        })
+        .expect("stdin evaluation");
     }
 
     #[test]
@@ -22075,6 +22183,7 @@ mod tests {
                 &CapabilityConfig::default(),
                 Path::new("."),
                 Path::new("."),
+                None,
             )
             .expect("fold match"),
             vec![OutputLine::stdout("ready")]

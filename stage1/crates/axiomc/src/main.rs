@@ -524,6 +524,7 @@ fn main() {
                     target,
                     package: package.clone(),
                     debug,
+                    stdin: None,
                     locked,
                     offline,
                 },
