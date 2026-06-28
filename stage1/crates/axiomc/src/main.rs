@@ -64,6 +64,11 @@ enum Command {
         /// After type and ownership checks pass, run discovered property fixtures.
         #[arg(long)]
         properties: bool,
+        /// Select the backend used when --properties executes property fixtures.
+        /// Defaults to the supported direct-native `cranelift` backend;
+        /// `generated-rust` is compatibility-only.
+        #[arg(long, default_value_t = NativeBackendKind::Cranelift)]
+        backend: NativeBackendKind,
         #[arg(long)]
         exports: bool,
         #[arg(long = "debug-symbols")]
@@ -81,7 +86,9 @@ enum Command {
         path: PathBuf,
         #[arg(long)]
         json: bool,
-        /// Select the build backend. When omitted, native builds default to `cranelift` while targeted builds keep `generated-rust` for compatibility. `rust` is accepted as a transition alias for `generated-rust`.
+        /// Select the build backend. When omitted, builds use the supported
+        /// direct-native `cranelift` backend. `generated-rust` is
+        /// compatibility-only and must be requested explicitly.
         #[arg(long)]
         backend: Option<NativeBackendKind>,
         #[arg(long)]
@@ -106,7 +113,9 @@ enum Command {
         #[arg(long)]
         json: bool,
         /// Select the backend used to build the executable before running it.
-        #[arg(long, default_value_t = NativeBackendKind::GeneratedRust)]
+        /// Defaults to the supported direct-native `cranelift` backend;
+        /// `generated-rust` is compatibility-only.
+        #[arg(long, default_value_t = NativeBackendKind::Cranelift)]
         backend: NativeBackendKind,
         #[arg(short = 'p', long = "package")]
         package: Option<String>,
@@ -126,7 +135,9 @@ enum Command {
         #[arg(long)]
         json: bool,
         /// Select the backend used to build executable test cases.
-        #[arg(long, default_value_t = NativeBackendKind::GeneratedRust)]
+        /// Defaults to the supported direct-native `cranelift` backend;
+        /// `generated-rust` is compatibility-only.
+        #[arg(long, default_value_t = NativeBackendKind::Cranelift)]
         backend: NativeBackendKind,
         #[arg(long)]
         filter: Option<String>,
@@ -439,6 +450,7 @@ fn main() {
             path,
             json,
             properties,
+            backend,
             exports,
             debug_symbols,
             macro_recursion_limit,
@@ -455,7 +467,7 @@ fn main() {
             ) {
                 Ok(output) => {
                     let property_output = if properties {
-                        match run_property_check_tests(&path, package.clone()) {
+                        match run_property_check_tests(&path, backend, package.clone()) {
                             Ok(output) => Some(output),
                             Err(error) => std::process::exit(print_error("check", error, json)),
                         }
@@ -512,6 +524,7 @@ fn main() {
                     target,
                     package: package.clone(),
                     debug,
+                    stdin: None,
                     locked,
                     offline,
                 },
@@ -1317,15 +1330,9 @@ fn main() {
 
 fn effective_build_backend(
     backend: Option<NativeBackendKind>,
-    target: Option<&String>,
+    _target: Option<&String>,
 ) -> NativeBackendKind {
-    backend.unwrap_or_else(|| {
-        if target.is_some() {
-            NativeBackendKind::GeneratedRust
-        } else {
-            NativeBackendKind::Cranelift
-        }
-    })
+    backend.unwrap_or(NativeBackendKind::Cranelift)
 }
 
 #[derive(Debug)]
@@ -1354,11 +1361,13 @@ fn parse_project_entry(path: &Path) -> Result<ParseOutput, Diagnostic> {
 
 fn run_property_check_tests(
     path: &Path,
+    backend: NativeBackendKind,
     package: Option<String>,
 ) -> Result<TestOutput, Diagnostic> {
     run_project_tests_with_options(
         path,
         &TestOptions {
+            backend,
             filter: None,
             package,
             include_benchmarks: false,
@@ -7547,9 +7556,9 @@ mod tests {
             .expect("build subcommand")
             .render_long_help()
             .to_string();
-        assert!(build_help.contains("native builds default to `cranelift`"));
-        assert!(build_help.contains("targeted builds keep `generated-rust` for compatibility"));
-        assert!(build_help.contains("`rust` is accepted as a transition alias"));
+        assert!(build_help.contains("builds use the supported direct-native `cranelift` backend"));
+        assert!(build_help.contains("compatibility-only and must be requested explicitly"));
+        assert!(!build_help.contains("`rust` is accepted as a transition alias"));
         assert!(
             build_help.contains("Build a stage1 package through the default direct-native backend")
         );
@@ -7901,14 +7910,52 @@ return "ok"
     }
 
     #[test]
+    fn test_defaults_to_cranelift_backend() {
+        let cli = Cli::parse_from(["axiomc", "test", "."]);
+        match cli.command {
+            Command::Test { backend, .. } => {
+                assert_eq!(backend, NativeBackendKind::Cranelift);
+            }
+            other => panic!("expected test command, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn check_accepts_properties_flag() {
         let cli = Cli::parse_from(["axiomc", "check", ".", "--properties", "--json"]);
         match cli.command {
             Command::Check {
-                properties, json, ..
+                properties,
+                backend,
+                json,
+                ..
             } => {
                 assert!(properties);
+                assert_eq!(backend, NativeBackendKind::Cranelift);
                 assert!(json);
+            }
+            other => panic!("expected check command, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn check_accepts_property_backend_selection() {
+        let cli = Cli::parse_from([
+            "axiomc",
+            "check",
+            ".",
+            "--properties",
+            "--backend",
+            "generated-rust",
+        ]);
+        match cli.command {
+            Command::Check {
+                properties,
+                backend,
+                ..
+            } => {
+                assert!(properties);
+                assert_eq!(backend, NativeBackendKind::GeneratedRust);
             }
             other => panic!("expected check command, got {other:?}"),
         }
@@ -7947,7 +7994,8 @@ return "ok"
         fs::write(project.join("src/addition_property.stdout"), "0\n")
             .expect("write property golden");
 
-        let output = run_property_check_tests(&project, None).expect("run property checks");
+        let output = run_property_check_tests(&project, NativeBackendKind::Cranelift, None)
+            .expect("run property checks");
 
         assert_eq!(output.failed, 0);
         assert_eq!(output.cases.len(), 1);
@@ -8007,7 +8055,7 @@ return "ok"
     }
 
     #[test]
-    fn build_target_defaults_to_generated_rust_backend() {
+    fn build_target_defaults_to_cranelift_backend() {
         let cli = Cli::parse_from(["axiomc", "build", ".", "--target", "wasm32"]);
         match cli.command {
             Command::Build {
@@ -8016,7 +8064,7 @@ return "ok"
                 assert_eq!(target.as_deref(), Some("wasm32"));
                 assert_eq!(
                     effective_build_backend(backend, target.as_ref()),
-                    NativeBackendKind::GeneratedRust
+                    NativeBackendKind::Cranelift
                 );
             }
             other => panic!("expected build command, got {other:?}"),
@@ -8035,14 +8083,13 @@ return "ok"
     }
 
     #[test]
-    fn build_accepts_rust_backend_alias() {
-        let cli = Cli::parse_from(["axiomc", "build", ".", "--backend", "rust"]);
-        match cli.command {
-            Command::Build { backend, .. } => {
-                assert_eq!(backend, Some(NativeBackendKind::GeneratedRust));
-            }
-            other => panic!("expected build command, got {other:?}"),
-        }
+    fn build_rejects_rust_backend_alias() {
+        let error = Cli::try_parse_from(["axiomc", "build", ".", "--backend", "rust"])
+            .expect_err("rust backend alias should be removed from the supported command surface");
+        let rendered = error.to_string();
+        assert!(rendered.contains("unsupported backend \"rust\""));
+        assert!(rendered.contains("supported backends: cranelift"));
+        assert!(rendered.contains("compatibility backends: generated-rust"));
     }
 
     #[test]
@@ -8082,6 +8129,17 @@ return "ok"
     }
 
     #[test]
+    fn run_defaults_to_cranelift_backend() {
+        let cli = Cli::parse_from(["axiomc", "run", "."]);
+        match cli.command {
+            Command::Run { backend, .. } => {
+                assert_eq!(backend, NativeBackendKind::Cranelift);
+            }
+            other => panic!("expected run command, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn trace_cli_accepts_project_paths_and_node_ids() {
         let cli = Cli::parse_from(["axiomc", "trace", ".", "--json"]);
         match cli.command {
@@ -8109,7 +8167,8 @@ return "ok"
             );
         let rendered = error.to_string();
         assert!(rendered.contains("unsupported backend \"direct-native\""));
-        assert!(rendered.contains("supported backends: generated-rust, rust, cranelift"));
+        assert!(rendered.contains("supported backends: cranelift"));
+        assert!(rendered.contains("compatibility backends: generated-rust"));
     }
 
     #[test]

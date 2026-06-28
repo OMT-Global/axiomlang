@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+script_repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+repo_root="${AXIOM_CHECKOUT_PATH:-$script_repo_root}"
 cd "$repo_root"
 
 project_dir="stage1/examples/compiler_properties"
@@ -48,7 +49,7 @@ run_with_writable_outputs() {
 
 rm -rf "$project_dir/dist"
 run_with_writable_outputs "$project_dir/dist" \
-  cargo run --manifest-path stage1/Cargo.toml -p axiomc -- check "$project_dir" --properties --json
+  cargo run --manifest-path stage1/Cargo.toml -p axiomc -- check "$project_dir" --properties --backend generated-rust --json
 rm -rf "$project_dir/dist"
 run_with_writable_outputs "$project_dir/dist" \
-  cargo run --manifest-path stage1/Cargo.toml -p axiomc -- test "$project_dir" --properties
+  cargo run --manifest-path stage1/Cargo.toml -p axiomc -- test "$project_dir" --properties --backend generated-rust

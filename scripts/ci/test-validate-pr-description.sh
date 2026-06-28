@@ -394,6 +394,30 @@ BODY
   fi
 }
 
+
+assert_workflow_uses_trusted_inline_validation() {
+  local workflow_path="$repo_root/.github/workflows/pr-fast-ci.yml"
+  local validate_job
+
+  validate_job=$(awk '
+    /^  validate-pr-description:/ { in_job = 1 }
+    in_job { print }
+    in_job && /^  validate-secrets:/ { exit }
+  ' "$workflow_path")
+
+  if grep -Fq 'actions/checkout' <<<"$validate_job"; then
+    echo "validate-pr-description job must not check out untrusted pull request code" >&2
+    exit 1
+  fi
+
+  if grep -Eq 'run:[[:space:]]+(bash|scripts/)' <<<"$validate_job"; then
+    echo "validate-pr-description job must keep validation inline instead of executing repository scripts" >&2
+    exit 1
+  fi
+}
+
+assert_workflow_uses_trusted_inline_validation
+
 run_case structured_valid success
 run_case structured_missing_validation failure "PR body must include validation evidence, a checked validation item, or a reason validation was not run."
 run_case structured_placeholder_issue failure "PR body still contains template placeholder text."
