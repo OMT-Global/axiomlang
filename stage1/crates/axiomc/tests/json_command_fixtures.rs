@@ -43,12 +43,13 @@ fn assert_envelope(payload: &Value, command: &str, ok: bool) {
 }
 
 #[test]
-fn build_fixtures_cover_target_triple_and_failure_diagnostic() {
+fn build_fixtures_cover_compatibility_target_and_no_fallback_failure() {
     let validator = schema_validator();
     let success = fixture("build", "success.json");
     assert_matches_stage1_schema(&validator, &success);
     assert_envelope(&success, "build", true);
     assert_eq!(success["backend"], "generated-rust");
+    assert!(success["generated_rust"].is_string());
     assert_eq!(success["locked"], false);
     assert_eq!(success["offline"], false);
     assert_eq!(success["target"], "aarch64-apple-darwin");
@@ -73,9 +74,28 @@ fn build_fixtures_cover_target_triple_and_failure_diagnostic() {
     assert!(success["cache_hits"].is_u64());
     assert!(success["cache_misses"].is_u64());
     assert_eq!(success["packages"][0]["backend"], "generated-rust");
+    assert!(success["packages"][0]["generated_rust"].is_string());
     assert!(success["packages"][0]["target"].is_string());
     assert_eq!(success["packages"][0]["metadata"], success["metadata"]);
     assert_eq!(success["packages"][0]["cache_key"], success["cache_key"]);
+
+    let unsupported_target = fixture("build", "unsupported-target.json");
+    assert_matches_stage1_schema(&validator, &unsupported_target);
+    assert_envelope(&unsupported_target, "build", false);
+    assert_eq!(unsupported_target["error"]["kind"], "build");
+    assert_eq!(unsupported_target["error"]["code"], "build.failed");
+    assert!(
+        unsupported_target["error"]["message"]
+            .as_str()
+            .expect("error message")
+            .contains("--backend cranelift")
+    );
+    assert!(
+        unsupported_target["error"]["message"]
+            .as_str()
+            .expect("error message")
+            .contains("only the host target")
+    );
 
     let failure = fixture("build", "failure.json");
     assert_matches_stage1_schema(&validator, &failure);

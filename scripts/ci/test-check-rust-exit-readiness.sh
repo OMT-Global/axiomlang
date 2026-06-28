@@ -21,6 +21,7 @@ cp "$repo_root/scripts/ci/run-direct-native-runtime-abi-evidence.sh" "$case_dir/
 cp "$repo_root/docs/rust-exit-readiness.md" "$case_dir/docs/rust-exit-readiness.md"
 cp "$repo_root/docs/rust-exit-readiness.json" "$case_dir/docs/rust-exit-readiness.json"
 cp "$repo_root/stage1/runtime-abi/direct-native-v0.json" "$case_dir/stage1/runtime-abi/direct-native-v0.json"
+cp "$repo_root/stage1/runtime-abi/direct-native-v0-evidence-tests.json" "$case_dir/stage1/runtime-abi/direct-native-v0-evidence-tests.json"
 cp "$repo_root/stage1/compiler-contracts/snapshots/command-lsp.json" "$case_dir/stage1/compiler-contracts/snapshots/command-lsp.json"
 cp "$repo_root/stage1/compiler-contracts/snapshots/mir-backend.json" "$case_dir/stage1/compiler-contracts/snapshots/mir-backend.json"
 cp "$repo_root/stage1/crates/axiomc/src/cranelift_backend.rs" "$case_dir/stage1/crates/axiomc/src/cranelift_backend.rs"
@@ -38,15 +39,9 @@ rust-exit-readiness-test:
 MAKE
 
 cat >"$temp_dir/partial-issues.txt" <<'ISSUES'
-927 CLOSED
-929 CLOSED
-693 CLOSED
-694 CLOSED
-930 CLOSED
-931 CLOSED
-562 CLOSED
-563 CLOSED
-564 CLOSED
+1124 CLOSED
+1191 CLOSED
+731 CLOSED
 ISSUES
 
 (
@@ -63,7 +58,7 @@ with open(sys.argv[1], encoding="utf-8") as handle:
     payload = json.load(handle)
 
 details = {check["name"]: check["detail"] for check in payload["checks"]}
-assert "34 incomplete rows (12 value, 22 capability)" in details[
+assert "11 incomplete rows (11 value, 0 capability)" in details[
     "direct_native_runtime_abi_ready"
 ]
 PY
@@ -88,15 +83,10 @@ with open(path, "w", encoding="utf-8") as handle:
 PY
 
 cat >"$temp_dir/open-issues.txt" <<'ISSUES'
-927 OPEN
-1001 OPEN
-929 OPEN
+1124 OPEN
 1191 OPEN
-930 OPEN
-931 OPEN
-562 OPEN
-563 OPEN
-564 OPEN
+731 OPEN
+721 OPEN
 ISSUES
 
 (
@@ -118,6 +108,7 @@ statuses = {check["name"]: check["status"] for check in payload["checks"]}
 assert statuses["readiness_doc_present"] == "pass"
 assert statuses["readiness_manifest_valid"] == "pass"
 assert statuses["readiness_blockers_closed"] == "fail"
+assert statuses["readiness_blockers_live_when_not_ready"] == "pass"
 assert statuses["direct_native_runtime_abi_ready"] == "pass"
 assert statuses["command_lsp_release_boundary"] == "pass"
 assert statuses["mir_backend_direct_native_boundary"] == "pass"
@@ -125,15 +116,10 @@ PY
 )
 
 cat >"$temp_dir/issues.txt" <<'ISSUES'
-927 CLOSED
-1001 CLOSED
-929 CLOSED
+1124 CLOSED
 1191 CLOSED
-930 CLOSED
-931 CLOSED
-562 CLOSED
-563 CLOSED
-564 CLOSED
+731 CLOSED
+721 OPEN
 ISSUES
 
 (
@@ -152,14 +138,92 @@ with open(sys.argv[1], encoding="utf-8") as handle:
 assert payload["ready"] is True
 statuses = {check["name"]: check["status"] for check in payload["checks"]}
 assert statuses["readiness_blockers_closed"] == "pass"
-assert statuses["rust_exit_issue_927_closed"] == "pass"
-assert statuses["rust_exit_issue_1001_closed"] == "pass"
-assert statuses["rust_exit_issue_564_closed"] == "pass"
+assert statuses["readiness_blockers_live_when_not_ready"] == "pass"
+assert statuses["rust_exit_issue_1124_closed"] == "pass"
+assert statuses["rust_exit_issue_1191_closed"] == "pass"
+assert statuses["rust_exit_issue_731_closed"] == "pass"
+assert "rust_exit_issue_721_closed" not in statuses
 assert statuses["direct_native_runtime_abi_ready"] == "pass"
 assert statuses["command_lsp_release_boundary"] == "pass"
 assert statuses["mir_backend_direct_native_boundary"] == "pass"
 PY
 )
+
+python3 - "$case_dir/docs/rust-exit-readiness.json" <<'PY'
+import json
+import sys
+
+path = sys.argv[1]
+with open(path, encoding="utf-8") as handle:
+    payload = json.load(handle)
+
+payload["blockingIssues"].append(
+    {
+        "issue": payload["finalBootstrapIssue"],
+        "lane": "bootstrap",
+        "check": "Rust bootstrap is no longer needed for the supported toolchain.",
+    }
+)
+
+with open(path, "w", encoding="utf-8") as handle:
+    json.dump(payload, handle)
+PY
+
+(
+  cd "$case_dir"
+  if bash scripts/ci/check-rust-exit-readiness.sh --json --issue-state-file "$temp_dir/issues.txt" >"$temp_dir/self-referential-final.json" 2>"$temp_dir/self-referential-final.err"; then
+    echo "expected readiness check to fail when finalBootstrapIssue is also listed as a blocker" >&2
+    exit 1
+  fi
+  if ! grep -q "finalBootstrapIssue is metadata" "$temp_dir/self-referential-final.err"; then
+    echo "expected finalBootstrapIssue metadata error" >&2
+    cat "$temp_dir/self-referential-final.err" >&2
+    exit 1
+  fi
+)
+
+cp "$repo_root/docs/rust-exit-readiness.json" "$case_dir/docs/rust-exit-readiness.json"
+
+cp "$repo_root/stage1/runtime-abi/direct-native-v0.json" "$case_dir/stage1/runtime-abi/direct-native-v0.json"
+
+(
+  cd "$case_dir"
+  if bash scripts/ci/check-rust-exit-readiness.sh --json --issue-state-file "$temp_dir/issues.txt" >"$temp_dir/stale-closed-blocker.json" 2>"$temp_dir/stale-closed-blocker.err"; then
+    echo "expected readiness check to fail when a closed issue is listed while ABI rows remain incomplete" >&2
+    exit 1
+  fi
+  python3 - "$temp_dir/stale-closed-blocker.json" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    payload = json.load(handle)
+
+statuses = {check["name"]: check["status"] for check in payload["checks"]}
+assert statuses["readiness_manifest_valid"] == "pass"
+assert statuses["readiness_blockers_closed"] == "pass"
+assert statuses["readiness_blockers_live_when_not_ready"] == "fail"
+assert statuses["direct_native_runtime_abi_ready"] == "fail"
+PY
+)
+
+python3 - "$case_dir/stage1/runtime-abi/direct-native-v0.json" <<'PY'
+import json
+import sys
+
+path = sys.argv[1]
+with open(path, encoding="utf-8") as handle:
+    contract = json.load(handle)
+
+contract["status"] = "implemented"
+for row in contract["value_features"] + contract["capability_shims"]:
+    row["status"] = "implemented"
+    row.pop("blockers", None)
+    row.setdefault("runtime_evidence", ["stage1/crates/axiomc/tests/cranelift_backend.rs"])
+
+with open(path, "w", encoding="utf-8") as handle:
+    json.dump(contract, handle)
+PY
 
 python3 - "$case_dir/stage1/compiler-contracts/snapshots/command-lsp.json" <<'PY'
 import json

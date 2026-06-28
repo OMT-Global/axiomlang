@@ -19,20 +19,22 @@ use std::str::FromStr;
 use std::os::unix::fs::PermissionsExt;
 
 pub const INTERNAL_COMPILER_ERROR_CODE: &str = "ICE-001";
+pub const SUPPORTED_NATIVE_BACKENDS: &str = "cranelift";
+pub const COMPATIBILITY_NATIVE_BACKENDS: &str = "generated-rust";
 
 thread_local! {
     static CODEGEN_INTERNAL_ERRORS: RefCell<Vec<String>> = RefCell::new(Vec::new());
 }
 
-/// Preparatory selector for native-build backend plumbing.
+/// Selector for stage1 native-build backend plumbing.
 ///
-/// Stage1 keeps generated Rust as an explicit compatibility backend while the
-/// direct-native Cranelift path expands toward full parity.
+/// Stage1 keeps generated Rust as an explicit compatibility backend, but the
+/// supported command surface defaults to direct-native Cranelift.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "kebab-case")]
 pub enum NativeBackendKind {
-    #[default]
     GeneratedRust,
+    #[default]
     Cranelift,
 }
 
@@ -56,10 +58,10 @@ impl FromStr for NativeBackendKind {
 
     fn from_str(value: &str) -> Result<Self, Self::Err> {
         match value {
-            "generated-rust" | "rust" => Ok(Self::GeneratedRust),
+            "generated-rust" => Ok(Self::GeneratedRust),
             "cranelift" => Ok(Self::Cranelift),
             other => Err(format!(
-                "unsupported backend {other:?}; supported backends: generated-rust, rust, cranelift"
+                "unsupported backend {other:?}; supported backends: {SUPPORTED_NATIVE_BACKENDS}; compatibility backends: {COMPATIBILITY_NATIVE_BACKENDS}"
             )),
         }
     }
@@ -86,14 +88,6 @@ mod tests {
     }
 
     #[test]
-    fn parses_rust_backend_alias() {
-        assert_eq!(
-            NativeBackendKind::from_str("rust").expect("parse rust alias"),
-            NativeBackendKind::GeneratedRust
-        );
-    }
-
-    #[test]
     fn parses_cranelift_backend() {
         assert_eq!(
             NativeBackendKind::from_str("cranelift").expect("parse cranelift"),
@@ -105,7 +99,16 @@ mod tests {
     fn rejects_unsupported_backend_value() {
         let error = NativeBackendKind::from_str("direct-native")
             .expect_err("unsupported backend values should be rejected");
-        assert!(error.contains("supported backends: generated-rust, rust, cranelift"));
+        assert!(error.contains("supported backends: cranelift"));
+        assert!(error.contains("compatibility backends: generated-rust"));
+    }
+
+    #[test]
+    fn rejects_removed_rust_backend_alias() {
+        let error =
+            NativeBackendKind::from_str("rust").expect_err("rust alias should be unsupported");
+        assert!(error.contains("supported backends: cranelift"));
+        assert!(error.contains("compatibility backends: generated-rust"));
     }
 
     #[test]
@@ -136,6 +139,31 @@ mod tests {
         let rendered = render_generated_rust(&GeneratedRustBackendInput::from_mir(program));
 
         assert!(rendered.contains("fn main()"));
+    }
+
+    #[test]
+    fn generated_rust_crypto_random_helpers_fail_closed_on_rng_errors() {
+        let program = Program {
+            path: String::from("crypto-random-fail-closed"),
+            functions: vec![],
+            structs: vec![],
+            enums: vec![],
+            statics: vec![],
+            stmts: vec![],
+        };
+
+        let rendered = render_generated_rust(&GeneratedRustBackendInput::from_mir(program));
+
+        assert!(rendered.contains(
+            "axiom_runtime_error(\"crypto\", \"crypto_rand_bytes failed to obtain secure random bytes\")"
+        ));
+        assert!(rendered.contains(
+            "axiom_runtime_error(\"crypto\", \"crypto_rand_u64 failed to obtain secure random bytes\")"
+        ));
+        assert!(!rendered.contains("output.clear();"));
+        assert!(!rendered.contains(
+            "        0\n    }\n}\n\n#[allow(dead_code)]\nfn axiom_crypto_ed25519_keygen"
+        ));
     }
 
     #[test]
@@ -4096,14 +4124,13 @@ fn axiom_crypto_rand_bytes(n: i64) -> Vec<u8> {
         return Vec::new();
     }
     let mut output = vec![0u8; n as usize];
-    let status = if axiom_crypto_fill_random_bytes(&mut output) {
-        "ok"
+    if axiom_crypto_fill_random_bytes(&mut output) {
+        axiom_capability_audit("crypto_rand_bytes", "crypto", &arg_summary, "ok");
+        output
     } else {
-        output.clear();
-        "error"
-    };
-    axiom_capability_audit("crypto_rand_bytes", "crypto", &arg_summary, status);
-    output
+        axiom_capability_audit("crypto_rand_bytes", "crypto", &arg_summary, "error");
+        axiom_runtime_error("crypto", "crypto_rand_bytes failed to obtain secure random bytes")
+    }
 }
 
 #[allow(dead_code)]
@@ -4114,7 +4141,7 @@ fn axiom_crypto_rand_u64() -> u64 {
         u64::from_ne_bytes(output)
     } else {
         axiom_capability_audit("crypto_rand_u64", "crypto", "n=8", "error");
-        0
+        axiom_runtime_error("crypto", "crypto_rand_u64 failed to obtain secure random bytes")
     }
 }
 
