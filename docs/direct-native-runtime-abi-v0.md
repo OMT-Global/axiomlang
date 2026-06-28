@@ -780,9 +780,9 @@ including pre-runtime slice locals that alias the projected fixed-array slots.
 Typed numeric borrowed-slice element coverage now proves i64-compatible element widths `i8`, `i16`, `i32`, `i64`, `isize`, `u8`, `u16`, and `u32` through static tail and prefix slice ranges, `len`, `first`, `last`, literal indexes, dynamic indexes, pre-runtime slice locals, and helper-parameter arrays without generated Rust. Runtime slice locals can also alias static-range slices projected from helper-returned fixed-array slots before feeding `len`, `first`, and `last` into a direct-native process exit status.
 The public borrowed-slice smoke also prints `len`, `first`, `last`, and indexed
 projection output for both a local slice and a helper-returned slice while
-asserting `generated_rust: null`. Broader borrowed-slice aliasing, dynamic
-slice bounds, slice returns, and host ABI coverage remain tracked by issue
-#1124.
+asserting `generated_rust: null`, so the row has explicit helper-output proof
+rather than only local-slice coverage. Broader borrowed-slice aliasing, dynamic
+slice bounds, slice returns, and host ABI coverage remain tracked by issue #1124.
 
 The map lookup row has partial direct-native evidence: the Cranelift spike now
 builds and runs direct map indexing, `get`, `get_or_default`,

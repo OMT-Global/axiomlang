@@ -4902,38 +4902,7 @@ process = ["/bin/true"]
         )
         .expect("write source");
 
-        check_project(&project).expect("static allowlisted process command should be accepted");
-    }
-
-    #[test]
-    fn check_project_accepts_static_stdlib_process_command_with_unrestricted_process() {
-        let dir = tempdir().expect("tempdir");
-        let project = dir.path().join("stdlib-process-static-unrestricted");
-        create_project(&project, Some("stdlib-process-static-unrestricted-app"))
-            .expect("create project");
-        fs::write(
-            project.join("axiom.toml"),
-            r#"[package]
-name = "stdlib-process-static-unrestricted-app"
-version = "0.1.0"
-
-[build]
-entry = "src/main.ax"
-out_dir = "dist"
-
-[capabilities]
-process = true
-unsafe_rationale = "test fixture accepts static stdlib process command facts"
-"#,
-        )
-        .expect("write manifest");
-        fs::write(
-            project.join("src/main.ax"),
-            "import \"std/process.ax\"\nstatic TRUE_CMD: string = \"/bin/true\"\nprint run_status(TRUE_CMD)\n",
-        )
-        .expect("write source");
-
-        check_project(&project).expect("static stdlib process command should be accepted");
+        check_project(&project).expect("allowlisted static process command should be accepted");
     }
 
     #[test]
@@ -5074,6 +5043,43 @@ process = ["/bin/true"]
         .expect("write source");
 
         let error = check_project(&project).expect_err("dynamic process command should fail");
+        assert_eq!(error.kind, "capability");
+        assert!(
+            error
+                .message
+                .contains("requires a string literal listed in [capabilities].process")
+        );
+    }
+
+    #[test]
+    fn check_project_rejects_shadowed_const_process_command_with_manifest_allowlist() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("process-shadowed-const-denied");
+        create_project(&project, Some("process-shadowed-const-denied-app"))
+            .expect("create project");
+        fs::write(
+            project.join("axiom.toml"),
+            r#"[package]
+name = "process-shadowed-const-denied-app"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+process = ["/bin/true"]
+"#,
+        )
+        .expect("write manifest");
+        fs::write(
+            project.join("src/main.ax"),
+            "const command: string = \"/bin/true\"\nlet command: string = \"/bin/false\"\nprint process_status(command)\n",
+        )
+        .expect("write source");
+
+        let error =
+            check_project(&project).expect_err("shadowed const process command should fail");
         assert_eq!(error.kind, "capability");
         assert!(
             error

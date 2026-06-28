@@ -14,7 +14,7 @@ Python `stage0` and its bytecode VM are not supported execution paths; see
 
 ## Current Status
 
-Axiom currently supports a Rust-only `axiomc` workflow with:
+Axiom currently supports a Rust-hosted `axiomc` workflow with:
 
 - `axiom.toml` and `axiom.lock` package manifests.
 - Package-local modules, local path dependencies, and workspace member

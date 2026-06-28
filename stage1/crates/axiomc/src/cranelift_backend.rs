@@ -16536,12 +16536,11 @@ fn eval_expr(
                     return Err(unsupported("slice index is outside the slice length"));
                 }
                 match env.get(&target) {
-                    Some(SpikeValue::Array(elements)) => elements
-                        .get(real_index)
-                        .cloned()
-                        .ok_or_else(|| {
+                    Some(SpikeValue::Array(elements)) => {
+                        elements.get(real_index).cloned().ok_or_else(|| {
                             cranelift_runtime_trap("runtime", "array index out of bounds")
-                        }),
+                        })
+                    }
                     _ => Err(unsupported(
                         "mutable slice indexing requires a live local array",
                     )),
