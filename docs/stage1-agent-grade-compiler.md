@@ -10,14 +10,15 @@ AG0 is the current entry floor and must remain intact before any downstream work
 
 - Stage1 already has a real `axiomc` CLI with `new`, `check`, `build`, `run`,
   `test`, and `caps`.
-- The backend is still generated Rust plus `rustc`. That is acceptable for the
-  agent-grade milestone as long as the public workflow is fully `axiomc`-driven.
+- The supported build, run, and test command surface defaults to the
+  direct-native Cranelift backend. Generated Rust plus `rustc` remains as an
+  explicit compatibility backend while Rust-exit work continues.
 
   Debug builds now produce a generated-Rust source map and debug manifest that
   correlate the native binary, generated Rust, and `.ax` source hashes, but they
   do not yet provide native `.ax` DWARF line tables.
 
-- The new backend-selection seam is preparatory plumbing only; it does not yet
+- The backend-selection seam is preparatory plumbing only; it does not yet
   satisfy or close #105 on its own.
   Debug builds now produce a generated-Rust source map and debug manifest that
   correlate the native binary, generated Rust, and `.ax` source hashes, but they

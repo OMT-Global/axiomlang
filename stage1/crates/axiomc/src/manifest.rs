@@ -309,6 +309,7 @@ struct RawPublishSection {
 }
 
 #[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct RawCapabilityConfig {
     fs: Option<bool>,
     #[serde(rename = "fs:write")]
@@ -1544,6 +1545,31 @@ max_threads = 0
         );
         let error = load_manifest(dir.path()).expect_err("max_threads should be rejected");
         assert!(error.message.contains("runtime.max_threads"));
+    }
+
+    #[test]
+    fn rejects_unknown_capability_key() {
+        // The fs_write capability is exposed under the TOML key "fs:write", so
+        // the natural snake_case "fs_write" must be rejected rather than
+        // silently ignored (which would leave the capability at its default).
+        let dir = write_manifest(
+            r#"
+[package]
+name = "demo"
+version = "0.1.0"
+
+[capabilities]
+fs_write = true
+"#,
+        );
+        let error =
+            load_manifest(dir.path()).expect_err("unknown capability key should be rejected");
+        assert_eq!(error.kind, "manifest");
+        assert!(
+            error.message.contains("unknown field") && error.message.contains("fs_write"),
+            "unexpected error: {}",
+            error.message
+        );
     }
 
     #[test]

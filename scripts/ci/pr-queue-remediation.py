@@ -170,8 +170,16 @@ def classify_pr(pr: dict[str, Any]) -> dict[str, Any]:
     else:
         state = "needs_recheck"
 
+    raw_number = pr.get("number")
+    try:
+        number = int(raw_number)
+    except (TypeError, ValueError):
+        raise ValueError(
+            f"pull request entry has no valid integer 'number': {raw_number!r}"
+        ) from None
+
     return {
-        "number": int(pr["number"]),
+        "number": number,
         "title": pr.get("title"),
         "url": pr.get("url"),
         "base_ref": pr.get("baseRefName"),
