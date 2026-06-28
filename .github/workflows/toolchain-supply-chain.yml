@@ -109,6 +109,9 @@ jobs:
             required_is_minor=1
             install_version="^${install_version}"
           fi
+          if [[ "$install_version" == "0.10.0" ]]; then
+            install_version="0.10.2"
+          fi
 
           installed_version=""
           if command -v cargo-vet >/dev/null 2>&1; then

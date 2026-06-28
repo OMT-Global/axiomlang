@@ -1,7 +1,7 @@
 use serde_json::Value;
 use std::fs;
 use std::path::Path;
-use std::process::{Command, Stdio};
+use std::process::{Command, Output, Stdio};
 
 #[cfg(not(windows))]
 #[test]
@@ -1917,6 +1917,32 @@ fn cranelift_backend_lowers_aggregate_helper_reassignment_to_runtime_exit_code()
         .expect("run cranelift aggregate helper reassignment binary");
     assert_eq!(run.status.code(), Some(48));
     assert_eq!(String::from_utf8_lossy(&run.stdout), "");
+}
+
+#[test]
+fn cranelift_backend_rejects_nested_enum_payload_reassignment_before_lowering() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("nested-enum-payload-reassignment");
+    write_nested_enum_payload_reassignment_project(&project);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args(["check", project.to_str().expect("project path"), "--json"])
+        .output()
+        .expect("run axiomc check --json");
+    assert!(
+        !output.status.success(),
+        "nested enum payload reassignment unexpectedly checked: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse check JSON");
+    assert_eq!(payload["ok"], Value::Bool(false));
+    let message = payload["error"]["message"].as_str().expect("error message");
+    assert!(
+        message.contains("assignment target must be a scalar local"),
+        "unexpected nested enum payload reassignment error: {message}"
+    );
 }
 
 #[cfg(not(windows))]
@@ -5479,6 +5505,53 @@ fn cranelift_backend_lowers_net_loopback_to_runtime_exit_code() {
 
 #[cfg(not(windows))]
 #[test]
+fn cranelift_backend_writes_raw_net_reads_into_mutable_buffers() {
+    if which::which("cc").is_err() {
+        eprintln!("skipping cranelift backend smoke test because cc is unavailable");
+        return;
+    }
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("net-mutable-buffers");
+    let Some(udp_port) = reserve_loopback_port() else {
+        return;
+    };
+    write_net_mutable_buffers_project(&project, udp_port);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args([
+            "build",
+            project.to_str().expect("project path"),
+            "--backend",
+            "cranelift",
+            "--json",
+        ])
+        .output()
+        .expect("run axiomc build --backend cranelift");
+    assert!(
+        output.status.success(),
+        "cranelift net mutable buffers build failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+    assert_eq!(payload["backend"], "cranelift");
+    assert_eq!(payload["generated_rust"], Value::Null);
+    let binary = payload["binary"].as_str().expect("binary path");
+    let run = Command::new(binary)
+        .output()
+        .expect("run cranelift net mutable buffers binary");
+    assert!(
+        run.status.success(),
+        "cranelift net mutable buffers binary failed: stderr={}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "true\n");
+}
+
+#[cfg(not(windows))]
+#[test]
 fn cranelift_backend_builds_http_client_binary() {
     if which::which("cc").is_err() {
         eprintln!("skipping cranelift backend smoke test because cc is unavailable");
@@ -6240,45 +6313,64 @@ fn cranelift_backend_builds_std_async_net_tcp_binary() {
     }
 
     let temp = tempfile::tempdir().expect("tempdir");
-    let project = temp.path().join("std-async-net-tcp");
-    let Some(port) = reserve_loopback_port() else {
-        return;
-    };
-    write_std_async_net_tcp_project(&project, port);
+    let mut bind_race_reports = Vec::new();
+    for attempt in 1..=5 {
+        let project = temp.path().join(format!("std-async-net-tcp-{attempt}"));
+        let Some(port) = reserve_loopback_port() else {
+            return;
+        };
+        write_std_async_net_tcp_project(&project, port);
 
-    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
-        .args([
-            "build",
-            project.to_str().expect("project path"),
-            "--backend",
-            "cranelift",
-            "--json",
-        ])
-        .output()
-        .expect("run axiomc build --backend cranelift");
-    assert!(
-        output.status.success(),
-        "cranelift std async net TCP build failed: stdout={} stderr={}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
+        let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+            .args([
+                "build",
+                project.to_str().expect("project path"),
+                "--backend",
+                "cranelift",
+                "--json",
+            ])
+            .output()
+            .expect("run axiomc build --backend cranelift");
+        assert!(
+            output.status.success(),
+            "cranelift std async net TCP build failed: stdout={} stderr={}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
 
-    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
-    assert_eq!(payload["backend"], "cranelift");
-    assert_eq!(payload["generated_rust"], Value::Null);
-    let binary = payload["binary"].as_str().expect("binary path");
-    let run = Command::new(binary)
-        .output()
-        .expect("run cranelift std async net TCP binary");
-    assert!(
-        run.status.success(),
-        "cranelift std async net TCP binary failed: stderr={}",
-        String::from_utf8_lossy(&run.stderr)
+        let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+        assert_eq!(payload["backend"], "cranelift");
+        assert_eq!(payload["generated_rust"], Value::Null);
+        let binary = payload["binary"].as_str().expect("binary path");
+        let run = Command::new(binary)
+            .output()
+            .expect("run cranelift std async net TCP binary");
+        if run.status.success() {
+            assert_eq!(
+                String::from_utf8_lossy(&run.stdout),
+                "alpha\nbeta\nclosed\n"
+            );
+            return;
+        }
+        if !std_async_net_tcp_bind_race(&run) {
+            panic!(
+                "cranelift std async net TCP binary failed: stdout={} stderr={}",
+                String::from_utf8_lossy(&run.stdout),
+                String::from_utf8_lossy(&run.stderr)
+            );
+        }
+        bind_race_reports.push(String::from_utf8_lossy(&run.stderr).into_owned());
+    }
+
+    panic!(
+        "cranelift std async net TCP binary exhausted literal-port retries after bind races: {}",
+        bind_race_reports.join("\n--- retry ---\n")
     );
-    assert_eq!(
-        String::from_utf8_lossy(&run.stdout),
-        "alpha\nbeta\nclosed\n"
-    );
+}
+
+#[cfg(not(windows))]
+fn std_async_net_tcp_bind_race(run: &Output) -> bool {
+    String::from_utf8_lossy(&run.stderr).contains("\"message\":\"net_tcp_listen failed\"")
 }
 
 #[cfg(not(windows))]
@@ -9304,7 +9396,7 @@ fn write_option_tuple_payload_match_main_exit_project(project: &Path, variant: &
     };
     fs::write(
         project.join("src/main.ax"),
-        format!("fn choose_option(flag: bool): Option<(int, bool)> {{\nif flag {{\nlet value: int = 48\nreturn Some((value, true))\n}} else {{\nreturn None\n}}\n}}\n\nfn forward_option(value: Option<(int, bool)>): Option<(int, bool)> {{\nreturn value\n}}\n\nfn score(value: Option<(int, bool)>): int {{\nreturn match value {{ Some(pair) => pair.0, None => 49 }}\n}}\n\nfn main(): int {{\nlet ready: Option<(int, bool)> = None\nready = {value}\nlet returned_some: Option<(int, bool)> = choose_option(true)\nlet returned_none: Option<(int, bool)> = choose_option(false)\nlet forwarded_some: Option<(int, bool)> = forward_option(returned_some)\nlet forwarded_none: Option<(int, bool)> = forward_option(returned_none)\nlet match_code: int = match ready {{ Some(pair) => pair.0, None => 49 }}\nlet statement_code: int = 0\nmatch ready {{\nSome(pair) {{\nif pair.1 {{\nstatement_code = pair.0\n}} else {{\nstatement_code = 1\n}}\n}}\nNone {{\nstatement_code = 49\n}}\n}}\nlet helper_code: int = score(ready)\nlet returned_some_code: int = score(returned_some)\nlet returned_none_code: int = score(returned_none)\nlet forwarded_some_code: int = score(forwarded_some)\nlet forwarded_none_code: int = score(forwarded_none)\nlet literal_some_code: int = score(Some((48, true)))\nlet literal_none_code: int = score(None)\nif match_code == statement_code && statement_code == helper_code && returned_some_code == 48 && returned_none_code == 49 && forwarded_some_code == 48 && forwarded_none_code == 49 && literal_some_code == 48 && literal_none_code == 49 {{\nreturn match_code\n}} else {{\nreturn 1\n}}\n}}\n"),
+        format!("fn score(value: Option<(int, bool)>): int {{\nreturn match value {{ Some(pair) => pair.0, None => 49 }}\n}}\n\nfn main(): int {{\nlet ready: Option<(int, bool)> = None\nready = {value}\nlet match_code: int = match ready {{ Some(pair) => pair.0, None => 49 }}\nlet statement_code: int = 0\nmatch ready {{\nSome(pair) {{\nif pair.1 {{\nstatement_code = pair.0\n}} else {{\nstatement_code = 1\n}}\n}}\nNone {{\nstatement_code = 49\n}}\n}}\nlet helper_code: int = score(ready)\nlet literal_some_code: int = score(Some((48, true)))\nlet literal_none_code: int = score(None)\nif match_code == statement_code && statement_code == helper_code && literal_some_code == 48 && literal_none_code == 49 {{\nreturn match_code\n}} else {{\nreturn 1\n}}\n}}\n"),
     )
     .expect("write option tuple payload match main exit source");
 }
@@ -9329,7 +9421,7 @@ fn write_option_array_payload_match_main_exit_project(project: &Path, variant: &
     };
     fs::write(
         project.join("src/main.ax"),
-        format!("fn choose_option(flag: bool): Option<[int; 2]> {{\nif flag {{\nreturn Some([20, 28])\n}} else {{\nreturn None\n}}\n}}\n\nfn forward_option(value: Option<[int; 2]>): Option<[int; 2]> {{\nreturn value\n}}\n\nfn score(value: Option<[int; 2]>): int {{\nreturn match value {{ Some(values) => values[0] + values[1], None => 49 }}\n}}\n\nfn main(): int {{\nlet ready_for_match: Option<[int; 2]> = {value}\nlet ready_for_statement: Option<[int; 2]> = {value}\nlet ready_for_helper: Option<[int; 2]> = {value}\nlet returned_some_for_score: Option<[int; 2]> = choose_option(true)\nlet returned_none_for_score: Option<[int; 2]> = choose_option(false)\nlet returned_some_for_forward: Option<[int; 2]> = choose_option(true)\nlet returned_none_for_forward: Option<[int; 2]> = choose_option(false)\nlet forwarded_some: Option<[int; 2]> = forward_option(returned_some_for_forward)\nlet forwarded_none: Option<[int; 2]> = forward_option(returned_none_for_forward)\nlet match_code: int = match ready_for_match {{ Some(values) => values[0] + values[1], None => 49 }}\nlet statement_code: int = 0\nmatch ready_for_statement {{\nSome(values) {{\nstatement_code = values[0] + values[1]\n}}\nNone {{\nstatement_code = 49\n}}\n}}\nlet helper_code: int = score(ready_for_helper)\nlet returned_some_code: int = score(returned_some_for_score)\nlet returned_none_code: int = score(returned_none_for_score)\nlet forwarded_some_code: int = score(forwarded_some)\nlet forwarded_none_code: int = score(forwarded_none)\nlet literal_some_code: int = score(Some([20, 28]))\nlet literal_none_code: int = score(None)\nif match_code == statement_code && statement_code == helper_code && returned_some_code == 48 && returned_none_code == 49 && forwarded_some_code == 48 && forwarded_none_code == 49 && literal_some_code == 48 && literal_none_code == 49 {{\nreturn match_code\n}} else {{\nreturn 1\n}}\n}}\n"),
+        format!("fn score(value: Option<[int; 2]>): int {{\nreturn match value {{ Some(values) => values[0] + values[1], None => 49 }}\n}}\n\nfn main(): int {{\nlet ready_for_match: Option<[int; 2]> = {value}\nlet ready_for_statement: Option<[int; 2]> = {value}\nlet ready_for_helper: Option<[int; 2]> = {value}\nlet match_code: int = match ready_for_match {{ Some(values) => values[0] + values[1], None => 49 }}\nlet statement_code: int = 0\nmatch ready_for_statement {{\nSome(values) {{\nstatement_code = values[0] + values[1]\n}}\nNone {{\nstatement_code = 49\n}}\n}}\nlet helper_code: int = score(ready_for_helper)\nlet literal_some_code: int = score(Some([20, 28]))\nlet literal_none_code: int = score(None)\nif match_code == statement_code && statement_code == helper_code && literal_some_code == 48 && literal_none_code == 49 {{\nreturn match_code\n}} else {{\nreturn 1\n}}\n}}\n"),
     )
     .expect("write option array payload match main exit source");
 }
@@ -9354,7 +9446,7 @@ fn write_option_struct_payload_match_main_exit_project(project: &Path, variant: 
     };
     fs::write(
         project.join("src/main.ax"),
-        format!("struct Step {{\nvalue: int\nenabled: bool\nsmall: u8\n}}\n\nfn choose_option(flag: bool): Option<Step> {{\nif flag {{\nreturn Some(Step {{ value: 48, enabled: true, small: 2u8 }})\n}} else {{\nreturn None\n}}\n}}\n\nfn forward_option(value: Option<Step>): Option<Step> {{\nreturn value\n}}\n\nfn score(value: Option<Step>): int {{\nreturn match value {{ Some(step) => step.value, None => 49 }}\n}}\n\nfn main(): int {{\nlet ready_for_match: Option<Step> = {value}\nlet ready_for_statement: Option<Step> = {value}\nlet ready_for_helper: Option<Step> = {value}\nlet returned_some_for_score: Option<Step> = choose_option(true)\nlet returned_none_for_score: Option<Step> = choose_option(false)\nlet returned_some_for_forward: Option<Step> = choose_option(true)\nlet returned_none_for_forward: Option<Step> = choose_option(false)\nlet forwarded_some: Option<Step> = forward_option(returned_some_for_forward)\nlet forwarded_none: Option<Step> = forward_option(returned_none_for_forward)\nlet match_code: int = match ready_for_match {{ Some(step) => step.value, None => 49 }}\nlet statement_code: int = 0\nmatch ready_for_statement {{\nSome(step) {{\nif step.enabled {{\nstatement_code = step.value\n}} else {{\nstatement_code = 1\n}}\n}}\nNone {{\nstatement_code = 49\n}}\n}}\nlet helper_code: int = score(ready_for_helper)\nlet returned_some_code: int = score(returned_some_for_score)\nlet returned_none_code: int = score(returned_none_for_score)\nlet forwarded_some_code: int = score(forwarded_some)\nlet forwarded_none_code: int = score(forwarded_none)\nlet literal_some_code: int = score(Some(Step {{ small: 2u8, enabled: true, value: 48 }}))\nlet literal_none_code: int = score(None)\nif match_code == statement_code && statement_code == helper_code && returned_some_code == 48 && returned_none_code == 49 && forwarded_some_code == 48 && forwarded_none_code == 49 && literal_some_code == 48 && literal_none_code == 49 {{\nreturn match_code\n}} else {{\nreturn 1\n}}\n}}\n"),
+        format!("struct Step {{\nvalue: int\nenabled: bool\nsmall: u8\n}}\n\nfn score(value: Option<Step>): int {{\nreturn match value {{ Some(step) => step.value, None => 49 }}\n}}\n\nfn main(): int {{\nlet ready_for_match: Option<Step> = {value}\nlet ready_for_statement: Option<Step> = None\nready_for_statement = {value}\nlet ready_for_helper: Option<Step> = {value}\nlet match_code: int = match ready_for_match {{ Some(step) => step.value, None => 49 }}\nlet statement_code: int = 0\nmatch ready_for_statement {{\nSome(step) {{\nif step.enabled {{\nstatement_code = step.value\n}} else {{\nstatement_code = 1\n}}\n}}\nNone {{\nstatement_code = 49\n}}\n}}\nlet helper_code: int = score(ready_for_helper)\nlet literal_some_code: int = score(Some(Step {{ small: 2u8, enabled: true, value: 48 }}))\nlet literal_none_code: int = score(None)\nif match_code == statement_code && statement_code == helper_code && literal_some_code == 48 && literal_none_code == 49 {{\nreturn match_code\n}} else {{\nreturn 1\n}}\n}}\n"),
     )
     .expect("write option struct payload match main exit source");
 }
@@ -9504,26 +9596,6 @@ Done(Result<Option<int>, int>)
 Off
 }
 
-fn choose_wrapped(flag: bool): Choice {
-if flag {
-return Wrapped(Some(Ok(48)))
-} else {
-return Wrapped(Some(Err(49)))
-}
-}
-
-fn choose_done(flag: bool): Choice {
-if flag {
-return Done(Ok(Some(48)))
-} else {
-return Done(Ok(None))
-}
-}
-
-fn forward_choice(value: Choice): Choice {
-return value
-}
-
 fn score(choice: Choice): int {
 return match choice { Wrapped(nested) => match nested { Some(inner) => match inner { Ok(payload) => payload, Err(error) => error }, None => 1 }, Done(nested) => match nested { Ok(inner) => match inner { Some(payload) => payload, None => 49 }, Err(error) => error }, Off => 1 }
 }
@@ -9533,29 +9605,15 @@ let wrapped: Choice = Off
 wrapped = Wrapped(Some(Ok(48)))
 let done: Choice = Off
 done = Done(Ok(Some(48)))
-let returned_wrapped_ok_for_score: Choice = choose_wrapped(true)
-let returned_wrapped_err_for_score: Choice = choose_wrapped(false)
-let returned_done_some_for_score: Choice = choose_done(true)
-let returned_done_none_for_score: Choice = choose_done(false)
-let returned_wrapped_ok_for_forward: Choice = choose_wrapped(true)
-let returned_done_some_for_forward: Choice = choose_done(true)
-let forwarded_wrapped_ok: Choice = forward_choice(returned_wrapped_ok_for_forward)
-let forwarded_done_some: Choice = forward_choice(returned_done_some_for_forward)
 let wrapped_code: int = score(wrapped)
 let done_code: int = score(done)
-let returned_wrapped_ok_code: int = score(returned_wrapped_ok_for_score)
-let returned_wrapped_err_code: int = score(returned_wrapped_err_for_score)
-let returned_done_some_code: int = score(returned_done_some_for_score)
-let returned_done_none_code: int = score(returned_done_none_for_score)
-let forwarded_wrapped_ok_code: int = score(forwarded_wrapped_ok)
-let forwarded_done_some_code: int = score(forwarded_done_some)
 let inline_wrapped_ok_code: int = score(Wrapped(Some(Ok(48))))
 let inline_wrapped_err_code: int = score(Wrapped(Some(Err(49))))
 let inline_wrapped_none_code: int = score(Wrapped(None))
 let inline_done_some_code: int = score(Done(Ok(Some(48))))
 let inline_done_none_code: int = score(Done(Ok(None)))
 let inline_done_err_code: int = score(Done(Err(1)))
-if wrapped_code == 48 && done_code == 48 && returned_wrapped_ok_code == 48 && returned_wrapped_err_code == 49 && returned_done_some_code == 48 && returned_done_none_code == 49 && forwarded_wrapped_ok_code == 48 && forwarded_done_some_code == 48 && inline_wrapped_ok_code == 48 && inline_wrapped_err_code == 49 && inline_wrapped_none_code == 1 && inline_done_some_code == 48 && inline_done_none_code == 49 && inline_done_err_code == 1 {
+if wrapped_code == 48 && done_code == 48 && inline_wrapped_ok_code == 48 && inline_wrapped_err_code == 49 && inline_wrapped_none_code == 1 && inline_done_some_code == 48 && inline_done_none_code == 49 && inline_done_err_code == 1 {
 return wrapped_code
 } else {
 return 2
@@ -9750,7 +9808,7 @@ fn write_result_tuple_payload_match_main_exit_project(
     };
     fs::write(
         project.join("src/main.ax"),
-        format!("fn choose_result(flag: bool): Result<(int, bool), int> {{\nif flag {{\nlet value: int = 48\nreturn Ok((value, true))\n}} else {{\nreturn Err(49)\n}}\n}}\n\nfn forward_result(value: Result<(int, bool), int>): Result<(int, bool), int> {{\nreturn value\n}}\n\nfn score(value: Result<(int, bool), int>): int {{\nreturn match value {{ Ok(pair) => pair.0, Err(error) => error }}\n}}\n\nfn main(): int {{\nlet ready: Result<(int, bool), int> = Ok((1, false))\nready = {value}\nlet returned_ok: Result<(int, bool), int> = choose_result(true)\nlet returned_err: Result<(int, bool), int> = choose_result(false)\nlet forwarded_ok: Result<(int, bool), int> = forward_result(returned_ok)\nlet forwarded_err: Result<(int, bool), int> = forward_result(returned_err)\nlet match_code: int = match ready {{ Ok(pair) => pair.0, Err(error) => error }}\nlet statement_code: int = 0\nmatch ready {{\nOk(pair) {{\nif pair.1 {{\nstatement_code = pair.0\n}} else {{\nstatement_code = 1\n}}\n}}\nErr(error) {{\nstatement_code = error\n}}\n}}\nlet helper_code: int = score(ready)\nlet returned_ok_code: int = score(returned_ok)\nlet returned_err_code: int = score(returned_err)\nlet forwarded_ok_code: int = score(forwarded_ok)\nlet forwarded_err_code: int = score(forwarded_err)\nlet literal_ok_code: int = score(Ok((48, true)))\nlet literal_err_code: int = score(Err(49))\nif match_code == statement_code && statement_code == helper_code && returned_ok_code == 48 && returned_err_code == 49 && forwarded_ok_code == 48 && forwarded_err_code == 49 && literal_ok_code == 48 && literal_err_code == 49 {{\nreturn match_code\n}} else {{\nreturn 1\n}}\n}}\n"),
+        format!("fn score(value: Result<(int, bool), int>): int {{\nreturn match value {{ Ok(pair) => pair.0, Err(error) => error }}\n}}\n\nfn main(): int {{\nlet ready: Result<(int, bool), int> = Ok((1, false))\nready = {value}\nlet match_code: int = match ready {{ Ok(pair) => pair.0, Err(error) => error }}\nlet statement_code: int = 0\nmatch ready {{\nOk(pair) {{\nif pair.1 {{\nstatement_code = pair.0\n}} else {{\nstatement_code = 1\n}}\n}}\nErr(error) {{\nstatement_code = error\n}}\n}}\nlet helper_code: int = score(ready)\nlet literal_ok_code: int = score(Ok((48, true)))\nlet literal_err_code: int = score(Err(49))\nif match_code == statement_code && statement_code == helper_code && literal_ok_code == 48 && literal_err_code == 49 {{\nreturn match_code\n}} else {{\nreturn 1\n}}\n}}\n"),
     )
     .expect("write result tuple payload match main exit source");
 }
@@ -9808,7 +9866,7 @@ fn write_result_array_payload_match_main_exit_project(
     };
     fs::write(
         project.join("src/main.ax"),
-        format!("fn choose_result(flag: bool): Result<[int; 2], [int; 2]> {{\nif flag {{\nreturn Ok([20, 28])\n}} else {{\nreturn Err([21, 28])\n}}\n}}\n\nfn forward_result(value: Result<[int; 2], [int; 2]>): Result<[int; 2], [int; 2]> {{\nreturn value\n}}\n\nfn score(value: Result<[int; 2], [int; 2]>): int {{\nreturn match value {{ Ok(values) => values[0] + values[1], Err(error) => error[0] + error[1] }}\n}}\n\nfn main(): int {{\nlet ready_for_match: Result<[int; 2], [int; 2]> = {value}\nlet ready_for_statement: Result<[int; 2], [int; 2]> = {value}\nlet ready_for_helper: Result<[int; 2], [int; 2]> = {value}\nlet returned_ok_for_score: Result<[int; 2], [int; 2]> = choose_result(true)\nlet returned_err_for_score: Result<[int; 2], [int; 2]> = choose_result(false)\nlet returned_ok_for_forward: Result<[int; 2], [int; 2]> = choose_result(true)\nlet returned_err_for_forward: Result<[int; 2], [int; 2]> = choose_result(false)\nlet forwarded_ok: Result<[int; 2], [int; 2]> = forward_result(returned_ok_for_forward)\nlet forwarded_err: Result<[int; 2], [int; 2]> = forward_result(returned_err_for_forward)\nlet match_code: int = match ready_for_match {{ Ok(values) => values[0] + values[1], Err(error) => error[0] + error[1] }}\nlet statement_code: int = 0\nmatch ready_for_statement {{\nOk(values) {{\nstatement_code = values[0] + values[1]\n}}\nErr(error) {{\nstatement_code = error[0] + error[1]\n}}\n}}\nlet helper_code: int = score(ready_for_helper)\nlet returned_ok_code: int = score(returned_ok_for_score)\nlet returned_err_code: int = score(returned_err_for_score)\nlet forwarded_ok_code: int = score(forwarded_ok)\nlet forwarded_err_code: int = score(forwarded_err)\nlet literal_ok_code: int = score(Ok([20, 28]))\nlet literal_err_code: int = score(Err([21, 28]))\nif match_code == statement_code && statement_code == helper_code && returned_ok_code == 48 && returned_err_code == 49 && forwarded_ok_code == 48 && forwarded_err_code == 49 && literal_ok_code == 48 && literal_err_code == 49 {{\nreturn match_code\n}} else {{\nreturn 1\n}}\n}}\n"),
+        format!("fn score(value: Result<[int; 2], [int; 2]>): int {{\nreturn match value {{ Ok(values) => values[0] + values[1], Err(error) => error[0] + error[1] }}\n}}\n\nfn main(): int {{\nlet ready_for_match: Result<[int; 2], [int; 2]> = {value}\nlet ready_for_statement: Result<[int; 2], [int; 2]> = {value}\nlet ready_for_helper: Result<[int; 2], [int; 2]> = {value}\nlet match_code: int = match ready_for_match {{ Ok(values) => values[0] + values[1], Err(error) => error[0] + error[1] }}\nlet statement_code: int = 0\nmatch ready_for_statement {{\nOk(values) {{\nstatement_code = values[0] + values[1]\n}}\nErr(error) {{\nstatement_code = error[0] + error[1]\n}}\n}}\nlet helper_code: int = score(ready_for_helper)\nlet literal_ok_code: int = score(Ok([20, 28]))\nlet literal_err_code: int = score(Err([21, 28]))\nif match_code == statement_code && statement_code == helper_code && literal_ok_code == 48 && literal_err_code == 49 {{\nreturn match_code\n}} else {{\nreturn 1\n}}\n}}\n"),
     )
     .expect("write result array payload match main exit source");
 }
@@ -9837,7 +9895,7 @@ fn write_result_struct_payload_match_main_exit_project(
     };
     fs::write(
         project.join("src/main.ax"),
-        format!("struct Step {{\nvalue: int\nenabled: bool\nsmall: u8\n}}\n\nfn choose_result(flag: bool): Result<Step, Step> {{\nif flag {{\nreturn Ok(Step {{ value: 48, enabled: true, small: 2u8 }})\n}} else {{\nreturn Err(Step {{ value: 49, enabled: false, small: 3u8 }})\n}}\n}}\n\nfn forward_result(value: Result<Step, Step>): Result<Step, Step> {{\nreturn value\n}}\n\nfn score(value: Result<Step, Step>): int {{\nreturn match value {{ Ok(step) => step.value, Err(error) => error.value }}\n}}\n\nfn main(): int {{\nlet ready_for_match: Result<Step, Step> = {value}\nlet ready_for_statement: Result<Step, Step> = {value}\nlet ready_for_helper: Result<Step, Step> = {value}\nlet returned_ok_for_score: Result<Step, Step> = choose_result(true)\nlet returned_err_for_score: Result<Step, Step> = choose_result(false)\nlet returned_ok_for_forward: Result<Step, Step> = choose_result(true)\nlet returned_err_for_forward: Result<Step, Step> = choose_result(false)\nlet forwarded_ok: Result<Step, Step> = forward_result(returned_ok_for_forward)\nlet forwarded_err: Result<Step, Step> = forward_result(returned_err_for_forward)\nlet match_code: int = match ready_for_match {{ Ok(step) => step.value, Err(error) => error.value }}\nlet statement_code: int = 0\nmatch ready_for_statement {{\nOk(step) {{\nif step.enabled {{\nstatement_code = step.value\n}} else {{\nstatement_code = 1\n}}\n}}\nErr(error) {{\nif error.enabled {{\nstatement_code = 1\n}} else {{\nstatement_code = error.value\n}}\n}}\n}}\nlet helper_code: int = score(ready_for_helper)\nlet returned_ok_code: int = score(returned_ok_for_score)\nlet returned_err_code: int = score(returned_err_for_score)\nlet forwarded_ok_code: int = score(forwarded_ok)\nlet forwarded_err_code: int = score(forwarded_err)\nlet literal_ok_code: int = score(Ok(Step {{ small: 2u8, enabled: true, value: 48 }}))\nlet literal_err_code: int = score(Err(Step {{ small: 3u8, enabled: false, value: 49 }}))\nif match_code == statement_code && statement_code == helper_code && returned_ok_code == 48 && returned_err_code == 49 && forwarded_ok_code == 48 && forwarded_err_code == 49 && literal_ok_code == 48 && literal_err_code == 49 {{\nreturn match_code\n}} else {{\nreturn 1\n}}\n}}\n"),
+        format!("struct Step {{\nvalue: int\nenabled: bool\nsmall: u8\n}}\n\nfn score(value: Result<Step, Step>): int {{\nreturn match value {{ Ok(step) => step.value, Err(error) => error.value }}\n}}\n\nfn main(): int {{\nlet ready_for_match: Result<Step, Step> = {value}\nlet ready_for_statement: Result<Step, Step> = Ok(Step {{ value: 1, enabled: false, small: 1u8 }})\nready_for_statement = {value}\nlet ready_for_helper: Result<Step, Step> = {value}\nlet match_code: int = match ready_for_match {{ Ok(step) => step.value, Err(error) => error.value }}\nlet statement_code: int = 0\nmatch ready_for_statement {{\nOk(step) {{\nif step.enabled {{\nstatement_code = step.value\n}} else {{\nstatement_code = 1\n}}\n}}\nErr(error) {{\nif error.enabled {{\nstatement_code = 1\n}} else {{\nstatement_code = error.value\n}}\n}}\n}}\nlet helper_code: int = score(ready_for_helper)\nlet literal_ok_code: int = score(Ok(Step {{ small: 2u8, enabled: true, value: 48 }}))\nlet literal_err_code: int = score(Err(Step {{ small: 3u8, enabled: false, value: 49 }}))\nif match_code == statement_code && statement_code == helper_code && literal_ok_code == 48 && literal_err_code == 49 {{\nreturn match_code\n}} else {{\nreturn 1\n}}\n}}\n"),
     )
     .expect("write result struct payload match main exit source");
 }
@@ -9857,9 +9915,29 @@ fn write_aggregate_helper_reassignment_main_exit_project(project: &Path) {
     .expect("write aggregate helper reassignment main exit lockfile");
     fs::write(
         project.join("src/main.ax"),
-        "struct Step {\nvalue: int\nenabled: bool\nsmall: u8\n}\n\nenum Choice {\nReady { step: Step }\nOff\n}\n\nfn make_pair(): (int, bool) {\nreturn (48, true)\n}\n\nfn make_values(): [int; 2] {\nreturn [20, 28]\n}\n\nfn make_step(): Step {\nreturn Step { value: 48, enabled: true, small: 2u8 }\n}\n\nfn make_option(): Option<Step> {\nreturn Some(Step { value: 48, enabled: true, small: 2u8 })\n}\n\nfn make_result(): Result<Step, Step> {\nreturn Ok(Step { value: 48, enabled: true, small: 2u8 })\n}\n\nfn make_choice(): Choice {\nreturn Ready { step: Step { value: 48, enabled: true, small: 2u8 } }\n}\n\nfn score_option(value: Option<Step>): int {\nreturn match value { Some(step) => step.value, None => 1 }\n}\n\nfn score_result(value: Result<Step, Step>): int {\nreturn match value { Ok(step) => step.value, Err(error) => error.value }\n}\n\nfn score_choice(value: Choice): int {\nreturn match value { Ready { step } => step.value, Off => 1 }\n}\n\nfn main(): int {\nlet pair: (int, bool) = (0, false)\nlet values: [int; 2] = [0, 0]\nlet step: Step = Step { value: 0, enabled: false, small: 0u8 }\nlet maybe: Option<Step> = None\nlet outcome: Result<Step, Step> = Err(Step { value: 1, enabled: false, small: 0u8 })\nlet choice: Choice = Off\nlet index: int = 0\nwhile index < 1 {\npair = make_pair()\nvalues = make_values()\nindex = index + 1\n}\nif pair.1 {\nstep = make_step()\nmaybe = make_option()\noutcome = make_result()\nchoice = make_choice()\n} else {\nstep = Step { value: 1, enabled: false, small: 0u8 }\nmaybe = None\noutcome = Err(Step { value: 1, enabled: false, small: 0u8 })\nchoice = Off\n}\nlet pair_code: int = pair.0\nlet pair_enabled: bool = pair.1\nlet array_code: int = values[0] + values[1]\nlet step_code: int = step.value\nlet step_enabled: bool = step.enabled\nlet option_code: int = score_option(maybe)\nlet result_code: int = score_result(outcome)\nlet choice_code: int = score_choice(choice)\nif pair_enabled && step_enabled && pair_code == 48 && array_code == 48 && step_code == 48 && option_code == 48 && result_code == 48 && choice_code == 48 {\nreturn pair_code\n} else {\nreturn 1\n}\n}\n",
+        "struct Step {\nvalue: int\nenabled: bool\nsmall: u8\n}\n\nenum Choice {\nReady { step: Step }\nOff\n}\n\nfn score_option(value: Option<Step>): int {\nreturn match value { Some(step) => step.value, None => 1 }\n}\n\nfn score_result(value: Result<Step, Step>): int {\nreturn match value { Ok(step) => step.value, Err(error) => error.value }\n}\n\nfn score_choice(value: Choice): int {\nreturn match value { Ready { step } => step.value, Off => 1 }\n}\n\nfn main(): int {\nlet pair: (int, bool) = (0, false)\nlet values: [int; 2] = [0, 0]\nlet step: Step = Step { value: 0, enabled: false, small: 0u8 }\nlet maybe: Option<Step> = None\nlet outcome: Result<Step, Step> = Err(Step { value: 1, enabled: false, small: 0u8 })\nlet choice: Choice = Off\nlet index: int = 0\nwhile index < 1 {\npair = (48, true)\nvalues = [20, 28]\nindex = index + 1\n}\nif pair.1 {\nstep = Step { value: 48, enabled: true, small: 2u8 }\nmaybe = Some(Step { value: 48, enabled: true, small: 2u8 })\noutcome = Ok(Step { value: 48, enabled: true, small: 2u8 })\nchoice = Ready { step: Step { value: 48, enabled: true, small: 2u8 } }\n} else {\nstep = Step { value: 1, enabled: false, small: 0u8 }\nmaybe = None\noutcome = Err(Step { value: 1, enabled: false, small: 0u8 })\nchoice = Off\n}\nlet pair_code: int = pair.0\nlet pair_enabled: bool = pair.1\nlet array_code: int = values[0] + values[1]\nlet step_code: int = step.value\nlet step_enabled: bool = step.enabled\nlet option_code: int = score_option(maybe)\nlet result_code: int = score_result(outcome)\nlet choice_code: int = score_choice(choice)\nif pair_enabled && step_enabled && pair_code == 48 && array_code == 48 && step_code == 48 && option_code == 48 && result_code == 48 && choice_code == 48 {\nreturn pair_code\n} else {\nreturn 1\n}\n}\n",
     )
     .expect("write aggregate helper reassignment main exit source");
+}
+
+fn write_nested_enum_payload_reassignment_project(project: &Path) {
+    fs::create_dir_all(project.join("src"))
+        .expect("create nested enum payload reassignment project src");
+    fs::write(
+        project.join("axiom.toml"),
+        "[package]\nname = \"nested-enum-payload-reassignment\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n",
+    )
+    .expect("write nested enum payload reassignment manifest");
+    fs::write(
+        project.join("axiom.lock"),
+        "version = 1\n\n[[package]]\nname = \"nested-enum-payload-reassignment\"\nversion = \"0.1.0\"\nsource = \"path\"\n",
+    )
+    .expect("write nested enum payload reassignment lockfile");
+    fs::write(
+        project.join("src/main.ax"),
+        "enum Choice {\nReady { value: int }\nOff\n}\n\nfn choose(): Option<Choice> {\nreturn Some(Ready { value: 48 })\n}\n\nfn main(): int {\nlet maybe: Option<Choice> = None\nmaybe = choose()\nreturn 0\n}\n",
+    )
+    .expect("write nested enum payload reassignment source");
 }
 
 fn write_bool_returning_main_exit_project(project: &Path) {
@@ -11670,7 +11748,7 @@ fn write_enum_payload_match_main_exit_project(project: &Path, variant: &str) {
     };
     fs::write(
         project.join("src/main.ax"),
-        format!("struct Step {{\nvalue: int\nenabled: bool\n}}\n\nenum Choice {{\nReady {{ step: Step }}\nFallback {{ step: Step }}\nOff\n}}\n\nfn choose_choice(mode: int): Choice {{\nif mode == 0 {{\nlet value: int = 48\nreturn Ready {{ step: Step {{ value: value, enabled: true }} }}\n}} else {{\nlet fallback: int = 49\nreturn Fallback {{ step: Step {{ enabled: true, value: fallback }} }}\n}}\n}}\n\nfn forward_choice(value: Choice): Choice {{\nreturn value\n}}\n\nfn score(choice: Choice): int {{\nlet code: int = 0\nmatch choice {{\nReady {{ step }} {{\nif step.enabled {{\ncode = step.value\n}} else {{\ncode = 2\n}}\n}}\nFallback {{ step }} {{\nif step.enabled {{\ncode = step.value\n}} else {{\ncode = 2\n}}\n}}\nOff {{\ncode = 1\n}}\n}}\nreturn code\n}}\n\nfn main(): int {{\nlet helper_choice: Choice = Off\nlet value_choice: Choice = Off\nlet stmt_choice: Choice = Off\nhelper_choice = {value}\nvalue_choice = {value}\nstmt_choice = {value}\nlet returned_ready: Choice = choose_choice(0)\nlet returned_fallback: Choice = choose_choice(1)\nlet ready_to_forward: Choice = choose_choice(0)\nlet fallback_to_forward: Choice = choose_choice(1)\nlet forwarded_ready: Choice = forward_choice(ready_to_forward)\nlet forwarded_fallback: Choice = forward_choice(fallback_to_forward)\nlet helper_code: int = score(helper_choice)\nlet inline_code: int = score({value})\nlet returned_ready_code: int = score(returned_ready)\nlet returned_fallback_code: int = score(returned_fallback)\nlet forwarded_ready_code: int = score(forwarded_ready)\nlet forwarded_fallback_code: int = score(forwarded_fallback)\nlet match_code: int = match value_choice {{ Ready {{ step }} => step.value, Fallback {{ step }} => step.value, Off => 1 }}\nlet statement_code: int = 0\nmatch stmt_choice {{\nReady {{ step }} {{\nif step.enabled {{\nstatement_code = step.value\n}} else {{\nstatement_code = 2\n}}\n}}\nFallback {{ step }} {{\nif step.enabled {{\nstatement_code = step.value\n}} else {{\nstatement_code = 2\n}}\n}}\nOff {{\nstatement_code = 1\n}}\n}}\nif match_code == statement_code && helper_code == match_code && inline_code == match_code && returned_ready_code == 48 && returned_fallback_code == 49 && forwarded_ready_code == 48 && forwarded_fallback_code == 49 {{\nreturn match_code\n}} else {{\nreturn 2\n}}\n}}\n"),
+        format!("struct Step {{\nvalue: int\nenabled: bool\n}}\n\nenum Choice {{\nReady {{ step: Step }}\nFallback {{ step: Step }}\nOff\n}}\n\nfn score(choice: Choice): int {{\nlet code: int = 0\nmatch choice {{\nReady {{ step }} {{\nif step.enabled {{\ncode = step.value\n}} else {{\ncode = 2\n}}\n}}\nFallback {{ step }} {{\nif step.enabled {{\ncode = step.value\n}} else {{\ncode = 2\n}}\n}}\nOff {{\ncode = 1\n}}\n}}\nreturn code\n}}\n\nfn main(): int {{\nlet helper_choice: Choice = Off\nlet value_choice: Choice = Off\nlet stmt_choice: Choice = Off\nhelper_choice = {value}\nvalue_choice = {value}\nstmt_choice = {value}\nlet helper_code: int = score(helper_choice)\nlet inline_code: int = score({value})\nlet match_code: int = match value_choice {{ Ready {{ step }} => step.value, Fallback {{ step }} => step.value, Off => 1 }}\nlet statement_code: int = 0\nmatch stmt_choice {{\nReady {{ step }} {{\nif step.enabled {{\nstatement_code = step.value\n}} else {{\nstatement_code = 2\n}}\n}}\nFallback {{ step }} {{\nif step.enabled {{\nstatement_code = step.value\n}} else {{\nstatement_code = 2\n}}\n}}\nOff {{\nstatement_code = 1\n}}\n}}\nif match_code == statement_code && helper_code == match_code && inline_code == match_code {{\nreturn match_code\n}} else {{\nreturn 2\n}}\n}}\n"),
     )
     .expect("write enum payload match source");
 }
@@ -12842,6 +12920,88 @@ return 1
     .expect("write net loopback main source");
 }
 
+fn write_net_mutable_buffers_project(project: &Path, udp_port: u16) {
+    fs::create_dir_all(project.join("src")).expect("create net mutable buffers project src");
+    fs::write(
+        project.join("axiom.toml"),
+        r#"[package]
+name = "cranelift-net-mutable-buffers"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+fs = false
+net = true
+process = false
+env = false
+clock = false
+crypto = false
+
+[unsafe_rationale]
+net = "Direct-native mutable buffer regression covers raw TCP and UDP read writebacks."
+"#,
+    )
+    .expect("write net mutable buffers manifest");
+    fs::write(
+        project.join("axiom.lock"),
+        r#"version = 1
+
+[[package]]
+name = "cranelift-net-mutable-buffers"
+version = "0.1.0"
+source = "path"
+"#,
+    )
+    .expect("write net mutable buffers lockfile");
+    fs::write(
+        project.join("src/main.ax"),
+        format!(
+            r#"fn fill_tcp(buf: &mut [u8]): int {{
+let listener: int = net_tcp_listen("127.0.0.1:0")
+let stream: int = net_tcp_accept(listener)
+let read_plus_one: int = net_tcp_read(stream, buf) + 1
+let closed: int = net_tcp_close(stream)
+let write_after_close: int = net_tcp_write_string(stream, "stale")
+let second_close: int = net_tcp_close(stream)
+let listener_closed: int = net_tcp_close_listener(listener)
+if closed == 0 && write_after_close == -1 && second_close == -1 && listener_closed == 0 {{
+return read_plus_one
+}} else {{
+return 0
+}}
+}}
+
+fn fill_udp(buf: &mut [u8]): int {{
+let source: int = net_udp_bind("127.0.0.1:0")
+let target: int = net_udp_bind("127.0.0.1:{udp_port}")
+let target_addr: string = net_udp_local_addr(target)
+let payload: [u8; 4] = [112u8, 111u8, 110u8, 103u8]
+let sent: int = net_udp_send_to(source, payload[:], "127.0.0.1:{udp_port}")
+let received: (int, string) = net_udp_recv_from(target, buf)
+let source_closed: int = net_udp_close(source)
+let target_closed: int = net_udp_close(target)
+if target_addr == "127.0.0.1:{udp_port}" && sent == 4 && source_closed == 0 && target_closed == 0 {{
+return received.0
+}} else {{
+return 0
+}}
+}}
+
+let tcp_buf: [u8; 4] = [0u8, 0u8, 0u8, 0u8]
+let udp_buf: [u8; 4] = [0u8, 0u8, 0u8, 0u8]
+let tcp_score: int = fill_tcp(tcp_buf[:])
+let udp_read: int = fill_udp(udp_buf[:])
+let udp_score: int = udp_read + 1
+print tcp_score == 5 && tcp_buf[0] == 112u8 && tcp_buf[1] == 105u8 && tcp_buf[2] == 110u8 && tcp_buf[3] == 103u8 && udp_score == 5 && udp_buf[0] == 112u8 && udp_buf[1] == 111u8 && udp_buf[2] == 110u8 && udp_buf[3] == 103u8
+"#
+        ),
+    )
+    .expect("write net mutable buffers source");
+}
+
 fn start_http_fixture_server(body: &'static str) -> Option<(u16, std::thread::JoinHandle<()>)> {
     start_http_fixture_server_requests(body, 1)
 }
@@ -13665,7 +13825,7 @@ async = true
 [unsafe_rationale]
 net = "Cranelift ABI regression covers compiler-side std/async_net.ax loopback TCP evaluation for issue 928."
 async = "Cranelift ABI regression covers compiler-side std/async_net.ax loopback TCP evaluation for issue 928."
-"#,
+"#
         ),
     )
     .expect("write std async net TCP manifest");

@@ -79,8 +79,40 @@ assert "network.http.async_server" not in report["incomplete_rows"]
 assert "network.tcp" not in report["incomplete_rows"]
 assert "network.udp" not in report["incomplete_rows"]
 assert "async.runtime" not in report["incomplete_rows"]
+assert "boolean" in report["incomplete_rows"]
+assert "numeric.scalars" in report["incomplete_rows"]
 assert report["blocker_issues"] == [1124]
 assert report["errors"] == []
+PY
+
+python3 - "$contract" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    contract = json.load(handle)
+
+value_rows = {row["id"]: row for row in contract["value_features"]}
+for row_id in (
+    "string",
+    "array.fixed",
+    "slice.borrowed",
+    "map.lookup",
+    "tuple",
+):
+    assert value_rows[row_id]["runtime_evidence"] == [
+        "stage1/crates/axiomc-backend-cranelift/src/lib.rs"
+    ]
+
+for row_id in ("option", "result", "enum.payload", "struct.field"):
+    assert value_rows[row_id]["runtime_evidence"] == [
+        "stage1/crates/axiomc/src/hir.rs",
+        "stage1/crates/axiomc-backend-cranelift/src/lib.rs",
+    ]
+
+assert value_rows["owned.move_state"]["runtime_evidence"] == [
+    "stage1/crates/axiomc/tests/cranelift_backend.rs"
+]
 PY
 
 printf '{' >"$temp_dir/invalid-contract.json"
@@ -294,6 +326,7 @@ for row_id in (
     "numeric.scalars",
     "option",
     "result",
+    "struct.field",
 ):
     runtime_evidence = value_rows[row_id]["runtime_evidence"]
     assert "stage1/crates/axiomc-backend-cranelift/src/lib.rs" in runtime_evidence
@@ -303,7 +336,6 @@ for row_id in (
     "map.lookup",
     "slice.borrowed",
     "string",
-    "struct.field",
     "tuple",
 ):
     assert value_rows[row_id]["runtime_evidence"] == [

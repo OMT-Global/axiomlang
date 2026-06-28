@@ -1,8 +1,8 @@
 {
   "kind": "capability",
   "code": null,
-  "message": "call to \"net_tcp_listen\" requires [capabilities].net = true",
+  "message": "call to stdlib wrapper \"listen\" requires [capabilities].net = true",
   "path": "src/main.ax",
-  "line": 4,
-  "column": 8
+  "line": 3,
+  "column": 24
 }

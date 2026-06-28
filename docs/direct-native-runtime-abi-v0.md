@@ -165,15 +165,15 @@ _Generated from `stage1/runtime-abi/direct-native-v0.json`; run `make stage1-dir
 | --- | --- | --- | --- | --- |
 | `array.fixed` | `partial` | #1124 | evidence:1, runtime:1 | The direct-native path now has narrow runtime evidence for immediate array-literal scalar indexing with literal indexes and scalar projection from... |
 | `boolean` | `partial` | #1124 | evidence:1, runtime:1 | The Cranelift spike covers boolean values. |
-| `enum.payload` | `partial` | #1124 | evidence:1, runtime:1 | The Cranelift spike builds and runs custom enum matches with tuple, named, and string payloads without generated Rust. |
+| `enum.payload` | `partial` | #1124 | evidence:1, runtime:2 | The Cranelift spike builds and runs custom enum matches with tuple, named, and string payloads without generated Rust. |
 | `map.lookup` | `partial` | #1124 | evidence:1, runtime:1 | The Cranelift spike covers direct map indexing, get, get_or_default, map_contains_key, map_keys, helper-returned direct index, contains-key, and de... |
 | `numeric.scalars` | `partial` | #1124 | evidence:1, runtime:1 | The Cranelift spike covers several scalar widths and casts. |
-| `option` | `partial` | #1124 | evidence:1, runtime:1 | The direct-native path now has narrow runtime evidence for local Option<int> and Option<bool> construction as tag/payload locals, scalar option rea... |
+| `option` | `partial` | #1124 | evidence:1, runtime:2 | The direct-native path now has narrow runtime evidence for local Option<int> and Option<bool> construction as tag/payload locals, scalar option rea... |
 | `owned.move_state` | `implemented` | - | evidence:1, runtime:1 | The Cranelift spike builds and runs projection-sensitive owned field moves while preserving access to disjoint sibling projections, and the public... |
-| `result` | `partial` | #1124 | evidence:1, runtime:1 | The Cranelift spike evaluates Result<T, E> through std/outcome.ax helpers, direct match arms, scalar payloads, string errors, and struct payloads. |
+| `result` | `partial` | #1124 | evidence:1, runtime:2 | The Cranelift spike evaluates Result<T, E> through std/outcome.ax helpers, direct match arms, scalar payloads, string errors, and struct payloads. |
 | `slice.borrowed` | `partial` | #1124 | evidence:1, runtime:1 | The Cranelift spike evaluates borrowed array slices for len, first, last, indexing, and function returns. |
 | `string` | `partial` | #1124 | evidence:1, runtime:1 | The Cranelift spike builds and runs pure string intrinsics including string_clone, string_starts_with, string_strip_prefix, string_strip_suffix, st... |
-| `struct.field` | `partial` | #1124 | evidence:1, runtime:1 | The direct-native path now has narrow runtime evidence for immediate struct-literal scalar field access and scalar projection from local struct bin... |
+| `struct.field` | `partial` | #1124 | evidence:1, runtime:2 | The direct-native path now has narrow runtime evidence for immediate struct-literal scalar field access and scalar projection from local struct bin... |
 | `tuple` | `partial` | #1124 | evidence:1, runtime:1 | The direct-native path now has narrow runtime evidence for immediate tuple-literal scalar indexing and scalar projection from local tuple bindings,... |
 
 ### Capability Shims

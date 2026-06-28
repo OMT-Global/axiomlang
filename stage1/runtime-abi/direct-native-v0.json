@@ -116,6 +116,7 @@
         "stage1/crates/axiomc/tests/cranelift_backend.rs"
       ],
       "runtime_evidence": [
+        "stage1/crates/axiomc/src/hir.rs",
         "stage1/crates/axiomc-backend-cranelift/src/lib.rs"
       ],
       "blockers": [
@@ -131,6 +132,7 @@
         "stage1/crates/axiomc/tests/cranelift_backend.rs"
       ],
       "runtime_evidence": [
+        "stage1/crates/axiomc/src/hir.rs",
         "stage1/crates/axiomc-backend-cranelift/src/lib.rs"
       ],
       "blockers": [
@@ -149,6 +151,7 @@
         1124
       ],
       "runtime_evidence": [
+        "stage1/crates/axiomc/src/hir.rs",
         "stage1/crates/axiomc-backend-cranelift/src/lib.rs"
       ],
       "denial_evidence_not_applicable": "This row has no host-service or manifest denial policy; denial evidence is not applicable.",
@@ -161,6 +164,7 @@
         "stage1/crates/axiomc/tests/cranelift_backend.rs"
       ],
       "runtime_evidence": [
+        "stage1/crates/axiomc/src/hir.rs",
         "stage1/crates/axiomc-backend-cranelift/src/lib.rs"
       ],
       "blockers": [

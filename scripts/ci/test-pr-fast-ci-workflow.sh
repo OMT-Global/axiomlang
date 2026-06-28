@@ -52,12 +52,7 @@ ci_gate_base_ref_line=$(printf '%s\n' "$ci_gate_section" | nl -ba | { grep -F 'r
 ci_gate_head_ref=$(printf '%s\n' "$ci_gate_section" | grep -F 'github.event.pull_request.head.sha' || true)
 benchmark_gate_reference=$(grep -nE 'check-stage1-benchmarks\.py|stage1-comparison-report\.json' "$workflow" || true)
 runtime_abi_status_check=$(grep -nF 'scripts/ci/render-direct-native-runtime-abi-status.py' "$fast_checks_script" || true)
-proof_http_generated_rust_test=$(awk '
-  /"\$example" == "proof_http_service"/ { in_http_service = 1 }
-  in_http_service && /--backend generated-rust/ { found = 1 }
-  in_http_service && /^  fi$/ { in_http_service = 0 }
-  END { if (found) print "yes" }
-' "$fast_checks_script")
+proof_workload_test=$(grep -nF 'bash scripts/ci/run-stage1-proof-test.sh' "$fast_checks_script" || true)
 
 if [[ -n "$checkout_line" ]]; then
   echo "validate-pr-description job must not checkout untrusted pull request code" >&2
@@ -155,8 +150,8 @@ if [[ -z "$runtime_abi_status_check" ]]; then
   exit 1
 fi
 
-if [[ -z "$proof_http_generated_rust_test" ]]; then
-  echo "run-fast-checks must test proof_http_service with --backend generated-rust because its HTTP fixture service is not Cranelift-ready" >&2
+if [[ -z "$proof_workload_test" ]]; then
+  echo "run-fast-checks must run the stage1 proof workload smoke" >&2
   exit 1
 fi
 

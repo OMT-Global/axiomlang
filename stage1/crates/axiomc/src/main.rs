@@ -106,7 +106,7 @@ enum Command {
         #[arg(long)]
         offline: bool,
     },
-    /// Build and run a stage1 package through the selected backend.
+    /// Build and run a stage1 package through the default direct-native backend.
     Run {
         path: PathBuf,
         /// Emit an axiom.stage1.v1 JSON envelope; see stage1/compiler-contracts/schemas/axiom.stage1.command.schema.json.
@@ -7691,7 +7691,11 @@ mod tests {
         assert!(help.contains("Create a new stage1 package"));
         assert!(help.contains("Check a stage1 package or workspace member"));
         assert!(help.contains("Build a stage1 package through the default direct-native backend"));
-        assert!(help.contains("Build and run a stage1 package through the selected backend"));
+        assert!(
+            help.contains(
+                "Build and run a stage1 package through the default direct-native backend"
+            )
+        );
 
         let mut command = Cli::command();
         let build_help = command
@@ -7709,6 +7713,13 @@ mod tests {
         assert!(build_help.contains("--offline"));
         assert!(build_help.contains("direct-native"));
         let mut command = Cli::command();
+        let run_help = command
+            .find_subcommand_mut("run")
+            .expect("run subcommand")
+            .render_long_help()
+            .to_string();
+        assert!(run_help.contains("[default: cranelift]"));
+        let mut command = Cli::command();
         let test_help = command
             .find_subcommand_mut("test")
             .expect("test subcommand")
@@ -7716,6 +7727,7 @@ mod tests {
             .to_string();
         assert!(test_help.contains("--properties"));
         assert!(test_help.contains("--conformance"));
+        assert!(test_help.contains("[default: cranelift]"));
         assert!(help.contains("Discover, build, and run package test entrypoints"));
         assert!(help.contains("Inspect manifest capability requirements"));
         assert!(help.contains("Inspect project metadata for agent tooling"));

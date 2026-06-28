@@ -19,7 +19,7 @@ use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::env;
 use std::io::{Read, Write};
-use std::net::{IpAddr, SocketAddr, TcpListener, TcpStream, ToSocketAddrs};
+use std::net::{SocketAddr, TcpListener, TcpStream, ToSocketAddrs};
 use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::{Mutex, OnceLock};
@@ -62,6 +62,8 @@ struct I64StaticBindings {
     fs_shim_wrappers: HashSet<String>,
     net_shim_wrappers: HashSet<String>,
     net_resolve_wrappers: HashSet<String>,
+    net_unrestricted: bool,
+    net_allowed_hosts: HashSet<String>,
     http_shim_wrappers: HashSet<String>,
     http_get_wrappers: HashSet<String>,
     http_serve_once_wrappers: HashSet<String>,
@@ -342,6 +344,7 @@ static SPIKE_HTTP_REQUESTS: OnceLock<Mutex<HashMap<i64, SpikeHttpRequest>>> = On
 static SPIKE_TCP_NEXT_HANDLE: AtomicI64 = AtomicI64::new(1);
 static SPIKE_TCP_LISTENERS: OnceLock<Mutex<HashMap<i64, SpikeTcpListener>>> = OnceLock::new();
 static SPIKE_TCP_STREAMS: OnceLock<Mutex<HashMap<i64, SpikeTcpStream>>> = OnceLock::new();
+static SPIKE_TCP_RESPONSES: OnceLock<Mutex<HashMap<i64, String>>> = OnceLock::new();
 static SPIKE_UDP_NEXT_HANDLE: AtomicI64 = AtomicI64::new(1);
 static SPIKE_UDP_SOCKETS: OnceLock<Mutex<HashMap<i64, SpikeUdpSocket>>> = OnceLock::new();
 
@@ -424,6 +427,8 @@ fn lower_i64_exit_program(
     static_bindings.fs_root = Some(fs_root.to_path_buf());
     static_bindings.env_allowed_names = capabilities.env_vars.iter().cloned().collect();
     static_bindings.env_unrestricted = capabilities.env_unrestricted;
+    static_bindings.net_unrestricted = capabilities.net && capabilities.net_hosts.is_empty();
+    static_bindings.net_allowed_hosts = capabilities.net_hosts.iter().cloned().collect();
     static_bindings.process_status_wrappers = program
         .functions
         .iter()
@@ -7917,9 +7922,11 @@ fn i64_net_resolve_host(
         return None;
     };
     let host = i64_string_text(host, static_bindings)?;
-    let _addr: IpAddr = host.parse().ok()?;
     Some(I64NetResolveHost {
-        resolved_len: i64::try_from(i64_net_resolve_text(&host)?.len()).ok()?,
+        resolved_len: i64::try_from(
+            i64_net_resolve_text_for_bindings(&host, static_bindings)?.len(),
+        )
+        .ok()?,
         host,
     })
 }
@@ -9799,10 +9806,12 @@ fn lower_i64_known_bool_intrinsic_condition(
             let [left, right] = args else {
                 return None;
             };
-            Some(CraneliftI64Condition::Literal(constant_time_eq_bytes(
-                i64_string_text(left, static_bindings)?.as_bytes(),
-                i64_string_text(right, static_bindings)?.as_bytes(),
-            )))
+            let left_text = i64_string_text(left, static_bindings)?;
+            let right_text = i64_string_text(right, static_bindings)?;
+            let result = constant_time_eq_bytes(left_text.as_bytes(), right_text.as_bytes());
+            i64_audited_known_crypto_condition(left, result, static_bindings)
+                .or_else(|| i64_audited_known_crypto_condition(right, result, static_bindings))
+                .or(Some(CraneliftI64Condition::Literal(result)))
         }
         name if is_i64_crypto_constant_time_eq_u8_name(name, static_bindings) => {
             lower_i64_byte_slice_eq_condition(
@@ -9852,6 +9861,52 @@ fn lower_i64_known_bool_intrinsic_condition(
         }
         _ => None,
     }
+}
+
+fn i64_audited_known_crypto_condition(
+    expr: &Expr,
+    result: bool,
+    static_bindings: &I64StaticBindings,
+) -> Option<CraneliftI64Condition> {
+    let Expr::Call { name, args, .. } = expr else {
+        return None;
+    };
+    let (intrinsic, inputs) = if is_i64_crypto_sha256_name(name, static_bindings) {
+        let [input] = args.as_slice() else {
+            return None;
+        };
+        let _ = i64_string_text(input, static_bindings)?;
+        ("crypto_sha256", "strings:1")
+    } else if is_i64_crypto_hmac_sha256_name(name, static_bindings)
+        || is_i64_crypto_hmac_sha512_name(name, static_bindings)
+    {
+        let [key, message] = args.as_slice() else {
+            return None;
+        };
+        let _ = i64_string_text(key, static_bindings)?;
+        let _ = i64_string_text(message, static_bindings)?;
+        let intrinsic = if is_i64_crypto_hmac_sha256_name(name, static_bindings) {
+            "crypto_hmac_sha256"
+        } else {
+            "crypto_hmac_sha512"
+        };
+        (intrinsic, "strings:2")
+    } else {
+        return None;
+    };
+    let audited_result = i64_audited_crypto_expr(
+        intrinsic,
+        "inputs",
+        inputs.to_string(),
+        CraneliftI64Expr::Literal(i64::from(result)),
+        static_bindings,
+        CraneliftI64AuditSuccess::NonNegative,
+    )?;
+    Some(CraneliftI64Condition::Compare(CraneliftI64Compare {
+        op: CraneliftI64CompareOp::Eq,
+        lhs: audited_result,
+        rhs: CraneliftI64Expr::Literal(1),
+    }))
 }
 
 fn lower_i64_byte_slice_eq_condition(
@@ -10570,10 +10625,28 @@ fn i64_string_option_text(
             let [host] = args.as_slice() else {
                 return None;
             };
-            Some(i64_net_resolve_text(&i64_string_text(
-                host,
+            Some(i64_net_resolve_text_for_bindings(
+                &i64_string_text(host, static_bindings)?,
                 static_bindings,
-            )?))
+            ))
+        }
+        name if static_bindings.net_resolve_wrappers.contains(name) => {
+            let [host] = args.as_slice() else {
+                return None;
+            };
+            Some(i64_net_resolve_text_for_bindings(
+                &i64_string_text(host, static_bindings)?,
+                static_bindings,
+            ))
+        }
+        name if static_bindings.net_shim_wrappers.contains(name) => {
+            let [host] = args.as_slice() else {
+                return None;
+            };
+            Some(i64_net_resolve_text_for_bindings(
+                &i64_string_text(host, static_bindings)?,
+                static_bindings,
+            ))
         }
         name if is_i64_http_get_name(name, static_bindings) => {
             let [url] = args.as_slice() else {
@@ -10597,12 +10670,6 @@ fn i64_string_option_text(
             };
             Some(json_parse_string(&i64_string_text(text, static_bindings)?))
         }
-        "json_parse_value" => {
-            let [text] = args.as_slice() else {
-                return None;
-            };
-            Some(json_parse_value(&i64_string_text(text, static_bindings)?))
-        }
         name if is_i64_json_parse_field_string_name(name, static_bindings) => {
             let [text, key] = args.as_slice() else {
                 return None;
@@ -10611,16 +10678,24 @@ fn i64_string_option_text(
             let key = i64_string_text(key, static_bindings)?;
             Some(json_object_field(&text, &key).and_then(|value| json_parse_string(&value)))
         }
-        "json_parse_field_value" => {
-            let [text, key] = args.as_slice() else {
-                return None;
-            };
-            let text = i64_string_text(text, static_bindings)?;
-            let key = i64_string_text(key, static_bindings)?;
-            Some(json_object_field(&text, &key).and_then(|value| json_parse_value(&value)))
-        }
         _ => None,
     }
+}
+
+fn i64_net_resolve_text_for_bindings(
+    host: &str,
+    static_bindings: &I64StaticBindings,
+) -> Option<String> {
+    i64_net_resolve_text(host).or_else(|| {
+        if !static_bindings.net_unrestricted && !static_bindings.net_allowed_hosts.contains(host) {
+            return None;
+        }
+        (host, 0)
+            .to_socket_addrs()
+            .ok()
+            .and_then(|mut addrs| addrs.next())
+            .map(|addr| addr.ip().to_string())
+    })
 }
 
 fn i64_i64_option_value(expr: &Expr, static_bindings: &I64StaticBindings) -> Option<Option<i64>> {
@@ -16127,6 +16202,7 @@ fn lower_i64_numeric_literal(raw: &str, ty: NumericType) -> Option<i64> {
     }
 }
 
+#[cfg(test)]
 fn collect_output_lines(
     program: &Program,
     capabilities: &CapabilityConfig,
@@ -16375,6 +16451,29 @@ fn eval_expr_effectful(
             let left = eval_expr_effectful(lhs, functions, env, lines)?;
             let right = eval_expr_effectful(rhs, functions, env, lines)?;
             eval_arithmetic_values(*op, ty, left, right)
+        }
+        Expr::BinaryCompare {
+            op,
+            lhs,
+            rhs,
+            ty: _,
+        } => {
+            let left = eval_expr_effectful(lhs, functions, env, lines)?;
+            let right = eval_expr_effectful(rhs, functions, env, lines)?;
+            eval_compare_values(*op, left, right)
+        }
+        Expr::BinaryLogic { op, lhs, rhs, .. } => {
+            let left = expect_bool(eval_expr_effectful(lhs, functions, env, lines)?)?;
+            match op {
+                crate::mir::LogicOp::And if !left => Ok(SpikeValue::Bool(false)),
+                crate::mir::LogicOp::Or if left => Ok(SpikeValue::Bool(true)),
+                crate::mir::LogicOp::And | crate::mir::LogicOp::Or => Ok(SpikeValue::Bool(
+                    expect_bool(eval_expr_effectful(rhs, functions, env, lines)?)?,
+                )),
+            }
+        }
+        Expr::Cast { expr, ty } => {
+            cast_spike_value(eval_expr_effectful(expr, functions, env, lines)?, ty)
         }
         _ => eval_expr(expr, functions, env, lines),
     }
@@ -16934,6 +17033,14 @@ fn eval_call(
     if is_regex_call(name) {
         return eval_regex_call(name, args, functions, env, lines);
     }
+    if let Some(SpikeValue::Closure {
+        params,
+        body,
+        env: captured_env,
+    }) = env.get(name)
+    {
+        return eval_closure_call(params, body, captured_env, args, functions, env, lines);
+    }
     let function = functions
         .get(name)
         .ok_or_else(|| unsupported(&format!("unsupported cranelift spike call {name:?}")))?;
@@ -16991,6 +17098,9 @@ fn eval_call_effectful(
     env: &mut SpikeEnv,
     lines: &mut Vec<OutputLine>,
 ) -> Result<SpikeValue, Diagnostic> {
+    if is_net_call(name) {
+        return eval_net_call_effectful(name, args, functions, env, lines);
+    }
     let Some(function) = functions.get(name) else {
         return eval_call(name, args, functions, env, lines);
     };
@@ -17023,6 +17133,9 @@ fn eval_call_effectful(
             );
             writebacks.push((backing_name, target));
         } else {
+            if param.name == "self_" {
+                local_env.insert(String::from("self"), value.clone());
+            }
             local_env.insert(param.name.clone(), value);
         }
     }
@@ -19805,11 +19918,7 @@ fn eval_net_call(
                 return Err(unsupported("net_resolve expects exactly one argument"));
             };
             let host = expect_text(eval_expr(host, functions, env, lines)?, name)?;
-            let resolved = (host.as_str(), 0)
-                .to_socket_addrs()
-                .ok()
-                .and_then(|mut addrs| addrs.next())
-                .map(|addr| SpikeValue::Text(addr.ip().to_string()));
+            let resolved = i64_net_resolve_text(host.as_str()).map(SpikeValue::Text);
             Ok(spike_option(resolved))
         }
         "net_tcp_listen_loopback_once" => {
@@ -19873,7 +19982,7 @@ fn eval_net_call(
                 return Err(unsupported("net_tcp_read expects exactly two arguments"));
             };
             let stream = expect_int(eval_expr(stream, functions, env, lines)?)?;
-            let max_bytes = byte_buffer_len(eval_expr(buffer, functions, env, lines)?)?;
+            let max_bytes = byte_buffer_len(eval_expr(buffer, functions, env, lines)?, env)?;
             Ok(SpikeValue::Int(
                 net_tcp_read(stream, max_bytes)
                     .ok_or_else(|| unsupported("net_tcp_read failed in cranelift spike"))?,
@@ -19894,7 +20003,7 @@ fn eval_net_call(
                 return Err(unsupported("net_tcp_write expects exactly two arguments"));
             };
             let stream = expect_int(eval_expr(stream, functions, env, lines)?)?;
-            let message = byte_buffer_text(eval_expr(buffer, functions, env, lines)?)?;
+            let message = byte_buffer_text(eval_expr(buffer, functions, env, lines)?, env)?;
             Ok(SpikeValue::Int(net_tcp_write_string(stream, &message)))
         }
         "net_tcp_close" => {
@@ -19975,7 +20084,7 @@ fn eval_net_call(
                 ));
             };
             let socket = expect_int(eval_expr(socket, functions, env, lines)?)?;
-            let message = byte_buffer_text(eval_expr(buffer, functions, env, lines)?)?;
+            let message = byte_buffer_text(eval_expr(buffer, functions, env, lines)?, env)?;
             let peer = expect_text(eval_expr(peer, functions, env, lines)?, name)?;
             Ok(SpikeValue::Int(net_udp_send_to(socket, &message, &peer)))
         }
@@ -19986,7 +20095,7 @@ fn eval_net_call(
                 ));
             };
             let socket = expect_int(eval_expr(socket, functions, env, lines)?)?;
-            let max_bytes = byte_buffer_len(eval_expr(buffer, functions, env, lines)?)?;
+            let max_bytes = byte_buffer_len(eval_expr(buffer, functions, env, lines)?, env)?;
             let (count, peer) = net_udp_recv_from(socket, max_bytes)
                 .ok_or_else(|| unsupported("net_udp_recv_from failed in cranelift spike"))?;
             Ok(SpikeValue::Tuple(vec![
@@ -20021,36 +20130,118 @@ fn eval_net_call(
     }
 }
 
+fn eval_net_call_effectful(
+    name: &str,
+    args: &[Expr],
+    functions: &HashMap<&str, &Function>,
+    env: &mut SpikeEnv,
+    lines: &mut Vec<OutputLine>,
+) -> Result<SpikeValue, Diagnostic> {
+    match name {
+        "net_tcp_read" => {
+            let [stream, buffer] = args else {
+                return Err(unsupported("net_tcp_read expects exactly two arguments"));
+            };
+            let stream = expect_int(eval_expr(stream, functions, env, lines)?)?;
+            let buffer = eval_expr(buffer, functions, env, lines)?;
+            let max_bytes = byte_buffer_len(buffer.clone(), env)?;
+            let text = net_tcp_read_string(stream, max_bytes)
+                .ok_or_else(|| unsupported("net_tcp_read failed in cranelift spike"))?;
+            write_byte_buffer_text(buffer, env, &text)?;
+            Ok(SpikeValue::Int(
+                i64::try_from(text.len()).unwrap_or(i64::MAX),
+            ))
+        }
+        "net_udp_recv_from" => {
+            let [socket, buffer] = args else {
+                return Err(unsupported(
+                    "net_udp_recv_from expects exactly two arguments",
+                ));
+            };
+            let socket = expect_int(eval_expr(socket, functions, env, lines)?)?;
+            let buffer = eval_expr(buffer, functions, env, lines)?;
+            let max_bytes = byte_buffer_len(buffer.clone(), env)?;
+            let (count, peer, text) = net_udp_recv_from_text(socket, max_bytes)
+                .ok_or_else(|| unsupported("net_udp_recv_from failed in cranelift spike"))?;
+            write_byte_buffer_text(buffer, env, &text)?;
+            Ok(SpikeValue::Tuple(vec![
+                SpikeValue::Int(count),
+                SpikeValue::Text(peer),
+            ]))
+        }
+        _ => eval_net_call(name, args, functions, env, lines),
+    }
+}
+
 fn net_timeout(timeout_ms: i64) -> std::time::Duration {
     std::time::Duration::from_millis(timeout_ms.clamp(1, 30_000) as u64)
 }
 
-fn byte_buffer_len(value: SpikeValue) -> Result<i64, Diagnostic> {
+fn byte_buffer_len(value: SpikeValue, env: &SpikeEnv) -> Result<i64, Diagnostic> {
+    i64::try_from(byte_buffer_values(value, env)?.len())
+        .map_err(|_| unsupported("byte buffer length is outside the host i64 range"))
+}
+
+fn byte_buffer_text(value: SpikeValue, env: &SpikeEnv) -> Result<String, Diagnostic> {
+    byte_buffer_values(value, env)?
+        .into_iter()
+        .map(|value| match value {
+            SpikeValue::Int(value) => u8::try_from(value)
+                .map_err(|_| unsupported("network byte buffers must contain u8-compatible values")),
+            SpikeValue::UInt(value) => u8::try_from(value)
+                .map_err(|_| unsupported("network byte buffers must contain u8-compatible values")),
+            _ => Err(unsupported("network byte buffers must contain integers")),
+        })
+        .collect::<Result<Vec<_>, _>>()
+        .and_then(|bytes| {
+            String::from_utf8(bytes)
+                .map_err(|_| unsupported("network byte buffers must be valid UTF-8 text"))
+        })
+}
+
+fn write_byte_buffer_text(
+    value: SpikeValue,
+    env: &mut SpikeEnv,
+    text: &str,
+) -> Result<(), Diagnostic> {
+    let bytes = text
+        .bytes()
+        .map(|byte| SpikeValue::UInt(u64::from(byte)))
+        .collect::<Vec<_>>();
     match value {
-        SpikeValue::Array(values) => i64::try_from(values.len())
-            .map_err(|_| unsupported("byte buffer length is outside the host i64 range")),
+        SpikeValue::MutSlice { target, start, end } => {
+            let Some(SpikeValue::Array(values)) = env.get_mut(&target) else {
+                return Err(unsupported(
+                    "mutable byte buffers require a live local array",
+                ));
+            };
+            if start > end || end > values.len() {
+                return Err(unsupported("byte buffer slice is outside the array length"));
+            }
+            for (index, byte) in bytes.into_iter().take(end - start).enumerate() {
+                values[start + index] = byte;
+            }
+            Ok(())
+        }
+        SpikeValue::Array(_) => Ok(()),
         _ => Err(unsupported("network byte buffers must be byte arrays")),
     }
 }
 
-fn byte_buffer_text(value: SpikeValue) -> Result<String, Diagnostic> {
+fn byte_buffer_values(value: SpikeValue, env: &SpikeEnv) -> Result<Vec<SpikeValue>, Diagnostic> {
     match value {
-        SpikeValue::Array(values) => values
-            .into_iter()
-            .map(|value| match value {
-                SpikeValue::Int(value) => u8::try_from(value).map_err(|_| {
-                    unsupported("network byte buffers must contain u8-compatible values")
-                }),
-                SpikeValue::UInt(value) => u8::try_from(value).map_err(|_| {
-                    unsupported("network byte buffers must contain u8-compatible values")
-                }),
-                _ => Err(unsupported("network byte buffers must contain integers")),
-            })
-            .collect::<Result<Vec<_>, _>>()
-            .and_then(|bytes| {
-                String::from_utf8(bytes)
-                    .map_err(|_| unsupported("network byte buffers must be valid UTF-8 text"))
-            }),
+        SpikeValue::Array(values) => Ok(values),
+        SpikeValue::MutSlice { target, start, end } => {
+            let Some(SpikeValue::Array(values)) = env.get(&target) else {
+                return Err(unsupported(
+                    "mutable byte buffers require a live local array",
+                ));
+            };
+            let Some(values) = values.get(start..end) else {
+                return Err(unsupported("byte buffer slice is outside the array length"));
+            };
+            Ok(values.to_vec())
+        }
         _ => Err(unsupported("network byte buffers must be byte arrays")),
     }
 }
@@ -20070,6 +20261,10 @@ fn spike_tcp_listeners() -> &'static Mutex<HashMap<i64, SpikeTcpListener>> {
 
 fn spike_tcp_streams() -> &'static Mutex<HashMap<i64, SpikeTcpStream>> {
     SPIKE_TCP_STREAMS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn spike_tcp_responses() -> &'static Mutex<HashMap<i64, String>> {
+    SPIKE_TCP_RESPONSES.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
 fn spike_udp_sockets() -> &'static Mutex<HashMap<i64, SpikeUdpSocket>> {
@@ -20142,6 +20337,9 @@ fn net_tcp_write_string(stream: i64, message: &str) -> i64 {
         return -1;
     };
     stream.written.push_str(message);
+    if let Ok(mut responses) = spike_tcp_responses().lock() {
+        responses.insert(stream.listener_port, stream.written.clone());
+    }
     i64::try_from(message.len()).unwrap_or(-1)
 }
 
@@ -20170,6 +20368,9 @@ fn net_tcp_close_listener(listener: i64) -> i64 {
 
 fn net_tcp_registered_loopback_echo(host: &str, port: i64, message: &str) -> Option<String> {
     net_loopback_socket_addr(host, port)?;
+    if let Some(response) = spike_tcp_responses().lock().ok()?.remove(&port) {
+        return Some(response);
+    }
     let listeners = spike_tcp_listeners().lock().ok()?;
     if listeners.values().any(|listener| listener.port == port) {
         return Some(message.to_string());
@@ -20324,11 +20525,17 @@ fn net_udp_send_to(socket: i64, message: &str, peer: &str) -> i64 {
 }
 
 fn net_udp_recv_from(socket: i64, max_bytes: i64) -> Option<(i64, String)> {
+    let (count, peer, _message) = net_udp_recv_from_text(socket, max_bytes)?;
+    Some((count, peer))
+}
+
+fn net_udp_recv_from_text(socket: i64, max_bytes: i64) -> Option<(i64, String, String)> {
     let mut sockets = spike_udp_sockets().lock().ok()?;
     let socket = sockets.get_mut(&socket)?;
     let (message, peer) = socket.datagrams.pop()?;
     let max_bytes = usize::try_from(max_bytes.max(0)).ok()?;
-    Some((i64::try_from(message.len().min(max_bytes)).ok()?, peer))
+    let message = message.chars().take(max_bytes).collect::<String>();
+    Some((i64::try_from(message.len()).ok()?, peer, message))
 }
 
 fn net_udp_close(socket: i64) -> i64 {
@@ -21138,11 +21345,51 @@ fn i64_fs_path_content(
 }
 
 fn i64_net_resolve_text(host: &str) -> Option<String> {
-    (host, 0)
-        .to_socket_addrs()
-        .ok()
-        .and_then(|mut addrs| addrs.next())
-        .map(|addr| addr.ip().to_string())
+    if host == "localhost" {
+        return Some("127.0.0.1".to_string());
+    }
+    let addrs: Vec<std::net::SocketAddr> = (host, 0).to_socket_addrs().ok()?.collect();
+    if addrs.is_empty()
+        || addrs
+            .iter()
+            .any(|addr| i64_is_blocked_network_ip(addr.ip()))
+    {
+        return None;
+    }
+    addrs.into_iter().next().map(|addr| addr.ip().to_string())
+}
+
+fn i64_is_blocked_network_ip(ip: std::net::IpAddr) -> bool {
+    match ip {
+        std::net::IpAddr::V4(addr) => {
+            let octets = addr.octets();
+            addr.is_private()
+                || addr.is_loopback()
+                || addr.is_link_local()
+                || addr.is_unspecified()
+                || addr.is_broadcast()
+                || addr.is_multicast()
+                || octets[0] == 0
+                || (octets[0] == 100 && (64..=127).contains(&octets[1]))
+                || (octets[0] == 192 && octets[1] == 0 && octets[2] == 0)
+                || (octets[0] == 192 && octets[1] == 0 && octets[2] == 2)
+                || (octets[0] == 198 && (18..=19).contains(&octets[1]))
+                || (octets[0] == 198 && octets[1] == 51 && octets[2] == 100)
+                || (octets[0] == 203 && octets[1] == 0 && octets[2] == 113)
+        }
+        std::net::IpAddr::V6(addr) => {
+            if let Some(mapped) = addr.to_ipv4_mapped() {
+                return i64_is_blocked_network_ip(std::net::IpAddr::V4(mapped));
+            }
+            let segments = addr.segments();
+            addr.is_loopback()
+                || addr.is_unspecified()
+                || addr.is_multicast()
+                || (segments[0] & 0xfe00) == 0xfc00
+                || (segments[0] & 0xffc0) == 0xfe80
+                || (segments[0] == 0x2001 && segments[1] == 0x0db8)
+        }
+    }
 }
 
 fn eval_fs_write_call(
@@ -22329,6 +22576,14 @@ fn eval_compare(
 ) -> Result<SpikeValue, Diagnostic> {
     let left = eval_expr(lhs, functions, env, lines)?;
     let right = eval_expr(rhs, functions, env, lines)?;
+    eval_compare_values(op, left, right)
+}
+
+fn eval_compare_values(
+    op: CompareOp,
+    left: SpikeValue,
+    right: SpikeValue,
+) -> Result<SpikeValue, Diagnostic> {
     let result = match (&left, &right) {
         (SpikeValue::Int(left), SpikeValue::Int(right)) => compare_ord(op, *left, *right),
         (SpikeValue::UInt(left), SpikeValue::UInt(right)) => compare_ord(op, *left, *right),
@@ -24115,7 +24370,16 @@ mod tests {
     fn i64_net_resolve_text_normalizes_ipv6_literals() {
         assert_eq!(
             super::i64_net_resolve_text("0:0:0:0:0:0:0:1").as_deref(),
-            Some("::1")
+            None
+        );
+        assert_eq!(super::i64_net_resolve_text("127.0.0.1").as_deref(), None);
+    }
+
+    #[test]
+    fn i64_net_resolve_text_allows_public_numeric_literals() {
+        assert_eq!(
+            super::i64_net_resolve_text("8.8.8.8").as_deref(),
+            Some("8.8.8.8")
         );
     }
 
@@ -24124,7 +24388,7 @@ mod tests {
         let expr = Expr::Call {
             name: String::from("net_resolve"),
             args: vec![Expr::Literal(LiteralValue::String(String::from(
-                "0:0:0:0:0:0:0:1",
+                "2001:4860:4860:0:0:0:0:8888",
             )))],
             ty: Type::Option(Box::new(Type::String)),
         };
@@ -24132,8 +24396,8 @@ mod tests {
         let host = super::i64_net_resolve_host(&expr, &I64StaticBindings::default())
             .expect("numeric IPv6 host should lower");
 
-        assert_eq!(host.host, "0:0:0:0:0:0:0:1");
-        assert_eq!(host.resolved_len, 3);
+        assert_eq!(host.host, "2001:4860:4860:0:0:0:0:8888");
+        assert_eq!(host.resolved_len, 20);
         assert_ne!(host.resolved_len, host.host.len() as i64);
     }
 }
