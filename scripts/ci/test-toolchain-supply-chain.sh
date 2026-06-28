@@ -39,9 +39,14 @@ grep -Fq '[[ "$installed_version" != "cargo-vet ${install_version}" ]]' "$workfl
 }
 
 grep -Fq 'cargo install cargo-vet --version "$install_version" --locked --force' "$workflow" || {
-  echo "workflow must force-install the normalized cargo-vet version on mismatch" >&2
+  echo "workflow must force-install the configured cargo-vet version on mismatch" >&2
   exit 1
 }
+
+if grep -Fq 'install_version="${install_version}.0"' "$workflow"; then
+  echo "workflow must not force a .0 cargo-vet patch release for major/minor config versions" >&2
+  exit 1
+fi
 
 grep -Fq 'Ensure Rust linker availability' "$workflow" || {
   echo "workflow must provision a Rust linker before installing cargo-vet" >&2

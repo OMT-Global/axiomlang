@@ -749,6 +749,9 @@ fixed-array slots, including helper-parameter arrays feeding a direct-native
 process exit status. Static-range fixed-array slices also support narrow literal
 and dynamic indexing over the sliced window through the same projection slots,
 including pre-runtime slice locals that alias the projected fixed-array slots.
+Runtime slice locals can also alias static-range slices projected from
+helper-returned fixed-array slots before feeding `len`, `first`, and `last` into
+a direct-native process exit status.
 The public borrowed-slice smoke also prints `len`, `first`, `last`, and indexed
 projection output for both a local slice and a helper-returned slice while
 asserting `generated_rust: null`. Broader borrowed-slice aliasing, dynamic
