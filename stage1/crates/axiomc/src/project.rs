@@ -905,6 +905,18 @@ fn collect_test_targets(
     if properties_only && !conformance {
         tests.retain(|test| test.kind == TestKind::Property);
     }
+    for test in &mut tests {
+        if let Some(expected_stdout) =
+            load_manifest_test_stream(project_root, test.stdout.as_deref(), "stdout")?
+        {
+            test.stdout = Some(expected_stdout);
+        }
+        if let Some(expected_stderr) =
+            load_manifest_test_stream(project_root, test.stderr.as_deref(), "stderr")?
+        {
+            test.stderr = Some(expected_stderr);
+        }
+    }
     if let Some(expected_stdout) = load_package_expected_output(project_root)? {
         for test in &mut tests {
             if test.kind != TestKind::Benchmark && test.stdout.is_none() {
@@ -933,18 +945,6 @@ fn collect_test_targets(
     }
     if let Some(filter) = filter {
         tests.retain(|test| test_matches_filter(test, filter));
-    }
-    for test in &mut tests {
-        if let Some(expected_stdout) =
-            load_manifest_test_stream(project_root, test.stdout.as_deref(), "stdout")?
-        {
-            test.stdout = Some(expected_stdout);
-        }
-        if let Some(expected_stderr) =
-            load_manifest_test_stream(project_root, test.stderr.as_deref(), "stderr")?
-        {
-            test.stderr = Some(expected_stderr);
-        }
     }
     Ok(tests)
 }
@@ -10111,6 +10111,40 @@ return async_serve_route(1, "/", "ok", 1)
             Some(&Some("explicit\n"))
         );
         assert_eq!(stdout_by_name.get("manifest_bench"), Some(&None));
+    }
+
+    #[test]
+    fn package_expected_output_is_not_reloaded_as_manifest_fixture_path() {
+        let dir = tempdir().unwrap_or_else(|err| panic!("tempdir: {err}"));
+        let root = dir.path();
+        fs::write(
+            root.join("expected-output.txt"),
+            "{\"event\":\"ingest\",\"ok\":true}\ntrue\n",
+        )
+        .unwrap_or_else(|err| panic!("write package expected output: {err}"));
+
+        let mut manifest = package_manifest();
+        manifest.tests.push(crate::manifest::TestTarget {
+            name: "manifest_unit".to_string(),
+            entry: "src/manifest_unit.ax".to_string(),
+            stdin: None,
+            stdout: None,
+            stderr: None,
+            kind: TestKind::Unit,
+            expected_error: None,
+            http: None,
+            capabilities: Vec::new(),
+            package: None,
+        });
+
+        let tests = collect_test_targets(root, &manifest, None, false, false, false)
+            .unwrap_or_else(|err| panic!("collect tests: {err:?}"));
+
+        assert_eq!(tests.len(), 1);
+        assert_eq!(
+            tests[0].stdout.as_deref(),
+            Some("{\"event\":\"ingest\",\"ok\":true}\ntrue\n")
+        );
     }
 
     #[test]
