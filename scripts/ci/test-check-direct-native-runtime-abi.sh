@@ -21,24 +21,23 @@ assert report["target_id"] == "axiom://target/stage1-direct-native"
 assert report["contract_status"] == "partial"
 assert report["value_feature_count"] == 12
 assert report["capability_shim_count"] == 22
-assert report["status_counts"]["value_features"]["partial"] == 12
-assert report["status_counts"]["capability_shims"]["partial"] == 22
+assert report["status_counts"]["value_features"]["implemented"] == 1
+assert report["status_counts"]["value_features"]["partial"] == 11
+assert report["status_counts"]["capability_shims"]["implemented"] == 22
+assert report["status_counts"]["capability_shims"]["partial"] == 0
 assert report["blocked_rows"] == []
-assert len(report["incomplete_rows"]) == 34
-assert len(report["incomplete_rows_by_group"]["value_features"]) == 12
-assert len(report["incomplete_rows_by_group"]["capability_shims"]) == 22
+assert len(report["incomplete_rows"]) == 11
+assert len(report["incomplete_rows_by_group"]["value_features"]) == 11
+assert report["incomplete_rows_by_group"]["capability_shims"] == []
 assert report["blocked_rows_by_group"] == {
     "value_features": [],
     "capability_shims": [],
 }
-assert "env.read" in report["incomplete_rows"]
-assert "ffi.call" in report["incomplete_rows"]
-assert "json.serdes" in report["incomplete_rows"]
-assert "process.status" in report["incomplete_rows"]
-assert "crypto.random" in report["incomplete_rows"]
-assert "network.dns.resolve" in report["incomplete_rows"]
-assert "numeric.scalars" in report["incomplete_rows_by_group"]["value_features"]
-assert "process.status" in report["incomplete_rows_by_group"]["capability_shims"]
+assert report["evidence_test_manifest"]["present"] is True
+assert report["evidence_test_manifest"]["value_feature_rows"] == 12
+assert report["evidence_test_manifest"]["value_feature_test_count"] >= 40
+assert report["evidence_test_manifest"]["capability_shim_rows"] == 22
+assert report["evidence_test_manifest"]["capability_shim_test_count"] >= 70
 assert report["evidence_summary"]["value_features"] == {
     "with_evidence": 12,
     "without_evidence": 0,
@@ -57,7 +56,32 @@ assert report["evidence_summary"]["capability_shims"] == {
     "denial_evidence_not_applicable": 4,
     "without_denial_evidence": 0,
 }
-assert report["blocker_issues"] == [1001]
+assert "owned.move_state" not in report["incomplete_rows"]
+assert "ffi.call" not in report["incomplete_rows"]
+assert "json.serdes" not in report["incomplete_rows"]
+assert "crypto.hash" not in report["incomplete_rows"]
+assert "crypto.mac" not in report["incomplete_rows"]
+assert "crypto.random" not in report["incomplete_rows"]
+assert "crypto.signature" not in report["incomplete_rows"]
+assert "crypto.aead" not in report["incomplete_rows"]
+assert "clock.now_sleep" not in report["incomplete_rows"]
+assert "env.read" not in report["incomplete_rows"]
+assert "fs.read" not in report["incomplete_rows"]
+assert "fs.write" not in report["incomplete_rows"]
+assert "process.status" not in report["incomplete_rows"]
+assert "sync.primitives" not in report["incomplete_rows"]
+assert "regex.match_replace" not in report["incomplete_rows"]
+assert "io.logging_stdio" not in report["incomplete_rows"]
+assert "network.dns.resolve" not in report["incomplete_rows"]
+assert "network.http.client" not in report["incomplete_rows"]
+assert "network.http.server" not in report["incomplete_rows"]
+assert "network.http.async_server" not in report["incomplete_rows"]
+assert "network.tcp" not in report["incomplete_rows"]
+assert "network.udp" not in report["incomplete_rows"]
+assert "async.runtime" not in report["incomplete_rows"]
+assert "boolean" in report["incomplete_rows"]
+assert "numeric.scalars" in report["incomplete_rows"]
+assert report["blocker_issues"] == [1124]
 assert report["errors"] == []
 PY
 
@@ -75,10 +99,15 @@ for row_id in (
     "slice.borrowed",
     "map.lookup",
     "tuple",
-    "struct.field",
 ):
     assert value_rows[row_id]["runtime_evidence"] == [
         "stage1/crates/axiomc-backend-cranelift/src/lib.rs"
+    ]
+
+for row_id in ("option", "result", "enum.payload", "struct.field"):
+    assert value_rows[row_id]["runtime_evidence"] == [
+        "stage1/crates/axiomc/src/hir.rs",
+        "stage1/crates/axiomc-backend-cranelift/src/lib.rs",
     ]
 
 assert value_rows["owned.move_state"]["runtime_evidence"] == [
@@ -152,8 +181,115 @@ for report_path in sys.argv[1:]:
             "without_denial_evidence": 0,
         },
     }
+    assert report["evidence_test_manifest"] == {
+        "present": False,
+        "value_feature_rows": 0,
+        "value_feature_test_count": 0,
+        "capability_shim_rows": 0,
+        "capability_shim_test_count": 0,
+    }
     assert report["errors"]
 PY
+
+python3 "$script" --contract "$contract" --list-evidence-rows --json >"$temp_dir/row-list.json"
+python3 - "$temp_dir/row-list.json" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    report = json.load(handle)
+
+assert report["schema"] == "axiom.direct_native.runtime_abi.evidence_rows.v1"
+assert report["ready"] is False
+assert report["target_id"] == "axiom://target/stage1-direct-native"
+assert report["contract_status"] == "partial"
+assert report["value_feature_count"] == 12
+assert report["capability_shim_count"] == 22
+assert len(report["rows"]) == 34
+assert report["status_counts"]["value_features"]["implemented"] == 1
+assert report["status_counts"]["capability_shims"]["implemented"] == 22
+assert report["blocker_issues"] == [1124]
+assert report["errors"] == []
+
+rows = {row["row_id"]: row for row in report["rows"]}
+assert rows["option"]["group"] == "value_features"
+assert rows["option"]["status"] == "partial"
+assert rows["option"]["blockers"] == [1124]
+assert rows["option"]["test_count"] >= 1
+assert "cranelift_backend_lowers_option_int_match_to_runtime_exit_code" in rows["option"]["tests"]
+assert "stage1/crates/axiomc/tests/cranelift_backend.rs" in rows["option"]["evidence"]
+assert "general Option ABI" in rows["option"]["notes"]
+
+assert rows["fs.read"]["group"] == "capability_shims"
+assert rows["fs.read"]["status"] == "implemented"
+assert rows["fs.read"]["blockers"] == []
+assert rows["fs.read"]["test_count"] >= 2
+assert "cranelift_backend_lowers_fs_read_to_runtime_exit_code" in rows["fs.read"]["tests"]
+assert "stage1/crates/axiomc/tests/cranelift_backend.rs" in rows["fs.read"]["denial_evidence"]
+assert "stage1/crates/axiomc/src/cranelift_backend.rs" in rows["fs.read"]["runtime_evidence"]
+PY
+
+python3 "$script" --contract "$contract" --list-evidence-rows >"$temp_dir/row-list.txt"
+grep -Fq "value_features option partial" "$temp_dir/row-list.txt"
+grep -Fq "capability_shims fs.read implemented" "$temp_dir/row-list.txt"
+grep -Fq "blockers=#1124" "$temp_dir/row-list.txt"
+grep -Fq "blockers=-" "$temp_dir/row-list.txt"
+
+if python3 "$script" --contract "$contract" --list-evidence-rows --evidence-row fs.read >"$temp_dir/row-list-conflict.txt" 2>"$temp_dir/row-list-conflict.err"; then
+  echo "expected conflicting row inspection modes to fail" >&2
+  exit 1
+fi
+grep -Fq -- "--list-evidence-rows and --evidence-row cannot be combined" "$temp_dir/row-list-conflict.err"
+
+python3 "$script" --contract "$contract" --evidence-row fs.read >"$temp_dir/fs-read-row.txt"
+grep -Fxq "cranelift_backend_lowers_fs_read_to_runtime_exit_code" "$temp_dir/fs-read-row.txt"
+grep -Fxq "cranelift_backend_denies_fs_read_symlink_escape_at_runtime" "$temp_dir/fs-read-row.txt"
+
+python3 "$script" --contract "$contract" --evidence-row option --json >"$temp_dir/option-row.json"
+python3 - "$temp_dir/option-row.json" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    report = json.load(handle)
+
+assert report["schema"] == "axiom.direct_native.runtime_abi.evidence_row.v1"
+assert report["row_id"] == "option"
+assert report["group"] == "value_features"
+assert report["status"] == "partial"
+assert report["blockers"] == [1124]
+assert "stage1/crates/axiomc/tests/cranelift_backend.rs" in report["evidence"]
+assert "stage1/crates/axiomc-backend-cranelift/src/lib.rs" in report["runtime_evidence"]
+assert "general Option ABI" in report["notes"]
+assert "cranelift_backend_lowers_option_int_match_to_runtime_exit_code" in report["tests"]
+assert report["errors"] == []
+PY
+
+python3 "$script" --contract "$contract" --evidence-row fs.read --json >"$temp_dir/fs-read-row.json"
+python3 - "$temp_dir/fs-read-row.json" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    report = json.load(handle)
+
+assert report["row_id"] == "fs.read"
+assert report["group"] == "capability_shims"
+assert report["status"] == "implemented"
+assert report["blockers"] == []
+assert "stage1/crates/axiomc/tests/cranelift_backend.rs" in report["evidence"]
+assert "stage1/crates/axiomc/tests/cranelift_backend.rs" in report["denial_evidence"]
+assert "stage1/crates/axiomc/src/cranelift_backend.rs" in report["runtime_evidence"]
+assert "cranelift_backend_lowers_fs_read_to_runtime_exit_code" in report["tests"]
+assert report["errors"] == []
+PY
+
+if python3 "$script" --contract "$contract" --evidence-row missing.row >"$temp_dir/missing-row.txt" 2>"$temp_dir/missing-row.err"; then
+  echo "expected unknown evidence rows to fail" >&2
+  exit 1
+fi
+grep -Fq "unknown direct native runtime ABI evidence row: missing.row" "$temp_dir/missing-row.err"
+grep -Fq "unknown direct native runtime ABI contract row: missing.row" "$temp_dir/missing-row.err"
 
 python3 - "$contract" "$temp_dir/ready-contract.json" <<'PY'
 import json
@@ -179,44 +315,59 @@ import sys
 with open(sys.argv[1], encoding="utf-8") as handle:
     contract = json.load(handle)
 
+value_rows = {row["id"]: row for row in contract["value_features"]}
 capability_rows = {row["id"]: row for row in contract["capability_shims"]}
+assert value_rows["owned.move_state"]["runtime_evidence"] == [
+    "stage1/crates/axiomc/tests/cranelift_backend.rs"
+]
 for row_id in (
+    "boolean",
+    "enum.payload",
+    "numeric.scalars",
+    "option",
+    "result",
+    "struct.field",
+):
+    runtime_evidence = value_rows[row_id]["runtime_evidence"]
+    assert "stage1/crates/axiomc-backend-cranelift/src/lib.rs" in runtime_evidence
+
+for row_id in (
+    "array.fixed",
+    "map.lookup",
+    "slice.borrowed",
+    "string",
+    "tuple",
+):
+    assert value_rows[row_id]["runtime_evidence"] == [
+        "stage1/crates/axiomc-backend-cranelift/src/lib.rs"
+    ]
+
+for row_id in (
+    "clock.now_sleep",
+    "crypto.hash",
+    "crypto.mac",
+    "crypto.random",
+    "env.read",
     "fs.read",
     "fs.write",
     "network.dns.resolve",
-    "network.tcp",
-    "network.udp",
-    "network.http.client",
-    "network.http.server",
-    "network.http.async_server",
     "process.status",
-    "env.read",
-    "clock.now_sleep",
-    "ffi.call",
     "regex.match_replace",
     "io.logging_stdio",
 ):
     runtime_evidence = capability_rows[row_id]["runtime_evidence"]
     assert "stage1/crates/axiomc/src/cranelift_backend.rs" in runtime_evidence
-    assert "stage1/crates/axiomc-backend-cranelift/src/lib.rs" in runtime_evidence
 
-assert capability_rows["json.serdes"]["runtime_evidence"] == [
-    "stage1/crates/axiomc/src/cranelift_backend.rs"
-]
-for row_id in ("crypto.hash", "crypto.mac"):
-    assert capability_rows[row_id]["runtime_evidence"] == [
-        "stage1/crates/axiomc/src/cranelift_backend.rs",
-        "stage1/crates/axiomc/tests/cranelift_backend.rs",
-    ]
-for row_id in ("crypto.signature", "crypto.aead", "async.runtime"):
-    assert capability_rows[row_id]["runtime_evidence"] == [
-        "stage1/crates/axiomc/src/cranelift_backend.rs",
-        "stage1/crates/axiomc/tests/cranelift_backend.rs",
-    ]
-assert capability_rows["sync.primitives"]["runtime_evidence"] == [
-    "stage1/crates/axiomc/src/cranelift_backend.rs",
-    "stage1/crates/axiomc/tests/cranelift_backend.rs",
-]
+assert "stage1/crates/axiomc/src/cranelift_backend.rs" in capability_rows["network.tcp"]["runtime_evidence"]
+assert "stage1/crates/axiomc/src/cranelift_backend.rs" in capability_rows["network.udp"]["runtime_evidence"]
+assert "stage1/crates/axiomc/src/cranelift_backend.rs" in capability_rows["network.http.client"]["runtime_evidence"]
+assert "stage1/crates/axiomc/src/cranelift_backend.rs" in capability_rows["network.http.server"]["runtime_evidence"]
+assert "stage1/crates/axiomc/src/cranelift_backend.rs" in capability_rows["network.http.async_server"]["runtime_evidence"]
+assert "stage1/crates/axiomc/src/cranelift_backend.rs" in capability_rows["crypto.signature"]["runtime_evidence"]
+assert "stage1/crates/axiomc/src/cranelift_backend.rs" in capability_rows["crypto.aead"]["runtime_evidence"]
+assert "stage1/crates/axiomc/src/cranelift_backend.rs" in capability_rows["ffi.call"]["runtime_evidence"]
+assert "stage1/crates/axiomc/src/cranelift_backend.rs" in capability_rows["async.runtime"]["runtime_evidence"]
+assert "stage1/crates/axiomc/src/cranelift_backend.rs" in capability_rows["json.serdes"]["runtime_evidence"]
 PY
 
 python3 - "$contract" "$temp_dir/missing-evidence.json" <<'PY'
@@ -303,6 +454,42 @@ with open(sys.argv[1], encoding="utf-8") as handle:
 assert any("runtime_evidence" in error and "does not exist" in error for error in report["errors"])
 PY
 
+cp "$repo_root/stage1/runtime-abi/direct-native-v0-evidence-tests.json" "$temp_dir/stale-evidence-tests.json"
+python3 - "$temp_dir/stale-evidence-tests.json" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    manifest = json.load(handle)
+
+manifest["value_features"]["numeric.scalars"][0] = "missing_cranelift_runtime_abi_test"
+manifest["capability_shims"]["fs.read"][0] = "missing_cranelift_capability_abi_test"
+
+with open(sys.argv[1], "w", encoding="utf-8") as handle:
+    json.dump(manifest, handle)
+PY
+
+if python3 "$script" \
+  --contract "$contract" \
+  --evidence-test-manifest "$temp_dir/stale-evidence-tests.json" \
+  --json >"$temp_dir/stale-evidence-tests-report.json"; then
+  echo "expected stale focused evidence test names to fail" >&2
+  exit 1
+fi
+python3 - "$temp_dir/stale-evidence-tests-report.json" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    report = json.load(handle)
+
+assert any("names missing test" in error for error in report["errors"])
+assert any(
+    "capability_shims" in error and "names missing test" in error
+    for error in report["errors"]
+)
+PY
+
 python3 - "$contract" "$temp_dir/denial-applicability-conflict.json" <<'PY'
 import json
 import sys
@@ -343,7 +530,7 @@ with open(sys.argv[1], encoding="utf-8") as handle:
     contract = json.load(handle)
 
 contract["value_features"][0]["status"] = "implemented"
-contract["value_features"][0]["blockers"] = [1001]
+contract["value_features"][0]["blockers"] = [1124]
 contract["value_features"][0]["runtime_evidence"] = [
     "stage1/crates/axiomc/tests/cranelift_backend.rs"
 ]

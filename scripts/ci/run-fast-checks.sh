@@ -1,22 +1,26 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+script_repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+repo_root="${AXIOM_CHECKOUT_PATH:-$script_repo_root}"
 cd "$repo_root"
 
 target_dir="${CARGO_TARGET_DIR:-${RUNNER_TEMP:-/tmp}/axiom-fast-ci-target}"
 mkdir -p "$target_dir"
 export CARGO_TARGET_DIR="$target_dir"
 
-bash scripts/ci/check-python-exit-docs.sh
-bash scripts/ci/validate-capability-manifests.sh
-bash scripts/ci/test-validate-capability-manifests.sh
-bash scripts/ci/test-pr-fast-ci-workflow.sh
-python3 scripts/ci/test-pr-queue-remediation.py
-python3 scripts/ci/test-report-delivery-signals.py
-python3 scripts/ci/test-issue-pr-traceability.py
-bash scripts/ci/run-stdlib-property-checks.sh
-bash scripts/ci/run-compiler-property-checks.sh
+bash "$script_repo_root/scripts/ci/check-python-exit-docs.sh"
+bash "$script_repo_root/scripts/ci/validate-capability-manifests.sh"
+bash "$script_repo_root/scripts/ci/test-validate-capability-manifests.sh"
+bash "$script_repo_root/scripts/ci/test-pr-fast-ci-workflow.sh"
+python3 "$script_repo_root/scripts/ci/render-direct-native-runtime-abi-status.py" \
+  --contract "$repo_root/stage1/runtime-abi/direct-native-v0.json" \
+  --check-doc "$repo_root/docs/direct-native-runtime-abi-v0.md"
+python3 "$script_repo_root/scripts/ci/test-pr-queue-remediation.py"
+python3 "$script_repo_root/scripts/ci/test-report-delivery-signals.py"
+python3 "$script_repo_root/scripts/ci/test-issue-pr-traceability.py"
+bash "$script_repo_root/scripts/ci/run-stdlib-property-checks.sh"
+bash "$script_repo_root/scripts/ci/run-compiler-property-checks.sh"
 
 cargo test --manifest-path stage1/Cargo.toml -p axiomc render_rust_verifies_https_tls_certificates -- --nocapture
 cargo test --manifest-path stage1/Cargo.toml -p axiomc render_rust_uses_trusted_crypto_symbol_loading -- --nocapture
@@ -55,9 +59,4 @@ if [[ -z "$rust_linker" ]]; then
   exit 1
 fi
 
-for example in proof_cli proof_worker proof_http_service; do
-  cargo run --manifest-path stage1/Cargo.toml -p axiomc -- check "stage1/examples/${example}" --json
-  cargo run --manifest-path stage1/Cargo.toml -p axiomc -- build "stage1/examples/${example}" --json
-  cargo run --manifest-path stage1/Cargo.toml -p axiomc -- run "stage1/examples/${example}"
-  cargo run --manifest-path stage1/Cargo.toml -p axiomc -- test "stage1/examples/${example}" --json
-done
+bash scripts/ci/run-stage1-proof-test.sh

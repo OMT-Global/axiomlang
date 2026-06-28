@@ -34,7 +34,7 @@ use std::io::{self, BufRead, Write};
 use std::os::fd::{AsRawFd, FromRawFd};
 #[cfg(unix)]
 use std::os::unix::ffi::OsStrExt;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::process::Command as ProcessCommand;
 use std::time::Instant;
 
@@ -69,6 +69,11 @@ enum Command {
         /// After type and ownership checks pass, run discovered property fixtures.
         #[arg(long)]
         properties: bool,
+        /// Select the backend used when --properties executes property fixtures.
+        /// Defaults to the supported direct-native `cranelift` backend;
+        /// `generated-rust` is compatibility-only.
+        #[arg(long, default_value_t = NativeBackendKind::Cranelift)]
+        backend: NativeBackendKind,
         #[arg(long)]
         exports: bool,
         #[arg(long = "debug-symbols")]
@@ -86,7 +91,9 @@ enum Command {
         path: PathBuf,
         #[arg(long)]
         json: bool,
-        /// Select the build backend. When omitted, native builds default to `cranelift` while targeted builds keep `generated-rust` for compatibility. `rust` is accepted as a transition alias for `generated-rust`.
+        /// Select the build backend. When omitted, builds use the supported
+        /// direct-native `cranelift` backend. `generated-rust` is
+        /// compatibility-only and must be requested explicitly.
         #[arg(long)]
         backend: Option<NativeBackendKind>,
         #[arg(long)]
@@ -104,14 +111,16 @@ enum Command {
         #[arg(long)]
         offline: bool,
     },
-    /// Build and run a stage1 package through the selected backend.
+    /// Build and run a stage1 package through the default direct-native backend.
     Run {
         path: PathBuf,
         /// Emit an axiom.stage1.v1 JSON envelope; see stage1/compiler-contracts/schemas/axiom.stage1.command.schema.json.
         #[arg(long)]
         json: bool,
         /// Select the backend used to build the executable before running it.
-        #[arg(long, default_value_t = NativeBackendKind::GeneratedRust)]
+        /// Defaults to the supported direct-native `cranelift` backend;
+        /// `generated-rust` is compatibility-only.
+        #[arg(long, default_value_t = NativeBackendKind::Cranelift)]
         backend: NativeBackendKind,
         #[arg(short = 'p', long = "package")]
         package: Option<String>,
@@ -131,7 +140,9 @@ enum Command {
         #[arg(long)]
         json: bool,
         /// Select the backend used to build executable test cases.
-        #[arg(long, default_value_t = NativeBackendKind::GeneratedRust)]
+        /// Defaults to the supported direct-native `cranelift` backend;
+        /// `generated-rust` is compatibility-only.
+        #[arg(long, default_value_t = NativeBackendKind::Cranelift)]
         backend: NativeBackendKind,
         #[arg(long)]
         filter: Option<String>,
@@ -444,6 +455,7 @@ fn main() {
             path,
             json,
             properties,
+            backend,
             exports,
             debug_symbols,
             macro_recursion_limit,
@@ -460,7 +472,7 @@ fn main() {
             ) {
                 Ok(output) => {
                     let property_output = if properties {
-                        match run_property_check_tests(&path, package.clone()) {
+                        match run_property_check_tests(&path, backend, package.clone()) {
                             Ok(output) => Some(output),
                             Err(error) => std::process::exit(print_error("check", error, json)),
                         }
@@ -517,6 +529,7 @@ fn main() {
                     target,
                     package: package.clone(),
                     debug,
+                    stdin: None,
                     locked,
                     offline,
                 },
@@ -1322,15 +1335,9 @@ fn main() {
 
 fn effective_build_backend(
     backend: Option<NativeBackendKind>,
-    target: Option<&String>,
+    _target: Option<&String>,
 ) -> NativeBackendKind {
-    backend.unwrap_or_else(|| {
-        if target.is_some() {
-            NativeBackendKind::GeneratedRust
-        } else {
-            NativeBackendKind::Cranelift
-        }
-    })
+    backend.unwrap_or(NativeBackendKind::Cranelift)
 }
 
 #[derive(Debug)]
@@ -1359,11 +1366,13 @@ fn parse_project_entry(path: &Path) -> Result<ParseOutput, Diagnostic> {
 
 fn run_property_check_tests(
     path: &Path,
+    backend: NativeBackendKind,
     package: Option<String>,
 ) -> Result<TestOutput, Diagnostic> {
     run_project_tests_with_options(
         path,
         &TestOptions {
+            backend,
             filter: None,
             package,
             include_benchmarks: false,
@@ -6129,12 +6138,16 @@ struct DocOutput {
 
 fn resolve_doc_out_dir(path: &Path, out_dir: Option<PathBuf>, markdown_only: bool) -> PathBuf {
     if let Some(out_dir) = out_dir {
-        return out_dir;
+        return if out_dir.is_absolute() {
+            out_dir
+        } else {
+            path.join(out_dir)
+        };
     }
     if markdown_only {
         default_markdown_doc_out_dir(path)
     } else {
-        PathBuf::from("docs/axiom")
+        path.join("docs/axiom")
     }
 }
 
@@ -6159,7 +6172,8 @@ fn generate_docs(path: &Path, out_dir: &Path, write_html: bool) -> Result<DocOut
             format!("no .ax files found under {}", path.display()),
         ));
     }
-    let doc_dir = open_doc_output_dir(out_dir)?;
+    let out_dir = prepare_doc_out_dir(path, out_dir)?;
+    let doc_dir = open_doc_output_dir(&out_dir)?;
     let items = extract_doc_items(&files)?;
     let markdown = render_markdown_docs(&items);
     let markdown_path = out_dir.join("index.md");
@@ -6232,8 +6246,8 @@ fn open_doc_output_dir_impl(path: &Path) -> Result<DocOutputDir, Diagnostic> {
 
     for component in path.components() {
         match component {
-            std::path::Component::RootDir | std::path::Component::CurDir => continue,
-            std::path::Component::ParentDir => {
+            Component::RootDir | Component::CurDir => continue,
+            Component::ParentDir => {
                 return Err(Diagnostic::new(
                     "doc",
                     format!(
@@ -6242,13 +6256,13 @@ fn open_doc_output_dir_impl(path: &Path) -> Result<DocOutputDir, Diagnostic> {
                     ),
                 ));
             }
-            std::path::Component::Prefix(_) => {
+            Component::Prefix(_) => {
                 return Err(Diagnostic::new(
                     "doc",
                     format!("unsupported documentation output path {}", path.display()),
                 ));
             }
-            std::path::Component::Normal(name) => {
+            Component::Normal(name) => {
                 dir = open_or_create_doc_dir_component(&dir, name, path)?;
             }
         }
@@ -6435,7 +6449,6 @@ impl DocOutputDir {
         display_path: &Path,
     ) -> Result<(), Diagnostic> {
         let name = cstring_name(name)?;
-        reject_symlink_child(&self.dir, &name, display_path)?;
         match unlinkat_child(&self.dir, &name) {
             Ok(()) => Ok(()),
             Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
@@ -6472,7 +6485,10 @@ fn reject_symlink_child(dir: &File, name: &CString, display_path: &Path) -> Resu
     if (stat.st_mode & libc::S_IFMT) == libc::S_IFLNK {
         return Err(Diagnostic::new(
             "doc",
-            format!("refusing to replace symlink {}", display_path.display()),
+            format!(
+                "refusing to write documentation through symlink {}",
+                display_path.display()
+            ),
         ));
     }
     Ok(())
@@ -6599,6 +6615,134 @@ fn write_doc_file_fallback(
                 .unwrap_or_else(|| String::from("temporary file collision"))
         ),
     ))
+}
+
+fn prepare_doc_out_dir(project: &Path, out_dir: &Path) -> Result<PathBuf, Diagnostic> {
+    let project_root = fs::canonicalize(project).map_err(|err| {
+        Diagnostic::new(
+            "doc",
+            format!("failed to resolve project {}: {err}", project.display()),
+        )
+    })?;
+    let out_dir = if out_dir.is_absolute() {
+        normalize_existing_path_prefix(out_dir)
+    } else {
+        std::env::current_dir()
+            .map_err(|err| Diagnostic::new("doc", format!("failed to resolve cwd: {err}")))?
+            .join(out_dir)
+    };
+    if !out_dir.starts_with(&project_root) {
+        return Err(Diagnostic::new(
+            "doc",
+            format!(
+                "documentation output {} must be inside project {}",
+                out_dir.display(),
+                project_root.display()
+            ),
+        ));
+    }
+    create_dir_without_symlinks(&project_root, &out_dir)?;
+    let resolved_out_dir = fs::canonicalize(&out_dir).map_err(|err| {
+        Diagnostic::new(
+            "doc",
+            format!("failed to resolve {}: {err}", out_dir.display()),
+        )
+    })?;
+    if !resolved_out_dir.starts_with(&project_root) {
+        return Err(Diagnostic::new(
+            "doc",
+            format!(
+                "documentation output {} resolves outside project {}",
+                resolved_out_dir.display(),
+                project_root.display()
+            ),
+        ));
+    }
+    Ok(resolved_out_dir)
+}
+
+fn normalize_existing_path_prefix(path: &Path) -> PathBuf {
+    let mut missing = Vec::new();
+    let mut current = path;
+    loop {
+        if current.exists() {
+            let mut resolved = fs::canonicalize(current).unwrap_or_else(|_| current.to_path_buf());
+            for component in missing.iter().rev() {
+                resolved.push(component);
+            }
+            return resolved;
+        }
+        let Some(parent) = current.parent() else {
+            return path.to_path_buf();
+        };
+        let Some(name) = current.file_name() else {
+            return path.to_path_buf();
+        };
+        missing.push(name.to_os_string());
+        current = parent;
+    }
+}
+
+fn create_dir_without_symlinks(project_root: &Path, out_dir: &Path) -> Result<(), Diagnostic> {
+    let relative = out_dir.strip_prefix(project_root).map_err(|_| {
+        Diagnostic::new(
+            "doc",
+            format!(
+                "documentation output {} must be inside project {}",
+                out_dir.display(),
+                project_root.display()
+            ),
+        )
+    })?;
+    let mut current = project_root.to_path_buf();
+    for component in relative.components() {
+        if !matches!(component, Component::Normal(_)) {
+            return Err(Diagnostic::new(
+                "doc",
+                format!(
+                    "documentation output {} must not contain relative components",
+                    out_dir.display()
+                ),
+            ));
+        }
+        current.push(component);
+        match fs::symlink_metadata(&current) {
+            Ok(metadata) if metadata.file_type().is_symlink() => {
+                return Err(Diagnostic::new(
+                    "doc",
+                    format!(
+                        "refusing to write documentation through symlink {}",
+                        current.display()
+                    ),
+                ));
+            }
+            Ok(metadata) if metadata.is_dir() => {}
+            Ok(_) => {
+                return Err(Diagnostic::new(
+                    "doc",
+                    format!(
+                        "documentation output {} is not a directory",
+                        current.display()
+                    ),
+                ));
+            }
+            Err(err) if err.kind() == io::ErrorKind::NotFound => {
+                fs::create_dir(&current).map_err(|err| {
+                    Diagnostic::new(
+                        "doc",
+                        format!("failed to create {}: {err}", current.display()),
+                    )
+                })?;
+            }
+            Err(err) => {
+                return Err(Diagnostic::new(
+                    "doc",
+                    format!("failed to inspect {}: {err}", current.display()),
+                ));
+            }
+        }
+    }
+    Ok(())
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -7943,7 +8087,11 @@ mod tests {
         assert!(help.contains("Create a new stage1 package"));
         assert!(help.contains("Check a stage1 package or workspace member"));
         assert!(help.contains("Build a stage1 package through the default direct-native backend"));
-        assert!(help.contains("Build and run a stage1 package through the selected backend"));
+        assert!(
+            help.contains(
+                "Build and run a stage1 package through the default direct-native backend"
+            )
+        );
 
         let mut command = Cli::command();
         let build_help = command
@@ -7951,15 +8099,22 @@ mod tests {
             .expect("build subcommand")
             .render_long_help()
             .to_string();
-        assert!(build_help.contains("native builds default to `cranelift`"));
-        assert!(build_help.contains("targeted builds keep `generated-rust` for compatibility"));
-        assert!(build_help.contains("`rust` is accepted as a transition alias"));
+        assert!(build_help.contains("builds use the supported direct-native `cranelift` backend"));
+        assert!(build_help.contains("compatibility-only and must be requested explicitly"));
+        assert!(!build_help.contains("`rust` is accepted as a transition alias"));
         assert!(
             build_help.contains("Build a stage1 package through the default direct-native backend")
         );
         assert!(build_help.contains("--locked"));
         assert!(build_help.contains("--offline"));
         assert!(build_help.contains("direct-native"));
+        let mut command = Cli::command();
+        let run_help = command
+            .find_subcommand_mut("run")
+            .expect("run subcommand")
+            .render_long_help()
+            .to_string();
+        assert!(run_help.contains("[default: cranelift]"));
         let mut command = Cli::command();
         let test_help = command
             .find_subcommand_mut("test")
@@ -7968,6 +8123,7 @@ mod tests {
             .to_string();
         assert!(test_help.contains("--properties"));
         assert!(test_help.contains("--conformance"));
+        assert!(test_help.contains("[default: cranelift]"));
         assert!(help.contains("Discover, build, and run package test entrypoints"));
         assert!(help.contains("Inspect manifest capability requirements"));
         assert!(help.contains("Inspect project metadata for agent tooling"));
@@ -8070,163 +8226,6 @@ return "ok"
             .collect();
 
         assert_eq!(generated_files, vec![String::from("index.md")]);
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn doc_generation_rejects_symlinked_markdown_output() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let project = dir.path().join("doc-symlink-output");
-        fs::create_dir_all(project.join("src")).expect("mkdir");
-        fs::write(
-            project.join("axiom.toml"),
-            r#"[package]
-name = "doc-symlink-output"
-version = "0.1.0"
-
-[build]
-entry = "src/main.ax"
-out_dir = "dist"
-"#,
-        )
-        .expect("write manifest");
-        fs::write(project.join("axiom.lock"), "version = 1\n").expect("write lock");
-        fs::write(
-            project.join("src/main.ax"),
-            r#"/// Attacker-controlled docs.
-pub fn route(path: string): string {
-return "ok"
-}
-"#,
-        )
-        .expect("write source");
-
-        fs::create_dir_all(project.join("dist/docs")).expect("mkdir docs dir");
-        let victim = dir.path().join("victim.txt");
-        fs::write(&victim, "keep me").expect("write victim");
-        std::os::unix::fs::symlink(&victim, project.join("dist/docs/index.md"))
-            .expect("symlink markdown output");
-
-        let error = generate_docs(&project, &project.join("dist/docs"), false)
-            .expect_err("symlinked markdown output is rejected");
-
-        assert!(error.message.contains("refusing to replace symlink"));
-        assert_eq!(fs::read_to_string(&victim).expect("read victim"), "keep me");
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn doc_generation_rejects_symlinked_output_directory() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let project = dir.path().join("doc-symlink-dir");
-        fs::create_dir_all(project.join("src")).expect("mkdir");
-        fs::write(
-            project.join("axiom.toml"),
-            r#"[package]
-name = "doc-symlink-dir"
-version = "0.1.0"
-
-[build]
-entry = "src/main.ax"
-out_dir = "dist"
-"#,
-        )
-        .expect("write manifest");
-        fs::write(project.join("axiom.lock"), "version = 1\n").expect("write lock");
-        fs::write(
-            project.join("src/main.ax"),
-            r#"/// Attacker-controlled docs directory.
-pub fn route(path: string): string {
-return "ok"
-}
-"#,
-        )
-        .expect("write source");
-
-        fs::create_dir_all(project.join("dist")).expect("mkdir dist");
-        let victim_dir = dir.path().join("victim-docs");
-        fs::create_dir_all(&victim_dir).expect("mkdir victim docs");
-        std::os::unix::fs::symlink(&victim_dir, project.join("dist/docs"))
-            .expect("symlink docs dir");
-
-        let error = generate_docs(&project, &project.join("dist/docs"), false)
-            .expect_err("symlinked docs directory is rejected");
-
-        assert!(error.message.contains("refusing to write documentation"));
-        assert!(!victim_dir.join("index.md").exists());
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn doc_generation_allows_symlinked_project_root_default_output() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let project = dir.path().join("doc-real-project");
-        fs::create_dir_all(project.join("src")).expect("mkdir");
-        fs::write(
-            project.join("axiom.toml"),
-            r#"[package]
-name = "doc-real-project"
-version = "0.1.0"
-
-[build]
-entry = "src/main.ax"
-out_dir = "dist"
-"#,
-        )
-        .expect("write manifest");
-        fs::write(project.join("axiom.lock"), "version = 1\n").expect("write lock");
-        fs::write(
-            project.join("src/main.ax"),
-            r#"/// Documentation through a symlinked checkout.
-pub fn route(path: string): string {
-return "ok"
-}
-"#,
-        )
-        .expect("write source");
-
-        let project_link = dir.path().join("doc-project-link");
-        std::os::unix::fs::symlink(&project, &project_link).expect("symlink project root");
-        let out_dir = resolve_doc_out_dir(&project_link, None, true);
-
-        let output = generate_docs(&project_link, &out_dir, false)
-            .expect("generate docs through symlinked project root");
-
-        assert_eq!(out_dir, project.join("dist/docs"));
-        assert_eq!(output.markdown, project.join("dist/docs/index.md"));
-        assert!(
-            project.join("dist/docs/index.md").exists(),
-            "default output should be rooted in the canonical project directory"
-        );
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn doc_output_writes_through_held_directory_after_path_swap() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let docs = dir.path().join("project/dist/docs");
-        fs::create_dir_all(&docs).expect("mkdir docs dir");
-
-        let doc_dir = open_doc_output_dir(&docs).expect("open docs dir");
-
-        let held_docs = dir.path().join("held-docs");
-        fs::rename(&docs, &held_docs).expect("move opened docs dir");
-        let victim_dir = dir.path().join("victim-docs");
-        fs::create_dir_all(&victim_dir).expect("mkdir victim docs");
-        std::os::unix::fs::symlink(&victim_dir, &docs).expect("symlink visible docs path");
-
-        doc_dir
-            .write_file("index.md", b"# Safe docs\n", &docs.join("index.md"))
-            .expect("write through held docs dir");
-
-        assert_eq!(
-            fs::read_to_string(held_docs.join("index.md")).expect("read held docs"),
-            "# Safe docs\n"
-        );
-        assert!(
-            !victim_dir.join("index.md").exists(),
-            "path swap must not redirect writes through the visible symlink"
-        );
     }
 
     #[test]
@@ -8462,14 +8461,52 @@ return "ok"
     }
 
     #[test]
+    fn test_defaults_to_cranelift_backend() {
+        let cli = Cli::parse_from(["axiomc", "test", "."]);
+        match cli.command {
+            Command::Test { backend, .. } => {
+                assert_eq!(backend, NativeBackendKind::Cranelift);
+            }
+            other => panic!("expected test command, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn check_accepts_properties_flag() {
         let cli = Cli::parse_from(["axiomc", "check", ".", "--properties", "--json"]);
         match cli.command {
             Command::Check {
-                properties, json, ..
+                properties,
+                backend,
+                json,
+                ..
             } => {
                 assert!(properties);
+                assert_eq!(backend, NativeBackendKind::Cranelift);
                 assert!(json);
+            }
+            other => panic!("expected check command, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn check_accepts_property_backend_selection() {
+        let cli = Cli::parse_from([
+            "axiomc",
+            "check",
+            ".",
+            "--properties",
+            "--backend",
+            "generated-rust",
+        ]);
+        match cli.command {
+            Command::Check {
+                properties,
+                backend,
+                ..
+            } => {
+                assert!(properties);
+                assert_eq!(backend, NativeBackendKind::GeneratedRust);
             }
             other => panic!("expected check command, got {other:?}"),
         }
@@ -8508,7 +8545,8 @@ return "ok"
         fs::write(project.join("src/addition_property.stdout"), "0\n")
             .expect("write property golden");
 
-        let output = run_property_check_tests(&project, None).expect("run property checks");
+        let output = run_property_check_tests(&project, NativeBackendKind::Cranelift, None)
+            .expect("run property checks");
 
         assert_eq!(output.failed, 0);
         assert_eq!(output.cases.len(), 1);
@@ -8568,7 +8606,7 @@ return "ok"
     }
 
     #[test]
-    fn build_target_defaults_to_generated_rust_backend() {
+    fn build_target_defaults_to_cranelift_backend() {
         let cli = Cli::parse_from(["axiomc", "build", ".", "--target", "wasm32"]);
         match cli.command {
             Command::Build {
@@ -8577,7 +8615,7 @@ return "ok"
                 assert_eq!(target.as_deref(), Some("wasm32"));
                 assert_eq!(
                     effective_build_backend(backend, target.as_ref()),
-                    NativeBackendKind::GeneratedRust
+                    NativeBackendKind::Cranelift
                 );
             }
             other => panic!("expected build command, got {other:?}"),
@@ -8596,14 +8634,13 @@ return "ok"
     }
 
     #[test]
-    fn build_accepts_rust_backend_alias() {
-        let cli = Cli::parse_from(["axiomc", "build", ".", "--backend", "rust"]);
-        match cli.command {
-            Command::Build { backend, .. } => {
-                assert_eq!(backend, Some(NativeBackendKind::GeneratedRust));
-            }
-            other => panic!("expected build command, got {other:?}"),
-        }
+    fn build_rejects_rust_backend_alias() {
+        let error = Cli::try_parse_from(["axiomc", "build", ".", "--backend", "rust"])
+            .expect_err("rust backend alias should be removed from the supported command surface");
+        let rendered = error.to_string();
+        assert!(rendered.contains("unsupported backend \"rust\""));
+        assert!(rendered.contains("supported backends: cranelift"));
+        assert!(rendered.contains("compatibility backends: generated-rust"));
     }
 
     #[test]
@@ -8643,6 +8680,17 @@ return "ok"
     }
 
     #[test]
+    fn run_defaults_to_cranelift_backend() {
+        let cli = Cli::parse_from(["axiomc", "run", "."]);
+        match cli.command {
+            Command::Run { backend, .. } => {
+                assert_eq!(backend, NativeBackendKind::Cranelift);
+            }
+            other => panic!("expected run command, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn trace_cli_accepts_project_paths_and_node_ids() {
         let cli = Cli::parse_from(["axiomc", "trace", ".", "--json"]);
         match cli.command {
@@ -8670,7 +8718,8 @@ return "ok"
             );
         let rendered = error.to_string();
         assert!(rendered.contains("unsupported backend \"direct-native\""));
-        assert!(rendered.contains("supported backends: generated-rust, rust, cranelift"));
+        assert!(rendered.contains("supported backends: cranelift"));
+        assert!(rendered.contains("compatibility backends: generated-rust"));
     }
 
     #[test]
@@ -10343,6 +10392,152 @@ print serve("127.0.0.1:0", selected_route, 1)
     }
 
     #[test]
+    fn doc_generation_rejects_output_outside_project() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let project = dir.path().join("doc-contained");
+        fs::create_dir_all(project.join("src")).expect("mkdir");
+        fs::write(project.join("src/main.ax"), "/// Main.\npub fn main() {}\n")
+            .expect("write source");
+
+        let outside = dir.path().join("outside-docs");
+        let error = generate_docs(&project, &outside, true).expect_err("reject outside output");
+
+        assert!(error.message.contains("must be inside project"));
+    }
+
+    #[test]
+    fn doc_generation_rejects_relative_escape_without_creating_output() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let project = dir.path().join("doc-relative-escape");
+        fs::create_dir_all(project.join("src")).expect("mkdir");
+        fs::write(project.join("src/main.ax"), "/// Main.\npub fn main() {}\n")
+            .expect("write source");
+
+        let outside = project.join("../outside-docs");
+        let error = generate_docs(&project, &outside, true).expect_err("reject outside output");
+
+        assert!(
+            error.message.contains("relative components")
+                || error.message.contains("must be inside project"),
+            "{}",
+            error.message
+        );
+        assert!(!dir.path().join("outside-docs").exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn doc_generation_rejects_symlinked_output_directory() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let project = dir.path().join("doc-dir-symlink");
+        let outside = dir.path().join("outside-docs");
+        fs::create_dir_all(project.join("src")).expect("mkdir project src");
+        fs::create_dir_all(&outside).expect("mkdir outside");
+        fs::write(project.join("src/main.ax"), "/// Main.\npub fn main() {}\n")
+            .expect("write source");
+        std::os::unix::fs::symlink(&outside, project.join("docs")).expect("symlink docs");
+        let canonical_project = project.canonicalize().expect("canonical project");
+
+        let error = generate_docs(
+            &canonical_project,
+            &canonical_project.join("docs/axiom"),
+            true,
+        )
+        .expect_err("reject symlink");
+
+        assert!(
+            error.message.contains("must be inside project")
+                || error
+                    .message
+                    .contains("refusing to write documentation through symlink"),
+            "{}",
+            error.message
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn doc_generation_rejects_symlinked_output_file() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let project = dir.path().join("doc-file-symlink");
+        let outside = dir.path().join("outside.md");
+        fs::create_dir_all(project.join("src")).expect("mkdir project src");
+        fs::create_dir_all(project.join("docs/axiom")).expect("mkdir docs");
+        fs::write(project.join("src/main.ax"), "/// Main.\npub fn main() {}\n")
+            .expect("write source");
+        fs::write(&outside, "do not overwrite").expect("write outside");
+        std::os::unix::fs::symlink(&outside, project.join("docs/axiom/index.md"))
+            .expect("symlink index");
+        let canonical_project = project.canonicalize().expect("canonical project");
+
+        let error = generate_docs(
+            &canonical_project,
+            &canonical_project.join("docs/axiom"),
+            true,
+        )
+        .expect_err("reject symlink");
+
+        assert!(
+            error
+                .message
+                .contains("refusing to write documentation through symlink"),
+            "{}",
+            error.message
+        );
+        assert_eq!(
+            fs::read_to_string(outside).expect("read outside"),
+            "do not overwrite"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn markdown_doc_generation_removes_stale_symlinked_html() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let project = dir.path().join("doc-md-stale-html-symlink");
+        let outside = dir.path().join("outside.html");
+        fs::create_dir_all(project.join("src")).expect("mkdir project src");
+        fs::create_dir_all(project.join("dist/docs")).expect("mkdir docs");
+        fs::write(project.join("src/main.ax"), "/// Main.\npub fn main() {}\n")
+            .expect("write source");
+        fs::write(&outside, "do not overwrite").expect("write outside");
+        std::os::unix::fs::symlink(&outside, project.join("dist/docs/index.html"))
+            .expect("symlink index html");
+        let canonical_project = fs::canonicalize(&project).expect("canonical project");
+
+        let output = generate_docs(&project, &canonical_project.join("dist/docs"), false)
+            .expect("generate markdown docs");
+
+        assert!(output.markdown.exists());
+        assert!(!project.join("dist/docs/index.html").exists());
+        assert_eq!(
+            fs::read_to_string(outside).expect("read outside"),
+            "do not overwrite"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn markdown_doc_generation_removes_broken_symlinked_html() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let project = dir.path().join("doc-md-broken-html-symlink");
+        let outside = dir.path().join("missing.html");
+        fs::create_dir_all(project.join("src")).expect("mkdir project src");
+        fs::create_dir_all(project.join("dist/docs")).expect("mkdir docs");
+        fs::write(project.join("src/main.ax"), "/// Main.\npub fn main() {}\n")
+            .expect("write source");
+        std::os::unix::fs::symlink(&outside, project.join("dist/docs/index.html"))
+            .expect("symlink index html");
+        let canonical_project = fs::canonicalize(&project).expect("canonical project");
+
+        let output = generate_docs(&project, &canonical_project.join("dist/docs"), false)
+            .expect("generate markdown docs");
+
+        assert!(output.markdown.exists());
+        assert!(!project.join("dist/docs/index.html").exists());
+    }
+
+    #[test]
     fn mutation_report_groups_survivors_stably() {
         let source = r#"{
           "mutants": [
@@ -10439,7 +10634,7 @@ print serve("127.0.0.1:0", selected_route, 1)
         fs::create_dir_all(project.join("src")).expect("mkdir");
         fs::write(
             project.join("axiom.toml"),
-            "[package]\nname = \"doc-json\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nenv = true\nenv_vars = [\"AXIOM_ENV\"]\n",
+            "[package]\nname = \"doc-json\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nenv = [\"AXIOM_ENV\"]\n",
         )
         .expect("write manifest");
         fs::write(project.join("axiom.lock"), "version = 1\n").expect("write lock");

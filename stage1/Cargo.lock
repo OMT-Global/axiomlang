@@ -138,6 +138,7 @@ dependencies = [
  "cranelift-module",
  "cranelift-native",
  "cranelift-object",
+ "libc",
  "tempfile",
 ]
 

@@ -34,6 +34,13 @@ class IssuePrTraceabilityTests(unittest.TestCase):
             ],
         )
 
+    def test_ignores_repo_slug_with_path_traversal(self) -> None:
+        body = "refs a-b/..#3\nsee ../secret#9\n"
+
+        links = traceability.parse_issue_links(body, "OMT-Global/axiomlang")
+
+        self.assertEqual(links, [])
+
     def test_missing_issue_without_exception_is_flagged(self) -> None:
         report = traceability.build_report(
             repo="OMT-Global/axiomlang",
