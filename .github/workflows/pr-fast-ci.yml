@@ -24,7 +24,7 @@ defaults:
 jobs:
   changes:
     name: Detect Relevant Changes
-    runs-on: ['self-hosted', 'linux', 'shell-only', 'public']
+    runs-on: ubuntu-latest
     outputs:
       app: ${{ steps.filter.outputs.app }}
       ci: ${{ steps.filter.outputs.ci }}
@@ -60,8 +60,8 @@ jobs:
 
   fast-checks:
     name: Fast Checks
-    runs-on: ['self-hosted', 'linux', 'shell-only', 'public']
-    timeout-minutes: 90
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
     needs: changes
     if: >-
       github.event.pull_request.draft == false &&
@@ -128,10 +128,8 @@ jobs:
               apt_get=(sudo "${apt_get[@]}")
             fi
 
-            # Some self-hosted runner images keep apt state/cache directories
-            # with restrictive ownership from prior jobs. Use job-local apt
-            # cache/list paths so provisioning does not depend on mutable host
-            # apt cache permissions.
+            # Use job-local apt cache/list paths so provisioning does not depend
+            # on mutable runner apt cache permissions.
             "${apt_get[@]}" update || true
             DEBIAN_FRONTEND=noninteractive "${apt_get[@]}" install -y --no-install-recommends gcc libc6-dev || true
           fi
@@ -154,7 +152,7 @@ jobs:
 
   validate-pr-description:
     name: Validate PR Description
-    runs-on: ['self-hosted', 'linux', 'shell-only', 'public']
+    runs-on: ubuntu-latest
     timeout-minutes: 5
     if: >-
       github.event.pull_request.draft == false &&
@@ -250,7 +248,7 @@ jobs:
 
   validate-secrets:
     name: Validate Secrets
-    runs-on: ['self-hosted', 'linux', 'shell-only', 'public']
+    runs-on: ubuntu-latest
     timeout-minutes: 10
     if: >-
       github.event.pull_request.draft == false &&
@@ -264,7 +262,7 @@ jobs:
 
   ci-gate:
     name: CI Gate
-    runs-on: ['self-hosted', 'linux', 'shell-only', 'public']
+    runs-on: ubuntu-latest
     if: always()
     needs:
       - changes
