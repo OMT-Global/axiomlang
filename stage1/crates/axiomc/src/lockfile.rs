@@ -6,12 +6,14 @@ use std::fs;
 use std::path::{Component, Path, PathBuf};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
 pub struct Lockfile {
     pub version: u32,
     pub package: Vec<LockedPackage>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
 pub struct LockedPackage {
     pub name: String,
     pub version: String,
@@ -338,4 +340,31 @@ fn normalize_path(path: impl AsRef<Path>) -> PathBuf {
         }
     }
     normalized
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn lockfile_rejects_unknown_top_level_field() {
+        let toml = "version = 1\nextra = \"tamper\"\n\n[[package]]\nname = \"demo\"\nversion = \"0.1.0\"\nsource = \"path\"\n";
+        let error = toml::from_str::<Lockfile>(toml)
+            .expect_err("unknown lockfile field should be rejected");
+        assert!(
+            error.to_string().contains("unknown field"),
+            "unexpected error: {error}"
+        );
+    }
+
+    #[test]
+    fn locked_package_rejects_unknown_field() {
+        let toml = "version = 1\n\n[[package]]\nname = \"demo\"\nversion = \"0.1.0\"\nsource = \"path\"\nchecksum = \"deadbeef\"\n";
+        let error =
+            toml::from_str::<Lockfile>(toml).expect_err("unknown package field should be rejected");
+        assert!(
+            error.to_string().contains("unknown field"),
+            "unexpected error: {error}"
+        );
+    }
 }
