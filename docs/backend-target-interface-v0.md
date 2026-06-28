@@ -8,9 +8,9 @@ Every backend that consumes the Axiom semantic graph and emits an artifact is a
 become ad hoc and no single target becomes Axiom's identity.
 
 Target interface v0 is descriptive. It does not change any backend behavior.
-The current generated-Rust backend and the planned direct native backend are
-both describable using this schema. New non-Rust artifact targets must declare
-their contracts using the same shape before they ship.
+The direct-native Cranelift backend and the generated-Rust compatibility
+backend are both describable using this schema. New non-Rust artifact targets
+must declare their contracts using the same shape before they ship.
 
 The first implemented non-source artifact target is
 [OpenAPI Target v0](openapi-target-v0.md), which emits an `openapi_spec`
@@ -57,7 +57,7 @@ A target class is the kind of artifact the backend produces. The v0 set is:
 | Class | Description |
 |---|---|
 | `native_binary` | Architecture-specific executable or library produced directly by an Axiom-owned native backend. |
-| `rust_source` | Generated Rust source that is compiled by `rustc` into a host binary. The current stage1 backend. |
+| `rust_source` | Generated Rust source that is compiled by `rustc` into a host binary. Stage1 keeps this as an explicit compatibility backend while direct-native output is the default. |
 | `zero_source` | Generated Zero source. Future agent-friendly systems target. |
 | `go_source` | Generated Go source for services and tooling. |
 | `typescript_source` | Generated TypeScript source for clients, services, and tooling. |
@@ -276,7 +276,7 @@ the artifacts it plans to produce from one semantic graph.
 Target interface v0 does not require:
 
 - A new backend implementation.
-- Renaming or restructuring the current generated-Rust pipeline.
+- Renaming or restructuring the generated-Rust compatibility pipeline.
 - Implementing Zero, Go, TypeScript, or provider-specific infrastructure
   generation.
 - Runtime sandboxing or new capability gates.

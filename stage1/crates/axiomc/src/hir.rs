@@ -565,6 +565,7 @@ struct Binding {
     moved_projections: HashSet<ProjectionPath>,
     borrow_kind: Option<BorrowKind>,
     borrow_origin: Option<BorrowOrigin>,
+    net_origin: Option<NetBindingOrigin>,
     borrowed_owners: HashSet<BorrowedOwner>,
     active_borrow_count: usize,
     active_mut_borrow_count: usize,
@@ -612,6 +613,12 @@ enum BorrowOrigin {
 }
 
 type BorrowKind = borrowck::BorrowKind;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum NetBindingOrigin {
+    LoopbackTcpListener,
+    LoopbackTcpListenerPort,
+}
 
 struct LowerContext<'a> {
     current_path: &'a str,
@@ -6777,6 +6784,7 @@ fn lower_function(
                 moved_projections: HashSet::new(),
                 borrow_kind: borrow_kind_for_type(&ty, structs, enums),
                 borrow_origin: binding_borrow_origin(&ty, Some("self"), structs, enums),
+                net_origin: None,
                 borrowed_owners: HashSet::new(),
                 active_borrow_count: 0,
                 active_mut_borrow_count: 0,
@@ -6822,6 +6830,7 @@ fn lower_function(
                 moved_projections: HashSet::new(),
                 borrow_kind: borrow_kind_for_type(&ty, structs, enums),
                 borrow_origin: binding_borrow_origin(&ty, Some(&param.name), structs, enums),
+                net_origin: None,
                 borrowed_owners: HashSet::new(),
                 active_borrow_count: 0,
                 active_mut_borrow_count: 0,
@@ -7131,6 +7140,7 @@ fn insert_type_error_binding_for_failed_stmt(
             moved_projections: HashSet::new(),
             borrow_kind: None,
             borrow_origin: None,
+            net_origin: None,
             borrowed_owners: HashSet::new(),
             active_borrow_count: 0,
             active_mut_borrow_count: 0,
@@ -7682,6 +7692,7 @@ fn lower_match_stmt(
                         &before,
                         ctx,
                     ),
+                    net_origin: None,
                     borrowed_owners,
                     active_borrow_count: 0,
                     active_mut_borrow_count: 0,
@@ -7913,6 +7924,7 @@ fn lower_match_expr(
                         &before,
                         ctx,
                     ),
+                    net_origin: None,
                     borrowed_owners: match_binding_borrowed_owners(
                         &lowered_expr,
                         &arm.variant,
@@ -8117,73 +8129,54 @@ fn is_assignment_target(expr: &Expr, ctx: &LowerContext<'_>) -> bool {
 }
 
 fn is_local_assignment_type(ty: &Type, ctx: &LowerContext<'_>) -> bool {
-    is_scalar_local_assignment_type(ty)
-        || is_scalar_option_assignment_type(ty, ctx)
-        || is_scalar_result_assignment_type(ty, ctx)
-        || is_scalar_enum_assignment_type(ty, ctx)
-        || is_scalar_projection_assignment_type(ty, ctx)
+    is_supported_local_assignment_type(ty, ctx)
 }
 
 fn is_scalar_local_assignment_type(ty: &Type) -> bool {
     matches!(ty, Type::Int | Type::Numeric(_) | Type::Bool)
 }
 
-fn is_scalar_option_assignment_type(ty: &Type, ctx: &LowerContext<'_>) -> bool {
-    matches!(ty, Type::Option(inner) if is_slot_payload_assignment_type(inner, ctx))
+fn is_supported_local_assignment_type(ty: &Type, ctx: &LowerContext<'_>) -> bool {
+    is_supported_local_assignment_type_inner(ty, ctx, 0)
 }
 
-fn is_scalar_result_assignment_type(ty: &Type, ctx: &LowerContext<'_>) -> bool {
-    matches!(ty, Type::Result(ok, err) if is_slot_payload_assignment_type(ok, ctx) && is_slot_payload_assignment_type(err, ctx))
-}
-
-fn is_slot_payload_assignment_type(ty: &Type, ctx: &LowerContext<'_>) -> bool {
+fn is_supported_local_assignment_type_inner(
+    ty: &Type,
+    ctx: &LowerContext<'_>,
+    depth: usize,
+) -> bool {
+    if depth > 8 {
+        return false;
+    }
     match ty {
+        Type::Int | Type::Numeric(_) | Type::Bool => true,
+        Type::Option(inner) => is_supported_local_assignment_type_inner(inner, ctx, depth + 1),
+        Type::Result(ok, err) => {
+            is_supported_local_assignment_type_inner(ok, ctx, depth + 1)
+                && is_supported_local_assignment_type_inner(err, ctx, depth + 1)
+        }
         Type::Tuple(elements) => elements
             .iter()
-            .all(|element| is_slot_payload_assignment_type(element, ctx)),
-        Type::Struct(_) => is_scalar_projection_assignment_type(ty, ctx),
-        _ => {
-            is_scalar_local_assignment_type(ty)
-                || is_scalar_projection_assignment_type(ty, ctx)
-                || is_scalar_option_assignment_type(ty, ctx)
-                || is_scalar_result_assignment_type(ty, ctx)
-        }
-    }
-}
-
-fn is_scalar_enum_assignment_type(ty: &Type, ctx: &LowerContext<'_>) -> bool {
-    let Type::Enum(name) = ty else {
-        return false;
-    };
-    ctx.enums
-        .get(name)
-        .map(|enum_def| {
-            enum_def.variants.iter().all(|variant| {
-                variant
-                    .payload_tys
-                    .iter()
-                    .all(|ty| is_scalar_enum_assignment_payload_type(ty, ctx))
-            })
-        })
-        .unwrap_or(false)
-}
-
-fn is_scalar_enum_assignment_payload_type(ty: &Type, ctx: &LowerContext<'_>) -> bool {
-    is_slot_payload_assignment_type(ty, ctx)
-}
-
-fn is_scalar_projection_assignment_type(ty: &Type, ctx: &LowerContext<'_>) -> bool {
-    match ty {
-        Type::Tuple(elements) => elements.iter().all(is_scalar_local_assignment_type),
+            .all(|element| is_supported_local_assignment_type_inner(element, ctx, depth + 1)),
         Type::Array(element, Some(_)) => is_scalar_local_assignment_type(element),
         Type::Struct(name) => ctx
             .structs
             .get(name)
             .map(|struct_def| {
-                struct_def
-                    .fields
-                    .iter()
-                    .all(|field| is_scalar_local_assignment_type(&field.ty))
+                struct_def.fields.iter().all(|field| {
+                    is_supported_local_assignment_type_inner(&field.ty, ctx, depth + 1)
+                })
+            })
+            .unwrap_or(false),
+        Type::Enum(name) => ctx
+            .enums
+            .get(name)
+            .map(|enum_def| {
+                enum_def.variants.iter().all(|variant| {
+                    variant.payload_tys.iter().all(|payload| {
+                        is_supported_local_assignment_type_inner(payload, ctx, depth + 1)
+                    })
+                })
             })
             .unwrap_or(false),
         _ => false,
@@ -8267,6 +8260,7 @@ fn lower_stmt(
             if !actual.is_copy() {
                 move_lowered_value(&lowered_expr, env)?;
             }
+            let net_origin = net_binding_origin_from_expr(&lowered_expr, env, ctx);
             env.insert(
                 name.clone(),
                 Binding {
@@ -8280,6 +8274,7 @@ fn lower_stmt(
                         env,
                         ctx,
                     ),
+                    net_origin,
                     borrowed_owners,
                     active_borrow_count: 0,
                     active_mut_borrow_count: 0,
@@ -8735,6 +8730,7 @@ fn merge_branch_state(
                 ),
                 borrow_kind: binding.borrow_kind,
                 borrow_origin: binding.borrow_origin.clone(),
+                net_origin: binding.net_origin.clone(),
                 borrowed_owners: binding.borrowed_owners.clone(),
                 active_borrow_count: merge_borrow_count(
                     binding.active_borrow_count,
@@ -8804,6 +8800,7 @@ fn merge_loop_state(
                 moved_projections: binding.moved_projections.clone(),
                 borrow_kind: binding.borrow_kind,
                 borrow_origin: binding.borrow_origin.clone(),
+                net_origin: binding.net_origin.clone(),
                 borrowed_owners: binding.borrowed_owners.clone(),
                 active_borrow_count: if body_returns {
                     binding.active_borrow_count
@@ -8854,6 +8851,7 @@ fn merge_match_state(
                 moved_projections: merge_match_projection_sets(binding, name, arm_states),
                 borrow_kind: binding.borrow_kind,
                 borrow_origin: binding.borrow_origin.clone(),
+                net_origin: binding.net_origin.clone(),
                 borrowed_owners: binding.borrowed_owners.clone(),
                 active_borrow_count: arm_states
                     .iter()
@@ -11919,6 +11917,7 @@ fn lower_expr_with_expected_inner(
                 validate_stdlib_network_wrapper_call_hir(
                     ctx,
                     ctx.capabilities,
+                    env,
                     name,
                     signature,
                     &lowered_args,
@@ -13094,6 +13093,7 @@ fn lower_expr_with_expected_inner(
                         moved_projections: HashSet::new(),
                         borrow_kind: None,
                         borrow_origin: Some(BorrowOrigin::Local),
+                        net_origin: None,
                         borrowed_owners: HashSet::new(),
                         active_borrow_count: 0,
                         active_mut_borrow_count: 0,
@@ -14020,6 +14020,7 @@ fn validate_net_port_allowlist_hir(
 fn validate_stdlib_network_wrapper_call_hir(
     _ctx: &LowerContext<'_>,
     capabilities: &CapabilityConfig,
+    env: &HashMap<String, Binding>,
     function_name: &str,
     signature: &FunctionSig,
     args: &[Expr],
@@ -14063,7 +14064,7 @@ fn validate_stdlib_network_wrapper_call_hir(
                 &args[1],
                 line,
                 column,
-                capabilities.net_ports.is_empty(),
+                is_loopback_listener_port_expr(&args[1], env),
             )
         }
         ("<stdlib>/net_tcp.ax", "listen")
@@ -14182,6 +14183,95 @@ fn stdlib_dynamic_http_socket_allowed(
     ctx: &LowerContext<'_>,
 ) -> bool {
     is_stdlib_http_socket_wrapper(ctx)
+}
+
+fn net_binding_origin_from_expr(
+    expr: &Expr,
+    env: &HashMap<String, Binding>,
+    ctx: &LowerContext<'_>,
+) -> Option<NetBindingOrigin> {
+    match expr {
+        Expr::Await { expr, .. } => net_binding_origin_from_expr(expr, env, ctx),
+        Expr::Call { name, args, .. } if is_tcp_listener_call_name(name, ctx) => {
+            if args
+                .first()
+                .and_then(static_string_literal)
+                .is_some_and(is_loopback_ephemeral_bind)
+            {
+                Some(NetBindingOrigin::LoopbackTcpListener)
+            } else {
+                None
+            }
+        }
+        Expr::Call { name, args, .. } if is_tcp_listener_port_call_name(name, ctx) => {
+            let Some(Expr::VarRef {
+                name: listener_name,
+                ..
+            }) = args.first()
+            else {
+                return None;
+            };
+            env.get(listener_name)
+                .and_then(|binding| binding.net_origin.as_ref())
+                .filter(|origin| matches!(origin, NetBindingOrigin::LoopbackTcpListener))
+                .map(|_| NetBindingOrigin::LoopbackTcpListenerPort)
+        }
+        _ => None,
+    }
+}
+
+fn static_string_literal(expr: &Expr) -> Option<&str> {
+    match expr {
+        Expr::Literal {
+            value: LiteralValue::String(value),
+            ..
+        } => Some(value.as_str()),
+        _ => None,
+    }
+}
+
+fn is_loopback_ephemeral_bind(value: &str) -> bool {
+    split_socket_addr_literal(value)
+        .is_some_and(|(host, port)| port == 0 && matches!(host, "127.0.0.1" | "localhost" | "::1"))
+}
+
+fn is_tcp_listener_call_name(name: &str, ctx: &LowerContext<'_>) -> bool {
+    if name == "net_tcp_listen" {
+        return true;
+    }
+    ctx.functions.get(name).is_some_and(|signature| {
+        matches!(
+            (
+                signature.source_path.as_str(),
+                signature.source_name.as_str()
+            ),
+            ("<stdlib>/net_tcp.ax", "listen") | ("<stdlib>/async_net.ax", "listen")
+        )
+    })
+}
+
+fn is_tcp_listener_port_call_name(name: &str, ctx: &LowerContext<'_>) -> bool {
+    if name == "net_tcp_listener_port" {
+        return true;
+    }
+    ctx.functions.get(name).is_some_and(|signature| {
+        matches!(
+            (
+                signature.source_path.as_str(),
+                signature.source_name.as_str()
+            ),
+            ("<stdlib>/net_tcp.ax", "local_port") | ("<stdlib>/async_net.ax", "local_port")
+        )
+    })
+}
+
+fn is_loopback_listener_port_expr(expr: &Expr, env: &HashMap<String, Binding>) -> bool {
+    let Expr::VarRef { name, .. } = expr else {
+        return false;
+    };
+    env.get(name)
+        .and_then(|binding| binding.net_origin.as_ref())
+        .is_some_and(|origin| matches!(origin, NetBindingOrigin::LoopbackTcpListenerPort))
 }
 
 fn validate_process_command_allowlist_hir(

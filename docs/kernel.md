@@ -1,6 +1,6 @@
 # Axiom kernel
 
-This kernel note describes the supported Rust `axiomc` path.
+This kernel note describes the supported direct-native `axiomc` path.
 
 ## Values
 
@@ -24,8 +24,12 @@ This kernel note describes the supported Rust `axiomc` path.
 ## Execution
 
 - Packages are checked, built, run, and tested through `axiomc`.
-- `axiomc build` currently generates Rust and invokes `rustc` to produce a native binary.
-- The backend selection surface is preparatory seam work for later native-backend expansion; today only `generated-rust` is implemented, so this is not completion of #105 (part of #105).
+- `axiomc build` defaults to the direct-native Cranelift backend for supported
+  host binaries.
+- `generated-rust` remains an explicit compatibility backend and may still
+  invoke `rustc`, but it is not the supported default path.
+- The backend selection surface is still preparatory seam work for later
+  native-backend expansion, so this is not completion of #105.
 - `axiomc test` discovers `src/**/*_test.ax` entrypoints and compares stdout
   with sibling `*.stdout` files when present.
 - `axiomc check --json`, `build --json`, `test --json`, and `caps --json` emit

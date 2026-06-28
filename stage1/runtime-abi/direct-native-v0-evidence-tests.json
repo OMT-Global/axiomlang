@@ -1,0 +1,203 @@
+{
+  "schema_version": "axiom.direct_native.runtime_abi.evidence_tests.v0",
+  "target_id": "axiom://target/stage1-direct-native",
+  "test_source": "stage1/crates/axiomc/tests/cranelift_backend.rs",
+  "value_features": {
+    "array.fixed": [
+      "cranelift_backend_lowers_array_literal_index_to_runtime_exit_code",
+      "cranelift_backend_lowers_fixed_array_intrinsics_to_runtime_exit_code",
+      "cranelift_backend_builds_const_sized_array_conformance_binary",
+      "cranelift_backend_builds_array_helpers_binary"
+    ],
+    "boolean": [
+      "cranelift_backend_lowers_i64_bool_returning_main_to_runtime_exit_code",
+      "cranelift_backend_lowers_bool_tuple_index_to_runtime_exit_code",
+      "cranelift_backend_lowers_bool_print_runtime_stdout_in_direct_native_main"
+    ],
+    "enum.payload": [
+      "cranelift_backend_builds_enum_match_binary",
+      "cranelift_backend_lowers_enum_payload_match_to_runtime_exit_code",
+      "cranelift_backend_lowers_enum_nested_payload_match_to_runtime_exit_code"
+    ],
+    "map.lookup": [
+      "cranelift_backend_builds_map_index_binary",
+      "cranelift_backend_lowers_map_get_or_default_to_runtime_exit_code",
+      "cranelift_backend_lowers_static_bool_map_keys_to_runtime_exit_code"
+    ],
+    "numeric.scalars": [
+      "cranelift_backend_lowers_i64_main_to_runtime_exit_code",
+      "cranelift_backend_lowers_i64_typed_numeric_returning_main_to_runtime_exit_code",
+      "cranelift_backend_builds_numeric_cross_width_binary",
+      "cranelift_backend_lowers_i64_while_loop_to_runtime_exit_code"
+    ],
+    "option": [
+      "cranelift_backend_lowers_option_int_match_to_runtime_exit_code",
+      "cranelift_backend_lowers_option_bool_match_to_runtime_exit_code",
+      "cranelift_backend_lowers_option_tuple_payload_match_to_runtime_exit_code",
+      "cranelift_backend_lowers_option_array_payload_match_to_runtime_exit_code",
+      "cranelift_backend_lowers_option_struct_payload_match_to_runtime_exit_code",
+      "cranelift_backend_lowers_nested_option_match_to_runtime_exit_code"
+    ],
+    "owned.move_state": [
+      "cranelift_backend_builds_owned_move_state_binary"
+    ],
+    "result": [
+      "cranelift_backend_lowers_result_match_to_runtime_exit_code",
+      "cranelift_backend_lowers_result_bool_match_to_runtime_exit_code",
+      "cranelift_backend_lowers_result_mixed_match_to_runtime_exit_code",
+      "cranelift_backend_lowers_result_mixed_reverse_match_to_runtime_exit_code",
+      "cranelift_backend_lowers_result_typed_numeric_match_to_runtime_exit_code",
+      "cranelift_backend_lowers_result_numeric_width_match_to_runtime_exit_code",
+      "cranelift_backend_lowers_result_tuple_payload_match_to_runtime_exit_code",
+      "cranelift_backend_lowers_result_dual_tuple_payload_match_to_runtime_exit_code",
+      "cranelift_backend_lowers_result_array_payload_match_to_runtime_exit_code",
+      "cranelift_backend_lowers_result_struct_payload_match_to_runtime_exit_code",
+      "cranelift_backend_lowers_nested_result_match_to_runtime_exit_code"
+    ],
+    "slice.borrowed": [
+      "cranelift_backend_lowers_static_slice_bounds_to_runtime_exit_code",
+      "cranelift_backend_builds_borrowed_slice_binary"
+    ],
+    "string": [
+      "cranelift_backend_lowers_string_literal_len_to_runtime_exit_code",
+      "cranelift_backend_lowers_known_string_helpers_to_runtime_exit_code",
+      "cranelift_backend_builds_std_string_builder_binary",
+      "cranelift_backend_builds_string_intrinsics_binary"
+    ],
+    "struct.field": [
+      "cranelift_backend_lowers_struct_literal_field_to_runtime_exit_code",
+      "cranelift_backend_builds_struct_field_binary"
+    ],
+    "tuple": [
+      "cranelift_backend_lowers_bool_tuple_index_to_runtime_exit_code",
+      "cranelift_backend_lowers_tuple_returning_helper_to_runtime_exit_code"
+    ]
+  },
+  "capability_shims": {
+    "async.runtime": [
+      "cranelift_backend_builds_std_async_binary",
+      "cranelift_backend_builds_std_async_net_tcp_binary",
+      "cranelift_backend_rejects_async_runtime_denial_before_backend_lowering"
+    ],
+    "clock.now_sleep": [
+      "cranelift_backend_builds_clock_binary",
+      "cranelift_backend_lowers_zero_clock_sleep_to_runtime_exit_code",
+      "cranelift_backend_lowers_std_time_sleep_wrappers_to_runtime_exit_code",
+      "cranelift_backend_rejects_clock_denial_before_backend_lowering",
+      "cranelift_backend_builds_nonzero_clock_sleep_binary"
+    ],
+    "crypto.aead": [
+      "cranelift_backend_builds_crypto_aead_binary",
+      "cranelift_backend_rejects_crypto_aead_denial_before_backend_lowering"
+    ],
+    "crypto.hash": [
+      "cranelift_backend_lowers_known_crypto_text_to_runtime_exit_code",
+      "cranelift_backend_lowers_std_crypto_wrappers_to_runtime_exit_code",
+      "cranelift_backend_builds_crypto_hash_binary",
+      "cranelift_backend_rejects_crypto_hash_denial_before_backend_lowering"
+    ],
+    "crypto.mac": [
+      "cranelift_backend_lowers_known_crypto_text_to_runtime_exit_code",
+      "cranelift_backend_lowers_std_crypto_wrappers_to_runtime_exit_code",
+      "cranelift_backend_builds_crypto_mac_binary",
+      "cranelift_backend_rejects_crypto_mac_denial_before_backend_lowering"
+    ],
+    "crypto.random": [
+      "cranelift_backend_builds_crypto_random_binary",
+      "cranelift_backend_lowers_crypto_random_to_runtime_exit_code",
+      "cranelift_backend_rejects_crypto_random_denial_before_backend_lowering"
+    ],
+    "crypto.signature": [
+      "cranelift_backend_builds_crypto_signature_binary",
+      "cranelift_backend_rejects_crypto_signature_denial_before_backend_lowering"
+    ],
+    "env.read": [
+      "cranelift_backend_builds_env_read_binary",
+      "cranelift_backend_lowers_env_read_to_runtime_exit_code",
+      "cranelift_backend_honors_env_allowlist_at_runtime",
+      "cranelift_backend_rejects_env_denial_before_backend_lowering"
+    ],
+    "ffi.call": [
+      "cranelift_backend_builds_ffi_strlen_binary",
+      "cranelift_backend_lowers_ffi_strlen_to_runtime_exit_code",
+      "cranelift_backend_rejects_ffi_denial_before_backend_lowering"
+    ],
+    "fs.read": [
+      "cranelift_backend_lowers_fs_read_to_runtime_exit_code",
+      "cranelift_backend_denies_fs_read_symlink_escape_at_runtime"
+    ],
+    "fs.write": [
+      "cranelift_backend_lowers_fs_write_to_runtime_exit_code",
+      "cranelift_backend_denies_fs_write_symlink_escape_at_runtime",
+      "cranelift_backend_builds_fs_write_binary",
+      "cranelift_backend_honors_fs_root_for_fs_write_binary",
+      "cranelift_backend_rejects_fs_write_denial_before_backend_lowering"
+    ],
+    "io.logging_stdio": [
+      "cranelift_backend_builds_logging_stdio_binary",
+      "cranelift_backend_lowers_known_eprintln_runtime_stderr_in_direct_native_main",
+      "cranelift_backend_lowers_known_print_runtime_stdout_in_direct_native_main",
+      "cranelift_backend_lowers_json_scalar_stringify_print_to_native_stdout",
+      "cranelift_backend_lowers_std_log_format_wrappers_to_runtime_exit_code",
+      "cranelift_backend_lowers_std_log_level_wrapper_to_runtime_stderr"
+    ],
+    "json.serdes": [
+      "cranelift_backend_lowers_known_json_text_to_runtime_exit_code",
+      "cranelift_backend_lowers_std_json_wrappers_to_runtime_exit_code",
+      "cranelift_backend_builds_json_serdes_binary",
+      "cranelift_backend_builds_std_serdes_binary",
+      "cranelift_backend_lowers_std_serdes_known_json_to_runtime_exit_code",
+      "cranelift_backend_lowers_std_serdes_known_json_print_to_runtime_stdout",
+      "cranelift_backend_lowers_std_serdes_known_json_eprintln_to_runtime_stderr"
+    ],
+    "network.dns.resolve": [
+      "cranelift_backend_builds_net_resolve_binary",
+      "cranelift_backend_lowers_net_resolve_to_runtime_exit_code",
+      "cranelift_backend_lowers_numeric_net_resolve_to_runtime_exit_code",
+      "cranelift_backend_rejects_dynamic_net_targets_before_backend_lowering"
+    ],
+    "network.http.async_server": [
+      "cranelift_backend_builds_http_async_server_binary",
+      "cranelift_backend_rejects_http_async_server_denial_before_backend_lowering"
+    ],
+    "network.http.client": [
+      "cranelift_backend_builds_http_client_binary",
+      "cranelift_backend_lowers_http_client_to_runtime_exit_code",
+      "cranelift_backend_rejects_http_client_denial_before_backend_lowering"
+    ],
+    "network.http.server": [
+      "cranelift_backend_builds_http_server_binary",
+      "cranelift_backend_lowers_http_server_once_to_runtime_exit_code",
+      "cranelift_backend_lowers_http_server_route_to_runtime_exit_code",
+      "cranelift_backend_rejects_http_server_denial_before_backend_lowering"
+    ],
+    "network.tcp": [
+      "cranelift_backend_builds_net_loopback_binary",
+      "cranelift_backend_lowers_net_loopback_to_runtime_exit_code",
+      "cranelift_backend_builds_std_async_net_tcp_binary",
+      "cranelift_backend_rejects_tcp_denial_before_backend_lowering"
+    ],
+    "network.udp": [
+      "cranelift_backend_builds_net_loopback_binary",
+      "cranelift_backend_lowers_net_loopback_to_runtime_exit_code",
+      "cranelift_backend_rejects_udp_denial_before_backend_lowering"
+    ],
+    "process.status": [
+      "cranelift_backend_builds_process_status_binary",
+      "cranelift_backend_lowers_process_status_to_runtime_exit_code",
+      "cranelift_backend_rejects_unapproved_process_status_command",
+      "cranelift_backend_rejects_process_denial_before_backend_lowering"
+    ],
+    "regex.match_replace": [
+      "cranelift_backend_lowers_known_regex_text_to_runtime_exit_code",
+      "cranelift_backend_lowers_std_regex_wrappers_to_runtime_exit_code",
+      "cranelift_backend_builds_regex_binary"
+    ],
+    "sync.primitives": [
+      "cranelift_backend_builds_sync_primitives_binary",
+      "cranelift_backend_lowers_sync_mutex_to_runtime_exit_code",
+      "cranelift_backend_lowers_sync_once_to_runtime_exit_code",
+      "cranelift_backend_lowers_sync_channel_to_runtime_exit_code"
+    ]
+  }
+}
