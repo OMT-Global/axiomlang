@@ -17,14 +17,20 @@ use crate::syntax;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::env;
-use std::fs;
+use std::fs::{self, OpenOptions};
+use std::io::ErrorKind;
 use std::io::{self, Read, Write};
+#[cfg(unix)]
+use std::os::unix::fs::MetadataExt;
+#[cfg(unix)]
+use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Component, Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
 const BUILD_CACHE_VERSION: u32 = 1;
 const BUILD_CACHE_COMPILER: &str = concat!("axiomc-stage1-", env!("CARGO_PKG_VERSION"));
+const MAX_TEST_EXPECTED_STREAM_BYTES: u64 = 1024 * 1024;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct CheckedPackage {
@@ -404,11 +410,14 @@ impl Default for CheckOptions {
 
 #[derive(Debug, Clone, Default)]
 pub struct BuildOptions {
-    /// Preparatory backend plumbing; `generated-rust` remains the only implemented option today.
+    /// Build backend selected by the command surface. Cranelift is the supported default;
+    /// generated-rust is retained only as an explicit compatibility backend.
     pub backend: NativeBackendKind,
     pub target: Option<String>,
     pub package: Option<String>,
     pub debug: bool,
+    /// Deterministic stdin used by direct-native manifest test builds.
+    pub stdin: Option<String>,
     /// Require the checked-in axiom.lock graph to match the local manifest graph.
     pub locked: bool,
     /// Resolve the build graph without network access. Stage1 currently supports local path graphs only.
@@ -677,6 +686,7 @@ fn prepare_run_project(
             target: None,
             package: options.package.clone(),
             debug: false,
+            stdin: None,
             locked: true,
             offline: true,
         },
@@ -889,6 +899,12 @@ fn collect_test_targets(
     conformance: bool,
 ) -> Result<Vec<crate::manifest::TestTarget>, Diagnostic> {
     let mut tests = manifest.tests.clone();
+    if !include_benchmarks {
+        tests.retain(|test| test.kind != TestKind::Benchmark);
+    }
+    if properties_only && !conformance {
+        tests.retain(|test| test.kind == TestKind::Property);
+    }
     for test in &mut tests {
         if let Some(expected_stdout) =
             load_manifest_test_stream(project_root, test.stdout.as_deref(), "stdout")?
@@ -900,12 +916,6 @@ fn collect_test_targets(
         {
             test.stderr = Some(expected_stderr);
         }
-    }
-    if !include_benchmarks {
-        tests.retain(|test| test.kind != TestKind::Benchmark);
-    }
-    if properties_only && !conformance {
-        tests.retain(|test| test.kind == TestKind::Property);
     }
     if let Some(expected_stdout) = load_package_expected_output(project_root)? {
         for test in &mut tests {
@@ -947,17 +957,16 @@ fn load_manifest_test_stream(
     let Some(configured) = configured else {
         return Ok(None);
     };
-    let path = project_root.join(configured);
-    if !path.exists() {
+    let configured_path = Path::new(configured);
+    if configured_path.is_absolute()
+        || configured_path
+            .components()
+            .any(|component| matches!(component, Component::ParentDir))
+    {
         return Ok(None);
     }
-    fs::read_to_string(&path).map(Some).map_err(|err| {
-        Diagnostic::new(
-            "test",
-            format!("failed to read {stream} fixture {}: {err}", path.display()),
-        )
-        .with_path(path.display().to_string())
-    })
+    let path = project_root.join(configured);
+    read_optional_test_expected_stream(project_root, &path, &format!("{stream} fixture"))
 }
 
 fn discover_test_targets(
@@ -1022,31 +1031,18 @@ fn collect_discovered_tests(
         let kind = kind.expect("test kind checked");
         let relative = normalize_path(path.strip_prefix(project_root).unwrap_or(&path));
         let stdout_path = path.with_extension("stdout");
-        let stdout = if stdout_path.exists() {
-            Some(fs::read_to_string(&stdout_path).map_err(|err| {
-                Diagnostic::new(
-                    "test",
-                    format!("failed to read {}: {err}", stdout_path.display()),
-                )
-                .with_path(stdout_path.display().to_string())
-            })?)
+        let stdout = if let Some(stdout) =
+            read_optional_test_expected_stream(project_root, &stdout_path, "stdout fixture")?
+        {
+            Some(stdout)
         } else if kind == TestKind::Benchmark {
             None
         } else {
             package_expected_output.map(str::to_string)
         };
         let stderr_path = path.with_extension("stderr");
-        let stderr = if stderr_path.exists() {
-            Some(fs::read_to_string(&stderr_path).map_err(|err| {
-                Diagnostic::new(
-                    "test",
-                    format!("failed to read {}: {err}", stderr_path.display()),
-                )
-                .with_path(stderr_path.display().to_string())
-            })?)
-        } else {
-            None
-        };
+        let stderr =
+            read_optional_test_expected_stream(project_root, &stderr_path, "stderr fixture")?;
         tests.push(crate::manifest::TestTarget {
             name: relative.with_extension("").display().to_string(),
             entry: relative.display().to_string(),
@@ -1084,12 +1080,196 @@ fn discovered_test_kind(stem: &str, include_benchmarks: bool) -> Option<TestKind
 
 fn load_package_expected_output(project_root: &Path) -> Result<Option<String>, Diagnostic> {
     let path = project_root.join("expected-output.txt");
-    if !path.exists() {
-        return Ok(None);
+    read_optional_test_expected_stream(project_root, &path, "package stdout fixture")
+}
+
+fn read_optional_test_expected_stream(
+    project_root: &Path,
+    path: &Path,
+    label: &str,
+) -> Result<Option<String>, Diagnostic> {
+    match fs::symlink_metadata(path) {
+        Ok(_) => read_test_expected_stream(project_root, path, label).map(Some),
+        Err(err) if err.kind() == ErrorKind::NotFound => Ok(None),
+        Err(err) => Err(Diagnostic::new(
+            "test",
+            format!("failed to inspect {label} {}: {err}", path.display()),
+        )
+        .with_path(path.display().to_string())),
     }
-    fs::read_to_string(&path).map(Some).map_err(|err| {
-        Diagnostic::new("test", format!("failed to read {}: {err}", path.display()))
+}
+
+fn read_test_expected_stream(
+    project_root: &Path,
+    path: &Path,
+    label: &str,
+) -> Result<String, Diagnostic> {
+    let metadata = fs::symlink_metadata(path).map_err(|err| {
+        Diagnostic::new(
+            "test",
+            format!("failed to inspect {label} {}: {err}", path.display()),
+        )
+        .with_path(path.display().to_string())
+    })?;
+    let file_type = metadata.file_type();
+    if file_type.is_symlink() {
+        return Err(Diagnostic::new(
+            "test",
+            format!(
+                "refusing to read {label} {} because expected test streams must be regular files, not symlinks",
+                path.display()
+            ),
+        )
+        .with_path(path.display().to_string()));
+    }
+    if !file_type.is_file() {
+        return Err(Diagnostic::new(
+            "test",
+            format!(
+                "refusing to read {label} {} because expected test streams must be regular files",
+                path.display()
+            ),
+        )
+        .with_path(path.display().to_string()));
+    }
+    if metadata.len() > MAX_TEST_EXPECTED_STREAM_BYTES {
+        return Err(Diagnostic::new(
+            "test",
+            format!(
+                "refusing to read {label} {} because it is {} bytes, above the {} byte limit",
+                path.display(),
+                metadata.len(),
+                MAX_TEST_EXPECTED_STREAM_BYTES
+            ),
+        )
+        .with_path(path.display().to_string()));
+    }
+    let canonical_root = project_root.canonicalize().map_err(|err| {
+        Diagnostic::new(
+            "test",
+            format!(
+                "failed to canonicalize project root {}: {err}",
+                project_root.display()
+            ),
+        )
+        .with_path(project_root.display().to_string())
+    })?;
+    let canonical_path = path.canonicalize().map_err(|err| {
+        Diagnostic::new(
+            "test",
+            format!("failed to canonicalize {label} {}: {err}", path.display()),
+        )
+        .with_path(path.display().to_string())
+    })?;
+    if !canonical_path.starts_with(&canonical_root) {
+        return Err(Diagnostic::new(
+            "test",
+            format!(
+                "refusing to read {label} {} because it resolves outside project root {}",
+                path.display(),
+                project_root.display()
+            ),
+        )
+        .with_path(path.display().to_string()));
+    }
+    let file = open_test_expected_stream(path, label)?;
+    let opened_metadata = file.metadata().map_err(|err| {
+        Diagnostic::new(
+            "test",
+            format!("failed to inspect opened {label} {}: {err}", path.display()),
+        )
+        .with_path(path.display().to_string())
+    })?;
+    if !opened_expected_stream_matches(&metadata, &opened_metadata) {
+        return Err(Diagnostic::new(
+            "test",
+            format!(
+                "refusing to read {label} {} because it changed while being opened",
+                path.display()
+            ),
+        )
+        .with_path(path.display().to_string()));
+    }
+    if !opened_metadata.file_type().is_file() {
+        return Err(Diagnostic::new(
+            "test",
+            format!(
+                "refusing to read {label} {} because expected test streams must be regular files",
+                path.display()
+            ),
+        )
+        .with_path(path.display().to_string()));
+    }
+    if opened_metadata.len() > MAX_TEST_EXPECTED_STREAM_BYTES {
+        return Err(Diagnostic::new(
+            "test",
+            format!(
+                "refusing to read {label} {} because it is {} bytes, above the {} byte limit",
+                path.display(),
+                opened_metadata.len(),
+                MAX_TEST_EXPECTED_STREAM_BYTES
+            ),
+        )
+        .with_path(path.display().to_string()));
+    }
+    let mut content = String::new();
+    let mut limited = file.take(MAX_TEST_EXPECTED_STREAM_BYTES + 1);
+    limited.read_to_string(&mut content).map_err(|err| {
+        Diagnostic::new(
+            "test",
+            format!("failed to read {label} {}: {err}", path.display()),
+        )
+        .with_path(path.display().to_string())
+    })?;
+    if content.len() as u64 > MAX_TEST_EXPECTED_STREAM_BYTES {
+        return Err(Diagnostic::new(
+            "test",
+            format!(
+                "refusing to read {label} {} because it exceeds the {} byte limit",
+                path.display(),
+                MAX_TEST_EXPECTED_STREAM_BYTES
+            ),
+        )
+        .with_path(path.display().to_string()));
+    }
+    Ok(content)
+}
+
+#[cfg(unix)]
+fn opened_expected_stream_matches(validated: &fs::Metadata, opened: &fs::Metadata) -> bool {
+    validated.dev() == opened.dev() && validated.ino() == opened.ino()
+}
+
+#[cfg(not(unix))]
+fn opened_expected_stream_matches(validated: &fs::Metadata, opened: &fs::Metadata) -> bool {
+    validated.len() == opened.len()
+        && validated.file_type().is_file()
+        && opened.file_type().is_file()
+}
+
+#[cfg(unix)]
+fn open_test_expected_stream(path: &Path, label: &str) -> Result<fs::File, Diagnostic> {
+    fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW)
+        .open(path)
+        .map_err(|err| {
+            Diagnostic::new(
+                "test",
+                format!("failed to open {label} {}: {err}", path.display()),
+            )
             .with_path(path.display().to_string())
+        })
+}
+
+#[cfg(not(unix))]
+fn open_test_expected_stream(path: &Path, label: &str) -> Result<fs::File, Diagnostic> {
+    fs::File::open(path).map_err(|err| {
+        Diagnostic::new(
+            "test",
+            format!("failed to open {label} {}: {err}", path.display()),
+        )
+        .with_path(path.display().to_string())
     })
 }
 
@@ -1479,6 +1659,21 @@ fn analyze_entry(
     entry: PathBuf,
     macro_recursion_limit: usize,
 ) -> Result<AnalyzedProject, Diagnostic> {
+    // SECURITY: confine the entry module to the package, resolving symlinks,
+    // before any file is read. The build path canonicalizes the entry before
+    // calling us, but the test-runner entry points (run_test_case and
+    // run_*compile_fail_case) pass project_root.join(entry) unconfined; without
+    // this an untrusted package could ship its entry as a symlink escaping the
+    // package tree (e.g. src/main_test.ax -> /etc/passwd) and have it read as
+    // Axiom source and echoed back through diagnostics. We only gate access
+    // here and keep using `entry` for loading, so module paths and diagnostics
+    // are unchanged for legitimate (non-symlinked) entries.
+    canonicalize_package_path(
+        &entry,
+        package_root,
+        "manifest",
+        "build.entry resolves outside the package",
+    )?;
     let modules = load_modules(graph, package_root, &entry, macro_recursion_limit)?;
     validate_module_capabilities(graph, &modules)?;
     validate_semantic_declarations(&modules)?;
@@ -1979,6 +2174,7 @@ struct BuildCacheFile {
     manifest_hash: String,
     lockfile_hash: String,
     rust_hash: String,
+    stdin_hash: Option<String>,
     binary_hash: Option<String>,
     modules: Vec<CachedModule>,
 }
@@ -2000,18 +2196,17 @@ fn build_artifacts(
     options: &BuildOptions,
 ) -> Result<BuildArtifactReport, Diagnostic> {
     if matches!(options.backend, NativeBackendKind::GeneratedRust) {
-        ensure_output_path_stays_inside_package(
-            package_root,
-            generated_rust,
-            "generated Rust output",
-        )?;
-        ensure_writable_output_parent(generated_rust, "generated Rust output")?;
+        ensure_package_output_path_ready(package_root, generated_rust, "generated Rust output")?;
     }
-    ensure_output_path_stays_inside_package(package_root, binary, "binary output")?;
-    ensure_writable_output_parent(binary, "binary output")?;
+    ensure_package_output_path_ready(package_root, binary, "binary output")?;
     let cache_path = build_cache_path(generated_rust);
-    ensure_output_path_stays_inside_package(package_root, &cache_path, "build cache output")?;
-    ensure_writable_output_parent(&cache_path, "build cache output")?;
+    ensure_package_output_path_ready(package_root, &cache_path, "build cache output")?;
+    if options.debug {
+        let debug_map = debug_source_map_path(options.backend, generated_rust, binary);
+        let debug_manifest = debug_manifest_path(options.backend, generated_rust, binary);
+        ensure_package_output_path_ready(package_root, &debug_map, "debug source map output")?;
+        ensure_package_output_path_ready(package_root, &debug_manifest, "debug manifest output")?;
+    }
     let generated_source = generated_rust_source_for_backend(package_root, analyzed, options)?;
     let backend_input_hash = backend_input_hash(analyzed, generated_source.as_deref())?;
     let cache = build_cache_file(
@@ -2022,6 +2217,7 @@ fn build_artifacts(
         options.backend,
         resolved_target.map(str::to_string),
         options.debug,
+        direct_native_stdin_hash(options),
     )?;
     if read_build_cache(&cache_path)
         .as_ref()
@@ -2047,12 +2243,7 @@ fn build_artifacts(
         });
     }
     if let Some(rust_source) = generated_source {
-        fs::write(generated_rust, rust_source).map_err(|err| {
-            Diagnostic::new(
-                "build",
-                format!("failed to write {}: {err}", generated_rust.display()),
-            )
-        })?;
+        write_output_file(generated_rust, rust_source, "generated Rust output")?;
     }
     let started = Instant::now();
     match options.backend {
@@ -2076,6 +2267,7 @@ fn build_artifacts(
                 &analyzed.manifest.capabilities,
                 package_root,
                 &fs_root,
+                options.stdin.as_deref(),
                 &object_path,
                 binary,
                 resolved_target,
@@ -2234,16 +2426,68 @@ fn write_provenance_artifact(
     backend: NativeBackendKind,
 ) -> Result<(), Diagnostic> {
     let path = provenance_path(package_root, &analyzed.manifest);
-    ensure_writable_output_parent(&path, "provenance output")?;
+    ensure_package_output_path_ready(package_root, &path, "provenance output")?;
     let report = provenance_report(package_root, analyzed, generated_rust, binary, backend)?;
     let content = serde_json::to_string_pretty(&report)
         .map_err(|err| Diagnostic::new("build", format!("failed to render provenance: {err}")))?;
-    fs::write(&path, format!("{content}\n")).map_err(|err| {
+    write_output_file(&path, format!("{content}\n"), "provenance output")
+}
+
+fn ensure_package_output_path_ready(
+    package_root: &Path,
+    path: &Path,
+    label: &str,
+) -> Result<(), Diagnostic> {
+    ensure_output_path_stays_inside_package(package_root, path, label)?;
+    ensure_writable_output_parent(path, label)
+}
+
+fn write_output_file(
+    path: &Path,
+    contents: impl AsRef<[u8]>,
+    _label: &str,
+) -> Result<(), Diagnostic> {
+    let mut options = OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    {
+        const O_NOFOLLOW: i32 = 0o400000;
+        options.custom_flags(O_NOFOLLOW);
+    }
+    #[cfg(any(
+        target_os = "macos",
+        target_os = "ios",
+        target_os = "freebsd",
+        target_os = "openbsd",
+        target_os = "netbsd",
+        target_os = "dragonfly"
+    ))]
+    {
+        const O_NOFOLLOW: i32 = 0x00000100;
+        options.custom_flags(O_NOFOLLOW);
+    }
+    let mut file = options.open(path).map_err(|err| {
         Diagnostic::new(
             "build",
             format!("failed to write {}: {err}", path.display()),
         )
-    })
+        .with_path(path.display().to_string())
+    })?;
+    file.write_all(contents.as_ref()).map_err(|err| {
+        Diagnostic::new(
+            "build",
+            format!("failed to write {}: {err}", path.display()),
+        )
+        .with_path(path.display().to_string())
+    })?;
+    file.flush().map_err(|err| {
+        Diagnostic::new(
+            "build",
+            format!("failed to flush {}: {err}", path.display()),
+        )
+        .with_path(path.display().to_string())
+    })?;
+    Ok(())
 }
 
 fn ensure_writable_output_parent(path: &Path, description: &str) -> Result<(), Diagnostic> {
@@ -2687,12 +2931,7 @@ fn write_debug_source_map(generated_rust: &Path, debug_map: &Path) -> Result<(),
     let content = serde_json::to_string_pretty(&map).map_err(|err| {
         Diagnostic::new("build", format!("failed to render debug source map: {err}"))
     })?;
-    fs::write(debug_map, format!("{content}\n")).map_err(|err| {
-        Diagnostic::new(
-            "build",
-            format!("failed to write {}: {err}", debug_map.display()),
-        )
-    })
+    write_output_file(debug_map, format!("{content}\n"), "debug source map output")
 }
 
 fn write_debug_manifest(
@@ -2726,12 +2965,11 @@ fn write_debug_manifest(
     let content = serde_json::to_string_pretty(&manifest).map_err(|err| {
         Diagnostic::new("build", format!("failed to render debug manifest: {err}"))
     })?;
-    fs::write(debug_manifest, format!("{content}\n")).map_err(|err| {
-        Diagnostic::new(
-            "build",
-            format!("failed to write {}: {err}", debug_manifest.display()),
-        )
-    })
+    write_output_file(
+        debug_manifest,
+        format!("{content}\n"),
+        "debug manifest output",
+    )
 }
 
 fn write_direct_native_debug_source_map(
@@ -2752,12 +2990,7 @@ fn write_direct_native_debug_source_map(
             format!("failed to render direct-native debug source map: {err}"),
         )
     })?;
-    fs::write(debug_map, format!("{content}\n")).map_err(|err| {
-        Diagnostic::new(
-            "build",
-            format!("failed to write {}: {err}", debug_map.display()),
-        )
-    })
+    write_output_file(debug_map, format!("{content}\n"), "debug source map output")
 }
 
 fn write_direct_native_debug_manifest(
@@ -2785,12 +3018,11 @@ fn write_direct_native_debug_manifest(
             format!("failed to render direct-native debug manifest: {err}"),
         )
     })?;
-    fs::write(debug_manifest, format!("{content}\n")).map_err(|err| {
-        Diagnostic::new(
-            "build",
-            format!("failed to write {}: {err}", debug_manifest.display()),
-        )
-    })
+    write_output_file(
+        debug_manifest,
+        format!("{content}\n"),
+        "debug manifest output",
+    )
 }
 
 fn debug_native_info(backend: NativeBackendKind) -> DebugNativeInfo {
@@ -3057,12 +3289,7 @@ fn write_build_cache(path: &Path, cache: &BuildCacheFile) -> Result<(), Diagnost
             format!("failed to render build cache metadata: {err}"),
         )
     })?;
-    fs::write(path, content).map_err(|err| {
-        Diagnostic::new(
-            "build",
-            format!("failed to write {}: {err}", path.display()),
-        )
-    })
+    write_output_file(path, content, "build cache output")
 }
 
 fn build_cache_file(
@@ -3073,6 +3300,7 @@ fn build_cache_file(
     backend: NativeBackendKind,
     target: Option<String>,
     debug: bool,
+    stdin_hash: Option<String>,
 ) -> Result<BuildCacheFile, Diagnostic> {
     Ok(BuildCacheFile {
         version: BUILD_CACHE_VERSION,
@@ -3083,9 +3311,16 @@ fn build_cache_file(
         manifest_hash: hash_file(&manifest_path(package_root))?,
         lockfile_hash: hash_file(&crate::manifest::lockfile_path(package_root))?,
         rust_hash: backend_input_hash.to_string(),
+        stdin_hash,
         binary_hash: None,
         modules: cached_modules(graph, &analyzed.modules)?,
     })
+}
+
+fn direct_native_stdin_hash(options: &BuildOptions) -> Option<String> {
+    matches!(options.backend, NativeBackendKind::Cranelift)
+        .then(|| options.stdin.as_deref().map(hash_text))
+        .flatten()
 }
 
 fn cached_modules(
@@ -3220,6 +3455,9 @@ fn run_test_case(
         None,
         &BuildOptions {
             backend,
+            stdin: matches!(backend, NativeBackendKind::Cranelift)
+                .then(|| test.stdin.clone())
+                .flatten(),
             ..BuildOptions::default()
         },
     ) {
@@ -3385,27 +3623,16 @@ fn run_http_fixture_case(
     test: &crate::manifest::TestTarget,
 ) -> io::Result<std::process::Output> {
     let fixture = test.http.as_ref().expect("http fixture present");
-    let (host, port, injected_bind) = if let Some(bind) = &fixture.bind {
-        let (host, port) = bind.rsplit_once(':').ok_or_else(|| {
-            io::Error::new(
-                io::ErrorKind::InvalidInput,
-                format!("http fixture bind must be host:port, got {bind:?}"),
-            )
-        })?;
-        let port = port.parse::<u16>().map_err(|err| {
-            io::Error::new(
-                io::ErrorKind::InvalidInput,
-                format!("http fixture bind has invalid port {port:?}: {err}"),
-            )
-        })?;
-        (host.to_string(), port, None)
+    let (target_addr, injected_bind) = if let Some(bind) = &fixture.bind {
+        (parse_http_fixture_bind(bind)?, None)
     } else {
         let listener = std::net::TcpListener::bind(("127.0.0.1", 0))?;
-        let port = listener.local_addr()?.port();
+        let target_addr = listener.local_addr()?;
         drop(listener);
-        let bind = format!("127.0.0.1:{port}");
-        (String::from("127.0.0.1"), port, Some(bind))
+        let bind = target_addr.to_string();
+        (target_addr, Some(bind))
     };
+    let path = normalize_http_fixture_path(&fixture.path)?;
 
     let mut command = command_for_build_output(binary, build_output_dir)?;
     if let Some(bind) = injected_bind {
@@ -3416,7 +3643,7 @@ fn run_http_fixture_case(
 
     let deadline = Instant::now() + Duration::from_secs(5);
     let mut stream = loop {
-        match std::net::TcpStream::connect((host.as_str(), port)) {
+        match std::net::TcpStream::connect(target_addr) {
             Ok(stream) => break stream,
             Err(err) if Instant::now() < deadline => {
                 let _ = err;
@@ -3433,11 +3660,6 @@ fn run_http_fixture_case(
         }
     };
 
-    let path = if fixture.path.starts_with('/') {
-        fixture.path.clone()
-    } else {
-        format!("/{}", fixture.path)
-    };
     stream.write_all(format!("GET {path} HTTP/1.0\r\nHost: 127.0.0.1\r\n\r\n").as_bytes())?;
     let mut response = String::new();
     stream.read_to_string(&mut response)?;
@@ -3446,12 +3668,47 @@ fn run_http_fixture_case(
         let _ = child.kill();
         let _ = child.wait();
         return Err(io::Error::other(format!(
-            "http response body expected {:?}, got {:?}",
-            fixture.expected_body, body
+            "http response body expected {:?}, got {} bytes",
+            fixture.expected_body,
+            body.len()
         )));
     }
 
     child.wait_with_output()
+}
+
+fn parse_http_fixture_bind(bind: &str) -> io::Result<std::net::SocketAddr> {
+    let addr = bind.parse::<std::net::SocketAddr>().map_err(|err| {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("http fixture bind must be a loopback IP socket address, got {bind:?}: {err}"),
+        )
+    })?;
+    if !addr.ip().is_loopback() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("http fixture bind must use a loopback address, got {bind:?}"),
+        ));
+    }
+    Ok(addr)
+}
+
+fn normalize_http_fixture_path(path: &str) -> io::Result<String> {
+    if path.is_empty()
+        || path
+            .bytes()
+            .any(|byte| byte.is_ascii_control() || byte == b' ' || byte == b'\t')
+    {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "http fixture path must be a non-empty HTTP request target without whitespace or control characters",
+        ));
+    }
+    if path.starts_with('/') {
+        Ok(path.to_string())
+    } else {
+        Ok(format!("/{path}"))
+    }
 }
 
 fn run_manifest_compile_fail_case(
@@ -4277,30 +4534,397 @@ fn validate_module_capabilities(
     graph: &PackageGraph,
     modules: &[LoadedModule],
 ) -> Result<(), Diagnostic> {
+    let mut package_extern_functions: HashMap<PathBuf, HashSet<String>> = HashMap::new();
+    for module in modules {
+        let extern_functions = package_extern_functions
+            .entry(module.package_root.clone())
+            .or_default();
+        extern_functions.extend(extern_function_names(&module.program));
+    }
+
+    let empty_extern_functions = HashSet::new();
     for module in modules {
         let package = graph.context(&module.package_root)?;
+        let extern_functions = package_extern_functions
+            .get(&module.package_root)
+            .unwrap_or(&empty_extern_functions);
         validate_program_capabilities(
             &module.path,
             &module.program,
             &package.manifest.capabilities,
+            extern_functions,
         )?;
     }
     Ok(())
+}
+
+fn extern_function_names(program: &syntax::Program) -> HashSet<String> {
+    program
+        .functions
+        .iter()
+        .filter(|function| function.is_extern)
+        .map(|function| function.name.clone())
+        .collect()
+}
+
+fn validate_stdlib_wrapper_capabilities(
+    module_path: &Path,
+    program: &syntax::Program,
+    capabilities: &CapabilityConfig,
+    wrappers: &HashMap<String, Vec<CapabilityKind>>,
+) -> Result<(), Diagnostic> {
+    if wrappers.is_empty() {
+        return Ok(());
+    }
+    for const_decl in &program.consts {
+        validate_expr_stdlib_wrapper_capabilities(
+            module_path,
+            &const_decl.expr,
+            capabilities,
+            wrappers,
+        )?;
+    }
+    for function in &program.functions {
+        for stmt in &function.body {
+            validate_stmt_stdlib_wrapper_capabilities(module_path, stmt, capabilities, wrappers)?;
+        }
+    }
+    for stmt in &program.stmts {
+        validate_stmt_stdlib_wrapper_capabilities(module_path, stmt, capabilities, wrappers)?;
+    }
+    Ok(())
+}
+
+fn validate_stmt_stdlib_wrapper_capabilities(
+    module_path: &Path,
+    stmt: &syntax::Stmt,
+    capabilities: &CapabilityConfig,
+    wrappers: &HashMap<String, Vec<CapabilityKind>>,
+) -> Result<(), Diagnostic> {
+    match stmt {
+        syntax::Stmt::Let { expr, .. }
+        | syntax::Stmt::Print { expr, .. }
+        | syntax::Stmt::Panic { expr, .. }
+        | syntax::Stmt::Defer { expr, .. }
+        | syntax::Stmt::Return { expr, .. } => {
+            validate_expr_stdlib_wrapper_capabilities(module_path, expr, capabilities, wrappers)
+        }
+        syntax::Stmt::Assign { target, expr, .. } => {
+            validate_expr_stdlib_wrapper_capabilities(module_path, target, capabilities, wrappers)?;
+            validate_expr_stdlib_wrapper_capabilities(module_path, expr, capabilities, wrappers)
+        }
+        syntax::Stmt::If {
+            cond,
+            then_block,
+            else_block,
+            ..
+        } => {
+            validate_expr_stdlib_wrapper_capabilities(module_path, cond, capabilities, wrappers)?;
+            for stmt in then_block {
+                validate_stmt_stdlib_wrapper_capabilities(
+                    module_path,
+                    stmt,
+                    capabilities,
+                    wrappers,
+                )?;
+            }
+            if let Some(else_block) = else_block {
+                for stmt in else_block {
+                    validate_stmt_stdlib_wrapper_capabilities(
+                        module_path,
+                        stmt,
+                        capabilities,
+                        wrappers,
+                    )?;
+                }
+            }
+            Ok(())
+        }
+        syntax::Stmt::IfLet {
+            expr,
+            then_block,
+            else_block,
+            ..
+        } => {
+            validate_expr_stdlib_wrapper_capabilities(module_path, expr, capabilities, wrappers)?;
+            for stmt in then_block {
+                validate_stmt_stdlib_wrapper_capabilities(
+                    module_path,
+                    stmt,
+                    capabilities,
+                    wrappers,
+                )?;
+            }
+            if let Some(else_block) = else_block {
+                for stmt in else_block {
+                    validate_stmt_stdlib_wrapper_capabilities(
+                        module_path,
+                        stmt,
+                        capabilities,
+                        wrappers,
+                    )?;
+                }
+            }
+            Ok(())
+        }
+        syntax::Stmt::While { cond, body, .. } => {
+            validate_expr_stdlib_wrapper_capabilities(module_path, cond, capabilities, wrappers)?;
+            for stmt in body {
+                validate_stmt_stdlib_wrapper_capabilities(
+                    module_path,
+                    stmt,
+                    capabilities,
+                    wrappers,
+                )?;
+            }
+            Ok(())
+        }
+        syntax::Stmt::Match { expr, arms, .. } => {
+            validate_expr_stdlib_wrapper_capabilities(module_path, expr, capabilities, wrappers)?;
+            for arm in arms {
+                for stmt in &arm.body {
+                    validate_stmt_stdlib_wrapper_capabilities(
+                        module_path,
+                        stmt,
+                        capabilities,
+                        wrappers,
+                    )?;
+                }
+            }
+            Ok(())
+        }
+    }
+}
+
+fn validate_expr_stdlib_wrapper_capabilities(
+    module_path: &Path,
+    expr: &syntax::Expr,
+    capabilities: &CapabilityConfig,
+    wrappers: &HashMap<String, Vec<CapabilityKind>>,
+) -> Result<(), Diagnostic> {
+    match expr {
+        syntax::Expr::Literal(_) | syntax::Expr::VarRef { .. } => Ok(()),
+        syntax::Expr::Call {
+            name,
+            args,
+            line,
+            column,
+            ..
+        } => {
+            if let Some(kinds) = wrappers.get(name) {
+                for kind in kinds {
+                    if !capabilities.enabled(*kind) {
+                        return Err(Diagnostic::new(
+                            "capability",
+                            format!(
+                                "call to stdlib wrapper {name:?} requires [capabilities].{} = true",
+                                kind.name()
+                            ),
+                        )
+                        .with_path(module_path.display().to_string())
+                        .with_span(*line, *column));
+                    }
+                }
+            }
+            for arg in args {
+                validate_expr_stdlib_wrapper_capabilities(
+                    module_path,
+                    arg,
+                    capabilities,
+                    wrappers,
+                )?;
+            }
+            Ok(())
+        }
+        syntax::Expr::MethodCall { base, args, .. } => {
+            validate_expr_stdlib_wrapper_capabilities(module_path, base, capabilities, wrappers)?;
+            for arg in args {
+                validate_expr_stdlib_wrapper_capabilities(
+                    module_path,
+                    arg,
+                    capabilities,
+                    wrappers,
+                )?;
+            }
+            Ok(())
+        }
+        syntax::Expr::BinaryAdd { lhs, rhs, .. }
+        | syntax::Expr::BinaryCompare { lhs, rhs, .. }
+        | syntax::Expr::BinaryLogic { lhs, rhs, .. } => {
+            validate_expr_stdlib_wrapper_capabilities(module_path, lhs, capabilities, wrappers)?;
+            validate_expr_stdlib_wrapper_capabilities(module_path, rhs, capabilities, wrappers)
+        }
+        syntax::Expr::Cast { expr, .. }
+        | syntax::Expr::Try { expr, .. }
+        | syntax::Expr::Await { expr, .. }
+        | syntax::Expr::MutBorrow { expr, .. }
+        | syntax::Expr::Deref { expr, .. } => {
+            validate_expr_stdlib_wrapper_capabilities(module_path, expr, capabilities, wrappers)
+        }
+        syntax::Expr::StructLiteral { fields, .. } => {
+            for field in fields {
+                validate_expr_stdlib_wrapper_capabilities(
+                    module_path,
+                    &field.expr,
+                    capabilities,
+                    wrappers,
+                )?;
+            }
+            Ok(())
+        }
+        syntax::Expr::FieldAccess { base, .. } | syntax::Expr::TupleIndex { base, .. } => {
+            validate_expr_stdlib_wrapper_capabilities(module_path, base, capabilities, wrappers)
+        }
+        syntax::Expr::TupleLiteral { elements, .. }
+        | syntax::Expr::ArrayLiteral { elements, .. } => {
+            for element in elements {
+                validate_expr_stdlib_wrapper_capabilities(
+                    module_path,
+                    element,
+                    capabilities,
+                    wrappers,
+                )?;
+            }
+            Ok(())
+        }
+        syntax::Expr::MapLiteral { entries, .. } => {
+            for entry in entries {
+                validate_expr_stdlib_wrapper_capabilities(
+                    module_path,
+                    &entry.key,
+                    capabilities,
+                    wrappers,
+                )?;
+                validate_expr_stdlib_wrapper_capabilities(
+                    module_path,
+                    &entry.value,
+                    capabilities,
+                    wrappers,
+                )?;
+            }
+            Ok(())
+        }
+        syntax::Expr::Index { base, index, .. } => {
+            validate_expr_stdlib_wrapper_capabilities(module_path, base, capabilities, wrappers)?;
+            validate_expr_stdlib_wrapper_capabilities(module_path, index, capabilities, wrappers)
+        }
+        syntax::Expr::Slice {
+            base, start, end, ..
+        } => {
+            validate_expr_stdlib_wrapper_capabilities(module_path, base, capabilities, wrappers)?;
+            if let Some(start) = start {
+                validate_expr_stdlib_wrapper_capabilities(
+                    module_path,
+                    start,
+                    capabilities,
+                    wrappers,
+                )?;
+            }
+            if let Some(end) = end {
+                validate_expr_stdlib_wrapper_capabilities(
+                    module_path,
+                    end,
+                    capabilities,
+                    wrappers,
+                )?;
+            }
+            Ok(())
+        }
+        syntax::Expr::Closure { body, .. } => {
+            validate_expr_stdlib_wrapper_capabilities(module_path, body, capabilities, wrappers)
+        }
+        syntax::Expr::Match { expr, arms, .. } => {
+            validate_expr_stdlib_wrapper_capabilities(module_path, expr, capabilities, wrappers)?;
+            for arm in arms {
+                validate_expr_stdlib_wrapper_capabilities(
+                    module_path,
+                    &arm.expr,
+                    capabilities,
+                    wrappers,
+                )?;
+            }
+            Ok(())
+        }
+    }
+}
+
+fn stdlib_module_file(module_path: &Path) -> Option<String> {
+    let module = module_path.to_string_lossy().replace('\\', "/");
+    let rest = module.strip_prefix("<stdlib>/")?;
+    (!rest.contains('/')).then(|| rest.to_string())
+}
+
+fn stdlib_wrapper_capabilities(
+    module_path: &Path,
+    function_name: &str,
+) -> Option<Vec<CapabilityKind>> {
+    let module = stdlib_module_file(module_path)?;
+    match (module.as_str(), function_name) {
+        ("net.ax", _) | ("net_tcp.ax", _) | ("net_udp.ax", _) | ("http.ax", _) => {
+            Some(vec![CapabilityKind::Net])
+        }
+        ("async_net.ax", _) => Some(vec![CapabilityKind::Net, CapabilityKind::Async]),
+        ("http_async.ax", "async_serve_route") => {
+            Some(vec![CapabilityKind::Net, CapabilityKind::Async])
+        }
+        ("async.ax", _) => Some(vec![CapabilityKind::Async]),
+        ("time.ax", "now_ms" | "now" | "elapsed_ms" | "sleep") => Some(vec![CapabilityKind::Clock]),
+        ("async_time.ax", _) => Some(vec![CapabilityKind::Clock, CapabilityKind::Async]),
+        ("env.ax", "get_env") => Some(vec![CapabilityKind::Env]),
+        ("fs.ax", "read_file") => Some(vec![CapabilityKind::Fs]),
+        ("fs.ax", _) => Some(vec![CapabilityKind::FsWrite]),
+        ("process.ax", "run_status") => Some(vec![CapabilityKind::Process]),
+        ("crypto_hash.ax", _)
+        | ("crypto_mac.ax", _)
+        | ("crypto_rand.ax", _)
+        | ("crypto_aead.ax", _)
+        | ("crypto_sign.ax", _)
+        | ("crypto.ax", _) => Some(vec![CapabilityKind::Crypto]),
+        _ => None,
+    }
 }
 
 fn validate_program_capabilities(
     module_path: &Path,
     program: &syntax::Program,
     capabilities: &CapabilityConfig,
+    extern_functions: &HashSet<String>,
 ) -> Result<(), Diagnostic> {
-    let known_strings = syntax_program_known_strings(program);
+    let visible_consts = program
+        .consts
+        .iter()
+        .map(|decl| (decl.name.clone(), decl.clone()))
+        .collect::<HashMap<_, _>>();
+    let stdlib_wrapper_capabilities = imported_stdlib_wrapper_capabilities(program);
     for function in &program.functions {
+        let mut bound_names = function
+            .params
+            .iter()
+            .map(|param| param.name.clone())
+            .collect::<HashSet<_>>();
         for stmt in &function.body {
-            validate_stmt_capabilities(module_path, stmt, capabilities, &known_strings)?;
+            validate_stmt_capabilities(
+                module_path,
+                stmt,
+                capabilities,
+                &visible_consts,
+                &stdlib_wrapper_capabilities,
+                extern_functions,
+                &mut bound_names,
+            )?;
         }
     }
+    let mut bound_names = HashSet::new();
     for stmt in &program.stmts {
-        validate_stmt_capabilities(module_path, stmt, capabilities, &known_strings)?;
+        validate_stmt_capabilities(
+            module_path,
+            stmt,
+            capabilities,
+            &visible_consts,
+            &stdlib_wrapper_capabilities,
+            extern_functions,
+            &mut bound_names,
+        )?;
     }
     Ok(())
 }
@@ -4309,21 +4933,57 @@ fn validate_stmt_capabilities(
     module_path: &Path,
     stmt: &syntax::Stmt,
     capabilities: &CapabilityConfig,
-    known_strings: &HashMap<String, String>,
+    visible_consts: &HashMap<String, syntax::ConstDecl>,
+    stdlib_wrapper_capabilities: &HashMap<String, CapabilityKind>,
+    extern_functions: &HashSet<String>,
+    bound_names: &mut HashSet<String>,
 ) -> Result<(), Diagnostic> {
     match stmt {
-        syntax::Stmt::Let { expr, .. } => {
-            validate_expr_capabilities(module_path, expr, capabilities, known_strings)?;
+        syntax::Stmt::Let { name, expr, .. } => {
+            validate_expr_capabilities(
+                module_path,
+                expr,
+                capabilities,
+                visible_consts,
+                stdlib_wrapper_capabilities,
+                extern_functions,
+                bound_names,
+            )?;
+            bound_names.insert(name.clone());
         }
         syntax::Stmt::Print { expr, .. }
         | syntax::Stmt::Panic { expr, .. }
         | syntax::Stmt::Defer { expr, .. }
         | syntax::Stmt::Return { expr, .. } => {
-            validate_expr_capabilities(module_path, expr, capabilities, known_strings)?;
+            validate_expr_capabilities(
+                module_path,
+                expr,
+                capabilities,
+                visible_consts,
+                stdlib_wrapper_capabilities,
+                extern_functions,
+                bound_names,
+            )?;
         }
         syntax::Stmt::Assign { target, expr, .. } => {
-            validate_expr_capabilities(module_path, target, capabilities, known_strings)?;
-            validate_expr_capabilities(module_path, expr, capabilities, known_strings)?;
+            validate_expr_capabilities(
+                module_path,
+                target,
+                capabilities,
+                visible_consts,
+                stdlib_wrapper_capabilities,
+                extern_functions,
+                bound_names,
+            )?;
+            validate_expr_capabilities(
+                module_path,
+                expr,
+                capabilities,
+                visible_consts,
+                stdlib_wrapper_capabilities,
+                extern_functions,
+                bound_names,
+            )?;
         }
         syntax::Stmt::If {
             cond,
@@ -4331,43 +4991,132 @@ fn validate_stmt_capabilities(
             else_block,
             ..
         } => {
-            validate_expr_capabilities(module_path, cond, capabilities, known_strings)?;
+            validate_expr_capabilities(
+                module_path,
+                cond,
+                capabilities,
+                visible_consts,
+                stdlib_wrapper_capabilities,
+                extern_functions,
+                bound_names,
+            )?;
+            let mut then_names = bound_names.clone();
             for stmt in then_block {
-                validate_stmt_capabilities(module_path, stmt, capabilities, known_strings)?;
+                validate_stmt_capabilities(
+                    module_path,
+                    stmt,
+                    capabilities,
+                    visible_consts,
+                    stdlib_wrapper_capabilities,
+                    extern_functions,
+                    &mut then_names,
+                )?;
             }
             if let Some(else_block) = else_block {
+                let mut else_names = bound_names.clone();
                 for stmt in else_block {
-                    validate_stmt_capabilities(module_path, stmt, capabilities, known_strings)?;
+                    validate_stmt_capabilities(
+                        module_path,
+                        stmt,
+                        capabilities,
+                        visible_consts,
+                        stdlib_wrapper_capabilities,
+                        extern_functions,
+                        &mut else_names,
+                    )?;
                 }
             }
         }
         syntax::Stmt::IfLet {
+            bindings,
             expr,
             then_block,
             else_block,
             ..
         } => {
-            validate_expr_capabilities(module_path, expr, capabilities, known_strings)?;
+            validate_expr_capabilities(
+                module_path,
+                expr,
+                capabilities,
+                visible_consts,
+                stdlib_wrapper_capabilities,
+                extern_functions,
+                bound_names,
+            )?;
+            let mut then_names = bound_names.clone();
+            then_names.extend(bindings.iter().cloned());
             for stmt in then_block {
-                validate_stmt_capabilities(module_path, stmt, capabilities, known_strings)?;
+                validate_stmt_capabilities(
+                    module_path,
+                    stmt,
+                    capabilities,
+                    visible_consts,
+                    stdlib_wrapper_capabilities,
+                    extern_functions,
+                    &mut then_names,
+                )?;
             }
             if let Some(else_block) = else_block {
+                let mut else_names = bound_names.clone();
                 for stmt in else_block {
-                    validate_stmt_capabilities(module_path, stmt, capabilities, known_strings)?;
+                    validate_stmt_capabilities(
+                        module_path,
+                        stmt,
+                        capabilities,
+                        visible_consts,
+                        stdlib_wrapper_capabilities,
+                        extern_functions,
+                        &mut else_names,
+                    )?;
                 }
             }
         }
         syntax::Stmt::While { cond, body, .. } => {
-            validate_expr_capabilities(module_path, cond, capabilities, known_strings)?;
+            validate_expr_capabilities(
+                module_path,
+                cond,
+                capabilities,
+                visible_consts,
+                stdlib_wrapper_capabilities,
+                extern_functions,
+                bound_names,
+            )?;
+            let mut body_names = bound_names.clone();
             for stmt in body {
-                validate_stmt_capabilities(module_path, stmt, capabilities, known_strings)?;
+                validate_stmt_capabilities(
+                    module_path,
+                    stmt,
+                    capabilities,
+                    visible_consts,
+                    stdlib_wrapper_capabilities,
+                    extern_functions,
+                    &mut body_names,
+                )?;
             }
         }
         syntax::Stmt::Match { expr, arms, .. } => {
-            validate_expr_capabilities(module_path, expr, capabilities, known_strings)?;
+            validate_expr_capabilities(
+                module_path,
+                expr,
+                capabilities,
+                visible_consts,
+                stdlib_wrapper_capabilities,
+                extern_functions,
+                bound_names,
+            )?;
             for arm in arms {
+                let mut arm_names = bound_names.clone();
+                arm_names.extend(arm.bindings.iter().cloned());
                 for stmt in &arm.body {
-                    validate_stmt_capabilities(module_path, stmt, capabilities, known_strings)?;
+                    validate_stmt_capabilities(
+                        module_path,
+                        stmt,
+                        capabilities,
+                        visible_consts,
+                        stdlib_wrapper_capabilities,
+                        extern_functions,
+                        &mut arm_names,
+                    )?;
                 }
             }
         }
@@ -4379,7 +5128,10 @@ fn validate_expr_capabilities(
     module_path: &Path,
     expr: &syntax::Expr,
     capabilities: &CapabilityConfig,
-    known_strings: &HashMap<String, String>,
+    visible_consts: &HashMap<String, syntax::ConstDecl>,
+    stdlib_wrapper_capabilities: &HashMap<String, CapabilityKind>,
+    extern_functions: &HashSet<String>,
+    bound_names: &HashSet<String>,
 ) -> Result<(), Diagnostic> {
     match expr {
         syntax::Expr::Literal(_) | syntax::Expr::VarRef { .. } => Ok(()),
@@ -4390,7 +5142,16 @@ fn validate_expr_capabilities(
             line,
             column,
         } => {
+            if extern_functions.contains(name) && !capabilities.enabled(CapabilityKind::Ffi) {
+                return Err(Diagnostic::new(
+                    "capability",
+                    format!("call to {name:?} requires [capabilities].ffi = true"),
+                )
+                .with_path(module_path.display().to_string())
+                .with_span(*line, *column));
+            }
             if let Some(kind) = intrinsic_capability(name)
+                .or_else(|| stdlib_wrapper_capabilities.get(name.as_str()).copied())
                 && !capabilities.enabled(kind)
             {
                 let requirement = if kind == CapabilityKind::Env {
@@ -4413,84 +5174,245 @@ fn validate_expr_capabilities(
                     name,
                     args,
                     capabilities,
-                    known_strings,
+                    visible_consts,
+                    bound_names,
                     *line,
                     *column,
                 )?;
             }
             for arg in args {
-                validate_expr_capabilities(module_path, arg, capabilities, known_strings)?;
+                validate_expr_capabilities(
+                    module_path,
+                    arg,
+                    capabilities,
+                    visible_consts,
+                    stdlib_wrapper_capabilities,
+                    extern_functions,
+                    bound_names,
+                )?;
             }
             Ok(())
         }
         syntax::Expr::MethodCall { base, args, .. } => {
-            validate_expr_capabilities(module_path, base, capabilities, known_strings)?;
+            validate_expr_capabilities(
+                module_path,
+                base,
+                capabilities,
+                visible_consts,
+                stdlib_wrapper_capabilities,
+                extern_functions,
+                bound_names,
+            )?;
             for arg in args {
-                validate_expr_capabilities(module_path, arg, capabilities, known_strings)?;
+                validate_expr_capabilities(
+                    module_path,
+                    arg,
+                    capabilities,
+                    visible_consts,
+                    stdlib_wrapper_capabilities,
+                    extern_functions,
+                    bound_names,
+                )?;
             }
             Ok(())
         }
         syntax::Expr::BinaryAdd { lhs, rhs, .. }
         | syntax::Expr::BinaryCompare { lhs, rhs, .. }
         | syntax::Expr::BinaryLogic { lhs, rhs, .. } => {
-            validate_expr_capabilities(module_path, lhs, capabilities, known_strings)?;
-            validate_expr_capabilities(module_path, rhs, capabilities, known_strings)
+            validate_expr_capabilities(
+                module_path,
+                lhs,
+                capabilities,
+                visible_consts,
+                stdlib_wrapper_capabilities,
+                extern_functions,
+                bound_names,
+            )?;
+            validate_expr_capabilities(
+                module_path,
+                rhs,
+                capabilities,
+                visible_consts,
+                stdlib_wrapper_capabilities,
+                extern_functions,
+                bound_names,
+            )
         }
-        syntax::Expr::Cast { expr, .. } => {
-            validate_expr_capabilities(module_path, expr, capabilities, known_strings)
-        }
+        syntax::Expr::Cast { expr, .. } => validate_expr_capabilities(
+            module_path,
+            expr,
+            capabilities,
+            visible_consts,
+            stdlib_wrapper_capabilities,
+            extern_functions,
+            bound_names,
+        ),
         syntax::Expr::Try { expr, .. }
         | syntax::Expr::Await { expr, .. }
         | syntax::Expr::MutBorrow { expr, .. }
-        | syntax::Expr::Deref { expr, .. } => {
-            validate_expr_capabilities(module_path, expr, capabilities, known_strings)
-        }
+        | syntax::Expr::Deref { expr, .. } => validate_expr_capabilities(
+            module_path,
+            expr,
+            capabilities,
+            visible_consts,
+            stdlib_wrapper_capabilities,
+            extern_functions,
+            bound_names,
+        ),
         syntax::Expr::StructLiteral { fields, .. } => {
             for field in fields {
-                validate_expr_capabilities(module_path, &field.expr, capabilities, known_strings)?;
+                validate_expr_capabilities(
+                    module_path,
+                    &field.expr,
+                    capabilities,
+                    visible_consts,
+                    stdlib_wrapper_capabilities,
+                    extern_functions,
+                    bound_names,
+                )?;
             }
             Ok(())
         }
         syntax::Expr::FieldAccess { base, .. } | syntax::Expr::TupleIndex { base, .. } => {
-            validate_expr_capabilities(module_path, base, capabilities, known_strings)
+            validate_expr_capabilities(
+                module_path,
+                base,
+                capabilities,
+                visible_consts,
+                stdlib_wrapper_capabilities,
+                extern_functions,
+                bound_names,
+            )
         }
         syntax::Expr::TupleLiteral { elements, .. }
         | syntax::Expr::ArrayLiteral { elements, .. } => {
             for element in elements {
-                validate_expr_capabilities(module_path, element, capabilities, known_strings)?;
+                validate_expr_capabilities(
+                    module_path,
+                    element,
+                    capabilities,
+                    visible_consts,
+                    stdlib_wrapper_capabilities,
+                    extern_functions,
+                    bound_names,
+                )?;
             }
             Ok(())
         }
         syntax::Expr::MapLiteral { entries, .. } => {
             for entry in entries {
-                validate_expr_capabilities(module_path, &entry.key, capabilities, known_strings)?;
-                validate_expr_capabilities(module_path, &entry.value, capabilities, known_strings)?;
+                validate_expr_capabilities(
+                    module_path,
+                    &entry.key,
+                    capabilities,
+                    visible_consts,
+                    stdlib_wrapper_capabilities,
+                    extern_functions,
+                    bound_names,
+                )?;
+                validate_expr_capabilities(
+                    module_path,
+                    &entry.value,
+                    capabilities,
+                    visible_consts,
+                    stdlib_wrapper_capabilities,
+                    extern_functions,
+                    bound_names,
+                )?;
             }
             Ok(())
         }
         syntax::Expr::Slice {
             base, start, end, ..
         } => {
-            validate_expr_capabilities(module_path, base, capabilities, known_strings)?;
+            validate_expr_capabilities(
+                module_path,
+                base,
+                capabilities,
+                visible_consts,
+                stdlib_wrapper_capabilities,
+                extern_functions,
+                bound_names,
+            )?;
             if let Some(start) = start {
-                validate_expr_capabilities(module_path, start, capabilities, known_strings)?;
+                validate_expr_capabilities(
+                    module_path,
+                    start,
+                    capabilities,
+                    visible_consts,
+                    stdlib_wrapper_capabilities,
+                    extern_functions,
+                    bound_names,
+                )?;
             }
             if let Some(end) = end {
-                validate_expr_capabilities(module_path, end, capabilities, known_strings)?;
+                validate_expr_capabilities(
+                    module_path,
+                    end,
+                    capabilities,
+                    visible_consts,
+                    stdlib_wrapper_capabilities,
+                    extern_functions,
+                    bound_names,
+                )?;
             }
             Ok(())
         }
         syntax::Expr::Index { base, index, .. } => {
-            validate_expr_capabilities(module_path, base, capabilities, known_strings)?;
-            validate_expr_capabilities(module_path, index, capabilities, known_strings)
+            validate_expr_capabilities(
+                module_path,
+                base,
+                capabilities,
+                visible_consts,
+                stdlib_wrapper_capabilities,
+                extern_functions,
+                bound_names,
+            )?;
+            validate_expr_capabilities(
+                module_path,
+                index,
+                capabilities,
+                visible_consts,
+                stdlib_wrapper_capabilities,
+                extern_functions,
+                bound_names,
+            )
         }
-        syntax::Expr::Closure { body, .. } => {
-            validate_expr_capabilities(module_path, body, capabilities, known_strings)
+        syntax::Expr::Closure { params, body, .. } => {
+            let mut closure_names = bound_names.clone();
+            closure_names.extend(params.iter().map(|param| param.name.clone()));
+            validate_expr_capabilities(
+                module_path,
+                body,
+                capabilities,
+                visible_consts,
+                stdlib_wrapper_capabilities,
+                extern_functions,
+                &closure_names,
+            )
         }
         syntax::Expr::Match { expr, arms, .. } => {
-            validate_expr_capabilities(module_path, expr, capabilities, known_strings)?;
+            validate_expr_capabilities(
+                module_path,
+                expr,
+                capabilities,
+                visible_consts,
+                stdlib_wrapper_capabilities,
+                extern_functions,
+                bound_names,
+            )?;
             for arm in arms {
-                validate_expr_capabilities(module_path, &arm.expr, capabilities, known_strings)?;
+                let mut arm_names = bound_names.clone();
+                arm_names.extend(arm.bindings.iter().cloned());
+                validate_expr_capabilities(
+                    module_path,
+                    &arm.expr,
+                    capabilities,
+                    visible_consts,
+                    stdlib_wrapper_capabilities,
+                    extern_functions,
+                    &arm_names,
+                )?;
             }
             Ok(())
         }
@@ -4502,13 +5424,14 @@ fn validate_process_command_allowlist(
     call_name: &str,
     args: &[syntax::Expr],
     capabilities: &CapabilityConfig,
-    known_strings: &HashMap<String, String>,
+    visible_consts: &HashMap<String, syntax::ConstDecl>,
+    bound_names: &HashSet<String>,
     line: usize,
     column: usize,
 ) -> Result<(), Diagnostic> {
     let command = args
         .first()
-        .and_then(|arg| syntax_known_string(arg, known_strings));
+        .and_then(|arg| process_command_static_string(arg, visible_consts, bound_names));
     let Some(allowed_commands) = capabilities.process_commands.allowed_commands() else {
         return if command.is_some() {
             Ok(())
@@ -4550,27 +5473,44 @@ fn validate_process_command_allowlist(
     }
 }
 
-fn syntax_program_known_strings(program: &syntax::Program) -> HashMap<String, String> {
-    let mut known_strings = HashMap::new();
-    for const_decl in &program.consts {
-        if matches!(
-            const_decl.ty,
-            syntax::TypeName::String | syntax::TypeName::Str
-        ) && let syntax::Expr::Literal(syntax::Literal::String(value)) = &const_decl.expr
-        {
-            known_strings.insert(const_decl.name.clone(), value.clone());
+fn imported_stdlib_wrapper_capabilities(
+    program: &syntax::Program,
+) -> HashMap<String, CapabilityKind> {
+    let mut capabilities = HashMap::new();
+    for import in &program.imports {
+        if import.path == "std/fs.ax" {
+            capabilities.insert(String::from("read_file"), CapabilityKind::Fs);
+            for wrapper in [
+                "write_file",
+                "create_file",
+                "append_file",
+                "mkdir",
+                "mkdir_all",
+                "remove_file",
+                "remove_dir",
+                "replace_file",
+            ] {
+                capabilities.insert(String::from(wrapper), CapabilityKind::FsWrite);
+            }
         }
     }
-    known_strings
+    capabilities
 }
 
-fn syntax_known_string(
+fn process_command_static_string(
     expr: &syntax::Expr,
-    known_strings: &HashMap<String, String>,
+    visible_consts: &HashMap<String, syntax::ConstDecl>,
+    bound_names: &HashSet<String>,
 ) -> Option<String> {
     match expr {
         syntax::Expr::Literal(syntax::Literal::String(value)) => Some(value.clone()),
-        syntax::Expr::VarRef { name, .. } => known_strings.get(name).cloned(),
+        syntax::Expr::VarRef { name, .. } if !bound_names.contains(name) => visible_consts
+            .get(name)
+            .filter(|decl| decl.is_static)
+            .and_then(|decl| match &decl.expr {
+                syntax::Expr::Literal(syntax::Literal::String(value)) => Some(value.clone()),
+                _ => None,
+            }),
         _ => None,
     }
 }
@@ -4670,6 +5610,7 @@ fn flatten_modules(
         let mut private_imported = HashSet::new();
         let mut private_imported_consts = HashSet::new();
         let mut private_imported_types = HashSet::new();
+        let mut capability_wrappers = HashMap::new();
         for import in &module.program.imports {
             let (import_package_root, import_path) =
                 resolve_import_path(graph, &module.package_root, &module.path, import)?;
@@ -4709,6 +5650,9 @@ fn flatten_modules(
                     .with_span(import.line, import.column));
                 }
                 visible_functions.insert(export_name.clone(), internal_name.clone());
+                if let Some(kinds) = stdlib_wrapper_capabilities(&import_path, export_name) {
+                    capability_wrappers.insert(export_name.clone(), kinds);
+                }
             }
             if same_package {
                 for (export_name, internal_name) in &imported_symbols.package_functions {
@@ -4972,6 +5916,14 @@ fn flatten_modules(
                 }
             }
         }
+
+        let package = graph.context(&module.package_root)?;
+        validate_stdlib_wrapper_capabilities(
+            &module.path,
+            &module.program,
+            &package.manifest.capabilities,
+            &capability_wrappers,
+        )?;
 
         let visible_types = merge_visible_types(
             &visible_aliases,
@@ -7741,11 +8693,36 @@ fn ensure_output_path_stays_inside_package(
         }
     }
     let canonical_ancestor = canonicalize_existing_path(&ancestor, label)?;
+    if fs::symlink_metadata(path)
+        .map(|metadata| metadata.file_type().is_symlink())
+        .unwrap_or(false)
+    {
+        return Err(
+            Diagnostic::new("build", format!("{label} must not be a symlink"))
+                .with_path(path.display().to_string()),
+        );
+    }
     if !canonical_ancestor.starts_with(&canonical_package_root) {
         return Err(
             Diagnostic::new("build", format!("{label} resolves outside the package"))
                 .with_path(path.display().to_string()),
         );
+    }
+    match fs::symlink_metadata(path) {
+        Ok(metadata) if metadata.file_type().is_symlink() => {
+            return Err(
+                Diagnostic::new("build", format!("{label} must not be a symlink"))
+                    .with_path(path.display().to_string()),
+            );
+        }
+        Ok(_) => {}
+        Err(err) if err.kind() == io::ErrorKind::NotFound => {}
+        Err(err) => {
+            return Err(
+                Diagnostic::new("build", format!("failed to inspect {label}: {err}"))
+                    .with_path(path.display().to_string()),
+            );
+        }
     }
     Ok(())
 }
@@ -7842,6 +8819,35 @@ mod tests {
     use std::os::unix::fs::PermissionsExt;
     use tempfile::tempdir;
 
+    #[test]
+    fn http_fixture_bind_accepts_only_loopback_socket_addresses() {
+        assert_eq!(
+            parse_http_fixture_bind("127.0.0.1:18080").expect("loopback ipv4"),
+            "127.0.0.1:18080".parse().expect("socket addr")
+        );
+        assert_eq!(
+            parse_http_fixture_bind("[::1]:18080").expect("loopback ipv6"),
+            "[::1]:18080".parse().expect("socket addr")
+        );
+        assert!(parse_http_fixture_bind("169.254.169.254:80").is_err());
+        assert!(parse_http_fixture_bind("example.com:80").is_err());
+    }
+
+    #[test]
+    fn http_fixture_path_rejects_request_shaping_characters() {
+        assert_eq!(
+            normalize_http_fixture_path("health").expect("relative path"),
+            "/health"
+        );
+        assert_eq!(
+            normalize_http_fixture_path("/health?ok=true").expect("absolute path"),
+            "/health?ok=true"
+        );
+        assert!(normalize_http_fixture_path("/metadata\r\nX-Injected: yes").is_err());
+        assert!(normalize_http_fixture_path("/has space").is_err());
+        assert!(normalize_http_fixture_path("").is_err());
+    }
+
     fn workspace_only_manifest() -> Manifest {
         Manifest {
             package: None,
@@ -7875,6 +8881,425 @@ mod tests {
             tests: Vec::new(),
             capabilities: CapabilityConfig::default(),
         }
+    }
+
+    #[test]
+    fn dependency_without_net_cannot_use_stdlib_net_wrapper() {
+        let dir = tempdir().unwrap_or_else(|err| panic!("tempdir: {err}"));
+        let root = dir.path().join("app");
+        let dep = root.join("deps/evil");
+        fs::create_dir_all(root.join("src")).expect("create app src");
+        fs::create_dir_all(dep.join("src")).expect("create dep src");
+        fs::write(
+            root.join("axiom.toml"),
+            r#"[package]
+name = "app"
+version = "0.1.0"
+
+[dependencies.evil]
+path = "deps/evil"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+net = true
+"#,
+        )
+        .expect("write app manifest");
+        fs::write(
+            dep.join("axiom.toml"),
+            r#"[package]
+name = "evil"
+version = "0.1.0"
+
+[build]
+entry = "src/lib.ax"
+out_dir = "dist"
+
+[capabilities]
+net = false
+"#,
+        )
+        .expect("write dep manifest");
+        fs::write(
+            root.join("src/main.ax"),
+            r#"import "evil/leak.ax"
+print leak("localhost")
+"#,
+        )
+        .expect("write app source");
+        fs::write(
+            dep.join("src/leak.ax"),
+            r#"import "std/net.ax"
+pub fn leak(host: string): bool {
+return resolve(host).is_some()
+}
+"#,
+        )
+        .expect("write dep source");
+        fs::write(
+            dep.join("src/lib.ax"),
+            r#"print "dep"
+"#,
+        )
+        .expect("write dep entry");
+        let app_manifest = load_manifest(&root).expect("load app manifest");
+        let dep_manifest = load_manifest(&dep).expect("load dep manifest");
+        fs::write(
+            root.join("axiom.lock"),
+            crate::lockfile::render_lockfile_for_project(&root, &app_manifest)
+                .expect("render app lockfile"),
+        )
+        .expect("write app lockfile");
+        fs::write(
+            dep.join("axiom.lock"),
+            crate::lockfile::render_lockfile_for_project(&dep, &dep_manifest)
+                .expect("render dep lockfile"),
+        )
+        .expect("write dep lockfile");
+
+        let graph = load_package_graph(&root).expect("load graph");
+        let package_root =
+            canonicalize_existing_path(&root, "project root").expect("canonical root");
+        let error = match analyze_package(&graph, &package_root) {
+            Ok(_) => panic!("net wrapper denied"),
+            Err(error) => error,
+        };
+
+        assert!(
+            error
+                .message
+                .contains(r#"call to stdlib wrapper "resolve" requires [capabilities].net = true"#),
+            "unexpected diagnostic: {error:?}"
+        );
+        assert!(
+            error
+                .path
+                .as_deref()
+                .is_some_and(|path| path.ends_with("deps/evil/src/leak.ax")),
+            "unexpected diagnostic path: {error:?}"
+        );
+    }
+
+    #[test]
+    fn dependency_without_net_cannot_use_stdlib_net_wrapper_in_const_initializer() {
+        let dir = tempdir().unwrap_or_else(|err| panic!("tempdir: {err}"));
+        let root = dir.path().join("app");
+        let dep = root.join("deps/evil");
+        fs::create_dir_all(root.join("src")).expect("create app src");
+        fs::create_dir_all(dep.join("src")).expect("create dep src");
+        fs::write(
+            root.join("axiom.toml"),
+            r#"[package]
+name = "app"
+version = "0.1.0"
+
+[dependencies.evil]
+path = "deps/evil"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+net = true
+"#,
+        )
+        .expect("write app manifest");
+        fs::write(
+            dep.join("axiom.toml"),
+            r#"[package]
+name = "evil"
+version = "0.1.0"
+
+[build]
+entry = "src/lib.ax"
+out_dir = "dist"
+
+[capabilities]
+net = false
+"#,
+        )
+        .expect("write dep manifest");
+        fs::write(
+            root.join("src/main.ax"),
+            r#"import "evil/leak.ax"
+print leak()
+"#,
+        )
+        .expect("write app source");
+        fs::write(
+            dep.join("src/leak.ax"),
+            r#"import "std/net.ax"
+const LEAKED: bool = resolve("localhost").is_some()
+pub fn leak(): bool {
+return LEAKED
+}
+"#,
+        )
+        .expect("write dep source");
+        fs::write(
+            dep.join("src/lib.ax"),
+            r#"print "dep"
+"#,
+        )
+        .expect("write dep entry");
+        let app_manifest = load_manifest(&root).expect("load app manifest");
+        let dep_manifest = load_manifest(&dep).expect("load dep manifest");
+        fs::write(
+            root.join("axiom.lock"),
+            crate::lockfile::render_lockfile_for_project(&root, &app_manifest)
+                .expect("render app lockfile"),
+        )
+        .expect("write app lockfile");
+        fs::write(
+            dep.join("axiom.lock"),
+            crate::lockfile::render_lockfile_for_project(&dep, &dep_manifest)
+                .expect("render dep lockfile"),
+        )
+        .expect("write dep lockfile");
+
+        let graph = load_package_graph(&root).expect("load graph");
+        let package_root =
+            canonicalize_existing_path(&root, "project root").expect("canonical root");
+        let error = match analyze_package(&graph, &package_root) {
+            Ok(_) => panic!("net wrapper denied"),
+            Err(error) => error,
+        };
+
+        assert!(
+            error
+                .message
+                .contains(r#"call to stdlib wrapper "resolve" requires [capabilities].net = true"#),
+            "unexpected diagnostic: {error:?}"
+        );
+        assert!(
+            error
+                .path
+                .as_deref()
+                .is_some_and(|path| path.ends_with("deps/evil/src/leak.ax")),
+            "unexpected diagnostic path: {error:?}"
+        );
+    }
+
+    #[test]
+    fn stdlib_wrapper_capabilities_match_stdlib_paths_portably() {
+        assert_eq!(
+            stdlib_wrapper_capabilities(Path::new("<stdlib>/net.ax"), "resolve"),
+            Some(vec![CapabilityKind::Net])
+        );
+        assert_eq!(
+            stdlib_wrapper_capabilities(Path::new("<stdlib>\\net.ax"), "resolve"),
+            Some(vec![CapabilityKind::Net])
+        );
+        assert_eq!(
+            stdlib_wrapper_capabilities(Path::new("<stdlib>\\http_async.ax"), "async_serve_route"),
+            Some(vec![CapabilityKind::Net, CapabilityKind::Async])
+        );
+    }
+
+    #[test]
+    fn dependency_without_async_cannot_use_stdlib_async_wrapper() {
+        let dir = tempdir().unwrap_or_else(|err| panic!("tempdir: {err}"));
+        let root = dir.path().join("app");
+        let dep = root.join("deps/evil");
+        fs::create_dir_all(root.join("src")).expect("create app src");
+        fs::create_dir_all(dep.join("src")).expect("create dep src");
+        fs::write(
+            root.join("axiom.toml"),
+            r#"[package]
+name = "app"
+version = "0.1.0"
+
+[dependencies.evil]
+path = "deps/evil"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+async = true
+"#,
+        )
+        .expect("write app manifest");
+        fs::write(
+            dep.join("axiom.toml"),
+            r#"[package]
+name = "evil"
+version = "0.1.0"
+
+[build]
+entry = "src/lib.ax"
+out_dir = "dist"
+
+[capabilities]
+async = false
+"#,
+        )
+        .expect("write dep manifest");
+        fs::write(
+            root.join("src/main.ax"),
+            r#"import "evil/leak.ax"
+print await leak()
+"#,
+        )
+        .expect("write app source");
+        fs::write(
+            dep.join("src/leak.ax"),
+            r#"import "std/async.ax"
+pub fn leak(): Task<int> {
+return ready<int>(1)
+}
+"#,
+        )
+        .expect("write dep source");
+        fs::write(
+            dep.join("src/lib.ax"),
+            r#"print "dep"
+"#,
+        )
+        .expect("write dep entry");
+        let app_manifest = load_manifest(&root).expect("load app manifest");
+        let dep_manifest = load_manifest(&dep).expect("load dep manifest");
+        fs::write(
+            root.join("axiom.lock"),
+            crate::lockfile::render_lockfile_for_project(&root, &app_manifest)
+                .expect("render app lockfile"),
+        )
+        .expect("write app lockfile");
+        fs::write(
+            dep.join("axiom.lock"),
+            crate::lockfile::render_lockfile_for_project(&dep, &dep_manifest)
+                .expect("render dep lockfile"),
+        )
+        .expect("write dep lockfile");
+
+        let graph = load_package_graph(&root).expect("load graph");
+        let package_root =
+            canonicalize_existing_path(&root, "project root").expect("canonical root");
+        let error = match analyze_package(&graph, &package_root) {
+            Ok(_) => panic!("async wrapper denied"),
+            Err(error) => error,
+        };
+
+        assert!(
+            error
+                .message
+                .contains(r#"call to stdlib wrapper "ready" requires [capabilities].async = true"#),
+            "unexpected diagnostic: {error:?}"
+        );
+        assert!(
+            error
+                .path
+                .as_deref()
+                .is_some_and(|path| path.ends_with("deps/evil/src/leak.ax")),
+            "unexpected diagnostic path: {error:?}"
+        );
+    }
+
+    #[test]
+    fn dependency_without_async_cannot_use_stdlib_http_async_wrapper() {
+        let dir = tempdir().unwrap_or_else(|err| panic!("tempdir: {err}"));
+        let root = dir.path().join("app");
+        let dep = root.join("deps/evil");
+        fs::create_dir_all(root.join("src")).expect("create app src");
+        fs::create_dir_all(dep.join("src")).expect("create dep src");
+        fs::write(
+            root.join("axiom.toml"),
+            r#"[package]
+name = "app"
+version = "0.1.0"
+
+[dependencies.evil]
+path = "deps/evil"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+net = true
+async = true
+"#,
+        )
+        .expect("write app manifest");
+        fs::write(
+            dep.join("axiom.toml"),
+            r#"[package]
+name = "evil"
+version = "0.1.0"
+
+[build]
+entry = "src/lib.ax"
+out_dir = "dist"
+
+[capabilities]
+net = true
+async = false
+"#,
+        )
+        .expect("write dep manifest");
+        fs::write(
+            root.join("src/main.ax"),
+            r#"import "evil/leak.ax"
+print await leak()
+"#,
+        )
+        .expect("write app source");
+        fs::write(
+            dep.join("src/leak.ax"),
+            r#"import "std/http_async.ax"
+pub fn leak(): Task<bool> {
+return async_serve_route(1, "/", "ok", 1)
+}
+"#,
+        )
+        .expect("write dep source");
+        fs::write(
+            dep.join("src/lib.ax"),
+            r#"print "dep"
+"#,
+        )
+        .expect("write dep entry");
+        let app_manifest = load_manifest(&root).expect("load app manifest");
+        let dep_manifest = load_manifest(&dep).expect("load dep manifest");
+        fs::write(
+            root.join("axiom.lock"),
+            crate::lockfile::render_lockfile_for_project(&root, &app_manifest)
+                .expect("render app lockfile"),
+        )
+        .expect("write app lockfile");
+        fs::write(
+            dep.join("axiom.lock"),
+            crate::lockfile::render_lockfile_for_project(&dep, &dep_manifest)
+                .expect("render dep lockfile"),
+        )
+        .expect("write dep lockfile");
+
+        let graph = load_package_graph(&root).expect("load graph");
+        let package_root =
+            canonicalize_existing_path(&root, "project root").expect("canonical root");
+        let error = match analyze_package(&graph, &package_root) {
+            Ok(_) => panic!("http async wrapper denied"),
+            Err(error) => error,
+        };
+
+        assert!(
+            error.message.contains(
+                r#"call to stdlib wrapper "async_serve_route" requires [capabilities].async = true"#
+            ),
+            "unexpected diagnostic: {error:?}"
+        );
+        assert!(
+            error
+                .path
+                .as_deref()
+                .is_some_and(|path| path.ends_with("deps/evil/src/leak.ax")),
+            "unexpected diagnostic path: {error:?}"
+        );
     }
 
     #[test]
@@ -7993,6 +9418,61 @@ mod tests {
         }));
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn provenance_artifact_rejects_final_symlink() {
+        let dir = tempdir().unwrap_or_else(|err| panic!("tempdir: {err}"));
+        let root = dir.path();
+        fs::create_dir_all(root.join("src")).expect("create src");
+        fs::write(
+            root.join("axiom.toml"),
+            "[package]\nname = \"demo\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n",
+        )
+        .expect("write manifest");
+        fs::write(
+            root.join("axiom.lock"),
+            crate::lockfile::render_lockfile(&package_manifest()).expect("render lockfile"),
+        )
+        .expect("write lockfile");
+        fs::write(root.join("src/main.ax"), "fn main(): int {\nreturn 0\n}\n")
+            .expect("write source");
+
+        let graph = load_package_graph(root).expect("load graph");
+        let package_root =
+            canonicalize_existing_path(root, "project root").expect("canonical root");
+        let analyzed = analyze_package(&graph, &package_root).expect("analyze package");
+        let generated_rust = generated_rust_path(&package_root, &analyzed.manifest);
+        let binary = binary_path_for_target(&package_root, &analyzed.manifest, None);
+        fs::create_dir_all(generated_rust.parent().expect("generated parent"))
+            .expect("create dist");
+        fs::write(&generated_rust, "fn main() {}\n").expect("write generated rust");
+        fs::write(&binary, b"binary").expect("write binary");
+
+        let outside = dir.path().join("victim.json");
+        fs::write(&outside, "do not overwrite").expect("write victim");
+        let provenance = provenance_path(&package_root, &analyzed.manifest);
+        fs::create_dir_all(provenance.parent().expect("provenance parent"))
+            .expect("create provenance parent");
+        std::os::unix::fs::symlink(&outside, &provenance).expect("symlink provenance");
+
+        let error = match write_provenance_artifact(
+            &package_root,
+            &analyzed,
+            &generated_rust,
+            &binary,
+            NativeBackendKind::GeneratedRust,
+        ) {
+            Ok(()) => panic!("symlinked provenance artifact was written"),
+            Err(error) => error,
+        };
+
+        assert_eq!(error.kind, "build");
+        assert_eq!(
+            fs::read_to_string(&outside).expect("read victim"),
+            "do not overwrite"
+        );
+    }
+
     #[test]
     fn build_cache_does_not_trust_project_controlled_binary_hash() {
         let dir = tempdir().unwrap_or_else(|err| panic!("tempdir: {err}"));
@@ -8013,6 +9493,7 @@ mod tests {
             manifest_hash: String::from("manifest"),
             lockfile_hash: String::from("lockfile"),
             rust_hash: hash_text(generated_source),
+            stdin_hash: None,
             binary_hash: Some(hash_file_bytes(&binary).expect("binary hash")),
             modules: Vec::new(),
         };
@@ -8373,6 +9854,52 @@ mod tests {
     }
 
     #[test]
+    fn module_capability_validation_rejects_extern_calls_without_ffi() {
+        let program = syntax::parse_program(
+            "extern fn strlen(value: string): int from \"c\"\nfn run(): int {\nreturn strlen(\"hello\")\n}\n",
+            Path::new("dep/src/lib.ax"),
+        )
+        .expect("parse program");
+        let extern_functions = extern_function_names(&program);
+
+        let error = validate_program_capabilities(
+            Path::new("dep/src/lib.ax"),
+            &program,
+            &CapabilityConfig::default(),
+            &extern_functions,
+        )
+        .expect_err("extern call should require ffi capability");
+
+        assert_eq!(error.kind, "capability");
+        assert_eq!(
+            error.message,
+            "call to \"strlen\" requires [capabilities].ffi = true"
+        );
+    }
+
+    #[test]
+    fn module_capability_validation_allows_extern_calls_with_ffi() {
+        let program = syntax::parse_program(
+            "extern fn strlen(value: string): int from \"c\"\nfn run(): int {\nreturn strlen(\"hello\")\n}\n",
+            Path::new("dep/src/lib.ax"),
+        )
+        .expect("parse program");
+        let extern_functions = extern_function_names(&program);
+        let capabilities = CapabilityConfig {
+            ffi: true,
+            ..CapabilityConfig::default()
+        };
+
+        validate_program_capabilities(
+            Path::new("dep/src/lib.ax"),
+            &program,
+            &capabilities,
+            &extern_functions,
+        )
+        .expect("ffi capability should allow extern call");
+    }
+
+    #[test]
     fn test_artifact_name_reports_missing_package_manifest() {
         let dir = tempdir().unwrap_or_else(|err| panic!("tempdir: {err}"));
         let error = match test_artifact_name(dir.path(), &workspace_only_manifest(), "main_test") {
@@ -8617,6 +10144,156 @@ mod tests {
         assert_eq!(stdout_by_name.get("manifest_bench"), Some(&None));
     }
 
+    #[test]
+    fn package_expected_output_is_not_reloaded_as_manifest_fixture_path() {
+        let dir = tempdir().unwrap_or_else(|err| panic!("tempdir: {err}"));
+        let root = dir.path();
+        fs::write(
+            root.join("expected-output.txt"),
+            "{\"event\":\"ingest\",\"ok\":true}\ntrue\n",
+        )
+        .unwrap_or_else(|err| panic!("write package expected output: {err}"));
+
+        let mut manifest = package_manifest();
+        manifest.tests.push(crate::manifest::TestTarget {
+            name: "manifest_unit".to_string(),
+            entry: "src/manifest_unit.ax".to_string(),
+            stdin: None,
+            stdout: None,
+            stderr: None,
+            kind: TestKind::Unit,
+            expected_error: None,
+            http: None,
+            capabilities: Vec::new(),
+            package: None,
+        });
+
+        let tests = collect_test_targets(root, &manifest, None, false, false, false)
+            .unwrap_or_else(|err| panic!("collect tests: {err:?}"));
+
+        assert_eq!(tests.len(), 1);
+        assert_eq!(
+            tests[0].stdout.as_deref(),
+            Some("{\"event\":\"ingest\",\"ok\":true}\ntrue\n")
+        );
+    }
+
+    #[test]
+    fn manifest_test_streams_only_load_relative_package_fixtures() {
+        let dir = tempdir().unwrap_or_else(|err| panic!("tempdir: {err}"));
+        let root = dir.path().join("package");
+        fs::create_dir_all(&root).unwrap_or_else(|err| panic!("create package: {err}"));
+        let fixture_dir = root.join("fixtures");
+        fs::create_dir_all(&fixture_dir).unwrap_or_else(|err| panic!("create fixtures: {err}"));
+        fs::write(fixture_dir.join("stdout.txt"), "fixture\n")
+            .unwrap_or_else(|err| panic!("write fixture: {err}"));
+        fs::write(dir.path().join("secret.txt"), "secret\n")
+            .unwrap_or_else(|err| panic!("write outside secret: {err}"));
+
+        let loaded = load_manifest_test_stream(&root, Some("fixtures/stdout.txt"), "stdout")
+            .unwrap_or_else(|err| panic!("load fixture: {err:?}"));
+        assert_eq!(loaded.as_deref(), Some("fixture\n"));
+
+        let absolute = load_manifest_test_stream(
+            &root,
+            Some(dir.path().join("secret.txt").to_str().expect("utf-8 path")),
+            "stdout",
+        )
+        .unwrap_or_else(|err| panic!("load absolute: {err:?}"));
+        assert_eq!(absolute, None);
+
+        let traversal = load_manifest_test_stream(&root, Some("../secret.txt"), "stdout")
+            .unwrap_or_else(|err| panic!("load traversal: {err:?}"));
+        assert_eq!(traversal, None);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn manifest_test_streams_do_not_follow_symlinks() {
+        let dir = tempdir().unwrap_or_else(|err| panic!("tempdir: {err}"));
+        let root = dir.path().join("package");
+        fs::create_dir_all(&root).unwrap_or_else(|err| panic!("create package: {err}"));
+        fs::write(dir.path().join("secret.txt"), "secret\n")
+            .unwrap_or_else(|err| panic!("write outside secret: {err}"));
+        std::os::unix::fs::symlink(dir.path().join("secret.txt"), root.join("stdout.txt"))
+            .unwrap_or_else(|err| panic!("symlink stdout: {err}"));
+
+        let error = match load_manifest_test_stream(&root, Some("stdout.txt"), "stdout") {
+            Ok(_) => panic!("symlinked stdout fixture was loaded"),
+            Err(error) => error,
+        };
+        assert_eq!(error.kind, "test");
+        assert!(error.message.contains("must be regular files"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_expected_stream_open_rejects_symlink() {
+        let dir = tempdir().unwrap_or_else(|err| panic!("tempdir: {err}"));
+        let root = dir.path();
+        let target = root.join("target.stdout");
+        let link = root.join("main_test.stdout");
+        fs::write(&target, "leaked\n").unwrap_or_else(|err| panic!("write target: {err}"));
+        std::os::unix::fs::symlink(&target, &link)
+            .unwrap_or_else(|err| panic!("symlink golden: {err}"));
+
+        let error = match open_test_expected_stream(&link, "stdout fixture") {
+            Ok(_) => panic!("symlinked expected stream was opened"),
+            Err(error) => error,
+        };
+
+        assert_eq!(error.kind, "test");
+        assert_eq!(error.path, Some(link.display().to_string()));
+        assert!(error.message.contains("failed to open stdout fixture"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn opened_expected_stream_identity_must_match_validated_file() {
+        let dir = tempdir().unwrap_or_else(|err| panic!("tempdir: {err}"));
+        let first = dir.path().join("first.stdout");
+        let second = dir.path().join("second.stdout");
+        fs::write(&first, "first\n").unwrap_or_else(|err| panic!("write first: {err}"));
+        fs::write(&second, "second\n").unwrap_or_else(|err| panic!("write second: {err}"));
+
+        let first_metadata =
+            fs::metadata(&first).unwrap_or_else(|err| panic!("metadata first: {err}"));
+        let same_metadata = fs::File::open(&first)
+            .unwrap_or_else(|err| panic!("open first: {err}"))
+            .metadata()
+            .unwrap_or_else(|err| panic!("opened metadata first: {err}"));
+        let second_metadata =
+            fs::metadata(&second).unwrap_or_else(|err| panic!("metadata second: {err}"));
+
+        assert!(opened_expected_stream_matches(
+            &first_metadata,
+            &same_metadata
+        ));
+        assert!(!opened_expected_stream_matches(
+            &first_metadata,
+            &second_metadata
+        ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn optional_test_expected_stream_rejects_broken_symlink() {
+        let dir = tempdir().unwrap_or_else(|err| panic!("tempdir: {err}"));
+        let root = dir.path();
+        let link = root.join("main_test.stdout");
+        std::os::unix::fs::symlink(root.join("missing.stdout"), &link)
+            .unwrap_or_else(|err| panic!("broken symlink golden: {err}"));
+
+        let error = match read_optional_test_expected_stream(root, &link, "stdout fixture") {
+            Ok(_) => panic!("broken symlinked expected stream was treated as optional missing"),
+            Err(error) => error,
+        };
+
+        assert_eq!(error.kind, "test");
+        assert_eq!(error.path, Some(link.display().to_string()));
+        assert!(error.message.contains("not symlinks"));
+    }
+
     #[cfg(unix)]
     #[test]
     fn load_module_rejects_symlinked_import_outside_package() {
@@ -8669,6 +10346,107 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn output_path_rejects_final_symlink() {
+        let dir = tempdir().unwrap_or_else(|err| panic!("tempdir: {err}"));
+        let package_dir = dir.path().join("package");
+        let dist = package_dir.join("dist");
+        fs::create_dir_all(&dist).unwrap_or_else(|err| panic!("create dist: {err}"));
+        let root =
+            fs::canonicalize(&package_dir).unwrap_or_else(|err| panic!("canonical root: {err}"));
+        let outside = dir.path().join("victim.txt");
+        fs::write(&outside, "do not overwrite").unwrap_or_else(|err| panic!("write victim: {err}"));
+        let output = root.join("dist/demo.generated.debug-manifest.json");
+        std::os::unix::fs::symlink(&outside, &output)
+            .unwrap_or_else(|err| panic!("symlink manifest: {err}"));
+
+        let error = match ensure_output_path_stays_inside_package(
+            &root,
+            &output,
+            "debug manifest output",
+        ) {
+            Ok(()) => panic!("symlinked debug manifest output was accepted"),
+            Err(error) => error,
+        };
+
+        assert_eq!(error.kind, "build");
+        assert_eq!(error.message, "debug manifest output must not be a symlink");
+        assert_eq!(
+            fs::read_to_string(&outside).unwrap_or_else(|err| panic!("read victim: {err}")),
+            "do not overwrite"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn write_output_file_rejects_final_symlink() {
+        let dir = tempdir().unwrap_or_else(|err| panic!("tempdir: {err}"));
+        let outside = dir.path().join("victim.txt");
+        let symlink = dir.path().join("debug-manifest.json");
+        fs::write(&outside, "do not overwrite").unwrap_or_else(|err| panic!("write victim: {err}"));
+        std::os::unix::fs::symlink(&outside, &symlink)
+            .unwrap_or_else(|err| panic!("symlink manifest: {err}"));
+
+        let error = match write_output_file(&symlink, "{}\n", "debug manifest output") {
+            Ok(()) => panic!("symlinked debug manifest output was written"),
+            Err(error) => error,
+        };
+
+        assert_eq!(error.kind, "build");
+        assert_eq!(
+            fs::read_to_string(&outside).unwrap_or_else(|err| panic!("read victim: {err}")),
+            "do not overwrite"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn analyze_entry_rejects_symlinked_entry_outside_package() {
+        let dir = tempdir().unwrap_or_else(|err| panic!("tempdir: {err}"));
+        let package_dir = dir.path().join("package");
+        fs::create_dir_all(&package_dir).unwrap_or_else(|err| panic!("create package: {err}"));
+        let root =
+            fs::canonicalize(&package_dir).unwrap_or_else(|err| panic!("canonical root: {err}"));
+        let source_root = root.join("src");
+        fs::create_dir_all(&source_root).unwrap_or_else(|err| panic!("create src: {err}"));
+        // A sensitive file outside the package that the untrusted package wants read.
+        let outside = dir.path().join("outside.ax");
+        fs::write(&outside, "fn leaked(): int {\nreturn 7\n}\n")
+            .unwrap_or_else(|err| panic!("write outside module: {err}"));
+        // The package ships its entry as a symlink escaping the package tree.
+        let entry = source_root.join("main_test.ax");
+        std::os::unix::fs::symlink(&outside, &entry)
+            .unwrap_or_else(|err| panic!("symlink entry: {err}"));
+
+        let mut graph = PackageGraph::default();
+        graph.packages.insert(
+            root.clone(),
+            PackageContext {
+                root: root.clone(),
+                manifest: package_manifest(),
+                source_root: fs::canonicalize(&source_root)
+                    .unwrap_or_else(|err| panic!("canonical source root: {err}")),
+                dependencies: BTreeMap::new(),
+                workspace_members: Vec::new(),
+            },
+        );
+
+        let error = match analyze_entry(
+            &graph,
+            &root,
+            package_manifest(),
+            entry.clone(),
+            syntax::DEFAULT_MACRO_RECURSION_LIMIT,
+        ) {
+            Ok(_) => panic!("symlinked entry outside package was analyzed"),
+            Err(error) => error,
+        };
+
+        assert_eq!(error.kind, "manifest");
+        assert_eq!(error.message, "build.entry resolves outside the package");
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn output_path_rejects_symlinked_out_dir_outside_package() {
         let dir = tempdir().unwrap_or_else(|err| panic!("tempdir: {err}"));
         let package_dir = dir.path().join("package");
@@ -8695,5 +10473,63 @@ mod tests {
             error.message,
             "generated Rust output resolves outside the package"
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn output_path_rejects_final_symlink_inside_package() {
+        let dir = tempdir().unwrap_or_else(|err| panic!("tempdir: {err}"));
+        let package_dir = dir.path().join("package");
+        fs::create_dir_all(package_dir.join("dist"))
+            .unwrap_or_else(|err| panic!("create package dist: {err}"));
+        let root =
+            fs::canonicalize(&package_dir).unwrap_or_else(|err| panic!("canonical root: {err}"));
+        let outside = dir.path().join("outside-object.o");
+        fs::write(&outside, b"sentinel").unwrap_or_else(|err| panic!("write outside: {err}"));
+        let output = root.join("dist").join("demo.cranelift.o");
+        std::os::unix::fs::symlink(&outside, &output)
+            .unwrap_or_else(|err| panic!("symlink output: {err}"));
+
+        let error = match ensure_output_path_stays_inside_package(
+            &root,
+            &output,
+            "Cranelift object output",
+        ) {
+            Ok(()) => panic!("symlinked output file was accepted"),
+            Err(error) => error,
+        };
+
+        assert_eq!(error.kind, "build");
+        assert_eq!(
+            error.message,
+            "Cranelift object output must not be a symlink"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn build_output_write_rejects_replaced_final_symlink() {
+        let dir = tempdir().unwrap_or_else(|err| panic!("tempdir: {err}"));
+        let package_dir = dir.path().join("package");
+        fs::create_dir_all(package_dir.join("dist"))
+            .unwrap_or_else(|err| panic!("create package dist: {err}"));
+        let root =
+            fs::canonicalize(&package_dir).unwrap_or_else(|err| panic!("canonical root: {err}"));
+        let outside = dir.path().join("outside-cache.toml");
+        fs::write(&outside, b"sentinel").unwrap_or_else(|err| panic!("write outside: {err}"));
+        let output = root.join("dist").join("demo.cache.toml");
+
+        ensure_output_path_stays_inside_package(&root, &output, "build cache output")
+            .unwrap_or_else(|err| panic!("preflight should accept absent output: {err:?}"));
+        std::os::unix::fs::symlink(&outside, &output)
+            .unwrap_or_else(|err| panic!("symlink output: {err}"));
+
+        let error = match write_output_file(&output, b"rewritten", "build cache output") {
+            Ok(()) => panic!("symlinked output file was written"),
+            Err(error) => error,
+        };
+
+        assert_eq!(error.kind, "build");
+        assert_eq!(fs::read(&outside).expect("read outside"), b"sentinel");
     }
 }

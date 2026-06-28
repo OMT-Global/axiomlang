@@ -112,6 +112,25 @@ all_blocking_issues_closed() {
   done < <(blocking_issues_from_manifest)
 }
 
+all_blocking_issues_live() {
+  local issue_state
+  local issue
+
+  if [[ ! -f docs/rust-exit-readiness.json ]]; then
+    return 1
+  fi
+
+  while IFS= read -r issue; do
+    issue_state=""
+    if ! issue_state="$(read_issue_state "$issue")" || [[ -z "$issue_state" ]]; then
+      return 1
+    fi
+    if [[ "$issue_state" != "OPEN" ]]; then
+      return 1
+    fi
+  done < <(blocking_issues_from_manifest)
+}
+
 direct_native_runtime_abi_report() {
   if [[ ! -f scripts/ci/check-direct-native-runtime-abi.py ]]; then
     return 1
@@ -125,6 +144,20 @@ direct_native_runtime_abi_ready() {
 
 direct_native_runtime_abi_detail() {
   python3 -c 'import json, sys; payload = json.load(sys.stdin); incomplete = payload.get("incomplete_rows", []); blocked = payload.get("blocked_rows", []); errors = payload.get("errors", []); by_group = payload.get("incomplete_rows_by_group", {}); value_count = len(by_group.get("value_features", [])); capability_count = len(by_group.get("capability_shims", [])); issues = ", ".join("#%s" % issue for issue in payload.get("blocker_issues", [])); print("errors: " + ", ".join(map(str, errors)) if errors else ("%d incomplete rows (%d value, %d capability), %d blocked rows; blocker issues: %s" % (len(incomplete), value_count, capability_count, len(blocked), issues) if incomplete or blocked else "contract status: %s" % payload.get("contract_status")))'
+}
+
+closed_blocking_issues_from_manifest() {
+  local issue
+  local issue_state
+
+  while IFS= read -r issue; do
+    issue_state=""
+    if issue_state="$(read_issue_state "$issue")" && [[ -n "$issue_state" ]]; then
+      if [[ "$issue_state" == "CLOSED" ]]; then
+        printf '%s\n' "$issue"
+      fi
+    fi
+  done < <(blocking_issues_from_manifest)
 }
 
 self_hosted_boundary_report() {
@@ -194,16 +227,26 @@ else
   add_check "readiness_manifest_present" "fail" "docs/rust-exit-readiness.json is missing"
 fi
 
+abi_report=""
+abi_ready=false
+if abi_report="$(direct_native_runtime_abi_report 2>/dev/null)" && [[ -n "$abi_report" ]]; then
+  if printf '%s' "$abi_report" | direct_native_runtime_abi_ready; then
+    abi_ready=true
+  fi
+fi
+
 if [[ ! -f docs/rust-exit-readiness.json ]]; then
-  add_check "readiness_blockers_closed" "fail" "Rust exit readiness manifest is unavailable"
-elif all_blocking_issues_closed; then
-  add_check "readiness_blockers_closed" "pass" "All blocking issues listed in docs/rust-exit-readiness.json are CLOSED"
+  add_check "readiness_blockers_live" "fail" "Rust exit readiness manifest is unavailable"
+elif [[ -z "$issue_state_file" && "$require_issue_states" != true ]] && ! command -v gh >/dev/null 2>&1; then
+  add_check "readiness_blockers_live" "pass" "blocker liveness not checked; pass --require-issue-states for deletion PRs"
+elif all_blocking_issues_live; then
+  add_check "readiness_blockers_live" "pass" "All blocking issues listed in docs/rust-exit-readiness.json are OPEN"
 else
-  add_check "readiness_blockers_closed" "fail" "One or more blocking issues listed in docs/rust-exit-readiness.json are not CLOSED"
+  add_check "readiness_blockers_live" "fail" "One or more blocking issues listed in docs/rust-exit-readiness.json are CLOSED or unavailable"
 fi
 
 if [[ -f docs/rust-exit-readiness.json ]]; then
-  python3 - <<'PY'
+  if python3 - <<'PY'
 import json
 import sys
 
@@ -216,28 +259,106 @@ if payload.get("schemaVersion") != 1:
 if payload.get("finalBootstrapIssue") != 721:
     print("finalBootstrapIssue must be 721", file=sys.stderr)
     sys.exit(1)
-issues = [entry.get("issue") for entry in payload.get("blockingIssues", [])]
-required = {731, 1124, 1191}
-missing = sorted(required - set(issues))
-if missing:
-    print("missing required blocking issues: " + ", ".join(f"#{issue}" for issue in missing), file=sys.stderr)
+
+blocking_entries = payload.get("blockingIssues", [])
+if not isinstance(blocking_entries, list) or not blocking_entries:
+    print("blockingIssues must be a non-empty list", file=sys.stderr)
     sys.exit(1)
+
+allowed_lanes = {"backend", "bootstrap", "verification", "tooling"}
+issues = []
+for index, entry in enumerate(blocking_entries):
+    if not isinstance(entry, dict):
+        print(f"blockingIssues[{index}] must be an object", file=sys.stderr)
+        sys.exit(1)
+    issue = entry.get("issue")
+    if not isinstance(issue, int) or issue <= 0:
+        print(f"blockingIssues[{index}].issue must be a positive integer", file=sys.stderr)
+        sys.exit(1)
+    lane = entry.get("lane")
+    if lane not in allowed_lanes:
+        print(
+            f"blockingIssues[{index}].lane must be one of {sorted(allowed_lanes)}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    check = entry.get("check")
+    if not isinstance(check, str) or not check.strip():
+        print(f"blockingIssues[{index}].check must be a non-empty string", file=sys.stderr)
+        sys.exit(1)
+    issues.append(issue)
+
+if payload["finalBootstrapIssue"] in issues:
+    print("finalBootstrapIssue is metadata and must not also be listed as a blocker", file=sys.stderr)
+    sys.exit(1)
+
+required = {731, 1124, 1191}
 unexpected = sorted(set(issues) - required)
 if unexpected:
     print("unexpected stale blocking issues: " + ", ".join(f"#{issue}" for issue in unexpected), file=sys.stderr)
     sys.exit(1)
+missing = sorted(required - set(issues))
+if missing:
+    print("missing required blocking issues: " + ", ".join(f"#{issue}" for issue in missing), file=sys.stderr)
+    sys.exit(1)
+
 if len(set(issues)) != len(issues):
     print("blocking issue list contains duplicates", file=sys.stderr)
     sys.exit(1)
+
+with open("stage1/runtime-abi/direct-native-v0.json", encoding="utf-8") as handle:
+    contract = json.load(handle)
+
+abi_blockers = set()
+for group in ("value_features", "capability_shims"):
+    for row in contract.get(group, []):
+        if row.get("status") != "implemented":
+            abi_blockers.update(row.get("blockers", []))
+
+missing_abi_blockers = sorted(abi_blockers - set(issues))
+if missing_abi_blockers:
+    print(
+        "ABI blocker issues missing from readiness manifest: "
+        + ", ".join(f"#{issue}" for issue in missing_abi_blockers),
+        file=sys.stderr,
+    )
+    sys.exit(1)
 PY
-  add_check "readiness_manifest_valid" "pass" "docs/rust-exit-readiness.json has the required schema and blockers"
+  then
+    add_check "readiness_manifest_valid" "pass" "docs/rust-exit-readiness.json has schema-valid live blockers and covers ABI blockers"
+  else
+    add_check "readiness_manifest_valid" "fail" "docs/rust-exit-readiness.json does not match the required schema, blocker shape, or ABI blocker coverage"
+  fi
 else
   add_check "readiness_manifest_valid" "fail" "docs/rust-exit-readiness.json cannot be validated"
 fi
 
-abi_report=""
-if abi_report="$(direct_native_runtime_abi_report 2>/dev/null)" && [[ -n "$abi_report" ]]; then
-  if printf '%s' "$abi_report" | direct_native_runtime_abi_ready; then
+if [[ ! -f docs/rust-exit-readiness.json ]]; then
+  add_check "readiness_blockers_closed" "fail" "Rust exit readiness manifest is unavailable"
+elif all_blocking_issues_closed; then
+  add_check "readiness_blockers_closed" "pass" "All blocking issues listed in docs/rust-exit-readiness.json are CLOSED"
+else
+  add_check "readiness_blockers_closed" "fail" "One or more blocking issues listed in docs/rust-exit-readiness.json are not CLOSED"
+fi
+
+if [[ "$abi_ready" != true && -f docs/rust-exit-readiness.json ]]; then
+  closed_blocking_issues=()
+  while IFS= read -r closed_issue; do
+    closed_blocking_issues+=("$closed_issue")
+  done < <(closed_blocking_issues_from_manifest)
+  if [[ "${#closed_blocking_issues[@]}" -gt 0 ]]; then
+    closed_issue_detail="$(printf '#%s, ' "${closed_blocking_issues[@]}")"
+    closed_issue_detail="${closed_issue_detail%, }"
+    add_check "readiness_blockers_live_when_not_ready" "fail" "closed blockers cannot represent remaining Rust-exit work while the ABI is not ready: ${closed_issue_detail}"
+  else
+    add_check "readiness_blockers_live_when_not_ready" "pass" "listed blockers remain live while the ABI is not ready"
+  fi
+else
+  add_check "readiness_blockers_live_when_not_ready" "pass" "ABI is ready or no readiness manifest is present"
+fi
+
+if [[ -n "$abi_report" ]]; then
+  if [[ "$abi_ready" == true ]]; then
     add_check "direct_native_runtime_abi_ready" "pass" "Direct native runtime ABI reports ready"
   else
     abi_detail="$(printf '%s' "$abi_report" | direct_native_runtime_abi_detail)"
@@ -275,12 +396,18 @@ if [[ -f docs/rust-exit-readiness.json ]]; then
   while IFS= read -r issue; do
     issue_state=""
     if issue_state="$(read_issue_state "$issue")" && [[ -n "$issue_state" ]]; then
+      if [[ "$issue_state" == "OPEN" ]]; then
+        add_check "rust_exit_issue_${issue}_live" "pass" "issue #$issue is OPEN"
+      else
+        add_check "rust_exit_issue_${issue}_live" "fail" "issue #$issue is $issue_state; remove closed blockers from docs/rust-exit-readiness.json"
+      fi
       if [[ "$issue_state" == "CLOSED" ]]; then
         add_check "rust_exit_issue_${issue}_closed" "pass" "issue #$issue is CLOSED"
       else
         add_check "rust_exit_issue_${issue}_closed" "fail" "issue #$issue is $issue_state"
       fi
     elif [[ "$require_issue_states" == true ]]; then
+      add_check "rust_exit_issue_${issue}_live" "fail" "issue #$issue state is unavailable"
       add_check "rust_exit_issue_${issue}_closed" "fail" "issue #$issue state is unavailable"
     fi
   done < <(blocking_issues_from_manifest)

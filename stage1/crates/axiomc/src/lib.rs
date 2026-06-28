@@ -3753,6 +3753,69 @@ crypto = false
     }
 
     #[test]
+    fn dependency_std_fs_wrapper_requires_dependency_fs_capability() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("dep-stdlib-fs-root");
+        let dependency = project.join("deps/core");
+        create_project(&project, Some("dep-stdlib-fs-root-app")).expect("create root");
+        create_project(&dependency, Some("dep-stdlib-fs-core")).expect("create dependency");
+
+        fs::write(
+            dependency.join("src/steal.ax"),
+            "import \"std/fs.ax\"\n\npub fn steal(path: string): Option<string> {\nreturn read_file(path)\n}\n",
+        )
+        .expect("write dependency source");
+        let dependency_manifest = load_manifest(&dependency).expect("load dependency manifest");
+        fs::write(
+            dependency.join("axiom.lock"),
+            render_lockfile_for_project(&dependency, &dependency_manifest)
+                .expect("dependency lockfile"),
+        )
+        .expect("write dependency lockfile");
+
+        fs::write(
+            project.join("axiom.toml"),
+            format!(
+                "{}\n[dependencies]\ncore = {{ path = \"deps/core\" }}\n",
+                render_manifest_with_capabilities(
+                    "dep-stdlib-fs-root-app",
+                    true,
+                    false,
+                    false,
+                    false,
+                    false,
+                    false,
+                )
+            ),
+        )
+        .expect("write root manifest");
+        fs::write(
+            project.join("src/main.ax"),
+            "import \"core/steal.ax\"\nlet contents: Option<string> = steal(\"fixture.txt\")\nprint true\n",
+        )
+        .expect("write root source");
+        fs::write(project.join("src/fixture.txt"), "secret\n").expect("write fixture");
+        let manifest = load_manifest(&project).expect("load root manifest");
+        fs::write(
+            project.join("axiom.lock"),
+            render_lockfile_for_project(&project, &manifest).expect("root lockfile"),
+        )
+        .expect("write root lockfile");
+
+        let error =
+            check_project(&project).expect_err("dependency std/fs wrapper should require fs");
+        assert_eq!(error.kind, "capability");
+        assert!(
+            error
+                .path
+                .as_ref()
+                .is_some_and(|path| path.ends_with("deps/core/src/steal.ax"))
+        );
+        assert!(error.message.contains("call to \"read_file\" requires"));
+        assert!(error.message.contains("[capabilities].fs = true"));
+    }
+
+    #[test]
     fn capability_view_reflects_manifest_flags() {
         let dir = tempdir().expect("tempdir");
         let project = dir.path().join("caps");
@@ -4839,38 +4902,7 @@ process = ["/bin/true"]
         )
         .expect("write source");
 
-        check_project(&project).expect("static allowlisted process command should be accepted");
-    }
-
-    #[test]
-    fn check_project_accepts_static_stdlib_process_command_with_unrestricted_process() {
-        let dir = tempdir().expect("tempdir");
-        let project = dir.path().join("stdlib-process-static-unrestricted");
-        create_project(&project, Some("stdlib-process-static-unrestricted-app"))
-            .expect("create project");
-        fs::write(
-            project.join("axiom.toml"),
-            r#"[package]
-name = "stdlib-process-static-unrestricted-app"
-version = "0.1.0"
-
-[build]
-entry = "src/main.ax"
-out_dir = "dist"
-
-[capabilities]
-process = true
-unsafe_rationale = "test fixture accepts static stdlib process command facts"
-"#,
-        )
-        .expect("write manifest");
-        fs::write(
-            project.join("src/main.ax"),
-            "import \"std/process.ax\"\nstatic TRUE_CMD: string = \"/bin/true\"\nprint run_status(TRUE_CMD)\n",
-        )
-        .expect("write source");
-
-        check_project(&project).expect("static stdlib process command should be accepted");
+        check_project(&project).expect("allowlisted static process command should be accepted");
     }
 
     #[test]
@@ -5011,6 +5043,43 @@ process = ["/bin/true"]
         .expect("write source");
 
         let error = check_project(&project).expect_err("dynamic process command should fail");
+        assert_eq!(error.kind, "capability");
+        assert!(
+            error
+                .message
+                .contains("requires a string literal listed in [capabilities].process")
+        );
+    }
+
+    #[test]
+    fn check_project_rejects_shadowed_const_process_command_with_manifest_allowlist() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("process-shadowed-const-denied");
+        create_project(&project, Some("process-shadowed-const-denied-app"))
+            .expect("create project");
+        fs::write(
+            project.join("axiom.toml"),
+            r#"[package]
+name = "process-shadowed-const-denied-app"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+process = ["/bin/true"]
+"#,
+        )
+        .expect("write manifest");
+        fs::write(
+            project.join("src/main.ax"),
+            "const command: string = \"/bin/true\"\nlet command: string = \"/bin/false\"\nprint process_status(command)\n",
+        )
+        .expect("write source");
+
+        let error =
+            check_project(&project).expect_err("shadowed const process command should fail");
         assert_eq!(error.kind, "capability");
         assert!(
             error
@@ -5423,20 +5492,20 @@ net = true
     }
 
     #[test]
-    fn check_project_rejects_dynamic_stdlib_peer_network_port_with_unrestricted_net() {
+    fn check_project_accepts_dynamic_stdlib_peer_network_port_with_unrestricted_net() {
         let dir = tempdir().expect("tempdir");
         let project = dir
             .path()
-            .join("stdlib-net-peer-dynamic-port-unrestricted-denied");
+            .join("stdlib-net-peer-dynamic-port-unrestricted-allowed");
         create_project(
             &project,
-            Some("stdlib-net-peer-dynamic-port-unrestricted-denied-app"),
+            Some("stdlib-net-peer-dynamic-port-unrestricted-allowed-app"),
         )
         .expect("create project");
         fs::write(
             project.join("axiom.toml"),
             r#"[package]
-name = "stdlib-net-peer-dynamic-port-unrestricted-denied-app"
+name = "stdlib-net-peer-dynamic-port-unrestricted-allowed-app"
 version = "0.1.0"
 
 [build]
@@ -5454,14 +5523,7 @@ net = true
         )
         .expect("write source");
 
-        let error = check_project(&project).expect_err("dynamic stdlib peer port should fail");
-        assert_eq!(error.kind, "capability");
-        assert!(
-            error.message.contains(
-                "requires an integer literal when [capabilities].net ports are unrestricted"
-            ),
-            "unexpected diagnostic: {error:?}",
-        );
+        check_project(&project).expect("dynamic stdlib peer port should check");
     }
 
     #[test]
@@ -5542,20 +5604,20 @@ net = true
     }
 
     #[test]
-    fn check_project_rejects_dynamic_stdlib_network_port_with_unrestricted_net() {
+    fn check_project_accepts_dynamic_stdlib_network_port_with_unrestricted_net() {
         let dir = tempdir().expect("tempdir");
         let project = dir
             .path()
-            .join("stdlib-net-dynamic-port-unrestricted-denied");
+            .join("stdlib-net-dynamic-port-unrestricted-allowed");
         create_project(
             &project,
-            Some("stdlib-net-dynamic-port-unrestricted-denied-app"),
+            Some("stdlib-net-dynamic-port-unrestricted-allowed-app"),
         )
         .expect("create project");
         fs::write(
             project.join("axiom.toml"),
             r#"[package]
-name = "stdlib-net-dynamic-port-unrestricted-denied-app"
+name = "stdlib-net-dynamic-port-unrestricted-allowed-app"
 version = "0.1.0"
 
 [build]
@@ -5573,14 +5635,50 @@ net = true
         )
         .expect("write source");
 
-        let error = check_project(&project).expect_err("dynamic stdlib port should fail");
-        assert_eq!(error.kind, "capability");
-        assert!(
-            error.message.contains(
-                "requires an integer literal when [capabilities].net ports are unrestricted"
-            ),
-            "unexpected diagnostic: {error:?}",
-        );
+        check_project(&project).expect("dynamic stdlib port should check");
+    }
+
+    #[test]
+    fn check_project_accepts_stdlib_async_net_loopback_listener_port() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("stdlib-async-net-loopback-port");
+        create_project(&project, Some("stdlib-async-net-loopback-port")).expect("create project");
+        fs::write(
+            project.join("axiom.toml"),
+            render_manifest_with_capabilities(
+                "stdlib-async-net-loopback-port",
+                false,
+                true,
+                false,
+                false,
+                false,
+                false,
+            )
+            .replace("async = false", "async = true"),
+        )
+        .expect("write manifest");
+        let manifest = load_manifest(&project).expect("load manifest");
+        fs::write(
+            project.join("axiom.lock"),
+            render_lockfile_for_project(&project, &manifest).expect("lockfile"),
+        )
+        .expect("write lockfile");
+        fs::write(
+            project.join("src/main.ax"),
+            r#"import "std/async.ax"
+import "std/async_net.ax"
+
+let listener: TcpListener = await listen("127.0.0.1:0")
+let port: int = local_port(listener)
+let client: JoinHandle<Option<string>> = spawn<Option<string>>(tcp_dial("127.0.0.1", port, "ping", 1000))
+let _reply: Option<string> = await join<Option<string>>(client)
+let _listener_closed: int = close_listener(listener)
+print "ok"
+"#,
+        )
+        .expect("write source");
+
+        check_project(&project).expect("loopback listener port should satisfy network policy");
     }
 
     #[test]
@@ -5619,6 +5717,83 @@ net = true
             error.message.contains(
                 "requires an integer literal when [capabilities].net ports are unrestricted"
             ),
+            "unexpected diagnostic: {error:?}",
+        );
+    }
+
+    #[test]
+    fn check_project_accepts_dynamic_stdlib_udp_peer_with_unrestricted_net() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir
+            .path()
+            .join("stdlib-net-udp-dynamic-peer-unrestricted-allowed");
+        create_project(
+            &project,
+            Some("stdlib-net-udp-dynamic-peer-unrestricted-allowed-app"),
+        )
+        .expect("create project");
+        fs::write(
+            project.join("axiom.toml"),
+            r#"[package]
+name = "stdlib-net-udp-dynamic-peer-unrestricted-allowed-app"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+net = true
+"#,
+        )
+        .expect("write manifest");
+        fs::write(
+            project.join("src/main.ax"),
+            "import \"std/net_udp.ax\"\nlet socket: UdpSocket = bind(\"127.0.0.1:0\")\nlet peer: string = local_addr(socket)\nlet message: [u8] = [112u8]\nprint send_to(socket, message[:], peer)\n",
+        )
+        .expect("write source");
+
+        check_project(&project).expect("dynamic stdlib UDP peer should check");
+    }
+
+    #[test]
+    fn check_project_rejects_dynamic_stdlib_udp_peer_with_network_allowlist() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir
+            .path()
+            .join("stdlib-net-udp-dynamic-peer-allowlist-denied");
+        create_project(
+            &project,
+            Some("stdlib-net-udp-dynamic-peer-allowlist-denied-app"),
+        )
+        .expect("create project");
+        fs::write(
+            project.join("axiom.toml"),
+            r#"[package]
+name = "stdlib-net-udp-dynamic-peer-allowlist-denied-app"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+net = { hosts = ["127.0.0.1"] }
+"#,
+        )
+        .expect("write manifest");
+        fs::write(
+            project.join("src/main.ax"),
+            "import \"std/net_udp.ax\"\nlet socket: UdpSocket = bind(\"127.0.0.1:0\")\nlet peer: string = local_addr(socket)\nlet message: [u8] = [112u8]\nprint send_to(socket, message[:], peer)\n",
+        )
+        .expect("write source");
+
+        let error = check_project(&project).expect_err("dynamic stdlib UDP peer should fail");
+        assert_eq!(error.kind, "capability");
+        assert!(
+            error
+                .message
+                .contains("requires a static host:port literal"),
             "unexpected diagnostic: {error:?}",
         );
     }
@@ -9714,6 +9889,68 @@ print serve_once("{bind}", "ok")
         assert!(case.ok);
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn run_project_tests_rejects_sibling_stdout_symlink() {
+        use std::os::unix::fs::symlink;
+
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("runner-symlink-golden");
+        create_project(&project, Some("runner-symlink-golden-app")).expect("create project");
+        let secret = dir.path().join("secret.txt");
+        fs::write(&secret, "do not leak\n").expect("write secret");
+        fs::write(project.join("src/main_test.ax"), "print true\n").expect("write test");
+        let stdout_path = project.join("src/main_test.stdout");
+        fs::remove_file(&stdout_path).expect("remove default golden");
+        symlink(&secret, &stdout_path).expect("symlink golden");
+
+        let error = run_project_tests(&project).expect_err("reject symlink golden");
+
+        assert!(error.message.contains("refusing to read stdout fixture"));
+        assert!(error.message.contains("not symlinks"));
+        assert!(
+            !format!("{error:?}").contains("do not leak"),
+            "diagnostic must not include symlink target contents: {error:?}"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn run_project_tests_rejects_broken_sibling_stdout_symlink() {
+        use std::os::unix::fs::symlink;
+
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("runner-broken-symlink-golden");
+        create_project(&project, Some("runner-broken-symlink-golden-app")).expect("create project");
+        fs::write(project.join("src/main_test.ax"), "print true\n").expect("write test");
+        let stdout_path = project.join("src/main_test.stdout");
+        fs::remove_file(&stdout_path).expect("remove default golden");
+        symlink(dir.path().join("missing-secret.txt"), &stdout_path).expect("symlink golden");
+
+        let error = run_project_tests(&project).expect_err("reject broken symlink golden");
+
+        assert!(error.message.contains("refusing to read stdout fixture"));
+        assert!(error.message.contains("not symlinks"));
+    }
+
+    #[test]
+    fn run_project_tests_rejects_oversized_sibling_stdout() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("runner-large-golden");
+        create_project(&project, Some("runner-large-golden-app")).expect("create project");
+        fs::write(project.join("src/main_test.ax"), "print true\n").expect("write test");
+        fs::write(
+            project.join("src/main_test.stdout"),
+            vec![b'x'; 1024 * 1024 + 1],
+        )
+        .expect("write oversized golden");
+
+        let error = run_project_tests(&project).expect_err("reject oversized golden");
+
+        assert!(error.message.contains("refusing to read stdout fixture"));
+        assert!(error.message.contains("above the 1048576 byte limit"));
+    }
+
     #[test]
     fn run_project_tests_supports_builtin_assertions() {
         let dir = tempdir().expect("tempdir");
@@ -13506,7 +13743,14 @@ print takes_two(three)
         )
         .expect("write source");
 
-        let release = build_project(&project).expect("release build");
+        let release = build_project_with_options(
+            &project,
+            &BuildOptions {
+                backend: NativeBackendKind::GeneratedRust,
+                ..BuildOptions::default()
+            },
+        )
+        .expect("release build");
         assert_eq!(release.cache_misses, 1);
         assert!(!release.debug);
         let release_generated =
@@ -13798,14 +14042,19 @@ print takes_two(three)
         )
         .expect("write source");
 
-        let first = build_project(&project).expect("initial build");
+        let options = BuildOptions {
+            backend: NativeBackendKind::GeneratedRust,
+            ..BuildOptions::default()
+        };
+
+        let first = build_project_with_options(&project, &options).expect("initial build");
         assert_eq!(first.cache_hits, 0);
         assert_eq!(first.cache_misses, 1);
         assert_eq!(first.packages[0].cache_status, BuildCacheStatus::Miss);
         let generated =
             fs::read_to_string(generated_rust_path(&first)).expect("read generated rust");
 
-        let second = build_project(&project).expect("cached build");
+        let second = build_project_with_options(&project, &options).expect("cached build");
         assert_eq!(second.cache_hits, 1);
         assert_eq!(second.cache_misses, 0);
         assert_eq!(second.packages[0].cache_status, BuildCacheStatus::Hit);
@@ -13816,7 +14065,8 @@ print takes_two(three)
 
         fs::write(generated_rust_path(&second), "// stale generated rust\n")
             .expect("corrupt generated rust");
-        let repaired_rust = build_project(&project).expect("repair generated rust");
+        let repaired_rust =
+            build_project_with_options(&project, &options).expect("repair generated rust");
         assert_eq!(repaired_rust.cache_hits, 0);
         assert_eq!(repaired_rust.cache_misses, 1);
         assert_eq!(
@@ -13829,7 +14079,8 @@ print takes_two(three)
         );
 
         fs::write(&repaired_rust.binary, "not a compiled binary").expect("corrupt binary");
-        let repaired_binary = build_project(&project).expect("repair binary");
+        let repaired_binary =
+            build_project_with_options(&project, &options).expect("repair binary");
         assert_eq!(repaired_binary.cache_hits, 0);
         assert_eq!(repaired_binary.cache_misses, 1);
         assert_eq!(
@@ -13847,7 +14098,8 @@ print takes_two(three)
             "pub fn answer(): int {\nreturn 42\n}\n",
         )
         .expect("update module");
-        let third = build_project(&project).expect("rebuild after module change");
+        let third =
+            build_project_with_options(&project, &options).expect("rebuild after module change");
         assert_eq!(third.cache_hits, 0);
         assert_eq!(third.cache_misses, 1);
         assert_eq!(third.packages[0].cache_status, BuildCacheStatus::Miss);

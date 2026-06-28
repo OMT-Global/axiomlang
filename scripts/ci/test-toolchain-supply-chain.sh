@@ -13,6 +13,11 @@ grep -Fq 'stage1/supply-chain/config.toml' "$workflow" || {
   exit 1
 }
 
+grep -Fq 'install_version="0.10.2"' "$workflow" || {
+  echo "workflow must install cargo-vet 0.10.2 for trusted-publisher imports" >&2
+  exit 1
+}
+
 grep -Fq 'group: toolchain-supply-chain-${{ github.event.pull_request.number || github.ref }}' "$workflow" || {
   echo "workflow must group supply-chain runs by PR or ref for cancellation" >&2
   exit 1
@@ -28,10 +33,40 @@ grep -Fq 'cargo-vet --version' "$workflow" || {
   exit 1
 }
 
-grep -Fq 'cargo install cargo-vet --version "$install_version" --locked --force' "$workflow" || {
-  echo "workflow must force-install the normalized cargo-vet version on mismatch" >&2
+grep -Fq '[[ "$installed_version" != "cargo-vet ${install_version}" ]]' "$workflow" || {
+  echo "workflow must reject older cargo-vet patch releases" >&2
   exit 1
 }
+
+grep -Fq 'cargo install cargo-vet --version "$install_version" --locked --force' "$workflow" || {
+  echo "workflow must force-install the configured cargo-vet version on mismatch" >&2
+  exit 1
+}
+
+if grep -Fq 'install_version="${install_version}.0"' "$workflow"; then
+  echo "workflow must not force a .0 cargo-vet patch release for major/minor config versions" >&2
+  exit 1
+fi
+
+grep -Fq 'install_version="^${install_version}"' "$workflow" || {
+  echo "workflow must install a compatible cargo-vet patch range for major/minor config versions" >&2
+  exit 1
+}
+
+grep -Fq 'required_is_minor=1' "$workflow" || {
+  echo "workflow must distinguish major/minor cargo-vet requirements from exact patch requirements" >&2
+  exit 1
+}
+
+if ! awk '
+  /elif \(\( required_is_minor \)\); then/ { in_minor = 1; next }
+  in_minor && /install_cargo_vet=1/ { found = 1 }
+  in_minor && /elif \[\[ "\$installed_version"/ { in_minor = 0 }
+  END { exit found ? 0 : 1 }
+' "$workflow"; then
+  echo "workflow must force-install a patched cargo-vet binary for major/minor config versions" >&2
+  exit 1
+fi
 
 grep -Fq 'Ensure Rust linker availability' "$workflow" || {
   echo "workflow must provision a Rust linker before installing cargo-vet" >&2

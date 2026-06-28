@@ -10,8 +10,13 @@ use cranelift_object::{ObjectBuilder, ObjectModule};
 use std::error::Error;
 use std::fmt;
 use std::fs;
+use std::fs::OpenOptions;
+use std::io::Write;
+#[cfg(unix)]
+use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 const I64_REALPATH_BUFFER_BYTES: u32 = 4096;
 pub const I64_STDIN_BUFFER_BYTES: u32 = 4096;
@@ -432,7 +437,16 @@ pub fn compile_output_lines(
     object_path: &Path,
     binary_path: &Path,
 ) -> Result<(), CraneliftBackendError> {
-    emit_cranelift_object(lines, object_path)?;
+    compile_output_lines_with_exit_code(lines, 0, object_path, binary_path)
+}
+
+pub fn compile_output_lines_with_exit_code(
+    lines: &[OutputLine],
+    exit_code: i32,
+    object_path: &Path,
+    binary_path: &Path,
+) -> Result<(), CraneliftBackendError> {
+    emit_cranelift_object(lines, exit_code, object_path)?;
     link_object(object_path, binary_path)
 }
 
@@ -447,6 +461,7 @@ pub fn compile_i64_exit_program(
 
 fn emit_cranelift_object(
     lines: &[OutputLine],
+    exit_code: i32,
     object_path: &Path,
 ) -> Result<(), CraneliftBackendError> {
     let isa_builder = host_isa_builder()?;
@@ -525,8 +540,8 @@ fn emit_cranelift_object(
             let len = builder.ins().iconst(pointer_type, byte_len as i64);
             builder.ins().call(write_ref, &[fd, pointer, len]);
         }
-        let ok = builder.ins().iconst(types::I32, 0);
-        builder.ins().return_(&[ok]);
+        let status = builder.ins().iconst(types::I32, i64::from(exit_code));
+        builder.ins().return_(&[status]);
         builder.finalize();
     }
     module
@@ -537,9 +552,7 @@ fn emit_cranelift_object(
     let bytes = product.emit().map_err(|message| {
         CraneliftBackendError::new(format!("emit cranelift object: {message}"))
     })?;
-    fs::write(object_path, bytes).map_err(|err| {
-        CraneliftBackendError::new(format!("failed to write {}: {err}", object_path.display()))
-    })
+    write_output_file(object_path, bytes)
 }
 
 fn emit_i64_exit_object(
@@ -1004,9 +1017,7 @@ fn emit_i64_exit_object(
     let bytes = product.emit().map_err(|message| {
         CraneliftBackendError::new(format!("emit cranelift object: {message}"))
     })?;
-    fs::write(object_path, bytes).map_err(|err| {
-        CraneliftBackendError::new(format!("failed to write {}: {err}", object_path.display()))
-    })
+    write_output_file(object_path, bytes)
 }
 
 fn declare_i64_output_data(
@@ -2624,9 +2635,13 @@ fn emit_i64_stdin_line_len_expr(
     let read_call = builder.ins().call(runtime_refs.read, &[fd, byte_ptr, one]);
     let bytes_read = builder.inst_results(read_call)[0];
     let failed = builder.ins().icmp_imm(IntCC::SignedLessThan, bytes_read, 0);
-    builder
-        .ins()
-        .brif(failed, merge_block, &[BlockArg::Value(failure)], continue_block, &[]);
+    builder.ins().brif(
+        failed,
+        merge_block,
+        &[BlockArg::Value(failure)],
+        continue_block,
+        &[],
+    );
 
     builder.switch_to_block(continue_block);
     builder.seal_block(continue_block);
@@ -4489,23 +4504,61 @@ fn host_isa_builder() -> Result<isa::Builder, CraneliftBackendError> {
 }
 
 fn link_object(object_path: &Path, binary_path: &Path) -> Result<(), CraneliftBackendError> {
+    let linked_binary_path = temporary_output_path(binary_path);
     let mut command = Command::new("cc");
     let output = command
         .arg(object_path)
         .arg("-o")
-        .arg(binary_path)
+        .arg(&linked_binary_path)
         .output()
         .map_err(|err| {
             CraneliftBackendError::new(format!("failed to invoke system linker `cc`: {err}"))
         })?;
     if output.status.success() {
+        fs::rename(&linked_binary_path, binary_path).map_err(|err| {
+            let _ = fs::remove_file(&linked_binary_path);
+            CraneliftBackendError::new(format!(
+                "failed to move linked binary into {}: {err}",
+                binary_path.display()
+            ))
+        })?;
         return Ok(());
     }
+    let _ = fs::remove_file(&linked_binary_path);
     let stderr = String::from_utf8_lossy(&output.stderr);
     Err(CraneliftBackendError::new(format!(
         "system linker `cc` failed for cranelift object: {}",
         stderr.trim()
     )))
+}
+
+fn temporary_output_path(path: &Path) -> PathBuf {
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_nanos())
+        .unwrap_or(0);
+    let file_name = path
+        .file_name()
+        .map(|name| name.to_string_lossy())
+        .unwrap_or_else(|| "axiom-cranelift-output".into());
+    path.with_file_name(format!(
+        ".{file_name}.{}.{}.tmp",
+        std::process::id(),
+        timestamp
+    ))
+}
+
+fn write_output_file(path: &Path, content: impl AsRef<[u8]>) -> Result<(), CraneliftBackendError> {
+    let mut options = OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    options.custom_flags(libc::O_NOFOLLOW);
+    let mut file = options.open(path).map_err(|err| {
+        CraneliftBackendError::new(format!("failed to write {}: {err}", path.display()))
+    })?;
+    file.write_all(content.as_ref()).map_err(|err| {
+        CraneliftBackendError::new(format!("failed to write {}: {err}", path.display()))
+    })
 }
 
 #[cfg(test)]
