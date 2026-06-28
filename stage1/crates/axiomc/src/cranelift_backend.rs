@@ -1655,6 +1655,18 @@ fn lower_i64_aggregate_return_body(
                 ) {
                     lowered_stmts.extend(assigns);
                     seen_runtime_stmt = true;
+                } else if let Some(assigns) = lower_i64_dynamic_map_get_option_call_let_stmts(
+                    name,
+                    inner.as_ref(),
+                    expr,
+                    &mut locals,
+                    &mut local_indexes,
+                    &local_conditions,
+                    helper_signatures,
+                    static_bindings,
+                ) {
+                    lowered_stmts.extend(assigns);
+                    seen_runtime_stmt = true;
                 } else {
                     lowered_stmts.extend(lower_i64_option_call_let_stmts(
                         name,
@@ -3024,6 +3036,18 @@ fn lower_i64_body(
                 ) {
                     lowered_stmts.extend(assigns);
                     seen_runtime_stmt = true;
+                } else if let Some(assigns) = lower_i64_dynamic_map_get_option_call_let_stmts(
+                    name,
+                    inner.as_ref(),
+                    expr,
+                    &mut locals,
+                    &mut local_indexes,
+                    &local_conditions,
+                    helper_signatures,
+                    static_bindings,
+                ) {
+                    lowered_stmts.extend(assigns);
+                    seen_runtime_stmt = true;
                 } else {
                     lowered_stmts.extend(lower_i64_option_call_let_stmts(
                         name,
@@ -3883,6 +3907,55 @@ fn lower_i64_runtime_let_stmts(
         )
     {
         return Some(assigns);
+    }
+    if let Stmt::Let {
+        name,
+        ty: Type::Option(inner),
+        expr:
+            expr @ Expr::Call {
+                name: call_name,
+                args,
+                ..
+            },
+        ..
+    } = stmt
+        && is_i64_option_local_payload_type_static(inner, static_bindings)
+    {
+        if let Some(assigns) = lower_i64_known_scalar_option_call_let_stmts(
+            name,
+            inner.as_ref(),
+            expr,
+            locals,
+            local_indexes,
+            static_bindings,
+        ) {
+            return Some(assigns);
+        }
+        if let Some(assigns) = lower_i64_dynamic_map_get_option_call_let_stmts(
+            name,
+            inner.as_ref(),
+            expr,
+            locals,
+            local_indexes,
+            local_conditions,
+            helper_signatures,
+            static_bindings,
+        ) {
+            return Some(assigns);
+        }
+        if let Some(assigns) = lower_i64_option_call_let_stmts(
+            name,
+            inner.as_ref(),
+            call_name,
+            args,
+            locals,
+            local_indexes,
+            local_conditions,
+            helper_signatures,
+            static_bindings,
+        ) {
+            return Some(assigns);
+        }
     }
     Some(vec![lower_i64_runtime_let(
         stmt,
@@ -13267,6 +13340,103 @@ fn lower_i64_map_get_or_default_expr(
         };
     }
     Some(result)
+}
+
+fn lower_i64_dynamic_map_get_option_call_let_stmts(
+    name: &str,
+    inner: &Type,
+    expr: &Expr,
+    locals: &mut Vec<CraneliftI64Expr>,
+    local_indexes: &mut HashMap<String, usize>,
+    local_conditions: &HashMap<String, CraneliftI64Condition>,
+    helper_signatures: &HashMap<&str, I64HelperSignature>,
+    static_bindings: &I64StaticBindings,
+) -> Option<Vec<CraneliftI64Stmt>> {
+    if !is_i64_compatible_type(inner) && !matches!(inner, Type::Bool) {
+        return None;
+    }
+    let Expr::Call {
+        name: call_name,
+        args,
+        ..
+    } = expr
+    else {
+        return None;
+    };
+    if call_name != "map_get"
+        && call_name != "get"
+        && !static_bindings.collection_get_wrappers.contains(call_name)
+    {
+        return None;
+    }
+    let [map, key] = args.as_slice() else {
+        return None;
+    };
+    if lower_i64_map_key_expr(key, static_bindings).is_some() {
+        return None;
+    }
+    if i64_option_payload_slot_count_static(inner, static_bindings)? != 1 {
+        return None;
+    }
+    let entries = i64_map_literal_entries(map, static_bindings)?;
+    let mut tag = CraneliftI64Condition::Literal(false);
+    let mut payload = CraneliftI64Expr::Literal(0);
+    for entry in entries {
+        let candidate = lower_i64_map_key_expr(&entry.key, static_bindings)?;
+        let cond = lower_i64_map_key_match_condition(
+            key,
+            &candidate,
+            local_indexes,
+            local_conditions,
+            helper_signatures,
+            static_bindings,
+        )?;
+        let value = if matches!(inner, Type::Bool) {
+            lower_i64_bool_value_expr(
+                &entry.value,
+                local_indexes,
+                local_conditions,
+                helper_signatures,
+                static_bindings,
+            )?
+        } else {
+            lower_i64_expr(
+                &entry.value,
+                local_indexes,
+                local_conditions,
+                helper_signatures,
+                static_bindings,
+            )?
+        };
+        tag = CraneliftI64Condition::Or {
+            lhs: Box::new(cond.clone()),
+            rhs: Box::new(tag),
+        };
+        payload = CraneliftI64Expr::Select {
+            cond: Box::new(cond),
+            then_result: Box::new(value),
+            else_result: Box::new(payload),
+        };
+    }
+
+    let tag_local = local_indexes.len();
+    local_indexes.insert(i64_option_tag_key(name), tag_local);
+    locals.push(CraneliftI64Expr::Literal(0));
+    let payload_local = local_indexes.len();
+    local_indexes.insert(i64_option_payload_slot_key(name, 0), payload_local);
+    local_indexes.insert(i64_option_payload_key(name), payload_local);
+    locals.push(CraneliftI64Expr::Literal(0));
+
+    Some(vec![
+        CraneliftI64Stmt::Assign(axiomc_backend_cranelift::I64Assign {
+            local: tag_local,
+            value: CraneliftI64Expr::ConditionValue(Box::new(tag)),
+        }),
+        CraneliftI64Stmt::Assign(axiomc_backend_cranelift::I64Assign {
+            local: payload_local,
+            value: payload,
+        }),
+    ])
 }
 
 fn i64_map_get_value_expr<'a>(

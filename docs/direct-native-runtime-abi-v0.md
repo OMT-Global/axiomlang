@@ -329,7 +329,12 @@ inline array literals. Local and helper-parameter fixed-array scalar and bool
 projections also support narrow in-bounds dynamic indexes by selecting across
 projected element locals. Inline scalar and bool fixed-array literals also
 support narrow in-bounds dynamic indexes by selecting across lowered literal
-elements. Scalar and bool fixed-array-returning helpers now lower across
+elements. Typed numeric fixed-array element coverage now proves i64-compatible
+element widths `i8`, `i16`, `i32`, `i64`, `isize`, `u8`, `u16`, and `u32`
+through direct literal projections, narrow dynamic indexes, helper parameters,
+helper returns, forwarded helper values, branch-selected helper returns, and
+inline array literal arguments without generated Rust. Scalar and bool
+fixed-array-returning helpers now lower across
 direct-native function-call boundaries as one return slot per element, with
 caller-side projection locals populated from the multi-slot return; this covers
 literal array returns, local array binding returns, forwarded array parameters,
@@ -361,13 +366,7 @@ helpers now lower across direct-native function-call boundaries as one return
 slot per tuple element, with caller-side projection locals populated from the
 multi-slot return; this includes helpers whose final return is selected by
 branch blocks with branch-local scalar values, helpers returning local tuple
-bindings, helpers forwarding tuple parameters, and final helper-call forwarding
-returns. The public tuple-returning helper smoke also asserts
-`generated_rust: null` while printing caller-side scalar and boolean
-projections from literal, local-binding, forwarded, typed, branch-selected, and
-fallback tuple returns. Existing tuple locals can now be
-reassigned from tuple helper returns using the same tuple-element ABI, including
-inside runtime loop blocks. The row remains partial because direct-native
+bindings, and helpers forwarding tuple parameters. Typed numeric tuple element coverage now proves i64-compatible element widths `i8`, `i16`, `i32`, `i64`, `isize`, `u8`, `u16`, and `u32` through direct literal projections, helper parameters, helper returns, forwarded helper values, branch-selected helper returns, and inline tuple literal arguments without generated Rust. The public tuple-returning helper smoke also asserts `generated_rust: null` while printing caller-side scalar and boolean projections from literal, local-binding, forwarded, typed, branch-selected, and fallback tuple returns. Existing tuple locals can now be reassigned from tuple helper returns using the same tuple-element ABI, including inside runtime loop blocks. The row remains partial because direct-native bindings, helpers forwarding tuple parameters, and final helper-call forwarding returns.
 codegen still does not provide a general tuple ABI, tuple storage for non-scalar
 elements, tuple return expressions beyond the scalar/bool local, literal, and
 parameter slice, or a complete aggregate value passing contract.
@@ -378,8 +377,14 @@ struct bindings, including runtime-scope loop-body bindings. Numeric fields can
 feed `int` and typed integer locals; boolean fields can feed bool locals, helper
 return conditions, and composed boolean conditions. The public struct-field
 smoke also asserts the Cranelift build JSON reports `generated_rust: null`
-while running scalar, boolean, and string field projection output. It also
-covers reassignment of scalar-projection struct locals. Scalar and bool struct
+while running scalar, boolean, and string field projection output, including
+caller-side scalar and boolean projections from direct, branch-selected, and
+forwarded struct helper returns. It also covers reassignment of
+scalar-projection struct locals. Typed numeric struct field coverage now proves
+the i64-compatible field widths `i8`, `i16`, `i32`, `i64`, `isize`, `u8`,
+`u16`, and `u32` through direct field projections, reordered struct literals,
+helper parameters, helper returns, forwarded helper values, and inline struct
+literal arguments without generated Rust. Scalar and bool struct
 helper parameters
 lower across direct-native function-call boundaries as one ABI slot per field
 in declared field order for local struct values and inline struct literal
@@ -409,7 +414,12 @@ returning, and `match` statements that assign scalar and bool locals from
 `Some`/`None` arms. Scalar `Option<int>` and `Option<bool>` helper parameters
 lower across direct-native function-call boundaries as explicit tag/payload ABI
 slots for local option values and inline `Some`/`None` arguments. The
-direct-native path also has narrow evidence for `Option<(int, bool)>`
+typed numeric option payload slice now proves i64-compatible integer widths
+`i8`, `i16`, `i32`, `i64`, `isize`, `u8`, `u16`, and `u32` across both `Some`
+and `None` match paths, including expression matches, statement matches, helper
+parameters, inline `Some(...)` values, and inline `None` values without
+generated Rust. The direct-native path also has narrow evidence for
+`Option<(int, bool)>`
 construction, reassignment, matching, helper parameters, and helper returns for
 local values, forwarded local or parameter values, and inline `Some((...))`/`None`
 arguments represented as a tag plus multiple payload slots. The same
@@ -767,9 +777,7 @@ fixed-array slots, including helper-parameter arrays feeding a direct-native
 process exit status. Static-range fixed-array slices also support narrow literal
 and dynamic indexing over the sliced window through the same projection slots,
 including pre-runtime slice locals that alias the projected fixed-array slots.
-Runtime slice locals can also alias static-range slices projected from
-helper-returned fixed-array slots before feeding `len`, `first`, and `last` into
-a direct-native process exit status.
+Typed numeric borrowed-slice element coverage now proves i64-compatible element widths `i8`, `i16`, `i32`, `i64`, `isize`, `u8`, `u16`, and `u32` through static tail and prefix slice ranges, `len`, `first`, `last`, literal indexes, dynamic indexes, pre-runtime slice locals, and helper-parameter arrays without generated Rust. Runtime slice locals can also alias static-range slices projected from helper-returned fixed-array slots before feeding `len`, `first`, and `last` into a direct-native process exit status.
 The public borrowed-slice smoke also prints `len`, `first`, `last`, and indexed
 projection output for both a local slice and a helper-returned slice while
 asserting `generated_rust: null`, so the row has explicit helper-output proof
@@ -785,7 +793,13 @@ for string and integer key/value shapes without generated Rust. The
 direct-native i64 path now also lowers
 inline-map-literal `get_or_default(...)` over scalar/string keys and
 i64-compatible values into native process exit status, including default
-fallback and duplicate-key replacement behavior. Inline-map-literal
+fallback and duplicate-key replacement behavior. Typed numeric map value
+coverage now proves i64-compatible value widths `i8`, `i16`, `i32`, `i64`,
+`isize`, `u8`, `u16`, and `u32` through `get_or_default` hits and misses,
+duplicate-key replacement, string/int/bool keys, direct `get(...)` matches, and
+typed `get(...)` results stored as local `Option<T>` bindings, pre-runtime
+local map bindings, and post-runtime scalar `Option<T>` call lets without
+generated Rust. Inline-map-literal
 `map_contains_key(...)` over scalar/string keys now also lowers into native
 boolean conditions that can feed direct-native process exit status.
 Inline-map-literal `get(...)` over scalar/string keys and scalar integer,
@@ -820,10 +834,7 @@ direct-native process exit status. Trimmed dynamic key-array projection locals
 can also feed `string_starts_with(...)` predicates without materializing runtime
 strings. Direct indexes into known map literals can also feed known string facts
 for helper returns, length projections, and `string_starts_with(...)`
-conditions.
-Broader map ownership, runtime map storage, general payload lookup bindings,
-runtime key array value projection, and host-boundary representation remain
-tracked by issue #1124.
+conditions. Dynamic finite string-key projections from `keys(...)` over known map literals can now also feed public `std/collections.ax` `contains(...)`, `get_or_default(...)`, and scalar `get(...)` `Option<int>`/`Option<bool>` hit and miss paths by lowering the selected-key lookup to native candidate-key selection without generated Rust. Broader map ABI coverage, runtime map storage, general payload lookup bindings, broader `get(...)` Option payload selection for non-finite or non-scalar dynamic keys, key/value ownership, and host-boundary representation remain tracked by issue #1124. Broader map ownership, runtime map storage, general payload lookup bindings, runtime key array value projection, and host-boundary representation remain tracked by issue #1124.
 
 The `env.read` row is now marked implemented with Cranelift evidence for `std/env.ax`
 `get_env` on present and missing environment names while the public smoke
@@ -913,12 +924,13 @@ including field projections from selected and fallback `Result<Step, Step>`
 values. The direct-native runtime path now also has narrow evidence for local
 `Result<int, int>`,
 `Result<bool, bool>`, `Result<int, bool>`, and `Result<bool, int>` `Ok` and
-`Err` construction and reassignment, plus typed numeric `Result<i32, u32>`
-`Result<i64, u16>`, and `Result<u8, i8>` `Ok`/`Err` construction and
-reassignment, represented as tag/payload locals and value-producing `match`
-expressions over `Ok(payload)` and `Err(error)` that can feed scalar or bool
-locals and the process exit status. It also covers `match` statements that
-assign scalar and bool locals from `Ok`/`Err` arms. Those Result helper
+`Err` construction and reassignment. Typed numeric result coverage now proves
+the i64-compatible integer payload widths `i8`, `i16`, `i32`, `i64`, `isize`,
+`u8`, `u16`, and `u32` across both `Ok` and `Err` arms, represented as
+tag/payload locals and value-producing `match` expressions over `Ok(payload)`
+and `Err(error)` that can feed scalar or bool locals and the process exit
+status. It also covers `match` statements that assign scalar and bool locals
+from `Ok`/`Err` arms. Those Result helper
 parameters lower across direct-native function-call boundaries as explicit
 tag/payload ABI slots for local values and inline `Ok`/`Err` arguments without
 generated Rust. The direct-native path also has narrow evidence for
@@ -945,14 +957,18 @@ The recursive result payload slice now also has narrow evidence for
 `Result<Result<int, int>, int>` construction, reassignment, matching, helper
 parameters, helper returns, forwarded helper values, and inline `Ok(Ok(...))`,
 `Ok(Err(...))`, and outer `Err(...)` helper arguments.
-Broader Result ABI support, the full numeric-width matrix, and additional
-aggregate payload shapes remain tracked by issue #1124.
+Broader Result ABI support, additional aggregate payload shapes, and capability-shim coverage remain tracked by issue #1124. Broader Result ABI support, the full numeric-width matrix, and additional aggregate payload shapes remain tracked by issue #1124.
 
 The `enum.payload` row now has narrow direct-native runtime evidence for local
 custom enum construction, reassignment, value-producing matches, and statement
 matches over scalar/bool positional and named payload variants, represented as a
 tag plus payload slots and returned as process exit status without generated
-Rust. The public enum-match smoke also asserts `generated_rust: null` while
+Rust. Typed numeric custom enum payload coverage now proves the i64-compatible
+integer payload widths `i8`, `i16`, `i32`, `i64`, `isize`, `u8`, `u16`, and
+`u32` across both payload variants, including expression matches, statement
+matches, helper parameters, helper returns, forwarded helper values, and inline
+variant arguments without generated Rust. The public enum-match smoke also
+asserts `generated_rust: null` while
 printing string, scalar, and boolean values derived from positional and named
 custom enum payload matches, including string, scalar, and boolean projections
 from helper-returned custom enum values before native stdout. The same

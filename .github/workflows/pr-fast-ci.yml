@@ -74,6 +74,12 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha }}
 
+      - name: Checkout trusted CI scripts
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4 pinned 2026-05-30
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: .trusted-ci
+
       - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable pinned 2026-04-19
 
       - name: Ensure Rust linker availability
@@ -148,7 +154,7 @@ jobs:
       - name: Run fast checks
         env:
           GITHUB_TOKEN: ${{ github.token }}
-        run: bash scripts/ci/run-fast-checks.sh
+        run: AXIOM_CHECKOUT_PATH="$GITHUB_WORKSPACE" bash .trusted-ci/scripts/ci/run-fast-checks.sh
 
   validate-pr-description:
     name: Validate PR Description
@@ -257,8 +263,13 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4 pinned 2026-05-30
         with:
           ref: ${{ github.event.pull_request.head.sha }}
+      - name: Checkout trusted CI scripts
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4 pinned 2026-05-30
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: .trusted-ci
       - name: Scan repository for secret patterns
-        run: bash scripts/check-detect-secrets.sh --all-files
+        run: AXIOM_CHECKOUT_PATH="$GITHUB_WORKSPACE" bash .trusted-ci/scripts/check-detect-secrets.sh --all-files
 
   ci-gate:
     name: CI Gate
