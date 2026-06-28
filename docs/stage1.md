@@ -25,7 +25,7 @@ The Rust compiler is intentionally small in this bootstrap slice:
 - Stage1 now ships a synthetic standard library surface under the `std/` import prefix with fifteen landed modules. Capability-gated surfaces cover the six capability classes: `std/time.ax` exposes `Duration`, `Instant`, `duration_ms(ms): Duration`, `now_ms(): int`, `now(): Instant`, `elapsed_ms(start): int`, and `sleep(duration): int` on top of `clock_now_ms`, `clock_elapsed_ms`, and `clock_sleep_ms`; `std/env.ax` exposes `get_env(key: string): Option<string>` on top of `env_get`, `std/fs.ax` exposes `read_file(path: string): Option<string>` on top of `fs_read`, `std/net.ax` exposes `resolve(host: string): Option<string>` on top of `net_resolve` plus a bounded loopback-only socket floor (`tcp_listen_loopback_once`, `tcp_dial`, `udp_bind_loopback_once`, and `udp_send_recv`), `std/process.ax` exposes `run_status(command: string): int` on top of `process_status`, and `std/crypto_hash.ax` (the stage1 spelling of `std.crypto.hash`) exposes `sha256(input: string): string` on top of `crypto_sha256`. The crypto surface also includes `std/crypto_mac.ax` for `hmac_sha256(key, message): string` plus `constant_time_eq(left, right): bool`; both require `[capabilities].crypto = true`. Each gated module requires the importing package to declare the matching capability (`clock`, `env`, `fs`, `net`, `process`, or `crypto`); environment access is scoped with `env = ["PORT", "LOG_LEVEL"]`, and `env_get` returns `None` for names outside that manifest allowlist. The legacy `env = true` form remains temporarily available but emits a check warning because it grants unrestricted process environment access; `env_unrestricted = true` is the explicit migration escape hatch and is reported as unsafe in capability output. The seventh module, `std/http.ax`, shares the `net` capability surface with `std/net.ax` and exposes `get(url: string): Option<string>` on top of a new `http_get` intrinsic that implements a blocking HTTP/1.0 client for `http://` and `https://` URLs. Ungated modules now cover `std/io.ax`, `std/json.ax`, `std/collections.ax`, `std/string_builder.ax`, `std/log.ax`, `std/sync.ax`, and `std/async.ax`.
 - Stage1 now ships a synthetic standard library surface under the `std/` import prefix with sixteen landed modules. Capability-gated surfaces cover the six capability classes: `std/time.ax` exposes `Duration`, `Instant`, `duration_ms(ms): Duration`, `now_ms(): int`, `now(): Instant`, `elapsed_ms(start): int`, and `sleep(duration): int` on top of `clock_now_ms`, `clock_elapsed_ms`, and `clock_sleep_ms`; `std/env.ax` exposes `get_env(key: string): Option<string>` on top of `env_get`, `std/fs.ax` exposes `read_file(path: string): Option<string>` on top of `fs_read`, `std/net.ax` exposes `resolve(host: string): Option<string>` on top of `net_resolve` plus a bounded loopback-only socket floor (`tcp_listen_loopback_once`, `tcp_dial`, `udp_bind_loopback_once`, and `udp_send_recv`), `std/process.ax` exposes `run_status(command: string): int` on top of `process_status`, and `std/crypto_hash.ax` (the stage1 spelling of `std.crypto.hash`) exposes `sha256(input: string): string` on top of `crypto_sha256`. The crypto surface also includes `std/crypto_mac.ax` for `hmac_sha256(key, message): string` plus `constant_time_eq(left, right): bool`; both require `[capabilities].crypto = true`. Each gated module requires the importing package to declare the matching capability (`clock`, `env`, `fs`, `net`, `process`, or `crypto`); environment access is scoped with `env = ["PORT", "LOG_LEVEL"]`, and `env_get` returns `None` for names outside that manifest allowlist. The legacy `env = true` form remains temporarily available but emits a check warning because it grants unrestricted process environment access; `env_unrestricted = true` is the explicit migration escape hatch and is reported as unsafe in capability output. The seventh module, `std/http.ax`, shares the `net` capability surface with `std/net.ax` and exposes `get(url: string): Option<string>` on top of a new `http_get` intrinsic that implements a blocking HTTP/1.0 client for `http://` and `https://` URLs. Ungated modules now cover `std/io.ax`, `std/json.ax`, `std/collections.ax`, `std/string_builder.ax`, `std/log.ax`, `std/sync.ax`, `std/async.ax`, and `std/regex.ax`. `std/regex.ax` exposes `is_match(pattern, text): bool`, `find(pattern, text): Option<string>`, and `replace_all(pattern, text, replacement): string` over a deterministic NFA-state engine supporting anchors, `.`, `?`, `*`, `+`, escaped literals, and character classes/ranges without backtracking.
 - The pipeline is already split into syntax -> HIR -> MIR -> native build.
-- `axiomc build` emits a native binary through the direct-native Cranelift backend by default. Targeted builds such as `--target wasm32` / `--target wasm32-wasi` keep the generated-Rust fallback path and invoke `rustc` for compatibility.
+- `axiomc build` emits a native binary through the direct-native Cranelift backend by default. Targeted builds such as `--target wasm32` / `--target wasm32-wasi` no longer fall back to generated Rust by default; unsupported direct-native targets fail unless the operator explicitly selects the compatibility backend.
 - Floating-point widths `f32` and `f64` follow the native Rust backend for arithmetic, comparisons, equality, NaN propagation, infinities, and signed zero. Cross-precision and cross-kind arithmetic must use an explicit `as` cast; implicit mixed-width float arithmetic is rejected during checking.
 - Numeric expressions can use explicit `as` casts across supported integer and float widths. Cross-width casts lower to native casts, while same-type casts are normalized away during HIR lowering.
 - Numeric literals can carry explicit width suffixes (`i8`, `i16`, `i32`, `i64`, `u8`, `u16`, `u32`, `u64`, `f32`, and `f64`). The suffix fixes the literal's exact type during checking, so annotated bindings must match it exactly.
@@ -47,8 +47,7 @@ cargo run --manifest-path stage1/Cargo.toml -p axiomc -- build stage1/examples/h
 cargo run --manifest-path stage1/Cargo.toml -p axiomc -- build stage1/examples/hello --timings
 cargo run --manifest-path stage1/Cargo.toml -p axiomc -- build stage1/examples/hello --debug
 cargo run --manifest-path stage1/Cargo.toml -p axiomc -- build stage1/examples/hello --locked --offline
-cargo run --manifest-path stage1/Cargo.toml -p axiomc -- build stage1/examples/hello --target "$(rustc -vV | sed -n 's/^host: //p')"
-cargo run --manifest-path stage1/Cargo.toml -p axiomc -- build stage1/examples/hello --target wasm32
+cargo run --manifest-path stage1/Cargo.toml -p axiomc -- build stage1/examples/hello --backend generated-rust
 cargo run --manifest-path stage1/Cargo.toml -p axiomc -- run stage1/examples/hello
 cargo run --manifest-path stage1/Cargo.toml -p axiomc -- run stage1/examples/hello --json
 cargo run --manifest-path stage1/Cargo.toml -p axiomc -- test stage1/examples/modules --json
@@ -126,7 +125,9 @@ fixtures and prints an explicit `N/N properties passed` summary for Phase-H
 property gates. `axiomc check --properties` first performs the normal type,
 ownership, capability, and manifest checks, then runs the same property-only
 fixture gate so property failures block a check command before build artifacts
-are accepted. The `std/testing.ax` helper surface is backed by
+are accepted. `axiomc check --properties --backend generated-rust` remains
+available for compatibility property corpuses that still exercise constructs
+outside the current Cranelift subset. The `std/testing.ax` helper surface is backed by
 `stage1/stdlib/std/testing.ax` and embedded into the virtual stdlib at compiler
 build time. The checked-in stdlib testing package now carries a 12-property
 suite across the deterministic stdlib surfaces and is exercised by
@@ -138,8 +139,9 @@ same property summaries before proof workloads. Phase-J compiler-internal
 property migration has a seed package at `stage1/examples/compiler_properties`;
 `make stage1-compiler-property-test` runs its type-system, ownership,
 capability-policy, and property-clause fixtures through both `axiomc
-check --properties` and `axiomc test --properties` while the full 100-property
-suite remains tracked by #717. The default CLI summary prints
+check --properties --backend generated-rust` and `axiomc test --properties
+--backend generated-rust` while the full 100-property suite remains tracked by
+#717. The default CLI summary prints
 `passed` / `failed` / `skipped` counts. `axiomc test --list` exposes the same
 discovery pass without building or running the tests; text output emits package,
 test name, and entry path columns, while `--json` adds stable package
@@ -285,8 +287,9 @@ The self-hosted diagnostics and syntax boundary fixture lives at
 `stage1/compiler-contracts/snapshots/diagnostics-syntax.json` and is validated
 with `make stage1-diagnostics-syntax-boundary`.
 Checked-in `build`, `test`, and `caps` JSON contract fixtures live under
-`stage1/json-fixtures/` and cover build target triples, build failures, test
-filters, duration fields, failing cases, and unsafe capability state.
+`stage1/json-fixtures/` and cover explicit generated-Rust compatibility target
+triples, default Cranelift targeted-build no-fallback failures, build failures,
+test filters, duration fields, failing cases, and unsafe capability state.
 
 ## Current gaps
 
@@ -333,14 +336,13 @@ still far from the stated 1.0 target for service and agent workloads.
 
 ### Backend and tooling gaps
 
-- `axiomc build` now defaults to the direct-native Cranelift backend for native
-  builds, with `--backend generated-rust` retained as an explicit compatibility
-  fallback. `--backend rust` is accepted as a transition alias for the same
-  generated-Rust backend so existing fallback workflows can keep their current
-  spelling for one release. Targeted builds such as `--target wasm32` continue
-  to default to generated Rust until direct-native target support lands. The
-  direct-native path folds the supported MIR subset into print lines, emits a
-  Cranelift object, and links it with the host linker.
+- `axiomc build`, `axiomc run`, and `axiomc test` now default to the
+  direct-native Cranelift backend, including targeted builds such as
+  `--target wasm32`. `--backend generated-rust` remains available only as an
+  explicit compatibility fallback, and the older `--backend rust` transition
+  alias is no longer part of the supported command surface. The direct-native
+  path folds the supported MIR subset into print lines, emits a Cranelift
+  object, and links it with the host linker.
 - The backend-selection surface remains preparatory backend plumbing for later
   native-backend expansion. `generated-rust` remains the broad compatibility
   backend; `cranelift` is intentionally limited to scalar print-line programs,
@@ -351,7 +353,9 @@ still far from the stated 1.0 target for service and agent workloads.
   in-memory strings (encoded byte length, matching the generated-Rust backend)
   and arrays plus `first(...)`/`last(...)` over in-memory arrays, and scalar
   branching, so this is not closure for #105 or the later full-surface native
-  backend slices.
+  backend slices. Manifest HTTP service fixture tests still use the explicit
+  `generated-rust` compatibility backend because the current Cranelift spike
+  does not host long-lived runtime server loops.
   Cranelift debug builds emit the shared debug map and manifest sidecars, but
   the manifest explicitly reports that native Axiom DWARF is not emitted yet.
 
@@ -366,10 +370,11 @@ still far from the stated 1.0 target for service and agent workloads.
   a debug manifest sidecar that ties the native binary to the generated Rust,
   the source map, and the hashed `.ax` source files. `docs/stage1-debug-map.md`
   documents how LLDB/GDB helpers translate generated Rust frame lines through
-  the sidecar map. The manifest is an explicit generated-Rust bridge: current
-  DWARF still points at generated Rust, and rustc path remapping cannot
-  represent Axiom span rows or multiple imported source files, so full
-  Axiom-native debugger stepping remains a direct-backend follow-on.
+  the sidecar map. The manifest is an explicit generated-Rust bridge: DWARF
+  for compatibility-backend builds still points at generated Rust, and rustc
+  path remapping cannot represent Axiom span rows or multiple imported source
+  files, so full Axiom-native debugger stepping remains a direct-backend
+  follow-on.
 - `axiomc fmt`, `axiomc bench`, `axiomc doc`, the stage1 scratch `repl`, and a
   bounded `axiomc lsp` analyzer now exist as bootstrap-grade toolchain
   commands. The LSP endpoint currently serves compiler-backed diagnostics over
