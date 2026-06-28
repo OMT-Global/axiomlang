@@ -283,11 +283,11 @@ fn backend_target_v0_schema_and_fixture_are_well_formed() {
         .collect();
     assert!(
         ids.contains(&"axiom://target/stage1-generated-rust"),
-        "fixture maps the current generated-Rust backend"
+        "fixture maps the generated-Rust compatibility backend"
     );
     assert!(
         ids.contains(&"axiom://target/stage1-direct-native"),
-        "fixture maps the direct-native backend roadmap"
+        "fixture maps the direct-native backend"
     );
     let generated_rust = targets
         .iter()

@@ -450,6 +450,18 @@ criteria = "safe-to-run"
 version = "0.2.121"
 criteria = "safe-to-run"
 
+[[exemptions.wasm-encoder]]
+version = "0.244.0"
+criteria = "safe-to-run"
+
+[[exemptions.wasmparser]]
+version = "0.244.0"
+criteria = "safe-to-run"
+
+[[exemptions.wasmtime-internal-core]]
+version = "45.0.0"
+criteria = "safe-to-deploy"
+
 [[exemptions.web-sys]]
 version = "0.3.98"
 criteria = "safe-to-run"
@@ -465,6 +477,30 @@ criteria = "safe-to-deploy"
 [[exemptions.winnow]]
 version = "0.7.15"
 criteria = "safe-to-deploy"
+
+[[exemptions.wit-bindgen]]
+version = "0.51.0"
+criteria = "safe-to-run"
+
+[[exemptions.wit-bindgen-core]]
+version = "0.51.0"
+criteria = "safe-to-run"
+
+[[exemptions.wit-bindgen-rust]]
+version = "0.51.0"
+criteria = "safe-to-run"
+
+[[exemptions.wit-bindgen-rust-macro]]
+version = "0.51.0"
+criteria = "safe-to-run"
+
+[[exemptions.wit-component]]
+version = "0.244.0"
+criteria = "safe-to-run"
+
+[[exemptions.wit-parser]]
+version = "0.244.0"
+criteria = "safe-to-run"
 
 [[exemptions.writeable]]
 version = "0.6.3"

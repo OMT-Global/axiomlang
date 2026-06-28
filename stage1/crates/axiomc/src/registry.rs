@@ -921,18 +921,73 @@ fn registry_release_file_response(
     }
 
     let path = packages_root.join(&package).join(&version).join(&file);
-    let body = fs::read(&path).map_err(|err| {
-        Diagnostic::new(
-            "registry",
-            format!("failed to read registry artifact {}: {err}", path.display()),
-        )
-        .with_path(path.display().to_string())
-    })?;
+    let body = read_registry_artifact(packages_root, &path)?;
     Ok(RegistryHttpResponse {
         status: "200 OK",
         content_type: registry_content_type(&file),
         body,
     })
+}
+
+fn read_registry_artifact(packages_root: &Path, path: &Path) -> Result<Vec<u8>, Diagnostic> {
+    let root = packages_root.canonicalize().map_err(|err| {
+        Diagnostic::new(
+            "registry",
+            format!(
+                "failed to canonicalize registry root {}: {err}",
+                packages_root.display()
+            ),
+        )
+        .with_path(packages_root.display().to_string())
+    })?;
+    let metadata = fs::symlink_metadata(path).map_err(|err| {
+        Diagnostic::new(
+            "registry",
+            format!(
+                "failed to inspect registry artifact {}: {err}",
+                path.display()
+            ),
+        )
+        .with_path(path.display().to_string())
+    })?;
+    if metadata.file_type().is_symlink() {
+        return Err(Diagnostic::new(
+            "registry",
+            format!(
+                "refusing to serve symlinked registry artifact {}",
+                path.display()
+            ),
+        )
+        .with_path(path.display().to_string()));
+    }
+    let canonical = path.canonicalize().map_err(|err| {
+        Diagnostic::new(
+            "registry",
+            format!(
+                "failed to canonicalize registry artifact {}: {err}",
+                path.display()
+            ),
+        )
+        .with_path(path.display().to_string())
+    })?;
+    if !canonical.starts_with(&root) {
+        return Err(Diagnostic::new(
+            "registry",
+            format!(
+                "refusing to serve registry artifact outside registry root {}",
+                canonical.display()
+            ),
+        )
+        .with_path(canonical.display().to_string()));
+    }
+    let body = fs::read(&canonical).map_err(|err| {
+        Diagnostic::new(
+            "registry",
+            format!("failed to read registry artifact {}: {err}", path.display()),
+        )
+        .with_path(canonical.display().to_string())
+    })?;
+    Ok(body)
 }
 
 fn registry_release_allows_file(release: &RegistryRelease, file: &str) -> Result<bool, Diagnostic> {
@@ -1174,14 +1229,18 @@ fn load_release(
         ));
     }
     let archive_file = match metadata.archive {
-        Some(value) => Some(value),
+        // Reduce the untrusted registry.toml artifact name to a validated
+        // basename within version_dir (matching the consumer-side verifier) so a
+        // crafted name such as "../../../../etc/passwd" cannot escape the package
+        // tree when the path is later joined and read.
+        Some(value) => Some(registry_artifact_file_name("archive file name", &value)?),
         None => version_dir
             .join(DEFAULT_ARCHIVE_FILENAME)
             .exists()
             .then(|| String::from(DEFAULT_ARCHIVE_FILENAME)),
     };
     let signature_file = match metadata.signature {
-        Some(value) => Some(value),
+        Some(value) => Some(registry_artifact_file_name("signature file name", &value)?),
         None => archive_file.as_ref().and_then(|archive| {
             version_dir
                 .join(format!("{archive}.sig"))
@@ -1414,6 +1473,46 @@ mod tests {
     }
 
     #[test]
+    fn load_release_confines_traversal_archive_names_to_the_version_dir() {
+        let dir = tempdir().expect("tempdir");
+        let registry = dir.path().join("registry");
+        // Real files outside the registry that a crafted archive/signature name
+        // would reach if joined onto version_dir without basename sanitization.
+        fs::write(dir.path().join("escape.axp"), b"OUTSIDE ARCHIVE")
+            .expect("write outside archive");
+        fs::write(dir.path().join("escape.axp.sig"), b"OUTSIDE SIGNATURE")
+            .expect("write outside signature");
+        // version_dir is <tmp>/registry/demo/1.0.0; "../../../escape.axp" escapes to <tmp>.
+        let version_dir = write_release(
+            &registry,
+            "demo",
+            "1.0.0",
+            "[package]\nname = \"demo\"\nversion = \"1.0.0\"\n",
+        );
+        fs::write(
+            version_dir.join(REGISTRY_METADATA_FILENAME),
+            "archive = \"../../../escape.axp\"\nsignature = \"../../../escape.axp.sig\"\n",
+        )
+        .expect("write registry metadata");
+
+        let error = build_registry_index(&registry, "https://packages.example.test", "test-key")
+            .expect_err("traversal artifact names must be confined to the version dir");
+        // The names are reduced to their basenames and read from inside version_dir
+        // (which does not contain them), so the build fails at the contained archive
+        // read rather than reading the outside files.
+        assert!(
+            error.message.contains("failed to read registry archive"),
+            "expected a contained archive read failure, got: {}",
+            error.message
+        );
+        assert!(
+            !error.message.contains("escape.axp.sig"),
+            "read must fail at the archive and never reach the outside signature: {}",
+            error.message
+        );
+    }
+
+    #[test]
     fn publishes_package_archive_signature_and_registry_index_release() {
         let dir = tempdir().expect("tempdir");
         let project = write_publishable_project(dir.path(), "core", "1.0.0");
@@ -1591,6 +1690,37 @@ mod tests {
                 .as_deref()
                 .is_some_and(|path| path.ends_with("package.axp.sig"))
         );
+    }
+
+    #[test]
+    fn registry_http_rejects_symlinked_lockfile_artifact() {
+        let dir = tempdir().expect("tempdir");
+        let registry = dir.path().join("registry");
+        let release = write_release(
+            &registry,
+            "core",
+            "1.0.0",
+            "[package]\nname = \"core\"\nversion = \"1.0.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n",
+        );
+        let outside = dir.path().join("outside-lock.toml");
+        fs::write(&outside, "secret = true\n").expect("write outside file");
+        let lock_path = release.join(LOCK_FILENAME);
+
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&outside, &lock_path).expect("create symlink");
+        #[cfg(windows)]
+        std::os::windows::fs::symlink_file(&outside, &lock_path).expect("create symlink");
+
+        let error = registry_http_response(
+            &registry,
+            "https://packages.example.test",
+            "test-key",
+            "GET /core/1.0.0/axiom.lock HTTP/1.1\r\n\r\n",
+        )
+        .expect_err("symlinked lockfile should not be served");
+
+        assert_eq!(error.kind, "registry");
+        assert!(error.message.contains("symlinked registry artifact"));
     }
 
     #[test]

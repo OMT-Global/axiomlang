@@ -12,7 +12,7 @@ python3 "$script" --contract "$contract" >"$temp_dir/status.md"
 
 grep -Fq '<!-- direct-native-runtime-abi-status:start -->' "$temp_dir/status.md"
 grep -Fq '| `numeric.scalars` | `partial` | #1124 | evidence:1, runtime:1 |' "$temp_dir/status.md"
-grep -Fq '| `io.logging_stdio` | `partial` | #1124 | evidence:1, runtime:2 |' "$temp_dir/status.md"
+grep -Fq '| `io.logging_stdio` | `implemented` | - | evidence:1, runtime:2 |' "$temp_dir/status.md"
 grep -Fq '<!-- direct-native-runtime-abi-status:end -->' "$temp_dir/status.md"
 
 python3 "$script" --contract "$contract" --check-doc "$doc"
