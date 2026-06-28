@@ -210,6 +210,11 @@ enum SpikeValue {
     Tuple(Vec<SpikeValue>),
     Map(Vec<(SpikeValue, SpikeValue)>),
     Array(Vec<SpikeValue>),
+    Closure {
+        params: Vec<crate::mir::Param>,
+        body: Box<Expr>,
+        env: SpikeEnv,
+    },
     MutRef(String),
     MutSlice {
         target: String,
@@ -16261,6 +16266,11 @@ fn eval_expr(
             .map(|element| eval_expr(element, functions, env, lines))
             .collect::<Result<Vec<_>, _>>()
             .map(SpikeValue::Array),
+        Expr::Closure { params, body, .. } => Ok(SpikeValue::Closure {
+            params: params.clone(),
+            body: body.clone(),
+            env: env.clone(),
+        }),
         Expr::Slice {
             base,
             start,
@@ -16614,6 +16624,14 @@ fn eval_call(
     if is_assert_call(name) {
         return eval_assert_call(name, args, functions, env, lines);
     }
+    if let Some(SpikeValue::Closure {
+        params,
+        body,
+        env: captured_env,
+    }) = env.get(name)
+    {
+        return eval_closure_call(params, body, captured_env, args, functions, env, lines);
+    }
     if name == "len" {
         return eval_len_call(args, functions, env, lines);
     }
@@ -16721,6 +16739,28 @@ fn eval_call(
     } else {
         Ok(returned)
     }
+}
+
+fn eval_closure_call(
+    params: &[crate::mir::Param],
+    body: &Expr,
+    captured_env: &SpikeEnv,
+    args: &[Expr],
+    functions: &HashMap<&str, &Function>,
+    caller_env: &SpikeEnv,
+    lines: &mut Vec<OutputLine>,
+) -> Result<SpikeValue, Diagnostic> {
+    if params.len() != args.len() {
+        return Err(unsupported("closure argument count mismatch"));
+    }
+    let mut local_env = captured_env.clone();
+    for (param, arg) in params.iter().zip(args) {
+        local_env.insert(
+            param.name.clone(),
+            eval_expr(arg, functions, caller_env, lines)?,
+        );
+    }
+    eval_expr(body, functions, &local_env, lines)
 }
 
 fn eval_call_effectful(
@@ -21950,6 +21990,7 @@ fn spike_values_equal(left: &SpikeValue, right: &SpikeValue) -> Result<bool, Dia
             | SpikeValue::JoinHandle(_)
             | SpikeValue::AsyncChannel { .. }
             | SpikeValue::SelectResult { .. }
+            | SpikeValue::Closure { .. }
             | SpikeValue::MutRef(_)
             | SpikeValue::MutSlice { .. },
             _,
@@ -21960,6 +22001,7 @@ fn spike_values_equal(left: &SpikeValue, right: &SpikeValue) -> Result<bool, Dia
             | SpikeValue::JoinHandle(_)
             | SpikeValue::AsyncChannel { .. }
             | SpikeValue::SelectResult { .. }
+            | SpikeValue::Closure { .. }
             | SpikeValue::MutRef(_)
             | SpikeValue::MutSlice { .. },
         ) => Err(unsupported(
@@ -22119,6 +22161,7 @@ fn validate_map_key(value: &SpikeValue) -> Result<(), Diagnostic> {
         | SpikeValue::Struct { .. }
         | SpikeValue::Map(_)
         | SpikeValue::Array(_)
+        | SpikeValue::Closure { .. }
         | SpikeValue::MutRef(_)
         | SpikeValue::MutSlice { .. }
         | SpikeValue::Task { .. }
@@ -22164,6 +22207,9 @@ fn render_value(value: &SpikeValue) -> String {
         SpikeValue::Tuple(values) => render_sequence("(", ")", values),
         SpikeValue::Map(entries) => render_map(entries),
         SpikeValue::Array(values) => render_sequence("[", "]", values),
+        SpikeValue::Closure { params, .. } => {
+            format!("fn({})", params.len())
+        }
         SpikeValue::MutRef(name) => format!("&mut {name}"),
         SpikeValue::MutSlice { target, start, end } => {
             format!("&mut {target}[{start}..{end}]")
@@ -22375,6 +22421,193 @@ mod tests {
             vec![
                 OutputLine::stdout("hello from stage1"),
                 OutputLine::stdout("42")
+            ]
+        );
+    }
+
+    #[test]
+    fn folds_closure_calls_into_print_lines() {
+        let int_to_int = Type::Fn(vec![Type::Int], Box::new(Type::Int));
+        let int_param = || crate::mir::Param {
+            name: String::from("x"),
+            ty: Type::Int,
+        };
+        let program = Program {
+            path: String::from("closures"),
+            structs: vec![],
+            enums: vec![],
+            statics: vec![],
+            functions: vec![Function {
+                name: String::from("apply"),
+                source_name: String::from("apply"),
+                path: String::from("closures"),
+                params: vec![
+                    crate::mir::Param {
+                        name: String::from("f"),
+                        ty: int_to_int.clone(),
+                    },
+                    crate::mir::Param {
+                        name: String::from("value"),
+                        ty: Type::Int,
+                    },
+                ],
+                return_ty: Type::Int,
+                body: vec![Stmt::Return {
+                    expr: Expr::Call {
+                        name: String::from("f"),
+                        args: vec![Expr::VarRef {
+                            name: String::from("value"),
+                            ty: Type::Int,
+                        }],
+                        ty: Type::Int,
+                    },
+                    span: crate::mir::SourceSpan { line: 2, column: 1 },
+                }],
+                is_property: false,
+                is_async: false,
+                is_extern: false,
+                extern_abi: None,
+                extern_library: None,
+                line: 1,
+                column: 1,
+            }],
+            stmts: vec![
+                Stmt::Let {
+                    name: String::from("inc"),
+                    ty: int_to_int.clone(),
+                    expr: Expr::Closure {
+                        params: vec![int_param()],
+                        body: Box::new(Expr::BinaryAdd {
+                            op: ArithmeticOp::Add,
+                            lhs: Box::new(Expr::VarRef {
+                                name: String::from("x"),
+                                ty: Type::Int,
+                            }),
+                            rhs: Box::new(Expr::Literal(LiteralValue::Int(1))),
+                            ty: Type::Int,
+                        }),
+                        ty: int_to_int.clone(),
+                    },
+                    span: crate::mir::SourceSpan { line: 5, column: 1 },
+                },
+                Stmt::Print {
+                    expr: Expr::Call {
+                        name: String::from("inc"),
+                        args: vec![Expr::Literal(LiteralValue::Int(41))],
+                        ty: Type::Int,
+                    },
+                    span: crate::mir::SourceSpan { line: 6, column: 1 },
+                },
+                Stmt::Print {
+                    expr: Expr::Call {
+                        name: String::from("apply"),
+                        args: vec![
+                            Expr::Closure {
+                                params: vec![crate::mir::Param {
+                                    name: String::from("n"),
+                                    ty: Type::Int,
+                                }],
+                                body: Box::new(Expr::BinaryAdd {
+                                    op: ArithmeticOp::Add,
+                                    lhs: Box::new(Expr::VarRef {
+                                        name: String::from("n"),
+                                        ty: Type::Int,
+                                    }),
+                                    rhs: Box::new(Expr::Literal(LiteralValue::Int(2))),
+                                    ty: Type::Int,
+                                }),
+                                ty: int_to_int.clone(),
+                            },
+                            Expr::Literal(LiteralValue::Int(40)),
+                        ],
+                        ty: Type::Int,
+                    },
+                    span: crate::mir::SourceSpan { line: 7, column: 1 },
+                },
+                Stmt::Let {
+                    name: String::from("len"),
+                    ty: int_to_int.clone(),
+                    expr: Expr::Closure {
+                        params: vec![int_param()],
+                        body: Box::new(Expr::BinaryAdd {
+                            op: ArithmeticOp::Add,
+                            lhs: Box::new(Expr::VarRef {
+                                name: String::from("x"),
+                                ty: Type::Int,
+                            }),
+                            rhs: Box::new(Expr::Literal(LiteralValue::Int(3))),
+                            ty: Type::Int,
+                        }),
+                        ty: int_to_int.clone(),
+                    },
+                    span: crate::mir::SourceSpan { line: 8, column: 1 },
+                },
+                Stmt::Print {
+                    expr: Expr::Call {
+                        name: String::from("len"),
+                        args: vec![Expr::Literal(LiteralValue::Int(39))],
+                        ty: Type::Int,
+                    },
+                    span: crate::mir::SourceSpan { line: 8, column: 8 },
+                },
+                Stmt::Let {
+                    name: String::from("base"),
+                    ty: Type::Int,
+                    expr: Expr::Literal(LiteralValue::Int(10)),
+                    span: crate::mir::SourceSpan { line: 9, column: 1 },
+                },
+                Stmt::Let {
+                    name: String::from("add_base"),
+                    ty: int_to_int.clone(),
+                    expr: Expr::Closure {
+                        params: vec![int_param()],
+                        body: Box::new(Expr::BinaryAdd {
+                            op: ArithmeticOp::Add,
+                            lhs: Box::new(Expr::VarRef {
+                                name: String::from("x"),
+                                ty: Type::Int,
+                            }),
+                            rhs: Box::new(Expr::VarRef {
+                                name: String::from("base"),
+                                ty: Type::Int,
+                            }),
+                            ty: Type::Int,
+                        }),
+                        ty: int_to_int,
+                    },
+                    span: crate::mir::SourceSpan {
+                        line: 10,
+                        column: 1,
+                    },
+                },
+                Stmt::Print {
+                    expr: Expr::Call {
+                        name: String::from("add_base"),
+                        args: vec![Expr::Literal(LiteralValue::Int(5))],
+                        ty: Type::Int,
+                    },
+                    span: crate::mir::SourceSpan {
+                        line: 11,
+                        column: 1,
+                    },
+                },
+            ],
+        };
+
+        assert_eq!(
+            collect_output_lines(
+                &program,
+                &CapabilityConfig::default(),
+                Path::new("."),
+                Path::new("."),
+                None,
+            )
+            .expect("fold closures"),
+            vec![
+                OutputLine::stdout("42"),
+                OutputLine::stdout("42"),
+                OutputLine::stdout("42"),
+                OutputLine::stdout("15")
             ]
         );
     }
