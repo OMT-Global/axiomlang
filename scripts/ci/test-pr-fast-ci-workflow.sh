@@ -22,9 +22,10 @@ if [[ -z "$section" ]]; then
   exit 1
 fi
 
-checkout_line=$(printf '%s\n' "$section" | nl -ba | grep 'actions/checkout@' | head -n1 | awk '{print $1}')
-run_line=$(printf '%s\n' "$section" | nl -ba | grep 'bash scripts/ci/validate-pr-description.sh' | head -n1 | awk '{print $1}')
-pr_body_env_line=$(printf '%s\n' "$section" | nl -ba | grep -F 'PR_BODY: ${{ github.event.pull_request.body }}' | head -n1 | awk '{print $1}')
+checkout_line=$(printf '%s\n' "$section" | nl -ba | { grep 'actions/checkout@' || true; } | head -n1 | awk '{print $1}')
+inline_run_line=$(printf '%s\n' "$section" | nl -ba | { grep -E 'run:[[:space:]]*\|' || true; } | head -n1 | awk '{print $1}')
+script_run_line=$(printf '%s\n' "$section" | nl -ba | { grep 'bash scripts/ci/validate-pr-description.sh' || true; } | head -n1 | awk '{print $1}')
+pr_body_env_line=$(printf '%s\n' "$section" | nl -ba | { grep -F 'PR_BODY: ${{ github.event.pull_request.body }}' || true; } | head -n1 | awk '{print $1}')
 ci_gate_needs_validate=$(awk '
   /^  ci-gate:$/ { in_job=1; next }
   in_job && /^  [A-Za-z0-9_-]+:$/ { exit }
@@ -38,25 +39,25 @@ ci_gate_section="$({
     in_job { print }
   ' "$workflow"
 })"
-ci_gate_checkout_line=$(printf '%s\n' "$ci_gate_section" | nl -ba | grep 'actions/checkout@' | head -n1 | awk '{print $1}')
-ci_gate_run_line=$(printf '%s\n' "$ci_gate_section" | nl -ba | grep 'bash scripts/ci/check-pr-fast-ci-gate.sh' | head -n1 | awk '{print $1}')
-ci_gate_fork_validate_line=$(printf '%s\n' "$ci_gate_section" | nl -ba | grep 'bash scripts/ci/validate-pr-description.sh' | head -n1 | awk '{print $1}')
-ci_gate_base_ref_line=$(printf '%s\n' "$ci_gate_section" | nl -ba | grep -F 'ref: ${{ github.event.pull_request.base.sha }}' | head -n1 | awk '{print $1}')
+ci_gate_checkout_line=$(printf '%s\n' "$ci_gate_section" | nl -ba | { grep 'actions/checkout@' || true; } | head -n1 | awk '{print $1}')
+ci_gate_run_line=$(printf '%s\n' "$ci_gate_section" | nl -ba | { grep 'bash scripts/ci/check-pr-fast-ci-gate.sh' || true; } | head -n1 | awk '{print $1}')
+ci_gate_fork_validate_line=$(printf '%s\n' "$ci_gate_section" | nl -ba | { grep 'bash scripts/ci/validate-pr-description.sh' || true; } | head -n1 | awk '{print $1}')
+ci_gate_base_ref_line=$(printf '%s\n' "$ci_gate_section" | nl -ba | { grep -F 'ref: ${{ github.event.pull_request.base.sha }}' || true; } | head -n1 | awk '{print $1}')
 ci_gate_head_ref=$(printf '%s\n' "$ci_gate_section" | grep -F 'github.event.pull_request.head.sha' || true)
 benchmark_gate_reference=$(grep -nE 'check-stage1-benchmarks\.py|stage1-comparison-report\.json' "$workflow" || true)
 
-if [[ -z "$checkout_line" ]]; then
-  echo "validate-pr-description job must checkout the repo before running validation" >&2
+if [[ -n "$checkout_line" ]]; then
+  echo "validate-pr-description job must not checkout untrusted pull request code" >&2
   exit 1
 fi
 
-if [[ -z "$run_line" ]]; then
-  echo "validate-pr-description job must run the PR description validation script" >&2
+if [[ -z "$inline_run_line" ]]; then
+  echo "validate-pr-description job must keep PR description validation inline" >&2
   exit 1
 fi
 
-if (( checkout_line >= run_line )); then
-  echo "validate-pr-description job must checkout the repo before running validation" >&2
+if [[ -n "$script_run_line" ]]; then
+  echo "validate-pr-description job must not execute repository validation scripts" >&2
   exit 1
 fi
 
