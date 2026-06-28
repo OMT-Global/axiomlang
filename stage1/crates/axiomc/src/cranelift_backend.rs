@@ -6,10 +6,11 @@ use crate::mir::{
 };
 use crate::syntax::NumericType;
 use axiomc_backend_cranelift::{
-    I64AuditSuccess as CraneliftI64AuditSuccess, I64BinaryOp as CraneliftI64BinaryOp,
-    I64Cast as CraneliftI64Cast, I64Compare as CraneliftI64Compare,
-    I64CompareOp as CraneliftI64CompareOp, I64Condition as CraneliftI64Condition, I64ExitBody,
-    I64ExitProgram, I64Expr as CraneliftI64Expr, I64Function as CraneliftI64Function,
+    I64_STDIN_BUFFER_BYTES, I64AuditSuccess as CraneliftI64AuditSuccess,
+    I64BinaryOp as CraneliftI64BinaryOp, I64Cast as CraneliftI64Cast,
+    I64Compare as CraneliftI64Compare, I64CompareOp as CraneliftI64CompareOp,
+    I64Condition as CraneliftI64Condition, I64ExitBody, I64ExitProgram,
+    I64Expr as CraneliftI64Expr, I64Function as CraneliftI64Function,
     I64ReturnBlock as CraneliftI64ReturnBlock, I64Stmt as CraneliftI64Stmt,
     I64ValueBody as CraneliftI64ValueBody, I64ValueReturnBlock as CraneliftI64ValueReturnBlock,
     OutputLine, OutputStream,
@@ -23,6 +24,8 @@ use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::{Mutex, OnceLock};
 
 const SPIKE_FS_ROOT_BINDING: &str = "$axiom_fs_root";
+const SPIKE_ENV_ALLOWLIST_BINDING: &str = "$axiom_env_allowlist";
+const SPIKE_ENV_UNRESTRICTED_BINDING: &str = "$axiom_env_unrestricted";
 const SPIKE_MAX_FS_READ_BYTES: u64 = 64 * 1024 * 1024;
 const SPIKE_MAX_FS_WRITE_BYTES: usize = 64 * 1024 * 1024;
 const SPIKE_MAX_CLOCK_SLEEP_MS: i64 = 1_000;
@@ -86,6 +89,8 @@ struct I64StaticBindings {
     json_stringify_bool_wrappers: HashSet<String>,
     json_stringify_string_wrappers: HashSet<String>,
     io_eprintln_wrappers: HashSet<String>,
+    io_readline_wrappers: HashSet<String>,
+    io_read_to_string_wrappers: HashSet<String>,
     log_wrappers: HashSet<String>,
     log_field_string_wrappers: HashSet<String>,
     log_field_int_wrappers: HashSet<String>,
@@ -313,7 +318,7 @@ pub fn compile_cranelift_hello_spike(
             "main function is outside the direct-native i64 ABI subset",
         ));
     }
-    let lines = collect_output_lines(program, package_root, fs_root)?;
+    let lines = collect_output_lines(program, capabilities, package_root, fs_root)?;
     axiomc_backend_cranelift::compile_output_lines(&lines, object_path, binary_path).map_err(
         |err| {
             Diagnostic::new("build", err.to_string()).with_path(object_path.display().to_string())
@@ -613,6 +618,18 @@ fn lower_i64_exit_program(
         .functions
         .iter()
         .filter(|function| is_i64_std_io_wrapper(function, "eprintln"))
+        .flat_map(|function| [function.name.clone(), function.source_name.clone()])
+        .collect();
+    static_bindings.io_readline_wrappers = program
+        .functions
+        .iter()
+        .filter(|function| is_i64_std_io_wrapper(function, "readline"))
+        .flat_map(|function| [function.name.clone(), function.source_name.clone()])
+        .collect();
+    static_bindings.io_read_to_string_wrappers = program
+        .functions
+        .iter()
+        .filter(|function| is_i64_std_io_wrapper(function, "read_to_string"))
         .flat_map(|function| [function.name.clone(), function.source_name.clone()])
         .collect();
     static_bindings.log_wrappers = program
@@ -1325,9 +1342,8 @@ fn lower_i64_aggregate_return_body(
                 expr: Expr::MapLiteral { entries, .. },
                 ..
             } if !seen_runtime_stmt => {
-                static_bindings
-                    .map_literals
-                    .insert(name.clone(), entries.clone());
+                let entries = i64_static_map_literal_entries(entries, static_bindings)?;
+                static_bindings.map_literals.insert(name.clone(), entries);
             }
             Stmt::Let {
                 name,
@@ -1518,6 +1534,16 @@ fn lower_i64_aggregate_return_body(
                 && !seen_runtime_stmt =>
             {
                 if let Some(assigns) = lower_i64_env_option_call_let_stmts(
+                    name,
+                    inner.as_ref(),
+                    expr,
+                    &mut locals,
+                    &mut local_indexes,
+                    static_bindings,
+                ) {
+                    lowered_stmts.extend(assigns);
+                    seen_runtime_stmt = true;
+                } else if let Some(assigns) = lower_i64_readline_option_call_let_stmts(
                     name,
                     inner.as_ref(),
                     expr,
@@ -1784,17 +1810,31 @@ fn lower_i64_aggregate_return_body(
         }
     }
     let body = match return_stmt {
-        Stmt::Return { expr, .. } => CraneliftI64ValueBody::Return(
-            lower_i64_aggregate_return_values(
+        Stmt::Return { expr, .. } => {
+            if let Some(block) = lower_i64_aggregate_call_return_block(
                 expr,
                 shape,
+                &mut locals,
                 &local_indexes,
                 &local_conditions,
                 helper_signatures,
                 static_bindings,
-            )
-            .filter(|results| results.len() == shape.slot_count())?,
-        ),
+            ) {
+                CraneliftI64ValueBody::BlockReturn(block)
+            } else {
+                CraneliftI64ValueBody::Return(
+                    lower_i64_aggregate_return_values(
+                        expr,
+                        shape,
+                        &local_indexes,
+                        &local_conditions,
+                        helper_signatures,
+                        static_bindings,
+                    )
+                    .filter(|results| results.len() == shape.slot_count())?,
+                )
+            }
+        }
         Stmt::If {
             cond,
             then_block,
@@ -1872,6 +1912,22 @@ fn lower_i64_aggregate_return_block(
             )?);
         }
     }
+    if let Some(mut block) = lower_i64_aggregate_call_return_block(
+        expr,
+        shape,
+        locals,
+        &local_indexes,
+        &local_conditions,
+        helper_signatures,
+        static_bindings,
+    ) {
+        stmts.append(&mut block.stmts);
+        return Some(CraneliftI64ValueReturnBlock {
+            stmts,
+            results: block.results,
+        });
+    }
+
     let results = lower_i64_aggregate_return_values(
         expr,
         shape,
@@ -1896,6 +1952,87 @@ impl I64AggregateReturnShape {
             | I64AggregateReturnShape::Result { payload_slots, .. }
             | I64AggregateReturnShape::Enum { payload_slots, .. } => 1 + payload_slots,
         }
+    }
+}
+
+fn lower_i64_aggregate_call_return_block(
+    expr: &Expr,
+    shape: &I64AggregateReturnShape,
+    locals: &mut Vec<CraneliftI64Expr>,
+    local_indexes: &HashMap<String, usize>,
+    local_conditions: &HashMap<String, CraneliftI64Condition>,
+    helper_signatures: &HashMap<&str, I64HelperSignature>,
+    static_bindings: &I64StaticBindings,
+) -> Option<CraneliftI64ValueReturnBlock> {
+    let Expr::Call {
+        name: call_name,
+        args,
+        ..
+    } = expr
+    else {
+        return None;
+    };
+    let signature = helper_signatures.get(call_name.as_str())?;
+    if args.len() != signature.params
+        || signature.returns != shape.slot_count()
+        || !i64_aggregate_signature_matches_shape(signature, shape)
+    {
+        return None;
+    }
+    let mut return_locals = Vec::with_capacity(shape.slot_count());
+    for _ in 0..shape.slot_count() {
+        let local = locals.len();
+        locals.push(CraneliftI64Expr::Literal(0));
+        return_locals.push(local);
+    }
+    let args = lower_i64_flat_call_args(
+        args,
+        signature,
+        local_indexes,
+        local_conditions,
+        helper_signatures,
+        static_bindings,
+    )?;
+    let results = return_locals
+        .iter()
+        .copied()
+        .map(CraneliftI64Expr::Local)
+        .collect();
+    Some(CraneliftI64ValueReturnBlock {
+        stmts: vec![CraneliftI64Stmt::CallAssign {
+            locals: return_locals,
+            function: signature.function,
+            args,
+        }],
+        results,
+    })
+}
+
+fn i64_aggregate_signature_matches_shape(
+    signature: &I64HelperSignature,
+    shape: &I64AggregateReturnShape,
+) -> bool {
+    match (shape, &signature.return_ty) {
+        (
+            I64AggregateReturnShape::Array { element, size },
+            Type::Array(return_element, Some(return_size)),
+        ) => return_element.as_ref() == element && return_size == size,
+        (I64AggregateReturnShape::Tuple(elements), Type::Tuple(return_elements)) => {
+            return_elements == elements
+        }
+        (I64AggregateReturnShape::Struct { name, .. }, Type::Struct(return_name)) => {
+            return_name == name
+        }
+        (I64AggregateReturnShape::Option { inner, .. }, Type::Option(return_inner)) => {
+            return_inner.as_ref() == inner
+        }
+        (I64AggregateReturnShape::Result { ok, err, .. }, Type::Result(return_ok, return_err)) => {
+            return_ok.as_ref() == ok && return_err.as_ref() == err
+        }
+        (I64AggregateReturnShape::Enum { name, .. }, Type::Enum(return_name)) => {
+            return_name == name
+        }
+        _ => false,
     }
 }
 
@@ -2574,9 +2711,8 @@ fn lower_i64_body(
                 expr: Expr::MapLiteral { entries, .. },
                 ..
             } if !seen_runtime_stmt => {
-                static_bindings
-                    .map_literals
-                    .insert(name.clone(), entries.clone());
+                let entries = i64_static_map_literal_entries(entries, static_bindings)?;
+                static_bindings.map_literals.insert(name.clone(), entries);
             }
             Stmt::Let {
                 name,
@@ -2767,6 +2903,16 @@ fn lower_i64_body(
                 && !seen_runtime_stmt =>
             {
                 if let Some(assigns) = lower_i64_env_option_call_let_stmts(
+                    name,
+                    inner.as_ref(),
+                    expr,
+                    &mut locals,
+                    &mut local_indexes,
+                    static_bindings,
+                ) {
+                    lowered_stmts.extend(assigns);
+                    seen_runtime_stmt = true;
+                } else if let Some(assigns) = lower_i64_readline_option_call_let_stmts(
                     name,
                     inner.as_ref(),
                     expr,
@@ -3473,6 +3619,12 @@ fn lower_i64_runtime_stmts(
             if record_i64_known_string_let(stmt, static_bindings).unwrap_or(false) {
                 continue;
             }
+            if record_i64_known_map_let(stmt, static_bindings).unwrap_or(false) {
+                continue;
+            }
+            if record_i64_known_map_key_array_let(stmt, static_bindings).unwrap_or(false) {
+                continue;
+            }
             lowered.extend(lower_i64_runtime_let_stmts(
                 stmt,
                 locals,
@@ -3608,6 +3760,23 @@ fn lower_i64_runtime_let_stmts(
         ..
     } = stmt
         && let Some(assigns) = lower_i64_env_option_call_let_stmts(
+            name,
+            inner.as_ref(),
+            expr,
+            locals,
+            local_indexes,
+            static_bindings,
+        )
+    {
+        return Some(assigns);
+    }
+    if let Stmt::Let {
+        name,
+        ty: Type::Option(inner),
+        expr,
+        ..
+    } = stmt
+        && let Some(assigns) = lower_i64_readline_option_call_let_stmts(
             name,
             inner.as_ref(),
             expr,
@@ -5185,6 +5354,61 @@ fn lower_i64_env_option_call_let_stmts(
     ])
 }
 
+fn lower_i64_readline_option_call_let_stmts(
+    name: &str,
+    inner: &Type,
+    expr: &Expr,
+    locals: &mut Vec<CraneliftI64Expr>,
+    local_indexes: &mut HashMap<String, usize>,
+    static_bindings: &I64StaticBindings,
+) -> Option<Vec<CraneliftI64Stmt>> {
+    if !matches!(inner, Type::String | Type::Str) {
+        return None;
+    }
+    let Expr::Call {
+        name: call_name,
+        args,
+        ..
+    } = expr
+    else {
+        return None;
+    };
+    if !is_i64_io_readline_name(call_name, static_bindings) || !args.is_empty() {
+        return None;
+    }
+    let payload_local = local_indexes.len();
+    local_indexes.insert(i64_option_payload_slot_key(name, 0), payload_local);
+    local_indexes.insert(i64_option_payload_key(name), payload_local);
+    locals.push(CraneliftI64Expr::Literal(0));
+
+    let tag_local = local_indexes.len();
+    local_indexes.insert(i64_option_tag_key(name), tag_local);
+    locals.push(CraneliftI64Expr::Literal(0));
+
+    let line_len = CraneliftI64Expr::StdinLineLen {
+        max_bytes: I64_STDIN_BUFFER_BYTES,
+    };
+    let tag = CraneliftI64Expr::Select {
+        cond: Box::new(CraneliftI64Condition::Compare(CraneliftI64Compare {
+            op: CraneliftI64CompareOp::Ge,
+            lhs: CraneliftI64Expr::Local(payload_local),
+            rhs: CraneliftI64Expr::Literal(0),
+        })),
+        then_result: Box::new(CraneliftI64Expr::Literal(1)),
+        else_result: Box::new(CraneliftI64Expr::Literal(0)),
+    };
+    Some(vec![
+        CraneliftI64Stmt::Assign(axiomc_backend_cranelift::I64Assign {
+            local: payload_local,
+            value: line_len,
+        }),
+        CraneliftI64Stmt::Assign(axiomc_backend_cranelift::I64Assign {
+            local: tag_local,
+            value: tag,
+        }),
+    ])
+}
+
 fn lower_i64_fs_read_option_call_let_stmts(
     name: &str,
     inner: &Type,
@@ -6158,6 +6382,12 @@ fn lower_i64_return_block(
                 if record_i64_known_string_let(stmt, static_bindings).unwrap_or(false) {
                     continue;
                 }
+                if record_i64_known_map_let(stmt, static_bindings).unwrap_or(false) {
+                    continue;
+                }
+                if record_i64_known_map_key_array_let(stmt, static_bindings).unwrap_or(false) {
+                    continue;
+                }
                 stmts.extend(lower_i64_runtime_let_stmts(
                     stmt,
                     locals,
@@ -6221,6 +6451,82 @@ fn record_i64_known_string_let(
         return Some(false);
     };
     static_bindings.strings.insert(name.clone(), text);
+    Some(true)
+}
+
+fn record_i64_known_map_let(stmt: &Stmt, static_bindings: &mut I64StaticBindings) -> Option<bool> {
+    let Stmt::Let {
+        name,
+        ty: Type::Map(_, _),
+        expr: Expr::MapLiteral { entries, .. },
+        ..
+    } = stmt
+    else {
+        return None;
+    };
+    let Some(entries) = i64_static_map_literal_entries(entries, static_bindings) else {
+        return Some(false);
+    };
+    static_bindings.map_literals.insert(name.clone(), entries);
+    Some(true)
+}
+
+fn i64_static_map_literal_entries(
+    entries: &[MapEntry],
+    static_bindings: &I64StaticBindings,
+) -> Option<Vec<MapEntry>> {
+    entries
+        .iter()
+        .map(|entry| {
+            Some(MapEntry {
+                key: i64_static_map_key_literal_expr(&entry.key, static_bindings)?,
+                value: i64_static_map_value_literal_expr(&entry.value, static_bindings)?,
+            })
+        })
+        .collect()
+}
+
+fn i64_static_map_key_literal_expr(
+    expr: &Expr,
+    static_bindings: &I64StaticBindings,
+) -> Option<Expr> {
+    Some(match lower_i64_map_key_expr(expr, static_bindings)? {
+        I64MapKey::Int(value) => Expr::Literal(LiteralValue::Int(value)),
+        I64MapKey::Bool(value) => Expr::Literal(LiteralValue::Bool(value)),
+        I64MapKey::Text(value) => Expr::Literal(LiteralValue::String(value)),
+    })
+}
+
+fn i64_static_map_value_literal_expr(
+    expr: &Expr,
+    static_bindings: &I64StaticBindings,
+) -> Option<Expr> {
+    if let Some(value) = i64_static_scalar_value(expr, static_bindings) {
+        return Some(Expr::Literal(LiteralValue::Int(value)));
+    }
+    if let Some(value) = i64_static_bool_value(expr, static_bindings) {
+        return Some(Expr::Literal(LiteralValue::Bool(value)));
+    }
+    i64_string_text(expr, static_bindings).map(|value| Expr::Literal(LiteralValue::String(value)))
+}
+
+fn record_i64_known_map_key_array_let(
+    stmt: &Stmt,
+    static_bindings: &mut I64StaticBindings,
+) -> Option<bool> {
+    let Stmt::Let {
+        name,
+        ty: Type::Array(_, None),
+        expr,
+        ..
+    } = stmt
+    else {
+        return None;
+    };
+    let Some(keys) = i64_map_keys_expr(expr, static_bindings) else {
+        return Some(false);
+    };
+    static_bindings.map_key_arrays.insert(name.clone(), keys);
     Some(true)
 }
 
@@ -9946,6 +10252,8 @@ fn i64_known_pure_intrinsic_call(name: &str, static_bindings: &I64StaticBindings
         "len"
             | "first"
             | "last"
+            | "get"
+            | "map_get"
             | "string_clone"
             | "string_starts_with"
             | "string_strip_prefix"
@@ -9968,6 +10276,19 @@ fn i64_known_pure_intrinsic_call(name: &str, static_bindings: &I64StaticBindings
             | "json_serdes_parse_str"
             | "json_serdes_value_to_json"
             | "json_serdes_to_json"
+            | "std_serdes_is_null"
+            | "std_serdes_as_bool"
+            | "std_serdes_as_int"
+            | "std_serdes_as_text"
+            | "std_serdes_as_array"
+            | "std_serdes_as_object"
+            | "std_serdes_field"
+            | "std_serdes_bool_field"
+            | "std_serdes_text_field"
+            | "std_serdes_int_field"
+            | "std_serdes_array_field"
+            | "std_serdes_object_field"
+            | "std_serdes_value_item"
     ) || is_i64_encoding_percent_encode_name(name, static_bindings)
         || is_i64_encoding_url_query_pair_encode_name(name, static_bindings)
         || is_i64_encoding_path_join_segment_name(name, static_bindings)
@@ -10460,7 +10781,14 @@ fn invert_i64_simple_condition(condition: CraneliftI64Condition) -> Option<Crane
                 rhs: compare.rhs,
             }))
         }
-        CraneliftI64Condition::And { .. } | CraneliftI64Condition::Or { .. } => None,
+        CraneliftI64Condition::And { lhs, rhs } => Some(CraneliftI64Condition::Or {
+            lhs: Box::new(invert_i64_simple_condition(*lhs)?),
+            rhs: Box::new(invert_i64_simple_condition(*rhs)?),
+        }),
+        CraneliftI64Condition::Or { lhs, rhs } => Some(CraneliftI64Condition::And {
+            lhs: Box::new(invert_i64_simple_condition(*lhs)?),
+            rhs: Box::new(invert_i64_simple_condition(*rhs)?),
+        }),
     }
 }
 
@@ -13312,6 +13640,14 @@ fn is_i64_io_eprintln_name(name: &str, static_bindings: &I64StaticBindings) -> b
     name == "io_eprintln" || static_bindings.io_eprintln_wrappers.contains(name)
 }
 
+fn is_i64_io_readline_name(name: &str, static_bindings: &I64StaticBindings) -> bool {
+    name == "io_readline" || static_bindings.io_readline_wrappers.contains(name)
+}
+
+fn is_i64_io_read_to_string_name(name: &str, static_bindings: &I64StaticBindings) -> bool {
+    name == "io_read_to_string" || static_bindings.io_read_to_string_wrappers.contains(name)
+}
+
 fn is_i64_log_field_string_name(name: &str, static_bindings: &I64StaticBindings) -> bool {
     static_bindings.log_field_string_wrappers.contains(name)
 }
@@ -13781,6 +14117,14 @@ fn lower_i64_string_len_expr(
                 static_bindings,
                 CraneliftI64AuditSuccess::NonNegative,
             )
+        }
+        Expr::Call { name, args, .. } if is_i64_io_read_to_string_name(name, static_bindings) => {
+            if !args.is_empty() {
+                return None;
+            }
+            Some(CraneliftI64Expr::StdinLen {
+                max_bytes: I64_STDIN_BUFFER_BYTES,
+            })
         }
         Expr::BinaryAdd {
             op: ArithmeticOp::Add,
@@ -15544,6 +15888,7 @@ fn lower_i64_numeric_literal(raw: &str, ty: NumericType) -> Option<i64> {
 
 fn collect_output_lines(
     program: &Program,
+    capabilities: &CapabilityConfig,
     _package_root: &Path,
     fs_root: &Path,
 ) -> Result<Vec<OutputLine>, Diagnostic> {
@@ -15556,6 +15901,21 @@ fn collect_output_lines(
     env.insert(
         SPIKE_FS_ROOT_BINDING.to_string(),
         SpikeValue::Text(fs_root.display().to_string()),
+    );
+    env.insert(
+        SPIKE_ENV_ALLOWLIST_BINDING.to_string(),
+        SpikeValue::Array(
+            capabilities
+                .env_vars
+                .iter()
+                .cloned()
+                .map(SpikeValue::Text)
+                .collect(),
+        ),
+    );
+    env.insert(
+        SPIKE_ENV_UNRESTRICTED_BINDING.to_string(),
+        SpikeValue::Bool(capabilities.env_unrestricted),
     );
     let mut lines = Vec::new();
     for static_def in &program.statics {
@@ -15794,7 +16154,11 @@ fn eval_match_stmt(
     env: &SpikeEnv,
     lines: &mut Vec<OutputLine>,
 ) -> Result<Option<SpikeValue>, Diagnostic> {
-    let matched = expect_enum_value(eval_expr(expr, functions, env, lines)?)?;
+    let matched_value = eval_expr(expr, functions, env, lines)?;
+    if arms.iter().all(|arm| arm.enum_name.is_empty()) {
+        return eval_const_match_stmt(matched_value, arms, functions, env, lines);
+    }
+    let matched = expect_enum_value(matched_value)?;
     let arm = arms
         .iter()
         .find(|arm| arm.enum_name == matched.enum_name && arm.variant == matched.variant)
@@ -15809,6 +16173,22 @@ fn eval_match_stmt(
             &matched.payloads,
         )?;
     }
+    eval_block(&arm.body, functions, &mut arm_env, lines)
+}
+
+fn eval_const_match_stmt(
+    matched_value: SpikeValue,
+    arms: &[MatchArm],
+    functions: &HashMap<&str, &Function>,
+    env: &SpikeEnv,
+    lines: &mut Vec<OutputLine>,
+) -> Result<Option<SpikeValue>, Diagnostic> {
+    let matched = expect_int(matched_value)?.to_string();
+    let arm = arms
+        .iter()
+        .find(|arm| arm.variant == matched)
+        .ok_or_else(|| unsupported("const match statement has no matching arm"))?;
+    let mut arm_env = env.clone();
     eval_block(&arm.body, functions, &mut arm_env, lines)
 }
 
@@ -16042,6 +16422,9 @@ fn eval_call(
     }
     if is_json_serdes_call(name) {
         return eval_json_serdes_call(name, args, functions, env, lines);
+    }
+    if is_std_serdes_call(name) {
+        return eval_std_serdes_call(name, args, functions, env, lines);
     }
     if is_crypto_call(name) {
         return eval_crypto_call(name, args, functions, env, lines);
@@ -17001,6 +17384,204 @@ fn eval_json_serdes_call(
             "unsupported cranelift spike JSON serdes call {name:?}"
         ))),
     }
+}
+
+fn is_std_serdes_call(name: &str) -> bool {
+    matches!(
+        name,
+        "std_serdes_is_null"
+            | "std_serdes_as_bool"
+            | "std_serdes_as_int"
+            | "std_serdes_as_text"
+            | "std_serdes_as_array"
+            | "std_serdes_as_object"
+            | "std_serdes_field"
+            | "std_serdes_bool_field"
+            | "std_serdes_text_field"
+            | "std_serdes_int_field"
+            | "std_serdes_array_field"
+            | "std_serdes_object_field"
+            | "std_serdes_value_item"
+    )
+}
+
+fn eval_std_serdes_call(
+    name: &str,
+    args: &[Expr],
+    functions: &HashMap<&str, &Function>,
+    env: &SpikeEnv,
+    lines: &mut Vec<OutputLine>,
+) -> Result<SpikeValue, Diagnostic> {
+    match name {
+        "std_serdes_is_null" => {
+            let value = eval_json_unary(name, args, functions, env, lines)?;
+            let (variant, payloads) = expect_std_serdes_value(&value, name)?;
+            Ok(SpikeValue::Bool(variant == "Null" && payloads.is_empty()))
+        }
+        "std_serdes_as_bool" => {
+            let value = eval_json_unary(name, args, functions, env, lines)?;
+            Ok(spike_option(std_serdes_as_bool_value(&value)?))
+        }
+        "std_serdes_as_int" => {
+            let value = eval_json_unary(name, args, functions, env, lines)?;
+            Ok(spike_option(std_serdes_as_int_value(&value)?))
+        }
+        "std_serdes_as_text" => {
+            let value = eval_json_unary(name, args, functions, env, lines)?;
+            Ok(spike_option(std_serdes_as_text_value(&value)?))
+        }
+        "std_serdes_as_array" => {
+            let value = eval_json_unary(name, args, functions, env, lines)?;
+            Ok(spike_option(std_serdes_as_array_value(&value)?))
+        }
+        "std_serdes_as_object" => {
+            let value = eval_json_unary(name, args, functions, env, lines)?;
+            Ok(spike_option(std_serdes_as_object_value(&value)?))
+        }
+        "std_serdes_field" => {
+            let value = eval_std_serdes_field_value(name, args, functions, env, lines)?;
+            Ok(spike_option(value))
+        }
+        "std_serdes_bool_field" => {
+            let value = eval_std_serdes_field_value(name, args, functions, env, lines)?;
+            Ok(spike_option(match value {
+                Some(value) => std_serdes_as_bool_value(&value)?,
+                None => None,
+            }))
+        }
+        "std_serdes_text_field" => {
+            let value = eval_std_serdes_field_value(name, args, functions, env, lines)?;
+            Ok(spike_option(match value {
+                Some(value) => std_serdes_as_text_value(&value)?,
+                None => None,
+            }))
+        }
+        "std_serdes_int_field" => {
+            let value = eval_std_serdes_field_value(name, args, functions, env, lines)?;
+            Ok(spike_option(match value {
+                Some(value) => std_serdes_as_int_value(&value)?,
+                None => None,
+            }))
+        }
+        "std_serdes_array_field" => {
+            let value = eval_std_serdes_field_value(name, args, functions, env, lines)?;
+            Ok(spike_option(match value {
+                Some(value) => std_serdes_as_array_value(&value)?,
+                None => None,
+            }))
+        }
+        "std_serdes_object_field" => {
+            let value = eval_std_serdes_field_value(name, args, functions, env, lines)?;
+            Ok(spike_option(match value {
+                Some(value) => std_serdes_as_object_value(&value)?,
+                None => None,
+            }))
+        }
+        "std_serdes_value_item" => {
+            let [value, index] = args else {
+                return Err(unsupported("std_serdes_value_item expects two arguments"));
+            };
+            let value = eval_expr(value, functions, env, lines)?;
+            let index = expect_signed_integer(eval_expr(index, functions, env, lines)?)?;
+            let (variant, payloads) = expect_std_serdes_value(&value, name)?;
+            let item = match (variant, payloads) {
+                ("Array", [SpikeValue::Array(items)]) if index >= 0 => usize::try_from(index)
+                    .ok()
+                    .and_then(|index| items.get(index).cloned()),
+                _ => None,
+            };
+            Ok(spike_option(item))
+        }
+        _ => Err(unsupported(&format!(
+            "unsupported cranelift spike std/serdes call {name:?}"
+        ))),
+    }
+}
+
+fn eval_std_serdes_field_value(
+    name: &str,
+    args: &[Expr],
+    functions: &HashMap<&str, &Function>,
+    env: &SpikeEnv,
+    lines: &mut Vec<OutputLine>,
+) -> Result<Option<SpikeValue>, Diagnostic> {
+    let [value, key] = args else {
+        return Err(unsupported(&format!("{name} expects two arguments")));
+    };
+    let value = eval_expr(value, functions, env, lines)?;
+    let key = match eval_expr(key, functions, env, lines)? {
+        SpikeValue::Text(value) => value,
+        _ => return Err(unsupported(&format!("{name} expects a string key"))),
+    };
+    let (variant, payloads) = expect_std_serdes_value(&value, name)?;
+    let ("Object", [SpikeValue::Map(entries)]) = (variant, payloads) else {
+        return Ok(None);
+    };
+    for (candidate, value) in entries {
+        if map_keys_equal(candidate, &SpikeValue::Text(key.clone()))? {
+            return Ok(Some(value.clone()));
+        }
+    }
+    Ok(None)
+}
+
+fn expect_std_serdes_value<'a>(
+    value: &'a SpikeValue,
+    name: &str,
+) -> Result<(&'a str, &'a [SpikeValue]), Diagnostic> {
+    let SpikeValue::Enum {
+        enum_name,
+        variant,
+        payloads,
+        ..
+    } = value
+    else {
+        return Err(unsupported(&format!("{name} expects std/serdes Value")));
+    };
+    if enum_name != "std_serdes_Value" {
+        return Err(unsupported(&format!("{name} expects std/serdes Value")));
+    }
+    Ok((variant.as_str(), payloads.as_slice()))
+}
+
+fn std_serdes_as_bool_value(value: &SpikeValue) -> Result<Option<SpikeValue>, Diagnostic> {
+    let (variant, payloads) = expect_std_serdes_value(value, "std_serdes_as_bool")?;
+    Ok(match (variant, payloads) {
+        ("Bool", [SpikeValue::Bool(value)]) => Some(SpikeValue::Bool(*value)),
+        _ => None,
+    })
+}
+
+fn std_serdes_as_int_value(value: &SpikeValue) -> Result<Option<SpikeValue>, Diagnostic> {
+    let (variant, payloads) = expect_std_serdes_value(value, "std_serdes_as_int")?;
+    Ok(match (variant, payloads) {
+        ("Int", [SpikeValue::Int(value)]) => Some(SpikeValue::Int(*value)),
+        _ => None,
+    })
+}
+
+fn std_serdes_as_text_value(value: &SpikeValue) -> Result<Option<SpikeValue>, Diagnostic> {
+    let (variant, payloads) = expect_std_serdes_value(value, "std_serdes_as_text")?;
+    Ok(match (variant, payloads) {
+        ("Text", [SpikeValue::Text(value)]) => Some(SpikeValue::Text(value.clone())),
+        _ => None,
+    })
+}
+
+fn std_serdes_as_array_value(value: &SpikeValue) -> Result<Option<SpikeValue>, Diagnostic> {
+    let (variant, payloads) = expect_std_serdes_value(value, "std_serdes_as_array")?;
+    Ok(match (variant, payloads) {
+        ("Array", [SpikeValue::Array(values)]) => Some(SpikeValue::Array(values.clone())),
+        _ => None,
+    })
+}
+
+fn std_serdes_as_object_value(value: &SpikeValue) -> Result<Option<SpikeValue>, Diagnostic> {
+    let (variant, payloads) = expect_std_serdes_value(value, "std_serdes_as_object")?;
+    Ok(match (variant, payloads) {
+        ("Object", [SpikeValue::Map(entries)]) => Some(SpikeValue::Map(entries.clone())),
+        _ => None,
+    })
 }
 
 fn json_serdes_result(value: Result<SpikeValue, String>) -> SpikeValue {
@@ -19165,8 +19746,9 @@ fn http_get(url: &str) -> Option<String> {
         return None;
     }
     let request = http_request(&host, &path);
+    let addrs = resolve_public_socket_addrs(host.as_str(), port)?;
     let mut stream = None;
-    for addr in (host.as_str(), port).to_socket_addrs().ok()? {
+    for addr in addrs {
         if let Ok(candidate) =
             std::net::TcpStream::connect_timeout(&addr, std::time::Duration::from_secs(5))
         {
@@ -19183,6 +19765,47 @@ fn http_get(url: &str) -> Option<String> {
         .ok()?;
     stream.write_all(request.as_bytes()).ok()?;
     http_read_response(&mut stream)
+}
+
+fn resolve_public_socket_addrs(host: &str, port: u16) -> Option<Vec<std::net::SocketAddr>> {
+    let addrs: Vec<std::net::SocketAddr> = (host, port).to_socket_addrs().ok()?.collect();
+    if addrs.is_empty() || addrs.iter().any(|addr| is_blocked_network_ip(addr.ip())) {
+        return None;
+    }
+    Some(addrs)
+}
+
+fn is_blocked_network_ip(ip: std::net::IpAddr) -> bool {
+    match ip {
+        std::net::IpAddr::V4(addr) => {
+            let octets = addr.octets();
+            addr.is_private()
+                || addr.is_loopback()
+                || addr.is_link_local()
+                || addr.is_unspecified()
+                || addr.is_broadcast()
+                || addr.is_multicast()
+                || octets[0] == 0
+                || (octets[0] == 100 && (64..=127).contains(&octets[1]))
+                || (octets[0] == 192 && octets[1] == 0 && octets[2] == 0)
+                || (octets[0] == 192 && octets[1] == 0 && octets[2] == 2)
+                || (octets[0] == 198 && (18..=19).contains(&octets[1]))
+                || (octets[0] == 198 && octets[1] == 51 && octets[2] == 100)
+                || (octets[0] == 203 && octets[1] == 0 && octets[2] == 113)
+        }
+        std::net::IpAddr::V6(addr) => {
+            if let Some(mapped) = addr.to_ipv4_mapped() {
+                return is_blocked_network_ip(std::net::IpAddr::V4(mapped));
+            }
+            let segments = addr.segments();
+            addr.is_loopback()
+                || addr.is_unspecified()
+                || addr.is_multicast()
+                || (segments[0] & 0xfe00) == 0xfc00
+                || (segments[0] & 0xffc0) == 0xfe80
+                || (segments[0] == 0x2001 && segments[1] == 0x0db8)
+        }
+    }
 }
 
 fn http_strip_crlf(value: &str) -> String {
@@ -19386,7 +20009,14 @@ fn http_serve_route_on_server(
 }
 
 fn http_parse_loopback_bind(bind: &str) -> Option<SocketAddr> {
-    let addr = bind.parse::<SocketAddr>().ok()?;
+    let addr = bind.parse::<SocketAddr>().ok().or_else(|| {
+        let (host, port) = bind.rsplit_once(':')?;
+        if host != "localhost" {
+            return None;
+        }
+        let port = port.parse::<u16>().ok()?;
+        Some(SocketAddr::from(([127, 0, 0, 1], port)))
+    })?;
     if !addr.ip().is_loopback() {
         return None;
     }
@@ -19516,7 +20146,26 @@ fn eval_env_get_call(
         return Err(unsupported("env_get expects exactly one argument"));
     };
     let name = expect_text(eval_expr(name, functions, env, lines)?, "env_get")?;
+    if !spike_env_name_allowed(env, &name) {
+        return Ok(spike_option(None));
+    }
     Ok(spike_option(env::var(name).ok().map(SpikeValue::Text)))
+}
+
+fn spike_env_name_allowed(env: &SpikeEnv, name: &str) -> bool {
+    if matches!(
+        env.get(SPIKE_ENV_UNRESTRICTED_BINDING),
+        Some(SpikeValue::Bool(true))
+    ) {
+        return true;
+    }
+    matches!(
+        env.get(SPIKE_ENV_ALLOWLIST_BINDING),
+        Some(SpikeValue::Array(names))
+            if names
+                .iter()
+                .any(|allowed| matches!(allowed, SpikeValue::Text(allowed) if allowed == name))
+    )
 }
 
 fn is_fs_write_call(name: &str) -> bool {
@@ -21373,14 +22022,79 @@ mod tests {
     #[test]
     fn folds_hello_subset_into_print_lines() {
         assert_eq!(
-            collect_output_lines(&hello_program(), Path::new("."), Path::new("."))
-                .expect("fold hello"),
+            collect_output_lines(
+                &hello_program(),
+                &CapabilityConfig::default(),
+                Path::new("."),
+                Path::new("."),
+            )
+            .expect("fold hello"),
             vec![
                 OutputLine::stdout("hello from stage1"),
                 OutputLine::stdout("42")
             ]
         );
     }
+
+    #[test]
+    fn folds_const_match_statement_into_print_lines() {
+        let mut program = hello_program();
+        program.functions.clear();
+        program.stmts = vec![Stmt::Match {
+            expr: Expr::Literal(LiteralValue::Int(7)),
+            arms: vec![
+                MatchArm {
+                    enum_name: String::new(),
+                    variant: String::from("3"),
+                    bindings: Vec::new(),
+                    is_named: false,
+                    ignore_payloads: false,
+                    body: vec![Stmt::Print {
+                        expr: Expr::Literal(LiteralValue::String(String::from("wrong"))),
+                        span: crate::mir::SourceSpan { line: 1, column: 1 },
+                    }],
+                },
+                MatchArm {
+                    enum_name: String::new(),
+                    variant: String::from("7"),
+                    bindings: Vec::new(),
+                    is_named: false,
+                    ignore_payloads: false,
+                    body: vec![Stmt::Print {
+                        expr: Expr::Literal(LiteralValue::String(String::from("ready"))),
+                        span: crate::mir::SourceSpan { line: 1, column: 1 },
+                    }],
+                },
+            ],
+            span: crate::mir::SourceSpan { line: 1, column: 1 },
+        }];
+
+        assert_eq!(
+            collect_output_lines(
+                &program,
+                &CapabilityConfig::default(),
+                Path::new("."),
+                Path::new("."),
+            )
+            .expect("fold match"),
+            vec![OutputLine::stdout("ready")]
+        );
+    }
+
+    #[test]
+    fn loopback_bind_parser_accepts_localhost() {
+        assert_eq!(
+            http_parse_loopback_bind("localhost:0"),
+            Some(SocketAddr::from(([127, 0, 0, 1], 0)))
+        );
+        assert_eq!(
+            http_parse_loopback_bind("127.0.0.1:8080"),
+            Some(SocketAddr::from(([127, 0, 0, 1], 8080)))
+        );
+        assert_eq!(http_parse_loopback_bind("example.com:80"), None);
+        assert_eq!(http_parse_loopback_bind("192.0.2.1:80"), None);
+    }
+
     #[test]
     fn static_map_lookups_respect_last_duplicate_key() {
         let map = Expr::MapLiteral {
@@ -21480,6 +22194,64 @@ mod tests {
     }
 
     #[test]
+    fn static_map_literal_entries_snapshot_static_var_values() {
+        let mut static_bindings = I64StaticBindings::default();
+        static_bindings
+            .values
+            .insert(String::from("code"), CraneliftI64Expr::Literal(7));
+        let entries = vec![MapEntry {
+            key: Expr::Literal(LiteralValue::String(String::from("deploy"))),
+            value: Expr::VarRef {
+                name: String::from("code"),
+                ty: Type::Int,
+            },
+        }];
+
+        let recorded =
+            i64_static_map_literal_entries(&entries, &static_bindings).expect("static map entries");
+
+        static_bindings
+            .values
+            .insert(String::from("code"), CraneliftI64Expr::Literal(48));
+        static_bindings
+            .map_literals
+            .insert(String::from("codes"), recorded);
+
+        assert_eq!(
+            lower_i64_map_get_or_default_expr(
+                "get_or_default",
+                &[
+                    Expr::VarRef {
+                        name: String::from("codes"),
+                        ty: Type::Map(Box::new(Type::String), Box::new(Type::Int)),
+                    },
+                    Expr::Literal(LiteralValue::String(String::from("deploy"))),
+                    Expr::Literal(LiteralValue::Int(0)),
+                ],
+                &HashMap::new(),
+                &HashMap::new(),
+                &HashMap::new(),
+                &static_bindings,
+            ),
+            Some(CraneliftI64Expr::Literal(7))
+        );
+
+        assert_eq!(
+            i64_static_map_literal_entries(
+                &[MapEntry {
+                    key: Expr::Literal(LiteralValue::String(String::from("deploy"))),
+                    value: Expr::VarRef {
+                        name: String::from("runtime_code"),
+                        ty: Type::Int,
+                    },
+                }],
+                &I64StaticBindings::default(),
+            ),
+            None
+        );
+    }
+
+    #[test]
     fn fs_read_folding_is_disabled_when_program_writes() {
         let mut static_bindings = I64StaticBindings::default();
         static_bindings.fs_root = Some(PathBuf::from("."));
@@ -21506,6 +22278,50 @@ mod tests {
             spike_fs_write_candidate_for_root(root, "dangling.txt", false),
             None
         );
+    }
+
+    #[test]
+    fn cranelift_http_resolver_rejects_blocked_network_addresses() {
+        for ip in [
+            "0.0.0.0",
+            "10.0.0.1",
+            "100.64.0.1",
+            "127.0.0.1",
+            "169.254.169.254",
+            "172.16.0.1",
+            "192.0.2.1",
+            "192.168.0.1",
+            "198.18.0.1",
+            "198.51.100.1",
+            "203.0.113.1",
+            "224.0.0.1",
+            "::",
+            "::1",
+            "::ffff:127.0.0.1",
+            "fc00::1",
+            "fe80::1",
+            "2001:db8::1",
+        ] {
+            assert!(
+                is_blocked_network_ip(ip.parse().expect("valid IP literal")),
+                "{ip} should be blocked"
+            );
+        }
+
+        assert!(
+            resolve_public_socket_addrs("127.0.0.1", 80).is_none(),
+            "loopback HTTP targets must not be reachable during Cranelift folding"
+        );
+    }
+
+    #[test]
+    fn cranelift_http_resolver_allows_public_addresses() {
+        for ip in ["1.1.1.1", "8.8.8.8", "2001:4860:4860::8888"] {
+            assert!(
+                !is_blocked_network_ip(ip.parse().expect("valid IP literal")),
+                "{ip} should be allowed"
+            );
+        }
     }
 
     #[test]

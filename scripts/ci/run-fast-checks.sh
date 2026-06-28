@@ -58,6 +58,16 @@ fi
 for example in proof_cli proof_worker proof_http_service; do
   cargo run --manifest-path stage1/Cargo.toml -p axiomc -- check "stage1/examples/${example}" --json
   cargo run --manifest-path stage1/Cargo.toml -p axiomc -- build "stage1/examples/${example}" --json
-  cargo run --manifest-path stage1/Cargo.toml -p axiomc -- run "stage1/examples/${example}"
-  cargo run --manifest-path stage1/Cargo.toml -p axiomc -- test "stage1/examples/${example}" --json
+  # The HTTP service proof workload is covered by its generated test suite and
+  # does not terminate cleanly under `run`, so keep fast checks bounded.
+  if [[ "$example" != "proof_http_service" ]]; then
+    cargo run --manifest-path stage1/Cargo.toml -p axiomc -- run "stage1/examples/${example}"
+  fi
+  if [[ "$example" == "proof_http_service" ]]; then
+    # Manifest HTTP service fixtures still require the generated-Rust runtime
+    # server path; the proof service build/run smoke stays on the Cranelift default.
+    cargo run --manifest-path stage1/Cargo.toml -p axiomc -- test "stage1/examples/${example}" --backend generated-rust --json
+  else
+    cargo run --manifest-path stage1/Cargo.toml -p axiomc -- test "stage1/examples/${example}" --json
+  fi
 done

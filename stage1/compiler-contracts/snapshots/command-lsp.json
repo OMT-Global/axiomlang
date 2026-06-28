@@ -49,6 +49,7 @@
       "stable_output": "axiom.stage1.v1",
       "fixtures": [
         "stage1/json-fixtures/build/success.json",
+        "stage1/json-fixtures/build/unsupported-target.json",
         "stage1/json-fixtures/build/failure.json",
         "stage1/compiler-contracts/snapshots/build.json"
       ]

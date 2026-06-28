@@ -25,5 +25,5 @@ encrypted payload.
 
 Opening malformed or unauthentic ciphertext returns `None`; plaintext is
 returned only after the backend library verifies the authentication tag. The
-current generated-Rust backend loads OpenSSL/libcrypto EVP AEAD routines at
-runtime. Nonce-reuse-misuse-resistant modes are intentionally out of scope.
+generated-Rust compatibility backend loads OpenSSL/libcrypto EVP AEAD routines
+at runtime. Nonce-reuse-misuse-resistant modes are intentionally out of scope.
