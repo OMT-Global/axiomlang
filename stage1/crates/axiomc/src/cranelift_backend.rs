@@ -18,7 +18,7 @@ use axiomc_backend_cranelift::{
 use std::collections::{HashMap, HashSet};
 use std::env;
 use std::io::{Read, Write};
-use std::net::{IpAddr, SocketAddr, TcpListener, TcpStream, ToSocketAddrs};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpListener, TcpStream, ToSocketAddrs};
 use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::{Mutex, OnceLock};
@@ -21811,6 +21811,8 @@ mod tests {
             "fe80::1",
             "2001:db8::1",
             "::ffff:127.0.0.1",
+            "64:ff9b::a00:1",
+            "64:ff9b:1::c0a8:1",
         ] {
             assert_eq!(
                 http_resolve_public_socket_addrs(host, 80),
