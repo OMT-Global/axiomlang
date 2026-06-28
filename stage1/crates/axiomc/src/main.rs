@@ -27,8 +27,13 @@ use axiomc::syntax::parse_program;
 use clap::{Parser, Subcommand, ValueEnum};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
-use std::fs;
+use std::ffi::CString;
+use std::fs::{self, File};
 use std::io::{self, BufRead, Write};
+#[cfg(unix)]
+use std::os::fd::{AsRawFd, FromRawFd};
+#[cfg(unix)]
+use std::os::unix::ffi::OsStrExt;
 use std::path::{Component, Path, PathBuf};
 use std::process::Command as ProcessCommand;
 use std::time::Instant;
@@ -6140,10 +6145,23 @@ fn resolve_doc_out_dir(path: &Path, out_dir: Option<PathBuf>, markdown_only: boo
         };
     }
     if markdown_only {
-        path.join("dist/docs")
+        default_markdown_doc_out_dir(path)
     } else {
         path.join("docs/axiom")
     }
+}
+
+fn default_markdown_doc_out_dir(path: &Path) -> PathBuf {
+    let project_root = fs::symlink_metadata(path)
+        .map(|metadata| {
+            if metadata.file_type().is_symlink() {
+                fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
+            } else {
+                path.to_path_buf()
+            }
+        })
+        .unwrap_or_else(|_| path.to_path_buf());
+    project_root.join("dist/docs")
 }
 
 fn generate_docs(path: &Path, out_dir: &Path, write_html: bool) -> Result<DocOutput, Diagnostic> {
@@ -6155,28 +6173,17 @@ fn generate_docs(path: &Path, out_dir: &Path, write_html: bool) -> Result<DocOut
         ));
     }
     let out_dir = prepare_doc_out_dir(path, out_dir)?;
+    let doc_dir = open_doc_output_dir(&out_dir)?;
     let items = extract_doc_items(&files)?;
     let markdown = render_markdown_docs(&items);
     let markdown_path = out_dir.join("index.md");
     let html_path = out_dir.join("index.html");
-    reject_symlinked_doc_file(&markdown_path)?;
-    fs::write(&markdown_path, &markdown).map_err(|err| {
-        Diagnostic::new(
-            "doc",
-            format!("failed to write {}: {err}", markdown_path.display()),
-        )
-    })?;
+    doc_dir.write_file("index.md", markdown.as_bytes(), &markdown_path)?;
     if write_html {
-        reject_symlinked_doc_file(&html_path)?;
         let html = render_html_docs(&markdown);
-        fs::write(&html_path, html).map_err(|err| {
-            Diagnostic::new(
-                "doc",
-                format!("failed to write {}: {err}", html_path.display()),
-            )
-        })?;
+        doc_dir.write_file("index.html", html.as_bytes(), &html_path)?;
     } else {
-        remove_stale_doc_file(&html_path)?;
+        doc_dir.remove_file_if_exists("index.html", &html_path)?;
     }
     let capabilities = project_capabilities(path).unwrap_or_default();
     let functions = items
@@ -6202,6 +6209,414 @@ fn generate_docs(path: &Path, out_dir: &Path, write_html: bool) -> Result<DocOut
     })
 }
 
+struct DocOutputDir {
+    #[cfg(unix)]
+    dir: File,
+    #[cfg(not(unix))]
+    path: PathBuf,
+}
+
+fn open_doc_output_dir(path: &Path) -> Result<DocOutputDir, Diagnostic> {
+    open_doc_output_dir_impl(path)
+}
+
+#[cfg(not(unix))]
+fn open_doc_output_dir_impl(path: &Path) -> Result<DocOutputDir, Diagnostic> {
+    ensure_no_symlink_components(path)?;
+    fs::create_dir_all(path).map_err(|err| {
+        Diagnostic::new("doc", format!("failed to create {}: {err}", path.display()))
+    })?;
+    ensure_no_symlink_components(path)?;
+    Ok(DocOutputDir {
+        path: path.to_path_buf(),
+    })
+}
+
+#[cfg(unix)]
+fn open_doc_output_dir_impl(path: &Path) -> Result<DocOutputDir, Diagnostic> {
+    let mut dir = if path.is_absolute() {
+        File::open(Path::new("/")).map_err(|error| {
+            Diagnostic::new("doc", format!("failed to open / for doc output: {error}"))
+        })?
+    } else {
+        File::open(Path::new(".")).map_err(|error| {
+            Diagnostic::new("doc", format!("failed to open . for doc output: {error}"))
+        })?
+    };
+
+    for component in path.components() {
+        match component {
+            Component::RootDir | Component::CurDir => continue,
+            Component::ParentDir => {
+                return Err(Diagnostic::new(
+                    "doc",
+                    format!(
+                        "refusing to write documentation through parent component {}",
+                        path.display()
+                    ),
+                ));
+            }
+            Component::Prefix(_) => {
+                return Err(Diagnostic::new(
+                    "doc",
+                    format!("unsupported documentation output path {}", path.display()),
+                ));
+            }
+            Component::Normal(name) => {
+                dir = open_or_create_doc_dir_component(&dir, name, path)?;
+            }
+        }
+    }
+
+    Ok(DocOutputDir { dir })
+}
+
+#[cfg(unix)]
+fn open_or_create_doc_dir_component(
+    parent: &File,
+    name: &std::ffi::OsStr,
+    full_path: &Path,
+) -> Result<File, Diagnostic> {
+    let name = cstring_component(name, full_path)?;
+    let mkdir_result = unsafe { libc::mkdirat(parent.as_raw_fd(), name.as_ptr(), 0o777) };
+    if mkdir_result != 0 {
+        let error = io::Error::last_os_error();
+        if error.kind() != io::ErrorKind::AlreadyExists {
+            return Err(Diagnostic::new(
+                "doc",
+                format!("failed to create {}: {error}", full_path.display()),
+            ));
+        }
+    }
+
+    let fd = unsafe {
+        libc::openat(
+            parent.as_raw_fd(),
+            name.as_ptr(),
+            libc::O_RDONLY | libc::O_CLOEXEC | libc::O_DIRECTORY | libc::O_NOFOLLOW,
+        )
+    };
+    if fd < 0 {
+        let error = io::Error::last_os_error();
+        return Err(Diagnostic::new(
+            "doc",
+            format!(
+                "refusing to write documentation through symlink or non-directory {}: {error}",
+                full_path.display()
+            ),
+        ));
+    }
+
+    Ok(unsafe { File::from_raw_fd(fd) })
+}
+
+impl DocOutputDir {
+    fn write_file(
+        &self,
+        name: &str,
+        contents: &[u8],
+        display_path: &Path,
+    ) -> Result<(), Diagnostic> {
+        self.write_file_impl(name, contents, display_path)
+    }
+
+    fn remove_file_if_exists(&self, name: &str, display_path: &Path) -> Result<(), Diagnostic> {
+        self.remove_file_if_exists_impl(name, display_path)
+    }
+}
+
+#[cfg(not(unix))]
+impl DocOutputDir {
+    fn write_file_impl(
+        &self,
+        name: &str,
+        contents: &[u8],
+        display_path: &Path,
+    ) -> Result<(), Diagnostic> {
+        write_doc_file_fallback(&self.path.join(name), contents, display_path)
+    }
+
+    fn remove_file_if_exists_impl(
+        &self,
+        name: &str,
+        display_path: &Path,
+    ) -> Result<(), Diagnostic> {
+        let path = self.path.join(name);
+        if path.exists() {
+            fs::remove_file(&path).map_err(|err| {
+                Diagnostic::new(
+                    "doc",
+                    format!("failed to remove {}: {err}", display_path.display()),
+                )
+            })?;
+        }
+        Ok(())
+    }
+}
+
+#[cfg(unix)]
+impl DocOutputDir {
+    fn write_file_impl(
+        &self,
+        name: &str,
+        contents: &[u8],
+        display_path: &Path,
+    ) -> Result<(), Diagnostic> {
+        let c_name = cstring_name(name)?;
+        reject_symlink_child(&self.dir, &c_name, display_path)?;
+
+        let pid = std::process::id();
+        let mut last_error = None;
+        for attempt in 0..16 {
+            let temp_name = cstring_name(&format!(".{name}.tmp-{pid}-{attempt}"))?;
+            let fd = unsafe {
+                libc::openat(
+                    self.dir.as_raw_fd(),
+                    temp_name.as_ptr(),
+                    libc::O_WRONLY
+                        | libc::O_CREAT
+                        | libc::O_EXCL
+                        | libc::O_CLOEXEC
+                        | libc::O_NOFOLLOW,
+                    0o666,
+                )
+            };
+            if fd < 0 {
+                let error = io::Error::last_os_error();
+                if error.kind() == io::ErrorKind::AlreadyExists {
+                    last_error = Some(error);
+                    continue;
+                }
+                return Err(Diagnostic::new(
+                    "doc",
+                    format!("failed to write {}: {error}", display_path.display()),
+                ));
+            }
+
+            let mut file = unsafe { File::from_raw_fd(fd) };
+            if let Err(error) = file.write_all(contents) {
+                drop(file);
+                let _ = unlinkat_child(&self.dir, &temp_name);
+                return Err(Diagnostic::new(
+                    "doc",
+                    format!("failed to write {}: {error}", display_path.display()),
+                ));
+            }
+            if let Err(error) = file.sync_all() {
+                drop(file);
+                let _ = unlinkat_child(&self.dir, &temp_name);
+                return Err(Diagnostic::new(
+                    "doc",
+                    format!("failed to write {}: {error}", display_path.display()),
+                ));
+            }
+            drop(file);
+
+            let renamed = unsafe {
+                libc::renameat(
+                    self.dir.as_raw_fd(),
+                    temp_name.as_ptr(),
+                    self.dir.as_raw_fd(),
+                    c_name.as_ptr(),
+                )
+            };
+            if renamed != 0 {
+                let error = io::Error::last_os_error();
+                let _ = unlinkat_child(&self.dir, &temp_name);
+                return Err(Diagnostic::new(
+                    "doc",
+                    format!("failed to write {}: {error}", display_path.display()),
+                ));
+            }
+            return Ok(());
+        }
+
+        Err(Diagnostic::new(
+            "doc",
+            format!(
+                "failed to write {}: {}",
+                display_path.display(),
+                last_error
+                    .map(|error| error.to_string())
+                    .unwrap_or_else(|| String::from("temporary file collision"))
+            ),
+        ))
+    }
+
+    fn remove_file_if_exists_impl(
+        &self,
+        name: &str,
+        display_path: &Path,
+    ) -> Result<(), Diagnostic> {
+        let name = cstring_name(name)?;
+        match unlinkat_child(&self.dir, &name) {
+            Ok(()) => Ok(()),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+            Err(error) => Err(Diagnostic::new(
+                "doc",
+                format!("failed to remove {}: {error}", display_path.display()),
+            )),
+        }
+    }
+}
+
+#[cfg(unix)]
+fn reject_symlink_child(dir: &File, name: &CString, display_path: &Path) -> Result<(), Diagnostic> {
+    let mut stat = std::mem::MaybeUninit::<libc::stat>::uninit();
+    let result = unsafe {
+        libc::fstatat(
+            dir.as_raw_fd(),
+            name.as_ptr(),
+            stat.as_mut_ptr(),
+            libc::AT_SYMLINK_NOFOLLOW,
+        )
+    };
+    if result != 0 {
+        let error = io::Error::last_os_error();
+        if error.kind() == io::ErrorKind::NotFound {
+            return Ok(());
+        }
+        return Err(Diagnostic::new(
+            "doc",
+            format!("failed to inspect {}: {error}", display_path.display()),
+        ));
+    }
+    let stat = unsafe { stat.assume_init() };
+    if (stat.st_mode & libc::S_IFMT) == libc::S_IFLNK {
+        return Err(Diagnostic::new(
+            "doc",
+            format!(
+                "refusing to write documentation through symlink {}",
+                display_path.display()
+            ),
+        ));
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
+fn unlinkat_child(dir: &File, name: &CString) -> io::Result<()> {
+    let result = unsafe { libc::unlinkat(dir.as_raw_fd(), name.as_ptr(), 0) };
+    if result == 0 {
+        Ok(())
+    } else {
+        Err(io::Error::last_os_error())
+    }
+}
+
+#[cfg(unix)]
+fn cstring_component(name: &std::ffi::OsStr, full_path: &Path) -> Result<CString, Diagnostic> {
+    CString::new(name.as_bytes()).map_err(|_| {
+        Diagnostic::new(
+            "doc",
+            format!(
+                "unsupported documentation output path {}",
+                full_path.display()
+            ),
+        )
+    })
+}
+
+#[cfg(unix)]
+fn cstring_name(name: &str) -> Result<CString, Diagnostic> {
+    CString::new(name)
+        .map_err(|_| Diagnostic::new("doc", "unsupported documentation output file name"))
+}
+
+#[cfg(not(unix))]
+fn ensure_no_symlink_components(path: &Path) -> Result<(), Diagnostic> {
+    let mut current = PathBuf::new();
+    for component in path.components() {
+        current.push(component);
+        match fs::symlink_metadata(&current) {
+            Ok(metadata) if metadata.file_type().is_symlink() => {
+                return Err(Diagnostic::new(
+                    "doc",
+                    format!(
+                        "refusing to write documentation through symlink {}",
+                        current.display()
+                    ),
+                ));
+            }
+            Ok(_) => {}
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+            Err(error) => {
+                return Err(Diagnostic::new(
+                    "doc",
+                    format!("failed to inspect {}: {error}", current.display()),
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn write_doc_file_fallback(
+    path: &Path,
+    contents: &[u8],
+    display_path: &Path,
+) -> Result<(), Diagnostic> {
+    if fs::symlink_metadata(path)
+        .map(|metadata| metadata.file_type().is_symlink())
+        .unwrap_or(false)
+    {
+        return Err(Diagnostic::new(
+            "doc",
+            format!("refusing to replace symlink {}", display_path.display()),
+        ));
+    }
+
+    let pid = std::process::id();
+    let mut last_error = None;
+    for attempt in 0..16 {
+        let temp_path = path.with_extension(format!("tmp-{pid}-{attempt}"));
+        match fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&temp_path)
+        {
+            Ok(mut file) => {
+                if let Err(error) = file.write_all(contents) {
+                    let _ = fs::remove_file(&temp_path);
+                    return Err(Diagnostic::new(
+                        "doc",
+                        format!("failed to write {}: {error}", display_path.display()),
+                    ));
+                }
+                if let Err(error) = fs::rename(&temp_path, path) {
+                    let _ = fs::remove_file(&temp_path);
+                    return Err(Diagnostic::new(
+                        "doc",
+                        format!("failed to write {}: {error}", display_path.display()),
+                    ));
+                }
+                return Ok(());
+            }
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
+                last_error = Some(error);
+            }
+            Err(error) => {
+                return Err(Diagnostic::new(
+                    "doc",
+                    format!("failed to write {}: {error}", display_path.display()),
+                ));
+            }
+        }
+    }
+
+    Err(Diagnostic::new(
+        "doc",
+        format!(
+            "failed to write {}: {}",
+            display_path.display(),
+            last_error
+                .map(|error| error.to_string())
+                .unwrap_or_else(|| String::from("temporary file collision"))
+        ),
+    ))
+}
+
 fn prepare_doc_out_dir(project: &Path, out_dir: &Path) -> Result<PathBuf, Diagnostic> {
     let project_root = fs::canonicalize(project).map_err(|err| {
         Diagnostic::new(
@@ -6210,7 +6625,7 @@ fn prepare_doc_out_dir(project: &Path, out_dir: &Path) -> Result<PathBuf, Diagno
         )
     })?;
     let out_dir = if out_dir.is_absolute() {
-        out_dir.to_path_buf()
+        normalize_existing_path_prefix(out_dir)
     } else {
         std::env::current_dir()
             .map_err(|err| Diagnostic::new("doc", format!("failed to resolve cwd: {err}")))?
@@ -6244,6 +6659,28 @@ fn prepare_doc_out_dir(project: &Path, out_dir: &Path) -> Result<PathBuf, Diagno
         ));
     }
     Ok(resolved_out_dir)
+}
+
+fn normalize_existing_path_prefix(path: &Path) -> PathBuf {
+    let mut missing = Vec::new();
+    let mut current = path;
+    loop {
+        if current.exists() {
+            let mut resolved = fs::canonicalize(current).unwrap_or_else(|_| current.to_path_buf());
+            for component in missing.iter().rev() {
+                resolved.push(component);
+            }
+            return resolved;
+        }
+        let Some(parent) = current.parent() else {
+            return path.to_path_buf();
+        };
+        let Some(name) = current.file_name() else {
+            return path.to_path_buf();
+        };
+        missing.push(name.to_os_string());
+        current = parent;
+    }
 }
 
 fn create_dir_without_symlinks(project_root: &Path, out_dir: &Path) -> Result<(), Diagnostic> {
@@ -6306,47 +6743,6 @@ fn create_dir_without_symlinks(project_root: &Path, out_dir: &Path) -> Result<()
         }
     }
     Ok(())
-}
-
-fn reject_symlinked_doc_file(path: &Path) -> Result<(), Diagnostic> {
-    match fs::symlink_metadata(path) {
-        Ok(metadata) if metadata.file_type().is_symlink() => Err(Diagnostic::new(
-            "doc",
-            format!(
-                "refusing to write documentation through symlink {}",
-                path.display()
-            ),
-        )),
-        Ok(metadata) if metadata.is_file() => Ok(()),
-        Ok(_) => Err(Diagnostic::new(
-            "doc",
-            format!("documentation output {} is not a file", path.display()),
-        )),
-        Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(()),
-        Err(err) => Err(Diagnostic::new(
-            "doc",
-            format!("failed to inspect {}: {err}", path.display()),
-        )),
-    }
-}
-
-fn remove_stale_doc_file(path: &Path) -> Result<(), Diagnostic> {
-    match fs::symlink_metadata(path) {
-        Ok(metadata) if metadata.is_file() || metadata.file_type().is_symlink() => {
-            fs::remove_file(path).map_err(|err| {
-                Diagnostic::new("doc", format!("failed to remove {}: {err}", path.display()))
-            })
-        }
-        Ok(_) => Err(Diagnostic::new(
-            "doc",
-            format!("documentation output {} is not a file", path.display()),
-        )),
-        Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(()),
-        Err(err) => Err(Diagnostic::new(
-            "doc",
-            format!("failed to inspect {}: {err}", path.display()),
-        )),
-    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -10020,7 +10416,12 @@ print serve("127.0.0.1:0", selected_route, 1)
         let outside = project.join("../outside-docs");
         let error = generate_docs(&project, &outside, true).expect_err("reject outside output");
 
-        assert!(error.message.contains("relative components"));
+        assert!(
+            error.message.contains("relative components")
+                || error.message.contains("must be inside project"),
+            "{}",
+            error.message
+        );
         assert!(!dir.path().join("outside-docs").exists());
     }
 
@@ -10045,9 +10446,10 @@ print serve("127.0.0.1:0", selected_route, 1)
         .expect_err("reject symlink");
 
         assert!(
-            error
-                .message
-                .contains("refusing to write documentation through symlink"),
+            error.message.contains("must be inside project")
+                || error
+                    .message
+                    .contains("refusing to write documentation through symlink"),
             "{}",
             error.message
         );
@@ -10232,7 +10634,7 @@ print serve("127.0.0.1:0", selected_route, 1)
         fs::create_dir_all(project.join("src")).expect("mkdir");
         fs::write(
             project.join("axiom.toml"),
-            "[package]\nname = \"doc-json\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nenv = true\nenv_vars = [\"AXIOM_ENV\"]\n",
+            "[package]\nname = \"doc-json\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nenv = [\"AXIOM_ENV\"]\n",
         )
         .expect("write manifest");
         fs::write(project.join("axiom.lock"), "version = 1\n").expect("write lock");

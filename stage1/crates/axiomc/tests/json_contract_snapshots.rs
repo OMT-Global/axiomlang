@@ -252,7 +252,7 @@ fn doc_json_output_validates_against_doc_schema() {
     fs::create_dir_all(project.join("src")).expect("mkdir");
     fs::write(
         project.join("axiom.toml"),
-        "[package]\nname = \"doc-json\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nenv = true\nenv_vars = [\"AXIOM_ENV\"]\n",
+        "[package]\nname = \"doc-json\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nenv = [\"AXIOM_ENV\"]\n",
     )
     .expect("write manifest");
     fs::write(project.join("axiom.lock"), "version = 1\n").expect("write lock");
@@ -262,7 +262,7 @@ fn doc_json_output_validates_against_doc_schema() {
     )
     .expect("write source");
 
-    let out_dir = temp.path().join("docs/api");
+    let out_dir = project.join("docs/api");
     let output = run_axiomc_json(&[
         "doc",
         project.to_str().expect("project path"),
