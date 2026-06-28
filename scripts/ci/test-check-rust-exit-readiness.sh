@@ -21,6 +21,7 @@ cp "$repo_root/scripts/ci/run-direct-native-runtime-abi-evidence.sh" "$case_dir/
 cp "$repo_root/docs/rust-exit-readiness.md" "$case_dir/docs/rust-exit-readiness.md"
 cp "$repo_root/docs/rust-exit-readiness.json" "$case_dir/docs/rust-exit-readiness.json"
 cp "$repo_root/stage1/runtime-abi/direct-native-v0.json" "$case_dir/stage1/runtime-abi/direct-native-v0.json"
+cp "$repo_root/stage1/runtime-abi/direct-native-v0-evidence-tests.json" "$case_dir/stage1/runtime-abi/direct-native-v0-evidence-tests.json"
 cp "$repo_root/stage1/compiler-contracts/snapshots/command-lsp.json" "$case_dir/stage1/compiler-contracts/snapshots/command-lsp.json"
 cp "$repo_root/stage1/compiler-contracts/snapshots/mir-backend.json" "$case_dir/stage1/compiler-contracts/snapshots/mir-backend.json"
 cp "$repo_root/stage1/crates/axiomc/src/cranelift_backend.rs" "$case_dir/stage1/crates/axiomc/src/cranelift_backend.rs"
@@ -57,7 +58,7 @@ with open(sys.argv[1], encoding="utf-8") as handle:
     payload = json.load(handle)
 
 details = {check["name"]: check["detail"] for check in payload["checks"]}
-assert "34 incomplete rows (12 value, 22 capability)" in details[
+assert "11 incomplete rows (11 value, 0 capability)" in details[
     "direct_native_runtime_abi_ready"
 ]
 PY

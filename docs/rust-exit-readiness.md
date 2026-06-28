@@ -34,6 +34,26 @@ command/MIR boundary fixtures, and live issue state; this Markdown page is
 descriptive evidence only. Closing #721 also requires the governing issues and
 review gates to be satisfied.
 
+For agent triage, the direct-native ABI checker can also emit the full row
+inventory with row status, blockers, evidence paths, runtime evidence paths,
+and focused test names:
+
+```bash
+python3 scripts/ci/check-direct-native-runtime-abi.py --list-evidence-rows --json
+```
+
+Use `--evidence-row <row-id>` for the focused single-row test list when running
+or repairing one ABI row. To execute all focused evidence tests for rows with a
+shared status, use the evidence runner status selector, for example:
+
+```bash
+AXIOM_DIRECT_NATIVE_RUNTIME_ABI_STATUS=partial \
+  bash scripts/ci/run-direct-native-runtime-abi-evidence.sh
+```
+
+Add `AXIOM_DIRECT_NATIVE_RUNTIME_ABI_DRY_RUN=1` to print the resolved Cargo
+commands without executing them.
+
 ## Backend Matrix
 
 | Surface | Required state | Current disposition | Governing issue |
@@ -41,8 +61,8 @@ review gates to be satisfied.
 | Direct native parity matrix | Every supported stage1 surface has a direct-native status row and linked blocker when incomplete. | Implemented as the checked runtime ABI matrix; individual incomplete rows still block through #1124. | [#1124](https://github.com/OMT-Global/axiomlang/issues/1124) |
 | Direct native runtime ABI | Supported values, ownership shapes, stdlib calls, and capability host calls lower through backend-neutral direct-native runtime entrypoints. | Partial and checked by `scripts/ci/check-direct-native-runtime-abi.py`; remaining rows still block through #1124. | [#1124](https://github.com/OMT-Global/axiomlang/issues/1124) |
 | Direct native diagnostics and evidence | Direct native builds preserve source diagnostics, provenance, debug manifests, and operator evidence without generated Rust. | Implemented for the Cranelift direct-native spike; broader coverage remains gated by runtime ABI readiness. | [#1124](https://github.com/OMT-Global/axiomlang/issues/1124) |
-| Default backend | `axiomc build` defaults to direct native output and no longer invokes `rustc` for supported broad builds. | Host/native builds default to the direct-native Cranelift backend; targeted builds still keep generated Rust for compatibility until #1191 is complete. | [#1191](https://github.com/OMT-Global/axiomlang/issues/1191) |
-| Generated-Rust removal | The generated-Rust backend and `--backend rust` compatibility path are removed after a release with direct native as default. | Generated Rust remains present as the targeted-build compatibility backend and must leave the supported toolchain before Rust exit completes. | [#1191](https://github.com/OMT-Global/axiomlang/issues/1191) |
+| Default backend | `axiomc build`, `axiomc run`, and `axiomc test` default to direct native output and no longer invoke `rustc` for supported broad or targeted builds. | Supported commands default to the direct-native Cranelift backend; generated Rust is now an explicit compatibility backend only. | [#1191](https://github.com/OMT-Global/axiomlang/issues/1191) |
+| Generated-Rust removal | The generated-Rust backend and `--backend rust` compatibility path are removed after a release with direct native as default. | The `--backend rust` transition alias is removed from the supported command surface; the explicit `generated-rust` backend remains as compatibility-only work still tracked by #1191. | [#1191](https://github.com/OMT-Global/axiomlang/issues/1191) |
 
 ## Bootstrap Matrix
 

@@ -1,4 +1,5 @@
 {
+  "backend": "cranelift",
   "cases": [
     {
       "binary": "<project>/dist/tests/contract-app-src-main-test",
@@ -6,18 +7,17 @@
       "entry": "src/main_test.ax",
       "error": null,
       "exit_code": 0,
+      "expected_stderr": null,
       "expected_stdout": "hello from stage1\n",
-      "generated_rust": "<project>/dist/tests/contract-app-src-main-test.generated.rs",
+      "generated_rust": null,
       "kind": "unit",
       "name": "src/main_test",
       "ok": true,
       "package_root": "<project>",
       "stderr": "",
-      "stdout": "hello from stage1\n",
-      "expected_stderr": null
+      "stdout": "hello from stage1\n"
     }
   ],
-  "backend": "generated-rust",
   "command": "test",
   "duration_ms": 0,
   "failed": 0,

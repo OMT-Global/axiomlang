@@ -1,9 +1,9 @@
 {
-  "backend": "generated-rust",
+  "backend": "cranelift",
   "binary": "<project>/dist/contract-app",
   "cache_hits": 0,
   "cache_key": {
-    "compiler": "axiomc-stage1-0.1.0-generated-rust",
+    "compiler": "axiomc-stage1-0.1.0-cranelift",
     "debug": false,
     "generated_rust_hash": "<hash>",
     "lockfile_hash": "<hash>",
@@ -21,10 +21,11 @@
   "cache_misses": 1,
   "command": "build",
   "debug": false,
+  "debug_manifest": null,
   "debug_map": null,
   "duration_ms": 0,
   "entry": "<project>/src/main.ax",
-  "generated_rust": "<project>/dist/contract-app.generated.rs",
+  "generated_rust": null,
   "locked": false,
   "manifest": "<project>/axiom.toml",
   "metadata": {
@@ -38,10 +39,10 @@
   "ok": true,
   "packages": [
     {
-      "backend": "generated-rust",
+      "backend": "cranelift",
       "binary": "<project>/dist/contract-app",
       "cache_key": {
-        "compiler": "axiomc-stage1-0.1.0-generated-rust",
+        "compiler": "axiomc-stage1-0.1.0-cranelift",
         "debug": false,
         "generated_rust_hash": "<hash>",
         "lockfile_hash": "<hash>",
@@ -59,9 +60,10 @@
       "cache_status": "miss",
       "compile_ms": 0,
       "debug": false,
+      "debug_manifest": null,
       "debug_map": null,
       "entry": "<project>/src/main.ax",
-      "generated_rust": "<project>/dist/contract-app.generated.rs",
+      "generated_rust": null,
       "manifest": "<project>/axiom.toml",
       "metadata": {
         "debug": false,
@@ -72,13 +74,11 @@
       },
       "package_root": "<project>",
       "statement_count": 1,
-      "target": null,
-      "debug_manifest": null
+      "target": null
     }
   ],
   "project": "<project>",
   "schema_version": "axiom.stage1.v1",
   "statement_count": 1,
-  "target": null,
-  "debug_manifest": null
+  "target": null
 }
