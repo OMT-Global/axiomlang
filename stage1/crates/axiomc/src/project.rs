@@ -17,9 +17,15 @@ use crate::syntax;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::env;
-use std::fs::{self, OpenOptions};
+#[cfg(unix)]
+use std::ffi::CString;
+use std::fs::{self, File, OpenOptions};
 use std::io::ErrorKind;
 use std::io::{self, Read, Write};
+#[cfg(unix)]
+use std::os::fd::{AsRawFd, FromRawFd};
+#[cfg(unix)]
+use std::os::unix::ffi::OsStrExt;
 #[cfg(unix)]
 use std::os::unix::fs::MetadataExt;
 #[cfg(unix)]
@@ -2426,11 +2432,15 @@ fn write_provenance_artifact(
     backend: NativeBackendKind,
 ) -> Result<(), Diagnostic> {
     let path = provenance_path(package_root, &analyzed.manifest);
-    ensure_package_output_path_ready(package_root, &path, "provenance output")?;
     let report = provenance_report(package_root, analyzed, generated_rust, binary, backend)?;
     let content = serde_json::to_string_pretty(&report)
         .map_err(|err| Diagnostic::new("build", format!("failed to render provenance: {err}")))?;
-    write_output_file(&path, format!("{content}\n"), "provenance output")
+    write_package_output_file(
+        package_root,
+        &path,
+        format!("{content}\n"),
+        "provenance output",
+    )
 }
 
 fn ensure_package_output_path_ready(
@@ -2488,6 +2498,158 @@ fn write_output_file(
         .with_path(path.display().to_string())
     })?;
     Ok(())
+}
+
+fn write_package_output_file(
+    package_root: &Path,
+    path: &Path,
+    contents: impl AsRef<[u8]>,
+    label: &str,
+) -> Result<(), Diagnostic> {
+    write_package_output_file_impl(package_root, path, contents.as_ref(), label)
+}
+
+#[cfg(unix)]
+fn write_package_output_file_impl(
+    package_root: &Path,
+    path: &Path,
+    contents: &[u8],
+    label: &str,
+) -> Result<(), Diagnostic> {
+    let package_root = canonicalize_existing_path(package_root, "package root")?;
+    let relative = path.strip_prefix(&package_root).map_err(|_| {
+        Diagnostic::new("build", format!("{label} must stay inside the package"))
+            .with_path(path.display().to_string())
+    })?;
+    let mut components = relative.components().peekable();
+    let mut dir = File::open(&package_root).map_err(|err| {
+        Diagnostic::new(
+            "build",
+            format!(
+                "failed to open package root {}: {err}",
+                package_root.display()
+            ),
+        )
+        .with_path(package_root.display().to_string())
+    })?;
+
+    while let Some(component) = components.next() {
+        let Component::Normal(name) = component else {
+            return Err(Diagnostic::new(
+                "build",
+                format!("{label} must not contain relative components"),
+            )
+            .with_path(path.display().to_string()));
+        };
+        let name = cstring_path_component(name, path)?;
+        if components.peek().is_none() {
+            return write_output_file_at(&dir, &name, path, contents);
+        }
+        dir = open_or_create_output_dir_at(&dir, &name, path, label)?;
+    }
+
+    Err(
+        Diagnostic::new("build", format!("{label} must name a file"))
+            .with_path(path.display().to_string()),
+    )
+}
+
+#[cfg(not(unix))]
+fn write_package_output_file_impl(
+    package_root: &Path,
+    path: &Path,
+    contents: &[u8],
+    label: &str,
+) -> Result<(), Diagnostic> {
+    ensure_package_output_path_ready(package_root, path, label)?;
+    write_output_file(path, contents, label)
+}
+
+#[cfg(unix)]
+fn open_or_create_output_dir_at(
+    parent: &File,
+    name: &CString,
+    display_path: &Path,
+    label: &str,
+) -> Result<File, Diagnostic> {
+    let mkdir_result = unsafe { libc::mkdirat(parent.as_raw_fd(), name.as_ptr(), 0o777) };
+    if mkdir_result != 0 {
+        let err = io::Error::last_os_error();
+        if err.kind() != io::ErrorKind::AlreadyExists {
+            return Err(
+                Diagnostic::new("build", format!("failed to create {label}: {err}"))
+                    .with_path(display_path.display().to_string()),
+            );
+        }
+    }
+
+    let fd = unsafe {
+        libc::openat(
+            parent.as_raw_fd(),
+            name.as_ptr(),
+            libc::O_RDONLY | libc::O_CLOEXEC | libc::O_DIRECTORY | libc::O_NOFOLLOW,
+        )
+    };
+    if fd < 0 {
+        let err = io::Error::last_os_error();
+        return Err(Diagnostic::new(
+            "build",
+            format!("{label} resolves outside the package: {err}"),
+        )
+        .with_path(display_path.display().to_string()));
+    }
+    Ok(unsafe { File::from_raw_fd(fd) })
+}
+
+#[cfg(unix)]
+fn write_output_file_at(
+    dir: &File,
+    name: &CString,
+    display_path: &Path,
+    contents: &[u8],
+) -> Result<(), Diagnostic> {
+    let fd = unsafe {
+        libc::openat(
+            dir.as_raw_fd(),
+            name.as_ptr(),
+            libc::O_WRONLY | libc::O_CREAT | libc::O_TRUNC | libc::O_CLOEXEC | libc::O_NOFOLLOW,
+            0o666,
+        )
+    };
+    if fd < 0 {
+        let err = io::Error::last_os_error();
+        return Err(Diagnostic::new(
+            "build",
+            format!("failed to write {}: {err}", display_path.display()),
+        )
+        .with_path(display_path.display().to_string()));
+    }
+    let mut file = unsafe { File::from_raw_fd(fd) };
+    file.write_all(contents).map_err(|err| {
+        Diagnostic::new(
+            "build",
+            format!("failed to write {}: {err}", display_path.display()),
+        )
+        .with_path(display_path.display().to_string())
+    })?;
+    file.flush().map_err(|err| {
+        Diagnostic::new(
+            "build",
+            format!("failed to flush {}: {err}", display_path.display()),
+        )
+        .with_path(display_path.display().to_string())
+    })
+}
+
+#[cfg(unix)]
+fn cstring_path_component(name: &std::ffi::OsStr, path: &Path) -> Result<CString, Diagnostic> {
+    CString::new(name.as_bytes()).map_err(|_| {
+        Diagnostic::new(
+            "build",
+            format!("unsupported output path component in {}", path.display()),
+        )
+        .with_path(path.display().to_string())
+    })
 }
 
 fn ensure_writable_output_parent(path: &Path, description: &str) -> Result<(), Diagnostic> {
@@ -9419,6 +9581,117 @@ return async_serve_route(1, "/", "ok", 1)
     }
 
     #[cfg(unix)]
+    #[test]
+    fn provenance_artifact_rejects_symlinked_metadata_dir_outside_package() {
+        let dir = tempdir().unwrap_or_else(|err| panic!("tempdir: {err}"));
+        let root = &dir.path().join("package");
+        fs::create_dir_all(root.join("src")).expect("create src");
+        fs::write(
+            root.join("axiom.toml"),
+            "[package]\nname = \"demo\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n",
+        )
+        .expect("write manifest");
+        fs::write(
+            root.join("axiom.lock"),
+            crate::lockfile::render_lockfile(&package_manifest()).expect("render lockfile"),
+        )
+        .expect("write lockfile");
+        fs::write(root.join("src/main.ax"), "fn main(): int {\nreturn 0\n}\n")
+            .expect("write source");
+
+        let graph = load_package_graph(root).expect("load graph");
+        let package_root =
+            canonicalize_existing_path(root, "project root").expect("canonical root");
+        let analyzed = analyze_package(&graph, &package_root).expect("analyze package");
+        let generated_rust = generated_rust_path(&package_root, &analyzed.manifest);
+        let binary = binary_path_for_target(&package_root, &analyzed.manifest, None);
+        fs::create_dir_all(generated_rust.parent().expect("generated parent"))
+            .expect("create dist");
+        fs::write(&generated_rust, "fn main() {}\n").expect("write generated rust");
+        fs::write(&binary, b"binary").expect("write binary");
+
+        let outside = dir.path().join("outside");
+        fs::create_dir_all(&outside).expect("create outside");
+        std::os::unix::fs::symlink(&outside, root.join("dist/.axiom"))
+            .unwrap_or_else(|err| panic!("symlink metadata dir: {err}"));
+
+        let error = match write_provenance_artifact(
+            &package_root,
+            &analyzed,
+            &generated_rust,
+            &binary,
+            NativeBackendKind::GeneratedRust,
+        ) {
+            Ok(()) => panic!("symlinked provenance metadata dir was accepted"),
+            Err(error) => error,
+        };
+
+        assert_eq!(error.kind, "build");
+        assert!(
+            error
+                .message
+                .starts_with("provenance output resolves outside the package"),
+            "{}",
+            error.message
+        );
+        assert!(!outside.join("provenance.json").exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn provenance_artifact_rejects_symlinked_final_file() {
+        let dir = tempdir().unwrap_or_else(|err| panic!("tempdir: {err}"));
+        let root = &dir.path().join("package");
+        fs::create_dir_all(root.join("src")).expect("create src");
+        fs::write(
+            root.join("axiom.toml"),
+            "[package]\nname = \"demo\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n",
+        )
+        .expect("write manifest");
+        fs::write(
+            root.join("axiom.lock"),
+            crate::lockfile::render_lockfile(&package_manifest()).expect("render lockfile"),
+        )
+        .expect("write lockfile");
+        fs::write(root.join("src/main.ax"), "fn main(): int {\nreturn 0\n}\n")
+            .expect("write source");
+
+        let graph = load_package_graph(root).expect("load graph");
+        let package_root =
+            canonicalize_existing_path(root, "project root").expect("canonical root");
+        let analyzed = analyze_package(&graph, &package_root).expect("analyze package");
+        let generated_rust = generated_rust_path(&package_root, &analyzed.manifest);
+        let binary = binary_path_for_target(&package_root, &analyzed.manifest, None);
+        fs::create_dir_all(generated_rust.parent().expect("generated parent"))
+            .expect("create dist");
+        fs::write(&generated_rust, "fn main() {}\n").expect("write generated rust");
+        fs::write(&binary, b"binary").expect("write binary");
+
+        let outside = dir.path().join("outside.json");
+        fs::write(&outside, "sentinel\n").expect("write sentinel");
+        fs::create_dir_all(root.join("dist/.axiom")).expect("create metadata dir");
+        std::os::unix::fs::symlink(&outside, root.join("dist/.axiom/provenance.json"))
+            .unwrap_or_else(|err| panic!("symlink provenance file: {err}"));
+
+        let error = match write_provenance_artifact(
+            &package_root,
+            &analyzed,
+            &generated_rust,
+            &binary,
+            NativeBackendKind::GeneratedRust,
+        ) {
+            Ok(()) => panic!("symlinked provenance file was accepted"),
+            Err(error) => error,
+        };
+
+        assert_eq!(error.kind, "build");
+        assert!(error.message.contains("failed to write"));
+        assert_eq!(
+            fs::read_to_string(&outside).expect("read outside sentinel"),
+            "sentinel\n"
+        );
+    }
+
     #[test]
     fn provenance_artifact_rejects_final_symlink() {
         let dir = tempdir().unwrap_or_else(|err| panic!("tempdir: {err}"));
