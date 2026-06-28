@@ -15,10 +15,11 @@ use axiomc_backend_cranelift::{
     I64ValueBody as CraneliftI64ValueBody, I64ValueReturnBlock as CraneliftI64ValueReturnBlock,
     OutputLine, OutputStream,
 };
+use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::env;
 use std::io::{Read, Write};
-use std::net::{IpAddr, SocketAddr, TcpListener, TcpStream, ToSocketAddrs};
+use std::net::{SocketAddr, TcpListener, TcpStream, ToSocketAddrs};
 use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::{Mutex, OnceLock};
@@ -29,6 +30,7 @@ const SPIKE_ENV_UNRESTRICTED_BINDING: &str = "$axiom_env_unrestricted";
 const SPIKE_MAX_FS_READ_BYTES: u64 = 64 * 1024 * 1024;
 const SPIKE_MAX_FS_WRITE_BYTES: usize = 64 * 1024 * 1024;
 const SPIKE_MAX_CLOCK_SLEEP_MS: i64 = 1_000;
+const CRANELIFT_RUNTIME_TRAP_KIND: &str = "cranelift-runtime-trap";
 
 #[derive(Clone, Default)]
 struct I64StaticBindings {
@@ -60,6 +62,8 @@ struct I64StaticBindings {
     fs_shim_wrappers: HashSet<String>,
     net_shim_wrappers: HashSet<String>,
     net_resolve_wrappers: HashSet<String>,
+    net_unrestricted: bool,
+    net_allowed_hosts: HashSet<String>,
     http_shim_wrappers: HashSet<String>,
     http_get_wrappers: HashSet<String>,
     http_serve_once_wrappers: HashSet<String>,
@@ -209,6 +213,17 @@ enum SpikeValue {
     Tuple(Vec<SpikeValue>),
     Map(Vec<(SpikeValue, SpikeValue)>),
     Array(Vec<SpikeValue>),
+    Closure {
+        params: Vec<crate::mir::Param>,
+        body: Box<Expr>,
+        env: SpikeEnv,
+    },
+    MutRef(String),
+    MutSlice {
+        target: String,
+        start: usize,
+        end: usize,
+    },
     Task {
         value: Option<Box<SpikeValue>>,
         canceled: bool,
@@ -272,8 +287,55 @@ struct SpikeTcpListener {
 }
 
 struct SpikeTcpStream {
+    listener_port: i64,
     received: String,
     written: String,
+}
+
+struct SpikeUdpSocket {
+    addr: SocketAddr,
+    datagrams: Vec<(String, String)>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+struct SpikeStdin {
+    content: String,
+    offset: usize,
+}
+
+impl SpikeStdin {
+    fn new(content: Option<&str>) -> Self {
+        Self {
+            content: content.unwrap_or_default().to_string(),
+            offset: 0,
+        }
+    }
+
+    fn readline(&mut self) -> Option<String> {
+        if self.offset >= self.content.len() {
+            return None;
+        }
+        let remaining = &self.content[self.offset..];
+        let (line_end, next_offset) = match remaining.find('\n') {
+            Some(newline) => (self.offset + newline, self.offset + newline + 1),
+            None => (self.content.len(), self.content.len()),
+        };
+        let mut line = self.content[self.offset..line_end].to_string();
+        if line.ends_with('\r') {
+            line.pop();
+        }
+        self.offset = next_offset;
+        Some(line)
+    }
+
+    fn read_to_string(&mut self) -> String {
+        if self.offset >= self.content.len() {
+            return String::new();
+        }
+        let remaining = self.content[self.offset..].to_string();
+        self.offset = self.content.len();
+        remaining
+    }
 }
 
 static SPIKE_HTTP_NEXT_HANDLE: AtomicI64 = AtomicI64::new(1);
@@ -282,12 +344,20 @@ static SPIKE_HTTP_REQUESTS: OnceLock<Mutex<HashMap<i64, SpikeHttpRequest>>> = On
 static SPIKE_TCP_NEXT_HANDLE: AtomicI64 = AtomicI64::new(1);
 static SPIKE_TCP_LISTENERS: OnceLock<Mutex<HashMap<i64, SpikeTcpListener>>> = OnceLock::new();
 static SPIKE_TCP_STREAMS: OnceLock<Mutex<HashMap<i64, SpikeTcpStream>>> = OnceLock::new();
+static SPIKE_TCP_RESPONSES: OnceLock<Mutex<HashMap<i64, String>>> = OnceLock::new();
+static SPIKE_UDP_NEXT_HANDLE: AtomicI64 = AtomicI64::new(1);
+static SPIKE_UDP_SOCKETS: OnceLock<Mutex<HashMap<i64, SpikeUdpSocket>>> = OnceLock::new();
+
+thread_local! {
+    static SPIKE_STDIN: RefCell<SpikeStdin> = RefCell::new(SpikeStdin::default());
+}
 
 pub fn compile_cranelift_hello_spike(
     program: &Program,
     capabilities: &CapabilityConfig,
     package_root: &Path,
     fs_root: &Path,
+    stdin: Option<&str>,
     object_path: &Path,
     binary_path: &Path,
     target: Option<&str>,
@@ -318,12 +388,16 @@ pub fn compile_cranelift_hello_spike(
             "main function is outside the direct-native i64 ABI subset",
         ));
     }
-    let lines = collect_output_lines(program, capabilities, package_root, fs_root)?;
-    axiomc_backend_cranelift::compile_output_lines(&lines, object_path, binary_path).map_err(
-        |err| {
-            Diagnostic::new("build", err.to_string()).with_path(object_path.display().to_string())
-        },
+    let output = collect_output_program(program, capabilities, package_root, fs_root, stdin)?;
+    axiomc_backend_cranelift::compile_output_lines_with_exit_code(
+        &output.lines,
+        output.exit_code,
+        object_path,
+        binary_path,
     )
+    .map_err(|err| {
+        Diagnostic::new("build", err.to_string()).with_path(object_path.display().to_string())
+    })
 }
 
 fn lower_i64_exit_program(
@@ -353,6 +427,8 @@ fn lower_i64_exit_program(
     static_bindings.fs_root = Some(fs_root.to_path_buf());
     static_bindings.env_allowed_names = capabilities.env_vars.iter().cloned().collect();
     static_bindings.env_unrestricted = capabilities.env_unrestricted;
+    static_bindings.net_unrestricted = capabilities.net && capabilities.net_hosts.is_empty();
+    static_bindings.net_allowed_hosts = capabilities.net_hosts.iter().cloned().collect();
     static_bindings.process_status_wrappers = program
         .functions
         .iter()
@@ -1295,6 +1371,74 @@ fn lower_i64_aggregate_return_body(
         i64_param_local_bindings(params, struct_defs, static_bindings)?;
     for stmt in body_stmts {
         match stmt {
+            Stmt::Let {
+                ty,
+                expr: Expr::Index { base, .. },
+                ..
+            } if !seen_runtime_stmt
+                && (matches!(ty, Type::Bool) || is_i64_compatible_type(ty))
+                && i64_is_helper_call_slice_expr(base.as_ref()) =>
+            {
+                lowered_stmts.extend(lower_i64_helper_call_slice_index_let_stmts(
+                    stmt,
+                    &mut locals,
+                    &mut local_indexes,
+                    &mut local_conditions,
+                    helper_signatures,
+                    static_bindings,
+                )?);
+                seen_runtime_stmt = true;
+            }
+            Stmt::Let { ty, expr, .. }
+                if !seen_runtime_stmt
+                    && (matches!(ty, Type::Bool) || is_i64_compatible_type(ty))
+                    && i64_is_helper_call_array_index_expr(expr) =>
+            {
+                lowered_stmts.extend(lower_i64_helper_call_array_index_let_stmts(
+                    stmt,
+                    &mut locals,
+                    &mut local_indexes,
+                    &mut local_conditions,
+                    helper_signatures,
+                    static_bindings,
+                )?);
+                seen_runtime_stmt = true;
+            }
+            Stmt::Let { ty, expr, .. }
+                if !seen_runtime_stmt
+                    && (matches!(ty, Type::Bool) || is_i64_compatible_type(ty))
+                    && i64_is_helper_call_projection_expr(expr) =>
+            {
+                lowered_stmts.extend(lower_i64_helper_call_projection_let_stmts(
+                    stmt,
+                    &mut locals,
+                    &mut local_indexes,
+                    &mut local_conditions,
+                    helper_signatures,
+                    static_bindings,
+                )?);
+                seen_runtime_stmt = true;
+            }
+            Stmt::Let {
+                ty,
+                expr: Expr::Call { args, .. },
+                ..
+            } if !seen_runtime_stmt
+                && (matches!(ty, Type::Bool) || is_i64_compatible_type(ty))
+                && (i64_has_helper_call_slice_index_arg(args)
+                    || i64_has_helper_call_array_index_arg(args)
+                    || i64_has_helper_call_projection_arg(args)) =>
+            {
+                lowered_stmts.extend(lower_i64_nested_aggregate_call_let_stmts(
+                    stmt,
+                    &mut locals,
+                    &mut local_indexes,
+                    &mut local_conditions,
+                    helper_signatures,
+                    static_bindings,
+                )?);
+                seen_runtime_stmt = true;
+            }
             Stmt::Let { name, ty, expr, .. }
                 if is_i64_compatible_type(ty) && !seen_runtime_stmt =>
             {
@@ -1484,15 +1628,18 @@ fn lower_i64_aggregate_return_body(
                 expr,
                 ..
             } if !seen_runtime_stmt => {
-                lower_i64_slice_projection_aliases(
+                let assigns = lower_i64_slice_projection_aliases(
                     name,
                     expr,
                     &mut locals,
                     &mut local_indexes,
                     &mut local_conditions,
+                    helper_signatures,
                     static_bindings,
                     false,
                 )?;
+                seen_runtime_stmt = !assigns.is_empty();
+                lowered_stmts.extend(assigns);
             }
             Stmt::Let {
                 name,
@@ -1588,6 +1735,18 @@ fn lower_i64_aggregate_return_body(
                     expr,
                     &mut locals,
                     &mut local_indexes,
+                    static_bindings,
+                ) {
+                    lowered_stmts.extend(assigns);
+                    seen_runtime_stmt = true;
+                } else if let Some(assigns) = lower_i64_dynamic_map_get_option_call_let_stmts(
+                    name,
+                    inner.as_ref(),
+                    expr,
+                    &mut locals,
+                    &mut local_indexes,
+                    &local_conditions,
+                    helper_signatures,
                     static_bindings,
                 ) {
                     lowered_stmts.extend(assigns);
@@ -1810,51 +1969,85 @@ fn lower_i64_aggregate_return_body(
         }
     }
     let body = match return_stmt {
-        Stmt::Return { expr, .. } => CraneliftI64ValueBody::Return(
-            lower_i64_aggregate_return_values(
+        Stmt::Return { expr, .. } => {
+            if let Some((mut call_stmts, results)) = lower_i64_aggregate_call_return_stmts(
                 expr,
                 shape,
-                &local_indexes,
-                &local_conditions,
+                &mut locals,
+                &mut local_indexes,
+                &mut local_conditions,
                 helper_signatures,
                 static_bindings,
-            )
-            .filter(|results| results.len() == shape.slot_count())?,
-        ),
+            ) {
+                lowered_stmts.append(&mut call_stmts);
+                CraneliftI64ValueBody::BlockReturn(CraneliftI64ValueReturnBlock {
+                    stmts: std::mem::take(&mut lowered_stmts),
+                    results,
+                })
+            } else {
+                CraneliftI64ValueBody::Return(
+                    lower_i64_aggregate_return_values(
+                        expr,
+                        shape,
+                        &local_indexes,
+                        &local_conditions,
+                        helper_signatures,
+                        static_bindings,
+                    )
+                    .filter(|results| results.len() == shape.slot_count())?,
+                )
+            }
+        }
         Stmt::If {
             cond,
             then_block,
             else_block: Some(else_block),
             ..
-        } => CraneliftI64ValueBody::IfBlockReturn {
-            cond: lower_i64_condition(
-                cond,
-                &local_indexes,
-                &local_conditions,
-                helper_signatures,
-                static_bindings,
-            )?,
-            then_block: lower_i64_aggregate_return_block(
-                then_block,
-                shape,
-                &mut locals,
-                local_indexes.clone(),
-                local_conditions.clone(),
-                helper_signatures,
-                static_bindings,
-                true,
-            )?,
-            else_block: lower_i64_aggregate_return_block(
-                else_block,
-                shape,
-                &mut locals,
-                local_indexes,
-                local_conditions,
-                helper_signatures,
-                static_bindings,
-                true,
-            )?,
-        },
+        } => {
+            let cond = if let Some((rewritten_cond, mut setup)) =
+                rewrite_i64_helper_call_aggregate_condition_expr(
+                    cond,
+                    &mut locals,
+                    &mut local_indexes,
+                    &mut local_conditions,
+                    helper_signatures,
+                    static_bindings,
+                ) {
+                lowered_stmts.append(&mut setup);
+                rewritten_cond
+            } else {
+                cond.clone()
+            };
+            CraneliftI64ValueBody::IfBlockReturn {
+                cond: lower_i64_condition(
+                    &cond,
+                    &local_indexes,
+                    &local_conditions,
+                    helper_signatures,
+                    static_bindings,
+                )?,
+                then_block: lower_i64_aggregate_return_block(
+                    then_block,
+                    shape,
+                    &mut locals,
+                    local_indexes.clone(),
+                    local_conditions.clone(),
+                    helper_signatures,
+                    static_bindings,
+                    true,
+                )?,
+                else_block: lower_i64_aggregate_return_block(
+                    else_block,
+                    shape,
+                    &mut locals,
+                    local_indexes,
+                    local_conditions,
+                    helper_signatures,
+                    static_bindings,
+                    true,
+                )?,
+            }
+        }
         _ => return None,
     };
     Some((locals, lowered_stmts, body))
@@ -1898,14 +2091,27 @@ fn lower_i64_aggregate_return_block(
             )?);
         }
     }
-    let results = lower_i64_aggregate_return_values(
+    let results = if let Some((mut call_stmts, results)) = lower_i64_aggregate_call_return_stmts(
         expr,
         shape,
-        &local_indexes,
-        &local_conditions,
+        locals,
+        &mut local_indexes,
+        &mut local_conditions,
         helper_signatures,
         static_bindings,
-    )?;
+    ) {
+        stmts.append(&mut call_stmts);
+        results
+    } else {
+        lower_i64_aggregate_return_values(
+            expr,
+            shape,
+            &local_indexes,
+            &local_conditions,
+            helper_signatures,
+            static_bindings,
+        )?
+    };
     if results.len() != shape.slot_count() {
         return None;
     }
@@ -1922,6 +2128,144 @@ impl I64AggregateReturnShape {
             | I64AggregateReturnShape::Result { payload_slots, .. }
             | I64AggregateReturnShape::Enum { payload_slots, .. } => 1 + payload_slots,
         }
+    }
+
+    fn ty(&self) -> Type {
+        match self {
+            I64AggregateReturnShape::Array { element, size } => {
+                Type::Array(Box::new(element.clone()), Some(*size))
+            }
+            I64AggregateReturnShape::Tuple(elements) => Type::Tuple(elements.clone()),
+            I64AggregateReturnShape::Struct { name, .. } => Type::Struct(name.clone()),
+            I64AggregateReturnShape::Option { inner, .. } => Type::Option(Box::new(inner.clone())),
+            I64AggregateReturnShape::Result { ok, err, .. } => {
+                Type::Result(Box::new(ok.clone()), Box::new(err.clone()))
+            }
+            I64AggregateReturnShape::Enum { name, .. } => Type::Enum(name.clone()),
+        }
+    }
+}
+
+fn lower_i64_aggregate_call_return_stmts(
+    expr: &Expr,
+    shape: &I64AggregateReturnShape,
+    locals: &mut Vec<CraneliftI64Expr>,
+    local_indexes: &mut HashMap<String, usize>,
+    local_conditions: &mut HashMap<String, CraneliftI64Condition>,
+    helper_signatures: &HashMap<&str, I64HelperSignature>,
+    static_bindings: &I64StaticBindings,
+) -> Option<(Vec<CraneliftI64Stmt>, Vec<CraneliftI64Expr>)> {
+    if !matches!(expr, Expr::Call { .. }) {
+        return None;
+    }
+    let ty = shape.ty();
+    if expr.ty() != ty {
+        return None;
+    }
+    let temp_name = format!("__axiom_i64_return_{}", local_indexes.len());
+    let stmts = lower_i64_aggregate_call_to_local_stmts(
+        &temp_name,
+        &ty,
+        expr,
+        locals,
+        local_indexes,
+        local_conditions,
+        helper_signatures,
+        static_bindings,
+    )?;
+    let temp = Expr::VarRef {
+        name: temp_name,
+        ty,
+    };
+    let results = lower_i64_aggregate_return_values(
+        &temp,
+        shape,
+        local_indexes,
+        local_conditions,
+        helper_signatures,
+        static_bindings,
+    )?;
+    (results.len() == shape.slot_count()).then_some((stmts, results))
+}
+
+fn lower_i64_aggregate_call_return_block(
+    expr: &Expr,
+    shape: &I64AggregateReturnShape,
+    locals: &mut Vec<CraneliftI64Expr>,
+    local_indexes: &HashMap<String, usize>,
+    local_conditions: &HashMap<String, CraneliftI64Condition>,
+    helper_signatures: &HashMap<&str, I64HelperSignature>,
+    static_bindings: &I64StaticBindings,
+) -> Option<CraneliftI64ValueReturnBlock> {
+    let Expr::Call {
+        name: call_name,
+        args,
+        ..
+    } = expr
+    else {
+        return None;
+    };
+    let signature = helper_signatures.get(call_name.as_str())?;
+    if args.len() != signature.params
+        || signature.returns != shape.slot_count()
+        || !i64_aggregate_signature_matches_shape(signature, shape)
+    {
+        return None;
+    }
+    let mut return_locals = Vec::with_capacity(shape.slot_count());
+    for _ in 0..shape.slot_count() {
+        let local = locals.len();
+        locals.push(CraneliftI64Expr::Literal(0));
+        return_locals.push(local);
+    }
+    let args = lower_i64_flat_call_args(
+        args,
+        signature,
+        local_indexes,
+        local_conditions,
+        helper_signatures,
+        static_bindings,
+    )?;
+    let results = return_locals
+        .iter()
+        .copied()
+        .map(CraneliftI64Expr::Local)
+        .collect();
+    Some(CraneliftI64ValueReturnBlock {
+        stmts: vec![CraneliftI64Stmt::CallAssign {
+            locals: return_locals,
+            function: signature.function,
+            args,
+        }],
+        results,
+    })
+}
+
+fn i64_aggregate_signature_matches_shape(
+    signature: &I64HelperSignature,
+    shape: &I64AggregateReturnShape,
+) -> bool {
+    match (shape, &signature.return_ty) {
+        (
+            I64AggregateReturnShape::Array { element, size },
+            Type::Array(return_element, Some(return_size)),
+        ) => return_element.as_ref() == element && return_size == size,
+        (I64AggregateReturnShape::Tuple(elements), Type::Tuple(return_elements)) => {
+            return_elements == elements
+        }
+        (I64AggregateReturnShape::Struct { name, .. }, Type::Struct(return_name)) => {
+            return_name == name
+        }
+        (I64AggregateReturnShape::Option { inner, .. }, Type::Option(return_inner)) => {
+            return_inner.as_ref() == inner
+        }
+        (I64AggregateReturnShape::Result { ok, err, .. }, Type::Result(return_ok, return_err)) => {
+            return_ok.as_ref() == ok && return_err.as_ref() == err
+        }
+        (I64AggregateReturnShape::Enum { name, .. }, Type::Enum(return_name)) => {
+            return_name == name
+        }
+        _ => false,
     }
 }
 
@@ -2222,6 +2566,23 @@ fn lower_i64_aggregate_return_values(
                 )
             })
             .collect(),
+        (
+            I64AggregateReturnShape::Struct { name, .. },
+            Expr::Call {
+                name: call_name,
+                args,
+                ty: Type::Struct(expr_name),
+            },
+        ) if expr_name == name => lower_i64_time_struct_call_ms_expr(
+            name,
+            call_name,
+            args,
+            local_indexes,
+            local_conditions,
+            helper_signatures,
+            static_bindings,
+        )
+        .map(|value| vec![value]),
         (
             I64AggregateReturnShape::Option {
                 inner,
@@ -2551,6 +2912,74 @@ fn lower_i64_body(
     }
     for stmt in body_stmts {
         match stmt {
+            Stmt::Let {
+                ty,
+                expr: Expr::Index { base, .. },
+                ..
+            } if !seen_runtime_stmt
+                && (matches!(ty, Type::Bool) || is_i64_compatible_type(ty))
+                && i64_is_helper_call_slice_expr(base.as_ref()) =>
+            {
+                lowered_stmts.extend(lower_i64_helper_call_slice_index_let_stmts(
+                    stmt,
+                    &mut locals,
+                    &mut local_indexes,
+                    &mut local_conditions,
+                    helper_signatures,
+                    static_bindings,
+                )?);
+                seen_runtime_stmt = true;
+            }
+            Stmt::Let { ty, expr, .. }
+                if !seen_runtime_stmt
+                    && (matches!(ty, Type::Bool) || is_i64_compatible_type(ty))
+                    && i64_is_helper_call_array_index_expr(expr) =>
+            {
+                lowered_stmts.extend(lower_i64_helper_call_array_index_let_stmts(
+                    stmt,
+                    &mut locals,
+                    &mut local_indexes,
+                    &mut local_conditions,
+                    helper_signatures,
+                    static_bindings,
+                )?);
+                seen_runtime_stmt = true;
+            }
+            Stmt::Let { ty, expr, .. }
+                if !seen_runtime_stmt
+                    && (matches!(ty, Type::Bool) || is_i64_compatible_type(ty))
+                    && i64_is_helper_call_projection_expr(expr) =>
+            {
+                lowered_stmts.extend(lower_i64_helper_call_projection_let_stmts(
+                    stmt,
+                    &mut locals,
+                    &mut local_indexes,
+                    &mut local_conditions,
+                    helper_signatures,
+                    static_bindings,
+                )?);
+                seen_runtime_stmt = true;
+            }
+            Stmt::Let {
+                ty,
+                expr: Expr::Call { args, .. },
+                ..
+            } if !seen_runtime_stmt
+                && (matches!(ty, Type::Bool) || is_i64_compatible_type(ty))
+                && (i64_has_helper_call_slice_index_arg(args)
+                    || i64_has_helper_call_array_index_arg(args)
+                    || i64_has_helper_call_projection_arg(args)) =>
+            {
+                lowered_stmts.extend(lower_i64_nested_aggregate_call_let_stmts(
+                    stmt,
+                    &mut locals,
+                    &mut local_indexes,
+                    &mut local_conditions,
+                    helper_signatures,
+                    static_bindings,
+                )?);
+                seen_runtime_stmt = true;
+            }
             Stmt::Let { name, ty, expr, .. }
                 if is_i64_compatible_type(ty) && !seen_runtime_stmt =>
             {
@@ -2742,15 +3171,18 @@ fn lower_i64_body(
                 expr,
                 ..
             } if !seen_runtime_stmt => {
-                lower_i64_slice_projection_aliases(
+                let assigns = lower_i64_slice_projection_aliases(
                     name,
                     expr,
                     &mut locals,
                     &mut local_indexes,
                     &mut local_conditions,
+                    helper_signatures,
                     static_bindings,
                     false,
                 )?;
+                seen_runtime_stmt = !assigns.is_empty();
+                lowered_stmts.extend(assigns);
             }
             Stmt::Let {
                 name,
@@ -2846,6 +3278,18 @@ fn lower_i64_body(
                     expr,
                     &mut locals,
                     &mut local_indexes,
+                    static_bindings,
+                ) {
+                    lowered_stmts.extend(assigns);
+                    seen_runtime_stmt = true;
+                } else if let Some(assigns) = lower_i64_dynamic_map_get_option_call_let_stmts(
+                    name,
+                    inner.as_ref(),
+                    expr,
+                    &mut locals,
+                    &mut local_indexes,
+                    &local_conditions,
+                    helper_signatures,
                     static_bindings,
                 ) {
                     lowered_stmts.extend(assigns);
@@ -3026,6 +3470,7 @@ fn lower_i64_body(
     let body = match return_stmt {
         Stmt::Return { expr, .. } => lower_i64_exit_return(
             expr,
+            &mut locals,
             &local_indexes,
             &local_conditions,
             helper_signatures,
@@ -3037,8 +3482,22 @@ fn lower_i64_body(
             else_block: Some(else_block),
             ..
         } => {
+            let cond = if let Some((rewritten_cond, mut setup)) =
+                rewrite_i64_helper_call_aggregate_condition_expr(
+                    cond,
+                    &mut locals,
+                    &mut local_indexes,
+                    &mut local_conditions,
+                    helper_signatures,
+                    static_bindings,
+                ) {
+                lowered_stmts.append(&mut setup);
+                rewritten_cond
+            } else {
+                cond.clone()
+            };
             let cond = lower_i64_condition(
-                cond,
+                &cond,
                 &local_indexes,
                 &local_conditions,
                 helper_signatures,
@@ -3089,6 +3548,11 @@ fn lower_i64_runtime_stmt_stmts(
     static_bindings: &I64StaticBindings,
     allow_stdio_effects: bool,
 ) -> Option<Vec<CraneliftI64Stmt>> {
+    if let Some(assigns) =
+        lower_i64_aggregate_local_assign_stmts(stmt, &local_indexes, static_bindings)
+    {
+        return Some(assigns);
+    }
     if let Some(assigns) = lower_i64_option_assign_stmts(
         stmt,
         &local_indexes,
@@ -3118,6 +3582,7 @@ fn lower_i64_runtime_stmt_stmts(
     }
     if let Some(assigns) = lower_i64_aggregate_call_assign_stmts(
         stmt,
+        locals,
         &local_indexes,
         &local_conditions,
         helper_signatures,
@@ -3145,6 +3610,17 @@ fn lower_i64_runtime_stmt_stmts(
             return Some(stmts);
         }
     }
+    if let Some(stmts) = lower_i64_helper_call_aggregate_condition_stmt_stmts(
+        stmt,
+        locals,
+        local_indexes.clone(),
+        local_conditions.clone(),
+        helper_signatures,
+        static_bindings,
+        allow_stdio_effects,
+    ) {
+        return Some(stmts);
+    }
     Some(vec![lower_i64_runtime_stmt(
         stmt,
         locals,
@@ -3154,6 +3630,381 @@ fn lower_i64_runtime_stmt_stmts(
         static_bindings,
         allow_stdio_effects,
     )?])
+}
+
+fn lower_i64_helper_call_aggregate_condition_stmt_stmts(
+    stmt: &Stmt,
+    locals: &mut Vec<CraneliftI64Expr>,
+    local_indexes: HashMap<String, usize>,
+    local_conditions: HashMap<String, CraneliftI64Condition>,
+    helper_signatures: &HashMap<&str, I64HelperSignature>,
+    static_bindings: &I64StaticBindings,
+    allow_stdio_effects: bool,
+) -> Option<Vec<CraneliftI64Stmt>> {
+    match stmt {
+        Stmt::If {
+            cond,
+            then_block,
+            else_block,
+            span,
+        } => {
+            let mut trial_locals = locals.clone();
+            let mut trial_indexes = local_indexes;
+            let mut trial_conditions = local_conditions;
+            let (rewritten_cond, mut setup) = rewrite_i64_helper_call_aggregate_condition_expr(
+                cond,
+                &mut trial_locals,
+                &mut trial_indexes,
+                &mut trial_conditions,
+                helper_signatures,
+                static_bindings,
+            )?;
+            let rewritten = Stmt::If {
+                cond: rewritten_cond,
+                then_block: then_block.clone(),
+                else_block: else_block.clone(),
+                span: *span,
+            };
+            setup.push(lower_i64_runtime_stmt(
+                &rewritten,
+                &mut trial_locals,
+                trial_indexes,
+                trial_conditions,
+                helper_signatures,
+                static_bindings,
+                allow_stdio_effects,
+            )?);
+            *locals = trial_locals;
+            Some(setup)
+        }
+        Stmt::While { cond, body, span } => {
+            let mut trial_locals = locals.clone();
+            let mut trial_indexes = local_indexes;
+            let mut trial_conditions = local_conditions;
+            let (rewritten_cond, mut setup) = rewrite_i64_helper_call_aggregate_condition_expr(
+                cond,
+                &mut trial_locals,
+                &mut trial_indexes,
+                &mut trial_conditions,
+                helper_signatures,
+                static_bindings,
+            )?;
+            let rewritten = Stmt::While {
+                cond: rewritten_cond,
+                body: body.clone(),
+                span: *span,
+            };
+            setup.push(lower_i64_runtime_stmt(
+                &rewritten,
+                &mut trial_locals,
+                trial_indexes,
+                trial_conditions,
+                helper_signatures,
+                static_bindings,
+                allow_stdio_effects,
+            )?);
+            *locals = trial_locals;
+            Some(setup)
+        }
+        _ => None,
+    }
+}
+
+fn rewrite_i64_helper_call_aggregate_condition_expr(
+    expr: &Expr,
+    locals: &mut Vec<CraneliftI64Expr>,
+    local_indexes: &mut HashMap<String, usize>,
+    local_conditions: &mut HashMap<String, CraneliftI64Condition>,
+    helper_signatures: &HashMap<&str, I64HelperSignature>,
+    static_bindings: &I64StaticBindings,
+) -> Option<(Expr, Vec<CraneliftI64Stmt>)> {
+    let mut setup = Vec::new();
+    let mut rewrote = false;
+    let rewritten = rewrite_i64_helper_call_aggregate_condition_expr_inner(
+        expr,
+        0,
+        locals,
+        local_indexes,
+        local_conditions,
+        helper_signatures,
+        static_bindings,
+        &mut setup,
+        &mut rewrote,
+    )?;
+    rewrote.then_some((rewritten, setup))
+}
+
+#[allow(clippy::too_many_arguments)]
+fn rewrite_i64_helper_call_aggregate_condition_expr_inner(
+    expr: &Expr,
+    arg_index: usize,
+    locals: &mut Vec<CraneliftI64Expr>,
+    local_indexes: &mut HashMap<String, usize>,
+    local_conditions: &mut HashMap<String, CraneliftI64Condition>,
+    helper_signatures: &HashMap<&str, I64HelperSignature>,
+    static_bindings: &I64StaticBindings,
+    setup: &mut Vec<CraneliftI64Stmt>,
+    rewrote: &mut bool,
+) -> Option<Expr> {
+    if let Some((rewritten, mut assigns)) = rewrite_i64_nested_aggregate_call_arg(
+        expr,
+        arg_index,
+        locals,
+        local_indexes,
+        local_conditions,
+        helper_signatures,
+        static_bindings,
+    ) {
+        setup.append(&mut assigns);
+        *rewrote = true;
+        return Some(rewritten);
+    }
+
+    match expr {
+        Expr::Call { name, args, ty } => {
+            let mut rewritten_args = Vec::with_capacity(args.len());
+            for (index, arg) in args.iter().enumerate() {
+                rewritten_args.push(rewrite_i64_helper_call_aggregate_condition_expr_inner(
+                    arg,
+                    index,
+                    locals,
+                    local_indexes,
+                    local_conditions,
+                    helper_signatures,
+                    static_bindings,
+                    setup,
+                    rewrote,
+                )?);
+            }
+            Some(Expr::Call {
+                name: name.clone(),
+                args: rewritten_args,
+                ty: ty.clone(),
+            })
+        }
+        Expr::BinaryCompare { op, lhs, rhs, ty } => Some(Expr::BinaryCompare {
+            op: *op,
+            lhs: Box::new(rewrite_i64_helper_call_aggregate_condition_expr_inner(
+                lhs,
+                arg_index,
+                locals,
+                local_indexes,
+                local_conditions,
+                helper_signatures,
+                static_bindings,
+                setup,
+                rewrote,
+            )?),
+            rhs: Box::new(rewrite_i64_helper_call_aggregate_condition_expr_inner(
+                rhs,
+                arg_index + 1,
+                locals,
+                local_indexes,
+                local_conditions,
+                helper_signatures,
+                static_bindings,
+                setup,
+                rewrote,
+            )?),
+            ty: ty.clone(),
+        }),
+        Expr::BinaryLogic { op, lhs, rhs, ty } => Some(Expr::BinaryLogic {
+            op: *op,
+            lhs: Box::new(rewrite_i64_helper_call_aggregate_condition_expr_inner(
+                lhs,
+                arg_index,
+                locals,
+                local_indexes,
+                local_conditions,
+                helper_signatures,
+                static_bindings,
+                setup,
+                rewrote,
+            )?),
+            rhs: Box::new(rewrite_i64_helper_call_aggregate_condition_expr_inner(
+                rhs,
+                arg_index + 1,
+                locals,
+                local_indexes,
+                local_conditions,
+                helper_signatures,
+                static_bindings,
+                setup,
+                rewrote,
+            )?),
+            ty: ty.clone(),
+        }),
+        Expr::BinaryAdd { op, lhs, rhs, ty } => Some(Expr::BinaryAdd {
+            op: *op,
+            lhs: Box::new(rewrite_i64_helper_call_aggregate_condition_expr_inner(
+                lhs,
+                arg_index,
+                locals,
+                local_indexes,
+                local_conditions,
+                helper_signatures,
+                static_bindings,
+                setup,
+                rewrote,
+            )?),
+            rhs: Box::new(rewrite_i64_helper_call_aggregate_condition_expr_inner(
+                rhs,
+                arg_index + 1,
+                locals,
+                local_indexes,
+                local_conditions,
+                helper_signatures,
+                static_bindings,
+                setup,
+                rewrote,
+            )?),
+            ty: ty.clone(),
+        }),
+        Expr::Cast { expr, ty } => Some(Expr::Cast {
+            expr: Box::new(rewrite_i64_helper_call_aggregate_condition_expr_inner(
+                expr,
+                arg_index,
+                locals,
+                local_indexes,
+                local_conditions,
+                helper_signatures,
+                static_bindings,
+                setup,
+                rewrote,
+            )?),
+            ty: ty.clone(),
+        }),
+        _ => Some(expr.clone()),
+    }
+}
+
+fn lower_i64_aggregate_local_assign_stmts(
+    stmt: &Stmt,
+    local_indexes: &HashMap<String, usize>,
+    static_bindings: &I64StaticBindings,
+) -> Option<Vec<CraneliftI64Stmt>> {
+    let Stmt::Assign {
+        target: Expr::VarRef {
+            name: target,
+            ty: target_ty,
+        },
+        expr: Expr::VarRef {
+            name: source,
+            ty: source_ty,
+        },
+        ..
+    } = stmt
+    else {
+        return None;
+    };
+    if target_ty != source_ty {
+        return None;
+    }
+    let slot_pairs = match target_ty {
+        Type::Struct(struct_name) => {
+            let struct_def = i64_scalar_static_struct_def(struct_name, static_bindings)?;
+            struct_def
+                .fields
+                .iter()
+                .map(|field| {
+                    Some((
+                        *local_indexes
+                            .get(i64_struct_projection_key(target, &field.name).as_str())?,
+                        *local_indexes
+                            .get(i64_struct_projection_key(source, &field.name).as_str())?,
+                    ))
+                })
+                .collect::<Option<Vec<_>>>()?
+        }
+        Type::Tuple(elements) if is_i64_tuple_param_type(elements) => (0..elements.len())
+            .map(|index| {
+                Some((
+                    *local_indexes.get(i64_tuple_projection_key(target, index).as_str())?,
+                    *local_indexes.get(i64_tuple_projection_key(source, index).as_str())?,
+                ))
+            })
+            .collect::<Option<Vec<_>>>()?,
+        Type::Array(element, Some(size)) if is_i64_array_param_element_type(element) => (0..*size)
+            .map(|index| {
+                Some((
+                    *local_indexes.get(i64_array_projection_key(target, index).as_str())?,
+                    *local_indexes.get(i64_array_projection_key(source, index).as_str())?,
+                ))
+            })
+            .collect::<Option<Vec<_>>>()?,
+        Type::Option(inner) if is_i64_option_local_payload_type_static(inner, static_bindings) => {
+            let mut slots = vec![(
+                *local_indexes.get(i64_option_tag_key(target).as_str())?,
+                *local_indexes.get(i64_option_tag_key(source).as_str())?,
+            )];
+            slots.extend(
+                i64_option_payload_locals(target, inner.as_ref(), local_indexes, static_bindings)?
+                    .into_iter()
+                    .zip(i64_option_payload_locals(
+                        source,
+                        inner.as_ref(),
+                        local_indexes,
+                        static_bindings,
+                    )?),
+            );
+            slots
+        }
+        Type::Result(ok, err)
+            if is_i64_result_local_payload_type_static(ok, err, static_bindings) =>
+        {
+            let mut slots = vec![(
+                *local_indexes.get(i64_result_tag_key(target).as_str())?,
+                *local_indexes.get(i64_result_tag_key(source).as_str())?,
+            )];
+            slots.extend(
+                i64_result_payload_locals(
+                    target,
+                    ok.as_ref(),
+                    err.as_ref(),
+                    local_indexes,
+                    static_bindings,
+                )?
+                .into_iter()
+                .zip(i64_result_payload_locals(
+                    source,
+                    ok.as_ref(),
+                    err.as_ref(),
+                    local_indexes,
+                    static_bindings,
+                )?),
+            );
+            slots
+        }
+        Type::Enum(enum_name) if is_i64_enum_payload_type(enum_name, static_bindings) => {
+            let mut slots = vec![(
+                *local_indexes.get(i64_enum_tag_key(target).as_str())?,
+                *local_indexes.get(i64_enum_tag_key(source).as_str())?,
+            )];
+            slots.extend(
+                i64_enum_payload_locals(target, enum_name, static_bindings, local_indexes)?
+                    .into_iter()
+                    .zip(i64_enum_payload_locals(
+                        source,
+                        enum_name,
+                        static_bindings,
+                        local_indexes,
+                    )?),
+            );
+            slots
+        }
+        _ => return None,
+    };
+    Some(
+        slot_pairs
+            .into_iter()
+            .map(|(target, source)| {
+                CraneliftI64Stmt::Assign(axiomc_backend_cranelift::I64Assign {
+                    local: target,
+                    value: CraneliftI64Expr::Local(source),
+                })
+            })
+            .collect(),
+    )
 }
 
 fn lower_i64_runtime_stmt(
@@ -3606,6 +4457,7 @@ fn lower_i64_runtime_let_stmts(
             locals,
             local_indexes,
             local_conditions,
+            helper_signatures,
             static_bindings,
             true,
         );
@@ -3632,12 +4484,61 @@ fn lower_i64_runtime_let_stmts(
             return Some(assigns);
         }
     }
+    if let Some(assigns) = lower_i64_nested_aggregate_call_let_stmts(
+        stmt,
+        locals,
+        local_indexes,
+        local_conditions,
+        helper_signatures,
+        static_bindings,
+    ) {
+        return Some(assigns);
+    }
+    if let Some(assigns) = lower_i64_helper_call_slice_index_let_stmts(
+        stmt,
+        locals,
+        local_indexes,
+        local_conditions,
+        helper_signatures,
+        static_bindings,
+    ) {
+        return Some(assigns);
+    }
+    if let Some(assigns) = lower_i64_helper_call_array_index_let_stmts(
+        stmt,
+        locals,
+        local_indexes,
+        local_conditions,
+        helper_signatures,
+        static_bindings,
+    ) {
+        return Some(assigns);
+    }
+    if let Some(assigns) = lower_i64_helper_call_projection_let_stmts(
+        stmt,
+        locals,
+        local_indexes,
+        local_conditions,
+        helper_signatures,
+        static_bindings,
+    ) {
+        return Some(assigns);
+    }
     if let Some(assigns) = lower_i64_runtime_projection_let_stmts(
         stmt,
         locals,
         local_indexes,
         local_conditions,
         helper_signatures,
+        static_bindings,
+    ) {
+        return Some(assigns);
+    }
+    if let Some(assigns) = lower_i64_aggregate_local_let_stmts(
+        stmt,
+        locals,
+        local_indexes,
+        local_conditions,
         static_bindings,
     ) {
         return Some(assigns);
@@ -3710,6 +4611,55 @@ fn lower_i64_runtime_let_stmts(
     {
         return Some(assigns);
     }
+    if let Stmt::Let {
+        name,
+        ty: Type::Option(inner),
+        expr:
+            expr @ Expr::Call {
+                name: call_name,
+                args,
+                ..
+            },
+        ..
+    } = stmt
+        && is_i64_option_local_payload_type_static(inner, static_bindings)
+    {
+        if let Some(assigns) = lower_i64_known_scalar_option_call_let_stmts(
+            name,
+            inner.as_ref(),
+            expr,
+            locals,
+            local_indexes,
+            static_bindings,
+        ) {
+            return Some(assigns);
+        }
+        if let Some(assigns) = lower_i64_dynamic_map_get_option_call_let_stmts(
+            name,
+            inner.as_ref(),
+            expr,
+            locals,
+            local_indexes,
+            local_conditions,
+            helper_signatures,
+            static_bindings,
+        ) {
+            return Some(assigns);
+        }
+        if let Some(assigns) = lower_i64_option_call_let_stmts(
+            name,
+            inner.as_ref(),
+            call_name,
+            args,
+            locals,
+            local_indexes,
+            local_conditions,
+            helper_signatures,
+            static_bindings,
+        ) {
+            return Some(assigns);
+        }
+    }
     Some(vec![lower_i64_runtime_let(
         stmt,
         locals,
@@ -3718,6 +4668,996 @@ fn lower_i64_runtime_let_stmts(
         helper_signatures,
         static_bindings,
     )?])
+}
+
+fn lower_i64_helper_call_slice_index_let_stmts(
+    stmt: &Stmt,
+    locals: &mut Vec<CraneliftI64Expr>,
+    local_indexes: &mut HashMap<String, usize>,
+    local_conditions: &mut HashMap<String, CraneliftI64Condition>,
+    helper_signatures: &HashMap<&str, I64HelperSignature>,
+    static_bindings: &I64StaticBindings,
+) -> Option<Vec<CraneliftI64Stmt>> {
+    let Stmt::Let {
+        name,
+        ty,
+        expr,
+        span,
+    } = stmt
+    else {
+        return None;
+    };
+    if !matches!(ty, Type::Bool) && !is_i64_compatible_type(ty) {
+        return None;
+    }
+    let (base, index, index_ty, cast_ty) = match expr {
+        Expr::Index {
+            base,
+            index,
+            ty: index_ty,
+        } => (base, index, index_ty, None),
+        Expr::Cast {
+            expr: cast_expr,
+            ty: cast_ty,
+        } if is_i64_compatible_type(cast_ty) => match cast_expr.as_ref() {
+            Expr::Index {
+                base,
+                index,
+                ty: index_ty,
+            } => (base, index, index_ty, Some(cast_ty.clone())),
+            _ => return None,
+        },
+        _ => return None,
+    };
+    let Expr::Slice {
+        base: slice_base,
+        start,
+        end,
+        ty: slice_ty,
+    } = base.as_ref()
+    else {
+        return None;
+    };
+    if !matches!(slice_base.as_ref(), Expr::Call { .. }) {
+        return None;
+    }
+
+    let mut trial_locals = locals.clone();
+    let mut trial_indexes = local_indexes.clone();
+    let mut trial_conditions = local_conditions.clone();
+    let temp_name = format!("__axiom_i64_slice_index_{}", trial_indexes.len());
+    let base_ty = slice_base.ty();
+    let mut lowered = lower_i64_aggregate_call_to_local_stmts(
+        &temp_name,
+        &base_ty,
+        slice_base.as_ref(),
+        &mut trial_locals,
+        &mut trial_indexes,
+        &mut trial_conditions,
+        helper_signatures,
+        static_bindings,
+    )?;
+    let rewritten_expr = Expr::Index {
+        base: Box::new(Expr::Slice {
+            base: Box::new(Expr::VarRef {
+                name: temp_name,
+                ty: base_ty,
+            }),
+            start: start.clone(),
+            end: end.clone(),
+            ty: slice_ty.clone(),
+        }),
+        index: index.clone(),
+        ty: index_ty.clone(),
+    };
+    let rewritten_expr = if let Some(cast_ty) = cast_ty {
+        Expr::Cast {
+            expr: Box::new(rewritten_expr),
+            ty: cast_ty,
+        }
+    } else {
+        rewritten_expr
+    };
+    let rewritten = Stmt::Let {
+        name: name.clone(),
+        ty: ty.clone(),
+        expr: rewritten_expr,
+        span: *span,
+    };
+    lowered.push(lower_i64_runtime_let(
+        &rewritten,
+        &mut trial_locals,
+        &mut trial_indexes,
+        &mut trial_conditions,
+        helper_signatures,
+        static_bindings,
+    )?);
+    *locals = trial_locals;
+    *local_indexes = trial_indexes;
+    *local_conditions = trial_conditions;
+    Some(lowered)
+}
+
+fn lower_i64_helper_call_array_index_let_stmts(
+    stmt: &Stmt,
+    locals: &mut Vec<CraneliftI64Expr>,
+    local_indexes: &mut HashMap<String, usize>,
+    local_conditions: &mut HashMap<String, CraneliftI64Condition>,
+    helper_signatures: &HashMap<&str, I64HelperSignature>,
+    static_bindings: &I64StaticBindings,
+) -> Option<Vec<CraneliftI64Stmt>> {
+    let Stmt::Let {
+        name,
+        ty,
+        expr,
+        span,
+    } = stmt
+    else {
+        return None;
+    };
+    if !matches!(ty, Type::Bool) && !is_i64_compatible_type(ty) {
+        return None;
+    }
+    let (base, index, index_ty, cast_ty) = match expr {
+        Expr::Index {
+            base,
+            index,
+            ty: index_ty,
+        } if matches!(base.as_ref(), Expr::Call { .. }) => (base, index, index_ty, None),
+        Expr::Cast {
+            expr: cast_expr,
+            ty: cast_ty,
+        } if is_i64_compatible_type(cast_ty) => match cast_expr.as_ref() {
+            Expr::Index {
+                base,
+                index,
+                ty: index_ty,
+            } if matches!(base.as_ref(), Expr::Call { .. }) => {
+                (base, index, index_ty, Some(cast_ty.clone()))
+            }
+            _ => return None,
+        },
+        _ => return None,
+    };
+
+    let mut trial_locals = locals.clone();
+    let mut trial_indexes = local_indexes.clone();
+    let mut trial_conditions = local_conditions.clone();
+    let temp_name = format!("__axiom_i64_array_index_{}", trial_indexes.len());
+    let base_ty = base.ty();
+    let mut lowered = lower_i64_aggregate_call_to_local_stmts(
+        &temp_name,
+        &base_ty,
+        base.as_ref(),
+        &mut trial_locals,
+        &mut trial_indexes,
+        &mut trial_conditions,
+        helper_signatures,
+        static_bindings,
+    )?;
+    let rewritten_expr = Expr::Index {
+        base: Box::new(Expr::VarRef {
+            name: temp_name,
+            ty: base_ty,
+        }),
+        index: index.clone(),
+        ty: index_ty.clone(),
+    };
+    let rewritten_expr = if let Some(cast_ty) = cast_ty {
+        Expr::Cast {
+            expr: Box::new(rewritten_expr),
+            ty: cast_ty,
+        }
+    } else {
+        rewritten_expr
+    };
+    let rewritten = Stmt::Let {
+        name: name.clone(),
+        ty: ty.clone(),
+        expr: rewritten_expr,
+        span: *span,
+    };
+    lowered.push(lower_i64_runtime_let(
+        &rewritten,
+        &mut trial_locals,
+        &mut trial_indexes,
+        &mut trial_conditions,
+        helper_signatures,
+        static_bindings,
+    )?);
+    *locals = trial_locals;
+    *local_indexes = trial_indexes;
+    *local_conditions = trial_conditions;
+    Some(lowered)
+}
+
+fn i64_is_helper_call_slice_expr(expr: &Expr) -> bool {
+    matches!(
+        expr,
+        Expr::Slice { base, .. } if matches!(base.as_ref(), Expr::Call { .. })
+    )
+}
+
+fn i64_is_helper_call_slice_index_expr(expr: &Expr) -> bool {
+    match expr {
+        Expr::Index { base, .. } => i64_is_helper_call_slice_expr(base.as_ref()),
+        Expr::Cast { expr, .. } => i64_is_helper_call_slice_index_expr(expr),
+        _ => false,
+    }
+}
+
+fn i64_has_helper_call_slice_index_arg(args: &[Expr]) -> bool {
+    args.iter().any(i64_is_helper_call_slice_index_expr)
+}
+
+fn i64_is_helper_call_array_index_expr(expr: &Expr) -> bool {
+    match expr {
+        Expr::Index { base, .. } => matches!(base.as_ref(), Expr::Call { .. }),
+        Expr::Cast { expr, .. } => i64_is_helper_call_array_index_expr(expr),
+        _ => false,
+    }
+}
+
+fn i64_has_helper_call_array_index_arg(args: &[Expr]) -> bool {
+    args.iter().any(i64_is_helper_call_array_index_expr)
+}
+
+fn lower_i64_helper_call_projection_let_stmts(
+    stmt: &Stmt,
+    locals: &mut Vec<CraneliftI64Expr>,
+    local_indexes: &mut HashMap<String, usize>,
+    local_conditions: &mut HashMap<String, CraneliftI64Condition>,
+    helper_signatures: &HashMap<&str, I64HelperSignature>,
+    static_bindings: &I64StaticBindings,
+) -> Option<Vec<CraneliftI64Stmt>> {
+    let Stmt::Let {
+        name,
+        ty,
+        expr,
+        span,
+        ..
+    } = stmt
+    else {
+        return None;
+    };
+    if !matches!(ty, Type::Bool) && !is_i64_compatible_type(ty) {
+        return None;
+    }
+
+    enum HelperCallProjection {
+        Tuple { index: usize, ty: Type },
+        Field { field: String, ty: Type },
+    }
+
+    let mut trial_locals = locals.clone();
+    let mut trial_indexes = local_indexes.clone();
+    let mut trial_conditions = local_conditions.clone();
+    let (temp_prefix, base, projection, cast_ty) = match expr {
+        Expr::TupleIndex {
+            base,
+            index,
+            ty: index_ty,
+        } if matches!(base.as_ref(), Expr::Call { .. }) => (
+            "__axiom_i64_tuple_projection",
+            base,
+            HelperCallProjection::Tuple {
+                index: *index,
+                ty: index_ty.clone(),
+            },
+            None,
+        ),
+        Expr::FieldAccess {
+            base,
+            field,
+            ty: field_ty,
+        } if matches!(base.as_ref(), Expr::Call { .. }) => (
+            "__axiom_i64_struct_projection",
+            base,
+            HelperCallProjection::Field {
+                field: field.clone(),
+                ty: field_ty.clone(),
+            },
+            None,
+        ),
+        Expr::Cast {
+            expr: cast_expr,
+            ty: cast_ty,
+        } if is_i64_compatible_type(cast_ty) => match cast_expr.as_ref() {
+            Expr::TupleIndex {
+                base,
+                index,
+                ty: index_ty,
+            } if matches!(base.as_ref(), Expr::Call { .. }) => (
+                "__axiom_i64_tuple_projection",
+                base,
+                HelperCallProjection::Tuple {
+                    index: *index,
+                    ty: index_ty.clone(),
+                },
+                Some(cast_ty.clone()),
+            ),
+            Expr::FieldAccess {
+                base,
+                field,
+                ty: field_ty,
+            } if matches!(base.as_ref(), Expr::Call { .. }) => (
+                "__axiom_i64_struct_projection",
+                base,
+                HelperCallProjection::Field {
+                    field: field.clone(),
+                    ty: field_ty.clone(),
+                },
+                Some(cast_ty.clone()),
+            ),
+            _ => return None,
+        },
+        _ => return None,
+    };
+    let temp_name = format!("{}_{}", temp_prefix, trial_indexes.len());
+    let base_ty = base.ty();
+    let mut lowered = lower_i64_aggregate_call_to_local_stmts(
+        &temp_name,
+        &base_ty,
+        base.as_ref(),
+        &mut trial_locals,
+        &mut trial_indexes,
+        &mut trial_conditions,
+        helper_signatures,
+        static_bindings,
+    )?;
+    let rewritten_base = Box::new(Expr::VarRef {
+        name: temp_name,
+        ty: base_ty,
+    });
+    let rewritten_expr = match projection {
+        HelperCallProjection::Tuple { index, ty } => Expr::TupleIndex {
+            base: rewritten_base,
+            index,
+            ty,
+        },
+        HelperCallProjection::Field { field, ty } => Expr::FieldAccess {
+            base: rewritten_base,
+            field,
+            ty,
+        },
+    };
+    let rewritten_expr = if let Some(cast_ty) = cast_ty {
+        Expr::Cast {
+            expr: Box::new(rewritten_expr),
+            ty: cast_ty,
+        }
+    } else {
+        rewritten_expr
+    };
+    let rewritten = Stmt::Let {
+        name: name.clone(),
+        ty: ty.clone(),
+        expr: rewritten_expr,
+        span: *span,
+    };
+    lowered.push(lower_i64_runtime_let(
+        &rewritten,
+        &mut trial_locals,
+        &mut trial_indexes,
+        &mut trial_conditions,
+        helper_signatures,
+        static_bindings,
+    )?);
+    *locals = trial_locals;
+    *local_indexes = trial_indexes;
+    *local_conditions = trial_conditions;
+    Some(lowered)
+}
+
+fn i64_is_helper_call_projection_expr(expr: &Expr) -> bool {
+    match expr {
+        Expr::TupleIndex { base, .. } | Expr::FieldAccess { base, .. } => {
+            matches!(base.as_ref(), Expr::Call { .. })
+        }
+        Expr::Cast { expr, .. } => i64_is_helper_call_projection_expr(expr),
+        _ => false,
+    }
+}
+
+fn i64_has_helper_call_projection_arg(args: &[Expr]) -> bool {
+    args.iter().any(i64_is_helper_call_projection_expr)
+}
+
+fn lower_i64_aggregate_local_let_stmts(
+    stmt: &Stmt,
+    locals: &mut Vec<CraneliftI64Expr>,
+    local_indexes: &mut HashMap<String, usize>,
+    local_conditions: &mut HashMap<String, CraneliftI64Condition>,
+    static_bindings: &I64StaticBindings,
+) -> Option<Vec<CraneliftI64Stmt>> {
+    let Stmt::Let {
+        name,
+        ty: target_ty,
+        expr: Expr::VarRef {
+            name: source,
+            ty: source_ty,
+        },
+        ..
+    } = stmt
+    else {
+        return None;
+    };
+    if target_ty != source_ty {
+        return None;
+    }
+    let slot_pairs = match target_ty {
+        Type::Struct(struct_name) => {
+            let struct_def = i64_scalar_static_struct_def(struct_name, static_bindings)?;
+            let mut slots = Vec::new();
+            for field in &struct_def.fields {
+                let local = local_indexes.len();
+                let key = i64_struct_projection_key(name, &field.name);
+                local_indexes.insert(key.clone(), local);
+                locals.push(CraneliftI64Expr::Literal(0));
+                if matches!(field.ty, Type::Bool) {
+                    local_conditions.insert(key, i64_local_truthy_condition(local));
+                }
+                slots.push((
+                    local,
+                    *local_indexes.get(i64_struct_projection_key(source, &field.name).as_str())?,
+                ));
+            }
+            slots
+        }
+        Type::Tuple(elements) if is_i64_tuple_param_type(elements) => {
+            let mut slots = Vec::new();
+            for (index, element) in elements.iter().enumerate() {
+                let local = local_indexes.len();
+                let key = i64_tuple_projection_key(name, index);
+                local_indexes.insert(key.clone(), local);
+                locals.push(CraneliftI64Expr::Literal(0));
+                if matches!(element, Type::Bool) {
+                    local_conditions.insert(key, i64_local_truthy_condition(local));
+                }
+                slots.push((
+                    local,
+                    *local_indexes.get(i64_tuple_projection_key(source, index).as_str())?,
+                ));
+            }
+            slots
+        }
+        Type::Array(element, Some(size)) if is_i64_array_param_element_type(element) => {
+            let mut slots = Vec::new();
+            for index in 0..*size {
+                let local = local_indexes.len();
+                let key = i64_array_projection_key(name, index);
+                local_indexes.insert(key.clone(), local);
+                locals.push(CraneliftI64Expr::Literal(0));
+                if matches!(element.as_ref(), Type::Bool) {
+                    local_conditions.insert(key, i64_local_truthy_condition(local));
+                }
+                slots.push((
+                    local,
+                    *local_indexes.get(i64_array_projection_key(source, index).as_str())?,
+                ));
+            }
+            slots
+        }
+        Type::Option(inner) if is_i64_option_local_payload_type_static(inner, static_bindings) => {
+            let mut slots = Vec::new();
+            let tag_local = local_indexes.len();
+            local_indexes.insert(i64_option_tag_key(name), tag_local);
+            locals.push(CraneliftI64Expr::Literal(0));
+            slots.push((
+                tag_local,
+                *local_indexes.get(i64_option_tag_key(source).as_str())?,
+            ));
+            for (index, source_local) in
+                i64_option_payload_locals(source, inner.as_ref(), local_indexes, static_bindings)?
+                    .into_iter()
+                    .enumerate()
+            {
+                let payload_local = local_indexes.len();
+                local_indexes.insert(i64_option_payload_slot_key(name, index), payload_local);
+                if index == 0 {
+                    local_indexes.insert(i64_option_payload_key(name), payload_local);
+                }
+                locals.push(CraneliftI64Expr::Literal(0));
+                slots.push((payload_local, source_local));
+            }
+            slots
+        }
+        Type::Result(ok, err)
+            if is_i64_result_local_payload_type_static(ok, err, static_bindings) =>
+        {
+            let mut slots = Vec::new();
+            let tag_local = local_indexes.len();
+            local_indexes.insert(i64_result_tag_key(name), tag_local);
+            locals.push(CraneliftI64Expr::Literal(0));
+            slots.push((
+                tag_local,
+                *local_indexes.get(i64_result_tag_key(source).as_str())?,
+            ));
+            for (index, source_local) in i64_result_payload_locals(
+                source,
+                ok.as_ref(),
+                err.as_ref(),
+                local_indexes,
+                static_bindings,
+            )?
+            .into_iter()
+            .enumerate()
+            {
+                let payload_local = local_indexes.len();
+                local_indexes.insert(i64_result_payload_slot_key(name, index), payload_local);
+                if index == 0 {
+                    local_indexes.insert(i64_result_payload_key(name), payload_local);
+                }
+                locals.push(CraneliftI64Expr::Literal(0));
+                slots.push((payload_local, source_local));
+            }
+            slots
+        }
+        Type::Enum(enum_name) if is_i64_enum_payload_type(enum_name, static_bindings) => {
+            let mut slots = Vec::new();
+            let tag_local = local_indexes.len();
+            local_indexes.insert(i64_enum_tag_key(name), tag_local);
+            locals.push(CraneliftI64Expr::Literal(0));
+            slots.push((
+                tag_local,
+                *local_indexes.get(i64_enum_tag_key(source).as_str())?,
+            ));
+            for (index, source_local) in
+                i64_enum_payload_locals(source, enum_name, static_bindings, local_indexes)?
+                    .into_iter()
+                    .enumerate()
+            {
+                let payload_local = local_indexes.len();
+                local_indexes.insert(i64_enum_payload_slot_key(name, index), payload_local);
+                if index == 0 {
+                    local_indexes.insert(i64_enum_payload_key(name), payload_local);
+                }
+                locals.push(CraneliftI64Expr::Literal(0));
+                slots.push((payload_local, source_local));
+            }
+            slots
+        }
+        _ => return None,
+    };
+    Some(
+        slot_pairs
+            .into_iter()
+            .map(|(target, source)| {
+                CraneliftI64Stmt::Assign(axiomc_backend_cranelift::I64Assign {
+                    local: target,
+                    value: CraneliftI64Expr::Local(source),
+                })
+            })
+            .collect(),
+    )
+}
+
+fn lower_i64_nested_aggregate_call_let_stmts(
+    stmt: &Stmt,
+    locals: &mut Vec<CraneliftI64Expr>,
+    local_indexes: &mut HashMap<String, usize>,
+    local_conditions: &mut HashMap<String, CraneliftI64Condition>,
+    helper_signatures: &HashMap<&str, I64HelperSignature>,
+    static_bindings: &I64StaticBindings,
+) -> Option<Vec<CraneliftI64Stmt>> {
+    let Stmt::Let {
+        name,
+        ty,
+        expr:
+            Expr::Call {
+                name: call_name,
+                args,
+                ty: call_ty,
+            },
+        span,
+    } = stmt
+    else {
+        return None;
+    };
+    if !matches!(ty, Type::Bool) && !is_i64_compatible_type(ty) {
+        return None;
+    }
+
+    let mut trial_locals = locals.clone();
+    let mut trial_indexes = local_indexes.clone();
+    let mut trial_conditions = local_conditions.clone();
+    let mut lowered = Vec::new();
+    let mut rewritten_args = Vec::with_capacity(args.len());
+    let mut rewrote_any_arg = false;
+    for (index, arg) in args.iter().enumerate() {
+        if let Some((rewritten, mut assigns)) = rewrite_i64_nested_aggregate_call_arg(
+            arg,
+            index,
+            &mut trial_locals,
+            &mut trial_indexes,
+            &mut trial_conditions,
+            helper_signatures,
+            static_bindings,
+        ) {
+            lowered.append(&mut assigns);
+            rewritten_args.push(rewritten);
+            rewrote_any_arg = true;
+            continue;
+        }
+        rewritten_args.push(arg.clone());
+    }
+    if !rewrote_any_arg {
+        return None;
+    }
+
+    let rewritten = Stmt::Let {
+        name: name.clone(),
+        ty: ty.clone(),
+        expr: Expr::Call {
+            name: call_name.clone(),
+            args: rewritten_args,
+            ty: call_ty.clone(),
+        },
+        span: *span,
+    };
+    lowered.push(lower_i64_runtime_let(
+        &rewritten,
+        &mut trial_locals,
+        &mut trial_indexes,
+        &mut trial_conditions,
+        helper_signatures,
+        static_bindings,
+    )?);
+    *locals = trial_locals;
+    *local_indexes = trial_indexes;
+    *local_conditions = trial_conditions;
+    Some(lowered)
+}
+
+fn rewrite_i64_nested_aggregate_call_arg(
+    arg: &Expr,
+    arg_index: usize,
+    locals: &mut Vec<CraneliftI64Expr>,
+    local_indexes: &mut HashMap<String, usize>,
+    local_conditions: &mut HashMap<String, CraneliftI64Condition>,
+    helper_signatures: &HashMap<&str, I64HelperSignature>,
+    static_bindings: &I64StaticBindings,
+) -> Option<(Expr, Vec<CraneliftI64Stmt>)> {
+    if matches!(arg, Expr::Call { .. }) {
+        let temp_name = format!("__axiom_i64_arg_{}_{}", local_indexes.len(), arg_index);
+        let assigns = lower_i64_aggregate_call_to_local_stmts(
+            &temp_name,
+            &arg.ty(),
+            arg,
+            locals,
+            local_indexes,
+            local_conditions,
+            helper_signatures,
+            static_bindings,
+        )?;
+        return Some((
+            Expr::VarRef {
+                name: temp_name,
+                ty: arg.ty(),
+            },
+            assigns,
+        ));
+    }
+
+    if let Expr::Index {
+        base,
+        index,
+        ty: index_ty,
+    } = arg
+        && matches!(base.as_ref(), Expr::Call { .. })
+    {
+        let temp_name = format!(
+            "__axiom_i64_array_index_arg_{}_{}",
+            local_indexes.len(),
+            arg_index
+        );
+        let base_ty = base.ty();
+        let assigns = lower_i64_aggregate_call_to_local_stmts(
+            &temp_name,
+            &base_ty,
+            base.as_ref(),
+            locals,
+            local_indexes,
+            local_conditions,
+            helper_signatures,
+            static_bindings,
+        )?;
+        return Some((
+            Expr::Index {
+                base: Box::new(Expr::VarRef {
+                    name: temp_name,
+                    ty: base_ty,
+                }),
+                index: index.clone(),
+                ty: index_ty.clone(),
+            },
+            assigns,
+        ));
+    }
+
+    if let Expr::Index {
+        base,
+        index,
+        ty: index_ty,
+    } = arg
+        && let Expr::Slice {
+            base: slice_base,
+            start,
+            end,
+            ty: slice_ty,
+        } = base.as_ref()
+        && matches!(slice_base.as_ref(), Expr::Call { .. })
+    {
+        let temp_name = format!(
+            "__axiom_i64_slice_index_arg_{}_{}",
+            local_indexes.len(),
+            arg_index
+        );
+        let base_ty = slice_base.ty();
+        let assigns = lower_i64_aggregate_call_to_local_stmts(
+            &temp_name,
+            &base_ty,
+            slice_base.as_ref(),
+            locals,
+            local_indexes,
+            local_conditions,
+            helper_signatures,
+            static_bindings,
+        )?;
+        return Some((
+            Expr::Index {
+                base: Box::new(Expr::Slice {
+                    base: Box::new(Expr::VarRef {
+                        name: temp_name,
+                        ty: base_ty,
+                    }),
+                    start: start.clone(),
+                    end: end.clone(),
+                    ty: slice_ty.clone(),
+                }),
+                index: index.clone(),
+                ty: index_ty.clone(),
+            },
+            assigns,
+        ));
+    }
+
+    if let Expr::Cast { expr, ty: cast_ty } = arg
+        && is_i64_compatible_type(cast_ty)
+        && let Some((rewritten, assigns)) = rewrite_i64_nested_aggregate_call_arg(
+            expr,
+            arg_index,
+            locals,
+            local_indexes,
+            local_conditions,
+            helper_signatures,
+            static_bindings,
+        )
+    {
+        return Some((
+            Expr::Cast {
+                expr: Box::new(rewritten),
+                ty: cast_ty.clone(),
+            },
+            assigns,
+        ));
+    }
+
+    if let Expr::TupleIndex {
+        base,
+        index,
+        ty: index_ty,
+    } = arg
+        && matches!(base.as_ref(), Expr::Call { .. })
+    {
+        let temp_name = format!(
+            "__axiom_i64_tuple_projection_arg_{}_{}",
+            local_indexes.len(),
+            arg_index
+        );
+        let base_ty = base.ty();
+        let assigns = lower_i64_aggregate_call_to_local_stmts(
+            &temp_name,
+            &base_ty,
+            base.as_ref(),
+            locals,
+            local_indexes,
+            local_conditions,
+            helper_signatures,
+            static_bindings,
+        )?;
+        return Some((
+            Expr::TupleIndex {
+                base: Box::new(Expr::VarRef {
+                    name: temp_name,
+                    ty: base_ty,
+                }),
+                index: *index,
+                ty: index_ty.clone(),
+            },
+            assigns,
+        ));
+    }
+
+    if let Expr::FieldAccess {
+        base,
+        field,
+        ty: field_ty,
+    } = arg
+        && matches!(base.as_ref(), Expr::Call { .. })
+    {
+        let temp_name = format!(
+            "__axiom_i64_struct_projection_arg_{}_{}",
+            local_indexes.len(),
+            arg_index
+        );
+        let base_ty = base.ty();
+        let assigns = lower_i64_aggregate_call_to_local_stmts(
+            &temp_name,
+            &base_ty,
+            base.as_ref(),
+            locals,
+            local_indexes,
+            local_conditions,
+            helper_signatures,
+            static_bindings,
+        )?;
+        return Some((
+            Expr::FieldAccess {
+                base: Box::new(Expr::VarRef {
+                    name: temp_name,
+                    ty: base_ty,
+                }),
+                field: field.clone(),
+                ty: field_ty.clone(),
+            },
+            assigns,
+        ));
+    }
+
+    let Expr::Slice {
+        base,
+        start,
+        end,
+        ty,
+    } = arg
+    else {
+        return None;
+    };
+    if !matches!(base.as_ref(), Expr::Call { .. }) {
+        return None;
+    }
+    let temp_name = format!(
+        "__axiom_i64_slice_arg_{}_{}",
+        local_indexes.len(),
+        arg_index
+    );
+    let base_ty = base.ty();
+    let assigns = lower_i64_aggregate_call_to_local_stmts(
+        &temp_name,
+        &base_ty,
+        base.as_ref(),
+        locals,
+        local_indexes,
+        local_conditions,
+        helper_signatures,
+        static_bindings,
+    )?;
+    Some((
+        Expr::Slice {
+            base: Box::new(Expr::VarRef {
+                name: temp_name,
+                ty: base_ty,
+            }),
+            start: start.clone(),
+            end: end.clone(),
+            ty: ty.clone(),
+        },
+        assigns,
+    ))
+}
+
+fn lower_i64_aggregate_call_to_local_stmts(
+    name: &str,
+    ty: &Type,
+    expr: &Expr,
+    locals: &mut Vec<CraneliftI64Expr>,
+    local_indexes: &mut HashMap<String, usize>,
+    local_conditions: &mut HashMap<String, CraneliftI64Condition>,
+    helper_signatures: &HashMap<&str, I64HelperSignature>,
+    static_bindings: &I64StaticBindings,
+) -> Option<Vec<CraneliftI64Stmt>> {
+    let Expr::Call {
+        name: call_name,
+        args,
+        ..
+    } = expr
+    else {
+        return None;
+    };
+    match ty {
+        Type::Struct(struct_name) => lower_i64_struct_call_let_stmts(
+            name,
+            struct_name,
+            call_name,
+            args,
+            locals,
+            local_indexes,
+            local_conditions,
+            helper_signatures,
+            static_bindings,
+        ),
+        Type::Tuple(elements) if is_i64_tuple_param_type(elements) => {
+            lower_i64_tuple_call_let_stmts(
+                name,
+                elements,
+                call_name,
+                args,
+                locals,
+                local_indexes,
+                local_conditions,
+                helper_signatures,
+                static_bindings,
+            )
+        }
+        Type::Array(element, Some(size)) if is_i64_array_param_element_type(element) => {
+            lower_i64_array_call_let_stmts(
+                name,
+                element.as_ref(),
+                *size,
+                call_name,
+                args,
+                locals,
+                local_indexes,
+                local_conditions,
+                helper_signatures,
+                static_bindings,
+            )
+        }
+        Type::Option(inner) if is_i64_option_local_payload_type_static(inner, static_bindings) => {
+            lower_i64_option_call_let_stmts(
+                name,
+                inner.as_ref(),
+                call_name,
+                args,
+                locals,
+                local_indexes,
+                local_conditions,
+                helper_signatures,
+                static_bindings,
+            )
+        }
+        Type::Result(ok, err)
+            if is_i64_result_local_payload_type_static(ok, err, static_bindings) =>
+        {
+            lower_i64_result_call_let_stmts(
+                name,
+                ok.as_ref(),
+                err.as_ref(),
+                call_name,
+                args,
+                locals,
+                local_indexes,
+                local_conditions,
+                helper_signatures,
+                static_bindings,
+            )
+        }
+        Type::Enum(enum_name) if is_i64_enum_payload_type(enum_name, static_bindings) => {
+            lower_i64_enum_call_let_stmts(
+                name,
+                enum_name,
+                call_name,
+                args,
+                locals,
+                local_indexes,
+                local_conditions,
+                helper_signatures,
+                static_bindings,
+            )
+        }
+        _ => None,
+    }
 }
 
 fn lower_i64_runtime_string_len_let_stmts(
@@ -5597,6 +7537,19 @@ fn lower_i64_struct_call_let_stmts(
     helper_signatures: &HashMap<&str, I64HelperSignature>,
     static_bindings: &I64StaticBindings,
 ) -> Option<Vec<CraneliftI64Stmt>> {
+    if let Some(stmts) = lower_i64_time_struct_call_let_stmts(
+        name,
+        struct_name,
+        call_name,
+        args,
+        locals,
+        local_indexes,
+        local_conditions,
+        helper_signatures,
+        static_bindings,
+    ) {
+        return Some(stmts);
+    }
     let signature = helper_signatures.get(call_name)?;
     let struct_def = i64_scalar_static_struct_def(struct_name, static_bindings)?;
     if args.len() != signature.params
@@ -5636,6 +7589,72 @@ fn lower_i64_struct_call_let_stmts(
         function: signature.function,
         args: lowered_args,
     }])
+}
+
+fn lower_i64_time_struct_call_let_stmts(
+    name: &str,
+    struct_name: &str,
+    call_name: &str,
+    args: &[Expr],
+    locals: &mut Vec<CraneliftI64Expr>,
+    local_indexes: &mut HashMap<String, usize>,
+    local_conditions: &HashMap<String, CraneliftI64Condition>,
+    helper_signatures: &HashMap<&str, I64HelperSignature>,
+    static_bindings: &I64StaticBindings,
+) -> Option<Vec<CraneliftI64Stmt>> {
+    let value = lower_i64_time_struct_call_ms_expr(
+        struct_name,
+        call_name,
+        args,
+        local_indexes,
+        local_conditions,
+        helper_signatures,
+        static_bindings,
+    )?;
+    let local = local_indexes.len();
+    local_indexes.insert(i64_struct_projection_key(name, "ms"), local);
+    locals.push(CraneliftI64Expr::Literal(0));
+    Some(vec![CraneliftI64Stmt::Assign(
+        axiomc_backend_cranelift::I64Assign { local, value },
+    )])
+}
+
+fn lower_i64_time_struct_call_ms_expr(
+    struct_name: &str,
+    call_name: &str,
+    args: &[Expr],
+    local_indexes: &HashMap<String, usize>,
+    local_conditions: &HashMap<String, CraneliftI64Condition>,
+    helper_signatures: &HashMap<&str, I64HelperSignature>,
+    static_bindings: &I64StaticBindings,
+) -> Option<CraneliftI64Expr> {
+    let struct_def = i64_scalar_static_struct_def(struct_name, static_bindings)?;
+    let [field] = struct_def.fields.as_slice() else {
+        return None;
+    };
+    if field.name != "ms" || !is_i64_compatible_type(&field.ty) {
+        return None;
+    }
+    let value = if is_i64_time_now_name(call_name, static_bindings) {
+        let [] = args else {
+            return None;
+        };
+        CraneliftI64Expr::ClockNowMs
+    } else if is_i64_time_duration_ms_name(call_name, static_bindings) {
+        let [milliseconds] = args else {
+            return None;
+        };
+        lower_i64_expr(
+            milliseconds,
+            local_indexes,
+            local_conditions,
+            helper_signatures,
+            static_bindings,
+        )?
+    } else {
+        return None;
+    };
+    Some(value)
 }
 
 fn lower_i64_option_call_let_stmts(
@@ -5991,6 +8010,7 @@ fn lower_i64_result_assign_stmts(
 
 fn lower_i64_aggregate_call_assign_stmts(
     stmt: &Stmt,
+    locals: &mut Vec<CraneliftI64Expr>,
     local_indexes: &HashMap<String, usize>,
     local_conditions: &HashMap<String, CraneliftI64Condition>,
     helper_signatures: &HashMap<&str, I64HelperSignature>,
@@ -6115,7 +8135,37 @@ fn lower_i64_aggregate_call_assign_stmts(
     if args.len() != signature.params {
         return None;
     }
-    Some(vec![CraneliftI64Stmt::CallAssign {
+
+    let mut rewritten_args = Vec::with_capacity(args.len());
+    let mut setup = Vec::new();
+    let mut trial_locals = locals.clone();
+    let mut trial_indexes = local_indexes.clone();
+    let mut trial_conditions = local_conditions.clone();
+    let mut rewrote_any_arg = false;
+    for (index, arg) in args.iter().enumerate() {
+        if let Some((rewritten, mut assigns)) = rewrite_i64_nested_aggregate_call_arg(
+            arg,
+            index,
+            &mut trial_locals,
+            &mut trial_indexes,
+            &mut trial_conditions,
+            helper_signatures,
+            static_bindings,
+        ) {
+            setup.append(&mut assigns);
+            rewritten_args.push(rewritten);
+            rewrote_any_arg = true;
+            continue;
+        }
+        rewritten_args.push(arg.clone());
+    }
+    let (args, local_indexes, local_conditions) = if rewrote_any_arg {
+        *locals = trial_locals;
+        (rewritten_args.as_slice(), &trial_indexes, &trial_conditions)
+    } else {
+        (args.as_slice(), local_indexes, local_conditions)
+    };
+    setup.push(CraneliftI64Stmt::CallAssign {
         locals: assign_locals,
         function: signature.function,
         args: lower_i64_flat_call_args(
@@ -6126,7 +8176,8 @@ fn lower_i64_aggregate_call_assign_stmts(
             helper_signatures,
             static_bindings,
         )?,
-    }])
+    });
+    Some(setup)
 }
 
 fn lower_i64_enum_assign_stmts(
@@ -6301,13 +8352,47 @@ fn lower_i64_return_block(
         }
     }
     let result = match terminal_stmt {
-        Stmt::Return { expr, .. } => lower_i64_return_value_expr(
-            expr,
-            &local_indexes,
-            &local_conditions,
-            helper_signatures,
-            static_bindings,
-        )?,
+        Stmt::Return { expr, .. } => {
+            if let Some(block) = lower_i64_helper_call_slice_index_return_block(
+                expr,
+                locals,
+                &local_indexes,
+                &local_conditions,
+                helper_signatures,
+                static_bindings,
+            ) {
+                stmts.extend(block.stmts);
+                block.result
+            } else if let Some(block) = lower_i64_helper_call_array_index_return_block(
+                expr,
+                locals,
+                &local_indexes,
+                &local_conditions,
+                helper_signatures,
+                static_bindings,
+            ) {
+                stmts.extend(block.stmts);
+                block.result
+            } else if let Some(block) = lower_i64_helper_call_projection_return_block(
+                expr,
+                locals,
+                &local_indexes,
+                &local_conditions,
+                helper_signatures,
+                static_bindings,
+            ) {
+                stmts.extend(block.stmts);
+                block.result
+            } else {
+                lower_i64_return_value_expr(
+                    expr,
+                    &local_indexes,
+                    &local_conditions,
+                    helper_signatures,
+                    static_bindings,
+                )?
+            }
+        }
         Stmt::Panic { message, .. } => {
             stmts.extend(lower_i64_panic_report_stmts(
                 message,
@@ -6341,6 +8426,300 @@ fn record_i64_known_string_let(
     };
     static_bindings.strings.insert(name.clone(), text);
     Some(true)
+}
+
+fn lower_i64_helper_call_array_index_return_block(
+    expr: &Expr,
+    locals: &mut Vec<CraneliftI64Expr>,
+    local_indexes: &HashMap<String, usize>,
+    local_conditions: &HashMap<String, CraneliftI64Condition>,
+    helper_signatures: &HashMap<&str, I64HelperSignature>,
+    static_bindings: &I64StaticBindings,
+) -> Option<CraneliftI64ReturnBlock> {
+    if !i64_is_helper_call_array_index_expr(expr) {
+        return None;
+    }
+    let (base, index, index_ty, cast_ty) = match expr {
+        Expr::Index {
+            base,
+            index,
+            ty: index_ty,
+        } if matches!(base.as_ref(), Expr::Call { .. }) => (base, index, index_ty, None),
+        Expr::Cast {
+            expr: cast_expr,
+            ty: cast_ty,
+        } if is_i64_compatible_type(cast_ty) => match cast_expr.as_ref() {
+            Expr::Index {
+                base,
+                index,
+                ty: index_ty,
+            } if matches!(base.as_ref(), Expr::Call { .. }) => {
+                (base, index, index_ty, Some(cast_ty.clone()))
+            }
+            _ => return None,
+        },
+        _ => return None,
+    };
+
+    let mut trial_locals = locals.clone();
+    let mut trial_indexes = local_indexes.clone();
+    let mut trial_conditions = local_conditions.clone();
+    let temp_name = format!("__axiom_i64_array_index_return_{}", trial_indexes.len());
+    let base_ty = base.ty();
+    let stmts = lower_i64_aggregate_call_to_local_stmts(
+        &temp_name,
+        &base_ty,
+        base.as_ref(),
+        &mut trial_locals,
+        &mut trial_indexes,
+        &mut trial_conditions,
+        helper_signatures,
+        static_bindings,
+    )?;
+    let rewritten_expr = Expr::Index {
+        base: Box::new(Expr::VarRef {
+            name: temp_name,
+            ty: base_ty,
+        }),
+        index: index.clone(),
+        ty: index_ty.clone(),
+    };
+    let rewritten_expr = if let Some(cast_ty) = cast_ty {
+        Expr::Cast {
+            expr: Box::new(rewritten_expr),
+            ty: cast_ty,
+        }
+    } else {
+        rewritten_expr
+    };
+    let result = lower_i64_return_value_expr(
+        &rewritten_expr,
+        &trial_indexes,
+        &trial_conditions,
+        helper_signatures,
+        static_bindings,
+    )?;
+    *locals = trial_locals;
+    Some(CraneliftI64ReturnBlock { stmts, result })
+}
+
+fn lower_i64_helper_call_slice_index_return_block(
+    expr: &Expr,
+    locals: &mut Vec<CraneliftI64Expr>,
+    local_indexes: &HashMap<String, usize>,
+    local_conditions: &HashMap<String, CraneliftI64Condition>,
+    helper_signatures: &HashMap<&str, I64HelperSignature>,
+    static_bindings: &I64StaticBindings,
+) -> Option<CraneliftI64ReturnBlock> {
+    if !i64_is_helper_call_slice_index_expr(expr) {
+        return None;
+    }
+    let (base, index, index_ty, cast_ty) = match expr {
+        Expr::Index {
+            base,
+            index,
+            ty: index_ty,
+        } => (base, index, index_ty, None),
+        Expr::Cast {
+            expr: cast_expr,
+            ty: cast_ty,
+        } if is_i64_compatible_type(cast_ty) => match cast_expr.as_ref() {
+            Expr::Index {
+                base,
+                index,
+                ty: index_ty,
+            } => (base, index, index_ty, Some(cast_ty.clone())),
+            _ => return None,
+        },
+        _ => return None,
+    };
+    let Expr::Slice {
+        base: slice_base,
+        start,
+        end,
+        ty: slice_ty,
+    } = base.as_ref()
+    else {
+        return None;
+    };
+    if !matches!(slice_base.as_ref(), Expr::Call { .. }) {
+        return None;
+    }
+
+    let mut trial_locals = locals.clone();
+    let mut trial_indexes = local_indexes.clone();
+    let mut trial_conditions = local_conditions.clone();
+    let temp_name = format!("__axiom_i64_slice_index_return_{}", trial_indexes.len());
+    let base_ty = slice_base.ty();
+    let stmts = lower_i64_aggregate_call_to_local_stmts(
+        &temp_name,
+        &base_ty,
+        slice_base.as_ref(),
+        &mut trial_locals,
+        &mut trial_indexes,
+        &mut trial_conditions,
+        helper_signatures,
+        static_bindings,
+    )?;
+    let rewritten_expr = Expr::Index {
+        base: Box::new(Expr::Slice {
+            base: Box::new(Expr::VarRef {
+                name: temp_name,
+                ty: base_ty,
+            }),
+            start: start.clone(),
+            end: end.clone(),
+            ty: slice_ty.clone(),
+        }),
+        index: index.clone(),
+        ty: index_ty.clone(),
+    };
+    let rewritten_expr = if let Some(cast_ty) = cast_ty {
+        Expr::Cast {
+            expr: Box::new(rewritten_expr),
+            ty: cast_ty,
+        }
+    } else {
+        rewritten_expr
+    };
+    let result = lower_i64_return_value_expr(
+        &rewritten_expr,
+        &trial_indexes,
+        &trial_conditions,
+        helper_signatures,
+        static_bindings,
+    )?;
+    *locals = trial_locals;
+    Some(CraneliftI64ReturnBlock { stmts, result })
+}
+
+fn lower_i64_helper_call_projection_return_block(
+    expr: &Expr,
+    locals: &mut Vec<CraneliftI64Expr>,
+    local_indexes: &HashMap<String, usize>,
+    local_conditions: &HashMap<String, CraneliftI64Condition>,
+    helper_signatures: &HashMap<&str, I64HelperSignature>,
+    static_bindings: &I64StaticBindings,
+) -> Option<CraneliftI64ReturnBlock> {
+    if !i64_is_helper_call_projection_expr(expr) {
+        return None;
+    }
+
+    enum HelperCallProjection {
+        Tuple { index: usize, ty: Type },
+        Field { field: String, ty: Type },
+    }
+
+    let (temp_prefix, base, projection, cast_ty) = match expr {
+        Expr::TupleIndex {
+            base,
+            index,
+            ty: index_ty,
+        } if matches!(base.as_ref(), Expr::Call { .. }) => (
+            "__axiom_i64_tuple_projection_return",
+            base,
+            HelperCallProjection::Tuple {
+                index: *index,
+                ty: index_ty.clone(),
+            },
+            None,
+        ),
+        Expr::FieldAccess {
+            base,
+            field,
+            ty: field_ty,
+        } if matches!(base.as_ref(), Expr::Call { .. }) => (
+            "__axiom_i64_struct_projection_return",
+            base,
+            HelperCallProjection::Field {
+                field: field.clone(),
+                ty: field_ty.clone(),
+            },
+            None,
+        ),
+        Expr::Cast {
+            expr: cast_expr,
+            ty: cast_ty,
+        } if is_i64_compatible_type(cast_ty) => match cast_expr.as_ref() {
+            Expr::TupleIndex {
+                base,
+                index,
+                ty: index_ty,
+            } if matches!(base.as_ref(), Expr::Call { .. }) => (
+                "__axiom_i64_tuple_projection_return",
+                base,
+                HelperCallProjection::Tuple {
+                    index: *index,
+                    ty: index_ty.clone(),
+                },
+                Some(cast_ty.clone()),
+            ),
+            Expr::FieldAccess {
+                base,
+                field,
+                ty: field_ty,
+            } if matches!(base.as_ref(), Expr::Call { .. }) => (
+                "__axiom_i64_struct_projection_return",
+                base,
+                HelperCallProjection::Field {
+                    field: field.clone(),
+                    ty: field_ty.clone(),
+                },
+                Some(cast_ty.clone()),
+            ),
+            _ => return None,
+        },
+        _ => return None,
+    };
+
+    let mut trial_locals = locals.clone();
+    let mut trial_indexes = local_indexes.clone();
+    let mut trial_conditions = local_conditions.clone();
+    let temp_name = format!("{}_{}", temp_prefix, trial_indexes.len());
+    let base_ty = base.ty();
+    let stmts = lower_i64_aggregate_call_to_local_stmts(
+        &temp_name,
+        &base_ty,
+        base.as_ref(),
+        &mut trial_locals,
+        &mut trial_indexes,
+        &mut trial_conditions,
+        helper_signatures,
+        static_bindings,
+    )?;
+    let rewritten_base = Box::new(Expr::VarRef {
+        name: temp_name,
+        ty: base_ty,
+    });
+    let rewritten_expr = match projection {
+        HelperCallProjection::Tuple { index, ty } => Expr::TupleIndex {
+            base: rewritten_base,
+            index,
+            ty,
+        },
+        HelperCallProjection::Field { field, ty } => Expr::FieldAccess {
+            base: rewritten_base,
+            field,
+            ty,
+        },
+    };
+    let rewritten_expr = if let Some(cast_ty) = cast_ty {
+        Expr::Cast {
+            expr: Box::new(rewritten_expr),
+            ty: cast_ty,
+        }
+    } else {
+        rewritten_expr
+    };
+    let result = lower_i64_return_value_expr(
+        &rewritten_expr,
+        &trial_indexes,
+        &trial_conditions,
+        helper_signatures,
+        static_bindings,
+    )?;
+    *locals = trial_locals;
+    Some(CraneliftI64ReturnBlock { stmts, result })
 }
 
 fn record_i64_known_map_let(stmt: &Stmt, static_bindings: &mut I64StaticBindings) -> Option<bool> {
@@ -6421,11 +8800,42 @@ fn record_i64_known_map_key_array_let(
 
 fn lower_i64_exit_return(
     expr: &Expr,
+    locals: &mut Vec<CraneliftI64Expr>,
     local_indexes: &HashMap<String, usize>,
     local_conditions: &HashMap<String, CraneliftI64Condition>,
     helper_signatures: &HashMap<&str, I64HelperSignature>,
     static_bindings: &I64StaticBindings,
 ) -> Option<I64ExitBody> {
+    if let Some(block) = lower_i64_helper_call_slice_index_return_block(
+        expr,
+        locals,
+        local_indexes,
+        local_conditions,
+        helper_signatures,
+        static_bindings,
+    ) {
+        return Some(I64ExitBody::BlockReturn(block));
+    }
+    if let Some(block) = lower_i64_helper_call_array_index_return_block(
+        expr,
+        locals,
+        local_indexes,
+        local_conditions,
+        helper_signatures,
+        static_bindings,
+    ) {
+        return Some(I64ExitBody::BlockReturn(block));
+    }
+    if let Some(block) = lower_i64_helper_call_projection_return_block(
+        expr,
+        locals,
+        local_indexes,
+        local_conditions,
+        helper_signatures,
+        static_bindings,
+    ) {
+        return Some(I64ExitBody::BlockReturn(block));
+    }
     if let Some(body) = lower_i64_option_match_exit_return(
         expr,
         local_indexes,
@@ -7662,9 +10072,11 @@ fn i64_net_resolve_host(
         return None;
     };
     let host = i64_string_text(host, static_bindings)?;
-    let _addr: IpAddr = host.parse().ok()?;
     Some(I64NetResolveHost {
-        resolved_len: i64::try_from(i64_net_resolve_text(&host)?.len()).ok()?,
+        resolved_len: i64::try_from(
+            i64_net_resolve_text_for_bindings(&host, static_bindings)?.len(),
+        )
+        .ok()?,
         host,
     })
 }
@@ -9544,10 +11956,12 @@ fn lower_i64_known_bool_intrinsic_condition(
             let [left, right] = args else {
                 return None;
             };
-            Some(CraneliftI64Condition::Literal(constant_time_eq_bytes(
-                i64_string_text(left, static_bindings)?.as_bytes(),
-                i64_string_text(right, static_bindings)?.as_bytes(),
-            )))
+            let left_text = i64_string_text(left, static_bindings)?;
+            let right_text = i64_string_text(right, static_bindings)?;
+            let result = constant_time_eq_bytes(left_text.as_bytes(), right_text.as_bytes());
+            i64_audited_known_crypto_condition(left, result, static_bindings)
+                .or_else(|| i64_audited_known_crypto_condition(right, result, static_bindings))
+                .or(Some(CraneliftI64Condition::Literal(result)))
         }
         name if is_i64_crypto_constant_time_eq_u8_name(name, static_bindings) => {
             lower_i64_byte_slice_eq_condition(
@@ -9597,6 +12011,52 @@ fn lower_i64_known_bool_intrinsic_condition(
         }
         _ => None,
     }
+}
+
+fn i64_audited_known_crypto_condition(
+    expr: &Expr,
+    result: bool,
+    static_bindings: &I64StaticBindings,
+) -> Option<CraneliftI64Condition> {
+    let Expr::Call { name, args, .. } = expr else {
+        return None;
+    };
+    let (intrinsic, inputs) = if is_i64_crypto_sha256_name(name, static_bindings) {
+        let [input] = args.as_slice() else {
+            return None;
+        };
+        let _ = i64_string_text(input, static_bindings)?;
+        ("crypto_sha256", "strings:1")
+    } else if is_i64_crypto_hmac_sha256_name(name, static_bindings)
+        || is_i64_crypto_hmac_sha512_name(name, static_bindings)
+    {
+        let [key, message] = args.as_slice() else {
+            return None;
+        };
+        let _ = i64_string_text(key, static_bindings)?;
+        let _ = i64_string_text(message, static_bindings)?;
+        let intrinsic = if is_i64_crypto_hmac_sha256_name(name, static_bindings) {
+            "crypto_hmac_sha256"
+        } else {
+            "crypto_hmac_sha512"
+        };
+        (intrinsic, "strings:2")
+    } else {
+        return None;
+    };
+    let audited_result = i64_audited_crypto_expr(
+        intrinsic,
+        "inputs",
+        inputs.to_string(),
+        CraneliftI64Expr::Literal(i64::from(result)),
+        static_bindings,
+        CraneliftI64AuditSuccess::NonNegative,
+    )?;
+    Some(CraneliftI64Condition::Compare(CraneliftI64Compare {
+        op: CraneliftI64CompareOp::Eq,
+        lhs: audited_result,
+        rhs: CraneliftI64Expr::Literal(1),
+    }))
 }
 
 fn lower_i64_byte_slice_eq_condition(
@@ -10315,10 +12775,28 @@ fn i64_string_option_text(
             let [host] = args.as_slice() else {
                 return None;
             };
-            Some(i64_net_resolve_text(&i64_string_text(
-                host,
+            Some(i64_net_resolve_text_for_bindings(
+                &i64_string_text(host, static_bindings)?,
                 static_bindings,
-            )?))
+            ))
+        }
+        name if static_bindings.net_resolve_wrappers.contains(name) => {
+            let [host] = args.as_slice() else {
+                return None;
+            };
+            Some(i64_net_resolve_text_for_bindings(
+                &i64_string_text(host, static_bindings)?,
+                static_bindings,
+            ))
+        }
+        name if static_bindings.net_shim_wrappers.contains(name) => {
+            let [host] = args.as_slice() else {
+                return None;
+            };
+            Some(i64_net_resolve_text_for_bindings(
+                &i64_string_text(host, static_bindings)?,
+                static_bindings,
+            ))
         }
         name if is_i64_http_get_name(name, static_bindings) => {
             let [url] = args.as_slice() else {
@@ -10342,12 +12820,6 @@ fn i64_string_option_text(
             };
             Some(json_parse_string(&i64_string_text(text, static_bindings)?))
         }
-        "json_parse_value" => {
-            let [text] = args.as_slice() else {
-                return None;
-            };
-            Some(json_parse_value(&i64_string_text(text, static_bindings)?))
-        }
         name if is_i64_json_parse_field_string_name(name, static_bindings) => {
             let [text, key] = args.as_slice() else {
                 return None;
@@ -10356,16 +12828,24 @@ fn i64_string_option_text(
             let key = i64_string_text(key, static_bindings)?;
             Some(json_object_field(&text, &key).and_then(|value| json_parse_string(&value)))
         }
-        "json_parse_field_value" => {
-            let [text, key] = args.as_slice() else {
-                return None;
-            };
-            let text = i64_string_text(text, static_bindings)?;
-            let key = i64_string_text(key, static_bindings)?;
-            Some(json_object_field(&text, &key).and_then(|value| json_parse_value(&value)))
-        }
         _ => None,
     }
+}
+
+fn i64_net_resolve_text_for_bindings(
+    host: &str,
+    static_bindings: &I64StaticBindings,
+) -> Option<String> {
+    i64_net_resolve_text(host).or_else(|| {
+        if !static_bindings.net_unrestricted && !static_bindings.net_allowed_hosts.contains(host) {
+            return None;
+        }
+        (host, 0)
+            .to_socket_addrs()
+            .ok()
+            .and_then(|mut addrs| addrs.next())
+            .map(|addr| addr.ip().to_string())
+    })
 }
 
 fn i64_i64_option_value(expr: &Expr, static_bindings: &I64StaticBindings) -> Option<Option<i64>> {
@@ -11025,6 +13505,7 @@ fn lower_i64_slice_projection_aliases(
     locals: &mut Vec<CraneliftI64Expr>,
     local_indexes: &mut HashMap<String, usize>,
     local_conditions: &mut HashMap<String, CraneliftI64Condition>,
+    helper_signatures: &HashMap<&str, I64HelperSignature>,
     static_bindings: &I64StaticBindings,
     runtime: bool,
 ) -> Option<Vec<CraneliftI64Stmt>> {
@@ -11034,25 +13515,41 @@ fn lower_i64_slice_projection_aliases(
     else {
         return None;
     };
-    let Expr::VarRef {
-        name: base_name,
-        ty: Type::Array(_, Some(base_size)),
-    } = base.as_ref()
-    else {
-        return None;
-    };
-    let (start, end) = i64_static_slice_range(
-        *base_size,
-        start.as_deref(),
-        end.as_deref(),
-        static_bindings,
-    )?;
     let mut assigns = Vec::new();
+    let (base_name, base_size, copy_aliases) = match base.as_ref() {
+        Expr::VarRef {
+            name: base_name,
+            ty: Type::Array(_, Some(base_size)),
+        } => (base_name.clone(), *base_size, runtime),
+        Expr::Call {
+            name: call_name,
+            args,
+            ty: Type::Array(element, Some(base_size)),
+        } if is_i64_array_param_element_type(element) => {
+            let temp_name = format!("__axiom_i64_slice_base_{}", local_indexes.len());
+            assigns.extend(lower_i64_array_call_let_stmts(
+                &temp_name,
+                element.as_ref(),
+                *base_size,
+                call_name,
+                args,
+                locals,
+                local_indexes,
+                local_conditions,
+                helper_signatures,
+                static_bindings,
+            )?);
+            (temp_name, *base_size, true)
+        }
+        _ => return None,
+    };
+    let (start, end) =
+        i64_static_slice_range(base_size, start.as_deref(), end.as_deref(), static_bindings)?;
     for (slice_index, base_index) in (start..end).enumerate() {
-        let base_key = i64_array_projection_key(base_name, base_index);
+        let base_key = i64_array_projection_key(&base_name, base_index);
         let base_local = *local_indexes.get(base_key.as_str())?;
         let local = locals.len();
-        if runtime {
+        if copy_aliases {
             locals.push(CraneliftI64Expr::Literal(0));
             assigns.push(CraneliftI64Stmt::Assign(
                 axiomc_backend_cranelift::I64Assign {
@@ -12378,6 +14875,10 @@ fn lower_i64_duration_ms_expr(
     static_bindings: &I64StaticBindings,
 ) -> Option<CraneliftI64Expr> {
     match expr {
+        Expr::VarRef { name, .. } => local_indexes
+            .get(i64_struct_projection_key(name, "ms").as_str())
+            .copied()
+            .map(CraneliftI64Expr::Local),
         Expr::Call { name, args, .. } if is_i64_time_duration_ms_name(name, static_bindings) => {
             let [milliseconds] = args.as_slice() else {
                 return None;
@@ -13093,6 +15594,103 @@ fn lower_i64_map_get_or_default_expr(
         };
     }
     Some(result)
+}
+
+fn lower_i64_dynamic_map_get_option_call_let_stmts(
+    name: &str,
+    inner: &Type,
+    expr: &Expr,
+    locals: &mut Vec<CraneliftI64Expr>,
+    local_indexes: &mut HashMap<String, usize>,
+    local_conditions: &HashMap<String, CraneliftI64Condition>,
+    helper_signatures: &HashMap<&str, I64HelperSignature>,
+    static_bindings: &I64StaticBindings,
+) -> Option<Vec<CraneliftI64Stmt>> {
+    if !is_i64_compatible_type(inner) && !matches!(inner, Type::Bool) {
+        return None;
+    }
+    let Expr::Call {
+        name: call_name,
+        args,
+        ..
+    } = expr
+    else {
+        return None;
+    };
+    if call_name != "map_get"
+        && call_name != "get"
+        && !static_bindings.collection_get_wrappers.contains(call_name)
+    {
+        return None;
+    }
+    let [map, key] = args.as_slice() else {
+        return None;
+    };
+    if lower_i64_map_key_expr(key, static_bindings).is_some() {
+        return None;
+    }
+    if i64_option_payload_slot_count_static(inner, static_bindings)? != 1 {
+        return None;
+    }
+    let entries = i64_map_literal_entries(map, static_bindings)?;
+    let mut tag = CraneliftI64Condition::Literal(false);
+    let mut payload = CraneliftI64Expr::Literal(0);
+    for entry in entries {
+        let candidate = lower_i64_map_key_expr(&entry.key, static_bindings)?;
+        let cond = lower_i64_map_key_match_condition(
+            key,
+            &candidate,
+            local_indexes,
+            local_conditions,
+            helper_signatures,
+            static_bindings,
+        )?;
+        let value = if matches!(inner, Type::Bool) {
+            lower_i64_bool_value_expr(
+                &entry.value,
+                local_indexes,
+                local_conditions,
+                helper_signatures,
+                static_bindings,
+            )?
+        } else {
+            lower_i64_expr(
+                &entry.value,
+                local_indexes,
+                local_conditions,
+                helper_signatures,
+                static_bindings,
+            )?
+        };
+        tag = CraneliftI64Condition::Or {
+            lhs: Box::new(cond.clone()),
+            rhs: Box::new(tag),
+        };
+        payload = CraneliftI64Expr::Select {
+            cond: Box::new(cond),
+            then_result: Box::new(value),
+            else_result: Box::new(payload),
+        };
+    }
+
+    let tag_local = local_indexes.len();
+    local_indexes.insert(i64_option_tag_key(name), tag_local);
+    locals.push(CraneliftI64Expr::Literal(0));
+    let payload_local = local_indexes.len();
+    local_indexes.insert(i64_option_payload_slot_key(name, 0), payload_local);
+    local_indexes.insert(i64_option_payload_key(name), payload_local);
+    locals.push(CraneliftI64Expr::Literal(0));
+
+    Some(vec![
+        CraneliftI64Stmt::Assign(axiomc_backend_cranelift::I64Assign {
+            local: tag_local,
+            value: CraneliftI64Expr::ConditionValue(Box::new(tag)),
+        }),
+        CraneliftI64Stmt::Assign(axiomc_backend_cranelift::I64Assign {
+            local: payload_local,
+            value: payload,
+        }),
+    ])
 }
 
 fn i64_map_get_value_expr<'a>(
@@ -15775,44 +18373,92 @@ fn lower_i64_numeric_literal(raw: &str, ty: NumericType) -> Option<i64> {
     }
 }
 
+#[cfg(test)]
 fn collect_output_lines(
     program: &Program,
     capabilities: &CapabilityConfig,
     _package_root: &Path,
     fs_root: &Path,
+    stdin: Option<&str>,
 ) -> Result<Vec<OutputLine>, Diagnostic> {
-    let functions = program
-        .functions
-        .iter()
-        .map(|function| (function.name.as_str(), function))
-        .collect::<HashMap<_, _>>();
-    let mut env = SpikeEnv::new();
-    env.insert(
-        SPIKE_FS_ROOT_BINDING.to_string(),
-        SpikeValue::Text(fs_root.display().to_string()),
-    );
-    env.insert(
-        SPIKE_ENV_ALLOWLIST_BINDING.to_string(),
-        SpikeValue::Array(
-            capabilities
-                .env_vars
-                .iter()
-                .cloned()
-                .map(SpikeValue::Text)
-                .collect(),
-        ),
-    );
-    env.insert(
-        SPIKE_ENV_UNRESTRICTED_BINDING.to_string(),
-        SpikeValue::Bool(capabilities.env_unrestricted),
-    );
-    let mut lines = Vec::new();
-    for static_def in &program.statics {
-        let value = eval_expr(&static_def.expr, &functions, &env, &mut lines)?;
-        env.insert(static_def.name.clone(), value);
-    }
-    eval_block(&program.stmts, &functions, &mut env, &mut lines)?;
-    Ok(lines)
+    collect_output_program(program, capabilities, _package_root, fs_root, stdin)
+        .map(|output| output.lines)
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct StaticOutputProgram {
+    lines: Vec<OutputLine>,
+    exit_code: i32,
+}
+
+fn collect_output_program(
+    program: &Program,
+    capabilities: &CapabilityConfig,
+    _package_root: &Path,
+    fs_root: &Path,
+    stdin: Option<&str>,
+) -> Result<StaticOutputProgram, Diagnostic> {
+    with_spike_stdin(stdin, || {
+        let functions = program
+            .functions
+            .iter()
+            .map(|function| (function.name.as_str(), function))
+            .collect::<HashMap<_, _>>();
+        let mut env = SpikeEnv::new();
+        env.insert(
+            SPIKE_FS_ROOT_BINDING.to_string(),
+            SpikeValue::Text(fs_root.display().to_string()),
+        );
+        env.insert(
+            SPIKE_ENV_ALLOWLIST_BINDING.to_string(),
+            SpikeValue::Array(
+                capabilities
+                    .env_vars
+                    .iter()
+                    .cloned()
+                    .map(SpikeValue::Text)
+                    .collect(),
+            ),
+        );
+        env.insert(
+            SPIKE_ENV_UNRESTRICTED_BINDING.to_string(),
+            SpikeValue::Bool(capabilities.env_unrestricted),
+        );
+        let mut lines = Vec::new();
+        let result = (|| {
+            for static_def in &program.statics {
+                let value = eval_expr(&static_def.expr, &functions, &env, &mut lines)?;
+                env.insert(static_def.name.clone(), value);
+            }
+            eval_block(&program.stmts, &functions, &mut env, &mut lines)
+        })();
+        match result {
+            Ok(_) => Ok(StaticOutputProgram {
+                lines,
+                exit_code: 0,
+            }),
+            Err(diagnostic) if is_cranelift_runtime_trap(&diagnostic) => {
+                lines.push(OutputLine::stderr(runtime_trap_text(&diagnostic)));
+                Ok(StaticOutputProgram {
+                    lines,
+                    exit_code: 1,
+                })
+            }
+            Err(diagnostic) => Err(diagnostic),
+        }
+    })
+}
+
+fn with_spike_stdin<T>(
+    stdin: Option<&str>,
+    body: impl FnOnce() -> Result<T, Diagnostic>,
+) -> Result<T, Diagnostic> {
+    SPIKE_STDIN.with(|state| {
+        let previous = state.replace(SpikeStdin::new(stdin));
+        let result = body();
+        state.replace(previous);
+        result
+    })
 }
 
 fn eval_block(
@@ -15837,12 +18483,12 @@ fn eval_stmt(
 ) -> Result<Option<SpikeValue>, Diagnostic> {
     match stmt {
         Stmt::Let { name, expr, .. } => {
-            let value = eval_expr(expr, functions, env, lines)?;
+            let value = eval_expr_effectful(expr, functions, env, lines)?;
             env.insert(name.clone(), value);
             Ok(None)
         }
         Stmt::Print { expr, .. } => {
-            let value = eval_expr(expr, functions, env, lines)?;
+            let value = eval_expr_effectful(expr, functions, env, lines)?;
             lines.push(OutputLine::stdout(render_value(&value)));
             Ok(None)
         }
@@ -15852,7 +18498,7 @@ fn eval_stmt(
             else_block,
             ..
         } => {
-            let branch = match eval_expr(cond, functions, env, lines)? {
+            let branch = match eval_expr_effectful(cond, functions, env, lines)? {
                 SpikeValue::Bool(true) => Some(then_block.as_slice()),
                 SpikeValue::Bool(false) => else_block.as_deref(),
                 _ => return Err(unsupported("if conditions must be boolean")),
@@ -15863,7 +18509,7 @@ fn eval_stmt(
                 Ok(None)
             }
         }
-        Stmt::While { cond, .. } => match eval_expr(cond, functions, env, lines)? {
+        Stmt::While { cond, .. } => match eval_expr_effectful(cond, functions, env, lines)? {
             SpikeValue::Bool(false) => Ok(None),
             SpikeValue::Bool(true) => Err(unsupported(
                 "runtime loops are not part of the cranelift hello spike",
@@ -15871,10 +18517,136 @@ fn eval_stmt(
             _ => Err(unsupported("while conditions must be boolean")),
         },
         Stmt::Match { expr, arms, .. } => eval_match_stmt(expr, arms, functions, env, lines),
-        Stmt::Return { expr, .. } => Ok(Some(eval_expr(expr, functions, env, lines)?)),
-        Stmt::Assign { .. } | Stmt::Panic { .. } | Stmt::Defer { .. } => Err(unsupported(
-            "only let, print, if, while false, match, and return statements are supported by the cranelift hello spike",
+        Stmt::Return { expr, .. } => Ok(Some(eval_expr_effectful(expr, functions, env, lines)?)),
+        Stmt::Assign { target, expr, .. } => {
+            eval_assign(target, expr, functions, env, lines)?;
+            Ok(None)
+        }
+        Stmt::Panic { message, .. } => {
+            let message =
+                render_runtime_panic_message(eval_expr_effectful(message, functions, env, lines)?)?;
+            Err(cranelift_runtime_trap("panic", message))
+        }
+        Stmt::Defer { .. } => Err(unsupported(
+            "only let, print, if, while false, match, return, and local assignment statements are supported by the cranelift hello spike",
         )),
+    }
+}
+
+fn eval_assign(
+    target: &Expr,
+    expr: &Expr,
+    functions: &HashMap<&str, &Function>,
+    env: &mut SpikeEnv,
+    lines: &mut Vec<OutputLine>,
+) -> Result<(), Diagnostic> {
+    let value = eval_expr_effectful(expr, functions, env, lines)?;
+    match target {
+        Expr::VarRef { name, .. } => {
+            env.insert(name.clone(), value);
+            Ok(())
+        }
+        Expr::Deref { expr, .. } => {
+            let SpikeValue::MutRef(name) = eval_expr(expr, functions, env, lines)? else {
+                return Err(unsupported(
+                    "dereference assignment requires a mutable local reference",
+                ));
+            };
+            env.insert(name, value);
+            Ok(())
+        }
+        Expr::Index { base, index, .. } => {
+            let index = expect_non_negative_index(eval_expr(index, functions, env, lines)?)?;
+            match eval_expr(base, functions, env, lines)? {
+                SpikeValue::MutSlice { target, start, end } => {
+                    let real_index = start
+                        .checked_add(index)
+                        .ok_or_else(|| unsupported("slice index overflow"))?;
+                    if real_index >= end {
+                        return Err(unsupported("slice index is outside the slice length"));
+                    }
+                    assign_array_index(env, &target, real_index, value)
+                }
+                SpikeValue::Array(mut elements) => {
+                    let Some(slot) = elements.get_mut(index) else {
+                        return Err(unsupported("array index is outside the array length"));
+                    };
+                    *slot = value;
+                    if let Expr::VarRef { name, .. } = base.as_ref() {
+                        env.insert(name.clone(), SpikeValue::Array(elements));
+                        Ok(())
+                    } else {
+                        Err(unsupported(
+                            "array index assignment requires a local array target",
+                        ))
+                    }
+                }
+                _ => Err(unsupported(
+                    "index assignment requires a mutable slice or local array target",
+                )),
+            }
+        }
+        _ => Err(unsupported(
+            "assignment requires a local variable, mutable local dereference, or mutable slice index target",
+        )),
+    }
+}
+
+fn assign_array_index(
+    env: &mut SpikeEnv,
+    name: &str,
+    index: usize,
+    value: SpikeValue,
+) -> Result<(), Diagnostic> {
+    let Some(SpikeValue::Array(elements)) = env.get_mut(name) else {
+        return Err(unsupported(
+            "mutable slice assignment requires a live local array",
+        ));
+    };
+    let Some(slot) = elements.get_mut(index) else {
+        return Err(unsupported("array index is outside the array length"));
+    };
+    *slot = value;
+    Ok(())
+}
+
+fn eval_expr_effectful(
+    expr: &Expr,
+    functions: &HashMap<&str, &Function>,
+    env: &mut SpikeEnv,
+    lines: &mut Vec<OutputLine>,
+) -> Result<SpikeValue, Diagnostic> {
+    match expr {
+        Expr::Call { name, args, .. } => eval_call_effectful(name, args, functions, env, lines),
+        Expr::BinaryAdd { op, lhs, rhs, ty } => {
+            let left = eval_expr_effectful(lhs, functions, env, lines)?;
+            let right = eval_expr_effectful(rhs, functions, env, lines)?;
+            eval_arithmetic_values(*op, ty, left, right)
+        }
+        Expr::BinaryCompare {
+            op,
+            lhs,
+            rhs,
+            ty: _,
+        } => {
+            let left = eval_expr_effectful(lhs, functions, env, lines)?;
+            let right = eval_expr_effectful(rhs, functions, env, lines)?;
+            eval_compare_values(*op, left, right)
+        }
+        Expr::BinaryLogic { op, lhs, rhs, .. } => {
+            let left = expect_bool(eval_expr_effectful(lhs, functions, env, lines)?)?;
+            match op {
+                crate::mir::LogicOp::And if !left => Ok(SpikeValue::Bool(false)),
+                crate::mir::LogicOp::Or if left => Ok(SpikeValue::Bool(true)),
+                crate::mir::LogicOp::And | crate::mir::LogicOp::Or => Ok(SpikeValue::Bool(
+                    expect_bool(eval_expr_effectful(rhs, functions, env, lines)?)?,
+                )),
+            }
+        }
+        Expr::Cast { expr, ty } => {
+            cast_spike_value(eval_expr_effectful(expr, functions, env, lines)?, ty)
+        }
+        _ => eval_expr(expr, functions, env, lines),
     }
 }
 
@@ -15984,8 +18756,16 @@ fn eval_expr(
             .map(|element| eval_expr(element, functions, env, lines))
             .collect::<Result<Vec<_>, _>>()
             .map(SpikeValue::Array),
+        Expr::Closure { params, body, .. } => Ok(SpikeValue::Closure {
+            params: params.clone(),
+            body: body.clone(),
+            env: env.clone(),
+        }),
         Expr::Slice {
-            base, start, end, ..
+            base,
+            start,
+            end,
+            ty,
         } => {
             let elements = match eval_expr(base, functions, env, lines)? {
                 SpikeValue::Array(elements) => elements,
@@ -16006,6 +18786,15 @@ fn eval_expr(
             if start > end || end > elements.len() {
                 return Err(unsupported("slice range is outside the array length"));
             }
+            if matches!(ty, Type::MutSlice(_))
+                && let Expr::VarRef { name, .. } = base.as_ref()
+            {
+                return Ok(SpikeValue::MutSlice {
+                    target: name.clone(),
+                    start,
+                    end,
+                });
+            }
             Ok(SpikeValue::Array(elements[start..end].to_vec()))
         }
         Expr::Index { base, index, .. } => match eval_expr(base, functions, env, lines)? {
@@ -16014,7 +18803,26 @@ fn eval_expr(
                 elements
                     .get(index)
                     .cloned()
-                    .ok_or_else(|| unsupported("array index is outside the array length"))
+                    .ok_or_else(|| cranelift_runtime_trap("runtime", "array index out of bounds"))
+            }
+            SpikeValue::MutSlice { target, start, end } => {
+                let index = expect_non_negative_index(eval_expr(index, functions, env, lines)?)?;
+                let real_index = start
+                    .checked_add(index)
+                    .ok_or_else(|| unsupported("slice index overflow"))?;
+                if real_index >= end {
+                    return Err(unsupported("slice index is outside the slice length"));
+                }
+                match env.get(&target) {
+                    Some(SpikeValue::Array(elements)) => {
+                        elements.get(real_index).cloned().ok_or_else(|| {
+                            cranelift_runtime_trap("runtime", "array index out of bounds")
+                        })
+                    }
+                    _ => Err(unsupported(
+                        "mutable slice indexing requires a live local array",
+                    )),
+                }
             }
             SpikeValue::Map(entries) => {
                 let key = eval_expr(index, functions, env, lines)?;
@@ -16030,6 +18838,26 @@ fn eval_expr(
         },
         Expr::Await { expr, .. } => await_spike_task(eval_expr(expr, functions, env, lines)?),
         Expr::StringBorrow { expr, .. } => eval_expr(expr, functions, env, lines),
+        Expr::MutBorrow { expr, .. } => match expr.as_ref() {
+            Expr::VarRef { name, .. } if env.contains_key(name) => {
+                Ok(SpikeValue::MutRef(name.clone()))
+            }
+            Expr::VarRef { name, .. } => Err(unsupported(&format!(
+                "unknown cranelift spike variable {name:?}"
+            ))),
+            _ => Err(unsupported(
+                "mutable borrow supports local variables in the cranelift spike",
+            )),
+        },
+        Expr::Deref { expr, .. } => match eval_expr(expr, functions, env, lines)? {
+            SpikeValue::MutRef(name) => env
+                .get(&name)
+                .cloned()
+                .ok_or_else(|| unsupported(&format!("unknown cranelift spike variable {name:?}"))),
+            _ => Err(unsupported(
+                "dereference requires a mutable local reference in the cranelift spike",
+            )),
+        },
         _ => Err(unsupported(
             "this expression is outside the cranelift hello spike subset",
         )),
@@ -16040,10 +18868,14 @@ fn eval_match_stmt(
     expr: &Expr,
     arms: &[MatchArm],
     functions: &HashMap<&str, &Function>,
-    env: &SpikeEnv,
+    env: &mut SpikeEnv,
     lines: &mut Vec<OutputLine>,
 ) -> Result<Option<SpikeValue>, Diagnostic> {
-    let matched = expect_enum_value(eval_expr(expr, functions, env, lines)?)?;
+    let matched_value = eval_expr(expr, functions, env, lines)?;
+    if arms.iter().all(|arm| arm.enum_name.is_empty()) {
+        return eval_const_match_stmt(matched_value, arms, functions, env, lines);
+    }
+    let matched = expect_enum_value(matched_value)?;
     let arm = arms
         .iter()
         .find(|arm| arm.enum_name == matched.enum_name && arm.variant == matched.variant)
@@ -16058,6 +18890,24 @@ fn eval_match_stmt(
             &matched.payloads,
         )?;
     }
+    let returned = eval_block(&arm.body, functions, &mut arm_env, lines)?;
+    *env = arm_env;
+    Ok(returned)
+}
+
+fn eval_const_match_stmt(
+    matched_value: SpikeValue,
+    arms: &[MatchArm],
+    functions: &HashMap<&str, &Function>,
+    env: &SpikeEnv,
+    lines: &mut Vec<OutputLine>,
+) -> Result<Option<SpikeValue>, Diagnostic> {
+    let matched = expect_int(matched_value)?.to_string();
+    let arm = arms
+        .iter()
+        .find(|arm| arm.variant == matched)
+        .ok_or_else(|| unsupported("const match statement has no matching arm"))?;
+    let mut arm_env = env.clone();
     eval_block(&arm.body, functions, &mut arm_env, lines)
 }
 
@@ -16265,6 +19115,14 @@ fn eval_call(
     if is_assert_call(name) {
         return eval_assert_call(name, args, functions, env, lines);
     }
+    if let Some(SpikeValue::Closure {
+        params,
+        body,
+        env: captured_env,
+    }) = env.get(name)
+    {
+        return eval_closure_call(params, body, captured_env, args, functions, env, lines);
+    }
     if name == "len" {
         return eval_len_call(args, functions, env, lines);
     }
@@ -16285,6 +19143,12 @@ fn eval_call(
     }
     if name == "io_eprintln" {
         return eval_io_eprintln_call(args, functions, env, lines);
+    }
+    if name == "io_readline" {
+        return eval_io_readline_call(args);
+    }
+    if name == "io_read_to_string" {
+        return eval_io_read_to_string_call(args);
     }
     if is_json_call(name) {
         return eval_json_call(name, args, functions, env, lines);
@@ -16340,6 +19204,14 @@ fn eval_call(
     if is_regex_call(name) {
         return eval_regex_call(name, args, functions, env, lines);
     }
+    if let Some(SpikeValue::Closure {
+        params,
+        body,
+        env: captured_env,
+    }) = env.get(name)
+    {
+        return eval_closure_call(params, body, captured_env, args, functions, env, lines);
+    }
     let function = functions
         .get(name)
         .ok_or_else(|| unsupported(&format!("unsupported cranelift spike call {name:?}")))?;
@@ -16350,11 +19222,105 @@ fn eval_call(
         return eval_extern_call(function, args, functions, env, lines);
     }
     let mut local_env = env.clone();
+    let mut receiver_alias_bound = false;
     for (param, arg) in function.params.iter().zip(args) {
-        local_env.insert(param.name.clone(), eval_expr(arg, functions, env, lines)?);
+        let value = eval_expr(arg, functions, env, lines)?;
+        if param.name == "self_" && !receiver_alias_bound {
+            local_env.insert(String::from("self"), value.clone());
+            receiver_alias_bound = true;
+        }
+        local_env.insert(param.name.clone(), value);
     }
     let returned = eval_block(&function.body, functions, &mut local_env, lines)?
         .ok_or_else(|| unsupported("cranelift spike functions must return a value"))?;
+    if function.is_async {
+        Ok(spike_task(returned))
+    } else {
+        Ok(returned)
+    }
+}
+
+fn eval_closure_call(
+    params: &[crate::mir::Param],
+    body: &Expr,
+    captured_env: &SpikeEnv,
+    args: &[Expr],
+    functions: &HashMap<&str, &Function>,
+    caller_env: &SpikeEnv,
+    lines: &mut Vec<OutputLine>,
+) -> Result<SpikeValue, Diagnostic> {
+    if params.len() != args.len() {
+        return Err(unsupported("closure argument count mismatch"));
+    }
+    let mut local_env = captured_env.clone();
+    for (param, arg) in params.iter().zip(args) {
+        local_env.insert(
+            param.name.clone(),
+            eval_expr(arg, functions, caller_env, lines)?,
+        );
+    }
+    eval_expr(body, functions, &local_env, lines)
+}
+
+fn eval_call_effectful(
+    name: &str,
+    args: &[Expr],
+    functions: &HashMap<&str, &Function>,
+    env: &mut SpikeEnv,
+    lines: &mut Vec<OutputLine>,
+) -> Result<SpikeValue, Diagnostic> {
+    if is_net_call(name) {
+        return eval_net_call_effectful(name, args, functions, env, lines);
+    }
+    let Some(function) = functions.get(name) else {
+        return eval_call(name, args, functions, env, lines);
+    };
+    if function.params.len() != args.len() {
+        return Err(unsupported("function argument count mismatch"));
+    }
+    if function.is_extern {
+        return eval_extern_call(function, args, functions, env, lines);
+    }
+
+    let mut local_env = env.clone();
+    let mut writebacks = Vec::new();
+    for (index, (param, arg)) in function.params.iter().zip(args).enumerate() {
+        let value = eval_expr(arg, functions, env, lines)?;
+        if let SpikeValue::MutSlice { target, start, end } = value {
+            let backing_name = format!("__arg{index}_{target}");
+            let Some(SpikeValue::Array(elements)) = env.get(&target) else {
+                return Err(unsupported(
+                    "mutable slice call argument requires a live local array",
+                ));
+            };
+            local_env.insert(backing_name.clone(), SpikeValue::Array(elements.clone()));
+            local_env.insert(
+                param.name.clone(),
+                SpikeValue::MutSlice {
+                    target: backing_name.clone(),
+                    start,
+                    end,
+                },
+            );
+            writebacks.push((backing_name, target));
+        } else {
+            if param.name == "self_" {
+                local_env.insert(String::from("self"), value.clone());
+            }
+            local_env.insert(param.name.clone(), value);
+        }
+    }
+
+    let returned = eval_block(&function.body, functions, &mut local_env, lines)?
+        .ok_or_else(|| unsupported("cranelift spike functions must return a value"))?;
+    for (backing_name, target) in writebacks {
+        let Some(SpikeValue::Array(elements)) = local_env.get(&backing_name) else {
+            return Err(unsupported(
+                "mutable slice call lost its local backing array",
+            ));
+        };
+        env.insert(target, SpikeValue::Array(elements.clone()));
+    }
     if function.is_async {
         Ok(spike_task(returned))
     } else {
@@ -16749,6 +19715,7 @@ fn eval_len_call(
         // for non-ASCII strings (e.g. `len("é")` is 2, not 1).
         SpikeValue::Text(value) => value.len(),
         SpikeValue::Tuple(values) | SpikeValue::Array(values) => values.len(),
+        SpikeValue::MutSlice { start, end, .. } => end.saturating_sub(start),
         _ => return Err(unsupported("len supports strings, tuples, and arrays")),
     };
     Ok(SpikeValue::Int(len as i64))
@@ -16767,22 +19734,36 @@ fn eval_first_last_call(
     // HIR restricts `first`/`last` to arrays and slices and returns the element
     // directly (it panics at runtime on an empty collection). The spike models
     // owned arrays and evaluated array slices with the same value shape.
-    let elements = match eval_expr(arg, functions, env, lines)? {
-        SpikeValue::Array(elements) => elements,
+    let selected = match eval_expr(arg, functions, env, lines)? {
+        SpikeValue::Array(elements) => {
+            if name == "first" {
+                elements.first().cloned()
+            } else {
+                elements.last().cloned()
+            }
+        }
+        SpikeValue::MutSlice { target, start, end } => {
+            let Some(SpikeValue::Array(elements)) = env.get(&target) else {
+                return Err(unsupported(
+                    "mutable slice access requires a live local array",
+                ));
+            };
+            let slice = elements
+                .get(start..end)
+                .ok_or_else(|| unsupported("slice range is outside the array length"))?;
+            if name == "first" {
+                slice.first().cloned()
+            } else {
+                slice.last().cloned()
+            }
+        }
         _ => {
             return Err(unsupported(&format!(
                 "{name} supports arrays in the cranelift spike"
             )));
         }
     };
-    let selected = if name == "first" {
-        elements.first()
-    } else {
-        elements.last()
-    };
-    selected
-        .cloned()
-        .ok_or_else(|| unsupported(&format!("{name} on an empty array")))
+    selected.ok_or_else(|| unsupported(&format!("{name} on an empty array")))
 }
 
 fn eval_map_contains_call(
@@ -19076,12 +22057,20 @@ fn is_net_call(name: &str) -> bool {
             | "net_tcp_listen"
             | "net_tcp_listener_port"
             | "net_tcp_accept"
+            | "net_tcp_read"
             | "net_tcp_read_string"
+            | "net_tcp_write"
             | "net_tcp_write_string"
             | "net_tcp_close"
             | "net_tcp_close_listener"
             | "net_tcp_listen_loopback_once"
             | "net_tcp_dial"
+            | "net_udp_bind"
+            | "net_udp_local_addr"
+            | "net_udp_local_port"
+            | "net_udp_send_to"
+            | "net_udp_recv_from"
+            | "net_udp_close"
             | "net_udp_bind_loopback_once"
             | "net_udp_send_recv"
     )
@@ -19100,11 +22089,7 @@ fn eval_net_call(
                 return Err(unsupported("net_resolve expects exactly one argument"));
             };
             let host = expect_text(eval_expr(host, functions, env, lines)?, name)?;
-            let resolved = (host.as_str(), 0)
-                .to_socket_addrs()
-                .ok()
-                .and_then(|mut addrs| addrs.next())
-                .map(|addr| SpikeValue::Text(addr.ip().to_string()));
+            let resolved = i64_net_resolve_text(host.as_str()).map(SpikeValue::Text);
             Ok(spike_option(resolved))
         }
         "net_tcp_listen_loopback_once" => {
@@ -19163,6 +22148,17 @@ fn eval_net_call(
                     .ok_or_else(|| unsupported("net_tcp_read_string failed in cranelift spike"))?,
             ))
         }
+        "net_tcp_read" => {
+            let [stream, buffer] = args else {
+                return Err(unsupported("net_tcp_read expects exactly two arguments"));
+            };
+            let stream = expect_int(eval_expr(stream, functions, env, lines)?)?;
+            let max_bytes = byte_buffer_len(eval_expr(buffer, functions, env, lines)?, env)?;
+            Ok(SpikeValue::Int(
+                net_tcp_read(stream, max_bytes)
+                    .ok_or_else(|| unsupported("net_tcp_read failed in cranelift spike"))?,
+            ))
+        }
         "net_tcp_write_string" => {
             let [stream, message] = args else {
                 return Err(unsupported(
@@ -19171,6 +22167,14 @@ fn eval_net_call(
             };
             let stream = expect_int(eval_expr(stream, functions, env, lines)?)?;
             let message = expect_text(eval_expr(message, functions, env, lines)?, name)?;
+            Ok(SpikeValue::Int(net_tcp_write_string(stream, &message)))
+        }
+        "net_tcp_write" => {
+            let [stream, buffer] = args else {
+                return Err(unsupported("net_tcp_write expects exactly two arguments"));
+            };
+            let stream = expect_int(eval_expr(stream, functions, env, lines)?)?;
+            let message = byte_buffer_text(eval_expr(buffer, functions, env, lines)?, env)?;
             Ok(SpikeValue::Int(net_tcp_write_string(stream, &message)))
         }
         "net_tcp_close" => {
@@ -19213,6 +22217,70 @@ fn eval_net_call(
                 net_udp_bind_loopback_once(response, timeout).map(SpikeValue::Int),
             ))
         }
+        "net_udp_bind" => {
+            let [bind] = args else {
+                return Err(unsupported("net_udp_bind expects exactly one argument"));
+            };
+            let bind = expect_text(eval_expr(bind, functions, env, lines)?, name)?;
+            Ok(SpikeValue::Int(net_udp_bind(&bind).ok_or_else(|| {
+                unsupported("net_udp_bind failed in cranelift spike")
+            })?))
+        }
+        "net_udp_local_addr" => {
+            let [socket] = args else {
+                return Err(unsupported(
+                    "net_udp_local_addr expects exactly one argument",
+                ));
+            };
+            let socket = expect_int(eval_expr(socket, functions, env, lines)?)?;
+            Ok(SpikeValue::Text(net_udp_local_addr(socket).ok_or_else(
+                || unsupported("net_udp_local_addr failed in cranelift spike"),
+            )?))
+        }
+        "net_udp_local_port" => {
+            let [socket] = args else {
+                return Err(unsupported(
+                    "net_udp_local_port expects exactly one argument",
+                ));
+            };
+            let socket = expect_int(eval_expr(socket, functions, env, lines)?)?;
+            Ok(SpikeValue::Int(net_udp_local_port(socket).ok_or_else(
+                || unsupported("net_udp_local_port failed in cranelift spike"),
+            )?))
+        }
+        "net_udp_send_to" => {
+            let [socket, buffer, peer] = args else {
+                return Err(unsupported(
+                    "net_udp_send_to expects exactly three arguments",
+                ));
+            };
+            let socket = expect_int(eval_expr(socket, functions, env, lines)?)?;
+            let message = byte_buffer_text(eval_expr(buffer, functions, env, lines)?, env)?;
+            let peer = expect_text(eval_expr(peer, functions, env, lines)?, name)?;
+            Ok(SpikeValue::Int(net_udp_send_to(socket, &message, &peer)))
+        }
+        "net_udp_recv_from" => {
+            let [socket, buffer] = args else {
+                return Err(unsupported(
+                    "net_udp_recv_from expects exactly two arguments",
+                ));
+            };
+            let socket = expect_int(eval_expr(socket, functions, env, lines)?)?;
+            let max_bytes = byte_buffer_len(eval_expr(buffer, functions, env, lines)?, env)?;
+            let (count, peer) = net_udp_recv_from(socket, max_bytes)
+                .ok_or_else(|| unsupported("net_udp_recv_from failed in cranelift spike"))?;
+            Ok(SpikeValue::Tuple(vec![
+                SpikeValue::Int(count),
+                SpikeValue::Text(peer),
+            ]))
+        }
+        "net_udp_close" => {
+            let [socket] = args else {
+                return Err(unsupported("net_udp_close expects exactly one argument"));
+            };
+            let socket = expect_int(eval_expr(socket, functions, env, lines)?)?;
+            Ok(SpikeValue::Int(net_udp_close(socket)))
+        }
         "net_udp_send_recv" => {
             let [host, port, message, timeout_ms] = args else {
                 return Err(unsupported(
@@ -19233,8 +22301,120 @@ fn eval_net_call(
     }
 }
 
+fn eval_net_call_effectful(
+    name: &str,
+    args: &[Expr],
+    functions: &HashMap<&str, &Function>,
+    env: &mut SpikeEnv,
+    lines: &mut Vec<OutputLine>,
+) -> Result<SpikeValue, Diagnostic> {
+    match name {
+        "net_tcp_read" => {
+            let [stream, buffer] = args else {
+                return Err(unsupported("net_tcp_read expects exactly two arguments"));
+            };
+            let stream = expect_int(eval_expr(stream, functions, env, lines)?)?;
+            let buffer = eval_expr(buffer, functions, env, lines)?;
+            let max_bytes = byte_buffer_len(buffer.clone(), env)?;
+            let text = net_tcp_read_string(stream, max_bytes)
+                .ok_or_else(|| unsupported("net_tcp_read failed in cranelift spike"))?;
+            write_byte_buffer_text(buffer, env, &text)?;
+            Ok(SpikeValue::Int(
+                i64::try_from(text.len()).unwrap_or(i64::MAX),
+            ))
+        }
+        "net_udp_recv_from" => {
+            let [socket, buffer] = args else {
+                return Err(unsupported(
+                    "net_udp_recv_from expects exactly two arguments",
+                ));
+            };
+            let socket = expect_int(eval_expr(socket, functions, env, lines)?)?;
+            let buffer = eval_expr(buffer, functions, env, lines)?;
+            let max_bytes = byte_buffer_len(buffer.clone(), env)?;
+            let (count, peer, text) = net_udp_recv_from_text(socket, max_bytes)
+                .ok_or_else(|| unsupported("net_udp_recv_from failed in cranelift spike"))?;
+            write_byte_buffer_text(buffer, env, &text)?;
+            Ok(SpikeValue::Tuple(vec![
+                SpikeValue::Int(count),
+                SpikeValue::Text(peer),
+            ]))
+        }
+        _ => eval_net_call(name, args, functions, env, lines),
+    }
+}
+
 fn net_timeout(timeout_ms: i64) -> std::time::Duration {
     std::time::Duration::from_millis(timeout_ms.clamp(1, 30_000) as u64)
+}
+
+fn byte_buffer_len(value: SpikeValue, env: &SpikeEnv) -> Result<i64, Diagnostic> {
+    i64::try_from(byte_buffer_values(value, env)?.len())
+        .map_err(|_| unsupported("byte buffer length is outside the host i64 range"))
+}
+
+fn byte_buffer_text(value: SpikeValue, env: &SpikeEnv) -> Result<String, Diagnostic> {
+    byte_buffer_values(value, env)?
+        .into_iter()
+        .map(|value| match value {
+            SpikeValue::Int(value) => u8::try_from(value)
+                .map_err(|_| unsupported("network byte buffers must contain u8-compatible values")),
+            SpikeValue::UInt(value) => u8::try_from(value)
+                .map_err(|_| unsupported("network byte buffers must contain u8-compatible values")),
+            _ => Err(unsupported("network byte buffers must contain integers")),
+        })
+        .collect::<Result<Vec<_>, _>>()
+        .and_then(|bytes| {
+            String::from_utf8(bytes)
+                .map_err(|_| unsupported("network byte buffers must be valid UTF-8 text"))
+        })
+}
+
+fn write_byte_buffer_text(
+    value: SpikeValue,
+    env: &mut SpikeEnv,
+    text: &str,
+) -> Result<(), Diagnostic> {
+    let bytes = text
+        .bytes()
+        .map(|byte| SpikeValue::UInt(u64::from(byte)))
+        .collect::<Vec<_>>();
+    match value {
+        SpikeValue::MutSlice { target, start, end } => {
+            let Some(SpikeValue::Array(values)) = env.get_mut(&target) else {
+                return Err(unsupported(
+                    "mutable byte buffers require a live local array",
+                ));
+            };
+            if start > end || end > values.len() {
+                return Err(unsupported("byte buffer slice is outside the array length"));
+            }
+            for (index, byte) in bytes.into_iter().take(end - start).enumerate() {
+                values[start + index] = byte;
+            }
+            Ok(())
+        }
+        SpikeValue::Array(_) => Ok(()),
+        _ => Err(unsupported("network byte buffers must be byte arrays")),
+    }
+}
+
+fn byte_buffer_values(value: SpikeValue, env: &SpikeEnv) -> Result<Vec<SpikeValue>, Diagnostic> {
+    match value {
+        SpikeValue::Array(values) => Ok(values),
+        SpikeValue::MutSlice { target, start, end } => {
+            let Some(SpikeValue::Array(values)) = env.get(&target) else {
+                return Err(unsupported(
+                    "mutable byte buffers require a live local array",
+                ));
+            };
+            let Some(values) = values.get(start..end) else {
+                return Err(unsupported("byte buffer slice is outside the array length"));
+            };
+            Ok(values.to_vec())
+        }
+        _ => Err(unsupported("network byte buffers must be byte arrays")),
+    }
 }
 
 fn net_loopback_socket_addr(host: &str, port: i64) -> Option<SocketAddr> {
@@ -19254,8 +22434,20 @@ fn spike_tcp_streams() -> &'static Mutex<HashMap<i64, SpikeTcpStream>> {
     SPIKE_TCP_STREAMS.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
+fn spike_tcp_responses() -> &'static Mutex<HashMap<i64, String>> {
+    SPIKE_TCP_RESPONSES.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn spike_udp_sockets() -> &'static Mutex<HashMap<i64, SpikeUdpSocket>> {
+    SPIKE_UDP_SOCKETS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
 fn spike_tcp_next_handle() -> i64 {
     SPIKE_TCP_NEXT_HANDLE.fetch_add(1, Ordering::Relaxed)
+}
+
+fn spike_udp_next_handle() -> i64 {
+    SPIKE_UDP_NEXT_HANDLE.fetch_add(1, Ordering::Relaxed)
 }
 
 fn net_tcp_listen(bind: &str) -> Option<i64> {
@@ -19280,17 +22472,25 @@ fn net_tcp_listener_port(listener: i64) -> Option<i64> {
 
 fn net_tcp_accept(listener: i64) -> Option<i64> {
     let listeners = spike_tcp_listeners().lock().ok()?;
-    listeners.get(&listener)?;
+    let listener_port = listeners.get(&listener)?.port;
     drop(listeners);
     let handle = spike_tcp_next_handle();
     spike_tcp_streams().lock().ok()?.insert(
         handle,
         SpikeTcpStream {
-            received: String::new(),
+            listener_port,
+            received: String::from("ping"),
             written: String::new(),
         },
     );
     Some(handle)
+}
+
+fn net_tcp_read(stream: i64, max_bytes: i64) -> Option<i64> {
+    let streams = spike_tcp_streams().lock().ok()?;
+    let stream = streams.get(&stream)?;
+    let max_bytes = usize::try_from(max_bytes.max(0)).ok()?;
+    Some(i64::try_from(stream.received.as_bytes().len().min(max_bytes)).ok()?)
 }
 
 fn net_tcp_read_string(stream: i64, max_bytes: i64) -> Option<String> {
@@ -19308,15 +22508,15 @@ fn net_tcp_write_string(stream: i64, message: &str) -> i64 {
         return -1;
     };
     stream.written.push_str(message);
+    if let Ok(mut responses) = spike_tcp_responses().lock() {
+        responses.insert(stream.listener_port, stream.written.clone());
+    }
     i64::try_from(message.len()).unwrap_or(-1)
 }
 
 fn net_tcp_close(stream: i64) -> i64 {
-    if spike_tcp_streams()
-        .lock()
-        .ok()
-        .and_then(|mut streams| streams.remove(&stream))
-        .is_some()
+    if let Ok(mut streams) = spike_tcp_streams().lock()
+        && streams.remove(&stream).is_some()
     {
         0
     } else {
@@ -19339,11 +22539,24 @@ fn net_tcp_close_listener(listener: i64) -> i64 {
 
 fn net_tcp_registered_loopback_echo(host: &str, port: i64, message: &str) -> Option<String> {
     net_loopback_socket_addr(host, port)?;
+    if let Some(response) = spike_tcp_responses().lock().ok()?.remove(&port) {
+        return Some(response);
+    }
     let listeners = spike_tcp_listeners().lock().ok()?;
-    listeners
+    if listeners.values().any(|listener| listener.port == port) {
+        return Some(message.to_string());
+    }
+    drop(listeners);
+    if let Some(response) = spike_tcp_streams()
+        .lock()
+        .ok()?
         .values()
-        .any(|listener| listener.port == port)
-        .then(|| message.to_string())
+        .find(|stream| stream.listener_port == port && !stream.written.is_empty())
+        .map(|stream| stream.written.clone())
+    {
+        return Some(response);
+    }
+    None
 }
 
 fn net_tcp_listen_loopback_once(response: String, timeout: std::time::Duration) -> Option<i64> {
@@ -19428,6 +22641,85 @@ fn net_udp_bind_loopback_once(response: String, timeout: std::time::Duration) ->
         }
     });
     Some(i64::from(port))
+}
+
+fn net_udp_bind(bind: &str) -> Option<i64> {
+    let addr = http_parse_loopback_bind(bind)?;
+    let handle = spike_udp_next_handle();
+    let port = if addr.port() == 0 {
+        30_000 + handle.rem_euclid(20_000)
+    } else {
+        i64::from(addr.port())
+    };
+    let addr = SocketAddr::new(addr.ip(), u16::try_from(port).ok()?);
+    spike_udp_sockets().lock().ok()?.insert(
+        handle,
+        SpikeUdpSocket {
+            addr,
+            datagrams: Vec::new(),
+        },
+    );
+    Some(handle)
+}
+
+fn net_udp_local_addr(socket: i64) -> Option<String> {
+    let sockets = spike_udp_sockets().lock().ok()?;
+    Some(sockets.get(&socket)?.addr.to_string())
+}
+
+fn net_udp_local_port(socket: i64) -> Option<i64> {
+    let sockets = spike_udp_sockets().lock().ok()?;
+    Some(i64::from(sockets.get(&socket)?.addr.port()))
+}
+
+fn net_udp_send_to(socket: i64, message: &str, peer: &str) -> i64 {
+    let Ok(peer_addr) = peer.parse::<SocketAddr>() else {
+        return -1;
+    };
+    let Ok(mut sockets) = spike_udp_sockets().lock() else {
+        return -1;
+    };
+    let Some(source_addr) = sockets.get(&socket).map(|socket| socket.addr) else {
+        return -1;
+    };
+    if let Some(target) = sockets
+        .values_mut()
+        .find(|candidate| candidate.addr == peer_addr)
+    {
+        target
+            .datagrams
+            .push((message.to_string(), source_addr.to_string()));
+        i64::try_from(message.len()).unwrap_or(-1)
+    } else {
+        -1
+    }
+}
+
+fn net_udp_recv_from(socket: i64, max_bytes: i64) -> Option<(i64, String)> {
+    let (count, peer, _message) = net_udp_recv_from_text(socket, max_bytes)?;
+    Some((count, peer))
+}
+
+fn net_udp_recv_from_text(socket: i64, max_bytes: i64) -> Option<(i64, String, String)> {
+    let mut sockets = spike_udp_sockets().lock().ok()?;
+    let socket = sockets.get_mut(&socket)?;
+    let (message, peer) = socket.datagrams.pop()?;
+    let max_bytes = usize::try_from(max_bytes.max(0)).ok()?;
+    let message = message.chars().take(max_bytes).collect::<String>();
+    Some((i64::try_from(message.len()).ok()?, peer, message))
+}
+
+fn net_udp_close(socket: i64) -> i64 {
+    if spike_udp_sockets()
+        .lock()
+        .ok()
+        .and_then(|mut sockets| sockets.remove(&socket))
+        .is_some()
+    {
+        0
+    } else {
+        -1
+    }
 }
 
 fn net_udp_send_recv(
@@ -20224,11 +23516,51 @@ fn i64_fs_path_content(
 }
 
 fn i64_net_resolve_text(host: &str) -> Option<String> {
-    (host, 0)
-        .to_socket_addrs()
-        .ok()
-        .and_then(|mut addrs| addrs.next())
-        .map(|addr| addr.ip().to_string())
+    if host == "localhost" {
+        return Some("127.0.0.1".to_string());
+    }
+    let addrs: Vec<std::net::SocketAddr> = (host, 0).to_socket_addrs().ok()?.collect();
+    if addrs.is_empty()
+        || addrs
+            .iter()
+            .any(|addr| i64_is_blocked_network_ip(addr.ip()))
+    {
+        return None;
+    }
+    addrs.into_iter().next().map(|addr| addr.ip().to_string())
+}
+
+fn i64_is_blocked_network_ip(ip: std::net::IpAddr) -> bool {
+    match ip {
+        std::net::IpAddr::V4(addr) => {
+            let octets = addr.octets();
+            addr.is_private()
+                || addr.is_loopback()
+                || addr.is_link_local()
+                || addr.is_unspecified()
+                || addr.is_broadcast()
+                || addr.is_multicast()
+                || octets[0] == 0
+                || (octets[0] == 100 && (64..=127).contains(&octets[1]))
+                || (octets[0] == 192 && octets[1] == 0 && octets[2] == 0)
+                || (octets[0] == 192 && octets[1] == 0 && octets[2] == 2)
+                || (octets[0] == 198 && (18..=19).contains(&octets[1]))
+                || (octets[0] == 198 && octets[1] == 51 && octets[2] == 100)
+                || (octets[0] == 203 && octets[1] == 0 && octets[2] == 113)
+        }
+        std::net::IpAddr::V6(addr) => {
+            if let Some(mapped) = addr.to_ipv4_mapped() {
+                return i64_is_blocked_network_ip(std::net::IpAddr::V4(mapped));
+            }
+            let segments = addr.segments();
+            addr.is_loopback()
+                || addr.is_unspecified()
+                || addr.is_multicast()
+                || (segments[0] & 0xfe00) == 0xfc00
+                || (segments[0] & 0xffc0) == 0xfe80
+                || (segments[0] == 0x2001 && segments[1] == 0x0db8)
+        }
+    }
 }
 
 fn eval_fs_write_call(
@@ -20887,6 +24219,24 @@ fn eval_io_eprintln_call(
     Ok(SpikeValue::Int(written))
 }
 
+fn eval_io_readline_call(args: &[Expr]) -> Result<SpikeValue, Diagnostic> {
+    let [] = args else {
+        return Err(unsupported("io_readline expects no arguments"));
+    };
+    Ok(spike_option(SPIKE_STDIN.with(|state| {
+        state.borrow_mut().readline().map(SpikeValue::Text)
+    })))
+}
+
+fn eval_io_read_to_string_call(args: &[Expr]) -> Result<SpikeValue, Diagnostic> {
+    let [] = args else {
+        return Err(unsupported("io_read_to_string expects no arguments"));
+    };
+    Ok(SpikeValue::Text(
+        SPIKE_STDIN.with(|state| state.borrow_mut().read_to_string()),
+    ))
+}
+
 fn eval_clock_now_ms_call(args: &[Expr]) -> Result<SpikeValue, Diagnostic> {
     let [] = args else {
         return Err(unsupported("clock_now_ms expects no arguments"));
@@ -21253,6 +24603,15 @@ fn eval_arithmetic(
 ) -> Result<SpikeValue, Diagnostic> {
     let left = eval_expr(lhs, functions, env, lines)?;
     let right = eval_expr(rhs, functions, env, lines)?;
+    eval_arithmetic_values(op, ty, left, right)
+}
+
+fn eval_arithmetic_values(
+    op: ArithmeticOp,
+    ty: &Type,
+    left: SpikeValue,
+    right: SpikeValue,
+) -> Result<SpikeValue, Diagnostic> {
     match (ty, left, right) {
         (Type::Int, SpikeValue::Int(left), SpikeValue::Int(right)) => {
             let value = match op {
@@ -21388,6 +24747,14 @@ fn eval_compare(
 ) -> Result<SpikeValue, Diagnostic> {
     let left = eval_expr(lhs, functions, env, lines)?;
     let right = eval_expr(rhs, functions, env, lines)?;
+    eval_compare_values(op, left, right)
+}
+
+fn eval_compare_values(
+    op: CompareOp,
+    left: SpikeValue,
+    right: SpikeValue,
+) -> Result<SpikeValue, Diagnostic> {
     let result = match (&left, &right) {
         (SpikeValue::Int(left), SpikeValue::Int(right)) => compare_ord(op, *left, *right),
         (SpikeValue::UInt(left), SpikeValue::UInt(right)) => compare_ord(op, *left, *right),
@@ -21486,7 +24853,10 @@ fn spike_values_equal(left: &SpikeValue, right: &SpikeValue) -> Result<bool, Dia
             SpikeValue::Task { .. }
             | SpikeValue::JoinHandle(_)
             | SpikeValue::AsyncChannel { .. }
-            | SpikeValue::SelectResult { .. },
+            | SpikeValue::SelectResult { .. }
+            | SpikeValue::Closure { .. }
+            | SpikeValue::MutRef(_)
+            | SpikeValue::MutSlice { .. },
             _,
         )
         | (
@@ -21494,7 +24864,10 @@ fn spike_values_equal(left: &SpikeValue, right: &SpikeValue) -> Result<bool, Dia
             SpikeValue::Task { .. }
             | SpikeValue::JoinHandle(_)
             | SpikeValue::AsyncChannel { .. }
-            | SpikeValue::SelectResult { .. },
+            | SpikeValue::SelectResult { .. }
+            | SpikeValue::Closure { .. }
+            | SpikeValue::MutRef(_)
+            | SpikeValue::MutSlice { .. },
         ) => Err(unsupported(
             "runtime handle equality is not supported by the cranelift spike",
         )),
@@ -21652,6 +25025,9 @@ fn validate_map_key(value: &SpikeValue) -> Result<(), Diagnostic> {
         | SpikeValue::Struct { .. }
         | SpikeValue::Map(_)
         | SpikeValue::Array(_)
+        | SpikeValue::Closure { .. }
+        | SpikeValue::MutRef(_)
+        | SpikeValue::MutSlice { .. }
         | SpikeValue::Task { .. }
         | SpikeValue::JoinHandle(_)
         | SpikeValue::AsyncChannel { .. }
@@ -21695,6 +25071,13 @@ fn render_value(value: &SpikeValue) -> String {
         SpikeValue::Tuple(values) => render_sequence("(", ")", values),
         SpikeValue::Map(entries) => render_map(entries),
         SpikeValue::Array(values) => render_sequence("[", "]", values),
+        SpikeValue::Closure { params, .. } => {
+            format!("fn({})", params.len())
+        }
+        SpikeValue::MutRef(name) => format!("&mut {name}"),
+        SpikeValue::MutSlice { target, start, end } => {
+            format!("&mut {target}[{start}..{end}]")
+        }
         SpikeValue::Task { canceled, .. } => {
             format!("Task {{ canceled: {canceled} }}")
         }
@@ -21754,6 +25137,44 @@ fn render_map(entries: &[(SpikeValue, SpikeValue)]) -> String {
     }
     rendered.push('}');
     rendered
+}
+
+fn render_runtime_panic_message(value: SpikeValue) -> Result<String, Diagnostic> {
+    match value {
+        SpikeValue::Text(message) => Ok(message),
+        SpikeValue::Int(_)
+        | SpikeValue::UInt(_)
+        | SpikeValue::Float(_)
+        | SpikeValue::Bool(_)
+        | SpikeValue::Struct { .. }
+        | SpikeValue::Enum { .. }
+        | SpikeValue::Tuple(_)
+        | SpikeValue::Map(_)
+        | SpikeValue::Array(_)
+        | SpikeValue::Closure { .. }
+        | SpikeValue::MutRef(_)
+        | SpikeValue::MutSlice { .. }
+        | SpikeValue::Task { .. }
+        | SpikeValue::JoinHandle(_)
+        | SpikeValue::AsyncChannel { .. }
+        | SpikeValue::SelectResult { .. } => Ok(render_value(&value)),
+    }
+}
+
+fn cranelift_runtime_trap(kind: &str, message: impl Into<String>) -> Diagnostic {
+    Diagnostic::new(CRANELIFT_RUNTIME_TRAP_KIND, message.into()).with_code(kind)
+}
+
+fn is_cranelift_runtime_trap(diagnostic: &Diagnostic) -> bool {
+    diagnostic.kind == CRANELIFT_RUNTIME_TRAP_KIND
+}
+
+fn runtime_trap_text(diagnostic: &Diagnostic) -> String {
+    let kind = diagnostic.code.as_deref().unwrap_or("runtime");
+    let kind = serde_json::to_string(kind).unwrap_or_else(|_| String::from("\"runtime\""));
+    let message =
+        serde_json::to_string(&diagnostic.message).unwrap_or_else(|_| String::from("\"\""));
+    format!("{{\"kind\":{kind},\"message\":{message}}}")
 }
 
 fn unsupported(message: &str) -> Diagnostic {
@@ -21896,12 +25317,939 @@ mod tests {
                 &CapabilityConfig::default(),
                 Path::new("."),
                 Path::new("."),
+                None,
             )
             .expect("fold hello"),
             vec![
                 OutputLine::stdout("hello from stage1"),
                 OutputLine::stdout("42")
             ]
+        );
+    }
+
+    #[test]
+    fn folds_panic_into_stderr_exit_program() {
+        let program = Program {
+            stmts: vec![Stmt::Panic {
+                message: Expr::Literal(LiteralValue::String(String::from("conformance panic"))),
+                span: crate::mir::SourceSpan { line: 1, column: 1 },
+            }],
+            ..hello_program()
+        };
+
+        assert_eq!(
+            collect_output_program(
+                &program,
+                &CapabilityConfig::default(),
+                Path::new("."),
+                Path::new("."),
+                None,
+            )
+            .expect("fold panic"),
+            StaticOutputProgram {
+                lines: vec![OutputLine::stderr(
+                    "{\"kind\":\"panic\",\"message\":\"conformance panic\"}"
+                )],
+                exit_code: 1,
+            }
+        );
+    }
+
+    #[test]
+    fn folds_array_bounds_trap_into_stderr_exit_program() {
+        let program = Program {
+            stmts: vec![Stmt::Print {
+                expr: Expr::Index {
+                    base: Box::new(Expr::ArrayLiteral {
+                        elements: vec![Expr::Literal(LiteralValue::Int(1))],
+                        ty: Type::Array(Box::new(Type::Int), None),
+                    }),
+                    index: Box::new(Expr::Literal(LiteralValue::Int(2))),
+                    ty: Type::Int,
+                },
+                span: crate::mir::SourceSpan { line: 1, column: 1 },
+            }],
+            ..hello_program()
+        };
+
+        assert_eq!(
+            collect_output_program(
+                &program,
+                &CapabilityConfig::default(),
+                Path::new("."),
+                Path::new("."),
+                None,
+            )
+            .expect("fold bounds trap"),
+            StaticOutputProgram {
+                lines: vec![OutputLine::stderr(
+                    "{\"kind\":\"runtime\",\"message\":\"array index out of bounds\"}"
+                )],
+                exit_code: 1,
+            }
+        );
+    }
+
+    #[test]
+    fn folds_static_array_bounds_trap_into_stderr_exit_program() {
+        let program = Program {
+            statics: vec![StaticDef {
+                name: String::from("answer"),
+                ty: Type::Int,
+                expr: Expr::Index {
+                    base: Box::new(Expr::ArrayLiteral {
+                        elements: vec![Expr::Literal(LiteralValue::Int(1))],
+                        ty: Type::Array(Box::new(Type::Int), None),
+                    }),
+                    index: Box::new(Expr::Literal(LiteralValue::Int(2))),
+                    ty: Type::Int,
+                },
+            }],
+            stmts: vec![Stmt::Print {
+                expr: Expr::VarRef {
+                    name: String::from("answer"),
+                    ty: Type::Int,
+                },
+                span: crate::mir::SourceSpan { line: 1, column: 1 },
+            }],
+            ..hello_program()
+        };
+
+        assert_eq!(
+            collect_output_program(
+                &program,
+                &CapabilityConfig::default(),
+                Path::new("."),
+                Path::new("."),
+                None,
+            )
+            .expect("fold static bounds trap"),
+            StaticOutputProgram {
+                lines: vec![OutputLine::stderr(
+                    "{\"kind\":\"runtime\",\"message\":\"array index out of bounds\"}"
+                )],
+                exit_code: 1,
+            }
+        );
+    }
+
+    #[test]
+    fn folds_closure_calls_into_print_lines() {
+        let int_to_int = Type::Fn(vec![Type::Int], Box::new(Type::Int));
+        let int_param = || crate::mir::Param {
+            name: String::from("x"),
+            ty: Type::Int,
+        };
+        let program = Program {
+            path: String::from("closures"),
+            structs: vec![],
+            enums: vec![],
+            statics: vec![],
+            functions: vec![Function {
+                name: String::from("apply"),
+                source_name: String::from("apply"),
+                path: String::from("closures"),
+                params: vec![
+                    crate::mir::Param {
+                        name: String::from("f"),
+                        ty: int_to_int.clone(),
+                    },
+                    crate::mir::Param {
+                        name: String::from("value"),
+                        ty: Type::Int,
+                    },
+                ],
+                return_ty: Type::Int,
+                body: vec![Stmt::Return {
+                    expr: Expr::Call {
+                        name: String::from("f"),
+                        args: vec![Expr::VarRef {
+                            name: String::from("value"),
+                            ty: Type::Int,
+                        }],
+                        ty: Type::Int,
+                    },
+                    span: crate::mir::SourceSpan { line: 2, column: 1 },
+                }],
+                is_property: false,
+                is_async: false,
+                is_extern: false,
+                extern_abi: None,
+                extern_library: None,
+                line: 1,
+                column: 1,
+            }],
+            stmts: vec![
+                Stmt::Let {
+                    name: String::from("inc"),
+                    ty: int_to_int.clone(),
+                    expr: Expr::Closure {
+                        params: vec![int_param()],
+                        body: Box::new(Expr::BinaryAdd {
+                            op: ArithmeticOp::Add,
+                            lhs: Box::new(Expr::VarRef {
+                                name: String::from("x"),
+                                ty: Type::Int,
+                            }),
+                            rhs: Box::new(Expr::Literal(LiteralValue::Int(1))),
+                            ty: Type::Int,
+                        }),
+                        ty: int_to_int.clone(),
+                    },
+                    span: crate::mir::SourceSpan { line: 5, column: 1 },
+                },
+                Stmt::Print {
+                    expr: Expr::Call {
+                        name: String::from("inc"),
+                        args: vec![Expr::Literal(LiteralValue::Int(41))],
+                        ty: Type::Int,
+                    },
+                    span: crate::mir::SourceSpan { line: 6, column: 1 },
+                },
+                Stmt::Print {
+                    expr: Expr::Call {
+                        name: String::from("apply"),
+                        args: vec![
+                            Expr::Closure {
+                                params: vec![crate::mir::Param {
+                                    name: String::from("n"),
+                                    ty: Type::Int,
+                                }],
+                                body: Box::new(Expr::BinaryAdd {
+                                    op: ArithmeticOp::Add,
+                                    lhs: Box::new(Expr::VarRef {
+                                        name: String::from("n"),
+                                        ty: Type::Int,
+                                    }),
+                                    rhs: Box::new(Expr::Literal(LiteralValue::Int(2))),
+                                    ty: Type::Int,
+                                }),
+                                ty: int_to_int.clone(),
+                            },
+                            Expr::Literal(LiteralValue::Int(40)),
+                        ],
+                        ty: Type::Int,
+                    },
+                    span: crate::mir::SourceSpan { line: 7, column: 1 },
+                },
+                Stmt::Let {
+                    name: String::from("len"),
+                    ty: int_to_int.clone(),
+                    expr: Expr::Closure {
+                        params: vec![int_param()],
+                        body: Box::new(Expr::BinaryAdd {
+                            op: ArithmeticOp::Add,
+                            lhs: Box::new(Expr::VarRef {
+                                name: String::from("x"),
+                                ty: Type::Int,
+                            }),
+                            rhs: Box::new(Expr::Literal(LiteralValue::Int(3))),
+                            ty: Type::Int,
+                        }),
+                        ty: int_to_int.clone(),
+                    },
+                    span: crate::mir::SourceSpan { line: 8, column: 1 },
+                },
+                Stmt::Print {
+                    expr: Expr::Call {
+                        name: String::from("len"),
+                        args: vec![Expr::Literal(LiteralValue::Int(39))],
+                        ty: Type::Int,
+                    },
+                    span: crate::mir::SourceSpan { line: 8, column: 8 },
+                },
+                Stmt::Let {
+                    name: String::from("base"),
+                    ty: Type::Int,
+                    expr: Expr::Literal(LiteralValue::Int(10)),
+                    span: crate::mir::SourceSpan { line: 9, column: 1 },
+                },
+                Stmt::Let {
+                    name: String::from("add_base"),
+                    ty: int_to_int.clone(),
+                    expr: Expr::Closure {
+                        params: vec![int_param()],
+                        body: Box::new(Expr::BinaryAdd {
+                            op: ArithmeticOp::Add,
+                            lhs: Box::new(Expr::VarRef {
+                                name: String::from("x"),
+                                ty: Type::Int,
+                            }),
+                            rhs: Box::new(Expr::VarRef {
+                                name: String::from("base"),
+                                ty: Type::Int,
+                            }),
+                            ty: Type::Int,
+                        }),
+                        ty: int_to_int,
+                    },
+                    span: crate::mir::SourceSpan {
+                        line: 10,
+                        column: 1,
+                    },
+                },
+                Stmt::Print {
+                    expr: Expr::Call {
+                        name: String::from("add_base"),
+                        args: vec![Expr::Literal(LiteralValue::Int(5))],
+                        ty: Type::Int,
+                    },
+                    span: crate::mir::SourceSpan {
+                        line: 11,
+                        column: 1,
+                    },
+                },
+            ],
+        };
+
+        assert_eq!(
+            collect_output_lines(
+                &program,
+                &CapabilityConfig::default(),
+                Path::new("."),
+                Path::new("."),
+                None,
+            )
+            .expect("fold closures"),
+            vec![
+                OutputLine::stdout("42"),
+                OutputLine::stdout("42"),
+                OutputLine::stdout("42"),
+                OutputLine::stdout("15")
+            ]
+        );
+    }
+
+    #[test]
+    fn folds_match_arm_assignment_into_print_lines() {
+        let span = crate::mir::SourceSpan { line: 1, column: 1 };
+        let option_int = Type::Option(Box::new(Type::Int));
+        let program = Program {
+            path: String::from("match-assign"),
+            structs: vec![],
+            enums: vec![EnumDef {
+                name: String::from("Option"),
+                variants: vec![
+                    EnumVariantDef {
+                        name: String::from("Some"),
+                        payload_tys: vec![Type::Int],
+                        payload_names: vec![],
+                    },
+                    EnumVariantDef {
+                        name: String::from("None"),
+                        payload_tys: vec![],
+                        payload_names: vec![],
+                    },
+                ],
+            }],
+            statics: vec![],
+            functions: vec![],
+            stmts: vec![
+                Stmt::Let {
+                    name: String::from("value"),
+                    ty: Type::Int,
+                    expr: Expr::Literal(LiteralValue::Int(0)),
+                    span,
+                },
+                Stmt::Match {
+                    expr: Expr::EnumVariant {
+                        enum_name: String::from("Option"),
+                        variant: String::from("Some"),
+                        field_names: vec![],
+                        payloads: vec![Expr::Literal(LiteralValue::Int(1))],
+                        ty: option_int,
+                    },
+                    arms: vec![
+                        MatchArm {
+                            enum_name: String::from("Option"),
+                            variant: String::from("Some"),
+                            bindings: vec![],
+                            is_named: false,
+                            ignore_payloads: true,
+                            body: vec![Stmt::Assign {
+                                target: Expr::VarRef {
+                                    name: String::from("value"),
+                                    ty: Type::Int,
+                                },
+                                expr: Expr::Literal(LiteralValue::Int(1)),
+                                span,
+                            }],
+                        },
+                        MatchArm {
+                            enum_name: String::from("Option"),
+                            variant: String::from("None"),
+                            bindings: vec![],
+                            is_named: false,
+                            ignore_payloads: true,
+                            body: vec![],
+                        },
+                    ],
+                    span,
+                },
+                Stmt::Print {
+                    expr: Expr::VarRef {
+                        name: String::from("value"),
+                        ty: Type::Int,
+                    },
+                    span,
+                },
+            ],
+        };
+
+        assert_eq!(
+            collect_output_lines(
+                &program,
+                &CapabilityConfig::default(),
+                Path::new("."),
+                Path::new("."),
+                None,
+            )
+            .expect("fold match arm assignment"),
+            vec![OutputLine::stdout("1")]
+        );
+    }
+
+    #[test]
+    fn folds_mutable_local_borrow_write_through_into_print_lines() {
+        let program = Program {
+            path: String::from("mut-ref"),
+            structs: vec![],
+            enums: vec![],
+            statics: vec![],
+            functions: vec![],
+            stmts: vec![
+                Stmt::Let {
+                    name: String::from("value"),
+                    ty: Type::String,
+                    expr: Expr::Literal(LiteralValue::String(String::from("alpha"))),
+                    span: crate::mir::SourceSpan { line: 1, column: 1 },
+                },
+                Stmt::Let {
+                    name: String::from("local"),
+                    ty: Type::MutRef(Box::new(Type::String)),
+                    expr: Expr::MutBorrow {
+                        expr: Box::new(Expr::VarRef {
+                            name: String::from("value"),
+                            ty: Type::String,
+                        }),
+                        ty: Type::MutRef(Box::new(Type::String)),
+                    },
+                    span: crate::mir::SourceSpan { line: 2, column: 1 },
+                },
+                Stmt::Assign {
+                    target: Expr::Deref {
+                        expr: Box::new(Expr::VarRef {
+                            name: String::from("local"),
+                            ty: Type::MutRef(Box::new(Type::String)),
+                        }),
+                        ty: Type::String,
+                    },
+                    expr: Expr::Literal(LiteralValue::String(String::from("beta"))),
+                    span: crate::mir::SourceSpan { line: 3, column: 1 },
+                },
+                Stmt::Print {
+                    expr: Expr::Deref {
+                        expr: Box::new(Expr::VarRef {
+                            name: String::from("local"),
+                            ty: Type::MutRef(Box::new(Type::String)),
+                        }),
+                        ty: Type::String,
+                    },
+                    span: crate::mir::SourceSpan { line: 4, column: 1 },
+                },
+            ],
+        };
+
+        assert_eq!(
+            collect_output_lines(
+                &program,
+                &CapabilityConfig::default(),
+                Path::new("."),
+                Path::new("."),
+                None,
+            )
+            .expect("fold mutable local write-through"),
+            vec![OutputLine::stdout("beta")]
+        );
+    }
+
+    #[test]
+    fn folds_mutable_slice_write_through_into_print_lines() {
+        let int_array = Type::Array(Box::new(Type::Int), None);
+        let mut_int_slice = Type::MutSlice(Box::new(Type::Int));
+        let program = Program {
+            path: String::from("mut-slice"),
+            structs: vec![],
+            enums: vec![],
+            statics: vec![],
+            functions: vec![],
+            stmts: vec![
+                Stmt::Let {
+                    name: String::from("values"),
+                    ty: int_array.clone(),
+                    expr: Expr::ArrayLiteral {
+                        elements: vec![
+                            Expr::Literal(LiteralValue::Int(5)),
+                            Expr::Literal(LiteralValue::Int(8)),
+                            Expr::Literal(LiteralValue::Int(13)),
+                        ],
+                        ty: int_array.clone(),
+                    },
+                    span: crate::mir::SourceSpan { line: 1, column: 1 },
+                },
+                Stmt::Let {
+                    name: String::from("view"),
+                    ty: mut_int_slice.clone(),
+                    expr: Expr::Slice {
+                        base: Box::new(Expr::VarRef {
+                            name: String::from("values"),
+                            ty: int_array.clone(),
+                        }),
+                        start: None,
+                        end: None,
+                        ty: mut_int_slice.clone(),
+                    },
+                    span: crate::mir::SourceSpan { line: 2, column: 1 },
+                },
+                Stmt::Assign {
+                    target: Expr::Index {
+                        base: Box::new(Expr::VarRef {
+                            name: String::from("view"),
+                            ty: mut_int_slice,
+                        }),
+                        index: Box::new(Expr::Literal(LiteralValue::Int(0))),
+                        ty: Type::Int,
+                    },
+                    expr: Expr::Literal(LiteralValue::Int(6)),
+                    span: crate::mir::SourceSpan { line: 3, column: 1 },
+                },
+                Stmt::Print {
+                    expr: Expr::Index {
+                        base: Box::new(Expr::VarRef {
+                            name: String::from("values"),
+                            ty: int_array,
+                        }),
+                        index: Box::new(Expr::Literal(LiteralValue::Int(0))),
+                        ty: Type::Int,
+                    },
+                    span: crate::mir::SourceSpan { line: 4, column: 1 },
+                },
+            ],
+        };
+
+        assert_eq!(
+            collect_output_lines(
+                &program,
+                &CapabilityConfig::default(),
+                Path::new("."),
+                Path::new("."),
+                None,
+            )
+            .expect("fold mutable slice write-through"),
+            vec![OutputLine::stdout("6")]
+        );
+    }
+
+    #[test]
+    fn folds_mutable_slice_call_writeback_into_print_lines() {
+        let int_array = Type::Array(Box::new(Type::Int), None);
+        let mut_int_slice = Type::MutSlice(Box::new(Type::Int));
+        let program = Program {
+            path: String::from("mut-slice-call"),
+            structs: vec![],
+            enums: vec![],
+            statics: vec![],
+            functions: vec![Function {
+                name: String::from("bump_first"),
+                source_name: String::from("bump_first"),
+                path: String::from("mut-slice-call"),
+                params: vec![crate::mir::Param {
+                    name: String::from("values"),
+                    ty: mut_int_slice.clone(),
+                }],
+                return_ty: Type::Int,
+                body: vec![
+                    Stmt::Assign {
+                        target: Expr::Index {
+                            base: Box::new(Expr::VarRef {
+                                name: String::from("values"),
+                                ty: mut_int_slice.clone(),
+                            }),
+                            index: Box::new(Expr::Literal(LiteralValue::Int(0))),
+                            ty: Type::Int,
+                        },
+                        expr: Expr::BinaryAdd {
+                            op: ArithmeticOp::Add,
+                            lhs: Box::new(Expr::Call {
+                                name: String::from("first"),
+                                args: vec![Expr::VarRef {
+                                    name: String::from("values"),
+                                    ty: mut_int_slice.clone(),
+                                }],
+                                ty: Type::Int,
+                            }),
+                            rhs: Box::new(Expr::Literal(LiteralValue::Int(1))),
+                            ty: Type::Int,
+                        },
+                        span: crate::mir::SourceSpan { line: 2, column: 1 },
+                    },
+                    Stmt::Return {
+                        expr: Expr::Call {
+                            name: String::from("first"),
+                            args: vec![Expr::VarRef {
+                                name: String::from("values"),
+                                ty: mut_int_slice.clone(),
+                            }],
+                            ty: Type::Int,
+                        },
+                        span: crate::mir::SourceSpan { line: 3, column: 1 },
+                    },
+                ],
+                is_property: false,
+                is_async: false,
+                is_extern: false,
+                extern_abi: None,
+                extern_library: None,
+                line: 1,
+                column: 1,
+            }],
+            stmts: vec![
+                Stmt::Let {
+                    name: String::from("values"),
+                    ty: int_array.clone(),
+                    expr: Expr::ArrayLiteral {
+                        elements: vec![
+                            Expr::Literal(LiteralValue::Int(5)),
+                            Expr::Literal(LiteralValue::Int(8)),
+                            Expr::Literal(LiteralValue::Int(13)),
+                        ],
+                        ty: int_array.clone(),
+                    },
+                    span: crate::mir::SourceSpan { line: 5, column: 1 },
+                },
+                Stmt::Print {
+                    expr: Expr::Call {
+                        name: String::from("bump_first"),
+                        args: vec![Expr::Slice {
+                            base: Box::new(Expr::VarRef {
+                                name: String::from("values"),
+                                ty: int_array.clone(),
+                            }),
+                            start: None,
+                            end: None,
+                            ty: mut_int_slice,
+                        }],
+                        ty: Type::Int,
+                    },
+                    span: crate::mir::SourceSpan { line: 6, column: 1 },
+                },
+                Stmt::Print {
+                    expr: Expr::Call {
+                        name: String::from("first"),
+                        args: vec![Expr::VarRef {
+                            name: String::from("values"),
+                            ty: int_array,
+                        }],
+                        ty: Type::Int,
+                    },
+                    span: crate::mir::SourceSpan { line: 7, column: 1 },
+                },
+            ],
+        };
+
+        assert_eq!(
+            collect_output_lines(
+                &program,
+                &CapabilityConfig::default(),
+                Path::new("."),
+                Path::new("."),
+                None,
+            )
+            .expect("fold mutable slice call writeback"),
+            vec![OutputLine::stdout("6"), OutputLine::stdout("6")]
+        );
+    }
+
+    #[test]
+    fn function_receiver_alias_is_not_overwritten_by_later_self_param() {
+        let point_ty = Type::Struct(String::from("Point"));
+        let function = Function {
+            name: String::from("Point__same_x"),
+            source_name: String::from("same_x"),
+            path: String::from("test"),
+            params: vec![
+                crate::mir::Param {
+                    name: String::from("self_"),
+                    ty: point_ty.clone(),
+                },
+                crate::mir::Param {
+                    name: String::from("self_"),
+                    ty: point_ty.clone(),
+                },
+            ],
+            return_ty: Type::Bool,
+            body: vec![Stmt::Return {
+                expr: Expr::BinaryCompare {
+                    op: CompareOp::Eq,
+                    lhs: Box::new(Expr::FieldAccess {
+                        base: Box::new(Expr::VarRef {
+                            name: String::from("self"),
+                            ty: point_ty.clone(),
+                        }),
+                        field: String::from("x"),
+                        ty: Type::Int,
+                    }),
+                    rhs: Box::new(Expr::FieldAccess {
+                        base: Box::new(Expr::VarRef {
+                            name: String::from("self_"),
+                            ty: point_ty.clone(),
+                        }),
+                        field: String::from("x"),
+                        ty: Type::Int,
+                    }),
+                    ty: Type::Bool,
+                },
+                span: crate::mir::SourceSpan { line: 1, column: 1 },
+            }],
+            is_property: false,
+            is_async: false,
+            is_extern: false,
+            extern_abi: None,
+            extern_library: None,
+            line: 1,
+            column: 1,
+        };
+        let mut lines = Vec::new();
+        let functions = HashMap::from([(function.name.as_str(), &function)]);
+        let args = vec![
+            Expr::StructLiteral {
+                name: String::from("Point"),
+                fields: vec![crate::mir::StructFieldValue {
+                    name: String::from("x"),
+                    expr: Expr::Literal(LiteralValue::Int(7)),
+                }],
+                ty: point_ty.clone(),
+            },
+            Expr::StructLiteral {
+                name: String::from("Point"),
+                fields: vec![crate::mir::StructFieldValue {
+                    name: String::from("x"),
+                    expr: Expr::Literal(LiteralValue::Int(9)),
+                }],
+                ty: point_ty,
+            },
+        ];
+
+        assert_eq!(
+            eval_call(
+                "Point__same_x",
+                &args,
+                &functions,
+                &HashMap::new(),
+                &mut lines
+            )
+            .expect("receiver alias should evaluate"),
+            SpikeValue::Bool(false)
+        );
+    }
+
+    #[test]
+    fn folds_nested_mutable_slice_call_writeback_into_print_lines() {
+        let int_array = Type::Array(Box::new(Type::Int), None);
+        let mut_int_slice = Type::MutSlice(Box::new(Type::Int));
+        let program = Program {
+            path: String::from("nested-mut-slice-call"),
+            structs: vec![],
+            enums: vec![],
+            statics: vec![],
+            functions: vec![Function {
+                name: String::from("bump_first"),
+                source_name: String::from("bump_first"),
+                path: String::from("nested-mut-slice-call"),
+                params: vec![crate::mir::Param {
+                    name: String::from("values"),
+                    ty: mut_int_slice.clone(),
+                }],
+                return_ty: Type::Int,
+                body: vec![
+                    Stmt::Assign {
+                        target: Expr::Index {
+                            base: Box::new(Expr::VarRef {
+                                name: String::from("values"),
+                                ty: mut_int_slice.clone(),
+                            }),
+                            index: Box::new(Expr::Literal(LiteralValue::Int(0))),
+                            ty: Type::Int,
+                        },
+                        expr: Expr::BinaryAdd {
+                            op: ArithmeticOp::Add,
+                            lhs: Box::new(Expr::Call {
+                                name: String::from("first"),
+                                args: vec![Expr::VarRef {
+                                    name: String::from("values"),
+                                    ty: mut_int_slice.clone(),
+                                }],
+                                ty: Type::Int,
+                            }),
+                            rhs: Box::new(Expr::Literal(LiteralValue::Int(1))),
+                            ty: Type::Int,
+                        },
+                        span: crate::mir::SourceSpan { line: 2, column: 1 },
+                    },
+                    Stmt::Return {
+                        expr: Expr::Call {
+                            name: String::from("first"),
+                            args: vec![Expr::VarRef {
+                                name: String::from("values"),
+                                ty: mut_int_slice.clone(),
+                            }],
+                            ty: Type::Int,
+                        },
+                        span: crate::mir::SourceSpan { line: 3, column: 1 },
+                    },
+                ],
+                is_property: false,
+                is_async: false,
+                is_extern: false,
+                extern_abi: None,
+                extern_library: None,
+                line: 1,
+                column: 1,
+            }],
+            stmts: vec![
+                Stmt::Let {
+                    name: String::from("values"),
+                    ty: int_array.clone(),
+                    expr: Expr::ArrayLiteral {
+                        elements: vec![
+                            Expr::Literal(LiteralValue::Int(5)),
+                            Expr::Literal(LiteralValue::Int(8)),
+                        ],
+                        ty: int_array.clone(),
+                    },
+                    span: crate::mir::SourceSpan { line: 5, column: 1 },
+                },
+                Stmt::Let {
+                    name: String::from("result"),
+                    ty: Type::Int,
+                    expr: Expr::BinaryAdd {
+                        op: ArithmeticOp::Add,
+                        lhs: Box::new(Expr::Call {
+                            name: String::from("bump_first"),
+                            args: vec![Expr::Slice {
+                                base: Box::new(Expr::VarRef {
+                                    name: String::from("values"),
+                                    ty: int_array.clone(),
+                                }),
+                                start: None,
+                                end: None,
+                                ty: mut_int_slice,
+                            }],
+                            ty: Type::Int,
+                        }),
+                        rhs: Box::new(Expr::Literal(LiteralValue::Int(0))),
+                        ty: Type::Int,
+                    },
+                    span: crate::mir::SourceSpan { line: 6, column: 1 },
+                },
+                Stmt::Print {
+                    expr: Expr::VarRef {
+                        name: String::from("result"),
+                        ty: Type::Int,
+                    },
+                    span: crate::mir::SourceSpan { line: 7, column: 1 },
+                },
+                Stmt::Print {
+                    expr: Expr::Call {
+                        name: String::from("first"),
+                        args: vec![Expr::VarRef {
+                            name: String::from("values"),
+                            ty: int_array,
+                        }],
+                        ty: Type::Int,
+                    },
+                    span: crate::mir::SourceSpan { line: 8, column: 1 },
+                },
+            ],
+        };
+
+        assert_eq!(
+            collect_output_lines(
+                &program,
+                &CapabilityConfig::default(),
+                Path::new("."),
+                Path::new("."),
+                None,
+            )
+            .expect("fold nested mutable slice call writeback"),
+            vec![OutputLine::stdout("6"), OutputLine::stdout("6")]
+        );
+    }
+
+    #[test]
+    fn stdio_stdin_calls_consume_manifest_input() {
+        with_spike_stdin(Some("first\r\nsecond\nremaining"), || {
+            assert_eq!(
+                eval_io_readline_call(&[]).expect("first line"),
+                spike_option(Some(SpikeValue::Text(String::from("first"))))
+            );
+            assert_eq!(
+                eval_io_readline_call(&[]).expect("second line"),
+                spike_option(Some(SpikeValue::Text(String::from("second"))))
+            );
+            assert_eq!(
+                eval_io_read_to_string_call(&[]).expect("remaining input"),
+                SpikeValue::Text(String::from("remaining"))
+            );
+            assert_eq!(eval_io_readline_call(&[]).expect("eof"), spike_option(None));
+            Ok(())
+        })
+        .expect("stdin evaluation");
+    }
+
+    #[test]
+    fn folds_const_match_statement_into_print_lines() {
+        let mut program = hello_program();
+        program.functions.clear();
+        program.stmts = vec![Stmt::Match {
+            expr: Expr::Literal(LiteralValue::Int(7)),
+            arms: vec![
+                MatchArm {
+                    enum_name: String::new(),
+                    variant: String::from("3"),
+                    bindings: Vec::new(),
+                    is_named: false,
+                    ignore_payloads: false,
+                    body: vec![Stmt::Print {
+                        expr: Expr::Literal(LiteralValue::String(String::from("wrong"))),
+                        span: crate::mir::SourceSpan { line: 1, column: 1 },
+                    }],
+                },
+                MatchArm {
+                    enum_name: String::new(),
+                    variant: String::from("7"),
+                    bindings: Vec::new(),
+                    is_named: false,
+                    ignore_payloads: false,
+                    body: vec![Stmt::Print {
+                        expr: Expr::Literal(LiteralValue::String(String::from("ready"))),
+                        span: crate::mir::SourceSpan { line: 1, column: 1 },
+                    }],
+                },
+            ],
+            span: crate::mir::SourceSpan { line: 1, column: 1 },
+        }];
+
+        assert_eq!(
+            collect_output_lines(
+                &program,
+                &CapabilityConfig::default(),
+                Path::new("."),
+                Path::new("."),
+                None,
+            )
+            .expect("fold match"),
+            vec![OutputLine::stdout("ready")]
         );
     }
 
@@ -22014,6 +26362,47 @@ mod tests {
                 &I64StaticBindings::default()
             ),
             Some(vec![I64MapKey::Int(2), I64MapKey::Int(1)])
+        );
+    }
+
+    #[test]
+    fn net_tcp_close_removes_stream_state_before_future_loopback_echoes() {
+        let listener_port = 4242;
+        let stream_handle = 7;
+        let streams = spike_tcp_streams();
+        let listeners = spike_tcp_listeners();
+        {
+            let mut streams = streams.lock().expect("lock tcp streams");
+            streams.insert(
+                stream_handle,
+                SpikeTcpStream {
+                    listener_port,
+                    received: String::from("old"),
+                    written: String::from("stale"),
+                },
+            );
+        }
+        {
+            let mut listeners = listeners.lock().expect("lock tcp listeners");
+            listeners.insert(
+                11,
+                SpikeTcpListener {
+                    port: listener_port,
+                },
+            );
+        }
+
+        assert_eq!(net_tcp_close(stream_handle), 0);
+        assert_eq!(
+            net_tcp_registered_loopback_echo("127.0.0.1", listener_port, "fresh"),
+            Some(String::from("fresh"))
+        );
+        assert!(
+            streams
+                .lock()
+                .expect("lock tcp streams after close")
+                .get(&stream_handle)
+                .is_none()
         );
     }
 
@@ -22152,7 +26541,16 @@ mod tests {
     fn i64_net_resolve_text_normalizes_ipv6_literals() {
         assert_eq!(
             super::i64_net_resolve_text("0:0:0:0:0:0:0:1").as_deref(),
-            Some("::1")
+            None
+        );
+        assert_eq!(super::i64_net_resolve_text("127.0.0.1").as_deref(), None);
+    }
+
+    #[test]
+    fn i64_net_resolve_text_allows_public_numeric_literals() {
+        assert_eq!(
+            super::i64_net_resolve_text("8.8.8.8").as_deref(),
+            Some("8.8.8.8")
         );
     }
 
@@ -22161,7 +26559,7 @@ mod tests {
         let expr = Expr::Call {
             name: String::from("net_resolve"),
             args: vec![Expr::Literal(LiteralValue::String(String::from(
-                "0:0:0:0:0:0:0:1",
+                "2001:4860:4860:0:0:0:0:8888",
             )))],
             ty: Type::Option(Box::new(Type::String)),
         };
@@ -22169,8 +26567,8 @@ mod tests {
         let host = super::i64_net_resolve_host(&expr, &I64StaticBindings::default())
             .expect("numeric IPv6 host should lower");
 
-        assert_eq!(host.host, "0:0:0:0:0:0:0:1");
-        assert_eq!(host.resolved_len, 3);
+        assert_eq!(host.host, "2001:4860:4860:0:0:0:0:8888");
+        assert_eq!(host.resolved_len, 20);
         assert_ne!(host.resolved_len, host.host.len() as i64);
     }
 }

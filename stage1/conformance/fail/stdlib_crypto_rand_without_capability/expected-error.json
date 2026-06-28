@@ -1,8 +1,8 @@
 {
   "kind": "capability",
   "code": null,
-  "message": "call to \"crypto_rand_bytes\" requires [capabilities].crypto = true",
+  "message": "call to stdlib wrapper \"random_bytes\" requires [capabilities].crypto = true",
   "path": "src/main.ax",
-  "line": 2,
-  "column": 8
+  "line": 3,
+  "column": 7
 }

@@ -24,7 +24,7 @@ defaults:
 jobs:
   changes:
     name: Detect Relevant Changes
-    runs-on: ['self-hosted', 'linux', 'shell-only', 'public']
+    runs-on: ubuntu-latest
     outputs:
       app: ${{ steps.filter.outputs.app }}
       ci: ${{ steps.filter.outputs.ci }}
@@ -60,8 +60,8 @@ jobs:
 
   fast-checks:
     name: Fast Checks
-    runs-on: ['self-hosted', 'linux', 'shell-only', 'public']
-    timeout-minutes: 90
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
     needs: changes
     if: >-
       github.event.pull_request.draft == false &&
@@ -74,16 +74,91 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha }}
 
+      - name: Checkout trusted CI scripts
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4 pinned 2026-05-30
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: .trusted-ci
+
       - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable pinned 2026-04-19
+
+      - name: Ensure Rust linker availability
+        run: |
+          smoke_linker() {
+            local linker="$1"
+            local smoke_rs smoke_bin
+            smoke_rs="${RUNNER_TEMP:-/tmp}/axiom-fast-ci-linker-smoke.rs"
+            smoke_bin="${RUNNER_TEMP:-/tmp}/axiom-fast-ci-linker-smoke"
+            printf '%s\n' 'fn main() {}' > "$smoke_rs"
+            rustc -C "linker=$linker" "$smoke_rs" -o "$smoke_bin" >/dev/null 2>&1
+          }
+
+          for candidate in cc gcc clang; do
+            if rust_linker="$(command -v "$candidate" 2>/dev/null)" && [[ -n "$rust_linker" ]] && smoke_linker "$rust_linker"; then
+              echo "AXIOM_FAST_CI_RUST_LINKER=$rust_linker" >> "$GITHUB_ENV"
+              echo "AXIOM_FAST_CI_PROOF_WORKLOADS=1" >> "$GITHUB_ENV"
+              exit 0
+            fi
+          done
+
+          rust_lld="$(rustc --print sysroot)/lib/rustlib/$(rustc -vV | awk '/^host:/ { print $2 }')/bin/rust-lld"
+          if [[ -x "$rust_lld" ]]; then
+            rust_lld_flags=(-C "linker=$rust_lld")
+            for lib_dir in /usr/lib/gcc/x86_64-linux-gnu/* /usr/lib/x86_64-linux-gnu /lib/x86_64-linux-gnu; do
+              if [[ -d "$lib_dir" ]]; then
+                rust_lld_flags+=(-C "link-arg=-L$lib_dir")
+              fi
+            done
+            printf '%s\n' 'fn main() {}' > /tmp/axiom-fast-ci-linker-smoke.rs
+            if rustc "${rust_lld_flags[@]}" /tmp/axiom-fast-ci-linker-smoke.rs -o /tmp/axiom-fast-ci-linker-smoke >/dev/null 2>&1; then
+              echo "RUSTFLAGS=${rust_lld_flags[*]}" >> "$GITHUB_ENV"
+              echo "AXIOM_FAST_CI_RUST_LINKER=$rust_lld" >> "$GITHUB_ENV"
+              echo "AXIOM_FAST_CI_PROOF_WORKLOADS=1" >> "$GITHUB_ENV"
+              exit 0
+            fi
+          fi
+
+          if command -v apt-get >/dev/null 2>&1; then
+            apt_cache="${RUNNER_TEMP:-/tmp}/axiom-fast-ci-apt-cache"
+            apt_lists="${RUNNER_TEMP:-/tmp}/axiom-fast-ci-apt-lists"
+            mkdir -p "$apt_cache/partial" "$apt_lists/partial"
+            apt_get=(
+              apt-get
+              -o Acquire::Retries=3
+              -o Dpkg::Use-Pty=0
+              -o APT::Sandbox::User=root
+              -o Dir::Cache::archives="$apt_cache"
+              -o Dir::State::lists="$apt_lists"
+            )
+            if [[ "$(id -u)" != "0" ]]; then
+              apt_get=(sudo "${apt_get[@]}")
+            fi
+
+            # Use job-local apt cache/list paths so provisioning does not depend
+            # on mutable runner apt cache permissions.
+            "${apt_get[@]}" update || true
+            DEBIAN_FRONTEND=noninteractive "${apt_get[@]}" install -y --no-install-recommends gcc libc6-dev || true
+          fi
+
+          for candidate in cc gcc clang; do
+            if rust_linker="$(command -v "$candidate" 2>/dev/null)" && [[ -n "$rust_linker" ]] && smoke_linker "$rust_linker"; then
+              echo "AXIOM_FAST_CI_RUST_LINKER=$rust_linker" >> "$GITHUB_ENV"
+              echo "AXIOM_FAST_CI_PROOF_WORKLOADS=1" >> "$GITHUB_ENV"
+              exit 0
+            fi
+          done
+
+          echo "::error::no usable Rust linker found; proof workloads are a required PR gate"
+          exit 1
 
       - name: Run fast checks
         env:
           GITHUB_TOKEN: ${{ github.token }}
-        run: bash scripts/ci/run-fast-checks.sh
+        run: AXIOM_CHECKOUT_PATH="$GITHUB_WORKSPACE" bash .trusted-ci/scripts/ci/run-fast-checks.sh
 
   validate-pr-description:
     name: Validate PR Description
-    runs-on: ['self-hosted', 'linux', 'shell-only', 'public']
+    runs-on: ubuntu-latest
     timeout-minutes: 5
     if: >-
       github.event.pull_request.draft == false &&
@@ -179,7 +254,7 @@ jobs:
 
   validate-secrets:
     name: Validate Secrets
-    runs-on: ['self-hosted', 'linux', 'shell-only', 'public']
+    runs-on: ubuntu-latest
     timeout-minutes: 10
     if: >-
       github.event.pull_request.draft == false &&
@@ -188,12 +263,17 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4 pinned 2026-05-30
         with:
           ref: ${{ github.event.pull_request.head.sha }}
+      - name: Checkout trusted CI scripts
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4 pinned 2026-05-30
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: .trusted-ci
       - name: Scan repository for secret patterns
-        run: bash scripts/check-detect-secrets.sh --all-files
+        run: AXIOM_CHECKOUT_PATH="$GITHUB_WORKSPACE" bash .trusted-ci/scripts/check-detect-secrets.sh --all-files
 
   ci-gate:
     name: CI Gate
-    runs-on: ['self-hosted', 'linux', 'shell-only', 'public']
+    runs-on: ubuntu-latest
     if: always()
     needs:
       - changes
@@ -201,9 +281,15 @@ jobs:
       - validate-pr-description
       - validate-secrets
     steps:
+      # SECURITY: ci-gate runs on a persistent self-hosted runner with no fork
+      # guard (if: always), so it must never execute code from the PR head tree.
+      # The gate only needs the result envs below plus the trusted gate helper,
+      # so check out the base ref (target-repo, trusted) instead of the fork head
+      # and drop persisted credentials. See scripts/ci/check-pr-fast-ci-gate.sh.
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4 pinned 2026-05-30
         with:
           ref: ${{ github.event.pull_request.base.sha }}
+          persist-credentials: false
       - name: Validate fork PR description from trusted base
         if: ${{ github.event.pull_request.head.repo.full_name != github.repository }}
         env:

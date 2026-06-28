@@ -1,8 +1,9 @@
 use cranelift_codegen::ir::{
-    AbiParam, BlockArg, FuncRef, InstBuilder, MemFlags, StackSlotData, StackSlotKind,
-    condcodes::IntCC, types,
+    AbiParam, ArgumentPurpose, BlockArg, FuncRef, InstBuilder, MemFlags, StackSlotData,
+    StackSlotKind, Value, condcodes::IntCC, types,
 };
 use cranelift_codegen::isa;
+use cranelift_codegen::isa::CallConv;
 use cranelift_codegen::settings::{self, Configurable};
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext, Variable};
 use cranelift_module::{DataDescription, FuncId, Linkage, Module, default_libcall_names};
@@ -10,8 +11,13 @@ use cranelift_object::{ObjectBuilder, ObjectModule};
 use std::error::Error;
 use std::fmt;
 use std::fs;
+use std::fs::OpenOptions;
+use std::io::Write;
+#[cfg(unix)]
+use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 const I64_REALPATH_BUFFER_BYTES: u32 = 4096;
 pub const I64_STDIN_BUFFER_BYTES: u32 = 4096;
@@ -432,7 +438,16 @@ pub fn compile_output_lines(
     object_path: &Path,
     binary_path: &Path,
 ) -> Result<(), CraneliftBackendError> {
-    emit_cranelift_object(lines, object_path)?;
+    compile_output_lines_with_exit_code(lines, 0, object_path, binary_path)
+}
+
+pub fn compile_output_lines_with_exit_code(
+    lines: &[OutputLine],
+    exit_code: i32,
+    object_path: &Path,
+    binary_path: &Path,
+) -> Result<(), CraneliftBackendError> {
+    emit_cranelift_object(lines, exit_code, object_path)?;
     link_object(object_path, binary_path)
 }
 
@@ -447,6 +462,7 @@ pub fn compile_i64_exit_program(
 
 fn emit_cranelift_object(
     lines: &[OutputLine],
+    exit_code: i32,
     object_path: &Path,
 ) -> Result<(), CraneliftBackendError> {
     let isa_builder = host_isa_builder()?;
@@ -525,8 +541,8 @@ fn emit_cranelift_object(
             let len = builder.ins().iconst(pointer_type, byte_len as i64);
             builder.ins().call(write_ref, &[fd, pointer, len]);
         }
-        let ok = builder.ins().iconst(types::I32, 0);
-        builder.ins().return_(&[ok]);
+        let status = builder.ins().iconst(types::I32, i64::from(exit_code));
+        builder.ins().return_(&[status]);
         builder.finalize();
     }
     module
@@ -537,9 +553,7 @@ fn emit_cranelift_object(
     let bytes = product.emit().map_err(|message| {
         CraneliftBackendError::new(format!("emit cranelift object: {message}"))
     })?;
-    fs::write(object_path, bytes).map_err(|err| {
-        CraneliftBackendError::new(format!("failed to write {}: {err}", object_path.display()))
-    })
+    write_output_file(object_path, bytes)
 }
 
 fn emit_i64_exit_object(
@@ -1004,9 +1018,7 @@ fn emit_i64_exit_object(
     let bytes = product.emit().map_err(|message| {
         CraneliftBackendError::new(format!("emit cranelift object: {message}"))
     })?;
-    fs::write(object_path, bytes).map_err(|err| {
-        CraneliftBackendError::new(format!("failed to write {}: {err}", object_path.display()))
-    })
+    write_output_file(object_path, bytes)
 }
 
 fn declare_i64_output_data(
@@ -1122,11 +1134,20 @@ fn declare_i64_functions(
         .enumerate()
         .map(|(index, function)| {
             let mut signature = module.make_signature();
+            signature.call_conv = CallConv::Fast;
+            if i64_function_uses_sret(function.returns) {
+                signature.params.push(AbiParam::special(
+                    module.target_config().pointer_type(),
+                    ArgumentPurpose::StructReturn,
+                ));
+            }
             for _ in 0..function.params {
                 signature.params.push(AbiParam::new(types::I64));
             }
-            for _ in 0..function.returns {
-                signature.returns.push(AbiParam::new(types::I64));
+            if !i64_function_uses_sret(function.returns) {
+                for _ in 0..function.returns {
+                    signature.returns.push(AbiParam::new(types::I64));
+                }
             }
             module
                 .declare_function(
@@ -1175,6 +1196,13 @@ fn define_i64_function(
     function: &I64Function,
 ) -> Result<(), CraneliftBackendError> {
     let mut context = module.make_context();
+    context.func.signature.call_conv = CallConv::Fast;
+    if i64_function_uses_sret(function.returns) {
+        context.func.signature.params.push(AbiParam::special(
+            module.target_config().pointer_type(),
+            ArgumentPurpose::StructReturn,
+        ));
+    }
     for _ in 0..function.params {
         context
             .func
@@ -1182,12 +1210,14 @@ fn define_i64_function(
             .params
             .push(AbiParam::new(types::I64));
     }
-    for _ in 0..function.returns {
-        context
-            .func
-            .signature
-            .returns
-            .push(AbiParam::new(types::I64));
+    if !i64_function_uses_sret(function.returns) {
+        for _ in 0..function.returns {
+            context
+                .func
+                .signature
+                .returns
+                .push(AbiParam::new(types::I64));
+        }
     }
     let function_id = *function_ids.get(index).ok_or_else(|| {
         CraneliftBackendError::new(format!("i64 helper function index {index} is out of range"))
@@ -1274,8 +1304,18 @@ fn define_i64_function(
                 }
             },
         };
+        let block_params = builder.block_params(block).to_vec();
+        let sret_ptr = if i64_function_uses_sret(function.returns) {
+            block_params.first().copied()
+        } else {
+            None
+        };
         let mut locals = Vec::new();
-        for param in builder.block_params(block).to_vec() {
+        for param in block_params
+            .iter()
+            .skip(usize::from(i64_function_uses_sret(function.returns)))
+            .copied()
+        {
             let local = builder.declare_var(types::I64);
             builder.def_var(local, param);
             locals.push(local);
@@ -1311,6 +1351,7 @@ fn define_i64_function(
             write_ref,
             output_data_ids,
             function.returns,
+            sret_ptr,
             &function.body,
         )?;
         builder.finalize();
@@ -1320,6 +1361,10 @@ fn define_i64_function(
         .map_err(|message| CraneliftBackendError::new(format!("define i64 helper: {message}")))?;
     module.clear_context(&mut context);
     Ok(())
+}
+
+fn i64_function_uses_sret(returns: usize) -> bool {
+    returns > 1
 }
 
 fn i64_function_refs(
@@ -1416,6 +1461,7 @@ fn emit_i64_stmt(
             args,
         } => emit_i64_call_assign(
             builder,
+            module.target_config().pointer_type(),
             locals,
             function_refs,
             runtime_refs,
@@ -1778,6 +1824,7 @@ fn emit_i64_assign(
 
 fn emit_i64_call_assign(
     builder: &mut FunctionBuilder<'_>,
+    pointer_type: types::Type,
     locals: &[Variable],
     function_refs: &[FuncRef],
     runtime_refs: I64RuntimeRefs,
@@ -1792,6 +1839,37 @@ fn emit_i64_call_assign(
         .iter()
         .map(|arg| emit_i64_expr(builder, locals, function_refs, runtime_refs, arg))
         .collect::<Result<Vec<_>, _>>()?;
+    if i64_function_uses_sret(assign_locals.len()) {
+        let result_slot = builder.create_sized_stack_slot(StackSlotData::new(
+            StackSlotKind::ExplicitSlot,
+            (assign_locals.len() * 8) as u32,
+            0,
+        ));
+        let result_ptr = builder.ins().stack_addr(pointer_type, result_slot, 0);
+        let mut call_args = Vec::with_capacity(args.len() + 1);
+        call_args.push(result_ptr);
+        call_args.extend(args);
+        let call = builder.ins().call(function_ref, &call_args);
+        let results = builder.inst_results(call);
+        if !results.is_empty() {
+            return Err(CraneliftBackendError::new(format!(
+                "i64 sret helper call returned {} direct values",
+                results.len()
+            )));
+        }
+        for (index, local_index) in assign_locals.iter().enumerate() {
+            let local = locals.get(*local_index).copied().ok_or_else(|| {
+                CraneliftBackendError::new(format!(
+                    "i64 call assignment local {local_index} is out of range"
+                ))
+            })?;
+            let value = builder
+                .ins()
+                .stack_load(types::I64, result_slot, (index * 8) as i32);
+            builder.def_var(local, value);
+        }
+        return Ok(());
+    }
     let call = builder.ins().call(function_ref, &args);
     let results = builder.inst_results(call).to_vec();
     if results.len() != assign_locals.len() {
@@ -1927,6 +2005,7 @@ fn emit_i64_value_body(
     write_ref: FuncRef,
     output_data_ids: &[I64OutputData],
     returns: usize,
+    sret_ptr: Option<Value>,
     body: &I64ValueBody,
 ) -> Result<(), CraneliftBackendError> {
     match body {
@@ -1936,6 +2015,7 @@ fn emit_i64_value_body(
             function_refs,
             runtime_refs,
             returns,
+            sret_ptr,
             results,
         ),
         I64ValueBody::BlockReturn(block) => {
@@ -1955,6 +2035,7 @@ fn emit_i64_value_body(
                 function_refs,
                 runtime_refs,
                 returns,
+                sret_ptr,
                 &block.results,
             )
         }
@@ -1978,6 +2059,7 @@ fn emit_i64_value_body(
                 function_refs,
                 runtime_refs,
                 returns,
+                sret_ptr,
                 then_results,
             )?;
 
@@ -1989,6 +2071,7 @@ fn emit_i64_value_body(
                 function_refs,
                 runtime_refs,
                 returns,
+                sret_ptr,
                 else_results,
             )
         }
@@ -2026,6 +2109,7 @@ fn emit_i64_value_body(
                 function_refs,
                 runtime_refs,
                 returns,
+                sret_ptr,
                 &then_block.results,
             )?;
 
@@ -2047,6 +2131,7 @@ fn emit_i64_value_body(
                 function_refs,
                 runtime_refs,
                 returns,
+                sret_ptr,
                 &else_block.results,
             )
         }
@@ -2072,6 +2157,7 @@ fn emit_i64_value_return(
     function_refs: &[FuncRef],
     runtime_refs: I64RuntimeRefs,
     returns: usize,
+    sret_ptr: Option<Value>,
     results: &[I64Expr],
 ) -> Result<(), CraneliftBackendError> {
     if results.len() != returns {
@@ -2084,6 +2170,15 @@ fn emit_i64_value_return(
         .iter()
         .map(|result| emit_i64_expr(builder, locals, function_refs, runtime_refs, result))
         .collect::<Result<Vec<_>, _>>()?;
+    if let Some(sret_ptr) = sret_ptr {
+        for (index, result) in results.iter().enumerate() {
+            builder
+                .ins()
+                .store(MemFlags::new(), *result, sret_ptr, (index * 8) as i32);
+        }
+        builder.ins().return_(&[]);
+        return Ok(());
+    }
     builder.ins().return_(&results);
     Ok(())
 }
@@ -2624,9 +2719,13 @@ fn emit_i64_stdin_line_len_expr(
     let read_call = builder.ins().call(runtime_refs.read, &[fd, byte_ptr, one]);
     let bytes_read = builder.inst_results(read_call)[0];
     let failed = builder.ins().icmp_imm(IntCC::SignedLessThan, bytes_read, 0);
-    builder
-        .ins()
-        .brif(failed, merge_block, &[BlockArg::Value(failure)], continue_block, &[]);
+    builder.ins().brif(
+        failed,
+        merge_block,
+        &[BlockArg::Value(failure)],
+        continue_block,
+        &[],
+    );
 
     builder.switch_to_block(continue_block);
     builder.seal_block(continue_block);
@@ -4489,23 +4588,61 @@ fn host_isa_builder() -> Result<isa::Builder, CraneliftBackendError> {
 }
 
 fn link_object(object_path: &Path, binary_path: &Path) -> Result<(), CraneliftBackendError> {
+    let linked_binary_path = temporary_output_path(binary_path);
     let mut command = Command::new("cc");
     let output = command
         .arg(object_path)
         .arg("-o")
-        .arg(binary_path)
+        .arg(&linked_binary_path)
         .output()
         .map_err(|err| {
             CraneliftBackendError::new(format!("failed to invoke system linker `cc`: {err}"))
         })?;
     if output.status.success() {
+        fs::rename(&linked_binary_path, binary_path).map_err(|err| {
+            let _ = fs::remove_file(&linked_binary_path);
+            CraneliftBackendError::new(format!(
+                "failed to move linked binary into {}: {err}",
+                binary_path.display()
+            ))
+        })?;
         return Ok(());
     }
+    let _ = fs::remove_file(&linked_binary_path);
     let stderr = String::from_utf8_lossy(&output.stderr);
     Err(CraneliftBackendError::new(format!(
         "system linker `cc` failed for cranelift object: {}",
         stderr.trim()
     )))
+}
+
+fn temporary_output_path(path: &Path) -> PathBuf {
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_nanos())
+        .unwrap_or(0);
+    let file_name = path
+        .file_name()
+        .map(|name| name.to_string_lossy())
+        .unwrap_or_else(|| "axiom-cranelift-output".into());
+    path.with_file_name(format!(
+        ".{file_name}.{}.{}.tmp",
+        std::process::id(),
+        timestamp
+    ))
+}
+
+fn write_output_file(path: &Path, content: impl AsRef<[u8]>) -> Result<(), CraneliftBackendError> {
+    let mut options = OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    options.custom_flags(libc::O_NOFOLLOW);
+    let mut file = options.open(path).map_err(|err| {
+        CraneliftBackendError::new(format!("failed to write {}: {err}", path.display()))
+    })?;
+    file.write_all(content.as_ref()).map_err(|err| {
+        CraneliftBackendError::new(format!("failed to write {}: {err}", path.display()))
+    })
 }
 
 #[cfg(test)]

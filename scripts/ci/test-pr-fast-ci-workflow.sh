@@ -10,8 +10,8 @@ if [[ ! -f "$workflow" ]]; then
   exit 1
 fi
 
-if [[ ! -x "$fast_checks_script" ]]; then
-  echo "missing executable fast-check script: $fast_checks_script" >&2
+if [[ ! -f "$fast_checks_script" ]]; then
+  echo "missing fast checks script: $fast_checks_script" >&2
   exit 1
 fi
 
@@ -51,11 +51,8 @@ ci_gate_fork_validate_line=$(printf '%s\n' "$ci_gate_section" | nl -ba | { grep 
 ci_gate_base_ref_line=$(printf '%s\n' "$ci_gate_section" | nl -ba | { grep -F 'ref: ${{ github.event.pull_request.base.sha }}' || true; } | head -n1 | awk '{print $1}')
 ci_gate_head_ref=$(printf '%s\n' "$ci_gate_section" | grep -F 'github.event.pull_request.head.sha' || true)
 benchmark_gate_reference=$(grep -nE 'check-stage1-benchmarks\.py|stage1-comparison-report\.json' "$workflow" || true)
-fast_checks_timeout=$(awk '
-  /^  fast-checks:$/ { in_job=1; next }
-  in_job && /^  [A-Za-z0-9_-]+:$/ { exit }
-  in_job && /timeout-minutes:/ { print $2; exit }
-' "$workflow")
+runtime_abi_status_check=$(grep -nF 'scripts/ci/render-direct-native-runtime-abi-status.py' "$fast_checks_script" || true)
+proof_workload_test=$(grep -nF 'bash scripts/ci/run-stage1-proof-test.sh' "$fast_checks_script" || true)
 
 if [[ -n "$checkout_line" ]]; then
   echo "validate-pr-description job must not checkout untrusted pull request code" >&2
@@ -148,45 +145,14 @@ if [[ -n "$benchmark_gate_reference" ]]; then
   exit 1
 fi
 
-if [[ "$fast_checks_timeout" != "90" ]]; then
-  echo "fast-checks timeout must remain 90 minutes so self-hosted cold builds can finish" >&2
+if [[ -z "$runtime_abi_status_check" ]]; then
+  echo "run-fast-checks must validate that the direct-native runtime ABI status block matches the JSON contract" >&2
   exit 1
 fi
 
-candidate_line=$(nl -ba "$fast_checks_script" | grep -F 'candidate_linker="$(command -v "$candidate" 2>/dev/null || true)"' | head -n1 | awk '{print $1}')
-smoke_line=$(nl -ba "$fast_checks_script" | grep -F 'smoke_linker "$candidate_linker" || continue' | head -n1 | awk '{print $1}')
-assign_line=$(nl -ba "$fast_checks_script" | grep -F 'rust_linker="$candidate_linker"' | head -n1 | awk '{print $1}')
-rustflags_line=$(nl -ba "$fast_checks_script" | grep -F 'export RUSTFLAGS="${RUSTFLAGS:-} -C linker=${rust_linker}"' | head -n1 | awk '{print $1}')
-compiler_property_line=$(nl -ba "$fast_checks_script" | grep -F 'bash scripts/ci/run-compiler-property-checks.sh' | head -n1 | awk '{print $1}')
-
-if [[ -z "$candidate_line" || -z "$smoke_line" || -z "$assign_line" ]]; then
-  echo "run-fast-checks must keep linker candidates separate from the accepted Rust linker" >&2
+if [[ -z "$proof_workload_test" ]]; then
+  echo "run-fast-checks must run the stage1 proof workload smoke" >&2
   exit 1
 fi
-
-if (( candidate_line >= smoke_line || smoke_line >= assign_line )); then
-  echo "run-fast-checks must only assign AXIOM_FAST_CI_RUST_LINKER after smoke_linker succeeds" >&2
-  exit 1
-fi
-
-if [[ -z "$rustflags_line" || -z "$compiler_property_line" ]]; then
-  echo "run-fast-checks must export the selected linker before Cargo-backed property checks" >&2
-  exit 1
-fi
-
-if (( rustflags_line >= compiler_property_line )); then
-  echo "run-fast-checks must export the selected linker before Cargo-backed property checks" >&2
-  exit 1
-fi
-
-grep -Fq 'install_system_linker' "$fast_checks_script" || {
-  echo "run-fast-checks must provision a system linker before falling back to rust-lld" >&2
-  exit 1
-}
-
-grep -Fq 'install -y --no-install-recommends gcc libc6-dev' "$fast_checks_script" || {
-  echo "run-fast-checks must install gcc/libc headers when shell-only runners lack cc" >&2
-  exit 1
-}
 
 echo "pr-fast-ci workflow validation passed"

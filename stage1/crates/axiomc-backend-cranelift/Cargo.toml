@@ -10,6 +10,7 @@ cranelift-frontend.workspace = true
 cranelift-module.workspace = true
 cranelift-native.workspace = true
 cranelift-object.workspace = true
+libc.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true
