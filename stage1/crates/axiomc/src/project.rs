@@ -889,18 +889,6 @@ fn collect_test_targets(
     conformance: bool,
 ) -> Result<Vec<crate::manifest::TestTarget>, Diagnostic> {
     let mut tests = manifest.tests.clone();
-    for test in &mut tests {
-        if let Some(expected_stdout) =
-            load_manifest_test_stream(project_root, test.stdout.as_deref(), "stdout")?
-        {
-            test.stdout = Some(expected_stdout);
-        }
-        if let Some(expected_stderr) =
-            load_manifest_test_stream(project_root, test.stderr.as_deref(), "stderr")?
-        {
-            test.stderr = Some(expected_stderr);
-        }
-    }
     if !include_benchmarks {
         tests.retain(|test| test.kind != TestKind::Benchmark);
     }
@@ -936,6 +924,18 @@ fn collect_test_targets(
     if let Some(filter) = filter {
         tests.retain(|test| test_matches_filter(test, filter));
     }
+    for test in &mut tests {
+        if let Some(expected_stdout) =
+            load_manifest_test_stream(project_root, test.stdout.as_deref(), "stdout")?
+        {
+            test.stdout = Some(expected_stdout);
+        }
+        if let Some(expected_stderr) =
+            load_manifest_test_stream(project_root, test.stderr.as_deref(), "stderr")?
+        {
+            test.stderr = Some(expected_stderr);
+        }
+    }
     Ok(tests)
 }
 
@@ -947,8 +947,27 @@ fn load_manifest_test_stream(
     let Some(configured) = configured else {
         return Ok(None);
     };
+    let configured_path = Path::new(configured);
+    if configured_path.is_absolute()
+        || configured_path
+            .components()
+            .any(|component| matches!(component, Component::ParentDir))
+    {
+        return Ok(None);
+    }
     let path = project_root.join(configured);
     if !path.exists() {
+        return Ok(None);
+    }
+    if fs::symlink_metadata(&path)
+        .map(|metadata| metadata.file_type().is_symlink())
+        .unwrap_or(false)
+    {
+        return Ok(None);
+    }
+    let package_root = canonicalize_existing_path(project_root, "package root")?;
+    let path = canonicalize_existing_path(&path, "test stream fixture")?;
+    if !path.starts_with(&package_root) {
         return Ok(None);
     }
     fs::read_to_string(&path).map(Some).map_err(|err| {
@@ -4611,13 +4630,26 @@ fn validate_program_capabilities(
     capabilities: &CapabilityConfig,
 ) -> Result<(), Diagnostic> {
     let known_strings = syntax_program_known_strings(program);
+    let stdlib_wrapper_capabilities = stdlib_wrapper_capabilities(program);
     for function in &program.functions {
         for stmt in &function.body {
-            validate_stmt_capabilities(module_path, stmt, capabilities, &known_strings)?;
+            validate_stmt_capabilities(
+                module_path,
+                stmt,
+                capabilities,
+                &known_strings,
+                &stdlib_wrapper_capabilities,
+            )?;
         }
     }
     for stmt in &program.stmts {
-        validate_stmt_capabilities(module_path, stmt, capabilities, &known_strings)?;
+        validate_stmt_capabilities(
+            module_path,
+            stmt,
+            capabilities,
+            &known_strings,
+            &stdlib_wrapper_capabilities,
+        )?;
     }
     Ok(())
 }
@@ -4627,20 +4659,45 @@ fn validate_stmt_capabilities(
     stmt: &syntax::Stmt,
     capabilities: &CapabilityConfig,
     known_strings: &HashMap<String, String>,
+    stdlib_wrapper_capabilities: &HashMap<String, CapabilityKind>,
 ) -> Result<(), Diagnostic> {
     match stmt {
         syntax::Stmt::Let { expr, .. } => {
-            validate_expr_capabilities(module_path, expr, capabilities, known_strings)?;
+            validate_expr_capabilities(
+                module_path,
+                expr,
+                capabilities,
+                known_strings,
+                stdlib_wrapper_capabilities,
+            )?;
         }
         syntax::Stmt::Print { expr, .. }
         | syntax::Stmt::Panic { expr, .. }
         | syntax::Stmt::Defer { expr, .. }
         | syntax::Stmt::Return { expr, .. } => {
-            validate_expr_capabilities(module_path, expr, capabilities, known_strings)?;
+            validate_expr_capabilities(
+                module_path,
+                expr,
+                capabilities,
+                known_strings,
+                stdlib_wrapper_capabilities,
+            )?;
         }
         syntax::Stmt::Assign { target, expr, .. } => {
-            validate_expr_capabilities(module_path, target, capabilities, known_strings)?;
-            validate_expr_capabilities(module_path, expr, capabilities, known_strings)?;
+            validate_expr_capabilities(
+                module_path,
+                target,
+                capabilities,
+                known_strings,
+                stdlib_wrapper_capabilities,
+            )?;
+            validate_expr_capabilities(
+                module_path,
+                expr,
+                capabilities,
+                known_strings,
+                stdlib_wrapper_capabilities,
+            )?;
         }
         syntax::Stmt::If {
             cond,
@@ -4648,13 +4705,31 @@ fn validate_stmt_capabilities(
             else_block,
             ..
         } => {
-            validate_expr_capabilities(module_path, cond, capabilities, known_strings)?;
+            validate_expr_capabilities(
+                module_path,
+                cond,
+                capabilities,
+                known_strings,
+                stdlib_wrapper_capabilities,
+            )?;
             for stmt in then_block {
-                validate_stmt_capabilities(module_path, stmt, capabilities, known_strings)?;
+                validate_stmt_capabilities(
+                    module_path,
+                    stmt,
+                    capabilities,
+                    known_strings,
+                    stdlib_wrapper_capabilities,
+                )?;
             }
             if let Some(else_block) = else_block {
                 for stmt in else_block {
-                    validate_stmt_capabilities(module_path, stmt, capabilities, known_strings)?;
+                    validate_stmt_capabilities(
+                        module_path,
+                        stmt,
+                        capabilities,
+                        known_strings,
+                        stdlib_wrapper_capabilities,
+                    )?;
                 }
             }
         }
@@ -4664,27 +4739,69 @@ fn validate_stmt_capabilities(
             else_block,
             ..
         } => {
-            validate_expr_capabilities(module_path, expr, capabilities, known_strings)?;
+            validate_expr_capabilities(
+                module_path,
+                expr,
+                capabilities,
+                known_strings,
+                stdlib_wrapper_capabilities,
+            )?;
             for stmt in then_block {
-                validate_stmt_capabilities(module_path, stmt, capabilities, known_strings)?;
+                validate_stmt_capabilities(
+                    module_path,
+                    stmt,
+                    capabilities,
+                    known_strings,
+                    stdlib_wrapper_capabilities,
+                )?;
             }
             if let Some(else_block) = else_block {
                 for stmt in else_block {
-                    validate_stmt_capabilities(module_path, stmt, capabilities, known_strings)?;
+                    validate_stmt_capabilities(
+                        module_path,
+                        stmt,
+                        capabilities,
+                        known_strings,
+                        stdlib_wrapper_capabilities,
+                    )?;
                 }
             }
         }
         syntax::Stmt::While { cond, body, .. } => {
-            validate_expr_capabilities(module_path, cond, capabilities, known_strings)?;
+            validate_expr_capabilities(
+                module_path,
+                cond,
+                capabilities,
+                known_strings,
+                stdlib_wrapper_capabilities,
+            )?;
             for stmt in body {
-                validate_stmt_capabilities(module_path, stmt, capabilities, known_strings)?;
+                validate_stmt_capabilities(
+                    module_path,
+                    stmt,
+                    capabilities,
+                    known_strings,
+                    stdlib_wrapper_capabilities,
+                )?;
             }
         }
         syntax::Stmt::Match { expr, arms, .. } => {
-            validate_expr_capabilities(module_path, expr, capabilities, known_strings)?;
+            validate_expr_capabilities(
+                module_path,
+                expr,
+                capabilities,
+                known_strings,
+                stdlib_wrapper_capabilities,
+            )?;
             for arm in arms {
                 for stmt in &arm.body {
-                    validate_stmt_capabilities(module_path, stmt, capabilities, known_strings)?;
+                    validate_stmt_capabilities(
+                        module_path,
+                        stmt,
+                        capabilities,
+                        known_strings,
+                        stdlib_wrapper_capabilities,
+                    )?;
                 }
             }
         }
@@ -4697,6 +4814,7 @@ fn validate_expr_capabilities(
     expr: &syntax::Expr,
     capabilities: &CapabilityConfig,
     known_strings: &HashMap<String, String>,
+    stdlib_wrapper_capabilities: &HashMap<String, CapabilityKind>,
 ) -> Result<(), Diagnostic> {
     match expr {
         syntax::Expr::Literal(_) | syntax::Expr::VarRef { .. } => Ok(()),
@@ -4708,6 +4826,7 @@ fn validate_expr_capabilities(
             column,
         } => {
             if let Some(kind) = intrinsic_capability(name)
+                .or_else(|| stdlib_wrapper_capabilities.get(name.as_str()).copied())
                 && !capabilities.enabled(kind)
             {
                 let requirement = if kind == CapabilityKind::Env {
@@ -4736,78 +4855,192 @@ fn validate_expr_capabilities(
                 )?;
             }
             for arg in args {
-                validate_expr_capabilities(module_path, arg, capabilities, known_strings)?;
+                validate_expr_capabilities(
+                    module_path,
+                    arg,
+                    capabilities,
+                    known_strings,
+                    stdlib_wrapper_capabilities,
+                )?;
             }
             Ok(())
         }
         syntax::Expr::MethodCall { base, args, .. } => {
-            validate_expr_capabilities(module_path, base, capabilities, known_strings)?;
+            validate_expr_capabilities(
+                module_path,
+                base,
+                capabilities,
+                known_strings,
+                stdlib_wrapper_capabilities,
+            )?;
             for arg in args {
-                validate_expr_capabilities(module_path, arg, capabilities, known_strings)?;
+                validate_expr_capabilities(
+                    module_path,
+                    arg,
+                    capabilities,
+                    known_strings,
+                    stdlib_wrapper_capabilities,
+                )?;
             }
             Ok(())
         }
         syntax::Expr::BinaryAdd { lhs, rhs, .. }
         | syntax::Expr::BinaryCompare { lhs, rhs, .. }
         | syntax::Expr::BinaryLogic { lhs, rhs, .. } => {
-            validate_expr_capabilities(module_path, lhs, capabilities, known_strings)?;
-            validate_expr_capabilities(module_path, rhs, capabilities, known_strings)
+            validate_expr_capabilities(
+                module_path,
+                lhs,
+                capabilities,
+                known_strings,
+                stdlib_wrapper_capabilities,
+            )?;
+            validate_expr_capabilities(
+                module_path,
+                rhs,
+                capabilities,
+                known_strings,
+                stdlib_wrapper_capabilities,
+            )
         }
-        syntax::Expr::Cast { expr, .. } => {
-            validate_expr_capabilities(module_path, expr, capabilities, known_strings)
-        }
+        syntax::Expr::Cast { expr, .. } => validate_expr_capabilities(
+            module_path,
+            expr,
+            capabilities,
+            known_strings,
+            stdlib_wrapper_capabilities,
+        ),
         syntax::Expr::Try { expr, .. }
         | syntax::Expr::Await { expr, .. }
         | syntax::Expr::MutBorrow { expr, .. }
-        | syntax::Expr::Deref { expr, .. } => {
-            validate_expr_capabilities(module_path, expr, capabilities, known_strings)
-        }
+        | syntax::Expr::Deref { expr, .. } => validate_expr_capabilities(
+            module_path,
+            expr,
+            capabilities,
+            known_strings,
+            stdlib_wrapper_capabilities,
+        ),
         syntax::Expr::StructLiteral { fields, .. } => {
             for field in fields {
-                validate_expr_capabilities(module_path, &field.expr, capabilities, known_strings)?;
+                validate_expr_capabilities(
+                    module_path,
+                    &field.expr,
+                    capabilities,
+                    known_strings,
+                    stdlib_wrapper_capabilities,
+                )?;
             }
             Ok(())
         }
         syntax::Expr::FieldAccess { base, .. } | syntax::Expr::TupleIndex { base, .. } => {
-            validate_expr_capabilities(module_path, base, capabilities, known_strings)
+            validate_expr_capabilities(
+                module_path,
+                base,
+                capabilities,
+                known_strings,
+                stdlib_wrapper_capabilities,
+            )
         }
         syntax::Expr::TupleLiteral { elements, .. }
         | syntax::Expr::ArrayLiteral { elements, .. } => {
             for element in elements {
-                validate_expr_capabilities(module_path, element, capabilities, known_strings)?;
+                validate_expr_capabilities(
+                    module_path,
+                    element,
+                    capabilities,
+                    known_strings,
+                    stdlib_wrapper_capabilities,
+                )?;
             }
             Ok(())
         }
         syntax::Expr::MapLiteral { entries, .. } => {
             for entry in entries {
-                validate_expr_capabilities(module_path, &entry.key, capabilities, known_strings)?;
-                validate_expr_capabilities(module_path, &entry.value, capabilities, known_strings)?;
+                validate_expr_capabilities(
+                    module_path,
+                    &entry.key,
+                    capabilities,
+                    known_strings,
+                    stdlib_wrapper_capabilities,
+                )?;
+                validate_expr_capabilities(
+                    module_path,
+                    &entry.value,
+                    capabilities,
+                    known_strings,
+                    stdlib_wrapper_capabilities,
+                )?;
             }
             Ok(())
         }
         syntax::Expr::Slice {
             base, start, end, ..
         } => {
-            validate_expr_capabilities(module_path, base, capabilities, known_strings)?;
+            validate_expr_capabilities(
+                module_path,
+                base,
+                capabilities,
+                known_strings,
+                stdlib_wrapper_capabilities,
+            )?;
             if let Some(start) = start {
-                validate_expr_capabilities(module_path, start, capabilities, known_strings)?;
+                validate_expr_capabilities(
+                    module_path,
+                    start,
+                    capabilities,
+                    known_strings,
+                    stdlib_wrapper_capabilities,
+                )?;
             }
             if let Some(end) = end {
-                validate_expr_capabilities(module_path, end, capabilities, known_strings)?;
+                validate_expr_capabilities(
+                    module_path,
+                    end,
+                    capabilities,
+                    known_strings,
+                    stdlib_wrapper_capabilities,
+                )?;
             }
             Ok(())
         }
         syntax::Expr::Index { base, index, .. } => {
-            validate_expr_capabilities(module_path, base, capabilities, known_strings)?;
-            validate_expr_capabilities(module_path, index, capabilities, known_strings)
+            validate_expr_capabilities(
+                module_path,
+                base,
+                capabilities,
+                known_strings,
+                stdlib_wrapper_capabilities,
+            )?;
+            validate_expr_capabilities(
+                module_path,
+                index,
+                capabilities,
+                known_strings,
+                stdlib_wrapper_capabilities,
+            )
         }
-        syntax::Expr::Closure { body, .. } => {
-            validate_expr_capabilities(module_path, body, capabilities, known_strings)
-        }
+        syntax::Expr::Closure { body, .. } => validate_expr_capabilities(
+            module_path,
+            body,
+            capabilities,
+            known_strings,
+            stdlib_wrapper_capabilities,
+        ),
         syntax::Expr::Match { expr, arms, .. } => {
-            validate_expr_capabilities(module_path, expr, capabilities, known_strings)?;
+            validate_expr_capabilities(
+                module_path,
+                expr,
+                capabilities,
+                known_strings,
+                stdlib_wrapper_capabilities,
+            )?;
             for arm in arms {
-                validate_expr_capabilities(module_path, &arm.expr, capabilities, known_strings)?;
+                validate_expr_capabilities(
+                    module_path,
+                    &arm.expr,
+                    capabilities,
+                    known_strings,
+                    stdlib_wrapper_capabilities,
+                )?;
             }
             Ok(())
         }
@@ -4865,6 +5098,28 @@ fn validate_process_command_allowlist(
         .with_path(module_path.display().to_string())
         .with_span(line, column)),
     }
+}
+
+fn stdlib_wrapper_capabilities(program: &syntax::Program) -> HashMap<String, CapabilityKind> {
+    let mut capabilities = HashMap::new();
+    for import in &program.imports {
+        if import.path == "std/fs.ax" {
+            capabilities.insert(String::from("read_file"), CapabilityKind::Fs);
+            for wrapper in [
+                "write_file",
+                "create_file",
+                "append_file",
+                "mkdir",
+                "mkdir_all",
+                "remove_file",
+                "remove_dir",
+                "replace_file",
+            ] {
+                capabilities.insert(String::from(wrapper), CapabilityKind::FsWrite);
+            }
+        }
+    }
+    capabilities
 }
 
 fn syntax_program_known_strings(program: &syntax::Program) -> HashMap<String, String> {
@@ -9348,6 +9603,51 @@ return async_serve_route(1, "/", "ok", 1)
             Some(&Some("explicit\n"))
         );
         assert_eq!(stdout_by_name.get("manifest_bench"), Some(&None));
+    }
+
+    #[test]
+    fn manifest_test_streams_only_load_relative_package_fixtures() {
+        let dir = tempdir().unwrap_or_else(|err| panic!("tempdir: {err}"));
+        let root = dir.path().join("package");
+        fs::create_dir_all(&root).unwrap_or_else(|err| panic!("create package: {err}"));
+        let fixture_dir = root.join("fixtures");
+        fs::create_dir_all(&fixture_dir).unwrap_or_else(|err| panic!("create fixtures: {err}"));
+        fs::write(fixture_dir.join("stdout.txt"), "fixture\n")
+            .unwrap_or_else(|err| panic!("write fixture: {err}"));
+        fs::write(dir.path().join("secret.txt"), "secret\n")
+            .unwrap_or_else(|err| panic!("write outside secret: {err}"));
+
+        let loaded = load_manifest_test_stream(&root, Some("fixtures/stdout.txt"), "stdout")
+            .unwrap_or_else(|err| panic!("load fixture: {err:?}"));
+        assert_eq!(loaded.as_deref(), Some("fixture\n"));
+
+        let absolute = load_manifest_test_stream(
+            &root,
+            Some(dir.path().join("secret.txt").to_str().expect("utf-8 path")),
+            "stdout",
+        )
+        .unwrap_or_else(|err| panic!("load absolute: {err:?}"));
+        assert_eq!(absolute, None);
+
+        let traversal = load_manifest_test_stream(&root, Some("../secret.txt"), "stdout")
+            .unwrap_or_else(|err| panic!("load traversal: {err:?}"));
+        assert_eq!(traversal, None);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn manifest_test_streams_do_not_follow_symlinks() {
+        let dir = tempdir().unwrap_or_else(|err| panic!("tempdir: {err}"));
+        let root = dir.path().join("package");
+        fs::create_dir_all(&root).unwrap_or_else(|err| panic!("create package: {err}"));
+        fs::write(dir.path().join("secret.txt"), "secret\n")
+            .unwrap_or_else(|err| panic!("write outside secret: {err}"));
+        std::os::unix::fs::symlink(dir.path().join("secret.txt"), root.join("stdout.txt"))
+            .unwrap_or_else(|err| panic!("symlink stdout: {err}"));
+
+        let loaded = load_manifest_test_stream(&root, Some("stdout.txt"), "stdout")
+            .unwrap_or_else(|err| panic!("load symlink: {err:?}"));
+        assert_eq!(loaded, None);
     }
 
     #[cfg(unix)]

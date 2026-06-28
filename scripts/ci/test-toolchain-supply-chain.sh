@@ -13,6 +13,11 @@ grep -Fq 'stage1/supply-chain/config.toml' "$workflow" || {
   exit 1
 }
 
+grep -Fq 'install_version="0.10.2"' "$workflow" || {
+  echo "workflow must install cargo-vet 0.10.2 for trusted-publisher imports" >&2
+  exit 1
+}
+
 grep -Fq 'group: toolchain-supply-chain-${{ github.event.pull_request.number || github.ref }}' "$workflow" || {
   echo "workflow must group supply-chain runs by PR or ref for cancellation" >&2
   exit 1
@@ -25,6 +30,11 @@ grep -Fq 'cancel-in-progress: true' "$workflow" || {
 
 grep -Fq 'cargo-vet --version' "$workflow" || {
   echo "workflow must validate an existing cargo-vet binary before reusing it" >&2
+  exit 1
+}
+
+grep -Fq '[[ "$installed_version" != "cargo-vet ${install_version}" ]]' "$workflow" || {
+  echo "workflow must reject older cargo-vet patch releases" >&2
   exit 1
 }
 

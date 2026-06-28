@@ -1835,8 +1835,50 @@ fn cranelift_backend_lowers_tuple_returning_helper_to_runtime_exit_code() {
     assert_eq!(run.status.code(), Some(48));
     assert_eq!(
         String::from_utf8_lossy(&run.stdout),
-        "48\ntrue\n48\ntrue\n48\ntrue\n42\ntrue\n42\ntrue\n48\ntrue\n1\nfalse\n"
+        "48\ntrue\n48\ntrue\n48\ntrue\n48\ntrue\n42\ntrue\n42\ntrue\n42\ntrue\n48\ntrue\n1\nfalse\n"
     );
+}
+
+#[cfg(not(windows))]
+#[test]
+fn cranelift_backend_lowers_aggregate_helper_return_forwarding_to_runtime_exit_code() {
+    if which::which("cc").is_err() {
+        eprintln!("skipping cranelift backend smoke test because cc is unavailable");
+        return;
+    }
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp
+        .path()
+        .join("aggregate-helper-return-forwarding-main-exit");
+    write_aggregate_helper_return_forwarding_main_exit_project(&project);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args([
+            "build",
+            project.to_str().expect("project path"),
+            "--backend",
+            "cranelift",
+            "--json",
+        ])
+        .output()
+        .expect("run axiomc build --backend cranelift");
+    assert!(
+        output.status.success(),
+        "cranelift aggregate helper return forwarding main build failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+    assert_eq!(payload["backend"], "cranelift");
+    assert_eq!(payload["generated_rust"], Value::Null);
+    let binary = payload["binary"].as_str().expect("binary path");
+    let run = Command::new(binary)
+        .output()
+        .expect("run cranelift aggregate helper return forwarding main binary");
+    assert_eq!(run.status.code(), Some(48));
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "");
 }
 
 #[cfg(not(windows))]
@@ -9005,9 +9047,155 @@ fn write_tuple_returning_helper_main_exit_project(project: &Path) {
     .expect("write tuple returning helper main exit lockfile");
     fs::write(
         project.join("src/main.ax"),
-        "fn make_pair(base: int, enabled: bool): (int, bool) {\nreturn (base + 6, enabled)\n}\n\nfn make_local_pair(base: int): (int, bool) {\nlet pair: (int, bool) = (base + 6, true)\nreturn pair\n}\n\nfn forward_pair(pair: (int, bool)): (int, bool) {\nreturn pair\n}\n\nfn make_typed_pair(seed: u8): (u8, bool) {\nreturn (seed + 1u8, seed == 41u8)\n}\n\nfn forward_typed_pair(pair: (u8, bool)): (u8, bool) {\nreturn pair\n}\n\nfn choose_pair(flag: bool, base: int): (int, bool) {\nlet offset: int = 6\nlet ready: bool = base == 42\nif flag {\nlet value: int = base + offset\nreturn (value, ready)\n} else {\nlet fallback: int = 1\nreturn (fallback, false)\n}\n}\n\nfn main(): int {\nlet pair: (int, bool) = make_pair(42, true)\nlet local_pair: (int, bool) = make_local_pair(42)\nlet pair_to_forward: (int, bool) = make_pair(42, true)\nlet forwarded_pair: (int, bool) = forward_pair(pair_to_forward)\nlet typed: (u8, bool) = make_typed_pair(41u8)\nlet typed_to_forward: (u8, bool) = make_typed_pair(41u8)\nlet forwarded_typed: (u8, bool) = forward_typed_pair(typed_to_forward)\nlet branch_pair: (int, bool) = choose_pair(true, 42)\nlet blocked_pair: (int, bool) = choose_pair(false, 42)\nlet value: int = pair.0\nlet enabled: bool = pair.1\nlet local_value: int = local_pair.0\nlet local_enabled: bool = local_pair.1\nlet forwarded_value: int = forwarded_pair.0\nlet forwarded_enabled: bool = forwarded_pair.1\nlet typed_value: int = typed.0 as int\nlet typed_enabled: bool = typed.1\nlet forwarded_typed_value: int = forwarded_typed.0 as int\nlet forwarded_typed_enabled: bool = forwarded_typed.1\nlet branch_value: int = branch_pair.0\nlet branch_enabled: bool = branch_pair.1\nlet blocked_value: int = blocked_pair.0\nlet blocked_enabled: bool = blocked_pair.1\nprint value\nprint enabled\nprint local_value\nprint local_enabled\nprint forwarded_value\nprint forwarded_enabled\nprint typed_value\nprint typed_enabled\nprint forwarded_typed_value\nprint forwarded_typed_enabled\nprint branch_value\nprint branch_enabled\nprint blocked_value\nprint blocked_enabled\nif enabled && local_enabled && forwarded_enabled && typed_enabled && forwarded_typed_enabled && branch_enabled && blocked_enabled == false && value == 48 && local_value == 48 && forwarded_value == 48 && typed_value == 42 && forwarded_typed_value == 42 && branch_value == 48 && blocked_value == 1 {\nreturn value\n} else {\nreturn 1\n}\n}\n",
+        "fn make_pair(base: int, enabled: bool): (int, bool) {\nreturn (base + 6, enabled)\n}\n\nfn make_local_pair(base: int): (int, bool) {\nlet pair: (int, bool) = (base + 6, true)\nreturn pair\n}\n\nfn forward_pair(pair: (int, bool)): (int, bool) {\nreturn pair\n}\n\nfn forward_returned_pair(base: int): (int, bool) {\nreturn make_pair(base, true)\n}\n\nfn make_typed_pair(seed: u8): (u8, bool) {\nreturn (seed + 1u8, seed == 41u8)\n}\n\nfn forward_typed_pair(pair: (u8, bool)): (u8, bool) {\nreturn pair\n}\n\nfn forward_returned_typed_pair(seed: u8): (u8, bool) {\nreturn make_typed_pair(seed)\n}\n\nfn choose_pair(flag: bool, base: int): (int, bool) {\nlet offset: int = 6\nlet ready: bool = base == 42\nif flag {\nlet value: int = base + offset\nreturn (value, ready)\n} else {\nlet fallback: int = 1\nreturn (fallback, false)\n}\n}\n\nfn main(): int {\nlet pair: (int, bool) = make_pair(42, true)\nlet local_pair: (int, bool) = make_local_pair(42)\nlet pair_to_forward: (int, bool) = make_pair(42, true)\nlet forwarded_pair: (int, bool) = forward_pair(pair_to_forward)\nlet returned_forwarded_pair: (int, bool) = forward_returned_pair(42)\nlet typed: (u8, bool) = make_typed_pair(41u8)\nlet typed_to_forward: (u8, bool) = make_typed_pair(41u8)\nlet forwarded_typed: (u8, bool) = forward_typed_pair(typed_to_forward)\nlet returned_forwarded_typed: (u8, bool) = forward_returned_typed_pair(41u8)\nlet branch_pair: (int, bool) = choose_pair(true, 42)\nlet blocked_pair: (int, bool) = choose_pair(false, 42)\nlet value: int = pair.0\nlet enabled: bool = pair.1\nlet local_value: int = local_pair.0\nlet local_enabled: bool = local_pair.1\nlet forwarded_value: int = forwarded_pair.0\nlet forwarded_enabled: bool = forwarded_pair.1\nlet returned_forwarded_value: int = returned_forwarded_pair.0\nlet returned_forwarded_enabled: bool = returned_forwarded_pair.1\nlet typed_value: int = typed.0 as int\nlet typed_enabled: bool = typed.1\nlet forwarded_typed_value: int = forwarded_typed.0 as int\nlet forwarded_typed_enabled: bool = forwarded_typed.1\nlet returned_forwarded_typed_value: int = returned_forwarded_typed.0 as int\nlet returned_forwarded_typed_enabled: bool = returned_forwarded_typed.1\nlet branch_value: int = branch_pair.0\nlet branch_enabled: bool = branch_pair.1\nlet blocked_value: int = blocked_pair.0\nlet blocked_enabled: bool = blocked_pair.1\nprint value\nprint enabled\nprint local_value\nprint local_enabled\nprint forwarded_value\nprint forwarded_enabled\nprint returned_forwarded_value\nprint returned_forwarded_enabled\nprint typed_value\nprint typed_enabled\nprint forwarded_typed_value\nprint forwarded_typed_enabled\nprint returned_forwarded_typed_value\nprint returned_forwarded_typed_enabled\nprint branch_value\nprint branch_enabled\nprint blocked_value\nprint blocked_enabled\nif enabled && local_enabled && forwarded_enabled && returned_forwarded_enabled && typed_enabled && forwarded_typed_enabled && returned_forwarded_typed_enabled && branch_enabled && blocked_enabled == false && value == 48 && local_value == 48 && forwarded_value == 48 && returned_forwarded_value == 48 && typed_value == 42 && forwarded_typed_value == 42 && returned_forwarded_typed_value == 42 && branch_value == 48 && blocked_value == 1 {\nreturn value\n} else {\nreturn 1\n}\n}\n",
     )
     .expect("write tuple returning helper main exit source");
+}
+
+fn write_aggregate_helper_return_forwarding_main_exit_project(project: &Path) {
+    fs::create_dir_all(project.join("src"))
+        .expect("create aggregate helper return forwarding main exit project src");
+    fs::write(
+        project.join("axiom.toml"),
+        "[package]\nname = \"cranelift-aggregate-helper-return-forwarding-main-exit\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n",
+    )
+    .expect("write aggregate helper return forwarding main exit manifest");
+    fs::write(
+        project.join("axiom.lock"),
+        "version = 1\n\n[[package]]\nname = \"cranelift-aggregate-helper-return-forwarding-main-exit\"\nversion = \"0.1.0\"\nsource = \"path\"\n",
+    )
+    .expect("write aggregate helper return forwarding main exit lockfile");
+    fs::write(
+        project.join("src/main.ax"),
+        r#"struct Step {
+value: int
+ready: bool
+}
+
+enum Choice {
+Ready { step: Step }
+Fallback { step: Step }
+Off
+}
+
+fn make_pair(): (int, bool) {
+return (48, true)
+}
+
+fn forward_pair(): (int, bool) {
+return make_pair()
+}
+
+fn make_values(): [int; 2] {
+return [20, 28]
+}
+
+fn forward_values(): [int; 2] {
+return make_values()
+}
+
+fn make_step(): Step {
+return Step { value: 48, ready: true }
+}
+
+fn forward_step(): Step {
+return make_step()
+}
+
+fn make_option(): Option<Step> {
+return Some(Step { value: 48, ready: true })
+}
+
+fn forward_option(): Option<Step> {
+return make_option()
+}
+
+fn make_result(): Result<Step, Step> {
+return Ok(Step { value: 48, ready: true })
+}
+
+fn forward_result(): Result<Step, Step> {
+return make_result()
+}
+
+fn make_choice(): Choice {
+return Ready { step: Step { value: 48, ready: true } }
+}
+
+fn forward_choice(): Choice {
+return make_choice()
+}
+
+fn score_pair(pair: (int, bool)): int {
+if pair.1 {
+return pair.0
+} else {
+return 1
+}
+}
+
+fn score_values(values: [int; 2]): int {
+return values[0] + values[1]
+}
+
+fn score_step(step: Step): int {
+if step.ready {
+return step.value
+} else {
+return 1
+}
+}
+
+fn score_option(value: Option<Step>): int {
+return match value { Some(step) => step.value, None => 1 }
+}
+
+fn score_result(value: Result<Step, Step>): int {
+return match value { Ok(step) => step.value, Err(step) => step.value }
+}
+
+fn score_choice(choice: Choice): int {
+let code: int = 0
+match choice {
+Ready { step } {
+if step.ready {
+code = step.value
+} else {
+code = 1
+}
+}
+Fallback { step } {
+code = step.value
+}
+Off {
+code = 1
+}
+}
+return code
+}
+
+fn main(): int {
+let pair: (int, bool) = forward_pair()
+let values: [int; 2] = forward_values()
+let step: Step = forward_step()
+let maybe: Option<Step> = forward_option()
+let outcome: Result<Step, Step> = forward_result()
+let choice: Choice = forward_choice()
+let pair_score: int = score_pair(pair)
+let values_score: int = score_values(values)
+let step_score: int = score_step(step)
+let option_score: int = score_option(maybe)
+let result_score: int = score_result(outcome)
+let choice_score: int = score_choice(choice)
+if pair_score == 48 && values_score == 48 && step_score == 48 && option_score == 48 && result_score == 48 && choice_score == 48 {
+return 48
+} else {
+return 1
+}
+}
+"#,
+    )
+    .expect("write aggregate helper return forwarding main exit source");
 }
 
 fn write_array_literal_index_main_exit_project(project: &Path) {

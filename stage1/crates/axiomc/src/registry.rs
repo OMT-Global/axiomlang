@@ -1174,14 +1174,18 @@ fn load_release(
         ));
     }
     let archive_file = match metadata.archive {
-        Some(value) => Some(value),
+        // Reduce the untrusted registry.toml artifact name to a validated
+        // basename within version_dir (matching the consumer-side verifier) so a
+        // crafted name such as "../../../../etc/passwd" cannot escape the package
+        // tree when the path is later joined and read.
+        Some(value) => Some(registry_artifact_file_name("archive file name", &value)?),
         None => version_dir
             .join(DEFAULT_ARCHIVE_FILENAME)
             .exists()
             .then(|| String::from(DEFAULT_ARCHIVE_FILENAME)),
     };
     let signature_file = match metadata.signature {
-        Some(value) => Some(value),
+        Some(value) => Some(registry_artifact_file_name("signature file name", &value)?),
         None => archive_file.as_ref().and_then(|archive| {
             version_dir
                 .join(format!("{archive}.sig"))
@@ -1411,6 +1415,46 @@ mod tests {
         .expect("write lockfile");
         fs::write(project.join("src/main.ax"), "print \"hello\"\n").expect("write source");
         project
+    }
+
+    #[test]
+    fn load_release_confines_traversal_archive_names_to_the_version_dir() {
+        let dir = tempdir().expect("tempdir");
+        let registry = dir.path().join("registry");
+        // Real files outside the registry that a crafted archive/signature name
+        // would reach if joined onto version_dir without basename sanitization.
+        fs::write(dir.path().join("escape.axp"), b"OUTSIDE ARCHIVE")
+            .expect("write outside archive");
+        fs::write(dir.path().join("escape.axp.sig"), b"OUTSIDE SIGNATURE")
+            .expect("write outside signature");
+        // version_dir is <tmp>/registry/demo/1.0.0; "../../../escape.axp" escapes to <tmp>.
+        let version_dir = write_release(
+            &registry,
+            "demo",
+            "1.0.0",
+            "[package]\nname = \"demo\"\nversion = \"1.0.0\"\n",
+        );
+        fs::write(
+            version_dir.join(REGISTRY_METADATA_FILENAME),
+            "archive = \"../../../escape.axp\"\nsignature = \"../../../escape.axp.sig\"\n",
+        )
+        .expect("write registry metadata");
+
+        let error = build_registry_index(&registry, "https://packages.example.test", "test-key")
+            .expect_err("traversal artifact names must be confined to the version dir");
+        // The names are reduced to their basenames and read from inside version_dir
+        // (which does not contain them), so the build fails at the contained archive
+        // read rather than reading the outside files.
+        assert!(
+            error.message.contains("failed to read registry archive"),
+            "expected a contained archive read failure, got: {}",
+            error.message
+        );
+        assert!(
+            !error.message.contains("escape.axp.sig"),
+            "read must fail at the archive and never reach the outside signature: {}",
+            error.message
+        );
     }
 
     #[test]

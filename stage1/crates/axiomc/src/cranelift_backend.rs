@@ -1810,17 +1810,31 @@ fn lower_i64_aggregate_return_body(
         }
     }
     let body = match return_stmt {
-        Stmt::Return { expr, .. } => CraneliftI64ValueBody::Return(
-            lower_i64_aggregate_return_values(
+        Stmt::Return { expr, .. } => {
+            if let Some(block) = lower_i64_aggregate_call_return_block(
                 expr,
                 shape,
+                &mut locals,
                 &local_indexes,
                 &local_conditions,
                 helper_signatures,
                 static_bindings,
-            )
-            .filter(|results| results.len() == shape.slot_count())?,
-        ),
+            ) {
+                CraneliftI64ValueBody::BlockReturn(block)
+            } else {
+                CraneliftI64ValueBody::Return(
+                    lower_i64_aggregate_return_values(
+                        expr,
+                        shape,
+                        &local_indexes,
+                        &local_conditions,
+                        helper_signatures,
+                        static_bindings,
+                    )
+                    .filter(|results| results.len() == shape.slot_count())?,
+                )
+            }
+        }
         Stmt::If {
             cond,
             then_block,
@@ -1898,6 +1912,22 @@ fn lower_i64_aggregate_return_block(
             )?);
         }
     }
+    if let Some(mut block) = lower_i64_aggregate_call_return_block(
+        expr,
+        shape,
+        locals,
+        &local_indexes,
+        &local_conditions,
+        helper_signatures,
+        static_bindings,
+    ) {
+        stmts.append(&mut block.stmts);
+        return Some(CraneliftI64ValueReturnBlock {
+            stmts,
+            results: block.results,
+        });
+    }
+
     let results = lower_i64_aggregate_return_values(
         expr,
         shape,
@@ -1922,6 +1952,87 @@ impl I64AggregateReturnShape {
             | I64AggregateReturnShape::Result { payload_slots, .. }
             | I64AggregateReturnShape::Enum { payload_slots, .. } => 1 + payload_slots,
         }
+    }
+}
+
+fn lower_i64_aggregate_call_return_block(
+    expr: &Expr,
+    shape: &I64AggregateReturnShape,
+    locals: &mut Vec<CraneliftI64Expr>,
+    local_indexes: &HashMap<String, usize>,
+    local_conditions: &HashMap<String, CraneliftI64Condition>,
+    helper_signatures: &HashMap<&str, I64HelperSignature>,
+    static_bindings: &I64StaticBindings,
+) -> Option<CraneliftI64ValueReturnBlock> {
+    let Expr::Call {
+        name: call_name,
+        args,
+        ..
+    } = expr
+    else {
+        return None;
+    };
+    let signature = helper_signatures.get(call_name.as_str())?;
+    if args.len() != signature.params
+        || signature.returns != shape.slot_count()
+        || !i64_aggregate_signature_matches_shape(signature, shape)
+    {
+        return None;
+    }
+    let mut return_locals = Vec::with_capacity(shape.slot_count());
+    for _ in 0..shape.slot_count() {
+        let local = locals.len();
+        locals.push(CraneliftI64Expr::Literal(0));
+        return_locals.push(local);
+    }
+    let args = lower_i64_flat_call_args(
+        args,
+        signature,
+        local_indexes,
+        local_conditions,
+        helper_signatures,
+        static_bindings,
+    )?;
+    let results = return_locals
+        .iter()
+        .copied()
+        .map(CraneliftI64Expr::Local)
+        .collect();
+    Some(CraneliftI64ValueReturnBlock {
+        stmts: vec![CraneliftI64Stmt::CallAssign {
+            locals: return_locals,
+            function: signature.function,
+            args,
+        }],
+        results,
+    })
+}
+
+fn i64_aggregate_signature_matches_shape(
+    signature: &I64HelperSignature,
+    shape: &I64AggregateReturnShape,
+) -> bool {
+    match (shape, &signature.return_ty) {
+        (
+            I64AggregateReturnShape::Array { element, size },
+            Type::Array(return_element, Some(return_size)),
+        ) => return_element.as_ref() == element && return_size == size,
+        (I64AggregateReturnShape::Tuple(elements), Type::Tuple(return_elements)) => {
+            return_elements == elements
+        }
+        (I64AggregateReturnShape::Struct { name, .. }, Type::Struct(return_name)) => {
+            return_name == name
+        }
+        (I64AggregateReturnShape::Option { inner, .. }, Type::Option(return_inner)) => {
+            return_inner.as_ref() == inner
+        }
+        (I64AggregateReturnShape::Result { ok, err, .. }, Type::Result(return_ok, return_err)) => {
+            return_ok.as_ref() == ok && return_err.as_ref() == err
+        }
+        (I64AggregateReturnShape::Enum { name, .. }, Type::Enum(return_name)) => {
+            return_name == name
+        }
+        _ => false,
     }
 }
 
@@ -19878,7 +19989,14 @@ fn http_serve_route_on_server(
 }
 
 fn http_parse_loopback_bind(bind: &str) -> Option<SocketAddr> {
-    let addr = bind.parse::<SocketAddr>().ok()?;
+    let addr = bind.parse::<SocketAddr>().ok().or_else(|| {
+        let (host, port) = bind.rsplit_once(':')?;
+        if host != "localhost" {
+            return None;
+        }
+        let port = port.parse::<u16>().ok()?;
+        Some(SocketAddr::from(([127, 0, 0, 1], port)))
+    })?;
     if !addr.ip().is_loopback() {
         return None;
     }
@@ -21897,6 +22015,21 @@ mod tests {
             ]
         );
     }
+
+    #[test]
+    fn loopback_bind_parser_accepts_localhost() {
+        assert_eq!(
+            http_parse_loopback_bind("localhost:0"),
+            Some(SocketAddr::from(([127, 0, 0, 1], 0)))
+        );
+        assert_eq!(
+            http_parse_loopback_bind("127.0.0.1:8080"),
+            Some(SocketAddr::from(([127, 0, 0, 1], 8080)))
+        );
+        assert_eq!(http_parse_loopback_bind("example.com:80"), None);
+        assert_eq!(http_parse_loopback_bind("192.0.2.1:80"), None);
+    }
+
     #[test]
     fn static_map_lookups_respect_last_duplicate_key() {
         let map = Expr::MapLiteral {
