@@ -28,7 +28,7 @@ diagnostic normalization, and evidence lookup to package APIs.
 | Command | API | Required package calls | Stable output |
 |---|---|---|---|
 | `axiomc check` | `compiler.commands.check_package(root, package, options)` | `compiler.package_graph.load_workspace`, `compiler.syntax.parse_program`, `compiler.hir.analyze`, `compiler.diagnostics.diagnostic` | `axiom.stage1.v1` check envelope with diagnostics, package records, capability records, warnings, optional macro expansions, and optional debug symbols. |
-| `axiomc build` | `compiler.commands.build_package(root, package, target, debug, locked, offline)` | `compiler.package_graph.resolve_locked`, `compiler.hir.analyze`, `compiler.mir.lower_package`, `compiler.backend.contracts.select_target`, `compiler.evidence.record_build` | `axiom.stage1.v1` build envelope with artifact plan, selected backend, build metadata, cache metadata, provenance, and optional debug sidecars. |
+| `axiomc build` | `compiler.commands.build_package(root, package, target, debug, locked, offline)` | `compiler.package_graph.resolve_locked`, `compiler.hir.analyze`, `compiler.mir.lower_package`, `compiler.backend.contracts.select_target`, `compiler.evidence.record_build` | `axiom.stage1.v1` build envelope with direct-native artifact plan, selected backend, build metadata, cache metadata, provenance, and optional debug sidecars. |
 | `axiomc run` | `compiler.commands.run_artifact(root, package, args, options)` | `compiler.commands.build_package`, `compiler.evidence.record_run` | Text streaming by default; `axiom.stage1.v1` run envelope with selected backend, exit code, stdout, stderr, result, forwarded args, selected package, and optional generated-Rust artifact when JSON is requested. |
 | `axiomc test` | `compiler.commands.test_package(root, package, filter, options)` | `compiler.package_graph.load_workspace`, `compiler.commands.build_package`, `compiler.evidence.record_test` | `axiom.stage1.v1` test envelope with selected backend, discovered tests, per-case results, property totals, golden stream evidence, duration, filter metadata, and optional per-case generated-Rust artifacts. |
 | `axiomc doc` | `compiler.commands.render_docs(root, package, options)` | `compiler.package_graph.load_workspace`, `compiler.hir.export_public_api`, `compiler.evidence.record_artifact` | Versioned doc JSON plus Markdown/HTML artifact paths, symbol extraction records, source comments, signatures, and package capabilities. |
@@ -39,6 +39,11 @@ The command APIs deliberately exclude Cargo and `rustc` from official
 self-hosted command behavior. Cargo remains allowed only for the temporary
 developer path while the Rust bootstrap host and generated-Rust backend remain
 checked in.
+
+`axiomc inspect artifacts` no longer plans `generated_rust` as a configured
+package artifact. Existing `.generated.rs` files under an output directory are
+reported as `legacy_generated_rust` compatibility outputs so agents can see and
+clean stale Rust projections without treating them as supported build targets.
 
 ## LSP Service APIs
 

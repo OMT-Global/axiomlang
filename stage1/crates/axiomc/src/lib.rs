@@ -14454,7 +14454,7 @@ print main_value()
         assert_eq!(payload["cache_key"]["debug"], true);
         assert!(payload["cache_key"]["manifest_hash"].is_string());
         assert!(payload["cache_key"]["lockfile_hash"].is_string());
-        assert!(payload["cache_key"]["generated_rust_hash"].is_string());
+        assert!(payload["cache_key"]["backend_input_hash"].is_string());
         assert!(payload["cache_key"]["sources"].is_array());
         assert!(payload["cache_key"]["sources"][0]["source_hash"].is_string());
         assert_eq!(

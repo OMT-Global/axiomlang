@@ -6,8 +6,8 @@ use axiomc::json_contract;
 use axiomc::lockfile::{expected_lockfile_for_project, validate_lockfile};
 use axiomc::lsp;
 use axiomc::manifest::{
-    CapabilityDescriptor, TestKind, binary_path, entry_path, generated_rust_path, load_manifest,
-    lockfile_path, manifest_path, out_dir_path,
+    CapabilityDescriptor, TestKind, binary_path, entry_path, load_manifest, lockfile_path,
+    manifest_path, out_dir_path,
 };
 #[cfg(test)]
 use axiomc::new_project::create_project;
@@ -70,8 +70,7 @@ enum Command {
         #[arg(long)]
         properties: bool,
         /// Select the backend used when --properties executes property fixtures.
-        /// Defaults to the supported direct-native `cranelift` backend;
-        /// `generated-rust` is compatibility-only.
+        /// Defaults to the supported direct-native `cranelift` backend.
         #[arg(long, default_value_t = NativeBackendKind::Cranelift)]
         backend: NativeBackendKind,
         #[arg(long)]
@@ -92,8 +91,7 @@ enum Command {
         #[arg(long)]
         json: bool,
         /// Select the build backend. When omitted, builds use the supported
-        /// direct-native `cranelift` backend. `generated-rust` is
-        /// compatibility-only and must be requested explicitly.
+        /// direct-native `cranelift` backend.
         #[arg(long)]
         backend: Option<NativeBackendKind>,
         #[arg(long)]
@@ -118,8 +116,7 @@ enum Command {
         #[arg(long)]
         json: bool,
         /// Select the backend used to build the executable before running it.
-        /// Defaults to the supported direct-native `cranelift` backend;
-        /// `generated-rust` is compatibility-only.
+        /// Defaults to the supported direct-native `cranelift` backend.
         #[arg(long, default_value_t = NativeBackendKind::Cranelift)]
         backend: NativeBackendKind,
         #[arg(short = 'p', long = "package")]
@@ -140,8 +137,7 @@ enum Command {
         #[arg(long)]
         json: bool,
         /// Select the backend used to build executable test cases.
-        /// Defaults to the supported direct-native `cranelift` backend;
-        /// `generated-rust` is compatibility-only.
+        /// Defaults to the supported direct-native `cranelift` backend.
         #[arg(long, default_value_t = NativeBackendKind::Cranelift)]
         backend: NativeBackendKind,
         #[arg(long)]
@@ -7733,13 +7729,6 @@ fn inspect_artifacts(project: &Path) -> Result<InspectArtifactsReport, Diagnosti
         push_artifact(
             &mut artifacts,
             &package_id,
-            "generated_rust",
-            generated_rust_path(project, &manifest),
-            "configured",
-        );
-        push_artifact(
-            &mut artifacts,
-            &package_id,
             "native_binary",
             binary_path(project, &manifest),
             "configured",
@@ -7891,7 +7880,7 @@ fn inspect_existing_output_artifacts(
         } else if name == TERRAFORM_MAIN_FILE {
             TERRAFORM_ARTIFACT_KIND
         } else if name.ends_with(".generated.rs") {
-            "generated_rust"
+            "legacy_generated_rust"
         } else if name.ends_with(".debug-map.json") {
             "debug_map"
         } else if name.ends_with(".debug-manifest.json") {
@@ -8490,26 +8479,20 @@ return "ok"
     }
 
     #[test]
-    fn check_accepts_property_backend_selection() {
-        let cli = Cli::parse_from([
+    fn check_rejects_generated_rust_property_backend_selection() {
+        let error = Cli::try_parse_from([
             "axiomc",
             "check",
             ".",
             "--properties",
             "--backend",
             "generated-rust",
-        ]);
-        match cli.command {
-            Command::Check {
-                properties,
-                backend,
-                ..
-            } => {
-                assert!(properties);
-                assert_eq!(backend, NativeBackendKind::GeneratedRust);
-            }
-            other => panic!("expected check command, got {other:?}"),
-        }
+        ])
+        .expect_err("generated-rust should be removed from check --properties backend parsing");
+        let rendered = error.to_string();
+        assert!(rendered.contains("unsupported backend \"generated-rust\""));
+        assert!(rendered.contains("supported backends: cranelift"));
+        assert!(!rendered.contains("compatibility backends"));
     }
 
     #[test]
@@ -8623,14 +8606,13 @@ return "ok"
     }
 
     #[test]
-    fn build_accepts_generated_rust_backend_fallback() {
-        let cli = Cli::parse_from(["axiomc", "build", ".", "--backend", "generated-rust"]);
-        match cli.command {
-            Command::Build { backend, .. } => {
-                assert_eq!(backend, Some(NativeBackendKind::GeneratedRust));
-            }
-            other => panic!("expected build command, got {other:?}"),
-        }
+    fn build_rejects_generated_rust_backend_fallback() {
+        let error = Cli::try_parse_from(["axiomc", "build", ".", "--backend", "generated-rust"])
+            .expect_err("generated-rust should be removed from build backend parsing");
+        let rendered = error.to_string();
+        assert!(rendered.contains("unsupported backend \"generated-rust\""));
+        assert!(rendered.contains("supported backends: cranelift"));
+        assert!(!rendered.contains("compatibility backends"));
     }
 
     #[test]
@@ -8640,7 +8622,7 @@ return "ok"
         let rendered = error.to_string();
         assert!(rendered.contains("unsupported backend \"rust\""));
         assert!(rendered.contains("supported backends: cranelift"));
-        assert!(rendered.contains("compatibility backends: generated-rust"));
+        assert!(!rendered.contains("compatibility backends"));
     }
 
     #[test]
@@ -8719,7 +8701,7 @@ return "ok"
         let rendered = error.to_string();
         assert!(rendered.contains("unsupported backend \"direct-native\""));
         assert!(rendered.contains("supported backends: cranelift"));
-        assert!(rendered.contains("compatibility backends: generated-rust"));
+        assert!(!rendered.contains("compatibility backends"));
     }
 
     #[test]
@@ -8786,7 +8768,7 @@ return "ok"
                 debug: true,
                 manifest_hash: String::from("manifest-hash"),
                 lockfile_hash: String::from("lockfile-hash"),
-                generated_rust_hash: String::from("rust-hash"),
+                backend_input_hash: String::from("backend-input-hash"),
                 sources: Vec::new(),
             },
             metadata: axiomc::project::BuildMetadata {
@@ -9628,12 +9610,16 @@ return "ok"
                 .iter()
                 .any(|artifact| artifact.kind == "build_entry" && artifact.exists)
         );
-        assert!(
-            artifacts
-                .artifacts
-                .iter()
-                .any(|artifact| artifact.kind == "generated_rust" && artifact.exists)
-        );
+        assert!(artifacts.artifacts.iter().any(|artifact| {
+            artifact.kind == "legacy_generated_rust"
+                && artifact.exists
+                && artifact.source == "available"
+        }));
+        assert!(!artifacts.artifacts.iter().any(|artifact| {
+            artifact.kind == "generated_rust"
+                && artifact.status == "planned"
+                && artifact.source == "configured"
+        }));
         assert!(
             artifacts
                 .artifacts

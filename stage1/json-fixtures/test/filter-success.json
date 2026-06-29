@@ -20,7 +20,7 @@
       "exit_code": 0,
       "expected_stdout": "ok\\n",
       "expected_stderr": null,
-      "generated_rust": "<project>/dist/tests/contract-app-src-math-test.generated.rs",
+      "generated_rust": null,
       "kind": "unit",
       "name": "src/math_test",
       "ok": true,

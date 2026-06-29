@@ -20,7 +20,6 @@ use std::os::unix::fs::PermissionsExt;
 
 pub const INTERNAL_COMPILER_ERROR_CODE: &str = "ICE-001";
 pub const SUPPORTED_NATIVE_BACKENDS: &str = "cranelift";
-pub const COMPATIBILITY_NATIVE_BACKENDS: &str = "generated-rust";
 
 thread_local! {
     static CODEGEN_INTERNAL_ERRORS: RefCell<Vec<String>> = RefCell::new(Vec::new());
@@ -28,8 +27,8 @@ thread_local! {
 
 /// Selector for stage1 native-build backend plumbing.
 ///
-/// Stage1 keeps generated Rust as an explicit compatibility backend, but the
-/// supported command surface defaults to direct-native Cranelift.
+/// Stage1 keeps generated Rust as an internal compatibility backend, but the
+/// supported command surface exposes only direct-native Cranelift.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "kebab-case")]
 pub enum NativeBackendKind {
@@ -58,10 +57,9 @@ impl FromStr for NativeBackendKind {
 
     fn from_str(value: &str) -> Result<Self, Self::Err> {
         match value {
-            "generated-rust" => Ok(Self::GeneratedRust),
             "cranelift" => Ok(Self::Cranelift),
             other => Err(format!(
-                "unsupported backend {other:?}; supported backends: {SUPPORTED_NATIVE_BACKENDS}; compatibility backends: {COMPATIBILITY_NATIVE_BACKENDS}"
+                "unsupported backend {other:?}; supported backends: {SUPPORTED_NATIVE_BACKENDS}"
             )),
         }
     }
@@ -80,14 +78,6 @@ mod tests {
     use std::str::FromStr;
 
     #[test]
-    fn parses_generated_rust_backend() {
-        assert_eq!(
-            NativeBackendKind::from_str("generated-rust").expect("parse generated-rust"),
-            NativeBackendKind::GeneratedRust
-        );
-    }
-
-    #[test]
     fn parses_cranelift_backend() {
         assert_eq!(
             NativeBackendKind::from_str("cranelift").expect("parse cranelift"),
@@ -100,7 +90,16 @@ mod tests {
         let error = NativeBackendKind::from_str("direct-native")
             .expect_err("unsupported backend values should be rejected");
         assert!(error.contains("supported backends: cranelift"));
-        assert!(error.contains("compatibility backends: generated-rust"));
+        assert!(!error.contains("compatibility backends"));
+    }
+
+    #[test]
+    fn rejects_generated_rust_backend_value() {
+        let error = NativeBackendKind::from_str("generated-rust")
+            .expect_err("generated-rust should be removed from the CLI parser");
+        assert!(error.contains("unsupported backend \"generated-rust\""));
+        assert!(error.contains("supported backends: cranelift"));
+        assert!(!error.contains("compatibility backends"));
     }
 
     #[test]
@@ -108,7 +107,7 @@ mod tests {
         let error =
             NativeBackendKind::from_str("rust").expect_err("rust alias should be unsupported");
         assert!(error.contains("supported backends: cranelift"));
-        assert!(error.contains("compatibility backends: generated-rust"));
+        assert!(!error.contains("compatibility backends"));
     }
 
     #[test]

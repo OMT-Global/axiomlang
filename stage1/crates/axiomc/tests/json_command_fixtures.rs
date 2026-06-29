@@ -43,13 +43,13 @@ fn assert_envelope(payload: &Value, command: &str, ok: bool) {
 }
 
 #[test]
-fn build_fixtures_cover_compatibility_target_and_no_fallback_failure() {
+fn build_fixtures_cover_direct_native_target_and_no_fallback_failure() {
     let validator = schema_validator();
     let success = fixture("build", "success.json");
     assert_matches_stage1_schema(&validator, &success);
     assert_envelope(&success, "build", true);
-    assert_eq!(success["backend"], "generated-rust");
-    assert!(success["generated_rust"].is_string());
+    assert_eq!(success["backend"], "cranelift");
+    assert!(success["generated_rust"].is_null());
     assert_eq!(success["locked"], false);
     assert_eq!(success["offline"], false);
     assert_eq!(success["target"], "aarch64-apple-darwin");
@@ -60,10 +60,10 @@ fn build_fixtures_cover_compatibility_target_and_no_fallback_failure() {
     assert!(success["metadata"]["source_hash"].is_string());
     assert_eq!(
         success["cache_key"]["compiler"],
-        "axiomc-stage1-0.1.0-generated-rust"
+        "axiomc-stage1-0.1.0-cranelift"
     );
     assert_eq!(success["cache_key"]["debug"], false);
-    assert!(success["cache_key"]["generated_rust_hash"].is_string());
+    assert!(success["cache_key"]["backend_input_hash"].is_string());
     assert!(success["cache_key"]["lockfile_hash"].is_string());
     assert!(success["cache_key"]["manifest_hash"].is_string());
     assert_eq!(success["cache_key"]["sources"][0]["path"], success["entry"]);
@@ -73,8 +73,8 @@ fn build_fixtures_cover_compatibility_target_and_no_fallback_failure() {
     assert!(success["duration_ms"].is_u64());
     assert!(success["cache_hits"].is_u64());
     assert!(success["cache_misses"].is_u64());
-    assert_eq!(success["packages"][0]["backend"], "generated-rust");
-    assert!(success["packages"][0]["generated_rust"].is_string());
+    assert_eq!(success["packages"][0]["backend"], "cranelift");
+    assert!(success["packages"][0]["generated_rust"].is_null());
     assert!(success["packages"][0]["target"].is_string());
     assert_eq!(success["packages"][0]["metadata"], success["metadata"]);
     assert_eq!(success["packages"][0]["cache_key"], success["cache_key"]);

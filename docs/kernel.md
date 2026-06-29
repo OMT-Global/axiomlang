@@ -26,8 +26,9 @@ This kernel note describes the supported direct-native `axiomc` path.
 - Packages are checked, built, run, and tested through `axiomc`.
 - `axiomc build` defaults to the direct-native Cranelift backend for supported
   host binaries.
-- `generated-rust` remains an explicit compatibility backend and may still
-  invoke `rustc`, but it is not the supported default path.
+- `generated-rust` remains only as internal legacy compatibility code and may
+  still invoke `rustc` when called by non-CLI tests; it is not part of the
+  supported command surface.
 - The backend selection surface is still preparatory seam work for later
   native-backend expansion, so this is not completion of #105.
 - `axiomc test` discovers `src/**/*_test.ax` entrypoints and compares stdout

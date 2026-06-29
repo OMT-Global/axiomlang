@@ -235,7 +235,7 @@ pub struct BuildCacheMetadata {
     pub debug: bool,
     pub manifest_hash: String,
     pub lockfile_hash: String,
-    pub generated_rust_hash: String,
+    pub backend_input_hash: String,
     pub sources: Vec<BuildSourceMetadata>,
 }
 
@@ -2179,7 +2179,8 @@ struct BuildCacheFile {
     debug: bool,
     manifest_hash: String,
     lockfile_hash: String,
-    rust_hash: String,
+    #[serde(alias = "rust_hash")]
+    backend_input_hash: String,
     stdin_hash: Option<String>,
     binary_hash: Option<String>,
     modules: Vec<CachedModule>,
@@ -2892,7 +2893,7 @@ fn build_cache_metadata(cache: &BuildCacheFile) -> BuildCacheMetadata {
         debug: cache.debug,
         manifest_hash: cache.manifest_hash.clone(),
         lockfile_hash: cache.lockfile_hash.clone(),
-        generated_rust_hash: cache.rust_hash.clone(),
+        backend_input_hash: cache.backend_input_hash.clone(),
         sources: cache
             .modules
             .iter()
@@ -3431,7 +3432,7 @@ fn cache_matches(
     };
     let generated_rust_matches = match backend {
         NativeBackendKind::GeneratedRust => fs::read_to_string(generated_rust)
-            .is_ok_and(|source| hash_text(&source) == expected.rust_hash),
+            .is_ok_and(|source| hash_text(&source) == expected.backend_input_hash),
         NativeBackendKind::Cranelift => true,
     };
     let Ok(actual_binary_hash) = hash_file_bytes(binary) else {
@@ -3472,7 +3473,7 @@ fn build_cache_file(
         debug,
         manifest_hash: hash_file(&manifest_path(package_root))?,
         lockfile_hash: hash_file(&crate::manifest::lockfile_path(package_root))?,
-        rust_hash: backend_input_hash.to_string(),
+        backend_input_hash: backend_input_hash.to_string(),
         stdin_hash,
         binary_hash: None,
         modules: cached_modules(graph, &analyzed.modules)?,
@@ -9765,7 +9766,7 @@ return async_serve_route(1, "/", "ok", 1)
             debug: false,
             manifest_hash: String::from("manifest"),
             lockfile_hash: String::from("lockfile"),
-            rust_hash: hash_text(generated_source),
+            backend_input_hash: hash_text(generated_source),
             stdin_hash: None,
             binary_hash: Some(hash_file_bytes(&binary).expect("binary hash")),
             modules: Vec::new(),
@@ -9784,7 +9785,7 @@ return async_serve_route(1, "/", "ok", 1)
         ));
 
         let raw_source_expected = BuildCacheFile {
-            rust_hash: generated_source.to_string(),
+            backend_input_hash: generated_source.to_string(),
             ..expected.clone()
         };
         assert!(!cache_matches(

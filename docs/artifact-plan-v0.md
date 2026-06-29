@@ -18,7 +18,8 @@ derived from `axiom.toml`.
 Each artifact has:
 
 - `id`: stable semantic identifier for the package artifact.
-- `kind`: output category, such as `native_binary`, `generated_rust`,
+- `kind`: output category, such as `native_binary`,
+  `legacy_generated_rust`,
   `test_report`, `benchmark_report`, or `docs`.
 - `path`: package-relative output path.
 - `generated_from`: source node ids that explain where the artifact came from.
@@ -33,7 +34,6 @@ artifact was produced by a passing build, test, doc, or benchmark run.
 For a buildable package, the artifact plan includes:
 
 - the native binary at the manifest build output directory,
-- generated Rust beside the binary,
 - the OpenAPI target artifact at `<out_dir>/openapi.json`,
 - the policy bundle target artifact at `<out_dir>/policy-bundle.json`,
 - the SQL migration target artifacts at `<out_dir>/001_schema_forward.sql`,
@@ -43,6 +43,11 @@ For a buildable package, the artifact plan includes:
 - docs at `docs/axiom/index.md`,
 - one test report for each manifest test target,
 - one benchmark report for each manifest benchmark target.
+
+The plan no longer includes `generated_rust` as a supported artifact kind. If
+an older output directory still contains a stale `.generated.rs` file, the
+inspect command reports it as `legacy_generated_rust` so tools can see the
+compatibility artifact without treating it as current build output.
 
 `openapi_spec` records move from `planned` to `generated` after
 `axiomc generate openapi <path> --out <out_dir>/openapi.json` writes the

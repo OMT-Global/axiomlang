@@ -47,7 +47,6 @@ cargo run --manifest-path stage1/Cargo.toml -p axiomc -- build stage1/examples/h
 cargo run --manifest-path stage1/Cargo.toml -p axiomc -- build stage1/examples/hello --timings
 cargo run --manifest-path stage1/Cargo.toml -p axiomc -- build stage1/examples/hello --debug
 cargo run --manifest-path stage1/Cargo.toml -p axiomc -- build stage1/examples/hello --locked --offline
-cargo run --manifest-path stage1/Cargo.toml -p axiomc -- build stage1/examples/hello --backend generated-rust
 cargo run --manifest-path stage1/Cargo.toml -p axiomc -- run stage1/examples/hello
 cargo run --manifest-path stage1/Cargo.toml -p axiomc -- run stage1/examples/hello --json
 cargo run --manifest-path stage1/Cargo.toml -p axiomc -- test stage1/examples/modules --json
@@ -125,9 +124,9 @@ fixtures and prints an explicit `N/N properties passed` summary for Phase-H
 property gates. `axiomc check --properties` first performs the normal type,
 ownership, capability, and manifest checks, then runs the same property-only
 fixture gate so property failures block a check command before build artifacts
-are accepted. `axiomc check --properties --backend generated-rust` remains
-available for compatibility property corpuses that still exercise constructs
-outside the current Cranelift subset. The `std/testing.ax` helper surface is backed by
+are accepted. `axiomc check --properties --backend generated-rust` is rejected
+by the CLI parser and is no longer a compatibility escape hatch. The
+`std/testing.ax` helper surface is backed by
 `stage1/stdlib/std/testing.ax` and embedded into the virtual stdlib at compiler
 build time. The checked-in stdlib testing package now carries a 12-property
 suite across the deterministic stdlib surfaces and is exercised by
@@ -139,9 +138,9 @@ same property summaries before proof workloads. Phase-J compiler-internal
 property migration has a seed package at `stage1/examples/compiler_properties`;
 `make stage1-compiler-property-test` runs its type-system, ownership,
 capability-policy, and property-clause fixtures through both `axiomc
-check --properties --backend generated-rust` and `axiomc test --properties
---backend generated-rust` while the full 100-property suite remains tracked by
-#717. The default CLI summary prints
+check --properties` and `axiomc test --properties` on the direct-native
+Cranelift backend while the full 100-property suite remains tracked by #717.
+The default CLI summary prints
 `passed` / `failed` / `skipped` counts. `axiomc test --list` exposes the same
 discovery pass without building or running the tests; text output emits package,
 test name, and entry path columns, while `--json` adds stable package
@@ -168,6 +167,10 @@ optional generated-Rust artifact path without changing the default
 human-readable streaming behavior. `axiomc test --json` likewise reports the
 selected backend and keeps per-case generated-Rust artifact paths optional so
 direct-native test runs can report only their native binaries.
+`axiomc inspect artifacts` reports direct-native package binaries and target
+artifacts as the planned build surface. It does not plan generated Rust for
+packages; stale `.generated.rs` files in `dist/` are classified as
+`legacy_generated_rust` compatibility outputs.
 `axiomc mutation-report --json` reports survivor counts and grouped recommended
 fixtures in the same versioned envelope used by the other command contracts.
 The self-hosted command and LSP package boundary is frozen in
@@ -287,9 +290,9 @@ The self-hosted diagnostics and syntax boundary fixture lives at
 `stage1/compiler-contracts/snapshots/diagnostics-syntax.json` and is validated
 with `make stage1-diagnostics-syntax-boundary`.
 Checked-in `build`, `test`, and `caps` JSON contract fixtures live under
-`stage1/json-fixtures/` and cover explicit generated-Rust compatibility target
-triples, default Cranelift targeted-build no-fallback failures, build failures,
-test filters, duration fields, failing cases, and unsafe capability state.
+`stage1/json-fixtures/` and cover Cranelift direct-native success payloads,
+targeted-build no-fallback failures, build failures, test filters, duration
+fields, failing cases, and unsafe capability state.
 
 ## Current gaps
 
@@ -338,24 +341,24 @@ still far from the stated 1.0 target for service and agent workloads.
 
 - `axiomc build`, `axiomc run`, and `axiomc test` now default to the
   direct-native Cranelift backend, including targeted builds such as
-  `--target wasm32`. `--backend generated-rust` remains available only as an
-  explicit compatibility fallback, and the older `--backend rust` transition
-  alias is no longer part of the supported command surface. The direct-native
+  `--target wasm32`. `--backend generated-rust` is no longer part of the
+  supported command surface and is rejected by the CLI parser. The older
+  `--backend rust` transition alias is likewise no longer part of any command
+  surface. The direct-native
   path folds the supported MIR subset into print lines, emits a Cranelift
   object, and links it with the host linker.
 - The backend-selection surface remains preparatory backend plumbing for later
-  native-backend expansion. `generated-rust` remains the broad compatibility
-  backend; `cranelift` is intentionally limited to scalar print-line programs,
-  typed numeric scalars with width- and signedness-aware casts, static scalar
-  globals, enum variants with direct match arms, struct literals and field
-  access, tuple/array indexing, function calls, map literals with scalar keys,
-  map indexing, `map_contains_key(...)`, the collection helpers `len(...)` over
-  in-memory strings (encoded byte length, matching the generated-Rust backend)
-  and arrays plus `first(...)`/`last(...)` over in-memory arrays, and scalar
-  branching, so this is not closure for #105 or the later full-surface native
-  backend slices. Manifest HTTP service fixture tests still use the explicit
-  `generated-rust` compatibility backend because the current Cranelift spike
-  does not host long-lived runtime server loops.
+  native-backend expansion. `generated-rust` remains internal legacy
+  compatibility code for parity/debug escape hatches, but command contracts and
+  broad conformance now run on `cranelift` without generated Rust. Cranelift
+  covers the checked direct-native
+  runtime ABI surface, including typed numeric scalars with width- and
+  signedness-aware casts, static scalar globals, enum variants with direct match
+  arms, struct literals and field access, tuple/array indexing, function calls,
+  map literals and lookup helpers, stdlib/capability shims, print/stdin/stderr
+  paths, and scalar branching. This is not closure for #105 or the later
+  full-surface native backend slices while the compatibility backend remains
+  available.
   Cranelift debug builds emit the shared debug map and manifest sidecars, but
   the manifest explicitly reports that native Axiom DWARF is not emitted yet.
 

@@ -5,7 +5,7 @@
   "error": {
     "kind": "build",
     "code": "build.failed",
-    "message": "rustc failed to produce the requested build artifact",
+    "message": "native backend failed to produce the requested build artifact",
     "path": "<project>/src/main.ax",
     "line": 1,
     "column": 1,

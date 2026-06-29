@@ -196,6 +196,102 @@ for name, status, detail in checks:
 PY
 }
 
+generated_rust_cli_gate_report() {
+  python3 - <<'PY'
+from pathlib import Path
+
+main_rs = Path("stage1/crates/axiomc/src/main.rs")
+codegen_rs = Path("stage1/crates/axiomc/src/codegen.rs")
+if not main_rs.is_file() or not codegen_rs.is_file():
+    missing = [str(path) for path in (main_rs, codegen_rs) if not path.is_file()]
+    print("generated_rust_cli_gate|fail|missing source file(s): " + ", ".join(missing))
+else:
+    main_source = main_rs.read_text(encoding="utf-8")
+    codegen_source = codegen_rs.read_text(encoding="utf-8")
+    failures = []
+    if "AXIOM_ENABLE_GENERATED_RUST_COMPAT" in main_source:
+        failures.append("temporary compatibility environment variable remains")
+    if "validate_cli_backend" in main_source:
+        failures.append("post-parse generated-rust CLI validator remains")
+    if '"generated-rust" => Ok(Self::GeneratedRust)' in codegen_source:
+        failures.append("generated-rust still parses as a CLI backend")
+    if "compatibility backends: generated-rust" in codegen_source:
+        failures.append("CLI parser still advertises generated-rust compatibility")
+    if failures:
+        print(
+            "generated_rust_cli_gate|fail|generated-rust CLI removal is incomplete: "
+            + ", ".join(failures)
+        )
+    else:
+        print("generated_rust_cli_gate|pass|generated-rust is removed from CLI backend parsing")
+PY
+}
+
+generated_rust_contract_gate_report() {
+  python3 - <<'PY'
+import json
+from pathlib import Path
+
+paths = {
+    "build_success": Path("stage1/json-fixtures/build/success.json"),
+    "test_filter_success": Path("stage1/json-fixtures/test/filter-success.json"),
+    "test_failure": Path("stage1/json-fixtures/test/failure.json"),
+    "artifact_schema": Path("stage1/schemas/axiom-artifacts-v0.schema.json"),
+}
+missing = [str(path) for path in paths.values() if not path.is_file()]
+if missing:
+    print("generated_rust_contract_gate|fail|missing contract file(s): " + ", ".join(missing))
+else:
+    failures = []
+
+    build_success = json.loads(paths["build_success"].read_text(encoding="utf-8"))
+    if build_success.get("backend") != "cranelift":
+        failures.append("build success fixture is not cranelift")
+    if build_success.get("generated_rust") is not None:
+        failures.append("build success fixture reports generated_rust")
+    cache_key = build_success.get("cache_key", {})
+    if "generated_rust_hash" in cache_key:
+        failures.append("build cache contract still exposes generated_rust_hash")
+    if "backend_input_hash" not in cache_key:
+        failures.append("build cache contract must expose backend_input_hash")
+    for package in build_success.get("packages", []):
+        if package.get("backend") != "cranelift":
+            failures.append("package build fixture is not cranelift")
+        if package.get("generated_rust") is not None:
+            failures.append("package build fixture reports generated_rust")
+        package_cache = package.get("cache_key", {})
+        if "generated_rust_hash" in package_cache:
+            failures.append("package cache contract still exposes generated_rust_hash")
+
+    for key in ("test_filter_success", "test_failure"):
+        payload = json.loads(paths[key].read_text(encoding="utf-8"))
+        for case in payload.get("cases", []):
+            if case.get("generated_rust") is not None:
+                failures.append(f"{paths[key]} reports generated_rust for test case")
+
+    artifact_schema = json.loads(paths["artifact_schema"].read_text(encoding="utf-8"))
+    artifact_kinds = set(
+        artifact_schema.get("$defs", {})
+        .get("artifact", {})
+        .get("properties", {})
+        .get("kind", {})
+        .get("enum", [])
+    )
+    if "generated_rust" in artifact_kinds:
+        failures.append("artifact schema still allows generated_rust as a planned kind")
+    if "legacy_generated_rust" not in artifact_kinds:
+        failures.append("artifact schema must classify stale files as legacy_generated_rust")
+
+    if failures:
+        print(
+            "generated_rust_contract_gate|fail|generated-rust contract removal is incomplete: "
+            + ", ".join(dict.fromkeys(failures))
+        )
+    else:
+        print("generated_rust_contract_gate|pass|command fixtures and artifact schema no longer model generated Rust as supported output")
+PY
+}
+
 if [[ -f docs/rust-exit-readiness.md ]]; then
   add_check "readiness_doc_present" "pass" "docs/rust-exit-readiness.md exists"
 else
@@ -331,6 +427,14 @@ fi
 while IFS='|' read -r boundary_name boundary_status boundary_detail; do
   add_check "$boundary_name" "$boundary_status" "$boundary_detail"
 done < <(self_hosted_boundary_report)
+
+while IFS='|' read -r gate_name gate_status gate_detail; do
+  add_check "$gate_name" "$gate_status" "$gate_detail"
+done < <(generated_rust_cli_gate_report)
+
+while IFS='|' read -r gate_name gate_status gate_detail; do
+  add_check "$gate_name" "$gate_status" "$gate_detail"
+done < <(generated_rust_contract_gate_report)
 
 for target in rust-exit-readiness rust-exit-readiness-github rust-exit-readiness-test; do
   if has_make_target "$target"; then

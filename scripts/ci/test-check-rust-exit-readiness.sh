@@ -12,6 +12,9 @@ mkdir -p \
   "$case_dir/scripts/ci" \
   "$case_dir/stage1/runtime-abi" \
   "$case_dir/stage1/compiler-contracts/snapshots" \
+  "$case_dir/stage1/json-fixtures/build" \
+  "$case_dir/stage1/json-fixtures/test" \
+  "$case_dir/stage1/schemas" \
   "$case_dir/stage1/crates/axiomc/src" \
   "$case_dir/stage1/crates/axiomc/tests" \
   "$case_dir/stage1/crates/axiomc-backend-cranelift/src"
@@ -24,6 +27,12 @@ cp "$repo_root/stage1/runtime-abi/direct-native-v0.json" "$case_dir/stage1/runti
 cp "$repo_root/stage1/runtime-abi/direct-native-v0-evidence-tests.json" "$case_dir/stage1/runtime-abi/direct-native-v0-evidence-tests.json"
 cp "$repo_root/stage1/compiler-contracts/snapshots/command-lsp.json" "$case_dir/stage1/compiler-contracts/snapshots/command-lsp.json"
 cp "$repo_root/stage1/compiler-contracts/snapshots/mir-backend.json" "$case_dir/stage1/compiler-contracts/snapshots/mir-backend.json"
+cp "$repo_root/stage1/json-fixtures/build/success.json" "$case_dir/stage1/json-fixtures/build/success.json"
+cp "$repo_root/stage1/json-fixtures/test/filter-success.json" "$case_dir/stage1/json-fixtures/test/filter-success.json"
+cp "$repo_root/stage1/json-fixtures/test/failure.json" "$case_dir/stage1/json-fixtures/test/failure.json"
+cp "$repo_root/stage1/schemas/axiom-artifacts-v0.schema.json" "$case_dir/stage1/schemas/axiom-artifacts-v0.schema.json"
+cp "$repo_root/stage1/crates/axiomc/src/codegen.rs" "$case_dir/stage1/crates/axiomc/src/codegen.rs"
+cp "$repo_root/stage1/crates/axiomc/src/main.rs" "$case_dir/stage1/crates/axiomc/src/main.rs"
 cp "$repo_root/stage1/crates/axiomc/src/cranelift_backend.rs" "$case_dir/stage1/crates/axiomc/src/cranelift_backend.rs"
 cp "$repo_root/stage1/crates/axiomc/tests/cranelift_backend.rs" "$case_dir/stage1/crates/axiomc/tests/cranelift_backend.rs"
 cp "$repo_root/stage1/crates/axiomc-backend-cranelift/src/lib.rs" "$case_dir/stage1/crates/axiomc-backend-cranelift/src/lib.rs"
@@ -140,6 +149,8 @@ assert statuses["readiness_blockers_live_when_not_ready"] == "pass"
 assert statuses["direct_native_runtime_abi_ready"] == "pass"
 assert statuses["command_lsp_release_boundary"] == "pass"
 assert statuses["mir_backend_direct_native_boundary"] == "pass"
+assert statuses["generated_rust_cli_gate"] == "pass"
+assert statuses["generated_rust_contract_gate"] == "pass"
 PY
 )
 
@@ -170,8 +181,80 @@ assert statuses["rust_exit_issue_731_closed"] == "pass"
 assert statuses["direct_native_runtime_abi_ready"] == "pass"
 assert statuses["command_lsp_release_boundary"] == "pass"
 assert statuses["mir_backend_direct_native_boundary"] == "pass"
+assert statuses["generated_rust_cli_gate"] == "pass"
+assert statuses["generated_rust_contract_gate"] == "pass"
 PY
 )
+
+python3 - "$case_dir/stage1/crates/axiomc/src/codegen.rs" <<'PY'
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+source = path.read_text(encoding="utf-8")
+path.write_text(
+    source.replace(
+        '"cranelift" => Ok(Self::Cranelift),',
+        '"generated-rust" => Ok(Self::GeneratedRust),\n            "cranelift" => Ok(Self::Cranelift),',
+    ),
+    encoding="utf-8",
+)
+PY
+
+(
+  cd "$case_dir"
+  if bash scripts/ci/check-rust-exit-readiness.sh --json --issue-state-file "$temp_dir/issues.txt" >"$temp_dir/generated-rust-cli-gate.json" 2>"$temp_dir/generated-rust-cli-gate.err"; then
+    echo "expected readiness check to fail when generated-rust CLI parsing is restored" >&2
+    exit 1
+  fi
+  python3 - "$temp_dir/generated-rust-cli-gate.json" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    payload = json.load(handle)
+statuses = {check["name"]: check["status"] for check in payload["checks"]}
+assert statuses["generated_rust_cli_gate"] == "fail"
+PY
+)
+
+cp "$repo_root/stage1/crates/axiomc/src/codegen.rs" "$case_dir/stage1/crates/axiomc/src/codegen.rs"
+cp "$repo_root/stage1/crates/axiomc/src/main.rs" "$case_dir/stage1/crates/axiomc/src/main.rs"
+
+python3 - "$case_dir/stage1/json-fixtures/build/success.json" <<'PY'
+import json
+import sys
+
+path = sys.argv[1]
+with open(path, encoding="utf-8") as handle:
+    payload = json.load(handle)
+
+payload["backend"] = "generated-rust"
+payload["generated_rust"] = "<project>/dist/contract-app.generated.rs"
+payload["cache_key"]["generated_rust_hash"] = payload["cache_key"].pop("backend_input_hash")
+
+with open(path, "w", encoding="utf-8") as handle:
+    json.dump(payload, handle)
+PY
+
+(
+  cd "$case_dir"
+  if bash scripts/ci/check-rust-exit-readiness.sh --json --issue-state-file "$temp_dir/issues.txt" >"$temp_dir/generated-rust-contract-gate.json" 2>"$temp_dir/generated-rust-contract-gate.err"; then
+    echo "expected readiness check to fail when generated-rust remains in command fixtures" >&2
+    exit 1
+  fi
+  python3 - "$temp_dir/generated-rust-contract-gate.json" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    payload = json.load(handle)
+statuses = {check["name"]: check["status"] for check in payload["checks"]}
+assert statuses["generated_rust_contract_gate"] == "fail"
+PY
+)
+
+cp "$repo_root/stage1/json-fixtures/build/success.json" "$case_dir/stage1/json-fixtures/build/success.json"
 
 cp "$repo_root/docs/rust-exit-readiness.json" "$case_dir/docs/rust-exit-readiness.json"
 

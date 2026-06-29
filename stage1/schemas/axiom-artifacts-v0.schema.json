@@ -42,7 +42,7 @@
         "kind": {
           "enum": [
             "native_binary",
-            "generated_rust",
+            "legacy_generated_rust",
             "openapi_spec",
             "policy_bundle",
             "sql_migration",
