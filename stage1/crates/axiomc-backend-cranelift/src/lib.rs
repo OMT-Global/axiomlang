@@ -3691,20 +3691,18 @@ fn emit_i64_runtime_fs_guard_expr(
         0,
     ));
     let resolved_ptr = builder.ins().stack_addr(types::I64, resolved_slot, 0);
-
-    let realpath_call = builder
-        .ins()
-        .call(runtime_refs.realpath, &[path_ptr, resolved_ptr]);
-    let resolved = builder.inst_results(realpath_call)[0];
-
     let fallback_block = builder.create_block();
+    let fallback_check_block = builder.create_block();
     let check_block = builder.create_block();
     let allowed_block = builder.create_block();
     let denied_block = builder.create_block();
     let merge_block = builder.create_block();
     builder.append_block_param(check_block, types::I64);
     builder.append_block_param(merge_block, types::I64);
-
+    let realpath_call = builder
+        .ins()
+        .call(runtime_refs.realpath, &[path_ptr, resolved_ptr]);
+    let resolved = builder.inst_results(realpath_call)[0];
     let missing = builder.ins().icmp_imm(IntCC::Equal, resolved, 0);
     builder.ins().brif(
         missing,
@@ -3716,6 +3714,17 @@ fn emit_i64_runtime_fs_guard_expr(
 
     builder.switch_to_block(fallback_block);
     builder.seal_block(fallback_block);
+    let same_path_rename_call = builder
+        .ins()
+        .call(runtime_refs.rename, &[path_ptr, path_ptr]);
+    let same_path_rename = builder.inst_results(same_path_rename_call)[0];
+    let dangling_entry = builder.ins().icmp_imm(IntCC::Equal, same_path_rename, 0);
+    builder
+        .ins()
+        .brif(dangling_entry, denied_block, &[], fallback_check_block, &[]);
+
+    builder.switch_to_block(fallback_check_block);
+    builder.seal_block(fallback_check_block);
     let fallback_call = builder
         .ins()
         .call(runtime_refs.realpath, &[fallback_ptr, resolved_ptr]);

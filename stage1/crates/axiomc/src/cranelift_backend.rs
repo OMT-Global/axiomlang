@@ -379,6 +379,18 @@ pub fn compile_cranelift_hello_spike(
             Diagnostic::new("build", err.to_string()).with_path(object_path.display().to_string())
         });
     }
+    if let Some(program) =
+        lower_i64_top_level_output_program(program, capabilities, package_root, fs_root)
+    {
+        return axiomc_backend_cranelift::compile_i64_exit_program(
+            program,
+            object_path,
+            binary_path,
+        )
+        .map_err(|err| {
+            Diagnostic::new("build", err.to_string()).with_path(object_path.display().to_string())
+        });
+    }
     if program.stmts.is_empty()
         && program
             .functions
@@ -398,6 +410,153 @@ pub fn compile_cranelift_hello_spike(
     )
     .map_err(|err| {
         Diagnostic::new("build", err.to_string()).with_path(object_path.display().to_string())
+    })
+}
+
+fn lower_i64_top_level_output_program(
+    program: &Program,
+    capabilities: &CapabilityConfig,
+    package_root: &Path,
+    fs_root: &Path,
+) -> Option<I64ExitProgram> {
+    if program.stmts.is_empty() {
+        return None;
+    }
+    let struct_defs = program
+        .structs
+        .iter()
+        .map(|struct_def| (struct_def.name.as_str(), struct_def))
+        .collect::<HashMap<_, _>>();
+    let mut static_bindings = lower_i64_static_bindings(&program.statics)?;
+    static_bindings.package_root = Some(package_root.to_path_buf());
+    static_bindings.fs_root = Some(fs_root.to_path_buf());
+    static_bindings.env_allowed_names = capabilities.env_vars.iter().cloned().collect();
+    static_bindings.env_unrestricted = capabilities.env_unrestricted;
+    static_bindings.net_unrestricted = capabilities.net && capabilities.net_hosts.is_empty();
+    static_bindings.net_allowed_hosts = capabilities.net_hosts.iter().cloned().collect();
+    static_bindings.fs_read_wrappers = program
+        .functions
+        .iter()
+        .filter(|function| is_i64_std_fs_read_wrapper(function))
+        .flat_map(|function| [function.name.clone(), function.source_name.clone()])
+        .collect();
+    static_bindings.fs_write_wrappers = program
+        .functions
+        .iter()
+        .filter_map(|function| {
+            i64_std_fs_write_intrinsic(function).map(|intrinsic| {
+                [
+                    (function.name.clone(), intrinsic.to_string()),
+                    (function.source_name.clone(), intrinsic.to_string()),
+                ]
+            })
+        })
+        .flatten()
+        .collect();
+    static_bindings.fs_shim_wrappers = program
+        .functions
+        .iter()
+        .filter(|function| is_i64_std_fs_shim_wrapper(function))
+        .map(|function| function.name.clone())
+        .collect();
+    static_bindings.has_fs_write_calls = program
+        .stmts
+        .iter()
+        .any(|stmt| i64_stmt_has_fs_write_call(stmt, &static_bindings))
+        || program
+            .functions
+            .iter()
+            .any(|function| i64_stmts_have_fs_write_call(&function.body, &static_bindings));
+    if program
+        .stmts
+        .iter()
+        .any(|stmt| i64_stmt_has_fs_read_call(stmt, &static_bindings))
+    {
+        return None;
+    }
+    static_bindings.structs = program
+        .structs
+        .iter()
+        .map(|struct_def| (struct_def.name.clone(), struct_def.clone()))
+        .collect();
+    static_bindings.enums = program
+        .enums
+        .iter()
+        .map(|enum_def| (enum_def.name.clone(), enum_def.clone()))
+        .collect();
+    static_bindings.functions = program
+        .functions
+        .iter()
+        .map(|function| (function.name.clone(), function.clone()))
+        .collect();
+    let fs_shim_wrappers = static_bindings.fs_shim_wrappers.clone();
+    let helper_functions = program
+        .functions
+        .iter()
+        .filter(|function| {
+            !fs_shim_wrappers.contains(&function.name)
+                && is_i64_function_return_type(&function.return_ty, &struct_defs, &static_bindings)
+                && function
+                    .params
+                    .iter()
+                    .all(|param| is_i64_param_type(&param.ty, &struct_defs, &static_bindings))
+        })
+        .collect::<Vec<_>>();
+    let helper_signatures = helper_functions
+        .iter()
+        .enumerate()
+        .map(|(index, function)| {
+            Some((
+                function.name.as_str(),
+                I64HelperSignature {
+                    function: index,
+                    params: function.params.len(),
+                    returns_bool: matches!(function.return_ty, Type::Bool),
+                    return_ty: function.return_ty.clone(),
+                    returns: i64_return_slot_count_for_type(
+                        &function.return_ty,
+                        &struct_defs,
+                        &static_bindings,
+                    )?,
+                    struct_fields: function
+                        .params
+                        .iter()
+                        .map(|param| match &param.ty {
+                            Type::Struct(name) => Some(
+                                i64_scalar_struct_def(name, &struct_defs)?
+                                    .fields
+                                    .iter()
+                                    .map(|field| field.name.clone())
+                                    .collect(),
+                            ),
+                            _ => None,
+                        })
+                        .collect(),
+                },
+            ))
+        })
+        .collect::<Option<HashMap<_, _>>>()?;
+    let functions = helper_functions
+        .iter()
+        .map(|function| {
+            lower_i64_function(function, &helper_signatures, &static_bindings, &struct_defs)
+        })
+        .collect::<Option<Vec<_>>>()?;
+    let mut locals = Vec::new();
+    let stmts = lower_i64_runtime_stmts(
+        &program.stmts,
+        &mut locals,
+        HashMap::new(),
+        HashMap::new(),
+        &helper_signatures,
+        &static_bindings,
+        true,
+    )?;
+    Some(I64ExitProgram {
+        functions,
+        locals,
+        stmts,
+        body: I64ExitBody::Return(CraneliftI64Expr::Literal(0)),
     })
 }
 
@@ -10141,6 +10300,50 @@ fn i64_stmt_has_fs_write_call(stmt: &Stmt, static_bindings: &I64StaticBindings) 
     }
 }
 
+fn i64_stmt_has_fs_read_call(stmt: &Stmt, static_bindings: &I64StaticBindings) -> bool {
+    match stmt {
+        Stmt::Let { expr, .. }
+        | Stmt::Print { expr, .. }
+        | Stmt::Panic { message: expr, .. }
+        | Stmt::Defer { expr, .. }
+        | Stmt::Return { expr, .. } => i64_expr_has_fs_read_call(expr, static_bindings),
+        Stmt::Assign { target, expr, .. } => {
+            i64_expr_has_fs_read_call(target, static_bindings)
+                || i64_expr_has_fs_read_call(expr, static_bindings)
+        }
+        Stmt::If {
+            cond,
+            then_block,
+            else_block,
+            ..
+        } => {
+            i64_expr_has_fs_read_call(cond, static_bindings)
+                || then_block
+                    .iter()
+                    .any(|stmt| i64_stmt_has_fs_read_call(stmt, static_bindings))
+                || else_block.as_ref().is_some_and(|stmts| {
+                    stmts
+                        .iter()
+                        .any(|stmt| i64_stmt_has_fs_read_call(stmt, static_bindings))
+                })
+        }
+        Stmt::While { cond, body, .. } => {
+            i64_expr_has_fs_read_call(cond, static_bindings)
+                || body
+                    .iter()
+                    .any(|stmt| i64_stmt_has_fs_read_call(stmt, static_bindings))
+        }
+        Stmt::Match { expr, arms, .. } => {
+            i64_expr_has_fs_read_call(expr, static_bindings)
+                || arms.iter().any(|arm| {
+                    arm.body
+                        .iter()
+                        .any(|stmt| i64_stmt_has_fs_read_call(stmt, static_bindings))
+                })
+        }
+    }
+}
+
 fn i64_expr_has_fs_write_call(expr: &Expr, static_bindings: &I64StaticBindings) -> bool {
     match expr {
         Expr::Call { name, args, .. } => {
@@ -10198,6 +10401,69 @@ fn i64_expr_has_fs_write_call(expr: &Expr, static_bindings: &I64StaticBindings) 
                 || arms
                     .iter()
                     .any(|arm| i64_expr_has_fs_write_call(&arm.expr, static_bindings))
+        }
+        Expr::Literal(_) | Expr::VarRef { .. } => false,
+    }
+}
+
+fn i64_expr_has_fs_read_call(expr: &Expr, static_bindings: &I64StaticBindings) -> bool {
+    match expr {
+        Expr::Call { name, args, .. } => {
+            matches!(name.as_str(), "fs_read" | "read_file" | "std_fs_read_file")
+                || static_bindings.fs_read_wrappers.contains(name)
+                || args
+                    .iter()
+                    .any(|arg| i64_expr_has_fs_read_call(arg, static_bindings))
+        }
+        Expr::BinaryAdd { lhs, rhs, .. }
+        | Expr::BinaryCompare { lhs, rhs, .. }
+        | Expr::BinaryLogic { lhs, rhs, .. }
+        | Expr::Index {
+            base: lhs,
+            index: rhs,
+            ..
+        } => {
+            i64_expr_has_fs_read_call(lhs, static_bindings)
+                || i64_expr_has_fs_read_call(rhs, static_bindings)
+        }
+        Expr::Cast { expr, .. }
+        | Expr::MutBorrow { expr, .. }
+        | Expr::Deref { expr, .. }
+        | Expr::Try { expr, .. }
+        | Expr::Await { expr, .. }
+        | Expr::FieldAccess { base: expr, .. }
+        | Expr::TupleIndex { base: expr, .. }
+        | Expr::StringBorrow { expr, .. } => i64_expr_has_fs_read_call(expr, static_bindings),
+        Expr::StructLiteral { fields, .. } => fields
+            .iter()
+            .any(|field| i64_expr_has_fs_read_call(&field.expr, static_bindings)),
+        Expr::TupleLiteral { elements, .. } | Expr::ArrayLiteral { elements, .. } => elements
+            .iter()
+            .any(|element| i64_expr_has_fs_read_call(element, static_bindings)),
+        Expr::MapLiteral { entries, .. } => entries.iter().any(|entry| {
+            i64_expr_has_fs_read_call(&entry.key, static_bindings)
+                || i64_expr_has_fs_read_call(&entry.value, static_bindings)
+        }),
+        Expr::EnumVariant { payloads, .. } => payloads
+            .iter()
+            .any(|payload| i64_expr_has_fs_read_call(payload, static_bindings)),
+        Expr::Closure { body, .. } => i64_expr_has_fs_read_call(body, static_bindings),
+        Expr::Slice {
+            base, start, end, ..
+        } => {
+            i64_expr_has_fs_read_call(base, static_bindings)
+                || start
+                    .as_ref()
+                    .is_some_and(|expr| i64_expr_has_fs_read_call(expr, static_bindings))
+                || end
+                    .as_ref()
+                    .is_some_and(|expr| i64_expr_has_fs_read_call(expr, static_bindings))
+        }
+        Expr::Match { expr, arms, .. } => {
+            i64_expr_has_fs_read_call(expr, static_bindings)
+                || arms
+                    .iter()
+                    .any(|arm| i64_expr_has_fs_read_call(&arm.expr, static_bindings))
         }
         Expr::Literal(_) | Expr::VarRef { .. } => false,
     }
@@ -15002,7 +15268,7 @@ fn lower_i64_fs_write_intrinsic_expr(
         let package_root = static_bindings.package_root.as_deref()?;
         let fs_root = static_bindings.fs_root.as_deref()?;
         let Some(candidate) =
-            spike_fs_write_candidate_for_scope(package_root, fs_root, &path, false)
+            spike_fs_write_candidate_for_scope(package_root, fs_root, &path, true)
         else {
             return i64_audited_fs_expr(
                 name,
@@ -15044,7 +15310,7 @@ fn lower_i64_fs_write_intrinsic_expr(
         let package_root = static_bindings.package_root.as_deref()?;
         let fs_root = static_bindings.fs_root.as_deref()?;
         let Some(candidate) =
-            spike_fs_write_candidate_for_scope(package_root, fs_root, &path, false)
+            spike_fs_write_candidate_for_scope(package_root, fs_root, &path, true)
         else {
             return i64_audited_fs_expr(
                 name,
@@ -15086,7 +15352,7 @@ fn lower_i64_fs_write_intrinsic_expr(
         let package_root = static_bindings.package_root.as_deref()?;
         let fs_root = static_bindings.fs_root.as_deref()?;
         let Some(candidate) =
-            spike_fs_write_candidate_for_scope(package_root, fs_root, &path, false)
+            spike_fs_write_candidate_for_scope(package_root, fs_root, &path, true)
         else {
             return i64_audited_fs_expr(
                 name,
@@ -15141,7 +15407,7 @@ fn lower_i64_fs_write_intrinsic_expr(
         let package_root = static_bindings.package_root.as_deref()?;
         let fs_root = static_bindings.fs_root.as_deref()?;
         let Some(candidate) =
-            spike_fs_write_candidate_for_scope(package_root, fs_root, &path, false)
+            spike_fs_write_candidate_for_scope(package_root, fs_root, &path, true)
         else {
             return i64_audited_fs_expr(
                 name,
