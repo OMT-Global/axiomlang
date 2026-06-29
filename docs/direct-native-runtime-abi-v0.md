@@ -17,6 +17,12 @@ Validation:
 make stage1-direct-native-runtime-abi
 ```
 
+Coverage matrix:
+
+```bash
+make stage1-direct-native-runtime-abi-coverage
+```
+
 Focused evidence gate:
 
 ```bash
@@ -34,6 +40,10 @@ Cranelift backend evidence suite that backs the implemented and denial-evidence
 rows, and verifies the `axiomc run/test --backend cranelift` command paths can
 execute without generated-Rust artifacts. It remains a focused ABI evidence
 gate rather than a replacement for the broader Rust-exit readiness gate.
+The coverage matrix maps each value-feature and capability-shim row to positive
+runtime evidence, negative or diagnostic coverage where applicable, focused
+tests that prove direct-native artifacts, and the row-specific command that
+validates the evidence.
 
 The example smoke runs a bounded subset of checked-in stdlib examples through
 `check`, `build --backend cranelift`, `run --backend cranelift`, and

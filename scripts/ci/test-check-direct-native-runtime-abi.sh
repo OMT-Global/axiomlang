@@ -8,6 +8,7 @@ temp_dir="$(mktemp -d)"
 trap 'rm -rf "$temp_dir"' EXIT
 
 python3 "$script" --contract "$contract" --json >"$temp_dir/report.json"
+python3 "$script" --contract "$contract" --coverage-matrix --json >"$temp_dir/coverage-matrix.json"
 python3 - "$temp_dir/report.json" <<'PY'
 import json
 import sys
@@ -27,6 +28,31 @@ assert report["blocked_rows"] == []
 assert report["incomplete_rows"] == []
 assert report["blocker_issues"] == []
 assert report["errors"] == []
+PY
+
+python3 - "$temp_dir/coverage-matrix.json" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    matrix = json.load(handle)
+
+assert matrix["schema"] == "axiom.direct_native.runtime_abi.coverage_matrix.v1"
+assert matrix["ready"] is True
+assert matrix["summary"]["value_feature_rows"] == 12
+assert matrix["summary"]["capability_shim_rows"] == 22
+assert matrix["errors"] == []
+rows = {(row["group"], row["row_id"]): row for row in matrix["rows"]}
+numeric = rows[("value_features", "numeric.scalars")]
+assert numeric["coverage"]["positive_runtime_evidence"]
+assert numeric["coverage"]["backend_artifact_evidence"]["generated_rust_absent"] is True
+assert numeric["validation_command"] == (
+    "AXIOM_DIRECT_NATIVE_RUNTIME_ABI_ROW=numeric.scalars "
+    "make stage1-direct-native-runtime-abi-evidence"
+)
+fs_read = rows[("capability_shims", "fs.read")]
+assert fs_read["coverage"]["negative_or_diagnostic_evidence"]
+assert fs_read["coverage"]["backend_artifact_evidence"]["focused_tests"]
 PY
 
 python3 - "$contract" "$temp_dir/ready-contract.json" <<'PY'
@@ -201,6 +227,21 @@ with open(sys.argv[1], encoding="utf-8") as handle:
     report = json.load(handle)
 
 assert any("must name runtime_evidence" in error for error in report["errors"])
+PY
+
+if python3 "$script" --contract "$temp_dir/implemented-without-runtime-evidence.json" --coverage-matrix --json >"$temp_dir/implemented-without-runtime-evidence-matrix.json"; then
+  echo "expected coverage matrix to fail when runtime evidence is missing" >&2
+  exit 1
+fi
+python3 - "$temp_dir/implemented-without-runtime-evidence-matrix.json" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    matrix = json.load(handle)
+
+assert matrix["ready"] is False
+assert any("runtime evidence" in error for error in matrix["errors"])
 PY
 
 python3 "$script" --contract "$contract" --enforce-ready >/dev/null

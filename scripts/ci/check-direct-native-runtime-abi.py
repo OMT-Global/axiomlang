@@ -543,6 +543,102 @@ def evidence_tests_for_row(
     return [test for test in tests if isinstance(test, str)]
 
 
+def validation_command_for_row(row_id: str) -> str:
+    return (
+        "AXIOM_DIRECT_NATIVE_RUNTIME_ABI_ROW="
+        f"{row_id} make stage1-direct-native-runtime-abi-evidence"
+    )
+
+
+def coverage_bucket_for_row(row: dict[str, Any], tests: list[str]) -> dict[str, Any]:
+    denial_evidence = row.get("denial_evidence", [])
+    denial_not_applicable = row.get("denial_evidence_not_applicable")
+    return {
+        "positive_runtime_evidence": row.get("runtime_evidence", []),
+        "negative_or_diagnostic_evidence": denial_evidence,
+        "negative_or_diagnostic_not_applicable": denial_not_applicable,
+        "backend_artifact_evidence": {
+            "generated_rust_absent": bool(tests),
+            "focused_tests": tests,
+            "validation_command": validation_command_for_row(str(row.get("id", ""))),
+        },
+    }
+
+
+def build_coverage_matrix(
+    manifest: dict[str, Any] | None,
+    contract: dict[str, Any],
+    check_report: dict[str, Any],
+) -> tuple[dict[str, Any], int]:
+    rows: list[dict[str, Any]] = []
+    matrix_errors = list(check_report["errors"])
+    for group_name in ("value_features", "capability_shims"):
+        contract_rows = contract.get(group_name)
+        if not isinstance(contract_rows, list):
+            continue
+        for row in contract_rows:
+            if not isinstance(row, dict):
+                continue
+            row_id = row.get("id")
+            if not isinstance(row_id, str) or not row_id:
+                continue
+            tests = evidence_tests_for_row(manifest, group_name, row_id)
+            coverage = coverage_bucket_for_row(row, tests)
+            if row.get("status") == "implemented" and not coverage[
+                "positive_runtime_evidence"
+            ]:
+                matrix_errors.append(
+                    f"{group_name} row {row_id!r} lacks positive runtime evidence"
+                )
+            if not tests:
+                matrix_errors.append(
+                    f"{group_name} row {row_id!r} lacks focused artifact evidence tests"
+                )
+            if group_name == "capability_shims" and not (
+                coverage["negative_or_diagnostic_evidence"]
+                or coverage["negative_or_diagnostic_not_applicable"]
+            ):
+                matrix_errors.append(
+                    f"{group_name} row {row_id!r} lacks negative or diagnostic coverage"
+                )
+            rows.append(
+                {
+                    "row_id": row_id,
+                    "group": group_name,
+                    "status": row.get("status"),
+                    "blockers": row.get("blockers", []),
+                    "coverage": coverage,
+                    "validation_command": validation_command_for_row(row_id),
+                }
+            )
+
+    matrix = {
+        "schema": "axiom.direct_native.runtime_abi.coverage_matrix.v1",
+        "ready": check_report["ready"] and not matrix_errors,
+        "target_id": contract.get("target_id"),
+        "contract_status": contract.get("status"),
+        "summary": {
+            "value_feature_rows": check_report["value_feature_count"],
+            "capability_shim_rows": check_report["capability_shim_count"],
+            "value_feature_focused_tests": check_report["evidence_test_manifest"][
+                "value_feature_test_count"
+            ],
+            "capability_shim_focused_tests": check_report["evidence_test_manifest"][
+                "capability_shim_test_count"
+            ],
+        },
+        "buckets": [
+            "positive_runtime_evidence",
+            "negative_or_diagnostic_evidence",
+            "backend_artifact_evidence",
+            "validation_command",
+        ],
+        "rows": rows,
+        "errors": matrix_errors,
+    }
+    return matrix, 1 if matrix_errors else 0
+
+
 def find_contract_row(
     contract: dict[str, Any],
     row_id: str,
@@ -686,14 +782,26 @@ def main() -> int:
         help="emit the runtime ABI row inventory with status, evidence, and tests",
     )
     parser.add_argument(
+        "--coverage-matrix",
+        action="store_true",
+        help="emit the Rust-exit coverage matrix with evidence buckets and row commands",
+    )
+    parser.add_argument(
         "--enforce-ready",
         action="store_true",
         help="fail while any runtime ABI row remains partial or blocked",
     )
     args = parser.parse_args()
 
-    if args.list_evidence_rows and args.evidence_row:
-        parser.error("--list-evidence-rows and --evidence-row cannot be combined")
+    selected_modes = [
+        bool(args.list_evidence_rows),
+        bool(args.evidence_row),
+        bool(args.coverage_matrix),
+    ]
+    if sum(selected_modes) > 1:
+        parser.error(
+            "--list-evidence-rows, --evidence-row, and --coverage-matrix cannot be combined"
+        )
 
     try:
         contract = load_contract(args.contract)
@@ -714,6 +822,30 @@ def main() -> int:
         REPO_ROOT,
         evidence_test_manifest,
     )
+    if args.coverage_matrix:
+        matrix_report, matrix_status = build_coverage_matrix(
+            evidence_test_manifest,
+            contract,
+            report,
+        )
+        if args.json:
+            print(json.dumps(matrix_report, indent=2))
+        elif matrix_report["errors"]:
+            for error in matrix_report["errors"]:
+                print(error, file=sys.stderr)
+        else:
+            for row in matrix_report["rows"]:
+                coverage = row["coverage"]
+                print(
+                    f"{row['group']} {row['row_id']} {row['status']} "
+                    f"runtime={len(coverage['positive_runtime_evidence'])} "
+                    f"tests={len(coverage['backend_artifact_evidence']['focused_tests'])} "
+                    f"command={row['validation_command']}"
+                )
+        if validation_status:
+            return validation_status
+        return matrix_status
+
     if args.list_evidence_rows:
         row_list_report, row_list_status = build_evidence_row_list(
             evidence_test_manifest,
