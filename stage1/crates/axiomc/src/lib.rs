@@ -3074,7 +3074,7 @@ print first(values)\n",
         .expect("write cli args program");
 
         let built = build_project(&project).expect("build cli args project");
-        let build_output_dir = Path::new(generated_rust_path(&built))
+        let build_output_dir = Path::new(&built.binary)
             .parent()
             .expect("build output directory");
         let output = command_for_build_output(&built.binary, build_output_dir)
