@@ -8063,34 +8063,10 @@ true
         .expect("write golden");
 
         let built = build_project(&project).expect("build project");
-        let generated =
-            fs::read_to_string(generated_rust_path(&built)).expect("read generated rust");
-        assert!(generated.contains("axiom_task_deferred(move ||"));
-        assert!(generated.contains("struct AxiomRuntimeScheduler"));
         assert!(
-            generated.contains("fn schedule<T: Send + 'static>(&mut self, task: AxiomTask<T>)")
+            built.generated_rust.is_none(),
+            "default direct-native builds must not emit generated Rust"
         );
-        assert!(
-            generated
-                .contains("fn join<T: Send + 'static>(&mut self, mut handle: AxiomJoinHandle<T>)")
-        );
-        assert!(!generated.contains("AXIOM_ASYNC_EXECUTOR"));
-        assert!(!generated.contains("std::thread::JoinHandle"));
-        assert!(
-            !generated.contains("std::thread::spawn(move || axiom_task_ready(axiom_await(task)))")
-        );
-        assert!(generated.contains("struct AxiomRuntimePool"));
-        assert!(generated.contains("static AXIOM_RUNTIME_POOL: OnceLock<AxiomRuntimePool>"));
-        assert!(generated.contains("AxiomRuntimePool::new(axiom_runtime_max_threads())"));
-        assert!(generated.contains("struct AxiomTimerWheel"));
-        assert!(generated.contains("static AXIOM_TIMER_WHEEL: OnceLock<AxiomTimerWheel>"));
-        assert!(generated.contains("axiom_timer_sleep_ms(milliseconds);"));
-        assert!(generated.contains("milliseconds.clamp(0, 30_000)"));
-        assert!(generated.contains("clock_sleep_ms(milliseconds)"));
-        assert!(generated.contains("net_tcp_dial(host, port, message, timeout_ms)"));
-        assert!(generated.contains("std::net::TcpStream::connect_timeout"));
-        assert!(generated.contains("scheduler.schedule(task)"));
-        assert!(!generated.contains("return axiom_task_ready(value + 1);"));
         let output = compiled_binary_command(&built.binary)
             .output()
             .expect("run compiled binary");
@@ -11525,12 +11501,9 @@ print takes_two(three)
         )
         .expect("write source");
         let built = build_project(&project).expect("build project with static globals");
-        let generated =
-            fs::read_to_string(generated_rust_path(&built)).expect("read generated rust");
-        assert!(generated.contains("static static_globals_app_main_LIMIT: i64 = 40 + 2;"));
-        assert!(generated.contains("static static_globals_app_main_READY: bool = 40 + 2 == 42;"));
         assert!(
-            generated.contains("static static_globals_app_main_LABEL: &'static str = \"stage1\";")
+            built.generated_rust.is_none(),
+            "default direct-native builds must not emit generated Rust"
         );
         let output = compiled_binary_command(&built.binary)
             .output()
@@ -11553,11 +11526,9 @@ print takes_two(three)
         .expect("write source");
 
         let built = build_project(&project).expect("build project with static string comparisons");
-        let generated =
-            fs::read_to_string(generated_rust_path(&built)).expect("read generated rust");
-        assert!(generated.contains("static static_string_comparison_app_main_SAME: bool = true;"));
         assert!(
-            generated.contains("static static_string_comparison_app_main_DIFFERENT: bool = true;")
+            built.generated_rust.is_none(),
+            "default direct-native builds must not emit generated Rust"
         );
         let output = compiled_binary_command(&built.binary)
             .output()
@@ -11577,10 +11548,10 @@ print takes_two(three)
         .expect("write source");
 
         let built = build_project(&project).expect("static names should not false-recurse");
-        let generated =
-            fs::read_to_string(generated_rust_path(&built)).expect("read generated rust");
-        assert!(generated.contains("static p_main_A: i64 = 1;"));
-        assert!(generated.contains("static p_main_p_main_A: i64 = 1;"));
+        assert!(
+            built.generated_rust.is_none(),
+            "default direct-native builds must not emit generated Rust"
+        );
         let output = compiled_binary_command(&built.binary)
             .output()
             .expect("run compiled binary");
@@ -11603,12 +11574,9 @@ print takes_two(three)
         )
         .expect("write values");
         let built = build_project(&project).expect("build project with imported static globals");
-        let generated =
-            fs::read_to_string(generated_rust_path(&built)).expect("read generated rust");
-        assert!(generated.contains("static public_static_globals_app_values_LIMIT: i64 = 40 + 2;"));
         assert!(
-            generated
-                .contains("static public_static_globals_app_values_READY: bool = 40 + 2 == 42;")
+            built.generated_rust.is_none(),
+            "default direct-native builds must not emit generated Rust"
         );
         let output = compiled_binary_command(&built.binary)
             .output()
