@@ -48,7 +48,6 @@ rust-exit-readiness-test:
 MAKE
 
 cat >"$temp_dir/partial-issues.txt" <<'ISSUES'
-1191 CLOSED
 731 OPEN
 ISSUES
 
@@ -122,7 +121,6 @@ with open(path, "w", encoding="utf-8") as handle:
 PY
 
 cat >"$temp_dir/open-issues.txt" <<'ISSUES'
-1191 OPEN
 731 OPEN
 ISSUES
 
@@ -155,7 +153,6 @@ PY
 )
 
 cat >"$temp_dir/issues.txt" <<'ISSUES'
-1191 CLOSED
 731 CLOSED
 ISSUES
 
@@ -176,7 +173,6 @@ assert payload["ready"] is True
 statuses = {check["name"]: check["status"] for check in payload["checks"]}
 assert statuses["readiness_blockers_closed"] == "pass"
 assert statuses["readiness_blockers_live_when_not_ready"] == "pass"
-assert statuses["rust_exit_issue_1191_closed"] == "pass"
 assert statuses["rust_exit_issue_731_closed"] == "pass"
 assert statuses["direct_native_runtime_abi_ready"] == "pass"
 assert statuses["command_lsp_release_boundary"] == "pass"
@@ -314,22 +310,14 @@ PY
 (
   cd "$case_dir"
   if bash scripts/ci/check-rust-exit-readiness.sh --json --issue-state-file "$temp_dir/issues.txt" >"$temp_dir/stale-closed-blocker.json" 2>"$temp_dir/stale-closed-blocker.err"; then
-    echo "expected readiness check to fail when a closed issue is listed while ABI rows remain incomplete" >&2
+    echo "expected readiness check to fail when an ABI blocker is missing from the manifest" >&2
     exit 1
   fi
-  python3 - "$temp_dir/stale-closed-blocker.json" <<'PY'
-import json
-import sys
-
-with open(sys.argv[1], encoding="utf-8") as handle:
-    payload = json.load(handle)
-
-statuses = {check["name"]: check["status"] for check in payload["checks"]}
-assert statuses["readiness_manifest_valid"] == "pass"
-assert statuses["readiness_blockers_closed"] == "pass"
-assert statuses["readiness_blockers_live_when_not_ready"] == "fail"
-assert statuses["direct_native_runtime_abi_ready"] == "fail"
-PY
+  if ! rg -q "ABI blocker issues missing from readiness manifest: #1191" "$temp_dir/stale-closed-blocker.err"; then
+    echo "expected missing ABI blocker validation error" >&2
+    cat "$temp_dir/stale-closed-blocker.err" >&2
+    exit 1
+  fi
 )
 
 python3 - "$case_dir/stage1/runtime-abi/direct-native-v0.json" <<'PY'
