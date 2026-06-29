@@ -18783,8 +18783,17 @@ fn eval_expr(
                 Some(expr) => expect_non_negative_index(eval_expr(expr, functions, env, lines)?)?,
                 None => elements.len(),
             };
-            if start > end || end > elements.len() {
-                return Err(unsupported("slice range is outside the array length"));
+            if start > end {
+                return Err(cranelift_runtime_trap(
+                    "runtime",
+                    "array slice start after end",
+                ));
+            }
+            if end > elements.len() {
+                return Err(cranelift_runtime_trap(
+                    "runtime",
+                    "array slice end out of bounds",
+                ));
             }
             if matches!(ty, Type::MutSlice(_))
                 && let Expr::VarRef { name, .. } = base.as_ref()
@@ -25384,6 +25393,46 @@ mod tests {
             StaticOutputProgram {
                 lines: vec![OutputLine::stderr(
                     "{\"kind\":\"runtime\",\"message\":\"array index out of bounds\"}"
+                )],
+                exit_code: 1,
+            }
+        );
+    }
+
+    #[test]
+    fn folds_slice_bounds_trap_into_stderr_exit_program() {
+        let program = Program {
+            stmts: vec![Stmt::Print {
+                expr: Expr::Call {
+                    name: String::from("len"),
+                    args: vec![Expr::Slice {
+                        base: Box::new(Expr::ArrayLiteral {
+                            elements: vec![Expr::Literal(LiteralValue::Int(1))],
+                            ty: Type::Array(Box::new(Type::Int), None),
+                        }),
+                        start: Some(Box::new(Expr::Literal(LiteralValue::Int(0)))),
+                        end: Some(Box::new(Expr::Literal(LiteralValue::Int(2)))),
+                        ty: Type::Slice(Box::new(Type::Int)),
+                    }],
+                    ty: Type::Int,
+                },
+                span: crate::mir::SourceSpan { line: 1, column: 1 },
+            }],
+            ..hello_program()
+        };
+
+        assert_eq!(
+            collect_output_program(
+                &program,
+                &CapabilityConfig::default(),
+                Path::new("."),
+                Path::new("."),
+                None,
+            )
+            .expect("fold slice bounds trap"),
+            StaticOutputProgram {
+                lines: vec![OutputLine::stderr(
+                    "{\"kind\":\"runtime\",\"message\":\"array slice end out of bounds\"}"
                 )],
                 exit_code: 1,
             }
