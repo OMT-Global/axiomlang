@@ -10001,7 +10001,10 @@ return async_serve_route(1, "/", "ok", 1)
         assert_eq!(output.failed, 0);
         assert_eq!(output.cases.len(), 1);
         assert_eq!(output.cases[0].kind, TestKind::Property);
-        assert!(output.cases[0].generated_rust.is_some());
+        assert!(
+            output.cases[0].generated_rust.is_none(),
+            "default direct-native property runs must not emit generated Rust"
+        );
     }
 
     #[test]
