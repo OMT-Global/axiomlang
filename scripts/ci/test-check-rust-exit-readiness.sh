@@ -49,6 +49,7 @@ MAKE
 
 cat >"$temp_dir/partial-issues.txt" <<'ISSUES'
 1191 CLOSED
+1255 OPEN
 731 OPEN
 ISSUES
 
@@ -123,6 +124,7 @@ PY
 
 cat >"$temp_dir/open-issues.txt" <<'ISSUES'
 1191 OPEN
+1255 OPEN
 731 OPEN
 ISSUES
 
@@ -156,6 +158,7 @@ PY
 
 cat >"$temp_dir/issues.txt" <<'ISSUES'
 1191 CLOSED
+1255 CLOSED
 731 CLOSED
 ISSUES
 
@@ -177,6 +180,7 @@ statuses = {check["name"]: check["status"] for check in payload["checks"]}
 assert statuses["readiness_blockers_closed"] == "pass"
 assert statuses["readiness_blockers_live_when_not_ready"] == "pass"
 assert statuses["rust_exit_issue_1191_closed"] == "pass"
+assert statuses["rust_exit_issue_1255_closed"] == "pass"
 assert statuses["rust_exit_issue_731_closed"] == "pass"
 assert statuses["direct_native_runtime_abi_ready"] == "pass"
 assert statuses["command_lsp_release_boundary"] == "pass"

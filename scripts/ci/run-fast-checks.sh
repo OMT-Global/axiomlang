@@ -14,6 +14,10 @@ bash "$script_repo_root/scripts/ci/validate-capability-manifests.sh"
 bash "$script_repo_root/scripts/ci/test-validate-capability-manifests.sh"
 bash "$script_repo_root/scripts/ci/test-pr-fast-ci-workflow.sh"
 bash "$script_repo_root/scripts/ci/test-run-extended-stage1-checks.sh"
+python3 "$script_repo_root/scripts/ci/check-stage1-full-lib-triage.py" \
+  --manifest "$repo_root/docs/rust-exit-full-lib-triage.json" \
+  --json >/dev/null
+bash "$script_repo_root/scripts/ci/test-check-stage1-full-lib-triage.sh"
 python3 "$script_repo_root/scripts/ci/render-direct-native-runtime-abi-status.py" \
   --contract "$repo_root/stage1/runtime-abi/direct-native-v0.json" \
   --check-doc "$repo_root/docs/direct-native-runtime-abi-v0.md"
