@@ -12455,7 +12455,7 @@ fn i64_known_helper_call_value(
         let value = eval_expr(arg, &functions, &base_env, &mut lines).ok()?;
         env.insert(param.name.clone(), value);
     }
-    let value = eval_block(&function.body, &functions, &mut env, &mut lines)
+    let value = run_function_body(&function.body, &functions, &mut env, &mut lines)
         .ok()
         .flatten()?;
     lines.is_empty().then_some(value)
@@ -18430,7 +18430,7 @@ fn collect_output_program(
                 let value = eval_expr(&static_def.expr, &functions, &env, &mut lines)?;
                 env.insert(static_def.name.clone(), value);
             }
-            eval_block(&program.stmts, &functions, &mut env, &mut lines)
+            run_function_body(&program.stmts, &functions, &mut env, &mut lines)
         })();
         match result {
             Ok(_) => Ok(StaticOutputProgram {
@@ -18466,13 +18466,45 @@ fn eval_block(
     functions: &HashMap<&str, &Function>,
     env: &mut SpikeEnv,
     lines: &mut Vec<OutputLine>,
+    defers: &mut Vec<Expr>,
 ) -> Result<Option<SpikeValue>, Diagnostic> {
     for stmt in stmts {
-        if let Some(value) = eval_stmt(stmt, functions, env, lines)? {
+        if let Some(value) = eval_stmt(stmt, functions, env, lines, defers)? {
             return Ok(Some(value));
         }
     }
     Ok(None)
+}
+
+/// Evaluate a function (or top-level) body with its own `defer` scope, running
+/// the registered deferred calls in LIFO order on every exit path -- normal
+/// return, fall-through, and panic. Deferred calls registered in nested blocks
+/// run at the enclosing function's exit, matching Go-style `defer` semantics.
+fn run_function_body(
+    body: &[Stmt],
+    functions: &HashMap<&str, &Function>,
+    env: &mut SpikeEnv,
+    lines: &mut Vec<OutputLine>,
+) -> Result<Option<SpikeValue>, Diagnostic> {
+    let mut defers: Vec<Expr> = Vec::new();
+    let result = eval_block(body, functions, env, lines, &mut defers);
+    let mut defer_error = None;
+    while let Some(deferred) = defers.pop() {
+        if let Err(err) = eval_expr_effectful(&deferred, functions, env, lines)
+            && defer_error.is_none()
+        {
+            defer_error = Some(err);
+        }
+    }
+    match result {
+        // A panic in the body takes precedence over any error raised while
+        // unwinding its deferred calls.
+        Err(err) => Err(err),
+        Ok(value) => match defer_error {
+            Some(err) => Err(err),
+            None => Ok(value),
+        },
+    }
 }
 
 fn eval_stmt(
@@ -18480,6 +18512,7 @@ fn eval_stmt(
     functions: &HashMap<&str, &Function>,
     env: &mut SpikeEnv,
     lines: &mut Vec<OutputLine>,
+    defers: &mut Vec<Expr>,
 ) -> Result<Option<SpikeValue>, Diagnostic> {
     match stmt {
         Stmt::Let { name, expr, .. } => {
@@ -18504,7 +18537,7 @@ fn eval_stmt(
                 _ => return Err(unsupported("if conditions must be boolean")),
             };
             if let Some(branch) = branch {
-                eval_block(branch, functions, env, lines)
+                eval_block(branch, functions, env, lines, defers)
             } else {
                 Ok(None)
             }
@@ -18516,7 +18549,9 @@ fn eval_stmt(
             )),
             _ => Err(unsupported("while conditions must be boolean")),
         },
-        Stmt::Match { expr, arms, .. } => eval_match_stmt(expr, arms, functions, env, lines),
+        Stmt::Match { expr, arms, .. } => {
+            eval_match_stmt(expr, arms, functions, env, lines, defers)
+        }
         Stmt::Return { expr, .. } => Ok(Some(eval_expr_effectful(expr, functions, env, lines)?)),
         Stmt::Assign { target, expr, .. } => {
             eval_assign(target, expr, functions, env, lines)?;
@@ -18527,9 +18562,13 @@ fn eval_stmt(
                 render_runtime_panic_message(eval_expr_effectful(message, functions, env, lines)?)?;
             Err(cranelift_runtime_trap("panic", message))
         }
-        Stmt::Defer { .. } => Err(unsupported(
-            "only let, print, if, while false, match, return, and local assignment statements are supported by the cranelift hello spike",
-        )),
+        Stmt::Defer { expr, .. } => {
+            // Register the deferred call; it runs at the enclosing function's
+            // exit (see `run_function_body`), LIFO, regardless of how the
+            // function leaves -- return, fall-through, or panic.
+            defers.push(expr.clone());
+            Ok(None)
+        }
     }
 }
 
@@ -18870,10 +18909,11 @@ fn eval_match_stmt(
     functions: &HashMap<&str, &Function>,
     env: &mut SpikeEnv,
     lines: &mut Vec<OutputLine>,
+    defers: &mut Vec<Expr>,
 ) -> Result<Option<SpikeValue>, Diagnostic> {
     let matched_value = eval_expr(expr, functions, env, lines)?;
     if arms.iter().all(|arm| arm.enum_name.is_empty()) {
-        return eval_const_match_stmt(matched_value, arms, functions, env, lines);
+        return eval_const_match_stmt(matched_value, arms, functions, env, lines, defers);
     }
     let matched = expect_enum_value(matched_value)?;
     let arm = arms
@@ -18890,7 +18930,7 @@ fn eval_match_stmt(
             &matched.payloads,
         )?;
     }
-    let returned = eval_block(&arm.body, functions, &mut arm_env, lines)?;
+    let returned = eval_block(&arm.body, functions, &mut arm_env, lines, defers)?;
     *env = arm_env;
     Ok(returned)
 }
@@ -18901,6 +18941,7 @@ fn eval_const_match_stmt(
     functions: &HashMap<&str, &Function>,
     env: &SpikeEnv,
     lines: &mut Vec<OutputLine>,
+    defers: &mut Vec<Expr>,
 ) -> Result<Option<SpikeValue>, Diagnostic> {
     let matched = expect_int(matched_value)?.to_string();
     let arm = arms
@@ -18908,7 +18949,7 @@ fn eval_const_match_stmt(
         .find(|arm| arm.variant == matched)
         .ok_or_else(|| unsupported("const match statement has no matching arm"))?;
     let mut arm_env = env.clone();
-    eval_block(&arm.body, functions, &mut arm_env, lines)
+    eval_block(&arm.body, functions, &mut arm_env, lines, defers)
 }
 
 fn eval_match_expr(
@@ -19231,7 +19272,7 @@ fn eval_call(
         }
         local_env.insert(param.name.clone(), value);
     }
-    let returned = eval_block(&function.body, functions, &mut local_env, lines)?
+    let returned = run_function_body(&function.body, functions, &mut local_env, lines)?
         .ok_or_else(|| unsupported("cranelift spike functions must return a value"))?;
     if function.is_async {
         Ok(spike_task(returned))
@@ -19311,7 +19352,7 @@ fn eval_call_effectful(
         }
     }
 
-    let returned = eval_block(&function.body, functions, &mut local_env, lines)?
+    let returned = run_function_body(&function.body, functions, &mut local_env, lines)?
         .ok_or_else(|| unsupported("cranelift spike functions must return a value"))?;
     for (backing_name, target) in writebacks {
         let Some(SpikeValue::Array(elements)) = local_env.get(&backing_name) else {
