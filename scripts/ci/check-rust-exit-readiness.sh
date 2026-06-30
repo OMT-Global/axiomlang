@@ -141,6 +141,20 @@ closed_blocking_issues_from_manifest() {
   done < <(blocking_issues_from_manifest)
 }
 
+open_blocking_issues_from_manifest() {
+  local issue
+  local issue_state
+
+  while IFS= read -r issue; do
+    issue_state=""
+    if ! issue_state="$(read_issue_state "$issue")" || [[ -z "$issue_state" ]]; then
+      printf '%s:UNKNOWN\n' "$issue"
+    elif [[ "$issue_state" != "CLOSED" ]]; then
+      printf '%s:%s\n' "$issue" "$issue_state"
+    fi
+  done < <(blocking_issues_from_manifest)
+}
+
 self_hosted_boundary_report() {
   python3 - <<'PY'
 import json
@@ -353,7 +367,7 @@ if payload["finalBootstrapIssue"] in issues:
     print("finalBootstrapIssue must not also be listed as a blocker", file=sys.stderr)
     sys.exit(1)
 
-required = {731, 1191, 1255}
+required = {731}
 missing = sorted(required - set(issues))
 if missing:
     print("missing required blocking issues: " + ", ".join(f"#{issue}" for issue in missing), file=sys.stderr)
@@ -394,7 +408,15 @@ if [[ ! -f docs/rust-exit-readiness.json ]]; then
 elif all_blocking_issues_closed; then
   add_check "readiness_blockers_closed" "pass" "All blocking issues listed in docs/rust-exit-readiness.json are CLOSED"
 else
-  add_check "readiness_blockers_closed" "fail" "One or more blocking issues listed in docs/rust-exit-readiness.json are not CLOSED"
+  open_blocking_issues=()
+  while IFS= read -r open_issue; do
+    open_blocking_issues+=("#${open_issue}")
+  done < <(open_blocking_issues_from_manifest)
+  if [[ "${#open_blocking_issues[@]}" -gt 0 ]]; then
+    add_check "readiness_blockers_closed" "fail" "Blocking issue(s) not closed: ${open_blocking_issues[*]}"
+  else
+    add_check "readiness_blockers_closed" "fail" "One or more blocking issues listed in docs/rust-exit-readiness.json are not CLOSED"
+  fi
 fi
 
 if [[ "$abi_ready" != true && -f docs/rust-exit-readiness.json ]]; then

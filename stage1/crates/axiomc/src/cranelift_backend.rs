@@ -24,6 +24,7 @@ use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::{Mutex, OnceLock};
 
+const SPIKE_PACKAGE_ROOT_BINDING: &str = "$axiom_package_root";
 const SPIKE_FS_ROOT_BINDING: &str = "$axiom_fs_root";
 const SPIKE_ENV_ALLOWLIST_BINDING: &str = "$axiom_env_allowlist";
 const SPIKE_ENV_UNRESTRICTED_BINDING: &str = "$axiom_env_unrestricted";
@@ -236,6 +237,7 @@ enum SpikeValue {
         selected: i64,
         value: Option<Box<SpikeValue>>,
     },
+    ControlReturn(Box<SpikeValue>),
 }
 
 type SpikeEnv = HashMap<String, SpikeValue>;
@@ -378,6 +380,18 @@ pub fn compile_cranelift_hello_spike(
             Diagnostic::new("build", err.to_string()).with_path(object_path.display().to_string())
         });
     }
+    if let Some(program) =
+        lower_i64_top_level_output_program(program, capabilities, package_root, fs_root)
+    {
+        return axiomc_backend_cranelift::compile_i64_exit_program(
+            program,
+            object_path,
+            binary_path,
+        )
+        .map_err(|err| {
+            Diagnostic::new("build", err.to_string()).with_path(object_path.display().to_string())
+        });
+    }
     if program.stmts.is_empty()
         && program
             .functions
@@ -400,6 +414,153 @@ pub fn compile_cranelift_hello_spike(
     })
 }
 
+fn lower_i64_top_level_output_program(
+    program: &Program,
+    capabilities: &CapabilityConfig,
+    package_root: &Path,
+    fs_root: &Path,
+) -> Option<I64ExitProgram> {
+    if program.stmts.is_empty() {
+        return None;
+    }
+    let struct_defs = program
+        .structs
+        .iter()
+        .map(|struct_def| (struct_def.name.as_str(), struct_def))
+        .collect::<HashMap<_, _>>();
+    let mut static_bindings = lower_i64_static_bindings(&program.statics)?;
+    static_bindings.package_root = Some(package_root.to_path_buf());
+    static_bindings.fs_root = Some(fs_root.to_path_buf());
+    static_bindings.env_allowed_names = capabilities.env_vars.iter().cloned().collect();
+    static_bindings.env_unrestricted = capabilities.env_unrestricted;
+    static_bindings.net_unrestricted = capabilities.net && capabilities.net_hosts.is_empty();
+    static_bindings.net_allowed_hosts = capabilities.net_hosts.iter().cloned().collect();
+    static_bindings.fs_read_wrappers = program
+        .functions
+        .iter()
+        .filter(|function| is_i64_std_fs_read_wrapper(function))
+        .flat_map(|function| [function.name.clone(), function.source_name.clone()])
+        .collect();
+    static_bindings.fs_write_wrappers = program
+        .functions
+        .iter()
+        .filter_map(|function| {
+            i64_std_fs_write_intrinsic(function).map(|intrinsic| {
+                [
+                    (function.name.clone(), intrinsic.to_string()),
+                    (function.source_name.clone(), intrinsic.to_string()),
+                ]
+            })
+        })
+        .flatten()
+        .collect();
+    static_bindings.fs_shim_wrappers = program
+        .functions
+        .iter()
+        .filter(|function| is_i64_std_fs_shim_wrapper(function))
+        .map(|function| function.name.clone())
+        .collect();
+    static_bindings.has_fs_write_calls = program
+        .stmts
+        .iter()
+        .any(|stmt| i64_stmt_has_fs_write_call(stmt, &static_bindings))
+        || program
+            .functions
+            .iter()
+            .any(|function| i64_stmts_have_fs_write_call(&function.body, &static_bindings));
+    if program
+        .stmts
+        .iter()
+        .any(|stmt| i64_stmt_has_fs_read_call(stmt, &static_bindings))
+    {
+        return None;
+    }
+    static_bindings.structs = program
+        .structs
+        .iter()
+        .map(|struct_def| (struct_def.name.clone(), struct_def.clone()))
+        .collect();
+    static_bindings.enums = program
+        .enums
+        .iter()
+        .map(|enum_def| (enum_def.name.clone(), enum_def.clone()))
+        .collect();
+    static_bindings.functions = program
+        .functions
+        .iter()
+        .map(|function| (function.name.clone(), function.clone()))
+        .collect();
+    let fs_shim_wrappers = static_bindings.fs_shim_wrappers.clone();
+    let helper_functions = program
+        .functions
+        .iter()
+        .filter(|function| {
+            !fs_shim_wrappers.contains(&function.name)
+                && is_i64_function_return_type(&function.return_ty, &struct_defs, &static_bindings)
+                && function
+                    .params
+                    .iter()
+                    .all(|param| is_i64_param_type(&param.ty, &struct_defs, &static_bindings))
+        })
+        .collect::<Vec<_>>();
+    let helper_signatures = helper_functions
+        .iter()
+        .enumerate()
+        .map(|(index, function)| {
+            Some((
+                function.name.as_str(),
+                I64HelperSignature {
+                    function: index,
+                    params: function.params.len(),
+                    returns_bool: matches!(function.return_ty, Type::Bool),
+                    return_ty: function.return_ty.clone(),
+                    returns: i64_return_slot_count_for_type(
+                        &function.return_ty,
+                        &struct_defs,
+                        &static_bindings,
+                    )?,
+                    struct_fields: function
+                        .params
+                        .iter()
+                        .map(|param| match &param.ty {
+                            Type::Struct(name) => Some(
+                                i64_scalar_struct_def(name, &struct_defs)?
+                                    .fields
+                                    .iter()
+                                    .map(|field| field.name.clone())
+                                    .collect(),
+                            ),
+                            _ => None,
+                        })
+                        .collect(),
+                },
+            ))
+        })
+        .collect::<Option<HashMap<_, _>>>()?;
+    let functions = helper_functions
+        .iter()
+        .map(|function| {
+            lower_i64_function(function, &helper_signatures, &static_bindings, &struct_defs)
+        })
+        .collect::<Option<Vec<_>>>()?;
+    let mut locals = Vec::new();
+    let stmts = lower_i64_runtime_stmts(
+        &program.stmts,
+        &mut locals,
+        HashMap::new(),
+        HashMap::new(),
+        &helper_signatures,
+        &static_bindings,
+        true,
+    )?;
+    Some(I64ExitProgram {
+        functions,
+        locals,
+        stmts,
+        body: I64ExitBody::Return(CraneliftI64Expr::Literal(0)),
+    })
+}
+
 fn lower_i64_exit_program(
     program: &Program,
     capabilities: &CapabilityConfig,
@@ -407,7 +568,17 @@ fn lower_i64_exit_program(
     fs_root: &Path,
 ) -> Option<I64ExitProgram> {
     if !program.stmts.is_empty() {
-        return None;
+        return lower_i64_top_level_runtime_stmts(&program.stmts);
+    }
+    if let Some(main) = program.functions.iter().find(|function| {
+        function.source_name == "main"
+            && function.params.is_empty()
+            && !function.is_property
+            && !function.is_async
+            && !function.is_extern
+    }) && let Some(program) = lower_i64_top_level_runtime_stmts(&main.body)
+    {
+        return Some(program);
     }
     let main = program.functions.iter().find(|function| {
         function.source_name == "main"
@@ -1055,6 +1226,168 @@ fn lower_i64_exit_program(
         stmts,
         body,
     })
+}
+
+fn lower_i64_top_level_runtime_stmts(source_stmts: &[Stmt]) -> Option<I64ExitProgram> {
+    let mut stmts = Vec::new();
+    let mut cli_arrays = HashSet::new();
+    let mut stdin_remaining = HashSet::new();
+    for stmt in source_stmts {
+        match stmt {
+            Stmt::Print {
+                expr: Expr::Call { name, args, .. },
+                ..
+            } if is_i64_top_level_cli_arg_count_name(name) && args.is_empty() => {
+                stmts.push(CraneliftI64Stmt::WriteArgCountLine {
+                    stream: OutputStream::Stdout,
+                });
+            }
+            Stmt::Match { expr, arms, .. } => {
+                if let Some(stmt) = lower_i64_top_level_cli_arg_match(expr, arms) {
+                    stmts.push(stmt);
+                } else if let Some(stmt) = lower_i64_top_level_readline_match(expr, arms) {
+                    stmts.push(stmt);
+                } else {
+                    return None;
+                }
+            }
+            Stmt::Let {
+                name,
+                expr:
+                    Expr::Call {
+                        name: call_name,
+                        args,
+                        ..
+                    },
+                ..
+            } if is_i64_top_level_cli_args_name(call_name) && args.is_empty() => {
+                cli_arrays.insert(name.clone());
+            }
+            Stmt::Let {
+                name,
+                expr:
+                    Expr::Call {
+                        name: call_name,
+                        args,
+                        ..
+                    },
+                ..
+            } if is_i64_top_level_io_read_to_string_name(call_name) && args.is_empty() => {
+                stdin_remaining.insert(name.clone());
+            }
+            Stmt::Print {
+                expr: Expr::Call { name, args, .. },
+                ..
+            } if name == "first"
+                && matches!(args.as_slice(), [Expr::VarRef { name, .. }] if cli_arrays.contains(name)) =>
+            {
+                stmts.push(CraneliftI64Stmt::WriteArgLine {
+                    stream: OutputStream::Stdout,
+                    index: 0,
+                    fallback: String::new(),
+                });
+            }
+            Stmt::Print {
+                expr: Expr::VarRef { name, .. },
+                ..
+            } if stdin_remaining.contains(name) => {
+                stmts.push(CraneliftI64Stmt::WriteStdinRemaining {
+                    stream: OutputStream::Stdout,
+                    max_bytes: I64_STDIN_BUFFER_BYTES,
+                    append_newline: true,
+                });
+            }
+            Stmt::Print {
+                expr: Expr::Literal(LiteralValue::String(text) | LiteralValue::Str(text)),
+                ..
+            } => stmts.push(CraneliftI64Stmt::WriteLine {
+                stream: OutputStream::Stdout,
+                text: text.clone(),
+            }),
+            Stmt::Print {
+                expr: Expr::Literal(LiteralValue::Int(value)),
+                ..
+            } => stmts.push(CraneliftI64Stmt::WriteI64Line {
+                stream: OutputStream::Stdout,
+                value: CraneliftI64Expr::Literal(*value),
+            }),
+            Stmt::Return {
+                expr: Expr::Literal(LiteralValue::Int(0)),
+                ..
+            } => {}
+            _ => return None,
+        }
+    }
+    Some(I64ExitProgram {
+        functions: Vec::new(),
+        locals: Vec::new(),
+        stmts,
+        body: I64ExitBody::Return(CraneliftI64Expr::Literal(0)),
+    })
+}
+
+fn lower_i64_top_level_cli_arg_match(expr: &Expr, arms: &[MatchArm]) -> Option<CraneliftI64Stmt> {
+    let Expr::Call { name, args, .. } = expr else {
+        return None;
+    };
+    if !is_i64_top_level_cli_arg_name(name) {
+        return None;
+    }
+    let [Expr::Literal(LiteralValue::Int(index))] = args.as_slice() else {
+        return None;
+    };
+    let index = usize::try_from(*index).ok()?;
+    let (_some_arm, none_arm) = i64_option_stmt_match_arms(arms)?;
+    Some(CraneliftI64Stmt::WriteArgLine {
+        stream: OutputStream::Stdout,
+        index,
+        fallback: i64_single_printed_static_text(&none_arm.body)?,
+    })
+}
+
+fn lower_i64_top_level_readline_match(expr: &Expr, arms: &[MatchArm]) -> Option<CraneliftI64Stmt> {
+    let Expr::Call { name, args, .. } = expr else {
+        return None;
+    };
+    if !is_i64_top_level_io_readline_name(name) || !args.is_empty() {
+        return None;
+    }
+    let (_some_arm, none_arm) = i64_option_stmt_match_arms(arms)?;
+    Some(CraneliftI64Stmt::WriteStdinLine {
+        stream: OutputStream::Stdout,
+        fallback: i64_single_printed_static_text(&none_arm.body)?,
+        max_bytes: I64_STDIN_BUFFER_BYTES,
+    })
+}
+
+fn i64_single_printed_static_text(stmts: &[Stmt]) -> Option<String> {
+    let [Stmt::Print { expr, .. }] = stmts else {
+        return None;
+    };
+    match expr {
+        Expr::Literal(LiteralValue::String(text) | LiteralValue::Str(text)) => Some(text.clone()),
+        _ => None,
+    }
+}
+
+fn is_i64_top_level_cli_args_name(name: &str) -> bool {
+    matches!(name, "cli_args" | "std_cli_args")
+}
+
+fn is_i64_top_level_cli_arg_count_name(name: &str) -> bool {
+    matches!(name, "cli_arg_count" | "std_cli_arg_count")
+}
+
+fn is_i64_top_level_cli_arg_name(name: &str) -> bool {
+    matches!(name, "cli_arg" | "std_cli_arg")
+}
+
+fn is_i64_top_level_io_readline_name(name: &str) -> bool {
+    matches!(name, "io_readline" | "std_io_readline")
+}
+
+fn is_i64_top_level_io_read_to_string_name(name: &str) -> bool {
+    matches!(name, "io_read_to_string" | "std_io_read_to_string")
 }
 
 fn lower_i64_function(
@@ -4028,6 +4361,16 @@ fn lower_i64_runtime_stmt(
                 allow_stdio_effects,
             ) {
                 Some(stmt)
+            } else if let Some(stmt) = lower_i64_env_option_match_stmt(
+                stmt,
+                locals,
+                local_indexes.clone(),
+                local_conditions.clone(),
+                helper_signatures,
+                static_bindings,
+                allow_stdio_effects,
+            ) {
+                Some(stmt)
             } else if let Some(stmt) = lower_i64_option_match_stmt(
                 stmt,
                 locals,
@@ -4174,6 +4517,175 @@ fn lower_i64_known_string_option_match_stmt(
     }
 }
 
+fn lower_i64_env_option_match_stmt(
+    stmt: &Stmt,
+    locals: &mut Vec<CraneliftI64Expr>,
+    local_indexes: HashMap<String, usize>,
+    local_conditions: HashMap<String, CraneliftI64Condition>,
+    helper_signatures: &HashMap<&str, I64HelperSignature>,
+    static_bindings: &I64StaticBindings,
+    allow_stdio_effects: bool,
+) -> Option<CraneliftI64Stmt> {
+    let Stmt::Match { expr, arms, .. } = stmt else {
+        return None;
+    };
+    let Type::Option(inner) = expr.ty() else {
+        return None;
+    };
+    if !matches!(inner.as_ref(), Type::String | Type::Str) {
+        return None;
+    }
+    let key = i64_env_get_key(expr, static_bindings)?;
+    let env_len = i64_env_len_expr(&key, static_bindings)?;
+    let (some_arm, none_arm) = i64_option_stmt_match_arms(arms)?;
+    let mut some_static_bindings = static_bindings.clone();
+    if !some_arm.ignore_payloads
+        && let Some(binding) = some_arm.bindings.first()
+        && binding != "_"
+    {
+        if !i64_env_option_payload_uses_len_only(&some_arm.body, binding) {
+            return None;
+        }
+        some_static_bindings
+            .values
+            .insert(binding.clone(), env_len.clone());
+    }
+    Some(CraneliftI64Stmt::If {
+        cond: CraneliftI64Condition::Compare(CraneliftI64Compare {
+            op: CraneliftI64CompareOp::Ge,
+            lhs: env_len,
+            rhs: CraneliftI64Expr::Literal(0),
+        }),
+        then_body: lower_i64_runtime_stmts(
+            &some_arm.body,
+            locals,
+            local_indexes.clone(),
+            local_conditions.clone(),
+            helper_signatures,
+            &some_static_bindings,
+            allow_stdio_effects,
+        )?,
+        else_body: lower_i64_runtime_stmts(
+            &none_arm.body,
+            locals,
+            local_indexes,
+            local_conditions,
+            helper_signatures,
+            static_bindings,
+            allow_stdio_effects,
+        )?,
+    })
+}
+
+fn i64_env_option_payload_uses_len_only(stmts: &[Stmt], binding: &str) -> bool {
+    stmts
+        .iter()
+        .all(|stmt| i64_env_option_stmt_uses_payload_len_only(stmt, binding))
+}
+
+fn i64_env_option_stmt_uses_payload_len_only(stmt: &Stmt, binding: &str) -> bool {
+    match stmt {
+        Stmt::Let { expr, .. }
+        | Stmt::Assign { expr, .. }
+        | Stmt::Print { expr, .. }
+        | Stmt::Return { expr, .. }
+        | Stmt::Defer { expr, .. } => i64_env_option_expr_uses_payload_len_only(expr, binding),
+        Stmt::Panic { message, .. } => i64_env_option_expr_uses_payload_len_only(message, binding),
+        Stmt::If {
+            cond,
+            then_block,
+            else_block,
+            ..
+        } => {
+            i64_env_option_expr_uses_payload_len_only(cond, binding)
+                && i64_env_option_payload_uses_len_only(then_block, binding)
+                && else_block
+                    .as_ref()
+                    .is_none_or(|block| i64_env_option_payload_uses_len_only(block, binding))
+        }
+        Stmt::While { cond, body, .. } => {
+            i64_env_option_expr_uses_payload_len_only(cond, binding)
+                && i64_env_option_payload_uses_len_only(body, binding)
+        }
+        Stmt::Match { expr, arms, .. } => {
+            i64_env_option_expr_uses_payload_len_only(expr, binding)
+                && arms
+                    .iter()
+                    .all(|arm| i64_env_option_payload_uses_len_only(&arm.body, binding))
+        }
+    }
+}
+
+fn i64_env_option_expr_uses_payload_len_only(expr: &Expr, binding: &str) -> bool {
+    match expr {
+        Expr::VarRef { name, .. } => name != binding,
+        Expr::Call { name, args, .. } if name == "len" => {
+            if let [Expr::VarRef { name, .. }] = args.as_slice()
+                && name == binding
+            {
+                return true;
+            }
+            args.iter()
+                .all(|arg| i64_env_option_expr_uses_payload_len_only(arg, binding))
+        }
+        Expr::Call { args, .. } => args
+            .iter()
+            .all(|arg| i64_env_option_expr_uses_payload_len_only(arg, binding)),
+        Expr::BinaryAdd { lhs, rhs, .. }
+        | Expr::BinaryCompare { lhs, rhs, .. }
+        | Expr::BinaryLogic { lhs, rhs, .. } => {
+            i64_env_option_expr_uses_payload_len_only(lhs, binding)
+                && i64_env_option_expr_uses_payload_len_only(rhs, binding)
+        }
+        Expr::Cast { expr, .. }
+        | Expr::MutBorrow { expr, .. }
+        | Expr::Deref { expr, .. }
+        | Expr::Try { expr, .. }
+        | Expr::Await { expr, .. }
+        | Expr::StringBorrow { expr, .. } => {
+            i64_env_option_expr_uses_payload_len_only(expr, binding)
+        }
+        Expr::StructLiteral { fields, .. } => fields
+            .iter()
+            .all(|field| i64_env_option_expr_uses_payload_len_only(&field.expr, binding)),
+        Expr::FieldAccess { base, .. } => i64_env_option_expr_uses_payload_len_only(base, binding),
+        Expr::TupleLiteral { elements, .. } | Expr::ArrayLiteral { elements, .. } => elements
+            .iter()
+            .all(|element| i64_env_option_expr_uses_payload_len_only(element, binding)),
+        Expr::TupleIndex { base, .. } => i64_env_option_expr_uses_payload_len_only(base, binding),
+        Expr::MapLiteral { entries, .. } => entries.iter().all(|entry| {
+            i64_env_option_expr_uses_payload_len_only(&entry.key, binding)
+                && i64_env_option_expr_uses_payload_len_only(&entry.value, binding)
+        }),
+        Expr::EnumVariant { payloads, .. } => payloads
+            .iter()
+            .all(|payload| i64_env_option_expr_uses_payload_len_only(payload, binding)),
+        Expr::Closure { body, .. } => i64_env_option_expr_uses_payload_len_only(body, binding),
+        Expr::Slice {
+            base, start, end, ..
+        } => {
+            i64_env_option_expr_uses_payload_len_only(base, binding)
+                && start
+                    .as_ref()
+                    .is_none_or(|expr| i64_env_option_expr_uses_payload_len_only(expr, binding))
+                && end
+                    .as_ref()
+                    .is_none_or(|expr| i64_env_option_expr_uses_payload_len_only(expr, binding))
+        }
+        Expr::Index { base, index, .. } => {
+            i64_env_option_expr_uses_payload_len_only(base, binding)
+                && i64_env_option_expr_uses_payload_len_only(index, binding)
+        }
+        Expr::Match { expr, arms, .. } => {
+            i64_env_option_expr_uses_payload_len_only(expr, binding)
+                && arms
+                    .iter()
+                    .all(|arm| i64_env_option_expr_uses_payload_len_only(&arm.expr, binding))
+        }
+        Expr::Literal(_) => true,
+    }
+}
+
 fn lower_i64_option_match_stmt(
     stmt: &Stmt,
     locals: &mut Vec<CraneliftI64Expr>,
@@ -4194,6 +4706,14 @@ fn lower_i64_option_match_stmt(
             &local_conditions,
             static_bindings,
         )?;
+    if matches!(expr.ty(), Type::Option(inner) if matches!(inner.as_ref(), Type::String | Type::Str))
+        && !some_arm.ignore_payloads
+        && let Some(binding) = some_arm.bindings.first()
+        && binding != "_"
+        && !i64_env_option_payload_uses_len_only(&some_arm.body, binding)
+    {
+        return None;
+    }
     Some(CraneliftI64Stmt::If {
         cond,
         then_body: lower_i64_runtime_stmts(
@@ -9931,10 +10451,11 @@ fn i64_fs_read_path(expr: &Expr, static_bindings: &I64StaticBindings) -> Option<
     let [path] = args.as_slice() else {
         return None;
     };
+    let package_root = static_bindings.package_root.as_deref()?;
     let fs_root = static_bindings.fs_root.as_deref()?;
     let path = i64_string_text(path, static_bindings)?;
     let requested_len = path.len();
-    spike_fs_write_candidate_for_root(fs_root, &path, false).map(|path| I64FsReadPath {
+    spike_fs_existing_candidate_for_scope(package_root, fs_root, &path).map(|path| I64FsReadPath {
         candidate: path.display().to_string(),
         requested_len,
     })
@@ -10139,6 +10660,50 @@ fn i64_stmt_has_fs_write_call(stmt: &Stmt, static_bindings: &I64StaticBindings) 
     }
 }
 
+fn i64_stmt_has_fs_read_call(stmt: &Stmt, static_bindings: &I64StaticBindings) -> bool {
+    match stmt {
+        Stmt::Let { expr, .. }
+        | Stmt::Print { expr, .. }
+        | Stmt::Panic { message: expr, .. }
+        | Stmt::Defer { expr, .. }
+        | Stmt::Return { expr, .. } => i64_expr_has_fs_read_call(expr, static_bindings),
+        Stmt::Assign { target, expr, .. } => {
+            i64_expr_has_fs_read_call(target, static_bindings)
+                || i64_expr_has_fs_read_call(expr, static_bindings)
+        }
+        Stmt::If {
+            cond,
+            then_block,
+            else_block,
+            ..
+        } => {
+            i64_expr_has_fs_read_call(cond, static_bindings)
+                || then_block
+                    .iter()
+                    .any(|stmt| i64_stmt_has_fs_read_call(stmt, static_bindings))
+                || else_block.as_ref().is_some_and(|stmts| {
+                    stmts
+                        .iter()
+                        .any(|stmt| i64_stmt_has_fs_read_call(stmt, static_bindings))
+                })
+        }
+        Stmt::While { cond, body, .. } => {
+            i64_expr_has_fs_read_call(cond, static_bindings)
+                || body
+                    .iter()
+                    .any(|stmt| i64_stmt_has_fs_read_call(stmt, static_bindings))
+        }
+        Stmt::Match { expr, arms, .. } => {
+            i64_expr_has_fs_read_call(expr, static_bindings)
+                || arms.iter().any(|arm| {
+                    arm.body
+                        .iter()
+                        .any(|stmt| i64_stmt_has_fs_read_call(stmt, static_bindings))
+                })
+        }
+    }
+}
+
 fn i64_expr_has_fs_write_call(expr: &Expr, static_bindings: &I64StaticBindings) -> bool {
     match expr {
         Expr::Call { name, args, .. } => {
@@ -10196,6 +10761,69 @@ fn i64_expr_has_fs_write_call(expr: &Expr, static_bindings: &I64StaticBindings) 
                 || arms
                     .iter()
                     .any(|arm| i64_expr_has_fs_write_call(&arm.expr, static_bindings))
+        }
+        Expr::Literal(_) | Expr::VarRef { .. } => false,
+    }
+}
+
+fn i64_expr_has_fs_read_call(expr: &Expr, static_bindings: &I64StaticBindings) -> bool {
+    match expr {
+        Expr::Call { name, args, .. } => {
+            matches!(name.as_str(), "fs_read" | "read_file" | "std_fs_read_file")
+                || static_bindings.fs_read_wrappers.contains(name)
+                || args
+                    .iter()
+                    .any(|arg| i64_expr_has_fs_read_call(arg, static_bindings))
+        }
+        Expr::BinaryAdd { lhs, rhs, .. }
+        | Expr::BinaryCompare { lhs, rhs, .. }
+        | Expr::BinaryLogic { lhs, rhs, .. }
+        | Expr::Index {
+            base: lhs,
+            index: rhs,
+            ..
+        } => {
+            i64_expr_has_fs_read_call(lhs, static_bindings)
+                || i64_expr_has_fs_read_call(rhs, static_bindings)
+        }
+        Expr::Cast { expr, .. }
+        | Expr::MutBorrow { expr, .. }
+        | Expr::Deref { expr, .. }
+        | Expr::Try { expr, .. }
+        | Expr::Await { expr, .. }
+        | Expr::FieldAccess { base: expr, .. }
+        | Expr::TupleIndex { base: expr, .. }
+        | Expr::StringBorrow { expr, .. } => i64_expr_has_fs_read_call(expr, static_bindings),
+        Expr::StructLiteral { fields, .. } => fields
+            .iter()
+            .any(|field| i64_expr_has_fs_read_call(&field.expr, static_bindings)),
+        Expr::TupleLiteral { elements, .. } | Expr::ArrayLiteral { elements, .. } => elements
+            .iter()
+            .any(|element| i64_expr_has_fs_read_call(element, static_bindings)),
+        Expr::MapLiteral { entries, .. } => entries.iter().any(|entry| {
+            i64_expr_has_fs_read_call(&entry.key, static_bindings)
+                || i64_expr_has_fs_read_call(&entry.value, static_bindings)
+        }),
+        Expr::EnumVariant { payloads, .. } => payloads
+            .iter()
+            .any(|payload| i64_expr_has_fs_read_call(payload, static_bindings)),
+        Expr::Closure { body, .. } => i64_expr_has_fs_read_call(body, static_bindings),
+        Expr::Slice {
+            base, start, end, ..
+        } => {
+            i64_expr_has_fs_read_call(base, static_bindings)
+                || start
+                    .as_ref()
+                    .is_some_and(|expr| i64_expr_has_fs_read_call(expr, static_bindings))
+                || end
+                    .as_ref()
+                    .is_some_and(|expr| i64_expr_has_fs_read_call(expr, static_bindings))
+        }
+        Expr::Match { expr, arms, .. } => {
+            i64_expr_has_fs_read_call(expr, static_bindings)
+                || arms
+                    .iter()
+                    .any(|arm| i64_expr_has_fs_read_call(&arm.expr, static_bindings))
         }
         Expr::Literal(_) | Expr::VarRef { .. } => false,
     }
@@ -12463,6 +13091,12 @@ fn i64_known_helper_call_value(
 
 fn i64_known_static_env(static_bindings: &I64StaticBindings) -> Option<SpikeEnv> {
     let mut env = SpikeEnv::new();
+    if let Some(root) = &static_bindings.package_root {
+        env.insert(
+            SPIKE_PACKAGE_ROOT_BINDING.to_string(),
+            SpikeValue::Text(root.display().to_string()),
+        );
+    }
     if let Some(root) = &static_bindings.fs_root {
         env.insert(
             SPIKE_FS_ROOT_BINDING.to_string(),
@@ -12749,24 +13383,14 @@ fn i64_string_option_text(
             let text = i64_string_text(text, static_bindings)?;
             Some(regex_find_span(&pattern, &text).map(|(start, end)| text[start..end].to_string()))
         }
-        "env_get" => {
-            let [key] = args.as_slice() else {
-                return None;
-            };
-            Some(std::env::var(i64_string_text(key, static_bindings)?).ok())
-        }
-        name if static_bindings.env_get_wrappers.contains(name) => {
-            let [key] = args.as_slice() else {
-                return None;
-            };
-            Some(std::env::var(i64_string_text(key, static_bindings)?).ok())
-        }
         "fs_read" | "read_file" | "std_fs_read_file" => {
             let [path] = args.as_slice() else {
                 return None;
             };
+            let package_root = static_bindings.package_root.as_deref()?;
             let fs_root = static_bindings.fs_root.as_deref()?;
-            Some(spike_fs_read_text_for_root(
+            Some(spike_fs_read_text_for_scope(
+                package_root,
                 fs_root,
                 &i64_string_text(path, static_bindings)?,
             ))
@@ -12808,8 +13432,10 @@ fn i64_string_option_text(
             let [path] = args.as_slice() else {
                 return None;
             };
+            let package_root = static_bindings.package_root.as_deref()?;
             let fs_root = static_bindings.fs_root.as_deref()?;
-            Some(spike_fs_read_text_for_root(
+            Some(spike_fs_read_text_for_scope(
+                package_root,
                 fs_root,
                 &i64_string_text(path, static_bindings)?,
             ))
@@ -13445,6 +14071,44 @@ fn lower_i64_expr(
                 static_bindings,
             )?;
             lower_i64_cast_expr(expr, ty)
+        }
+        Expr::Try { expr, .. } => lower_i64_try_value_expr(
+            expr,
+            local_indexes,
+            local_conditions,
+            helper_signatures,
+            static_bindings,
+        ),
+        _ => None,
+    }
+}
+
+fn lower_i64_try_value_expr(
+    expr: &Expr,
+    local_indexes: &HashMap<String, usize>,
+    local_conditions: &HashMap<String, CraneliftI64Condition>,
+    helper_signatures: &HashMap<&str, I64HelperSignature>,
+    static_bindings: &I64StaticBindings,
+) -> Option<CraneliftI64Expr> {
+    match expr {
+        Expr::EnumVariant {
+            enum_name,
+            variant,
+            payloads,
+            ..
+        } if (enum_name == "Option" && variant == "Some")
+            || (enum_name == "Result" && variant == "Ok") =>
+        {
+            let [payload] = payloads.as_slice() else {
+                return None;
+            };
+            lower_i64_expr(
+                payload,
+                local_indexes,
+                local_conditions,
+                helper_signatures,
+                static_bindings,
+            )
         }
         _ => None,
     }
@@ -14987,8 +15651,11 @@ fn lower_i64_fs_write_intrinsic_expr(
                 static_bindings,
             );
         }
+        let package_root = static_bindings.package_root.as_deref()?;
         let fs_root = static_bindings.fs_root.as_deref()?;
-        let Some(candidate) = spike_fs_write_candidate_for_root(fs_root, &path, false) else {
+        let Some(candidate) =
+            spike_fs_write_candidate_for_scope(package_root, fs_root, &path, true)
+        else {
             return i64_audited_fs_expr(
                 name,
                 path_len,
@@ -15026,8 +15693,11 @@ fn lower_i64_fs_write_intrinsic_expr(
                 static_bindings,
             );
         }
+        let package_root = static_bindings.package_root.as_deref()?;
         let fs_root = static_bindings.fs_root.as_deref()?;
-        let Some(candidate) = spike_fs_write_candidate_for_root(fs_root, &path, false) else {
+        let Some(candidate) =
+            spike_fs_write_candidate_for_scope(package_root, fs_root, &path, true)
+        else {
             return i64_audited_fs_expr(
                 name,
                 path_len,
@@ -15065,8 +15735,11 @@ fn lower_i64_fs_write_intrinsic_expr(
                 static_bindings,
             );
         }
+        let package_root = static_bindings.package_root.as_deref()?;
         let fs_root = static_bindings.fs_root.as_deref()?;
-        let Some(candidate) = spike_fs_write_candidate_for_root(fs_root, &path, false) else {
+        let Some(candidate) =
+            spike_fs_write_candidate_for_scope(package_root, fs_root, &path, true)
+        else {
             return i64_audited_fs_expr(
                 name,
                 path_len,
@@ -15117,8 +15790,11 @@ fn lower_i64_fs_write_intrinsic_expr(
     if name == "fs_create" {
         let path = i64_fs_path(args, static_bindings)?;
         let path_len = path.len();
+        let package_root = static_bindings.package_root.as_deref()?;
         let fs_root = static_bindings.fs_root.as_deref()?;
-        let Some(candidate) = spike_fs_write_candidate_for_root(fs_root, &path, false) else {
+        let Some(candidate) =
+            spike_fs_write_candidate_for_scope(package_root, fs_root, &path, true)
+        else {
             return i64_audited_fs_expr(
                 name,
                 path_len,
@@ -15145,8 +15821,11 @@ fn lower_i64_fs_write_intrinsic_expr(
     if name == "fs_mkdir" {
         let path = i64_fs_path(args, static_bindings)?;
         let path_len = path.len();
+        let package_root = static_bindings.package_root.as_deref()?;
         let fs_root = static_bindings.fs_root.as_deref()?;
-        let Some(candidate) = spike_fs_write_candidate_for_root(fs_root, &path, false) else {
+        let Some(candidate) =
+            spike_fs_write_candidate_for_scope(package_root, fs_root, &path, false)
+        else {
             return i64_audited_fs_expr(
                 name,
                 path_len,
@@ -15173,8 +15852,11 @@ fn lower_i64_fs_write_intrinsic_expr(
     if name == "fs_mkdir_all" {
         let path = i64_fs_path(args, static_bindings)?;
         let path_len = path.len();
+        let package_root = static_bindings.package_root.as_deref()?;
         let fs_root = static_bindings.fs_root.as_deref()?;
-        let Some(candidate) = spike_fs_write_candidate_for_root(fs_root, &path, true) else {
+        let Some(candidate) =
+            spike_fs_write_candidate_for_scope(package_root, fs_root, &path, true)
+        else {
             return i64_audited_fs_expr(
                 name,
                 path_len,
@@ -15201,8 +15883,11 @@ fn lower_i64_fs_write_intrinsic_expr(
     if name == "fs_remove_file" {
         let path = i64_fs_path(args, static_bindings)?;
         let path_len = path.len();
+        let package_root = static_bindings.package_root.as_deref()?;
         let fs_root = static_bindings.fs_root.as_deref()?;
-        let Some(candidate) = spike_fs_write_candidate_for_root(fs_root, &path, false) else {
+        let Some(candidate) =
+            spike_fs_write_candidate_for_scope(package_root, fs_root, &path, false)
+        else {
             return i64_audited_fs_expr(
                 name,
                 path_len,
@@ -15229,8 +15914,11 @@ fn lower_i64_fs_write_intrinsic_expr(
     if name == "fs_remove_dir" {
         let path = i64_fs_path(args, static_bindings)?;
         let path_len = path.len();
+        let package_root = static_bindings.package_root.as_deref()?;
         let fs_root = static_bindings.fs_root.as_deref()?;
-        let Some(candidate) = spike_fs_write_candidate_for_root(fs_root, &path, false) else {
+        let Some(candidate) =
+            spike_fs_write_candidate_for_scope(package_root, fs_root, &path, false)
+        else {
             return i64_audited_fs_expr(
                 name,
                 path_len,
@@ -16529,6 +17217,14 @@ fn lower_i64_string_len_expr(
         if let Some(value) = i64_string_text(expr, static_bindings) {
             return Some(CraneliftI64Expr::Literal(value.len() as i64));
         }
+    }
+    if let Expr::VarRef {
+        name,
+        ty: Type::String | Type::Str,
+    } = expr
+        && let Some(value) = static_bindings.values.get(name)
+    {
+        return Some(value.clone());
     }
     match expr {
         Expr::Call { name, args, .. } if is_i64_crypto_sha256_name(name, static_bindings) => {
@@ -18394,7 +19090,7 @@ struct StaticOutputProgram {
 fn collect_output_program(
     program: &Program,
     capabilities: &CapabilityConfig,
-    _package_root: &Path,
+    package_root: &Path,
     fs_root: &Path,
     stdin: Option<&str>,
 ) -> Result<StaticOutputProgram, Diagnostic> {
@@ -18405,6 +19101,10 @@ fn collect_output_program(
             .map(|function| (function.name.as_str(), function))
             .collect::<HashMap<_, _>>();
         let mut env = SpikeEnv::new();
+        env.insert(
+            SPIKE_PACKAGE_ROOT_BINDING.to_string(),
+            SpikeValue::Text(package_root.display().to_string()),
+        );
         env.insert(
             SPIKE_FS_ROOT_BINDING.to_string(),
             SpikeValue::Text(fs_root.display().to_string()),
@@ -18484,11 +19184,17 @@ fn eval_stmt(
     match stmt {
         Stmt::Let { name, expr, .. } => {
             let value = eval_expr_effectful(expr, functions, env, lines)?;
+            if let SpikeValue::ControlReturn(value) = value {
+                return Ok(Some(*value));
+            }
             env.insert(name.clone(), value);
             Ok(None)
         }
         Stmt::Print { expr, .. } => {
             let value = eval_expr_effectful(expr, functions, env, lines)?;
+            if let SpikeValue::ControlReturn(value) = value {
+                return Ok(Some(*value));
+            }
             lines.push(OutputLine::stdout(render_value(&value)));
             Ok(None)
         }
@@ -18498,7 +19204,11 @@ fn eval_stmt(
             else_block,
             ..
         } => {
-            let branch = match eval_expr_effectful(cond, functions, env, lines)? {
+            let cond = eval_expr_effectful(cond, functions, env, lines)?;
+            if let SpikeValue::ControlReturn(value) = cond {
+                return Ok(Some(*value));
+            }
+            let branch = match cond {
                 SpikeValue::Bool(true) => Some(then_block.as_slice()),
                 SpikeValue::Bool(false) => else_block.as_deref(),
                 _ => return Err(unsupported("if conditions must be boolean")),
@@ -18509,19 +19219,28 @@ fn eval_stmt(
                 Ok(None)
             }
         }
-        Stmt::While { cond, .. } => match eval_expr_effectful(cond, functions, env, lines)? {
-            SpikeValue::Bool(false) => Ok(None),
-            SpikeValue::Bool(true) => Err(unsupported(
-                "runtime loops are not part of the cranelift hello spike",
-            )),
-            _ => Err(unsupported("while conditions must be boolean")),
-        },
-        Stmt::Match { expr, arms, .. } => eval_match_stmt(expr, arms, functions, env, lines),
-        Stmt::Return { expr, .. } => Ok(Some(eval_expr_effectful(expr, functions, env, lines)?)),
-        Stmt::Assign { target, expr, .. } => {
-            eval_assign(target, expr, functions, env, lines)?;
-            Ok(None)
+        Stmt::While { cond, .. } => {
+            let cond = eval_expr_effectful(cond, functions, env, lines)?;
+            if let SpikeValue::ControlReturn(value) = cond {
+                return Ok(Some(*value));
+            }
+            match cond {
+                SpikeValue::Bool(false) => Ok(None),
+                SpikeValue::Bool(true) => Err(unsupported(
+                    "runtime loops are not part of the cranelift hello spike",
+                )),
+                _ => Err(unsupported("while conditions must be boolean")),
+            }
         }
+        Stmt::Match { expr, arms, .. } => eval_match_stmt(expr, arms, functions, env, lines),
+        Stmt::Return { expr, .. } => {
+            let value = eval_expr_effectful(expr, functions, env, lines)?;
+            if let SpikeValue::ControlReturn(value) = value {
+                return Ok(Some(*value));
+            }
+            Ok(Some(value))
+        }
+        Stmt::Assign { target, expr, .. } => eval_assign(target, expr, functions, env, lines),
         Stmt::Panic { message, .. } => {
             let message =
                 render_runtime_panic_message(eval_expr_effectful(message, functions, env, lines)?)?;
@@ -18539,12 +19258,15 @@ fn eval_assign(
     functions: &HashMap<&str, &Function>,
     env: &mut SpikeEnv,
     lines: &mut Vec<OutputLine>,
-) -> Result<(), Diagnostic> {
+) -> Result<Option<SpikeValue>, Diagnostic> {
     let value = eval_expr_effectful(expr, functions, env, lines)?;
+    if let SpikeValue::ControlReturn(value) = value {
+        return Ok(Some(*value));
+    }
     match target {
         Expr::VarRef { name, .. } => {
             env.insert(name.clone(), value);
-            Ok(())
+            Ok(None)
         }
         Expr::Deref { expr, .. } => {
             let SpikeValue::MutRef(name) = eval_expr(expr, functions, env, lines)? else {
@@ -18553,7 +19275,7 @@ fn eval_assign(
                 ));
             };
             env.insert(name, value);
-            Ok(())
+            Ok(None)
         }
         Expr::Index { base, index, .. } => {
             let index = expect_non_negative_index(eval_expr(index, functions, env, lines)?)?;
@@ -18565,7 +19287,7 @@ fn eval_assign(
                     if real_index >= end {
                         return Err(unsupported("slice index is outside the slice length"));
                     }
-                    assign_array_index(env, &target, real_index, value)
+                    assign_array_index(env, &target, real_index, value).map(|()| None)
                 }
                 SpikeValue::Array(mut elements) => {
                     let Some(slot) = elements.get_mut(index) else {
@@ -18574,7 +19296,7 @@ fn eval_assign(
                     *slot = value;
                     if let Expr::VarRef { name, .. } = base.as_ref() {
                         env.insert(name.clone(), SpikeValue::Array(elements));
-                        Ok(())
+                        Ok(None)
                     } else {
                         Err(unsupported(
                             "array index assignment requires a local array target",
@@ -18620,7 +19342,13 @@ fn eval_expr_effectful(
         Expr::Call { name, args, .. } => eval_call_effectful(name, args, functions, env, lines),
         Expr::BinaryAdd { op, lhs, rhs, ty } => {
             let left = eval_expr_effectful(lhs, functions, env, lines)?;
+            if is_control_return(&left) {
+                return Ok(left);
+            }
             let right = eval_expr_effectful(rhs, functions, env, lines)?;
+            if is_control_return(&right) {
+                return Ok(right);
+            }
             eval_arithmetic_values(*op, ty, left, right)
         }
         Expr::BinaryCompare {
@@ -18630,22 +19358,41 @@ fn eval_expr_effectful(
             ty: _,
         } => {
             let left = eval_expr_effectful(lhs, functions, env, lines)?;
+            if is_control_return(&left) {
+                return Ok(left);
+            }
             let right = eval_expr_effectful(rhs, functions, env, lines)?;
+            if is_control_return(&right) {
+                return Ok(right);
+            }
             eval_compare_values(*op, left, right)
         }
         Expr::BinaryLogic { op, lhs, rhs, .. } => {
-            let left = expect_bool(eval_expr_effectful(lhs, functions, env, lines)?)?;
+            let left_value = eval_expr_effectful(lhs, functions, env, lines)?;
+            if is_control_return(&left_value) {
+                return Ok(left_value);
+            }
+            let left = expect_bool(left_value)?;
             match op {
                 crate::mir::LogicOp::And if !left => Ok(SpikeValue::Bool(false)),
                 crate::mir::LogicOp::Or if left => Ok(SpikeValue::Bool(true)),
-                crate::mir::LogicOp::And | crate::mir::LogicOp::Or => Ok(SpikeValue::Bool(
-                    expect_bool(eval_expr_effectful(rhs, functions, env, lines)?)?,
-                )),
+                crate::mir::LogicOp::And | crate::mir::LogicOp::Or => {
+                    let right = eval_expr_effectful(rhs, functions, env, lines)?;
+                    if is_control_return(&right) {
+                        return Ok(right);
+                    }
+                    Ok(SpikeValue::Bool(expect_bool(right)?))
+                }
             }
         }
         Expr::Cast { expr, ty } => {
-            cast_spike_value(eval_expr_effectful(expr, functions, env, lines)?, ty)
+            let value = eval_expr_effectful(expr, functions, env, lines)?;
+            if is_control_return(&value) {
+                return Ok(value);
+            }
+            cast_spike_value(value, ty)
         }
+        Expr::Try { expr, .. } => eval_try_expr(expr, functions, env, lines),
         _ => eval_expr(expr, functions, env, lines),
     }
 }
@@ -18691,15 +19438,28 @@ fn eval_expr(
         Expr::StructLiteral { name, fields, .. } => fields
             .iter()
             .map(|field| {
-                Ok((
-                    field.name.clone(),
-                    eval_expr(&field.expr, functions, env, lines)?,
-                ))
+                let mut env = env.clone();
+                let value = eval_expr_effectful(&field.expr, functions, &mut env, lines)?;
+                if is_control_return(&value) {
+                    return Ok((field.name.clone(), value));
+                }
+                Ok((field.name.clone(), value))
             })
             .collect::<Result<Vec<_>, _>>()
-            .map(|fields| SpikeValue::Struct {
-                name: name.clone(),
-                fields,
+            .map(|fields| {
+                fields
+                    .iter()
+                    .find_map(|(_, value)| {
+                        if let SpikeValue::ControlReturn(value) = value {
+                            Some(SpikeValue::ControlReturn(value.clone()))
+                        } else {
+                            None
+                        }
+                    })
+                    .unwrap_or_else(|| SpikeValue::Struct {
+                        name: name.clone(),
+                        fields,
+                    })
             }),
         Expr::FieldAccess { base, field, .. } => match eval_expr(base, functions, env, lines)? {
             SpikeValue::Struct { name, fields } => fields
@@ -18720,20 +19480,48 @@ fn eval_expr(
             ..
         } => payloads
             .iter()
-            .map(|payload| eval_expr(payload, functions, env, lines))
+            .map(|payload| {
+                let mut env = env.clone();
+                eval_expr_effectful(payload, functions, &mut env, lines)
+            })
             .collect::<Result<Vec<_>, _>>()
-            .map(|payloads| SpikeValue::Enum {
-                enum_name: enum_name.clone(),
-                variant: variant.clone(),
-                field_names: field_names.clone(),
-                payloads,
+            .map(|payloads| {
+                payloads
+                    .iter()
+                    .find_map(|value| {
+                        if let SpikeValue::ControlReturn(value) = value {
+                            Some(SpikeValue::ControlReturn(value.clone()))
+                        } else {
+                            None
+                        }
+                    })
+                    .unwrap_or_else(|| SpikeValue::Enum {
+                        enum_name: enum_name.clone(),
+                        variant: variant.clone(),
+                        field_names: field_names.clone(),
+                        payloads,
+                    })
             }),
         Expr::Match { expr, arms, .. } => eval_match_expr(expr, arms, functions, env, lines),
         Expr::TupleLiteral { elements, .. } => elements
             .iter()
-            .map(|element| eval_expr(element, functions, env, lines))
+            .map(|element| {
+                let mut env = env.clone();
+                eval_expr_effectful(element, functions, &mut env, lines)
+            })
             .collect::<Result<Vec<_>, _>>()
-            .map(SpikeValue::Tuple),
+            .map(|elements| {
+                elements
+                    .iter()
+                    .find_map(|value| {
+                        if let SpikeValue::ControlReturn(value) = value {
+                            Some(SpikeValue::ControlReturn(value.clone()))
+                        } else {
+                            None
+                        }
+                    })
+                    .unwrap_or(SpikeValue::Tuple(elements))
+            }),
         Expr::TupleIndex { base, index, .. } => match eval_expr(base, functions, env, lines)? {
             SpikeValue::Tuple(elements) => elements
                 .get(*index)
@@ -18744,18 +19532,40 @@ fn eval_expr(
         Expr::MapLiteral { entries, .. } => {
             let mut values = Vec::new();
             for entry in entries {
-                let key = eval_expr(&entry.key, functions, env, lines)?;
+                let mut key_env = env.clone();
+                let key = eval_expr_effectful(&entry.key, functions, &mut key_env, lines)?;
+                if is_control_return(&key) {
+                    return Ok(key);
+                }
                 validate_map_key(&key)?;
-                let value = eval_expr(&entry.value, functions, env, lines)?;
+                let mut value_env = env.clone();
+                let value = eval_expr_effectful(&entry.value, functions, &mut value_env, lines)?;
+                if is_control_return(&value) {
+                    return Ok(value);
+                }
                 insert_map_entry(&mut values, key, value)?;
             }
             Ok(SpikeValue::Map(values))
         }
         Expr::ArrayLiteral { elements, .. } => elements
             .iter()
-            .map(|element| eval_expr(element, functions, env, lines))
+            .map(|element| {
+                let mut env = env.clone();
+                eval_expr_effectful(element, functions, &mut env, lines)
+            })
             .collect::<Result<Vec<_>, _>>()
-            .map(SpikeValue::Array),
+            .map(|elements| {
+                elements
+                    .iter()
+                    .find_map(|value| {
+                        if let SpikeValue::ControlReturn(value) = value {
+                            Some(SpikeValue::ControlReturn(value.clone()))
+                        } else {
+                            None
+                        }
+                    })
+                    .unwrap_or(SpikeValue::Array(elements))
+            }),
         Expr::Closure { params, body, .. } => Ok(SpikeValue::Closure {
             params: params.clone(),
             body: body.clone(),
@@ -18783,8 +19593,17 @@ fn eval_expr(
                 Some(expr) => expect_non_negative_index(eval_expr(expr, functions, env, lines)?)?,
                 None => elements.len(),
             };
-            if start > end || end > elements.len() {
-                return Err(unsupported("slice range is outside the array length"));
+            if start > end {
+                return Err(cranelift_runtime_trap(
+                    "runtime",
+                    "array slice start after end",
+                ));
+            }
+            if end > elements.len() {
+                return Err(cranelift_runtime_trap(
+                    "runtime",
+                    "array slice end out of bounds",
+                ));
             }
             if matches!(ty, Type::MutSlice(_))
                 && let Expr::VarRef { name, .. } = base.as_ref()
@@ -18838,6 +19657,10 @@ fn eval_expr(
         },
         Expr::Await { expr, .. } => await_spike_task(eval_expr(expr, functions, env, lines)?),
         Expr::StringBorrow { expr, .. } => eval_expr(expr, functions, env, lines),
+        Expr::Try { expr, .. } => {
+            let mut env = env.clone();
+            eval_try_expr(expr, functions, &mut env, lines)
+        }
         Expr::MutBorrow { expr, .. } => match expr.as_ref() {
             Expr::VarRef { name, .. } if env.contains_key(name) => {
                 Ok(SpikeValue::MutRef(name.clone()))
@@ -18858,9 +19681,6 @@ fn eval_expr(
                 "dereference requires a mutable local reference in the cranelift spike",
             )),
         },
-        _ => Err(unsupported(
-            "this expression is outside the cranelift hello spike subset",
-        )),
     }
 }
 
@@ -18871,7 +19691,10 @@ fn eval_match_stmt(
     env: &mut SpikeEnv,
     lines: &mut Vec<OutputLine>,
 ) -> Result<Option<SpikeValue>, Diagnostic> {
-    let matched_value = eval_expr(expr, functions, env, lines)?;
+    let matched_value = eval_expr_effectful(expr, functions, env, lines)?;
+    if let SpikeValue::ControlReturn(value) = matched_value {
+        return Ok(Some(*value));
+    }
     if arms.iter().all(|arm| arm.enum_name.is_empty()) {
         return eval_const_match_stmt(matched_value, arms, functions, env, lines);
     }
@@ -19224,7 +20047,11 @@ fn eval_call(
     let mut local_env = env.clone();
     let mut receiver_alias_bound = false;
     for (param, arg) in function.params.iter().zip(args) {
-        let value = eval_expr(arg, functions, env, lines)?;
+        let mut arg_env = env.clone();
+        let value = eval_expr_effectful(arg, functions, &mut arg_env, lines)?;
+        if is_control_return(&value) {
+            return Ok(value);
+        }
         if param.name == "self_" && !receiver_alias_bound {
             local_env.insert(String::from("self"), value.clone());
             receiver_alias_bound = true;
@@ -19254,10 +20081,12 @@ fn eval_closure_call(
     }
     let mut local_env = captured_env.clone();
     for (param, arg) in params.iter().zip(args) {
-        local_env.insert(
-            param.name.clone(),
-            eval_expr(arg, functions, caller_env, lines)?,
-        );
+        let mut caller_env = caller_env.clone();
+        let value = eval_expr_effectful(arg, functions, &mut caller_env, lines)?;
+        if is_control_return(&value) {
+            return Ok(value);
+        }
+        local_env.insert(param.name.clone(), value);
     }
     eval_expr(body, functions, &local_env, lines)
 }
@@ -19285,7 +20114,10 @@ fn eval_call_effectful(
     let mut local_env = env.clone();
     let mut writebacks = Vec::new();
     for (index, (param, arg)) in function.params.iter().zip(args).enumerate() {
-        let value = eval_expr(arg, functions, env, lines)?;
+        let value = eval_expr_effectful(arg, functions, env, lines)?;
+        if is_control_return(&value) {
+            return Ok(value);
+        }
         if let SpikeValue::MutSlice { target, start, end } = value {
             let backing_name = format!("__arg{index}_{target}");
             let Some(SpikeValue::Array(elements)) = env.get(&target) else {
@@ -19700,6 +20532,64 @@ fn await_spike_task(value: SpikeValue) -> Result<SpikeValue, Diagnostic> {
             Err(unsupported("task had no value or scheduled body"))
         }
         _ => Err(unsupported("await expects a task")),
+    }
+}
+
+fn is_control_return(value: &SpikeValue) -> bool {
+    matches!(value, SpikeValue::ControlReturn(_))
+}
+
+fn eval_try_expr(
+    expr: &Expr,
+    functions: &HashMap<&str, &Function>,
+    env: &mut SpikeEnv,
+    lines: &mut Vec<OutputLine>,
+) -> Result<SpikeValue, Diagnostic> {
+    match eval_expr_effectful(expr, functions, env, lines)? {
+        SpikeValue::ControlReturn(value) => Ok(SpikeValue::ControlReturn(value)),
+        SpikeValue::Enum {
+            enum_name,
+            variant,
+            mut payloads,
+            ..
+        } if enum_name == "Option" && variant == "Some" && payloads.len() == 1 => {
+            Ok(payloads.remove(0))
+        }
+        SpikeValue::Enum {
+            enum_name,
+            variant,
+            field_names,
+            payloads,
+        } if enum_name == "Option" && variant == "None" && payloads.is_empty() => {
+            Ok(SpikeValue::ControlReturn(Box::new(SpikeValue::Enum {
+                enum_name,
+                variant,
+                field_names,
+                payloads,
+            })))
+        }
+        SpikeValue::Enum {
+            enum_name,
+            variant,
+            mut payloads,
+            ..
+        } if enum_name == "Result" && variant == "Ok" && payloads.len() == 1 => {
+            Ok(payloads.remove(0))
+        }
+        SpikeValue::Enum {
+            enum_name,
+            variant,
+            field_names,
+            payloads,
+        } if enum_name == "Result" && variant == "Err" && payloads.len() == 1 => {
+            Ok(SpikeValue::ControlReturn(Box::new(SpikeValue::Enum {
+                enum_name,
+                variant,
+                field_names,
+                payloads,
+            })))
+        }
+        _ => Err(unsupported("`?` expects an Option or Result value")),
     }
 }
 
@@ -23383,12 +24273,12 @@ fn eval_fs_read_call(
 }
 
 fn spike_fs_read_text(env: &SpikeEnv, path: &str) -> Result<Option<String>, Diagnostic> {
-    let fs_root = spike_fs_root(env)?;
-    Ok(spike_fs_read_text_for_root(&fs_root, path))
+    let (package_root, fs_root) = spike_fs_scope(env)?;
+    Ok(spike_fs_read_text_for_scope(&package_root, &fs_root, path))
 }
 
-fn spike_fs_read_text_for_root(fs_root: &Path, path: &str) -> Option<String> {
-    let candidate = spike_fs_existing_candidate_for_root(fs_root, path)?;
+fn spike_fs_read_text_for_scope(package_root: &Path, fs_root: &Path, path: &str) -> Option<String> {
+    let candidate = spike_fs_existing_candidate_for_scope(package_root, fs_root, path)?;
     let metadata = std::fs::metadata(&candidate).ok()?;
     if !metadata.is_file() || metadata.len() > SPIKE_MAX_FS_READ_BYTES {
         return None;
@@ -23409,6 +24299,7 @@ fn i64_fs_write_result(
     args: &[Expr],
     static_bindings: &I64StaticBindings,
 ) -> Option<i64> {
+    let package_root = static_bindings.package_root.as_deref()?;
     let fs_root = static_bindings.fs_root.as_deref()?;
     match name {
         "fs_write" => {
@@ -23417,7 +24308,7 @@ fn i64_fs_write_result(
                 return Some(-1);
             }
             Some(
-                spike_fs_write_candidate_for_root(fs_root, &path, false)
+                spike_fs_write_candidate_for_scope(package_root, fs_root, &path, false)
                     .and_then(|candidate| std::fs::write(candidate, content).ok())
                     .map(|()| 0)
                     .unwrap_or(-1),
@@ -23426,7 +24317,7 @@ fn i64_fs_write_result(
         "fs_create" => {
             let path = i64_fs_path(args, static_bindings)?;
             Some(
-                spike_fs_write_candidate_for_root(fs_root, &path, false)
+                spike_fs_write_candidate_for_scope(package_root, fs_root, &path, false)
                     .and_then(|candidate| {
                         std::fs::OpenOptions::new()
                             .write(true)
@@ -23444,7 +24335,7 @@ fn i64_fs_write_result(
                 return Some(-1);
             }
             Some(
-                spike_fs_write_candidate_for_root(fs_root, &path, false)
+                spike_fs_write_candidate_for_scope(package_root, fs_root, &path, false)
                     .and_then(|candidate| {
                         let mut file = std::fs::OpenOptions::new()
                             .append(true)
@@ -23460,7 +24351,7 @@ fn i64_fs_write_result(
         "fs_mkdir" => {
             let path = i64_fs_path(args, static_bindings)?;
             Some(
-                spike_fs_write_candidate_for_root(fs_root, &path, false)
+                spike_fs_write_candidate_for_scope(package_root, fs_root, &path, false)
                     .and_then(|candidate| std::fs::create_dir(candidate).ok())
                     .map(|()| 0)
                     .unwrap_or(-1),
@@ -23469,7 +24360,7 @@ fn i64_fs_write_result(
         "fs_mkdir_all" => {
             let path = i64_fs_path(args, static_bindings)?;
             Some(
-                spike_fs_write_candidate_for_root(fs_root, &path, true)
+                spike_fs_write_candidate_for_scope(package_root, fs_root, &path, true)
                     .and_then(|candidate| std::fs::create_dir_all(candidate).ok())
                     .map(|()| 0)
                     .unwrap_or(-1),
@@ -23478,7 +24369,7 @@ fn i64_fs_write_result(
         "fs_remove_file" => {
             let path = i64_fs_path(args, static_bindings)?;
             Some(
-                spike_fs_existing_candidate_for_root(fs_root, &path)
+                spike_fs_existing_candidate_for_scope(package_root, fs_root, &path)
                     .and_then(|candidate| {
                         std::fs::metadata(&candidate)
                             .ok()
@@ -23492,7 +24383,7 @@ fn i64_fs_write_result(
         "fs_remove_dir" => {
             let path = i64_fs_path(args, static_bindings)?;
             Some(
-                spike_fs_existing_candidate_for_root(fs_root, &path)
+                spike_fs_existing_candidate_for_scope(package_root, fs_root, &path)
                     .and_then(|candidate| {
                         std::fs::metadata(&candidate)
                             .ok()
@@ -23509,7 +24400,7 @@ fn i64_fs_write_result(
                 return Some(-1);
             }
             Some(
-                spike_fs_write_candidate_for_root(fs_root, &path, false)
+                spike_fs_write_candidate_for_scope(package_root, fs_root, &path, false)
                     .and_then(|candidate| std::fs::write(candidate, content).ok())
                     .map(|()| 0)
                     .unwrap_or(-1),
@@ -23734,18 +24625,39 @@ fn spike_fs_root(env: &SpikeEnv) -> Result<PathBuf, Diagnostic> {
     }
 }
 
-fn spike_fs_existing_candidate(env: &SpikeEnv, path: &str) -> Result<Option<PathBuf>, Diagnostic> {
+fn spike_fs_scope(env: &SpikeEnv) -> Result<(PathBuf, PathBuf), Diagnostic> {
     let fs_root = spike_fs_root(env)?;
-    Ok(spike_fs_existing_candidate_for_root(&fs_root, path))
+    let package_root = match env.get(SPIKE_PACKAGE_ROOT_BINDING) {
+        Some(SpikeValue::Text(root)) => PathBuf::from(root),
+        _ => fs_root.clone(),
+    };
+    Ok((package_root, fs_root))
 }
 
-fn spike_fs_existing_candidate_for_root(fs_root: &Path, path: &str) -> Option<PathBuf> {
-    let candidate = spike_fs_join_candidate(fs_root, path)?;
+fn spike_fs_existing_candidate(env: &SpikeEnv, path: &str) -> Result<Option<PathBuf>, Diagnostic> {
+    let (package_root, fs_root) = spike_fs_scope(env)?;
+    Ok(spike_fs_existing_candidate_for_scope(
+        &package_root,
+        &fs_root,
+        path,
+    ))
+}
+
+fn spike_fs_existing_candidate_for_scope(
+    package_root: &Path,
+    fs_root: &Path,
+    path: &str,
+) -> Option<PathBuf> {
     let canonical_root = std::fs::canonicalize(fs_root).ok()?;
-    let canonical_candidate = std::fs::canonicalize(candidate).ok()?;
-    canonical_candidate
-        .starts_with(canonical_root)
-        .then_some(canonical_candidate)
+    for candidate in spike_fs_join_candidates(package_root, fs_root, path)? {
+        let Ok(canonical_candidate) = std::fs::canonicalize(candidate) else {
+            continue;
+        };
+        if canonical_candidate.starts_with(&canonical_root) {
+            return Some(canonical_candidate);
+        }
+    }
+    None
 }
 
 fn spike_fs_write_candidate(
@@ -23753,20 +24665,22 @@ fn spike_fs_write_candidate(
     path: &str,
     allow_missing_ancestors: bool,
 ) -> Result<Option<PathBuf>, Diagnostic> {
-    let fs_root = spike_fs_root(env)?;
-    Ok(spike_fs_write_candidate_for_root(
+    let (package_root, fs_root) = spike_fs_scope(env)?;
+    Ok(spike_fs_write_candidate_for_scope(
+        &package_root,
         &fs_root,
         path,
         allow_missing_ancestors,
     ))
 }
 
-fn spike_fs_write_candidate_for_root(
+fn spike_fs_write_candidate_for_scope(
+    package_root: &Path,
     fs_root: &Path,
     path: &str,
     allow_missing_ancestors: bool,
 ) -> Option<PathBuf> {
-    let candidate = spike_fs_join_candidate(fs_root, path)?;
+    let candidate = spike_fs_join_candidate(package_root, path)?;
     let Ok(canonical_root) = std::fs::canonicalize(fs_root) else {
         return None;
     };
@@ -23806,6 +24720,16 @@ fn spike_fs_write_candidate_for_root(
 }
 
 fn spike_fs_join_candidate(package_root: &Path, path: &str) -> Option<PathBuf> {
+    spike_fs_join_candidates(package_root, package_root, path)?
+        .into_iter()
+        .next()
+}
+
+fn spike_fs_join_candidates(
+    package_root: &Path,
+    fs_root: &Path,
+    path: &str,
+) -> Option<Vec<PathBuf>> {
     let requested = Path::new(path);
     if requested.as_os_str().is_empty()
         || requested
@@ -23814,11 +24738,16 @@ fn spike_fs_join_candidate(package_root: &Path, path: &str) -> Option<PathBuf> {
     {
         return None;
     }
-    Some(if requested.is_absolute() {
+    let primary = if requested.is_absolute() {
         requested.to_path_buf()
     } else {
         package_root.join(requested)
-    })
+    };
+    let mut candidates = vec![primary];
+    if !requested.is_absolute() && fs_root != package_root {
+        candidates.push(fs_root.join(requested));
+    }
+    Some(candidates)
 }
 
 fn eval_process_status_call(
@@ -25055,7 +25984,8 @@ fn validate_map_key(value: &SpikeValue) -> Result<(), Diagnostic> {
         | SpikeValue::Task { .. }
         | SpikeValue::JoinHandle(_)
         | SpikeValue::AsyncChannel { .. }
-        | SpikeValue::SelectResult { .. } => Err(unsupported(
+        | SpikeValue::SelectResult { .. }
+        | SpikeValue::ControlReturn(_) => Err(unsupported(
             "map keys must be scalar values or scalar tuples in the cranelift spike",
         )),
     }
@@ -25113,6 +26043,7 @@ fn render_value(value: &SpikeValue) -> String {
             "SelectResult {{ selected: {selected}, value: {} }}",
             render_value(&spike_option(value.as_ref().map(|value| (**value).clone())))
         ),
+        SpikeValue::ControlReturn(_) => String::from("<control-return>"),
     }
 }
 
@@ -25182,6 +26113,9 @@ fn render_runtime_panic_message(value: SpikeValue) -> Result<String, Diagnostic>
         | SpikeValue::JoinHandle(_)
         | SpikeValue::AsyncChannel { .. }
         | SpikeValue::SelectResult { .. } => Ok(render_value(&value)),
+        SpikeValue::ControlReturn(_) => Err(unsupported(
+            "control return cannot be rendered as a panic message",
+        )),
     }
 }
 
@@ -25408,6 +26342,46 @@ mod tests {
             StaticOutputProgram {
                 lines: vec![OutputLine::stderr(
                     "{\"kind\":\"runtime\",\"message\":\"array index out of bounds\"}"
+                )],
+                exit_code: 1,
+            }
+        );
+    }
+
+    #[test]
+    fn folds_slice_bounds_trap_into_stderr_exit_program() {
+        let program = Program {
+            stmts: vec![Stmt::Print {
+                expr: Expr::Call {
+                    name: String::from("len"),
+                    args: vec![Expr::Slice {
+                        base: Box::new(Expr::ArrayLiteral {
+                            elements: vec![Expr::Literal(LiteralValue::Int(1))],
+                            ty: Type::Array(Box::new(Type::Int), None),
+                        }),
+                        start: Some(Box::new(Expr::Literal(LiteralValue::Int(0)))),
+                        end: Some(Box::new(Expr::Literal(LiteralValue::Int(2)))),
+                        ty: Type::Slice(Box::new(Type::Int)),
+                    }],
+                    ty: Type::Int,
+                },
+                span: crate::mir::SourceSpan { line: 1, column: 1 },
+            }],
+            ..hello_program()
+        };
+
+        assert_eq!(
+            collect_output_program(
+                &program,
+                &CapabilityConfig::default(),
+                Path::new("."),
+                Path::new("."),
+                None,
+            )
+            .expect("fold slice bounds trap"),
+            StaticOutputProgram {
+                lines: vec![OutputLine::stderr(
+                    "{\"kind\":\"runtime\",\"message\":\"array slice end out of bounds\"}"
                 )],
                 exit_code: 1,
             }
@@ -26512,7 +27486,7 @@ mod tests {
         std::os::windows::fs::symlink_file(&target, &link).expect("create dangling symlink");
 
         assert_eq!(
-            spike_fs_write_candidate_for_root(root, "dangling.txt", false),
+            spike_fs_write_candidate_for_scope(root, root, "dangling.txt", false),
             None
         );
     }
