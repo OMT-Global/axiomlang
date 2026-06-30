@@ -172,7 +172,8 @@
       "resolution": "ignore_with_linked_blocker",
       "blockerIssue": 1255,
       "rationale": "Defer-on-panic behavior needs direct-native lowering or a linked ignored blocker.",
-      "resolutionStatus": "open"
+      "resolutionStatus": "fixed_pending_merge",
+      "resolvedBy": 1273
     },
     {
       "name": "tests::run_project_forwards_cli_args_to_stdlib_cli",
@@ -340,11 +341,11 @@
   "resolutionTracking": {
     "updated": "2026-06-30",
     "evidence": "https://github.com/OMT-Global/axiomlang/issues/1255#issuecomment-4840906364",
-    "summary": "Integration of the open Rust-exit stack onto main resolves 19/40 rows (addressed_by_open_stack); PRs #1271/#1272 resolve 3 more (fixed_pending_merge). expectedFailureCount stays 40 until these PRs merge to main.",
+    "summary": "Integration of the open Rust-exit stack onto main resolves 19/40 rows (addressed_by_open_stack); PRs #1271/#1272/#1273 resolve 4 more (fixed_pending_merge: read-only artifact contract, structured assertion traps, defer). expectedFailureCount stays 40 until these PRs merge to main.",
     "statuses": {
-      "addressed_by_open_stack": 19,
-      "fixed_pending_merge": 3,
-      "open": 18
+      "fixed_pending_merge": 4,
+      "open": 17,
+      "addressed_by_open_stack": 19
     }
   }
 }
