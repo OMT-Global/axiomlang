@@ -52,6 +52,12 @@ struct I64OutputData {
 }
 
 #[derive(Clone, Copy)]
+struct I64RuntimeArgs {
+    argc: Value,
+    argv: Value,
+}
+
+#[derive(Clone, Copy)]
 struct I64RuntimeRefs {
     write: FuncRef,
     read: FuncRef,
@@ -354,6 +360,24 @@ pub enum I64Stmt {
     WriteI64Line {
         stream: OutputStream,
         value: I64Expr,
+    },
+    WriteArgCountLine {
+        stream: OutputStream,
+    },
+    WriteArgLine {
+        stream: OutputStream,
+        index: usize,
+        fallback: String,
+    },
+    WriteStdinLine {
+        stream: OutputStream,
+        fallback: String,
+        max_bytes: u32,
+    },
+    WriteStdinRemaining {
+        stream: OutputStream,
+        max_bytes: u32,
+        append_newline: bool,
     },
     CallAssign {
         locals: Vec<usize>,
@@ -889,6 +913,16 @@ fn emit_i64_exit_object(
     context
         .func
         .signature
+        .params
+        .push(AbiParam::new(types::I32));
+    context
+        .func
+        .signature
+        .params
+        .push(AbiParam::new(pointer_type));
+    context
+        .func
+        .signature
         .returns
         .push(AbiParam::new(types::I32));
     let main_id = module
@@ -898,8 +932,14 @@ fn emit_i64_exit_object(
     {
         let mut builder = FunctionBuilder::new(&mut context.func, &mut builder_context);
         let block = builder.create_block();
+        builder.append_block_params_for_function_params(block);
         builder.switch_to_block(block);
         builder.seal_block(block);
+        let block_params = builder.block_params(block);
+        let runtime_args = I64RuntimeArgs {
+            argc: block_params[0],
+            argv: block_params[1],
+        };
         let function_refs = i64_function_refs(&mut module, &mut builder, &function_ids);
         let write_ref = module.declare_func_in_func(write_id, builder.func);
         let read_ref = module.declare_func_in_func(read_id, builder.func);
@@ -994,6 +1034,7 @@ fn emit_i64_exit_object(
             &locals,
             &function_refs,
             runtime_refs,
+            Some(runtime_args),
             write_ref,
             &output_data_ids,
             &program.stmts,
@@ -1004,6 +1045,7 @@ fn emit_i64_exit_object(
             &locals,
             &function_refs,
             runtime_refs,
+            Some(runtime_args),
             write_ref,
             &output_data_ids,
             &program.body,
@@ -1074,7 +1116,16 @@ fn collect_i64_output_lines(stmts: &[I64Stmt], lines: &mut Vec<(OutputStream, St
         match stmt {
             I64Stmt::WriteText { stream, text } => lines.push((*stream, text.clone(), false)),
             I64Stmt::WriteLine { stream, text } => lines.push((*stream, text.clone(), true)),
-            I64Stmt::WriteI64Text { .. } | I64Stmt::WriteI64Line { .. } => {}
+            I64Stmt::WriteArgLine {
+                stream, fallback, ..
+            }
+            | I64Stmt::WriteStdinLine {
+                stream, fallback, ..
+            } => lines.push((*stream, fallback.clone(), true)),
+            I64Stmt::WriteI64Text { .. }
+            | I64Stmt::WriteI64Line { .. }
+            | I64Stmt::WriteArgCountLine { .. }
+            | I64Stmt::WriteStdinRemaining { .. } => {}
             I64Stmt::If {
                 then_body,
                 else_body,
@@ -1338,6 +1389,7 @@ fn define_i64_function(
             &locals,
             &function_refs,
             runtime_refs,
+            None,
             write_ref,
             output_data_ids,
             &function.stmts,
@@ -1348,6 +1400,7 @@ fn define_i64_function(
             &locals,
             &function_refs,
             runtime_refs,
+            None,
             write_ref,
             output_data_ids,
             function.returns,
@@ -1384,6 +1437,7 @@ fn emit_i64_stmts(
     locals: &[Variable],
     function_refs: &[FuncRef],
     runtime_refs: I64RuntimeRefs,
+    runtime_args: Option<I64RuntimeArgs>,
     write_ref: FuncRef,
     output_data_ids: &[I64OutputData],
     stmts: &[I64Stmt],
@@ -1395,6 +1449,7 @@ fn emit_i64_stmts(
             locals,
             function_refs,
             runtime_refs,
+            runtime_args,
             write_ref,
             output_data_ids,
             stmt,
@@ -1409,6 +1464,7 @@ fn emit_i64_stmt(
     locals: &[Variable],
     function_refs: &[FuncRef],
     runtime_refs: I64RuntimeRefs,
+    runtime_args: Option<I64RuntimeArgs>,
     write_ref: FuncRef,
     output_data_ids: &[I64OutputData],
     stmt: &I64Stmt,
@@ -1455,6 +1511,55 @@ fn emit_i64_stmt(
             *stream,
             value,
         ),
+        I64Stmt::WriteArgCountLine { stream } => emit_i64_write_arg_count_line(
+            builder,
+            runtime_args.ok_or_else(|| CraneliftBackendError::new("main argc is unavailable"))?,
+            runtime_refs,
+            write_ref,
+            module.target_config().pointer_type(),
+            *stream,
+        ),
+        I64Stmt::WriteArgLine {
+            stream,
+            index,
+            fallback,
+        } => emit_i64_write_arg_line(
+            module,
+            builder,
+            runtime_args.ok_or_else(|| CraneliftBackendError::new("main argv is unavailable"))?,
+            runtime_refs,
+            write_ref,
+            output_data_ids,
+            *stream,
+            *index,
+            fallback,
+        ),
+        I64Stmt::WriteStdinLine {
+            stream,
+            fallback,
+            max_bytes,
+        } => emit_i64_write_stdin_line(
+            module,
+            builder,
+            runtime_refs,
+            write_ref,
+            output_data_ids,
+            *stream,
+            fallback,
+            *max_bytes,
+        ),
+        I64Stmt::WriteStdinRemaining {
+            stream,
+            max_bytes,
+            append_newline,
+        } => emit_i64_write_stdin_remaining(
+            builder,
+            runtime_refs,
+            write_ref,
+            *stream,
+            *max_bytes,
+            *append_newline,
+        ),
         I64Stmt::CallAssign {
             locals: assign_locals,
             function,
@@ -1490,6 +1595,7 @@ fn emit_i64_stmt(
                 locals,
                 function_refs,
                 runtime_refs,
+                runtime_args,
                 write_ref,
                 output_data_ids,
                 then_body,
@@ -1504,6 +1610,7 @@ fn emit_i64_stmt(
                 locals,
                 function_refs,
                 runtime_refs,
+                runtime_args,
                 write_ref,
                 output_data_ids,
                 else_body,
@@ -1534,6 +1641,7 @@ fn emit_i64_stmt(
                 locals,
                 function_refs,
                 runtime_refs,
+                runtime_args,
                 write_ref,
                 output_data_ids,
                 body,
@@ -1679,6 +1787,26 @@ fn emit_i64_write_i64(
     append_newline: bool,
 ) -> Result<(), CraneliftBackendError> {
     let value = emit_i64_expr(builder, locals, function_refs, runtime_refs, value)?;
+    emit_i64_write_i64_value(
+        builder,
+        runtime_refs,
+        write_ref,
+        pointer_type,
+        stream,
+        value,
+        append_newline,
+    )
+}
+
+fn emit_i64_write_i64_value(
+    builder: &mut FunctionBuilder<'_>,
+    runtime_refs: I64RuntimeRefs,
+    write_ref: FuncRef,
+    pointer_type: cranelift_codegen::ir::Type,
+    stream: OutputStream,
+    value: Value,
+    append_newline: bool,
+) -> Result<(), CraneliftBackendError> {
     let buffer =
         builder.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 32, 0));
     let base = builder.ins().stack_addr(pointer_type, buffer, 0);
@@ -1790,6 +1918,302 @@ fn emit_i64_write_i64(
     Ok(())
 }
 
+fn emit_i64_write_arg_count_line(
+    builder: &mut FunctionBuilder<'_>,
+    runtime_args: I64RuntimeArgs,
+    runtime_refs: I64RuntimeRefs,
+    write_ref: FuncRef,
+    pointer_type: cranelift_codegen::ir::Type,
+    stream: OutputStream,
+) -> Result<(), CraneliftBackendError> {
+    let argc = builder.ins().sextend(types::I64, runtime_args.argc);
+    let one = builder.ins().iconst(types::I64, 1);
+    let zero = builder.ins().iconst(types::I64, 0);
+    let raw_count = builder.ins().isub(argc, one);
+    let has_args = builder.ins().icmp_imm(IntCC::SignedGreaterThan, argc, 0);
+    let count = builder.ins().select(has_args, raw_count, zero);
+    emit_i64_write_i64_value(
+        builder,
+        runtime_refs,
+        write_ref,
+        pointer_type,
+        stream,
+        count,
+        true,
+    )
+}
+
+fn emit_i64_write_arg_line(
+    module: &mut ObjectModule,
+    builder: &mut FunctionBuilder<'_>,
+    runtime_args: I64RuntimeArgs,
+    runtime_refs: I64RuntimeRefs,
+    write_ref: FuncRef,
+    output_data_ids: &[I64OutputData],
+    stream: OutputStream,
+    index: usize,
+    fallback: &str,
+) -> Result<(), CraneliftBackendError> {
+    let present_block = builder.create_block();
+    let fallback_block = builder.create_block();
+    let after_block = builder.create_block();
+    let required_argc = i64::try_from(index + 2)
+        .map_err(|_| CraneliftBackendError::new("argv index is too large"))?;
+    let present = builder.ins().icmp_imm(
+        IntCC::SignedGreaterThanOrEqual,
+        runtime_args.argc,
+        required_argc,
+    );
+    builder
+        .ins()
+        .brif(present, present_block, &[], fallback_block, &[]);
+
+    builder.switch_to_block(present_block);
+    builder.seal_block(present_block);
+    let pointer_type = module.target_config().pointer_type();
+    let pointer_bytes = i32::try_from(pointer_type.bytes())
+        .map_err(|_| CraneliftBackendError::new("pointer size is too large"))?;
+    let argv_offset = i32::try_from((index + 1) as i64 * i64::from(pointer_bytes))
+        .map_err(|_| CraneliftBackendError::new("argv offset is too large"))?;
+    let arg_ptr = builder.ins().load(
+        pointer_type,
+        MemFlags::new(),
+        runtime_args.argv,
+        argv_offset,
+    );
+    emit_i64_write_cstr_line(builder, runtime_refs, write_ref, stream, arg_ptr)?;
+    builder.ins().jump(after_block, &[]);
+
+    builder.switch_to_block(fallback_block);
+    builder.seal_block(fallback_block);
+    emit_i64_write_line(
+        module,
+        builder,
+        runtime_refs,
+        write_ref,
+        output_data_ids,
+        stream,
+        fallback,
+    )?;
+    builder.ins().jump(after_block, &[]);
+
+    builder.switch_to_block(after_block);
+    builder.seal_block(after_block);
+    Ok(())
+}
+
+fn emit_i64_write_cstr_line(
+    builder: &mut FunctionBuilder<'_>,
+    runtime_refs: I64RuntimeRefs,
+    write_ref: FuncRef,
+    stream: OutputStream,
+    ptr: Value,
+) -> Result<(), CraneliftBackendError> {
+    let len_call = builder.ins().call(runtime_refs.strlen, &[ptr]);
+    let len = builder.inst_results(len_call)[0];
+    let fd = builder.ins().iconst(types::I32, output_stream_fd(stream));
+    builder.ins().call(write_ref, &[fd, ptr, len]);
+    emit_i64_write_newline(builder, write_ref, stream);
+    let line = i64_stdio_audit_line(stream, None, "ok");
+    emit_i64_host_audit_line(builder, runtime_refs, &line)
+}
+
+fn emit_i64_write_newline(
+    builder: &mut FunctionBuilder<'_>,
+    write_ref: FuncRef,
+    stream: OutputStream,
+) {
+    let byte_slot =
+        builder.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 1, 0));
+    let newline = builder.ins().iconst(types::I8, i64::from(b'\n'));
+    builder.ins().stack_store(newline, byte_slot, 0);
+    let byte_ptr = builder.ins().stack_addr(types::I64, byte_slot, 0);
+    let fd = builder.ins().iconst(types::I32, output_stream_fd(stream));
+    let one = builder.ins().iconst(types::I64, 1);
+    builder.ins().call(write_ref, &[fd, byte_ptr, one]);
+}
+
+fn emit_i64_write_stdin_line(
+    module: &mut ObjectModule,
+    builder: &mut FunctionBuilder<'_>,
+    runtime_refs: I64RuntimeRefs,
+    write_ref: FuncRef,
+    output_data_ids: &[I64OutputData],
+    stream: OutputStream,
+    fallback: &str,
+    max_bytes: u32,
+) -> Result<(), CraneliftBackendError> {
+    let byte_slot =
+        builder.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 1, 0));
+    let byte_ptr = builder.ins().stack_addr(types::I64, byte_slot, 0);
+    let zero = builder.ins().iconst(types::I64, 0);
+    let one = builder.ins().iconst(types::I64, 1);
+    let max = builder.ins().iconst(types::I64, i64::from(max_bytes));
+    let fd_in = builder.ins().iconst(types::I32, 0);
+    let fd_out = builder.ins().iconst(types::I32, output_stream_fd(stream));
+
+    let loop_block = builder.create_block();
+    let read_block = builder.create_block();
+    let got_byte_block = builder.create_block();
+    let write_byte_block = builder.create_block();
+    let eof_block = builder.create_block();
+    let finish_block = builder.create_block();
+    let fallback_block = builder.create_block();
+    let after_block = builder.create_block();
+    builder.append_block_param(loop_block, types::I64);
+    builder.append_block_param(eof_block, types::I64);
+    builder.append_block_param(finish_block, types::I64);
+
+    builder.ins().jump(loop_block, &[BlockArg::Value(zero)]);
+
+    builder.switch_to_block(loop_block);
+    let count = builder.block_params(loop_block)[0];
+    let under_limit = builder.ins().icmp(IntCC::UnsignedLessThan, count, max);
+    builder.ins().brif(
+        under_limit,
+        read_block,
+        &[],
+        finish_block,
+        &[BlockArg::Value(count)],
+    );
+
+    builder.switch_to_block(read_block);
+    builder.seal_block(read_block);
+    let read_call = builder
+        .ins()
+        .call(runtime_refs.read, &[fd_in, byte_ptr, one]);
+    let bytes_read = builder.inst_results(read_call)[0];
+    let has_byte = builder
+        .ins()
+        .icmp_imm(IntCC::SignedGreaterThan, bytes_read, 0);
+    builder.ins().brif(
+        has_byte,
+        got_byte_block,
+        &[],
+        eof_block,
+        &[BlockArg::Value(count)],
+    );
+
+    builder.switch_to_block(got_byte_block);
+    builder.seal_block(got_byte_block);
+    let byte = builder.ins().load(types::I8, MemFlags::new(), byte_ptr, 0);
+    let newline = builder.ins().icmp_imm(IntCC::Equal, byte, i64::from(b'\n'));
+    builder.ins().brif(
+        newline,
+        finish_block,
+        &[BlockArg::Value(count)],
+        write_byte_block,
+        &[],
+    );
+
+    builder.switch_to_block(write_byte_block);
+    builder.seal_block(write_byte_block);
+    let next_count = builder.ins().iadd(count, one);
+    builder.ins().call(write_ref, &[fd_out, byte_ptr, one]);
+    builder
+        .ins()
+        .jump(loop_block, &[BlockArg::Value(next_count)]);
+
+    builder.switch_to_block(eof_block);
+    let eof_count = builder.block_params(eof_block)[0];
+    let empty = builder.ins().icmp_imm(IntCC::Equal, eof_count, 0);
+    builder.ins().brif(
+        empty,
+        fallback_block,
+        &[],
+        finish_block,
+        &[BlockArg::Value(eof_count)],
+    );
+    builder.seal_block(eof_block);
+
+    builder.switch_to_block(fallback_block);
+    builder.seal_block(fallback_block);
+    emit_i64_write_line(
+        module,
+        builder,
+        runtime_refs,
+        write_ref,
+        output_data_ids,
+        stream,
+        fallback,
+    )?;
+    builder.ins().jump(after_block, &[]);
+
+    builder.switch_to_block(finish_block);
+    let _count = builder.block_params(finish_block)[0];
+    emit_i64_write_newline(builder, write_ref, stream);
+    let line = i64_stdio_audit_line(stream, None, "ok");
+    emit_i64_host_audit_line(builder, runtime_refs, &line)?;
+    builder.ins().jump(after_block, &[]);
+    builder.seal_block(loop_block);
+    builder.seal_block(finish_block);
+
+    builder.switch_to_block(after_block);
+    builder.seal_block(after_block);
+    Ok(())
+}
+
+fn emit_i64_write_stdin_remaining(
+    builder: &mut FunctionBuilder<'_>,
+    runtime_refs: I64RuntimeRefs,
+    write_ref: FuncRef,
+    stream: OutputStream,
+    max_bytes: u32,
+    append_newline: bool,
+) -> Result<(), CraneliftBackendError> {
+    if max_bytes == 0 {
+        if append_newline {
+            emit_i64_write_newline(builder, write_ref, stream);
+        }
+        return Ok(());
+    }
+    let buffer = builder.create_sized_stack_slot(StackSlotData::new(
+        StackSlotKind::ExplicitSlot,
+        max_bytes,
+        0,
+    ));
+    let buffer_ptr = builder.ins().stack_addr(types::I64, buffer, 0);
+    let fd_in = builder.ins().iconst(types::I32, 0);
+    let fd_out = builder.ins().iconst(types::I32, output_stream_fd(stream));
+    let requested = builder.ins().iconst(types::I64, i64::from(max_bytes));
+    let loop_block = builder.create_block();
+    let write_block = builder.create_block();
+    let finish_block = builder.create_block();
+    builder.append_block_param(write_block, types::I64);
+    builder.ins().jump(loop_block, &[]);
+
+    builder.switch_to_block(loop_block);
+    let read_call = builder
+        .ins()
+        .call(runtime_refs.read, &[fd_in, buffer_ptr, requested]);
+    let bytes_read = builder.inst_results(read_call)[0];
+    let has_bytes = builder
+        .ins()
+        .icmp_imm(IntCC::SignedGreaterThan, bytes_read, 0);
+    builder.ins().brif(
+        has_bytes,
+        write_block,
+        &[BlockArg::Value(bytes_read)],
+        finish_block,
+        &[],
+    );
+
+    builder.switch_to_block(write_block);
+    let len = builder.block_params(write_block)[0];
+    builder.ins().call(write_ref, &[fd_out, buffer_ptr, len]);
+    builder.ins().jump(loop_block, &[]);
+    builder.seal_block(write_block);
+    builder.seal_block(loop_block);
+
+    builder.switch_to_block(finish_block);
+    builder.seal_block(finish_block);
+    if append_newline {
+        emit_i64_write_newline(builder, write_ref, stream);
+    }
+    let line = i64_stdio_audit_line(stream, None, "ok");
+    emit_i64_host_audit_line(builder, runtime_refs, &line)
+}
+
 fn output_stream_fd(stream: OutputStream) -> i64 {
     match stream {
         OutputStream::Stdout => 1,
@@ -1896,6 +2320,7 @@ fn emit_i64_exit_body(
     locals: &[Variable],
     function_refs: &[FuncRef],
     runtime_refs: I64RuntimeRefs,
+    runtime_args: Option<I64RuntimeArgs>,
     write_ref: FuncRef,
     output_data_ids: &[I64OutputData],
     body: &I64ExitBody,
@@ -1911,6 +2336,7 @@ fn emit_i64_exit_body(
                 locals,
                 function_refs,
                 runtime_refs,
+                runtime_args,
                 write_ref,
                 output_data_ids,
                 &block.stmts,
@@ -1961,6 +2387,7 @@ fn emit_i64_exit_body(
                 locals,
                 function_refs,
                 runtime_refs,
+                runtime_args,
                 write_ref,
                 output_data_ids,
                 &then_block.stmts,
@@ -1981,6 +2408,7 @@ fn emit_i64_exit_body(
                 locals,
                 function_refs,
                 runtime_refs,
+                runtime_args,
                 write_ref,
                 output_data_ids,
                 &else_block.stmts,
@@ -2002,6 +2430,7 @@ fn emit_i64_value_body(
     locals: &[Variable],
     function_refs: &[FuncRef],
     runtime_refs: I64RuntimeRefs,
+    runtime_args: Option<I64RuntimeArgs>,
     write_ref: FuncRef,
     output_data_ids: &[I64OutputData],
     returns: usize,
@@ -2025,6 +2454,7 @@ fn emit_i64_value_body(
                 locals,
                 function_refs,
                 runtime_refs,
+                runtime_args,
                 write_ref,
                 output_data_ids,
                 &block.stmts,
@@ -2099,6 +2529,7 @@ fn emit_i64_value_body(
                 locals,
                 function_refs,
                 runtime_refs,
+                runtime_args,
                 write_ref,
                 output_data_ids,
                 &then_block.stmts,
@@ -2121,6 +2552,7 @@ fn emit_i64_value_body(
                 locals,
                 function_refs,
                 runtime_refs,
+                runtime_args,
                 write_ref,
                 output_data_ids,
                 &else_block.stmts,
@@ -5359,6 +5791,51 @@ mod tests {
             .expect("run i64 dynamic stdout binary");
         assert_eq!(output.status.code(), Some(42));
         assert_eq!(String::from_utf8_lossy(&output.stdout), "42\n-3\n0\n");
+    }
+
+    #[test]
+    fn links_i64_exit_program_with_cli_and_stdin_fallback_lines() {
+        if std::env::var_os("AXIOM_SKIP_CRANELIFT_LINK_TEST").is_some() {
+            return;
+        }
+        if Command::new("cc").arg("--version").output().is_err() {
+            eprintln!("skipping cranelift link test because cc is unavailable");
+            return;
+        }
+        let temp = tempfile::tempdir().expect("tempdir");
+        let object = temp.path().join("i64-runtime-fallbacks.o");
+        let binary = temp.path().join("i64-runtime-fallbacks");
+        compile_i64_exit_program(
+            I64ExitProgram {
+                functions: Vec::new(),
+                locals: Vec::new(),
+                stmts: vec![
+                    I64Stmt::WriteArgLine {
+                        stream: OutputStream::Stdout,
+                        index: 9,
+                        fallback: String::from("missing arg"),
+                    },
+                    I64Stmt::WriteStdinLine {
+                        stream: OutputStream::Stdout,
+                        fallback: String::from("missing stdin"),
+                        max_bytes: 64,
+                    },
+                ],
+                body: I64ExitBody::Return(I64Expr::Literal(0)),
+            },
+            &object,
+            &binary,
+        )
+        .expect("compile i64 runtime fallback program");
+        let output = Command::new(&binary)
+            .stdin(std::process::Stdio::null())
+            .output()
+            .expect("run i64 runtime fallback binary");
+        assert_eq!(output.status.code(), Some(0));
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout),
+            "missing arg\nmissing stdin\n"
+        );
     }
 
     #[test]
