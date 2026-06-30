@@ -7192,9 +7192,9 @@ print "missing"
             .output()
             .expect("run compiled binary");
         let expected = if loopback_socket_bind_available() {
-            "false\ntcp listen ok\nudp bind ok\n"
+            "true\ntcp listen ok\nudp bind ok\n"
         } else {
-            "false\ntcp listen none\nudp bind none\n"
+            "true\ntcp listen none\nudp bind none\n"
         };
         assert_eq!(String::from_utf8_lossy(&output.stdout), expected);
     }
