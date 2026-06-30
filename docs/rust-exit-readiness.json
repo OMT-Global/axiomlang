@@ -8,6 +8,11 @@
       "check": "Generated-Rust backend, rustc targeted-build fallback, and compatibility alias are removed from the supported toolchain."
     },
     {
+      "issue": 1255,
+      "lane": "qa",
+      "check": "The full axiomc lib suite is triaged, the blocking direct-native failures are repaired or explicitly gated, and backend parity evidence is green before final Rust removal."
+    },
+    {
       "issue": 731,
       "lane": "tooling",
       "check": "Documentation generator, LSP server, and protocol path are AxiOM-owned."
