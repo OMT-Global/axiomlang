@@ -23791,20 +23791,13 @@ fn spike_fs_write_candidate(
     path: &str,
     allow_missing_ancestors: bool,
 ) -> Result<Option<PathBuf>, Diagnostic> {
-    let fs_root = spike_fs_root(env)?;
-    Ok(spike_fs_write_candidate_for_root(
+    let (package_root, fs_root) = spike_fs_scope(env)?;
+    Ok(spike_fs_write_candidate_for_scope(
+        &package_root,
         &fs_root,
         path,
         allow_missing_ancestors,
     ))
-}
-
-fn spike_fs_write_candidate_for_root(
-    fs_root: &Path,
-    path: &str,
-    allow_missing_ancestors: bool,
-) -> Option<PathBuf> {
-    spike_fs_write_candidate_for_scope(fs_root, fs_root, path, allow_missing_ancestors)
 }
 
 fn spike_fs_write_candidate_for_scope(
@@ -26574,7 +26567,7 @@ mod tests {
         std::os::windows::fs::symlink_file(&target, &link).expect("create dangling symlink");
 
         assert_eq!(
-            spike_fs_write_candidate_for_root(root, "dangling.txt", false),
+            spike_fs_write_candidate_for_scope(root, root, "dangling.txt", false),
             None
         );
     }
