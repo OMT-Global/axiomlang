@@ -1,0 +1,352 @@
+{
+  "schemaVersion": 1,
+  "issue": 1255,
+  "status": "blocked",
+  "command": "RUST_MIN_STACK=8388608 cargo test --manifest-path stage1/Cargo.toml -p axiomc --lib --features run-native-tests",
+  "expectedFailureCount": 40,
+  "generatedRustCliStatus": "removed",
+  "notes": "This manifest records the current full axiomc lib-suite failures after the direct-native default-backend flip. It is a triage gate, not a green-suite substitute.",
+  "resolutionKinds": [
+    "pin_generated_rust_backend",
+    "update_direct_native_contract",
+    "ignore_with_linked_blocker",
+    "environment_gate"
+  ],
+  "failures": [
+    {
+      "name": "project::tests::property_tests_recover_read_only_artifact_directory",
+      "category": "direct_native_contract",
+      "resolution": "update_direct_native_contract",
+      "blockerIssue": 1255,
+      "rationale": "Repair the default direct-native artifact path behavior or update the assertion to the direct-native artifact contract.",
+      "resolutionStatus": "fixed_pending_merge",
+      "resolvedBy": 1271
+    },
+    {
+      "name": "tests::async_timeout_returns_without_joining_slow_host_task",
+      "category": "direct_native_contract",
+      "resolution": "update_direct_native_contract",
+      "blockerIssue": 1255,
+      "rationale": "Async host-task timeout semantics need direct-native coverage or an explicit unsupported-feature diagnostic.",
+      "resolutionStatus": "open"
+    },
+    {
+      "name": "tests::build_project_accepts_mutable_local_borrow_write_through",
+      "category": "direct_native_contract",
+      "resolution": "update_direct_native_contract",
+      "blockerIssue": 1255,
+      "rationale": "The test exercises supported ownership behavior and should pass under the direct-native default contract.",
+      "resolutionStatus": "addressed_by_open_stack"
+    },
+    {
+      "name": "tests::build_project_emits_native_binary_with_capability_intrinsics",
+      "category": "stale_generated_rust_expectation",
+      "resolution": "update_direct_native_contract",
+      "blockerIssue": 1255,
+      "rationale": "The build assertion should validate native artifacts and generated_rust absence instead of generated-Rust output.",
+      "resolutionStatus": "open"
+    },
+    {
+      "name": "tests::build_project_emits_native_binary_with_imported_public_static_globals",
+      "category": "direct_native_contract",
+      "resolution": "update_direct_native_contract",
+      "blockerIssue": 1255,
+      "rationale": "Imported public static global lowering should either work natively or fail with a linked unsupported-feature diagnostic.",
+      "resolutionStatus": "addressed_by_open_stack"
+    },
+    {
+      "name": "tests::build_project_emits_native_binary_with_static_globals",
+      "category": "direct_native_contract",
+      "resolution": "update_direct_native_contract",
+      "blockerIssue": 1255,
+      "rationale": "Static global lowering is part of the current direct-native ABI surface and needs full-suite coverage.",
+      "resolutionStatus": "addressed_by_open_stack"
+    },
+    {
+      "name": "tests::build_project_folds_static_string_comparisons",
+      "category": "direct_native_contract",
+      "resolution": "update_direct_native_contract",
+      "blockerIssue": 1255,
+      "rationale": "Static string comparison folding needs to align with the direct-native default backend.",
+      "resolutionStatus": "addressed_by_open_stack"
+    },
+    {
+      "name": "tests::build_project_preserves_static_source_names_for_recursion_tracking",
+      "category": "direct_native_contract",
+      "resolution": "update_direct_native_contract",
+      "blockerIssue": 1255,
+      "rationale": "Source-name preservation should remain observable without generated-Rust artifacts.",
+      "resolutionStatus": "addressed_by_open_stack"
+    },
+    {
+      "name": "tests::build_project_runs_try_operator",
+      "category": "unsupported_construct",
+      "resolution": "ignore_with_linked_blocker",
+      "blockerIssue": 1255,
+      "rationale": "The try operator needs either direct-native lowering or an explicit ignored blocker until that lowering lands.",
+      "resolutionStatus": "addressed_by_open_stack"
+    },
+    {
+      "name": "tests::build_project_scopes_fs_read_to_manifest_root",
+      "category": "stale_generated_rust_expectation",
+      "resolution": "update_direct_native_contract",
+      "blockerIssue": 1255,
+      "rationale": "Filesystem capability assertions need to validate direct-native host-shim behavior instead of generated runtime output.",
+      "resolutionStatus": "addressed_by_open_stack"
+    },
+    {
+      "name": "tests::build_project_scopes_fs_write_to_manifest_root_without_read_capability",
+      "category": "stale_generated_rust_expectation",
+      "resolution": "update_direct_native_contract",
+      "blockerIssue": 1255,
+      "rationale": "Filesystem write capability assertions need direct-native host-shim expectations.",
+      "resolutionStatus": "addressed_by_open_stack"
+    },
+    {
+      "name": "tests::check_project_accepts_dynamic_stdlib_network_port_with_unrestricted_net",
+      "category": "direct_native_contract",
+      "resolution": "update_direct_native_contract",
+      "blockerIssue": 1255,
+      "rationale": "Dynamic stdlib network port checking needs to match the direct-native capability policy.",
+      "resolutionStatus": "open"
+    },
+    {
+      "name": "tests::check_project_accepts_dynamic_stdlib_peer_network_port_with_unrestricted_net",
+      "category": "direct_native_contract",
+      "resolution": "update_direct_native_contract",
+      "blockerIssue": 1255,
+      "rationale": "Dynamic peer network port checking needs to match the direct-native capability policy.",
+      "resolutionStatus": "open"
+    },
+    {
+      "name": "tests::checked_in_proof_workload_examples_build_run_and_test",
+      "category": "environment_gated",
+      "resolution": "environment_gate",
+      "blockerIssue": 1255,
+      "rationale": "Proof workload examples should be split so runner-only host, network, or wasm prerequisites cannot hide direct-native regressions.",
+      "resolutionStatus": "open"
+    },
+    {
+      "name": "tests::env_allowlist_scopes_generated_env_get",
+      "category": "stale_generated_rust_expectation",
+      "resolution": "update_direct_native_contract",
+      "blockerIssue": 1255,
+      "rationale": "Environment allowlist tests still name generated runtime behavior and need direct-native capability-shim assertions.",
+      "resolutionStatus": "addressed_by_open_stack"
+    },
+    {
+      "name": "tests::generated_runtime_audits_failed_network_intrinsic_paths",
+      "category": "stale_generated_rust_expectation",
+      "resolution": "update_direct_native_contract",
+      "blockerIssue": 1255,
+      "rationale": "Audit assertions need to move from generated runtime paths to direct-native host-shim evidence.",
+      "resolutionStatus": "addressed_by_open_stack"
+    },
+    {
+      "name": "tests::generated_runtime_audits_write_and_http_host_intrinsics",
+      "category": "stale_generated_rust_expectation",
+      "resolution": "update_direct_native_contract",
+      "blockerIssue": 1255,
+      "rationale": "Write and HTTP audit assertions need direct-native evidence contracts.",
+      "resolutionStatus": "addressed_by_open_stack"
+    },
+    {
+      "name": "tests::generated_runtime_emits_optional_host_audit_jsonl_without_secret_values",
+      "category": "stale_generated_rust_expectation",
+      "resolution": "update_direct_native_contract",
+      "blockerIssue": 1255,
+      "rationale": "Host audit JSONL coverage must be re-expressed for direct-native output.",
+      "resolutionStatus": "addressed_by_open_stack"
+    },
+    {
+      "name": "tests::legacy_env_bool_still_checks_with_deprecation_warning",
+      "category": "stale_generated_rust_expectation",
+      "resolution": "update_direct_native_contract",
+      "blockerIssue": 1255,
+      "rationale": "Legacy env compatibility should be checked without relying on generated-Rust backend behavior.",
+      "resolutionStatus": "open"
+    },
+    {
+      "name": "tests::run_project_executes_defer_on_return_panic_and_nested_scope",
+      "category": "unsupported_construct",
+      "resolution": "ignore_with_linked_blocker",
+      "blockerIssue": 1255,
+      "rationale": "Defer-on-panic behavior needs direct-native lowering or a linked ignored blocker.",
+      "resolutionStatus": "fixed_pending_merge",
+      "resolvedBy": 1273
+    },
+    {
+      "name": "tests::run_project_forwards_cli_args_to_stdlib_cli",
+      "category": "direct_native_contract",
+      "resolution": "update_direct_native_contract",
+      "blockerIssue": 1255,
+      "rationale": "Run-command CLI argument forwarding needs direct-native runtime coverage.",
+      "resolutionStatus": "addressed_by_open_stack"
+    },
+    {
+      "name": "tests::run_project_tests_reports_assertion_failure_details",
+      "category": "direct_native_contract",
+      "resolution": "update_direct_native_contract",
+      "blockerIssue": 1255,
+      "rationale": "Test-command failure diagnostics should stay stable under the direct-native default backend.",
+      "resolutionStatus": "fixed_pending_merge",
+      "resolvedBy": 1272
+    },
+    {
+      "name": "tests::run_project_tests_reports_std_testing_helper_failure_details",
+      "category": "direct_native_contract",
+      "resolution": "update_direct_native_contract",
+      "blockerIssue": 1255,
+      "rationale": "Std testing helper diagnostics need direct-native test-runner coverage.",
+      "resolutionStatus": "fixed_pending_merge",
+      "resolvedBy": 1272
+    },
+    {
+      "name": "tests::stage1_async_runtime_single_worker_drains_nested_join_and_timeout",
+      "category": "direct_native_contract",
+      "resolution": "update_direct_native_contract",
+      "blockerIssue": 1255,
+      "rationale": "Async runtime join and timeout behavior needs direct-native runtime coverage.",
+      "resolutionStatus": "open"
+    },
+    {
+      "name": "tests::stage1_async_runtime_uses_configured_scheduler_and_timer_wheel",
+      "category": "direct_native_contract",
+      "resolution": "update_direct_native_contract",
+      "blockerIssue": 1255,
+      "rationale": "Configured scheduler and timer-wheel behavior needs direct-native runtime coverage.",
+      "resolutionStatus": "open"
+    },
+    {
+      "name": "tests::stage1_async_timeout_uses_real_elapsed_timer_and_returns_none",
+      "category": "direct_native_contract",
+      "resolution": "update_direct_native_contract",
+      "blockerIssue": 1255,
+      "rationale": "Elapsed timer behavior needs direct-native runtime coverage or an explicit unsupported diagnostic.",
+      "resolutionStatus": "open"
+    },
+    {
+      "name": "tests::stage1_numeric_overflow_policy_checks_signed_debug_and_wraps_release",
+      "category": "direct_native_contract",
+      "resolution": "update_direct_native_contract",
+      "blockerIssue": 1255,
+      "rationale": "Numeric overflow policy must be proven under direct-native debug and release behavior.",
+      "resolutionStatus": "open"
+    },
+    {
+      "name": "tests::stage1_project_imports_synthetic_stdlib_fs_write_helpers",
+      "category": "stale_generated_rust_expectation",
+      "resolution": "update_direct_native_contract",
+      "blockerIssue": 1255,
+      "rationale": "Synthetic stdlib fs-write helper imports need direct-native capability-shim expectations.",
+      "resolutionStatus": "addressed_by_open_stack",
+      "resolvedBy": 1268
+    },
+    {
+      "name": "tests::stage1_project_imports_synthetic_stdlib_net_module",
+      "category": "stale_generated_rust_expectation",
+      "resolution": "update_direct_native_contract",
+      "blockerIssue": 1255,
+      "rationale": "Synthetic stdlib net imports need direct-native capability-shim expectations.",
+      "resolutionStatus": "open"
+    },
+    {
+      "name": "tests::stage1_project_imports_synthetic_stdlib_net_tcp_module",
+      "category": "stale_generated_rust_expectation",
+      "resolution": "update_direct_native_contract",
+      "blockerIssue": 1255,
+      "rationale": "Synthetic stdlib net TCP imports need direct-native capability-shim expectations.",
+      "resolutionStatus": "open"
+    },
+    {
+      "name": "tests::stage1_project_imports_synthetic_stdlib_net_udp_module",
+      "category": "stale_generated_rust_expectation",
+      "resolution": "update_direct_native_contract",
+      "blockerIssue": 1255,
+      "rationale": "Synthetic stdlib net UDP imports need direct-native capability-shim expectations.",
+      "resolutionStatus": "open"
+    },
+    {
+      "name": "tests::stage1_project_imports_synthetic_stdlib_serdes_module",
+      "category": "stale_generated_rust_expectation",
+      "resolution": "update_direct_native_contract",
+      "blockerIssue": 1255,
+      "rationale": "Synthetic stdlib serdes imports need direct-native artifact and output expectations.",
+      "resolutionStatus": "open"
+    },
+    {
+      "name": "tests::stage1_project_reads_lines_from_stdlib_io_module",
+      "category": "direct_native_contract",
+      "resolution": "update_direct_native_contract",
+      "blockerIssue": 1255,
+      "rationale": "Stdlib IO line-reading behavior needs direct-native runtime coverage.",
+      "resolutionStatus": "addressed_by_open_stack"
+    },
+    {
+      "name": "tests::stage1_project_reads_stdin_to_string_from_stdlib_io_module",
+      "category": "direct_native_contract",
+      "resolution": "update_direct_native_contract",
+      "blockerIssue": 1255,
+      "rationale": "Stdlib IO read-to-string behavior needs direct-native runtime coverage.",
+      "resolutionStatus": "addressed_by_open_stack"
+    },
+    {
+      "name": "tests::stage1_project_rejects_stdlib_env_without_env_capability",
+      "category": "direct_native_contract",
+      "resolution": "update_direct_native_contract",
+      "blockerIssue": 1255,
+      "rationale": "Env denial diagnostics need to match direct-native capability-shim behavior.",
+      "resolutionStatus": "addressed_by_open_stack"
+    },
+    {
+      "name": "tests::stage1_project_supports_async_runtime_surface",
+      "category": "direct_native_contract",
+      "resolution": "update_direct_native_contract",
+      "blockerIssue": 1255,
+      "rationale": "The async runtime surface needs direct-native coverage or explicit unsupported diagnostics.",
+      "resolutionStatus": "addressed_by_open_stack"
+    },
+    {
+      "name": "tests::stage1_runtime_reports_structured_error_for_slice_failures",
+      "category": "direct_native_contract",
+      "resolution": "update_direct_native_contract",
+      "blockerIssue": 1255,
+      "rationale": "Structured slice errors need direct-native runtime diagnostics.",
+      "resolutionStatus": "addressed_by_open_stack"
+    },
+    {
+      "name": "tests::stage1_runtime_reports_structured_slice_error_in_debug_and_release",
+      "category": "direct_native_contract",
+      "resolution": "update_direct_native_contract",
+      "blockerIssue": 1255,
+      "rationale": "Structured slice errors must be validated in direct-native debug and release modes.",
+      "resolutionStatus": "addressed_by_open_stack"
+    },
+    {
+      "name": "tests::stage1_stdlib_http_routed_service_rejects_non_loopback_bind",
+      "category": "environment_gated",
+      "resolution": "environment_gate",
+      "blockerIssue": 1255,
+      "rationale": "HTTP service bind tests need runner policy separation so shell-only environments do not produce false reds.",
+      "resolutionStatus": "open"
+    },
+    {
+      "name": "tests::stage1_stdlib_http_service_rejects_non_loopback_bind",
+      "category": "environment_gated",
+      "resolution": "environment_gate",
+      "blockerIssue": 1255,
+      "rationale": "HTTP service bind tests need runner policy separation so shell-only environments do not produce false reds.",
+      "resolutionStatus": "open"
+    }
+  ],
+  "resolutionTracking": {
+    "updated": "2026-06-30",
+    "evidence": "https://github.com/OMT-Global/axiomlang/issues/1255#issuecomment-4840906364",
+    "summary": "Integration of the open Rust-exit stack onto main resolves 20/40 rows (addressed_by_open_stack, incl. fs_write_helpers via the completed #1268 fs-write scoping); PRs #1271/#1272/#1273 resolve 4 more (fixed_pending_merge: read-only artifact contract, structured assertion traps, defer). expectedFailureCount stays 40 until these PRs merge to main.",
+    "statuses": {
+      "fixed_pending_merge": 4,
+      "open": 16,
+      "addressed_by_open_stack": 20
+    }
+  }
+}

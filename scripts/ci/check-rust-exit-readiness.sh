@@ -353,7 +353,7 @@ if payload["finalBootstrapIssue"] in issues:
     print("finalBootstrapIssue must not also be listed as a blocker", file=sys.stderr)
     sys.exit(1)
 
-required = {731, 1191}
+required = {731, 1191, 1255}
 missing = sorted(required - set(issues))
 if missing:
     print("missing required blocking issues: " + ", ".join(f"#{issue}" for issue in missing), file=sys.stderr)
