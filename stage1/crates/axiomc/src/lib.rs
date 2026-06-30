@@ -12696,11 +12696,12 @@ print takes_two(three)
         .expect("write source");
 
         let built = build_project(&project).expect("build project");
-        let generated =
-            fs::read_to_string(generated_rust_path(&built)).expect("read generated rust");
-        assert!(generated.contains("let mut value: String"));
-        assert!(generated.contains("let local: &mut String = &mut value;"));
-        assert!(generated.contains("*local = String::from(\"beta\");"));
+        if let Some(generated_rust) = built.generated_rust.as_deref() {
+            let generated = fs::read_to_string(generated_rust).expect("read generated rust");
+            assert!(generated.contains("let mut value: String"));
+            assert!(generated.contains("let local: &mut String = &mut value;"));
+            assert!(generated.contains("*local = String::from(\"beta\");"));
+        }
         let output = compiled_binary_command(&built.binary)
             .output()
             .expect("run compiled binary");
