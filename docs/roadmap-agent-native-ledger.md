@@ -60,6 +60,32 @@ canonical issue has already shipped or has an active PR.
 | Repair executor | #858 | #784, #782, #854 | needs human approval | `docs/repair-executor-v0.md` defines the proposed closed-loop contract. Do not implement executor code until an owner accepts that design or a later revision; edits must stay confined to `allowed_files`, no auto-merge, no force-push, fresh evidence + CI recheck before a task is resolved. |
 | Agent execution contract | #788 | #774, #775, #776 | keep open until merged | Keep AGENTS and PR guidance aligned with semantic-layer governance. |
 
+## Self-Hosting Track Reconciliation
+
+"Independence from Rust" covers two distinct programs that the issue history
+conflates. This section is the canonical reconciliation; prefer it over the
+phase scheme in #565 where they disagree.
+
+- **Backend-exit** — make `rustc`/Cargo unnecessary to build *user programs* by
+  defaulting to the direct-native Cranelift backend and removing the
+  generated-Rust backend. This is the active track: #1124 (direct-native ABI),
+  #1191 (remove generated-Rust), #731 (Axiom-owned doc/LSP), #1255 (suite +
+  cross-backend parity gating), gated by #721 / `make rust-exit-readiness`.
+  Note: Cranelift is itself a Rust crate linked into `axiomc`, so backend-exit
+  removes the `rustc` *step*, not Rust from the toolchain.
+- **Host-exit (self-hosting)** — rewrite `axiomc` itself in AxiOM and prove a
+  snapshot bootstrap chain (a shipped `axiomc` builds the next without Cargo).
+  This is #565's thesis ("Rust is not the product"). It is **early**: the
+  compiler is 3 Rust crates with ~91% of source in 7 monolith files, and no
+  compiler component is written in AxiOM yet.
+
+| Concern | Canonical issue | Disposition | Agent instruction |
+|---|---:|---|---|
+| Self-hosting master thesis | #565 | keep open; **historical phase scheme — do not execute from its checkboxes** | #565's Phase-G checkboxes are stale (conformance corpus and `check --properties` shipped) and its phase letters collide with the active `phase-j`/`phase-l` labels. Treat #565 as intent narrative; take execution gates from this ledger. |
+| Active rewrite track | #1253 | keep open | Feasibility spike (one component in `.ax`) + snapshot-bootstrap design. The only active issue for the rewrite itself. Do not remove Rust/Cargo under it. |
+| Monolith decomposition | #1254 | keep open | Prerequisite for package-by-package porting. #930/#936–#940 closed the *boundary contracts* (snapshot fixtures + validators), **not** source migration — do not infer decomposition is done from their closed state. |
+| Self-hosting language readiness | #1256 | needs spec | Minimum AxiOM language + backend surface required before the rewrite can start (e.g. `?`/try is unsupported on the default backend). Gates the rewrite phases. |
+
 ## Standing Agent Rules
 
 - Start from the canonical issue unless the user explicitly assigns a duplicate

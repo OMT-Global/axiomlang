@@ -53,6 +53,7 @@ ci_gate_head_ref=$(printf '%s\n' "$ci_gate_section" | grep -F 'github.event.pull
 benchmark_gate_reference=$(grep -nE 'check-stage1-benchmarks\.py|stage1-comparison-report\.json' "$workflow" || true)
 runtime_abi_status_check=$(grep -nF 'scripts/ci/render-direct-native-runtime-abi-status.py' "$fast_checks_script" || true)
 runtime_abi_coverage_check=$(grep -nF -- '--coverage-matrix' "$fast_checks_script" || true)
+full_lib_triage_check=$(grep -nF 'scripts/ci/check-stage1-full-lib-triage.py' "$fast_checks_script" || true)
 proof_workload_test=$(grep -nF 'bash scripts/ci/run-stage1-proof-test.sh' "$fast_checks_script" || true)
 
 if [[ -n "$checkout_line" ]]; then
@@ -153,6 +154,11 @@ fi
 
 if [[ -z "$runtime_abi_coverage_check" ]]; then
   echo "run-fast-checks must validate the direct-native runtime ABI coverage matrix" >&2
+  exit 1
+fi
+
+if [[ -z "$full_lib_triage_check" ]]; then
+  echo "run-fast-checks must validate the stage1 full lib triage manifest" >&2
   exit 1
 fi
 
