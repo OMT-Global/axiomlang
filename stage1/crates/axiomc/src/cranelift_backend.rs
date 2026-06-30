@@ -19579,17 +19579,41 @@ fn eval_assert_call(
             let left = eval_expr(left, functions, env, lines)?;
             let right = eval_expr(right, functions, env, lines)?;
             let equal = spike_values_equal(&left, &right)?;
-            assert_result(equal == (name == "assert_eq"), &format!("{name} failed"))
+            if equal == (name == "assert_eq") {
+                Ok(SpikeValue::Int(0))
+            } else {
+                let op = if name == "assert_eq" { "==" } else { "!=" };
+                Err(cranelift_runtime_trap(
+                    "assertion",
+                    format!(
+                        "expected left {op} right, left={}, right={}",
+                        render_value(&left),
+                        render_value(&right)
+                    ),
+                ))
+            }
         }
         "assert_case_eq" => {
-            let [_label, left, right, _line, _column] = args else {
+            let [label, left, right, _line, _column] = args else {
                 return Err(unsupported(
                     "assert_case_eq expects label, left, right, line, and column",
                 ));
             };
+            let label = expect_text(eval_expr(label, functions, env, lines)?, "assert_case_eq")?;
             let left = eval_expr(left, functions, env, lines)?;
             let right = eval_expr(right, functions, env, lines)?;
-            assert_result(spike_values_equal(&left, &right)?, "assert_case_eq failed")
+            if spike_values_equal(&left, &right)? {
+                Ok(SpikeValue::Int(0))
+            } else {
+                Err(cranelift_runtime_trap(
+                    "assertion",
+                    format!(
+                        "table case {label:?} failed: expected {}, got {}",
+                        render_value(&right),
+                        render_value(&left)
+                    ),
+                ))
+            }
         }
         _ => Err(unsupported(&format!(
             "unsupported cranelift spike assertion call {name:?}"
