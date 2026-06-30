@@ -16,7 +16,7 @@ report = json.load(open(sys.argv[1], encoding="utf-8"))
 assert report["schema"] == "axiom.stage1.full_lib_triage.v1"
 assert report["triaged"] is True
 assert report["ready"] is False
-assert report["summary"]["failure_count"] == 40
+assert report["summary"]["failure_count"] == 36
 assert report["summary"]["categories"]["stale_generated_rust_expectation"] >= 1
 assert report["summary"]["categories"]["direct_native_contract"] >= 1
 assert report["summary"]["categories"]["environment_gated"] >= 1

@@ -3,7 +3,7 @@
   "issue": 1255,
   "status": "blocked",
   "command": "RUST_MIN_STACK=8388608 cargo test --manifest-path stage1/Cargo.toml -p axiomc --lib --features run-native-tests",
-  "expectedFailureCount": 40,
+  "expectedFailureCount": 36,
   "generatedRustCliStatus": "removed",
   "notes": "This manifest records the current full axiomc lib-suite failures after the direct-native default-backend flip. It is a triage gate, not a green-suite substitute.",
   "resolutionKinds": [
@@ -14,29 +14,12 @@
   ],
   "failures": [
     {
-      "name": "project::tests::property_tests_recover_read_only_artifact_directory",
-      "category": "direct_native_contract",
-      "resolution": "update_direct_native_contract",
-      "blockerIssue": 1255,
-      "rationale": "Repair the default direct-native artifact path behavior or update the assertion to the direct-native artifact contract.",
-      "resolutionStatus": "fixed_pending_merge",
-      "resolvedBy": 1271
-    },
-    {
       "name": "tests::async_timeout_returns_without_joining_slow_host_task",
       "category": "direct_native_contract",
       "resolution": "update_direct_native_contract",
       "blockerIssue": 1255,
       "rationale": "Async host-task timeout semantics need direct-native coverage or an explicit unsupported-feature diagnostic.",
       "resolutionStatus": "open"
-    },
-    {
-      "name": "tests::build_project_accepts_mutable_local_borrow_write_through",
-      "category": "direct_native_contract",
-      "resolution": "update_direct_native_contract",
-      "blockerIssue": 1255,
-      "rationale": "The test exercises supported ownership behavior and should pass under the direct-native default contract.",
-      "resolutionStatus": "addressed_by_open_stack"
     },
     {
       "name": "tests::build_project_emits_native_binary_with_capability_intrinsics",
@@ -184,24 +167,6 @@
       "resolutionStatus": "addressed_by_open_stack"
     },
     {
-      "name": "tests::run_project_tests_reports_assertion_failure_details",
-      "category": "direct_native_contract",
-      "resolution": "update_direct_native_contract",
-      "blockerIssue": 1255,
-      "rationale": "Test-command failure diagnostics should stay stable under the direct-native default backend.",
-      "resolutionStatus": "fixed_pending_merge",
-      "resolvedBy": 1272
-    },
-    {
-      "name": "tests::run_project_tests_reports_std_testing_helper_failure_details",
-      "category": "direct_native_contract",
-      "resolution": "update_direct_native_contract",
-      "blockerIssue": 1255,
-      "rationale": "Std testing helper diagnostics need direct-native test-runner coverage.",
-      "resolutionStatus": "fixed_pending_merge",
-      "resolvedBy": 1272
-    },
-    {
       "name": "tests::stage1_async_runtime_single_worker_drains_nested_join_and_timeout",
       "category": "direct_native_contract",
       "resolution": "update_direct_native_contract",
@@ -248,7 +213,8 @@
       "resolution": "update_direct_native_contract",
       "blockerIssue": 1255,
       "rationale": "Synthetic stdlib net imports need direct-native capability-shim expectations.",
-      "resolutionStatus": "open"
+      "resolutionStatus": "fixed_pending_merge",
+      "resolvedBy": 1274
     },
     {
       "name": "tests::stage1_project_imports_synthetic_stdlib_net_tcp_module",
@@ -342,11 +308,29 @@
   "resolutionTracking": {
     "updated": "2026-06-30",
     "evidence": "https://github.com/OMT-Global/axiomlang/issues/1255#issuecomment-4840906364",
-    "summary": "Integration of the open Rust-exit stack onto main resolves 20/40 rows (addressed_by_open_stack, incl. fs_write_helpers via the completed #1268 fs-write scoping); PRs #1271/#1272/#1273 resolve 4 more (fixed_pending_merge: read-only artifact contract, structured assertion traps, defer). expectedFailureCount stays 40 until these PRs merge to main.",
+    "summary": "Reconciled after the first stack merges landed on main. Removed 4 rows now passing on main (property contract via #1271, mutable-borrow via #1267, two assertion-detail rows via #1272). expectedFailureCount lowered 40 -> 36. Remaining: 19 addressed_by_open_stack (open stack PRs), 2 fixed_pending_merge (#1273 defer, #1274 net_module resolve), 15 open.",
     "statuses": {
-      "fixed_pending_merge": 4,
-      "open": 16,
-      "addressed_by_open_stack": 20
-    }
+      "open": 15,
+      "addressed_by_open_stack": 19,
+      "fixed_pending_merge": 2
+    },
+    "resolvedAndRemoved": [
+      {
+        "name": "project::tests::property_tests_recover_read_only_artifact_directory",
+        "resolvedBy": 1271
+      },
+      {
+        "name": "tests::build_project_accepts_mutable_local_borrow_write_through",
+        "resolvedBy": null
+      },
+      {
+        "name": "tests::run_project_tests_reports_assertion_failure_details",
+        "resolvedBy": 1272
+      },
+      {
+        "name": "tests::run_project_tests_reports_std_testing_helper_failure_details",
+        "resolvedBy": 1272
+      }
+    ]
   }
 }
