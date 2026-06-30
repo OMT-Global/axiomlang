@@ -9059,6 +9059,46 @@ fn cranelift_backend_honors_env_allowlist_at_runtime() {
     }
 }
 
+#[cfg(not(windows))]
+#[test]
+fn cranelift_backend_runtime_env_match_rejects_string_payload_rewrite() {
+    if which::which("cc").is_err() {
+        eprintln!("skipping cranelift backend smoke test because cc is unavailable");
+        return;
+    }
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("env-runtime-payload");
+    write_env_runtime_payload_project(&project);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .env_remove("AXIOM_CRANELIFT_ENV_READ")
+        .args([
+            "build",
+            project.to_str().expect("project path"),
+            "--backend",
+            "cranelift",
+            "--json",
+        ])
+        .output()
+        .expect("run axiomc build --backend cranelift");
+    assert!(
+        !output.status.success(),
+        "cranelift env payload build unexpectedly succeeded: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let combined = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        combined.contains("outside the direct-native i64 ABI subset"),
+        "env string payload use should fail closed instead of lowering to env_len: {combined}"
+    );
+}
+
 #[test]
 fn cranelift_backend_rejects_env_denial_before_backend_lowering() {
     let temp = tempfile::tempdir().expect("tempdir");
@@ -16957,6 +16997,61 @@ return 1
 "#,
     )
     .expect("write env allowlist source");
+}
+
+fn write_env_runtime_payload_project(project: &Path) {
+    fs::create_dir_all(project.join("src")).expect("create env runtime payload project src");
+    fs::write(
+        project.join("axiom.toml"),
+        r#"[package]
+name = "cranelift-env-runtime-payload"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+fs = false
+net = false
+process = false
+env = ["AXIOM_CRANELIFT_ENV_READ"]
+clock = false
+crypto = false
+"#,
+    )
+    .expect("write env runtime payload manifest");
+    fs::write(
+        project.join("axiom.lock"),
+        r#"version = 1
+
+[[package]]
+name = "cranelift-env-runtime-payload"
+version = "0.1.0"
+source = "path"
+"#,
+    )
+    .expect("write env runtime payload lockfile");
+    fs::write(
+        project.join("src/main.ax"),
+        r#"import "std/env.ax"
+
+static ALLOWED_ENV: string = "AXIOM_CRANELIFT_ENV_READ"
+
+fn main(): int {
+match env_get(ALLOWED_ENV) {
+Some(value) {
+print value
+}
+None {
+print "missing"
+}
+}
+return 0
+}
+"#,
+    )
+    .expect("write env runtime payload source");
 }
 
 fn write_http_client_denial_project(project: &Path) {
