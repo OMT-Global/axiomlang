@@ -4543,6 +4543,32 @@ fn lower_i64_env_option_match_stmt(
         && let Some(binding) = some_arm.bindings.first()
         && binding != "_"
     {
+        // `Some(value) { print value }`: emit the environment variable's runtime
+        // string directly. The i64 value model only carries lengths, so the
+        // general payload path below cannot materialize the string.
+        if allow_stdio_effects && i64_env_option_prints_binding_verbatim(&some_arm.body, binding) {
+            return Some(CraneliftI64Stmt::If {
+                cond: CraneliftI64Condition::Compare(CraneliftI64Compare {
+                    op: CraneliftI64CompareOp::Ge,
+                    lhs: env_len,
+                    rhs: CraneliftI64Expr::Literal(0),
+                }),
+                then_body: vec![CraneliftI64Stmt::WriteEnvValue {
+                    stream: OutputStream::Stdout,
+                    key: key.clone(),
+                    append_newline: true,
+                }],
+                else_body: lower_i64_runtime_stmts(
+                    &none_arm.body,
+                    locals,
+                    local_indexes,
+                    local_conditions,
+                    helper_signatures,
+                    static_bindings,
+                    allow_stdio_effects,
+                )?,
+            });
+        }
         if !i64_env_option_payload_uses_len_only(&some_arm.body, binding) {
             return None;
         }
@@ -4575,6 +4601,19 @@ fn lower_i64_env_option_match_stmt(
             allow_stdio_effects,
         )?,
     })
+}
+
+/// True when the `Some` arm body is exactly `print <binding>` -- i.e. it prints
+/// the environment value verbatim. This is lowered to a `WriteEnvValue` runtime
+/// write instead of the length-only payload path.
+fn i64_env_option_prints_binding_verbatim(stmts: &[Stmt], binding: &str) -> bool {
+    matches!(
+        stmts,
+        [Stmt::Print {
+            expr: Expr::VarRef { name, .. },
+            ..
+        }] if name == binding
+    )
 }
 
 fn i64_env_option_payload_uses_len_only(stmts: &[Stmt], binding: &str) -> bool {

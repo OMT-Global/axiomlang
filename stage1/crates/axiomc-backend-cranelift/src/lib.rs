@@ -361,6 +361,16 @@ pub enum I64Stmt {
         stream: OutputStream,
         value: I64Expr,
     },
+    /// Write the runtime value of an environment variable (as read by
+    /// `getenv`) to `stream`. If the variable is unset, nothing is written --
+    /// callers gate this behind an env-presence check. Used to lower
+    /// `match env_get(k) { Some(v) { print v } ... }` without materializing the
+    /// string in the i64 value model.
+    WriteEnvValue {
+        stream: OutputStream,
+        key: String,
+        append_newline: bool,
+    },
     WriteArgCountLine {
         stream: OutputStream,
     },
@@ -1124,6 +1134,7 @@ fn collect_i64_output_lines(stmts: &[I64Stmt], lines: &mut Vec<(OutputStream, St
             } => lines.push((*stream, fallback.clone(), true)),
             I64Stmt::WriteI64Text { .. }
             | I64Stmt::WriteI64Line { .. }
+            | I64Stmt::WriteEnvValue { .. }
             | I64Stmt::WriteArgCountLine { .. }
             | I64Stmt::WriteStdinRemaining { .. } => {}
             I64Stmt::If {
@@ -1511,6 +1522,19 @@ fn emit_i64_stmt(
             *stream,
             value,
         ),
+        I64Stmt::WriteEnvValue {
+            stream,
+            key,
+            append_newline,
+        } => emit_i64_write_env_value(
+            builder,
+            runtime_refs,
+            write_ref,
+            module.target_config().pointer_type(),
+            *stream,
+            key,
+            *append_newline,
+        ),
         I64Stmt::WriteArgCountLine { stream } => emit_i64_write_arg_count_line(
             builder,
             runtime_args.ok_or_else(|| CraneliftBackendError::new("main argc is unavailable"))?,
@@ -1726,6 +1750,67 @@ fn emit_i64_write_static(
     builder.ins().call(write_ref, &[fd, pointer, len]);
     let line = i64_stdio_audit_line(stream, Some(output_data.byte_len), "ok");
     emit_i64_host_audit_line(builder, runtime_refs, &line)?;
+    Ok(())
+}
+
+fn emit_i64_write_env_value(
+    builder: &mut FunctionBuilder<'_>,
+    runtime_refs: I64RuntimeRefs,
+    write_ref: FuncRef,
+    pointer_type: cranelift_codegen::ir::Type,
+    stream: OutputStream,
+    key: &str,
+    append_newline: bool,
+) -> Result<(), CraneliftBackendError> {
+    // Materialize the null-terminated key on the stack and read the variable at
+    // runtime, mirroring `emit_i64_env_len_expr`.
+    let key_len = u32::try_from(key.len() + 1)
+        .map_err(|_| CraneliftBackendError::new("environment key is too large"))?;
+    let key_slot = builder.create_sized_stack_slot(StackSlotData::new(
+        StackSlotKind::ExplicitSlot,
+        key_len,
+        0,
+    ));
+    for (offset, byte) in key.bytes().chain(std::iter::once(0)).enumerate() {
+        let byte_value = builder.ins().iconst(types::I8, i64::from(byte));
+        builder
+            .ins()
+            .stack_store(byte_value, key_slot, offset as i32);
+    }
+    let key_ptr = builder.ins().stack_addr(pointer_type, key_slot, 0);
+    let call = builder.ins().call(runtime_refs.getenv, &[key_ptr]);
+    let value_ptr = builder.inst_results(call)[0];
+
+    let present_block = builder.create_block();
+    let done_block = builder.create_block();
+    let missing = builder.ins().icmp_imm(IntCC::Equal, value_ptr, 0);
+    builder
+        .ins()
+        .brif(missing, done_block, &[], present_block, &[]);
+
+    // Present: write the value bytes (getenv result, length via strlen) and an
+    // optional trailing newline. Absent variables write nothing.
+    builder.switch_to_block(present_block);
+    builder.seal_block(present_block);
+    let call = builder.ins().call(runtime_refs.strlen, &[value_ptr]);
+    let length = builder.inst_results(call)[0];
+    let fd = builder.ins().iconst(types::I32, output_stream_fd(stream));
+    builder.ins().call(write_ref, &[fd, value_ptr, length]);
+    if append_newline {
+        let newline_slot =
+            builder.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 1, 0));
+        let newline = builder.ins().iconst(types::I8, i64::from(b'\n'));
+        builder.ins().stack_store(newline, newline_slot, 0);
+        let newline_ptr = builder.ins().stack_addr(pointer_type, newline_slot, 0);
+        let one = builder.ins().iconst(pointer_type, 1);
+        builder.ins().call(write_ref, &[fd, newline_ptr, one]);
+    }
+    let line = i64_stdio_audit_line(stream, None, "ok");
+    emit_i64_host_audit_line(builder, runtime_refs, &line)?;
+    builder.ins().jump(done_block, &[]);
+
+    builder.switch_to_block(done_block);
+    builder.seal_block(done_block);
     Ok(())
 }
 
