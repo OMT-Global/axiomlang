@@ -7656,7 +7656,7 @@ print "none"
             .expect("run compiled binary");
         assert_eq!(
             String::from_utf8_lossy(&output.stdout),
-            "0\n0\n0\n0\n{\"a\":\"alpha\",\"b\":2}\n"
+            "0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n{\"a\":\"alpha\",\"b\":2}\n"
         );
 
         let tests = run_project_tests(&project).expect("run stdlib serdes tests");
