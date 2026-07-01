@@ -14071,7 +14071,12 @@ fn validate_stdlib_network_wrapper_call_hir(
                 &args[1],
                 line,
                 column,
-                is_loopback_listener_port_expr(&args[1], env),
+                // A dynamic peer port is fine when ports are unrestricted (there
+                // is no allowlist to check a literal against); a loopback
+                // listener port is also always allowed. When ports are
+                // restricted, `validate_net_port_allowlist_hir` still requires a
+                // literal drawn from the allowlist.
+                is_loopback_listener_port_expr(&args[1], env) || capabilities.net_ports.is_empty(),
             )
         }
         ("<stdlib>/net_tcp.ax", "listen")
