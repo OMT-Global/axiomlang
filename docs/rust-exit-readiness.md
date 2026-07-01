@@ -20,9 +20,10 @@ make rust-exit-readiness
 ```
 
 It emits `axiom.rust_exit.readiness.v1` JSON and fails while blocker issues in
-`docs/rust-exit-readiness.json` are open or unavailable, or while the
-machine-readable direct-native runtime ABI reports `ready: false`. Deletion or
-release-chain PRs can require live GitHub state:
+`docs/rust-exit-readiness.json` are open or unavailable, while the
+machine-readable direct-native runtime ABI reports `ready: false`, or while the
+source-level Rust-capture gates still find supported toolchain paths owned by
+Rust-only drivers. Deletion or release-chain PRs can require live GitHub state:
 
 ```bash
 make rust-exit-readiness-github
@@ -51,9 +52,9 @@ review gates to be satisfied.
 | --- | --- | --- | --- |
 | AxiOM compiler source layout | Parser, checker, lowering, MIR, backend selection, diagnostics, packages, manifests, lockfiles, and command dispatch have AxiOM package boundaries. | Implemented as [AxiOM Compiler Source Layout and Self-Hosting Boundary](axiom-compiler-source-layout.md); final source migration remains governed by the Rust bootstrap gate. | [#721](https://github.com/OMT-Global/axiomlang/issues/721) |
 | Snapshot bootstrap | A previously shipped `axiomc` snapshot builds the next working `axiomc` binary without invoking Cargo. | `blocked` until the final Rust bootstrap removal gate is satisfied. | [#721](https://github.com/OMT-Global/axiomlang/issues/721) |
-| Final readiness gate | The Rust-exit command proves supported workflows, release builds, tests, docs, and LSP no longer require Rust-only infrastructure. | Implemented as `make rust-exit-readiness`; the gate still fails until the live blockers in `docs/rust-exit-readiness.json` are closed and ABI/boundary checks pass. | [#721](https://github.com/OMT-Global/axiomlang/issues/721) |
+| Final readiness gate | The Rust-exit command proves supported workflows, release builds, tests, docs, and LSP no longer require Rust-only infrastructure. | Implemented as `make rust-exit-readiness`; the gate still fails until the live blockers in `docs/rust-exit-readiness.json` are closed and ABI, boundary, generated-Rust, and LSP driver-ownership checks pass. | [#721](https://github.com/OMT-Global/axiomlang/issues/721) |
 | Compiler verification | Compiler-internal coverage is expressed in AxiOM property form instead of Rust-only tests. | Shipped through the property-test gate; remaining Rust-bootstrap release-chain work stays with #721. | [#721](https://github.com/OMT-Global/axiomlang/issues/721) |
-| Documentation generator | `axiomc doc` and structured/Markdown output are produced by AxiOM-owned code. | Doc and LSP self-hosting are tracked through the current tooling gate. | [#731](https://github.com/OMT-Global/axiomlang/issues/731) |
+| Documentation generator and LSP | `axiomc doc`, structured/Markdown output, and `axiomc lsp` protocol handling are produced by AxiOM-owned code. | The LSP stdio harness exists, but the readiness gate keeps failing while `axiomc lsp` still dispatches through the Rust-hosted stdio/message loop. | [#731](https://github.com/OMT-Global/axiomlang/issues/731) |
 
 ## Closure Rules
 

@@ -210,6 +210,58 @@ for name, status, detail in checks:
 PY
 }
 
+lsp_driver_ownership_report() {
+  python3 - <<'PY'
+from pathlib import Path
+
+checks = []
+
+harness = Path("stage1/crates/axiomc/tests/lsp_stdio.rs")
+if not harness.is_file():
+    checks.append(("lsp_stdio_harness_ready", "fail", "in-tree LSP stdio harness is missing"))
+else:
+    source = harness.read_text(encoding="utf-8")
+    missing = [
+        token
+        for token in (
+            '"method": "initialize"',
+            '"method": "textDocument/didOpen"',
+            '"method": "shutdown"',
+            '"method": "exit"',
+            "textDocument/publishDiagnostics",
+        )
+        if token not in source
+    ]
+    if missing:
+        checks.append(("lsp_stdio_harness_ready", "fail", "LSP stdio harness is missing coverage for: " + ", ".join(missing)))
+    else:
+        checks.append(("lsp_stdio_harness_ready", "pass", "in-tree harness covers initialize, didOpen diagnostics, shutdown, and exit"))
+
+main_rs = Path("stage1/crates/axiomc/src/main.rs")
+lsp_rs = Path("stage1/crates/axiomc/src/lsp.rs")
+missing_sources = [str(path) for path in (main_rs, lsp_rs) if not path.is_file()]
+if missing_sources:
+    checks.append(("lsp_driver_axiom_owned", "fail", "missing source file(s): " + ", ".join(missing_sources)))
+else:
+    main_source = main_rs.read_text(encoding="utf-8")
+    lsp_source = lsp_rs.read_text(encoding="utf-8")
+    rust_owned_markers = []
+    if "lsp::run_stdio(" in main_source:
+        rust_owned_markers.append("Command::Lsp dispatches through Rust lsp::run_stdio")
+    if "axiom_lsp::run_stdio" in lsp_source:
+        rust_owned_markers.append("LSP stdio loop is hosted by the Rust axiom-lsp crate")
+    if "axiom_lsp::handle_message" in lsp_source:
+        rust_owned_markers.append("LSP message handling is hosted by the Rust axiom-lsp crate")
+    if rust_owned_markers:
+        checks.append(("lsp_driver_axiom_owned", "fail", "; ".join(rust_owned_markers)))
+    else:
+        checks.append(("lsp_driver_axiom_owned", "pass", "axiomc lsp no longer uses the Rust-hosted stdio/message loop"))
+
+for name, status, detail in checks:
+    print(f"{name}|{status}|{detail}")
+PY
+}
+
 generated_rust_cli_gate_report() {
   python3 - <<'PY'
 from pathlib import Path
@@ -449,6 +501,10 @@ fi
 while IFS='|' read -r boundary_name boundary_status boundary_detail; do
   add_check "$boundary_name" "$boundary_status" "$boundary_detail"
 done < <(self_hosted_boundary_report)
+
+while IFS='|' read -r lsp_name lsp_status lsp_detail; do
+  add_check "$lsp_name" "$lsp_status" "$lsp_detail"
+done < <(lsp_driver_ownership_report)
 
 while IFS='|' read -r gate_name gate_status gate_detail; do
   add_check "$gate_name" "$gate_status" "$gate_detail"

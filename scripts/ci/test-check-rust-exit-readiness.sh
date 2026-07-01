@@ -15,6 +15,7 @@ mkdir -p \
   "$case_dir/stage1/json-fixtures/build" \
   "$case_dir/stage1/json-fixtures/test" \
   "$case_dir/stage1/schemas" \
+  "$case_dir/stage1/crates/axiom-lsp/src" \
   "$case_dir/stage1/crates/axiomc/src" \
   "$case_dir/stage1/crates/axiomc/tests" \
   "$case_dir/stage1/crates/axiomc-backend-cranelift/src"
@@ -33,8 +34,11 @@ cp "$repo_root/stage1/json-fixtures/test/failure.json" "$case_dir/stage1/json-fi
 cp "$repo_root/stage1/schemas/axiom-artifacts-v0.schema.json" "$case_dir/stage1/schemas/axiom-artifacts-v0.schema.json"
 cp "$repo_root/stage1/crates/axiomc/src/codegen.rs" "$case_dir/stage1/crates/axiomc/src/codegen.rs"
 cp "$repo_root/stage1/crates/axiomc/src/main.rs" "$case_dir/stage1/crates/axiomc/src/main.rs"
+cp "$repo_root/stage1/crates/axiomc/src/lsp.rs" "$case_dir/stage1/crates/axiomc/src/lsp.rs"
 cp "$repo_root/stage1/crates/axiomc/src/cranelift_backend.rs" "$case_dir/stage1/crates/axiomc/src/cranelift_backend.rs"
 cp "$repo_root/stage1/crates/axiomc/tests/cranelift_backend.rs" "$case_dir/stage1/crates/axiomc/tests/cranelift_backend.rs"
+cp "$repo_root/stage1/crates/axiomc/tests/lsp_stdio.rs" "$case_dir/stage1/crates/axiomc/tests/lsp_stdio.rs"
+cp "$repo_root/stage1/crates/axiom-lsp/src/lib.rs" "$case_dir/stage1/crates/axiom-lsp/src/lib.rs"
 cp "$repo_root/stage1/crates/axiomc-backend-cranelift/src/lib.rs" "$case_dir/stage1/crates/axiomc-backend-cranelift/src/lib.rs"
 cat >"$case_dir/Makefile" <<'MAKE'
 rust-exit-readiness:
@@ -146,6 +150,8 @@ assert statuses["readiness_blockers_closed"] == "fail"
 assert statuses["readiness_blockers_live_when_not_ready"] == "pass"
 assert statuses["direct_native_runtime_abi_ready"] == "pass"
 assert statuses["command_lsp_release_boundary"] == "pass"
+assert statuses["lsp_stdio_harness_ready"] == "pass"
+assert statuses["lsp_driver_axiom_owned"] == "fail"
 assert statuses["mir_backend_direct_native_boundary"] == "pass"
 assert statuses["generated_rust_cli_gate"] == "pass"
 assert statuses["generated_rust_contract_gate"] == "pass"
@@ -158,8 +164,59 @@ ISSUES
 
 (
   cd "$case_dir"
+  if bash scripts/ci/check-rust-exit-readiness.sh --json --issue-state-file "$temp_dir/issues.txt" >"$temp_dir/rust-lsp-driver.json" 2>"$temp_dir/rust-lsp-driver.err"; then
+    echo "expected readiness check to fail while axiomc lsp still uses the Rust-hosted stdio loop" >&2
+    exit 1
+  fi
+  python3 - "$temp_dir/rust-lsp-driver.json" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    payload = json.load(handle)
+
+assert payload["ready"] is False
+statuses = {check["name"]: check["status"] for check in payload["checks"]}
+assert statuses["readiness_blockers_closed"] == "pass"
+assert statuses["readiness_blockers_live_when_not_ready"] == "pass"
+assert statuses["rust_exit_issue_731_closed"] == "pass"
+assert statuses["direct_native_runtime_abi_ready"] == "pass"
+assert statuses["command_lsp_release_boundary"] == "pass"
+assert statuses["lsp_stdio_harness_ready"] == "pass"
+assert statuses["lsp_driver_axiom_owned"] == "fail"
+assert statuses["mir_backend_direct_native_boundary"] == "pass"
+assert statuses["generated_rust_cli_gate"] == "pass"
+assert statuses["generated_rust_contract_gate"] == "pass"
+PY
+)
+
+python3 - "$case_dir/stage1/crates/axiomc/src/main.rs" "$case_dir/stage1/crates/axiomc/src/lsp.rs" <<'PY'
+import sys
+from pathlib import Path
+
+main_path = Path(sys.argv[1])
+lsp_path = Path(sys.argv[2])
+main_path.write_text(
+    main_path.read_text(encoding="utf-8").replace(
+        "lsp::run_stdio(io::stdin().lock(), io::stdout())",
+        "compiler_services_lsp_serve_stdio(io::stdin().lock(), io::stdout())",
+    ),
+    encoding="utf-8",
+)
+lsp_path.write_text(
+    lsp_path.read_text(encoding="utf-8")
+    .replace("axiom_lsp::run_stdio", "compiled_lsp_service::serve_stdio")
+    .replace("axiom_lsp::handle_message", "compiled_lsp_service::handle_message"),
+    encoding="utf-8",
+)
+PY
+
+(
+  cd "$case_dir"
   if ! bash scripts/ci/check-rust-exit-readiness.sh --json --issue-state-file "$temp_dir/issues.txt" >"$temp_dir/ready.json" 2>"$temp_dir/ready.err"; then
-    echo "expected readiness check to pass once blocking issues are closed and the ABI report is ready" >&2
+    echo "expected readiness check to pass once blocking issues are closed, ABI is ready, and axiomc lsp no longer uses the Rust-hosted driver" >&2
+    cat "$temp_dir/ready.json" >&2
+    cat "$temp_dir/ready.err" >&2
     exit 1
   fi
   python3 - "$temp_dir/ready.json" <<'PY'
@@ -172,11 +229,8 @@ with open(sys.argv[1], encoding="utf-8") as handle:
 assert payload["ready"] is True
 statuses = {check["name"]: check["status"] for check in payload["checks"]}
 assert statuses["readiness_blockers_closed"] == "pass"
-assert statuses["readiness_blockers_live_when_not_ready"] == "pass"
-assert statuses["rust_exit_issue_731_closed"] == "pass"
-assert statuses["direct_native_runtime_abi_ready"] == "pass"
-assert statuses["command_lsp_release_boundary"] == "pass"
-assert statuses["mir_backend_direct_native_boundary"] == "pass"
+assert statuses["lsp_stdio_harness_ready"] == "pass"
+assert statuses["lsp_driver_axiom_owned"] == "pass"
 assert statuses["generated_rust_cli_gate"] == "pass"
 assert statuses["generated_rust_contract_gate"] == "pass"
 PY
