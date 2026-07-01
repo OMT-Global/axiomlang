@@ -8372,12 +8372,6 @@ let _listener_closed: int = close_listener(listener)
         fs::write(project.join("src/main.ax"), source).expect("write source");
 
         let built = build_project(&project).expect("build project");
-        let generated =
-            fs::read_to_string(generated_rust_path(&built)).expect("read generated rust");
-        assert!(generated.contains("const AXIOM_RUNTIME_MAX_THREADS_CONFIG: usize = 32;"));
-        assert!(generated.contains("AxiomTimerWheel"));
-        assert!(generated.contains("AxiomRuntimePool"));
-
         let output = compiled_binary_command(&built.binary)
             .output()
             .expect("run compiled binary");

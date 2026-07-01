@@ -356,6 +356,14 @@ static SPIKE_UDP_SOCKETS: OnceLock<Mutex<HashMap<i64, SpikeUdpSocket>>> = OnceLo
 
 thread_local! {
     static SPIKE_STDIN: RefCell<SpikeStdin> = RefCell::new(SpikeStdin::default());
+    // While evaluating a spawned task's expression, sleeps accumulate here
+    // instead of blocking, so sibling tasks model concurrent execution: the
+    // spawn records the task's virtual duration and `async_join` waits out the
+    // group deadline (the max end time) rather than the sum of all sleeps.
+    static SPIKE_VIRTUAL_SLEEP: std::cell::Cell<Option<i64>> = const { std::cell::Cell::new(None) };
+    // Wall-clock deadline (epoch ms) by which every spawned task in the
+    // current program would have finished if tasks ran concurrently.
+    static SPIKE_ASYNC_DEADLINE: std::cell::Cell<i64> = const { std::cell::Cell::new(0) };
 }
 
 pub fn compile_cranelift_hello_spike(
@@ -20142,13 +20150,25 @@ fn eval_call(
         }
         local_env.insert(param.name.clone(), value);
     }
-    let started = current_time_ms()?;
-    let returned = run_function_body(&function.body, functions, &mut local_env, lines)?
-        .ok_or_else(|| unsupported("cranelift spike functions must return a value"))?;
     if function.is_async {
-        let duration = current_time_ms()?.saturating_sub(started);
+        // Async bodies evaluate with virtual sleeps: blocking time accumulates
+        // into the task's duration and is spent when the task is consumed
+        // (await, join, or timeout), so sibling tasks model concurrency.
+        let previous = SPIKE_VIRTUAL_SLEEP.with(|slot| slot.replace(Some(0)));
+        let started = current_time_ms()?;
+        let returned = run_function_body(&function.body, functions, &mut local_env, lines);
+        let virtual_ms = SPIKE_VIRTUAL_SLEEP
+            .with(|slot| slot.replace(previous))
+            .unwrap_or(0);
+        let returned = returned?
+            .ok_or_else(|| unsupported("cranelift spike functions must return a value"))?;
+        let duration = current_time_ms()?
+            .saturating_sub(started)
+            .saturating_add(virtual_ms);
         Ok(spike_task_with_duration(returned, duration))
     } else {
+        let returned = run_function_body(&function.body, functions, &mut local_env, lines)?
+            .ok_or_else(|| unsupported("cranelift spike functions must return a value"))?;
         Ok(returned)
     }
 }
@@ -20229,10 +20249,24 @@ fn eval_call_effectful(
         }
     }
 
+    // Async bodies evaluate with virtual sleeps (see the sibling call path).
+    let previous = function
+        .is_async
+        .then(|| SPIKE_VIRTUAL_SLEEP.with(|slot| slot.replace(Some(0))));
     let started = current_time_ms()?;
-    let returned = run_function_body(&function.body, functions, &mut local_env, lines)?
-        .ok_or_else(|| unsupported("cranelift spike functions must return a value"))?;
-    let async_duration = current_time_ms()?.saturating_sub(started);
+    let returned = run_function_body(&function.body, functions, &mut local_env, lines);
+    let virtual_ms = previous
+        .map(|previous| {
+            SPIKE_VIRTUAL_SLEEP
+                .with(|slot| slot.replace(previous))
+                .unwrap_or(0)
+        })
+        .unwrap_or(0);
+    let returned =
+        returned?.ok_or_else(|| unsupported("cranelift spike functions must return a value"))?;
+    let async_duration = current_time_ms()?
+        .saturating_sub(started)
+        .saturating_add(virtual_ms);
     for (backing_name, target) in writebacks {
         let Some(SpikeValue::Array(elements)) = local_env.get(&backing_name) else {
             return Err(unsupported(
@@ -20472,6 +20506,19 @@ fn eval_async_call(
             };
             let task = eval_expr(task, functions, env, lines)?;
             expect_task_value(&task, "async_spawn")?;
+            // The task's body ran with virtual sleeps, so it carries its
+            // duration without having blocked. Spawning starts the concurrent
+            // clock: extend the group deadline to this task's end time.
+            if let SpikeValue::Task {
+                duration_ms,
+                canceled: false,
+                ..
+            } = &task
+                && *duration_ms > 0
+            {
+                let end = current_time_ms()?.saturating_add(*duration_ms);
+                SPIKE_ASYNC_DEADLINE.with(|slot| slot.set(slot.get().max(end)));
+            }
             Ok(SpikeValue::JoinHandle(Box::new(task)))
         }
         "async_join" => {
@@ -20479,7 +20526,17 @@ fn eval_async_call(
                 return Err(unsupported("async_join expects exactly one argument"));
             };
             match eval_expr(handle, functions, env, lines)? {
-                SpikeValue::JoinHandle(task) => await_spike_task(*task).map(spike_task),
+                SpikeValue::JoinHandle(task) => {
+                    // Joining waits for the spawned group's deadline (the max
+                    // concurrent end time), not the sum of every task's sleeps.
+                    let remaining = SPIKE_ASYNC_DEADLINE
+                        .with(std::cell::Cell::get)
+                        .saturating_sub(current_time_ms()?);
+                    if remaining > 0 {
+                        spike_wait_out_duration(remaining);
+                    }
+                    spike_task_value(*task).map(spike_task)
+                }
                 _ => Err(unsupported("async_join expects a join handle")),
             }
         }
@@ -20515,14 +20572,16 @@ fn eval_async_call(
             };
             let timeout_ms =
                 expect_signed_integer(eval_expr(milliseconds, functions, env, lines)?)?;
-            // The spike drives async tasks eagerly with real `sleep_ms`, so each
-            // task carries the real time its body took. A task that ran longer
-            // than the deadline reports a timeout (None).
+            // Async bodies run with virtual sleeps, so each task carries its
+            // duration without having blocked. A task that would outrun the
+            // deadline times out (None) after waiting out the deadline itself;
+            // otherwise awaiting the task waits out its (shorter) duration.
             match eval_expr(task, functions, env, lines)? {
                 SpikeValue::Task { canceled: true, .. } => Ok(spike_task(spike_option(None))),
                 SpikeValue::Task { duration_ms, .. }
                     if timeout_ms >= 0 && duration_ms > timeout_ms =>
                 {
+                    spike_wait_out_duration(timeout_ms);
                     Ok(spike_task(spike_option(None)))
                 }
                 task @ SpikeValue::Task { .. } => {
@@ -20627,7 +20686,30 @@ fn expect_task_value(value: &SpikeValue, name: &str) -> Result<(), Diagnostic> {
     }
 }
 
-fn await_spike_task(value: SpikeValue) -> Result<SpikeValue, Diagnostic> {
+/// Wait out a task's deferred (virtual) duration. Async bodies evaluate with
+/// virtual sleeps, so the time is spent when the task is consumed: for real
+/// when awaited at top level, or added to the enclosing task's accumulator
+/// when awaited inside another async body.
+fn spike_wait_out_duration(duration_ms: i64) {
+    if duration_ms <= 0 {
+        return;
+    }
+    let deferred = SPIKE_VIRTUAL_SLEEP.with(|slot| match slot.get() {
+        Some(accumulated) => {
+            slot.set(Some(accumulated.saturating_add(duration_ms)));
+            true
+        }
+        None => false,
+    });
+    if !deferred {
+        std::thread::sleep(std::time::Duration::from_millis(duration_ms as u64));
+    }
+}
+
+/// Extract a task's value without spending its deferred duration. Callers that
+/// model the wait separately (join's group deadline, timeout's bounded wait)
+/// use this instead of `await_spike_task`.
+fn spike_task_value(value: SpikeValue) -> Result<SpikeValue, Diagnostic> {
     match value {
         SpikeValue::Task {
             value: Some(value),
@@ -20640,6 +20722,18 @@ fn await_spike_task(value: SpikeValue) -> Result<SpikeValue, Diagnostic> {
         }
         _ => Err(unsupported("await expects a task")),
     }
+}
+
+fn await_spike_task(value: SpikeValue) -> Result<SpikeValue, Diagnostic> {
+    if let SpikeValue::Task {
+        canceled: false,
+        duration_ms,
+        ..
+    } = &value
+    {
+        spike_wait_out_duration(*duration_ms);
+    }
+    spike_task_value(value)
 }
 
 fn is_control_return(value: &SpikeValue) -> bool {
@@ -25339,7 +25433,18 @@ fn eval_clock_sleep_ms_call(
             "clock_sleep_ms literals above {SPIKE_MAX_CLOCK_SLEEP_MS} ms are not supported by the cranelift spike"
         )));
     }
-    std::thread::sleep(std::time::Duration::from_millis(milliseconds as u64));
+    // Inside a spawned task the sleep is virtual: it extends the task's
+    // duration without blocking, so sibling tasks model concurrent execution.
+    let deferred = SPIKE_VIRTUAL_SLEEP.with(|slot| match slot.get() {
+        Some(accumulated) => {
+            slot.set(Some(accumulated.saturating_add(milliseconds)));
+            true
+        }
+        None => false,
+    });
+    if !deferred {
+        std::thread::sleep(std::time::Duration::from_millis(milliseconds as u64));
+    }
     Ok(SpikeValue::Int(0))
 }
 
