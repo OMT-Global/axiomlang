@@ -26,6 +26,7 @@ BOUNDARY_MAP: dict[str, list[str]] = {
     "dap.rs": ["compiler.services.lsp"],
     "diagnostic_catalog.rs": ["compiler.diagnostics"],
     "diagnostics.rs": ["compiler.diagnostics"],
+    "definitions.rs": ["compiler.hir"],
     "generics.rs": ["compiler.hir"],
     "hir.rs": ["compiler.hir"],
     "json_contract.rs": ["compiler.commands"],
