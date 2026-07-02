@@ -352,6 +352,35 @@ static SPIKE_UDP_SOCKETS: OnceLock<Mutex<HashMap<i64, SpikeUdpSocket>>> = OnceLo
 
 thread_local! {
     static SPIKE_STDIN: RefCell<SpikeStdin> = RefCell::new(SpikeStdin::default());
+    // Whether the current compilation is a debug build. Read while lowering
+    // sized-integer arithmetic to decide between overflow-trapping (debug) and
+    // wrapping (release) semantics.
+    static I64_DEBUG_BUILD: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+fn i64_debug_build() -> bool {
+    I64_DEBUG_BUILD.with(std::cell::Cell::get)
+}
+
+/// Signed integer bounds and display name for integer types narrower than the
+/// native i64 lowering width. `None` for i64/isize (no narrowing overflow) and
+/// non-integer types.
+fn i64_sized_signed_overflow_bounds(ty: &Type) -> Option<(i64, i64, &'static str)> {
+    match ty {
+        Type::Numeric(NumericType::I8) => Some((i64::from(i8::MIN), i64::from(i8::MAX), "i8")),
+        Type::Numeric(NumericType::I16) => Some((i64::from(i16::MIN), i64::from(i16::MAX), "i16")),
+        Type::Numeric(NumericType::I32) => Some((i64::from(i32::MIN), i64::from(i32::MAX), "i32")),
+        _ => None,
+    }
+}
+
+fn i64_arithmetic_word(op: ArithmeticOp) -> &'static str {
+    match op {
+        ArithmeticOp::Add => "addition",
+        ArithmeticOp::Sub => "subtraction",
+        ArithmeticOp::Mul => "multiplication",
+        ArithmeticOp::Div => "division",
+    }
 }
 
 pub fn compile_cranelift_hello_spike(
@@ -363,13 +392,14 @@ pub fn compile_cranelift_hello_spike(
     object_path: &Path,
     binary_path: &Path,
     target: Option<&str>,
-    _debug: bool,
+    debug: bool,
 ) -> Result<(), Diagnostic> {
     if target.is_some() {
         return Err(unsupported(
             "the cranelift backend spike currently supports only the host target",
         ));
     }
+    I64_DEBUG_BUILD.with(|flag| flag.set(debug));
     if let Some(program) = lower_i64_exit_program(program, capabilities, package_root, fs_root) {
         return axiomc_backend_cranelift::compile_i64_exit_program(
             program,
@@ -13985,6 +14015,7 @@ fn lower_i64_expr(
             })
         }
         Expr::BinaryAdd { op, lhs, rhs, ty } if is_i64_compatible_type(ty) => {
+            let arith_op = *op;
             let op = match op {
                 ArithmeticOp::Add => CraneliftI64BinaryOp::Add,
                 ArithmeticOp::Sub => CraneliftI64BinaryOp::Sub,
@@ -14007,6 +14038,22 @@ fn lower_i64_expr(
                     helper_signatures,
                     static_bindings,
                 )?),
+            };
+            // Debug builds trap on sized-integer overflow before the wrapping
+            // cast; release builds keep the wrapping behavior.
+            let expr = match i64_sized_signed_overflow_bounds(ty) {
+                Some((min, max, ty_name)) if i64_debug_build() => {
+                    CraneliftI64Expr::CheckedSignedRange {
+                        value: Box::new(expr),
+                        min,
+                        max,
+                        message: format!(
+                            "{{\"kind\":\"runtime\",\"message\":\"numeric overflow: {ty_name} {}\"}}",
+                            i64_arithmetic_word(arith_op)
+                        ),
+                    }
+                }
+                _ => expr,
             };
             lower_i64_cast_expr(expr, ty)
         }
