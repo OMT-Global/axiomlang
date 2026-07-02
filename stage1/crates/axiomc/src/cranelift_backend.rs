@@ -21135,7 +21135,25 @@ fn json_parse_string(text: &str) -> Option<String> {
                 for _ in 0..4 {
                     value = (value << 4) + chars.next()?.to_digit(16)?;
                 }
-                out.push(char::from_u32(value)?);
+                if (0xD800..=0xDBFF).contains(&value) {
+                    // High surrogate: require a `\uDC00..=\uDFFF` low surrogate
+                    // escape and combine, matching the generated-runtime JSON
+                    // contract.
+                    if chars.next()? != '\\' || chars.next()? != 'u' {
+                        return None;
+                    }
+                    let mut low = 0u32;
+                    for _ in 0..4 {
+                        low = (low << 4) + chars.next()?.to_digit(16)?;
+                    }
+                    if !(0xDC00..=0xDFFF).contains(&low) {
+                        return None;
+                    }
+                    let scalar = 0x10000 + ((value - 0xD800) << 10) + (low - 0xDC00);
+                    out.push(char::from_u32(scalar)?);
+                } else {
+                    out.push(char::from_u32(value)?);
+                }
             }
             _ => return None,
         }
@@ -21713,6 +21731,36 @@ fn json_serdes_value_variant(variant: &str, payloads: Vec<SpikeValue>) -> SpikeV
     }
 }
 
+/// Escape a std/serdes string for JSON output. Unlike `json_escape_string`,
+/// this emits ASCII-safe output: BMP characters above 0x7f become `\uxxxx`
+/// escapes and astral characters become lowercase surrogate pairs, matching
+/// the generated-runtime serdes contract.
+fn json_serdes_escape_string(value: &str) -> String {
+    let mut out = String::from("\"");
+    for ch in value.chars() {
+        match ch {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            '\u{0008}' => out.push_str("\\b"),
+            '\u{000C}' => out.push_str("\\f"),
+            ch if ch.is_control() => out.push_str(&format!("\\u{:04x}", ch as u32)),
+            ch if (ch as u32) <= 0x7f => out.push(ch),
+            ch if (ch as u32) <= 0xffff => out.push_str(&format!("\\u{:04x}", ch as u32)),
+            ch => {
+                let scalar = (ch as u32) - 0x10000;
+                let high = 0xd800 + (scalar >> 10);
+                let low = 0xdc00 + (scalar & 0x3ff);
+                out.push_str(&format!("\\u{high:04x}\\u{low:04x}"));
+            }
+        }
+    }
+    out.push('"');
+    out
+}
+
 fn json_serdes_value_to_json(value: &SpikeValue) -> Result<String, Diagnostic> {
     let SpikeValue::Enum {
         enum_name,
@@ -21735,7 +21783,7 @@ fn json_serdes_value_to_json(value: &SpikeValue) -> Result<String, Diagnostic> {
         ("Bool", [SpikeValue::Bool(value)]) => Ok(value.to_string()),
         ("Int", [SpikeValue::Int(value)]) => Ok(value.to_string()),
         ("Float", [SpikeValue::Float(value)]) => Ok(json_serdes_float_to_json(*value)),
-        ("Text", [SpikeValue::Text(value)]) => Ok(json_escape_string(value)),
+        ("Text", [SpikeValue::Text(value)]) => Ok(json_serdes_escape_string(value)),
         ("Array", [SpikeValue::Array(values)]) => {
             let rendered = values
                 .iter()
@@ -21760,7 +21808,7 @@ fn json_serdes_object_to_json(entries: &[(SpikeValue, SpikeValue)]) -> Result<St
                 key.clone(),
                 format!(
                     "{}:{}",
-                    json_escape_string(key),
+                    json_serdes_escape_string(key),
                     json_serdes_value_to_json(value)?
                 ),
             ))
