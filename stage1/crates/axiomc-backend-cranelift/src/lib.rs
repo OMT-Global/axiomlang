@@ -8,6 +8,17 @@ use cranelift_codegen::settings::{self, Configurable};
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext, Variable};
 use cranelift_module::{DataDescription, FuncId, Linkage, Module, default_libcall_names};
 use cranelift_object::{ObjectBuilder, ObjectModule};
+
+// Socket option constants (SOL_SOCKET / SO_REUSEADDR) differ between Linux and
+// the BSD-derived macOS ABI. Host-target-only builds keep codegen host == runtime host.
+#[cfg(target_os = "macos")]
+const SO_LEVEL_SOCKET: i64 = 0xffff;
+#[cfg(target_os = "macos")]
+const SO_REUSEADDR: i64 = 0x0004;
+#[cfg(not(target_os = "macos"))]
+const SO_LEVEL_SOCKET: i64 = 1;
+#[cfg(not(target_os = "macos"))]
+const SO_REUSEADDR: i64 = 2;
 use std::error::Error;
 use std::fmt;
 use std::fs;
@@ -85,6 +96,33 @@ struct I64RuntimeRefs {
     strncmp: FuncRef,
     getaddrinfo: Option<FuncRef>,
     freeaddrinfo: Option<FuncRef>,
+    sockets: Option<I64SocketRefs>,
+}
+
+/// libc socket-family imports used by runtime server lowering. Absent on
+/// targets where they are not declared (windows), in which case runtime
+/// serving statements fail to compile with a clear error.
+#[derive(Clone, Copy)]
+struct I64SocketRefs {
+    socket: FuncRef,
+    bind: FuncRef,
+    listen: FuncRef,
+    accept: FuncRef,
+    recv: FuncRef,
+    send: FuncRef,
+    setsockopt: FuncRef,
+}
+
+#[cfg(not(windows))]
+#[derive(Clone, Copy)]
+struct I64SocketFuncIds {
+    socket: FuncId,
+    bind: FuncId,
+    listen: FuncId,
+    accept: FuncId,
+    recv: FuncId,
+    send: FuncId,
+    setsockopt: FuncId,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -273,6 +311,45 @@ pub enum I64Expr {
         min: i64,
         max: i64,
         message: String,
+    },
+    /// Serve exactly one HTTP request on a loopback listener at runtime:
+    /// socket/bind/listen/accept, read the request head, write the
+    /// compile-time response bytes, close, and yield 1; any syscall failure
+    /// yields 0. The bind address and body are static, so only the socket
+    /// round-trip happens at runtime.
+    HttpServeOnce {
+        port: u16,
+        response: String,
+    },
+    /// Serve up to `max_requests` HTTP requests on a loopback listener at
+    /// runtime, returning `matched_response` for requests whose request line
+    /// matches the static route path and `unmatched_response` otherwise.
+    HttpServeRoute {
+        port: u16,
+        route_path: String,
+        matched_response: String,
+        unmatched_response: String,
+        max_requests: i64,
+    },
+    /// Open a loopback HTTP listener at runtime and yield its file descriptor,
+    /// or -1 on failure.
+    HttpServerListen {
+        port: u16,
+    },
+    /// Accept one HTTP client from a runtime listener fd and yield the client
+    /// fd, or -1 on failure.
+    HttpServerAccept {
+        server: Box<I64Expr>,
+    },
+    /// Write a complete HTTP response to a runtime client fd, close it, and
+    /// yield 1 when the send succeeds.
+    HttpResponseWrite {
+        request: Box<I64Expr>,
+        response: String,
+    },
+    /// Close a runtime listener fd and yield 1 when close succeeds.
+    HttpServerClose {
+        server: Box<I64Expr>,
     },
     Select {
         cond: Box<I64Condition>,
@@ -854,6 +931,48 @@ fn emit_i64_exit_object(
         .map_err(|message| {
             CraneliftBackendError::new(format!("declare freeaddrinfo import: {message}"))
         })?;
+    #[cfg(not(windows))]
+    let socket_ids = {
+        let mut declare = |name: &str,
+                           params: &[cranelift_codegen::ir::Type],
+                           ret: cranelift_codegen::ir::Type| {
+            let mut sig = module.make_signature();
+            for param in params {
+                sig.params.push(AbiParam::new(*param));
+            }
+            sig.returns.push(AbiParam::new(ret));
+            module
+                .declare_function(name, Linkage::Import, &sig)
+                .map_err(|message| {
+                    CraneliftBackendError::new(format!("declare {name} import: {message}"))
+                })
+        };
+        I64SocketFuncIds {
+            socket: declare("socket", &[types::I32, types::I32, types::I32], types::I32)?,
+            bind: declare("bind", &[types::I32, pointer_type, types::I32], types::I32)?,
+            listen: declare("listen", &[types::I32, types::I32], types::I32)?,
+            accept: declare(
+                "accept",
+                &[types::I32, pointer_type, pointer_type],
+                types::I32,
+            )?,
+            recv: declare(
+                "recv",
+                &[types::I32, pointer_type, pointer_type, types::I32],
+                pointer_type,
+            )?,
+            send: declare(
+                "send",
+                &[types::I32, pointer_type, pointer_type, types::I32],
+                pointer_type,
+            )?,
+            setsockopt: declare(
+                "setsockopt",
+                &[types::I32, types::I32, types::I32, pointer_type, types::I32],
+                types::I32,
+            )?,
+        }
+    };
     let output_data_ids = declare_i64_output_data(&mut module, &program)?;
     let function_ids = declare_i64_functions(&mut module, &program.functions)?;
 
@@ -889,6 +1008,7 @@ fn emit_i64_exit_object(
                 strncmp_id,
                 getaddrinfo_id,
                 freeaddrinfo_id,
+                socket_ids,
                 &output_data_ids,
                 index,
                 function,
@@ -989,6 +1109,16 @@ fn emit_i64_exit_object(
         let getaddrinfo_ref = module.declare_func_in_func(getaddrinfo_id, builder.func);
         #[cfg(not(windows))]
         let freeaddrinfo_ref = module.declare_func_in_func(freeaddrinfo_id, builder.func);
+        #[cfg(not(windows))]
+        let socket_refs = I64SocketRefs {
+            socket: module.declare_func_in_func(socket_ids.socket, builder.func),
+            bind: module.declare_func_in_func(socket_ids.bind, builder.func),
+            listen: module.declare_func_in_func(socket_ids.listen, builder.func),
+            accept: module.declare_func_in_func(socket_ids.accept, builder.func),
+            recv: module.declare_func_in_func(socket_ids.recv, builder.func),
+            send: module.declare_func_in_func(socket_ids.send, builder.func),
+            setsockopt: module.declare_func_in_func(socket_ids.setsockopt, builder.func),
+        };
         let runtime_refs = I64RuntimeRefs {
             write: write_ref,
             read: read_ref,
@@ -1028,6 +1158,16 @@ fn emit_i64_exit_object(
                 #[cfg(not(windows))]
                 {
                     Some(freeaddrinfo_ref)
+                }
+                #[cfg(windows)]
+                {
+                    None
+                }
+            },
+            sockets: {
+                #[cfg(not(windows))]
+                {
+                    Some(socket_refs)
                 }
                 #[cfg(windows)]
                 {
@@ -1263,6 +1403,7 @@ fn define_i64_function(
     strncmp_id: FuncId,
     #[cfg(not(windows))] getaddrinfo_id: FuncId,
     #[cfg(not(windows))] freeaddrinfo_id: FuncId,
+    #[cfg(not(windows))] socket_ids: I64SocketFuncIds,
     output_data_ids: &[I64OutputData],
     index: usize,
     function: &I64Function,
@@ -1330,6 +1471,16 @@ fn define_i64_function(
         let getaddrinfo_ref = module.declare_func_in_func(getaddrinfo_id, builder.func);
         #[cfg(not(windows))]
         let freeaddrinfo_ref = module.declare_func_in_func(freeaddrinfo_id, builder.func);
+        #[cfg(not(windows))]
+        let socket_refs = I64SocketRefs {
+            socket: module.declare_func_in_func(socket_ids.socket, builder.func),
+            bind: module.declare_func_in_func(socket_ids.bind, builder.func),
+            listen: module.declare_func_in_func(socket_ids.listen, builder.func),
+            accept: module.declare_func_in_func(socket_ids.accept, builder.func),
+            recv: module.declare_func_in_func(socket_ids.recv, builder.func),
+            send: module.declare_func_in_func(socket_ids.send, builder.func),
+            setsockopt: module.declare_func_in_func(socket_ids.setsockopt, builder.func),
+        };
         let runtime_refs = I64RuntimeRefs {
             write: write_ref,
             read: read_ref,
@@ -1369,6 +1520,16 @@ fn define_i64_function(
                 #[cfg(not(windows))]
                 {
                     Some(freeaddrinfo_ref)
+                }
+                #[cfg(windows)]
+                {
+                    None
+                }
+            },
+            sockets: {
+                #[cfg(not(windows))]
+                {
+                    Some(socket_refs)
                 }
                 #[cfg(windows)]
                 {
@@ -3065,6 +3226,41 @@ fn emit_i64_expr(
             let value = emit_i64_expr(builder, locals, function_refs, runtime_refs, value)?;
             emit_i64_checked_signed_range(builder, runtime_refs, value, *min, *max, message)
         }
+        I64Expr::HttpServeOnce { port, response } => {
+            emit_i64_http_serve_once(builder, runtime_refs, *port, response)
+        }
+        I64Expr::HttpServeRoute {
+            port,
+            route_path,
+            matched_response,
+            unmatched_response,
+            max_requests,
+        } => emit_i64_http_serve_route(
+            builder,
+            runtime_refs,
+            *port,
+            route_path,
+            matched_response,
+            unmatched_response,
+            *max_requests,
+        ),
+        I64Expr::HttpServerListen { port } => {
+            emit_i64_http_server_listen(builder, runtime_refs, *port)
+        }
+        I64Expr::HttpServerAccept { server } => {
+            emit_i64_http_server_accept(builder, locals, function_refs, runtime_refs, server)
+        }
+        I64Expr::HttpResponseWrite { request, response } => emit_i64_http_response_write(
+            builder,
+            locals,
+            function_refs,
+            runtime_refs,
+            request,
+            response,
+        ),
+        I64Expr::HttpServerClose { server } => {
+            emit_i64_http_server_close(builder, locals, function_refs, runtime_refs, server)
+        }
         I64Expr::Select {
             cond,
             then_result,
@@ -3079,6 +3275,732 @@ fn emit_i64_expr(
             else_result,
         ),
     }
+}
+
+fn emit_i64_http_serve_once(
+    builder: &mut FunctionBuilder<'_>,
+    runtime_refs: I64RuntimeRefs,
+    port: u16,
+    response: &str,
+) -> Result<Value, CraneliftBackendError> {
+    let sockets = runtime_refs.sockets.ok_or_else(|| {
+        CraneliftBackendError::new("runtime http serving is unavailable on this target")
+    })?;
+    let pointer_type = types::I64;
+
+    // result local (0 = failure, 1 = served one request), threaded via a
+    // stack slot so the many early-exit paths can converge on one return.
+    let result_slot =
+        builder.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 0));
+    let zero64 = builder.ins().iconst(types::I64, 0);
+    builder.ins().stack_store(zero64, result_slot, 0);
+
+    // socket(AF_INET=2, SOCK_STREAM=1, 0)
+    let af_inet = builder.ins().iconst(types::I32, 2);
+    let sock_stream = builder.ins().iconst(types::I32, 1);
+    let proto = builder.ins().iconst(types::I32, 0);
+    let call = builder
+        .ins()
+        .call(sockets.socket, &[af_inet, sock_stream, proto]);
+    let listen_fd = builder.inst_results(call)[0];
+
+    let cleanup_block = builder.create_block();
+    let done_block = builder.create_block();
+    builder.append_block_param(cleanup_block, types::I32); // fd to close (-1 = none)
+
+    let bad = builder.ins().icmp_imm(IntCC::SignedLessThan, listen_fd, 0);
+    let neg_one = builder.ins().iconst(types::I32, -1);
+    let open_block = builder.create_block();
+    builder.ins().brif(
+        bad,
+        cleanup_block,
+        &[BlockArg::Value(neg_one)],
+        open_block,
+        &[],
+    );
+
+    builder.switch_to_block(open_block);
+    builder.seal_block(open_block);
+
+    // setsockopt(fd, SOL_SOCKET=1, SO_REUSEADDR, &1, 4); ignore the result.
+    let reuse_slot =
+        builder.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 4, 0));
+    let one32 = builder.ins().iconst(types::I32, 1);
+    builder.ins().stack_store(one32, reuse_slot, 0);
+    let reuse_ptr = builder.ins().stack_addr(pointer_type, reuse_slot, 0);
+    let sol_socket = builder.ins().iconst(types::I32, SO_LEVEL_SOCKET);
+    let so_reuseaddr = builder.ins().iconst(types::I32, SO_REUSEADDR);
+    let optlen = builder.ins().iconst(types::I32, 4);
+    builder.ins().call(
+        sockets.setsockopt,
+        &[listen_fd, sol_socket, so_reuseaddr, reuse_ptr, optlen],
+    );
+
+    // Build sockaddr_in (16 bytes) on the stack.
+    let addr_slot =
+        builder.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 16, 0));
+    let mut bytes = [0u8; 16];
+    // Family field differs by platform ABI. Host-target-only builds mean the
+    // codegen host OS is also the runtime OS.
+    #[cfg(target_os = "macos")]
+    {
+        bytes[0] = 16; // sin_len
+        bytes[1] = 2; // AF_INET
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        bytes[0] = 2; // AF_INET low byte (little-endian u16)
+        bytes[1] = 0;
+    }
+    // sin_port in network byte order (big-endian).
+    bytes[2] = (port >> 8) as u8;
+    bytes[3] = (port & 0xff) as u8;
+    // sin_addr = 127.0.0.1 in network byte order.
+    bytes[4] = 127;
+    bytes[5] = 0;
+    bytes[6] = 0;
+    bytes[7] = 1;
+    for (offset, byte) in bytes.iter().enumerate() {
+        let value = builder.ins().iconst(types::I8, i64::from(*byte));
+        builder.ins().stack_store(value, addr_slot, offset as i32);
+    }
+    let addr_ptr = builder.ins().stack_addr(pointer_type, addr_slot, 0);
+
+    // bind(fd, &addr, 16)
+    let addr_len = builder.ins().iconst(types::I32, 16);
+    let call = builder
+        .ins()
+        .call(sockets.bind, &[listen_fd, addr_ptr, addr_len]);
+    let bind_rc = builder.inst_results(call)[0];
+    let bad = builder.ins().icmp_imm(IntCC::SignedLessThan, bind_rc, 0);
+    let bound_block = builder.create_block();
+    builder.ins().brif(
+        bad,
+        cleanup_block,
+        &[BlockArg::Value(listen_fd)],
+        bound_block,
+        &[],
+    );
+
+    builder.switch_to_block(bound_block);
+    builder.seal_block(bound_block);
+
+    // listen(fd, 1)
+    let backlog = builder.ins().iconst(types::I32, 1);
+    let call = builder.ins().call(sockets.listen, &[listen_fd, backlog]);
+    let listen_rc = builder.inst_results(call)[0];
+    let bad = builder.ins().icmp_imm(IntCC::SignedLessThan, listen_rc, 0);
+    let listening_block = builder.create_block();
+    builder.ins().brif(
+        bad,
+        cleanup_block,
+        &[BlockArg::Value(listen_fd)],
+        listening_block,
+        &[],
+    );
+
+    builder.switch_to_block(listening_block);
+    builder.seal_block(listening_block);
+
+    // accept(fd, NULL, NULL)
+    let null_ptr = builder.ins().iconst(pointer_type, 0);
+    let call = builder
+        .ins()
+        .call(sockets.accept, &[listen_fd, null_ptr, null_ptr]);
+    let client_fd = builder.inst_results(call)[0];
+    let bad = builder.ins().icmp_imm(IntCC::SignedLessThan, client_fd, 0);
+    let accepted_block = builder.create_block();
+    builder.ins().brif(
+        bad,
+        cleanup_block,
+        &[BlockArg::Value(listen_fd)],
+        accepted_block,
+        &[],
+    );
+
+    builder.switch_to_block(accepted_block);
+    builder.seal_block(accepted_block);
+
+    // recv(client, scratch, 1024, 0) -- drain the request head; ignore result.
+    let scratch =
+        builder.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 1024, 0));
+    let scratch_ptr = builder.ins().stack_addr(pointer_type, scratch, 0);
+    let scratch_len = builder.ins().iconst(pointer_type, 1024);
+    let flags = builder.ins().iconst(types::I32, 0);
+    builder
+        .ins()
+        .call(sockets.recv, &[client_fd, scratch_ptr, scratch_len, flags]);
+
+    // send(client, response, response_len, 0)
+    let response_bytes = response.as_bytes();
+    let response_len_u32 = u32::try_from(response_bytes.len())
+        .map_err(|_| CraneliftBackendError::new("http response is too large"))?;
+    let response_slot = builder.create_sized_stack_slot(StackSlotData::new(
+        StackSlotKind::ExplicitSlot,
+        response_len_u32,
+        0,
+    ));
+    for (offset, byte) in response_bytes.iter().enumerate() {
+        let value = builder.ins().iconst(types::I8, i64::from(*byte));
+        builder
+            .ins()
+            .stack_store(value, response_slot, offset as i32);
+    }
+    let response_ptr = builder.ins().stack_addr(pointer_type, response_slot, 0);
+    let response_len = builder
+        .ins()
+        .iconst(pointer_type, i64::from(response_len_u32));
+    let flags = builder.ins().iconst(types::I32, 0);
+    builder.ins().call(
+        sockets.send,
+        &[client_fd, response_ptr, response_len, flags],
+    );
+
+    // Served one request: close client, mark success, close listener via cleanup.
+    builder.ins().call(runtime_refs.close, &[client_fd]);
+    let one64 = builder.ins().iconst(types::I64, 1);
+    builder.ins().stack_store(one64, result_slot, 0);
+    builder
+        .ins()
+        .jump(cleanup_block, &[BlockArg::Value(listen_fd)]);
+
+    // cleanup(fd): close fd if >= 0, then return the result local.
+    builder.switch_to_block(cleanup_block);
+    builder.seal_block(cleanup_block);
+    let fd = builder.block_params(cleanup_block)[0];
+    let has_fd = builder
+        .ins()
+        .icmp_imm(IntCC::SignedGreaterThanOrEqual, fd, 0);
+    let close_block = builder.create_block();
+    builder
+        .ins()
+        .brif(has_fd, close_block, &[], done_block, &[]);
+    builder.switch_to_block(close_block);
+    builder.seal_block(close_block);
+    builder.ins().call(runtime_refs.close, &[fd]);
+    builder.ins().jump(done_block, &[]);
+
+    builder.switch_to_block(done_block);
+    builder.seal_block(done_block);
+    Ok(builder.ins().stack_load(types::I64, result_slot, 0))
+}
+
+fn emit_i64_http_serve_route(
+    builder: &mut FunctionBuilder<'_>,
+    runtime_refs: I64RuntimeRefs,
+    port: u16,
+    route_path: &str,
+    matched_response: &str,
+    unmatched_response: &str,
+    max_requests: i64,
+) -> Result<Value, CraneliftBackendError> {
+    if max_requests <= 0 {
+        return Ok(builder.ins().iconst(types::I64, 0));
+    }
+    let sockets = runtime_refs.sockets.ok_or_else(|| {
+        CraneliftBackendError::new("runtime http serving is unavailable on this target")
+    })?;
+    let pointer_type = types::I64;
+
+    let route_prefix = format!("GET {route_path} ");
+    let (route_prefix_ptr, route_prefix_len) =
+        emit_i64_static_bytes(builder, route_prefix.as_bytes())?;
+    let (matched_ptr, matched_len) = emit_i64_static_bytes(builder, matched_response.as_bytes())?;
+    let (unmatched_ptr, unmatched_len) =
+        emit_i64_static_bytes(builder, unmatched_response.as_bytes())?;
+
+    let result_slot =
+        builder.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 0));
+    let zero64 = builder.ins().iconst(types::I64, 0);
+    builder.ins().stack_store(zero64, result_slot, 0);
+
+    let af_inet = builder.ins().iconst(types::I32, 2);
+    let sock_stream = builder.ins().iconst(types::I32, 1);
+    let proto = builder.ins().iconst(types::I32, 0);
+    let call = builder
+        .ins()
+        .call(sockets.socket, &[af_inet, sock_stream, proto]);
+    let listen_fd = builder.inst_results(call)[0];
+
+    let cleanup_block = builder.create_block();
+    let done_block = builder.create_block();
+    builder.append_block_param(cleanup_block, types::I32);
+
+    let bad = builder.ins().icmp_imm(IntCC::SignedLessThan, listen_fd, 0);
+    let neg_one = builder.ins().iconst(types::I32, -1);
+    let open_block = builder.create_block();
+    builder.ins().brif(
+        bad,
+        cleanup_block,
+        &[BlockArg::Value(neg_one)],
+        open_block,
+        &[],
+    );
+
+    builder.switch_to_block(open_block);
+    builder.seal_block(open_block);
+
+    let reuse_slot =
+        builder.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 4, 0));
+    let one32 = builder.ins().iconst(types::I32, 1);
+    builder.ins().stack_store(one32, reuse_slot, 0);
+    let reuse_ptr = builder.ins().stack_addr(pointer_type, reuse_slot, 0);
+    let sol_socket = builder.ins().iconst(types::I32, SO_LEVEL_SOCKET);
+    let so_reuseaddr = builder.ins().iconst(types::I32, SO_REUSEADDR);
+    let optlen = builder.ins().iconst(types::I32, 4);
+    builder.ins().call(
+        sockets.setsockopt,
+        &[listen_fd, sol_socket, so_reuseaddr, reuse_ptr, optlen],
+    );
+
+    let addr_slot =
+        builder.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 16, 0));
+    let mut bytes = [0u8; 16];
+    #[cfg(target_os = "macos")]
+    {
+        bytes[0] = 16;
+        bytes[1] = 2;
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        bytes[0] = 2;
+        bytes[1] = 0;
+    }
+    bytes[2] = (port >> 8) as u8;
+    bytes[3] = (port & 0xff) as u8;
+    bytes[4] = 127;
+    bytes[5] = 0;
+    bytes[6] = 0;
+    bytes[7] = 1;
+    for (offset, byte) in bytes.iter().enumerate() {
+        let value = builder.ins().iconst(types::I8, i64::from(*byte));
+        builder.ins().stack_store(value, addr_slot, offset as i32);
+    }
+    let addr_ptr = builder.ins().stack_addr(pointer_type, addr_slot, 0);
+    let addr_len = builder.ins().iconst(types::I32, 16);
+    let call = builder
+        .ins()
+        .call(sockets.bind, &[listen_fd, addr_ptr, addr_len]);
+    let bind_rc = builder.inst_results(call)[0];
+    let bad = builder.ins().icmp_imm(IntCC::SignedLessThan, bind_rc, 0);
+    let bound_block = builder.create_block();
+    builder.ins().brif(
+        bad,
+        cleanup_block,
+        &[BlockArg::Value(listen_fd)],
+        bound_block,
+        &[],
+    );
+
+    builder.switch_to_block(bound_block);
+    builder.seal_block(bound_block);
+
+    let backlog = builder.ins().iconst(types::I32, 16);
+    let call = builder.ins().call(sockets.listen, &[listen_fd, backlog]);
+    let listen_rc = builder.inst_results(call)[0];
+    let bad = builder.ins().icmp_imm(IntCC::SignedLessThan, listen_rc, 0);
+    let loop_block = builder.create_block();
+    builder.append_block_param(loop_block, types::I64);
+    let listening_block = builder.create_block();
+    builder.ins().brif(
+        bad,
+        cleanup_block,
+        &[BlockArg::Value(listen_fd)],
+        listening_block,
+        &[],
+    );
+
+    builder.switch_to_block(listening_block);
+    builder.seal_block(listening_block);
+    builder.ins().jump(loop_block, &[BlockArg::Value(zero64)]);
+
+    builder.switch_to_block(loop_block);
+    let served_count = builder.block_params(loop_block)[0];
+    let max_value = builder.ins().iconst(types::I64, max_requests);
+    let should_accept = builder
+        .ins()
+        .icmp(IntCC::SignedLessThan, served_count, max_value);
+    let accept_block = builder.create_block();
+    let success_block = builder.create_block();
+    builder
+        .ins()
+        .brif(should_accept, accept_block, &[], success_block, &[]);
+
+    builder.switch_to_block(success_block);
+    builder.seal_block(success_block);
+    let one64 = builder.ins().iconst(types::I64, 1);
+    builder.ins().stack_store(one64, result_slot, 0);
+    builder
+        .ins()
+        .jump(cleanup_block, &[BlockArg::Value(listen_fd)]);
+
+    builder.switch_to_block(accept_block);
+    builder.seal_block(accept_block);
+    let null_ptr = builder.ins().iconst(pointer_type, 0);
+    let call = builder
+        .ins()
+        .call(sockets.accept, &[listen_fd, null_ptr, null_ptr]);
+    let client_fd = builder.inst_results(call)[0];
+    let bad = builder.ins().icmp_imm(IntCC::SignedLessThan, client_fd, 0);
+    let accepted_block = builder.create_block();
+    builder.ins().brif(
+        bad,
+        cleanup_block,
+        &[BlockArg::Value(listen_fd)],
+        accepted_block,
+        &[],
+    );
+
+    builder.switch_to_block(accepted_block);
+    builder.seal_block(accepted_block);
+    let scratch =
+        builder.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 1024, 0));
+    let scratch_ptr = builder.ins().stack_addr(pointer_type, scratch, 0);
+    let scratch_len = builder.ins().iconst(pointer_type, 1024);
+    let flags = builder.ins().iconst(types::I32, 0);
+    builder
+        .ins()
+        .call(sockets.recv, &[client_fd, scratch_ptr, scratch_len, flags]);
+
+    let compare = builder.ins().call(
+        runtime_refs.strncmp,
+        &[scratch_ptr, route_prefix_ptr, route_prefix_len],
+    );
+    let compare_result = builder.inst_results(compare)[0];
+    let route_matches = builder.ins().icmp_imm(IntCC::Equal, compare_result, 0);
+    let response_ptr = builder
+        .ins()
+        .select(route_matches, matched_ptr, unmatched_ptr);
+    let response_len = builder
+        .ins()
+        .select(route_matches, matched_len, unmatched_len);
+    let flags = builder.ins().iconst(types::I32, 0);
+    builder.ins().call(
+        sockets.send,
+        &[client_fd, response_ptr, response_len, flags],
+    );
+    builder.ins().call(runtime_refs.close, &[client_fd]);
+    let next_count = builder.ins().iadd_imm(served_count, 1);
+    builder
+        .ins()
+        .jump(loop_block, &[BlockArg::Value(next_count)]);
+    builder.seal_block(loop_block);
+
+    builder.switch_to_block(cleanup_block);
+    builder.seal_block(cleanup_block);
+    let fd = builder.block_params(cleanup_block)[0];
+    let has_fd = builder
+        .ins()
+        .icmp_imm(IntCC::SignedGreaterThanOrEqual, fd, 0);
+    let close_block = builder.create_block();
+    builder
+        .ins()
+        .brif(has_fd, close_block, &[], done_block, &[]);
+    builder.switch_to_block(close_block);
+    builder.seal_block(close_block);
+    builder.ins().call(runtime_refs.close, &[fd]);
+    builder.ins().jump(done_block, &[]);
+
+    builder.switch_to_block(done_block);
+    builder.seal_block(done_block);
+    Ok(builder.ins().stack_load(types::I64, result_slot, 0))
+}
+
+fn emit_i64_http_server_listen(
+    builder: &mut FunctionBuilder<'_>,
+    runtime_refs: I64RuntimeRefs,
+    port: u16,
+) -> Result<Value, CraneliftBackendError> {
+    let sockets = runtime_refs.sockets.ok_or_else(|| {
+        CraneliftBackendError::new("runtime http serving is unavailable on this target")
+    })?;
+    let pointer_type = types::I64;
+
+    let result_slot =
+        builder.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 0));
+    let neg_one64 = builder.ins().iconst(types::I64, -1);
+    builder.ins().stack_store(neg_one64, result_slot, 0);
+
+    let af_inet = builder.ins().iconst(types::I32, 2);
+    let sock_stream = builder.ins().iconst(types::I32, 1);
+    let proto = builder.ins().iconst(types::I32, 0);
+    let call = builder
+        .ins()
+        .call(sockets.socket, &[af_inet, sock_stream, proto]);
+    let listen_fd = builder.inst_results(call)[0];
+
+    let cleanup_block = builder.create_block();
+    let done_block = builder.create_block();
+    builder.append_block_param(cleanup_block, types::I32);
+
+    let bad = builder.ins().icmp_imm(IntCC::SignedLessThan, listen_fd, 0);
+    let neg_one = builder.ins().iconst(types::I32, -1);
+    let open_block = builder.create_block();
+    builder.ins().brif(
+        bad,
+        cleanup_block,
+        &[BlockArg::Value(neg_one)],
+        open_block,
+        &[],
+    );
+
+    builder.switch_to_block(open_block);
+    builder.seal_block(open_block);
+
+    let reuse_slot =
+        builder.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 4, 0));
+    let one32 = builder.ins().iconst(types::I32, 1);
+    builder.ins().stack_store(one32, reuse_slot, 0);
+    let reuse_ptr = builder.ins().stack_addr(pointer_type, reuse_slot, 0);
+    let sol_socket = builder.ins().iconst(types::I32, SO_LEVEL_SOCKET);
+    let so_reuseaddr = builder.ins().iconst(types::I32, SO_REUSEADDR);
+    let optlen = builder.ins().iconst(types::I32, 4);
+    builder.ins().call(
+        sockets.setsockopt,
+        &[listen_fd, sol_socket, so_reuseaddr, reuse_ptr, optlen],
+    );
+
+    let addr_slot =
+        builder.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 16, 0));
+    let mut bytes = [0u8; 16];
+    #[cfg(target_os = "macos")]
+    {
+        bytes[0] = 16;
+        bytes[1] = 2;
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        bytes[0] = 2;
+        bytes[1] = 0;
+    }
+    bytes[2] = (port >> 8) as u8;
+    bytes[3] = (port & 0xff) as u8;
+    bytes[4] = 127;
+    bytes[5] = 0;
+    bytes[6] = 0;
+    bytes[7] = 1;
+    for (offset, byte) in bytes.iter().enumerate() {
+        let value = builder.ins().iconst(types::I8, i64::from(*byte));
+        builder.ins().stack_store(value, addr_slot, offset as i32);
+    }
+    let addr_ptr = builder.ins().stack_addr(pointer_type, addr_slot, 0);
+    let addr_len = builder.ins().iconst(types::I32, 16);
+    let call = builder
+        .ins()
+        .call(sockets.bind, &[listen_fd, addr_ptr, addr_len]);
+    let bind_rc = builder.inst_results(call)[0];
+    let bad = builder.ins().icmp_imm(IntCC::SignedLessThan, bind_rc, 0);
+    let bound_block = builder.create_block();
+    builder.ins().brif(
+        bad,
+        cleanup_block,
+        &[BlockArg::Value(listen_fd)],
+        bound_block,
+        &[],
+    );
+
+    builder.switch_to_block(bound_block);
+    builder.seal_block(bound_block);
+
+    let backlog = builder.ins().iconst(types::I32, 16);
+    let call = builder.ins().call(sockets.listen, &[listen_fd, backlog]);
+    let listen_rc = builder.inst_results(call)[0];
+    let bad = builder.ins().icmp_imm(IntCC::SignedLessThan, listen_rc, 0);
+    let listening_block = builder.create_block();
+    builder.ins().brif(
+        bad,
+        cleanup_block,
+        &[BlockArg::Value(listen_fd)],
+        listening_block,
+        &[],
+    );
+
+    builder.switch_to_block(listening_block);
+    builder.seal_block(listening_block);
+    let fd64 = builder.ins().sextend(types::I64, listen_fd);
+    builder.ins().stack_store(fd64, result_slot, 0);
+    builder.ins().jump(done_block, &[]);
+
+    builder.switch_to_block(cleanup_block);
+    builder.seal_block(cleanup_block);
+    let fd = builder.block_params(cleanup_block)[0];
+    let has_fd = builder
+        .ins()
+        .icmp_imm(IntCC::SignedGreaterThanOrEqual, fd, 0);
+    let close_block = builder.create_block();
+    builder
+        .ins()
+        .brif(has_fd, close_block, &[], done_block, &[]);
+    builder.switch_to_block(close_block);
+    builder.seal_block(close_block);
+    builder.ins().call(runtime_refs.close, &[fd]);
+    builder.ins().jump(done_block, &[]);
+
+    builder.switch_to_block(done_block);
+    builder.seal_block(done_block);
+    Ok(builder.ins().stack_load(types::I64, result_slot, 0))
+}
+
+fn emit_i64_http_server_accept(
+    builder: &mut FunctionBuilder<'_>,
+    locals: &[Variable],
+    function_refs: &[FuncRef],
+    runtime_refs: I64RuntimeRefs,
+    server: &I64Expr,
+) -> Result<Value, CraneliftBackendError> {
+    let sockets = runtime_refs.sockets.ok_or_else(|| {
+        CraneliftBackendError::new("runtime http serving is unavailable on this target")
+    })?;
+    let pointer_type = types::I64;
+    let server = emit_i64_expr(builder, locals, function_refs, runtime_refs, server)?;
+    let bad = builder.ins().icmp_imm(IntCC::SignedLessThan, server, 0);
+    let accept_block = builder.create_block();
+    let done_block = builder.create_block();
+    builder.append_block_param(done_block, types::I64);
+    let neg_one = builder.ins().iconst(types::I64, -1);
+    builder.ins().brif(
+        bad,
+        done_block,
+        &[BlockArg::Value(neg_one)],
+        accept_block,
+        &[],
+    );
+
+    builder.switch_to_block(accept_block);
+    builder.seal_block(accept_block);
+    let fd = builder.ins().ireduce(types::I32, server);
+    let null_ptr = builder.ins().iconst(pointer_type, 0);
+    let call = builder
+        .ins()
+        .call(sockets.accept, &[fd, null_ptr, null_ptr]);
+    let client_fd = builder.inst_results(call)[0];
+    let client_fd64 = builder.ins().sextend(types::I64, client_fd);
+    builder
+        .ins()
+        .jump(done_block, &[BlockArg::Value(client_fd64)]);
+
+    builder.switch_to_block(done_block);
+    builder.seal_block(done_block);
+    Ok(builder.block_params(done_block)[0])
+}
+
+fn emit_i64_http_response_write(
+    builder: &mut FunctionBuilder<'_>,
+    locals: &[Variable],
+    function_refs: &[FuncRef],
+    runtime_refs: I64RuntimeRefs,
+    request: &I64Expr,
+    response: &str,
+) -> Result<Value, CraneliftBackendError> {
+    let sockets = runtime_refs.sockets.ok_or_else(|| {
+        CraneliftBackendError::new("runtime http serving is unavailable on this target")
+    })?;
+    let pointer_type = types::I64;
+    let request = emit_i64_expr(builder, locals, function_refs, runtime_refs, request)?;
+    let bad = builder.ins().icmp_imm(IntCC::SignedLessThan, request, 0);
+    let send_block = builder.create_block();
+    let done_block = builder.create_block();
+    builder.append_block_param(done_block, types::I64);
+    let zero64 = builder.ins().iconst(types::I64, 0);
+    builder
+        .ins()
+        .brif(bad, done_block, &[BlockArg::Value(zero64)], send_block, &[]);
+
+    builder.switch_to_block(send_block);
+    builder.seal_block(send_block);
+    let fd = builder.ins().ireduce(types::I32, request);
+    let response_bytes = response.as_bytes();
+    let response_len_u32 = u32::try_from(response_bytes.len())
+        .map_err(|_| CraneliftBackendError::new("http response is too large"))?;
+    let response_slot = builder.create_sized_stack_slot(StackSlotData::new(
+        StackSlotKind::ExplicitSlot,
+        response_len_u32.max(1),
+        0,
+    ));
+    for (offset, byte) in response_bytes.iter().enumerate() {
+        let value = builder.ins().iconst(types::I8, i64::from(*byte));
+        builder
+            .ins()
+            .stack_store(value, response_slot, offset as i32);
+    }
+    let response_ptr = builder.ins().stack_addr(pointer_type, response_slot, 0);
+    let response_len = builder
+        .ins()
+        .iconst(pointer_type, i64::from(response_len_u32));
+    let flags = builder.ins().iconst(types::I32, 0);
+    let call = builder
+        .ins()
+        .call(sockets.send, &[fd, response_ptr, response_len, flags]);
+    let sent = builder.inst_results(call)[0];
+    builder.ins().call(runtime_refs.close, &[fd]);
+    let ok = builder
+        .ins()
+        .icmp_imm(IntCC::SignedGreaterThanOrEqual, sent, 0);
+    let one64 = builder.ins().iconst(types::I64, 1);
+    let result = builder.ins().select(ok, one64, zero64);
+    builder.ins().jump(done_block, &[BlockArg::Value(result)]);
+
+    builder.switch_to_block(done_block);
+    builder.seal_block(done_block);
+    Ok(builder.block_params(done_block)[0])
+}
+
+fn emit_i64_http_server_close(
+    builder: &mut FunctionBuilder<'_>,
+    locals: &[Variable],
+    function_refs: &[FuncRef],
+    runtime_refs: I64RuntimeRefs,
+    server: &I64Expr,
+) -> Result<Value, CraneliftBackendError> {
+    let server = emit_i64_expr(builder, locals, function_refs, runtime_refs, server)?;
+    let bad = builder.ins().icmp_imm(IntCC::SignedLessThan, server, 0);
+    let close_block = builder.create_block();
+    let done_block = builder.create_block();
+    builder.append_block_param(done_block, types::I64);
+    let zero64 = builder.ins().iconst(types::I64, 0);
+    builder.ins().brif(
+        bad,
+        done_block,
+        &[BlockArg::Value(zero64)],
+        close_block,
+        &[],
+    );
+
+    builder.switch_to_block(close_block);
+    builder.seal_block(close_block);
+    let fd = builder.ins().ireduce(types::I32, server);
+    let call = builder.ins().call(runtime_refs.close, &[fd]);
+    let close_rc = builder.inst_results(call)[0];
+    let ok = builder
+        .ins()
+        .icmp_imm(IntCC::SignedGreaterThanOrEqual, close_rc, 0);
+    let one64 = builder.ins().iconst(types::I64, 1);
+    let result = builder.ins().select(ok, one64, zero64);
+    builder.ins().jump(done_block, &[BlockArg::Value(result)]);
+
+    builder.switch_to_block(done_block);
+    builder.seal_block(done_block);
+    Ok(builder.block_params(done_block)[0])
+}
+
+fn emit_i64_static_bytes(
+    builder: &mut FunctionBuilder<'_>,
+    bytes: &[u8],
+) -> Result<(Value, Value), CraneliftBackendError> {
+    let len = u32::try_from(bytes.len())
+        .map_err(|_| CraneliftBackendError::new("static byte buffer is too large"))?;
+    let slot = builder.create_sized_stack_slot(StackSlotData::new(
+        StackSlotKind::ExplicitSlot,
+        len.max(1),
+        0,
+    ));
+    for (offset, byte) in bytes.iter().enumerate() {
+        let value = builder.ins().iconst(types::I8, i64::from(*byte));
+        builder.ins().stack_store(value, slot, offset as i32);
+    }
+    let ptr = builder.ins().stack_addr(types::I64, slot, 0);
+    let len = builder.ins().iconst(types::I64, i64::from(len));
+    Ok((ptr, len))
 }
 
 fn emit_i64_checked_signed_range(
