@@ -173,12 +173,10 @@ jobs:
       - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable pinned 2026-04-19
 
       - name: Run full axiomc lib suite
-        # The #1255 blocking lane: the full lib suite must be green. Serving
-        # tests blocked on direct-native runtime serving are #[ignore]d against
-        # issue #1287 (recorded in docs/rust-exit-full-lib-triage.json), and
-        # environment-gated cases self-skip, so this passes on shell-only
-        # runners without false reds.
-        run: RUST_MIN_STACK=8388608 cargo test --manifest-path stage1/Cargo.toml -p axiomc --lib --features run-native-tests
+        # The #1255 blocking lane: the full lib suite must be green. Tests
+        # that require unavailable local capabilities self-skip so shell-only
+        # runners do not produce false reds.
+        run: RUST_MIN_STACK=8388608 cargo test --manifest-path stage1/Cargo.toml -p axiomc --lib --features run-native-tests -- --test-threads=1
 
   validate-pr-description:
     name: Validate PR Description
