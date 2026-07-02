@@ -1317,7 +1317,7 @@ fn main() {
             }
             Err(error) => print_error("registry-serve", error, false),
         },
-        Command::Lsp => match lsp::run_stdio(io::stdin().lock(), io::stdout()) {
+        Command::Lsp => match lsp::serve_stdio(io::stdin().lock(), io::stdout()) {
             Ok(()) => 0,
             Err(error) => print_error("lsp", error, false),
         },
