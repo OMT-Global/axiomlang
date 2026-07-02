@@ -4,6 +4,7 @@ use crate::manifest::{
     LOCK_FILENAME, MANIFEST_FILENAME, capability_descriptors, load_manifest, manifest_path,
 };
 use serde::{Deserialize, Serialize};
+use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::fs;
 use std::io::{Read, Write};
@@ -80,10 +81,17 @@ pub struct RegistryServeOutput {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct RegistryHttpResponse {
+struct RegistryServeContext {
+    packages_root: PathBuf,
+    index: RegistryIndex,
+    index_body: Vec<u8>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct RegistryHttpResponse<'a> {
     status: &'static str,
     content_type: &'static str,
-    body: Vec<u8>,
+    body: Cow<'a, [u8]>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -727,12 +735,30 @@ pub fn render_registry_index(
     signing_key: &str,
 ) -> Result<String, Diagnostic> {
     let index = build_registry_index(packages_root, base_url, signing_key)?;
-    serde_json::to_string_pretty(&index).map_err(|err| {
+    render_registry_index_json(&index)
+}
+
+fn render_registry_index_json(index: &RegistryIndex) -> Result<String, Diagnostic> {
+    serde_json::to_string_pretty(index).map_err(|err| {
         Diagnostic::new(
             "registry",
             format!("failed to render registry index: {err}"),
         )
     })
+}
+
+impl RegistryServeContext {
+    fn new(packages_root: &Path, base_url: &str, signing_key: &str) -> Result<Self, Diagnostic> {
+        // The hosted registry is a static snapshot: startup validates the whole
+        // registry once, and requests serve that validated view.
+        let index = build_registry_index(packages_root, base_url, signing_key)?;
+        let index_body = render_registry_index_json(&index)?.into_bytes();
+        Ok(Self {
+            packages_root: packages_root.to_path_buf(),
+            index,
+            index_body,
+        })
+    }
 }
 
 pub fn load_registry_index(path: &Path) -> Result<RegistryIndex, Diagnostic> {
@@ -769,7 +795,7 @@ pub fn serve_registry(
         .base_url
         .clone()
         .unwrap_or_else(|| format!("http://{addr}"));
-    build_registry_index(packages_root, &base_url, &options.signing_key)?;
+    let context = RegistryServeContext::new(packages_root, &base_url, &options.signing_key)?;
 
     eprintln!(
         "serving registry {} at {}",
@@ -785,7 +811,7 @@ pub fn serve_registry(
                 format!("failed to accept registry request: {err}"),
             )
         })?;
-        serve_registry_stream(packages_root, &base_url, &options.signing_key, &mut stream)?;
+        serve_registry_stream(&context, &mut stream)?;
         requests += 1;
         if options.once {
             break;
@@ -800,9 +826,7 @@ pub fn serve_registry(
 }
 
 fn serve_registry_stream(
-    packages_root: &Path,
-    base_url: &str,
-    signing_key: &str,
+    context: &RegistryServeContext,
     stream: &mut TcpStream,
 ) -> Result<(), Diagnostic> {
     let mut buffer = [0u8; 16 * 1024];
@@ -813,16 +837,14 @@ fn serve_registry_stream(
         )
     })?;
     let request = String::from_utf8_lossy(&buffer[..len]);
-    let response = registry_http_response(packages_root, base_url, signing_key, &request)?;
+    let response = registry_http_response(context, &request)?;
     write_registry_http_response(stream, &response)
 }
 
-fn registry_http_response(
-    packages_root: &Path,
-    base_url: &str,
-    signing_key: &str,
+fn registry_http_response<'a>(
+    context: &'a RegistryServeContext,
     request: &str,
-) -> Result<RegistryHttpResponse, Diagnostic> {
+) -> Result<RegistryHttpResponse<'a>, Diagnostic> {
     let Some(request_line) = request.lines().next() else {
         return Ok(registry_http_error("400 Bad Request", "empty request"));
     };
@@ -843,33 +865,30 @@ fn registry_http_response(
         return Ok(RegistryHttpResponse {
             status: "405 Method Not Allowed",
             content_type: "text/plain; charset=utf-8",
-            body: b"method not allowed\n".to_vec(),
+            body: Cow::Borrowed(b"method not allowed\n"),
         });
     }
 
     let target = target.split('?').next().unwrap_or(target);
     let mut response = if target == "/" || target == "/index.json" {
-        let index = render_registry_index(packages_root, base_url, signing_key)?;
         RegistryHttpResponse {
             status: "200 OK",
             content_type: "application/json",
-            body: index.into_bytes(),
+            body: Cow::Borrowed(&context.index_body),
         }
     } else {
-        registry_release_file_response(packages_root, base_url, signing_key, target)?
+        registry_release_file_response(context, target)?
     };
     if method == "HEAD" {
-        response.body.clear();
+        response.body = Cow::Borrowed(b"");
     }
     Ok(response)
 }
 
-fn registry_release_file_response(
-    packages_root: &Path,
-    base_url: &str,
-    signing_key: &str,
+fn registry_release_file_response<'a>(
+    context: &'a RegistryServeContext,
     target: &str,
-) -> Result<RegistryHttpResponse, Diagnostic> {
+) -> Result<RegistryHttpResponse<'a>, Diagnostic> {
     let Some(relative) = target.strip_prefix('/') else {
         return Ok(registry_http_error(
             "400 Bad Request",
@@ -907,8 +926,8 @@ fn registry_release_file_response(
             ));
         }
     };
-    let index = build_registry_index(packages_root, base_url, signing_key)?;
-    let Some(release) = index
+    let Some(release) = context
+        .index
         .packages
         .get(&package)
         .and_then(|releases| releases.iter().find(|release| release.version == version))
@@ -920,12 +939,16 @@ fn registry_release_file_response(
         return Ok(registry_http_error("404 Not Found", "not found"));
     }
 
-    let path = packages_root.join(&package).join(&version).join(&file);
-    let body = read_registry_artifact(packages_root, &path)?;
+    let path = context
+        .packages_root
+        .join(&package)
+        .join(&version)
+        .join(&file);
+    let body = read_registry_artifact(&context.packages_root, &path)?;
     Ok(RegistryHttpResponse {
         status: "200 OK",
         content_type: registry_content_type(&file),
-        body,
+        body: Cow::Owned(body),
     })
 }
 
@@ -1016,17 +1039,17 @@ fn registry_content_type(file: &str) -> &'static str {
     }
 }
 
-fn registry_http_error(status: &'static str, message: &str) -> RegistryHttpResponse {
+fn registry_http_error(status: &'static str, message: &str) -> RegistryHttpResponse<'static> {
     RegistryHttpResponse {
         status,
         content_type: "text/plain; charset=utf-8",
-        body: format!("{message}\n").into_bytes(),
+        body: Cow::Owned(format!("{message}\n").into_bytes()),
     }
 }
 
 fn write_registry_http_response(
     stream: &mut TcpStream,
-    response: &RegistryHttpResponse,
+    response: &RegistryHttpResponse<'_>,
 ) -> Result<(), Diagnostic> {
     write!(
         stream,
@@ -1711,13 +1734,11 @@ mod tests {
         #[cfg(windows)]
         std::os::windows::fs::symlink_file(&outside, &lock_path).expect("create symlink");
 
-        let error = registry_http_response(
-            &registry,
-            "https://packages.example.test",
-            "test-key",
-            "GET /core/1.0.0/axiom.lock HTTP/1.1\r\n\r\n",
-        )
-        .expect_err("symlinked lockfile should not be served");
+        let context =
+            RegistryServeContext::new(&registry, "https://packages.example.test", "test-key")
+                .expect("build serve context");
+        let error = registry_http_response(&context, "GET /core/1.0.0/axiom.lock HTTP/1.1\r\n\r\n")
+            .expect_err("symlinked lockfile should not be served");
 
         assert_eq!(error.kind, "registry");
         assert!(error.message.contains("symlinked registry artifact"));
@@ -2095,25 +2116,23 @@ mod tests {
         )
         .expect("write registry metadata");
 
+        let context = RegistryServeContext::new(&registry, "http://registry.test", "dev-key")
+            .expect("build serve context");
         let index = registry_http_response(
-            &registry,
-            "http://registry.test",
-            "dev-key",
+            &context,
             "GET /index.json HTTP/1.1\r\nHost: registry.test\r\n\r\n",
         )
         .expect("index response");
         assert_eq!(index.status, "200 OK");
         assert_eq!(index.content_type, "application/json");
-        let index_text = String::from_utf8(index.body).expect("utf8 index");
+        let index_text = String::from_utf8(index.body.into_owned()).expect("utf8 index");
         assert!(index_text.contains("\"core\""));
         assert!(index_text.contains("\"yanked\": true"));
         assert!(index_text.contains("\"yank_reason\": \"superseded\""));
         assert!(index_text.contains("http://registry.test/core/1.0.0/package.axp"));
 
         let archive = registry_http_response(
-            &registry,
-            "http://registry.test",
-            "dev-key",
+            &context,
             "GET /core/1.0.0/package.axp HTTP/1.1\r\nHost: registry.test\r\n\r\n",
         )
         .expect("archive response");
@@ -2137,10 +2156,10 @@ mod tests {
         )
         .expect("publish package");
 
+        let context = RegistryServeContext::new(&registry, "http://registry.test", "dev-key")
+            .expect("build serve context");
         let traversal = registry_http_response(
-            &registry,
-            "http://registry.test",
-            "dev-key",
+            &context,
             "GET /core/../package.axp HTTP/1.1\r\nHost: registry.test\r\n\r\n",
         )
         .expect("traversal response");
@@ -2148,12 +2167,50 @@ mod tests {
         assert!(String::from_utf8_lossy(&traversal.body).contains("unsafe version"));
 
         let metadata = registry_http_response(
-            &registry,
-            "http://registry.test",
-            "dev-key",
+            &context,
             "GET /core/1.0.0/axiom-registry.toml HTTP/1.1\r\nHost: registry.test\r\n\r\n",
         )
         .expect("metadata response");
         assert_eq!(metadata.status, "404 Not Found");
+    }
+
+    #[test]
+    fn hosted_registry_serves_startup_snapshot_after_signature_drift() {
+        let dir = tempdir().expect("tempdir");
+        let project = write_publishable_project(dir.path(), "core", "1.0.0");
+        let registry = dir.path().join("registry");
+        publish_package(
+            &project,
+            &registry,
+            &PublishOptions {
+                signing_key: Some(String::from("dev-key")),
+                allow_overwrite: false,
+            },
+        )
+        .expect("publish package");
+        let context = RegistryServeContext::new(&registry, "http://registry.test", "dev-key")
+            .expect("build serve context");
+
+        fs::write(
+            registry.join("core").join("1.0.0").join("package.axp.sig"),
+            "corrupted after startup\n",
+        )
+        .expect("corrupt signature");
+
+        let index = registry_http_response(
+            &context,
+            "GET /index.json HTTP/1.1\r\nHost: registry.test\r\n\r\n",
+        )
+        .expect("index response");
+        assert_eq!(index.status, "200 OK");
+        assert!(String::from_utf8_lossy(&index.body).contains("\"core\""));
+
+        let archive = registry_http_response(
+            &context,
+            "GET /core/1.0.0/package.axp HTTP/1.1\r\nHost: registry.test\r\n\r\n",
+        )
+        .expect("archive response");
+        assert_eq!(archive.status, "200 OK");
+        assert!(archive.body.starts_with(b"AXIOM_PACKAGE_ARCHIVE_V1\n"));
     }
 }
