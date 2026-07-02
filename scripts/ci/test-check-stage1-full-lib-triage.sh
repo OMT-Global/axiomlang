@@ -16,8 +16,35 @@ report = json.load(open(sys.argv[1], encoding="utf-8"))
 assert report["schema"] == "axiom.stage1.full_lib_triage.v1"
 assert report["triaged"] is True
 assert report["ready"] is False
-assert report["summary"]["failure_count"] == 1
+assert report["summary"]["failure_count"] == 15
+assert report["summary"]["categories"]["stale_generated_rust_expectation"] >= 1
+assert report["summary"]["categories"]["direct_native_contract"] >= 1
 assert report["summary"]["categories"]["environment_gated"] >= 1
+PY
+
+python3 - "$manifest" "$temp_dir/env-only.json" <<'PY'
+import json
+import sys
+
+payload = json.load(open(sys.argv[1], encoding="utf-8"))
+env_row = next(
+    failure for failure in payload["failures"]
+    if failure["category"] == "environment_gated"
+)
+payload["failures"] = [env_row]
+payload["expectedFailureCount"] = 1
+payload["resolutionTracking"]["statuses"]["open"] = 1
+json.dump(payload, open(sys.argv[2], "w", encoding="utf-8"))
+PY
+python3 "$script" --manifest "$temp_dir/env-only.json" --json >"$temp_dir/env-only-report.json"
+python3 - "$temp_dir/env-only-report.json" <<'PY'
+import json
+import sys
+
+report = json.load(open(sys.argv[1], encoding="utf-8"))
+assert report["triaged"] is True
+assert report["summary"]["failure_count"] == 1
+assert report["summary"]["categories"] == {"environment_gated": 1}
 PY
 
 python3 - "$manifest" "$temp_dir/bad-count.json" <<'PY'
