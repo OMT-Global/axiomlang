@@ -593,7 +593,7 @@ fn lower_i64_top_level_output_program(
         .iter()
         .map(|function| (function.name.clone(), function.clone()))
         .collect();
-    let fs_shim_wrappers = static_bindings.fs_shim_wrappers.clone();
+    let fs_shim_wrappers = &static_bindings.fs_shim_wrappers;
     let helper_functions = program
         .functions
         .iter()
@@ -1202,27 +1202,27 @@ fn lower_i64_exit_program(
         .filter(|function| function.name != main.name)
         .map(|function| (function.name.clone(), function.clone()))
         .collect();
-    let process_status_wrappers = static_bindings.process_status_wrappers.clone();
-    let env_get_wrappers = static_bindings.env_get_wrappers.clone();
-    let time_wrappers = static_bindings.time_wrappers.clone();
-    let fs_shim_wrappers = static_bindings.fs_shim_wrappers.clone();
-    let net_shim_wrappers = static_bindings.net_shim_wrappers.clone();
-    let http_shim_wrappers = static_bindings.http_shim_wrappers.clone();
-    let collection_wrappers = static_bindings.collection_wrappers.clone();
-    let regex_wrappers = static_bindings.regex_wrappers.clone();
-    let encoding_wrappers = static_bindings.encoding_wrappers.clone();
-    let json_wrappers = static_bindings.json_wrappers.clone();
-    let log_wrappers = static_bindings.log_wrappers.clone();
-    let string_builder_wrappers = static_bindings.string_builder_wrappers.clone();
-    let crypto_wrappers = static_bindings.crypto_wrappers.clone();
-    let ffi_strlen_symbols = static_bindings.ffi_strlen_symbols.clone();
-    let sync_once_wrappers = static_bindings.sync_once_wrappers.clone();
-    let sync_once_with_wrappers = static_bindings.sync_once_with_wrappers.clone();
-    let sync_once_is_set_wrappers = static_bindings.sync_once_is_set_wrappers.clone();
-    let sync_once_take_wrappers = static_bindings.sync_once_take_wrappers.clone();
-    let sync_channel_wrappers = static_bindings.sync_channel_wrappers.clone();
-    let sync_send_wrappers = static_bindings.sync_send_wrappers.clone();
-    let sync_try_recv_wrappers = static_bindings.sync_try_recv_wrappers.clone();
+    let process_status_wrappers = &static_bindings.process_status_wrappers;
+    let env_get_wrappers = &static_bindings.env_get_wrappers;
+    let time_wrappers = &static_bindings.time_wrappers;
+    let fs_shim_wrappers = &static_bindings.fs_shim_wrappers;
+    let net_shim_wrappers = &static_bindings.net_shim_wrappers;
+    let http_shim_wrappers = &static_bindings.http_shim_wrappers;
+    let collection_wrappers = &static_bindings.collection_wrappers;
+    let regex_wrappers = &static_bindings.regex_wrappers;
+    let encoding_wrappers = &static_bindings.encoding_wrappers;
+    let json_wrappers = &static_bindings.json_wrappers;
+    let log_wrappers = &static_bindings.log_wrappers;
+    let string_builder_wrappers = &static_bindings.string_builder_wrappers;
+    let crypto_wrappers = &static_bindings.crypto_wrappers;
+    let ffi_strlen_symbols = &static_bindings.ffi_strlen_symbols;
+    let sync_once_wrappers = &static_bindings.sync_once_wrappers;
+    let sync_once_with_wrappers = &static_bindings.sync_once_with_wrappers;
+    let sync_once_is_set_wrappers = &static_bindings.sync_once_is_set_wrappers;
+    let sync_once_take_wrappers = &static_bindings.sync_once_take_wrappers;
+    let sync_channel_wrappers = &static_bindings.sync_channel_wrappers;
+    let sync_send_wrappers = &static_bindings.sync_send_wrappers;
+    let sync_try_recv_wrappers = &static_bindings.sync_try_recv_wrappers;
     let helper_functions = program
         .functions
         .iter()
