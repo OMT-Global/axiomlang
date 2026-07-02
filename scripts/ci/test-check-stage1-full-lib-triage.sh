@@ -15,11 +15,10 @@ import sys
 report = json.load(open(sys.argv[1], encoding="utf-8"))
 assert report["schema"] == "axiom.stage1.full_lib_triage.v1"
 assert report["triaged"] is True
-assert report["ready"] is False
-assert report["summary"]["failure_count"] == 15
-assert report["summary"]["categories"]["stale_generated_rust_expectation"] >= 1
-assert report["summary"]["categories"]["direct_native_contract"] >= 1
-assert report["summary"]["categories"]["environment_gated"] >= 1
+assert report["ready"] is True
+assert report["summary"]["failure_count"] == 0
+assert report["summary"]["categories"] == {}
+assert report["summary"]["resolutions"] == {}
 PY
 
 python3 - "$manifest" "$temp_dir/env-only.json" <<'PY'
@@ -27,11 +26,15 @@ import json
 import sys
 
 payload = json.load(open(sys.argv[1], encoding="utf-8"))
-env_row = next(
-    failure for failure in payload["failures"]
-    if failure["category"] == "environment_gated"
-)
-payload["failures"] = [env_row]
+payload["status"] = "blocked"
+payload["failures"] = [{
+    "name": "tests::synthetic_environment_gated_case",
+    "category": "environment_gated",
+    "resolution": "environment_gate",
+    "blockerIssue": 1255,
+    "rationale": "Synthetic row proves environment-gated manifests stay valid while failures remain separated.",
+    "resolutionStatus": "open",
+}]
 payload["expectedFailureCount"] = 1
 payload["resolutionTracking"]["statuses"]["open"] = 1
 json.dump(payload, open(sys.argv[2], "w", encoding="utf-8"))
@@ -65,10 +68,16 @@ import json
 import sys
 
 payload = json.load(open(sys.argv[1], encoding="utf-8"))
-for failure in payload["failures"]:
-    if failure["category"] == "environment_gated":
-        failure["resolution"] = "update_direct_native_contract"
-        break
+payload["status"] = "blocked"
+payload["expectedFailureCount"] = 1
+payload["failures"] = [{
+    "name": "tests::synthetic_environment_gated_case",
+    "category": "environment_gated",
+    "resolution": "update_direct_native_contract",
+    "blockerIssue": 1255,
+    "rationale": "Synthetic row intentionally mismatches an environment-gated resolution.",
+    "resolutionStatus": "open",
+}]
 json.dump(payload, open(sys.argv[2], "w", encoding="utf-8"))
 PY
 if python3 "$script" --manifest "$temp_dir/bad-env.json" >/tmp/axiom-bad-env.out 2>&1; then
@@ -81,7 +90,16 @@ import json
 import sys
 
 payload = json.load(open(sys.argv[1], encoding="utf-8"))
-payload["failures"] = [payload["failures"][0], dict(payload["failures"][0])]
+payload["status"] = "blocked"
+failure = {
+    "name": "tests::synthetic_duplicate_case",
+    "category": "direct_native_contract",
+    "resolution": "update_direct_native_contract",
+    "blockerIssue": 1255,
+    "rationale": "Synthetic row proves duplicate names are rejected.",
+    "resolutionStatus": "open",
+}
+payload["failures"] = [failure, dict(failure)]
 payload["expectedFailureCount"] = 2
 json.dump(payload, open(sys.argv[2], "w", encoding="utf-8"))
 PY
