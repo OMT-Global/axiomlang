@@ -46,16 +46,17 @@ class CompilerSourceMonolithTests(unittest.TestCase):
             write_lines(hir_dir / "generics.rs", 2)
             write_lines(hir_dir / "definitions.rs", 1)
             write_lines(hir_dir / "model.rs", 1)
+            write_lines(hir_dir / "signatures.rs", 1)
             write_lines(hir_dir / "types.rs", 1)
 
-            report = compiler_source_monoliths.build_report(source_root, top=6)
+            report = compiler_source_monoliths.build_report(source_root, top=7)
 
         self.assertEqual(report["schema_version"], "axiom.compiler_source.monoliths.v0")
         self.assertEqual(report["collected_at"], "2026-06-21T10:00:00Z")
-        self.assertEqual(report["summary"]["total_files"], 6)
-        self.assertEqual(report["summary"]["total_lines"], 13)
+        self.assertEqual(report["summary"]["total_files"], 7)
+        self.assertEqual(report["summary"]["total_lines"], 14)
         self.assertEqual(report["summary"]["largest_file_lines"], 5)
-        self.assertEqual(report["summary"]["top_file_lines"], 13)
+        self.assertEqual(report["summary"]["top_file_lines"], 14)
         self.assertEqual(report["summary"]["top_file_line_share"], 1.0)
         self.assertEqual(report["top_files"][0]["package_boundaries"], ["compiler.backend.native"])
         self.assertEqual(report["top_files"][1]["package_boundaries"], ["compiler.hir"])
@@ -63,6 +64,7 @@ class CompilerSourceMonolithTests(unittest.TestCase):
         self.assertEqual(report["top_files"][3]["package_boundaries"], ["compiler.hir"])
         self.assertEqual(report["top_files"][4]["package_boundaries"], ["compiler.hir"])
         self.assertEqual(report["top_files"][5]["package_boundaries"], ["compiler.hir"])
+        self.assertEqual(report["top_files"][6]["package_boundaries"], ["compiler.hir"])
 
     def test_check_plan_requires_top_file_and_boundary_mentions(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
