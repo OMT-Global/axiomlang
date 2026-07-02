@@ -41,6 +41,7 @@ BOUNDARY_MAP: dict[str, list[str]] = {
     "registry.rs": ["compiler.package_graph"],
     "stdlib.rs": ["compiler.stdlib"],
     "syntax.rs": ["compiler.syntax", "compiler.diagnostics"],
+    "types.rs": ["compiler.hir"],
 }
 
 
