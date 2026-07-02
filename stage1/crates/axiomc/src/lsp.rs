@@ -3,31 +3,59 @@ use crate::hir;
 use crate::manifest::CapabilityConfig;
 use crate::mir;
 use crate::syntax;
-use axiom_lsp::{DocumentAnalyzer, LspResponse};
 use serde_json::{Value, json};
 use std::io::{BufRead, Write};
 use std::path::{Path, PathBuf};
 
-struct CompilerAnalyzer;
+const TEXT_DOCUMENT_SYNC_KIND_FULL: u8 = 1;
 
-impl DocumentAnalyzer for CompilerAnalyzer {
-    fn publish_diagnostics(&self, uri: &str, source: &str) -> Value {
-        publish_diagnostics(uri, source)
-    }
+#[derive(Debug, Clone, PartialEq)]
+pub struct LspResponse {
+    pub messages: Vec<Value>,
+    pub exit: bool,
 }
 
-pub fn run_stdio<R, W>(input: R, output: W) -> Result<(), Diagnostic>
+pub fn serve_stdio<R, W>(mut input: R, mut output: W) -> Result<(), Diagnostic>
 where
     R: BufRead,
     W: Write,
 {
-    axiom_lsp::run_stdio::<_, _, _, String>(input, output, &CompilerAnalyzer)
-        .map_err(|message| Diagnostic::new("lsp", message))
+    while let Some(message) = read_message(&mut input)? {
+        let response = handle_message(&message)?;
+        for payload in response.messages {
+            write_message(&mut output, &payload)?;
+        }
+        output
+            .flush()
+            .map_err(|err| Diagnostic::new("lsp", format!("failed to flush LSP output: {err}")))?;
+        if response.exit {
+            break;
+        }
+    }
+    Ok(())
 }
 
 pub fn handle_message(payload: &str) -> Result<LspResponse, Diagnostic> {
-    axiom_lsp::handle_message::<_, String>(payload, &CompilerAnalyzer)
-        .map_err(|message| Diagnostic::new("lsp", message))
+    let value: Value = serde_json::from_str(payload)
+        .map_err(|err| Diagnostic::new("lsp", format!("invalid JSON-RPC payload: {err}")))?;
+    let method = value.get("method").and_then(Value::as_str);
+    let id = value.get("id").cloned();
+    let messages = match method {
+        Some("initialize") => id.map(initialize_response).into_iter().collect(),
+        Some("shutdown") => id.map(empty_response).into_iter().collect(),
+        Some("textDocument/didOpen") => did_open_diagnostics(&value).into_iter().collect(),
+        Some("textDocument/didChange") => did_change_diagnostics(&value).into_iter().collect(),
+        Some("initialized") | Some("exit") => Vec::new(),
+        Some(other) => id
+            .map(|request_id| unsupported_method_response(request_id, other))
+            .into_iter()
+            .collect(),
+        None => Vec::new(),
+    };
+    Ok(LspResponse {
+        messages,
+        exit: matches!(method, Some("exit")),
+    })
 }
 
 pub fn publish_diagnostics(uri: &str, source: &str) -> Value {
@@ -43,6 +71,91 @@ pub fn publish_diagnostics(uri: &str, source: &str) -> Value {
             "diagnostics": diagnostics
         }
     })
+}
+
+fn initialize_response(id: Value) -> Value {
+    json!({
+        "jsonrpc": "2.0",
+        "id": id,
+        "result": {
+            "serverInfo": { "name": "axiom-analyzer", "version": env!("CARGO_PKG_VERSION") },
+            "capabilities": { "textDocumentSync": { "openClose": true, "change": TEXT_DOCUMENT_SYNC_KIND_FULL } }
+        }
+    })
+}
+
+fn empty_response(id: Value) -> Value {
+    json!({ "jsonrpc": "2.0", "id": id, "result": null })
+}
+
+fn unsupported_method_response(id: Value, method: &str) -> Value {
+    json!({ "jsonrpc": "2.0", "id": id, "error": { "code": -32601, "message": format!("unsupported method {method:?}") } })
+}
+
+fn did_open_diagnostics(message: &Value) -> Option<Value> {
+    let document = message.get("params")?.get("textDocument")?;
+    let uri = document.get("uri")?.as_str()?;
+    let text = document.get("text")?.as_str()?;
+    Some(publish_diagnostics(uri, text))
+}
+
+fn did_change_diagnostics(message: &Value) -> Option<Value> {
+    let params = message.get("params")?;
+    let uri = params.get("textDocument")?.get("uri")?.as_str()?;
+    let change = params.get("contentChanges")?.as_array()?.first()?;
+    if change.get("range").is_some() {
+        return None;
+    }
+    let text = change.get("text")?.as_str()?;
+    Some(publish_diagnostics(uri, text))
+}
+
+fn read_message<R>(input: &mut R) -> Result<Option<String>, Diagnostic>
+where
+    R: BufRead,
+{
+    let mut content_length = None;
+    loop {
+        let mut line = String::new();
+        let bytes = input
+            .read_line(&mut line)
+            .map_err(|err| Diagnostic::new("lsp", format!("failed to read LSP header: {err}")))?;
+        if bytes == 0 {
+            return Ok(None);
+        }
+        let trimmed = line.trim_end_matches(['\r', '\n']);
+        if trimmed.is_empty() {
+            break;
+        }
+        if let Some((name, value)) = trimmed.split_once(':') {
+            if !name.trim().eq_ignore_ascii_case("Content-Length") {
+                continue;
+            }
+            content_length = Some(value.trim().parse::<usize>().map_err(|err| {
+                Diagnostic::new("lsp", format!("invalid Content-Length header: {err}"))
+            })?);
+        }
+    }
+
+    let length = content_length
+        .ok_or_else(|| Diagnostic::new("lsp", "missing Content-Length header in LSP message"))?;
+    let mut body = vec![0; length];
+    input
+        .read_exact(&mut body)
+        .map_err(|err| Diagnostic::new("lsp", format!("failed to read LSP body: {err}")))?;
+    String::from_utf8(body)
+        .map(Some)
+        .map_err(|err| Diagnostic::new("lsp", format!("LSP body is not UTF-8: {err}")))
+}
+
+fn write_message<W>(output: &mut W, payload: &Value) -> Result<(), Diagnostic>
+where
+    W: Write,
+{
+    let body = serde_json::to_string(payload)
+        .map_err(|err| Diagnostic::new("lsp", format!("failed to serialize LSP message: {err}")))?;
+    write!(output, "Content-Length: {}\r\n\r\n{}", body.len(), body)
+        .map_err(|err| Diagnostic::new("lsp", format!("failed to write LSP message: {err}")))
 }
 
 pub fn analyze_source(uri: &str, source: &str) -> Vec<Diagnostic> {
@@ -171,7 +284,7 @@ mod tests {
         );
         assert_eq!(
             response.messages[0]["result"]["capabilities"]["textDocumentSync"]["change"],
-            json!(axiom_lsp::TEXT_DOCUMENT_SYNC_KIND_FULL)
+            json!(TEXT_DOCUMENT_SYNC_KIND_FULL)
         );
     }
 
@@ -384,7 +497,7 @@ mod tests {
         let input = format!("Content-Length: {}\r\n\r\n{}", body.len(), body);
         let mut output = Vec::new();
 
-        run_stdio(std::io::Cursor::new(input.into_bytes()), &mut output).expect("run stdio");
+        serve_stdio(std::io::Cursor::new(input.into_bytes()), &mut output).expect("run stdio");
 
         let output = String::from_utf8(output).expect("utf8 output");
         assert!(output.starts_with("Content-Length: "));
@@ -398,7 +511,7 @@ mod tests {
         let input = format!("content-length: {}\r\n\r\n{}", body.len(), body);
         let mut output = Vec::new();
 
-        run_stdio(std::io::Cursor::new(input.into_bytes()), &mut output).expect("run stdio");
+        serve_stdio(std::io::Cursor::new(input.into_bytes()), &mut output).expect("run stdio");
 
         let output = String::from_utf8(output).expect("utf8 output");
         assert!(output.starts_with("Content-Length: "));
