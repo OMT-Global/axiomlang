@@ -35,6 +35,7 @@ BOUNDARY_MAP: dict[str, list[str]] = {
     "main.rs": ["compiler.commands"],
     "manifest.rs": ["compiler.package_graph"],
     "mir.rs": ["compiler.mir"],
+    "model.rs": ["compiler.hir"],
     "new_project.rs": ["compiler.commands"],
     "project.rs": ["compiler.package_graph", "compiler.commands", "compiler.evidence"],
     "registry.rs": ["compiler.package_graph"],

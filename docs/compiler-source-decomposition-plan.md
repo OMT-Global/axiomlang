@@ -43,7 +43,9 @@ The `lib.rs` test-module extraction lowered the absolute top-seven source line
 count. It also raised the top-seven share because test code left
 `stage1/crates/axiomc/src`, reducing the source denominator. The HIR generic
 analysis extraction then split generic inference and monomorphization into a
-tracked `compiler.hir` module, lowering both absolute top-file lines and share.
+tracked `compiler.hir` module. The HIR model extraction then moved public HIR
+types and type-display helpers into `stage1/crates/axiomc/src/hir/model.rs`,
+lowering both absolute top-file lines and share.
 
 ## Current Top Files
 
@@ -52,7 +54,7 @@ Snapshot from 2026-07-02:
 | Rank | Current Rust file | Lines | Target package boundary | First extraction slice |
 | ---: | --- | ---: | --- | --- |
 | 1 | `stage1/crates/axiomc/src/cranelift_backend.rs` | 27,994 | `compiler.backend.native` | Split direct-native lowering by runtime ABI groups: scalar/aggregate value features, capability shims, host imports, object emission, unsupported diagnostics, and evidence helpers. |
-| 2 | `stage1/crates/axiomc/src/hir.rs` | 12,720 | `compiler.hir` | Generic inference and monomorphization now live in `stage1/crates/axiomc/src/hir/generics.rs`; next split name resolution, type checking, capability analysis, ownership/borrow validation, property clauses, and HIR diagnostics behind the package APIs in `docs/compiler-hir-ownership-capability.md`. |
+| 2 | `stage1/crates/axiomc/src/hir.rs` | 12,117 | `compiler.hir` | Generic inference and monomorphization now live in `stage1/crates/axiomc/src/hir/generics.rs`; public HIR model types now live in `stage1/crates/axiomc/src/hir/model.rs`; next split name resolution, type checking, capability analysis, ownership/borrow validation, property clauses, and HIR diagnostics behind the package APIs in `docs/compiler-hir-ownership-capability.md`. |
 | 3 | `stage1/crates/axiomc/src/project.rs` | 10,812 | `compiler.package_graph`, `compiler.commands`, `compiler.evidence` | Split manifest/workspace loading, command orchestration, provenance/debug records, and build artifact planning along package ownership. |
 | 4 | `stage1/crates/axiomc/src/main.rs` | 10,678 | `compiler.commands` | Move command parsing, JSON envelope construction, check/build/run/test/doc/trace orchestration, and exit handling behind `docs/compiler-command-lsp-packages.md` APIs. |
 | 5 | `stage1/crates/axiomc/src/codegen.rs` | 7,804 | `compiler.backend.generated_rust`, `compiler.backend.contracts` | Isolate generated-Rust compatibility emission from backend target selection and unsupported-feature contracts. |
@@ -69,15 +71,16 @@ matching ceiling in this table in the same PR.
 
 | Tracked item | Ceiling |
 | --- | ---: |
-| `summary.top_file_line_share` | 0.9059 |
-| `summary.top_file_lines` | 80537 |
+| `summary.top_file_line_share` | 0.8979 |
+| `summary.top_file_lines` | 79934 |
 | `stage1/crates/axiomc/src/cranelift_backend.rs` | 27994 |
-| `stage1/crates/axiomc/src/hir.rs` | 12720 |
+| `stage1/crates/axiomc/src/hir.rs` | 12117 |
 | `stage1/crates/axiomc/src/project.rs` | 10812 |
 | `stage1/crates/axiomc/src/main.rs` | 10678 |
 | `stage1/crates/axiomc/src/codegen.rs` | 7804 |
 | `stage1/crates/axiomc/src/syntax.rs` | 6324 |
 | `stage1/crates/axiomc/src/hir/generics.rs` | 4205 |
+| `stage1/crates/axiomc/src/hir/model.rs` | 607 |
 | `stage1/crates/axiomc/src/registry.rs` | 2159 |
 | `stage1/crates/axiomc/src/lib.rs` | 21 |
 
@@ -89,9 +92,9 @@ matching ceiling in this table in the same PR.
 2. `compiler.backend.contracts`: move target selection and unsupported-feature
    contracts out of generated-Rust code before the final generated-Rust removal
    gate.
-3. `compiler.hir`: generic inference/monomorphization is split; continue with
-   resolution, typing, capability, ownership, and property checks in that order
-   so diagnostics stay stable.
+3. `compiler.hir`: generic inference/monomorphization and public HIR model
+   types are split; continue with resolution, typing, capability, ownership,
+   and property checks in that order so diagnostics stay stable.
 4. `compiler.commands` and `compiler.package_graph`: separate command envelopes
    from package loading so the snapshot bootstrap can invoke package APIs
    without Cargo assumptions.
