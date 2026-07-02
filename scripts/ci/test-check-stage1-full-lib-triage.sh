@@ -22,6 +22,31 @@ assert report["summary"]["categories"]["direct_native_contract"] >= 1
 assert report["summary"]["categories"]["environment_gated"] >= 1
 PY
 
+python3 - "$manifest" "$temp_dir/env-only.json" <<'PY'
+import json
+import sys
+
+payload = json.load(open(sys.argv[1], encoding="utf-8"))
+env_row = next(
+    failure for failure in payload["failures"]
+    if failure["category"] == "environment_gated"
+)
+payload["failures"] = [env_row]
+payload["expectedFailureCount"] = 1
+payload["resolutionTracking"]["statuses"]["open"] = 1
+json.dump(payload, open(sys.argv[2], "w", encoding="utf-8"))
+PY
+python3 "$script" --manifest "$temp_dir/env-only.json" --json >"$temp_dir/env-only-report.json"
+python3 - "$temp_dir/env-only-report.json" <<'PY'
+import json
+import sys
+
+report = json.load(open(sys.argv[1], encoding="utf-8"))
+assert report["triaged"] is True
+assert report["summary"]["failure_count"] == 1
+assert report["summary"]["categories"] == {"environment_gated": 1}
+PY
+
 python3 - "$manifest" "$temp_dir/bad-count.json" <<'PY'
 import json
 import sys
@@ -56,7 +81,8 @@ import json
 import sys
 
 payload = json.load(open(sys.argv[1], encoding="utf-8"))
-payload["failures"][1]["name"] = payload["failures"][0]["name"]
+payload["failures"] = [payload["failures"][0], dict(payload["failures"][0])]
+payload["expectedFailureCount"] = 2
 json.dump(payload, open(sys.argv[2], "w", encoding="utf-8"))
 PY
 if python3 "$script" --manifest "$temp_dir/duplicate.json" >/tmp/axiom-duplicate.out 2>&1; then
