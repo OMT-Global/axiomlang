@@ -6251,7 +6251,7 @@ net = { hosts = ["127.0.0.1"], ports = [8080] }
         .expect("write test");
         fs::write(
             project.join("src/main_test.stdout"),
-            "fs ok\n\nfalse\n7\nba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad\ntrue\nnone\n",
+            "fs ok\n\ntrue\n7\nba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad\ntrue\nnone\n",
         )
         .expect("write golden");
 
@@ -6261,7 +6261,7 @@ net = { hosts = ["127.0.0.1"], ports = [8080] }
             .expect("run compiled binary");
         assert_eq!(
             String::from_utf8_lossy(&output.stdout),
-            "fs ok\n\nfalse\n7\nba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad\ntrue\nnone\n"
+            "fs ok\n\ntrue\n7\nba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad\ntrue\nnone\n"
         );
 
         let tests = run_project_tests(&project).expect("run tests");

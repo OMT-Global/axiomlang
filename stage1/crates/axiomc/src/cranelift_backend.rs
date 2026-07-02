@@ -24967,9 +24967,31 @@ fn eval_process_status_call(
         "/usr/bin/false" => 1,
         "__axiom_stage1_missing_binary__" => -1,
         _ => {
-            return Err(unsupported(
-                "process_status spike only permits allowlisted deterministic commands",
-            ));
+            // Beyond the deterministic sentinels, only programs owned by the
+            // package itself may run: the command must canonicalize inside the
+            // package root, mirroring the filesystem scope model. System paths
+            // outside the package stay rejected so compile-time folding cannot
+            // execute arbitrary host binaries.
+            let (package_root, _) = spike_fs_scope(env)?;
+            let package_local = std::fs::canonicalize(&package_root)
+                .ok()
+                .zip(std::fs::canonicalize(&command).ok())
+                .filter(|(root, candidate)| candidate.starts_with(root))
+                .map(|(_, candidate)| candidate);
+            let Some(candidate) = package_local else {
+                return Err(unsupported(
+                    "process_status spike only permits allowlisted deterministic commands or package-local programs",
+                ));
+            };
+            // Run the package-local program, mirroring the generated runtime's
+            // process contract (exit code, or -1 when the process cannot spawn
+            // or is signal-terminated).
+            std::process::Command::new(candidate)
+                .status()
+                .ok()
+                .and_then(|status| status.code())
+                .map(i64::from)
+                .unwrap_or(-1)
         }
     };
     Ok(SpikeValue::Int(status))
