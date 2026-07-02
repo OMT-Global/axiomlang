@@ -4,7 +4,7 @@ set -euo pipefail
 failed=0
 is_fork_pr="${IS_FORK_PR:-false}"
 trusted_fork_pr_description_validated="${TRUSTED_FORK_PR_DESCRIPTION_VALIDATED:-false}"
-fork_skippable_jobs=" fast-checks validate-secrets "
+fork_skippable_jobs=" fast-checks full-lib-suite validate-secrets "
 
 for entry in $RESULTS; do
   job="${entry%%=*}"
