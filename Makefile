@@ -31,7 +31,7 @@ rust-exit-readiness-test:
 	bash scripts/ci/test-check-rust-exit-readiness.sh
 
 stage1-compiler-source-monoliths:
-	python3 scripts/ci/report-compiler-source-monoliths.py --json --check-plan
+	python3 scripts/ci/report-compiler-source-monoliths.py --json --check-plan --check-ratchet
 
 stage1-compiler-source-monoliths-test:
 	python3 scripts/ci/test-report-compiler-source-monoliths.py
