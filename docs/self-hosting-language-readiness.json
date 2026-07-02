@@ -1,0 +1,146 @@
+{
+  "schemaVersion": 1,
+  "schema": "axiom.self_hosting.language_readiness.v0",
+  "rewriteIssue": 565,
+  "finalBootstrapIssue": 721,
+  "rows": [
+    {
+      "id": "error_handling_try",
+      "group": "error handling",
+      "requirement": "Compiler code can propagate recoverable Option and Result failures without backend-specific exceptions.",
+      "governingIssue": 1256,
+      "status": "implemented",
+      "directNativeStatus": "implemented",
+      "evidence": [
+        "docs/stage1.md",
+        "stage1/conformance/pass/outcome_control_flow/axiom.toml",
+        "stage1/conformance/fail/result_ok_without_context/axiom.toml",
+        "stage1/crates/axiomc/tests/cranelift_backend.rs"
+      ],
+      "validatingCommand": "make stage1-conformance && cargo test --manifest-path stage1/Cargo.toml -p axiomc --test cranelift_backend cranelift_backend_lowers_nested_result_match_to_runtime_exit_code -- --nocapture",
+      "notes": "Postfix ? and Option/Result payload behavior are documented and covered by conformance plus direct-native backend tests."
+    },
+    {
+      "id": "compiler_data_shapes",
+      "group": "data structures",
+      "requirement": "Compiler code can model scalar values, tuples, arrays, maps, structs, enums, Option and Result payloads, and ownership-sensitive aggregate movement.",
+      "governingIssue": 1251,
+      "status": "implemented",
+      "directNativeStatus": "implemented",
+      "evidence": [
+        "stage1/conformance/pass/type_system_aggregates/axiom.toml",
+        "stage1/conformance/pass/typed_match_expressions/axiom.toml",
+        "stage1/conformance/pass/ownership_borrowing/axiom.toml",
+        "stage1/conformance/fail/ownership_use_after_move/axiom.toml",
+        "stage1/crates/axiomc/tests/cranelift_backend.rs"
+      ],
+      "validatingCommand": "make stage1-conformance && cargo test --manifest-path stage1/Cargo.toml -p axiomc --test cranelift_backend cranelift_backend_lowers_result_struct_payload_match_to_runtime_exit_code -- --nocapture",
+      "notes": "This is sufficient for the current checklist row; larger compiler-scale data structure use is tracked separately by the compiler rewrite row."
+    },
+    {
+      "id": "generics_traits_static_dispatch",
+      "group": "abstraction",
+      "requirement": "Compiler support libraries can use explicit generics and static trait-bounded dispatch where a compiler package needs reusable typed helpers.",
+      "governingIssue": 216,
+      "status": "implemented",
+      "directNativeStatus": "implemented",
+      "evidence": [
+        "docs/grammar.md",
+        "docs/rfcs/0001-traits-bounded-generics.md",
+        "stage1/conformance/pass/trait_multibound/axiom.toml",
+        "stage1/conformance/pass/trait_bounded_aggregate/axiom.toml",
+        "stage1/conformance/fail/dyn_trait_not_supported/axiom.toml"
+      ],
+      "validatingCommand": "make stage1-conformance",
+      "notes": "Static bounded generics are in scope; dynamic dispatch remains intentionally outside this readiness row."
+    },
+    {
+      "id": "strings_diagnostics_and_text",
+      "group": "text processing",
+      "requirement": "Compiler code can build strings, inspect textual input, format diagnostics, and use deterministic JSON and regex helpers without host-language escapes.",
+      "governingIssue": 1256,
+      "status": "implemented",
+      "directNativeStatus": "implemented",
+      "evidence": [
+        "stage1/examples/stdlib_string_builder/axiom.toml",
+        "stage1/examples/stdlib_json/axiom.toml",
+        "stage1/examples/stdlib_json_value/axiom.toml",
+        "stage1/examples/stdlib_regex/axiom.toml",
+        "stage1/examples/stdlib_log/axiom.toml"
+      ],
+      "validatingCommand": "make stage1-stdlib-smoke && make stage1-direct-native-example-smoke",
+      "notes": "This row covers the text tooling needed for lexer, parser, diagnostics, and machine-readable reports."
+    },
+    {
+      "id": "host_io_capabilities",
+      "group": "host interaction",
+      "requirement": "Compiler command code can access scoped files, environment, clocks, process status, loopback networking, crypto, JSON, and regex through capability-gated AxiOM stdlib surfaces.",
+      "governingIssue": 1251,
+      "status": "implemented",
+      "directNativeStatus": "implemented",
+      "evidence": [
+        "stage1/examples/stdlib_fs/axiom.toml",
+        "stage1/examples/stdlib_env/axiom.toml",
+        "stage1/examples/stdlib_time/axiom.toml",
+        "stage1/examples/stdlib_process/axiom.toml",
+        "stage1/examples/stdlib_net/axiom.toml",
+        "stage1/examples/stdlib_crypto_hash/axiom.toml",
+        "stage1/examples/stdlib_crypto_mac/axiom.toml",
+        "stage1/conformance/fail/stdlib_fs_write_without_capability/axiom.toml",
+        "stage1/conformance/fail/stdlib_clock_without_capability/axiom.toml",
+        "stage1/conformance/fail/stdlib_net_tcp_without_capability/axiom.toml"
+      ],
+      "validatingCommand": "make stage1-stdlib-smoke && make stage1-conformance",
+      "notes": "Rows stay capability-scoped; they do not grant unrestricted host access."
+    },
+    {
+      "id": "packages_modules_and_workspace",
+      "group": "package architecture",
+      "requirement": "Compiler packages can be split across modules, local dependencies, and workspace members with deterministic lockfile validation.",
+      "governingIssue": 721,
+      "status": "implemented",
+      "directNativeStatus": "implemented",
+      "evidence": [
+        "docs/axiom-compiler-source-layout.md",
+        "stage1/examples/workspace/axiom.toml",
+        "stage1/examples/workspace_only/axiom.toml",
+        "stage1/conformance/pass/package_local_modules/axiom.toml",
+        "stage1/conformance/pass/functions_across_modules/axiom.toml",
+        "stage1/conformance/fail/import_cycle/axiom.toml"
+      ],
+      "validatingCommand": "make stage1-conformance && cargo test --manifest-path stage1/Cargo.toml -p axiomc --lib package_graph -- --nocapture",
+      "notes": "This proves the language/package surface, not that the Rust compiler source has already been ported."
+    },
+    {
+      "id": "compiler_command_surface",
+      "group": "command surface",
+      "requirement": "A self-hosted compiler can expose check, build, run, test, doc, and LSP-facing workflows through AxiOM-owned command packages.",
+      "governingIssue": 721,
+      "status": "blocked",
+      "directNativeStatus": "partial",
+      "blockerIssues": [721],
+      "evidence": [
+        "stage1/examples/stdlib_doc/axiom.toml",
+        "stage1/examples/stdlib_lsp/axiom.toml",
+        "stage1/compiler-contracts/snapshots/command-lsp.json"
+      ],
+      "validatingCommand": "make stage1-command-lsp-boundary && make rust-exit-readiness",
+      "notes": "Language helpers exist, but the final bootstrap track still needs AxiOM-owned command-package proof before the compiler rewrite can start."
+    },
+    {
+      "id": "compiler_scale_rewrite_fixture",
+      "group": "rewrite proof",
+      "requirement": "At least one compiler-scale AxiOM package exercises parser, checker, diagnostics, package graph, and codegen-style data flow before the rewrite starts.",
+      "governingIssue": 721,
+      "status": "blocked",
+      "directNativeStatus": "not_applicable",
+      "blockerIssues": [721],
+      "evidence": [
+        "docs/axiom-compiler-source-layout.md",
+        "docs/compiler-source-decomposition-plan.md"
+      ],
+      "validatingCommand": "make self-hosting-language-readiness && make rust-exit-readiness",
+      "notes": "This row prevents language-readiness from being inferred from small examples alone."
+    }
+  ]
+}

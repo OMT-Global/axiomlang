@@ -35,6 +35,12 @@ command/MIR boundary fixtures, and live issue state; this Markdown page is
 descriptive evidence only. Closing #721 also requires the governing issues and
 review gates to be satisfied.
 
+The compiler rewrite also has a separate language/backend prerequisite gate:
+[`make self-hosting-language-readiness`](self-hosting-language-readiness.md).
+That gate must be green before the rewrite in #565/#721 can move from planning
+to implementation; the Rust-exit gate must not be read as proof that the AxiOM
+language surface is sufficient to author the compiler.
+
 ## Backend Matrix
 
 | Surface | Required state | Current disposition | Governing issue |
