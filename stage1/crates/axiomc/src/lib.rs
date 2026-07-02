@@ -8286,11 +8286,11 @@ let _listener_closed: int = close_listener(listener)
         fs::write(project.join("src/main.ax"), source).expect("write source");
 
         let built = build_project(&project).expect("build project");
-        let generated =
-            fs::read_to_string(generated_rust_path(&built)).expect("read generated rust");
-        assert!(generated.contains("axiom_net_tcp_read_string"));
-        assert!(generated.contains("axiom_net_tcp_write_string"));
-        assert!(generated.contains("net_tcp_accept(listener)"));
+        assert_eq!(built.backend, NativeBackendKind::Cranelift);
+        assert!(
+            built.generated_rust.is_none(),
+            "default direct-native raw TCP builds must not emit generated Rust"
+        );
         let output = compiled_binary_command(&built.binary)
             .output()
             .expect("run compiled binary");
