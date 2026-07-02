@@ -1,6 +1,6 @@
 use cranelift_codegen::ir::{
     AbiParam, ArgumentPurpose, BlockArg, FuncRef, InstBuilder, MemFlags, StackSlotData,
-    StackSlotKind, Value, condcodes::IntCC, types,
+    StackSlotKind, TrapCode, Value, condcodes::IntCC, types,
 };
 use cranelift_codegen::isa;
 use cranelift_codegen::isa::CallConv;
@@ -263,6 +263,16 @@ pub enum I64Expr {
         op: I64BinaryOp,
         lhs: Box<I64Expr>,
         rhs: Box<I64Expr>,
+    },
+    /// Evaluate `value` and trap (write `message` to stderr and exit non-zero)
+    /// when it falls outside `[min, max]`; otherwise yield the value unchanged.
+    /// Used to enforce sized-integer overflow policy in debug builds before the
+    /// wrapping cast to the narrower type.
+    CheckedSignedRange {
+        value: Box<I64Expr>,
+        min: i64,
+        max: i64,
+        message: String,
     },
     Select {
         cond: Box<I64Condition>,
@@ -3046,6 +3056,15 @@ fn emit_i64_expr(
                 I64BinaryOp::Div => builder.ins().sdiv(lhs, rhs),
             })
         }
+        I64Expr::CheckedSignedRange {
+            value,
+            min,
+            max,
+            message,
+        } => {
+            let value = emit_i64_expr(builder, locals, function_refs, runtime_refs, value)?;
+            emit_i64_checked_signed_range(builder, runtime_refs, value, *min, *max, message)
+        }
         I64Expr::Select {
             cond,
             then_result,
@@ -3060,6 +3079,65 @@ fn emit_i64_expr(
             else_result,
         ),
     }
+}
+
+fn emit_i64_checked_signed_range(
+    builder: &mut FunctionBuilder<'_>,
+    runtime_refs: I64RuntimeRefs,
+    value: Value,
+    min: i64,
+    max: i64,
+    message: &str,
+) -> Result<Value, CraneliftBackendError> {
+    let ok_block = builder.create_block();
+    let trap_block = builder.create_block();
+    let merge_block = builder.create_block();
+    builder.append_block_param(merge_block, types::I64);
+
+    let min_value = builder.ins().iconst(types::I64, min);
+    let max_value = builder.ins().iconst(types::I64, max);
+    let above_min = builder
+        .ins()
+        .icmp(IntCC::SignedGreaterThanOrEqual, value, min_value);
+    let below_max = builder
+        .ins()
+        .icmp(IntCC::SignedLessThanOrEqual, value, max_value);
+    let in_range = builder.ins().band(above_min, below_max);
+    builder.ins().brif(in_range, ok_block, &[], trap_block, &[]);
+
+    builder.switch_to_block(ok_block);
+    builder.seal_block(ok_block);
+    builder.ins().jump(merge_block, &[BlockArg::Value(value)]);
+
+    // Overflow: write the structured runtime error to stderr (unbuffered write
+    // syscall, so it reaches fd 2 before the trap) and abort with a non-zero
+    // exit via a Cranelift trap.
+    builder.switch_to_block(trap_block);
+    builder.seal_block(trap_block);
+    let bytes_len = u32::try_from(message.len() + 1)
+        .map_err(|_| CraneliftBackendError::new("overflow trap message is too large"))?;
+    let message_slot = builder.create_sized_stack_slot(StackSlotData::new(
+        StackSlotKind::ExplicitSlot,
+        bytes_len,
+        0,
+    ));
+    for (offset, byte) in message.bytes().chain(std::iter::once(b'\n')).enumerate() {
+        let byte_value = builder.ins().iconst(types::I8, i64::from(byte));
+        builder
+            .ins()
+            .stack_store(byte_value, message_slot, offset as i32);
+    }
+    let message_ptr = builder.ins().stack_addr(types::I64, message_slot, 0);
+    let fd = builder.ins().iconst(types::I32, 2);
+    let len = builder.ins().iconst(types::I64, i64::from(bytes_len));
+    builder
+        .ins()
+        .call(runtime_refs.write, &[fd, message_ptr, len]);
+    builder.ins().trap(TrapCode::INTEGER_OVERFLOW);
+
+    builder.switch_to_block(merge_block);
+    builder.seal_block(merge_block);
+    Ok(builder.block_params(merge_block)[0])
 }
 
 fn emit_i64_select_expr(
