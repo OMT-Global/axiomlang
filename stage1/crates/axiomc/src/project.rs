@@ -731,36 +731,14 @@ pub fn list_project_tests_with_options(
         let discovered = if expected_error_path(&package_root).exists() && !options.conformance {
             Vec::new()
         } else if expected_error_path(&package_root).exists() {
-            let case_name = manifest
-                .package
-                .as_ref()
-                .map(|package| package.name.clone())
-                .unwrap_or_else(|| package_root.display().to_string());
-            let entry = manifest.build.entry.clone();
-            if options
-                .filter
-                .as_deref()
-                .map(|filter| case_name.contains(filter) || entry.contains(filter))
-                .unwrap_or(true)
-            {
-                vec![crate::manifest::TestTarget {
-                    name: case_name,
-                    entry,
-                    stdin: None,
-                    stdout: None,
-                    stderr: None,
-                    kind: TestKind::Property,
-                    expected_error: None,
-                    http: None,
-                    capabilities: Vec::new(),
-                    package: manifest
-                        .package
-                        .as_ref()
-                        .map(|package| package.name.clone()),
-                }]
-            } else {
-                Vec::new()
-            }
+            compile_fail_test_target(
+                &package_root,
+                &manifest,
+                TestKind::Property,
+                options.filter.as_deref(),
+            )
+            .into_iter()
+            .collect()
         } else {
             collect_test_targets(
                 &package_root,
@@ -821,29 +799,23 @@ pub fn run_project_tests_with_options(
         if expected_error_path(&package_root).exists()
             && (!options.properties_only || options.conformance)
         {
-            let case_name = manifest
-                .package
-                .as_ref()
-                .map(|package| package.name.clone())
-                .unwrap_or_else(|| package_root.display().to_string());
-            let entry = manifest.build.entry.clone();
-            if options
-                .filter
-                .as_deref()
-                .map(|filter| case_name.contains(filter) || entry.contains(filter))
-                .unwrap_or(true)
-            {
+            if let Some(test) = compile_fail_test_target(
+                &package_root,
+                &manifest,
+                if options.conformance {
+                    TestKind::Property
+                } else {
+                    TestKind::Unit
+                },
+                options.filter.as_deref(),
+            ) {
                 packages.push(package_root.display().to_string());
                 cases.push(run_compile_fail_case(
                     &package_root,
                     &graph,
                     &manifest,
-                    &case_name,
-                    if options.conformance {
-                        TestKind::Property
-                    } else {
-                        TestKind::Unit
-                    },
+                    &test.name,
+                    test.kind,
                 ));
             }
             continue;
@@ -953,6 +925,42 @@ fn collect_test_targets(
         tests.retain(|test| test_matches_filter(test, filter));
     }
     Ok(tests)
+}
+
+fn compile_fail_test_target(
+    package_root: &Path,
+    manifest: &Manifest,
+    kind: TestKind,
+    filter: Option<&str>,
+) -> Option<crate::manifest::TestTarget> {
+    let case_name = manifest
+        .package
+        .as_ref()
+        .map(|package| package.name.clone())
+        .unwrap_or_else(|| package_root.display().to_string());
+    let target = crate::manifest::TestTarget {
+        name: case_name,
+        entry: manifest.build.entry.clone(),
+        stdin: None,
+        stdout: None,
+        stderr: None,
+        kind,
+        expected_error: None,
+        http: None,
+        capabilities: Vec::new(),
+        package: manifest
+            .package
+            .as_ref()
+            .map(|package| package.name.clone()),
+    };
+    if filter
+        .map(|filter| test_matches_filter(&target, filter))
+        .unwrap_or(true)
+    {
+        Some(target)
+    } else {
+        None
+    }
 }
 
 fn load_manifest_test_stream(
@@ -10369,6 +10377,40 @@ return async_serve_route(1, "/", "ok", 1)
                 .collect::<Vec<_>>(),
             vec!["manifest_unit", "src/unit_test"]
         );
+    }
+
+    #[test]
+    fn compile_fail_test_target_shares_identity_and_filtering() {
+        let dir = tempdir().unwrap_or_else(|err| panic!("tempdir: {err}"));
+        let root = dir.path();
+        let mut manifest = package_manifest();
+        manifest.build.entry = "src/fail_case.ax".to_string();
+
+        let target = compile_fail_test_target(root, &manifest, TestKind::Property, Some("fail"))
+            .expect("entry filter should match compile-fail target");
+        assert_eq!(target.name, "demo");
+        assert_eq!(target.entry, "src/fail_case.ax");
+        assert_eq!(target.kind, TestKind::Property);
+        assert_eq!(target.package.as_deref(), Some("demo"));
+        assert!(target.stdin.is_none());
+        assert!(target.stdout.is_none());
+        assert!(target.stderr.is_none());
+        assert!(target.expected_error.is_none());
+
+        let unit_target = compile_fail_test_target(root, &manifest, TestKind::Unit, Some("demo"))
+            .expect("package-name filter should match compile-fail target");
+        assert_eq!(unit_target.name, target.name);
+        assert_eq!(unit_target.entry, target.entry);
+        assert_eq!(unit_target.kind, TestKind::Unit);
+        assert!(
+            compile_fail_test_target(root, &manifest, TestKind::Unit, Some("missing")).is_none()
+        );
+
+        manifest.package = None;
+        let fallback_target = compile_fail_test_target(root, &manifest, TestKind::Unit, None)
+            .expect("unfiltered package-less compile-fail target");
+        assert_eq!(fallback_target.name, root.display().to_string());
+        assert_eq!(fallback_target.package, None);
     }
 
     #[test]
