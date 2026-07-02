@@ -197,6 +197,25 @@ mod tests {
             && std::net::UdpSocket::bind(("127.0.0.1", 0)).is_ok()
     }
 
+    fn fixed_loopback_tcp_available(addr: &str) -> bool {
+        let listener = match std::net::TcpListener::bind(addr) {
+            Ok(listener) => listener,
+            Err(err) => {
+                eprintln!("skipping fixed loopback fixture at {addr}; cannot bind: {err}");
+                return false;
+            }
+        };
+        let available = match std::net::TcpStream::connect(addr) {
+            Ok(_) => true,
+            Err(err) => {
+                eprintln!("skipping fixed loopback fixture at {addr}; cannot connect: {err}");
+                false
+            }
+        };
+        drop(listener);
+        available
+    }
+
     #[cfg(unix)]
     #[test]
     fn process_fixture_is_executable_only_by_owner() {
@@ -8185,7 +8204,6 @@ true
 
     #[test]
     #[cfg_attr(not(feature = "run-native-tests"), ignore)]
-    #[ignore = "direct-native binaries fold http/tcp serving at compile time; runtime serving is tracked by issue #1287"]
     fn stage1_async_net_accepts_two_raw_tcp_clients() {
         if !loopback_socket_bind_available() {
             return;
@@ -8675,7 +8693,6 @@ print is_match(\"[a-z]+\", true)
     }
 
     #[test]
-    #[ignore = "direct-native binaries fold http/tcp serving at compile time; runtime serving is tracked by issue #1287"]
     fn stage1_stdlib_http_service_serves_one_request() {
         use std::io::{Read, Write};
         use std::net::TcpStream;
@@ -8868,7 +8885,6 @@ print served
     }
 
     #[test]
-    #[ignore = "direct-native binaries fold http/tcp serving at compile time; runtime serving is tracked by issue #1287"]
     fn stage1_stdlib_http_service_routes_multiple_requests() {
         use std::io::{Read, Write};
         use std::net::TcpStream;
@@ -8968,7 +8984,6 @@ print serve("127.0.0.1:{port}", selected_route, 2)
     }
 
     #[test]
-    #[ignore = "direct-native binaries fold http/tcp serving at compile time; runtime serving is tracked by issue #1287"]
     fn stage1_stdlib_http_listen_accept_route_and_respond_surface() {
         use std::io::{Read, Write};
         use std::net::TcpStream;
@@ -9061,7 +9076,6 @@ print close(server)
     }
 
     #[test]
-    #[ignore = "direct-native binaries fold http/tcp serving at compile time; runtime serving is tracked by issue #1287"]
     fn stage1_stdlib_http_async_serve_routes_concurrent_requests() {
         use std::io::{Read, Write};
         use std::net::TcpStream;
@@ -9789,7 +9803,6 @@ print serve_once("127.0.0.1:18080", "hello")
 
     #[test]
     #[cfg_attr(not(feature = "run-native-tests"), ignore)]
-    #[ignore = "direct-native binaries fold http/tcp serving at compile time; runtime serving is tracked by issue #1287"]
     fn run_project_tests_supports_local_http_fixture_runner() {
         let dir = tempdir().expect("tempdir");
         let project = dir.path().join("service-runner");
@@ -10465,7 +10478,6 @@ print serve_once("{bind}", "ok")
 
     #[test]
     #[cfg_attr(not(feature = "run-native-tests"), ignore)]
-    #[ignore = "direct-native binaries fold http/tcp serving at compile time; runtime serving is tracked by issue #1287"]
     fn checked_in_proof_http_service_serves_local_request_response() {
         use std::io::{Read, Write};
         use std::net::TcpStream;
@@ -10580,7 +10592,6 @@ print serve_health(started)
     }
 
     #[test]
-    #[ignore = "direct-native binaries fold http/tcp serving at compile time; runtime serving is tracked by issue #1287"]
     fn checked_in_proof_workload_examples_build_run_and_test() {
         std::thread::Builder::new()
             .name("proof-workload-examples".into())
@@ -10603,15 +10614,42 @@ print serve_health(started)
                         "example {example}"
                     );
 
+                    let fixed_http_available = example != "proof_http_service"
+                        || fixed_loopback_tcp_available("127.0.0.1:18081");
                     let tests = run_project_tests(&project)
                         .expect("test checked-in proof workload example");
                     let expected_passed = match example {
                         "proof_cli" => 2,
-                        "proof_http_service" => 2,
+                        "proof_http_service" if fixed_http_available => 2,
+                        "proof_http_service" => 1,
                         _ => 1,
                     };
+                    let expected_failed =
+                        if example == "proof_http_service" && !fixed_http_available {
+                            1
+                        } else {
+                            0
+                        };
                     assert_eq!(tests.passed, expected_passed, "example {example}");
-                    assert_eq!(tests.failed, 0, "example {example}");
+                    assert_eq!(tests.failed, expected_failed, "example {example}");
+                    if expected_failed == 1 {
+                        let failed_case = tests
+                            .cases
+                            .iter()
+                            .find(|case| !case.ok)
+                            .expect("environment-gated failed case");
+                        assert_eq!(failed_case.name, "http-service-health");
+                        let message = failed_case
+                            .error
+                            .as_ref()
+                            .map(|error| error.message.as_str())
+                            .unwrap_or("");
+                        assert!(
+                            message.contains("http fixture service never became ready")
+                                || message.contains("Operation not permitted"),
+                            "unexpected environment-gated failure: {failed_case:?}",
+                        );
+                    }
                 }
             })
             .expect("spawn proof workload example test thread")

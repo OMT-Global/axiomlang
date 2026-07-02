@@ -16,8 +16,10 @@ report = json.load(open(sys.argv[1], encoding="utf-8"))
 assert report["schema"] == "axiom.stage1.full_lib_triage.v1"
 assert report["triaged"] is True
 assert report["ready"] is False
-assert report["summary"]["failure_count"] == 8
-assert report["summary"]["categories"]["unsupported_construct"] >= 1
+assert report["summary"]["failure_count"] == 15
+assert report["summary"]["categories"]["stale_generated_rust_expectation"] >= 1
+assert report["summary"]["categories"]["direct_native_contract"] >= 1
+assert report["summary"]["categories"]["environment_gated"] >= 1
 PY
 
 python3 - "$manifest" "$temp_dir/bad-count.json" <<'PY'
@@ -38,7 +40,10 @@ import json
 import sys
 
 payload = json.load(open(sys.argv[1], encoding="utf-8"))
-payload["failures"][0]["resolution"] = "environment_gate"
+for failure in payload["failures"]:
+    if failure["category"] == "environment_gated":
+        failure["resolution"] = "update_direct_native_contract"
+        break
 json.dump(payload, open(sys.argv[2], "w", encoding="utf-8"))
 PY
 if python3 "$script" --manifest "$temp_dir/bad-env.json" >/tmp/axiom-bad-env.out 2>&1; then
@@ -51,8 +56,7 @@ import json
 import sys
 
 payload = json.load(open(sys.argv[1], encoding="utf-8"))
-payload["failures"] = [payload["failures"][0], dict(payload["failures"][0])]
-payload["expectedFailureCount"] = 2
+payload["failures"][1]["name"] = payload["failures"][0]["name"]
 json.dump(payload, open(sys.argv[2], "w", encoding="utf-8"))
 PY
 if python3 "$script" --manifest "$temp_dir/duplicate.json" >/tmp/axiom-duplicate.out 2>&1; then

@@ -115,11 +115,12 @@ def validate(payload: dict[str, Any]) -> tuple[list[str], dict[str, Any]]:
     if names != sorted(names):
         errors.append("failure rows must be sorted by name")
 
-    # The initial 40-row triage was required to identify every category
-    # (stale generated-Rust expectations, direct-native contract repairs, and
-    # environment-gated cases). As repair PRs land and rows are removed, the
-    # remaining mix legitimately narrows, so category presence is no longer
-    # enforced -- rows must still each carry a valid category and resolution.
+    if failures and not category_counts.get("stale_generated_rust_expectation"):
+        errors.append("triage must identify stale generated-Rust expectations")
+    if failures and not category_counts.get("direct_native_contract"):
+        errors.append("triage must identify direct-native contract repairs")
+    if failures and not category_counts.get("environment_gated"):
+        errors.append("triage must identify environment-gated failures separately")
 
     summary = {
         "failure_count": len(failures),
