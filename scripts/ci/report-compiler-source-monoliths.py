@@ -21,6 +21,7 @@ RATCHET_ROW = re.compile(r"^\|\s*`([^`]+)`\s*\|\s*([0-9]+(?:\.[0-9]+)?)\s*\|")
 
 BOUNDARY_MAP: dict[str, list[str]] = {
     "borrowck.rs": ["compiler.hir"],
+    "capabilities.rs": ["compiler.hir"],
     "codegen.rs": ["compiler.backend.generated_rust", "compiler.backend.contracts"],
     "cranelift_backend.rs": ["compiler.backend.native"],
     "dap.rs": ["compiler.services.lsp"],
