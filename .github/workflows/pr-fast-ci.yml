@@ -176,7 +176,7 @@ jobs:
         # The #1255 blocking lane: the full lib suite must be green. Tests
         # that require unavailable local capabilities self-skip so shell-only
         # runners do not produce false reds.
-        run: RUST_MIN_STACK=8388608 cargo test --manifest-path stage1/Cargo.toml -p axiomc --lib --features run-native-tests
+        run: RUST_MIN_STACK=8388608 cargo test --manifest-path stage1/Cargo.toml -p axiomc --lib --features run-native-tests -- --test-threads=1
 
   validate-pr-description:
     name: Validate PR Description
