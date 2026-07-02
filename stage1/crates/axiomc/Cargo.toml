@@ -9,7 +9,6 @@ default = []
 run-native-tests = []
 
 [dependencies]
-axiom-lsp = { path = "../axiom-lsp" }
 axiomc-backend-cranelift = { path = "../axiomc-backend-cranelift" }
 anyhow.workspace = true
 clap.workspace = true
