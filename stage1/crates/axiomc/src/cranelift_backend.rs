@@ -12754,12 +12754,33 @@ fn lower_i64_known_bool_intrinsic_condition(
             let [bind, route_path, body, max_requests] = args else {
                 return None;
             };
-            Some(CraneliftI64Condition::Literal(http_serve_route(
-                &i64_string_text(bind, static_bindings)?,
-                &i64_string_text(route_path, static_bindings)?,
-                &i64_string_text(body, static_bindings)?,
-                i64_static_scalar_value(max_requests, static_bindings)?,
-            )))
+            let bind = i64_string_text(bind, static_bindings)?;
+            let route_path = http_strip_crlf(&i64_string_text(route_path, static_bindings)?);
+            let body = i64_string_text(body, static_bindings)?;
+            let max_requests = i64_static_scalar_value(max_requests, static_bindings)?;
+            if let Some(addr) = http_parse_loopback_bind(&bind) {
+                if route_path.is_empty() || max_requests <= 0 {
+                    return Some(CraneliftI64Condition::Literal(false));
+                }
+                Some(CraneliftI64Condition::Compare(CraneliftI64Compare {
+                    op: CraneliftI64CompareOp::Ne,
+                    lhs: CraneliftI64Expr::HttpServeRoute {
+                        port: addr.port(),
+                        route_path,
+                        matched_response: i64_http_ok_response(&body),
+                        unmatched_response: i64_http_not_found_response(),
+                        max_requests,
+                    },
+                    rhs: CraneliftI64Expr::Literal(0),
+                }))
+            } else {
+                Some(CraneliftI64Condition::Literal(http_serve_route(
+                    &bind,
+                    &route_path,
+                    &body,
+                    max_requests,
+                )))
+            }
         }
         name if is_i64_crypto_constant_time_eq_name(name, static_bindings) => {
             let [left, right] = args else {
@@ -24447,9 +24468,17 @@ fn http_server_close(server: i64) -> bool {
 }
 
 fn i64_http_ok_response(body: &str) -> String {
-    // Mirror the generated runtime's axiom_http_response_with_status for a 200.
+    i64_http_response_with_status("200 OK", body)
+}
+
+fn i64_http_not_found_response() -> String {
+    i64_http_response_with_status("404 Not Found", "not found")
+}
+
+fn i64_http_response_with_status(status: &str, body: &str) -> String {
+    // Mirror the generated runtime's axiom_http_response_with_status.
     format!(
-        "HTTP/1.0 200 OK\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+        "HTTP/1.0 {status}\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
         body.len(),
         body
     )
