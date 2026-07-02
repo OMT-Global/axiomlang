@@ -26,8 +26,8 @@ BOUNDARY_MAP: dict[str, list[str]] = {
     "cranelift_backend.rs": ["compiler.backend.native"],
     "dap.rs": ["compiler.services.lsp"],
     "diagnostic_catalog.rs": ["compiler.diagnostics"],
-    "diagnostics.rs": ["compiler.diagnostics"],
     "definitions.rs": ["compiler.hir"],
+    "diagnostics.rs": ["compiler.diagnostics"],
     "expressions.rs": ["compiler.hir"],
     "generics.rs": ["compiler.hir"],
     "hir.rs": ["compiler.hir"],
@@ -49,6 +49,10 @@ BOUNDARY_MAP: dict[str, list[str]] = {
     "stdlib.rs": ["compiler.stdlib"],
     "syntax.rs": ["compiler.syntax", "compiler.diagnostics"],
     "types.rs": ["compiler.hir"],
+}
+
+PATH_BOUNDARY_MAP: dict[str, list[str]] = {
+    "stage1/crates/axiomc/src/hir/diagnostics.rs": ["compiler.hir"],
 }
 
 
@@ -83,6 +87,11 @@ def repo_relative(path: Path) -> str:
 
 
 def boundaries_for(path: Path) -> list[str]:
+    relative = repo_relative(path)
+    if relative in PATH_BOUNDARY_MAP:
+        return PATH_BOUNDARY_MAP[relative]
+    if path.name == "diagnostics.rs" and path.parent.name == "hir":
+        return ["compiler.hir"]
     return BOUNDARY_MAP.get(path.name, ["unmapped"])
 
 

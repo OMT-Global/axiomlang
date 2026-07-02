@@ -40,12 +40,14 @@ class CompilerSourceMonolithTests(unittest.TestCase):
             source_root = Path(tmp) / "src"
             source_root.mkdir()
             write_lines(source_root / "cranelift_backend.rs", 5)
+            write_lines(source_root / "diagnostics.rs", 1)
             write_lines(source_root / "hir.rs", 3)
             hir_dir = source_root / "hir"
             hir_dir.mkdir()
             write_lines(hir_dir / "generics.rs", 2)
             write_lines(hir_dir / "capabilities.rs", 1)
             write_lines(hir_dir / "definitions.rs", 1)
+            write_lines(hir_dir / "diagnostics.rs", 1)
             write_lines(hir_dir / "expressions.rs", 1)
             write_lines(hir_dir / "model.rs", 1)
             write_lines(hir_dir / "ownership.rs", 1)
@@ -54,27 +56,40 @@ class CompilerSourceMonolithTests(unittest.TestCase):
             write_lines(hir_dir / "signatures.rs", 1)
             write_lines(hir_dir / "types.rs", 1)
 
-            report = compiler_source_monoliths.build_report(source_root, top=12)
+            report = compiler_source_monoliths.build_report(source_root, top=14)
 
         self.assertEqual(report["schema_version"], "axiom.compiler_source.monoliths.v0")
         self.assertEqual(report["collected_at"], "2026-06-21T10:00:00Z")
-        self.assertEqual(report["summary"]["total_files"], 12)
-        self.assertEqual(report["summary"]["total_lines"], 19)
+        self.assertEqual(report["summary"]["total_files"], 14)
+        self.assertEqual(report["summary"]["total_lines"], 21)
         self.assertEqual(report["summary"]["largest_file_lines"], 5)
-        self.assertEqual(report["summary"]["top_file_lines"], 19)
+        self.assertEqual(report["summary"]["top_file_lines"], 21)
         self.assertEqual(report["summary"]["top_file_line_share"], 1.0)
-        self.assertEqual(report["top_files"][0]["package_boundaries"], ["compiler.backend.native"])
-        self.assertEqual(report["top_files"][1]["package_boundaries"], ["compiler.hir"])
-        self.assertEqual(report["top_files"][2]["package_boundaries"], ["compiler.hir"])
-        self.assertEqual(report["top_files"][3]["package_boundaries"], ["compiler.hir"])
-        self.assertEqual(report["top_files"][4]["package_boundaries"], ["compiler.hir"])
-        self.assertEqual(report["top_files"][5]["package_boundaries"], ["compiler.hir"])
-        self.assertEqual(report["top_files"][6]["package_boundaries"], ["compiler.hir"])
-        self.assertEqual(report["top_files"][7]["package_boundaries"], ["compiler.hir"])
-        self.assertEqual(report["top_files"][8]["package_boundaries"], ["compiler.hir"])
-        self.assertEqual(report["top_files"][9]["package_boundaries"], ["compiler.hir"])
-        self.assertEqual(report["top_files"][10]["package_boundaries"], ["compiler.hir"])
-        self.assertEqual(report["top_files"][11]["package_boundaries"], ["compiler.hir"])
+        boundaries_by_suffix = {
+            Path(item["path"]).as_posix().removeprefix(source_root.as_posix() + "/"): item[
+                "package_boundaries"
+            ]
+            for item in report["top_files"]
+        }
+        self.assertEqual(
+            boundaries_by_suffix["cranelift_backend.rs"], ["compiler.backend.native"]
+        )
+        self.assertEqual(boundaries_by_suffix["diagnostics.rs"], ["compiler.diagnostics"])
+        for path in [
+            "hir.rs",
+            "hir/capabilities.rs",
+            "hir/definitions.rs",
+            "hir/diagnostics.rs",
+            "hir/expressions.rs",
+            "hir/generics.rs",
+            "hir/model.rs",
+            "hir/ownership.rs",
+            "hir/properties.rs",
+            "hir/reachability.rs",
+            "hir/signatures.rs",
+            "hir/types.rs",
+        ]:
+            self.assertEqual(boundaries_by_suffix[path], ["compiler.hir"])
 
     def test_check_plan_requires_top_file_and_boundary_mentions(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

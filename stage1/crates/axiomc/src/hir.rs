@@ -6,6 +6,7 @@ use std::collections::{HashMap, HashSet};
 
 mod capabilities;
 mod definitions;
+mod diagnostics;
 mod expressions;
 mod generics;
 mod model;
@@ -28,6 +29,9 @@ use self::definitions::{
     VariantInfo, collect_enum_definitions, collect_struct_definitions, collect_trait_definitions,
     collect_type_names, validate_recursive_type_cycles, validate_trait_bounds_in_program,
     validate_trait_type_uses_in_program,
+};
+use self::diagnostics::{
+    append_diagnostic, primary_diagnostic, single_diagnostic, sort_diagnostics,
 };
 use self::expressions::{
     coerce_lowered_expr_to_expected, is_castable_numeric, is_ordered_numeric, is_string_like_type,
@@ -304,33 +308,6 @@ fn lower_with_capabilities_impl(
         functions: lowered_functions,
         stmts,
     })
-}
-
-fn primary_diagnostic(mut diagnostics: Vec<Diagnostic>) -> Diagnostic {
-    sort_diagnostics(&mut diagnostics);
-    let mut first = diagnostics.remove(0);
-    first.related = diagnostics;
-    first
-}
-
-fn single_diagnostic(diagnostic: Diagnostic) -> Vec<Diagnostic> {
-    vec![diagnostic]
-}
-
-fn append_diagnostic(diagnostics: &mut Vec<Diagnostic>, mut diagnostic: Diagnostic) {
-    diagnostics.append(&mut diagnostic.related);
-    diagnostics.push(diagnostic);
-}
-
-fn sort_diagnostics(diagnostics: &mut [Diagnostic]) {
-    diagnostics.sort_by(|left, right| {
-        left.path
-            .cmp(&right.path)
-            .then_with(|| left.line.cmp(&right.line))
-            .then_with(|| left.column.cmp(&right.column))
-            .then_with(|| left.kind.cmp(&right.kind))
-            .then_with(|| left.message.cmp(&right.message))
-    });
 }
 
 fn monomorphized_function_name(name: &str, type_args: &[syntax::TypeName]) -> String {
