@@ -46,6 +46,7 @@ rows = {(row["group"], row["row_id"]): row for row in matrix["rows"]}
 numeric = rows[("value_features", "numeric.scalars")]
 assert numeric["coverage"]["positive_runtime_evidence"]
 assert numeric["coverage"]["backend_artifact_evidence"]["generated_rust_absent"] is True
+assert numeric["coverage"]["backend_artifact_evidence"]["artifact_assertion_tests"]
 assert numeric["validation_command"] == (
     "AXIOM_DIRECT_NATIVE_RUNTIME_ABI_ROW=numeric.scalars "
     "make stage1-direct-native-runtime-abi-evidence"
@@ -53,6 +54,7 @@ assert numeric["validation_command"] == (
 fs_read = rows[("capability_shims", "fs.read")]
 assert fs_read["coverage"]["negative_or_diagnostic_evidence"]
 assert fs_read["coverage"]["backend_artifact_evidence"]["focused_tests"]
+assert fs_read["coverage"]["backend_artifact_evidence"]["artifact_assertion_tests"]
 PY
 
 python3 - "$contract" "$temp_dir/ready-contract.json" <<'PY'
@@ -242,6 +244,54 @@ with open(sys.argv[1], encoding="utf-8") as handle:
 
 assert matrix["ready"] is False
 assert any("runtime evidence" in error for error in matrix["errors"])
+PY
+
+python3 - "$repo_root/stage1/runtime-abi/direct-native-v0-evidence-tests.json" "$temp_dir/missing-artifact-assertion-tests.json" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    manifest = json.load(handle)
+
+manifest["value_features"]["numeric.scalars"] = [
+    "cranelift_backend_rejects_process_denial_before_backend_lowering"
+]
+
+with open(sys.argv[2], "w", encoding="utf-8") as handle:
+    json.dump(manifest, handle)
+PY
+
+python3 "$script" \
+  --contract "$contract" \
+  --evidence-test-manifest "$temp_dir/missing-artifact-assertion-tests.json" \
+  --json >"$temp_dir/missing-artifact-assertion-report.json"
+
+if python3 "$script" \
+  --contract "$contract" \
+  --evidence-test-manifest "$temp_dir/missing-artifact-assertion-tests.json" \
+  --coverage-matrix \
+  --json >"$temp_dir/missing-artifact-assertion-matrix.json"; then
+  echo "expected coverage matrix to fail when focused tests lack generated_rust assertions" >&2
+  exit 1
+fi
+python3 - "$temp_dir/missing-artifact-assertion-report.json" "$temp_dir/missing-artifact-assertion-matrix.json" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    report = json.load(handle)
+with open(sys.argv[2], encoding="utf-8") as handle:
+    matrix = json.load(handle)
+
+assert report["ready"] is True
+assert report["errors"] == []
+assert matrix["ready"] is False
+assert any("generated_rust artifact assertions" in error for error in matrix["errors"])
+rows = {(row["group"], row["row_id"]): row for row in matrix["rows"]}
+numeric = rows[("value_features", "numeric.scalars")]
+assert numeric["coverage"]["backend_artifact_evidence"]["focused_tests"]
+assert numeric["coverage"]["backend_artifact_evidence"]["artifact_assertion_tests"] == []
+assert numeric["coverage"]["backend_artifact_evidence"]["generated_rust_absent"] is False
 PY
 
 python3 "$script" --contract "$contract" --enforce-ready >/dev/null
