@@ -5845,6 +5845,54 @@ fn cranelift_backend_lowers_http_server_route_to_runtime_exit_code() {
 
 #[cfg(not(windows))]
 #[test]
+fn cranelift_backend_reports_non_loopback_http_bool_folds_to_stderr() {
+    if which::which("cc").is_err() {
+        eprintln!("skipping cranelift backend smoke test because cc is unavailable");
+        return;
+    }
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("http-server-non-loopback-bool-fold");
+    write_http_non_loopback_bool_print_project(&project);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args([
+            "build",
+            project.to_str().expect("project path"),
+            "--backend",
+            "cranelift",
+            "--json",
+        ])
+        .output()
+        .expect("run axiomc build --backend cranelift");
+    assert!(
+        output.status.success(),
+        "cranelift http non-loopback bool fold build failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+    assert_eq!(payload["backend"], "cranelift");
+    assert_eq!(payload["generated_rust"], Value::Null);
+    let binary = payload["binary"].as_str().expect("binary path");
+    let run = Command::new(binary)
+        .output()
+        .expect("run cranelift http non-loopback bool fold binary");
+    assert!(
+        run.status.success(),
+        "cranelift http non-loopback bool fold binary failed: stderr={}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "false\nfalse\n");
+    assert_eq!(
+        String::from_utf8_lossy(&run.stderr),
+        "{\"kind\":\"net\",\"message\":\"http server bind address must resolve only to loopback\"}\n{\"kind\":\"net\",\"message\":\"http server bind address must resolve only to loopback\"}\n"
+    );
+}
+
+#[cfg(not(windows))]
+#[test]
 fn cranelift_backend_builds_http_async_server_binary() {
     if which::which("cc").is_err() {
         eprintln!("skipping cranelift backend smoke test because cc is unavailable");
@@ -13551,6 +13599,56 @@ return 1
         ),
     )
     .expect("write http server route main source");
+}
+
+fn write_http_non_loopback_bool_print_project(project: &Path) {
+    fs::create_dir_all(project.join("src"))
+        .expect("create http non-loopback bool print project src");
+    fs::write(
+        project.join("axiom.toml"),
+        r#"[package]
+name = "cranelift-http-non-loopback-bool-fold"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+fs = false
+net = { hosts = ["0.0.0.0"], ports = [18080, 18081] }
+process = false
+env = false
+clock = false
+crypto = false
+
+[unsafe_rationale]
+net = "Direct-native HTTP server regression covers non-loopback bind rejection diagnostics."
+"#,
+    )
+    .expect("write http non-loopback bool print manifest");
+    fs::write(
+        project.join("axiom.lock"),
+        r#"version = 1
+
+[[package]]
+name = "cranelift-http-non-loopback-bool-fold"
+version = "0.1.0"
+source = "path"
+"#,
+    )
+    .expect("write http non-loopback bool print lockfile");
+    fs::write(
+        project.join("src/main.ax"),
+        r#"import "std/http.ax"
+
+let once: bool = serve_once("0.0.0.0:18080", "server-once-denied")
+print once
+let routed: bool = http_serve_route("0.0.0.0:18081", "/route", "route-denied", 1)
+print routed
+"#,
+    )
+    .expect("write http non-loopback bool print source");
 }
 
 fn write_http_async_server_project(project: &Path, port: u16) {

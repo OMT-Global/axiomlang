@@ -8760,7 +8760,8 @@ print serve_once("127.0.0.1:{port}", "hello from axiom")
         fs::write(
             project.join("src/main.ax"),
             r#"import "std/http.ax"
-print serve_once("0.0.0.0:18080", "hello")
+let served: bool = serve_once("0.0.0.0:18080", "hello")
+print served
 "#,
         )
         .expect("write source");
@@ -8816,7 +8817,8 @@ print serve_once("0.0.0.0:18080", "hello")
             project.join("src/main.ax"),
             r#"import "std/http.ax"
 let selected_route: HttpRoute = fixed_route("/ready", "hello")
-print serve("0.0.0.0:18080", selected_route, 1)
+let served: bool = serve("0.0.0.0:18080", selected_route, 1)
+print served
 "#,
         )
         .expect("write source");

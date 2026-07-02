@@ -2300,6 +2300,13 @@ fn lower_i64_aggregate_return_body(
                 expr,
                 ..
             } if !seen_runtime_stmt => {
+                if let Some(diag) = i64_http_non_loopback_bind_diag(expr, static_bindings) {
+                    lowered_stmts.push(CraneliftI64Stmt::WriteLine {
+                        stream: OutputStream::Stderr,
+                        text: diag,
+                    });
+                    seen_runtime_stmt = true;
+                }
                 let local_expr = lower_i64_bool_value_expr(
                     expr,
                     &local_indexes,
@@ -5134,6 +5141,33 @@ fn lower_i64_runtime_let_stmts(
     ) {
         return Some(assigns);
     }
+    if let Stmt::Let {
+        name,
+        ty: Type::Bool,
+        expr,
+        ..
+    } = stmt
+        && let Some(diag) = i64_http_non_loopback_bind_diag(expr, static_bindings)
+    {
+        let value = lower_i64_bool_value_expr(
+            expr,
+            local_indexes,
+            local_conditions,
+            helper_signatures,
+            static_bindings,
+        )?;
+        let local = local_indexes.len();
+        local_indexes.insert(name.clone(), local);
+        locals.push(CraneliftI64Expr::Literal(0));
+        local_conditions.insert(name.clone(), i64_local_truthy_condition(local));
+        return Some(vec![
+            CraneliftI64Stmt::WriteLine {
+                stream: OutputStream::Stderr,
+                text: diag,
+            },
+            CraneliftI64Stmt::Assign(axiomc_backend_cranelift::I64Assign { local, value }),
+        ]);
+    }
     if let Some(assigns) = lower_i64_aggregate_local_let_stmts(
         stmt,
         locals,
@@ -7100,6 +7134,21 @@ fn lower_i64_print_bool_line_stmts(
     helper_signatures: &HashMap<&str, I64HelperSignature>,
     static_bindings: &I64StaticBindings,
 ) -> Option<Vec<CraneliftI64Stmt>> {
+    // An http server given a non-loopback bind refuses to serve and reports
+    // the structured runtime error on stderr, matching the generated-runtime
+    // contract, before printing the false result.
+    if let Some(diag) = i64_http_non_loopback_bind_diag(expr, static_bindings) {
+        return Some(vec![
+            CraneliftI64Stmt::WriteLine {
+                stream: OutputStream::Stderr,
+                text: diag,
+            },
+            CraneliftI64Stmt::WriteLine {
+                stream: OutputStream::Stdout,
+                text: String::from("false"),
+            },
+        ]);
+    }
     Some(vec![CraneliftI64Stmt::If {
         cond: lower_i64_condition(
             expr,
@@ -7117,6 +7166,41 @@ fn lower_i64_print_bool_line_stmts(
             text: String::from("false"),
         }],
     }])
+}
+
+/// Structured runtime error an http server reports on stderr when its bind
+/// address is not loopback-only, matching the generated-runtime contract.
+const HTTP_NON_LOOPBACK_BIND_DIAG: &str =
+    "{\"kind\":\"net\",\"message\":\"http server bind address must resolve only to loopback\"}";
+
+/// When `expr` is an http serve call whose static bind address is not
+/// loopback-only, return the structured runtime error line the server reports
+/// on stderr before refusing to serve.
+fn i64_http_non_loopback_bind_diag(
+    expr: &Expr,
+    static_bindings: &I64StaticBindings,
+) -> Option<String> {
+    let Expr::Call { name, args, .. } = expr else {
+        return None;
+    };
+    let bind = if is_i64_http_serve_once_name(name, static_bindings) {
+        let [bind, _] = args.as_slice() else {
+            return None;
+        };
+        bind
+    } else if is_i64_http_serve_route_name(name) {
+        let [bind, _, _, _] = args.as_slice() else {
+            return None;
+        };
+        bind
+    } else {
+        return None;
+    };
+    let bind = i64_string_text(bind, static_bindings)?;
+    if http_parse_loopback_bind(&bind).is_some() {
+        return None;
+    }
+    Some(String::from(HTTP_NON_LOOPBACK_BIND_DIAG))
 }
 
 fn lower_i64_json_stringify_string_line_stmts(
@@ -24053,6 +24137,10 @@ fn eval_http_call(
             };
             let bind = expect_text(eval_expr(bind, functions, env, lines)?, name)?;
             let body = expect_text(eval_expr(body, functions, env, lines)?, name)?;
+            if http_parse_loopback_bind(&bind).is_none() {
+                lines.push(OutputLine::stderr(HTTP_NON_LOOPBACK_BIND_DIAG));
+                return Ok(SpikeValue::Bool(false));
+            }
             Ok(SpikeValue::Bool(http_serve_once(&bind, &body)))
         }
         "http_serve_route" => {
@@ -24065,6 +24153,10 @@ fn eval_http_call(
             let route_path = expect_text(eval_expr(route_path, functions, env, lines)?, name)?;
             let body = expect_text(eval_expr(body, functions, env, lines)?, name)?;
             let max_requests = expect_int(eval_expr(max_requests, functions, env, lines)?)?;
+            if http_parse_loopback_bind(&bind).is_none() {
+                lines.push(OutputLine::stderr(HTTP_NON_LOOPBACK_BIND_DIAG));
+                return Ok(SpikeValue::Bool(false));
+            }
             Ok(SpikeValue::Bool(http_serve_route(
                 &bind,
                 &route_path,
