@@ -38,7 +38,7 @@ rust-exit-command-surface-coverage-test:
 	bash scripts/ci/test-check-rust-exit-command-surface.sh
 
 stage1-compiler-source-monoliths:
-	python3 scripts/ci/report-compiler-source-monoliths.py --json --check-plan
+	python3 scripts/ci/report-compiler-source-monoliths.py --json --check-plan --check-ratchet
 
 stage1-compiler-source-monoliths-test:
 	python3 scripts/ci/test-report-compiler-source-monoliths.py
