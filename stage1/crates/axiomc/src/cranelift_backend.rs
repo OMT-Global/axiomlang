@@ -537,6 +537,7 @@ fn lower_i64_top_level_output_program(
         .iter()
         .filter(|function| {
             !fs_shim_wrappers.contains(&function.name)
+                && !is_i64_std_http_shim_wrapper(function)
                 && is_i64_function_return_type(&function.return_ty, &struct_defs, &static_bindings)
                 && function
                     .params
@@ -12728,10 +12729,26 @@ fn lower_i64_known_bool_intrinsic_condition(
             let [bind, body] = args else {
                 return None;
             };
-            Some(CraneliftI64Condition::Literal(http_serve_once(
-                &i64_string_text(bind, static_bindings)?,
-                &i64_string_text(body, static_bindings)?,
-            )))
+            let bind = i64_string_text(bind, static_bindings)?;
+            let body = i64_string_text(body, static_bindings)?;
+            // Loopback serving lowers to a runtime one-shot server so the built
+            // binary actually serves instead of the spike serving at compile
+            // time. Non-loopback binds keep the fast compile-time fold (which
+            // returns false without entering an accept loop).
+            if let Some(addr) = http_parse_loopback_bind(&bind) {
+                Some(CraneliftI64Condition::Compare(CraneliftI64Compare {
+                    op: CraneliftI64CompareOp::Ne,
+                    lhs: CraneliftI64Expr::HttpServeOnce {
+                        port: addr.port(),
+                        response: i64_http_ok_response(&body),
+                    },
+                    rhs: CraneliftI64Expr::Literal(0),
+                }))
+            } else {
+                Some(CraneliftI64Condition::Literal(http_serve_once(
+                    &bind, &body,
+                )))
+            }
         }
         name if is_i64_http_serve_route_name(name) => {
             let [bind, route_path, body, max_requests] = args else {
@@ -16815,6 +16832,15 @@ fn is_i64_std_fs_shim_wrapper(function: &Function) -> bool {
                 | "replace_file"
         )
     )
+}
+
+fn is_i64_std_http_shim_wrapper(function: &Function) -> bool {
+    // std/http.ax functions are thin wrappers over runtime-only host
+    // intrinsics (listen/accept/serve/respond/get/local_port/close). Their
+    // calls are handled at call sites (e.g. serve_once -> HttpServeOnce), so
+    // they must not be lowered as i64 helper functions -- their bodies do not
+    // lower and would otherwise fail the whole-program i64 path.
+    function.path == "<stdlib>/http.ax"
 }
 
 fn is_i64_std_net_shim_wrapper(function: &Function) -> bool {
@@ -24418,6 +24444,15 @@ fn http_server_close(server: i64) -> bool {
         .ok()
         .and_then(|mut servers| servers.remove(&server))
         .is_some()
+}
+
+fn i64_http_ok_response(body: &str) -> String {
+    // Mirror the generated runtime's axiom_http_response_with_status for a 200.
+    format!(
+        "HTTP/1.0 200 OK\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+        body.len(),
+        body
+    )
 }
 
 fn http_serve_once(bind: &str, body: &str) -> bool {
