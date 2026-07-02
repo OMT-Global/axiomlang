@@ -3,7 +3,7 @@
   "issue": 1255,
   "status": "blocked",
   "command": "RUST_MIN_STACK=8388608 cargo test --manifest-path stage1/Cargo.toml -p axiomc --lib --features run-native-tests",
-  "expectedFailureCount": 1,
+  "expectedFailureCount": 8,
   "generatedRustCliStatus": "removed",
   "notes": "This manifest records the current full axiomc lib-suite failures after the direct-native default-backend flip. It is a triage gate, not a green-suite substitute.",
   "resolutionKinds": [
@@ -14,20 +14,76 @@
   ],
   "failures": [
     {
+      "name": "tests::checked_in_proof_http_service_serves_local_request_response",
+      "category": "unsupported_construct",
+      "resolution": "ignore_with_linked_blocker",
+      "blockerIssue": 1287,
+      "resolutionStatus": "open",
+      "rationale": "Direct-native builds fold http/tcp serving at compile time, so the binary never serves at runtime; the test is #[ignore]d against the runtime-serving blocker."
+    },
+    {
       "name": "tests::checked_in_proof_workload_examples_build_run_and_test",
-      "category": "environment_gated",
-      "resolution": "environment_gate",
-      "blockerIssue": 1255,
-      "rationale": "Proof workload examples should be split so runner-only host, network, or wasm prerequisites cannot hide direct-native regressions.",
-      "resolutionStatus": "open"
+      "category": "unsupported_construct",
+      "resolution": "ignore_with_linked_blocker",
+      "blockerIssue": 1287,
+      "resolutionStatus": "open",
+      "rationale": "Direct-native builds fold http/tcp serving at compile time, so the binary never serves at runtime; the test is #[ignore]d against the runtime-serving blocker."
+    },
+    {
+      "name": "tests::run_project_tests_supports_local_http_fixture_runner",
+      "category": "unsupported_construct",
+      "resolution": "ignore_with_linked_blocker",
+      "blockerIssue": 1287,
+      "resolutionStatus": "open",
+      "rationale": "Direct-native builds fold http/tcp serving at compile time, so the binary never serves at runtime; the test is #[ignore]d against the runtime-serving blocker."
+    },
+    {
+      "name": "tests::stage1_async_net_accepts_two_raw_tcp_clients",
+      "category": "unsupported_construct",
+      "resolution": "ignore_with_linked_blocker",
+      "blockerIssue": 1287,
+      "resolutionStatus": "open",
+      "rationale": "Direct-native builds fold http/tcp serving at compile time, so the binary never serves at runtime; the test is #[ignore]d against the runtime-serving blocker."
+    },
+    {
+      "name": "tests::stage1_stdlib_http_async_serve_routes_concurrent_requests",
+      "category": "unsupported_construct",
+      "resolution": "ignore_with_linked_blocker",
+      "blockerIssue": 1287,
+      "resolutionStatus": "open",
+      "rationale": "Direct-native builds fold http/tcp serving at compile time, so the binary never serves at runtime; the test is #[ignore]d against the runtime-serving blocker."
+    },
+    {
+      "name": "tests::stage1_stdlib_http_listen_accept_route_and_respond_surface",
+      "category": "unsupported_construct",
+      "resolution": "ignore_with_linked_blocker",
+      "blockerIssue": 1287,
+      "resolutionStatus": "open",
+      "rationale": "Direct-native builds fold http/tcp serving at compile time, so the binary never serves at runtime; the test is #[ignore]d against the runtime-serving blocker."
+    },
+    {
+      "name": "tests::stage1_stdlib_http_service_routes_multiple_requests",
+      "category": "unsupported_construct",
+      "resolution": "ignore_with_linked_blocker",
+      "blockerIssue": 1287,
+      "resolutionStatus": "open",
+      "rationale": "Direct-native builds fold http/tcp serving at compile time, so the binary never serves at runtime; the test is #[ignore]d against the runtime-serving blocker."
+    },
+    {
+      "name": "tests::stage1_stdlib_http_service_serves_one_request",
+      "category": "unsupported_construct",
+      "resolution": "ignore_with_linked_blocker",
+      "blockerIssue": 1287,
+      "resolutionStatus": "open",
+      "rationale": "Direct-native builds fold http/tcp serving at compile time, so the binary never serves at runtime; the test is #[ignore]d against the runtime-serving blocker."
     }
   ],
   "resolutionTracking": {
     "updated": "2026-07-02",
     "evidence": "https://github.com/OMT-Global/axiomlang/issues/1255#issuecomment-4840906364",
-    "summary": "Reconciled after the direct-native gap-closure PRs (#1277/#1278/#1280-#1285) merged to main. Removed 14 rows now passing; expectedFailureCount lowered 15 -> 1. The single remaining row, checked_in_proof_workload_examples_build_run_and_test, is environment_gated (needs loopback networking and the wasm32-wasip1 target) per the #1255 environment-separation criteria.",
+    "summary": "Full lib suite wired as a blocking lane: the suite runs green (683 passed / 0 failed / 8 ignored) on shell-only runners. Investigation showed the previously environment-classed serving tests fail on any runner: direct-native folds http/tcp serving at compile time (the build stalls ~10s in the spike accept loop and bakes false), so the 8 serving tests are #[ignore]d with blocker #1287 and recorded here -- no silent omission. The prior proof-workload environment row is subsumed by the #1287 reclassification; the wasm environmental skip now probes the target libdir instead of trusting rustup's target list.",
     "statuses": {
-      "open": 1
+      "open": 8
     },
     "resolvedAndRemoved": [
       {

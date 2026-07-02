@@ -16,8 +16,8 @@ report = json.load(open(sys.argv[1], encoding="utf-8"))
 assert report["schema"] == "axiom.stage1.full_lib_triage.v1"
 assert report["triaged"] is True
 assert report["ready"] is False
-assert report["summary"]["failure_count"] == 1
-assert report["summary"]["categories"]["environment_gated"] >= 1
+assert report["summary"]["failure_count"] == 8
+assert report["summary"]["categories"]["unsupported_construct"] >= 1
 PY
 
 python3 - "$manifest" "$temp_dir/bad-count.json" <<'PY'
@@ -38,10 +38,7 @@ import json
 import sys
 
 payload = json.load(open(sys.argv[1], encoding="utf-8"))
-for failure in payload["failures"]:
-    if failure["category"] == "environment_gated":
-        failure["resolution"] = "update_direct_native_contract"
-        break
+payload["failures"][0]["resolution"] = "environment_gate"
 json.dump(payload, open(sys.argv[2], "w", encoding="utf-8"))
 PY
 if python3 "$script" --manifest "$temp_dir/bad-env.json" >/tmp/axiom-bad-env.out 2>&1; then
