@@ -3,7 +3,7 @@
   "issue": 1255,
   "status": "blocked",
   "command": "RUST_MIN_STACK=8388608 cargo test --manifest-path stage1/Cargo.toml -p axiomc --lib --features run-native-tests",
-  "expectedFailureCount": 13,
+  "expectedFailureCount": 15,
   "generatedRustCliStatus": "removed",
   "notes": "This manifest records the current full axiomc lib-suite failures after the direct-native default-backend flip. It is a triage gate, not a green-suite substitute.",
   "resolutionKinds": [
@@ -116,14 +116,30 @@
       "blockerIssue": 1255,
       "rationale": "Synthetic stdlib serdes imports need direct-native artifact and output expectations.",
       "resolutionStatus": "open"
+    },
+    {
+      "name": "tests::stage1_stdlib_http_routed_service_rejects_non_loopback_bind",
+      "category": "environment_gated",
+      "resolution": "environment_gate",
+      "blockerIssue": 1255,
+      "rationale": "HTTP service bind tests need runner policy separation so shell-only environments do not produce false reds.",
+      "resolutionStatus": "open"
+    },
+    {
+      "name": "tests::stage1_stdlib_http_service_rejects_non_loopback_bind",
+      "category": "environment_gated",
+      "resolution": "environment_gate",
+      "blockerIssue": 1255,
+      "rationale": "HTTP service bind tests need runner policy separation so shell-only environments do not produce false reds.",
+      "resolutionStatus": "open"
     }
   ],
   "resolutionTracking": {
-    "updated": "2026-07-02",
+    "updated": "2026-06-30",
     "evidence": "https://github.com/OMT-Global/axiomlang/issues/1255#issuecomment-4840906364",
-    "summary": "Reconciled after runtime HTTP serving progress in #1290/#1291. Removed 2 HTTP loopback bind rows now passing on the direct-native stack. expectedFailureCount lowered 15 -> 13. The remaining 13 are genuinely open gaps: 4 async runtime rows, numeric-overflow policy, legacy env-bool string print, capability intrinsics, net_tcp/net_udp roundtrips, 2 dynamic network-port check rows, serdes JSON expectations, and 1 environment-gated proof workload row.",
+    "summary": "Reconciled after the full direct-native stack merged to main. Removed 21 rows now passing (all previously addressed_by_open_stack / fixed_pending_merge). expectedFailureCount lowered 36 -> 15. The remaining 15 are the genuinely open gaps: 4 async runtime, serdes JSON engine, numeric-overflow policy, legacy env-bool string print, capability intrinsics, net_tcp/net_udp roundtrips, 2 dynamic network-port check rows, and 3 environment-gated (http loopback + proof workload).",
     "statuses": {
-      "open": 13
+      "open": 15
     },
     "resolvedAndRemoved": [
       {
@@ -201,14 +217,6 @@
       {
         "name": "tests::stage1_project_imports_synthetic_stdlib_net_module",
         "resolvedBy": 1274
-      },
-      {
-        "name": "tests::stage1_stdlib_http_routed_service_rejects_non_loopback_bind",
-        "resolvedBy": 1291
-      },
-      {
-        "name": "tests::stage1_stdlib_http_service_rejects_non_loopback_bind",
-        "resolvedBy": 1291
       },
       {
         "name": "tests::stage1_project_reads_lines_from_stdlib_io_module",
