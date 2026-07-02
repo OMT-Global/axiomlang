@@ -3,7 +3,7 @@
   "issue": 1255,
   "status": "blocked",
   "command": "RUST_MIN_STACK=8388608 cargo test --manifest-path stage1/Cargo.toml -p axiomc --lib --features run-native-tests",
-  "expectedFailureCount": 15,
+  "expectedFailureCount": 1,
   "generatedRustCliStatus": "removed",
   "notes": "This manifest records the current full axiomc lib-suite failures after the direct-native default-backend flip. It is a triage gate, not a green-suite substitute.",
   "resolutionKinds": [
@@ -14,132 +14,20 @@
   ],
   "failures": [
     {
-      "name": "tests::async_timeout_returns_without_joining_slow_host_task",
-      "category": "direct_native_contract",
-      "resolution": "update_direct_native_contract",
-      "blockerIssue": 1255,
-      "rationale": "Async host-task timeout semantics need direct-native coverage or an explicit unsupported-feature diagnostic.",
-      "resolutionStatus": "open"
-    },
-    {
-      "name": "tests::build_project_emits_native_binary_with_capability_intrinsics",
-      "category": "stale_generated_rust_expectation",
-      "resolution": "update_direct_native_contract",
-      "blockerIssue": 1255,
-      "rationale": "The build assertion should validate native artifacts and generated_rust absence instead of generated-Rust output.",
-      "resolutionStatus": "open"
-    },
-    {
-      "name": "tests::check_project_accepts_dynamic_stdlib_network_port_with_unrestricted_net",
-      "category": "direct_native_contract",
-      "resolution": "update_direct_native_contract",
-      "blockerIssue": 1255,
-      "rationale": "Dynamic stdlib network port checking needs to match the direct-native capability policy.",
-      "resolutionStatus": "open"
-    },
-    {
-      "name": "tests::check_project_accepts_dynamic_stdlib_peer_network_port_with_unrestricted_net",
-      "category": "direct_native_contract",
-      "resolution": "update_direct_native_contract",
-      "blockerIssue": 1255,
-      "rationale": "Dynamic peer network port checking needs to match the direct-native capability policy.",
-      "resolutionStatus": "open"
-    },
-    {
       "name": "tests::checked_in_proof_workload_examples_build_run_and_test",
       "category": "environment_gated",
       "resolution": "environment_gate",
       "blockerIssue": 1255,
       "rationale": "Proof workload examples should be split so runner-only host, network, or wasm prerequisites cannot hide direct-native regressions.",
       "resolutionStatus": "open"
-    },
-    {
-      "name": "tests::legacy_env_bool_still_checks_with_deprecation_warning",
-      "category": "stale_generated_rust_expectation",
-      "resolution": "update_direct_native_contract",
-      "blockerIssue": 1255,
-      "rationale": "Legacy env compatibility should be checked without relying on generated-Rust backend behavior.",
-      "resolutionStatus": "open"
-    },
-    {
-      "name": "tests::stage1_async_runtime_single_worker_drains_nested_join_and_timeout",
-      "category": "direct_native_contract",
-      "resolution": "update_direct_native_contract",
-      "blockerIssue": 1255,
-      "rationale": "Async runtime join and timeout behavior needs direct-native runtime coverage.",
-      "resolutionStatus": "open"
-    },
-    {
-      "name": "tests::stage1_async_runtime_uses_configured_scheduler_and_timer_wheel",
-      "category": "direct_native_contract",
-      "resolution": "update_direct_native_contract",
-      "blockerIssue": 1255,
-      "rationale": "Configured scheduler and timer-wheel behavior needs direct-native runtime coverage.",
-      "resolutionStatus": "open"
-    },
-    {
-      "name": "tests::stage1_async_timeout_uses_real_elapsed_timer_and_returns_none",
-      "category": "direct_native_contract",
-      "resolution": "update_direct_native_contract",
-      "blockerIssue": 1255,
-      "rationale": "Elapsed timer behavior needs direct-native runtime coverage or an explicit unsupported diagnostic.",
-      "resolutionStatus": "open"
-    },
-    {
-      "name": "tests::stage1_numeric_overflow_policy_checks_signed_debug_and_wraps_release",
-      "category": "direct_native_contract",
-      "resolution": "update_direct_native_contract",
-      "blockerIssue": 1255,
-      "rationale": "Numeric overflow policy must be proven under direct-native debug and release behavior.",
-      "resolutionStatus": "open"
-    },
-    {
-      "name": "tests::stage1_project_imports_synthetic_stdlib_net_tcp_module",
-      "category": "stale_generated_rust_expectation",
-      "resolution": "update_direct_native_contract",
-      "blockerIssue": 1255,
-      "rationale": "Synthetic stdlib net TCP imports need direct-native capability-shim expectations.",
-      "resolutionStatus": "open"
-    },
-    {
-      "name": "tests::stage1_project_imports_synthetic_stdlib_net_udp_module",
-      "category": "stale_generated_rust_expectation",
-      "resolution": "update_direct_native_contract",
-      "blockerIssue": 1255,
-      "rationale": "Synthetic stdlib net UDP imports need direct-native capability-shim expectations.",
-      "resolutionStatus": "open"
-    },
-    {
-      "name": "tests::stage1_project_imports_synthetic_stdlib_serdes_module",
-      "category": "stale_generated_rust_expectation",
-      "resolution": "update_direct_native_contract",
-      "blockerIssue": 1255,
-      "rationale": "Synthetic stdlib serdes imports need direct-native artifact and output expectations.",
-      "resolutionStatus": "open"
-    },
-    {
-      "name": "tests::stage1_stdlib_http_routed_service_rejects_non_loopback_bind",
-      "category": "environment_gated",
-      "resolution": "environment_gate",
-      "blockerIssue": 1255,
-      "rationale": "HTTP service bind tests need runner policy separation so shell-only environments do not produce false reds.",
-      "resolutionStatus": "open"
-    },
-    {
-      "name": "tests::stage1_stdlib_http_service_rejects_non_loopback_bind",
-      "category": "environment_gated",
-      "resolution": "environment_gate",
-      "blockerIssue": 1255,
-      "rationale": "HTTP service bind tests need runner policy separation so shell-only environments do not produce false reds.",
-      "resolutionStatus": "open"
     }
   ],
   "resolutionTracking": {
-    "updated": "2026-06-30",
+    "updated": "2026-07-02",
     "evidence": "https://github.com/OMT-Global/axiomlang/issues/1255#issuecomment-4840906364",
-    "summary": "Reconciled after the full direct-native stack merged to main. Removed 21 rows now passing (all previously addressed_by_open_stack / fixed_pending_merge). expectedFailureCount lowered 36 -> 15. The remaining 15 are the genuinely open gaps: 4 async runtime, serdes JSON engine, numeric-overflow policy, legacy env-bool string print, capability intrinsics, net_tcp/net_udp roundtrips, 2 dynamic network-port check rows, and 3 environment-gated (http loopback + proof workload).",
+    "summary": "Reconciled after the direct-native gap-closure PRs (#1277/#1278/#1280-#1285) merged to main. Removed 14 rows now passing; expectedFailureCount lowered 15 -> 1. The single remaining row, checked_in_proof_workload_examples_build_run_and_test, is environment_gated (needs loopback networking and the wasm32-wasip1 target) per the #1255 environment-separation criteria.",
     "statuses": {
-      "open": 15
+      "open": 1
     },
     "resolvedAndRemoved": [
       {
@@ -241,6 +129,62 @@
       {
         "name": "tests::stage1_runtime_reports_structured_slice_error_in_debug_and_release",
         "resolvedBy": null
+      },
+      {
+        "name": "tests::async_timeout_returns_without_joining_slow_host_task",
+        "resolvedBy": 1281
+      },
+      {
+        "name": "tests::build_project_emits_native_binary_with_capability_intrinsics",
+        "resolvedBy": 1283
+      },
+      {
+        "name": "tests::check_project_accepts_dynamic_stdlib_network_port_with_unrestricted_net",
+        "resolvedBy": 1277
+      },
+      {
+        "name": "tests::check_project_accepts_dynamic_stdlib_peer_network_port_with_unrestricted_net",
+        "resolvedBy": 1277
+      },
+      {
+        "name": "tests::legacy_env_bool_still_checks_with_deprecation_warning",
+        "resolvedBy": 1278
+      },
+      {
+        "name": "tests::stage1_async_runtime_single_worker_drains_nested_join_and_timeout",
+        "resolvedBy": 1281
+      },
+      {
+        "name": "tests::stage1_async_runtime_uses_configured_scheduler_and_timer_wheel",
+        "resolvedBy": 1284
+      },
+      {
+        "name": "tests::stage1_async_timeout_uses_real_elapsed_timer_and_returns_none",
+        "resolvedBy": 1281
+      },
+      {
+        "name": "tests::stage1_numeric_overflow_policy_checks_signed_debug_and_wraps_release",
+        "resolvedBy": 1280
+      },
+      {
+        "name": "tests::stage1_project_imports_synthetic_stdlib_net_tcp_module",
+        "resolvedBy": 1277
+      },
+      {
+        "name": "tests::stage1_project_imports_synthetic_stdlib_net_udp_module",
+        "resolvedBy": 1277
+      },
+      {
+        "name": "tests::stage1_project_imports_synthetic_stdlib_serdes_module",
+        "resolvedBy": 1282
+      },
+      {
+        "name": "tests::stage1_stdlib_http_routed_service_rejects_non_loopback_bind",
+        "resolvedBy": 1285
+      },
+      {
+        "name": "tests::stage1_stdlib_http_service_rejects_non_loopback_bind",
+        "resolvedBy": 1285
       }
     ]
   }
