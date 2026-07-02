@@ -96,10 +96,10 @@ grep -Fq 'dry-run: cargo test --manifest-path stage1/Cargo.toml -p axiomc --test
 grep -Fq 'dry-run: cargo test --manifest-path stage1/Cargo.toml -p axiomc --lib cranelift_run_report_executes_without_generated_rust_artifact -- --nocapture' "$temp_dir/row-dry-run.out"
 
 AXIOM_DIRECT_NATIVE_RUNTIME_ABI_DRY_RUN=1 \
-  AXIOM_DIRECT_NATIVE_RUNTIME_ABI_STATUS=partial \
-  "$script" >"$temp_dir/partial-status-dry-run.out"
-grep -Fq 'cranelift_backend_lowers_option_int_match_to_runtime_exit_code' "$temp_dir/partial-status-dry-run.out"
-grep -Fq 'cranelift_backend_lowers_array_literal_index_to_runtime_exit_code' "$temp_dir/partial-status-dry-run.out"
+  AXIOM_DIRECT_NATIVE_RUNTIME_ABI_STATUS=implemented \
+  "$script" >"$temp_dir/implemented-status-dry-run.out"
+grep -Fq 'cranelift_backend_lowers_i64_main_to_runtime_exit_code' "$temp_dir/implemented-status-dry-run.out"
+grep -Fq 'cranelift_backend_lowers_array_literal_index_to_runtime_exit_code' "$temp_dir/implemented-status-dry-run.out"
 
 AXIOM_DIRECT_NATIVE_RUNTIME_ABI_DRY_RUN=1 \
   AXIOM_DIRECT_NATIVE_RUNTIME_ABI_TEST_FILTER=cranelift_backend_lowers_i64_main_to_runtime_exit_code \

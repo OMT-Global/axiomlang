@@ -331,6 +331,26 @@ pub enum I64Expr {
         unmatched_response: String,
         max_requests: i64,
     },
+    /// Open a loopback HTTP listener at runtime and yield its file descriptor,
+    /// or -1 on failure.
+    HttpServerListen {
+        port: u16,
+    },
+    /// Accept one HTTP client from a runtime listener fd and yield the client
+    /// fd, or -1 on failure.
+    HttpServerAccept {
+        server: Box<I64Expr>,
+    },
+    /// Write a complete HTTP response to a runtime client fd, close it, and
+    /// yield 1 when the send succeeds.
+    HttpResponseWrite {
+        request: Box<I64Expr>,
+        response: String,
+    },
+    /// Close a runtime listener fd and yield 1 when close succeeds.
+    HttpServerClose {
+        server: Box<I64Expr>,
+    },
     Select {
         cond: Box<I64Condition>,
         then_result: Box<I64Expr>,
@@ -3224,6 +3244,23 @@ fn emit_i64_expr(
             unmatched_response,
             *max_requests,
         ),
+        I64Expr::HttpServerListen { port } => {
+            emit_i64_http_server_listen(builder, runtime_refs, *port)
+        }
+        I64Expr::HttpServerAccept { server } => {
+            emit_i64_http_server_accept(builder, locals, function_refs, runtime_refs, server)
+        }
+        I64Expr::HttpResponseWrite { request, response } => emit_i64_http_response_write(
+            builder,
+            locals,
+            function_refs,
+            runtime_refs,
+            request,
+            response,
+        ),
+        I64Expr::HttpServerClose { server } => {
+            emit_i64_http_server_close(builder, locals, function_refs, runtime_refs, server)
+        }
         I64Expr::Select {
             cond,
             then_result,
@@ -3667,6 +3704,283 @@ fn emit_i64_http_serve_route(
     builder.switch_to_block(done_block);
     builder.seal_block(done_block);
     Ok(builder.ins().stack_load(types::I64, result_slot, 0))
+}
+
+fn emit_i64_http_server_listen(
+    builder: &mut FunctionBuilder<'_>,
+    runtime_refs: I64RuntimeRefs,
+    port: u16,
+) -> Result<Value, CraneliftBackendError> {
+    let sockets = runtime_refs.sockets.ok_or_else(|| {
+        CraneliftBackendError::new("runtime http serving is unavailable on this target")
+    })?;
+    let pointer_type = types::I64;
+
+    let result_slot =
+        builder.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 0));
+    let neg_one64 = builder.ins().iconst(types::I64, -1);
+    builder.ins().stack_store(neg_one64, result_slot, 0);
+
+    let af_inet = builder.ins().iconst(types::I32, 2);
+    let sock_stream = builder.ins().iconst(types::I32, 1);
+    let proto = builder.ins().iconst(types::I32, 0);
+    let call = builder
+        .ins()
+        .call(sockets.socket, &[af_inet, sock_stream, proto]);
+    let listen_fd = builder.inst_results(call)[0];
+
+    let cleanup_block = builder.create_block();
+    let done_block = builder.create_block();
+    builder.append_block_param(cleanup_block, types::I32);
+
+    let bad = builder.ins().icmp_imm(IntCC::SignedLessThan, listen_fd, 0);
+    let neg_one = builder.ins().iconst(types::I32, -1);
+    let open_block = builder.create_block();
+    builder.ins().brif(
+        bad,
+        cleanup_block,
+        &[BlockArg::Value(neg_one)],
+        open_block,
+        &[],
+    );
+
+    builder.switch_to_block(open_block);
+    builder.seal_block(open_block);
+
+    let reuse_slot =
+        builder.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 4, 0));
+    let one32 = builder.ins().iconst(types::I32, 1);
+    builder.ins().stack_store(one32, reuse_slot, 0);
+    let reuse_ptr = builder.ins().stack_addr(pointer_type, reuse_slot, 0);
+    let sol_socket = builder.ins().iconst(types::I32, SO_LEVEL_SOCKET);
+    let so_reuseaddr = builder.ins().iconst(types::I32, SO_REUSEADDR);
+    let optlen = builder.ins().iconst(types::I32, 4);
+    builder.ins().call(
+        sockets.setsockopt,
+        &[listen_fd, sol_socket, so_reuseaddr, reuse_ptr, optlen],
+    );
+
+    let addr_slot =
+        builder.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 16, 0));
+    let mut bytes = [0u8; 16];
+    #[cfg(target_os = "macos")]
+    {
+        bytes[0] = 16;
+        bytes[1] = 2;
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        bytes[0] = 2;
+        bytes[1] = 0;
+    }
+    bytes[2] = (port >> 8) as u8;
+    bytes[3] = (port & 0xff) as u8;
+    bytes[4] = 127;
+    bytes[5] = 0;
+    bytes[6] = 0;
+    bytes[7] = 1;
+    for (offset, byte) in bytes.iter().enumerate() {
+        let value = builder.ins().iconst(types::I8, i64::from(*byte));
+        builder.ins().stack_store(value, addr_slot, offset as i32);
+    }
+    let addr_ptr = builder.ins().stack_addr(pointer_type, addr_slot, 0);
+    let addr_len = builder.ins().iconst(types::I32, 16);
+    let call = builder
+        .ins()
+        .call(sockets.bind, &[listen_fd, addr_ptr, addr_len]);
+    let bind_rc = builder.inst_results(call)[0];
+    let bad = builder.ins().icmp_imm(IntCC::SignedLessThan, bind_rc, 0);
+    let bound_block = builder.create_block();
+    builder.ins().brif(
+        bad,
+        cleanup_block,
+        &[BlockArg::Value(listen_fd)],
+        bound_block,
+        &[],
+    );
+
+    builder.switch_to_block(bound_block);
+    builder.seal_block(bound_block);
+
+    let backlog = builder.ins().iconst(types::I32, 16);
+    let call = builder.ins().call(sockets.listen, &[listen_fd, backlog]);
+    let listen_rc = builder.inst_results(call)[0];
+    let bad = builder.ins().icmp_imm(IntCC::SignedLessThan, listen_rc, 0);
+    let listening_block = builder.create_block();
+    builder.ins().brif(
+        bad,
+        cleanup_block,
+        &[BlockArg::Value(listen_fd)],
+        listening_block,
+        &[],
+    );
+
+    builder.switch_to_block(listening_block);
+    builder.seal_block(listening_block);
+    let fd64 = builder.ins().sextend(types::I64, listen_fd);
+    builder.ins().stack_store(fd64, result_slot, 0);
+    builder.ins().jump(done_block, &[]);
+
+    builder.switch_to_block(cleanup_block);
+    builder.seal_block(cleanup_block);
+    let fd = builder.block_params(cleanup_block)[0];
+    let has_fd = builder
+        .ins()
+        .icmp_imm(IntCC::SignedGreaterThanOrEqual, fd, 0);
+    let close_block = builder.create_block();
+    builder
+        .ins()
+        .brif(has_fd, close_block, &[], done_block, &[]);
+    builder.switch_to_block(close_block);
+    builder.seal_block(close_block);
+    builder.ins().call(runtime_refs.close, &[fd]);
+    builder.ins().jump(done_block, &[]);
+
+    builder.switch_to_block(done_block);
+    builder.seal_block(done_block);
+    Ok(builder.ins().stack_load(types::I64, result_slot, 0))
+}
+
+fn emit_i64_http_server_accept(
+    builder: &mut FunctionBuilder<'_>,
+    locals: &[Variable],
+    function_refs: &[FuncRef],
+    runtime_refs: I64RuntimeRefs,
+    server: &I64Expr,
+) -> Result<Value, CraneliftBackendError> {
+    let sockets = runtime_refs.sockets.ok_or_else(|| {
+        CraneliftBackendError::new("runtime http serving is unavailable on this target")
+    })?;
+    let pointer_type = types::I64;
+    let server = emit_i64_expr(builder, locals, function_refs, runtime_refs, server)?;
+    let bad = builder.ins().icmp_imm(IntCC::SignedLessThan, server, 0);
+    let accept_block = builder.create_block();
+    let done_block = builder.create_block();
+    builder.append_block_param(done_block, types::I64);
+    let neg_one = builder.ins().iconst(types::I64, -1);
+    builder.ins().brif(
+        bad,
+        done_block,
+        &[BlockArg::Value(neg_one)],
+        accept_block,
+        &[],
+    );
+
+    builder.switch_to_block(accept_block);
+    builder.seal_block(accept_block);
+    let fd = builder.ins().ireduce(types::I32, server);
+    let null_ptr = builder.ins().iconst(pointer_type, 0);
+    let call = builder
+        .ins()
+        .call(sockets.accept, &[fd, null_ptr, null_ptr]);
+    let client_fd = builder.inst_results(call)[0];
+    let client_fd64 = builder.ins().sextend(types::I64, client_fd);
+    builder
+        .ins()
+        .jump(done_block, &[BlockArg::Value(client_fd64)]);
+
+    builder.switch_to_block(done_block);
+    builder.seal_block(done_block);
+    Ok(builder.block_params(done_block)[0])
+}
+
+fn emit_i64_http_response_write(
+    builder: &mut FunctionBuilder<'_>,
+    locals: &[Variable],
+    function_refs: &[FuncRef],
+    runtime_refs: I64RuntimeRefs,
+    request: &I64Expr,
+    response: &str,
+) -> Result<Value, CraneliftBackendError> {
+    let sockets = runtime_refs.sockets.ok_or_else(|| {
+        CraneliftBackendError::new("runtime http serving is unavailable on this target")
+    })?;
+    let pointer_type = types::I64;
+    let request = emit_i64_expr(builder, locals, function_refs, runtime_refs, request)?;
+    let bad = builder.ins().icmp_imm(IntCC::SignedLessThan, request, 0);
+    let send_block = builder.create_block();
+    let done_block = builder.create_block();
+    builder.append_block_param(done_block, types::I64);
+    let zero64 = builder.ins().iconst(types::I64, 0);
+    builder
+        .ins()
+        .brif(bad, done_block, &[BlockArg::Value(zero64)], send_block, &[]);
+
+    builder.switch_to_block(send_block);
+    builder.seal_block(send_block);
+    let fd = builder.ins().ireduce(types::I32, request);
+    let response_bytes = response.as_bytes();
+    let response_len_u32 = u32::try_from(response_bytes.len())
+        .map_err(|_| CraneliftBackendError::new("http response is too large"))?;
+    let response_slot = builder.create_sized_stack_slot(StackSlotData::new(
+        StackSlotKind::ExplicitSlot,
+        response_len_u32.max(1),
+        0,
+    ));
+    for (offset, byte) in response_bytes.iter().enumerate() {
+        let value = builder.ins().iconst(types::I8, i64::from(*byte));
+        builder
+            .ins()
+            .stack_store(value, response_slot, offset as i32);
+    }
+    let response_ptr = builder.ins().stack_addr(pointer_type, response_slot, 0);
+    let response_len = builder
+        .ins()
+        .iconst(pointer_type, i64::from(response_len_u32));
+    let flags = builder.ins().iconst(types::I32, 0);
+    let call = builder
+        .ins()
+        .call(sockets.send, &[fd, response_ptr, response_len, flags]);
+    let sent = builder.inst_results(call)[0];
+    builder.ins().call(runtime_refs.close, &[fd]);
+    let ok = builder
+        .ins()
+        .icmp_imm(IntCC::SignedGreaterThanOrEqual, sent, 0);
+    let one64 = builder.ins().iconst(types::I64, 1);
+    let result = builder.ins().select(ok, one64, zero64);
+    builder.ins().jump(done_block, &[BlockArg::Value(result)]);
+
+    builder.switch_to_block(done_block);
+    builder.seal_block(done_block);
+    Ok(builder.block_params(done_block)[0])
+}
+
+fn emit_i64_http_server_close(
+    builder: &mut FunctionBuilder<'_>,
+    locals: &[Variable],
+    function_refs: &[FuncRef],
+    runtime_refs: I64RuntimeRefs,
+    server: &I64Expr,
+) -> Result<Value, CraneliftBackendError> {
+    let server = emit_i64_expr(builder, locals, function_refs, runtime_refs, server)?;
+    let bad = builder.ins().icmp_imm(IntCC::SignedLessThan, server, 0);
+    let close_block = builder.create_block();
+    let done_block = builder.create_block();
+    builder.append_block_param(done_block, types::I64);
+    let zero64 = builder.ins().iconst(types::I64, 0);
+    builder.ins().brif(
+        bad,
+        done_block,
+        &[BlockArg::Value(zero64)],
+        close_block,
+        &[],
+    );
+
+    builder.switch_to_block(close_block);
+    builder.seal_block(close_block);
+    let fd = builder.ins().ireduce(types::I32, server);
+    let call = builder.ins().call(runtime_refs.close, &[fd]);
+    let close_rc = builder.inst_results(call)[0];
+    let ok = builder
+        .ins()
+        .icmp_imm(IntCC::SignedGreaterThanOrEqual, close_rc, 0);
+    let one64 = builder.ins().iconst(types::I64, 1);
+    let result = builder.ins().select(ok, one64, zero64);
+    builder.ins().jump(done_block, &[BlockArg::Value(result)]);
+
+    builder.switch_to_block(done_block);
+    builder.seal_block(done_block);
+    Ok(builder.block_params(done_block)[0])
 }
 
 fn emit_i64_static_bytes(

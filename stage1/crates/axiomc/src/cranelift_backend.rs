@@ -68,6 +68,12 @@ struct I64StaticBindings {
     http_shim_wrappers: HashSet<String>,
     http_get_wrappers: HashSet<String>,
     http_serve_once_wrappers: HashSet<String>,
+    http_listen_wrappers: HashSet<String>,
+    http_local_port_wrappers: HashSet<String>,
+    http_accept_wrappers: HashSet<String>,
+    http_respond_wrappers: HashSet<String>,
+    http_close_wrappers: HashSet<String>,
+    http_server_ports: HashMap<String, u16>,
     collection_wrappers: HashSet<String>,
     collection_contains_wrappers: HashSet<String>,
     collection_get_wrappers: HashSet<String>,
@@ -134,6 +140,61 @@ struct I64StaticBindings {
     structs: HashMap<String, StructDef>,
     enums: HashMap<String, EnumDef>,
     functions: HashMap<String, Function>,
+}
+
+fn populate_i64_http_static_bindings(program: &Program, static_bindings: &mut I64StaticBindings) {
+    static_bindings.http_shim_wrappers = program
+        .functions
+        .iter()
+        .filter(|function| function.path == "<stdlib>/http.ax")
+        .map(|function| function.name.clone())
+        .collect();
+    static_bindings.http_get_wrappers = program
+        .functions
+        .iter()
+        .filter(|function| function.path == "<stdlib>/http.ax" && function.source_name == "get")
+        .map(|function| function.name.clone())
+        .collect();
+    static_bindings.http_serve_once_wrappers = program
+        .functions
+        .iter()
+        .filter(|function| {
+            function.path == "<stdlib>/http.ax" && function.source_name == "serve_once"
+        })
+        .map(|function| function.name.clone())
+        .collect();
+    static_bindings.http_listen_wrappers = program
+        .functions
+        .iter()
+        .filter(|function| function.path == "<stdlib>/http.ax" && function.source_name == "listen")
+        .map(|function| function.name.clone())
+        .collect();
+    static_bindings.http_local_port_wrappers = program
+        .functions
+        .iter()
+        .filter(|function| {
+            function.path == "<stdlib>/http.ax" && function.source_name == "local_port"
+        })
+        .map(|function| function.name.clone())
+        .collect();
+    static_bindings.http_accept_wrappers = program
+        .functions
+        .iter()
+        .filter(|function| function.path == "<stdlib>/http.ax" && function.source_name == "accept")
+        .map(|function| function.name.clone())
+        .collect();
+    static_bindings.http_respond_wrappers = program
+        .functions
+        .iter()
+        .filter(|function| function.path == "<stdlib>/http.ax" && function.source_name == "respond")
+        .map(|function| function.name.clone())
+        .collect();
+    static_bindings.http_close_wrappers = program
+        .functions
+        .iter()
+        .filter(|function| function.path == "<stdlib>/http.ax" && function.source_name == "close")
+        .map(|function| function.name.clone())
+        .collect();
 }
 
 struct I64HelperSignature {
@@ -501,6 +562,7 @@ fn lower_i64_top_level_output_program(
         .filter(|function| is_i64_std_fs_shim_wrapper(function))
         .map(|function| function.name.clone())
         .collect();
+    populate_i64_http_static_bindings(program, &mut static_bindings);
     static_bindings.has_fs_write_calls = program
         .stmts
         .iter()
@@ -733,26 +795,7 @@ fn lower_i64_exit_program(
         .filter(|function| is_i64_std_net_wrapper(function, "resolve"))
         .flat_map(|function| [function.name.clone(), function.source_name.clone()])
         .collect();
-    static_bindings.http_shim_wrappers = program
-        .functions
-        .iter()
-        .filter(|function| function.path == "<stdlib>/http.ax")
-        .map(|function| function.name.clone())
-        .collect();
-    static_bindings.http_get_wrappers = program
-        .functions
-        .iter()
-        .filter(|function| function.path == "<stdlib>/http.ax" && function.source_name == "get")
-        .map(|function| function.name.clone())
-        .collect();
-    static_bindings.http_serve_once_wrappers = program
-        .functions
-        .iter()
-        .filter(|function| {
-            function.path == "<stdlib>/http.ax" && function.source_name == "serve_once"
-        })
-        .map(|function| function.name.clone())
-        .collect();
+    populate_i64_http_static_bindings(program, &mut static_bindings);
     static_bindings.collection_wrappers = program
         .functions
         .iter()
@@ -1817,6 +1860,18 @@ fn lower_i64_aggregate_return_body(
             Stmt::Let { name, ty, expr, .. }
                 if is_i64_compatible_type(ty) && !seen_runtime_stmt =>
             {
+                if lower_i64_http_server_listen_local(
+                    name,
+                    expr,
+                    &mut locals,
+                    &mut local_indexes,
+                    &mut *static_bindings,
+                )
+                .is_some()
+                {
+                    seen_runtime_stmt = true;
+                    continue;
+                }
                 if let Some(stmts) = lower_i64_eprintln_let_stmts(
                     stmt,
                     &mut locals,
@@ -3365,6 +3420,18 @@ fn lower_i64_body(
             Stmt::Let { name, ty, expr, .. }
                 if is_i64_compatible_type(ty) && !seen_runtime_stmt =>
             {
+                if lower_i64_http_server_listen_local(
+                    name,
+                    expr,
+                    &mut locals,
+                    &mut local_indexes,
+                    &mut *static_bindings,
+                )
+                .is_some()
+                {
+                    seen_runtime_stmt = true;
+                    continue;
+                }
                 if allow_stdio_effects {
                     if let Some(stmts) = lower_i64_eprintln_let_stmts(
                         stmt,
@@ -8235,6 +8302,28 @@ fn lower_i64_struct_call_let_stmts(
     ) {
         return Some(stmts);
     }
+    if is_i64_http_accept_name(call_name, static_bindings) {
+        let [server] = args else {
+            return None;
+        };
+        let stream_local = local_indexes.len();
+        local_indexes.insert(i64_struct_projection_key(name, "stream"), stream_local);
+        locals.push(CraneliftI64Expr::Literal(0));
+        return Some(vec![CraneliftI64Stmt::Assign(
+            axiomc_backend_cranelift::I64Assign {
+                local: stream_local,
+                value: CraneliftI64Expr::HttpServerAccept {
+                    server: Box::new(lower_i64_expr(
+                        server,
+                        local_indexes,
+                        local_conditions,
+                        helper_signatures,
+                        static_bindings,
+                    )?),
+                },
+            },
+        )]);
+    }
     let signature = helper_signatures.get(call_name)?;
     let struct_def = i64_scalar_static_struct_def(struct_name, static_bindings)?;
     if args.len() != signature.params
@@ -12725,6 +12814,46 @@ fn lower_i64_known_bool_intrinsic_condition(
                 .is_some(),
             ))
         }
+        name if is_i64_http_respond_name(name, static_bindings) => {
+            let [request, status, body] = args else {
+                return None;
+            };
+            let request = lower_i64_http_request_stream_expr(
+                request,
+                local_indexes,
+                local_conditions,
+                helper_signatures,
+                static_bindings,
+            )?;
+            let status = i64_static_scalar_value(status, static_bindings)?;
+            let body = i64_string_text(body, static_bindings)?;
+            Some(CraneliftI64Condition::Compare(CraneliftI64Compare {
+                op: CraneliftI64CompareOp::Ne,
+                lhs: CraneliftI64Expr::HttpResponseWrite {
+                    request: Box::new(request),
+                    response: i64_http_response(status, &body),
+                },
+                rhs: CraneliftI64Expr::Literal(0),
+            }))
+        }
+        name if is_i64_http_close_name(name, static_bindings) => {
+            let [server] = args else {
+                return None;
+            };
+            Some(CraneliftI64Condition::Compare(CraneliftI64Compare {
+                op: CraneliftI64CompareOp::Ne,
+                lhs: CraneliftI64Expr::HttpServerClose {
+                    server: Box::new(lower_i64_expr(
+                        server,
+                        local_indexes,
+                        local_conditions,
+                        helper_signatures,
+                        static_bindings,
+                    )?),
+                },
+                rhs: CraneliftI64Expr::Literal(0),
+            }))
+        }
         name if is_i64_http_serve_once_name(name, static_bindings) => {
             let [bind, body] = args else {
                 return None;
@@ -14134,6 +14263,16 @@ fn lower_i64_expr(
                     static_bindings,
                 )
             })
+            .or_else(|| {
+                lower_i64_http_server_intrinsic_expr(
+                    name,
+                    args,
+                    local_indexes,
+                    local_conditions,
+                    helper_signatures,
+                    static_bindings,
+                )
+            })
             .or_else(|| i64_known_helper_call_i64_expr(name, args, static_bindings))
             .or_else(|| {
                 lower_i64_call_expr(
@@ -14299,6 +14438,129 @@ fn lower_i64_expr(
             static_bindings,
         ),
         _ => None,
+    }
+}
+
+fn lower_i64_http_server_intrinsic_expr(
+    name: &str,
+    args: &[Expr],
+    local_indexes: &HashMap<String, usize>,
+    local_conditions: &HashMap<String, CraneliftI64Condition>,
+    helper_signatures: &HashMap<&str, I64HelperSignature>,
+    static_bindings: &I64StaticBindings,
+) -> Option<CraneliftI64Expr> {
+    if is_i64_http_listen_name(name, static_bindings) {
+        let [bind] = args else {
+            return None;
+        };
+        let bind = i64_string_text(bind, static_bindings)?;
+        let addr = http_parse_loopback_bind(&bind)?;
+        return Some(CraneliftI64Expr::HttpServerListen { port: addr.port() });
+    }
+    if is_i64_http_local_port_name(name, static_bindings) {
+        let [server] = args else {
+            return None;
+        };
+        if let Expr::VarRef { name, .. } = server {
+            return static_bindings
+                .http_server_ports
+                .get(name)
+                .map(|port| CraneliftI64Expr::Literal(i64::from(*port)));
+        }
+        return None;
+    }
+    if is_i64_http_accept_name(name, static_bindings) {
+        let [server] = args else {
+            return None;
+        };
+        return Some(CraneliftI64Expr::HttpServerAccept {
+            server: Box::new(lower_i64_expr(
+                server,
+                local_indexes,
+                local_conditions,
+                helper_signatures,
+                static_bindings,
+            )?),
+        });
+    }
+    if is_i64_http_close_name(name, static_bindings) {
+        let [server] = args else {
+            return None;
+        };
+        return Some(CraneliftI64Expr::HttpServerClose {
+            server: Box::new(lower_i64_expr(
+                server,
+                local_indexes,
+                local_conditions,
+                helper_signatures,
+                static_bindings,
+            )?),
+        });
+    }
+    None
+}
+
+fn lower_i64_http_server_listen_local(
+    name: &str,
+    expr: &Expr,
+    locals: &mut Vec<CraneliftI64Expr>,
+    local_indexes: &mut HashMap<String, usize>,
+    static_bindings: &mut I64StaticBindings,
+) -> Option<()> {
+    let Expr::Call {
+        name: call_name,
+        args,
+        ..
+    } = expr
+    else {
+        return None;
+    };
+    if !is_i64_http_listen_name(call_name, static_bindings) {
+        return None;
+    }
+    let [bind] = args.as_slice() else {
+        return None;
+    };
+    let bind = i64_string_text(bind, static_bindings)?;
+    let addr = http_parse_loopback_bind(&bind)?;
+    let local = local_indexes.len();
+    local_indexes.insert(name.to_string(), local);
+    locals.push(CraneliftI64Expr::HttpServerListen { port: addr.port() });
+    static_bindings
+        .http_server_ports
+        .insert(name.to_string(), addr.port());
+    Some(())
+}
+
+fn lower_i64_http_request_stream_expr(
+    request: &Expr,
+    local_indexes: &HashMap<String, usize>,
+    local_conditions: &HashMap<String, CraneliftI64Condition>,
+    helper_signatures: &HashMap<&str, I64HelperSignature>,
+    static_bindings: &I64StaticBindings,
+) -> Option<CraneliftI64Expr> {
+    match request {
+        Expr::VarRef {
+            name,
+            ty: Type::Struct(_),
+        } => local_indexes
+            .get(i64_struct_projection_key(name, "stream").as_str())
+            .copied()
+            .map(CraneliftI64Expr::Local),
+        Expr::FieldAccess { base, field, .. } if field == "stream" => lower_i64_expr(
+            request,
+            local_indexes,
+            local_conditions,
+            helper_signatures,
+            static_bindings,
+        ),
+        _ => lower_i64_expr(
+            request,
+            local_indexes,
+            local_conditions,
+            helper_signatures,
+            static_bindings,
+        ),
     }
 }
 
@@ -16917,6 +17179,33 @@ fn is_i64_http_serve_once_name(name: &str, static_bindings: &I64StaticBindings) 
 
 fn is_i64_http_serve_route_name(name: &str) -> bool {
     name == "http_serve_route"
+}
+
+fn is_i64_http_listen_name(name: &str, static_bindings: &I64StaticBindings) -> bool {
+    matches!(name, "http_server_listen" | "listen" | "std_http_listen")
+        || static_bindings.http_listen_wrappers.contains(name)
+}
+
+fn is_i64_http_local_port_name(name: &str, static_bindings: &I64StaticBindings) -> bool {
+    matches!(
+        name,
+        "http_server_local_port" | "local_port" | "std_http_local_port"
+    ) || static_bindings.http_local_port_wrappers.contains(name)
+}
+
+fn is_i64_http_accept_name(name: &str, static_bindings: &I64StaticBindings) -> bool {
+    matches!(name, "http_server_accept" | "accept" | "std_http_accept")
+        || static_bindings.http_accept_wrappers.contains(name)
+}
+
+fn is_i64_http_respond_name(name: &str, static_bindings: &I64StaticBindings) -> bool {
+    matches!(name, "http_response_write" | "respond" | "std_http_respond")
+        || static_bindings.http_respond_wrappers.contains(name)
+}
+
+fn is_i64_http_close_name(name: &str, static_bindings: &I64StaticBindings) -> bool {
+    matches!(name, "http_server_close" | "close" | "std_http_close")
+        || static_bindings.http_close_wrappers.contains(name)
 }
 
 fn is_i64_std_collection_wrapper(function: &Function, source_name: &str) -> bool {
@@ -24473,6 +24762,25 @@ fn i64_http_ok_response(body: &str) -> String {
 
 fn i64_http_not_found_response() -> String {
     i64_http_response_with_status("404 Not Found", "not found")
+}
+
+fn i64_http_response(status: i64, body: &str) -> String {
+    i64_http_response_with_status(&i64_http_status_line(status), body)
+}
+
+fn i64_http_status_line(status: i64) -> String {
+    match status {
+        200 => String::from("200 OK"),
+        201 => String::from("201 Created"),
+        202 => String::from("202 Accepted"),
+        204 => String::from("204 No Content"),
+        400 => String::from("400 Bad Request"),
+        404 => String::from("404 Not Found"),
+        405 => String::from("405 Method Not Allowed"),
+        500 => String::from("500 Internal Server Error"),
+        code if (100..=999).contains(&code) => format!("{code} OK"),
+        _ => String::from("500 Internal Server Error"),
+    }
 }
 
 fn i64_http_response_with_status(status: &str, body: &str) -> String {
