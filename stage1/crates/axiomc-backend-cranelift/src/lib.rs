@@ -321,6 +321,16 @@ pub enum I64Expr {
         port: u16,
         response: String,
     },
+    /// Serve up to `max_requests` HTTP requests on a loopback listener at
+    /// runtime, returning `matched_response` for requests whose request line
+    /// matches the static route path and `unmatched_response` otherwise.
+    HttpServeRoute {
+        port: u16,
+        route_path: String,
+        matched_response: String,
+        unmatched_response: String,
+        max_requests: i64,
+    },
     Select {
         cond: Box<I64Condition>,
         then_result: Box<I64Expr>,
@@ -3199,6 +3209,21 @@ fn emit_i64_expr(
         I64Expr::HttpServeOnce { port, response } => {
             emit_i64_http_serve_once(builder, runtime_refs, *port, response)
         }
+        I64Expr::HttpServeRoute {
+            port,
+            route_path,
+            matched_response,
+            unmatched_response,
+            max_requests,
+        } => emit_i64_http_serve_route(
+            builder,
+            runtime_refs,
+            *port,
+            route_path,
+            matched_response,
+            unmatched_response,
+            *max_requests,
+        ),
         I64Expr::Select {
             cond,
             then_result,
@@ -3421,6 +3446,247 @@ fn emit_i64_http_serve_once(
     builder.switch_to_block(done_block);
     builder.seal_block(done_block);
     Ok(builder.ins().stack_load(types::I64, result_slot, 0))
+}
+
+fn emit_i64_http_serve_route(
+    builder: &mut FunctionBuilder<'_>,
+    runtime_refs: I64RuntimeRefs,
+    port: u16,
+    route_path: &str,
+    matched_response: &str,
+    unmatched_response: &str,
+    max_requests: i64,
+) -> Result<Value, CraneliftBackendError> {
+    if max_requests <= 0 {
+        return Ok(builder.ins().iconst(types::I64, 0));
+    }
+    let sockets = runtime_refs.sockets.ok_or_else(|| {
+        CraneliftBackendError::new("runtime http serving is unavailable on this target")
+    })?;
+    let pointer_type = types::I64;
+
+    let route_prefix = format!("GET {route_path} ");
+    let (route_prefix_ptr, route_prefix_len) =
+        emit_i64_static_bytes(builder, route_prefix.as_bytes())?;
+    let (matched_ptr, matched_len) = emit_i64_static_bytes(builder, matched_response.as_bytes())?;
+    let (unmatched_ptr, unmatched_len) =
+        emit_i64_static_bytes(builder, unmatched_response.as_bytes())?;
+
+    let result_slot =
+        builder.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 0));
+    let zero64 = builder.ins().iconst(types::I64, 0);
+    builder.ins().stack_store(zero64, result_slot, 0);
+
+    let af_inet = builder.ins().iconst(types::I32, 2);
+    let sock_stream = builder.ins().iconst(types::I32, 1);
+    let proto = builder.ins().iconst(types::I32, 0);
+    let call = builder
+        .ins()
+        .call(sockets.socket, &[af_inet, sock_stream, proto]);
+    let listen_fd = builder.inst_results(call)[0];
+
+    let cleanup_block = builder.create_block();
+    let done_block = builder.create_block();
+    builder.append_block_param(cleanup_block, types::I32);
+
+    let bad = builder.ins().icmp_imm(IntCC::SignedLessThan, listen_fd, 0);
+    let neg_one = builder.ins().iconst(types::I32, -1);
+    let open_block = builder.create_block();
+    builder.ins().brif(
+        bad,
+        cleanup_block,
+        &[BlockArg::Value(neg_one)],
+        open_block,
+        &[],
+    );
+
+    builder.switch_to_block(open_block);
+    builder.seal_block(open_block);
+
+    let reuse_slot =
+        builder.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 4, 0));
+    let one32 = builder.ins().iconst(types::I32, 1);
+    builder.ins().stack_store(one32, reuse_slot, 0);
+    let reuse_ptr = builder.ins().stack_addr(pointer_type, reuse_slot, 0);
+    let sol_socket = builder.ins().iconst(types::I32, SO_LEVEL_SOCKET);
+    let so_reuseaddr = builder.ins().iconst(types::I32, SO_REUSEADDR);
+    let optlen = builder.ins().iconst(types::I32, 4);
+    builder.ins().call(
+        sockets.setsockopt,
+        &[listen_fd, sol_socket, so_reuseaddr, reuse_ptr, optlen],
+    );
+
+    let addr_slot =
+        builder.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 16, 0));
+    let mut bytes = [0u8; 16];
+    #[cfg(target_os = "macos")]
+    {
+        bytes[0] = 16;
+        bytes[1] = 2;
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        bytes[0] = 2;
+        bytes[1] = 0;
+    }
+    bytes[2] = (port >> 8) as u8;
+    bytes[3] = (port & 0xff) as u8;
+    bytes[4] = 127;
+    bytes[5] = 0;
+    bytes[6] = 0;
+    bytes[7] = 1;
+    for (offset, byte) in bytes.iter().enumerate() {
+        let value = builder.ins().iconst(types::I8, i64::from(*byte));
+        builder.ins().stack_store(value, addr_slot, offset as i32);
+    }
+    let addr_ptr = builder.ins().stack_addr(pointer_type, addr_slot, 0);
+    let addr_len = builder.ins().iconst(types::I32, 16);
+    let call = builder
+        .ins()
+        .call(sockets.bind, &[listen_fd, addr_ptr, addr_len]);
+    let bind_rc = builder.inst_results(call)[0];
+    let bad = builder.ins().icmp_imm(IntCC::SignedLessThan, bind_rc, 0);
+    let bound_block = builder.create_block();
+    builder.ins().brif(
+        bad,
+        cleanup_block,
+        &[BlockArg::Value(listen_fd)],
+        bound_block,
+        &[],
+    );
+
+    builder.switch_to_block(bound_block);
+    builder.seal_block(bound_block);
+
+    let backlog = builder.ins().iconst(types::I32, 16);
+    let call = builder.ins().call(sockets.listen, &[listen_fd, backlog]);
+    let listen_rc = builder.inst_results(call)[0];
+    let bad = builder.ins().icmp_imm(IntCC::SignedLessThan, listen_rc, 0);
+    let loop_block = builder.create_block();
+    builder.append_block_param(loop_block, types::I64);
+    let listening_block = builder.create_block();
+    builder.ins().brif(
+        bad,
+        cleanup_block,
+        &[BlockArg::Value(listen_fd)],
+        listening_block,
+        &[],
+    );
+
+    builder.switch_to_block(listening_block);
+    builder.seal_block(listening_block);
+    builder.ins().jump(loop_block, &[BlockArg::Value(zero64)]);
+
+    builder.switch_to_block(loop_block);
+    let served_count = builder.block_params(loop_block)[0];
+    let max_value = builder.ins().iconst(types::I64, max_requests);
+    let should_accept = builder
+        .ins()
+        .icmp(IntCC::SignedLessThan, served_count, max_value);
+    let accept_block = builder.create_block();
+    let success_block = builder.create_block();
+    builder
+        .ins()
+        .brif(should_accept, accept_block, &[], success_block, &[]);
+
+    builder.switch_to_block(success_block);
+    builder.seal_block(success_block);
+    let one64 = builder.ins().iconst(types::I64, 1);
+    builder.ins().stack_store(one64, result_slot, 0);
+    builder
+        .ins()
+        .jump(cleanup_block, &[BlockArg::Value(listen_fd)]);
+
+    builder.switch_to_block(accept_block);
+    builder.seal_block(accept_block);
+    let null_ptr = builder.ins().iconst(pointer_type, 0);
+    let call = builder
+        .ins()
+        .call(sockets.accept, &[listen_fd, null_ptr, null_ptr]);
+    let client_fd = builder.inst_results(call)[0];
+    let bad = builder.ins().icmp_imm(IntCC::SignedLessThan, client_fd, 0);
+    let accepted_block = builder.create_block();
+    builder.ins().brif(
+        bad,
+        cleanup_block,
+        &[BlockArg::Value(listen_fd)],
+        accepted_block,
+        &[],
+    );
+
+    builder.switch_to_block(accepted_block);
+    builder.seal_block(accepted_block);
+    let scratch =
+        builder.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 1024, 0));
+    let scratch_ptr = builder.ins().stack_addr(pointer_type, scratch, 0);
+    let scratch_len = builder.ins().iconst(pointer_type, 1024);
+    let flags = builder.ins().iconst(types::I32, 0);
+    builder
+        .ins()
+        .call(sockets.recv, &[client_fd, scratch_ptr, scratch_len, flags]);
+
+    let compare = builder.ins().call(
+        runtime_refs.strncmp,
+        &[scratch_ptr, route_prefix_ptr, route_prefix_len],
+    );
+    let compare_result = builder.inst_results(compare)[0];
+    let route_matches = builder.ins().icmp_imm(IntCC::Equal, compare_result, 0);
+    let response_ptr = builder
+        .ins()
+        .select(route_matches, matched_ptr, unmatched_ptr);
+    let response_len = builder
+        .ins()
+        .select(route_matches, matched_len, unmatched_len);
+    let flags = builder.ins().iconst(types::I32, 0);
+    builder.ins().call(
+        sockets.send,
+        &[client_fd, response_ptr, response_len, flags],
+    );
+    builder.ins().call(runtime_refs.close, &[client_fd]);
+    let next_count = builder.ins().iadd_imm(served_count, 1);
+    builder
+        .ins()
+        .jump(loop_block, &[BlockArg::Value(next_count)]);
+    builder.seal_block(loop_block);
+
+    builder.switch_to_block(cleanup_block);
+    builder.seal_block(cleanup_block);
+    let fd = builder.block_params(cleanup_block)[0];
+    let has_fd = builder
+        .ins()
+        .icmp_imm(IntCC::SignedGreaterThanOrEqual, fd, 0);
+    let close_block = builder.create_block();
+    builder
+        .ins()
+        .brif(has_fd, close_block, &[], done_block, &[]);
+    builder.switch_to_block(close_block);
+    builder.seal_block(close_block);
+    builder.ins().call(runtime_refs.close, &[fd]);
+    builder.ins().jump(done_block, &[]);
+
+    builder.switch_to_block(done_block);
+    builder.seal_block(done_block);
+    Ok(builder.ins().stack_load(types::I64, result_slot, 0))
+}
+
+fn emit_i64_static_bytes(
+    builder: &mut FunctionBuilder<'_>,
+    bytes: &[u8],
+) -> Result<(Value, Value), CraneliftBackendError> {
+    let len = u32::try_from(bytes.len())
+        .map_err(|_| CraneliftBackendError::new("static byte buffer is too large"))?;
+    let slot = builder.create_sized_stack_slot(StackSlotData::new(
+        StackSlotKind::ExplicitSlot,
+        len.max(1),
+        0,
+    ));
+    for (offset, byte) in bytes.iter().enumerate() {
+        let value = builder.ins().iconst(types::I8, i64::from(*byte));
+        builder.ins().stack_store(value, slot, offset as i32);
+    }
+    let ptr = builder.ins().stack_addr(types::I64, slot, 0);
+    let len = builder.ins().iconst(types::I64, i64::from(len));
+    Ok((ptr, len))
 }
 
 fn emit_i64_checked_signed_range(

@@ -54,6 +54,9 @@ benchmark_gate_reference=$(grep -nE 'check-stage1-benchmarks\.py|stage1-comparis
 runtime_abi_status_check=$(grep -nF 'scripts/ci/render-direct-native-runtime-abi-status.py' "$fast_checks_script" || true)
 runtime_abi_coverage_check=$(grep -nF -- '--coverage-matrix' "$fast_checks_script" || true)
 full_lib_triage_check=$(grep -nF 'scripts/ci/check-stage1-full-lib-triage.py' "$fast_checks_script" || true)
+full_lib_suite_job=$(grep -nF 'full-lib-suite:' "$workflow" || true)
+full_lib_suite_run=$(grep -nF 'cargo test --manifest-path stage1/Cargo.toml -p axiomc --lib --features run-native-tests' "$workflow" || true)
+full_lib_suite_gate=$(grep -nF 'full-lib-suite=${{ needs.full-lib-suite.result }}' "$workflow" || true)
 proof_workload_test=$(grep -nF 'bash scripts/ci/run-stage1-proof-test.sh' "$fast_checks_script" || true)
 
 if [[ -n "$checkout_line" ]]; then
@@ -154,6 +157,11 @@ fi
 
 if [[ -z "$runtime_abi_coverage_check" ]]; then
   echo "run-fast-checks must validate the direct-native runtime ABI coverage matrix" >&2
+  exit 1
+fi
+
+if [[ -z "$full_lib_suite_job" || -z "$full_lib_suite_run" || -z "$full_lib_suite_gate" ]]; then
+  echo "pr-fast-ci must run the full axiomc lib suite as a CI Gate dependency (#1255 blocking lane)" >&2
   exit 1
 fi
 
