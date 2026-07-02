@@ -15,7 +15,6 @@ mkdir -p \
   "$case_dir/stage1/json-fixtures/build" \
   "$case_dir/stage1/json-fixtures/test" \
   "$case_dir/stage1/schemas" \
-  "$case_dir/stage1/crates/axiom-lsp/src" \
   "$case_dir/stage1/crates/axiomc/src" \
   "$case_dir/stage1/crates/axiomc/tests" \
   "$case_dir/stage1/crates/axiomc-backend-cranelift/src"
@@ -38,7 +37,6 @@ cp "$repo_root/stage1/crates/axiomc/src/lsp.rs" "$case_dir/stage1/crates/axiomc/
 cp "$repo_root/stage1/crates/axiomc/src/cranelift_backend.rs" "$case_dir/stage1/crates/axiomc/src/cranelift_backend.rs"
 cp "$repo_root/stage1/crates/axiomc/tests/cranelift_backend.rs" "$case_dir/stage1/crates/axiomc/tests/cranelift_backend.rs"
 cp "$repo_root/stage1/crates/axiomc/tests/lsp_stdio.rs" "$case_dir/stage1/crates/axiomc/tests/lsp_stdio.rs"
-cp "$repo_root/stage1/crates/axiom-lsp/src/lib.rs" "$case_dir/stage1/crates/axiom-lsp/src/lib.rs"
 cp "$repo_root/stage1/crates/axiomc-backend-cranelift/src/lib.rs" "$case_dir/stage1/crates/axiomc-backend-cranelift/src/lib.rs"
 cat >"$case_dir/Makefile" <<'MAKE'
 rust-exit-readiness:
@@ -151,7 +149,7 @@ assert statuses["readiness_blockers_live_when_not_ready"] == "pass"
 assert statuses["direct_native_runtime_abi_ready"] == "pass"
 assert statuses["command_lsp_release_boundary"] == "pass"
 assert statuses["lsp_stdio_harness_ready"] == "pass"
-assert statuses["lsp_driver_axiom_owned"] == "fail"
+assert statuses["lsp_driver_axiom_owned"] == "pass"
 assert statuses["mir_backend_direct_native_boundary"] == "pass"
 assert statuses["generated_rust_cli_gate"] == "pass"
 assert statuses["generated_rust_contract_gate"] == "pass"
@@ -161,6 +159,26 @@ PY
 cat >"$temp_dir/issues.txt" <<'ISSUES'
 731 CLOSED
 ISSUES
+
+python3 - "$case_dir/stage1/crates/axiomc/src/main.rs" "$case_dir/stage1/crates/axiomc/src/lsp.rs" <<'PY'
+import sys
+from pathlib import Path
+
+main_path = Path(sys.argv[1])
+lsp_path = Path(sys.argv[2])
+main_path.write_text(
+    main_path.read_text(encoding="utf-8").replace(
+        "lsp::serve_stdio(io::stdin().lock(), io::stdout())",
+        "lsp::run_stdio(io::stdin().lock(), io::stdout())",
+    ),
+    encoding="utf-8",
+)
+lsp_path.write_text(
+    "// old fixture markers: axiom_lsp::run_stdio axiom_lsp::handle_message\n"
+    + lsp_path.read_text(encoding="utf-8"),
+    encoding="utf-8",
+)
+PY
 
 (
   cd "$case_dir"
@@ -197,8 +215,13 @@ from pathlib import Path
 main_path = Path(sys.argv[1])
 lsp_path = Path(sys.argv[2])
 main_path.write_text(
-    main_path.read_text(encoding="utf-8").replace(
+    main_path.read_text(encoding="utf-8")
+    .replace(
         "lsp::run_stdio(io::stdin().lock(), io::stdout())",
+        "compiler_services_lsp_serve_stdio(io::stdin().lock(), io::stdout())",
+    )
+    .replace(
+        "lsp::serve_stdio(io::stdin().lock(), io::stdout())",
         "compiler_services_lsp_serve_stdio(io::stdin().lock(), io::stdout())",
     ),
     encoding="utf-8",
