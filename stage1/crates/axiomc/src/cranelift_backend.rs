@@ -228,12 +228,14 @@ enum SpikeValue {
     Task {
         value: Option<Box<SpikeValue>>,
         canceled: bool,
-        /// Real time the task's body took to evaluate (the spike drives async
-        /// eagerly with real `sleep_ms`). Used by `async_timeout` to decide
-        /// whether the task outran its deadline.
+        /// Deferred time the task's body took to evaluate. Used by `await` and
+        /// `async_timeout` to decide how long consumption should wait.
         duration_ms: i64,
     },
-    JoinHandle(Box<SpikeValue>),
+    JoinHandle {
+        task: Box<SpikeValue>,
+        ready_at_ms: i64,
+    },
     AsyncChannel {
         slot: Option<Box<SpikeValue>>,
     },
@@ -359,11 +361,37 @@ thread_local! {
     // While evaluating a spawned task's expression, sleeps accumulate here
     // instead of blocking, so sibling tasks model concurrent execution: the
     // spawn records the task's virtual duration and `async_join` waits out the
-    // group deadline (the max end time) rather than the sum of all sleeps.
+    // handle's ready-at timestamp rather than re-running the task body.
     static SPIKE_VIRTUAL_SLEEP: std::cell::Cell<Option<i64>> = const { std::cell::Cell::new(None) };
-    // Wall-clock deadline (epoch ms) by which every spawned task in the
-    // current program would have finished if tasks ran concurrently.
-    static SPIKE_ASYNC_DEADLINE: std::cell::Cell<i64> = const { std::cell::Cell::new(0) };
+    // Whether the current compilation is a debug build. Read while lowering
+    // sized-integer arithmetic to decide between overflow-trapping (debug) and
+    // wrapping (release) semantics.
+    static I64_DEBUG_BUILD: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+fn i64_debug_build() -> bool {
+    I64_DEBUG_BUILD.with(std::cell::Cell::get)
+}
+
+/// Signed integer bounds and display name for integer types narrower than the
+/// native i64 lowering width. `None` for i64/isize (no narrowing overflow) and
+/// non-integer types.
+fn i64_sized_signed_overflow_bounds(ty: &Type) -> Option<(i64, i64, &'static str)> {
+    match ty {
+        Type::Numeric(NumericType::I8) => Some((i64::from(i8::MIN), i64::from(i8::MAX), "i8")),
+        Type::Numeric(NumericType::I16) => Some((i64::from(i16::MIN), i64::from(i16::MAX), "i16")),
+        Type::Numeric(NumericType::I32) => Some((i64::from(i32::MIN), i64::from(i32::MAX), "i32")),
+        _ => None,
+    }
+}
+
+fn i64_arithmetic_word(op: ArithmeticOp) -> &'static str {
+    match op {
+        ArithmeticOp::Add => "addition",
+        ArithmeticOp::Sub => "subtraction",
+        ArithmeticOp::Mul => "multiplication",
+        ArithmeticOp::Div => "division",
+    }
 }
 
 pub fn compile_cranelift_hello_spike(
@@ -375,13 +403,14 @@ pub fn compile_cranelift_hello_spike(
     object_path: &Path,
     binary_path: &Path,
     target: Option<&str>,
-    _debug: bool,
+    debug: bool,
 ) -> Result<(), Diagnostic> {
     if target.is_some() {
         return Err(unsupported(
             "the cranelift backend spike currently supports only the host target",
         ));
     }
+    I64_DEBUG_BUILD.with(|flag| flag.set(debug));
     if let Some(program) = lower_i64_exit_program(program, capabilities, package_root, fs_root) {
         return axiomc_backend_cranelift::compile_i64_exit_program(
             program,
@@ -13997,6 +14026,7 @@ fn lower_i64_expr(
             })
         }
         Expr::BinaryAdd { op, lhs, rhs, ty } if is_i64_compatible_type(ty) => {
+            let arith_op = *op;
             let op = match op {
                 ArithmeticOp::Add => CraneliftI64BinaryOp::Add,
                 ArithmeticOp::Sub => CraneliftI64BinaryOp::Sub,
@@ -14019,6 +14049,22 @@ fn lower_i64_expr(
                     helper_signatures,
                     static_bindings,
                 )?),
+            };
+            // Debug builds trap on sized-integer overflow before the wrapping
+            // cast; release builds keep the wrapping behavior.
+            let expr = match i64_sized_signed_overflow_bounds(ty) {
+                Some((min, max, ty_name)) if i64_debug_build() => {
+                    CraneliftI64Expr::CheckedSignedRange {
+                        value: Box::new(expr),
+                        min,
+                        max,
+                        message: format!(
+                            "{{\"kind\":\"runtime\",\"message\":\"numeric overflow: {ty_name} {}\"}}",
+                            i64_arithmetic_word(arith_op)
+                        ),
+                    }
+                }
+                _ => expr,
             };
             lower_i64_cast_expr(expr, ty)
         }
@@ -20507,31 +20553,33 @@ fn eval_async_call(
             let task = eval_expr(task, functions, env, lines)?;
             expect_task_value(&task, "async_spawn")?;
             // The task's body ran with virtual sleeps, so it carries its
-            // duration without having blocked. Spawning starts the concurrent
-            // clock: extend the group deadline to this task's end time.
-            if let SpikeValue::Task {
+            // duration without having blocked. Spawning stamps the handle with
+            // the wall-clock time when that specific task would be ready.
+            let ready_at_ms = if let SpikeValue::Task {
                 duration_ms,
                 canceled: false,
                 ..
             } = &task
-                && *duration_ms > 0
             {
-                let end = current_time_ms()?.saturating_add(*duration_ms);
-                SPIKE_ASYNC_DEADLINE.with(|slot| slot.set(slot.get().max(end)));
-            }
-            Ok(SpikeValue::JoinHandle(Box::new(task)))
+                current_time_ms()?.saturating_add(*duration_ms)
+            } else {
+                current_time_ms()?
+            };
+            Ok(SpikeValue::JoinHandle {
+                task: Box::new(task),
+                ready_at_ms,
+            })
         }
         "async_join" => {
             let [handle] = args else {
                 return Err(unsupported("async_join expects exactly one argument"));
             };
             match eval_expr(handle, functions, env, lines)? {
-                SpikeValue::JoinHandle(task) => {
-                    // Joining waits for the spawned group's deadline (the max
-                    // concurrent end time), not the sum of every task's sleeps.
-                    let remaining = SPIKE_ASYNC_DEADLINE
-                        .with(std::cell::Cell::get)
-                        .saturating_sub(current_time_ms()?);
+                SpikeValue::JoinHandle { task, ready_at_ms } => {
+                    // Joining waits only for the handle being consumed. Each
+                    // handle has its own readiness timestamp, so a later join
+                    // cannot inherit stale state from an earlier async group.
+                    let remaining = ready_at_ms.saturating_sub(current_time_ms()?);
                     if remaining > 0 {
                         spike_wait_out_duration(remaining);
                     }
@@ -21182,7 +21230,25 @@ fn json_parse_string(text: &str) -> Option<String> {
                 for _ in 0..4 {
                     value = (value << 4) + chars.next()?.to_digit(16)?;
                 }
-                out.push(char::from_u32(value)?);
+                if (0xD800..=0xDBFF).contains(&value) {
+                    // High surrogate: require a `\uDC00..=\uDFFF` low surrogate
+                    // escape and combine, matching the generated-runtime JSON
+                    // contract.
+                    if chars.next()? != '\\' || chars.next()? != 'u' {
+                        return None;
+                    }
+                    let mut low = 0u32;
+                    for _ in 0..4 {
+                        low = (low << 4) + chars.next()?.to_digit(16)?;
+                    }
+                    if !(0xDC00..=0xDFFF).contains(&low) {
+                        return None;
+                    }
+                    let scalar = 0x10000 + ((value - 0xD800) << 10) + (low - 0xDC00);
+                    out.push(char::from_u32(scalar)?);
+                } else {
+                    out.push(char::from_u32(value)?);
+                }
             }
             _ => return None,
         }
@@ -21760,6 +21826,36 @@ fn json_serdes_value_variant(variant: &str, payloads: Vec<SpikeValue>) -> SpikeV
     }
 }
 
+/// Escape a std/serdes string for JSON output. Unlike `json_escape_string`,
+/// this emits ASCII-safe output: BMP characters above 0x7f become `\uxxxx`
+/// escapes and astral characters become lowercase surrogate pairs, matching
+/// the generated-runtime serdes contract.
+fn json_serdes_escape_string(value: &str) -> String {
+    let mut out = String::from("\"");
+    for ch in value.chars() {
+        match ch {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            '\u{0008}' => out.push_str("\\b"),
+            '\u{000C}' => out.push_str("\\f"),
+            ch if ch.is_control() => out.push_str(&format!("\\u{:04x}", ch as u32)),
+            ch if (ch as u32) <= 0x7f => out.push(ch),
+            ch if (ch as u32) <= 0xffff => out.push_str(&format!("\\u{:04x}", ch as u32)),
+            ch => {
+                let scalar = (ch as u32) - 0x10000;
+                let high = 0xd800 + (scalar >> 10);
+                let low = 0xdc00 + (scalar & 0x3ff);
+                out.push_str(&format!("\\u{high:04x}\\u{low:04x}"));
+            }
+        }
+    }
+    out.push('"');
+    out
+}
+
 fn json_serdes_value_to_json(value: &SpikeValue) -> Result<String, Diagnostic> {
     let SpikeValue::Enum {
         enum_name,
@@ -21782,7 +21878,7 @@ fn json_serdes_value_to_json(value: &SpikeValue) -> Result<String, Diagnostic> {
         ("Bool", [SpikeValue::Bool(value)]) => Ok(value.to_string()),
         ("Int", [SpikeValue::Int(value)]) => Ok(value.to_string()),
         ("Float", [SpikeValue::Float(value)]) => Ok(json_serdes_float_to_json(*value)),
-        ("Text", [SpikeValue::Text(value)]) => Ok(json_escape_string(value)),
+        ("Text", [SpikeValue::Text(value)]) => Ok(json_serdes_escape_string(value)),
         ("Array", [SpikeValue::Array(values)]) => {
             let rendered = values
                 .iter()
@@ -21807,7 +21903,7 @@ fn json_serdes_object_to_json(entries: &[(SpikeValue, SpikeValue)]) -> Result<St
                 key.clone(),
                 format!(
                     "{}:{}",
-                    json_escape_string(key),
+                    json_serdes_escape_string(key),
                     json_serdes_value_to_json(value)?
                 ),
             ))
@@ -26016,7 +26112,7 @@ fn spike_values_equal(left: &SpikeValue, right: &SpikeValue) -> Result<bool, Dia
         (SpikeValue::Map(left), SpikeValue::Map(right)) => spike_maps_equal(left, right),
         (
             SpikeValue::Task { .. }
-            | SpikeValue::JoinHandle(_)
+            | SpikeValue::JoinHandle { .. }
             | SpikeValue::AsyncChannel { .. }
             | SpikeValue::SelectResult { .. }
             | SpikeValue::Closure { .. }
@@ -26027,7 +26123,7 @@ fn spike_values_equal(left: &SpikeValue, right: &SpikeValue) -> Result<bool, Dia
         | (
             _,
             SpikeValue::Task { .. }
-            | SpikeValue::JoinHandle(_)
+            | SpikeValue::JoinHandle { .. }
             | SpikeValue::AsyncChannel { .. }
             | SpikeValue::SelectResult { .. }
             | SpikeValue::Closure { .. }
@@ -26194,7 +26290,7 @@ fn validate_map_key(value: &SpikeValue) -> Result<(), Diagnostic> {
         | SpikeValue::MutRef(_)
         | SpikeValue::MutSlice { .. }
         | SpikeValue::Task { .. }
-        | SpikeValue::JoinHandle(_)
+        | SpikeValue::JoinHandle { .. }
         | SpikeValue::AsyncChannel { .. }
         | SpikeValue::SelectResult { .. }
         | SpikeValue::ControlReturn(_) => Err(unsupported(
@@ -26247,7 +26343,7 @@ fn render_value(value: &SpikeValue) -> String {
         SpikeValue::Task { canceled, .. } => {
             format!("Task {{ canceled: {canceled} }}")
         }
-        SpikeValue::JoinHandle(_) => String::from("JoinHandle"),
+        SpikeValue::JoinHandle { .. } => String::from("JoinHandle"),
         SpikeValue::AsyncChannel { slot } => {
             format!("AsyncChannel {{ occupied: {} }}", slot.is_some())
         }
@@ -26322,7 +26418,7 @@ fn render_runtime_panic_message(value: SpikeValue) -> Result<String, Diagnostic>
         | SpikeValue::MutRef(_)
         | SpikeValue::MutSlice { .. }
         | SpikeValue::Task { .. }
-        | SpikeValue::JoinHandle(_)
+        | SpikeValue::JoinHandle { .. }
         | SpikeValue::AsyncChannel { .. }
         | SpikeValue::SelectResult { .. } => Ok(render_value(&value)),
         SpikeValue::ControlReturn(_) => Err(unsupported(

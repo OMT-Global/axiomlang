@@ -7650,7 +7650,7 @@ print "none"
             .expect("run compiled binary");
         assert_eq!(
             String::from_utf8_lossy(&output.stdout),
-            "0\n0\n0\n0\n{\"a\":\"alpha\",\"b\":2}\n"
+            "0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n{\"a\":\"alpha\",\"b\":2}\n"
         );
 
         let tests = run_project_tests(&project).expect("run stdlib serdes tests");
@@ -8279,6 +8279,51 @@ let _listener_closed: int = close_listener(listener)
         assert_eq!(
             String::from_utf8_lossy(&output.stdout),
             "timed out\ntrue\ntrue\ncanceled\n"
+        );
+        let tests = run_project_tests(&project).expect("run tests");
+        assert_eq!(tests.passed, 1);
+        assert_eq!(tests.failed, 0);
+    }
+
+    #[test]
+    fn stage1_async_join_waits_for_joined_handle_not_stale_group_deadline() {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("stdlib-async-join-handle-deadline-app");
+        create_project(&project, Some("stdlib-async-join-handle-deadline-app"))
+            .expect("create project");
+        fs::write(
+            project.join("axiom.toml"),
+            render_manifest_with_capabilities(
+                "stdlib-async-join-handle-deadline-app",
+                false,
+                true,
+                false,
+                false,
+                true,
+                false,
+            )
+            .replace("async = false", "async = true"),
+        )
+        .expect("write manifest");
+        let manifest = load_manifest(&project).expect("load manifest");
+        fs::write(
+            project.join("axiom.lock"),
+            render_lockfile_for_project(&project, &manifest).expect("lockfile"),
+        )
+        .expect("write lockfile");
+        let source = "import \"std/async.ax\"\nimport \"std/async_time.ax\"\nasync fn delayed(milliseconds: int, value: int): int {\nlet _slept: int = await sleep_ms(milliseconds)\nreturn value\n}\nlet slow: JoinHandle<int> = spawn<int>(delayed(200, 1))\nlet fast: JoinHandle<int> = spawn<int>(delayed(25, 2))\nlet fast_start: int = clock_now_ms()\nprint await join<int>(fast)\nlet fast_elapsed: int = clock_elapsed_ms(fast_start)\nprint fast_elapsed >= 20\nprint fast_elapsed < 150\nprint await join<int>(slow)\n";
+        fs::write(project.join("src/main.ax"), source).expect("write source");
+        fs::write(project.join("src/main_test.ax"), source).expect("write test");
+        fs::write(project.join("src/main_test.stdout"), "2\ntrue\ntrue\n1\n")
+            .expect("write golden");
+
+        let built = build_project(&project).expect("build project");
+        let output = compiled_binary_command(&built.binary)
+            .output()
+            .expect("run compiled binary");
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout),
+            "2\ntrue\ntrue\n1\n"
         );
         let tests = run_project_tests(&project).expect("run tests");
         assert_eq!(tests.passed, 1);
