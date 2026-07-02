@@ -41,8 +41,9 @@ monolith.
 
 The `lib.rs` test-module extraction lowered the absolute top-seven source line
 count. It also raised the top-seven share because test code left
-`stage1/crates/axiomc/src`, reducing the source denominator. Future
-implementation splits should lower both absolute top-file lines and share.
+`stage1/crates/axiomc/src`, reducing the source denominator. The HIR generic
+analysis extraction then split generic inference and monomorphization into a
+tracked `compiler.hir` module, lowering both absolute top-file lines and share.
 
 ## Current Top Files
 
@@ -51,12 +52,12 @@ Snapshot from 2026-07-02:
 | Rank | Current Rust file | Lines | Target package boundary | First extraction slice |
 | ---: | --- | ---: | --- | --- |
 | 1 | `stage1/crates/axiomc/src/cranelift_backend.rs` | 27,994 | `compiler.backend.native` | Split direct-native lowering by runtime ABI groups: scalar/aggregate value features, capability shims, host imports, object emission, unsupported diagnostics, and evidence helpers. |
-| 2 | `stage1/crates/axiomc/src/hir.rs` | 16,912 | `compiler.hir` | Split name resolution, type checking, capability analysis, ownership/borrow validation, property clauses, and HIR diagnostics behind the package APIs in `docs/compiler-hir-ownership-capability.md`. |
+| 2 | `stage1/crates/axiomc/src/hir.rs` | 12,720 | `compiler.hir` | Generic inference and monomorphization now live in `stage1/crates/axiomc/src/hir/generics.rs`; next split name resolution, type checking, capability analysis, ownership/borrow validation, property clauses, and HIR diagnostics behind the package APIs in `docs/compiler-hir-ownership-capability.md`. |
 | 3 | `stage1/crates/axiomc/src/project.rs` | 10,812 | `compiler.package_graph`, `compiler.commands`, `compiler.evidence` | Split manifest/workspace loading, command orchestration, provenance/debug records, and build artifact planning along package ownership. |
 | 4 | `stage1/crates/axiomc/src/main.rs` | 10,678 | `compiler.commands` | Move command parsing, JSON envelope construction, check/build/run/test/doc/trace orchestration, and exit handling behind `docs/compiler-command-lsp-packages.md` APIs. |
 | 5 | `stage1/crates/axiomc/src/codegen.rs` | 7,804 | `compiler.backend.generated_rust`, `compiler.backend.contracts` | Isolate generated-Rust compatibility emission from backend target selection and unsupported-feature contracts. |
 | 6 | `stage1/crates/axiomc/src/syntax.rs` | 6,324 | `compiler.syntax`, `compiler.diagnostics` | Split lexer/parser, parse recovery, source spans, macros, and syntax diagnostics behind the syntax boundary. |
-| 7 | `stage1/crates/axiomc/src/registry.rs` | 2,159 | `compiler.package_graph` | Split registry resolution, package metadata access, and registry diagnostics behind package-graph APIs. |
+| 7 | `stage1/crates/axiomc/src/hir/generics.rs` | 4,205 | `compiler.hir` | Keep generic call inference, trait-bound validation, aggregate monomorphization, and generic call rewriting isolated from the main HIR lowering facade. |
 
 ## Ratchet Ceilings
 
@@ -68,14 +69,15 @@ matching ceiling in this table in the same PR.
 
 | Tracked item | Ceiling |
 | --- | ---: |
-| `summary.top_file_line_share` | 0.9302 |
-| `summary.top_file_lines` | 82683 |
+| `summary.top_file_line_share` | 0.9059 |
+| `summary.top_file_lines` | 80537 |
 | `stage1/crates/axiomc/src/cranelift_backend.rs` | 27994 |
-| `stage1/crates/axiomc/src/hir.rs` | 16912 |
+| `stage1/crates/axiomc/src/hir.rs` | 12720 |
 | `stage1/crates/axiomc/src/project.rs` | 10812 |
 | `stage1/crates/axiomc/src/main.rs` | 10678 |
 | `stage1/crates/axiomc/src/codegen.rs` | 7804 |
 | `stage1/crates/axiomc/src/syntax.rs` | 6324 |
+| `stage1/crates/axiomc/src/hir/generics.rs` | 4205 |
 | `stage1/crates/axiomc/src/registry.rs` | 2159 |
 | `stage1/crates/axiomc/src/lib.rs` | 21 |
 
@@ -87,8 +89,9 @@ matching ceiling in this table in the same PR.
 2. `compiler.backend.contracts`: move target selection and unsupported-feature
    contracts out of generated-Rust code before the final generated-Rust removal
    gate.
-3. `compiler.hir`: split resolution, typing, capability, ownership, and
-   property checks in that order so diagnostics stay stable.
+3. `compiler.hir`: generic inference/monomorphization is split; continue with
+   resolution, typing, capability, ownership, and property checks in that order
+   so diagnostics stay stable.
 4. `compiler.commands` and `compiler.package_graph`: separate command envelopes
    from package loading so the snapshot bootstrap can invoke package APIs
    without Cargo assumptions.
