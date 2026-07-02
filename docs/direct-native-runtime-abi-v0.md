@@ -48,11 +48,13 @@ validates the evidence.
 The example smoke runs a bounded subset of checked-in stdlib examples through
 `check`, `build --backend cranelift`, `run --backend cranelift`, and
 `test --backend cranelift`, and asserts the build/test JSON reports
-`generated_rust: null`. The current set focuses on the stdlib crypto ABI rows:
-hash, MAC, random bytes and scalar random, Ed25519 signing/verification, and
-AES-256-GCM AEAD round-trips. It is direct-native example evidence for #1124,
-not a replacement for full `stage1-smoke` parity; examples that still require
-broader capability policy or runtime parity remain outside this smoke target.
+`generated_rust: null`. The current set covers deterministic stdlib value and
+capability rows: collection lookup and collection helpers, hash, MAC, random
+bytes and scalar random, Ed25519 signing/verification, AES-256-GCM AEAD
+round-trips, JSON scalar/object helpers, outcome/result helpers, regex helpers,
+and string-builder output. It is direct-native example evidence for #1124, not a
+replacement for full `stage1-smoke` parity; examples that still require broader
+capability policy or runtime parity remain outside this smoke target.
 
 ## Contract Shape
 
