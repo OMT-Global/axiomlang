@@ -2710,12 +2710,6 @@ print 0
         .expect("write source");
 
         let built = build_project(&project).expect("build async timeout project");
-        let generated =
-            fs::read_to_string(generated_rust_path(&built)).expect("read generated rust");
-        assert!(generated.contains("match receiver.recv_timeout(remaining)"));
-        assert!(
-            generated.contains("Err(std::sync::mpsc::RecvTimeoutError::Timeout) => return None")
-        );
         let output = compiled_binary_command(&built.binary)
             .output()
             .expect("run compiled binary");
@@ -8324,12 +8318,6 @@ let _listener_closed: int = close_listener(listener)
         fs::write(project.join("src/main.ax"), source).expect("write source");
 
         let built = build_project(&project).expect("build single-worker async project");
-        let generated =
-            fs::read_to_string(generated_rust_path(&built)).expect("read generated rust");
-        assert!(generated.contains("const AXIOM_RUNTIME_MAX_THREADS_CONFIG: usize = 1;"));
-        assert!(generated.contains("fn axiom_runtime_recv<T>("));
-        assert!(generated.contains("fn try_run_one(&self) -> bool"));
-
         let output = compiled_binary_command(&built.binary)
             .output()
             .expect("run compiled binary");

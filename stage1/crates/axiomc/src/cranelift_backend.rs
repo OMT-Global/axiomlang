@@ -228,6 +228,10 @@ enum SpikeValue {
     Task {
         value: Option<Box<SpikeValue>>,
         canceled: bool,
+        /// Real time the task's body took to evaluate (the spike drives async
+        /// eagerly with real `sleep_ms`). Used by `async_timeout` to decide
+        /// whether the task outran its deadline.
+        duration_ms: i64,
     },
     JoinHandle(Box<SpikeValue>),
     AsyncChannel {
@@ -352,6 +356,35 @@ static SPIKE_UDP_SOCKETS: OnceLock<Mutex<HashMap<i64, SpikeUdpSocket>>> = OnceLo
 
 thread_local! {
     static SPIKE_STDIN: RefCell<SpikeStdin> = RefCell::new(SpikeStdin::default());
+    // Whether the current compilation is a debug build. Read while lowering
+    // sized-integer arithmetic to decide between overflow-trapping (debug) and
+    // wrapping (release) semantics.
+    static I64_DEBUG_BUILD: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+fn i64_debug_build() -> bool {
+    I64_DEBUG_BUILD.with(std::cell::Cell::get)
+}
+
+/// Signed integer bounds and display name for integer types narrower than the
+/// native i64 lowering width. `None` for i64/isize (no narrowing overflow) and
+/// non-integer types.
+fn i64_sized_signed_overflow_bounds(ty: &Type) -> Option<(i64, i64, &'static str)> {
+    match ty {
+        Type::Numeric(NumericType::I8) => Some((i64::from(i8::MIN), i64::from(i8::MAX), "i8")),
+        Type::Numeric(NumericType::I16) => Some((i64::from(i16::MIN), i64::from(i16::MAX), "i16")),
+        Type::Numeric(NumericType::I32) => Some((i64::from(i32::MIN), i64::from(i32::MAX), "i32")),
+        _ => None,
+    }
+}
+
+fn i64_arithmetic_word(op: ArithmeticOp) -> &'static str {
+    match op {
+        ArithmeticOp::Add => "addition",
+        ArithmeticOp::Sub => "subtraction",
+        ArithmeticOp::Mul => "multiplication",
+        ArithmeticOp::Div => "division",
+    }
 }
 
 pub fn compile_cranelift_hello_spike(
@@ -363,13 +396,14 @@ pub fn compile_cranelift_hello_spike(
     object_path: &Path,
     binary_path: &Path,
     target: Option<&str>,
-    _debug: bool,
+    debug: bool,
 ) -> Result<(), Diagnostic> {
     if target.is_some() {
         return Err(unsupported(
             "the cranelift backend spike currently supports only the host target",
         ));
     }
+    I64_DEBUG_BUILD.with(|flag| flag.set(debug));
     if let Some(program) = lower_i64_exit_program(program, capabilities, package_root, fs_root) {
         return axiomc_backend_cranelift::compile_i64_exit_program(
             program,
@@ -13985,6 +14019,7 @@ fn lower_i64_expr(
             })
         }
         Expr::BinaryAdd { op, lhs, rhs, ty } if is_i64_compatible_type(ty) => {
+            let arith_op = *op;
             let op = match op {
                 ArithmeticOp::Add => CraneliftI64BinaryOp::Add,
                 ArithmeticOp::Sub => CraneliftI64BinaryOp::Sub,
@@ -14007,6 +14042,22 @@ fn lower_i64_expr(
                     helper_signatures,
                     static_bindings,
                 )?),
+            };
+            // Debug builds trap on sized-integer overflow before the wrapping
+            // cast; release builds keep the wrapping behavior.
+            let expr = match i64_sized_signed_overflow_bounds(ty) {
+                Some((min, max, ty_name)) if i64_debug_build() => {
+                    CraneliftI64Expr::CheckedSignedRange {
+                        value: Box::new(expr),
+                        min,
+                        max,
+                        message: format!(
+                            "{{\"kind\":\"runtime\",\"message\":\"numeric overflow: {ty_name} {}\"}}",
+                            i64_arithmetic_word(arith_op)
+                        ),
+                    }
+                }
+                _ => expr,
             };
             lower_i64_cast_expr(expr, ty)
         }
@@ -20138,10 +20189,12 @@ fn eval_call(
         }
         local_env.insert(param.name.clone(), value);
     }
+    let started = current_time_ms()?;
     let returned = run_function_body(&function.body, functions, &mut local_env, lines)?
         .ok_or_else(|| unsupported("cranelift spike functions must return a value"))?;
     if function.is_async {
-        Ok(spike_task(returned))
+        let duration = current_time_ms()?.saturating_sub(started);
+        Ok(spike_task_with_duration(returned, duration))
     } else {
         Ok(returned)
     }
@@ -20223,8 +20276,10 @@ fn eval_call_effectful(
         }
     }
 
+    let started = current_time_ms()?;
     let returned = run_function_body(&function.body, functions, &mut local_env, lines)?
         .ok_or_else(|| unsupported("cranelift spike functions must return a value"))?;
+    let async_duration = current_time_ms()?.saturating_sub(started);
     for (backing_name, target) in writebacks {
         let Some(SpikeValue::Array(elements)) = local_env.get(&backing_name) else {
             return Err(unsupported(
@@ -20234,7 +20289,7 @@ fn eval_call_effectful(
         env.insert(target, SpikeValue::Array(elements.clone()));
     }
     if function.is_async {
-        Ok(spike_task(returned))
+        Ok(spike_task_with_duration(returned, async_duration))
     } else {
         Ok(returned)
     }
@@ -20480,9 +20535,12 @@ fn eval_async_call(
                 return Err(unsupported("async_cancel expects exactly one argument"));
             };
             match eval_expr(task, functions, env, lines)? {
-                SpikeValue::Task { value, .. } => Ok(SpikeValue::Task {
+                SpikeValue::Task {
+                    value, duration_ms, ..
+                } => Ok(SpikeValue::Task {
                     value,
                     canceled: true,
+                    duration_ms,
                 }),
                 _ => Err(unsupported("async_cancel expects a task")),
             }
@@ -20499,11 +20557,21 @@ fn eval_async_call(
             }
         }
         "async_timeout" => {
-            let [task, _milliseconds] = args else {
+            let [task, milliseconds] = args else {
                 return Err(unsupported("async_timeout expects exactly two arguments"));
             };
+            let timeout_ms =
+                expect_signed_integer(eval_expr(milliseconds, functions, env, lines)?)?;
+            // The spike drives async tasks eagerly with real `sleep_ms`, so each
+            // task carries the real time its body took. A task that ran longer
+            // than the deadline reports a timeout (None).
             match eval_expr(task, functions, env, lines)? {
                 SpikeValue::Task { canceled: true, .. } => Ok(spike_task(spike_option(None))),
+                SpikeValue::Task { duration_ms, .. }
+                    if timeout_ms >= 0 && duration_ms > timeout_ms =>
+                {
+                    Ok(spike_task(spike_option(None)))
+                }
                 task @ SpikeValue::Task { .. } => {
                     await_spike_task(task).map(|value| spike_task(spike_option(Some(value))))
                 }
@@ -20588,9 +20656,14 @@ fn eval_async_call(
 }
 
 fn spike_task(value: SpikeValue) -> SpikeValue {
+    spike_task_with_duration(value, 0)
+}
+
+fn spike_task_with_duration(value: SpikeValue, duration_ms: i64) -> SpikeValue {
     SpikeValue::Task {
         value: Some(Box::new(value)),
         canceled: false,
+        duration_ms,
     }
 }
 
@@ -20606,6 +20679,7 @@ fn await_spike_task(value: SpikeValue) -> Result<SpikeValue, Diagnostic> {
         SpikeValue::Task {
             value: Some(value),
             canceled: false,
+            ..
         } => Ok(*value),
         SpikeValue::Task { canceled: true, .. } => Err(unsupported("awaited task was canceled")),
         SpikeValue::Task { value: None, .. } => {
