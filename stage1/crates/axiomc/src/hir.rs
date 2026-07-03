@@ -4,13 +4,16 @@ use crate::manifest::{CapabilityConfig, CapabilityKind};
 use crate::syntax;
 use std::collections::{HashMap, HashSet};
 
+mod async_runtime;
 mod capabilities;
 mod const_arrays;
+mod const_functions;
 mod control_flow;
 mod definitions;
 mod diagnostics;
 mod expressions;
 mod generics;
+mod maps;
 mod matches;
 mod model;
 mod ownership;
@@ -20,7 +23,9 @@ mod signatures;
 mod source_locations;
 mod symbols;
 mod types;
+mod variants;
 
+use self::async_runtime::lower_async_runtime_intrinsic;
 use self::capabilities::{
     is_stdlib_http_get_wrapper, is_stdlib_process_wrapper, net_binding_origin_from_expr,
     require_capability, stdlib_dynamic_http_socket_allowed, stdlib_dynamic_net_host_allowed,
@@ -34,6 +39,7 @@ use self::const_arrays::{
     declared_array_len, eval_const_int_expr, resolve_const_int_decls,
     validate_const_array_lengths_in_program,
 };
+use self::const_functions::validate_const_function_body;
 use self::definitions::{
     VariantInfo, collect_enum_definitions, collect_struct_definitions, collect_trait_definitions,
     collect_type_names, validate_recursive_type_cycles, validate_trait_bounds_in_program,
@@ -48,6 +54,7 @@ use self::expressions::{
     numeric_method_return_ty, static_bool_value,
 };
 use self::generics::monomorphize_program;
+use self::maps::lower_map_lookup_intrinsic;
 use self::matches::{
     MatchArmInput, MatchExprArmInput, lower_match_expr, lower_match_stmt, match_variants,
 };
@@ -75,6 +82,7 @@ use self::symbols::{
     monomorphized_type_name, preserves_intrinsic_type_args,
 };
 use self::types::{lower_compare_op, lower_literal, lower_logic_op, lower_type};
+use self::variants::{lower_named_variant_constructor, lower_variant_constructor, resolve_variant};
 
 #[derive(Debug, Clone)]
 struct Binding {
@@ -401,119 +409,6 @@ fn lower_static_decls(
         });
     }
     Ok(lowered)
-}
-
-fn validate_const_function_body(
-    function: &syntax::Function,
-    functions: &HashMap<String, FunctionSig>,
-) -> Result<(), Diagnostic> {
-    if !function.is_const {
-        return Ok(());
-    }
-    if function.is_async {
-        return Err(Diagnostic::new(
-            "type",
-            format!("const fn {:?} cannot be async", function.name),
-        )
-        .with_span(function.line, function.column));
-    }
-    if function.is_extern {
-        return Err(Diagnostic::new(
-            "type",
-            format!("const fn {:?} cannot be extern", function.name),
-        )
-        .with_span(function.line, function.column));
-    }
-    for stmt in &function.body {
-        validate_const_function_stmt(function, stmt, functions)?;
-    }
-    Ok(())
-}
-
-fn validate_const_function_stmt(
-    function: &syntax::Function,
-    stmt: &syntax::Stmt,
-    functions: &HashMap<String, FunctionSig>,
-) -> Result<(), Diagnostic> {
-    match stmt {
-        syntax::Stmt::Let { expr, .. } | syntax::Stmt::Return { expr, .. } => {
-            validate_const_function_expr(function, expr, functions)
-        }
-        syntax::Stmt::If {
-            cond,
-            then_block,
-            else_block,
-            ..
-        } => {
-            validate_const_function_expr(function, cond, functions)?;
-            for stmt in then_block {
-                validate_const_function_stmt(function, stmt, functions)?;
-            }
-            if let Some(else_block) = else_block {
-                for stmt in else_block {
-                    validate_const_function_stmt(function, stmt, functions)?;
-                }
-            }
-            Ok(())
-        }
-        _ => Err(Diagnostic::new(
-            "type",
-            format!(
-                "const fn {:?} only supports let, if/else, and return statements in stage1",
-                function.name
-            ),
-        )
-        .with_span(stmt.line(), stmt.column())),
-    }
-}
-
-fn validate_const_function_expr(
-    function: &syntax::Function,
-    expr: &syntax::Expr,
-    functions: &HashMap<String, FunctionSig>,
-) -> Result<(), Diagnostic> {
-    match expr {
-        syntax::Expr::Literal(_) | syntax::Expr::VarRef { .. } => Ok(()),
-        syntax::Expr::BinaryAdd { lhs, rhs, .. } | syntax::Expr::BinaryCompare { lhs, rhs, .. } => {
-            validate_const_function_expr(function, lhs, functions)?;
-            validate_const_function_expr(function, rhs, functions)
-        }
-        syntax::Expr::Call { name, args, .. } => {
-            let Some(signature) = functions.get(name) else {
-                return Err(const_function_call_error(function, name, expr));
-            };
-            if !signature.is_const || signature.is_extern {
-                return Err(const_function_call_error(function, name, expr));
-            }
-            for arg in args {
-                validate_const_function_expr(function, arg, functions)?;
-            }
-            Ok(())
-        }
-        _ => Err(Diagnostic::new(
-            "type",
-            format!(
-                "const fn {:?} only supports literals, variables, arithmetic/comparison expressions, and calls to other const fn in stage1",
-                function.name
-            ),
-        )
-        .with_span(expr.line(), expr.column())),
-    }
-}
-
-fn const_function_call_error(
-    function: &syntax::Function,
-    callee: &str,
-    expr: &syntax::Expr,
-) -> Diagnostic {
-    Diagnostic::new(
-        "type",
-        format!(
-            "const fn {:?} can only call other const fn; {callee:?} is a host runtime or non-const call",
-            function.name
-        ),
-    )
-    .with_span(expr.line(), expr.column())
 }
 
 fn lower_function(
@@ -5819,316 +5714,6 @@ fn collect_var_refs(expr: &syntax::Expr, refs: &mut HashSet<String>) {
     }
 }
 
-fn lower_async_runtime_intrinsic(
-    name: &str,
-    type_args: &[syntax::TypeName],
-    args: &[syntax::Expr],
-    line: usize,
-    column: usize,
-    env: &mut HashMap<String, Binding>,
-    ctx: &LowerContext<'_>,
-) -> Result<Expr, Diagnostic> {
-    require_capability(ctx.capabilities, CapabilityKind::Async, name, line, column)?;
-    if type_args.len() != 1 {
-        return Err(Diagnostic::new(
-            "type",
-            format!(
-                "{name} expects 1 explicit type argument, got {}",
-                type_args.len()
-            ),
-        )
-        .with_span(line, column));
-    }
-    let value_ty = lower_type(
-        &type_args[0],
-        ctx.structs,
-        ctx.enums,
-        ctx.aliases,
-        ctx.consts,
-        line,
-        column,
-    )?;
-    let expected_len = match name {
-        "async_channel" => 0,
-        "async_ready"
-        | "async_is_canceled"
-        | "async_spawn"
-        | "async_join"
-        | "async_cancel"
-        | "async_recv"
-        | "async_selected"
-        | "async_selected_value" => 1,
-        "async_timeout" | "async_send" | "async_select" => 2,
-        _ => unreachable!("async runtime intrinsic checked before lowering"),
-    };
-    if args.len() != expected_len {
-        return Err(Diagnostic::new(
-            "type",
-            format!(
-                "{name} expects {expected_len} arguments, got {}",
-                args.len()
-            ),
-        )
-        .with_span(line, column));
-    }
-
-    let lowered_args = match name {
-        "async_ready" => {
-            let value = lower_expr_with_expected(&args[0], Some(&value_ty), env, ctx)?;
-            if value.ty() != &value_ty {
-                return Err(Diagnostic::new(
-                    "type",
-                    format!("{name} expects value type {value_ty}, got {}", value.ty()),
-                )
-                .with_span(args[0].line(), args[0].column()));
-            }
-            move_lowered_value(&value, env)?;
-            vec![value]
-        }
-        "async_spawn" | "async_cancel" | "async_is_canceled" => {
-            let expected = Type::Task(Box::new(value_ty.clone()));
-            let task = lower_expr_with_expected(&args[0], Some(&expected), env, ctx)?;
-            if task.ty() != &expected {
-                return Err(Diagnostic::new(
-                    "type",
-                    format!("{name} expects {expected}, got {}", task.ty()),
-                )
-                .with_span(args[0].line(), args[0].column()));
-            }
-            move_lowered_value(&task, env)?;
-            vec![task]
-        }
-        "async_join" => {
-            let expected = Type::JoinHandle(Box::new(value_ty.clone()));
-            let handle = lower_expr_with_expected(&args[0], Some(&expected), env, ctx)?;
-            if handle.ty() != &expected {
-                return Err(Diagnostic::new(
-                    "type",
-                    format!("{name} expects {expected}, got {}", handle.ty()),
-                )
-                .with_span(args[0].line(), args[0].column()));
-            }
-            move_lowered_value(&handle, env)?;
-            vec![handle]
-        }
-        "async_timeout" => {
-            let expected = Type::Task(Box::new(value_ty.clone()));
-            let task = lower_expr_with_expected(&args[0], Some(&expected), env, ctx)?;
-            let ms = lower_expr_with_expected(&args[1], Some(&Type::Int), env, ctx)?;
-            if task.ty() != &expected || ms.ty() != &Type::Int {
-                return Err(Diagnostic::new(
-                    "type",
-                    format!("{name} expects Task<{value_ty}> and int arguments"),
-                )
-                .with_span(line, column));
-            }
-            move_lowered_value(&task, env)?;
-            vec![task, ms]
-        }
-        "async_channel" => Vec::new(),
-        "async_send" => {
-            let channel_ty = Type::AsyncChannel(Box::new(value_ty.clone()));
-            let channel = lower_expr_with_expected(&args[0], Some(&channel_ty), env, ctx)?;
-            let value = lower_expr_with_expected(&args[1], Some(&value_ty), env, ctx)?;
-            if channel.ty() != &channel_ty || value.ty() != &value_ty {
-                return Err(Diagnostic::new(
-                    "type",
-                    format!("{name} expects AsyncChannel<{value_ty}> and {value_ty} arguments"),
-                )
-                .with_span(line, column));
-            }
-            move_lowered_value(&channel, env)?;
-            move_lowered_value(&value, env)?;
-            vec![channel, value]
-        }
-        "async_recv" => {
-            let channel_ty = Type::AsyncChannel(Box::new(value_ty.clone()));
-            let channel = lower_expr_with_expected(&args[0], Some(&channel_ty), env, ctx)?;
-            if channel.ty() != &channel_ty {
-                return Err(Diagnostic::new(
-                    "type",
-                    format!("{name} expects {channel_ty}, got {}", channel.ty()),
-                )
-                .with_span(args[0].line(), args[0].column()));
-            }
-            move_lowered_value(&channel, env)?;
-            vec![channel]
-        }
-        "async_select" => {
-            let task_ty = Type::Task(Box::new(Type::Option(Box::new(value_ty.clone()))));
-            let left = lower_expr_with_expected(&args[0], Some(&task_ty), env, ctx)?;
-            let right = lower_expr_with_expected(&args[1], Some(&task_ty), env, ctx)?;
-            if left.ty() != &task_ty || right.ty() != &task_ty {
-                return Err(Diagnostic::new(
-                    "type",
-                    format!("{name} expects two {task_ty} arguments"),
-                )
-                .with_span(line, column));
-            }
-            move_lowered_value(&left, env)?;
-            move_lowered_value(&right, env)?;
-            vec![left, right]
-        }
-        "async_selected" | "async_selected_value" => {
-            let result_ty = Type::SelectResult(Box::new(value_ty.clone()));
-            let result = lower_expr_with_expected(&args[0], Some(&result_ty), env, ctx)?;
-            if result.ty() != &result_ty {
-                return Err(Diagnostic::new(
-                    "type",
-                    format!("{name} expects {result_ty}, got {}", result.ty()),
-                )
-                .with_span(args[0].line(), args[0].column()));
-            }
-            move_lowered_value(&result, env)?;
-            vec![result]
-        }
-        _ => unreachable!("async runtime intrinsic checked before lowering"),
-    };
-
-    let ty = match name {
-        "async_ready" | "async_cancel" | "async_join" => Type::Task(Box::new(value_ty)),
-        "async_spawn" => Type::JoinHandle(Box::new(value_ty)),
-        "async_is_canceled" => Type::Bool,
-        "async_timeout" => Type::Task(Box::new(Type::Option(Box::new(value_ty)))),
-        "async_channel" => Type::AsyncChannel(Box::new(value_ty)),
-        "async_send" => Type::Task(Box::new(Type::AsyncChannel(Box::new(value_ty)))),
-        "async_recv" => Type::Task(Box::new(Type::Option(Box::new(value_ty)))),
-        "async_select" => Type::Task(Box::new(Type::SelectResult(Box::new(value_ty)))),
-        "async_selected" => Type::Int,
-        "async_selected_value" => Type::Option(Box::new(value_ty)),
-        _ => unreachable!("async runtime intrinsic checked before lowering"),
-    };
-    Ok(Expr::Call {
-        span: SourceSpan::point(line, column),
-        name: name.to_string(),
-        args: lowered_args,
-        ty,
-    })
-}
-
-fn lower_map_lookup_intrinsic(
-    name: &str,
-    type_args: &[syntax::TypeName],
-    args: &[syntax::Expr],
-    line: usize,
-    column: usize,
-    env: &mut HashMap<String, Binding>,
-    ctx: &LowerContext<'_>,
-) -> Result<Expr, Diagnostic> {
-    if !type_args.is_empty() && type_args.len() != 2 {
-        return Err(Diagnostic::new(
-            "type",
-            format!(
-                "{name} expects 0 or 2 type arguments, got {}",
-                type_args.len()
-            ),
-        )
-        .with_span(line, column));
-    }
-    let expected_args = if matches!(name, "map_keys" | "keys") {
-        1
-    } else if name == "get_or_default" {
-        3
-    } else {
-        2
-    };
-    if args.len() != expected_args {
-        return Err(Diagnostic::new(
-            "type",
-            format!(
-                "{name} expects {expected_args} arguments, got {}",
-                args.len()
-            ),
-        )
-        .with_span(line, column));
-    }
-    let lowered_map = lower_expr(&args[0], env, ctx)?;
-    let Type::Map(key_ty, value_ty) = lowered_map.ty() else {
-        return Err(Diagnostic::new(
-            "type",
-            format!("{name} expects a map value, got {}", lowered_map.ty()),
-        )
-        .with_span(args[0].line(), args[0].column()));
-    };
-    let key_ty = (*key_ty.clone()).clone();
-    let value_ty = (*value_ty.clone()).clone();
-    if let [expected_key, expected_value] = type_args {
-        let expected_key = lower_type(
-            expected_key,
-            ctx.structs,
-            ctx.enums,
-            ctx.aliases,
-            ctx.consts,
-            line,
-            column,
-        )?;
-        let expected_value = lower_type(
-            expected_value,
-            ctx.structs,
-            ctx.enums,
-            ctx.aliases,
-            ctx.consts,
-            line,
-            column,
-        )?;
-        if expected_key != key_ty || expected_value != value_ty {
-            return Err(Diagnostic::new(
-                "type",
-                format!(
-                    "{name} type arguments expect {{{expected_key}: {expected_value}}}, got {}",
-                    lowered_map.ty()
-                ),
-            )
-            .with_span(line, column));
-        }
-    }
-    if matches!(name, "map_keys" | "keys") {
-        move_lowered_value(&lowered_map, env)?;
-        return Ok(Expr::Call {
-            span: SourceSpan::point(line, column),
-            name: name.to_string(),
-            args: vec![lowered_map],
-            ty: Type::Array(Box::new(key_ty), None),
-        });
-    }
-    let lowered_key = lower_expr_with_expected(&args[1], Some(&key_ty), env, ctx)?;
-    if lowered_key.ty() != &key_ty {
-        return Err(Diagnostic::new(
-            "type",
-            format!("{name} expects key type {key_ty}, got {}", lowered_key.ty()),
-        )
-        .with_span(args[1].line(), args[1].column()));
-    }
-    let mut lowered_args = vec![lowered_map, lowered_key];
-    if name == "get_or_default" {
-        let lowered_default = lower_expr_with_expected(&args[2], Some(&value_ty), env, ctx)?;
-        if lowered_default.ty() != &value_ty {
-            return Err(Diagnostic::new(
-                "type",
-                format!(
-                    "{name} expects default type {value_ty}, got {}",
-                    lowered_default.ty()
-                ),
-            )
-            .with_span(args[2].line(), args[2].column()));
-        }
-        move_lowered_value(&lowered_default, env)?;
-        lowered_args.push(lowered_default);
-    }
-    move_lowered_value(&lowered_args[0], env)?;
-    move_lowered_value(&lowered_args[1], env)?;
-    Ok(Expr::Call {
-        span: SourceSpan::point(line, column),
-        name: name.to_string(),
-        args: lowered_args,
-        ty: match name {
-            "map_get" | "get" => Type::Option(Box::new(value_ty)),
-            "get_or_default" => value_ty,
-            _ => Type::Bool,
-        },
-    })
-}
-
 fn lower_projection_base_expr(
     expr: &syntax::Expr,
     env: &mut HashMap<String, Binding>,
@@ -6237,168 +5822,6 @@ fn lower_projection_base_expr(
         }
         _ => lower_expr(expr, env, ctx),
     }
-}
-
-fn resolve_variant<'a>(
-    name: &str,
-    expected: Option<&Type>,
-    ctx: &'a LowerContext<'_>,
-    line: usize,
-    column: usize,
-) -> Result<Option<&'a VariantInfo>, Diagnostic> {
-    let Some(candidates) = ctx.variants.get(name) else {
-        return Ok(None);
-    };
-    if let Some(Type::Enum(expected_enum)) = expected {
-        return Ok(candidates
-            .iter()
-            .find(|variant| &variant.enum_name == expected_enum));
-    }
-    if candidates.len() == 1 {
-        return Ok(candidates.first());
-    }
-    Err(Diagnostic::new(
-        "type",
-        format!("enum variant {name:?} is ambiguous without an expected enum type"),
-    )
-    .with_span(line, column))
-}
-
-fn lower_variant_constructor(
-    name: &str,
-    args: &[syntax::Expr],
-    line: usize,
-    column: usize,
-    variant: &VariantInfo,
-    env: &mut HashMap<String, Binding>,
-    ctx: &LowerContext<'_>,
-) -> Result<Expr, Diagnostic> {
-    if !variant.payload_names.is_empty() {
-        return Err(Diagnostic::new(
-            "type",
-            format!("enum variant {name:?} requires named payload fields"),
-        )
-        .with_span(line, column));
-    }
-    if variant.payload_tys.is_empty() {
-        return Err(Diagnostic::new(
-            "type",
-            format!("enum variant {name:?} does not take arguments"),
-        )
-        .with_span(line, column));
-    }
-    if args.len() != variant.payload_tys.len() {
-        return Err(Diagnostic::new(
-            "type",
-            format!(
-                "enum variant {name:?} expects {} arguments, got {}",
-                variant.payload_tys.len(),
-                args.len()
-            ),
-        )
-        .with_span(line, column));
-    }
-    let mut lowered_payloads = Vec::new();
-    for (arg, expected) in args.iter().zip(variant.payload_tys.iter()) {
-        let lowered = lower_call_arg_with_expected(arg, Some(expected), env, ctx, false)?;
-        if !type_assignable_to(lowered.ty(), expected) {
-            return Err(Diagnostic::new(
-                "type",
-                format!(
-                    "enum variant {name:?} expects payload type {expected}, got {}",
-                    lowered.ty()
-                ),
-            )
-            .with_span(arg.line(), arg.column()));
-        }
-        if !expected.is_copy() {
-            move_lowered_value(&lowered, env)?;
-        }
-        lowered_payloads.push(lowered);
-    }
-    Ok(Expr::EnumVariant {
-        enum_name: variant.enum_name.clone(),
-        variant: name.to_string(),
-        field_names: Vec::new(),
-        payloads: lowered_payloads,
-        ty: Type::Enum(variant.enum_name.clone()),
-    })
-}
-
-fn lower_named_variant_constructor(
-    name: &str,
-    fields: &[syntax::StructFieldValue],
-    line: usize,
-    column: usize,
-    variant: &VariantInfo,
-    env: &mut HashMap<String, Binding>,
-    ctx: &LowerContext<'_>,
-) -> Result<Expr, Diagnostic> {
-    let mut lowered_fields = HashMap::new();
-    for field in fields {
-        let Some(position) = variant
-            .payload_names
-            .iter()
-            .position(|payload_name| payload_name == &field.name)
-        else {
-            return Err(Diagnostic::new(
-                "type",
-                format!(
-                    "enum variant {name:?} has no named payload {:?}",
-                    field.name
-                ),
-            )
-            .with_span(field.line, field.column));
-        };
-        if lowered_fields.contains_key(&field.name) {
-            return Err(Diagnostic::new(
-                "type",
-                format!(
-                    "duplicate named payload {:?} in enum variant literal {name:?}",
-                    field.name
-                ),
-            )
-            .with_span(field.line, field.column));
-        }
-        let expected = &variant.payload_tys[position];
-        let lowered = lower_expr_with_expected(&field.expr, Some(expected), env, ctx)?;
-        if !type_assignable_to(lowered.ty(), expected) {
-            return Err(Diagnostic::new(
-                "type",
-                format!(
-                    "enum variant {name:?} payload {:?} expects {expected}, got {}",
-                    field.name,
-                    lowered.ty()
-                ),
-            )
-            .with_span(field.line, field.column));
-        }
-        if !expected.is_copy() {
-            move_lowered_owner_value(&lowered, env)?;
-        }
-        lowered_fields.insert(field.name.clone(), lowered);
-    }
-    let mut ordered_payloads = Vec::new();
-    for payload_name in &variant.payload_names {
-        let lowered = lowered_fields.remove(payload_name).ok_or_else(|| {
-            Diagnostic::new(
-                "type",
-                format!(
-                    "enum variant literal {name:?} is missing named payload {:?}",
-                    payload_name
-                ),
-            )
-            .with_span(line, column)
-        })?;
-        ordered_payloads.push(lowered);
-    }
-    Ok(Expr::EnumVariant {
-        enum_name: variant.enum_name.clone(),
-        variant: name.to_string(),
-        field_names: variant.payload_names.clone(),
-        payloads: ordered_payloads,
-        ty: Type::Enum(variant.enum_name.clone()),
-    })
 }
 
 fn with_assert_location(args: Vec<Expr>, line: usize, column: usize) -> Vec<Expr> {
