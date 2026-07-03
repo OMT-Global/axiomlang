@@ -94,6 +94,15 @@ The HIR variant-constructor extraction then moved enum variant resolution and
 positional/named payload constructor lowering into
 `stage1/crates/axiomc/src/hir/variants.rs`, keeping variant payload validation
 inside the `compiler.hir` boundary.
+The HIR async-runtime extraction then moved async runtime intrinsic capability
+and type lowering into `stage1/crates/axiomc/src/hir/async_runtime.rs`,
+keeping async capability validation inside the `compiler.hir` boundary.
+The HIR map-intrinsic extraction then moved map lookup/key/default intrinsic
+type and ownership lowering into `stage1/crates/axiomc/src/hir/maps.rs`,
+keeping collection intrinsic validation inside the `compiler.hir` boundary.
+The HIR const-function extraction then moved const function body and expression
+validation into `stage1/crates/axiomc/src/hir/const_functions.rs`, keeping
+compile-time function restrictions inside the `compiler.hir` boundary.
 The direct-native runtime-serving stack then raised the native backend baseline
 before this ratchet merged; the ceilings below reflect that post-merge snapshot
 so future backend growth must be paid down or accompanied by an explicit
@@ -110,7 +119,7 @@ Snapshot from 2026-07-02:
 | 3 | `stage1/crates/axiomc/src/main.rs` | 10,678 | `compiler.commands` | Move command parsing, JSON envelope construction, check/build/run/test/doc/trace orchestration, and exit handling behind `docs/compiler-command-lsp-packages.md` APIs. |
 | 4 | `stage1/crates/axiomc/src/codegen.rs` | 7,804 | `compiler.backend.generated_rust`, `compiler.backend.contracts` | Isolate generated-Rust compatibility emission from backend target selection and unsupported-feature contracts. |
 | 5 | `stage1/crates/axiomc/src/syntax.rs` | 6,324 | `compiler.syntax`, `compiler.diagnostics` | Split lexer/parser, parse recovery, source spans, macros, and syntax diagnostics behind the syntax boundary. |
-| 6 | `stage1/crates/axiomc/src/hir.rs` | 6,259 | `compiler.hir` | Generic inference and monomorphization now live in `stage1/crates/axiomc/src/hir/generics.rs`; public HIR model types now live in `stage1/crates/axiomc/src/hir/model.rs`; syntax-to-HIR type/literal lowering now lives in `stage1/crates/axiomc/src/hir/types.rs`; type-name, aggregate, and trait-use definition checks now live in `stage1/crates/axiomc/src/hir/definitions.rs`; function/method signatures and trait impl signature validation now live in `stage1/crates/axiomc/src/hir/signatures.rs`; capability analysis now lives in `stage1/crates/axiomc/src/hir/capabilities.rs`; expression typing helpers now live in `stage1/crates/axiomc/src/hir/expressions.rs`; ownership and borrow-state helpers now live in `stage1/crates/axiomc/src/hir/ownership.rs`; property clause checks now live in `stage1/crates/axiomc/src/hir/properties.rs`; reachability/call-graph discovery now lives in `stage1/crates/axiomc/src/hir/reachability.rs`; diagnostic recovery helpers now live in `stage1/crates/axiomc/src/hir/diagnostics.rs`; monomorphized symbol and intrinsic helpers now live in `stage1/crates/axiomc/src/hir/symbols.rs`; source-location helpers now live in `stage1/crates/axiomc/src/hir/source_locations.rs`; return-flow analysis now lives in `stage1/crates/axiomc/src/hir/control_flow.rs`; const-array length validation now lives in `stage1/crates/axiomc/src/hir/const_arrays.rs`; match lowering now lives in `stage1/crates/axiomc/src/hir/matches.rs`; enum variant constructor helpers now live in `stage1/crates/axiomc/src/hir/variants.rs`; HIR boundary regression tests now live in `stage1/crates/axiomc/tests/hir_unit.rs`; continue splitting remaining HIR helper clusters behind the package APIs in `docs/compiler-hir-ownership-capability.md`. |
+| 6 | `stage1/crates/axiomc/src/hir.rs` | 5,842 | `compiler.hir` | Generic inference and monomorphization now live in `stage1/crates/axiomc/src/hir/generics.rs`; public HIR model types now live in `stage1/crates/axiomc/src/hir/model.rs`; syntax-to-HIR type/literal lowering now lives in `stage1/crates/axiomc/src/hir/types.rs`; type-name, aggregate, and trait-use definition checks now live in `stage1/crates/axiomc/src/hir/definitions.rs`; function/method signatures and trait impl signature validation now live in `stage1/crates/axiomc/src/hir/signatures.rs`; capability analysis now lives in `stage1/crates/axiomc/src/hir/capabilities.rs`; expression typing helpers now live in `stage1/crates/axiomc/src/hir/expressions.rs`; ownership and borrow-state helpers now live in `stage1/crates/axiomc/src/hir/ownership.rs`; property clause checks now live in `stage1/crates/axiomc/src/hir/properties.rs`; reachability/call-graph discovery now lives in `stage1/crates/axiomc/src/hir/reachability.rs`; diagnostic recovery helpers now live in `stage1/crates/axiomc/src/hir/diagnostics.rs`; monomorphized symbol and intrinsic helpers now live in `stage1/crates/axiomc/src/hir/symbols.rs`; source-location helpers now live in `stage1/crates/axiomc/src/hir/source_locations.rs`; return-flow analysis now lives in `stage1/crates/axiomc/src/hir/control_flow.rs`; const-array length validation now lives in `stage1/crates/axiomc/src/hir/const_arrays.rs`; const-function validation now lives in `stage1/crates/axiomc/src/hir/const_functions.rs`; match lowering now lives in `stage1/crates/axiomc/src/hir/matches.rs`; enum variant constructor helpers now live in `stage1/crates/axiomc/src/hir/variants.rs`; async runtime intrinsic lowering now lives in `stage1/crates/axiomc/src/hir/async_runtime.rs`; map intrinsic lowering now lives in `stage1/crates/axiomc/src/hir/maps.rs`; HIR boundary regression tests now live in `stage1/crates/axiomc/tests/hir_unit.rs`; continue splitting remaining HIR helper clusters behind the package APIs in `docs/compiler-hir-ownership-capability.md`. |
 | 7 | `stage1/crates/axiomc/src/hir/generics.rs` | 4,205 | `compiler.hir` | Keep generic call inference, trait-bound validation, aggregate monomorphization, and generic call rewriting isolated from the main HIR lowering facade. |
 
 ## Ratchet Ceilings
@@ -123,21 +132,24 @@ matching ceiling in this table in the same PR.
 
 | Tracked item | Ceiling |
 | --- | ---: |
-| `summary.top_file_line_share` | 0.8376 |
-| `summary.top_file_lines` | 74448 |
+| `summary.top_file_line_share` | 0.8328 |
+| `summary.top_file_lines` | 74031 |
 | `stage1/crates/axiomc/src/cranelift_backend.rs` | 28366 |
-| `stage1/crates/axiomc/src/hir.rs` | 6259 |
+| `stage1/crates/axiomc/src/hir.rs` | 5842 |
 | `stage1/crates/axiomc/src/project.rs` | 10812 |
 | `stage1/crates/axiomc/src/main.rs` | 10678 |
 | `stage1/crates/axiomc/src/codegen.rs` | 7804 |
 | `stage1/crates/axiomc/src/syntax.rs` | 6324 |
+| `stage1/crates/axiomc/src/hir/async_runtime.rs` | 188 |
 | `stage1/crates/axiomc/src/hir/capabilities.rs` | 773 |
 | `stage1/crates/axiomc/src/hir/const_arrays.rs` | 330 |
+| `stage1/crates/axiomc/src/hir/const_functions.rs` | 117 |
 | `stage1/crates/axiomc/src/hir/control_flow.rs` | 36 |
 | `stage1/crates/axiomc/src/hir/definitions.rs` | 684 |
 | `stage1/crates/axiomc/src/hir/diagnostics.rs` | 28 |
 | `stage1/crates/axiomc/src/hir/expressions.rs` | 205 |
 | `stage1/crates/axiomc/src/hir/generics.rs` | 4205 |
+| `stage1/crates/axiomc/src/hir/maps.rs` | 124 |
 | `stage1/crates/axiomc/src/hir/matches.rs` | 735 |
 | `stage1/crates/axiomc/src/hir/model.rs` | 607 |
 | `stage1/crates/axiomc/src/hir/ownership.rs` | 1129 |
@@ -165,9 +177,10 @@ matching ceiling in this table in the same PR.
    capability analysis, expression typing helpers, ownership/borrow helpers,
    property checks, reachability/call-graph discovery, diagnostic recovery
    helpers, monomorphized symbol/intrinsic helpers, source-location helpers,
-   return-flow analysis, const-array validation, match lowering, and enum
-   variant constructor lowering are split; continue with remaining HIR helper
-   clusters.
+   return-flow analysis, const-array validation, const-function validation,
+   match lowering, enum variant constructor lowering, async runtime intrinsic
+   lowering, and map intrinsic lowering are split; continue with remaining HIR
+   helper clusters.
 4. `compiler.commands` and `compiler.package_graph`: separate command envelopes
    from package loading so the snapshot bootstrap can invoke package APIs
    without Cargo assumptions.
