@@ -2625,87 +2625,6 @@ fn lower_i64_aggregate_call_return_stmts(
     (results.len() == shape.slot_count()).then_some((stmts, results))
 }
 
-fn lower_i64_aggregate_call_return_block(
-    expr: &Expr,
-    shape: &I64AggregateReturnShape,
-    locals: &mut Vec<CraneliftI64Expr>,
-    local_indexes: &HashMap<String, usize>,
-    local_conditions: &HashMap<String, CraneliftI64Condition>,
-    helper_signatures: &HashMap<&str, I64HelperSignature>,
-    static_bindings: &I64StaticBindings,
-) -> Option<CraneliftI64ValueReturnBlock> {
-    let Expr::Call {
-        name: call_name,
-        args,
-        ..
-    } = expr
-    else {
-        return None;
-    };
-    let signature = helper_signatures.get(call_name.as_str())?;
-    if args.len() != signature.params
-        || signature.returns != shape.slot_count()
-        || !i64_aggregate_signature_matches_shape(signature, shape)
-    {
-        return None;
-    }
-    let mut return_locals = Vec::with_capacity(shape.slot_count());
-    for _ in 0..shape.slot_count() {
-        let local = locals.len();
-        locals.push(CraneliftI64Expr::Literal(0));
-        return_locals.push(local);
-    }
-    let args = lower_i64_flat_call_args(
-        args,
-        signature,
-        local_indexes,
-        local_conditions,
-        helper_signatures,
-        static_bindings,
-    )?;
-    let results = return_locals
-        .iter()
-        .copied()
-        .map(CraneliftI64Expr::Local)
-        .collect();
-    Some(CraneliftI64ValueReturnBlock {
-        stmts: vec![CraneliftI64Stmt::CallAssign {
-            locals: return_locals,
-            function: signature.function,
-            args,
-        }],
-        results,
-    })
-}
-
-fn i64_aggregate_signature_matches_shape(
-    signature: &I64HelperSignature,
-    shape: &I64AggregateReturnShape,
-) -> bool {
-    match (shape, &signature.return_ty) {
-        (
-            I64AggregateReturnShape::Array { element, size },
-            Type::Array(return_element, Some(return_size)),
-        ) => return_element.as_ref() == element && return_size == size,
-        (I64AggregateReturnShape::Tuple(elements), Type::Tuple(return_elements)) => {
-            return_elements == elements
-        }
-        (I64AggregateReturnShape::Struct { name, .. }, Type::Struct(return_name)) => {
-            return_name == name
-        }
-        (I64AggregateReturnShape::Option { inner, .. }, Type::Option(return_inner)) => {
-            return_inner.as_ref() == inner
-        }
-        (I64AggregateReturnShape::Result { ok, err, .. }, Type::Result(return_ok, return_err)) => {
-            return_ok.as_ref() == ok && return_err.as_ref() == err
-        }
-        (I64AggregateReturnShape::Enum { name, .. }, Type::Enum(return_name)) => {
-            return_name == name
-        }
-        _ => false,
-    }
-}
-
 fn i64_scalar_value_body(body: I64ExitBody) -> CraneliftI64ValueBody {
     match body {
         I64ExitBody::Return(result) => CraneliftI64ValueBody::Return(vec![result]),
@@ -20412,15 +20331,6 @@ fn cast_spike_value(value: SpikeValue, ty: &Type) -> Result<SpikeValue, Diagnost
         },
         Type::Numeric(numeric_ty) => cast_to_numeric(value, *numeric_ty),
         _ => Ok(value),
-    }
-}
-
-fn cast_to_integer_like(value: SpikeValue, ty: NumericType) -> Result<SpikeValue, Diagnostic> {
-    match value {
-        SpikeValue::Int(value) => Ok(cast_signed_integer(value, ty)),
-        SpikeValue::UInt(value) => Ok(cast_unsigned_integer(value, ty)),
-        SpikeValue::Float(value) => Ok(cast_float(value, ty)),
-        _ => Err(unsupported("only numeric values can be cast to int")),
     }
 }
 
