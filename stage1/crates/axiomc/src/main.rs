@@ -6913,6 +6913,7 @@ fn mutation_report_from_path(path: &Path) -> Result<MutationIssueReport, Diagnos
     mutation_report_from_json_str_with_base_dir(&source, base_dir)
 }
 
+#[cfg(test)]
 fn mutation_report_from_json_str(source: &str) -> Result<MutationIssueReport, Diagnostic> {
     mutation_report_from_json_str_with_base_dir(source, None)
 }
@@ -7487,6 +7488,7 @@ fn collect_program_type_refs(program: &axiomc::syntax::Program) -> Vec<String> {
     refs.into_iter().collect()
 }
 
+#[cfg(test)]
 #[derive(Debug, Clone, Serialize)]
 struct InspectEvidenceReport {
     schema_version: &'static str,
@@ -7497,6 +7499,7 @@ struct InspectEvidenceReport {
     evidence: Vec<EvidenceNode>,
 }
 
+#[cfg(test)]
 #[derive(Debug, Clone, Serialize)]
 struct EvidenceNode {
     kind: &'static str,
@@ -7506,6 +7509,7 @@ struct EvidenceNode {
     status: String,
 }
 
+#[cfg(test)]
 fn inspect_evidence(project: &Path) -> Result<InspectEvidenceReport, Diagnostic> {
     let manifest = load_manifest(project)?;
     let lockfile_status = match validate_lockfile(project, &manifest) {
