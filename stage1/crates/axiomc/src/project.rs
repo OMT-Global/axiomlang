@@ -1583,17 +1583,7 @@ fn analyze_package_for_capability_sbom(
 ) -> Result<AnalyzedProject, Diagnostic> {
     let package_root = normalize_path(package_root);
     let package_root = canonicalize_existing_path(&package_root, "package root")?;
-    let mut manifest = graph.context(&package_root)?.manifest.clone();
-    if manifest.is_workspace_only() {
-        return Err(Diagnostic::new(
-            "manifest",
-            format!(
-                "workspace-only manifest at {} is not directly buildable",
-                manifest_path(&package_root).display()
-            ),
-        )
-        .with_path(manifest_path(&package_root).display().to_string()));
-    }
+    let mut manifest = buildable_package_manifest(graph, &package_root)?;
     validate_lockfile(&package_root, &manifest)?;
     let entry = entry_path(&package_root, &manifest);
     let entry = canonicalize_package_path(
@@ -1636,17 +1626,7 @@ fn analyze_package_with_macro_limit(
 ) -> Result<AnalyzedProject, Diagnostic> {
     let package_root = normalize_path(package_root);
     let package_root = canonicalize_existing_path(&package_root, "package root")?;
-    let manifest = graph.context(&package_root)?.manifest.clone();
-    if manifest.is_workspace_only() {
-        return Err(Diagnostic::new(
-            "manifest",
-            format!(
-                "workspace-only manifest at {} is not directly buildable",
-                manifest_path(&package_root).display()
-            ),
-        )
-        .with_path(manifest_path(&package_root).display().to_string()));
-    }
+    let manifest = buildable_package_manifest(graph, &package_root)?;
     validate_lockfile(&package_root, &manifest)?;
     let entry = entry_path(&package_root, &manifest);
     let entry = canonicalize_package_path(
@@ -1656,6 +1636,25 @@ fn analyze_package_with_macro_limit(
         "build.entry resolves outside the package",
     )?;
     analyze_entry(graph, &package_root, manifest, entry, macro_recursion_limit)
+}
+
+fn buildable_package_manifest(
+    graph: &PackageGraph,
+    package_root: &Path,
+) -> Result<Manifest, Diagnostic> {
+    let manifest = graph.context(package_root)?.manifest.clone();
+    if manifest.is_workspace_only() {
+        let manifest_path = manifest_path(package_root);
+        return Err(Diagnostic::new(
+            "manifest",
+            format!(
+                "workspace-only manifest at {} is not directly buildable",
+                manifest_path.display()
+            ),
+        )
+        .with_path(manifest_path.display().to_string()));
+    }
+    Ok(manifest)
 }
 
 fn analyze_entry(
@@ -10190,6 +10189,52 @@ return async_serve_route(1, "/", "ok", 1)
             error.path,
             Some(manifest_path(dir.path()).display().to_string())
         );
+    }
+
+    #[test]
+    fn analyze_paths_share_workspace_only_manifest_diagnostic() {
+        let dir = tempdir().unwrap_or_else(|err| panic!("tempdir: {err}"));
+        let root = canonicalize_existing_path(dir.path(), "project root").expect("canonical root");
+        let source_root = root.join("src");
+
+        let mut graph = PackageGraph::default();
+        graph.packages.insert(
+            root.clone(),
+            PackageContext {
+                root: root.clone(),
+                manifest: workspace_only_manifest(),
+                source_root,
+                dependencies: BTreeMap::new(),
+                workspace_members: Vec::new(),
+            },
+        );
+
+        let regular_error = match analyze_package_with_macro_limit(
+            &graph,
+            &root,
+            syntax::DEFAULT_MACRO_RECURSION_LIMIT,
+        ) {
+            Ok(_) => panic!("workspace-only manifest analyzed as a buildable package"),
+            Err(error) => error,
+        };
+        let sbom_error = match analyze_package_for_capability_sbom(&graph, &root) {
+            Ok(_) => panic!("workspace-only manifest analyzed for capability sbom"),
+            Err(error) => error,
+        };
+
+        assert_eq!(regular_error.kind, "manifest");
+        assert_eq!(
+            regular_error.message,
+            format!(
+                "workspace-only manifest at {} is not directly buildable",
+                manifest_path(&root).display()
+            )
+        );
+        assert_eq!(
+            regular_error.path,
+            Some(manifest_path(&root).display().to_string())
+        );
+        assert_eq!(sbom_error, regular_error);
     }
 
     #[test]
