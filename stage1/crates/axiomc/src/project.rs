@@ -4324,7 +4324,7 @@ fn load_modules(
     macro_recursion_limit: usize,
 ) -> Result<Vec<LoadedModule>, Diagnostic> {
     let mut ordered = Vec::new();
-    let mut loaded = HashMap::new();
+    let mut loaded = HashSet::new();
     let mut visiting = Vec::new();
     load_module_recursive(
         graph,
@@ -4346,7 +4346,7 @@ fn load_module_recursive(
     is_entry: bool,
     macro_recursion_limit: usize,
     ordered: &mut Vec<LoadedModule>,
-    loaded: &mut HashMap<PathBuf, ()>,
+    loaded: &mut HashSet<PathBuf>,
     visiting: &mut Vec<PathBuf>,
 ) -> Result<(), Diagnostic> {
     let module_path = normalize_path(module_path);
@@ -4374,7 +4374,7 @@ fn load_module_recursive(
         .with_path(module_path.display().to_string())
         .with_related(related));
     }
-    if loaded.contains_key(&module_path) {
+    if loaded.contains(&module_path) {
         return Ok(());
     }
 
@@ -4435,7 +4435,7 @@ fn load_module_recursive(
     }
     visiting.pop();
 
-    loaded.insert(module_path.clone(), ());
+    loaded.insert(module_path.clone());
     let package_name = package_section(
         &package.manifest,
         "loaded modules require a package manifest",
@@ -8976,7 +8976,7 @@ fn stmt_column(stmt: &syntax::Stmt) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::{BTreeMap, HashMap};
+    use std::collections::BTreeMap;
     #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
     use tempfile::tempdir;
@@ -10265,7 +10265,7 @@ return async_serve_route(1, "/", "ok", 1)
             true,
             syntax::DEFAULT_MACRO_RECURSION_LIMIT,
             &mut Vec::new(),
-            &mut HashMap::new(),
+            &mut HashSet::new(),
             &mut Vec::new(),
         ) {
             Ok(()) => panic!("workspace-only manifest loaded a module"),
@@ -10655,7 +10655,7 @@ return async_serve_route(1, "/", "ok", 1)
             true,
             syntax::DEFAULT_MACRO_RECURSION_LIMIT,
             &mut Vec::new(),
-            &mut HashMap::new(),
+            &mut HashSet::new(),
             &mut Vec::new(),
         ) {
             Ok(()) => panic!("symlinked import outside package was loaded"),
