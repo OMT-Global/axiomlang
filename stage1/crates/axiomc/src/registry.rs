@@ -1388,21 +1388,18 @@ fn normalize_base_url(base_url: &str, packages_root: &Path) -> Result<String, Di
 }
 
 fn safe_registry_path_segment(kind: &str, value: &str) -> Result<String, Diagnostic> {
-    let trimmed = value.trim();
-    if is_unsafe_registry_path_segment(value) {
-        return Err(Diagnostic::new(
-            "publish",
-            format!("registry {kind} must be a safe path segment: {value:?}"),
-        ));
-    }
-    Ok(trimmed.to_string())
+    safe_registry_segment("publish", kind, value)
 }
 
 fn safe_registry_lookup_segment(kind: &str, value: &str) -> Result<String, Diagnostic> {
+    safe_registry_segment("registry", kind, value)
+}
+
+fn safe_registry_segment(category: &str, kind: &str, value: &str) -> Result<String, Diagnostic> {
     let trimmed = value.trim();
     if is_unsafe_registry_path_segment(value) {
         return Err(Diagnostic::new(
-            "registry",
+            category,
             format!("registry {kind} must be a safe path segment: {value:?}"),
         ));
     }
@@ -1596,6 +1593,27 @@ mod tests {
 
         assert_eq!(error.kind, "publish");
         assert!(error.message.contains("already exists"));
+    }
+
+    #[test]
+    fn safe_registry_segments_share_rule_but_keep_diagnostic_category() {
+        assert_eq!(
+            safe_registry_path_segment("package name", "core").expect("safe publish segment"),
+            "core"
+        );
+        assert_eq!(
+            safe_registry_lookup_segment("package name", "core").expect("safe lookup segment"),
+            "core"
+        );
+
+        let publish_error = safe_registry_path_segment("package name", "../core")
+            .expect_err("publish segment traversal should fail");
+        let registry_error = safe_registry_lookup_segment("package name", "../core")
+            .expect_err("lookup segment traversal should fail");
+
+        assert_eq!(publish_error.kind, "publish");
+        assert_eq!(registry_error.kind, "registry");
+        assert_eq!(publish_error.message, registry_error.message);
     }
 
     #[test]
