@@ -121,7 +121,7 @@ def build_report(source_root: Path, top: int) -> dict[str, Any]:
             "largest_file_lines": largest.lines if largest else 0,
             "top_file_count": top,
             "top_file_lines": top_lines,
-            "top_file_line_share": round(top_lines / total_lines, 4) if total_lines else 0,
+            "top_file_line_share": top_lines / total_lines if total_lines else 0,
         },
         "top_files": [
             {
@@ -212,7 +212,7 @@ def check_ratchet(report: dict[str, Any], plan_path: Path) -> list[str]:
         errors.append("ratchet is missing summary.top_file_line_share ceiling")
     else:
         current_share = float(report["summary"]["top_file_line_share"])
-        if current_share > share_ceiling + 0.00005:
+        if current_share > share_ceiling:
             errors.append(
                 "top file line share "
                 f"{current_share:.4f} exceeds ratchet ceiling {share_ceiling:.4f}"

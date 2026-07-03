@@ -194,6 +194,33 @@ class CompilerSourceMonolithTests(unittest.TestCase):
         self.assertFalse(payload["plan_check"]["passed"])
         self.assertIn("cranelift_backend.rs", payload["plan_check"]["errors"][0])
 
+    def test_check_ratchet_uses_unrounded_share_against_ceiling(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            plan = Path(tmp) / "plan.md"
+            plan.write_text(
+                "## Ratchet Ceilings\n"
+                "| `summary.top_file_line_share` | 0.8539 |\n"
+                "| `summary.top_file_lines` | 100 |\n"
+                "| `stage1/crates/axiomc/src/hir.rs` | 50 |\n",
+                encoding="utf-8",
+            )
+            report = {
+                "summary": {
+                    "top_file_line_share": 0.85395,
+                    "top_file_lines": 90,
+                },
+                "top_files": [
+                    {"path": "stage1/crates/axiomc/src/hir.rs", "lines": 40},
+                ],
+            }
+
+            errors = compiler_source_monoliths.check_ratchet(report, plan)
+
+        self.assertEqual(
+            errors,
+            ["top file line share 0.8539 exceeds ratchet ceiling 0.8539"],
+        )
+
     def test_cli_check_ratchet_fails_when_plan_is_incomplete(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             source_root = Path(tmp) / "src"

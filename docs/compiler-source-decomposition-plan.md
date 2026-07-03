@@ -132,7 +132,7 @@ matching ceiling in this table in the same PR.
 
 | Tracked item | Ceiling |
 | --- | ---: |
-| `summary.top_file_line_share` | 0.8328 |
+| `summary.top_file_line_share` | 0.832819601313954 |
 | `summary.top_file_lines` | 74031 |
 | `stage1/crates/axiomc/src/cranelift_backend.rs` | 28366 |
 | `stage1/crates/axiomc/src/hir.rs` | 5842 |
