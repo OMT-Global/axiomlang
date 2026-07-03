@@ -1591,17 +1591,7 @@ fn analyze_package_for_capability_sbom(
 ) -> Result<AnalyzedProject, Diagnostic> {
     let package_root = normalize_path(package_root);
     let package_root = canonicalize_existing_path(&package_root, "package root")?;
-    let mut manifest = graph.context(&package_root)?.manifest.clone();
-    if manifest.is_workspace_only() {
-        return Err(Diagnostic::new(
-            "manifest",
-            format!(
-                "workspace-only manifest at {} is not directly buildable",
-                manifest_path(&package_root).display()
-            ),
-        )
-        .with_path(manifest_path(&package_root).display().to_string()));
-    }
+    let mut manifest = buildable_package_manifest(graph, &package_root)?;
     validate_lockfile(&package_root, &manifest)?;
     let entry = entry_path(&package_root, &manifest);
     let entry = canonicalize_package_path(
@@ -1644,17 +1634,7 @@ fn analyze_package_with_macro_limit(
 ) -> Result<AnalyzedProject, Diagnostic> {
     let package_root = normalize_path(package_root);
     let package_root = canonicalize_existing_path(&package_root, "package root")?;
-    let manifest = graph.context(&package_root)?.manifest.clone();
-    if manifest.is_workspace_only() {
-        return Err(Diagnostic::new(
-            "manifest",
-            format!(
-                "workspace-only manifest at {} is not directly buildable",
-                manifest_path(&package_root).display()
-            ),
-        )
-        .with_path(manifest_path(&package_root).display().to_string()));
-    }
+    let manifest = buildable_package_manifest(graph, &package_root)?;
     validate_lockfile(&package_root, &manifest)?;
     let entry = entry_path(&package_root, &manifest);
     let entry = canonicalize_package_path(
@@ -1664,6 +1644,25 @@ fn analyze_package_with_macro_limit(
         "build.entry resolves outside the package",
     )?;
     analyze_entry(graph, &package_root, manifest, entry, macro_recursion_limit)
+}
+
+fn buildable_package_manifest(
+    graph: &PackageGraph,
+    package_root: &Path,
+) -> Result<Manifest, Diagnostic> {
+    let manifest = graph.context(package_root)?.manifest.clone();
+    if manifest.is_workspace_only() {
+        let manifest_path = manifest_path(package_root);
+        return Err(Diagnostic::new(
+            "manifest",
+            format!(
+                "workspace-only manifest at {} is not directly buildable",
+                manifest_path.display()
+            ),
+        )
+        .with_path(manifest_path.display().to_string()));
+    }
+    Ok(manifest)
 }
 
 fn analyze_entry(
@@ -4333,7 +4332,7 @@ fn load_modules(
     macro_recursion_limit: usize,
 ) -> Result<Vec<LoadedModule>, Diagnostic> {
     let mut ordered = Vec::new();
-    let mut loaded = HashMap::new();
+    let mut loaded = HashSet::new();
     let mut visiting = Vec::new();
     load_module_recursive(
         graph,
@@ -4355,7 +4354,7 @@ fn load_module_recursive(
     is_entry: bool,
     macro_recursion_limit: usize,
     ordered: &mut Vec<LoadedModule>,
-    loaded: &mut HashMap<PathBuf, ()>,
+    loaded: &mut HashSet<PathBuf>,
     visiting: &mut Vec<PathBuf>,
 ) -> Result<(), Diagnostic> {
     let module_path = normalize_path(module_path);
@@ -4383,7 +4382,7 @@ fn load_module_recursive(
         .with_path(module_path.display().to_string())
         .with_related(related));
     }
-    if loaded.contains_key(&module_path) {
+    if loaded.contains(&module_path) {
         return Ok(());
     }
 
@@ -4444,7 +4443,7 @@ fn load_module_recursive(
     }
     visiting.pop();
 
-    loaded.insert(module_path.clone(), ());
+    loaded.insert(module_path.clone());
     let package_name = package_section(
         &package.manifest,
         "loaded modules require a package manifest",
@@ -8985,7 +8984,7 @@ fn stmt_column(stmt: &syntax::Stmt) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::{BTreeMap, HashMap};
+    use std::collections::BTreeMap;
     #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
     use tempfile::tempdir;
@@ -10201,6 +10200,52 @@ return async_serve_route(1, "/", "ok", 1)
     }
 
     #[test]
+    fn analyze_paths_share_workspace_only_manifest_diagnostic() {
+        let dir = tempdir().unwrap_or_else(|err| panic!("tempdir: {err}"));
+        let root = canonicalize_existing_path(dir.path(), "project root").expect("canonical root");
+        let source_root = root.join("src");
+
+        let mut graph = PackageGraph::default();
+        graph.packages.insert(
+            root.clone(),
+            PackageContext {
+                root: root.clone(),
+                manifest: workspace_only_manifest(),
+                source_root,
+                dependencies: BTreeMap::new(),
+                workspace_members: Vec::new(),
+            },
+        );
+
+        let regular_error = match analyze_package_with_macro_limit(
+            &graph,
+            &root,
+            syntax::DEFAULT_MACRO_RECURSION_LIMIT,
+        ) {
+            Ok(_) => panic!("workspace-only manifest analyzed as a buildable package"),
+            Err(error) => error,
+        };
+        let sbom_error = match analyze_package_for_capability_sbom(&graph, &root) {
+            Ok(_) => panic!("workspace-only manifest analyzed for capability sbom"),
+            Err(error) => error,
+        };
+
+        assert_eq!(regular_error.kind, "manifest");
+        assert_eq!(
+            regular_error.message,
+            format!(
+                "workspace-only manifest at {} is not directly buildable",
+                manifest_path(&root).display()
+            )
+        );
+        assert_eq!(
+            regular_error.path,
+            Some(manifest_path(&root).display().to_string())
+        );
+        assert_eq!(sbom_error, regular_error);
+    }
+
+    #[test]
     fn load_module_reports_missing_package_manifest() {
         let dir = tempdir().unwrap_or_else(|err| panic!("tempdir: {err}"));
         let root = normalize_path(dir.path());
@@ -10228,7 +10273,7 @@ return async_serve_route(1, "/", "ok", 1)
             true,
             syntax::DEFAULT_MACRO_RECURSION_LIMIT,
             &mut Vec::new(),
-            &mut HashMap::new(),
+            &mut HashSet::new(),
             &mut Vec::new(),
         ) {
             Ok(()) => panic!("workspace-only manifest loaded a module"),
@@ -10652,7 +10697,7 @@ return async_serve_route(1, "/", "ok", 1)
             true,
             syntax::DEFAULT_MACRO_RECURSION_LIMIT,
             &mut Vec::new(),
-            &mut HashMap::new(),
+            &mut HashSet::new(),
             &mut Vec::new(),
         ) {
             Ok(()) => panic!("symlinked import outside package was loaded"),
