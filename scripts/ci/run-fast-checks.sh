@@ -25,6 +25,7 @@ python3 "$script_repo_root/scripts/ci/check-direct-native-runtime-abi.py" \
   --contract "$repo_root/stage1/runtime-abi/direct-native-v0.json" \
   --coverage-matrix \
   --json >/dev/null
+bash "$script_repo_root/scripts/ci/test-check-rust-exit-command-surface.sh"
 python3 "$script_repo_root/scripts/ci/test-pr-queue-remediation.py"
 python3 "$script_repo_root/scripts/ci/test-report-delivery-signals.py"
 python3 "$script_repo_root/scripts/ci/test-issue-pr-traceability.py"
