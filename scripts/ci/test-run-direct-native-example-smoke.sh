@@ -10,6 +10,16 @@ makefile="$repo_root/Makefile"
   exit 1
 }
 
+grep -Fq 'stage1/examples/stdlib_collection_lookup' "$script" || {
+  echo "direct native example smoke must cover stdlib_collection_lookup" >&2
+  exit 1
+}
+
+grep -Fq 'stage1/examples/stdlib_collections' "$script" || {
+  echo "direct native example smoke must cover stdlib_collections" >&2
+  exit 1
+}
+
 grep -Fq 'stage1/examples/stdlib_crypto_random' "$script" || {
   echo "direct native example smoke must cover stdlib_crypto_random" >&2
   exit 1
@@ -22,6 +32,26 @@ grep -Fq 'stage1/examples/stdlib_crypto_signature' "$script" || {
 
 grep -Fq 'stage1/examples/stdlib_crypto_aead' "$script" || {
   echo "direct native example smoke must cover stdlib_crypto_aead" >&2
+  exit 1
+}
+
+grep -Fq 'stage1/examples/stdlib_json' "$script" || {
+  echo "direct native example smoke must cover stdlib_json" >&2
+  exit 1
+}
+
+grep -Fq 'stage1/examples/stdlib_outcome' "$script" || {
+  echo "direct native example smoke must cover stdlib_outcome" >&2
+  exit 1
+}
+
+grep -Fq 'stage1/examples/stdlib_regex' "$script" || {
+  echo "direct native example smoke must cover stdlib_regex" >&2
+  exit 1
+}
+
+grep -Fq 'stage1/examples/stdlib_string_builder' "$script" || {
+  echo "direct native example smoke must cover stdlib_string_builder" >&2
   exit 1
 }
 
