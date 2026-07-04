@@ -7513,19 +7513,6 @@ fn render_expr(expr: &Expr) -> String {
     }
 }
 
-fn render_assignment_target(expr: &Expr) -> String {
-    match expr {
-        Expr::Index { base, index, .. } if matches!(base.ty(), Type::MutSlice(_)) => {
-            format!(
-                "*axiom_array_get_mut({}, {})",
-                render_expr(base),
-                render_expr(index)
-            )
-        }
-        _ => render_expr(expr),
-    }
-}
-
 fn render_numeric_binary(
     op: &crate::mir::ArithmeticOp,
     lhs: &Expr,

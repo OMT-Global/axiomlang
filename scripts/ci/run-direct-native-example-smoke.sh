@@ -15,11 +15,17 @@ cleanup() {
 trap cleanup EXIT
 
 examples=(
+  stage1/examples/stdlib_collection_lookup
+  stage1/examples/stdlib_collections
   stage1/examples/stdlib_crypto_hash
   stage1/examples/stdlib_crypto_mac
   stage1/examples/stdlib_crypto_random
   stage1/examples/stdlib_crypto_signature
   stage1/examples/stdlib_crypto_aead
+  stage1/examples/stdlib_json
+  stage1/examples/stdlib_outcome
+  stage1/examples/stdlib_regex
+  stage1/examples/stdlib_string_builder
 )
 
 assert_generated_rust_null() {
