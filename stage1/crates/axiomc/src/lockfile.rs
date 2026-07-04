@@ -58,21 +58,12 @@ pub fn expected_lockfile_for_project(
         &mut visited,
         &mut package,
     )?;
-    if package.is_empty() {
-        package.sort_by(|left, right| {
-            left.source
-                .cmp(&right.source)
-                .then(left.name.cmp(&right.name))
-        });
-    } else if let Some((root, dependencies)) = package.split_first_mut() {
+    if let Some((_, dependencies)) = package.split_first_mut() {
         dependencies.sort_by(|left, right| {
             left.source
                 .cmp(&right.source)
                 .then(left.name.cmp(&right.name))
         });
-        package = std::iter::once(root.clone())
-            .chain(dependencies.iter().cloned())
-            .collect();
     }
     Ok(Lockfile {
         version: 1,
@@ -400,6 +391,13 @@ fn normalize_path(path: impl AsRef<Path>) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
+    use tempfile::tempdir;
+
+    fn write_manifest(root: &Path, body: &str) {
+        fs::create_dir_all(root).expect("create package dir");
+        fs::write(root.join("axiom.toml"), body).expect("write manifest");
+    }
 
     fn write_lockfile(project_root: &Path, package: Vec<LockedPackage>) {
         let lockfile = Lockfile {
@@ -432,6 +430,48 @@ mod tests {
         assert!(
             error.to_string().contains("unknown field"),
             "unexpected error: {error}"
+        );
+    }
+
+    #[test]
+    fn expected_lockfile_keeps_root_first_and_sorts_dependencies_in_place() {
+        let dir = tempdir().expect("tempdir");
+        let root = dir.path().join("root");
+        write_manifest(
+            &root,
+            "[package]\nname = \"root\"\nversion = \"1.0.0\"\n\n[workspace]\nmembers = [\"members/zeta\", \"members/alpha\"]\n",
+        );
+        write_manifest(
+            &root.join("members/zeta"),
+            "[package]\nname = \"zeta\"\nversion = \"1.0.0\"\n",
+        );
+        write_manifest(
+            &root.join("members/alpha"),
+            "[package]\nname = \"alpha\"\nversion = \"1.0.0\"\n",
+        );
+        let manifest = load_manifest(&root).expect("load root manifest");
+
+        let lockfile =
+            expected_lockfile_for_project(&root, &manifest).expect("render project lockfile");
+
+        let packages = lockfile
+            .package
+            .iter()
+            .map(|package| {
+                (
+                    package.name.as_str(),
+                    package.version.as_str(),
+                    package.source.as_str(),
+                )
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            packages,
+            vec![
+                ("root", "1.0.0", "path"),
+                ("alpha", "1.0.0", "path:members/alpha"),
+                ("zeta", "1.0.0", "path:members/zeta"),
+            ]
         );
     }
 
