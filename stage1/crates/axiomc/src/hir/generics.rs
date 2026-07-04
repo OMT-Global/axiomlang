@@ -18,16 +18,30 @@ fn infer_generic_call_type_args(
     program: &syntax::Program,
     generic_functions: &HashMap<String, syntax::Function>,
 ) -> Result<syntax::Program, Diagnostic> {
-    let mut inferred = program.clone();
-    inferred.functions = program
+    let functions = program
         .functions
         .iter()
         .map(|function| infer_generic_calls_in_function(function, generic_functions))
         .collect::<Result<Vec<_>, _>>()?;
     let mut env = HashMap::new();
-    inferred.stmts =
-        infer_generic_calls_in_stmts(&program.stmts, &mut env, None, generic_functions)?;
-    Ok(inferred)
+    let stmts = infer_generic_calls_in_stmts(&program.stmts, &mut env, None, generic_functions)?;
+
+    Ok(syntax::Program {
+        path: program.path.clone(),
+        imports: program.imports.clone(),
+        macros: program.macros.clone(),
+        macro_expansions: program.macro_expansions.clone(),
+        axioms: program.axioms.clone(),
+        semantic_capabilities: program.semantic_capabilities.clone(),
+        evidence: program.evidence.clone(),
+        consts: program.consts.clone(),
+        type_aliases: program.type_aliases.clone(),
+        structs: program.structs.clone(),
+        enums: program.enums.clone(),
+        traits: program.traits.clone(),
+        functions,
+        stmts,
+    })
 }
 
 fn infer_generic_calls_in_function(
@@ -1666,20 +1680,9 @@ pub(super) fn monomorphize_program(
 
     monomorphize_aggregates(
         syntax::Program {
-            path: program.path.clone(),
-            imports: program.imports.clone(),
-            macros: program.macros.clone(),
-            macro_expansions: program.macro_expansions.clone(),
-            axioms: program.axioms.clone(),
-            semantic_capabilities: program.semantic_capabilities.clone(),
-            evidence: program.evidence.clone(),
-            consts: program.consts.clone(),
-            type_aliases: program.type_aliases.clone(),
-            structs: program.structs.clone(),
-            enums: program.enums.clone(),
-            traits: program.traits.clone(),
             functions: lowered_functions,
             stmts,
+            ..program
         },
         &trait_impls,
     )
