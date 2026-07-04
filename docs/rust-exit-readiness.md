@@ -35,6 +35,17 @@ command/MIR boundary fixtures, and live issue state; this Markdown page is
 descriptive evidence only. Closing #721 also requires the governing issues and
 review gates to be satisfied.
 
+Command-surface coverage for the official `check`, `build`, `run`, `test`,
+`doc`, and `lsp` paths is also available as machine-readable evidence:
+
+```bash
+make rust-exit-command-surface-coverage
+```
+
+That report currently stays `ready: false` because its `doc` and `lsp` rows
+still carry the #731 blocker; #731 itself is closed, so the row data needs a
+refresh before the report can flip.
+
 ## Backend Matrix
 
 | Surface | Required state | Current disposition | Governing issue |
