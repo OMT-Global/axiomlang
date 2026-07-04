@@ -895,7 +895,8 @@ fn collect_test_targets(
             test.stderr = Some(expected_stderr);
         }
     }
-    if let Some(expected_stdout) = load_package_expected_output(project_root)? {
+    let package_expected_output = load_package_expected_output(project_root)?;
+    if let Some(expected_stdout) = package_expected_output.as_ref() {
         for test in &mut tests {
             if test.kind != TestKind::Benchmark && test.stdout.is_none() {
                 test.stdout = Some(expected_stdout.clone());
@@ -906,7 +907,11 @@ fn collect_test_targets(
         .iter()
         .map(|test| test.entry.clone())
         .collect::<std::collections::BTreeSet<_>>();
-    for discovered in discover_test_targets(project_root, include_benchmarks)? {
+    for discovered in discover_test_targets(
+        project_root,
+        include_benchmarks,
+        package_expected_output.as_deref(),
+    )? {
         if seen_entries.insert(discovered.entry.clone()) {
             tests.push(discovered);
         }
@@ -986,17 +991,17 @@ fn load_manifest_test_stream(
 fn discover_test_targets(
     project_root: &Path,
     include_benchmarks: bool,
+    package_expected_output: Option<&str>,
 ) -> Result<Vec<crate::manifest::TestTarget>, Diagnostic> {
     let src_root = project_root.join("src");
     if !src_root.exists() {
         return Ok(Vec::new());
     }
-    let package_expected_output = load_package_expected_output(project_root)?;
     let mut tests = Vec::new();
     collect_discovered_tests(
         project_root,
         &src_root,
-        package_expected_output.as_deref(),
+        package_expected_output,
         include_benchmarks,
         &mut tests,
     )?;
@@ -10506,6 +10511,23 @@ return async_serve_route(1, "/", "ok", 1)
             Some(&Some("explicit\n"))
         );
         assert_eq!(stdout_by_name.get("manifest_bench"), Some(&None));
+    }
+
+    #[test]
+    fn discovered_tests_reuse_loaded_package_expected_output() {
+        let dir = tempdir().unwrap_or_else(|err| panic!("tempdir: {err}"));
+        let root = dir.path();
+        let source_root = root.join("src");
+        fs::create_dir_all(&source_root).unwrap_or_else(|err| panic!("create src: {err}"));
+        fs::write(source_root.join("unit_test.ax"), "")
+            .unwrap_or_else(|err| panic!("write unit test: {err}"));
+
+        let tests = discover_test_targets(root, false, Some("cached\n"))
+            .unwrap_or_else(|err| panic!("discover tests: {err:?}"));
+
+        assert_eq!(tests.len(), 1);
+        assert_eq!(tests[0].name, "src/unit_test");
+        assert_eq!(tests[0].stdout.as_deref(), Some("cached\n"));
     }
 
     #[test]
