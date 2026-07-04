@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -16,14 +17,19 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_SOURCE_ROOT = REPO_ROOT / "stage1/crates/axiomc/src"
 DEFAULT_PLAN = REPO_ROOT / "docs/compiler-source-decomposition-plan.md"
 REPORT_VERSION = "axiom.compiler_source.monoliths.v0"
+RATCHET_ROW = re.compile(r"^\|\s*`([^`]+)`\s*\|\s*([0-9]+(?:\.[0-9]+)?)\s*\|")
 
 BOUNDARY_MAP: dict[str, list[str]] = {
     "borrowck.rs": ["compiler.hir"],
+    "capabilities.rs": ["compiler.hir"],
     "codegen.rs": ["compiler.backend.generated_rust", "compiler.backend.contracts"],
     "cranelift_backend.rs": ["compiler.backend.native"],
     "dap.rs": ["compiler.services.lsp"],
     "diagnostic_catalog.rs": ["compiler.diagnostics"],
+    "definitions.rs": ["compiler.hir"],
     "diagnostics.rs": ["compiler.diagnostics"],
+    "expressions.rs": ["compiler.hir"],
+    "generics.rs": ["compiler.hir"],
     "hir.rs": ["compiler.hir"],
     "json_contract.rs": ["compiler.commands"],
     "lib.rs": ["compiler package facade"],
@@ -32,11 +38,22 @@ BOUNDARY_MAP: dict[str, list[str]] = {
     "main.rs": ["compiler.commands"],
     "manifest.rs": ["compiler.package_graph"],
     "mir.rs": ["compiler.mir"],
+    "model.rs": ["compiler.hir"],
     "new_project.rs": ["compiler.commands"],
+    "ownership.rs": ["compiler.hir"],
+    "properties.rs": ["compiler.hir"],
+    "reachability.rs": ["compiler.hir"],
     "project.rs": ["compiler.package_graph", "compiler.commands", "compiler.evidence"],
     "registry.rs": ["compiler.package_graph"],
+    "signatures.rs": ["compiler.hir"],
     "stdlib.rs": ["compiler.stdlib"],
+    "symbols.rs": ["compiler.hir"],
     "syntax.rs": ["compiler.syntax", "compiler.diagnostics"],
+    "types.rs": ["compiler.hir"],
+}
+
+PATH_BOUNDARY_MAP: dict[str, list[str]] = {
+    "stage1/crates/axiomc/src/hir/diagnostics.rs": ["compiler.hir"],
 }
 
 
@@ -71,6 +88,11 @@ def repo_relative(path: Path) -> str:
 
 
 def boundaries_for(path: Path) -> list[str]:
+    relative = repo_relative(path)
+    if relative in PATH_BOUNDARY_MAP:
+        return PATH_BOUNDARY_MAP[relative]
+    if path.name == "diagnostics.rs" and path.parent.name == "hir":
+        return ["compiler.hir"]
     return BOUNDARY_MAP.get(path.name, ["unmapped"])
 
 
@@ -99,7 +121,7 @@ def build_report(source_root: Path, top: int) -> dict[str, Any]:
             "largest_file_lines": largest.lines if largest else 0,
             "top_file_count": top,
             "top_file_lines": top_lines,
-            "top_file_line_share": round(top_lines / total_lines, 4) if total_lines else 0,
+            "top_file_line_share": top_lines / total_lines if total_lines else 0,
         },
         "top_files": [
             {
@@ -129,6 +151,91 @@ def check_plan(report: dict[str, Any], plan_path: Path) -> list[str]:
     return errors
 
 
+def parse_ratchet_ceilings(plan_path: Path) -> tuple[dict[str, float], dict[str, int], list[str]]:
+    if not plan_path.is_file():
+        return {}, {}, [f"missing decomposition plan: {repo_relative(plan_path)}"]
+
+    metrics: dict[str, float] = {}
+    files: dict[str, int] = {}
+    errors: list[str] = []
+    in_section = False
+
+    for line in plan_path.read_text(encoding="utf-8").splitlines():
+        if line.startswith("## "):
+            in_section = line.strip() == "## Ratchet Ceilings"
+            continue
+        if not in_section:
+            continue
+
+        match = RATCHET_ROW.match(line)
+        if not match:
+            continue
+
+        key, raw_value = match.groups()
+        if key.startswith("summary."):
+            metrics[key] = float(raw_value)
+            continue
+
+        try:
+            files[key] = int(raw_value)
+        except ValueError:
+            errors.append(f"ratchet ceiling for {key} must be an integer line count")
+
+    if not metrics and not files:
+        errors.append("plan does not define a ## Ratchet Ceilings table")
+    return metrics, files, errors
+
+
+def current_lines_for(path: str, top_files: dict[str, int]) -> int:
+    if path in top_files:
+        return top_files[path]
+
+    candidate = REPO_ROOT / path
+    if candidate.is_file():
+        return count_lines(candidate)
+    return 0
+
+
+def check_ratchet(report: dict[str, Any], plan_path: Path) -> list[str]:
+    metrics, file_ceilings, errors = parse_ratchet_ceilings(plan_path)
+    if errors:
+        return errors
+
+    top_files = {item["path"]: item["lines"] for item in report["top_files"]}
+    for item in report["top_files"]:
+        path = item["path"]
+        if path not in file_ceilings:
+            errors.append(f"ratchet is missing a line ceiling for top file {path}")
+
+    share_ceiling = metrics.get("summary.top_file_line_share")
+    if share_ceiling is None:
+        errors.append("ratchet is missing summary.top_file_line_share ceiling")
+    else:
+        current_share = float(report["summary"]["top_file_line_share"])
+        if current_share > share_ceiling:
+            errors.append(
+                "top file line share "
+                f"{current_share:.4f} exceeds ratchet ceiling {share_ceiling:.4f}"
+            )
+
+    lines_ceiling = metrics.get("summary.top_file_lines")
+    if lines_ceiling is None:
+        errors.append("ratchet is missing summary.top_file_lines ceiling")
+    else:
+        current_lines = int(report["summary"]["top_file_lines"])
+        if current_lines > int(lines_ceiling):
+            errors.append(
+                f"top file lines {current_lines} exceeds ratchet ceiling {int(lines_ceiling)}"
+            )
+
+    for path, ceiling in sorted(file_ceilings.items()):
+        current = current_lines_for(path, top_files)
+        if current > ceiling:
+            errors.append(f"{path} has {current} lines, above ratchet ceiling {ceiling}")
+
+    return errors
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Report Rust-hosted compiler source monoliths."
@@ -142,21 +249,32 @@ def main() -> int:
         action="store_true",
         help="fail if the decomposition plan does not cover the top files",
     )
+    parser.add_argument(
+        "--check-ratchet",
+        action="store_true",
+        help="fail if tracked monolith line counts or top-file share exceed the plan ceilings",
+    )
     args = parser.parse_args()
 
     if args.top <= 0:
         raise SystemExit("--top must be positive")
 
     report = build_report(args.source_root, args.top)
-    errors = check_plan(report, args.plan) if args.check_plan else []
+    plan_errors = check_plan(report, args.plan) if args.check_plan else []
+    ratchet_errors = check_ratchet(report, args.plan) if args.check_ratchet else []
     report["plan_check"] = {
         "plan": repo_relative(args.plan),
-        "passed": not errors,
-        "errors": errors,
+        "passed": not plan_errors,
+        "errors": plan_errors,
+    }
+    report["ratchet_check"] = {
+        "plan": repo_relative(args.plan),
+        "passed": not ratchet_errors,
+        "errors": ratchet_errors,
     }
 
     print(json.dumps(report, indent=2, sort_keys=True))
-    return 1 if errors else 0
+    return 1 if plan_errors or ratchet_errors else 0
 
 
 if __name__ == "__main__":

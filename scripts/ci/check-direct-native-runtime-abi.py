@@ -18,6 +18,10 @@ DEFAULT_EVIDENCE_TEST_MANIFEST = (
 )
 VALID_STATUSES = {"implemented", "partial", "blocked"}
 RUST_TEST_FN_RE = re.compile(r"(?m)^fn\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(")
+RUST_TEST_FN_START_RE = re.compile(
+    r"(?m)^fn\s+([A-Za-z_][A-Za-z0-9_]*)\s*\([^)]*\)\s*\{"
+)
+GENERATED_RUST_ARTIFACT_MARKERS = ("generated_rust", "assert_generated_rust")
 REQUIRED_VALUE_FEATURES = {
     "numeric.scalars",
     "boolean",
@@ -366,6 +370,58 @@ def validate_evidence_test_manifest(
     return counts
 
 
+def rust_test_bodies(source: str) -> dict[str, str]:
+    bodies: dict[str, str] = {}
+    for match in RUST_TEST_FN_START_RE.finditer(source):
+        name = match.group(1)
+        start = match.end() - 1
+        depth = 0
+        for index in range(start, len(source)):
+            char = source[index]
+            if char == "{":
+                depth += 1
+            elif char == "}":
+                depth -= 1
+                if depth == 0:
+                    bodies[name] = source[start : index + 1]
+                    break
+    return bodies
+
+
+def evidence_test_bodies(
+    manifest: dict[str, Any] | None,
+    contract_root: Path,
+) -> dict[str, str]:
+    if manifest is None:
+        return {}
+    test_source_value = manifest.get("test_source")
+    if not isinstance(test_source_value, str) or not test_source_value:
+        return {}
+    test_source = Path(test_source_value)
+    if test_source.is_absolute() or ".." in test_source.parts:
+        return {}
+    test_source_path = contract_root / test_source
+    if not test_source_path.is_file():
+        return {}
+    return rust_test_bodies(test_source_path.read_text(encoding="utf-8"))
+
+
+def artifact_assertion_tests_for_row(
+    manifest: dict[str, Any] | None,
+    group_name: str,
+    row_id: str,
+    test_bodies: dict[str, str],
+) -> list[str]:
+    return [
+        test
+        for test in evidence_tests_for_row(manifest, group_name, row_id)
+        if any(
+            marker in test_bodies.get(test, "")
+            for marker in GENERATED_RUST_ARTIFACT_MARKERS
+        )
+    ]
+
+
 def validate_evidence_test_group(
     group: object,
     required_ids: set[str],
@@ -550,7 +606,11 @@ def validation_command_for_row(row_id: str) -> str:
     )
 
 
-def coverage_bucket_for_row(row: dict[str, Any], tests: list[str]) -> dict[str, Any]:
+def coverage_bucket_for_row(
+    row: dict[str, Any],
+    tests: list[str],
+    artifact_assertion_tests: list[str],
+) -> dict[str, Any]:
     denial_evidence = row.get("denial_evidence", [])
     denial_not_applicable = row.get("denial_evidence_not_applicable")
     return {
@@ -558,8 +618,9 @@ def coverage_bucket_for_row(row: dict[str, Any], tests: list[str]) -> dict[str, 
         "negative_or_diagnostic_evidence": denial_evidence,
         "negative_or_diagnostic_not_applicable": denial_not_applicable,
         "backend_artifact_evidence": {
-            "generated_rust_absent": bool(tests),
+            "generated_rust_absent": bool(artifact_assertion_tests),
             "focused_tests": tests,
+            "artifact_assertion_tests": artifact_assertion_tests,
             "validation_command": validation_command_for_row(str(row.get("id", ""))),
         },
     }
@@ -572,6 +633,7 @@ def build_coverage_matrix(
 ) -> tuple[dict[str, Any], int]:
     rows: list[dict[str, Any]] = []
     matrix_errors = list(check_report["errors"])
+    test_bodies = evidence_test_bodies(manifest, REPO_ROOT)
     for group_name in ("value_features", "capability_shims"):
         contract_rows = contract.get(group_name)
         if not isinstance(contract_rows, list):
@@ -583,7 +645,13 @@ def build_coverage_matrix(
             if not isinstance(row_id, str) or not row_id:
                 continue
             tests = evidence_tests_for_row(manifest, group_name, row_id)
-            coverage = coverage_bucket_for_row(row, tests)
+            artifact_assertion_tests = artifact_assertion_tests_for_row(
+                manifest,
+                group_name,
+                row_id,
+                test_bodies,
+            )
+            coverage = coverage_bucket_for_row(row, tests, artifact_assertion_tests)
             if row.get("status") == "implemented" and not coverage[
                 "positive_runtime_evidence"
             ]:
@@ -593,6 +661,10 @@ def build_coverage_matrix(
             if not tests:
                 matrix_errors.append(
                     f"{group_name} row {row_id!r} lacks focused artifact evidence tests"
+                )
+            if not artifact_assertion_tests:
+                matrix_errors.append(
+                    f"{group_name} row {row_id!r} lacks generated_rust artifact assertions"
                 )
             if group_name == "capability_shims" and not (
                 coverage["negative_or_diagnostic_evidence"]
