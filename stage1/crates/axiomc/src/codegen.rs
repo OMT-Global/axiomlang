@@ -69,8 +69,8 @@ impl FromStr for NativeBackendKind {
 mod tests {
     use super::{
         GeneratedRustBackendInput, INTERNAL_COMPILER_ERROR_CODE, NativeBackendKind,
-        deterministic_numbers, deterministic_strings, render_generated_rust,
-        try_render_generated_rust,
+        collect_program_call_names, deterministic_numbers, deterministic_strings,
+        render_generated_rust, try_render_generated_rust,
     };
     use crate::mir::{
         ArithmeticOp, Expr, Function, LiteralValue, LogicOp, Program, SourceSpan, Stmt, Type,
@@ -242,6 +242,58 @@ mod tests {
 
         assert!(rendered.contains("true && (false || true)"));
         assert!(!rendered.contains("true && false || true"));
+    }
+
+    #[test]
+    fn collects_program_call_names_in_one_traversal_shape() {
+        let span = SourceSpan { line: 1, column: 1 };
+        let program = Program {
+            path: String::from("call-scan"),
+            functions: vec![Function {
+                name: String::from("helper"),
+                source_name: String::from("helper"),
+                path: String::from("call-scan"),
+                params: vec![],
+                return_ty: Type::Int,
+                body: vec![Stmt::Return {
+                    expr: Expr::Call {
+                        name: String::from("nested_helper"),
+                        args: vec![Expr::Call {
+                            name: String::from("arg_helper"),
+                            args: Vec::new(),
+                            ty: Type::Int,
+                        }],
+                        ty: Type::Int,
+                    },
+                    span,
+                }],
+                is_property: false,
+                is_async: false,
+                is_extern: false,
+                extern_abi: None,
+                extern_library: None,
+                line: 1,
+                column: 1,
+            }],
+            structs: vec![],
+            enums: vec![],
+            statics: vec![],
+            stmts: vec![Stmt::Print {
+                expr: Expr::Call {
+                    name: String::from("top_level"),
+                    args: Vec::new(),
+                    ty: Type::Int,
+                },
+                span,
+            }],
+        };
+
+        let call_names = collect_program_call_names(&program);
+
+        assert!(call_names.contains("top_level"));
+        assert!(call_names.contains("nested_helper"));
+        assert!(call_names.contains("arg_helper"));
+        assert!(!call_names.contains("missing"));
     }
 
     #[test]
@@ -493,9 +545,10 @@ fn render_rust_for_package_with_backend_context(
     runtime_max_threads: Option<usize>,
 ) -> String {
     let type_context = TypeContext::new(program);
-    let uses_http_get = program_uses_call(program, "http_get");
-    let uses_http_serve_once = program_uses_call(program, "http_serve_once");
-    let uses_http_serve_route = program_uses_call(program, "http_serve_route");
+    let used_calls = collect_program_call_names(program);
+    let uses_http_get = used_calls.contains("http_get");
+    let uses_http_serve_once = used_calls.contains("http_serve_once");
+    let uses_http_serve_route = used_calls.contains("http_serve_route");
     let uses_http_server = [
         "http_server_listen",
         "http_server_local_port",
@@ -508,7 +561,7 @@ fn render_rust_for_package_with_backend_context(
         "http_server_close",
     ]
     .iter()
-    .any(|name| program_uses_call(program, name));
+    .any(|name| used_calls.contains(name));
     let uses_json_serdes = [
         "json_serdes_parse",
         "json_serdes_parse_str",
@@ -516,7 +569,7 @@ fn render_rust_for_package_with_backend_context(
         "json_serdes_to_json",
     ]
     .iter()
-    .any(|name| program_uses_call(program, name));
+    .any(|name| used_calls.contains(name));
     let uses_ffi = program.functions.iter().any(|function| function.is_extern);
     let uses_ffi_cstring = program
         .functions
@@ -5491,95 +5544,133 @@ fn rust_path_literal(path: &Path) -> String {
     path.to_string_lossy().into_owned()
 }
 
-fn program_uses_call(program: &Program, name: &str) -> bool {
-    program.stmts.iter().any(|stmt| stmt_uses_call(stmt, name))
-        || program
-            .functions
-            .iter()
-            .any(|function| function.body.iter().any(|stmt| stmt_uses_call(stmt, name)))
+fn collect_program_call_names(program: &Program) -> HashSet<&str> {
+    let mut calls = HashSet::new();
+    for stmt in &program.stmts {
+        collect_stmt_call_names(stmt, &mut calls);
+    }
+    for function in &program.functions {
+        for stmt in &function.body {
+            collect_stmt_call_names(stmt, &mut calls);
+        }
+    }
+    calls
 }
 
-fn stmt_uses_call(stmt: &Stmt, name: &str) -> bool {
+fn collect_stmt_call_names<'a>(stmt: &'a Stmt, calls: &mut HashSet<&'a str>) {
     match stmt {
         Stmt::Let { expr, .. }
         | Stmt::Print { expr, .. }
         | Stmt::Defer { expr, .. }
-        | Stmt::Return { expr, .. } => expr_uses_call(expr, name),
-        Stmt::Panic { message, .. } => expr_uses_call(message, name),
+        | Stmt::Return { expr, .. } => collect_expr_call_names(expr, calls),
+        Stmt::Panic { message, .. } => collect_expr_call_names(message, calls),
         Stmt::If {
             cond,
             then_block,
             else_block,
             ..
         } => {
-            expr_uses_call(cond, name)
-                || then_block.iter().any(|stmt| stmt_uses_call(stmt, name))
-                || else_block
-                    .as_ref()
-                    .is_some_and(|block| block.iter().any(|stmt| stmt_uses_call(stmt, name)))
+            collect_expr_call_names(cond, calls);
+            for stmt in then_block {
+                collect_stmt_call_names(stmt, calls);
+            }
+            if let Some(block) = else_block {
+                for stmt in block {
+                    collect_stmt_call_names(stmt, calls);
+                }
+            }
         }
         Stmt::While { cond, body, .. } => {
-            expr_uses_call(cond, name) || body.iter().any(|stmt| stmt_uses_call(stmt, name))
+            collect_expr_call_names(cond, calls);
+            for stmt in body {
+                collect_stmt_call_names(stmt, calls);
+            }
         }
         Stmt::Match { expr, arms, .. } => {
-            expr_uses_call(expr, name)
-                || arms
-                    .iter()
-                    .any(|arm| arm.body.iter().any(|stmt| stmt_uses_call(stmt, name)))
+            collect_expr_call_names(expr, calls);
+            for arm in arms {
+                for stmt in &arm.body {
+                    collect_stmt_call_names(stmt, calls);
+                }
+            }
         }
         Stmt::Assign { target, expr, .. } => {
-            expr_uses_call(target, name) || expr_uses_call(expr, name)
+            collect_expr_call_names(target, calls);
+            collect_expr_call_names(expr, calls);
         }
     }
 }
 
-fn expr_uses_call(expr: &Expr, name: &str) -> bool {
+fn collect_expr_call_names<'a>(expr: &'a Expr, calls: &mut HashSet<&'a str>) {
     match expr {
         Expr::Call {
             name: call_name,
             args,
             ..
-        } => call_name == name || args.iter().any(|arg| expr_uses_call(arg, name)),
+        } => {
+            calls.insert(call_name.as_str());
+            for arg in args {
+                collect_expr_call_names(arg, calls);
+            }
+        }
         Expr::BinaryAdd { lhs, rhs, .. }
         | Expr::BinaryCompare { lhs, rhs, .. }
         | Expr::BinaryLogic { lhs, rhs, .. } => {
-            expr_uses_call(lhs, name) || expr_uses_call(rhs, name)
+            collect_expr_call_names(lhs, calls);
+            collect_expr_call_names(rhs, calls);
         }
-        Expr::Cast { expr, .. } => expr_uses_call(expr, name),
+        Expr::Cast { expr, .. } => collect_expr_call_names(expr, calls),
         Expr::Try { expr, .. }
         | Expr::Await { expr, .. }
         | Expr::FieldAccess { base: expr, .. }
         | Expr::MutBorrow { expr, .. }
-        | Expr::Deref { expr, .. } => expr_uses_call(expr, name),
+        | Expr::Deref { expr, .. } => collect_expr_call_names(expr, calls),
         Expr::StructLiteral { fields, .. } => {
-            fields.iter().any(|field| expr_uses_call(&field.expr, name))
+            for field in fields {
+                collect_expr_call_names(&field.expr, calls);
+            }
         }
         Expr::TupleLiteral { elements, .. } | Expr::ArrayLiteral { elements, .. } => {
-            elements.iter().any(|element| expr_uses_call(element, name))
+            for element in elements {
+                collect_expr_call_names(element, calls);
+            }
         }
-        Expr::TupleIndex { base, .. } => expr_uses_call(base, name),
-        Expr::MapLiteral { entries, .. } => entries
-            .iter()
-            .any(|entry| expr_uses_call(&entry.key, name) || expr_uses_call(&entry.value, name)),
-        Expr::EnumVariant { payloads, .. } => payloads.iter().any(|arg| expr_uses_call(arg, name)),
+        Expr::TupleIndex { base, .. } => collect_expr_call_names(base, calls),
+        Expr::MapLiteral { entries, .. } => {
+            for entry in entries {
+                collect_expr_call_names(&entry.key, calls);
+                collect_expr_call_names(&entry.value, calls);
+            }
+        }
+        Expr::EnumVariant { payloads, .. } => {
+            for arg in payloads {
+                collect_expr_call_names(arg, calls);
+            }
+        }
         Expr::Slice {
             base, start, end, ..
         } => {
-            expr_uses_call(base, name)
-                || start
-                    .as_ref()
-                    .is_some_and(|start| expr_uses_call(start, name))
-                || end.as_ref().is_some_and(|end| expr_uses_call(end, name))
+            collect_expr_call_names(base, calls);
+            if let Some(start) = start {
+                collect_expr_call_names(start, calls);
+            }
+            if let Some(end) = end {
+                collect_expr_call_names(end, calls);
+            }
         }
         Expr::Index { base, index, .. } => {
-            expr_uses_call(base, name) || expr_uses_call(index, name)
+            collect_expr_call_names(base, calls);
+            collect_expr_call_names(index, calls);
         }
-        Expr::Closure { body, .. } => expr_uses_call(body, name),
+        Expr::Closure { body, .. } => collect_expr_call_names(body, calls),
         Expr::Match { expr, arms, .. } => {
-            expr_uses_call(expr, name) || arms.iter().any(|arm| expr_uses_call(&arm.expr, name))
+            collect_expr_call_names(expr, calls);
+            for arm in arms {
+                collect_expr_call_names(&arm.expr, calls);
+            }
         }
-        Expr::Literal(_) | Expr::VarRef { .. } => false,
-        Expr::StringBorrow { expr, .. } => expr_uses_call(expr, name),
+        Expr::Literal(_) | Expr::VarRef { .. } => {}
+        Expr::StringBorrow { expr, .. } => collect_expr_call_names(expr, calls),
     }
 }
 
