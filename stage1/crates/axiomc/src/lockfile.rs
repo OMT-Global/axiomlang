@@ -1,7 +1,7 @@
 use crate::diagnostics::Diagnostic;
 use crate::manifest::{DependencySpec, Manifest, load_manifest, lockfile_path, manifest_path};
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Component, Path, PathBuf};
 
@@ -58,21 +58,12 @@ pub fn expected_lockfile_for_project(
         &mut visited,
         &mut package,
     )?;
-    if package.is_empty() {
-        package.sort_by(|left, right| {
-            left.source
-                .cmp(&right.source)
-                .then(left.name.cmp(&right.name))
-        });
-    } else if let Some((root, dependencies)) = package.split_first_mut() {
+    if let Some((_, dependencies)) = package.split_first_mut() {
         dependencies.sort_by(|left, right| {
             left.source
                 .cmp(&right.source)
                 .then(left.name.cmp(&right.name))
         });
-        package = std::iter::once(root.clone())
-            .chain(dependencies.iter().cloned())
-            .collect();
     }
     Ok(Lockfile {
         version: 1,
@@ -116,15 +107,70 @@ pub fn validate_lockfile_packages(
         package: packages.to_vec(),
     };
     if lockfile != expected {
+        let detail = lockfile_mismatch_detail(&lockfile, &expected);
         return Err(
             Diagnostic::new(
                 "lockfile",
-                "axiom.lock does not match axiom.toml; regenerate it with `axiomc new` or update it manually",
+                format!(
+                    "axiom.lock does not match axiom.toml; regenerate it with `axiomc new` or update it manually; {detail}"
+                ),
             )
             .with_path(path.display().to_string()),
         );
     }
     Ok(())
+}
+
+fn lockfile_mismatch_detail(lockfile: &Lockfile, expected: &Lockfile) -> String {
+    if lockfile.version != expected.version {
+        return format!(
+            "lockfile version is {}, expected {}",
+            lockfile.version, expected.version
+        );
+    }
+
+    let locked_by_name = lockfile
+        .package
+        .iter()
+        .map(|package| (package.name.as_str(), package))
+        .collect::<BTreeMap<_, _>>();
+    let expected_by_name = expected
+        .package
+        .iter()
+        .map(|package| (package.name.as_str(), package))
+        .collect::<BTreeMap<_, _>>();
+
+    for expected_package in &expected.package {
+        let Some(locked_package) = locked_by_name.get(expected_package.name.as_str()) else {
+            return format!(
+                "package {:?} is missing from axiom.lock (expected version {:?} from source {:?})",
+                expected_package.name, expected_package.version, expected_package.source
+            );
+        };
+        if locked_package.version != expected_package.version
+            || locked_package.source != expected_package.source
+        {
+            return format!(
+                "package {:?} changed (axiom.lock has version {:?} from source {:?}; axiom.toml expects version {:?} from source {:?})",
+                expected_package.name,
+                locked_package.version,
+                locked_package.source,
+                expected_package.version,
+                expected_package.source
+            );
+        }
+    }
+
+    for locked_package in &lockfile.package {
+        if !expected_by_name.contains_key(locked_package.name.as_str()) {
+            return format!(
+                "package {:?} is extra in axiom.lock (locked version {:?} from source {:?})",
+                locked_package.name, locked_package.version, locked_package.source
+            );
+        }
+    }
+
+    "package entries differ in order or duplicate package names".to_string()
 }
 
 fn dependency_root(
@@ -345,6 +391,25 @@ fn normalize_path(path: impl AsRef<Path>) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
+    use tempfile::tempdir;
+
+    fn write_manifest(root: &Path, body: &str) {
+        fs::create_dir_all(root).expect("create package dir");
+        fs::write(root.join("axiom.toml"), body).expect("write manifest");
+    }
+
+    fn write_lockfile(project_root: &Path, package: Vec<LockedPackage>) {
+        let lockfile = Lockfile {
+            version: 1,
+            package,
+        };
+        std::fs::write(
+            lockfile_path(project_root),
+            toml::to_string_pretty(&lockfile).expect("render lockfile fixture"),
+        )
+        .expect("write lockfile fixture");
+    }
 
     #[test]
     fn lockfile_rejects_unknown_top_level_field() {
@@ -365,6 +430,132 @@ mod tests {
         assert!(
             error.to_string().contains("unknown field"),
             "unexpected error: {error}"
+        );
+    }
+
+    #[test]
+    fn expected_lockfile_keeps_root_first_and_sorts_dependencies_in_place() {
+        let dir = tempdir().expect("tempdir");
+        let root = dir.path().join("root");
+        write_manifest(
+            &root,
+            "[package]\nname = \"root\"\nversion = \"1.0.0\"\n\n[workspace]\nmembers = [\"members/zeta\", \"members/alpha\"]\n",
+        );
+        write_manifest(
+            &root.join("members/zeta"),
+            "[package]\nname = \"zeta\"\nversion = \"1.0.0\"\n",
+        );
+        write_manifest(
+            &root.join("members/alpha"),
+            "[package]\nname = \"alpha\"\nversion = \"1.0.0\"\n",
+        );
+        let manifest = load_manifest(&root).expect("load root manifest");
+
+        let lockfile =
+            expected_lockfile_for_project(&root, &manifest).expect("render project lockfile");
+
+        let packages = lockfile
+            .package
+            .iter()
+            .map(|package| {
+                (
+                    package.name.as_str(),
+                    package.version.as_str(),
+                    package.source.as_str(),
+                )
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            packages,
+            vec![
+                ("root", "1.0.0", "path"),
+                ("alpha", "1.0.0", "path:members/alpha"),
+                ("zeta", "1.0.0", "path:members/zeta"),
+            ]
+        );
+    }
+
+    #[test]
+    fn validate_lockfile_reports_changed_package_detail() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        write_lockfile(
+            dir.path(),
+            vec![LockedPackage {
+                name: "demo".to_string(),
+                version: "0.1.0".to_string(),
+                source: "path".to_string(),
+            }],
+        );
+
+        let error = validate_lockfile_packages(
+            dir.path(),
+            &[LockedPackage {
+                name: "demo".to_string(),
+                version: "0.2.0".to_string(),
+                source: "path:deps/demo".to_string(),
+            }],
+        )
+        .expect_err("changed package should fail");
+
+        assert_eq!(error.kind, "lockfile");
+        assert!(error.message.contains("package \"demo\" changed"));
+        assert!(
+            error
+                .message
+                .contains("version \"0.1.0\" from source \"path\"")
+        );
+        assert!(
+            error
+                .message
+                .contains("version \"0.2.0\" from source \"path:deps/demo\"")
+        );
+    }
+
+    #[test]
+    fn validate_lockfile_reports_missing_package_detail() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        write_lockfile(dir.path(), Vec::new());
+
+        let error = validate_lockfile_packages(
+            dir.path(),
+            &[LockedPackage {
+                name: "core".to_string(),
+                version: "1.0.0".to_string(),
+                source: "path:deps/core".to_string(),
+            }],
+        )
+        .expect_err("missing package should fail");
+
+        assert_eq!(error.kind, "lockfile");
+        assert!(error.message.contains("package \"core\" is missing"));
+        assert!(
+            error
+                .message
+                .contains("expected version \"1.0.0\" from source \"path:deps/core\"")
+        );
+    }
+
+    #[test]
+    fn validate_lockfile_reports_extra_package_detail() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        write_lockfile(
+            dir.path(),
+            vec![LockedPackage {
+                name: "old".to_string(),
+                version: "0.9.0".to_string(),
+                source: "path:deps/old".to_string(),
+            }],
+        );
+
+        let error =
+            validate_lockfile_packages(dir.path(), &[]).expect_err("extra package should fail");
+
+        assert_eq!(error.kind, "lockfile");
+        assert!(error.message.contains("package \"old\" is extra"));
+        assert!(
+            error
+                .message
+                .contains("locked version \"0.9.0\" from source \"path:deps/old\"")
         );
     }
 }
