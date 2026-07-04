@@ -35,6 +35,16 @@ command/MIR boundary fixtures, and live issue state; this Markdown page is
 descriptive evidence only. Closing #721 also requires the governing issues and
 review gates to be satisfied.
 
+Command-surface coverage for the official `check`, `build`, `run`, `test`,
+`doc`, and `lsp` paths is also available as machine-readable evidence:
+
+```bash
+make rust-exit-command-surface-coverage
+```
+
+That report intentionally stays `ready: false` while `doc` and `lsp` ownership
+remain blocked by #731.
+
 The compiler rewrite also has a separate language/backend prerequisite gate:
 [`make self-hosting-language-readiness`](self-hosting-language-readiness.md).
 That gate must be green before the rewrite in #565/#721 can move from planning
@@ -60,7 +70,7 @@ language surface is sufficient to author the compiler.
 | Snapshot bootstrap | A previously shipped `axiomc` snapshot builds the next working `axiomc` binary without invoking Cargo. | `blocked` until the final Rust bootstrap removal gate is satisfied. | [#721](https://github.com/OMT-Global/axiomlang/issues/721) |
 | Final readiness gate | The Rust-exit command proves supported workflows, release builds, tests, docs, and LSP no longer require Rust-only infrastructure. | Implemented as `make rust-exit-readiness`; the gate still fails until the live blockers in `docs/rust-exit-readiness.json` are closed and ABI, boundary, generated-Rust, and LSP driver-ownership checks pass. | [#721](https://github.com/OMT-Global/axiomlang/issues/721) |
 | Compiler verification | Compiler-internal coverage is expressed in AxiOM property form instead of Rust-only tests. | Shipped through the property-test gate; remaining Rust-bootstrap release-chain work stays with #721. | [#721](https://github.com/OMT-Global/axiomlang/issues/721) |
-| Documentation generator and LSP | `axiomc doc`, structured/Markdown output, and `axiomc lsp` protocol handling are produced by AxiOM-owned code. | The LSP stdio harness exists, but the readiness gate keeps failing while `axiomc lsp` still dispatches through the Rust-hosted stdio/message loop. | [#731](https://github.com/OMT-Global/axiomlang/issues/731) |
+| Documentation generator and LSP | `axiomc doc`, structured/Markdown output, and `axiomc lsp` protocol handling are produced by AxiOM-owned code. | The command-surface coverage report tracks `doc` and `lsp` as blocked by #731. The LSP stdio harness exists, but the readiness gate keeps failing while `axiomc lsp` still dispatches through the Rust-hosted stdio/message loop. | [#731](https://github.com/OMT-Global/axiomlang/issues/731) |
 
 ## Closure Rules
 
