@@ -1,0 +1,14 @@
+fn greet(name: string): string {
+return "hello " + name
+}
+
+fn add_bonus(score: int): int {
+return score + 5
+}
+
+let base_score: int = 37
+let final_score: int = add_bonus(base_score)
+
+print greet("axiom")
+print final_score
+print final_score == 42

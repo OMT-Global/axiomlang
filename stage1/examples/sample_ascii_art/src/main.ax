@@ -1,0 +1,23 @@
+const INPUT: string = "Codex"
+
+fn repeat_piece(piece: string, count: int): string {
+if count <= 0 {
+return ""
+} else {
+return piece + repeat_piece(piece, count - 1)
+}
+}
+
+fn banner_line(left: string, middle: string, right: string): string {
+return left + middle + right
+}
+
+let width: int = len(INPUT) + 4
+let top: string = banner_line("+", repeat_piece("-", width), "+")
+let empty: string = banner_line("|", repeat_piece(" ", width), "|")
+
+print top
+print empty
+print "|  " + INPUT + "  |"
+print empty
+print top
