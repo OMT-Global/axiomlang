@@ -38,6 +38,19 @@ bash "$script_repo_root/scripts/ci/test-check-rust-exit-command-surface.sh"
 python3 "$script_repo_root/scripts/ci/test-pr-queue-remediation.py"
 python3 "$script_repo_root/scripts/ci/test-report-delivery-signals.py"
 python3 "$script_repo_root/scripts/ci/test-issue-pr-traceability.py"
+# Checker self-tests must run in a CI lane so their harnesses cannot rot
+# silently (#1364, #1369). test-pr-fast-ci-workflow.sh enforces that every
+# scripts/ci/test-check-*.sh stays wired here.
+bash "$script_repo_root/scripts/ci/test-check-python-exit-docs.sh"
+bash "$script_repo_root/scripts/ci/test-check-python-exit-readiness.sh"
+bash "$script_repo_root/scripts/ci/test-check-rust-exit-readiness.sh"
+bash "$script_repo_root/scripts/ci/test-check-self-hosting-language-readiness.sh"
+bash "$script_repo_root/scripts/ci/test-check-direct-native-runtime-abi.sh"
+bash "$script_repo_root/scripts/ci/test-check-package-graph-boundary.sh"
+bash "$script_repo_root/scripts/ci/test-check-diagnostics-syntax-boundary.sh"
+bash "$script_repo_root/scripts/ci/test-check-command-lsp-boundary.sh"
+bash "$script_repo_root/scripts/ci/test-check-hir-boundary.sh"
+bash "$script_repo_root/scripts/ci/test-check-mir-backend-boundary.sh"
 bash "$script_repo_root/scripts/ci/run-stdlib-property-checks.sh"
 bash "$script_repo_root/scripts/ci/run-compiler-property-checks.sh"
 

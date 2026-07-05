@@ -175,4 +175,18 @@ if [[ -z "$proof_workload_test" ]]; then
   exit 1
 fi
 
+# Every checker self-test must be wired into the fast lane so it cannot rot
+# silently outside CI (#1364, #1369).
+orphaned_self_tests=0
+for self_test in "$repo_root"/scripts/ci/test-check-*.sh; do
+  self_test_name="$(basename "$self_test")"
+  if ! grep -qF "scripts/ci/$self_test_name" "$fast_checks_script"; then
+    echo "run-fast-checks must run scripts/ci/$self_test_name; checker self-tests outside the CI lanes rot silently" >&2
+    orphaned_self_tests=1
+  fi
+done
+if (( orphaned_self_tests )); then
+  exit 1
+fi
+
 echo "pr-fast-ci workflow validation passed"
