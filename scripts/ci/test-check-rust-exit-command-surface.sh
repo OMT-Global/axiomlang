@@ -18,22 +18,26 @@ with open(sys.argv[1], encoding="utf-8") as handle:
     report = json.load(handle)
 
 assert report["schema"] == "axiom.rust_exit.command_surface_coverage.v0"
-assert report["ready"] is False
+assert report["ready"] is True
 assert report["summary"]["surface_count"] == 6
-assert report["summary"]["implemented"] == 4
-assert report["summary"]["blocked"] == 2
-assert report["summary"]["blocked_surfaces"] == ["doc", "lsp"]
+assert report["summary"]["implemented"] == 6
+assert report["summary"]["blocked"] == 0
+assert report["summary"]["blocked_surfaces"] == []
 assert report["errors"] == []
 rows = {row["surface"]: row for row in report["rows"]}
 for surface in ("check", "build", "run", "test"):
     assert rows[surface]["status"] == "implemented"
     assert rows[surface]["fixtures"], surface
-assert rows["doc"]["blockers"] == [731]
-assert rows["lsp"]["blockers"] == [731]
+assert rows["doc"]["status"] == "implemented"
+assert rows["doc"]["blockers"] == []
+assert rows["doc"]["proof_issues"] == [731]
+assert rows["lsp"]["status"] == "implemented"
+assert rows["lsp"]["blockers"] == []
+assert rows["lsp"]["proof_issues"] == [731]
 PY
 
-if python3 "$script" --enforce-ready >"$temp_dir/enforce.out" 2>"$temp_dir/enforce.err"; then
-  echo "expected command surface readiness enforcement to fail while doc/lsp are blocked" >&2
+if ! python3 "$script" --enforce-ready >"$temp_dir/enforce.out" 2>"$temp_dir/enforce.err"; then
+  echo "expected command surface readiness enforcement to pass with doc/lsp implemented" >&2
   exit 1
 fi
 
@@ -87,7 +91,7 @@ PY
 if python3 "$script" \
   --readiness-manifest "$temp_dir/missing-731.json" \
   --json >"$temp_dir/missing-731-report.json"; then
-  echo "expected missing doc/LSP blocker to fail" >&2
+  echo "expected missing doc/LSP ownership proof to fail" >&2
   exit 1
 fi
 
@@ -98,7 +102,7 @@ import sys
 with open(sys.argv[1], encoding="utf-8") as handle:
     report = json.load(handle)
 
-assert any("blocker #731" in error for error in report["errors"])
+assert any("proof #731" in error for error in report["errors"])
 PY
 
 python3 - "$snapshot" "$temp_dir/cargo-release.json" <<'PY'
