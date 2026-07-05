@@ -593,7 +593,7 @@ fn lower_i64_top_level_output_program(
         .iter()
         .map(|function| (function.name.clone(), function.clone()))
         .collect();
-    let fs_shim_wrappers = static_bindings.fs_shim_wrappers.clone();
+    let fs_shim_wrappers = &static_bindings.fs_shim_wrappers;
     let helper_functions = program
         .functions
         .iter()
@@ -1202,27 +1202,27 @@ fn lower_i64_exit_program(
         .filter(|function| function.name != main.name)
         .map(|function| (function.name.clone(), function.clone()))
         .collect();
-    let process_status_wrappers = static_bindings.process_status_wrappers.clone();
-    let env_get_wrappers = static_bindings.env_get_wrappers.clone();
-    let time_wrappers = static_bindings.time_wrappers.clone();
-    let fs_shim_wrappers = static_bindings.fs_shim_wrappers.clone();
-    let net_shim_wrappers = static_bindings.net_shim_wrappers.clone();
-    let http_shim_wrappers = static_bindings.http_shim_wrappers.clone();
-    let collection_wrappers = static_bindings.collection_wrappers.clone();
-    let regex_wrappers = static_bindings.regex_wrappers.clone();
-    let encoding_wrappers = static_bindings.encoding_wrappers.clone();
-    let json_wrappers = static_bindings.json_wrappers.clone();
-    let log_wrappers = static_bindings.log_wrappers.clone();
-    let string_builder_wrappers = static_bindings.string_builder_wrappers.clone();
-    let crypto_wrappers = static_bindings.crypto_wrappers.clone();
-    let ffi_strlen_symbols = static_bindings.ffi_strlen_symbols.clone();
-    let sync_once_wrappers = static_bindings.sync_once_wrappers.clone();
-    let sync_once_with_wrappers = static_bindings.sync_once_with_wrappers.clone();
-    let sync_once_is_set_wrappers = static_bindings.sync_once_is_set_wrappers.clone();
-    let sync_once_take_wrappers = static_bindings.sync_once_take_wrappers.clone();
-    let sync_channel_wrappers = static_bindings.sync_channel_wrappers.clone();
-    let sync_send_wrappers = static_bindings.sync_send_wrappers.clone();
-    let sync_try_recv_wrappers = static_bindings.sync_try_recv_wrappers.clone();
+    let process_status_wrappers = &static_bindings.process_status_wrappers;
+    let env_get_wrappers = &static_bindings.env_get_wrappers;
+    let time_wrappers = &static_bindings.time_wrappers;
+    let fs_shim_wrappers = &static_bindings.fs_shim_wrappers;
+    let net_shim_wrappers = &static_bindings.net_shim_wrappers;
+    let http_shim_wrappers = &static_bindings.http_shim_wrappers;
+    let collection_wrappers = &static_bindings.collection_wrappers;
+    let regex_wrappers = &static_bindings.regex_wrappers;
+    let encoding_wrappers = &static_bindings.encoding_wrappers;
+    let json_wrappers = &static_bindings.json_wrappers;
+    let log_wrappers = &static_bindings.log_wrappers;
+    let string_builder_wrappers = &static_bindings.string_builder_wrappers;
+    let crypto_wrappers = &static_bindings.crypto_wrappers;
+    let ffi_strlen_symbols = &static_bindings.ffi_strlen_symbols;
+    let sync_once_wrappers = &static_bindings.sync_once_wrappers;
+    let sync_once_with_wrappers = &static_bindings.sync_once_with_wrappers;
+    let sync_once_is_set_wrappers = &static_bindings.sync_once_is_set_wrappers;
+    let sync_once_take_wrappers = &static_bindings.sync_once_take_wrappers;
+    let sync_channel_wrappers = &static_bindings.sync_channel_wrappers;
+    let sync_send_wrappers = &static_bindings.sync_send_wrappers;
+    let sync_try_recv_wrappers = &static_bindings.sync_try_recv_wrappers;
     let helper_functions = program
         .functions
         .iter()
@@ -2623,87 +2623,6 @@ fn lower_i64_aggregate_call_return_stmts(
         static_bindings,
     )?;
     (results.len() == shape.slot_count()).then_some((stmts, results))
-}
-
-fn lower_i64_aggregate_call_return_block(
-    expr: &Expr,
-    shape: &I64AggregateReturnShape,
-    locals: &mut Vec<CraneliftI64Expr>,
-    local_indexes: &HashMap<String, usize>,
-    local_conditions: &HashMap<String, CraneliftI64Condition>,
-    helper_signatures: &HashMap<&str, I64HelperSignature>,
-    static_bindings: &I64StaticBindings,
-) -> Option<CraneliftI64ValueReturnBlock> {
-    let Expr::Call {
-        name: call_name,
-        args,
-        ..
-    } = expr
-    else {
-        return None;
-    };
-    let signature = helper_signatures.get(call_name.as_str())?;
-    if args.len() != signature.params
-        || signature.returns != shape.slot_count()
-        || !i64_aggregate_signature_matches_shape(signature, shape)
-    {
-        return None;
-    }
-    let mut return_locals = Vec::with_capacity(shape.slot_count());
-    for _ in 0..shape.slot_count() {
-        let local = locals.len();
-        locals.push(CraneliftI64Expr::Literal(0));
-        return_locals.push(local);
-    }
-    let args = lower_i64_flat_call_args(
-        args,
-        signature,
-        local_indexes,
-        local_conditions,
-        helper_signatures,
-        static_bindings,
-    )?;
-    let results = return_locals
-        .iter()
-        .copied()
-        .map(CraneliftI64Expr::Local)
-        .collect();
-    Some(CraneliftI64ValueReturnBlock {
-        stmts: vec![CraneliftI64Stmt::CallAssign {
-            locals: return_locals,
-            function: signature.function,
-            args,
-        }],
-        results,
-    })
-}
-
-fn i64_aggregate_signature_matches_shape(
-    signature: &I64HelperSignature,
-    shape: &I64AggregateReturnShape,
-) -> bool {
-    match (shape, &signature.return_ty) {
-        (
-            I64AggregateReturnShape::Array { element, size },
-            Type::Array(return_element, Some(return_size)),
-        ) => return_element.as_ref() == element && return_size == size,
-        (I64AggregateReturnShape::Tuple(elements), Type::Tuple(return_elements)) => {
-            return_elements == elements
-        }
-        (I64AggregateReturnShape::Struct { name, .. }, Type::Struct(return_name)) => {
-            return_name == name
-        }
-        (I64AggregateReturnShape::Option { inner, .. }, Type::Option(return_inner)) => {
-            return_inner.as_ref() == inner
-        }
-        (I64AggregateReturnShape::Result { ok, err, .. }, Type::Result(return_ok, return_err)) => {
-            return_ok.as_ref() == ok && return_err.as_ref() == err
-        }
-        (I64AggregateReturnShape::Enum { name, .. }, Type::Enum(return_name)) => {
-            return_name == name
-        }
-        _ => false,
-    }
 }
 
 fn i64_scalar_value_body(body: I64ExitBody) -> CraneliftI64ValueBody {
@@ -7905,6 +7824,15 @@ fn lower_i64_env_option_call_let_stmts(
     }
     let key = i64_env_get_key(expr, static_bindings)?;
     let env_len = i64_env_len_expr(&key, static_bindings)?;
+    lower_i64_string_option_len_call_let_stmts(name, env_len, locals, local_indexes)
+}
+
+fn lower_i64_string_option_len_call_let_stmts(
+    name: &str,
+    payload_len: CraneliftI64Expr,
+    locals: &mut Vec<CraneliftI64Expr>,
+    local_indexes: &mut HashMap<String, usize>,
+) -> Option<Vec<CraneliftI64Stmt>> {
     let payload_local = local_indexes.len();
     local_indexes.insert(i64_option_payload_slot_key(name, 0), payload_local);
     local_indexes.insert(i64_option_payload_key(name), payload_local);
@@ -7926,7 +7854,7 @@ fn lower_i64_env_option_call_let_stmts(
     Some(vec![
         CraneliftI64Stmt::Assign(axiomc_backend_cranelift::I64Assign {
             local: payload_local,
-            value: env_len,
+            value: payload_len,
         }),
         CraneliftI64Stmt::Assign(axiomc_backend_cranelift::I64Assign {
             local: tag_local,
@@ -7957,37 +7885,10 @@ fn lower_i64_readline_option_call_let_stmts(
     if !is_i64_io_readline_name(call_name, static_bindings) || !args.is_empty() {
         return None;
     }
-    let payload_local = local_indexes.len();
-    local_indexes.insert(i64_option_payload_slot_key(name, 0), payload_local);
-    local_indexes.insert(i64_option_payload_key(name), payload_local);
-    locals.push(CraneliftI64Expr::Literal(0));
-
-    let tag_local = local_indexes.len();
-    local_indexes.insert(i64_option_tag_key(name), tag_local);
-    locals.push(CraneliftI64Expr::Literal(0));
-
     let line_len = CraneliftI64Expr::StdinLineLen {
         max_bytes: I64_STDIN_BUFFER_BYTES,
     };
-    let tag = CraneliftI64Expr::Select {
-        cond: Box::new(CraneliftI64Condition::Compare(CraneliftI64Compare {
-            op: CraneliftI64CompareOp::Ge,
-            lhs: CraneliftI64Expr::Local(payload_local),
-            rhs: CraneliftI64Expr::Literal(0),
-        })),
-        then_result: Box::new(CraneliftI64Expr::Literal(1)),
-        else_result: Box::new(CraneliftI64Expr::Literal(0)),
-    };
-    Some(vec![
-        CraneliftI64Stmt::Assign(axiomc_backend_cranelift::I64Assign {
-            local: payload_local,
-            value: line_len,
-        }),
-        CraneliftI64Stmt::Assign(axiomc_backend_cranelift::I64Assign {
-            local: tag_local,
-            value: tag,
-        }),
-    ])
+    lower_i64_string_option_len_call_let_stmts(name, line_len, locals, local_indexes)
 }
 
 fn lower_i64_fs_read_option_call_let_stmts(
@@ -8003,34 +7904,7 @@ fn lower_i64_fs_read_option_call_let_stmts(
     }
     let path = i64_fs_read_path(expr, static_bindings)?;
     let file_len = i64_fs_read_file_len_expr(&path.candidate, path.requested_len, static_bindings)?;
-    let payload_local = local_indexes.len();
-    local_indexes.insert(i64_option_payload_slot_key(name, 0), payload_local);
-    local_indexes.insert(i64_option_payload_key(name), payload_local);
-    locals.push(CraneliftI64Expr::Literal(0));
-
-    let tag_local = local_indexes.len();
-    local_indexes.insert(i64_option_tag_key(name), tag_local);
-    locals.push(CraneliftI64Expr::Literal(0));
-
-    let tag = CraneliftI64Expr::Select {
-        cond: Box::new(CraneliftI64Condition::Compare(CraneliftI64Compare {
-            op: CraneliftI64CompareOp::Ge,
-            lhs: CraneliftI64Expr::Local(payload_local),
-            rhs: CraneliftI64Expr::Literal(0),
-        })),
-        then_result: Box::new(CraneliftI64Expr::Literal(1)),
-        else_result: Box::new(CraneliftI64Expr::Literal(0)),
-    };
-    Some(vec![
-        CraneliftI64Stmt::Assign(axiomc_backend_cranelift::I64Assign {
-            local: payload_local,
-            value: file_len,
-        }),
-        CraneliftI64Stmt::Assign(axiomc_backend_cranelift::I64Assign {
-            local: tag_local,
-            value: tag,
-        }),
-    ])
+    lower_i64_string_option_len_call_let_stmts(name, file_len, locals, local_indexes)
 }
 
 fn lower_i64_net_option_call_let_stmts(
@@ -8046,34 +7920,7 @@ fn lower_i64_net_option_call_let_stmts(
     }
     let host = i64_net_resolve_host(expr, static_bindings)?;
     let net_len = i64_net_resolve_len_expr(&host, static_bindings)?;
-    let payload_local = local_indexes.len();
-    local_indexes.insert(i64_option_payload_slot_key(name, 0), payload_local);
-    local_indexes.insert(i64_option_payload_key(name), payload_local);
-    locals.push(CraneliftI64Expr::Literal(0));
-
-    let tag_local = local_indexes.len();
-    local_indexes.insert(i64_option_tag_key(name), tag_local);
-    locals.push(CraneliftI64Expr::Literal(0));
-
-    let tag = CraneliftI64Expr::Select {
-        cond: Box::new(CraneliftI64Condition::Compare(CraneliftI64Compare {
-            op: CraneliftI64CompareOp::Ge,
-            lhs: CraneliftI64Expr::Local(payload_local),
-            rhs: CraneliftI64Expr::Literal(0),
-        })),
-        then_result: Box::new(CraneliftI64Expr::Literal(1)),
-        else_result: Box::new(CraneliftI64Expr::Literal(0)),
-    };
-    Some(vec![
-        CraneliftI64Stmt::Assign(axiomc_backend_cranelift::I64Assign {
-            local: payload_local,
-            value: net_len,
-        }),
-        CraneliftI64Stmt::Assign(axiomc_backend_cranelift::I64Assign {
-            local: tag_local,
-            value: tag,
-        }),
-    ])
+    lower_i64_string_option_len_call_let_stmts(name, net_len, locals, local_indexes)
 }
 
 fn lower_i64_result_literal_let_stmts(
@@ -8458,25 +8305,17 @@ fn lower_i64_option_call_let_stmts(
         helper_signatures,
         static_bindings,
     )?;
-    let mut assign_locals = Vec::with_capacity(1 + payload_slots);
-    let tag_local = local_indexes.len();
-    local_indexes.insert(i64_option_tag_key(name), tag_local);
-    locals.push(CraneliftI64Expr::Literal(0));
-    assign_locals.push(tag_local);
-    for index in 0..payload_slots {
-        let payload_local = local_indexes.len();
-        local_indexes.insert(i64_option_payload_slot_key(name, index), payload_local);
-        if index == 0 {
-            local_indexes.insert(i64_option_payload_key(name), payload_local);
-        }
-        locals.push(CraneliftI64Expr::Literal(0));
-        assign_locals.push(payload_local);
-    }
-    Some(vec![CraneliftI64Stmt::CallAssign {
-        locals: assign_locals,
-        function: signature.function,
-        args: lowered_args,
-    }])
+    lower_i64_tagged_payload_call_assign_stmts(
+        name,
+        payload_slots,
+        signature.function,
+        lowered_args,
+        locals,
+        local_indexes,
+        i64_option_tag_key,
+        i64_option_payload_slot_key,
+        i64_option_payload_key,
+    )
 }
 
 fn lower_i64_result_call_let_stmts(
@@ -8508,25 +8347,17 @@ fn lower_i64_result_call_let_stmts(
         helper_signatures,
         static_bindings,
     )?;
-    let mut assign_locals = Vec::with_capacity(1 + payload_slots);
-    let tag_local = local_indexes.len();
-    local_indexes.insert(i64_result_tag_key(name), tag_local);
-    locals.push(CraneliftI64Expr::Literal(0));
-    assign_locals.push(tag_local);
-    for index in 0..payload_slots {
-        let payload_local = local_indexes.len();
-        local_indexes.insert(i64_result_payload_slot_key(name, index), payload_local);
-        if index == 0 {
-            local_indexes.insert(i64_result_payload_key(name), payload_local);
-        }
-        locals.push(CraneliftI64Expr::Literal(0));
-        assign_locals.push(payload_local);
-    }
-    Some(vec![CraneliftI64Stmt::CallAssign {
-        locals: assign_locals,
-        function: signature.function,
-        args: lowered_args,
-    }])
+    lower_i64_tagged_payload_call_assign_stmts(
+        name,
+        payload_slots,
+        signature.function,
+        lowered_args,
+        locals,
+        local_indexes,
+        i64_result_tag_key,
+        i64_result_payload_slot_key,
+        i64_result_payload_key,
+    )
 }
 
 fn lower_i64_enum_call_let_stmts(
@@ -8556,24 +8387,48 @@ fn lower_i64_enum_call_let_stmts(
         helper_signatures,
         static_bindings,
     )?;
+    lower_i64_tagged_payload_call_assign_stmts(
+        name,
+        payload_slots,
+        signature.function,
+        lowered_args,
+        locals,
+        local_indexes,
+        i64_enum_tag_key,
+        i64_enum_payload_slot_key,
+        i64_enum_payload_key,
+    )
+}
+
+fn lower_i64_tagged_payload_call_assign_stmts(
+    name: &str,
+    payload_slots: usize,
+    function: usize,
+    args: Vec<CraneliftI64Expr>,
+    locals: &mut Vec<CraneliftI64Expr>,
+    local_indexes: &mut HashMap<String, usize>,
+    tag_key: fn(&str) -> String,
+    payload_slot_key: fn(&str, usize) -> String,
+    payload_key: fn(&str) -> String,
+) -> Option<Vec<CraneliftI64Stmt>> {
     let mut assign_locals = Vec::with_capacity(1 + payload_slots);
     let tag_local = local_indexes.len();
-    local_indexes.insert(i64_enum_tag_key(name), tag_local);
+    local_indexes.insert(tag_key(name), tag_local);
     locals.push(CraneliftI64Expr::Literal(0));
     assign_locals.push(tag_local);
     for index in 0..payload_slots {
         let payload_local = local_indexes.len();
-        local_indexes.insert(i64_enum_payload_slot_key(name, index), payload_local);
+        local_indexes.insert(payload_slot_key(name, index), payload_local);
         if index == 0 {
-            local_indexes.insert(i64_enum_payload_key(name), payload_local);
+            local_indexes.insert(payload_key(name), payload_local);
         }
         locals.push(CraneliftI64Expr::Literal(0));
         assign_locals.push(payload_local);
     }
     Some(vec![CraneliftI64Stmt::CallAssign {
         locals: assign_locals,
-        function: signature.function,
-        args: lowered_args,
+        function,
+        args,
     }])
 }
 
@@ -20415,15 +20270,6 @@ fn cast_spike_value(value: SpikeValue, ty: &Type) -> Result<SpikeValue, Diagnost
     }
 }
 
-fn cast_to_integer_like(value: SpikeValue, ty: NumericType) -> Result<SpikeValue, Diagnostic> {
-    match value {
-        SpikeValue::Int(value) => Ok(cast_signed_integer(value, ty)),
-        SpikeValue::UInt(value) => Ok(cast_unsigned_integer(value, ty)),
-        SpikeValue::Float(value) => Ok(cast_float(value, ty)),
-        _ => Err(unsupported("only numeric values can be cast to int")),
-    }
-}
-
 fn cast_to_numeric(value: SpikeValue, ty: NumericType) -> Result<SpikeValue, Diagnostic> {
     match value {
         SpikeValue::Int(value) => Ok(cast_signed_integer(value, ty)),
@@ -28265,6 +28111,97 @@ mod tests {
         assert_eq!(
             i64_fs_read_file_len_expr("fixture.txt", "fixture.txt".len(), &static_bindings),
             None
+        );
+    }
+
+    #[test]
+    fn tagged_payload_call_assign_helper_preserves_result_key_layout() {
+        let mut locals = Vec::new();
+        let mut local_indexes = HashMap::new();
+
+        let lowered = lower_i64_tagged_payload_call_assign_stmts(
+            "outcome",
+            2,
+            7,
+            vec![CraneliftI64Expr::Literal(11)],
+            &mut locals,
+            &mut local_indexes,
+            i64_result_tag_key,
+            i64_result_payload_slot_key,
+            i64_result_payload_key,
+        )
+        .expect("tagged payload call assign lowering");
+
+        assert_eq!(
+            local_indexes,
+            HashMap::from([
+                (String::from("outcome!tag"), 0),
+                (String::from("outcome!payload"), 1),
+                (String::from("outcome!payload1"), 2),
+            ])
+        );
+        assert_eq!(
+            locals,
+            vec![
+                CraneliftI64Expr::Literal(0),
+                CraneliftI64Expr::Literal(0),
+                CraneliftI64Expr::Literal(0),
+            ]
+        );
+        assert_eq!(
+            lowered,
+            vec![CraneliftI64Stmt::CallAssign {
+                locals: vec![0, 1, 2],
+                function: 7,
+                args: vec![CraneliftI64Expr::Literal(11)],
+            }]
+        );
+    }
+
+    #[test]
+    fn string_option_len_call_lowering_emits_shared_payload_and_tag_shape() {
+        let mut locals = Vec::new();
+        let mut local_indexes = HashMap::new();
+
+        let lowered = lower_i64_string_option_len_call_let_stmts(
+            "maybe_line",
+            CraneliftI64Expr::Literal(42),
+            &mut locals,
+            &mut local_indexes,
+        )
+        .expect("string option len lowering");
+
+        assert_eq!(
+            local_indexes,
+            HashMap::from([
+                (String::from("maybe_line?payload"), 0),
+                (String::from("maybe_line?tag"), 1),
+            ])
+        );
+        assert_eq!(
+            locals,
+            vec![CraneliftI64Expr::Literal(0), CraneliftI64Expr::Literal(0)]
+        );
+        assert_eq!(
+            lowered,
+            vec![
+                CraneliftI64Stmt::Assign(axiomc_backend_cranelift::I64Assign {
+                    local: 0,
+                    value: CraneliftI64Expr::Literal(42),
+                }),
+                CraneliftI64Stmt::Assign(axiomc_backend_cranelift::I64Assign {
+                    local: 1,
+                    value: CraneliftI64Expr::Select {
+                        cond: Box::new(CraneliftI64Condition::Compare(CraneliftI64Compare {
+                            op: CraneliftI64CompareOp::Ge,
+                            lhs: CraneliftI64Expr::Local(0),
+                            rhs: CraneliftI64Expr::Literal(0),
+                        })),
+                        then_result: Box::new(CraneliftI64Expr::Literal(1)),
+                        else_result: Box::new(CraneliftI64Expr::Literal(0)),
+                    },
+                }),
+            ]
         );
     }
 

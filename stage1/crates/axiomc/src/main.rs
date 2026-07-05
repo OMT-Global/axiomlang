@@ -94,8 +94,8 @@ enum Command {
         #[arg(long)]
         json: bool,
         /// Select the build backend. When omitted, builds use the supported
-        /// direct-native `cranelift` backend. Non-default backend values are
-        /// compatibility-only and must be requested explicitly.
+        /// direct-native `cranelift` backend; compatibility-only backends must
+        /// be requested explicitly.
         #[arg(long)]
         backend: Option<NativeBackendKind>,
         #[arg(long)]
@@ -455,22 +455,20 @@ fn main() {
         Command::Parse { path, json } => match parse_project_entry(&path) {
             Ok(output) => {
                 if json {
-                    println!(
-                        "{}",
-                        serde_json::json!({
-                            "schema_version": json_contract::JSON_SCHEMA_VERSION,
-                            "ok": true,
-                            "command": "parse",
-                            "project": path.display().to_string(),
-                            "manifest": output.manifest,
-                            "entry": output.entry,
-                            "statement_count": output.statement_count,
-                        })
-                    );
+                    let payload = serde_json::json!({
+                        "schema_version": json_contract::JSON_SCHEMA_VERSION,
+                        "ok": true,
+                        "command": "parse",
+                        "project": path.display().to_string(),
+                        "manifest": output.manifest,
+                        "entry": output.entry,
+                        "statement_count": output.statement_count,
+                    });
+                    print_json_output_or_error("parse", &payload, 0)
                 } else {
                     eprintln!("OK statements={}", output.statement_count);
+                    0
                 }
-                0
             }
             Err(error) => print_error("parse", error, json),
         },
@@ -510,7 +508,16 @@ fn main() {
                             payload["properties"] =
                                 json_contract::test_property_summary(property_output);
                         }
-                        println!("{payload}");
+                        let code = if property_output
+                            .as_ref()
+                            .map(|output| output.failed == 0)
+                            .unwrap_or(true)
+                        {
+                            0
+                        } else {
+                            1
+                        };
+                        print_json_output_or_error("check", &payload, code)
                     } else {
                         for warning in &output.warnings {
                             eprintln!("{warning}");
@@ -519,15 +526,15 @@ fn main() {
                         if let Some(property_output) = &property_output {
                             print_property_summary(property_output);
                         }
-                    }
-                    if property_output
-                        .as_ref()
-                        .map(|output| output.failed == 0)
-                        .unwrap_or(true)
-                    {
-                        0
-                    } else {
-                        1
+                        if property_output
+                            .as_ref()
+                            .map(|output| output.failed == 0)
+                            .unwrap_or(true)
+                        {
+                            0
+                        } else {
+                            1
+                        }
                     }
                 }
                 Err(error) => print_error("check", error, json),
@@ -559,13 +566,17 @@ fn main() {
             ) {
                 Ok(output) => {
                     if json {
-                        println!("{}", json_contract::build_success(&path, &output));
+                        print_json_output_or_error(
+                            "build",
+                            &json_contract::build_success(&path, &output),
+                            0,
+                        )
                     } else {
                         for line in build_summary_lines(&output, timings) {
                             eprintln!("{line}");
                         }
+                        0
                     }
-                    0
                 }
                 Err(error) => print_error("build", error, json),
             }
@@ -585,8 +596,11 @@ fn main() {
             if json {
                 match run_project_report_with_options(&path, &options) {
                     Ok(output) => {
-                        println!("{}", json_contract::run_success(&path, &output));
-                        output.exit_code
+                        print_json_output_or_error(
+                            "run",
+                            &json_contract::run_success(&path, &output),
+                            output.exit_code,
+                        )
                     }
                     Err(error) => print_error("run", error, true),
                 }
@@ -602,11 +616,7 @@ fn main() {
             match trace_provenance(&project, node_query.as_deref()) {
                 Ok(report) => {
                     if json {
-                        println!(
-                            "{}",
-                            json_contract::to_pretty_string(&report)
-                                .unwrap_or_else(|_| String::from("{}"))
-                        );
+                        print_json("trace", &report)
                     } else {
                         println!(
                             "nodes={} artifacts={} relationships={}",
@@ -614,8 +624,8 @@ fn main() {
                             report.artifacts.len(),
                             report.relationships.len()
                         );
+                        0
                     }
-                    0
                 }
                 Err(error) => print_error("trace", error, json),
             }
@@ -649,15 +659,16 @@ fn main() {
                 match list_project_tests_with_options(&path, &options) {
                     Ok(output) => {
                         if json {
-                            println!(
-                                "{}",
-                                json_contract::test_list_success(
+                            print_json_output_or_error(
+                                "test",
+                                &json_contract::test_list_success(
                                     &path,
                                     filter.as_deref(),
                                     property_summary,
-                                    &output
-                                )
-                            );
+                                    &output,
+                                ),
+                                0,
+                            )
                         } else {
                             for test in &output.tests {
                                 let package = test.package.as_deref().unwrap_or("<unnamed>");
@@ -667,8 +678,8 @@ fn main() {
                                 );
                             }
                             eprintln!("discovered: {}", output.tests.len());
+                            0
                         }
-                        0
                     }
                     Err(error) => print_error("test", error, json),
                 }
@@ -677,15 +688,16 @@ fn main() {
                     Ok(output) => {
                         let ok = output.failed == 0;
                         if json {
-                            println!(
-                                "{}",
-                                json_contract::test_success(
+                            print_json_output_or_error(
+                                "test",
+                                &json_contract::test_success(
                                     &path,
                                     filter.as_deref(),
                                     property_summary,
-                                    &output
-                                )
-                            );
+                                    &output,
+                                ),
+                                if ok { 0 } else { 1 },
+                            )
                         } else {
                             for case in &output.cases {
                                 let status = if case.ok { "PASS" } else { "FAIL" };
@@ -715,8 +727,8 @@ fn main() {
                                     .count();
                                 eprintln!("{passed}/{total} properties passed");
                             }
+                            if ok { 0 } else { 1 }
                         }
-                        if ok { 0 } else { 1 }
                     }
                     Err(error) => print_error("test", error, json),
                 }
@@ -799,15 +811,11 @@ fn main() {
         Command::Explain { code, json } => match diagnostic_code_info(&code) {
             Some(info) => {
                 if json {
-                    println!(
-                        "{}",
-                        json_contract::to_pretty_string(&explain_payload(info))
-                            .unwrap_or_else(|_| String::from("{}"))
-                    );
+                    print_json("explain", &explain_payload(info))
                 } else {
                     println!("{}", explain_text(info));
+                    0
                 }
-                0
             }
             None => print_error(
                 "explain",
@@ -818,29 +826,21 @@ fn main() {
         Command::RepairPlan { path, json } => match repair_plan(&path) {
             Ok(report) => {
                 if json {
-                    println!(
-                        "{}",
-                        json_contract::to_pretty_string(&report)
-                            .unwrap_or_else(|_| String::from("{}"))
-                    );
+                    print_json("repair-plan", &report)
                 } else {
                     println!("tasks={}", report.tasks.len());
                     for task in &report.tasks {
                         println!("{} {} {}", task.id, task.reason, task.target_node);
                     }
+                    0
                 }
-                0
             }
             Err(error) => print_error("repair-plan", error, json),
         },
         Command::Evidence { path, json } => match evidence_report(&path) {
             Ok(report) => {
                 if json {
-                    println!(
-                        "{}",
-                        json_contract::to_pretty_string(&report)
-                            .unwrap_or_else(|_| String::from("{}"))
-                    );
+                    print_json("evidence", &report)
                 } else {
                     println!(
                         "package={} evidence={} passing={} failing={} missing={}",
@@ -850,19 +850,15 @@ fn main() {
                         report.summary.failing,
                         report.summary.missing
                     );
+                    0
                 }
-                0
             }
             Err(error) => print_error("evidence", error, json),
         },
         Command::Verify { path, json } => match verify_project(&path) {
             Ok(report) => {
                 if json {
-                    println!(
-                        "{}",
-                        json_contract::to_pretty_string(&report)
-                            .unwrap_or_else(|_| String::from("{}"))
-                    );
+                    print_json_with_status("verify", &report, if report.ok { 0 } else { 1 })
                 } else {
                     println!(
                         "package={} axioms={} verified={} unverified={} violated={} target_requirements={} failing={}",
@@ -875,19 +871,15 @@ fn main() {
                         report.summary.failing_target_requirements
                             + report.summary.missing_target_requirements
                     );
+                    if report.ok { 0 } else { 1 }
                 }
-                if report.ok { 0 } else { 1 }
             }
             Err(error) => print_error("verify", error, json),
         },
         Command::SemanticDiff { old, new, json } => match semantic_diff_report(&old, &new) {
             Ok(report) => {
                 if json {
-                    println!(
-                        "{}",
-                        json_contract::to_pretty_string(&report)
-                            .unwrap_or_else(|_| String::from("{}"))
-                    );
+                    print_json("semantic-diff", &report)
                 } else {
                     println!(
                         "changes={} breaking={} additive={}",
@@ -901,8 +893,8 @@ fn main() {
                             change.severity, change.change, change.node_kind, change.node_id
                         );
                     }
+                    0
                 }
-                0
             }
             Err(error) => print_error("semantic-diff", error, json),
         },
@@ -910,11 +902,7 @@ fn main() {
             InspectCommand::Symbols { path, json } => match inspect_symbols(&path) {
                 Ok(report) => {
                     if json {
-                        println!(
-                            "{}",
-                            json_contract::to_pretty_string(&report)
-                                .unwrap_or_else(|_| String::from("{}"))
-                        );
+                        print_json("inspect symbols", &report)
                     } else {
                         for symbol in &report.symbols {
                             println!(
@@ -922,19 +910,15 @@ fn main() {
                                 symbol.kind, symbol.name, symbol.span.path, symbol.span.line
                             );
                         }
+                        0
                     }
-                    0
                 }
                 Err(error) => print_error("inspect symbols", error, json),
             },
             InspectCommand::Graph { path, json } => match inspect_graph(&path) {
                 Ok(report) => {
                     if json {
-                        println!(
-                            "{}",
-                            json_contract::to_pretty_string(&report)
-                                .unwrap_or_else(|_| String::from("{}"))
-                        );
+                        print_json("inspect graph", &report)
                     } else {
                         println!(
                             "packages={} modules={} semantic_nodes={} semantic_edges={} import_errors={}",
@@ -944,19 +928,15 @@ fn main() {
                             report.edges.len(),
                             report.import_errors.len()
                         );
+                        0
                     }
-                    0
                 }
                 Err(error) => print_error("inspect graph", error, json),
             },
             InspectCommand::Effects { path, json } => match inspect_effects(&path) {
                 Ok(report) => {
                     if json {
-                        println!(
-                            "{}",
-                            json_contract::to_pretty_string(&report)
-                                .unwrap_or_else(|_| String::from("{}"))
-                        );
+                        print_json("inspect effects", &report)
                     } else {
                         for effect in &report.effects {
                             println!(
@@ -967,25 +947,21 @@ fn main() {
                                 effect.source_span.line
                             );
                         }
+                        0
                     }
-                    0
                 }
                 Err(error) => print_error("inspect effects", error, json),
             },
             InspectCommand::Artifacts { path, json } => match inspect_artifacts(&path) {
                 Ok(report) => {
                     if json {
-                        println!(
-                            "{}",
-                            json_contract::to_pretty_string(&report)
-                                .unwrap_or_else(|_| String::from("{}"))
-                        );
+                        print_json("inspect artifacts", &report)
                     } else {
                         for artifact in &report.artifacts {
                             println!("{} {} {}", artifact.kind, artifact.status, artifact.path);
                         }
+                        0
                     }
-                    0
                 }
                 Err(error) => print_error("inspect artifacts", error, json),
             },
@@ -994,11 +970,7 @@ fn main() {
             GenerateCommand::Openapi { path, out, json } => match generate_openapi(&path, &out) {
                 Ok(report) => {
                     if json {
-                        println!(
-                            "{}",
-                            json_contract::to_pretty_string(&report)
-                                .unwrap_or_else(|_| String::from("{}"))
-                        );
+                        print_json("generate openapi", &report)
                     } else {
                         eprintln!("wrote {}", report.artifact.path);
                         if !report.diagnostics.is_empty() {
@@ -1006,42 +978,35 @@ fn main() {
                                 eprintln!("{}", diagnostic.message);
                             }
                         }
+                        0
                     }
-                    0
                 }
                 Err(error) => print_error("generate openapi", error, json),
             },
             GenerateCommand::Policy { path, out, json } => match generate_policy(&path, &out) {
                 Ok(report) => {
                     if json {
-                        println!(
-                            "{}",
-                            json_contract::to_pretty_string(&report)
-                                .unwrap_or_else(|_| String::from("{}"))
-                        );
+                        print_json("generate policy", &report)
                     } else {
                         eprintln!("wrote {}", report.artifact.path);
+                        0
                     }
-                    0
                 }
                 Err(error) => print_error("generate policy", error, json),
             },
             GenerateCommand::Sql { path, out, json } => match generate_sql(&path, &out) {
                 Ok(report) => {
                     if json {
-                        println!(
-                            "{}",
-                            json_contract::to_pretty_string(&report)
-                                .unwrap_or_else(|_| String::from("{}"))
-                        );
+                        print_json("generate sql", &report)
                     } else if report.artifacts.is_empty() {
                         eprintln!("no SQL migration output");
+                        0
                     } else {
                         for artifact in &report.artifacts {
                             eprintln!("wrote {}", artifact.path);
                         }
+                        0
                     }
-                    0
                 }
                 Err(error) => print_error("generate sql", error, json),
             },
@@ -1049,20 +1014,17 @@ fn main() {
                 match generate_terraform(&path, &out) {
                     Ok(report) => {
                         if json {
-                            println!(
-                                "{}",
-                                json_contract::to_pretty_string(&report)
-                                    .unwrap_or_else(|_| String::from("{}"))
-                            );
+                            print_json("generate terraform", &report)
                         } else if report.artifact.status == "generated" {
                             eprintln!("wrote {}", report.artifact.path);
+                            0
                         } else {
                             eprintln!("no Terraform module output");
                             for diagnostic in &report.diagnostics {
                                 eprintln!("{}", diagnostic.message);
                             }
+                            0
                         }
-                        0
                     }
                     Err(error) => print_error("generate terraform", error, json),
                 }
@@ -1070,11 +1032,7 @@ fn main() {
             GenerateCommand::Runbook { path, out, json } => match generate_runbook(&path, &out) {
                 Ok(report) => {
                     if json {
-                        println!(
-                            "{}",
-                            json_contract::to_pretty_string(&report)
-                                .unwrap_or_else(|_| String::from("{}"))
-                        );
+                        print_json("generate runbook", &report)
                     } else {
                         eprintln!("wrote {}", report.artifact.path);
                         if !report.diagnostics.is_empty() {
@@ -1082,8 +1040,8 @@ fn main() {
                                 eprintln!("{}", diagnostic.message);
                             }
                         }
+                        0
                     }
-                    0
                 }
                 Err(error) => print_error("generate runbook", error, json),
             },
@@ -1092,18 +1050,14 @@ fn main() {
             PkgCommand::Graph { path, json } => match package_graph_metadata(&path) {
                 Ok(output) => {
                     if json {
-                        println!(
-                            "{}",
-                            json_contract::to_pretty_string(&output)
-                                .unwrap_or_else(|_| String::from("{}"))
-                        );
+                        print_json("pkg graph", &output)
                     } else {
                         for package in &output.packages {
                             let name = package.name.as_deref().unwrap_or("<workspace>");
                             println!("{} {}", name, package.root);
                         }
+                        0
                     }
-                    0
                 }
                 Err(error) => print_error("pkg graph", error, json),
             },
@@ -1202,11 +1156,7 @@ fn main() {
         } => match run_benchmarks(&path, warmup, iterations) {
             Ok(report) => {
                 if json {
-                    println!(
-                        "{}",
-                        json_contract::to_pretty_string(&report)
-                            .unwrap_or_else(|_| String::from("{}"))
-                    );
+                    print_json_with_status("bench", &report, if report.failed == 0 { 0 } else { 1 })
                 } else {
                     for bench in &report.benches {
                         println!(
@@ -1214,23 +1164,19 @@ fn main() {
                             bench.name, bench.median_ms, bench.p95_ms, bench.iterations
                         );
                     }
+                    if report.failed == 0 { 0 } else { 1 }
                 }
-                if report.failed == 0 { 0 } else { 1 }
             }
             Err(error) => print_error("bench", error, json),
         },
         Command::MutationReport { input, json } => match mutation_report_from_path(&input) {
             Ok(report) => {
                 if json {
-                    println!(
-                        "{}",
-                        json_contract::to_pretty_string(&report)
-                            .unwrap_or_else(|_| String::from("{}"))
-                    );
+                    print_json("mutation-report", &report)
                 } else {
                     println!("{}", render_mutation_issue_report(&report));
+                    0
                 }
-                0
             }
             Err(error) => print_error("mutation-report", error, json),
         },
@@ -1660,6 +1606,34 @@ fn print_error(command: &str, error: Diagnostic, json: bool) -> i32 {
         }
     }
     1
+}
+
+fn print_json<T: Serialize>(command: &str, payload: &T) -> i32 {
+    print_json_with_status(command, payload, 0)
+}
+
+fn print_json_with_status<T: Serialize>(command: &str, payload: &T, status: i32) -> i32 {
+    match format_json_output(payload) {
+        Ok(output) => {
+            println!("{output}");
+            status
+        }
+        Err(error) => print_error(command, error, true),
+    }
+}
+
+fn print_json_output_or_error<T: Serialize>(command: &str, payload: &T, success_code: i32) -> i32 {
+    match format_json_output(payload) {
+        Ok(output) => {
+            println!("{output}");
+            success_code
+        }
+        Err(error) => print_error(command, error, true),
+    }
+}
+
+fn format_json_output<T: Serialize>(payload: &T) -> Result<String, Diagnostic> {
+    json_contract::to_pretty_string(payload)
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -6995,6 +6969,7 @@ fn mutation_report_from_path(path: &Path) -> Result<MutationIssueReport, Diagnos
     mutation_report_from_json_str_with_base_dir(&source, base_dir)
 }
 
+#[cfg(test)]
 fn mutation_report_from_json_str(source: &str) -> Result<MutationIssueReport, Diagnostic> {
     mutation_report_from_json_str_with_base_dir(source, None)
 }
@@ -7569,6 +7544,7 @@ fn collect_program_type_refs(program: &axiomc::syntax::Program) -> Vec<String> {
     refs.into_iter().collect()
 }
 
+#[cfg(test)]
 #[derive(Debug, Clone, Serialize)]
 struct InspectEvidenceReport {
     schema_version: &'static str,
@@ -7579,6 +7555,7 @@ struct InspectEvidenceReport {
     evidence: Vec<EvidenceNode>,
 }
 
+#[cfg(test)]
 #[derive(Debug, Clone, Serialize)]
 struct EvidenceNode {
     kind: &'static str,
@@ -7588,6 +7565,7 @@ struct EvidenceNode {
     status: String,
 }
 
+#[cfg(test)]
 fn inspect_evidence(project: &Path) -> Result<InspectEvidenceReport, Diagnostic> {
     let manifest = load_manifest(project)?;
     let lockfile_status = match validate_lockfile(project, &manifest) {
@@ -8098,6 +8076,21 @@ mod tests {
     use clap::{CommandFactory, Parser};
 
     #[test]
+    fn json_output_formatter_uses_pretty_json() {
+        let output = format_json_output(&serde_json::json!({
+            "schema_version": json_contract::JSON_SCHEMA_VERSION,
+            "ok": true,
+            "command": "parse",
+        }))
+        .expect("format JSON output");
+
+        assert!(output.starts_with("{\n"));
+        assert!(output.contains("\n  \"schema_version\""));
+        assert!(output.ends_with("\n}"));
+        serde_json::from_str::<serde_json::Value>(&output).expect("parse formatted JSON");
+    }
+
+    #[test]
     fn help_describes_supported_stage1_workflows() {
         let help = Cli::command().render_long_help().to_string();
         assert!(help.contains("Create a new stage1 package"));
@@ -8116,7 +8109,7 @@ mod tests {
             .render_long_help()
             .to_string();
         assert!(build_help.contains("builds use the supported direct-native `cranelift` backend"));
-        assert!(build_help.contains("compatibility-only and must be requested explicitly"));
+        assert!(build_help.contains("compatibility-only backends must be requested explicitly"));
         assert!(!build_help.contains("`rust` is accepted as a transition alias"));
         assert!(
             build_help.contains("Build a stage1 package through the default direct-native backend")
@@ -10735,5 +10728,28 @@ print serve("127.0.0.1:0", selected_route, 1)
         assert!(output.contains("accepted: let answer: = 42"));
         assert!(output.contains("error:"));
         assert!(!output.contains("ok:"));
+    }
+
+    struct FailingJsonPayload;
+
+    impl Serialize for FailingJsonPayload {
+        fn serialize<S>(&self, _serializer: S) -> Result<S::Ok, S::Error>
+        where
+            S: serde::Serializer,
+        {
+            Err(serde::ser::Error::custom("forced serialization failure"))
+        }
+    }
+
+    #[test]
+    fn print_json_reports_serialization_failure_as_error_status() {
+        assert_eq!(print_json("fixture", &FailingJsonPayload), 1);
+    }
+
+    #[test]
+    fn print_json_preserves_success_status() {
+        let payload = serde_json::json!({"ok": false});
+
+        assert_eq!(print_json_with_status("fixture", &payload, 7), 7);
     }
 }
