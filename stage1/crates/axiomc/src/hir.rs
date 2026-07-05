@@ -4619,7 +4619,11 @@ fn lower_expr_with_expected_inner(
             let Some(signature) = methods.get(method) else {
                 return Err(Diagnostic::new(
                     "type",
-                    format!("type {} has no method {:?}", lowered_base.ty(), method),
+                    message_with_suggestion(
+                        format!("type {} has no method {:?}", lowered_base.ty(), method),
+                        method,
+                        methods.keys(),
+                    ),
                 )
                 .with_span(*line, *column));
             };
