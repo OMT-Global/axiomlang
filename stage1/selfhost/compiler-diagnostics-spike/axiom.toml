@@ -1,0 +1,7 @@
+[package]
+name = "compiler-diagnostics-spike"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"

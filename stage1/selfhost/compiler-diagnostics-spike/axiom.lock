@@ -1,0 +1,6 @@
+version = 1
+
+[[package]]
+name = "compiler-diagnostics-spike"
+version = "0.1.0"
+source = "path"

@@ -127,7 +127,9 @@ impl Diagnostic {
     }
 }
 
-fn stable_diagnostic_code(kind: &str, message: &str) -> Option<String> {
+/// Public for self-hosting spike parity evidence (#1253): the AxiOM
+/// compiler.diagnostics slice must produce identical codes.
+pub fn stable_diagnostic_code(kind: &str, message: &str) -> Option<String> {
     let code = match kind {
         "parse" if message.contains("missing closing brace") => "parse.missing_closing_brace",
         "parse" if message.contains("unexpected closing brace") => "parse.unexpected_closing_brace",
@@ -177,7 +179,8 @@ fn stable_diagnostic_code(kind: &str, message: &str) -> Option<String> {
     Some(code.to_string())
 }
 
-fn repair_hint(kind: &str, _message: &str) -> Option<DiagnosticRepair> {
+/// Public for self-hosting spike parity evidence (#1253).
+pub fn repair_hint(kind: &str, _message: &str) -> Option<DiagnosticRepair> {
     let (action, edit, command) = match kind {
         "parse" | "type" | "ownership" => (
             "edit_source",
@@ -251,7 +254,8 @@ fn closest_name(
         .map(|(_, candidate)| candidate)
 }
 
-fn is_plausible_suggestion(needle: &str, candidate: &str, distance: usize) -> bool {
+/// Public for self-hosting spike parity evidence (#1253).
+pub fn is_plausible_suggestion(needle: &str, candidate: &str, distance: usize) -> bool {
     if needle.is_empty() || candidate.is_empty() {
         return false;
     }
