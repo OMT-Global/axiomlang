@@ -1,5 +1,5 @@
 use super::model::{ArithmeticOp, CompareOp, Expr, LiteralValue, LogicOp, Type};
-use super::{is_async_runtime_type, resolve_const_array_len};
+use super::{const_arrays::resolve_const_array_len, is_async_runtime_type};
 use crate::diagnostics::Diagnostic;
 use crate::syntax;
 use std::collections::{HashMap, HashSet};
