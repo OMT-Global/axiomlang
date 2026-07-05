@@ -8305,25 +8305,17 @@ fn lower_i64_option_call_let_stmts(
         helper_signatures,
         static_bindings,
     )?;
-    let mut assign_locals = Vec::with_capacity(1 + payload_slots);
-    let tag_local = local_indexes.len();
-    local_indexes.insert(i64_option_tag_key(name), tag_local);
-    locals.push(CraneliftI64Expr::Literal(0));
-    assign_locals.push(tag_local);
-    for index in 0..payload_slots {
-        let payload_local = local_indexes.len();
-        local_indexes.insert(i64_option_payload_slot_key(name, index), payload_local);
-        if index == 0 {
-            local_indexes.insert(i64_option_payload_key(name), payload_local);
-        }
-        locals.push(CraneliftI64Expr::Literal(0));
-        assign_locals.push(payload_local);
-    }
-    Some(vec![CraneliftI64Stmt::CallAssign {
-        locals: assign_locals,
-        function: signature.function,
-        args: lowered_args,
-    }])
+    lower_i64_tagged_payload_call_assign_stmts(
+        name,
+        payload_slots,
+        signature.function,
+        lowered_args,
+        locals,
+        local_indexes,
+        i64_option_tag_key,
+        i64_option_payload_slot_key,
+        i64_option_payload_key,
+    )
 }
 
 fn lower_i64_result_call_let_stmts(
@@ -8355,25 +8347,17 @@ fn lower_i64_result_call_let_stmts(
         helper_signatures,
         static_bindings,
     )?;
-    let mut assign_locals = Vec::with_capacity(1 + payload_slots);
-    let tag_local = local_indexes.len();
-    local_indexes.insert(i64_result_tag_key(name), tag_local);
-    locals.push(CraneliftI64Expr::Literal(0));
-    assign_locals.push(tag_local);
-    for index in 0..payload_slots {
-        let payload_local = local_indexes.len();
-        local_indexes.insert(i64_result_payload_slot_key(name, index), payload_local);
-        if index == 0 {
-            local_indexes.insert(i64_result_payload_key(name), payload_local);
-        }
-        locals.push(CraneliftI64Expr::Literal(0));
-        assign_locals.push(payload_local);
-    }
-    Some(vec![CraneliftI64Stmt::CallAssign {
-        locals: assign_locals,
-        function: signature.function,
-        args: lowered_args,
-    }])
+    lower_i64_tagged_payload_call_assign_stmts(
+        name,
+        payload_slots,
+        signature.function,
+        lowered_args,
+        locals,
+        local_indexes,
+        i64_result_tag_key,
+        i64_result_payload_slot_key,
+        i64_result_payload_key,
+    )
 }
 
 fn lower_i64_enum_call_let_stmts(
@@ -8403,24 +8387,48 @@ fn lower_i64_enum_call_let_stmts(
         helper_signatures,
         static_bindings,
     )?;
+    lower_i64_tagged_payload_call_assign_stmts(
+        name,
+        payload_slots,
+        signature.function,
+        lowered_args,
+        locals,
+        local_indexes,
+        i64_enum_tag_key,
+        i64_enum_payload_slot_key,
+        i64_enum_payload_key,
+    )
+}
+
+fn lower_i64_tagged_payload_call_assign_stmts(
+    name: &str,
+    payload_slots: usize,
+    function: usize,
+    args: Vec<CraneliftI64Expr>,
+    locals: &mut Vec<CraneliftI64Expr>,
+    local_indexes: &mut HashMap<String, usize>,
+    tag_key: fn(&str) -> String,
+    payload_slot_key: fn(&str, usize) -> String,
+    payload_key: fn(&str) -> String,
+) -> Option<Vec<CraneliftI64Stmt>> {
     let mut assign_locals = Vec::with_capacity(1 + payload_slots);
     let tag_local = local_indexes.len();
-    local_indexes.insert(i64_enum_tag_key(name), tag_local);
+    local_indexes.insert(tag_key(name), tag_local);
     locals.push(CraneliftI64Expr::Literal(0));
     assign_locals.push(tag_local);
     for index in 0..payload_slots {
         let payload_local = local_indexes.len();
-        local_indexes.insert(i64_enum_payload_slot_key(name, index), payload_local);
+        local_indexes.insert(payload_slot_key(name, index), payload_local);
         if index == 0 {
-            local_indexes.insert(i64_enum_payload_key(name), payload_local);
+            local_indexes.insert(payload_key(name), payload_local);
         }
         locals.push(CraneliftI64Expr::Literal(0));
         assign_locals.push(payload_local);
     }
     Some(vec![CraneliftI64Stmt::CallAssign {
         locals: assign_locals,
-        function: signature.function,
-        args: lowered_args,
+        function,
+        args,
     }])
 }
 
@@ -28103,6 +28111,50 @@ mod tests {
         assert_eq!(
             i64_fs_read_file_len_expr("fixture.txt", "fixture.txt".len(), &static_bindings),
             None
+        );
+    }
+
+    #[test]
+    fn tagged_payload_call_assign_helper_preserves_result_key_layout() {
+        let mut locals = Vec::new();
+        let mut local_indexes = HashMap::new();
+
+        let lowered = lower_i64_tagged_payload_call_assign_stmts(
+            "outcome",
+            2,
+            7,
+            vec![CraneliftI64Expr::Literal(11)],
+            &mut locals,
+            &mut local_indexes,
+            i64_result_tag_key,
+            i64_result_payload_slot_key,
+            i64_result_payload_key,
+        )
+        .expect("tagged payload call assign lowering");
+
+        assert_eq!(
+            local_indexes,
+            HashMap::from([
+                (String::from("outcome!tag"), 0),
+                (String::from("outcome!payload"), 1),
+                (String::from("outcome!payload1"), 2),
+            ])
+        );
+        assert_eq!(
+            locals,
+            vec![
+                CraneliftI64Expr::Literal(0),
+                CraneliftI64Expr::Literal(0),
+                CraneliftI64Expr::Literal(0),
+            ]
+        );
+        assert_eq!(
+            lowered,
+            vec![CraneliftI64Stmt::CallAssign {
+                locals: vec![0, 1, 2],
+                function: 7,
+                args: vec![CraneliftI64Expr::Literal(11)],
+            }]
         );
     }
 

@@ -58,12 +58,14 @@ enum Command {
     /// Parse the primary stage1 package entrypoint without typechecking.
     Parse {
         path: PathBuf,
+        /// Emit an axiom.stage1.v1 JSON envelope for agent/tool consumption.
         #[arg(long)]
         json: bool,
     },
     /// Check a stage1 package or workspace member without building an artifact.
     Check {
         path: PathBuf,
+        /// Emit an axiom.stage1.v1 JSON envelope for agent/tool consumption.
         #[arg(long)]
         json: bool,
         /// After type and ownership checks pass, run discovered property fixtures.
@@ -88,6 +90,7 @@ enum Command {
     /// Build a stage1 package through the default direct-native backend.
     Build {
         path: PathBuf,
+        /// Emit an axiom.stage1.v1 JSON envelope for agent/tool consumption.
         #[arg(long)]
         json: bool,
         /// Select the build backend. When omitted, builds use the supported
@@ -113,7 +116,7 @@ enum Command {
     /// Build and run a stage1 package through the default direct-native backend.
     Run {
         path: PathBuf,
-        /// Emit an axiom.stage1.v1 JSON envelope; see stage1/compiler-contracts/schemas/axiom.stage1.command.schema.json.
+        /// Emit an axiom.stage1.v1 JSON envelope for agent/tool consumption; see stage1/compiler-contracts/schemas/axiom.stage1.command.schema.json.
         #[arg(long)]
         json: bool,
         /// Select the backend used to build the executable before running it.
@@ -129,12 +132,14 @@ enum Command {
     Trace {
         /// Project path to trace, or an axiom:// node or artifact id to trace in the current project.
         query: String,
+        /// Emit an axiom.stage1.v1 JSON envelope for agent/tool consumption.
         #[arg(long)]
         json: bool,
     },
     /// Discover, build, and run package test entrypoints.
     Test {
         path: Option<PathBuf>,
+        /// Emit an axiom.stage1.v1 JSON envelope for agent/tool consumption.
         #[arg(long)]
         json: bool,
         /// Select the backend used to build executable test cases.
@@ -158,6 +163,7 @@ enum Command {
     /// Inspect manifest capability requirements.
     Caps {
         path: Option<PathBuf>,
+        /// Emit an axiom.stage1.v1 JSON envelope for agent/tool consumption.
         #[arg(long)]
         json: bool,
         #[arg(long, value_enum)]
@@ -168,18 +174,21 @@ enum Command {
     /// Emit a structured repair plan for diagnostics and missing evidence.
     RepairPlan {
         path: PathBuf,
+        /// Emit an axiom.stage1.v1 JSON envelope for agent/tool consumption.
         #[arg(long)]
         json: bool,
     },
     /// Emit semantic evidence requirements and observed test evidence.
     Evidence {
         path: PathBuf,
+        /// Emit an axiom.stage1.v1 JSON envelope for agent/tool consumption.
         #[arg(long)]
         json: bool,
     },
     /// Verify declared axioms and target evidence requirements.
     Verify {
         path: PathBuf,
+        /// Emit an axiom.stage1.v1 JSON envelope for agent/tool consumption.
         #[arg(long)]
         json: bool,
     },
@@ -187,6 +196,7 @@ enum Command {
     SemanticDiff {
         old: PathBuf,
         new: PathBuf,
+        /// Emit an axiom.stage1.v1 JSON envelope for agent/tool consumption.
         #[arg(long)]
         json: bool,
     },
@@ -208,12 +218,14 @@ enum Command {
     /// Explain a stable diagnostic code.
     Explain {
         code: String,
+        /// Emit an axiom.stage1.v1 JSON envelope for agent/tool consumption.
         #[arg(long)]
         json: bool,
     },
     /// Report local stage1 project and toolchain health.
     Doctor {
         path: Option<PathBuf>,
+        /// Emit an axiom.stage1.v1 JSON envelope for agent/tool consumption.
         #[arg(long)]
         json: bool,
     },
@@ -222,6 +234,7 @@ enum Command {
         path: PathBuf,
         #[arg(long)]
         check: bool,
+        /// Emit an axiom.stage1.v1 JSON envelope for agent/tool consumption.
         #[arg(long)]
         json: bool,
     },
@@ -230,6 +243,7 @@ enum Command {
         path: PathBuf,
         #[arg(long)]
         out_dir: Option<PathBuf>,
+        /// Emit an axiom.stage1.v1 JSON envelope for agent/tool consumption.
         #[arg(long)]
         json: bool,
         /// Emit Markdown output for the project, defaulting to <project>/dist/docs.
@@ -243,6 +257,7 @@ enum Command {
         warmup: usize,
         #[arg(long, default_value_t = 5)]
         iterations: usize,
+        /// Emit an axiom.stage1.v1 JSON envelope for agent/tool consumption.
         #[arg(long)]
         json: bool,
     },
@@ -250,12 +265,13 @@ enum Command {
     MutationReport {
         /// JSON mutation output from tools such as cargo-mutants.
         input: PathBuf,
-        /// Emit an axiom.stage1.v1 JSON envelope; see stage1/compiler-contracts/schemas/axiom.stage1.command.schema.json.
+        /// Emit an axiom.stage1.v1 JSON envelope for agent/tool consumption; see stage1/compiler-contracts/schemas/axiom.stage1.command.schema.json.
         #[arg(long)]
         json: bool,
     },
     /// Start a small stage1 scratch REPL backed by axiomc check/run.
     Repl {
+        /// Emit an axiom.stage1.v1 JSON envelope for agent/tool consumption.
         #[arg(long)]
         json: bool,
     },
@@ -330,24 +346,28 @@ enum InspectCommand {
     /// Emit exported functions, types, consts, imports, and capability use.
     Symbols {
         path: PathBuf,
+        /// Emit an axiom.stage1.v1 JSON envelope for agent/tool consumption.
         #[arg(long)]
         json: bool,
     },
     /// Emit package, module, and semantic declaration graph details.
     Graph {
         path: PathBuf,
+        /// Emit an axiom.stage1.v1 JSON envelope for agent/tool consumption.
         #[arg(long)]
         json: bool,
     },
     /// Emit semantic effect nodes for known runtime and stdlib surfaces.
     Effects {
         path: PathBuf,
+        /// Emit an axiom.stage1.v1 JSON envelope for agent/tool consumption.
         #[arg(long)]
         json: bool,
     },
     /// Emit planned and generated artifact records for a package.
     Artifacts {
         path: PathBuf,
+        /// Emit an axiom.stage1.v1 JSON envelope for agent/tool consumption.
         #[arg(long)]
         json: bool,
     },
@@ -360,6 +380,7 @@ enum GenerateCommand {
         path: PathBuf,
         #[arg(long)]
         out: PathBuf,
+        /// Emit an axiom.stage1.v1 JSON envelope for agent/tool consumption.
         #[arg(long)]
         json: bool,
     },
@@ -368,6 +389,7 @@ enum GenerateCommand {
         path: PathBuf,
         #[arg(long)]
         out: PathBuf,
+        /// Emit an axiom.stage1.v1 JSON envelope for agent/tool consumption.
         #[arg(long)]
         json: bool,
     },
@@ -376,6 +398,7 @@ enum GenerateCommand {
         path: PathBuf,
         #[arg(long)]
         out: PathBuf,
+        /// Emit an axiom.stage1.v1 JSON envelope for agent/tool consumption.
         #[arg(long)]
         json: bool,
     },
@@ -384,6 +407,7 @@ enum GenerateCommand {
         path: PathBuf,
         #[arg(long)]
         out: PathBuf,
+        /// Emit an axiom.stage1.v1 JSON envelope for agent/tool consumption.
         #[arg(long)]
         json: bool,
     },
@@ -392,6 +416,7 @@ enum GenerateCommand {
         path: PathBuf,
         #[arg(long)]
         out: PathBuf,
+        /// Emit an axiom.stage1.v1 JSON envelope for agent/tool consumption.
         #[arg(long)]
         json: bool,
     },
@@ -402,6 +427,7 @@ enum PkgCommand {
     /// Print resolved packages, members, dependencies, entrypoints, capabilities, and lockfile status.
     Graph {
         path: PathBuf,
+        /// Emit an axiom.stage1.v1 JSON envelope for agent/tool consumption.
         #[arg(long)]
         json: bool,
     },
@@ -429,22 +455,20 @@ fn main() {
         Command::Parse { path, json } => match parse_project_entry(&path) {
             Ok(output) => {
                 if json {
-                    println!(
-                        "{}",
-                        serde_json::json!({
-                            "schema_version": json_contract::JSON_SCHEMA_VERSION,
-                            "ok": true,
-                            "command": "parse",
-                            "project": path.display().to_string(),
-                            "manifest": output.manifest,
-                            "entry": output.entry,
-                            "statement_count": output.statement_count,
-                        })
-                    );
+                    let payload = serde_json::json!({
+                        "schema_version": json_contract::JSON_SCHEMA_VERSION,
+                        "ok": true,
+                        "command": "parse",
+                        "project": path.display().to_string(),
+                        "manifest": output.manifest,
+                        "entry": output.entry,
+                        "statement_count": output.statement_count,
+                    });
+                    print_json_output_or_error("parse", &payload, 0)
                 } else {
                     eprintln!("OK statements={}", output.statement_count);
+                    0
                 }
-                0
             }
             Err(error) => print_error("parse", error, json),
         },
@@ -484,7 +508,16 @@ fn main() {
                             payload["properties"] =
                                 json_contract::test_property_summary(property_output);
                         }
-                        println!("{payload}");
+                        let code = if property_output
+                            .as_ref()
+                            .map(|output| output.failed == 0)
+                            .unwrap_or(true)
+                        {
+                            0
+                        } else {
+                            1
+                        };
+                        print_json_output_or_error("check", &payload, code)
                     } else {
                         for warning in &output.warnings {
                             eprintln!("{warning}");
@@ -493,15 +526,15 @@ fn main() {
                         if let Some(property_output) = &property_output {
                             print_property_summary(property_output);
                         }
-                    }
-                    if property_output
-                        .as_ref()
-                        .map(|output| output.failed == 0)
-                        .unwrap_or(true)
-                    {
-                        0
-                    } else {
-                        1
+                        if property_output
+                            .as_ref()
+                            .map(|output| output.failed == 0)
+                            .unwrap_or(true)
+                        {
+                            0
+                        } else {
+                            1
+                        }
                     }
                 }
                 Err(error) => print_error("check", error, json),
@@ -533,13 +566,17 @@ fn main() {
             ) {
                 Ok(output) => {
                     if json {
-                        println!("{}", json_contract::build_success(&path, &output));
+                        print_json_output_or_error(
+                            "build",
+                            &json_contract::build_success(&path, &output),
+                            0,
+                        )
                     } else {
                         for line in build_summary_lines(&output, timings) {
                             eprintln!("{line}");
                         }
+                        0
                     }
-                    0
                 }
                 Err(error) => print_error("build", error, json),
             }
@@ -559,8 +596,11 @@ fn main() {
             if json {
                 match run_project_report_with_options(&path, &options) {
                     Ok(output) => {
-                        println!("{}", json_contract::run_success(&path, &output));
-                        output.exit_code
+                        print_json_output_or_error(
+                            "run",
+                            &json_contract::run_success(&path, &output),
+                            output.exit_code,
+                        )
                     }
                     Err(error) => print_error("run", error, true),
                 }
@@ -619,15 +659,16 @@ fn main() {
                 match list_project_tests_with_options(&path, &options) {
                     Ok(output) => {
                         if json {
-                            println!(
-                                "{}",
-                                json_contract::test_list_success(
+                            print_json_output_or_error(
+                                "test",
+                                &json_contract::test_list_success(
                                     &path,
                                     filter.as_deref(),
                                     property_summary,
-                                    &output
-                                )
-                            );
+                                    &output,
+                                ),
+                                0,
+                            )
                         } else {
                             for test in &output.tests {
                                 let package = test.package.as_deref().unwrap_or("<unnamed>");
@@ -637,8 +678,8 @@ fn main() {
                                 );
                             }
                             eprintln!("discovered: {}", output.tests.len());
+                            0
                         }
-                        0
                     }
                     Err(error) => print_error("test", error, json),
                 }
@@ -647,15 +688,16 @@ fn main() {
                     Ok(output) => {
                         let ok = output.failed == 0;
                         if json {
-                            println!(
-                                "{}",
-                                json_contract::test_success(
+                            print_json_output_or_error(
+                                "test",
+                                &json_contract::test_success(
                                     &path,
                                     filter.as_deref(),
                                     property_summary,
-                                    &output
-                                )
-                            );
+                                    &output,
+                                ),
+                                if ok { 0 } else { 1 },
+                            )
                         } else {
                             for case in &output.cases {
                                 let status = if case.ok { "PASS" } else { "FAIL" };
@@ -685,8 +727,8 @@ fn main() {
                                     .count();
                                 eprintln!("{passed}/{total} properties passed");
                             }
+                            if ok { 0 } else { 1 }
                         }
-                        if ok { 0 } else { 1 }
                     }
                     Err(error) => print_error("test", error, json),
                 }
@@ -1571,13 +1613,27 @@ fn print_json<T: Serialize>(command: &str, payload: &T) -> i32 {
 }
 
 fn print_json_with_status<T: Serialize>(command: &str, payload: &T, status: i32) -> i32 {
-    match json_contract::to_pretty_string(payload) {
+    match format_json_output(payload) {
         Ok(output) => {
             println!("{output}");
             status
         }
         Err(error) => print_error(command, error, true),
     }
+}
+
+fn print_json_output_or_error<T: Serialize>(command: &str, payload: &T, success_code: i32) -> i32 {
+    match format_json_output(payload) {
+        Ok(output) => {
+            println!("{output}");
+            success_code
+        }
+        Err(error) => print_error(command, error, true),
+    }
+}
+
+fn format_json_output<T: Serialize>(payload: &T) -> Result<String, Diagnostic> {
+    json_contract::to_pretty_string(payload)
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -8020,6 +8076,21 @@ mod tests {
     use clap::{CommandFactory, Parser};
 
     #[test]
+    fn json_output_formatter_uses_pretty_json() {
+        let output = format_json_output(&serde_json::json!({
+            "schema_version": json_contract::JSON_SCHEMA_VERSION,
+            "ok": true,
+            "command": "parse",
+        }))
+        .expect("format JSON output");
+
+        assert!(output.starts_with("{\n"));
+        assert!(output.contains("\n  \"schema_version\""));
+        assert!(output.ends_with("\n}"));
+        serde_json::from_str::<serde_json::Value>(&output).expect("parse formatted JSON");
+    }
+
+    #[test]
     fn help_describes_supported_stage1_workflows() {
         let help = Cli::command().render_long_help().to_string();
         assert!(help.contains("Create a new stage1 package"));
@@ -8090,6 +8161,40 @@ mod tests {
             .render_long_help()
             .to_string();
         assert!(check_help.contains("--properties"));
+    }
+
+    fn subcommand_help(path: &[&str]) -> String {
+        let mut command = Cli::command();
+        let mut current = &mut command;
+        for name in path {
+            current = current
+                .find_subcommand_mut(name)
+                .unwrap_or_else(|| panic!("missing subcommand {name}"));
+        }
+        current.render_long_help().to_string()
+    }
+
+    #[test]
+    fn json_flags_describe_agent_envelope_in_help() {
+        for path in [
+            &["parse"][..],
+            &["check"],
+            &["build"],
+            &["run"],
+            &["test"],
+            &["caps"],
+            &["doc"],
+            &["inspect", "symbols"],
+            &["generate", "sql"],
+            &["pkg", "graph"],
+        ] {
+            let help = subcommand_help(path);
+            assert!(help.contains("--json"), "{path:?} should list --json");
+            assert!(
+                help.contains("agent/tool consumption"),
+                "{path:?} should describe the JSON envelope"
+            );
+        }
     }
 
     #[test]
