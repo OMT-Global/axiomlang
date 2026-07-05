@@ -1,0 +1,4 @@
+import "std/crypto_sign.ax"
+
+let keys: ([u8], [u8]) = ed25519_keygen()
+print len(keys.0)

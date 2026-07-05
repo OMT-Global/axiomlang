@@ -1,0 +1,8 @@
+{
+  "kind": "capability",
+  "code": null,
+  "message": "call to \"read_file\" requires [capabilities].fs = true",
+  "path": "src/main.ax",
+  "line": 3,
+  "column": 7
+}

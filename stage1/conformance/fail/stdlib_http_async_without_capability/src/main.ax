@@ -1,0 +1,6 @@
+import "std/http.ax"
+import "std/http_async.ax"
+
+let server: Server = listen("127.0.0.1:0")
+let task: Task<bool> = async_serve_route(server, "/health", "ok", 1)
+print await task

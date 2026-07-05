@@ -1,0 +1,8 @@
+{
+  "kind": "capability",
+  "code": null,
+  "message": "call to stdlib wrapper \"sha256\" requires [capabilities].crypto = true",
+  "path": "src/main.ax",
+  "line": 3,
+  "column": 7
+}

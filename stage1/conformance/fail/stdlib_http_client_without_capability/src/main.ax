@@ -1,0 +1,10 @@
+import "std/http.ax"
+
+match get("http://127.0.0.1:1/health") {
+Some(_body) {
+print true
+}
+None {
+print false
+}
+}

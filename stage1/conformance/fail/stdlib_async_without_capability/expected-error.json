@@ -1,0 +1,8 @@
+{
+  "kind": "capability",
+  "code": null,
+  "message": "call to stdlib wrapper \"ready\" requires [capabilities].async = true",
+  "path": "src/main.ax",
+  "line": 3,
+  "column": 18
+}

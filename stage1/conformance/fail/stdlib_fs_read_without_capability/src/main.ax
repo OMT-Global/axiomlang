@@ -1,0 +1,10 @@
+import "std/fs.ax"
+
+match read_file("src/main.ax") {
+Some(value) {
+print value
+}
+None {
+print "missing"
+}
+}

@@ -1,0 +1,8 @@
+{
+  "kind": "capability",
+  "code": null,
+  "message": "call to stdlib wrapper \"get_env\" requires [capabilities].env = true",
+  "path": "src/main.ax",
+  "line": 3,
+  "column": 7
+}

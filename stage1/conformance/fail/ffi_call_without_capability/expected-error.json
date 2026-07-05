@@ -1,0 +1,8 @@
+{
+  "kind": "capability",
+  "code": null,
+  "message": "call to \"strlen\" requires [capabilities].ffi = true",
+  "path": "src/main.ax",
+  "line": 3,
+  "column": 7
+}

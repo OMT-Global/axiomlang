@@ -1,0 +1,6 @@
+version = 1
+
+[[package]]
+name = "conformance-stdlib-env-without-capability"
+version = "0.1.0"
+source = "path"
