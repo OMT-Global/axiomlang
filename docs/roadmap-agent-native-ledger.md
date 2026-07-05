@@ -26,7 +26,7 @@ canonical issue has already shipped or has an active PR.
 | Direct native backend | #1124 | #105, #627, #628, #629, #630, #652, #653, #654, #656, #691, #692, #693, #694, #927, #928, #929 | use #1124 for remaining direct-native ABI completion; treat #693/#694 as closed historical planning slices | Start with the runtime ABI matrix before backend replacement work. Do not remove generated Rust from the supported toolchain until #1124 is ready and #1191 removes the compatibility backend from supported builds. |
 | Rust bootstrap removal / self-hosting | #721 | #559, #562, #643, #644, #645, #682, #684, #687, #717, #719, #930, #931, #932, #936, #937, #938, #939, #940 | supersede older phase duplicates; #721 is the current final Rust-bootstrap removal gate | Keep work tied to the current Phase-J family. Do not remove Rust or Cargo behavior unless the assigned issue explicitly permits it and `make rust-exit-readiness` is green. |
 | Property testing | #715 | #560, #561, #637, #639, #640, #641, #642, #672, #676, #678, #679, #680, #706, #711, #712, #714 | shipped as the Phase-I property gate | #715, #714, and #712 are the shipped property-gate record. Close older Phase-I duplicate trackers such as #561 against this evidence when explicitly assigned; route remaining Cargo/Rust-bootstrap removal to #719 and #721. |
-| Doc/LSP self-hosting | #731 | #563, #564, #646, #647, #648, #649, #651, #689, #723, #725, #727, #728 | use #731 for the remaining doc/LSP-owned readiness gate; treat #563/#564 as historical slices | Work the current Phase-K/Phase-L issue directly. Do not infer self-hosting completion from stdlib/doc helper work. |
+| Doc/LSP self-hosting | #731 | #563, #564, #646, #647, #648, #649, #651, #689, #723, #725, #727, #728 | #731 is closed; use it as the completed doc/LSP-owned readiness proof and treat #563/#564 as historical slices | Do not infer full self-hosting completion from doc/LSP readiness. Final compiler-source migration and snapshot bootstrap remain with #721. |
 | Numeric tower | #716 | #681, #683, #685, #686, #688, #690, #718, #720, #722, #724, #726 | supersede older duplicate stack | Prefer the newest Numeric tower A-F sequence. Do not implement multiple numeric slices in one PR unless assigned. |
 | Traits and macros | #695 | #623, #624, #625, #626, #631, #632, #633, #634, #658, #659, #660, #662, #663, #665, #666, #667, #697, #698, #699, #700, #701, #702 | keep open by slice | Keep traits and macros separate. Syntax-only slices should not add codegen behavior unless the issue says so. |
 | Mutable borrow work | #713 | #328, #330, #332, #611, #612, #613, #614, #615, #616, #618, #619, #670, #671, #673, #705, #707, #709, #710 | keep open by slice | Use active AG1.2 issues for current borrow behavior. Treat older AG1 issues as historical unless assigned. |
@@ -71,6 +71,9 @@ phase scheme in #565 where they disagree.
   generated-Rust backend. This is the active track: #1124 (direct-native ABI),
   #1191 (remove generated-Rust), #731 (Axiom-owned doc/LSP), #1255 (suite +
   cross-backend parity gating), gated by #721 / `make rust-exit-readiness`.
+  #731 is now closed, so remaining backend-exit work should be classified
+  through #721 and the live readiness gate rather than reopened as an LSP
+  driver blocker.
   Note: Cranelift is itself a Rust crate linked into `axiomc`, so backend-exit
   removes the `rustc` *step*, not Rust from the toolchain.
 - **Host-exit (self-hosting)** — rewrite `axiomc` itself in AxiOM and prove a
