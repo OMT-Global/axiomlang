@@ -1,0 +1,75 @@
+{
+  "schema_version": "axiom.stage1.v1",
+  "command": "doc",
+  "ok": true,
+  "markdown": "<project>/docs/axiom/index.md",
+  "html": "<project>/docs/axiom/index.html",
+  "functions": [
+    {
+      "file": "<project>/src/main.ax",
+      "kind": "function",
+      "public": true,
+      "signature": "pub fn add(left: int, right: int): int {",
+      "docs": [],
+      "examples": []
+    }
+  ],
+  "types": [],
+  "items": [
+    {
+      "file": "<project>/src/main.ax",
+      "kind": "function",
+      "public": true,
+      "signature": "pub fn add(left: int, right: int): int {",
+      "docs": [],
+      "examples": []
+    }
+  ],
+  "capabilities": [
+    {
+      "name": "fs",
+      "enabled": false,
+      "description": "filesystem read access"
+    },
+    {
+      "name": "fs:write",
+      "enabled": false,
+      "description": "filesystem write access"
+    },
+    {
+      "name": "net",
+      "enabled": false,
+      "description": "network access"
+    },
+    {
+      "name": "process",
+      "enabled": false,
+      "description": "child process execution"
+    },
+    {
+      "name": "env",
+      "enabled": false,
+      "description": "environment variable access"
+    },
+    {
+      "name": "clock",
+      "enabled": false,
+      "description": "wall-clock time access"
+    },
+    {
+      "name": "crypto",
+      "enabled": false,
+      "description": "hashing and cryptography primitives"
+    },
+    {
+      "name": "ffi",
+      "enabled": false,
+      "description": "foreign function interface access"
+    },
+    {
+      "name": "async",
+      "enabled": false,
+      "description": "host async runtime access"
+    }
+  ]
+}

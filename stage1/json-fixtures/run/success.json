@@ -1,0 +1,18 @@
+{
+  "args": [],
+  "backend": "cranelift",
+  "binary": "<project>/dist/contract-run-ok-app",
+  "command": "run",
+  "duration_ms": 584,
+  "entry": "<project>/src/main.ax",
+  "exit_code": 0,
+  "generated_rust": null,
+  "manifest": "<project>/axiom.toml",
+  "ok": true,
+  "package": null,
+  "project": "<project>",
+  "result": "success",
+  "schema_version": "axiom.stage1.v1",
+  "stderr": "",
+  "stdout": "hello from run\n"
+}
