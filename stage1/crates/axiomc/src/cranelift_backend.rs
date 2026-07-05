@@ -7824,6 +7824,15 @@ fn lower_i64_env_option_call_let_stmts(
     }
     let key = i64_env_get_key(expr, static_bindings)?;
     let env_len = i64_env_len_expr(&key, static_bindings)?;
+    lower_i64_string_option_len_call_let_stmts(name, env_len, locals, local_indexes)
+}
+
+fn lower_i64_string_option_len_call_let_stmts(
+    name: &str,
+    payload_len: CraneliftI64Expr,
+    locals: &mut Vec<CraneliftI64Expr>,
+    local_indexes: &mut HashMap<String, usize>,
+) -> Option<Vec<CraneliftI64Stmt>> {
     let payload_local = local_indexes.len();
     local_indexes.insert(i64_option_payload_slot_key(name, 0), payload_local);
     local_indexes.insert(i64_option_payload_key(name), payload_local);
@@ -7845,7 +7854,7 @@ fn lower_i64_env_option_call_let_stmts(
     Some(vec![
         CraneliftI64Stmt::Assign(axiomc_backend_cranelift::I64Assign {
             local: payload_local,
-            value: env_len,
+            value: payload_len,
         }),
         CraneliftI64Stmt::Assign(axiomc_backend_cranelift::I64Assign {
             local: tag_local,
@@ -7876,37 +7885,10 @@ fn lower_i64_readline_option_call_let_stmts(
     if !is_i64_io_readline_name(call_name, static_bindings) || !args.is_empty() {
         return None;
     }
-    let payload_local = local_indexes.len();
-    local_indexes.insert(i64_option_payload_slot_key(name, 0), payload_local);
-    local_indexes.insert(i64_option_payload_key(name), payload_local);
-    locals.push(CraneliftI64Expr::Literal(0));
-
-    let tag_local = local_indexes.len();
-    local_indexes.insert(i64_option_tag_key(name), tag_local);
-    locals.push(CraneliftI64Expr::Literal(0));
-
     let line_len = CraneliftI64Expr::StdinLineLen {
         max_bytes: I64_STDIN_BUFFER_BYTES,
     };
-    let tag = CraneliftI64Expr::Select {
-        cond: Box::new(CraneliftI64Condition::Compare(CraneliftI64Compare {
-            op: CraneliftI64CompareOp::Ge,
-            lhs: CraneliftI64Expr::Local(payload_local),
-            rhs: CraneliftI64Expr::Literal(0),
-        })),
-        then_result: Box::new(CraneliftI64Expr::Literal(1)),
-        else_result: Box::new(CraneliftI64Expr::Literal(0)),
-    };
-    Some(vec![
-        CraneliftI64Stmt::Assign(axiomc_backend_cranelift::I64Assign {
-            local: payload_local,
-            value: line_len,
-        }),
-        CraneliftI64Stmt::Assign(axiomc_backend_cranelift::I64Assign {
-            local: tag_local,
-            value: tag,
-        }),
-    ])
+    lower_i64_string_option_len_call_let_stmts(name, line_len, locals, local_indexes)
 }
 
 fn lower_i64_fs_read_option_call_let_stmts(
@@ -7922,34 +7904,7 @@ fn lower_i64_fs_read_option_call_let_stmts(
     }
     let path = i64_fs_read_path(expr, static_bindings)?;
     let file_len = i64_fs_read_file_len_expr(&path.candidate, path.requested_len, static_bindings)?;
-    let payload_local = local_indexes.len();
-    local_indexes.insert(i64_option_payload_slot_key(name, 0), payload_local);
-    local_indexes.insert(i64_option_payload_key(name), payload_local);
-    locals.push(CraneliftI64Expr::Literal(0));
-
-    let tag_local = local_indexes.len();
-    local_indexes.insert(i64_option_tag_key(name), tag_local);
-    locals.push(CraneliftI64Expr::Literal(0));
-
-    let tag = CraneliftI64Expr::Select {
-        cond: Box::new(CraneliftI64Condition::Compare(CraneliftI64Compare {
-            op: CraneliftI64CompareOp::Ge,
-            lhs: CraneliftI64Expr::Local(payload_local),
-            rhs: CraneliftI64Expr::Literal(0),
-        })),
-        then_result: Box::new(CraneliftI64Expr::Literal(1)),
-        else_result: Box::new(CraneliftI64Expr::Literal(0)),
-    };
-    Some(vec![
-        CraneliftI64Stmt::Assign(axiomc_backend_cranelift::I64Assign {
-            local: payload_local,
-            value: file_len,
-        }),
-        CraneliftI64Stmt::Assign(axiomc_backend_cranelift::I64Assign {
-            local: tag_local,
-            value: tag,
-        }),
-    ])
+    lower_i64_string_option_len_call_let_stmts(name, file_len, locals, local_indexes)
 }
 
 fn lower_i64_net_option_call_let_stmts(
@@ -7965,34 +7920,7 @@ fn lower_i64_net_option_call_let_stmts(
     }
     let host = i64_net_resolve_host(expr, static_bindings)?;
     let net_len = i64_net_resolve_len_expr(&host, static_bindings)?;
-    let payload_local = local_indexes.len();
-    local_indexes.insert(i64_option_payload_slot_key(name, 0), payload_local);
-    local_indexes.insert(i64_option_payload_key(name), payload_local);
-    locals.push(CraneliftI64Expr::Literal(0));
-
-    let tag_local = local_indexes.len();
-    local_indexes.insert(i64_option_tag_key(name), tag_local);
-    locals.push(CraneliftI64Expr::Literal(0));
-
-    let tag = CraneliftI64Expr::Select {
-        cond: Box::new(CraneliftI64Condition::Compare(CraneliftI64Compare {
-            op: CraneliftI64CompareOp::Ge,
-            lhs: CraneliftI64Expr::Local(payload_local),
-            rhs: CraneliftI64Expr::Literal(0),
-        })),
-        then_result: Box::new(CraneliftI64Expr::Literal(1)),
-        else_result: Box::new(CraneliftI64Expr::Literal(0)),
-    };
-    Some(vec![
-        CraneliftI64Stmt::Assign(axiomc_backend_cranelift::I64Assign {
-            local: payload_local,
-            value: net_len,
-        }),
-        CraneliftI64Stmt::Assign(axiomc_backend_cranelift::I64Assign {
-            local: tag_local,
-            value: tag,
-        }),
-    ])
+    lower_i64_string_option_len_call_let_stmts(name, net_len, locals, local_indexes)
 }
 
 fn lower_i64_result_literal_let_stmts(
@@ -28175,6 +28103,53 @@ mod tests {
         assert_eq!(
             i64_fs_read_file_len_expr("fixture.txt", "fixture.txt".len(), &static_bindings),
             None
+        );
+    }
+
+    #[test]
+    fn string_option_len_call_lowering_emits_shared_payload_and_tag_shape() {
+        let mut locals = Vec::new();
+        let mut local_indexes = HashMap::new();
+
+        let lowered = lower_i64_string_option_len_call_let_stmts(
+            "maybe_line",
+            CraneliftI64Expr::Literal(42),
+            &mut locals,
+            &mut local_indexes,
+        )
+        .expect("string option len lowering");
+
+        assert_eq!(
+            local_indexes,
+            HashMap::from([
+                (String::from("maybe_line?payload"), 0),
+                (String::from("maybe_line?tag"), 1),
+            ])
+        );
+        assert_eq!(
+            locals,
+            vec![CraneliftI64Expr::Literal(0), CraneliftI64Expr::Literal(0)]
+        );
+        assert_eq!(
+            lowered,
+            vec![
+                CraneliftI64Stmt::Assign(axiomc_backend_cranelift::I64Assign {
+                    local: 0,
+                    value: CraneliftI64Expr::Literal(42),
+                }),
+                CraneliftI64Stmt::Assign(axiomc_backend_cranelift::I64Assign {
+                    local: 1,
+                    value: CraneliftI64Expr::Select {
+                        cond: Box::new(CraneliftI64Condition::Compare(CraneliftI64Compare {
+                            op: CraneliftI64CompareOp::Ge,
+                            lhs: CraneliftI64Expr::Local(0),
+                            rhs: CraneliftI64Expr::Literal(0),
+                        })),
+                        then_result: Box::new(CraneliftI64Expr::Literal(1)),
+                        else_result: Box::new(CraneliftI64Expr::Literal(0)),
+                    },
+                }),
+            ]
         );
     }
 

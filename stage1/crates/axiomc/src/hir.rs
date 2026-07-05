@@ -7297,9 +7297,20 @@ fn resolve_variant<'a>(
         return Ok(None);
     };
     if let Some(Type::Enum(expected_enum)) = expected {
-        return Ok(candidates
+        if let Some(variant) = candidates
             .iter()
-            .find(|variant| &variant.enum_name == expected_enum));
+            .find(|variant| &variant.enum_name == expected_enum)
+        {
+            return Ok(Some(variant));
+        }
+        return Err(Diagnostic::new(
+            "type",
+            format!(
+                "enum variant {name:?} is not a variant of expected enum {expected_enum:?} (found on: {})",
+                variant_enum_names(candidates)
+            ),
+        )
+        .with_span(line, column));
     }
     if candidates.len() == 1 {
         return Ok(candidates.first());
@@ -7309,6 +7320,20 @@ fn resolve_variant<'a>(
         format!("enum variant {name:?} is ambiguous without an expected enum type"),
     )
     .with_span(line, column))
+}
+
+fn variant_enum_names(candidates: &[VariantInfo]) -> String {
+    let mut names = candidates
+        .iter()
+        .map(|variant| variant.enum_name.as_str())
+        .collect::<Vec<_>>();
+    names.sort_unstable();
+    names.dedup();
+    names
+        .into_iter()
+        .map(|name| format!("{name:?}"))
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 fn lower_variant_constructor(
@@ -7771,6 +7796,33 @@ print same<Point>(a, b)
     }
 
     #[test]
+    fn hir_reports_variant_from_wrong_expected_enum() {
+        let parsed = parse(
+            r#"
+enum Status {
+Ready
+Failed
+}
+enum Traffic {
+Stop
+Go
+}
+let status: Status = Stop
+"#,
+        );
+
+        let error = lower(&parsed).expect_err("wrong enum variant should fail");
+        assert_eq!(error.kind, "type");
+        assert!(
+            error
+                .message
+                .contains("enum variant \"Stop\" is not a variant of expected enum \"Status\"")
+        );
+        assert!(error.message.contains("found on: \"Traffic\""));
+        assert!(!error.message.contains("undefined variable"));
+    }
+
+    #[test]
     fn hir_rejects_unsatisfied_trait_bound_on_generic_instantiation() {
         let parsed = parse(
             r#"
@@ -7970,6 +8022,14 @@ return ""
             &Type::Option(Box::new(Type::String))
         ));
         assert!(!type_assignable_to(&Type::Int, &Type::Never));
+    }
+
+    #[test]
+    fn type_assignable_fallback_uses_direct_type_equality() {
+        assert!(type_assignable_to(&Type::Bool, &Type::Bool));
+        assert!(!type_assignable_to(&Type::Bool, &Type::Int));
+        assert!(type_assignable_to(&Type::Error, &Type::Int));
+        assert!(type_assignable_to(&Type::Int, &Type::Error));
     }
 
     #[test]

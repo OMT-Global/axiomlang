@@ -89,7 +89,7 @@ Snapshot from 2026-07-02:
 | 4 | `stage1/crates/axiomc/src/hir.rs` | 8,248 | `compiler.hir` | Generic inference and monomorphization now live in `stage1/crates/axiomc/src/hir/generics.rs`; public HIR model types now live in `stage1/crates/axiomc/src/hir/model.rs`; syntax-to-HIR type/literal lowering now lives in `stage1/crates/axiomc/src/hir/types.rs`; type-name, aggregate, and trait-use definition checks now live in `stage1/crates/axiomc/src/hir/definitions.rs`; function/method signatures and trait impl signature validation now live in `stage1/crates/axiomc/src/hir/signatures.rs`; capability analysis now lives in `stage1/crates/axiomc/src/hir/capabilities.rs`; expression typing helpers now live in `stage1/crates/axiomc/src/hir/expressions.rs`; ownership and borrow-state helpers now live in `stage1/crates/axiomc/src/hir/ownership.rs`; property clause checks now live in `stage1/crates/axiomc/src/hir/properties.rs`; reachability/call-graph discovery now lives in `stage1/crates/axiomc/src/hir/reachability.rs`; diagnostic recovery helpers now live in `stage1/crates/axiomc/src/hir/diagnostics.rs`; monomorphized symbol and intrinsic helpers now live in `stage1/crates/axiomc/src/hir/symbols.rs`; continue splitting remaining HIR helper clusters behind the package APIs in `docs/compiler-hir-ownership-capability.md`. |
 | 5 | `stage1/crates/axiomc/src/codegen.rs` | 7,791 | `compiler.backend.generated_rust`, `compiler.backend.contracts` | Isolate generated-Rust compatibility emission from backend target selection and unsupported-feature contracts. |
 | 6 | `stage1/crates/axiomc/src/syntax.rs` | 6,324 | `compiler.syntax`, `compiler.diagnostics` | Split lexer/parser, parse recovery, source spans, macros, and syntax diagnostics behind the syntax boundary. |
-| 7 | `stage1/crates/axiomc/src/hir/generics.rs` | 4,205 | `compiler.hir` | Keep generic call inference, trait-bound validation, aggregate monomorphization, and generic call rewriting isolated from the main HIR lowering facade. |
+| 7 | `stage1/crates/axiomc/src/hir/generics.rs` | 4,208 | `compiler.hir` | Keep generic call inference, trait-bound validation, aggregate monomorphization, and generic call rewriting isolated from the main HIR lowering facade. |
 
 ## Ratchet Ceilings
 
@@ -113,7 +113,7 @@ matching ceiling in this table in the same PR.
 | `stage1/crates/axiomc/src/hir/definitions.rs` | 684 |
 | `stage1/crates/axiomc/src/hir/diagnostics.rs` | 28 |
 | `stage1/crates/axiomc/src/hir/expressions.rs` | 205 |
-| `stage1/crates/axiomc/src/hir/generics.rs` | 4205 |
+| `stage1/crates/axiomc/src/hir/generics.rs` | 4208 |
 | `stage1/crates/axiomc/src/hir/model.rs` | 607 |
 | `stage1/crates/axiomc/src/hir/ownership.rs` | 995 |
 | `stage1/crates/axiomc/src/hir/properties.rs` | 167 |
