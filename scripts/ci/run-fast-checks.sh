@@ -21,10 +21,19 @@ bash "$script_repo_root/scripts/ci/test-check-stage1-full-lib-triage.sh"
 python3 "$script_repo_root/scripts/ci/render-direct-native-runtime-abi-status.py" \
   --contract "$repo_root/stage1/runtime-abi/direct-native-v0.json" \
   --check-doc "$repo_root/docs/direct-native-runtime-abi-v0.md"
-python3 "$script_repo_root/scripts/ci/check-direct-native-runtime-abi.py" \
+abi_matrix_report="$(mktemp)"
+if ! python3 "$script_repo_root/scripts/ci/check-direct-native-runtime-abi.py" \
   --contract "$repo_root/stage1/runtime-abi/direct-native-v0.json" \
+  --evidence-test-manifest "$repo_root/stage1/runtime-abi/direct-native-v0-evidence-tests.json" \
+  --checkout-root "$repo_root" \
   --coverage-matrix \
-  --json >/dev/null
+  --json >"$abi_matrix_report"; then
+  echo "direct-native runtime ABI coverage matrix failed:" >&2
+  python3 -c 'import json,sys; [print(e, file=sys.stderr) for e in json.load(open(sys.argv[1])).get("errors", [])]' "$abi_matrix_report" || cat "$abi_matrix_report" >&2
+  rm -f "$abi_matrix_report"
+  exit 1
+fi
+rm -f "$abi_matrix_report"
 bash "$script_repo_root/scripts/ci/test-check-rust-exit-command-surface.sh"
 python3 "$script_repo_root/scripts/ci/test-pr-queue-remediation.py"
 python3 "$script_repo_root/scripts/ci/test-report-delivery-signals.py"

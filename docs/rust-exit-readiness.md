@@ -42,9 +42,11 @@ Command-surface coverage for the official `check`, `build`, `run`, `test`,
 make rust-exit-command-surface-coverage
 ```
 
-That report currently stays `ready: false` because its `doc` and `lsp` rows
-still carry the #731 blocker; #731 itself is closed, so the row data needs a
-refresh before the report can flip.
+That report is `ready: true`: all six surfaces are implemented, and the `doc`
+and `lsp` rows record closed #731 as their ownership proof (`proof_issues`)
+instead of a live blocker. #731 stays listed in
+`docs/rust-exit-readiness.json` so `make rust-exit-readiness` keeps validating
+its CLOSED state live.
 
 The compiler rewrite also has a separate language/backend prerequisite gate:
 [`make self-hosting-language-readiness`](self-hosting-language-readiness.md).
