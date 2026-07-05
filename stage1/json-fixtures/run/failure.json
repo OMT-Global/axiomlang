@@ -1,0 +1,18 @@
+{
+  "args": [],
+  "backend": "cranelift",
+  "binary": "<project>/dist/contract-run-fail-app",
+  "command": "run",
+  "duration_ms": 278,
+  "entry": "<project>/src/main.ax",
+  "exit_code": 1,
+  "generated_rust": null,
+  "manifest": "<project>/axiom.toml",
+  "ok": false,
+  "package": null,
+  "project": "<project>",
+  "result": "failure",
+  "schema_version": "axiom.stage1.v1",
+  "stderr": "{\"kind\":\"panic\",\"message\":\"run failure fixture\"}\n",
+  "stdout": ""
+}

@@ -1,0 +1,12 @@
+{
+  "command": "doc",
+  "error": {
+    "column": null,
+    "kind": "doc",
+    "line": null,
+    "message": "no .ax files found under <project>",
+    "path": null
+  },
+  "ok": false,
+  "schema_version": "axiom.stage1.v1"
+}

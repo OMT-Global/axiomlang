@@ -70,6 +70,8 @@
       ],
       "stable_output": "axiom.stage1.v1",
       "fixtures": [
+        "stage1/json-fixtures/run/success.json",
+        "stage1/json-fixtures/run/failure.json",
         "stage1/compiler-contracts/snapshots/run.json"
       ]
     },
@@ -111,6 +113,8 @@
       ],
       "stable_output": "axiom.stage1.v1",
       "fixtures": [
+        "stage1/json-fixtures/doc/success.json",
+        "stage1/json-fixtures/doc/failure.json",
         "stage1/compiler-contracts/snapshots/doc-md.md"
       ]
     },

@@ -898,10 +898,14 @@
         "properties": {
           "command": {
             "const": "doc"
+          },
+          "ok": {
+            "const": true
           }
         },
         "required": [
-          "command"
+          "command",
+          "ok"
         ]
       },
       "then": {
@@ -955,6 +959,44 @@
             "items": {
               "$ref": "#/$defs/capability"
             }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "command": {
+            "const": "doc"
+          },
+          "ok": {
+            "const": false
+          }
+        },
+        "required": [
+          "command",
+          "ok"
+        ]
+      },
+      "then": {
+        "required": [
+          "schema_version",
+          "ok",
+          "command",
+          "error"
+        ],
+        "properties": {
+          "schema_version": {
+            "$ref": "#/$defs/schemaVersion"
+          },
+          "ok": {
+            "const": false
+          },
+          "command": {
+            "const": "doc"
+          },
+          "error": {
+            "$ref": "#/$defs/diagnostic"
           }
         }
       }

@@ -143,3 +143,58 @@ fn caps_fixture_covers_unsafe_capability_state() {
     assert_eq!(env["enabled"], true);
     assert_eq!(env["unsafe_unrestricted"], true);
 }
+
+#[test]
+fn run_fixtures_cover_direct_native_success_and_runtime_failure() {
+    let validator = schema_validator();
+    let success = fixture("run", "success.json");
+    assert_matches_stage1_schema(&validator, &success);
+    assert_envelope(&success, "run", true);
+    assert_eq!(success["backend"], "cranelift");
+    assert!(success["generated_rust"].is_null());
+    assert_eq!(success["result"], "success");
+    assert_eq!(success["exit_code"], 0);
+    assert!(success["binary"].is_string());
+    assert!(success["duration_ms"].is_u64());
+    assert_eq!(success["stdout"], "hello from run\n");
+    assert_eq!(success["stderr"], "");
+
+    let failure = fixture("run", "failure.json");
+    assert_matches_stage1_schema(&validator, &failure);
+    assert_envelope(&failure, "run", false);
+    assert_eq!(failure["backend"], "cranelift");
+    assert!(failure["generated_rust"].is_null());
+    assert_eq!(failure["result"], "failure");
+    assert_eq!(failure["exit_code"], 1);
+    assert!(
+        failure["stderr"]
+            .as_str()
+            .expect("runtime stderr")
+            .contains("\"kind\":\"panic\"")
+    );
+}
+
+#[test]
+fn doc_fixtures_cover_public_api_extraction_and_missing_sources() {
+    let validator = schema_validator();
+    let success = fixture("doc", "success.json");
+    assert_matches_stage1_schema(&validator, &success);
+    assert_envelope(&success, "doc", true);
+    assert!(success["markdown"].is_string());
+    assert!(success["html"].is_string());
+    let item = &success["items"][0];
+    assert_eq!(item["kind"], "function");
+    assert_eq!(item["public"], true);
+    assert_eq!(item["signature"], "pub fn add(left: int, right: int): int {");
+
+    let failure = fixture("doc", "failure.json");
+    assert_matches_stage1_schema(&validator, &failure);
+    assert_envelope(&failure, "doc", false);
+    assert_eq!(failure["error"]["kind"], "doc");
+    assert!(
+        failure["error"]["message"]
+            .as_str()
+            .expect("doc error message")
+            .contains("no .ax files found")
+    );
+}
