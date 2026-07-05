@@ -38,6 +38,43 @@ cp "$repo_root/stage1/crates/axiomc/src/cranelift_backend.rs" "$case_dir/stage1/
 cp "$repo_root/stage1/crates/axiomc/tests/cranelift_backend.rs" "$case_dir/stage1/crates/axiomc/tests/cranelift_backend.rs"
 cp "$repo_root/stage1/crates/axiomc/tests/lsp_stdio.rs" "$case_dir/stage1/crates/axiomc/tests/lsp_stdio.rs"
 cp "$repo_root/stage1/crates/axiomc-backend-cranelift/src/lib.rs" "$case_dir/stage1/crates/axiomc-backend-cranelift/src/lib.rs"
+
+# Mirror every evidence path referenced by the ABI contract into the sandbox
+# so contract edits (new evidence/denial_evidence rows) cannot silently break
+# this self-test again.
+python3 - "$repo_root" "$case_dir" <<'PY'
+import json
+import shutil
+import sys
+from pathlib import Path
+
+repo_root = Path(sys.argv[1])
+case_dir = Path(sys.argv[2])
+contract = json.loads(
+    (repo_root / "stage1/runtime-abi/direct-native-v0.json").read_text(encoding="utf-8")
+)
+manifest = json.loads(
+    (repo_root / "stage1/runtime-abi/direct-native-v0-evidence-tests.json").read_text(
+        encoding="utf-8"
+    )
+)
+
+paths = set()
+for row in contract["value_features"] + contract["capability_shims"]:
+    for field in ("evidence", "denial_evidence", "runtime_evidence"):
+        paths.update(row.get(field) or [])
+if manifest.get("test_source"):
+    paths.add(manifest["test_source"])
+
+for rel in sorted(paths):
+    source = repo_root / rel
+    if not source.is_file():
+        raise SystemExit(f"contract references missing evidence file: {rel}")
+    target = case_dir / rel
+    target.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(source, target)
+PY
+
 cat >"$case_dir/Makefile" <<'MAKE'
 rust-exit-readiness:
 	bash scripts/ci/check-rust-exit-readiness.sh --json
@@ -96,9 +133,14 @@ with open(sys.argv[1], encoding="utf-8") as handle:
     payload = json.load(handle)
 
 details = {check["name"]: check["detail"] for check in payload["checks"]}
-assert "34 incomplete rows (12 value, 22 capability)" in details[
-    "direct_native_runtime_abi_ready"
-]
+expected = "34 incomplete rows (12 value, 22 capability)"
+actual = details["direct_native_runtime_abi_ready"]
+if expected not in actual:
+    raise SystemExit(
+        "partial-abi case: direct_native_runtime_abi_ready detail mismatch\n"
+        f"  expected substring: {expected}\n"
+        f"  actual detail: {actual}"
+    )
 PY
 )
 
@@ -139,20 +181,32 @@ import sys
 with open(sys.argv[1], encoding="utf-8") as handle:
     payload = json.load(handle)
 
-assert payload["schema"] == "axiom.rust_exit.readiness.v1"
-assert payload["ready"] is False
+problems = []
+if payload["schema"] != "axiom.rust_exit.readiness.v1":
+    problems.append(f"schema: expected axiom.rust_exit.readiness.v1, got {payload['schema']!r}")
+if payload["ready"] is not False:
+    problems.append(f"ready: expected False, got {payload['ready']!r}")
 statuses = {check["name"]: check["status"] for check in payload["checks"]}
-assert statuses["readiness_doc_present"] == "pass"
-assert statuses["readiness_manifest_valid"] == "pass"
-assert statuses["readiness_blockers_closed"] == "fail"
-assert statuses["readiness_blockers_live_when_not_ready"] == "pass"
-assert statuses["direct_native_runtime_abi_ready"] == "pass"
-assert statuses["command_lsp_release_boundary"] == "pass"
-assert statuses["lsp_stdio_harness_ready"] == "pass"
-assert statuses["lsp_driver_axiom_owned"] == "pass"
-assert statuses["mir_backend_direct_native_boundary"] == "pass"
-assert statuses["generated_rust_cli_gate"] == "pass"
-assert statuses["generated_rust_contract_gate"] == "pass"
+details = {check["name"]: check["detail"] for check in payload["checks"]}
+expected = {
+    "readiness_doc_present": "pass",
+    "readiness_manifest_valid": "pass",
+    "readiness_blockers_closed": "fail",
+    "readiness_blockers_live_when_not_ready": "pass",
+    "direct_native_runtime_abi_ready": "pass",
+    "command_lsp_release_boundary": "pass",
+    "lsp_stdio_harness_ready": "pass",
+    "lsp_driver_axiom_owned": "pass",
+    "mir_backend_direct_native_boundary": "pass",
+    "generated_rust_cli_gate": "pass",
+    "generated_rust_contract_gate": "pass",
+}
+for name, want in expected.items():
+    got = statuses.get(name, "<missing>")
+    if got != want:
+        problems.append(f"{name}: expected {want}, got {got} ({details.get(name, '')})")
+if problems:
+    raise SystemExit("blocked case: unexpected readiness report\n  " + "\n  ".join(problems))
 PY
 )
 
@@ -193,18 +247,31 @@ import sys
 with open(sys.argv[1], encoding="utf-8") as handle:
     payload = json.load(handle)
 
-assert payload["ready"] is False
+problems = []
+if payload["ready"] is not False:
+    problems.append(f"ready: expected False, got {payload['ready']!r}")
 statuses = {check["name"]: check["status"] for check in payload["checks"]}
-assert statuses["readiness_blockers_closed"] == "pass"
-assert statuses["readiness_blockers_live_when_not_ready"] == "pass"
-assert statuses["rust_exit_issue_731_closed"] == "pass"
-assert statuses["direct_native_runtime_abi_ready"] == "pass"
-assert statuses["command_lsp_release_boundary"] == "pass"
-assert statuses["lsp_stdio_harness_ready"] == "pass"
-assert statuses["lsp_driver_axiom_owned"] == "fail"
-assert statuses["mir_backend_direct_native_boundary"] == "pass"
-assert statuses["generated_rust_cli_gate"] == "pass"
-assert statuses["generated_rust_contract_gate"] == "pass"
+details = {check["name"]: check["detail"] for check in payload["checks"]}
+expected = {
+    "readiness_blockers_closed": "pass",
+    "readiness_blockers_live_when_not_ready": "pass",
+    "rust_exit_issue_731_closed": "pass",
+    "direct_native_runtime_abi_ready": "pass",
+    "command_lsp_release_boundary": "pass",
+    "lsp_stdio_harness_ready": "pass",
+    "lsp_driver_axiom_owned": "fail",
+    "mir_backend_direct_native_boundary": "pass",
+    "generated_rust_cli_gate": "pass",
+    "generated_rust_contract_gate": "pass",
+}
+for name, want in expected.items():
+    got = statuses.get(name, "<missing>")
+    if got != want:
+        problems.append(f"{name}: expected {want}, got {got} ({details.get(name, '')})")
+if problems:
+    raise SystemExit(
+        "rust-lsp-driver case: unexpected readiness report\n  " + "\n  ".join(problems)
+    )
 PY
 )
 
@@ -249,13 +316,24 @@ import sys
 with open(sys.argv[1], encoding="utf-8") as handle:
     payload = json.load(handle)
 
-assert payload["ready"] is True
+problems = []
+if payload["ready"] is not True:
+    problems.append(f"ready: expected True, got {payload['ready']!r}")
 statuses = {check["name"]: check["status"] for check in payload["checks"]}
-assert statuses["readiness_blockers_closed"] == "pass"
-assert statuses["lsp_stdio_harness_ready"] == "pass"
-assert statuses["lsp_driver_axiom_owned"] == "pass"
-assert statuses["generated_rust_cli_gate"] == "pass"
-assert statuses["generated_rust_contract_gate"] == "pass"
+details = {check["name"]: check["detail"] for check in payload["checks"]}
+expected = {
+    "readiness_blockers_closed": "pass",
+    "lsp_stdio_harness_ready": "pass",
+    "lsp_driver_axiom_owned": "pass",
+    "generated_rust_cli_gate": "pass",
+    "generated_rust_contract_gate": "pass",
+}
+for name, want in expected.items():
+    got = statuses.get(name, "<missing>")
+    if got != want:
+        problems.append(f"{name}: expected {want}, got {got} ({details.get(name, '')})")
+if problems:
+    raise SystemExit("ready case: unexpected readiness report\n  " + "\n  ".join(problems))
 PY
 )
 
@@ -286,8 +364,13 @@ import sys
 
 with open(sys.argv[1], encoding="utf-8") as handle:
     payload = json.load(handle)
-statuses = {check["name"]: check["status"] for check in payload["checks"]}
-assert statuses["generated_rust_cli_gate"] == "fail"
+checks = {check["name"]: check for check in payload["checks"]}
+check = checks.get("generated_rust_cli_gate", {})
+if check.get("status") != "fail":
+    raise SystemExit(
+        "generated-rust-cli-gate case: expected generated_rust_cli_gate to fail, got "
+        f"{check.get('status', '<missing>')} ({check.get('detail', '')})"
+    )
 PY
 )
 
@@ -322,8 +405,13 @@ import sys
 
 with open(sys.argv[1], encoding="utf-8") as handle:
     payload = json.load(handle)
-statuses = {check["name"]: check["status"] for check in payload["checks"]}
-assert statuses["generated_rust_contract_gate"] == "fail"
+checks = {check["name"]: check for check in payload["checks"]}
+check = checks.get("generated_rust_contract_gate", {})
+if check.get("status") != "fail":
+    raise SystemExit(
+        "generated-rust-contract-gate case: expected generated_rust_contract_gate to "
+        f"fail, got {check.get('status', '<missing>')} ({check.get('detail', '')})"
+    )
 PY
 )
 
@@ -439,8 +527,13 @@ import sys
 
 with open(sys.argv[1], encoding="utf-8") as handle:
     payload = json.load(handle)
-statuses = {check["name"]: check["status"] for check in payload["checks"]}
-assert statuses["command_lsp_release_boundary"] == "fail"
+checks = {check["name"]: check for check in payload["checks"]}
+check = checks.get("command_lsp_release_boundary", {})
+if check.get("status") != "fail":
+    raise SystemExit(
+        "cargo-boundary case: expected command_lsp_release_boundary to fail, got "
+        f"{check.get('status', '<missing>')} ({check.get('detail', '')})"
+    )
 PY
 )
 
@@ -473,8 +566,13 @@ import sys
 
 with open(sys.argv[1], encoding="utf-8") as handle:
     payload = json.load(handle)
-statuses = {check["name"]: check["status"] for check in payload["checks"]}
-assert statuses["mir_backend_direct_native_boundary"] == "fail"
+checks = {check["name"]: check for check in payload["checks"]}
+check = checks.get("mir_backend_direct_native_boundary", {})
+if check.get("status") != "fail":
+    raise SystemExit(
+        "mir-boundary case: expected mir_backend_direct_native_boundary to fail, got "
+        f"{check.get('status', '<missing>')} ({check.get('detail', '')})"
+    )
 PY
 )
 
