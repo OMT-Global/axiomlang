@@ -734,8 +734,8 @@ pub fn list_project_tests_with_options(
     let mut tests = Vec::new();
     for package_root in workspace_package_roots(&graph, &project_root, options.package.as_deref())?
     {
-        let manifest = graph.context(&package_root)?.manifest.clone();
-        validate_lockfile(&package_root, &manifest)?;
+        let manifest = &graph.context(&package_root)?.manifest;
+        validate_lockfile(&package_root, manifest)?;
         let discovered = if expected_error_path(&package_root).exists() && !options.conformance {
             Vec::new()
         } else if expected_error_path(&package_root).exists() {
@@ -750,7 +750,7 @@ pub fn list_project_tests_with_options(
         } else {
             collect_test_targets(
                 &package_root,
-                &manifest,
+                manifest,
                 options.filter.as_deref(),
                 options.include_benchmarks,
                 options.properties_only,
@@ -802,14 +802,14 @@ pub fn run_project_tests_with_options(
     let started = Instant::now();
     for package_root in workspace_package_roots(&graph, &project_root, options.package.as_deref())?
     {
-        let manifest = graph.context(&package_root)?.manifest.clone();
-        validate_lockfile(&package_root, &manifest)?;
+        let manifest = &graph.context(&package_root)?.manifest;
+        validate_lockfile(&package_root, manifest)?;
         if expected_error_path(&package_root).exists()
             && (!options.properties_only || options.conformance)
         {
             if let Some(test) = compile_fail_test_target(
                 &package_root,
-                &manifest,
+                manifest,
                 if options.conformance {
                     TestKind::Property
                 } else {
@@ -821,7 +821,7 @@ pub fn run_project_tests_with_options(
                 cases.push(run_compile_fail_case(
                     &package_root,
                     &graph,
-                    &manifest,
+                    manifest,
                     &test.name,
                     test.kind,
                 ));
@@ -830,7 +830,7 @@ pub fn run_project_tests_with_options(
         }
         let tests = collect_test_targets(
             &package_root,
-            &manifest,
+            manifest,
             options.filter.as_deref(),
             options.include_benchmarks,
             options.properties_only,
@@ -844,7 +844,7 @@ pub fn run_project_tests_with_options(
             cases.push(run_test_case(
                 &package_root,
                 &graph,
-                &manifest,
+                manifest,
                 test,
                 options.backend,
             ));
@@ -1333,7 +1333,7 @@ pub fn project_capabilities(project_root: &Path) -> Result<Vec<CapabilityDescrip
 pub fn capability_sbom(project_root: &Path) -> Result<CapabilitySbomOutput, Diagnostic> {
     let project_root = canonicalize_existing_path(&normalize_path(project_root), "project root")?;
     let graph = load_package_graph(&project_root)?;
-    let graph_output = package_graph_metadata(&project_root)?;
+    let graph_output = package_graph_metadata_with_graph(&project_root, &graph)?;
     let mut packages = Vec::new();
     for graph_package in graph_output.packages {
         let root = PathBuf::from(&graph_package.root);
@@ -1399,6 +1399,13 @@ pub fn capability_sbom(project_root: &Path) -> Result<CapabilitySbomOutput, Diag
 pub fn package_graph_metadata(project_root: &Path) -> Result<PackageGraphOutput, Diagnostic> {
     let project_root = canonicalize_existing_path(&normalize_path(project_root), "project root")?;
     let graph = load_package_graph(&project_root)?;
+    package_graph_metadata_with_graph(&project_root, &graph)
+}
+
+fn package_graph_metadata_with_graph(
+    project_root: &Path,
+    graph: &PackageGraph,
+) -> Result<PackageGraphOutput, Diagnostic> {
     let mut roots = graph
         .packages
         .keys()
@@ -9064,6 +9071,50 @@ mod tests {
             tests: Vec::new(),
             capabilities: CapabilityConfig::default(),
         }
+    }
+
+    #[test]
+    fn package_graph_metadata_can_reuse_loaded_graph() {
+        let dir = tempdir().unwrap_or_else(|err| panic!("tempdir: {err}"));
+        let root = dir.path().join("graph-reuse");
+        fs::create_dir_all(root.join("src")).unwrap_or_else(|err| panic!("create src: {err}"));
+        fs::write(
+            root.join("axiom.toml"),
+            r#"[package]
+name = "graph-reuse"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+"#,
+        )
+        .unwrap_or_else(|err| panic!("write manifest: {err}"));
+        fs::write(root.join("src/main.ax"), "print \"ok\"\n")
+            .unwrap_or_else(|err| panic!("write source: {err}"));
+        let manifest = load_manifest(&root).unwrap_or_else(|err| panic!("load manifest: {err:?}"));
+        fs::write(
+            root.join("axiom.lock"),
+            crate::lockfile::render_lockfile_for_project(&root, &manifest)
+                .unwrap_or_else(|err| panic!("render lockfile: {err:?}")),
+        )
+        .unwrap_or_else(|err| panic!("write lockfile: {err}"));
+        let canonical_root =
+            canonicalize_existing_path(&root, "project root").expect("canonical root");
+        let graph = load_package_graph(&canonical_root).expect("load graph");
+
+        let direct = package_graph_metadata_with_graph(&canonical_root, &graph)
+            .expect("metadata with graph");
+        let public = package_graph_metadata(&root).expect("metadata");
+
+        assert_eq!(direct.manifest, public.manifest);
+        assert_eq!(direct.packages.len(), public.packages.len());
+        assert_eq!(direct.packages[0].name, public.packages[0].name);
+        assert_eq!(direct.packages[0].lockfile.status, "current");
+        assert_eq!(
+            direct.packages[0].lockfile.status,
+            public.packages[0].lockfile.status
+        );
     }
 
     #[test]
