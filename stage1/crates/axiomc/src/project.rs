@@ -736,17 +736,14 @@ pub fn list_project_tests_with_options(
     {
         let manifest = &graph.context(&package_root)?.manifest;
         validate_lockfile(&package_root, manifest)?;
-        let discovered = if expected_error_path(&package_root).exists() && !options.conformance {
-            Vec::new()
-        } else if expected_error_path(&package_root).exists() {
-            compile_fail_test_target(
-                &package_root,
-                &manifest,
-                TestKind::Property,
-                options.filter.as_deref(),
-            )
-            .into_iter()
-            .collect()
+        let compile_fail_kind = expected_error_path(&package_root)
+            .exists()
+            .then(|| compile_fail_test_kind(options))
+            .flatten();
+        let discovered = if let Some(kind) = compile_fail_kind {
+            compile_fail_test_target(&package_root, manifest, kind, options.filter.as_deref())
+                .into_iter()
+                .collect()
         } else {
             collect_test_targets(
                 &package_root,
@@ -805,17 +802,15 @@ pub fn run_project_tests_with_options(
     {
         let manifest = &graph.context(&package_root)?.manifest;
         validate_lockfile(&package_root, manifest)?;
-        if expected_error_path(&package_root).exists()
-            && (!options.properties_only || options.conformance)
-        {
+        let compile_fail_kind = expected_error_path(&package_root)
+            .exists()
+            .then(|| compile_fail_test_kind(options))
+            .flatten();
+        if let Some(kind) = compile_fail_kind {
             if let Some(test) = compile_fail_test_target(
                 &package_root,
                 manifest,
-                if options.conformance {
-                    TestKind::Property
-                } else {
-                    TestKind::Unit
-                },
+                kind,
                 options.filter.as_deref(),
             ) {
                 packages.push(package_root.display().to_string());
@@ -941,6 +936,20 @@ fn collect_test_targets(
         tests.retain(|test| test_matches_filter(test, filter));
     }
     Ok(tests)
+}
+
+/// Shared gating for compile-fail packages so `test --list` and `test` agree:
+/// conformance runs treat the case as a property, default runs treat it as a
+/// unit test, and properties-only runs skip the synthesized case entirely
+/// (falling back to regular target discovery).
+fn compile_fail_test_kind(options: &TestOptions) -> Option<TestKind> {
+    if options.conformance {
+        Some(TestKind::Property)
+    } else if options.properties_only {
+        None
+    } else {
+        Some(TestKind::Unit)
+    }
 }
 
 fn compile_fail_test_target(
@@ -1546,7 +1555,7 @@ struct LoadedModule {
 
 #[derive(Default)]
 struct ModuleParseCache {
-    programs: HashMap<PathBuf, syntax::Program>,
+    programs: HashMap<(PathBuf, usize), syntax::Program>,
 }
 
 #[derive(Debug, Clone)]
@@ -4532,7 +4541,7 @@ fn parse_module_with_cache(
     macro_recursion_limit: usize,
     parse_cache: &mut ModuleParseCache,
 ) -> Result<syntax::Program, Diagnostic> {
-    let cache_key = module_parse_cache_key(module_path)?;
+    let cache_key = module_parse_cache_key(module_path, macro_recursion_limit)?;
     if let Some(program) = parse_cache.programs.get(&cache_key) {
         return Ok(program.clone());
     }
@@ -4570,12 +4579,19 @@ fn parse_module_with_cache(
     Ok(program)
 }
 
-fn module_parse_cache_key(module_path: &Path) -> Result<PathBuf, Diagnostic> {
-    if stdlib::is_stdlib_path(module_path) {
-        Ok(normalize_path(module_path))
+// The parse result depends on the macro recursion limit, so the limit is part
+// of the key: a cache hit must never return a program parsed under a
+// different limit than the caller requested.
+fn module_parse_cache_key(
+    module_path: &Path,
+    macro_recursion_limit: usize,
+) -> Result<(PathBuf, usize), Diagnostic> {
+    let path = if stdlib::is_stdlib_path(module_path) {
+        normalize_path(module_path)
     } else {
-        canonicalize_existing_path(module_path, "module path")
-    }
+        canonicalize_existing_path(module_path, "module path")?
+    };
+    Ok((path, macro_recursion_limit))
 }
 
 fn package_section<'a>(
@@ -10674,6 +10690,115 @@ return async_serve_route(1, "/", "ok", 1)
     }
 
     #[test]
+    fn compile_fail_kind_gating_is_shared_between_list_and_run() {
+        let default_options = TestOptions::default();
+        assert_eq!(
+            compile_fail_test_kind(&default_options),
+            Some(TestKind::Unit)
+        );
+
+        let properties_only = TestOptions {
+            properties_only: true,
+            ..TestOptions::default()
+        };
+        assert_eq!(compile_fail_test_kind(&properties_only), None);
+
+        let conformance = TestOptions {
+            properties_only: true,
+            conformance: true,
+            ..TestOptions::default()
+        };
+        assert_eq!(
+            compile_fail_test_kind(&conformance),
+            Some(TestKind::Property)
+        );
+    }
+
+    #[test]
+    fn compile_fail_package_list_and_run_agree_across_modes() {
+        let dir = tempdir().unwrap_or_else(|err| panic!("tempdir: {err}"));
+        let root = dir.path().join("compile-fail-agreement");
+        fs::create_dir_all(root.join("src")).unwrap_or_else(|err| panic!("create src: {err}"));
+        fs::write(
+            root.join("axiom.toml"),
+            r#"[package]
+name = "compile-fail-agreement"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+"#,
+        )
+        .unwrap_or_else(|err| panic!("write manifest: {err}"));
+        fs::write(root.join("src/main.ax"), "let count: int = \"seven\"\n")
+            .unwrap_or_else(|err| panic!("write entry: {err}"));
+        fs::write(
+            root.join("expected-error.json"),
+            r#"{
+  "kind": "type",
+  "code": null,
+  "message": "let binding \"count\" expects int, got string",
+  "path": "src/main.ax",
+  "line": 1,
+  "column": 1
+}
+"#,
+        )
+        .unwrap_or_else(|err| panic!("write expected error: {err}"));
+        let manifest = load_manifest(&root).unwrap_or_else(|err| panic!("load manifest: {err:?}"));
+        fs::write(
+            root.join("axiom.lock"),
+            crate::lockfile::render_lockfile_for_project(&root, &manifest)
+                .unwrap_or_else(|err| panic!("render lockfile: {err:?}")),
+        )
+        .unwrap_or_else(|err| panic!("write lockfile: {err}"));
+
+        // Default mode: run executes the compile-fail case as a unit test, so
+        // list must show the same case with the same kind.
+        let default_options = TestOptions::default();
+        let listed = list_project_tests_with_options(&root, &default_options)
+            .unwrap_or_else(|err| panic!("list default: {err:?}"));
+        assert_eq!(listed.tests.len(), 1);
+        assert_eq!(listed.tests[0].name, "compile-fail-agreement");
+        assert_eq!(listed.tests[0].kind, TestKind::Unit);
+        let run = run_project_tests_with_options(&root, &default_options)
+            .unwrap_or_else(|err| panic!("run default: {err:?}"));
+        assert_eq!(run.cases.len(), 1);
+        assert_eq!(run.cases[0].name, listed.tests[0].name);
+        assert_eq!(run.cases[0].kind, listed.tests[0].kind);
+        assert!(run.cases[0].ok, "expected-error fixture should match");
+
+        // Conformance mode: both surfaces report the case as a property.
+        let conformance_options = TestOptions {
+            conformance: true,
+            ..TestOptions::default()
+        };
+        let listed = list_project_tests_with_options(&root, &conformance_options)
+            .unwrap_or_else(|err| panic!("list conformance: {err:?}"));
+        assert_eq!(listed.tests.len(), 1);
+        assert_eq!(listed.tests[0].kind, TestKind::Property);
+        let run = run_project_tests_with_options(&root, &conformance_options)
+            .unwrap_or_else(|err| panic!("run conformance: {err:?}"));
+        assert_eq!(run.cases.len(), 1);
+        assert_eq!(run.cases[0].kind, TestKind::Property);
+
+        // Properties-only mode: neither surface synthesizes the compile-fail
+        // case, and regular discovery finds nothing else in this package.
+        let properties_only_options = TestOptions {
+            properties_only: true,
+            ..TestOptions::default()
+        };
+        let list_error = list_project_tests_with_options(&root, &properties_only_options)
+            .expect_err("properties-only list should discover no tests");
+        assert_eq!(list_error.kind, "test");
+        let run_error = run_project_tests_with_options(&root, &properties_only_options)
+            .expect_err("properties-only run should discover no tests");
+        assert_eq!(run_error.kind, "test");
+        assert_eq!(run_error.message, list_error.message);
+    }
+
+    #[test]
     fn benchmark_tests_do_not_inherit_package_expected_output() {
         let dir = tempdir().unwrap_or_else(|err| panic!("tempdir: {err}"));
         let root = dir.path();
@@ -10817,7 +10942,9 @@ out_dir = "dist"
             canonicalize_existing_path(&root, "package root").expect("canonical package root");
         let graph = load_package_graph(&package_root).expect("load graph");
         let shared_path = package_root.join("src/shared.ax");
-        let shared_key = module_parse_cache_key(&shared_path).expect("shared cache key");
+        let shared_key =
+            module_parse_cache_key(&shared_path, syntax::DEFAULT_MACRO_RECURSION_LIMIT)
+                .expect("shared cache key");
         let mut parse_cache = ModuleParseCache::default();
 
         load_modules_with_parse_cache(
@@ -10843,7 +10970,26 @@ out_dir = "dist"
         )
         .expect("load second test modules from cache");
 
-        assert!(modules.iter().any(|module| module.path == shared_key));
+        assert!(modules.iter().any(|module| module.path == shared_key.0));
+    }
+
+    #[test]
+    fn module_parse_cache_key_distinguishes_macro_recursion_limits() {
+        let dir = tempdir().unwrap_or_else(|err| panic!("tempdir: {err}"));
+        let module_path = dir.path().join("module.ax");
+        fs::write(&module_path, "fn one(): int {\nreturn 1\n}\n")
+            .unwrap_or_else(|err| panic!("write module: {err}"));
+
+        let default_key =
+            module_parse_cache_key(&module_path, syntax::DEFAULT_MACRO_RECURSION_LIMIT)
+                .expect("default-limit cache key");
+        let strict_key = module_parse_cache_key(&module_path, 1).expect("strict-limit cache key");
+
+        assert_eq!(default_key.0, strict_key.0);
+        assert_ne!(
+            default_key, strict_key,
+            "programs parsed under different macro recursion limits must not share a cache entry"
+        );
     }
 
     #[test]
