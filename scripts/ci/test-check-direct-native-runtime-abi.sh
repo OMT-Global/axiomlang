@@ -304,6 +304,7 @@ python3 "$script" --contract "$temp_dir/ready-contract.json" --enforce-ready >/d
 split_root="$temp_dir/split-checkout"
 mkdir -p "$split_root/stage1/runtime-abi" "$split_root/new-evidence"
 ln -s "$repo_root/stage1/crates" "$split_root/stage1/crates"
+ln -s "$repo_root/stage1/conformance" "$split_root/stage1/conformance"
 ln -s "$repo_root/scripts" "$split_root/scripts"
 printf '{}\n' >"$split_root/new-evidence/expected-error.json"
 python3 - "$contract" "$split_root/stage1/runtime-abi/direct-native-v0.json" <<'PY'
