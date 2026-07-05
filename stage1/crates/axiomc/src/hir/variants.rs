@@ -11,9 +11,20 @@ pub(super) fn resolve_variant<'a>(
         return Ok(None);
     };
     if let Some(Type::Enum(expected_enum)) = expected {
-        return Ok(candidates
+        if let Some(variant) = candidates
             .iter()
-            .find(|variant| &variant.enum_name == expected_enum));
+            .find(|variant| &variant.enum_name == expected_enum)
+        {
+            return Ok(Some(variant));
+        }
+        return Err(Diagnostic::new(
+            "type",
+            format!(
+                "enum variant {name:?} is not a variant of expected enum {expected_enum:?} (found on: {})",
+                variant_enum_names(candidates)
+            ),
+        )
+        .with_span(line, column));
     }
     if candidates.len() == 1 {
         return Ok(candidates.first());
@@ -23,6 +34,20 @@ pub(super) fn resolve_variant<'a>(
         format!("enum variant {name:?} is ambiguous without an expected enum type"),
     )
     .with_span(line, column))
+}
+
+fn variant_enum_names(candidates: &[VariantInfo]) -> String {
+    let mut names = candidates
+        .iter()
+        .map(|variant| variant.enum_name.as_str())
+        .collect::<Vec<_>>();
+    names.sort_unstable();
+    names.dedup();
+    names
+        .into_iter()
+        .map(|name| format!("{name:?}"))
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 pub(super) fn lower_variant_constructor(

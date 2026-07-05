@@ -653,3 +653,68 @@ return input != input
     assert_eq!(error.line, Some(3));
     assert_eq!(error.column, Some(1));
 }
+
+#[test]
+fn hir_reports_variant_from_wrong_expected_enum() {
+    let parsed = parse(
+        r#"
+enum Status {
+Ready
+Failed
+}
+enum Traffic {
+Stop
+Go
+}
+let status: Status = Stop
+"#,
+    );
+
+    let error = lower(&parsed).expect_err("wrong enum variant should fail");
+    assert_eq!(error.kind, "type");
+    assert!(
+        error
+            .message
+            .contains("enum variant \"Stop\" is not a variant of expected enum \"Status\"")
+    );
+    assert!(error.message.contains("found on: \"Traffic\""));
+    assert!(!error.message.contains("undefined variable"));
+}
+
+#[test]
+fn hir_suggests_nearest_impl_method_name() {
+    let parsed = parse(
+        r#"
+trait Eq {
+fn eq(self, other: Self): bool
+}
+struct Point {
+x: int
+}
+impl Eq for Point {
+fn eq(self, other: Point): bool {
+return self.x == other.x
+}
+}
+fn same(left: Point, right: Point): bool {
+return left.eqq(right)
+}
+"#,
+    );
+
+    let error = lower(&parsed).expect_err("misspelled method call should fail");
+    assert_eq!(error.kind, "type");
+    assert!(
+        error
+            .message
+            .contains("type Point has no method \"eqq\"; did you mean \"eq\"?")
+    );
+}
+
+#[test]
+fn type_assignable_fallback_uses_direct_type_equality() {
+    assert!(type_assignable_to(&Type::Bool, &Type::Bool));
+    assert!(!type_assignable_to(&Type::Bool, &Type::Int));
+    assert!(type_assignable_to(&Type::Error, &Type::Int));
+    assert!(type_assignable_to(&Type::Int, &Type::Error));
+}
