@@ -445,7 +445,7 @@ PY
     echo "expected readiness check to fail when finalBootstrapIssue is also listed as a blocker" >&2
     exit 1
   fi
-  if ! rg -q "finalBootstrapIssue must not also be listed as a blocker" "$temp_dir/final-self-blocker.err"; then
+  if ! grep -Fq "finalBootstrapIssue must not also be listed as a blocker" "$temp_dir/final-self-blocker.err"; then
     echo "expected finalBootstrapIssue self-blocker validation error" >&2
     cat "$temp_dir/final-self-blocker.err" >&2
     exit 1
@@ -478,7 +478,7 @@ PY
     echo "expected readiness check to fail when an ABI blocker is missing from the manifest" >&2
     exit 1
   fi
-  if ! rg -q "ABI blocker issues missing from readiness manifest: #1191" "$temp_dir/stale-closed-blocker.err"; then
+  if ! grep -Fq "ABI blocker issues missing from readiness manifest: #1191" "$temp_dir/stale-closed-blocker.err"; then
     echo "expected missing ABI blocker validation error" >&2
     cat "$temp_dir/stale-closed-blocker.err" >&2
     exit 1
