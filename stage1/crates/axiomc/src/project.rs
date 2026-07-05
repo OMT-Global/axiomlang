@@ -799,6 +799,7 @@ pub fn run_project_tests_with_options(
     let manifest_path_text = manifest_path(&project_root).display().to_string();
     let mut packages = Vec::new();
     let mut cases = Vec::new();
+    let mut parse_cache = ModuleParseCache::default();
     let started = Instant::now();
     for package_root in workspace_package_roots(&graph, &project_root, options.package.as_deref())?
     {
@@ -824,6 +825,7 @@ pub fn run_project_tests_with_options(
                     manifest,
                     &test.name,
                     test.kind,
+                    &mut parse_cache,
                 ));
             }
             continue;
@@ -847,6 +849,7 @@ pub fn run_project_tests_with_options(
                 manifest,
                 test,
                 options.backend,
+                &mut parse_cache,
             ));
         }
     }
@@ -1541,6 +1544,11 @@ struct LoadedModule {
     package_name: String,
 }
 
+#[derive(Default)]
+struct ModuleParseCache {
+    programs: HashMap<PathBuf, syntax::Program>,
+}
+
 #[derive(Debug, Clone)]
 struct ResolvedImport {
     import: syntax::Import,
@@ -1700,6 +1708,25 @@ fn analyze_entry(
     entry: PathBuf,
     macro_recursion_limit: usize,
 ) -> Result<AnalyzedProject, Diagnostic> {
+    let mut parse_cache = ModuleParseCache::default();
+    analyze_entry_with_parse_cache(
+        graph,
+        package_root,
+        manifest,
+        entry,
+        macro_recursion_limit,
+        &mut parse_cache,
+    )
+}
+
+fn analyze_entry_with_parse_cache(
+    graph: &PackageGraph,
+    package_root: &Path,
+    manifest: Manifest,
+    entry: PathBuf,
+    macro_recursion_limit: usize,
+    parse_cache: &mut ModuleParseCache,
+) -> Result<AnalyzedProject, Diagnostic> {
     // SECURITY: confine the entry module to the package, resolving symlinks,
     // before any file is read. The build path canonicalizes the entry before
     // calling us, but the test-runner entry points (run_test_case and
@@ -1715,7 +1742,13 @@ fn analyze_entry(
         "manifest",
         "build.entry resolves outside the package",
     )?;
-    let modules = load_modules(graph, package_root, &entry, macro_recursion_limit)?;
+    let modules = load_modules_with_parse_cache(
+        graph,
+        package_root,
+        &entry,
+        macro_recursion_limit,
+        parse_cache,
+    )?;
     validate_module_capabilities(graph, &modules)?;
     validate_semantic_declarations(&modules)?;
     let flattened = flatten_modules(graph, &modules)?;
@@ -3607,9 +3640,10 @@ fn run_test_case(
     manifest: &Manifest,
     test: &crate::manifest::TestTarget,
     backend: NativeBackendKind,
+    parse_cache: &mut ModuleParseCache,
 ) -> TestCaseResult {
     if test.expected_error.is_some() {
-        return run_manifest_compile_fail_case(project_root, graph, manifest, test);
+        return run_manifest_compile_fail_case(project_root, graph, manifest, test, parse_cache);
     }
     let started = Instant::now();
     let entry_path = project_root.join(&test.entry);
@@ -3632,12 +3666,13 @@ fn run_test_case(
             );
         }
     };
-    let analyzed = match analyze_entry(
+    let analyzed = match analyze_entry_with_parse_cache(
         graph,
         project_root,
         manifest.clone(),
         entry_path.clone(),
         syntax::DEFAULT_MACRO_RECURSION_LIMIT,
+        parse_cache,
     ) {
         Ok(analyzed) => analyzed,
         Err(error) => {
@@ -3914,6 +3949,7 @@ fn run_manifest_compile_fail_case(
     graph: &PackageGraph,
     manifest: &Manifest,
     test: &crate::manifest::TestTarget,
+    parse_cache: &mut ModuleParseCache,
 ) -> TestCaseResult {
     let started = Instant::now();
     let manifest_expected = test
@@ -3929,12 +3965,13 @@ fn run_manifest_compile_fail_case(
         column: manifest_expected.column,
     };
     let entry_path = project_root.join(&test.entry);
-    let actual = match analyze_entry(
+    let actual = match analyze_entry_with_parse_cache(
         graph,
         project_root,
         manifest.clone(),
         entry_path.clone(),
         syntax::DEFAULT_MACRO_RECURSION_LIMIT,
+        parse_cache,
     ) {
         Ok(_) => {
             return TestCaseResult {
@@ -3994,6 +4031,7 @@ fn run_compile_fail_case(
     manifest: &Manifest,
     case_name: &str,
     kind: TestKind,
+    parse_cache: &mut ModuleParseCache,
 ) -> TestCaseResult {
     let started = Instant::now();
     let expected = match load_expected_error(project_root) {
@@ -4019,12 +4057,13 @@ fn run_compile_fail_case(
         }
     };
     let entry_path = project_root.join(&manifest.build.entry);
-    let actual = match analyze_entry(
+    let actual = match analyze_entry_with_parse_cache(
         graph,
         project_root,
         manifest.clone(),
         entry_path.clone(),
         syntax::DEFAULT_MACRO_RECURSION_LIMIT,
+        parse_cache,
     ) {
         Ok(_) => {
             return TestCaseResult {
@@ -4359,6 +4398,23 @@ fn load_modules(
     entry_path: &Path,
     macro_recursion_limit: usize,
 ) -> Result<Vec<LoadedModule>, Diagnostic> {
+    let mut parse_cache = ModuleParseCache::default();
+    load_modules_with_parse_cache(
+        graph,
+        package_root,
+        entry_path,
+        macro_recursion_limit,
+        &mut parse_cache,
+    )
+}
+
+fn load_modules_with_parse_cache(
+    graph: &PackageGraph,
+    package_root: &Path,
+    entry_path: &Path,
+    macro_recursion_limit: usize,
+    parse_cache: &mut ModuleParseCache,
+) -> Result<Vec<LoadedModule>, Diagnostic> {
     let mut ordered = Vec::new();
     let mut loaded = HashSet::new();
     let mut visiting = Vec::new();
@@ -4371,6 +4427,7 @@ fn load_modules(
         &mut ordered,
         &mut loaded,
         &mut visiting,
+        parse_cache,
     )?;
     Ok(ordered)
 }
@@ -4384,6 +4441,7 @@ fn load_module_recursive(
     ordered: &mut Vec<LoadedModule>,
     loaded: &mut HashSet<PathBuf>,
     visiting: &mut Vec<PathBuf>,
+    parse_cache: &mut ModuleParseCache,
 ) -> Result<(), Diagnostic> {
     let module_path = normalize_path(module_path);
     let package = graph.context(package_root)?;
@@ -4414,36 +4472,7 @@ fn load_module_recursive(
         return Ok(());
     }
 
-    let source = if stdlib::is_stdlib_path(&module_path) {
-        stdlib::stdlib_source_for(&module_path)
-            .map(str::to_string)
-            .ok_or_else(|| {
-                Diagnostic::new(
-                    "source",
-                    format!(
-                        "internal error: missing stdlib source for {}",
-                        module_path.display()
-                    ),
-                )
-                .with_path(module_path.display().to_string())
-            })?
-    } else {
-        fs::read_to_string(&module_path).map_err(|err| {
-            Diagnostic::new(
-                "source",
-                format!("failed to read {}: {err}", module_path.display()),
-            )
-            .with_path(module_path.display().to_string())
-        })?
-    };
-    let program = syntax::parse_program_with_options(
-        &source,
-        &module_path,
-        &syntax::ParseOptions {
-            macro_recursion_limit,
-            ..syntax::ParseOptions::default()
-        },
-    )?;
+    let program = parse_module_with_cache(&module_path, macro_recursion_limit, parse_cache)?;
     if !is_entry && !program.stmts.is_empty() {
         let stmt = &program.stmts[0];
         return Err(Diagnostic::new(
@@ -4473,6 +4502,7 @@ fn load_module_recursive(
             ordered,
             loaded,
             visiting,
+            parse_cache,
         )?;
     }
     visiting.pop();
@@ -4495,6 +4525,57 @@ fn load_module_recursive(
         package_name,
     });
     Ok(())
+}
+
+fn parse_module_with_cache(
+    module_path: &Path,
+    macro_recursion_limit: usize,
+    parse_cache: &mut ModuleParseCache,
+) -> Result<syntax::Program, Diagnostic> {
+    let cache_key = module_parse_cache_key(module_path)?;
+    if let Some(program) = parse_cache.programs.get(&cache_key) {
+        return Ok(program.clone());
+    }
+    let source = if stdlib::is_stdlib_path(module_path) {
+        stdlib::stdlib_source_for(module_path)
+            .map(str::to_string)
+            .ok_or_else(|| {
+                Diagnostic::new(
+                    "source",
+                    format!(
+                        "internal error: missing stdlib source for {}",
+                        module_path.display()
+                    ),
+                )
+                .with_path(module_path.display().to_string())
+            })?
+    } else {
+        fs::read_to_string(module_path).map_err(|err| {
+            Diagnostic::new(
+                "source",
+                format!("failed to read {}: {err}", module_path.display()),
+            )
+            .with_path(module_path.display().to_string())
+        })?
+    };
+    let program = syntax::parse_program_with_options(
+        &source,
+        module_path,
+        &syntax::ParseOptions {
+            macro_recursion_limit,
+            ..syntax::ParseOptions::default()
+        },
+    )?;
+    parse_cache.programs.insert(cache_key, program.clone());
+    Ok(program)
+}
+
+fn module_parse_cache_key(module_path: &Path) -> Result<PathBuf, Diagnostic> {
+    if stdlib::is_stdlib_path(module_path) {
+        Ok(normalize_path(module_path))
+    } else {
+        canonicalize_existing_path(module_path, "module path")
+    }
 }
 
 fn package_section<'a>(
@@ -10397,6 +10478,7 @@ return async_serve_route(1, "/", "ok", 1)
                 workspace_members: Vec::new(),
             },
         );
+        let mut parse_cache = ModuleParseCache::default();
 
         let error = match load_module_recursive(
             &graph,
@@ -10407,6 +10489,7 @@ return async_serve_route(1, "/", "ok", 1)
             &mut Vec::new(),
             &mut HashSet::new(),
             &mut Vec::new(),
+            &mut parse_cache,
         ) {
             Ok(()) => panic!("workspace-only manifest loaded a module"),
             Err(error) => error,
@@ -10692,6 +10775,78 @@ return async_serve_route(1, "/", "ok", 1)
     }
 
     #[test]
+    fn module_parse_cache_reuses_imported_programs_across_test_entries() {
+        let dir = tempdir().unwrap_or_else(|err| panic!("tempdir: {err}"));
+        let root = dir.path().join("parse-cache");
+        fs::create_dir_all(root.join("src")).unwrap_or_else(|err| panic!("create src: {err}"));
+        fs::write(
+            root.join("axiom.toml"),
+            r#"[package]
+name = "parse-cache"
+version = "0.1.0"
+
+[build]
+entry = "src/first_test.ax"
+out_dir = "dist"
+"#,
+        )
+        .unwrap_or_else(|err| panic!("write manifest: {err}"));
+        fs::write(
+            root.join("src/shared.ax"),
+            "fn shared(): int {\nreturn 1\n}\n",
+        )
+        .unwrap_or_else(|err| panic!("write shared: {err}"));
+        fs::write(
+            root.join("src/first_test.ax"),
+            "import \"shared.ax\"\nprint shared()\n",
+        )
+        .unwrap_or_else(|err| panic!("write first: {err}"));
+        fs::write(
+            root.join("src/second_test.ax"),
+            "import \"shared.ax\"\nprint shared()\n",
+        )
+        .unwrap_or_else(|err| panic!("write second: {err}"));
+        let manifest = load_manifest(&root).unwrap_or_else(|err| panic!("load manifest: {err:?}"));
+        fs::write(
+            root.join("axiom.lock"),
+            crate::lockfile::render_lockfile_for_project(&root, &manifest)
+                .unwrap_or_else(|err| panic!("render lockfile: {err:?}")),
+        )
+        .unwrap_or_else(|err| panic!("write lockfile: {err}"));
+        let package_root =
+            canonicalize_existing_path(&root, "package root").expect("canonical package root");
+        let graph = load_package_graph(&package_root).expect("load graph");
+        let shared_path = package_root.join("src/shared.ax");
+        let shared_key = module_parse_cache_key(&shared_path).expect("shared cache key");
+        let mut parse_cache = ModuleParseCache::default();
+
+        load_modules_with_parse_cache(
+            &graph,
+            &package_root,
+            &package_root.join("src/first_test.ax"),
+            syntax::DEFAULT_MACRO_RECURSION_LIMIT,
+            &mut parse_cache,
+        )
+        .expect("load first test modules");
+        assert!(
+            parse_cache.programs.contains_key(&shared_key),
+            "shared import should be cached after first test entry"
+        );
+
+        fs::write(shared_path, "fn broken(").unwrap_or_else(|err| panic!("corrupt shared: {err}"));
+        let modules = load_modules_with_parse_cache(
+            &graph,
+            &package_root,
+            &package_root.join("src/second_test.ax"),
+            syntax::DEFAULT_MACRO_RECURSION_LIMIT,
+            &mut parse_cache,
+        )
+        .expect("load second test modules from cache");
+
+        assert!(modules.iter().any(|module| module.path == shared_key));
+    }
+
+    #[test]
     fn manifest_test_streams_only_load_relative_package_fixtures() {
         let dir = tempdir().unwrap_or_else(|err| panic!("tempdir: {err}"));
         let root = dir.path().join("package");
@@ -10838,6 +10993,7 @@ return async_serve_route(1, "/", "ok", 1)
                 workspace_members: Vec::new(),
             },
         );
+        let mut parse_cache = ModuleParseCache::default();
 
         let error = match load_module_recursive(
             &graph,
@@ -10848,6 +11004,7 @@ return async_serve_route(1, "/", "ok", 1)
             &mut Vec::new(),
             &mut HashSet::new(),
             &mut Vec::new(),
+            &mut parse_cache,
         ) {
             Ok(()) => panic!("symlinked import outside package was loaded"),
             Err(error) => error,
