@@ -515,7 +515,9 @@ pub(super) fn lower_match_expr(
         let lowered_arm_expr =
             lower_expr_with_expected(&arm.expr, result_ty.as_ref(), &mut arm_env, ctx)?;
         if let Some(expected_ty) = result_ty.as_ref() {
-            if !type_assignable_to(lowered_arm_expr.ty(), expected_ty) {
+            if let Some(unified) = unify_types(expected_ty, lowered_arm_expr.ty()) {
+                result_ty = Some(unified);
+            } else if !type_assignable_to(lowered_arm_expr.ty(), expected_ty) {
                 return Err(Diagnostic::new(
                     "type",
                     format!(

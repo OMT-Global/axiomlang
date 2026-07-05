@@ -1,0 +1,25 @@
+pub enum WorkState {
+Queued(string)
+Running { id: int, label: string }
+Done(int, string)
+}
+
+pub fn inspect_work(work: WorkState): int {
+match work {
+Queued(label) {
+print label
+print false
+return len(label)
+}
+Running { id, label } {
+print label
+print id > len(label)
+return id + len(label)
+}
+Done(points, label) {
+print label
+print points > len(label)
+return points + len(label)
+}
+}
+}
