@@ -5771,7 +5771,11 @@ fn lower_expr_with_expected_inner(
             let Some(signature) = methods.get(method) else {
                 return Err(Diagnostic::new(
                     "type",
-                    format!("type {} has no method {:?}", lowered_base.ty(), method),
+                    message_with_suggestion(
+                        format!("type {} has no method {:?}", lowered_base.ty(), method),
+                        method,
+                        methods.keys(),
+                    ),
                 )
                 .with_span(*line, *column));
             };
@@ -7846,6 +7850,36 @@ print same<Point>(a, b)
         assert!(error.message.contains(
             "trait bound not satisfied: type Named(\"Point\", []) does not implement \"Eq\""
         ));
+    }
+
+    #[test]
+    fn hir_suggests_nearest_impl_method_name() {
+        let parsed = parse(
+            r#"
+trait Eq {
+fn eq(self, other: Self): bool
+}
+struct Point {
+x: int
+}
+impl Eq for Point {
+fn eq(self, other: Point): bool {
+return self.x == other.x
+}
+}
+fn same(left: Point, right: Point): bool {
+return left.eqq(right)
+}
+"#,
+        );
+
+        let error = lower(&parsed).expect_err("misspelled method call should fail");
+        assert_eq!(error.kind, "type");
+        assert!(
+            error
+                .message
+                .contains("type Point has no method \"eqq\"; did you mean \"eq\"?")
+        );
     }
 
     #[test]
