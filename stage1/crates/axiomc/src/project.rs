@@ -1555,7 +1555,7 @@ struct LoadedModule {
 
 #[derive(Default)]
 struct ModuleParseCache {
-    programs: HashMap<PathBuf, syntax::Program>,
+    programs: HashMap<(PathBuf, usize), syntax::Program>,
 }
 
 #[derive(Debug, Clone)]
@@ -4541,7 +4541,7 @@ fn parse_module_with_cache(
     macro_recursion_limit: usize,
     parse_cache: &mut ModuleParseCache,
 ) -> Result<syntax::Program, Diagnostic> {
-    let cache_key = module_parse_cache_key(module_path)?;
+    let cache_key = module_parse_cache_key(module_path, macro_recursion_limit)?;
     if let Some(program) = parse_cache.programs.get(&cache_key) {
         return Ok(program.clone());
     }
@@ -4579,12 +4579,19 @@ fn parse_module_with_cache(
     Ok(program)
 }
 
-fn module_parse_cache_key(module_path: &Path) -> Result<PathBuf, Diagnostic> {
-    if stdlib::is_stdlib_path(module_path) {
-        Ok(normalize_path(module_path))
+// The parse result depends on the macro recursion limit, so the limit is part
+// of the key: a cache hit must never return a program parsed under a
+// different limit than the caller requested.
+fn module_parse_cache_key(
+    module_path: &Path,
+    macro_recursion_limit: usize,
+) -> Result<(PathBuf, usize), Diagnostic> {
+    let path = if stdlib::is_stdlib_path(module_path) {
+        normalize_path(module_path)
     } else {
-        canonicalize_existing_path(module_path, "module path")
-    }
+        canonicalize_existing_path(module_path, "module path")?
+    };
+    Ok((path, macro_recursion_limit))
 }
 
 fn package_section<'a>(
@@ -10935,7 +10942,9 @@ out_dir = "dist"
             canonicalize_existing_path(&root, "package root").expect("canonical package root");
         let graph = load_package_graph(&package_root).expect("load graph");
         let shared_path = package_root.join("src/shared.ax");
-        let shared_key = module_parse_cache_key(&shared_path).expect("shared cache key");
+        let shared_key =
+            module_parse_cache_key(&shared_path, syntax::DEFAULT_MACRO_RECURSION_LIMIT)
+                .expect("shared cache key");
         let mut parse_cache = ModuleParseCache::default();
 
         load_modules_with_parse_cache(
@@ -10961,7 +10970,26 @@ out_dir = "dist"
         )
         .expect("load second test modules from cache");
 
-        assert!(modules.iter().any(|module| module.path == shared_key));
+        assert!(modules.iter().any(|module| module.path == shared_key.0));
+    }
+
+    #[test]
+    fn module_parse_cache_key_distinguishes_macro_recursion_limits() {
+        let dir = tempdir().unwrap_or_else(|err| panic!("tempdir: {err}"));
+        let module_path = dir.path().join("module.ax");
+        fs::write(&module_path, "fn one(): int {\nreturn 1\n}\n")
+            .unwrap_or_else(|err| panic!("write module: {err}"));
+
+        let default_key =
+            module_parse_cache_key(&module_path, syntax::DEFAULT_MACRO_RECURSION_LIMIT)
+                .expect("default-limit cache key");
+        let strict_key = module_parse_cache_key(&module_path, 1).expect("strict-limit cache key");
+
+        assert_eq!(default_key.0, strict_key.0);
+        assert_ne!(
+            default_key, strict_key,
+            "programs parsed under different macro recursion limits must not share a cache entry"
+        );
     }
 
     #[test]
