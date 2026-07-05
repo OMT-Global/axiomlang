@@ -522,15 +522,22 @@ pub fn build_project_with_options(
     project_root: &Path,
     options: &BuildOptions,
 ) -> Result<BuildOutput, Diagnostic> {
-    validate_build_resolution_mode(options)?;
     let project_root = canonicalize_existing_path(&normalize_path(project_root), "project root")?;
     let graph = load_package_graph(&project_root)?;
-    validate_workspace_root_lockfile(&graph, &project_root)?;
+    build_project_with_graph(&project_root, &graph, options)
+}
+
+fn build_project_with_graph(
+    project_root: &Path,
+    graph: &PackageGraph,
+    options: &BuildOptions,
+) -> Result<BuildOutput, Diagnostic> {
+    validate_build_resolution_mode(options)?;
+    validate_workspace_root_lockfile(graph, project_root)?;
     let started = Instant::now();
     let mut packages = Vec::new();
-    for package_root in workspace_package_roots(&graph, &project_root, options.package.as_deref())?
-    {
-        let analyzed = analyze_package(&graph, &package_root)?;
+    for package_root in workspace_package_roots(graph, project_root, options.package.as_deref())? {
+        let analyzed = analyze_package(graph, &package_root)?;
         let generated_rust = generated_rust_path(&package_root, &analyzed.manifest);
         let resolved_target = resolved_build_target(options.target.as_deref());
         let binary = binary_path_for_target(
@@ -539,7 +546,7 @@ pub fn build_project_with_options(
             resolved_target.as_deref(),
         );
         let report = build_artifacts(
-            &graph,
+            graph,
             &package_root,
             &analyzed,
             &generated_rust,
@@ -685,8 +692,9 @@ fn prepare_run_project(
         )
         .with_path(manifest_path(&project_root).display().to_string()));
     }
-    let built = build_project_with_options(
+    let built = build_project_with_graph(
         &project_root,
+        &graph,
         &BuildOptions {
             backend: options.backend,
             target: None,
@@ -726,8 +734,8 @@ pub fn list_project_tests_with_options(
     let mut tests = Vec::new();
     for package_root in workspace_package_roots(&graph, &project_root, options.package.as_deref())?
     {
-        let manifest = graph.context(&package_root)?.manifest.clone();
-        validate_lockfile(&package_root, &manifest)?;
+        let manifest = &graph.context(&package_root)?.manifest;
+        validate_lockfile(&package_root, manifest)?;
         let discovered = if expected_error_path(&package_root).exists() && !options.conformance {
             Vec::new()
         } else if expected_error_path(&package_root).exists() {
@@ -742,7 +750,7 @@ pub fn list_project_tests_with_options(
         } else {
             collect_test_targets(
                 &package_root,
-                &manifest,
+                manifest,
                 options.filter.as_deref(),
                 options.include_benchmarks,
                 options.properties_only,
@@ -791,17 +799,18 @@ pub fn run_project_tests_with_options(
     let manifest_path_text = manifest_path(&project_root).display().to_string();
     let mut packages = Vec::new();
     let mut cases = Vec::new();
+    let mut parse_cache = ModuleParseCache::default();
     let started = Instant::now();
     for package_root in workspace_package_roots(&graph, &project_root, options.package.as_deref())?
     {
-        let manifest = graph.context(&package_root)?.manifest.clone();
-        validate_lockfile(&package_root, &manifest)?;
+        let manifest = &graph.context(&package_root)?.manifest;
+        validate_lockfile(&package_root, manifest)?;
         if expected_error_path(&package_root).exists()
             && (!options.properties_only || options.conformance)
         {
             if let Some(test) = compile_fail_test_target(
                 &package_root,
-                &manifest,
+                manifest,
                 if options.conformance {
                     TestKind::Property
                 } else {
@@ -813,16 +822,17 @@ pub fn run_project_tests_with_options(
                 cases.push(run_compile_fail_case(
                     &package_root,
                     &graph,
-                    &manifest,
+                    manifest,
                     &test.name,
                     test.kind,
+                    &mut parse_cache,
                 ));
             }
             continue;
         }
         let tests = collect_test_targets(
             &package_root,
-            &manifest,
+            manifest,
             options.filter.as_deref(),
             options.include_benchmarks,
             options.properties_only,
@@ -836,9 +846,10 @@ pub fn run_project_tests_with_options(
             cases.push(run_test_case(
                 &package_root,
                 &graph,
-                &manifest,
+                manifest,
                 test,
                 options.backend,
+                &mut parse_cache,
             ));
         }
     }
@@ -895,7 +906,8 @@ fn collect_test_targets(
             test.stderr = Some(expected_stderr);
         }
     }
-    if let Some(expected_stdout) = load_package_expected_output(project_root)? {
+    let package_expected_output = load_package_expected_output(project_root)?;
+    if let Some(expected_stdout) = package_expected_output.as_ref() {
         for test in &mut tests {
             if test.kind != TestKind::Benchmark && test.stdout.is_none() {
                 test.stdout = Some(expected_stdout.clone());
@@ -906,7 +918,11 @@ fn collect_test_targets(
         .iter()
         .map(|test| test.entry.clone())
         .collect::<std::collections::BTreeSet<_>>();
-    for discovered in discover_test_targets(project_root, include_benchmarks)? {
+    for discovered in discover_test_targets(
+        project_root,
+        include_benchmarks,
+        package_expected_output.as_deref(),
+    )? {
         if seen_entries.insert(discovered.entry.clone()) {
             tests.push(discovered);
         }
@@ -986,17 +1002,17 @@ fn load_manifest_test_stream(
 fn discover_test_targets(
     project_root: &Path,
     include_benchmarks: bool,
+    package_expected_output: Option<&str>,
 ) -> Result<Vec<crate::manifest::TestTarget>, Diagnostic> {
     let src_root = project_root.join("src");
     if !src_root.exists() {
         return Ok(Vec::new());
     }
-    let package_expected_output = load_package_expected_output(project_root)?;
     let mut tests = Vec::new();
     collect_discovered_tests(
         project_root,
         &src_root,
-        package_expected_output.as_deref(),
+        package_expected_output,
         include_benchmarks,
         &mut tests,
     )?;
@@ -1320,7 +1336,7 @@ pub fn project_capabilities(project_root: &Path) -> Result<Vec<CapabilityDescrip
 pub fn capability_sbom(project_root: &Path) -> Result<CapabilitySbomOutput, Diagnostic> {
     let project_root = canonicalize_existing_path(&normalize_path(project_root), "project root")?;
     let graph = load_package_graph(&project_root)?;
-    let graph_output = package_graph_metadata(&project_root)?;
+    let graph_output = package_graph_metadata_with_graph(&project_root, &graph)?;
     let mut packages = Vec::new();
     for graph_package in graph_output.packages {
         let root = PathBuf::from(&graph_package.root);
@@ -1386,6 +1402,13 @@ pub fn capability_sbom(project_root: &Path) -> Result<CapabilitySbomOutput, Diag
 pub fn package_graph_metadata(project_root: &Path) -> Result<PackageGraphOutput, Diagnostic> {
     let project_root = canonicalize_existing_path(&normalize_path(project_root), "project root")?;
     let graph = load_package_graph(&project_root)?;
+    package_graph_metadata_with_graph(&project_root, &graph)
+}
+
+fn package_graph_metadata_with_graph(
+    project_root: &Path,
+    graph: &PackageGraph,
+) -> Result<PackageGraphOutput, Diagnostic> {
     let mut roots = graph
         .packages
         .keys()
@@ -1514,10 +1537,23 @@ struct AnalyzedProject {
 struct LoadedModule {
     path: PathBuf,
     program: syntax::Program,
+    resolved_imports: Vec<ResolvedImport>,
     is_entry: bool,
     package_root: PathBuf,
     source_root: PathBuf,
     package_name: String,
+}
+
+#[derive(Default)]
+struct ModuleParseCache {
+    programs: HashMap<PathBuf, syntax::Program>,
+}
+
+#[derive(Debug, Clone)]
+struct ResolvedImport {
+    import: syntax::Import,
+    package_root: PathBuf,
+    path: PathBuf,
 }
 
 #[derive(Debug, Clone)]
@@ -1672,6 +1708,25 @@ fn analyze_entry(
     entry: PathBuf,
     macro_recursion_limit: usize,
 ) -> Result<AnalyzedProject, Diagnostic> {
+    let mut parse_cache = ModuleParseCache::default();
+    analyze_entry_with_parse_cache(
+        graph,
+        package_root,
+        manifest,
+        entry,
+        macro_recursion_limit,
+        &mut parse_cache,
+    )
+}
+
+fn analyze_entry_with_parse_cache(
+    graph: &PackageGraph,
+    package_root: &Path,
+    manifest: Manifest,
+    entry: PathBuf,
+    macro_recursion_limit: usize,
+    parse_cache: &mut ModuleParseCache,
+) -> Result<AnalyzedProject, Diagnostic> {
     // SECURITY: confine the entry module to the package, resolving symlinks,
     // before any file is read. The build path canonicalizes the entry before
     // calling us, but the test-runner entry points (run_test_case and
@@ -1687,7 +1742,13 @@ fn analyze_entry(
         "manifest",
         "build.entry resolves outside the package",
     )?;
-    let modules = load_modules(graph, package_root, &entry, macro_recursion_limit)?;
+    let modules = load_modules_with_parse_cache(
+        graph,
+        package_root,
+        &entry,
+        macro_recursion_limit,
+        parse_cache,
+    )?;
     validate_module_capabilities(graph, &modules)?;
     validate_semantic_declarations(&modules)?;
     let flattened = flatten_modules(graph, &modules)?;
@@ -3579,9 +3640,10 @@ fn run_test_case(
     manifest: &Manifest,
     test: &crate::manifest::TestTarget,
     backend: NativeBackendKind,
+    parse_cache: &mut ModuleParseCache,
 ) -> TestCaseResult {
     if test.expected_error.is_some() {
-        return run_manifest_compile_fail_case(project_root, graph, manifest, test);
+        return run_manifest_compile_fail_case(project_root, graph, manifest, test, parse_cache);
     }
     let started = Instant::now();
     let entry_path = project_root.join(&test.entry);
@@ -3604,12 +3666,13 @@ fn run_test_case(
             );
         }
     };
-    let analyzed = match analyze_entry(
+    let analyzed = match analyze_entry_with_parse_cache(
         graph,
         project_root,
         manifest.clone(),
         entry_path.clone(),
         syntax::DEFAULT_MACRO_RECURSION_LIMIT,
+        parse_cache,
     ) {
         Ok(analyzed) => analyzed,
         Err(error) => {
@@ -3886,6 +3949,7 @@ fn run_manifest_compile_fail_case(
     graph: &PackageGraph,
     manifest: &Manifest,
     test: &crate::manifest::TestTarget,
+    parse_cache: &mut ModuleParseCache,
 ) -> TestCaseResult {
     let started = Instant::now();
     let manifest_expected = test
@@ -3901,12 +3965,13 @@ fn run_manifest_compile_fail_case(
         column: manifest_expected.column,
     };
     let entry_path = project_root.join(&test.entry);
-    let actual = match analyze_entry(
+    let actual = match analyze_entry_with_parse_cache(
         graph,
         project_root,
         manifest.clone(),
         entry_path.clone(),
         syntax::DEFAULT_MACRO_RECURSION_LIMIT,
+        parse_cache,
     ) {
         Ok(_) => {
             return TestCaseResult {
@@ -3966,6 +4031,7 @@ fn run_compile_fail_case(
     manifest: &Manifest,
     case_name: &str,
     kind: TestKind,
+    parse_cache: &mut ModuleParseCache,
 ) -> TestCaseResult {
     let started = Instant::now();
     let expected = match load_expected_error(project_root) {
@@ -3991,12 +4057,13 @@ fn run_compile_fail_case(
         }
     };
     let entry_path = project_root.join(&manifest.build.entry);
-    let actual = match analyze_entry(
+    let actual = match analyze_entry_with_parse_cache(
         graph,
         project_root,
         manifest.clone(),
         entry_path.clone(),
         syntax::DEFAULT_MACRO_RECURSION_LIMIT,
+        parse_cache,
     ) {
         Ok(_) => {
             return TestCaseResult {
@@ -4331,6 +4398,23 @@ fn load_modules(
     entry_path: &Path,
     macro_recursion_limit: usize,
 ) -> Result<Vec<LoadedModule>, Diagnostic> {
+    let mut parse_cache = ModuleParseCache::default();
+    load_modules_with_parse_cache(
+        graph,
+        package_root,
+        entry_path,
+        macro_recursion_limit,
+        &mut parse_cache,
+    )
+}
+
+fn load_modules_with_parse_cache(
+    graph: &PackageGraph,
+    package_root: &Path,
+    entry_path: &Path,
+    macro_recursion_limit: usize,
+    parse_cache: &mut ModuleParseCache,
+) -> Result<Vec<LoadedModule>, Diagnostic> {
     let mut ordered = Vec::new();
     let mut loaded = HashSet::new();
     let mut visiting = Vec::new();
@@ -4343,6 +4427,7 @@ fn load_modules(
         &mut ordered,
         &mut loaded,
         &mut visiting,
+        parse_cache,
     )?;
     Ok(ordered)
 }
@@ -4356,6 +4441,7 @@ fn load_module_recursive(
     ordered: &mut Vec<LoadedModule>,
     loaded: &mut HashSet<PathBuf>,
     visiting: &mut Vec<PathBuf>,
+    parse_cache: &mut ModuleParseCache,
 ) -> Result<(), Diagnostic> {
     let module_path = normalize_path(module_path);
     let package = graph.context(package_root)?;
@@ -4386,36 +4472,7 @@ fn load_module_recursive(
         return Ok(());
     }
 
-    let source = if stdlib::is_stdlib_path(&module_path) {
-        stdlib::stdlib_source_for(&module_path)
-            .map(str::to_string)
-            .ok_or_else(|| {
-                Diagnostic::new(
-                    "source",
-                    format!(
-                        "internal error: missing stdlib source for {}",
-                        module_path.display()
-                    ),
-                )
-                .with_path(module_path.display().to_string())
-            })?
-    } else {
-        fs::read_to_string(&module_path).map_err(|err| {
-            Diagnostic::new(
-                "source",
-                format!("failed to read {}: {err}", module_path.display()),
-            )
-            .with_path(module_path.display().to_string())
-        })?
-    };
-    let program = syntax::parse_program_with_options(
-        &source,
-        &module_path,
-        &syntax::ParseOptions {
-            macro_recursion_limit,
-            ..syntax::ParseOptions::default()
-        },
-    )?;
+    let program = parse_module_with_cache(&module_path, macro_recursion_limit, parse_cache)?;
     if !is_entry && !program.stmts.is_empty() {
         let stmt = &program.stmts[0];
         return Err(Diagnostic::new(
@@ -4427,9 +4484,15 @@ fn load_module_recursive(
     }
 
     visiting.push(module_path.clone());
+    let mut resolved_imports = Vec::new();
     for import in &program.imports {
         let (import_package_root, import_path) =
             resolve_import_path(graph, package_root, &module_path, import)?;
+        resolved_imports.push(ResolvedImport {
+            import: import.clone(),
+            package_root: import_package_root.clone(),
+            path: import_path.clone(),
+        });
         load_module_recursive(
             graph,
             &import_package_root,
@@ -4439,6 +4502,7 @@ fn load_module_recursive(
             ordered,
             loaded,
             visiting,
+            parse_cache,
         )?;
     }
     visiting.pop();
@@ -4454,12 +4518,64 @@ fn load_module_recursive(
     ordered.push(LoadedModule {
         path: module_path,
         program,
+        resolved_imports,
         is_entry,
         package_root: package.root.clone(),
         source_root: package.source_root.clone(),
         package_name,
     });
     Ok(())
+}
+
+fn parse_module_with_cache(
+    module_path: &Path,
+    macro_recursion_limit: usize,
+    parse_cache: &mut ModuleParseCache,
+) -> Result<syntax::Program, Diagnostic> {
+    let cache_key = module_parse_cache_key(module_path)?;
+    if let Some(program) = parse_cache.programs.get(&cache_key) {
+        return Ok(program.clone());
+    }
+    let source = if stdlib::is_stdlib_path(module_path) {
+        stdlib::stdlib_source_for(module_path)
+            .map(str::to_string)
+            .ok_or_else(|| {
+                Diagnostic::new(
+                    "source",
+                    format!(
+                        "internal error: missing stdlib source for {}",
+                        module_path.display()
+                    ),
+                )
+                .with_path(module_path.display().to_string())
+            })?
+    } else {
+        fs::read_to_string(module_path).map_err(|err| {
+            Diagnostic::new(
+                "source",
+                format!("failed to read {}: {err}", module_path.display()),
+            )
+            .with_path(module_path.display().to_string())
+        })?
+    };
+    let program = syntax::parse_program_with_options(
+        &source,
+        module_path,
+        &syntax::ParseOptions {
+            macro_recursion_limit,
+            ..syntax::ParseOptions::default()
+        },
+    )?;
+    parse_cache.programs.insert(cache_key, program.clone());
+    Ok(program)
+}
+
+fn module_parse_cache_key(module_path: &Path) -> Result<PathBuf, Diagnostic> {
+    if stdlib::is_stdlib_path(module_path) {
+        Ok(normalize_path(module_path))
+    } else {
+        canonicalize_existing_path(module_path, "module path")
+    }
 }
 
 fn package_section<'a>(
@@ -5781,14 +5897,16 @@ fn flatten_modules(
         let mut private_imported_consts = HashSet::new();
         let mut private_imported_types = HashSet::new();
         let mut capability_wrappers = HashMap::new();
-        for import in &module.program.imports {
-            let (import_package_root, import_path) =
-                resolve_import_path(graph, &module.package_root, &module.path, import)?;
-            let same_package = import_package_root == module.package_root;
-            let imported_symbols = symbols.get(&import_path).ok_or_else(|| {
+        for resolved_import in &module.resolved_imports {
+            let import = &resolved_import.import;
+            let same_package = resolved_import.package_root == module.package_root;
+            let imported_symbols = symbols.get(&resolved_import.path).ok_or_else(|| {
                 Diagnostic::new(
                     "import",
-                    format!("internal error: missing module {}", import_path.display()),
+                    format!(
+                        "internal error: missing module {}",
+                        resolved_import.path.display()
+                    ),
                 )
             })?;
             for name in &imported_symbols.private_functions {
@@ -5820,7 +5938,8 @@ fn flatten_modules(
                     .with_span(import.line, import.column));
                 }
                 visible_functions.insert(export_name.clone(), internal_name.clone());
-                if let Some(kinds) = stdlib_wrapper_capabilities(&import_path, export_name) {
+                if let Some(kinds) = stdlib_wrapper_capabilities(&resolved_import.path, export_name)
+                {
                     capability_wrappers.insert(export_name.clone(), kinds);
                 }
             }
@@ -9054,6 +9173,50 @@ mod tests {
     }
 
     #[test]
+    fn package_graph_metadata_can_reuse_loaded_graph() {
+        let dir = tempdir().unwrap_or_else(|err| panic!("tempdir: {err}"));
+        let root = dir.path().join("graph-reuse");
+        fs::create_dir_all(root.join("src")).unwrap_or_else(|err| panic!("create src: {err}"));
+        fs::write(
+            root.join("axiom.toml"),
+            r#"[package]
+name = "graph-reuse"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+"#,
+        )
+        .unwrap_or_else(|err| panic!("write manifest: {err}"));
+        fs::write(root.join("src/main.ax"), "print \"ok\"\n")
+            .unwrap_or_else(|err| panic!("write source: {err}"));
+        let manifest = load_manifest(&root).unwrap_or_else(|err| panic!("load manifest: {err:?}"));
+        fs::write(
+            root.join("axiom.lock"),
+            crate::lockfile::render_lockfile_for_project(&root, &manifest)
+                .unwrap_or_else(|err| panic!("render lockfile: {err:?}")),
+        )
+        .unwrap_or_else(|err| panic!("write lockfile: {err}"));
+        let canonical_root =
+            canonicalize_existing_path(&root, "project root").expect("canonical root");
+        let graph = load_package_graph(&canonical_root).expect("load graph");
+
+        let direct = package_graph_metadata_with_graph(&canonical_root, &graph)
+            .expect("metadata with graph");
+        let public = package_graph_metadata(&root).expect("metadata");
+
+        assert_eq!(direct.manifest, public.manifest);
+        assert_eq!(direct.packages.len(), public.packages.len());
+        assert_eq!(direct.packages[0].name, public.packages[0].name);
+        assert_eq!(direct.packages[0].lockfile.status, "current");
+        assert_eq!(
+            direct.packages[0].lockfile.status,
+            public.packages[0].lockfile.status
+        );
+    }
+
+    #[test]
     fn dependency_without_net_cannot_use_stdlib_net_wrapper() {
         let dir = tempdir().unwrap_or_else(|err| panic!("tempdir: {err}"));
         let root = dir.path().join("app");
@@ -9876,6 +10039,56 @@ return async_serve_route(1, "/", "ok", 1)
 
     #[cfg(not(windows))]
     #[test]
+    fn build_project_with_graph_preserves_public_build_metadata() {
+        if which::which("cc").is_err() {
+            eprintln!("skipping graph-backed build test because cc is unavailable");
+            return;
+        }
+
+        let dir = tempdir().unwrap_or_else(|err| panic!("tempdir: {err}"));
+        let root = dir.path();
+        fs::create_dir_all(root.join("src")).expect("create src");
+        fs::write(
+            root.join("axiom.toml"),
+            "[package]\nname = \"graph-build\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n",
+        )
+        .expect("write manifest");
+        let manifest = load_manifest(root).expect("load manifest");
+        fs::write(
+            root.join("axiom.lock"),
+            crate::lockfile::render_lockfile(&manifest).expect("render lockfile"),
+        )
+        .expect("write lockfile");
+        fs::write(root.join("src/main.ax"), "print \"graph build\"\n").expect("write source");
+
+        let package_root =
+            canonicalize_existing_path(root, "project root").expect("canonical root");
+        let graph = load_package_graph(&package_root).expect("load graph");
+        let options = BuildOptions {
+            backend: NativeBackendKind::Cranelift,
+            ..BuildOptions::default()
+        };
+
+        let direct =
+            build_project_with_graph(&package_root, &graph, &options).expect("graph-backed build");
+        let public = build_project_with_options(root, &options).expect("public build");
+
+        assert_eq!(direct.backend, public.backend);
+        assert_eq!(direct.manifest, public.manifest);
+        assert_eq!(direct.entry, public.entry);
+        assert_eq!(direct.binary, public.binary);
+        assert_eq!(direct.generated_rust, public.generated_rust);
+        assert_eq!(direct.packages.len(), public.packages.len());
+        assert_eq!(
+            direct.packages[0].package_root,
+            public.packages[0].package_root
+        );
+        assert_eq!(direct.packages[0].manifest, public.packages[0].manifest);
+        assert_eq!(direct.packages[0].entry, public.packages[0].entry);
+    }
+
+    #[cfg(not(windows))]
+    #[test]
     fn cranelift_run_report_executes_without_generated_rust_artifact() {
         if which::which("cc").is_err() {
             eprintln!("skipping Cranelift run report test because cc is unavailable");
@@ -10265,6 +10478,7 @@ return async_serve_route(1, "/", "ok", 1)
                 workspace_members: Vec::new(),
             },
         );
+        let mut parse_cache = ModuleParseCache::default();
 
         let error = match load_module_recursive(
             &graph,
@@ -10275,6 +10489,7 @@ return async_serve_route(1, "/", "ok", 1)
             &mut Vec::new(),
             &mut HashSet::new(),
             &mut Vec::new(),
+            &mut parse_cache,
         ) {
             Ok(()) => panic!("workspace-only manifest loaded a module"),
             Err(error) => error,
@@ -10509,6 +10724,23 @@ return async_serve_route(1, "/", "ok", 1)
     }
 
     #[test]
+    fn discovered_tests_reuse_loaded_package_expected_output() {
+        let dir = tempdir().unwrap_or_else(|err| panic!("tempdir: {err}"));
+        let root = dir.path();
+        let source_root = root.join("src");
+        fs::create_dir_all(&source_root).unwrap_or_else(|err| panic!("create src: {err}"));
+        fs::write(source_root.join("unit_test.ax"), "")
+            .unwrap_or_else(|err| panic!("write unit test: {err}"));
+
+        let tests = discover_test_targets(root, false, Some("cached\n"))
+            .unwrap_or_else(|err| panic!("discover tests: {err:?}"));
+
+        assert_eq!(tests.len(), 1);
+        assert_eq!(tests[0].name, "src/unit_test");
+        assert_eq!(tests[0].stdout.as_deref(), Some("cached\n"));
+    }
+
+    #[test]
     fn package_expected_output_is_not_reloaded_as_manifest_fixture_path() {
         let dir = tempdir().unwrap_or_else(|err| panic!("tempdir: {err}"));
         let root = dir.path();
@@ -10540,6 +10772,78 @@ return async_serve_route(1, "/", "ok", 1)
             tests[0].stdout.as_deref(),
             Some("{\"event\":\"ingest\",\"ok\":true}\ntrue\n")
         );
+    }
+
+    #[test]
+    fn module_parse_cache_reuses_imported_programs_across_test_entries() {
+        let dir = tempdir().unwrap_or_else(|err| panic!("tempdir: {err}"));
+        let root = dir.path().join("parse-cache");
+        fs::create_dir_all(root.join("src")).unwrap_or_else(|err| panic!("create src: {err}"));
+        fs::write(
+            root.join("axiom.toml"),
+            r#"[package]
+name = "parse-cache"
+version = "0.1.0"
+
+[build]
+entry = "src/first_test.ax"
+out_dir = "dist"
+"#,
+        )
+        .unwrap_or_else(|err| panic!("write manifest: {err}"));
+        fs::write(
+            root.join("src/shared.ax"),
+            "fn shared(): int {\nreturn 1\n}\n",
+        )
+        .unwrap_or_else(|err| panic!("write shared: {err}"));
+        fs::write(
+            root.join("src/first_test.ax"),
+            "import \"shared.ax\"\nprint shared()\n",
+        )
+        .unwrap_or_else(|err| panic!("write first: {err}"));
+        fs::write(
+            root.join("src/second_test.ax"),
+            "import \"shared.ax\"\nprint shared()\n",
+        )
+        .unwrap_or_else(|err| panic!("write second: {err}"));
+        let manifest = load_manifest(&root).unwrap_or_else(|err| panic!("load manifest: {err:?}"));
+        fs::write(
+            root.join("axiom.lock"),
+            crate::lockfile::render_lockfile_for_project(&root, &manifest)
+                .unwrap_or_else(|err| panic!("render lockfile: {err:?}")),
+        )
+        .unwrap_or_else(|err| panic!("write lockfile: {err}"));
+        let package_root =
+            canonicalize_existing_path(&root, "package root").expect("canonical package root");
+        let graph = load_package_graph(&package_root).expect("load graph");
+        let shared_path = package_root.join("src/shared.ax");
+        let shared_key = module_parse_cache_key(&shared_path).expect("shared cache key");
+        let mut parse_cache = ModuleParseCache::default();
+
+        load_modules_with_parse_cache(
+            &graph,
+            &package_root,
+            &package_root.join("src/first_test.ax"),
+            syntax::DEFAULT_MACRO_RECURSION_LIMIT,
+            &mut parse_cache,
+        )
+        .expect("load first test modules");
+        assert!(
+            parse_cache.programs.contains_key(&shared_key),
+            "shared import should be cached after first test entry"
+        );
+
+        fs::write(shared_path, "fn broken(").unwrap_or_else(|err| panic!("corrupt shared: {err}"));
+        let modules = load_modules_with_parse_cache(
+            &graph,
+            &package_root,
+            &package_root.join("src/second_test.ax"),
+            syntax::DEFAULT_MACRO_RECURSION_LIMIT,
+            &mut parse_cache,
+        )
+        .expect("load second test modules from cache");
+
+        assert!(modules.iter().any(|module| module.path == shared_key));
     }
 
     #[test]
@@ -10689,6 +10993,7 @@ return async_serve_route(1, "/", "ok", 1)
                 workspace_members: Vec::new(),
             },
         );
+        let mut parse_cache = ModuleParseCache::default();
 
         let error = match load_module_recursive(
             &graph,
@@ -10699,6 +11004,7 @@ return async_serve_route(1, "/", "ok", 1)
             &mut Vec::new(),
             &mut HashSet::new(),
             &mut Vec::new(),
+            &mut parse_cache,
         ) {
             Ok(()) => panic!("symlinked import outside package was loaded"),
             Err(error) => error,
@@ -10706,6 +11012,51 @@ return async_serve_route(1, "/", "ok", 1)
 
         assert_eq!(error.kind, "import");
         assert_eq!(error.message, "stage1 imports must stay inside the package");
+    }
+
+    #[test]
+    fn flatten_modules_reuses_resolved_import_paths_from_load() {
+        let dir = tempdir().unwrap_or_else(|err| panic!("tempdir: {err}"));
+        let root =
+            fs::canonicalize(dir.path()).unwrap_or_else(|err| panic!("canonical root: {err}"));
+        let source_root = root.join("src");
+        fs::create_dir_all(&source_root).unwrap_or_else(|err| panic!("create src: {err}"));
+        let entry = source_root.join("main.ax");
+        let shared = source_root.join("shared.ax");
+        fs::write(&entry, "import \"shared.ax\"\nprint shared()\n")
+            .unwrap_or_else(|err| panic!("write entry: {err}"));
+        fs::write(&shared, "pub fn shared(): int {\nreturn 7\n}\n")
+            .unwrap_or_else(|err| panic!("write shared: {err}"));
+
+        let mut graph = PackageGraph::default();
+        graph.packages.insert(
+            root.clone(),
+            PackageContext {
+                root: root.clone(),
+                manifest: package_manifest(),
+                source_root: source_root.clone(),
+                dependencies: BTreeMap::new(),
+                workspace_members: Vec::new(),
+            },
+        );
+
+        let modules = load_modules(&graph, &root, &entry, syntax::DEFAULT_MACRO_RECURSION_LIMIT)
+            .expect("load modules");
+        assert!(
+            modules.iter().any(|module| module
+                .resolved_imports
+                .iter()
+                .any(|import| import.path == shared)),
+            "shared import should be resolved during module loading"
+        );
+
+        fs::remove_file(&shared).unwrap_or_else(|err| panic!("remove shared: {err}"));
+        let flattened = flatten_modules(&graph, &modules).expect("flatten from resolved imports");
+
+        assert!(
+            !flattened.functions.is_empty(),
+            "flattening should still include functions from loaded modules"
+        );
     }
 
     #[cfg(unix)]
