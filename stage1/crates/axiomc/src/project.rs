@@ -726,8 +726,8 @@ pub fn list_project_tests_with_options(
     let mut tests = Vec::new();
     for package_root in workspace_package_roots(&graph, &project_root, options.package.as_deref())?
     {
-        let manifest = graph.context(&package_root)?.manifest.clone();
-        validate_lockfile(&package_root, &manifest)?;
+        let manifest = &graph.context(&package_root)?.manifest;
+        validate_lockfile(&package_root, manifest)?;
         let discovered = if expected_error_path(&package_root).exists() && !options.conformance {
             Vec::new()
         } else if expected_error_path(&package_root).exists() {
@@ -742,7 +742,7 @@ pub fn list_project_tests_with_options(
         } else {
             collect_test_targets(
                 &package_root,
-                &manifest,
+                manifest,
                 options.filter.as_deref(),
                 options.include_benchmarks,
                 options.properties_only,
@@ -794,14 +794,14 @@ pub fn run_project_tests_with_options(
     let started = Instant::now();
     for package_root in workspace_package_roots(&graph, &project_root, options.package.as_deref())?
     {
-        let manifest = graph.context(&package_root)?.manifest.clone();
-        validate_lockfile(&package_root, &manifest)?;
+        let manifest = &graph.context(&package_root)?.manifest;
+        validate_lockfile(&package_root, manifest)?;
         if expected_error_path(&package_root).exists()
             && (!options.properties_only || options.conformance)
         {
             if let Some(test) = compile_fail_test_target(
                 &package_root,
-                &manifest,
+                manifest,
                 if options.conformance {
                     TestKind::Property
                 } else {
@@ -813,7 +813,7 @@ pub fn run_project_tests_with_options(
                 cases.push(run_compile_fail_case(
                     &package_root,
                     &graph,
-                    &manifest,
+                    manifest,
                     &test.name,
                     test.kind,
                 ));
@@ -822,7 +822,7 @@ pub fn run_project_tests_with_options(
         }
         let tests = collect_test_targets(
             &package_root,
-            &manifest,
+            manifest,
             options.filter.as_deref(),
             options.include_benchmarks,
             options.properties_only,
@@ -836,7 +836,7 @@ pub fn run_project_tests_with_options(
             cases.push(run_test_case(
                 &package_root,
                 &graph,
-                &manifest,
+                manifest,
                 test,
                 options.backend,
             ));
