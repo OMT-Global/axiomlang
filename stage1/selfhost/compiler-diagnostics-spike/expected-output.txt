@@ -1,0 +1,58 @@
+stable_code parse missing-closing = some:parse.missing_closing_brace
+stable_code parse unexpected-closing = some:parse.unexpected_closing_brace
+stable_code parse unsupported = some:parse.unsupported_syntax
+stable_code parse unexpected-token = some:parse.unexpected_token
+stable_code parse missing-token = some:parse.missing_token
+stable_code parse fallback = some:parse.invalid_syntax
+stable_code manifest dependency-path = some:manifest.bad_dependency_path
+stable_code manifest resolves-outside = some:manifest.bad_dependency_path
+stable_code manifest capability = some:manifest.invalid_capability
+stable_code manifest fallback = some:manifest.invalid
+stable_code import circular = some:import.cycle
+stable_code import cycle = some:import.cycle
+stable_code import not-found = some:import.unresolved
+stable_code import failed-read = some:import.unresolved
+stable_code import missing-import = some:import.unresolved
+stable_code import fallback = some:import.invalid
+stable_code capability requires = some:capability.denied
+stable_code capability not-enabled = some:capability.denied
+stable_code capability fallback = some:capability.invalid
+stable_code type undefined = some:type.undefined_symbol
+stable_code type unknown = some:type.undefined_symbol
+stable_code type expected = some:type.mismatch
+stable_code type mismatch = some:type.mismatch
+stable_code type fallback = some:type.invalid
+stable_code ownership = some:ownership.invalid
+stable_code codegen = some:codegen.internal
+stable_code build = some:build.failed
+stable_code runtime = some:runtime.failed
+stable_code control missing-return = some:control.missing_return
+stable_code control unreachable = some:control.unreachable_statement
+stable_code control fallback = some:control.invalid
+stable_code fmt = some:fmt.failed
+stable_code source = some:source.invalid
+stable_code json = some:json.serialization_failed
+stable_code unknown-kind = none
+repair parse = action=edit_source edit=Update the source at the reported span and rerun `axiomc check --json`. command=none
+repair type = action=edit_source edit=Update the source at the reported span and rerun `axiomc check --json`. command=none
+repair ownership = action=edit_source edit=Update the source at the reported span and rerun `axiomc check --json`. command=none
+repair manifest = action=edit_manifest edit=Update axiom.toml with the narrowest required package, dependency, or capability change. command=none
+repair capability = action=edit_manifest edit=Update axiom.toml with the narrowest required package, dependency, or capability change. command=none
+repair import = action=edit_import edit=Fix the quoted relative import path or add the missing imported source file. command=none
+repair fmt = action=run_command edit=none command=axiomc fmt <path>
+repair source = action=check_path edit=Use an existing .ax source path or package directory. command=none
+repair build = action=rerun_command edit=Review the compiler message and rerun the failed command after source changes. command=none
+repair codegen = action=rerun_command edit=Review the compiler message and rerun the failed command after source changes. command=none
+repair runtime = action=rerun_command edit=Review the compiler message and rerun the failed command after source changes. command=none
+repair unknown-kind = none
+render full = src/main.ax:3:7: use of moved value greeting
+render path-line = src/main.ax: use of moved value greeting
+render path-only = src/main.ax: use of moved value greeting
+render message-only = use of moved value greeting
+plausible empty-needle = false
+plausible empty-candidate = false
+plausible short-close = true
+plausible short-far = false
+plausible long-close = true
+plausible long-far = false
+plausible mixed-lengths = true

@@ -1,0 +1,312 @@
+import "std/regex.ax"
+
+struct RepairHint {
+action: string
+edit: Option<string>
+command: Option<string>
+}
+
+fn contains(text: string, needle: string): bool {
+return is_match(needle, text)
+}
+
+pub fn stable_diagnostic_code(kind: string, message: string): Option<string> {
+if kind == "parse" {
+if contains(string_clone(message), "missing closing brace") {
+return Some("parse.missing_closing_brace")
+}
+if contains(string_clone(message), "unexpected closing brace") {
+return Some("parse.unexpected_closing_brace")
+}
+if contains(string_clone(message), "not supported") {
+return Some("parse.unsupported_syntax")
+}
+if contains(string_clone(message), "unexpected") {
+return Some("parse.unexpected_token")
+}
+if contains(string_clone(message), "missing") {
+return Some("parse.missing_token")
+}
+return Some("parse.invalid_syntax")
+}
+if kind == "manifest" {
+if contains(string_clone(message), "dependency path") {
+return Some("manifest.bad_dependency_path")
+}
+if contains(string_clone(message), "resolves outside") {
+return Some("manifest.bad_dependency_path")
+}
+if contains(string_clone(message), "capability") {
+return Some("manifest.invalid_capability")
+}
+return Some("manifest.invalid")
+}
+if kind == "import" {
+if contains(string_clone(message), "circular") {
+return Some("import.cycle")
+}
+if contains(string_clone(message), "cycle") {
+return Some("import.cycle")
+}
+if contains(string_clone(message), "not found") {
+return Some("import.unresolved")
+}
+if contains(string_clone(message), "failed to read") {
+return Some("import.unresolved")
+}
+if contains(string_clone(message), "missing import") {
+return Some("import.unresolved")
+}
+return Some("import.invalid")
+}
+if kind == "capability" {
+if contains(string_clone(message), "requires") {
+return Some("capability.denied")
+}
+if contains(string_clone(message), "not enabled") {
+return Some("capability.denied")
+}
+return Some("capability.invalid")
+}
+if kind == "type" {
+if contains(string_clone(message), "undefined") {
+return Some("type.undefined_symbol")
+}
+if contains(string_clone(message), "unknown") {
+return Some("type.undefined_symbol")
+}
+if contains(string_clone(message), "expected") {
+return Some("type.mismatch")
+}
+if contains(string_clone(message), "mismatch") {
+return Some("type.mismatch")
+}
+return Some("type.invalid")
+}
+if kind == "ownership" {
+return Some("ownership.invalid")
+}
+if kind == "codegen" {
+return Some("codegen.internal")
+}
+if kind == "build" {
+return Some("build.failed")
+}
+if kind == "runtime" {
+return Some("runtime.failed")
+}
+if kind == "control" {
+if contains(string_clone(message), "does not return along all paths") {
+return Some("control.missing_return")
+}
+if contains(string_clone(message), "unreachable") {
+return Some("control.unreachable_statement")
+}
+return Some("control.invalid")
+}
+if kind == "fmt" {
+return Some("fmt.failed")
+}
+if kind == "source" {
+return Some("source.invalid")
+}
+if kind == "json" {
+return Some("json.serialization_failed")
+}
+return None
+}
+
+pub fn repair_hint(kind: string): Option<RepairHint> {
+if kind == "parse" {
+return Some(edit_source_hint())
+}
+if kind == "type" {
+return Some(edit_source_hint())
+}
+if kind == "ownership" {
+return Some(edit_source_hint())
+}
+if kind == "manifest" {
+return Some(edit_manifest_hint())
+}
+if kind == "capability" {
+return Some(edit_manifest_hint())
+}
+if kind == "import" {
+return Some(RepairHint { action: "edit_import", edit: Some("Fix the quoted relative import path or add the missing imported source file."), command: None })
+}
+if kind == "fmt" {
+return Some(RepairHint { action: "run_command", edit: None, command: Some("axiomc fmt <path>") })
+}
+if kind == "source" {
+return Some(RepairHint { action: "check_path", edit: Some("Use an existing .ax source path or package directory."), command: None })
+}
+if kind == "build" {
+return Some(rerun_command_hint())
+}
+if kind == "codegen" {
+return Some(rerun_command_hint())
+}
+if kind == "runtime" {
+return Some(rerun_command_hint())
+}
+return None
+}
+
+fn edit_source_hint(): RepairHint {
+return RepairHint { action: "edit_source", edit: Some("Update the source at the reported span and rerun `axiomc check --json`."), command: None }
+}
+
+fn edit_manifest_hint(): RepairHint {
+return RepairHint { action: "edit_manifest", edit: Some("Update axiom.toml with the narrowest required package, dependency, or capability change."), command: None }
+}
+
+fn rerun_command_hint(): RepairHint {
+return RepairHint { action: "rerun_command", edit: Some("Review the compiler message and rerun the failed command after source changes."), command: None }
+}
+
+pub fn render_diagnostic(path: Option<string>, line: Option<int>, column: Option<int>, message: string): string {
+match path {
+Some(path_text) {
+match line {
+Some(line_number) {
+match column {
+Some(column_number) {
+return path_text + ":" + json_stringify_int(line_number) + ":" + json_stringify_int(column_number) + ": " + message
+}
+None {
+return path_text + ": " + message
+}
+}
+}
+None {
+return path_text + ": " + message
+}
+}
+}
+None {
+return message
+}
+}
+}
+
+pub fn is_plausible_suggestion(needle_length: int, candidate_length: int, distance: int): bool {
+if needle_length == 0 {
+return false
+}
+if candidate_length == 0 {
+return false
+}
+if distance <= 2 {
+return true
+}
+let max_length: int = needle_length
+if candidate_length > max_length {
+max_length = candidate_length
+}
+if max_length >= 6 {
+if distance <= 3 {
+return true
+}
+}
+return false
+}
+
+fn code_text(value: Option<string>): string {
+match value {
+Some(code) {
+return "some:" + code
+}
+None {
+return "none"
+}
+}
+}
+
+fn text_or_none(value: Option<string>): string {
+match value {
+Some(text) {
+return text
+}
+None {
+return "none"
+}
+}
+}
+
+fn hint_text(value: Option<RepairHint>): string {
+match value {
+Some(hint) {
+return "action=" + hint.action + " edit=" + text_or_none(hint.edit) + " command=" + text_or_none(hint.command)
+}
+None {
+return "none"
+}
+}
+}
+
+fn bool_text(value: bool): string {
+if value {
+return "true"
+}
+return "false"
+}
+
+print "stable_code parse missing-closing = " + code_text(stable_diagnostic_code("parse", "missing closing brace after block"))
+print "stable_code parse unexpected-closing = " + code_text(stable_diagnostic_code("parse", "unexpected closing brace at top level"))
+print "stable_code parse unsupported = " + code_text(stable_diagnostic_code("parse", "match guards are not supported in stage1"))
+print "stable_code parse unexpected-token = " + code_text(stable_diagnostic_code("parse", "unexpected token near let"))
+print "stable_code parse missing-token = " + code_text(stable_diagnostic_code("parse", "missing argument after comma"))
+print "stable_code parse fallback = " + code_text(stable_diagnostic_code("parse", "invalid identifier"))
+print "stable_code manifest dependency-path = " + code_text(stable_diagnostic_code("manifest", "dependency path escapes the package root"))
+print "stable_code manifest resolves-outside = " + code_text(stable_diagnostic_code("manifest", "entry resolves outside the workspace"))
+print "stable_code manifest capability = " + code_text(stable_diagnostic_code("manifest", "unknown capability flag net2"))
+print "stable_code manifest fallback = " + code_text(stable_diagnostic_code("manifest", "malformed manifest table"))
+print "stable_code import circular = " + code_text(stable_diagnostic_code("import", "circular import chain detected"))
+print "stable_code import cycle = " + code_text(stable_diagnostic_code("import", "module cycle between a and b"))
+print "stable_code import not-found = " + code_text(stable_diagnostic_code("import", "module not found in package"))
+print "stable_code import failed-read = " + code_text(stable_diagnostic_code("import", "failed to read imported source"))
+print "stable_code import missing-import = " + code_text(stable_diagnostic_code("import", "missing import target file"))
+print "stable_code import fallback = " + code_text(stable_diagnostic_code("import", "import alias forms are rejected"))
+print "stable_code capability requires = " + code_text(stable_diagnostic_code("capability", "call to fs_read requires capabilities fs"))
+print "stable_code capability not-enabled = " + code_text(stable_diagnostic_code("capability", "clock capability not enabled for package"))
+print "stable_code capability fallback = " + code_text(stable_diagnostic_code("capability", "capability record was malformed"))
+print "stable_code type undefined = " + code_text(stable_diagnostic_code("type", "undefined function frobnicate"))
+print "stable_code type unknown = " + code_text(stable_diagnostic_code("type", "unknown type name Widget"))
+print "stable_code type expected = " + code_text(stable_diagnostic_code("type", "expected int, got bool"))
+print "stable_code type mismatch = " + code_text(stable_diagnostic_code("type", "arm type mismatch in match expression"))
+print "stable_code type fallback = " + code_text(stable_diagnostic_code("type", "trait bound failure"))
+print "stable_code ownership = " + code_text(stable_diagnostic_code("ownership", "use of moved value greeting"))
+print "stable_code codegen = " + code_text(stable_diagnostic_code("codegen", "internal lowering failure"))
+print "stable_code build = " + code_text(stable_diagnostic_code("build", "native backend failed to produce artifact"))
+print "stable_code runtime = " + code_text(stable_diagnostic_code("runtime", "index out of bounds"))
+print "stable_code control missing-return = " + code_text(stable_diagnostic_code("control", "function does not return along all paths"))
+print "stable_code control unreachable = " + code_text(stable_diagnostic_code("control", "unreachable statement after panic"))
+print "stable_code control fallback = " + code_text(stable_diagnostic_code("control", "loop guard shape rejected"))
+print "stable_code fmt = " + code_text(stable_diagnostic_code("fmt", "formatting failed for source"))
+print "stable_code source = " + code_text(stable_diagnostic_code("source", "path is not an .ax source file"))
+print "stable_code json = " + code_text(stable_diagnostic_code("json", "serialization failed for envelope"))
+print "stable_code unknown-kind = " + code_text(stable_diagnostic_code("lint", "unused variable total"))
+print "repair parse = " + hint_text(repair_hint("parse"))
+print "repair type = " + hint_text(repair_hint("type"))
+print "repair ownership = " + hint_text(repair_hint("ownership"))
+print "repair manifest = " + hint_text(repair_hint("manifest"))
+print "repair capability = " + hint_text(repair_hint("capability"))
+print "repair import = " + hint_text(repair_hint("import"))
+print "repair fmt = " + hint_text(repair_hint("fmt"))
+print "repair source = " + hint_text(repair_hint("source"))
+print "repair build = " + hint_text(repair_hint("build"))
+print "repair codegen = " + hint_text(repair_hint("codegen"))
+print "repair runtime = " + hint_text(repair_hint("runtime"))
+print "repair unknown-kind = " + hint_text(repair_hint("lint"))
+print "render full = " + render_diagnostic(Some("src/main.ax"), Some(3), Some(7), "use of moved value greeting")
+print "render path-line = " + render_diagnostic(Some("src/main.ax"), Some(3), None, "use of moved value greeting")
+print "render path-only = " + render_diagnostic(Some("src/main.ax"), None, None, "use of moved value greeting")
+print "render message-only = " + render_diagnostic(None, None, None, "use of moved value greeting")
+print "plausible empty-needle = " + bool_text(is_plausible_suggestion(0, 3, 1))
+print "plausible empty-candidate = " + bool_text(is_plausible_suggestion(3, 0, 1))
+print "plausible short-close = " + bool_text(is_plausible_suggestion(5, 5, 2))
+print "plausible short-far = " + bool_text(is_plausible_suggestion(5, 5, 3))
+print "plausible long-close = " + bool_text(is_plausible_suggestion(6, 7, 3))
+print "plausible long-far = " + bool_text(is_plausible_suggestion(9, 8, 4))
+print "plausible mixed-lengths = " + bool_text(is_plausible_suggestion(4, 6, 3))
