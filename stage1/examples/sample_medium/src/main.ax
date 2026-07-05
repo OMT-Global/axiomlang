@@ -1,0 +1,25 @@
+struct Task {
+title: string
+points: int
+blocked: bool
+}
+
+fn task_status(task: Task): string {
+if task.blocked {
+return task.title + " blocked"
+} else {
+return task.title + " ready"
+}
+}
+
+fn is_small(task: Task): bool {
+return task.points < 5
+}
+
+let docs: Task = Task { title: "write examples", points: 3, blocked: false }
+let migration: Task = Task { title: "ship compiler", points: 8, blocked: true }
+
+print is_small(docs)
+print task_status(Task { title: "write examples", points: 3, blocked: false })
+print is_small(migration)
+print task_status(Task { title: "ship compiler", points: 8, blocked: true })

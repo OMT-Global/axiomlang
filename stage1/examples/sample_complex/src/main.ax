@@ -1,0 +1,9 @@
+import "work.ax"
+
+let queued: WorkState = Queued("plan")
+let running: WorkState = Running { id: 12, label: "compile" }
+let done: WorkState = Done(20, "verify")
+
+print inspect_work(queued)
+print inspect_work(running)
+print inspect_work(done)
