@@ -11,7 +11,7 @@ trap 'rm -rf "$temp_dir"' EXIT
 python3 "$script" --contract "$contract" >"$temp_dir/status.md"
 
 grep -Fq '<!-- direct-native-runtime-abi-status:start -->' "$temp_dir/status.md"
-grep -Fq '| `numeric.scalars` | `partial` | #1124 | evidence:1, runtime:1 |' "$temp_dir/status.md"
+grep -Fq '| `numeric.scalars` | `implemented` | - | evidence:1, runtime:1 |' "$temp_dir/status.md"
 grep -Fq '| `io.logging_stdio` | `implemented` | - | evidence:1, runtime:2 |' "$temp_dir/status.md"
 grep -Fq '<!-- direct-native-runtime-abi-status:end -->' "$temp_dir/status.md"
 
