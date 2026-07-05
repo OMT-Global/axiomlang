@@ -1534,10 +1534,18 @@ struct AnalyzedProject {
 struct LoadedModule {
     path: PathBuf,
     program: syntax::Program,
+    resolved_imports: Vec<ResolvedImport>,
     is_entry: bool,
     package_root: PathBuf,
     source_root: PathBuf,
     package_name: String,
+}
+
+#[derive(Debug, Clone)]
+struct ResolvedImport {
+    import: syntax::Import,
+    package_root: PathBuf,
+    path: PathBuf,
 }
 
 #[derive(Debug, Clone)]
@@ -4447,9 +4455,15 @@ fn load_module_recursive(
     }
 
     visiting.push(module_path.clone());
+    let mut resolved_imports = Vec::new();
     for import in &program.imports {
         let (import_package_root, import_path) =
             resolve_import_path(graph, package_root, &module_path, import)?;
+        resolved_imports.push(ResolvedImport {
+            import: import.clone(),
+            package_root: import_package_root.clone(),
+            path: import_path.clone(),
+        });
         load_module_recursive(
             graph,
             &import_package_root,
@@ -4474,6 +4488,7 @@ fn load_module_recursive(
     ordered.push(LoadedModule {
         path: module_path,
         program,
+        resolved_imports,
         is_entry,
         package_root: package.root.clone(),
         source_root: package.source_root.clone(),
@@ -5801,14 +5816,16 @@ fn flatten_modules(
         let mut private_imported_consts = HashSet::new();
         let mut private_imported_types = HashSet::new();
         let mut capability_wrappers = HashMap::new();
-        for import in &module.program.imports {
-            let (import_package_root, import_path) =
-                resolve_import_path(graph, &module.package_root, &module.path, import)?;
-            let same_package = import_package_root == module.package_root;
-            let imported_symbols = symbols.get(&import_path).ok_or_else(|| {
+        for resolved_import in &module.resolved_imports {
+            let import = &resolved_import.import;
+            let same_package = resolved_import.package_root == module.package_root;
+            let imported_symbols = symbols.get(&resolved_import.path).ok_or_else(|| {
                 Diagnostic::new(
                     "import",
-                    format!("internal error: missing module {}", import_path.display()),
+                    format!(
+                        "internal error: missing module {}",
+                        resolved_import.path.display()
+                    ),
                 )
             })?;
             for name in &imported_symbols.private_functions {
@@ -5840,7 +5857,8 @@ fn flatten_modules(
                     .with_span(import.line, import.column));
                 }
                 visible_functions.insert(export_name.clone(), internal_name.clone());
-                if let Some(kinds) = stdlib_wrapper_capabilities(&import_path, export_name) {
+                if let Some(kinds) = stdlib_wrapper_capabilities(&resolved_import.path, export_name)
+                {
                     capability_wrappers.insert(export_name.clone(), kinds);
                 }
             }
@@ -10837,6 +10855,51 @@ return async_serve_route(1, "/", "ok", 1)
 
         assert_eq!(error.kind, "import");
         assert_eq!(error.message, "stage1 imports must stay inside the package");
+    }
+
+    #[test]
+    fn flatten_modules_reuses_resolved_import_paths_from_load() {
+        let dir = tempdir().unwrap_or_else(|err| panic!("tempdir: {err}"));
+        let root =
+            fs::canonicalize(dir.path()).unwrap_or_else(|err| panic!("canonical root: {err}"));
+        let source_root = root.join("src");
+        fs::create_dir_all(&source_root).unwrap_or_else(|err| panic!("create src: {err}"));
+        let entry = source_root.join("main.ax");
+        let shared = source_root.join("shared.ax");
+        fs::write(&entry, "import \"shared.ax\"\nprint shared()\n")
+            .unwrap_or_else(|err| panic!("write entry: {err}"));
+        fs::write(&shared, "pub fn shared(): int {\nreturn 7\n}\n")
+            .unwrap_or_else(|err| panic!("write shared: {err}"));
+
+        let mut graph = PackageGraph::default();
+        graph.packages.insert(
+            root.clone(),
+            PackageContext {
+                root: root.clone(),
+                manifest: package_manifest(),
+                source_root: source_root.clone(),
+                dependencies: BTreeMap::new(),
+                workspace_members: Vec::new(),
+            },
+        );
+
+        let modules = load_modules(&graph, &root, &entry, syntax::DEFAULT_MACRO_RECURSION_LIMIT)
+            .expect("load modules");
+        assert!(
+            modules.iter().any(|module| module
+                .resolved_imports
+                .iter()
+                .any(|import| import.path == shared)),
+            "shared import should be resolved during module loading"
+        );
+
+        fs::remove_file(&shared).unwrap_or_else(|err| panic!("remove shared: {err}"));
+        let flattened = flatten_modules(&graph, &modules).expect("flatten from resolved imports");
+
+        assert!(
+            !flattened.functions.is_empty(),
+            "flattening should still include functions from loaded modules"
+        );
     }
 
     #[cfg(unix)]
