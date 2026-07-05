@@ -522,15 +522,22 @@ pub fn build_project_with_options(
     project_root: &Path,
     options: &BuildOptions,
 ) -> Result<BuildOutput, Diagnostic> {
-    validate_build_resolution_mode(options)?;
     let project_root = canonicalize_existing_path(&normalize_path(project_root), "project root")?;
     let graph = load_package_graph(&project_root)?;
-    validate_workspace_root_lockfile(&graph, &project_root)?;
+    build_project_with_graph(&project_root, &graph, options)
+}
+
+fn build_project_with_graph(
+    project_root: &Path,
+    graph: &PackageGraph,
+    options: &BuildOptions,
+) -> Result<BuildOutput, Diagnostic> {
+    validate_build_resolution_mode(options)?;
+    validate_workspace_root_lockfile(graph, project_root)?;
     let started = Instant::now();
     let mut packages = Vec::new();
-    for package_root in workspace_package_roots(&graph, &project_root, options.package.as_deref())?
-    {
-        let analyzed = analyze_package(&graph, &package_root)?;
+    for package_root in workspace_package_roots(graph, project_root, options.package.as_deref())? {
+        let analyzed = analyze_package(graph, &package_root)?;
         let generated_rust = generated_rust_path(&package_root, &analyzed.manifest);
         let resolved_target = resolved_build_target(options.target.as_deref());
         let binary = binary_path_for_target(
@@ -539,7 +546,7 @@ pub fn build_project_with_options(
             resolved_target.as_deref(),
         );
         let report = build_artifacts(
-            &graph,
+            graph,
             &package_root,
             &analyzed,
             &generated_rust,
@@ -685,8 +692,9 @@ fn prepare_run_project(
         )
         .with_path(manifest_path(&project_root).display().to_string()));
     }
-    let built = build_project_with_options(
+    let built = build_project_with_graph(
         &project_root,
+        &graph,
         &BuildOptions {
             backend: options.backend,
             target: None,
@@ -726,8 +734,8 @@ pub fn list_project_tests_with_options(
     let mut tests = Vec::new();
     for package_root in workspace_package_roots(&graph, &project_root, options.package.as_deref())?
     {
-        let manifest = graph.context(&package_root)?.manifest.clone();
-        validate_lockfile(&package_root, &manifest)?;
+        let manifest = &graph.context(&package_root)?.manifest;
+        validate_lockfile(&package_root, manifest)?;
         let discovered = if expected_error_path(&package_root).exists() && !options.conformance {
             Vec::new()
         } else if expected_error_path(&package_root).exists() {
@@ -742,7 +750,7 @@ pub fn list_project_tests_with_options(
         } else {
             collect_test_targets(
                 &package_root,
-                &manifest,
+                manifest,
                 options.filter.as_deref(),
                 options.include_benchmarks,
                 options.properties_only,
@@ -795,14 +803,14 @@ pub fn run_project_tests_with_options(
     let started = Instant::now();
     for package_root in workspace_package_roots(&graph, &project_root, options.package.as_deref())?
     {
-        let manifest = graph.context(&package_root)?.manifest.clone();
-        validate_lockfile(&package_root, &manifest)?;
+        let manifest = &graph.context(&package_root)?.manifest;
+        validate_lockfile(&package_root, manifest)?;
         if expected_error_path(&package_root).exists()
             && (!options.properties_only || options.conformance)
         {
             if let Some(test) = compile_fail_test_target(
                 &package_root,
-                &manifest,
+                manifest,
                 if options.conformance {
                     TestKind::Property
                 } else {
@@ -814,7 +822,7 @@ pub fn run_project_tests_with_options(
                 cases.push(run_compile_fail_case(
                     &package_root,
                     &graph,
-                    &manifest,
+                    manifest,
                     &test.name,
                     test.kind,
                     &mut parse_cache,
@@ -824,7 +832,7 @@ pub fn run_project_tests_with_options(
         }
         let tests = collect_test_targets(
             &package_root,
-            &manifest,
+            manifest,
             options.filter.as_deref(),
             options.include_benchmarks,
             options.properties_only,
@@ -838,7 +846,7 @@ pub fn run_project_tests_with_options(
             cases.push(run_test_case(
                 &package_root,
                 &graph,
-                &manifest,
+                manifest,
                 test,
                 options.backend,
                 &mut parse_cache,
@@ -10009,6 +10017,56 @@ return async_serve_route(1, "/", "ok", 1)
             !generated_rust.exists(),
             "cranelift build should not emit generated Rust"
         );
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn build_project_with_graph_preserves_public_build_metadata() {
+        if which::which("cc").is_err() {
+            eprintln!("skipping graph-backed build test because cc is unavailable");
+            return;
+        }
+
+        let dir = tempdir().unwrap_or_else(|err| panic!("tempdir: {err}"));
+        let root = dir.path();
+        fs::create_dir_all(root.join("src")).expect("create src");
+        fs::write(
+            root.join("axiom.toml"),
+            "[package]\nname = \"graph-build\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n",
+        )
+        .expect("write manifest");
+        let manifest = load_manifest(root).expect("load manifest");
+        fs::write(
+            root.join("axiom.lock"),
+            crate::lockfile::render_lockfile(&manifest).expect("render lockfile"),
+        )
+        .expect("write lockfile");
+        fs::write(root.join("src/main.ax"), "print \"graph build\"\n").expect("write source");
+
+        let package_root =
+            canonicalize_existing_path(root, "project root").expect("canonical root");
+        let graph = load_package_graph(&package_root).expect("load graph");
+        let options = BuildOptions {
+            backend: NativeBackendKind::Cranelift,
+            ..BuildOptions::default()
+        };
+
+        let direct =
+            build_project_with_graph(&package_root, &graph, &options).expect("graph-backed build");
+        let public = build_project_with_options(root, &options).expect("public build");
+
+        assert_eq!(direct.backend, public.backend);
+        assert_eq!(direct.manifest, public.manifest);
+        assert_eq!(direct.entry, public.entry);
+        assert_eq!(direct.binary, public.binary);
+        assert_eq!(direct.generated_rust, public.generated_rust);
+        assert_eq!(direct.packages.len(), public.packages.len());
+        assert_eq!(
+            direct.packages[0].package_root,
+            public.packages[0].package_root
+        );
+        assert_eq!(direct.packages[0].manifest, public.packages[0].manifest);
+        assert_eq!(direct.packages[0].entry, public.packages[0].entry);
     }
 
     #[cfg(not(windows))]

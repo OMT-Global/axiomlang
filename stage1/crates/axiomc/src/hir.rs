@@ -8025,6 +8025,14 @@ return ""
     }
 
     #[test]
+    fn type_assignable_fallback_uses_direct_type_equality() {
+        assert!(type_assignable_to(&Type::Bool, &Type::Bool));
+        assert!(!type_assignable_to(&Type::Bool, &Type::Int));
+        assert!(type_assignable_to(&Type::Error, &Type::Int));
+        assert!(type_assignable_to(&Type::Int, &Type::Error));
+    }
+
+    #[test]
     fn never_type_unifies_to_the_other_side() {
         assert_eq!(unify_types(&Type::Never, &Type::Int), Some(Type::Int));
         assert_eq!(unify_types(&Type::Bool, &Type::Never), Some(Type::Bool));
