@@ -10,6 +10,10 @@
       "evidence": [
         "stage1/crates/axiomc/tests/cranelift_backend.rs"
       ],
+      "denial_evidence": [
+        "stage1/conformance/fail/numeric_literal_suffix_mismatch/expected-error.json",
+        "stage1/crates/axiomc/tests/cranelift_backend.rs"
+      ],
       "runtime_evidence": [
         "stage1/crates/axiomc-backend-cranelift/src/lib.rs"
       ],
@@ -19,6 +23,9 @@
       "id": "boolean",
       "status": "implemented",
       "evidence": [
+        "stage1/crates/axiomc/tests/cranelift_backend.rs"
+      ],
+      "denial_evidence": [
         "stage1/crates/axiomc/tests/cranelift_backend.rs"
       ],
       "runtime_evidence": [
@@ -45,6 +52,9 @@
       "evidence": [
         "stage1/crates/axiomc/tests/cranelift_backend.rs"
       ],
+      "denial_evidence": [
+        "stage1/conformance/fail/const_sized_array_length_mismatch/expected-error.json"
+      ],
       "notes": "The direct-native path now has narrow runtime evidence for immediate array-literal scalar indexing with literal indexes and scalar projection from local fixed-array bindings, including runtime-scope loop-body bindings and reassignment of scalar-projection array locals. Numeric projections can feed int and typed integer locals; boolean projections can feed bool locals, helper return conditions, and composed boolean conditions. Fixed-size scalar and bool array helper parameters lower across direct-native function-call boundaries as one ABI slot per element for local array values and inline array literals. Local and helper-parameter fixed-array scalar and bool projections also support narrow in-bounds dynamic indexes by selecting across projected element locals. Inline scalar and bool fixed-array literals also support narrow in-bounds dynamic indexes by selecting across lowered literal elements. Scalar and bool fixed-array-returning helpers now lower across direct-native function-call boundaries as one return slot per element, with caller-side projection locals populated from the multi-slot return; this covers literal array returns, local array binding returns, forwarded array parameters, and branch-selected array returns. The same projected element-slot representation now covers fixed-array payloads inside narrow Option<[int; 2]> and Result<[int; 2], [int; 2]> construction, tag/payload matches, helper parameters, helper returns, and forwarded helper values. Existing fixed-array locals can now be reassigned from fixed-array helper returns using the same element-slot ABI, including inside runtime loop blocks. Fixed-array len, first, and last over scalar and bool element arrays also lower through the same projected element-slot representation for local arrays, inline literals, helper parameters, and helper-returned arrays feeding a direct-native process exit status. The public array helper smoke also prints len, first, last, and a first-plus-last sum for both a local fixed array and a helper-returned fixed array while asserting generated_rust null. Remaining Rust-exit hardening work still includes a general array ABI, array storage for non-scalar elements, full dynamic indexing semantics, bounds diagnostics, and a complete aggregate value passing contract.",
       "runtime_evidence": [
         "stage1/crates/axiomc/tests/cranelift_backend.rs"
@@ -54,6 +64,10 @@
       "id": "slice.borrowed",
       "status": "implemented",
       "evidence": [
+        "stage1/crates/axiomc/tests/cranelift_backend.rs"
+      ],
+      "denial_evidence": [
+        "stage1/conformance/fail/mutable_borrow_overlapping_slice_mut/expected-error.json",
         "stage1/crates/axiomc/tests/cranelift_backend.rs"
       ],
       "notes": "The Cranelift spike evaluates borrowed array slices for len, first, last, indexing, and function returns. The direct-native runtime path now also lowers narrow static-range fixed-array slices using literal or static scalar bounds such as values[1:], values[START:], values[:2], and values[:END] through len, first, and last for scalar and bool elements by projecting the underlying fixed-array slots, including helper-parameter arrays feeding a direct-native process exit status. Static-range fixed-array slices also support narrow literal and dynamic indexing over the sliced window through the same projection slots, including pre-runtime slice locals that alias the projected fixed-array slots. The public borrowed-slice smoke also prints len, first, last, and indexed projection output for both a local slice and a helper-returned slice while asserting generated_rust null. Broader borrowed-slice aliasing, dynamic slice bounds, slice returns, and host ABI coverage remain open.",
@@ -79,6 +93,9 @@
       "evidence": [
         "stage1/crates/axiomc/tests/cranelift_backend.rs"
       ],
+      "denial_evidence": [
+        "stage1/conformance/fail/borrow_escape_tuple_element/expected-error.json"
+      ],
       "notes": "The direct-native path now has narrow runtime evidence for immediate tuple-literal scalar indexing and scalar projection from local tuple bindings, including runtime-scope loop-body bindings and reassignment of scalar-projection tuple locals. Numeric projections can feed int and typed integer locals; boolean projections can feed bool locals, helper return conditions, and composed boolean conditions. Scalar and bool tuple helper parameters lower across direct-native function-call boundaries as one ABI slot per element for local tuple values and inline tuple literals. Scalar and bool tuple-returning helpers now lower across direct-native function-call boundaries as one return slot per tuple element, with caller-side projection locals populated from the multi-slot return; this includes helpers whose final return is selected by branch blocks with branch-local scalar values, helpers returning local tuple bindings, and helpers forwarding tuple parameters. Existing tuple locals can now be reassigned from tuple helper returns using the same tuple-element ABI, including inside runtime loop blocks. Remaining Rust-exit hardening work still includes a general tuple ABI, tuple storage for non-scalar elements, tuple return expressions beyond the scalar/bool local, literal, and parameter slice, and a complete aggregate value passing contract.",
       "runtime_evidence": [
         "stage1/crates/axiomc/tests/cranelift_backend.rs"
@@ -90,6 +107,9 @@
       "evidence": [
         "stage1/crates/axiomc/tests/cranelift_backend.rs"
       ],
+      "denial_evidence": [
+        "stage1/conformance/fail/borrow_escape_option_payload/expected-error.json"
+      ],
       "runtime_evidence": [
         "stage1/crates/axiomc-backend-cranelift/src/lib.rs"
       ],
@@ -100,6 +120,9 @@
       "status": "implemented",
       "evidence": [
         "stage1/crates/axiomc/tests/cranelift_backend.rs"
+      ],
+      "denial_evidence": [
+        "stage1/conformance/fail/borrow_escape_result_payload/expected-error.json"
       ],
       "runtime_evidence": [
         "stage1/crates/axiomc-backend-cranelift/src/lib.rs"
@@ -124,6 +147,9 @@
       "evidence": [
         "stage1/crates/axiomc/tests/cranelift_backend.rs"
       ],
+      "denial_evidence": [
+        "stage1/conformance/fail/borrow_escape_struct_field/expected-error.json"
+      ],
       "notes": "The direct-native path now has narrow runtime evidence for immediate struct-literal scalar field access and scalar projection from local struct bindings, including runtime-scope loop-body bindings and reassignment of scalar-projection struct locals. The public struct-field smoke also asserts the Cranelift build JSON reports generated_rust: null while running scalar, boolean, and string field projection output, including caller-side scalar and boolean projections from direct, branch-selected, and forwarded struct helper returns. Numeric fields can feed int and typed integer locals; boolean fields can feed bool locals, helper return conditions, and composed boolean conditions. Scalar and bool struct helper parameters lower across direct-native function-call boundaries as one ABI slot per field in declared field order for local struct values and inline struct literal arguments. Scalar and bool struct-returning helpers now lower across direct-native function-call boundaries as one return slot per declared field, with caller-side projection locals populated from the multi-slot return; this includes helpers whose final return is selected by branch blocks with branch-local scalar values, helpers returning local struct bindings, and helpers forwarding struct parameters. The same declared-field slot representation now backs narrow Option<Step> and Result<Step, Step> struct payload construction, matching, helper parameters, helper returns, forwarded helper values, and inline Some(Step { ... })/None and Ok(Step { ... })/Err(Step { ... }) helper arguments. Existing struct locals can now be reassigned from struct helper returns using the declared-field slot ABI, including inside runtime branch blocks. Remaining Rust-exit hardening work still includes a general struct ABI, struct storage for non-scalar fields, owned field projection, field mutation, struct return expressions beyond the scalar/bool local, literal, and parameter slice, and a complete aggregate value passing contract.",
       "runtime_evidence": [
         "stage1/crates/axiomc/tests/cranelift_backend.rs"
@@ -134,6 +160,9 @@
       "status": "implemented",
       "evidence": [
         "stage1/crates/axiomc/tests/cranelift_backend.rs"
+      ],
+      "denial_evidence": [
+        "stage1/conformance/fail/ownership_use_after_move/expected-error.json"
       ],
       "notes": "The Cranelift spike builds and runs projection-sensitive owned field moves while preserving access to disjoint sibling projections, and the public smoke now asserts the build JSON reports generated_rust: null for that path. Broader move-state, lifetime, and host ABI coverage remain open.",
       "runtime_evidence": [

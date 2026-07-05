@@ -139,18 +139,18 @@ _Generated from `stage1/runtime-abi/direct-native-v0.json`; run `make stage1-dir
 
 | Row | Status | Blockers | Evidence | Scope |
 | --- | --- | --- | --- | --- |
-| `array.fixed` | `implemented` | - | evidence:1, runtime:1 | The direct-native path now has narrow runtime evidence for immediate array-literal scalar indexing with literal indexes and scalar projection from... |
-| `boolean` | `implemented` | - | evidence:1, runtime:1 | The Cranelift spike covers boolean values. |
+| `array.fixed` | `implemented` | - | evidence:1, runtime:1, denial:1 | The direct-native path now has narrow runtime evidence for immediate array-literal scalar indexing with literal indexes and scalar projection from... |
+| `boolean` | `implemented` | - | evidence:1, runtime:1, denial:1 | The Cranelift spike covers boolean values. |
 | `enum.payload` | `implemented` | - | evidence:1, runtime:1 | The Cranelift spike builds and runs custom enum matches with tuple, named, and string payloads without generated Rust. |
 | `map.lookup` | `implemented` | - | evidence:1, runtime:1 | The Cranelift spike covers direct map indexing, get, get_or_default, map_contains_key, map_keys, helper-returned direct index, contains-key, and de... |
-| `numeric.scalars` | `implemented` | - | evidence:1, runtime:1 | The Cranelift spike covers several scalar widths and casts. |
-| `option` | `implemented` | - | evidence:1, runtime:1 | The direct-native path now has narrow runtime evidence for local Option<int> and Option<bool> construction as tag/payload locals, scalar option rea... |
-| `owned.move_state` | `implemented` | - | evidence:1, runtime:1 | The Cranelift spike builds and runs projection-sensitive owned field moves while preserving access to disjoint sibling projections, and the public... |
-| `result` | `implemented` | - | evidence:1, runtime:1 | The Cranelift spike evaluates Result<T, E> through std/outcome.ax helpers, direct match arms, scalar payloads, string errors, and struct payloads. |
-| `slice.borrowed` | `implemented` | - | evidence:1, runtime:1 | The Cranelift spike evaluates borrowed array slices for len, first, last, indexing, and function returns. |
+| `numeric.scalars` | `implemented` | - | evidence:1, runtime:1, denial:2 | The Cranelift spike covers several scalar widths and casts. |
+| `option` | `implemented` | - | evidence:1, runtime:1, denial:1 | The direct-native path now has narrow runtime evidence for local Option<int> and Option<bool> construction as tag/payload locals, scalar option rea... |
+| `owned.move_state` | `implemented` | - | evidence:1, runtime:1, denial:1 | The Cranelift spike builds and runs projection-sensitive owned field moves while preserving access to disjoint sibling projections, and the public... |
+| `result` | `implemented` | - | evidence:1, runtime:1, denial:1 | The Cranelift spike evaluates Result<T, E> through std/outcome.ax helpers, direct match arms, scalar payloads, string errors, and struct payloads. |
+| `slice.borrowed` | `implemented` | - | evidence:1, runtime:1, denial:2 | The Cranelift spike evaluates borrowed array slices for len, first, last, indexing, and function returns. |
 | `string` | `implemented` | - | evidence:1, runtime:2 | The Cranelift spike builds and runs pure string intrinsics including string_clone, string_starts_with, string_strip_prefix, string_strip_suffix, st... |
-| `struct.field` | `implemented` | - | evidence:1, runtime:1 | The direct-native path now has narrow runtime evidence for immediate struct-literal scalar field access and scalar projection from local struct bin... |
-| `tuple` | `implemented` | - | evidence:1, runtime:1 | The direct-native path now has narrow runtime evidence for immediate tuple-literal scalar indexing and scalar projection from local tuple bindings,... |
+| `struct.field` | `implemented` | - | evidence:1, runtime:1, denial:1 | The direct-native path now has narrow runtime evidence for immediate struct-literal scalar field access and scalar projection from local struct bin... |
+| `tuple` | `implemented` | - | evidence:1, runtime:1, denial:1 | The direct-native path now has narrow runtime evidence for immediate tuple-literal scalar indexing and scalar projection from local tuple bindings,... |
 
 ### Capability Shims
 

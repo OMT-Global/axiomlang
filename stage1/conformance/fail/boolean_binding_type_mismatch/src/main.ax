@@ -1,0 +1,2 @@
+let flag: bool = 1
+print flag
