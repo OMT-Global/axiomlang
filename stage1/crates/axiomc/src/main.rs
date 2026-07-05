@@ -58,12 +58,14 @@ enum Command {
     /// Parse the primary stage1 package entrypoint without typechecking.
     Parse {
         path: PathBuf,
+        /// Emit an axiom.stage1.v1 JSON envelope for agent/tool consumption.
         #[arg(long)]
         json: bool,
     },
     /// Check a stage1 package or workspace member without building an artifact.
     Check {
         path: PathBuf,
+        /// Emit an axiom.stage1.v1 JSON envelope for agent/tool consumption.
         #[arg(long)]
         json: bool,
         /// After type and ownership checks pass, run discovered property fixtures.
@@ -88,6 +90,7 @@ enum Command {
     /// Build a stage1 package through the default direct-native backend.
     Build {
         path: PathBuf,
+        /// Emit an axiom.stage1.v1 JSON envelope for agent/tool consumption.
         #[arg(long)]
         json: bool,
         /// Select the build backend. When omitted, builds use the supported
@@ -113,7 +116,7 @@ enum Command {
     /// Build and run a stage1 package through the default direct-native backend.
     Run {
         path: PathBuf,
-        /// Emit an axiom.stage1.v1 JSON envelope; see stage1/compiler-contracts/schemas/axiom.stage1.command.schema.json.
+        /// Emit an axiom.stage1.v1 JSON envelope for agent/tool consumption; see stage1/compiler-contracts/schemas/axiom.stage1.command.schema.json.
         #[arg(long)]
         json: bool,
         /// Select the backend used to build the executable before running it.
@@ -129,12 +132,14 @@ enum Command {
     Trace {
         /// Project path to trace, or an axiom:// node or artifact id to trace in the current project.
         query: String,
+        /// Emit an axiom.stage1.v1 JSON envelope for agent/tool consumption.
         #[arg(long)]
         json: bool,
     },
     /// Discover, build, and run package test entrypoints.
     Test {
         path: Option<PathBuf>,
+        /// Emit an axiom.stage1.v1 JSON envelope for agent/tool consumption.
         #[arg(long)]
         json: bool,
         /// Select the backend used to build executable test cases.
@@ -158,6 +163,7 @@ enum Command {
     /// Inspect manifest capability requirements.
     Caps {
         path: Option<PathBuf>,
+        /// Emit an axiom.stage1.v1 JSON envelope for agent/tool consumption.
         #[arg(long)]
         json: bool,
         #[arg(long, value_enum)]
@@ -168,18 +174,21 @@ enum Command {
     /// Emit a structured repair plan for diagnostics and missing evidence.
     RepairPlan {
         path: PathBuf,
+        /// Emit an axiom.stage1.v1 JSON envelope for agent/tool consumption.
         #[arg(long)]
         json: bool,
     },
     /// Emit semantic evidence requirements and observed test evidence.
     Evidence {
         path: PathBuf,
+        /// Emit an axiom.stage1.v1 JSON envelope for agent/tool consumption.
         #[arg(long)]
         json: bool,
     },
     /// Verify declared axioms and target evidence requirements.
     Verify {
         path: PathBuf,
+        /// Emit an axiom.stage1.v1 JSON envelope for agent/tool consumption.
         #[arg(long)]
         json: bool,
     },
@@ -187,6 +196,7 @@ enum Command {
     SemanticDiff {
         old: PathBuf,
         new: PathBuf,
+        /// Emit an axiom.stage1.v1 JSON envelope for agent/tool consumption.
         #[arg(long)]
         json: bool,
     },
@@ -208,12 +218,14 @@ enum Command {
     /// Explain a stable diagnostic code.
     Explain {
         code: String,
+        /// Emit an axiom.stage1.v1 JSON envelope for agent/tool consumption.
         #[arg(long)]
         json: bool,
     },
     /// Report local stage1 project and toolchain health.
     Doctor {
         path: Option<PathBuf>,
+        /// Emit an axiom.stage1.v1 JSON envelope for agent/tool consumption.
         #[arg(long)]
         json: bool,
     },
@@ -222,6 +234,7 @@ enum Command {
         path: PathBuf,
         #[arg(long)]
         check: bool,
+        /// Emit an axiom.stage1.v1 JSON envelope for agent/tool consumption.
         #[arg(long)]
         json: bool,
     },
@@ -230,6 +243,7 @@ enum Command {
         path: PathBuf,
         #[arg(long)]
         out_dir: Option<PathBuf>,
+        /// Emit an axiom.stage1.v1 JSON envelope for agent/tool consumption.
         #[arg(long)]
         json: bool,
         /// Emit Markdown output for the project, defaulting to <project>/dist/docs.
@@ -243,6 +257,7 @@ enum Command {
         warmup: usize,
         #[arg(long, default_value_t = 5)]
         iterations: usize,
+        /// Emit an axiom.stage1.v1 JSON envelope for agent/tool consumption.
         #[arg(long)]
         json: bool,
     },
@@ -250,12 +265,13 @@ enum Command {
     MutationReport {
         /// JSON mutation output from tools such as cargo-mutants.
         input: PathBuf,
-        /// Emit an axiom.stage1.v1 JSON envelope; see stage1/compiler-contracts/schemas/axiom.stage1.command.schema.json.
+        /// Emit an axiom.stage1.v1 JSON envelope for agent/tool consumption; see stage1/compiler-contracts/schemas/axiom.stage1.command.schema.json.
         #[arg(long)]
         json: bool,
     },
     /// Start a small stage1 scratch REPL backed by axiomc check/run.
     Repl {
+        /// Emit an axiom.stage1.v1 JSON envelope for agent/tool consumption.
         #[arg(long)]
         json: bool,
     },
@@ -330,24 +346,28 @@ enum InspectCommand {
     /// Emit exported functions, types, consts, imports, and capability use.
     Symbols {
         path: PathBuf,
+        /// Emit an axiom.stage1.v1 JSON envelope for agent/tool consumption.
         #[arg(long)]
         json: bool,
     },
     /// Emit package, module, and semantic declaration graph details.
     Graph {
         path: PathBuf,
+        /// Emit an axiom.stage1.v1 JSON envelope for agent/tool consumption.
         #[arg(long)]
         json: bool,
     },
     /// Emit semantic effect nodes for known runtime and stdlib surfaces.
     Effects {
         path: PathBuf,
+        /// Emit an axiom.stage1.v1 JSON envelope for agent/tool consumption.
         #[arg(long)]
         json: bool,
     },
     /// Emit planned and generated artifact records for a package.
     Artifacts {
         path: PathBuf,
+        /// Emit an axiom.stage1.v1 JSON envelope for agent/tool consumption.
         #[arg(long)]
         json: bool,
     },
@@ -360,6 +380,7 @@ enum GenerateCommand {
         path: PathBuf,
         #[arg(long)]
         out: PathBuf,
+        /// Emit an axiom.stage1.v1 JSON envelope for agent/tool consumption.
         #[arg(long)]
         json: bool,
     },
@@ -368,6 +389,7 @@ enum GenerateCommand {
         path: PathBuf,
         #[arg(long)]
         out: PathBuf,
+        /// Emit an axiom.stage1.v1 JSON envelope for agent/tool consumption.
         #[arg(long)]
         json: bool,
     },
@@ -376,6 +398,7 @@ enum GenerateCommand {
         path: PathBuf,
         #[arg(long)]
         out: PathBuf,
+        /// Emit an axiom.stage1.v1 JSON envelope for agent/tool consumption.
         #[arg(long)]
         json: bool,
     },
@@ -384,6 +407,7 @@ enum GenerateCommand {
         path: PathBuf,
         #[arg(long)]
         out: PathBuf,
+        /// Emit an axiom.stage1.v1 JSON envelope for agent/tool consumption.
         #[arg(long)]
         json: bool,
     },
@@ -392,6 +416,7 @@ enum GenerateCommand {
         path: PathBuf,
         #[arg(long)]
         out: PathBuf,
+        /// Emit an axiom.stage1.v1 JSON envelope for agent/tool consumption.
         #[arg(long)]
         json: bool,
     },
@@ -402,6 +427,7 @@ enum PkgCommand {
     /// Print resolved packages, members, dependencies, entrypoints, capabilities, and lockfile status.
     Graph {
         path: PathBuf,
+        /// Emit an axiom.stage1.v1 JSON envelope for agent/tool consumption.
         #[arg(long)]
         json: bool,
     },
@@ -8135,6 +8161,40 @@ mod tests {
             .render_long_help()
             .to_string();
         assert!(check_help.contains("--properties"));
+    }
+
+    fn subcommand_help(path: &[&str]) -> String {
+        let mut command = Cli::command();
+        let mut current = &mut command;
+        for name in path {
+            current = current
+                .find_subcommand_mut(name)
+                .unwrap_or_else(|| panic!("missing subcommand {name}"));
+        }
+        current.render_long_help().to_string()
+    }
+
+    #[test]
+    fn json_flags_describe_agent_envelope_in_help() {
+        for path in [
+            &["parse"][..],
+            &["check"],
+            &["build"],
+            &["run"],
+            &["test"],
+            &["caps"],
+            &["doc"],
+            &["inspect", "symbols"],
+            &["generate", "sql"],
+            &["pkg", "graph"],
+        ] {
+            let help = subcommand_help(path);
+            assert!(help.contains("--json"), "{path:?} should list --json");
+            assert!(
+                help.contains("agent/tool consumption"),
+                "{path:?} should describe the JSON envelope"
+            );
+        }
     }
 
     #[test]
