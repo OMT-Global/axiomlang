@@ -1,0 +1,3 @@
+import "std/crypto_hash.ax"
+
+print sha256("abc")

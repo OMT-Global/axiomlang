@@ -1,0 +1,3 @@
+extern fn strlen(value: string): int from "c"
+
+print strlen("hello")

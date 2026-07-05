@@ -1,0 +1,4 @@
+import "std/async.ax"
+
+let task: Task<int> = ready<int>(41)
+print await task

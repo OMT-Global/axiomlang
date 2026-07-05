@@ -71,6 +71,11 @@ version = "0.1.0"
 source = "path:fail/dyn_trait_not_supported"
 
 [[package]]
+name = "conformance-ffi-call-without-capability"
+version = "0.1.0"
+source = "path:fail/ffi_call_without_capability"
+
+[[package]]
 name = "conformance-for-loop-requires-iteration-protocol"
 version = "0.1.0"
 source = "path:fail/for_loop_requires_iteration_protocol"
@@ -366,6 +371,11 @@ version = "0.1.0"
 source = "path:fail/slice_type_alias_cycle"
 
 [[package]]
+name = "conformance-stdlib-async-without-capability"
+version = "0.1.0"
+source = "path:fail/stdlib_async_without_capability"
+
+[[package]]
 name = "conformance-stdlib-clock-without-capability"
 version = "0.1.0"
 source = "path:fail/stdlib_clock_without_capability"
@@ -376,14 +386,59 @@ version = "0.1.0"
 source = "path:fail/stdlib_crypto_aead_without_capability"
 
 [[package]]
+name = "conformance-stdlib-crypto-hash-without-capability"
+version = "0.1.0"
+source = "path:fail/stdlib_crypto_hash_without_capability"
+
+[[package]]
+name = "conformance-stdlib-crypto-mac-without-capability"
+version = "0.1.0"
+source = "path:fail/stdlib_crypto_mac_without_capability"
+
+[[package]]
 name = "conformance-stdlib-crypto-rand-without-capability"
 version = "0.1.0"
 source = "path:fail/stdlib_crypto_rand_without_capability"
 
 [[package]]
+name = "conformance-stdlib-crypto-sign-without-capability"
+version = "0.1.0"
+source = "path:fail/stdlib_crypto_sign_without_capability"
+
+[[package]]
+name = "conformance-stdlib-env-without-capability"
+version = "0.1.0"
+source = "path:fail/stdlib_env_without_capability"
+
+[[package]]
+name = "conformance-stdlib-fs-read-without-capability"
+version = "0.1.0"
+source = "path:fail/stdlib_fs_read_without_capability"
+
+[[package]]
 name = "conformance-stdlib-fs-write-without-capability"
 version = "0.1.0"
 source = "path:fail/stdlib_fs_write_without_capability"
+
+[[package]]
+name = "conformance-stdlib-http-async-without-capability"
+version = "0.1.0"
+source = "path:fail/stdlib_http_async_without_capability"
+
+[[package]]
+name = "conformance-stdlib-http-client-without-capability"
+version = "0.1.0"
+source = "path:fail/stdlib_http_client_without_capability"
+
+[[package]]
+name = "conformance-stdlib-http-server-without-capability"
+version = "0.1.0"
+source = "path:fail/stdlib_http_server_without_capability"
+
+[[package]]
+name = "conformance-stdlib-net-dns-without-capability"
+version = "0.1.0"
+source = "path:fail/stdlib_net_dns_without_capability"
 
 [[package]]
 name = "conformance-stdlib-net-tcp-without-capability"
@@ -394,6 +449,11 @@ source = "path:fail/stdlib_net_tcp_without_capability"
 name = "conformance-stdlib-net-udp-without-capability"
 version = "0.1.0"
 source = "path:fail/stdlib_net_udp_without_capability"
+
+[[package]]
+name = "conformance-stdlib-process-without-capability"
+version = "0.1.0"
+source = "path:fail/stdlib_process_without_capability"
 
 [[package]]
 name = "conformance-string-borrow-local-return"

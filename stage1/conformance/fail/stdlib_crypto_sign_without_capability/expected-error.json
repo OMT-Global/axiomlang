@@ -1,0 +1,8 @@
+{
+  "kind": "capability",
+  "code": null,
+  "message": "call to stdlib wrapper \"ed25519_keygen\" requires [capabilities].crypto = true",
+  "path": "src/main.ax",
+  "line": 3,
+  "column": 21
+}

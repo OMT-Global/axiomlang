@@ -1,0 +1,3 @@
+import "std/crypto_mac.ax"
+
+print hmac_sha256("key", "message")

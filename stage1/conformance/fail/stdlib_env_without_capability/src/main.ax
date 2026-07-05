@@ -1,0 +1,10 @@
+import "std/env.ax"
+
+match get_env("PATH") {
+Some(value) {
+print value
+}
+None {
+print "none"
+}
+}

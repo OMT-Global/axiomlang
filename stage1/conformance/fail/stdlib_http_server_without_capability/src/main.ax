@@ -1,0 +1,4 @@
+import "std/http.ax"
+
+let server: Server = listen("127.0.0.1:0")
+print local_port(server)
