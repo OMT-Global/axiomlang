@@ -26,7 +26,11 @@ REQUIRED_LSP_FLOWS = (
     "shutdown",
     "exit",
 )
-DOC_LSP_BLOCKER = 731
+# Closed doc/LSP ownership proof. The issue stays listed in
+# docs/rust-exit-readiness.json so `make rust-exit-readiness` keeps validating
+# its CLOSED state live; this offline report records it as the governing proof
+# rather than a live blocker.
+DOC_LSP_PROOF_ISSUE = 731
 
 
 def load_json(path: Path) -> dict[str, Any]:
@@ -74,19 +78,19 @@ def command_row(
     if not isinstance(name, str):
         name = "<unknown>"
     fixtures = fixture_paths_exist(command.get("fixtures"), errors, f"command {name}")
-    row_blockers: list[int] = []
     status = "implemented"
     notes = "Command has a package-boundary contract and checked command fixtures."
+    proof_issues: list[int] = []
     if name == "doc":
-        status = "blocked"
-        row_blockers = [DOC_LSP_BLOCKER]
+        proof_issues = [DOC_LSP_PROOF_ISSUE]
         notes = (
-            "Documentation command contract is present, but Rust exit remains "
-            "blocked until doc/LSP ownership is AxiOM-owned."
+            "Documentation command contract is present; doc/LSP ownership "
+            f"proof #{DOC_LSP_PROOF_ISSUE} is closed and its state is "
+            "validated live by make rust-exit-readiness."
         )
-        if DOC_LSP_BLOCKER not in blockers:
+        if DOC_LSP_PROOF_ISSUE not in blockers:
             errors.append(
-                f"command doc blocker #{DOC_LSP_BLOCKER} is missing from "
+                f"command doc ownership proof #{DOC_LSP_PROOF_ISSUE} is missing from "
                 "docs/rust-exit-readiness.json"
             )
 
@@ -94,7 +98,8 @@ def command_row(
         "surface": name,
         "kind": "command",
         "status": status,
-        "blockers": row_blockers,
+        "blockers": [],
+        "proof_issues": proof_issues,
         "api": command.get("api"),
         "stable_output": command.get("stable_output"),
         "fixtures": fixtures,
@@ -116,25 +121,26 @@ def lsp_row(
     missing = sorted(set(REQUIRED_LSP_FLOWS) - set(service_map))
     if missing:
         errors.append("lsp service coverage missing flows: " + ", ".join(missing))
-    if DOC_LSP_BLOCKER not in blockers:
+    if DOC_LSP_PROOF_ISSUE not in blockers:
         errors.append(
-            f"lsp blocker #{DOC_LSP_BLOCKER} is missing from "
+            f"lsp ownership proof #{DOC_LSP_PROOF_ISSUE} is missing from "
             "docs/rust-exit-readiness.json"
         )
 
     return {
         "surface": "lsp",
         "kind": "service",
-        "status": "blocked",
-        "blockers": [DOC_LSP_BLOCKER],
+        "status": "implemented",
+        "blockers": [],
+        "proof_issues": [DOC_LSP_PROOF_ISSUE],
         "api": "compiler.services.lsp.serve_stdio",
         "stable_output": "Content-Length framed JSON-RPC 2.0",
         "flows": list(REQUIRED_LSP_FLOWS),
         "validation_command": "make stage1-command-lsp-boundary",
         "notes": (
-            "LSP protocol contract and stdio harness exist, but Rust exit "
-            "remains blocked while axiomc lsp dispatches through the "
-            "Rust-hosted stdio/message loop."
+            "LSP protocol contract, stdio harness, and compiler-service "
+            f"driver ownership are in place; ownership proof #{DOC_LSP_PROOF_ISSUE} "
+            "is closed and its state is validated live by make rust-exit-readiness."
         ),
     }
 
