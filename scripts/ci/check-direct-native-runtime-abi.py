@@ -630,10 +630,11 @@ def build_coverage_matrix(
     manifest: dict[str, Any] | None,
     contract: dict[str, Any],
     check_report: dict[str, Any],
+    contract_root: Path = REPO_ROOT,
 ) -> tuple[dict[str, Any], int]:
     rows: list[dict[str, Any]] = []
     matrix_errors = list(check_report["errors"])
-    test_bodies = evidence_test_bodies(manifest, REPO_ROOT)
+    test_bodies = evidence_test_bodies(manifest, contract_root)
     for group_name in ("value_features", "capability_shims"):
         contract_rows = contract.get(group_name)
         if not isinstance(contract_rows, list):
@@ -863,6 +864,16 @@ def main() -> int:
         action="store_true",
         help="fail while any runtime ABI row remains partial or blocked",
     )
+    parser.add_argument(
+        "--checkout-root",
+        type=Path,
+        default=REPO_ROOT,
+        help=(
+            "repository checkout used to resolve evidence paths; pass the "
+            "data checkout when this script runs from a separate trusted "
+            "scripts checkout"
+        ),
+    )
     args = parser.parse_args()
 
     selected_modes = [
@@ -891,7 +902,7 @@ def main() -> int:
 
     report, validation_status = build_report(
         contract,
-        REPO_ROOT,
+        args.checkout_root,
         evidence_test_manifest,
     )
     if args.coverage_matrix:
@@ -899,6 +910,7 @@ def main() -> int:
             evidence_test_manifest,
             contract,
             report,
+            args.checkout_root,
         )
         if args.json:
             print(json.dumps(matrix_report, indent=2))

@@ -298,4 +298,48 @@ python3 "$script" --contract "$contract" --enforce-ready >/dev/null
 
 python3 "$script" --contract "$temp_dir/ready-contract.json" --enforce-ready >/dev/null
 
+# Split-checkout regression: when the script runs from a trusted checkout that
+# lacks a new evidence file present in the data checkout, evidence paths must
+# resolve against --checkout-root instead of the script's own repository.
+split_root="$temp_dir/split-checkout"
+mkdir -p "$split_root/stage1/runtime-abi" "$split_root/new-evidence"
+ln -s "$repo_root/stage1/crates" "$split_root/stage1/crates"
+ln -s "$repo_root/scripts" "$split_root/scripts"
+printf '{}\n' >"$split_root/new-evidence/expected-error.json"
+python3 - "$contract" "$split_root/stage1/runtime-abi/direct-native-v0.json" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    contract = json.load(handle)
+
+contract["value_features"][0]["denial_evidence"] = [
+    "new-evidence/expected-error.json"
+]
+
+with open(sys.argv[2], "w", encoding="utf-8") as handle:
+    json.dump(contract, handle)
+PY
+if python3 "$script" \
+  --contract "$split_root/stage1/runtime-abi/direct-native-v0.json" \
+  --no-evidence-test-manifest \
+  --json >"$temp_dir/split-default-root.json"; then
+  echo "expected data-checkout-only evidence to fail without --checkout-root" >&2
+  exit 1
+fi
+python3 - "$temp_dir/split-default-root.json" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    report = json.load(handle)
+
+assert any("does not exist" in error for error in report["errors"])
+PY
+python3 "$script" \
+  --contract "$split_root/stage1/runtime-abi/direct-native-v0.json" \
+  --no-evidence-test-manifest \
+  --checkout-root "$split_root" \
+  --json >/dev/null
+
 echo "direct native runtime ABI contract regression cases passed"
