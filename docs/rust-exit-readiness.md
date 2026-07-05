@@ -46,6 +46,12 @@ That report currently stays `ready: false` because its `doc` and `lsp` rows
 still carry the #731 blocker; #731 itself is closed, so the row data needs a
 refresh before the report can flip.
 
+The compiler rewrite also has a separate language/backend prerequisite gate:
+[`make self-hosting-language-readiness`](self-hosting-language-readiness.md).
+That gate must be green before the rewrite in #565/#721 can move from planning
+to implementation; the Rust-exit gate must not be read as proof that the AxiOM
+language surface is sufficient to author the compiler.
+
 ## Backend Matrix
 
 | Surface | Required state | Current disposition | Governing issue |
