@@ -116,11 +116,12 @@ for path in README.md docs scripts; do
   fi
 done
 
-if [[ "${#doc_search_paths[@]}" -gt 0 ]] && rg -n "$legacy_invocation" "${doc_search_paths[@]}" \
-  --glob '*.md' \
-  --glob '*.sh' \
-  --glob '!docs/python-exit-parity-gate.md' \
-  --glob '!docs/python-exit-vm-disposition.md' >/dev/null; then
+if [[ "${#doc_search_paths[@]}" -gt 0 ]] && grep -rnF \
+  --include='*.md' \
+  --include='*.sh' \
+  --exclude='python-exit-parity-gate.md' \
+  --exclude='python-exit-vm-disposition.md' \
+  -e "$legacy_invocation" -- "${doc_search_paths[@]}" >/dev/null; then
   add_check "no_user_facing_python_cli" "fail" "user-facing docs still instruct users to run $legacy_invocation"
 else
   add_check "no_user_facing_python_cli" "pass" "user-facing docs do not instruct users to run $legacy_invocation"
@@ -133,7 +134,7 @@ for path in .github scripts Makefile project.bootstrap.yaml; do
   fi
 done
 
-if [[ "${#ci_search_paths[@]}" -gt 0 ]] && rg -n --hidden "$python_unittest" "${ci_search_paths[@]}" >/dev/null; then
+if [[ "${#ci_search_paths[@]}" -gt 0 ]] && grep -rnF -e "$python_unittest" -- "${ci_search_paths[@]}" >/dev/null; then
   add_check "no_python_unittest_ci_gate" "fail" "CI still uses Python unittest as a language/runtime correctness gate"
 else
   add_check "no_python_unittest_ci_gate" "pass" "CI does not use Python unittest as a language/runtime correctness gate"
