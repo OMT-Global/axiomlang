@@ -1825,6 +1825,14 @@ fn axiom_string_line_at(text: &str, index: i64) -> Option<String> {
 }
 
 #[allow(dead_code)]
+fn axiom_string_byte_at(text: &str, index: i64) -> Option<i64> {
+    if index < 0 {
+        return None;
+    }
+    text.as_bytes().get(index as usize).map(|byte| i64::from(*byte))
+}
+
+#[allow(dead_code)]
 fn axiom_string_clone(text: &str) -> String {
     text.to_string()
 }
@@ -6821,6 +6829,13 @@ fn render_expr(expr: &Expr) -> String {
         Expr::Call { name, args, .. } if name == "string_line_at" => {
             format!(
                 "axiom_string_line_at({}, {})",
+                render_expr(&args[0]),
+                render_expr(&args[1])
+            )
+        }
+        Expr::Call { name, args, .. } if name == "string_byte_at" => {
+            format!(
+                "axiom_string_byte_at({}, {})",
                 render_expr(&args[0]),
                 render_expr(&args[1])
             )

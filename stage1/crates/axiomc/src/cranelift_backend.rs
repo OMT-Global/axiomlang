@@ -13430,6 +13430,7 @@ fn i64_known_pure_intrinsic_call(name: &str, static_bindings: &I64StaticBindings
             | "string_trim"
             | "string_trim_start"
             | "string_line_at"
+            | "string_byte_at"
             | "encoding_url_component_encode"
             | "encoding_url_component_decode"
             | "encoding_path_segment_encode"
@@ -13683,6 +13684,21 @@ fn i64_i64_option_value(expr: &Expr, static_bindings: &I64StaticBindings) -> Opt
         };
     }
     match name.as_str() {
+        "string_byte_at" => {
+            let [text, index] = args.as_slice() else {
+                return None;
+            };
+            let text = i64_string_text(text, static_bindings)?;
+            let index = i64_static_scalar_value(index, static_bindings)?;
+            if index < 0 {
+                return Some(None);
+            }
+            Some(
+                text.as_bytes()
+                    .get(index as usize)
+                    .map(|byte| i64::from(*byte)),
+            )
+        }
         name if is_i64_json_parse_int_name(name, static_bindings) => {
             let [text] = args.as_slice() else {
                 return None;
@@ -22230,6 +22246,7 @@ fn is_string_call(name: &str) -> bool {
     matches!(
         name,
         "string_line_at"
+            | "string_byte_at"
             | "string_clone"
             | "string_starts_with"
             | "string_strip_prefix"
@@ -22261,6 +22278,21 @@ fn eval_string_call(
                     .map(|line| SpikeValue::Text(line.to_string()))
             };
             Ok(spike_option(line))
+        }
+        "string_byte_at" => {
+            let [text, index] = args else {
+                return Err(unsupported("string_byte_at expects exactly two arguments"));
+            };
+            let text = expect_text(eval_expr(text, functions, env, lines)?, name)?;
+            let index = expect_int(eval_expr(index, functions, env, lines)?)?;
+            let byte = if index < 0 {
+                None
+            } else {
+                text.as_bytes()
+                    .get(index as usize)
+                    .map(|byte| SpikeValue::Int(i64::from(*byte)))
+            };
+            Ok(spike_option(byte))
         }
         "string_clone" => {
             let [text] = args else {
