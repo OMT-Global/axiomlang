@@ -17,7 +17,7 @@
 //! `AXIOM_UPDATE_SPIKE_EXPECTED=1 cargo test -p axiomc --test self_hosting_spike_parity`
 
 use axiomc::diagnostics::{
-    is_plausible_suggestion, repair_hint, stable_diagnostic_code, Diagnostic,
+    edit_distance, is_plausible_suggestion, repair_hint, stable_diagnostic_code, Diagnostic,
 };
 use std::fs;
 use std::path::Path;
@@ -75,6 +75,13 @@ const REPAIR_KINDS: &[&str] = &[
 ];
 
 const RENDER_MESSAGE: &str = "use of moved value greeting";
+
+const EDIT_DISTANCE_CASES: &[(&str, &str, &str)] = &[
+    ("kitten-sitting", "kitten", "sitting"),
+    ("flaw-lawn", "flaw", "lawn"),
+    ("agent-agent", "agent", "agent"),
+    ("empty-flaw", "", "flaw"),
+];
 
 const PLAUSIBLE_CASES: &[(&str, usize, usize, usize)] = &[
     ("empty-needle", 0, 3, 1),
@@ -149,6 +156,32 @@ fn expected_lines_from_rust() -> Vec<String> {
 fn expected_output_path() -> std::path::PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../selfhost/compiler-diagnostics-spike/expected-output.txt")
+}
+
+fn distance_expected_output_path() -> std::path::PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../selfhost/compiler-diagnostics-distance-spike/expected-output.txt")
+}
+
+#[test]
+fn rust_edit_distance_matches_distance_spike_expected_output() {
+    let lines: Vec<String> = EDIT_DISTANCE_CASES
+        .iter()
+        .map(|(_, left, right)| edit_distance(left, right).to_string())
+        .collect();
+    let rendered = format!("{}\n", lines.join("\n"));
+    let path = distance_expected_output_path();
+    if std::env::var_os("AXIOM_UPDATE_SPIKE_EXPECTED").is_some() {
+        fs::write(&path, &rendered).expect("write distance spike expected output");
+        return;
+    }
+    let expected = fs::read_to_string(&path).expect("read distance spike expected output");
+    assert_eq!(
+        expected, rendered,
+        "Rust edit_distance diverged from the checked-in distance spike \
+         expected output; regenerate with AXIOM_UPDATE_SPIKE_EXPECTED=1 and \
+         re-run scripts/ci/run-self-hosting-spike-parity.sh"
+    );
 }
 
 #[test]

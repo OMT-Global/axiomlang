@@ -33,8 +33,19 @@ const SPIKE_MAX_FS_WRITE_BYTES: usize = 64 * 1024 * 1024;
 const SPIKE_MAX_CLOCK_SLEEP_MS: i64 = 1_000;
 const CRANELIFT_RUNTIME_TRAP_KIND: &str = "cranelift-runtime-trap";
 
+/// A mutable-slice binding that aliases a local fixed array's element slots.
+/// Writes and reads through the binding resolve to the base projection locals
+/// so mutation is visible through the base array.
+#[derive(Clone)]
+struct I64MutSliceAlias {
+    base: String,
+    start: usize,
+    len: usize,
+}
+
 #[derive(Clone, Default)]
 struct I64StaticBindings {
+    mut_slice_aliases: HashMap<String, I64MutSliceAlias>,
     values: HashMap<String, CraneliftI64Expr>,
     conditions: HashMap<String, CraneliftI64Condition>,
     strings: HashMap<String, String>,
@@ -2054,6 +2065,14 @@ fn lower_i64_aggregate_return_body(
             }
             Stmt::Let {
                 name,
+                ty: Type::MutSlice(_),
+                expr,
+                ..
+            } if !seen_runtime_stmt
+                && record_i64_mut_slice_alias(name, expr, &local_indexes, static_bindings)
+                    .is_some() => {}
+            Stmt::Let {
+                name,
                 ty: Type::Slice(_) | Type::MutSlice(_),
                 expr,
                 ..
@@ -3535,6 +3554,14 @@ fn lower_i64_body(
             }
             Stmt::Let {
                 name,
+                ty: Type::MutSlice(_),
+                expr,
+                ..
+            } if !seen_runtime_stmt
+                && record_i64_mut_slice_alias(name, expr, &local_indexes, static_bindings)
+                    .is_some() => {}
+            Stmt::Let {
+                name,
                 ty: Type::Slice(_) | Type::MutSlice(_),
                 expr,
                 ..
@@ -4416,6 +4443,16 @@ fn lower_i64_runtime_stmt(
                 allow_stdio_effects,
             ) {
                 Some(stmt)
+            } else if let Some(stmt) = lower_i64_option_int_value_match_stmt(
+                stmt,
+                locals,
+                local_indexes.clone(),
+                local_conditions.clone(),
+                helper_signatures,
+                static_bindings,
+                allow_stdio_effects,
+            ) {
+                Some(stmt)
             } else if let Some(stmt) = lower_i64_result_match_stmt(
                 stmt,
                 locals,
@@ -4438,13 +4475,23 @@ fn lower_i64_runtime_stmt(
                 )
             }
         }
-        Stmt::Assign { .. } => Some(CraneliftI64Stmt::Assign(lower_i64_assign(
+        Stmt::Assign { .. } => lower_i64_assign(
             stmt,
             &local_indexes,
             &local_conditions,
             helper_signatures,
             static_bindings,
-        )?)),
+        )
+        .map(CraneliftI64Stmt::Assign)
+        .or_else(|| {
+            lower_i64_index_assign_stmt(
+                stmt,
+                &local_indexes,
+                &local_conditions,
+                helper_signatures,
+                static_bindings,
+            )
+        }),
         Stmt::If {
             cond,
             then_block,
@@ -4760,6 +4807,263 @@ fn i64_env_option_expr_uses_payload_len_only(expr: &Expr, binding: &str) -> bool
     }
 }
 
+/// Resolve the per-element local slots backing an array, slice, or mutable
+/// slice binding so runtime-index writes can target them. Mirrors the element
+/// resolution used by the dynamic-index read paths.
+fn i64_element_slot_locals(
+    base: &Expr,
+    local_indexes: &HashMap<String, usize>,
+    static_bindings: &I64StaticBindings,
+) -> Option<Vec<usize>> {
+    match base {
+        // Writes through a mutable slice are only sound when the binding is a
+        // recorded alias of its base array; targeting the copied projection
+        // locals of a non-aliased slice would silently drop the write.
+        Expr::VarRef {
+            name,
+            ty: Type::MutSlice(_),
+        } => i64_mut_slice_alias_slots(name, local_indexes, static_bindings),
+        Expr::VarRef {
+            name,
+            ty: Type::Array(_, Some(size)),
+        } => {
+            let mut slots = Vec::new();
+            for index in 0..*size {
+                slots.push(
+                    local_indexes
+                        .get(i64_array_projection_key(name, index).as_str())
+                        .copied()?,
+                );
+            }
+            (!slots.is_empty()).then_some(slots)
+        }
+        Expr::Slice { .. } => {
+            let (name, start, size) = i64_static_slice_base_range(base, static_bindings)?;
+            let mut slots = Vec::new();
+            for index in 0..size {
+                slots.push(
+                    local_indexes
+                        .get(i64_array_projection_key(name, start + index).as_str())
+                        .copied()?,
+                );
+            }
+            (!slots.is_empty()).then_some(slots)
+        }
+        _ => None,
+    }
+}
+
+/// Lower `values[index] = expr` for element-slot-backed arrays and slices.
+/// Literal indexes assign the slot directly; runtime indexes lower to a
+/// compare chain over the slots, matching the silent out-of-range behavior of
+/// the dynamic-index read selects.
+fn lower_i64_index_assign_stmt(
+    stmt: &Stmt,
+    local_indexes: &HashMap<String, usize>,
+    local_conditions: &HashMap<String, CraneliftI64Condition>,
+    helper_signatures: &HashMap<&str, I64HelperSignature>,
+    static_bindings: &I64StaticBindings,
+) -> Option<CraneliftI64Stmt> {
+    let Stmt::Assign {
+        target: Expr::Index { base, index, .. },
+        expr,
+        ..
+    } = stmt
+    else {
+        return None;
+    };
+    let slots = i64_element_slot_locals(base, local_indexes, static_bindings)?;
+    let element_ty = match base.ty() {
+        Type::Slice(element) | Type::MutSlice(element) | Type::Array(element, _) => {
+            element.as_ref().clone()
+        }
+        _ => return None,
+    };
+    let value = match element_ty {
+        Type::Bool => lower_i64_bool_value_expr(
+            expr,
+            local_indexes,
+            local_conditions,
+            helper_signatures,
+            static_bindings,
+        )?,
+        ty if is_i64_compatible_type(&ty) => lower_i64_expr(
+            expr,
+            local_indexes,
+            local_conditions,
+            helper_signatures,
+            static_bindings,
+        )?,
+        _ => return None,
+    };
+    if let Some(index) = lower_i64_literal_index(index) {
+        let slot = slots.get(index).copied()?;
+        return Some(CraneliftI64Stmt::Assign(
+            axiomc_backend_cranelift::I64Assign { local: slot, value },
+        ));
+    }
+    let index = lower_i64_expr(
+        index,
+        local_indexes,
+        local_conditions,
+        helper_signatures,
+        static_bindings,
+    )?;
+    let mut lowered: Vec<CraneliftI64Stmt> = Vec::new();
+    for (candidate, slot) in slots.iter().enumerate().rev() {
+        lowered = vec![CraneliftI64Stmt::If {
+            cond: CraneliftI64Condition::Compare(CraneliftI64Compare {
+                op: CraneliftI64CompareOp::Eq,
+                lhs: index.clone(),
+                rhs: CraneliftI64Expr::Literal(candidate as i64),
+            }),
+            then_body: vec![CraneliftI64Stmt::Assign(
+                axiomc_backend_cranelift::I64Assign {
+                    local: *slot,
+                    value: value.clone(),
+                },
+            )],
+            else_body: lowered,
+        }];
+    }
+    lowered.into_iter().next()
+}
+
+/// Lower option-int match statements whose scrutinee is a value expression
+/// rather than an already-projected option local: `Some(<i64 expr>)`, `None`,
+/// or `string_byte_at(<static string>, <runtime index>)`. The tag lowers to a
+/// runtime condition and the payload is materialized into a fresh local that
+/// is assigned at the head of the Some arm, so the shape stays valid inside
+/// runtime loop bodies where locals are re-evaluated per iteration.
+fn lower_i64_option_int_value_match_stmt(
+    stmt: &Stmt,
+    locals: &mut Vec<CraneliftI64Expr>,
+    local_indexes: HashMap<String, usize>,
+    local_conditions: HashMap<String, CraneliftI64Condition>,
+    helper_signatures: &HashMap<&str, I64HelperSignature>,
+    static_bindings: &I64StaticBindings,
+    allow_stdio_effects: bool,
+) -> Option<CraneliftI64Stmt> {
+    let Stmt::Match { expr, arms, .. } = stmt else {
+        return None;
+    };
+    let (cond, payload) = match expr {
+        Expr::EnumVariant {
+            enum_name,
+            variant,
+            payloads,
+            ty: Type::Option(inner),
+            ..
+        } if enum_name == "Option" && matches!(inner.as_ref(), Type::Int) => match variant.as_str()
+        {
+            "Some" => {
+                let [payload] = payloads.as_slice() else {
+                    return None;
+                };
+                let payload = lower_i64_expr(
+                    payload,
+                    &local_indexes,
+                    &local_conditions,
+                    helper_signatures,
+                    static_bindings,
+                )?;
+                (CraneliftI64Condition::Literal(true), Some(payload))
+            }
+            "None" => (CraneliftI64Condition::Literal(false), None),
+            _ => return None,
+        },
+        Expr::Call { name, args, .. } if name == "string_byte_at" => {
+            let [text, index] = args.as_slice() else {
+                return None;
+            };
+            let text = i64_string_text(text, static_bindings)?;
+            let index = lower_i64_expr(
+                index,
+                &local_indexes,
+                &local_conditions,
+                helper_signatures,
+                static_bindings,
+            )?;
+            let bytes = text.as_bytes();
+            if bytes.is_empty() {
+                (CraneliftI64Condition::Literal(false), None)
+            } else {
+                let cond = CraneliftI64Condition::And {
+                    lhs: Box::new(CraneliftI64Condition::Compare(CraneliftI64Compare {
+                        op: CraneliftI64CompareOp::Ge,
+                        lhs: index.clone(),
+                        rhs: CraneliftI64Expr::Literal(0),
+                    })),
+                    rhs: Box::new(CraneliftI64Condition::Compare(CraneliftI64Compare {
+                        op: CraneliftI64CompareOp::Lt,
+                        lhs: index.clone(),
+                        rhs: CraneliftI64Expr::Literal(bytes.len() as i64),
+                    })),
+                };
+                let last = bytes.len() - 1;
+                let mut payload = CraneliftI64Expr::Literal(i64::from(bytes[last]));
+                for candidate in (0..last).rev() {
+                    payload = CraneliftI64Expr::Select {
+                        cond: Box::new(CraneliftI64Condition::Compare(CraneliftI64Compare {
+                            op: CraneliftI64CompareOp::Eq,
+                            lhs: index.clone(),
+                            rhs: CraneliftI64Expr::Literal(candidate as i64),
+                        })),
+                        then_result: Box::new(CraneliftI64Expr::Literal(i64::from(
+                            bytes[candidate],
+                        ))),
+                        else_result: Box::new(payload),
+                    };
+                }
+                (cond, Some(payload))
+            }
+        }
+        _ => return None,
+    };
+    let (some_arm, none_arm) = i64_option_stmt_match_arms(arms)?;
+    let mut some_indexes = local_indexes.clone();
+    let some_conditions = local_conditions.clone();
+    let mut then_head = Vec::new();
+    if !some_arm.ignore_payloads
+        && let Some(binding) = some_arm.bindings.first()
+        && binding != "_"
+    {
+        let payload = payload.unwrap_or(CraneliftI64Expr::Literal(0));
+        let payload_local = locals.len();
+        locals.push(CraneliftI64Expr::Literal(0));
+        then_head.push(CraneliftI64Stmt::Assign(
+            axiomc_backend_cranelift::I64Assign {
+                local: payload_local,
+                value: payload,
+            },
+        ));
+        some_indexes.insert(binding.clone(), payload_local);
+    }
+    let mut then_body = then_head;
+    then_body.extend(lower_i64_runtime_stmts(
+        &some_arm.body,
+        locals,
+        some_indexes,
+        some_conditions,
+        helper_signatures,
+        static_bindings,
+        allow_stdio_effects,
+    )?);
+    Some(CraneliftI64Stmt::If {
+        cond,
+        then_body,
+        else_body: lower_i64_runtime_stmts(
+            &none_arm.body,
+            locals,
+            local_indexes,
+            local_conditions,
+            helper_signatures,
+            static_bindings,
+            allow_stdio_effects,
+        )?,
+    })
+}
+
 fn lower_i64_option_match_stmt(
     stmt: &Stmt,
     locals: &mut Vec<CraneliftI64Expr>,
@@ -5039,8 +5343,19 @@ fn lower_i64_runtime_let_stmts(
     allow_stdio_effects: bool,
 ) -> Option<Vec<CraneliftI64Stmt>> {
     if let Stmt::Let {
+        ty: Type::MutSlice(_),
+        ..
+    } = stmt
+    {
+        // Mutable-slice bindings alias their base at function scope via
+        // record_i64_mut_slice_alias; inside runtime blocks the bindings are
+        // immutable here, and lowering them as element copies would silently
+        // drop writes, so reject and let the caller fall back.
+        return None;
+    }
+    if let Stmt::Let {
         name,
-        ty: Type::Slice(_) | Type::MutSlice(_),
+        ty: Type::Slice(_),
         expr,
         ..
     } = stmt
@@ -14515,6 +14830,69 @@ fn lower_i64_struct_projection_locals(
     Some(())
 }
 
+/// Record a mutable-slice binding as a true alias of its base array's
+/// element slots. No locals are created and the local-index allocator is left
+/// untouched; reads and writes through the binding resolve the base slots via
+/// `static_bindings.mut_slice_aliases`. Only local variable bases with static
+/// ranges are supported; call-produced temporaries stay on the copying path.
+fn record_i64_mut_slice_alias(
+    name: &str,
+    expr: &Expr,
+    local_indexes: &HashMap<String, usize>,
+    static_bindings: &mut I64StaticBindings,
+) -> Option<()> {
+    let Expr::Slice {
+        base, start, end, ..
+    } = expr
+    else {
+        return None;
+    };
+    let Expr::VarRef {
+        name: base_name,
+        ty: Type::Array(_, Some(base_size)),
+    } = base.as_ref()
+    else {
+        return None;
+    };
+    let (start, end) =
+        i64_static_slice_range(*base_size, start.as_deref(), end.as_deref(), static_bindings)?;
+    // The base may itself be a recorded alias; resolve one level so chained
+    // views still target real projection locals.
+    let (base_name, start) = match static_bindings.mut_slice_aliases.get(base_name.as_str()) {
+        Some(alias) if end <= alias.len => (alias.base.clone(), alias.start + start),
+        Some(_) => return None,
+        None => (base_name.clone(), start),
+    };
+    local_indexes.get(i64_array_projection_key(&base_name, start).as_str())?;
+    static_bindings.mut_slice_aliases.insert(
+        name.to_string(),
+        I64MutSliceAlias {
+            base: base_name,
+            start,
+            len: end - start,
+        },
+    );
+    Some(())
+}
+
+/// Resolve the projection locals a recorded mutable-slice alias points at.
+fn i64_mut_slice_alias_slots(
+    name: &str,
+    local_indexes: &HashMap<String, usize>,
+    static_bindings: &I64StaticBindings,
+) -> Option<Vec<usize>> {
+    let alias = static_bindings.mut_slice_aliases.get(name)?;
+    let mut slots = Vec::new();
+    for index in 0..alias.len {
+        slots.push(
+            local_indexes
+                .get(i64_array_projection_key(&alias.base, alias.start + index).as_str())
+                .copied()?,
+        );
+    }
+    (!slots.is_empty()).then_some(slots)
+}
+
 fn lower_i64_slice_projection_aliases(
     name: &str,
     expr: &Expr,
@@ -15638,7 +16016,13 @@ fn lower_i64_slice_projection_index_expr(
         ty: Type::Slice(_) | Type::MutSlice(_),
     } = base
     {
-        let elements = lower_i64_slice_local_call_arg_exprs(name, local_indexes)?;
+        let elements = if let Some(slots) =
+            i64_mut_slice_alias_slots(name, local_indexes, static_bindings)
+        {
+            slots.into_iter().map(CraneliftI64Expr::Local).collect()
+        } else {
+            lower_i64_slice_local_call_arg_exprs(name, local_indexes)?
+        };
         if elements.is_empty() {
             return None;
         }
