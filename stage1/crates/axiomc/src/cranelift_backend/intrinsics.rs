@@ -914,4 +914,3 @@ pub(crate) fn percent_decode(value: &str) -> Option<String> {
     }
     String::from_utf8(out).ok()
 }
-
