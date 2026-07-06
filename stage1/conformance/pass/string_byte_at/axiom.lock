@@ -1,0 +1,6 @@
+version = 1
+
+[[package]]
+name = "conformance-string-byte-at"
+version = "0.1.0"
+source = "path"

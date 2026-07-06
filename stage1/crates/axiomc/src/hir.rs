@@ -2473,6 +2473,7 @@ fn lower_expr_with_expected_inner(
             if matches!(
                 name.as_str(),
                 "string_line_at"
+                    | "string_byte_at"
                     | "string_clone"
                     | "string_starts_with"
                     | "string_strip_prefix"
@@ -2499,7 +2500,7 @@ fn lower_expr_with_expected_inner(
                     .with_span(*line, *column));
                 }
                 let mut lowered_args = Vec::new();
-                let string_arg_count = if name == "string_line_at" {
+                let string_arg_count = if name == "string_line_at" || name == "string_byte_at" {
                     1
                 } else {
                     args.len()
@@ -2519,13 +2520,13 @@ fn lower_expr_with_expected_inner(
                     }
                     lowered_args.push(lowered);
                 }
-                if name == "string_line_at" {
+                if name == "string_line_at" || name == "string_byte_at" {
                     let lowered = lower_expr_with_expected(&args[1], Some(&Type::Int), env, ctx)?;
                     if lowered.ty() != &Type::Int {
                         return Err(Diagnostic::new(
                             "type",
                             format!(
-                                "string_line_at expects argument 2 type int, got {}",
+                                "{name} expects argument 2 type int, got {}",
                                 lowered.ty()
                             ),
                         )
@@ -2535,6 +2536,7 @@ fn lower_expr_with_expected_inner(
                 }
                 let ty = match name.as_str() {
                     "string_line_at" => Type::Option(Box::new(Type::String)),
+                    "string_byte_at" => Type::Option(Box::new(Type::Int)),
                     "string_clone" => Type::String,
                     "string_starts_with" => Type::Bool,
                     "string_strip_prefix" => Type::Option(Box::new(Type::String)),

@@ -148,7 +148,7 @@ _Generated from `stage1/runtime-abi/direct-native-v0.json`; run `make stage1-dir
 | `owned.move_state` | `implemented` | - | evidence:1, runtime:1, denial:1 | The Cranelift spike builds and runs projection-sensitive owned field moves while preserving access to disjoint sibling projections, and the public... |
 | `result` | `implemented` | - | evidence:1, runtime:1, denial:1 | The Cranelift spike evaluates Result<T, E> through std/outcome.ax helpers, direct match arms, scalar payloads, string errors, and struct payloads. |
 | `slice.borrowed` | `implemented` | - | evidence:1, runtime:1, denial:2 | The Cranelift spike evaluates borrowed array slices for len, first, last, indexing, and function returns. |
-| `string` | `implemented` | - | evidence:1, runtime:2 | The Cranelift spike builds and runs pure string intrinsics including string_clone, string_starts_with, string_strip_prefix, string_strip_suffix, st... |
+| `string` | `implemented` | - | evidence:2, runtime:2, denial:1 | The Cranelift spike builds and runs pure string intrinsics including string_clone, string_starts_with, string_strip_prefix, string_strip_suffix, st... |
 | `struct.field` | `implemented` | - | evidence:1, runtime:1, denial:1 | The direct-native path now has narrow runtime evidence for immediate struct-literal scalar field access and scalar projection from local struct bin... |
 | `tuple` | `implemented` | - | evidence:1, runtime:1, denial:1 | The direct-native path now has narrow runtime evidence for immediate tuple-literal scalar indexing and scalar projection from local tuple bindings,... |
 

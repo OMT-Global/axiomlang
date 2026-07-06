@@ -1,0 +1,20 @@
+fn describe(value: Option<int>): string {
+match value {
+Some(byte) {
+return "some " + json_stringify_int(byte)
+}
+None {
+return "none"
+}
+}
+}
+
+let ascii: string = "Ab"
+print describe(string_byte_at(ascii, 0))
+print describe(string_byte_at(ascii, 1))
+print describe(string_byte_at(ascii, 2))
+print describe(string_byte_at(ascii, 0 - 1))
+let snowman: string = "a☃"
+print json_stringify_int(len(snowman))
+print describe(string_byte_at(snowman, 1))
+print describe(string_byte_at(snowman, 3))

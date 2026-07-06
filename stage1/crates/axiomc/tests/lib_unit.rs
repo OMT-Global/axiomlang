@@ -10588,8 +10588,8 @@ fn checked_in_proof_workload_examples_build_run_and_test() {
 #[cfg_attr(not(feature = "run-native-tests"), ignore)]
 fn conformance_corpus_reports_stable_results() {
     let output = run_project_tests(&conformance_fixture()).expect("run stage1 conformance corpus");
-    assert_eq!(output.cases.len(), 148);
-    assert_eq!(output.passed, 148);
+    assert_eq!(output.cases.len(), 150);
+    assert_eq!(output.passed, 150);
     let failures: Vec<_> = output
         .cases
         .iter()
@@ -10603,7 +10603,7 @@ fn conformance_corpus_reports_stable_results() {
             .iter()
             .filter(|case| case.expected_error.is_some())
             .count(),
-        100
+        101
     );
     assert_eq!(
         output
@@ -10611,7 +10611,7 @@ fn conformance_corpus_reports_stable_results() {
             .iter()
             .filter(|case| case.expected_stdout.is_some())
             .count(),
-        46
+        47
     );
     assert_eq!(
         output
