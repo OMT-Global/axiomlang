@@ -461,6 +461,11 @@ version = "0.1.0"
 source = "path:fail/string_borrow_local_return"
 
 [[package]]
+name = "conformance-string-byte-at-type-mismatch"
+version = "0.1.0"
+source = "path:fail/string_byte_at_type_mismatch"
+
+[[package]]
 name = "conformance-string-use-after-move"
 version = "0.1.0"
 source = "path:fail/string_use_after_move"
@@ -581,6 +586,11 @@ version = "0.1.0"
 source = "path:pass/legacy_core_programs"
 
 [[package]]
+name = "conformance-line-comments"
+version = "0.1.0"
+source = "path:pass/line_comments"
+
+[[package]]
 name = "conformance-mutable-call-boundaries"
 version = "0.1.0"
 source = "path:pass/mutable_call_boundaries"
@@ -699,6 +709,11 @@ source = "path:pass/slice_type_alias_in_struct"
 name = "conformance-stdlib-io-stdin"
 version = "0.1.0"
 source = "path:pass/stdlib_io_stdin"
+
+[[package]]
+name = "conformance-string-byte-at"
+version = "0.1.0"
+source = "path:pass/string_byte_at"
 
 [[package]]
 name = "conformance-string-param-by-value"

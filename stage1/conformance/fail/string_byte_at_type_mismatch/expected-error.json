@@ -1,0 +1,8 @@
+{
+  "kind": "type",
+  "code": null,
+  "message": "string_byte_at expects argument 2 type int, got string",
+  "path": "src/main.ax",
+  "line": 1,
+  "column": 1
+}

@@ -1,0 +1,2 @@
+let byte: Option<int> = string_byte_at("text", "one")
+print "unreachable"
