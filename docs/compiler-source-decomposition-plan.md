@@ -108,13 +108,25 @@ before this ratchet merged; the ceilings below reflect that post-merge snapshot
 so future backend growth must be paid down or accompanied by an explicit
 ratchet update.
 
+The cranelift intrinsics extraction then moved the pure runtime-intrinsic
+implementations (JSON scalar parse/stringify, the stage1-safe regex engine,
+percent encoding, and the crypto primitives) into
+`stage1/crates/axiomc/src/cranelift_backend/intrinsics.rs`, lowering the
+`cranelift_backend.rs` ceiling below its pre-language-slice level. The small
+ceiling raises for `codegen.rs`, `hir.rs`, `hir/matches.rs`, `hir/variants.rs`,
+`main.rs`, `project.rs`, and `syntax.rs` record feature growth from merged
+work (#1355-#1376 era) that landed while the ratchet was still advisory, which landed while
+the ratchet was still advisory; the ratchet now runs in the fast PR lane via
+`run-fast-checks.sh`, so future growth fails CI unless the ceiling change is
+explicit in the same PR.
+
 ## Current Top Files
 
 Snapshot from 2026-07-02:
 
 | Rank | Current Rust file | Lines | Target package boundary | First extraction slice |
 | ---: | --- | ---: | --- | --- |
-| 1 | `stage1/crates/axiomc/src/cranelift_backend.rs` | 28,303 | `compiler.backend.native` | Split direct-native lowering by runtime ABI groups: scalar/aggregate value features, capability shims, host imports, object emission, unsupported diagnostics, and evidence helpers. |
+| 1 | `stage1/crates/axiomc/src/cranelift_backend.rs` | 27,815 | `compiler.backend.native` | Pure runtime-intrinsic implementations now live in `stage1/crates/axiomc/src/cranelift_backend/intrinsics.rs`; continue splitting by runtime ABI groups: scalar/aggregate value features, capability shims, host imports, object emission, unsupported diagnostics, and evidence helpers. |
 | 2 | `stage1/crates/axiomc/src/project.rs` | 11,250 | `compiler.package_graph`, `compiler.commands`, `compiler.evidence` | Split manifest/workspace loading, command orchestration, provenance/debug records, and build artifact planning along package ownership. |
 | 3 | `stage1/crates/axiomc/src/main.rs` | 10,695 | `compiler.commands` | Move command parsing, JSON envelope construction, check/build/run/test/doc/trace orchestration, and exit handling behind `docs/compiler-command-lsp-packages.md` APIs. |
 | 4 | `stage1/crates/axiomc/src/codegen.rs` | 7,882 | `compiler.backend.generated_rust`, `compiler.backend.contracts` | Isolate generated-Rust compatibility emission from backend target selection and unsupported-feature contracts. |
@@ -132,14 +144,15 @@ matching ceiling in this table in the same PR.
 
 | Tracked item | Ceiling |
 | --- | ---: |
-| `summary.top_file_line_share` | 0.832819601313954 |
-| `summary.top_file_lines` | 74504 |
-| `stage1/crates/axiomc/src/cranelift_backend.rs` | 28303 |
-| `stage1/crates/axiomc/src/hir.rs` | 5842 |
-| `stage1/crates/axiomc/src/project.rs` | 11250 |
-| `stage1/crates/axiomc/src/main.rs` | 10695 |
-| `stage1/crates/axiomc/src/codegen.rs` | 7882 |
-| `stage1/crates/axiomc/src/syntax.rs` | 6324 |
+| `summary.top_file_line_share` | 0.8237 |
+| `summary.top_file_lines` | 74316 |
+| `stage1/crates/axiomc/src/cranelift_backend.rs` | 27815 |
+| `stage1/crates/axiomc/src/cranelift_backend/intrinsics.rs` | 917 |
+| `stage1/crates/axiomc/src/hir.rs` | 5848 |
+| `stage1/crates/axiomc/src/project.rs` | 11396 |
+| `stage1/crates/axiomc/src/main.rs` | 10755 |
+| `stage1/crates/axiomc/src/codegen.rs` | 7897 |
+| `stage1/crates/axiomc/src/syntax.rs` | 6372 |
 | `stage1/crates/axiomc/src/hir/async_runtime.rs` | 188 |
 | `stage1/crates/axiomc/src/hir/capabilities.rs` | 773 |
 | `stage1/crates/axiomc/src/hir/const_arrays.rs` | 330 |
@@ -150,7 +163,7 @@ matching ceiling in this table in the same PR.
 | `stage1/crates/axiomc/src/hir/expressions.rs` | 205 |
 | `stage1/crates/axiomc/src/hir/generics.rs` | 4208 |
 | `stage1/crates/axiomc/src/hir/maps.rs` | 124 |
-| `stage1/crates/axiomc/src/hir/matches.rs` | 735 |
+| `stage1/crates/axiomc/src/hir/matches.rs` | 737 |
 | `stage1/crates/axiomc/src/hir/model.rs` | 607 |
 | `stage1/crates/axiomc/src/hir/ownership.rs` | 1129 |
 | `stage1/crates/axiomc/src/hir/properties.rs` | 167 |
@@ -159,7 +172,7 @@ matching ceiling in this table in the same PR.
 | `stage1/crates/axiomc/src/hir/source_locations.rs` | 89 |
 | `stage1/crates/axiomc/src/hir/symbols.rs` | 137 |
 | `stage1/crates/axiomc/src/hir/types.rs` | 241 |
-| `stage1/crates/axiomc/src/hir/variants.rs` | 163 |
+| `stage1/crates/axiomc/src/hir/variants.rs` | 188 |
 | `stage1/crates/axiomc/src/registry.rs` | 2234 |
 | `stage1/crates/axiomc/src/lib.rs` | 21 |
 

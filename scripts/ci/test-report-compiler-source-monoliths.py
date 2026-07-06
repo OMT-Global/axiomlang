@@ -221,6 +221,65 @@ class CompilerSourceMonolithTests(unittest.TestCase):
             ["top file line share 0.8539 exceeds ratchet ceiling 0.8539"],
         )
 
+    def test_cli_check_ratchet_uses_checkout_root_for_paths_and_counts(self) -> None:
+        # Regression for PR #1377 review: PR Fast CI runs the trusted script
+        # from one checkout while source/plan live in the PR data checkout.
+        # The script (from its own real location) must relativize top-file
+        # paths against --checkout-root and read non-top tracked file counts
+        # from that same root, so repo-relative ceilings keep matching.
+        with tempfile.TemporaryDirectory() as tmp:
+            data_root = Path(tmp) / "data"
+            source_root = data_root / "stage1/crates/axiomc/src"
+            source_root.mkdir(parents=True)
+            write_lines(source_root / "cranelift_backend.rs", 5)
+            write_lines(source_root / "hir.rs", 3)
+            # main.rs is outside the top-2 window, so its count is resolved
+            # via --checkout-root rather than the report's top-file list.
+            write_lines(source_root / "main.rs", 2)
+            plan = data_root / "docs/compiler-source-decomposition-plan.md"
+            plan.parent.mkdir(parents=True)
+            plan.write_text(
+                "`stage1/crates/axiomc/src/cranelift_backend.rs` maps to "
+                "`compiler.backend.native`\n"
+                "`stage1/crates/axiomc/src/hir.rs` maps to `compiler.hir`\n\n"
+                "## Ratchet Ceilings\n\n"
+                "| Tracked item | Ceiling |\n"
+                "| --- | ---: |\n"
+                "| `summary.top_file_line_share` | 1.0000 |\n"
+                "| `summary.top_file_lines` | 8 |\n"
+                "| `stage1/crates/axiomc/src/cranelift_backend.rs` | 5 |\n"
+                "| `stage1/crates/axiomc/src/hir.rs` | 3 |\n"
+                "| `stage1/crates/axiomc/src/main.rs` | 2 |\n",
+                encoding="utf-8",
+            )
+
+            completed = subprocess.run(
+                [
+                    sys.executable,
+                    str(SCRIPT),
+                    "--checkout-root",
+                    str(data_root),
+                    "--top",
+                    "2",
+                    "--check-plan",
+                    "--check-ratchet",
+                ],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
+            )
+
+        self.assertEqual(completed.returncode, 0, completed.stdout + completed.stderr)
+        payload = json.loads(completed.stdout)
+        self.assertTrue(payload["plan_check"]["passed"], payload["plan_check"])
+        self.assertTrue(payload["ratchet_check"]["passed"], payload["ratchet_check"])
+        top_paths = {item["path"] for item in payload["top_files"]}
+        self.assertIn("stage1/crates/axiomc/src/cranelift_backend.rs", top_paths)
+        self.assertEqual(
+            payload["source_root"], "stage1/crates/axiomc/src", payload["source_root"]
+        )
+
     def test_cli_check_ratchet_fails_when_plan_is_incomplete(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             source_root = Path(tmp) / "src"
