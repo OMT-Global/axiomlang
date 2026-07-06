@@ -125,6 +125,7 @@ members = [
   "pass/projection_struct_disjoint",
   "pass/projection_tuple_disjoint",
   "pass/outcome_control_flow",
+  "pass/runtime_loop_bodies",
   "pass/runtime_negative_diagnostics",
   "pass/numeric_cross_width_casts",
   "pass/numeric_float_mean",

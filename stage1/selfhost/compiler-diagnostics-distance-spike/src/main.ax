@@ -1,0 +1,65 @@
+// Self-hosting spike for the suggestion-distance half of
+// compiler.diagnostics (#1253/#1366): Levenshtein distance over char-code
+// arrays, mirroring edit_distance in diagnostics.rs. Inputs are
+// fixed-capacity arrays with explicit lengths because the surface has no
+// runtime-sized arrays (gap 7); the DP rows write through mutable slice
+// aliases inside runtime while loops, which the direct-native backend
+// lowers since the gap-9 slice. This lives apart from the classification
+// spike because that binary's string surfaces evaluate at compile time
+// while these loops lower as native runtime code, and one program cannot
+// mix the two paths yet. Output is one bare distance per line, matched
+// byte-for-byte against expected-output.txt by the parity gate.
+pub fn edit_distance(left: [int; 7], left_len: int, right: [int; 7], right_len: int): int {
+let previous: [int; 8] = [0, 0, 0, 0, 0, 0, 0, 0]
+let current: [int; 8] = [0, 0, 0, 0, 0, 0, 0, 0]
+let previous_view: &mut [int] = previous[:]
+let current_view: &mut [int] = current[:]
+let setup: int = 0
+while setup <= right_len {
+previous_view[setup] = setup
+setup = setup + 1
+}
+let li: int = 0
+while li < left_len {
+current_view[0] = li + 1
+let ri: int = 0
+while ri < right_len {
+let substitution: int = 1
+if left[li] == right[ri] {
+substitution = 0
+}
+let deletion: int = previous[ri + 1] + 1
+let insertion: int = current[ri] + 1
+let replace: int = previous[ri] + substitution
+let best: int = deletion
+if insertion < best {
+best = insertion
+}
+if replace < best {
+best = replace
+}
+current_view[ri + 1] = best
+ri = ri + 1
+}
+let copy_index: int = 0
+while copy_index <= right_len {
+previous_view[copy_index] = current[copy_index]
+copy_index = copy_index + 1
+}
+li = li + 1
+}
+return previous[right_len]
+}
+
+let kitten: [int; 7] = [107, 105, 116, 116, 101, 110, 0]
+let sitting: [int; 7] = [115, 105, 116, 116, 105, 110, 103]
+let flaw: [int; 7] = [102, 108, 97, 119, 0, 0, 0]
+let flaw_again: [int; 7] = [102, 108, 97, 119, 0, 0, 0]
+let lawn: [int; 7] = [108, 97, 119, 110, 0, 0, 0]
+let agent: [int; 7] = [97, 103, 101, 110, 116, 0, 0]
+let agent_again: [int; 7] = [97, 103, 101, 110, 116, 0, 0]
+let empty: [int; 7] = [0, 0, 0, 0, 0, 0, 0]
+print edit_distance(kitten, 6, sitting, 7)
+print edit_distance(flaw, 4, lawn, 4)
+print edit_distance(agent, 5, agent_again, 5)
+print edit_distance(empty, 0, flaw_again, 4)

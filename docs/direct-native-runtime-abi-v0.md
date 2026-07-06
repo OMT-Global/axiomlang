@@ -139,7 +139,7 @@ _Generated from `stage1/runtime-abi/direct-native-v0.json`; run `make stage1-dir
 
 | Row | Status | Blockers | Evidence | Scope |
 | --- | --- | --- | --- | --- |
-| `array.fixed` | `implemented` | - | evidence:1, runtime:1, denial:1 | The direct-native path now has narrow runtime evidence for immediate array-literal scalar indexing with literal indexes and scalar projection from... |
+| `array.fixed` | `implemented` | - | evidence:2, runtime:1, denial:1 | The direct-native path now has narrow runtime evidence for immediate array-literal scalar indexing with literal indexes and scalar projection from... |
 | `boolean` | `implemented` | - | evidence:1, runtime:1, denial:1 | The Cranelift spike covers boolean values. |
 | `enum.payload` | `implemented` | - | evidence:1, runtime:1 | The Cranelift spike builds and runs custom enum matches with tuple, named, and string payloads without generated Rust. |
 | `map.lookup` | `implemented` | - | evidence:1, runtime:1 | The Cranelift spike covers direct map indexing, get, get_or_default, map_contains_key, map_keys, helper-returned direct index, contains-key, and de... |

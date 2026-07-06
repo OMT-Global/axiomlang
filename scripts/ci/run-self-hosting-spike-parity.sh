@@ -14,17 +14,16 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$repo_root"
 
-spike_dir="stage1/selfhost/compiler-diagnostics-spike"
-expected="$spike_dir/expected-output.txt"
-
 cargo test --manifest-path stage1/Cargo.toml -p axiomc --test self_hosting_spike_parity
 
 report="$(mktemp "${TMPDIR:-/tmp}/axiom-selfhost-spike.XXXXXX")"
 trap 'rm -f "$report"' EXIT
 
-cargo run --quiet --manifest-path stage1/Cargo.toml -p axiomc -- run "$spike_dir" --json >"$report"
-
-python3 - "$report" "$expected" <<'PY'
+check_spike() {
+  local spike_dir="$1"
+  local expected="$spike_dir/expected-output.txt"
+  cargo run --quiet --manifest-path stage1/Cargo.toml -p axiomc -- run "$spike_dir" --json >"$report"
+  python3 - "$report" "$expected" <<'PY'
 import json
 import sys
 
@@ -54,5 +53,9 @@ if payload.get("stdout") != expected:
     raise SystemExit(f"AxiOM spike output diverged from Rust parity corpus:\n{diff}")
 
 lines = expected.count("\n")
-print(f"self-hosting diagnostics spike parity passed ({lines} corpus lines, direct-native, generated_rust null)")
+print(f"self-hosting spike parity passed for {sys.argv[2]} ({lines} corpus lines, direct-native, generated_rust null)")
 PY
+}
+
+check_spike "stage1/selfhost/compiler-diagnostics-spike"
+check_spike "stage1/selfhost/compiler-diagnostics-distance-spike"

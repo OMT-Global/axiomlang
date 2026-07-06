@@ -263,7 +263,8 @@ pub fn is_plausible_suggestion(needle: &str, candidate: &str, distance: usize) -
     distance <= 2 || (max_len >= 6 && distance <= 3)
 }
 
-fn edit_distance(left: &str, right: &str) -> usize {
+/// Public for self-hosting spike parity evidence (#1253/#1366).
+pub fn edit_distance(left: &str, right: &str) -> usize {
     let left: Vec<char> = left.chars().collect();
     let right: Vec<char> = right.chars().collect();
     let mut previous: Vec<usize> = (0..=right.len()).collect();

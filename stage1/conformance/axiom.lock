@@ -686,6 +686,11 @@ version = "0.1.0"
 source = "path:pass/projection_tuple_disjoint"
 
 [[package]]
+name = "conformance-runtime-loop-bodies"
+version = "0.1.0"
+source = "path:pass/runtime_loop_bodies"
+
+[[package]]
 name = "conformance-runtime-negative-diagnostics"
 version = "0.1.0"
 source = "path:pass/runtime_negative_diagnostics"

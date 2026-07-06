@@ -1,0 +1,93 @@
+// Gap-9 coverage: runtime while loops whose bodies write through mutable
+// slice aliases, accumulate through option-int match arms, and run the
+// Levenshtein DP over char-code arrays -- all on the direct-native backend.
+fn fill_sum(count: int): int {
+let row: [int; 4] = [0, 0, 0, 0]
+let view: &mut [int] = row[:]
+let i: int = 0
+while i < count {
+view[i] = i * 10
+i = i + 1
+}
+return row[0] + row[1] + row[2] + row[3]
+}
+
+fn some_sum(count: int): int {
+let total: int = 0
+let i: int = 0
+while i < count {
+match Some(i) {
+Some(value) {
+total = total + value
+}
+None {
+total = total
+}
+}
+i = i + 1
+}
+return total
+}
+
+fn edit_distance(left: [int; 6], right: [int; 7], right_len: int): int {
+let previous: [int; 8] = [0, 0, 0, 0, 0, 0, 0, 0]
+let current: [int; 8] = [0, 0, 0, 0, 0, 0, 0, 0]
+let previous_view: &mut [int] = previous[:]
+let current_view: &mut [int] = current[:]
+let setup: int = 0
+while setup <= right_len {
+previous_view[setup] = setup
+setup = setup + 1
+}
+let li: int = 0
+while li < 6 {
+current_view[0] = li + 1
+let ri: int = 0
+while ri < right_len {
+let substitution: int = 1
+if left[li] == right[ri] {
+substitution = 0
+}
+let deletion: int = previous[ri + 1] + 1
+let insertion: int = current[ri] + 1
+let replace: int = previous[ri] + substitution
+let best: int = deletion
+if insertion < best {
+best = insertion
+}
+if replace < best {
+best = replace
+}
+current_view[ri + 1] = best
+ri = ri + 1
+}
+let copy_index: int = 0
+while copy_index <= right_len {
+previous_view[copy_index] = current[copy_index]
+copy_index = copy_index + 1
+}
+li = li + 1
+}
+return previous[right_len]
+}
+
+let kitten: [int; 6] = [107, 105, 116, 116, 101, 110]
+let sitting: [int; 7] = [115, 105, 116, 116, 105, 110, 103]
+let text: string = "Ab"
+let byte_total: int = 0
+let byte_index: int = 0
+while byte_index < len(text) {
+match string_byte_at(text, byte_index) {
+Some(byte) {
+byte_total = byte_total + byte
+}
+None {
+byte_total = byte_total
+}
+}
+byte_index = byte_index + 1
+}
+print fill_sum(4)
+print byte_total
+print some_sum(3)
+print edit_distance(kitten, sitting, 7)
