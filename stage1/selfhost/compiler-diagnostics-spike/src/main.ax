@@ -1,5 +1,12 @@
 import "std/regex.ax"
 
+// Self-hosting feasibility spike for the compiler.diagnostics package (#1253).
+// This slice mirrors stage1/crates/axiomc/src/diagnostics.rs: stable diagnostic
+// code classification, repair hints, source-location rendering, and the
+// suggestion plausibility predicate. Substring checks use std/regex is_match
+// because the AxiOM surface has no string-contains primitive yet; the needles
+// below are literal words and spaces, so they are regex-safe.
+
 struct RepairHint {
 action: string
 edit: Option<string>

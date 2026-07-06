@@ -581,6 +581,11 @@ version = "0.1.0"
 source = "path:pass/legacy_core_programs"
 
 [[package]]
+name = "conformance-line-comments"
+version = "0.1.0"
+source = "path:pass/line_comments"
+
+[[package]]
 name = "conformance-mutable-call-boundaries"
 version = "0.1.0"
 source = "path:pass/mutable_call_boundaries"

@@ -1,0 +1,36 @@
+// top-level comment before a struct
+struct Point {
+// comment inside a struct body
+x: int
+y: int
+}
+
+// comment before a function
+fn describe(point: Point): string {
+// comment inside a function body
+let url: string = "https://example.test//path"
+if point.x > 0 {
+// comment inside a nested block
+return url
+}
+return "origin: " + url
+}
+
+fn label(value: Option<int>): string {
+match value {
+// comment inside a match block
+Some(number) {
+// comment inside a match arm
+return "some " + json_stringify_int(number)
+}
+None {
+return "none"
+}
+}
+}
+
+let origin: Point = Point { x: 0, y: 0 }
+// comment between statements
+print describe(origin)
+print label(Some(7))
+print label(None)

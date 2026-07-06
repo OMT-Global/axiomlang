@@ -882,12 +882,43 @@ pub fn parse_program_with_options(
     })
 }
 
+/// Blank out full-line `//` comments while preserving line numbers so
+/// diagnostics keep pointing at the original source. Only lines whose trimmed
+/// content starts with `//` are comments; `//` appearing inside a line (for
+/// example a URL in a string literal) is untouched. Runs before macro
+/// expansion so macro bodies may also contain comment lines.
+fn strip_line_comments(source: &str) -> String {
+    if !source.contains("//") {
+        return source.to_string();
+    }
+    let mut cleaned = String::with_capacity(source.len());
+    let mut rest = source;
+    loop {
+        let (line, remainder) = match rest.split_once('\n') {
+            Some((line, remainder)) => (line, Some(remainder)),
+            None => (rest, None),
+        };
+        if !line.trim().starts_with("//") {
+            cleaned.push_str(line);
+        }
+        match remainder {
+            Some(remainder) => {
+                cleaned.push('\n');
+                rest = remainder;
+            }
+            None => break,
+        }
+    }
+    cleaned
+}
+
 pub fn parse_program_with_options_and_recovery(
     source: &str,
     path: &Path,
     options: &ParseOptions,
 ) -> Result<Program, Vec<Diagnostic>> {
-    let expanded_source = expand_declarative_macros(source, path, options)?;
+    let source = strip_line_comments(source);
+    let expanded_source = expand_declarative_macros(&source, path, options)?;
     let lines: Vec<&str> = expanded_source.source.lines().collect();
     let mut index = 0;
     let mut imports = Vec::new();
@@ -6238,6 +6269,23 @@ impl ArithmeticOp {
 mod ast_identity_tests {
     use super::*;
     use std::path::Path;
+
+    #[test]
+    fn line_comments_are_blanked_and_preserve_line_numbers() {
+        let source = "// leading comment\nlet url: string = \"https://example.test//path\"\n// trailing comment\nprint url\n";
+        let cleaned = strip_line_comments(source);
+        assert_eq!(
+            cleaned,
+            "\nlet url: string = \"https://example.test//path\"\n\nprint url\n",
+            "comment lines blank to empty lines; // inside a string is untouched"
+        );
+        let program =
+            parse_program(source, Path::new("comments.ax")).expect("parse program with comments");
+        assert_eq!(program.stmts.len(), 2);
+        let error = parse_program("let broken: int =\n// comment\n", Path::new("comments.ax"))
+            .expect_err("parse failure keeps original line numbers");
+        assert_eq!(error.line, Some(1));
+    }
 
     #[test]
     fn top_level_ast_items_have_stable_file_spans_and_ids() {

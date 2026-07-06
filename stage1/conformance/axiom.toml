@@ -114,6 +114,7 @@ members = [
   "pass/declarative_macros",
   "pass/functions_across_modules",
   "pass/legacy_core_programs",
+  "pass/line_comments",
   "pass/mutable_local_borrow_write_through",
   "pass/mutable_call_boundaries",
   "pass/mutable_match_expression_bindings",
