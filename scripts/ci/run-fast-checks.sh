@@ -36,8 +36,7 @@ fi
 rm -f "$abi_matrix_report"
 monolith_report="$(mktemp)"
 if ! python3 "$script_repo_root/scripts/ci/report-compiler-source-monoliths.py" \
-  --source-root "$repo_root/stage1/crates/axiomc/src" \
-  --plan "$repo_root/docs/compiler-source-decomposition-plan.md" \
+  --checkout-root "$repo_root" \
   --json --check-plan --check-ratchet >"$monolith_report"; then
   echo "compiler source monolith ratchet failed (#1254); shrink the file or update the ceiling in docs/compiler-source-decomposition-plan.md in this PR:" >&2
   python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); [print(e, file=sys.stderr) for e in d.get("plan_check",{}).get("errors",[])+d.get("ratchet_check",{}).get("errors",[])]' "$monolith_report" || cat "$monolith_report" >&2
