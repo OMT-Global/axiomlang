@@ -4125,4 +4125,3 @@ pub(crate) fn render_runtime_panic_message(value: SpikeValue) -> Result<String, 
 pub(crate) fn cranelift_runtime_trap(kind: &str, message: impl Into<String>) -> Diagnostic {
     Diagnostic::new(CRANELIFT_RUNTIME_TRAP_KIND, message.into()).with_code(kind)
 }
-
