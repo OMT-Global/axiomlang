@@ -68,6 +68,20 @@ assert_success all_closed \
     --issue-state-file "$all_closed" \
     --require-issue-states
 
+fake_bin="$tmpdir/fake-bin"
+mkdir -p "$fake_bin"
+cat > "$fake_bin/rg" <<'FAKE_RG'
+#!/usr/bin/env bash
+exit 0
+FAKE_RG
+chmod +x "$fake_bin/rg"
+
+assert_success no_rg_dependency \
+  env PATH="$fake_bin:$PATH" \
+  bash scripts/ci/check-python-exit-readiness.sh --json \
+    --issue-state-file "$all_closed" \
+    --require-issue-states
+
 assert_failure_contains one_open "issue #268 is OPEN" \
   bash scripts/ci/check-python-exit-readiness.sh --json \
     --issue-state-file "$one_open" \
