@@ -981,4 +981,3 @@ pub(crate) fn spike_fs_join_candidates(
     }
     Some(candidates)
 }
-
