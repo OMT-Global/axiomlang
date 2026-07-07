@@ -192,9 +192,10 @@ matching ceiling in this table in the same PR.
 
 | Tracked item | Ceiling |
 | --- | ---: |
-| `summary.top_file_line_share` | 0.7466 |
-| `summary.top_file_lines` | 67390 |
-| `stage1/crates/axiomc/src/cranelift_backend.rs` | 20914 |
+| `summary.top_file_line_share` | 0.7401 |
+| `summary.top_file_lines` | 66814 |
+| `stage1/crates/axiomc/src/cranelift_backend.rs` | 20338 |
+| `stage1/crates/axiomc/src/cranelift_backend/host_env_proc_clock.rs` | 586 |
 | `stage1/crates/axiomc/src/cranelift_backend/intrinsics.rs` | 917 |
 | `stage1/crates/axiomc/src/cranelift_backend/evaluator.rs` | 4128 |
 | `stage1/crates/axiomc/src/cranelift_backend/host_fs.rs` | 984 |
