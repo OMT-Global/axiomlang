@@ -141,13 +141,28 @@ relocation. Remaining host families (crypto, net/http, env/process/clock,
 json/serdes) follow as their own slices before the mutually-recursive
 value/control core is sub-partitioned by value shape.
 
+The cranelift lowering host-capability extraction then moved the crypto
+family (`crypto_sha256`/HMAC/constant-time-eq audited condition and helper
+lowering, the compile-time `spike_crypto_*` AEAD and Ed25519 dispatchers, and
+their OpenSSL FFI Drop-guard structs and dlopen/dlsym/dlclose bindings) into
+`stage1/crates/axiomc/src/cranelift_backend/host_crypto.rs`. This family has
+one callback into the recursive expr/stmt lowering hub (`lower_i64_expr`);
+the FFI Guard structs, Drop impls, and OpenSSL symbol-loading helpers moved
+alongside their sole callers since they are crypto-only, while the shared
+`crypto_*` wrapper functions the compile-time evaluator calls stayed in
+`cranelift_backend/intrinsics.rs`, reachable from the new sibling module
+through the parent's `pub(crate) use host_crypto::*` re-export. Remaining
+host families (net/http, env/process/clock, json/serdes) follow as their own
+slices before the mutually-recursive value/control core is sub-partitioned by
+value shape.
+
 ## Current Top Files
 
 Snapshot from 2026-07-02:
 
 | Rank | Current Rust file | Lines | Target package boundary | First extraction slice |
 | ---: | --- | ---: | --- | --- |
-| 1 | `stage1/crates/axiomc/src/cranelift_backend.rs` | 22,728 | `compiler.backend.native` | Runtime-intrinsic implementations live in `.../cranelift_backend/intrinsics.rs` and the compile-time evaluator in `.../cranelift_backend/evaluator.rs`; continue splitting the i64 runtime lowering (`lower_i64_*`) by ABI group: scalar/aggregate value features, capability shims, host imports, object emission, unsupported diagnostics, and evidence helpers. |
+| 1 | `stage1/crates/axiomc/src/cranelift_backend.rs` | 21,948 | `compiler.backend.native` | Runtime-intrinsic implementations live in `.../cranelift_backend/intrinsics.rs`, the compile-time evaluator in `.../cranelift_backend/evaluator.rs`, and the filesystem and crypto i64 lowering groups in `.../cranelift_backend/host_fs.rs` and `.../cranelift_backend/host_crypto.rs`; continue splitting the remaining i64 runtime lowering (`lower_i64_*`) by host-capability group (net/http, env/process/clock, json/serdes) before sub-partitioning the mutually-recursive value/control core by value shape. |
 | 2 | `stage1/crates/axiomc/src/project.rs` | 11,250 | `compiler.package_graph`, `compiler.commands`, `compiler.evidence` | Split manifest/workspace loading, command orchestration, provenance/debug records, and build artifact planning along package ownership. |
 | 3 | `stage1/crates/axiomc/src/main.rs` | 10,695 | `compiler.commands` | Move command parsing, JSON envelope construction, check/build/run/test/doc/trace orchestration, and exit handling behind `docs/compiler-command-lsp-packages.md` APIs. |
 | 4 | `stage1/crates/axiomc/src/codegen.rs` | 7,882 | `compiler.backend.generated_rust`, `compiler.backend.contracts` | Isolate generated-Rust compatibility emission from backend target selection and unsupported-feature contracts. |
@@ -165,12 +180,13 @@ matching ceiling in this table in the same PR.
 
 | Tracked item | Ceiling |
 | --- | ---: |
-| `summary.top_file_line_share` | 0.7668 |
-| `summary.top_file_lines` | 69204 |
-| `stage1/crates/axiomc/src/cranelift_backend.rs` | 22728 |
+| `summary.top_file_line_share` | 0.7581 |
+| `summary.top_file_lines` | 68424 |
+| `stage1/crates/axiomc/src/cranelift_backend.rs` | 21948 |
 | `stage1/crates/axiomc/src/cranelift_backend/intrinsics.rs` | 917 |
 | `stage1/crates/axiomc/src/cranelift_backend/evaluator.rs` | 4128 |
 | `stage1/crates/axiomc/src/cranelift_backend/host_fs.rs` | 984 |
+| `stage1/crates/axiomc/src/cranelift_backend/host_crypto.rs` | 783 |
 | `stage1/crates/axiomc/src/hir.rs` | 5848 |
 | `stage1/crates/axiomc/src/project.rs` | 11396 |
 | `stage1/crates/axiomc/src/main.rs` | 10755 |
