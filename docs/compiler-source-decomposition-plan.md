@@ -130,13 +130,24 @@ path stay in the parent and are visible to the submodule through
 `use super::*`. This drops `cranelift_backend.rs` below 24k lines and the
 top-file share below 0.78.
 
+The cranelift lowering host-capability extraction then began peeling the
+direct-native i64 lowering by capability group, starting with the cleanest
+near-leaf: the filesystem family (`fs_read`/`fs_write` intrinsic lowering,
+path-guard and audit helpers, and the compile-time `spike_fs_*` scope
+resolvers) now lives in
+`stage1/crates/axiomc/src/cranelift_backend/host_fs.rs`. This family has zero
+callbacks into the recursive expr/stmt lowering hub, so the move is pure
+relocation. Remaining host families (crypto, net/http, env/process/clock,
+json/serdes) follow as their own slices before the mutually-recursive
+value/control core is sub-partitioned by value shape.
+
 ## Current Top Files
 
 Snapshot from 2026-07-02:
 
 | Rank | Current Rust file | Lines | Target package boundary | First extraction slice |
 | ---: | --- | ---: | --- | --- |
-| 1 | `stage1/crates/axiomc/src/cranelift_backend.rs` | 23,700 | `compiler.backend.native` | Runtime-intrinsic implementations live in `.../cranelift_backend/intrinsics.rs` and the compile-time evaluator in `.../cranelift_backend/evaluator.rs`; continue splitting the i64 runtime lowering (`lower_i64_*`) by ABI group: scalar/aggregate value features, capability shims, host imports, object emission, unsupported diagnostics, and evidence helpers. |
+| 1 | `stage1/crates/axiomc/src/cranelift_backend.rs` | 22,728 | `compiler.backend.native` | Runtime-intrinsic implementations live in `.../cranelift_backend/intrinsics.rs` and the compile-time evaluator in `.../cranelift_backend/evaluator.rs`; continue splitting the i64 runtime lowering (`lower_i64_*`) by ABI group: scalar/aggregate value features, capability shims, host imports, object emission, unsupported diagnostics, and evidence helpers. |
 | 2 | `stage1/crates/axiomc/src/project.rs` | 11,250 | `compiler.package_graph`, `compiler.commands`, `compiler.evidence` | Split manifest/workspace loading, command orchestration, provenance/debug records, and build artifact planning along package ownership. |
 | 3 | `stage1/crates/axiomc/src/main.rs` | 10,695 | `compiler.commands` | Move command parsing, JSON envelope construction, check/build/run/test/doc/trace orchestration, and exit handling behind `docs/compiler-command-lsp-packages.md` APIs. |
 | 4 | `stage1/crates/axiomc/src/codegen.rs` | 7,882 | `compiler.backend.generated_rust`, `compiler.backend.contracts` | Isolate generated-Rust compatibility emission from backend target selection and unsupported-feature contracts. |
@@ -154,11 +165,12 @@ matching ceiling in this table in the same PR.
 
 | Tracked item | Ceiling |
 | --- | ---: |
-| `summary.top_file_line_share` | 0.7777 |
-| `summary.top_file_lines` | 70176 |
-| `stage1/crates/axiomc/src/cranelift_backend.rs` | 23700 |
+| `summary.top_file_line_share` | 0.7668 |
+| `summary.top_file_lines` | 69204 |
+| `stage1/crates/axiomc/src/cranelift_backend.rs` | 22728 |
 | `stage1/crates/axiomc/src/cranelift_backend/intrinsics.rs` | 917 |
 | `stage1/crates/axiomc/src/cranelift_backend/evaluator.rs` | 4128 |
+| `stage1/crates/axiomc/src/cranelift_backend/host_fs.rs` | 984 |
 | `stage1/crates/axiomc/src/hir.rs` | 5848 |
 | `stage1/crates/axiomc/src/project.rs` | 11396 |
 | `stage1/crates/axiomc/src/main.rs` | 10755 |
