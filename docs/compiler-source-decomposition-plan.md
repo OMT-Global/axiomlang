@@ -239,6 +239,70 @@ matching ceiling in this table in the same PR.
 5. `compiler.syntax` and `compiler.diagnostics`: keep public syntax and
    diagnostic fixtures stable while implementation files shrink.
 
+## Host-Capability Slice Recipe (`compiler.backend.native`)
+
+This is the durable handoff for the `cranelift_backend.rs` i64-lowering
+decomposition so any agent can pick up the next slice without prior context.
+The lowering is being peeled one host-capability family at a time into
+`stage1/crates/axiomc/src/cranelift_backend/<name>.rs` siblings.
+
+Slice status (update as PRs land):
+
+- runtime intrinsics -> `intrinsics.rs` — #1377, merged
+- compile-time evaluator -> `evaluator.rs` — #1378, merged
+- filesystem -> `host_fs.rs` — #1379, merged
+- crypto -> `host_crypto.rs` — #1380, merged
+- net/http -> `host_net_http.rs` — #1381, in review (do not redo)
+- **env/process/clock -> `host_env_proc_clock.rs` — NEXT (not started)**
+- **json/serdes -> `host_json_serdes.rs` — after env/process/clock**
+
+After these host families are out, sub-partition the mutually-recursive
+value/control core by value shape.
+
+To execute one slice:
+
+1. **Find the closure.** Seed with the family's `fn` name tokens (for the next
+   slice: `env`, `process`, `clock`; the one after: `json`, `serdes`). A
+   private fn joins the slice iff *every* one of its callers is already in the
+   slice, so nothing outside is orphaned. Exclude fns whose name matches a
+   token but that sit in the recursive expr/stmt hub (anything that is a
+   lowering entry point calling back through `lower_i64_expr` as a hub rather
+   than a leaf) — those stay in the parent.
+2. **Decide what moves.** Always move the closure `fn`s. For each non-`fn` item
+   the family appears to own (structs, `SPIKE_*` statics, FFI guards), `grep`
+   it across every `cranelift_backend/*.rs` sibling first: if only this family
+   uses it, move it alongside its callers; **if any sibling — especially
+   `evaluator.rs` — also uses it, leave it in the parent**, where the moved fns
+   still reach it through `use super::*` (a child module sees parent-private
+   items, including private statics). `host_crypto` moved its OpenSSL FFI Drop
+   guards because they were crypto-exclusive; `host_net_http` left all
+   `Spike{Http,Tcp,Udp}*` structs and `SPIKE_TCP_*`/`SPIKE_UDP_*` registries in
+   the parent because the evaluator shares them, making that slice a pure
+   function move.
+3. **Wire it.** The new `cranelift_backend/<name>.rs` starts with `use
+   super::*;`. Make every moved fn `pub(crate)`. Add `mod <name>;` and
+   `pub(crate) use <name>::*;` immediately after the last existing sibling
+   re-export in `cranelift_backend.rs` — this re-export is required so sibling
+   modules that call back into the moved fns (e.g. `evaluator.rs` calling
+   `http_get`/`spike_fs_*`/`spike_crypto_*`) keep resolving.
+4. **Fix `private_interfaces`.** If a moved `pub(crate)` fn's *signature* names
+   a parent-private type, raise that type to `pub(crate)` (as was done for
+   `I64StaticBindings`, `I64HelperSignature`, and `I64NetResolveHost`). A
+   parent-private type referenced only in a fn *body* needs no change.
+5. **Validate and ratchet.** Run `cargo build -p axiomc` (must be
+   warning-clean), `cargo test -p axiomc --lib` (expect only the pre-existing
+   environment-dependent failures on developer machines: the `wasm32-wasip1`
+   alias build and the socket-binding stdlib-http / proof-workload tests —
+   confirm the count and names match a clean `main`), `make
+   stage1-direct-native-runtime-abi-test`, `make self-hosting-spike-parity`,
+   and `make stage1-compiler-source-monoliths-test`. In the same PR, lower the
+   `cranelift_backend.rs`, `summary.top_file_lines`, and
+   `summary.top_file_line_share` ceilings and add the new file's ceiling in the
+   Ratchet Ceilings table above, or the fast lane fails.
+
+Do not run `cargo fmt` on these backend files: formatting is not CI-enforced in
+this repo, and reformatting the large files would swamp the code-motion diff.
+
 ## PR Rules
 
 - Each extraction PR must cite the target AxiOM package boundary, not only the
