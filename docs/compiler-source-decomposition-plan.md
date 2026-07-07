@@ -174,7 +174,7 @@ Snapshot from 2026-07-02:
 
 | Rank | Current Rust file | Lines | Target package boundary | First extraction slice |
 | ---: | --- | ---: | --- | --- |
-| 1 | `stage1/crates/axiomc/src/cranelift_backend.rs` | 20,914 | `compiler.backend.native` | Runtime-intrinsic implementations live in `.../cranelift_backend/intrinsics.rs`, the compile-time evaluator in `.../cranelift_backend/evaluator.rs`, and the filesystem, crypto, and net/http i64 lowering groups in `.../cranelift_backend/host_fs.rs`, `.../cranelift_backend/host_crypto.rs`, and `.../cranelift_backend/host_net_http.rs`; continue splitting the remaining i64 runtime lowering (`lower_i64_*`) by host-capability group (env/process/clock, json/serdes) before sub-partitioning the mutually-recursive value/control core by value shape. |
+| 1 | `stage1/crates/axiomc/src/cranelift_backend.rs` | 20,914 | `compiler.backend.native` | Runtime-intrinsic implementations live in `.../cranelift_backend/intrinsics.rs`, the compile-time evaluator in `.../cranelift_backend/evaluator.rs`, and the filesystem, crypto, net/http, env/process/clock, and json/serdes i64 lowering groups in `.../cranelift_backend/host_fs.rs`, `.../cranelift_backend/host_crypto.rs`, `.../cranelift_backend/host_net_http.rs`, `.../cranelift_backend/host_env_proc_clock.rs`, and `.../cranelift_backend/host_json_serdes.rs`; the remaining work is sub-partitioning the mutually-recursive value/control core by value shape. |
 | 2 | `stage1/crates/axiomc/src/project.rs` | 11,250 | `compiler.package_graph`, `compiler.commands`, `compiler.evidence` | Split manifest/workspace loading, command orchestration, provenance/debug records, and build artifact planning along package ownership. |
 | 3 | `stage1/crates/axiomc/src/main.rs` | 10,695 | `compiler.commands` | Move command parsing, JSON envelope construction, check/build/run/test/doc/trace orchestration, and exit handling behind `docs/compiler-command-lsp-packages.md` APIs. |
 | 4 | `stage1/crates/axiomc/src/codegen.rs` | 7,882 | `compiler.backend.generated_rust`, `compiler.backend.contracts` | Isolate generated-Rust compatibility emission from backend target selection and unsupported-feature contracts. |
@@ -192,10 +192,11 @@ matching ceiling in this table in the same PR.
 
 | Tracked item | Ceiling |
 | --- | ---: |
-| `summary.top_file_line_share` | 0.7401 |
-| `summary.top_file_lines` | 66814 |
-| `stage1/crates/axiomc/src/cranelift_backend.rs` | 20338 |
+| `summary.top_file_line_share` | 0.7373 |
+| `summary.top_file_lines` | 66561 |
+| `stage1/crates/axiomc/src/cranelift_backend.rs` | 20085 |
 | `stage1/crates/axiomc/src/cranelift_backend/host_env_proc_clock.rs` | 586 |
+| `stage1/crates/axiomc/src/cranelift_backend/host_json_serdes.rs` | 258 |
 | `stage1/crates/axiomc/src/cranelift_backend/intrinsics.rs` | 917 |
 | `stage1/crates/axiomc/src/cranelift_backend/evaluator.rs` | 4128 |
 | `stage1/crates/axiomc/src/cranelift_backend/host_fs.rs` | 984 |
@@ -267,8 +268,8 @@ Slice status (update as PRs land):
 - filesystem -> `host_fs.rs` — #1379, merged
 - crypto -> `host_crypto.rs` — #1380, merged
 - net/http -> `host_net_http.rs` — #1381, in review (do not redo)
-- **env/process/clock -> `host_env_proc_clock.rs` — NEXT (not started)**
-- **json/serdes -> `host_json_serdes.rs` — after env/process/clock**
+- env/process/clock -> `host_env_proc_clock.rs` — #1383, merged
+- json/serdes -> `host_json_serdes.rs` — #1254/#1384, in review (do not redo)
 
 After these host families are out, sub-partition the mutually-recursive
 value/control core by value shape.
