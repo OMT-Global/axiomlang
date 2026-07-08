@@ -882,15 +882,9 @@ pub fn parse_program_with_options(
     })
 }
 
-/// Blank out full-line `//` comments while preserving line numbers so
-/// diagnostics keep pointing at the original source. Only lines whose trimmed
-/// content starts with `//` are comments; `//` appearing inside a line (for
-/// example a URL in a string literal) is untouched. Runs before macro
-/// expansion so macro bodies may also contain comment lines.
+/// Strip `//` comments before macro expansion; `//` inside strings is untouched.
 fn strip_line_comments(source: &str) -> String {
-    if !source.contains("//") {
-        return source.to_string();
-    }
+    if !source.contains("//") { return source.to_string(); }
     let mut cleaned = String::with_capacity(source.len());
     let mut rest = source;
     loop {
@@ -898,9 +892,7 @@ fn strip_line_comments(source: &str) -> String {
             Some((line, remainder)) => (line, Some(remainder)),
             None => (rest, None),
         };
-        if !line.trim().starts_with("//") {
-            cleaned.push_str(line);
-        }
+        cleaned.push_str(strip_line_comment(line));
         match remainder {
             Some(remainder) => {
                 cleaned.push('\n');
@@ -910,6 +902,12 @@ fn strip_line_comments(source: &str) -> String {
         }
     }
     cleaned
+}
+
+fn strip_line_comment(line: &str) -> &str {
+    let (mut in_string, mut escaped) = (false, false);
+    for (index, byte) in line.bytes().enumerate() { match (in_string, escaped, byte) { (true, true, _) => escaped = false, (true, false, b'\\') => escaped = true, (true, false, b'"') => in_string = false, (false, _, b'"') => in_string = true, (false, _, b'/') if line.as_bytes().get(index + 1) == Some(&b'/') => return &line[..index], _ => {} } }
+    line
 }
 
 pub fn parse_program_with_options_and_recovery(
@@ -6272,16 +6270,16 @@ mod ast_identity_tests {
 
     #[test]
     fn line_comments_are_blanked_and_preserve_line_numbers() {
-        let source = "// leading comment\nlet url: string = \"https://example.test//path\"\n// trailing comment\nprint url\n";
+        let source = "// leading comment\nlet url: string = \"https://example.test//path\" // trailing comment\nlet escaped: string = \"quote: \\\\\\\" // still string\" // comment\n// trailing comment\nprint url\n";
         let cleaned = strip_line_comments(source);
         assert_eq!(
             cleaned,
-            "\nlet url: string = \"https://example.test//path\"\n\nprint url\n",
-            "comment lines blank to empty lines; // inside a string is untouched"
+            "\nlet url: string = \"https://example.test//path\" \nlet escaped: string = \"quote: \\\\\\\" // still string\" \n\nprint url\n",
+            "comment text is stripped while // inside strings is untouched"
         );
         let program =
             parse_program(source, Path::new("comments.ax")).expect("parse program with comments");
-        assert_eq!(program.stmts.len(), 2);
+        assert_eq!(program.stmts.len(), 3);
         let error = parse_program("let broken: int =\n// comment\n", Path::new("comments.ax"))
             .expect_err("parse failure keeps original line numbers");
         assert_eq!(error.line, Some(1));
