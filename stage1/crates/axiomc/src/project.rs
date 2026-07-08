@@ -809,12 +809,9 @@ pub fn run_project_tests_with_options(
             .then(|| compile_fail_test_kind(options))
             .flatten();
         if let Some(kind) = compile_fail_kind {
-            if let Some(test) = compile_fail_test_target(
-                &package_root,
-                manifest,
-                kind,
-                options.filter.as_deref(),
-            ) {
+            if let Some(test) =
+                compile_fail_test_target(&package_root, manifest, kind, options.filter.as_deref())
+            {
                 packages.push(package_root_text.clone());
                 cases.push(run_compile_fail_case(
                     &package_root,
@@ -838,7 +835,6 @@ pub fn run_project_tests_with_options(
         if tests.is_empty() {
             continue;
         }
-        let package_root_text = package_root.display().to_string();
         packages.push(package_root_text.clone());
         for test in &tests {
             cases.push(run_test_case(
