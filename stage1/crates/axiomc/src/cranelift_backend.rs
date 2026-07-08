@@ -11956,23 +11956,30 @@ fn lower_i64_known_bool_intrinsic_condition(
     static_bindings: &I64StaticBindings,
 ) -> Option<CraneliftI64Condition> {
     match name {
-        "string_starts_with" => {
-            let [text, prefix] = args else {
+        "string_contains" | "string_starts_with" => {
+            let [text, needle] = args else {
                 return None;
             };
-            if let Some(condition) = lower_i64_map_key_array_string_index_starts_with_condition(
-                text,
-                prefix,
-                local_indexes,
-                local_conditions,
-                helper_signatures,
-                static_bindings,
-            ) {
-                return Some(condition);
+            if name == "string_starts_with" {
+                if let Some(condition) = lower_i64_map_key_array_string_index_starts_with_condition(
+                    text,
+                    needle,
+                    local_indexes,
+                    local_conditions,
+                    helper_signatures,
+                    static_bindings,
+                ) {
+                    return Some(condition);
+                }
             }
+            let text = i64_string_text(text, static_bindings)?;
+            let needle = i64_string_text(needle, static_bindings)?;
             Some(CraneliftI64Condition::Literal(
-                i64_string_text(text, static_bindings)?
-                    .starts_with(i64_string_text(prefix, static_bindings)?.as_str()),
+                if name == "string_contains" {
+                    text.contains(needle.as_str())
+                } else {
+                    text.starts_with(needle.as_str())
+                },
             ))
         }
         name if is_i64_regex_is_match_name(name, static_bindings) => {
@@ -12696,6 +12703,7 @@ fn i64_known_pure_intrinsic_call(name: &str, static_bindings: &I64StaticBindings
             | "get"
             | "map_get"
             | "string_clone"
+            | "string_contains"
             | "string_starts_with"
             | "string_strip_prefix"
             | "string_strip_suffix"

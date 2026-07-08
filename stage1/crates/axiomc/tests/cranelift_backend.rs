@@ -3537,6 +3537,8 @@ fn cranelift_backend_builds_string_intrinsics_binary() {
         String::from_utf8_lossy(&run.stdout),
         "native
 true
+false
+true
 1
 stage
 [padded]
@@ -11715,6 +11717,8 @@ fn write_string_intrinsics_project(project: &Path) {
     fs::write(
         project.join("src/main.ax"),
         r#"print string_clone("native")
+print string_contains("diagnostic: missing closing brace", "missing")
+print string_contains("diagnostic", "syntax")
 print string_starts_with("stage1", "stage")
 
 match string_strip_prefix("stage1", "stage") {

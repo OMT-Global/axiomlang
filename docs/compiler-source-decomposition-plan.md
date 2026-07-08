@@ -198,14 +198,14 @@ matching ceiling in this table in the same PR.
 | `stage1/crates/axiomc/src/cranelift_backend/host_env_proc_clock.rs` | 586 |
 | `stage1/crates/axiomc/src/cranelift_backend/host_json_serdes.rs` | 258 |
 | `stage1/crates/axiomc/src/cranelift_backend/intrinsics.rs` | 917 |
-| `stage1/crates/axiomc/src/cranelift_backend/evaluator.rs` | 4128 |
+| `stage1/crates/axiomc/src/cranelift_backend/evaluator.rs` | 4135 |
 | `stage1/crates/axiomc/src/cranelift_backend/host_fs.rs` | 984 |
 | `stage1/crates/axiomc/src/cranelift_backend/host_crypto.rs` | 783 |
 | `stage1/crates/axiomc/src/cranelift_backend/host_net_http.rs` | 1043 |
-| `stage1/crates/axiomc/src/hir.rs` | 5848 |
+| `stage1/crates/axiomc/src/hir.rs` | 5850 |
 | `stage1/crates/axiomc/src/project.rs` | 11396 |
 | `stage1/crates/axiomc/src/main.rs` | 10755 |
-| `stage1/crates/axiomc/src/codegen.rs` | 7897 |
+| `stage1/crates/axiomc/src/codegen.rs` | 7909 |
 | `stage1/crates/axiomc/src/syntax.rs` | 6372 |
 | `stage1/crates/axiomc/src/hir/async_runtime.rs` | 188 |
 | `stage1/crates/axiomc/src/hir/capabilities.rs` | 773 |
