@@ -1701,7 +1701,6 @@ pub(crate) fn is_json_call(name: &str) -> bool {
             | "json_stringify_value"
     )
 }
-
 pub(crate) fn eval_json_call(
     name: &str,
     args: &[Expr],
