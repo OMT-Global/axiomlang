@@ -1898,9 +1898,9 @@ fn validate_workspace_root_lockfile(
     graph: &PackageGraph,
     project_root: &Path,
 ) -> Result<(), Diagnostic> {
-    let manifest = graph.context(project_root)?.manifest.clone();
+    let manifest = &graph.context(project_root)?.manifest;
     if manifest.is_workspace_only() {
-        validate_lockfile(project_root, &manifest)?;
+        validate_lockfile(project_root, manifest)?;
     }
     Ok(())
 }
