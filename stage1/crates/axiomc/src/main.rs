@@ -8177,15 +8177,13 @@ mod tests {
     #[test]
     fn json_flags_describe_agent_envelope_in_help() {
         for path in [
-            &["parse"][..],
-            &["check"],
-            &["build"],
-            &["run"],
-            &["test"],
-            &["caps"],
-            &["doc"],
-            &["inspect", "symbols"],
-            &["generate", "sql"],
+            &["parse"][..], &["check"], &["build"], &["run"], &["trace"], &["test"],
+            &["caps"], &["repair-plan"], &["evidence"], &["verify"], &["semantic-diff"],
+            &["explain"], &["doctor"], &["fmt"], &["doc"], &["bench"],
+            &["mutation-report"], &["repl"], &["inspect", "symbols"], &["inspect", "graph"],
+            &["inspect", "effects"], &["inspect", "artifacts"], &["generate", "openapi"],
+            &["generate", "policy"], &["generate", "sql"], &["generate", "terraform"],
+            &["generate", "runbook"],
             &["pkg", "graph"],
         ] {
             let help = subcommand_help(path);
