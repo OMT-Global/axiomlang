@@ -2058,37 +2058,7 @@ fn lower_i64_aggregate_return_body(
                 || is_i64_known_string_option_call_let_type(inner.as_ref()))
                 && !seen_runtime_stmt =>
             {
-                if let Some(assigns) = lower_i64_env_option_call_let_stmts(
-                    name,
-                    inner.as_ref(),
-                    expr,
-                    &mut locals,
-                    &mut local_indexes,
-                    static_bindings,
-                ) {
-                    lowered_stmts.extend(assigns);
-                    seen_runtime_stmt = true;
-                } else if let Some(assigns) = lower_i64_readline_option_call_let_stmts(
-                    name,
-                    inner.as_ref(),
-                    expr,
-                    &mut locals,
-                    &mut local_indexes,
-                    static_bindings,
-                ) {
-                    lowered_stmts.extend(assigns);
-                    seen_runtime_stmt = true;
-                } else if let Some(assigns) = lower_i64_fs_read_option_call_let_stmts(
-                    name,
-                    inner.as_ref(),
-                    expr,
-                    &mut locals,
-                    &mut local_indexes,
-                    static_bindings,
-                ) {
-                    lowered_stmts.extend(assigns);
-                    seen_runtime_stmt = true;
-                } else if let Some(assigns) = lower_i64_net_option_call_let_stmts(
+                if let Some(assigns) = lower_i64_runtime_string_option_call_let_stmts(
                     name,
                     inner.as_ref(),
                     expr,
@@ -3547,37 +3517,7 @@ fn lower_i64_body(
                 || is_i64_known_string_option_call_let_type(inner.as_ref()))
                 && !seen_runtime_stmt =>
             {
-                if let Some(assigns) = lower_i64_env_option_call_let_stmts(
-                    name,
-                    inner.as_ref(),
-                    expr,
-                    &mut locals,
-                    &mut local_indexes,
-                    static_bindings,
-                ) {
-                    lowered_stmts.extend(assigns);
-                    seen_runtime_stmt = true;
-                } else if let Some(assigns) = lower_i64_readline_option_call_let_stmts(
-                    name,
-                    inner.as_ref(),
-                    expr,
-                    &mut locals,
-                    &mut local_indexes,
-                    static_bindings,
-                ) {
-                    lowered_stmts.extend(assigns);
-                    seen_runtime_stmt = true;
-                } else if let Some(assigns) = lower_i64_fs_read_option_call_let_stmts(
-                    name,
-                    inner.as_ref(),
-                    expr,
-                    &mut locals,
-                    &mut local_indexes,
-                    static_bindings,
-                ) {
-                    lowered_stmts.extend(assigns);
-                    seen_runtime_stmt = true;
-                } else if let Some(assigns) = lower_i64_net_option_call_let_stmts(
+                if let Some(assigns) = lower_i64_runtime_string_option_call_let_stmts(
                     name,
                     inner.as_ref(),
                     expr,
@@ -5203,58 +5143,7 @@ fn lower_i64_runtime_let_stmts(
         expr,
         ..
     } = stmt
-        && let Some(assigns) = lower_i64_env_option_call_let_stmts(
-            name,
-            inner.as_ref(),
-            expr,
-            locals,
-            local_indexes,
-            static_bindings,
-        )
-    {
-        return Some(assigns);
-    }
-    if let Stmt::Let {
-        name,
-        ty: Type::Option(inner),
-        expr,
-        ..
-    } = stmt
-        && let Some(assigns) = lower_i64_readline_option_call_let_stmts(
-            name,
-            inner.as_ref(),
-            expr,
-            locals,
-            local_indexes,
-            static_bindings,
-        )
-    {
-        return Some(assigns);
-    }
-    if let Stmt::Let {
-        name,
-        ty: Type::Option(inner),
-        expr,
-        ..
-    } = stmt
-        && let Some(assigns) = lower_i64_fs_read_option_call_let_stmts(
-            name,
-            inner.as_ref(),
-            expr,
-            locals,
-            local_indexes,
-            static_bindings,
-        )
-    {
-        return Some(assigns);
-    }
-    if let Stmt::Let {
-        name,
-        ty: Type::Option(inner),
-        expr,
-        ..
-    } = stmt
-        && let Some(assigns) = lower_i64_net_option_call_let_stmts(
+        && let Some(assigns) = lower_i64_runtime_string_option_call_let_stmts(
             name,
             inner.as_ref(),
             expr,
@@ -7784,6 +7673,54 @@ fn lower_i64_string_option_len_call_let_stmts(
             value: tag,
         }),
     ])
+}
+
+fn lower_i64_runtime_string_option_call_let_stmts(
+    name: &str,
+    inner: &Type,
+    expr: &Expr,
+    locals: &mut Vec<CraneliftI64Expr>,
+    local_indexes: &mut HashMap<String, usize>,
+    static_bindings: &I64StaticBindings,
+) -> Option<Vec<CraneliftI64Stmt>> {
+    if let Some(assigns) = lower_i64_env_option_call_let_stmts(
+        name,
+        inner,
+        expr,
+        locals,
+        local_indexes,
+        static_bindings,
+    ) {
+        return Some(assigns);
+    }
+    if let Some(assigns) = lower_i64_readline_option_call_let_stmts(
+        name,
+        inner,
+        expr,
+        locals,
+        local_indexes,
+        static_bindings,
+    ) {
+        return Some(assigns);
+    }
+    if let Some(assigns) = lower_i64_fs_read_option_call_let_stmts(
+        name,
+        inner,
+        expr,
+        locals,
+        local_indexes,
+        static_bindings,
+    ) {
+        return Some(assigns);
+    }
+    lower_i64_net_option_call_let_stmts(
+        name,
+        inner,
+        expr,
+        locals,
+        local_indexes,
+        static_bindings,
+    )
 }
 
 fn lower_i64_readline_option_call_let_stmts(
