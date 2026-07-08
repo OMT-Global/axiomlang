@@ -757,14 +757,15 @@ pub fn list_project_tests_with_options(
         if discovered.is_empty() {
             continue;
         }
-        packages.push(package_root.display().to_string());
+        let package_root_text = package_root.display().to_string();
+        packages.push(package_root_text.clone());
         let package_name = manifest
             .package
             .as_ref()
             .map(|package| package.name.clone());
         for test in discovered {
             tests.push(ListedTest {
-                package_root: package_root.display().to_string(),
+                package_root: package_root_text.clone(),
                 package: test.package.clone().or_else(|| package_name.clone()),
                 name: test.name,
                 kind: test.kind,
@@ -802,6 +803,7 @@ pub fn run_project_tests_with_options(
     {
         let manifest = &graph.context(&package_root)?.manifest;
         validate_lockfile(&package_root, manifest)?;
+        let package_root_text = package_root.display().to_string();
         let compile_fail_kind = expected_error_path(&package_root)
             .exists()
             .then(|| compile_fail_test_kind(options))
@@ -813,7 +815,7 @@ pub fn run_project_tests_with_options(
                 kind,
                 options.filter.as_deref(),
             ) {
-                packages.push(package_root.display().to_string());
+                packages.push(package_root_text.clone());
                 cases.push(run_compile_fail_case(
                     &package_root,
                     &graph,
@@ -836,7 +838,8 @@ pub fn run_project_tests_with_options(
         if tests.is_empty() {
             continue;
         }
-        packages.push(package_root.display().to_string());
+        let package_root_text = package_root.display().to_string();
+        packages.push(package_root_text.clone());
         for test in &tests {
             cases.push(run_test_case(
                 &package_root,
