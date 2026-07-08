@@ -290,28 +290,46 @@ candidate sub-slice seeds.
 Reuse the host-family rules above (closure-selection, grep-siblings, wiring,
 `private_interfaces`, validate + ratchet), with two extra constraints:
 
-1. **Never move the recursive hub.** `lower_i64_expr`, `lower_i64_stmt`, and
-   `lower_i64_value` are the mutually-recursive entry points and stay in the
+1. **Never move the recursive hub.** `lower_i64_expr`, `lower_i64_runtime_stmt`, and
+   `lower_i64_return_value_expr` are the mutually-recursive entry points and stay in the
    parent. Only leaf value-shape lowerers that are *called by* the hub (not
    callers *of* the hub) may move. A fn whose body calls back into
-   `lower_i64_expr`/`lower_i64_stmt`/`lower_i64_value` is part of the hub and
+   `lower_i64_expr`/`lower_i64_runtime_stmt`/`lower_i64_return_value_expr` is part of the hub and
    stays.
-2. **Pick the leaf-most shape first.** The smallest, lowest-risk candidate is
-   the constant/literal value shape: `lower_i64_literal`, `lower_i64_bool`,
-   `lower_i64_numeric` (terminal value shapes). Before executing, run the
-   grep-siblings check: confirm every caller of each candidate fn is already in
-   the group (or is the hub, which stays) and that no sibling — especially
-   `evaluator.rs` — or the hub references a moved private type; if any candidate
-   fails, fall back to the next leaf-most group (`tuple` or `struct`). Keep each
-   value-shape slice to a single shape so the diff stays reviewable and the
-   ratchet ceiling for `cranelift_backend.rs` only drops by that shape's lines.
+2. **Do not pick the literal/bool/numeric shape first.** The constants/literals
+   are *not* a safe first extraction: the leaf helpers for that shape are shared
+   across other value shapes and the hub paths, so moving them would orphan
+   callers. The real helpers are `lower_i64_literal_value`,
+   `lower_i64_literal_index`, `lower_i64_bool_value_expr`,
+   `lower_i64_bool_value_compare`, `lower_i64_bool_literal_compare`,
+   `lower_i64_bool_argument_expr`, and `lower_i64_numeric_literal` — all of which
+   are referenced by functions outside the literal/bool/numeric cluster:
 
-The first executing PR should (a) move the chosen literal/constant group into a
-new `cranelift_backend/value_<shape>.rs` sibling (e.g. `value_literal.rs`)
-following the wiring + `private_interfaces` steps, (b) lower the
+   - `lower_i64_literal_index` is referenced from at least 13 enclosing functions
+     across slice/projection/map/string/expr/condition paths.
+   - `lower_i64_bool_value_expr` is referenced from at least 16 enclosing functions
+     across aggregate/body/runtime-let/assign/projection/return-value/option paths.
+   - `lower_i64_bool_value_compare` and `lower_i64_bool_literal_compare` feed
+     `lower_i64_condition`.
+   - `lower_i64_bool_argument_expr` feeds call-arg/projection paths.
+   - `lower_i64_numeric_literal` feeds both `lower_i64_literal_value` and
+     `lower_i64_expr`.
+
+   Before executing any value-shape slice, run the grep-siblings check: confirm
+   every caller of each candidate fn is already in the group (or is the hub, which
+   stays) and that no sibling — especially `evaluator.rs` — or the hub references a
+   moved private type; if any candidate fails, fall back to the next leaf-most
+   group (`tuple` or `struct`). Keep each value-shape slice to a single shape so the
+   diff stays reviewable and the ratchet ceiling for `cranelift_backend.rs` only
+   drops by that shape's lines.
+
+The next code PR should choose a different verified small closure such as
+`tuple` or `struct` only after the caller/sibling checks pass, then (a) move that
+verified closure into a new `cranelift_backend/value_<shape>.rs` sibling (e.g.
+`value_tuple.rs`) following the wiring + `private_interfaces` steps, (b) lower the
 `cranelift_backend.rs` ceiling by the moved line count and add the new file's
-ceiling in the Ratchet Ceilings table, and (c) mark the literal/constant slice
-as merged in the status list above.
+ceiling in the Ratchet Ceilings table, and (c) mark that slice as merged in the
+status list above.
 
 To execute one slice:
 
