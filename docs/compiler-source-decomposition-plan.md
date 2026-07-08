@@ -267,12 +267,51 @@ Slice status (update as PRs land):
 - compile-time evaluator -> `evaluator.rs` — #1378, merged
 - filesystem -> `host_fs.rs` — #1379, merged
 - crypto -> `host_crypto.rs` — #1380, merged
-- net/http -> `host_net_http.rs` — #1381, in review (do not redo)
+- net/http -> `host_net_http.rs` — #1381, merged
 - env/process/clock -> `host_env_proc_clock.rs` — #1383, merged
-- json/serdes -> `host_json_serdes.rs` — #1254/#1384, in review (do not redo)
+- json/serdes -> `host_json_serdes.rs` — #1384, merged
 
-After these host families are out, sub-partition the mutually-recursive
-value/control core by value shape.
+All host-capability families are now extracted. The remaining work is
+sub-partitioning the mutually-recursive value/control core by value shape
+(see the recipe below).
+
+### Value/Control-Core Sub-Partition Recipe
+
+All host families are merged, so `cranelift_backend.rs` is now ~20,085 lines
+(current ceiling 20,085) and the only un-extracted code is the value/control
+core. Partition it by MIR **value/expr shape**, not by the call-graph hub. A
+read-only `grep -oE 'fn lower_i64_[a-z_]+' cranelift_backend.rs | sort | uniq
+-c` on origin/main shows the remaining 177 `lower_i64_*` fns cluster by shape,
+e.g.: `option` (14), `result` (13), `map` (11), `enum` (11), `aggregate` (9),
+`array` (7), `struct` (5), `string` (5), `tuple` (3), `literal` (2), `bool`
+(4), `numeric` (1), `slice` (3), `projection` (3), `tagged` (1). These are the
+candidate sub-slice seeds.
+
+Reuse the host-family rules above (closure-selection, grep-siblings, wiring,
+`private_interfaces`, validate + ratchet), with two extra constraints:
+
+1. **Never move the recursive hub.** `lower_i64_expr`, `lower_i64_stmt`, and
+   `lower_i64_value` are the mutually-recursive entry points and stay in the
+   parent. Only leaf value-shape lowerers that are *called by* the hub (not
+   callers *of* the hub) may move. A fn whose body calls back into
+   `lower_i64_expr`/`lower_i64_stmt`/`lower_i64_value` is part of the hub and
+   stays.
+2. **Pick the leaf-most shape first.** The smallest, lowest-risk candidate is
+   the constant/literal value shape: `lower_i64_literal`, `lower_i64_bool`,
+   `lower_i64_numeric` (terminal value shapes). Before executing, run the
+   grep-siblings check: confirm every caller of each candidate fn is already in
+   the group (or is the hub, which stays) and that no sibling — especially
+   `evaluator.rs` — or the hub references a moved private type; if any candidate
+   fails, fall back to the next leaf-most group (`tuple` or `struct`). Keep each
+   value-shape slice to a single shape so the diff stays reviewable and the
+   ratchet ceiling for `cranelift_backend.rs` only drops by that shape's lines.
+
+The first executing PR should (a) move the chosen literal/constant group into a
+new `cranelift_backend/value_<shape>.rs` sibling (e.g. `value_literal.rs`)
+following the wiring + `private_interfaces` steps, (b) lower the
+`cranelift_backend.rs` ceiling by the moved line count and add the new file's
+ceiling in the Ratchet Ceilings table, and (c) mark the literal/constant slice
+as merged in the status list above.
 
 To execute one slice:
 
