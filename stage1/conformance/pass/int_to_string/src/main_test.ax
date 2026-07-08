@@ -1,0 +1,4 @@
+print int_to_string(0)
+print int_to_string(42)
+print int_to_string(0 - 7)
+print "line:" + int_to_string(12) + ":" + int_to_string(34)
