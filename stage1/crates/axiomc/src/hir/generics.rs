@@ -1522,7 +1522,12 @@ fn validate_type_param_trait_bounds(
             ));
         };
         for trait_name in &bound.traits {
-            if !trait_impls.contains(&(trait_name.clone(), type_name.clone())) {
+            if !trait_impls
+                .iter()
+                .any(|(implemented_trait, implemented_type)| {
+                    implemented_trait == trait_name && implemented_type == &type_name
+                })
+            {
                 return Err(trait_bound_not_satisfied(
                     type_arg, trait_name, line, column,
                 ));
