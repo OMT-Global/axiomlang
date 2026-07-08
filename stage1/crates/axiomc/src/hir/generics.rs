@@ -15,7 +15,7 @@ struct GenericInstantiation {
 const MAX_GENERIC_INSTANTIATION_EXPANSIONS: usize = 256;
 
 fn infer_generic_call_type_args(
-    program: &syntax::Program,
+    program: syntax::Program,
     generic_functions: &HashMap<String, syntax::Function>,
 ) -> Result<syntax::Program, Diagnostic> {
     let functions = program
@@ -27,20 +27,9 @@ fn infer_generic_call_type_args(
     let stmts = infer_generic_calls_in_stmts(&program.stmts, &mut env, None, generic_functions)?;
 
     Ok(syntax::Program {
-        path: program.path.clone(),
-        imports: program.imports.clone(),
-        macros: program.macros.clone(),
-        macro_expansions: program.macro_expansions.clone(),
-        axioms: program.axioms.clone(),
-        semantic_capabilities: program.semantic_capabilities.clone(),
-        evidence: program.evidence.clone(),
-        consts: program.consts.clone(),
-        type_aliases: program.type_aliases.clone(),
-        structs: program.structs.clone(),
-        enums: program.enums.clone(),
-        traits: program.traits.clone(),
         functions,
         stmts,
+        ..program
     })
 }
 
@@ -1597,7 +1586,7 @@ pub(super) fn monomorphize_program(
         }
     }
 
-    let program = infer_generic_call_type_args(program, &generic_functions)?;
+    let program = infer_generic_call_type_args(program.clone(), &generic_functions)?;
     let mut generic_functions = HashMap::new();
     let mut concrete_functions = Vec::new();
     for function in &program.functions {
