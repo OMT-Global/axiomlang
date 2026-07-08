@@ -736,10 +736,9 @@ pub fn list_project_tests_with_options(
     {
         let manifest = &graph.context(&package_root)?.manifest;
         validate_lockfile(&package_root, manifest)?;
-        let compile_fail_kind = expected_error_path(&package_root)
-            .exists()
-            .then(|| compile_fail_test_kind(options))
-            .flatten();
+        let expected_error = expected_error_path(&package_root);
+        let compile_fail_kind = compile_fail_test_kind(options)
+            .filter(|_| expected_error.exists());
         let discovered = if let Some(kind) = compile_fail_kind {
             compile_fail_test_target(&package_root, manifest, kind, options.filter.as_deref())
                 .into_iter()
@@ -804,10 +803,9 @@ pub fn run_project_tests_with_options(
         let manifest = &graph.context(&package_root)?.manifest;
         validate_lockfile(&package_root, manifest)?;
         let package_root_text = package_root.display().to_string();
-        let compile_fail_kind = expected_error_path(&package_root)
-            .exists()
-            .then(|| compile_fail_test_kind(options))
-            .flatten();
+        let expected_error = expected_error_path(&package_root);
+        let compile_fail_kind = compile_fail_test_kind(options)
+            .filter(|_| expected_error.exists());
         if let Some(kind) = compile_fail_kind {
             if let Some(test) =
                 compile_fail_test_target(&package_root, manifest, kind, options.filter.as_deref())
