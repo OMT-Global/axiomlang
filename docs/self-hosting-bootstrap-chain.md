@@ -25,7 +25,8 @@ governed by [#721](https://github.com/OMT-Global/axiomlang/issues/721) and
 A snapshot is a plain executable plus a manifest entry. No archive format or
 installer is introduced. The manifest is the trust anchor:
 
-`stage1/snapshots/manifest.json` (schema `axiom.selfhost.snapshot_manifest.v0`):
+`stage1/snapshots/manifest.json` (schema `axiom.selfhost.snapshot_manifest.v0`,
+described by `stage1/schemas/axiom-selfhost-snapshot-manifest-v0.schema.json`):
 
 ```json
 {

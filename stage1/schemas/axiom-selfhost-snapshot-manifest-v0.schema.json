@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://axiom.omt.global/schemas/axiom-selfhost-snapshot-manifest-v0.schema.json",
+  "title": "Axiom Self-Hosting Snapshot Manifest v0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "snapshots"],
+  "properties": {
+    "schema_version": { "const": "axiom.selfhost.snapshot_manifest.v0" },
+    "snapshots": { "type": "array", "items": { "$ref": "#/$defs/snapshot" } }
+  },
+  "$defs": {
+    "snapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["version", "target", "sha256", "source", "built_by", "provenance"],
+      "properties": {
+        "version": { "type": "string", "minLength": 1 },
+        "target": { "type": "string", "minLength": 1 },
+        "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "source": { "type": "string", "minLength": 1 },
+        "built_by": { "enum": ["cargo", "axiomc-snapshot"] },
+        "provenance": { "type": "string", "minLength": 1 }
+      }
+    }
+  }
+}
