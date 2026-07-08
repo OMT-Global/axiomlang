@@ -1,27 +1,27 @@
 // top-level comment before a struct
-struct Point {
+struct Point { // trailing comment after declaration opener
 // comment inside a struct body
-x: int
-y: int
+x: int // trailing field comment
+y: int // second trailing field comment
 }
 
 // comment before a function
-fn describe(point: Point): string {
+fn describe(point: Point): string { // trailing comment after function signature
 // comment inside a function body
-let url: string = "https://example.test//path"
-if point.x > 0 {
+let url: string = "https://example.test//path" // comment after a string containing //
+if point.x > 0 { // trailing comment after block opener
 // comment inside a nested block
-return url
+return url // trailing return comment
 }
-return "origin: " + url
+return "origin: " + url // trailing expression comment
 }
 
 fn label(value: Option<int>): string {
-match value {
+match value { // trailing match comment
 // comment inside a match block
-Some(number) {
+Some(number) { // trailing arm comment
 // comment inside a match arm
-return "some " + json_stringify_int(number)
+return "some " + json_stringify_int(number) // trailing intrinsic call comment
 }
 None {
 return "none"
@@ -29,8 +29,8 @@ return "none"
 }
 }
 
-let origin: Point = Point { x: 0, y: 0 }
+let origin: Point = Point { x: 0, y: 0 } // trailing aggregate literal comment
 // comment between statements
-print describe(origin)
-print label(Some(7))
-print label(None)
+print describe(origin) // trailing print comment
+print label(Some(7)) // trailing option constructor comment
+print label(None) // trailing none constructor comment
