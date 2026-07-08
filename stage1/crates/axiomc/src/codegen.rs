@@ -1838,6 +1838,11 @@ fn axiom_string_clone(text: &str) -> String {
 }
 
 #[allow(dead_code)]
+fn axiom_string_contains(text: &str, needle: &str) -> bool {
+    text.contains(needle)
+}
+
+#[allow(dead_code)]
 fn axiom_string_starts_with(text: &str, prefix: &str) -> bool {
     text.starts_with(prefix)
 }
@@ -6842,6 +6847,13 @@ fn render_expr(expr: &Expr) -> String {
         }
         Expr::Call { name, args, .. } if name == "string_clone" => {
             format!("axiom_string_clone({})", render_expr(&args[0]))
+        }
+        Expr::Call { name, args, .. } if name == "string_contains" => {
+            format!(
+                "axiom_string_contains({}, {})",
+                render_expr(&args[0]),
+                render_expr(&args[1])
+            )
         }
         Expr::Call { name, args, .. } if name == "string_starts_with" => {
             format!(

@@ -2155,7 +2155,7 @@ pub(crate) fn is_string_call(name: &str) -> bool {
         name,
         "string_line_at"
             | "string_byte_at"
-            | "string_clone"
+            | "string_clone" | "string_contains"
             | "string_starts_with"
             | "string_strip_prefix"
             | "string_strip_suffix"
@@ -2208,6 +2208,14 @@ pub(crate) fn eval_string_call(
             };
             let text = expect_text(eval_expr(text, functions, env, lines)?, name)?;
             Ok(SpikeValue::Text(text))
+        }
+        "string_contains" => {
+            let [text, needle] = args else {
+                return Err(unsupported("string_contains expects exactly two arguments"));
+            };
+            let text = expect_text(eval_expr(text, functions, env, lines)?, name)?;
+            let needle = expect_text(eval_expr(needle, functions, env, lines)?, name)?;
+            Ok(SpikeValue::Bool(text.contains(&needle)))
         }
         "string_starts_with" => {
             let [text, prefix] = args else {

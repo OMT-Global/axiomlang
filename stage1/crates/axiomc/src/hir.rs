@@ -2475,6 +2475,7 @@ fn lower_expr_with_expected_inner(
                 "string_line_at"
                     | "string_byte_at"
                     | "string_clone"
+                    | "string_contains"
                     | "string_starts_with"
                     | "string_strip_prefix"
                     | "string_strip_suffix"
@@ -2538,6 +2539,7 @@ fn lower_expr_with_expected_inner(
                     "string_line_at" => Type::Option(Box::new(Type::String)),
                     "string_byte_at" => Type::Option(Box::new(Type::Int)),
                     "string_clone" => Type::String,
+                    "string_contains" => Type::Bool,
                     "string_starts_with" => Type::Bool,
                     "string_strip_prefix" => Type::Option(Box::new(Type::String)),
                     "string_strip_suffix" => Type::Option(Box::new(Type::String)),
