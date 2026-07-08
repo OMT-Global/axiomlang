@@ -1695,7 +1695,7 @@ pub(crate) fn is_json_call(name: &str) -> bool {
             | "json_parse_field_bool"
             | "json_parse_field_string"
             | "json_parse_field_value"
-            | "json_stringify_int"
+            | "json_stringify_int" | "int_to_string"
             | "json_stringify_bool"
             | "json_stringify_string"
             | "json_stringify_value"
@@ -1758,7 +1758,7 @@ pub(crate) fn eval_json_call(
                     .map(SpikeValue::Text),
             ))
         }
-        "json_stringify_int" => {
+        "json_stringify_int" | "int_to_string" => {
             let value = eval_json_unary(name, args, functions, env, lines)?;
             let value = expect_signed_integer(value)?;
             Ok(SpikeValue::Text(value.to_string()))

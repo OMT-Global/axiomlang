@@ -263,6 +263,16 @@ fn new_project_templates_build_and_test_without_edits() {
 }
 
 #[test]
+fn int_to_string_lowers_to_decimal_string() {
+    let source = "let rendered: string = int_to_string(42)\nprint rendered\n";
+    let parsed = parse_program(source, Path::new("main.ax")).expect("parse");
+    let hir = hir::lower(&parsed).expect("lower");
+    let mir = mir::lower(&hir);
+    let rendered = render_rust(&mir);
+    assert!(rendered.contains("let rendered: String = axiom_json_stringify_int(42);"));
+}
+
+#[test]
 fn parser_lowers_functions_calls_and_while() {
     let source = "fn banner(name: string): string {\nreturn \"hello \" + name\n}\n\nfn lucky(base: int): int {\nreturn base + 2\n}\n\nfn is_ready(value: int): bool {\nreturn value == 42\n}\n\nlet answer: int = lucky(40)\nlet ready: bool = is_ready(answer)\nwhile false {\nprint \"never\"\n}\nif ready {\nprint banner(\"from stage1\")\n} else {\nprint \"bad\"\n}\nprint answer\nprint ready\n";
     let parsed = parse_program(source, Path::new("main.ax")).expect("parse");

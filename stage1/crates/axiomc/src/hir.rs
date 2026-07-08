@@ -2105,11 +2105,11 @@ fn lower_expr_with_expected_inner(
                     ty,
                 });
             }
-            if name == "json_stringify_int" {
+            if name == "json_stringify_int" || name == "int_to_string" {
                 if args.len() != 1 {
                     return Err(Diagnostic::new(
                         "type",
-                        format!("json_stringify_int expects 1 argument, got {}", args.len()),
+                        format!("{name} expects 1 argument, got {}", args.len()),
                     )
                     .with_span(*line, *column));
                 }
@@ -2118,7 +2118,7 @@ fn lower_expr_with_expected_inner(
                     return Err(Diagnostic::new(
                         "type",
                         format!(
-                            "json_stringify_int expects an int argument, got {}",
+                            "{name} expects an int argument, got {}",
                             lowered.ty()
                         ),
                     )

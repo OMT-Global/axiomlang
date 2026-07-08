@@ -44,7 +44,7 @@ pub(crate) fn is_i64_json_parse_field_string_name(name: &str, static_bindings: &
 }
 
 pub(crate) fn is_i64_json_stringify_int_name(name: &str, static_bindings: &I64StaticBindings) -> bool {
-    name == "json_stringify_int" || static_bindings.json_stringify_int_wrappers.contains(name)
+    matches!(name, "json_stringify_int" | "int_to_string") || static_bindings.json_stringify_int_wrappers.contains(name)
 }
 
 pub(crate) fn is_i64_json_stringify_bool_name(name: &str, static_bindings: &I64StaticBindings) -> bool {
