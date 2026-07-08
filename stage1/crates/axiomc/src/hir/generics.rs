@@ -15,40 +15,38 @@ struct GenericInstantiation {
 const MAX_GENERIC_INSTANTIATION_EXPANSIONS: usize = 256;
 
 fn infer_generic_call_type_args(
-    program: syntax::Program,
+    mut program: syntax::Program,
     generic_functions: &HashMap<String, syntax::Function>,
 ) -> Result<syntax::Program, Diagnostic> {
-    let functions = program
-        .functions
-        .iter()
+    let original_functions = std::mem::take(&mut program.functions);
+    let original_stmts = std::mem::take(&mut program.stmts);
+
+    program.functions = original_functions
+        .into_iter()
         .map(|function| infer_generic_calls_in_function(function, generic_functions))
         .collect::<Result<Vec<_>, _>>()?;
     let mut env = HashMap::new();
-    let stmts = infer_generic_calls_in_stmts(&program.stmts, &mut env, None, generic_functions)?;
+    program.stmts =
+        infer_generic_calls_in_stmts(&original_stmts, &mut env, None, generic_functions)?;
 
-    Ok(syntax::Program {
-        functions,
-        stmts,
-        ..program
-    })
+    Ok(program)
 }
 
 fn infer_generic_calls_in_function(
-    function: &syntax::Function,
+    function: syntax::Function,
     generic_functions: &HashMap<String, syntax::Function>,
 ) -> Result<syntax::Function, Diagnostic> {
     let mut env = HashMap::new();
     for param in &function.params {
         env.insert(param.name.clone(), param.ty.clone());
     }
-    let mut inferred = function.clone();
-    inferred.body = infer_generic_calls_in_stmts(
+    let body = infer_generic_calls_in_stmts(
         &function.body,
         &mut env,
         Some(&function.return_ty),
         generic_functions,
     )?;
-    Ok(inferred)
+    Ok(syntax::Function { body, ..function })
 }
 
 fn infer_generic_calls_in_stmts(
