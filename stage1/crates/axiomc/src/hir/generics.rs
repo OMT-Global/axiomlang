@@ -1793,7 +1793,6 @@ fn monomorphize_aggregates(
             )
         })
         .collect::<Result<Vec<_>, _>>()?;
-    let traits = program.traits.clone();
     let functions = program
         .functions
         .iter()
@@ -1906,7 +1905,7 @@ fn monomorphize_aggregates(
         type_aliases,
         structs,
         enums,
-        traits,
+        traits: program.traits,
         functions,
         stmts,
     })
