@@ -6739,7 +6739,7 @@ fn render_expr(expr: &Expr) -> String {
                 render_expr(&args[1])
             )
         }
-        Expr::Call { name, args, .. } if name == "json_stringify_int" => {
+        Expr::Call { name, args, .. } if name == "json_stringify_int" || name == "int_to_string" => {
             format!("axiom_json_stringify_int({})", render_expr(&args[0]))
         }
         Expr::Call { name, args, .. } if name == "json_stringify_bool" => {

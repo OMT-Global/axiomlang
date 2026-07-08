@@ -12720,6 +12720,7 @@ fn i64_known_pure_intrinsic_call(name: &str, static_bindings: &I64StaticBindings
             | "json_parse_bool"
             | "json_parse_string"
             | "json_stringify_int"
+            | "int_to_string"
             | "json_stringify_bool"
             | "json_stringify_string"
             | "json_serdes_parse"

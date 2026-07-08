@@ -3539,6 +3539,7 @@ fn cranelift_backend_builds_string_intrinsics_binary() {
 true
 false
 true
+42
 1
 stage
 [padded]
@@ -11720,6 +11721,7 @@ fn write_string_intrinsics_project(project: &Path) {
 print string_contains("diagnostic: missing closing brace", "missing")
 print string_contains("diagnostic", "syntax")
 print string_starts_with("stage1", "stage")
+print int_to_string(42)
 
 match string_strip_prefix("stage1", "stage") {
 Some(value) {
