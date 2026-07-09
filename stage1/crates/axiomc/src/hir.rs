@@ -1610,7 +1610,7 @@ fn lower_expr_with_expected_inner(
         syntax::Expr::Deref { expr, line, column } => {
             let lowered = lower_expr(expr, env, ctx)?;
             let inner_ty = match lowered.ty() {
-                Type::MutRef(inner_ty) => (*inner_ty.clone()).clone(),
+                Type::MutRef(inner_ty) => inner_ty.as_ref().clone(),
                 ty => {
                     return Err(Diagnostic::new(
                         "type",
@@ -4206,7 +4206,7 @@ fn lower_expr_with_expected_inner(
                 let element_ty = match lowered.ty() {
                     Type::Array(element_ty, _)
                     | Type::Slice(element_ty)
-                    | Type::MutSlice(element_ty) => (*element_ty.clone()).clone(),
+                    | Type::MutSlice(element_ty) => element_ty.as_ref().clone(),
                     _ => {
                         return Err(Diagnostic::new(
                             "type",
@@ -5330,7 +5330,7 @@ fn lower_expr_with_expected_inner(
             let element_ty = match lowered_base.ty() {
                 Type::Array(element_ty, _)
                 | Type::Slice(element_ty)
-                | Type::MutSlice(element_ty) => (*element_ty.clone()).clone(),
+                | Type::MutSlice(element_ty) => element_ty.as_ref().clone(),
                 _ => {
                     return Err(Diagnostic::new(
                         "type",
@@ -5417,7 +5417,7 @@ fn lower_expr_with_expected_inner(
                         )
                         .with_span(*line, *column));
                     }
-                    let element_ty = (*element_ty.clone()).clone();
+                    let element_ty = element_ty.as_ref().clone();
                     if !element_ty.is_copy() {
                         move_lowered_owner_value(&lowered_base, env)?;
                     }
@@ -5431,7 +5431,7 @@ fn lower_expr_with_expected_inner(
                         )
                         .with_span(*line, *column));
                     }
-                    let element_ty = (*element_ty.clone()).clone();
+                    let element_ty = element_ty.as_ref().clone();
                     if !element_ty.is_copy() {
                         return Err(Diagnostic::new(
                             "type",
@@ -5455,7 +5455,7 @@ fn lower_expr_with_expected_inner(
                         )
                         .with_span(*line, *column));
                     }
-                    let value_ty = (*value_ty.clone()).clone();
+                    let value_ty = value_ty.as_ref().clone();
                     if !value_ty.is_copy() {
                         move_lowered_owner_value(&lowered_base, env)?;
                     }
