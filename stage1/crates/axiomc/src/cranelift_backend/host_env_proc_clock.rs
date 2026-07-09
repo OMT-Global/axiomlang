@@ -217,21 +217,6 @@ pub(crate) fn i64_env_option_expr_uses_payload_len_only(expr: &Expr, binding: &s
 /// Resolve the per-element local slots backing an array, slice, or mutable
 /// slice binding so runtime-index writes can target them. Mirrors the element
 /// resolution used by the dynamic-index read paths.
-pub(crate) fn lower_i64_env_option_call_let_stmts(
-    name: &str,
-    inner: &Type,
-    expr: &Expr,
-    locals: &mut Vec<CraneliftI64Expr>,
-    local_indexes: &mut HashMap<String, usize>,
-    static_bindings: &I64StaticBindings,
-) -> Option<Vec<CraneliftI64Stmt>> {
-    if !matches!(inner, Type::String | Type::Str) {
-        return None;
-    }
-    let key = i64_env_get_key(expr, static_bindings)?;
-    let env_len = i64_env_len_expr(&key, static_bindings)?;
-    lower_i64_string_option_len_call_let_stmts(name, env_len, locals, local_indexes)
-}
 pub(crate) fn lower_i64_env_option_match_value_expr(
     expr: &Expr,
     local_indexes: &HashMap<String, usize>,

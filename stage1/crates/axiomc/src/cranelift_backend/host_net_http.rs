@@ -90,21 +90,6 @@ pub(crate) fn i64_http_non_loopback_bind_diag(
     Some(String::from(HTTP_NON_LOOPBACK_BIND_DIAG))
 }
 
-pub(crate) fn lower_i64_net_option_call_let_stmts(
-    name: &str,
-    inner: &Type,
-    expr: &Expr,
-    locals: &mut Vec<CraneliftI64Expr>,
-    local_indexes: &mut HashMap<String, usize>,
-    static_bindings: &I64StaticBindings,
-) -> Option<Vec<CraneliftI64Stmt>> {
-    if !matches!(inner, Type::String | Type::Str) {
-        return None;
-    }
-    let host = i64_net_resolve_host(expr, static_bindings)?;
-    let net_len = i64_net_resolve_len_expr(&host, static_bindings)?;
-    lower_i64_string_option_len_call_let_stmts(name, net_len, locals, local_indexes)
-}
 
 pub(crate) fn lower_i64_net_option_match_value_expr(
     expr: &Expr,
