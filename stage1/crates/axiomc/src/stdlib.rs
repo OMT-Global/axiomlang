@@ -323,6 +323,19 @@ pub fn get_or_default<K, V>(values: {K: V}, key: K, default: V): V {\nmatch map_
 pub fn keys<K, V>(values: {K: V}): [K] {\nreturn map_keys<K, V>(values)\n}\n",
     ),
     (
+        "string.ax",
+        "pub fn from_int(value: int): string {\nreturn int_to_string(value)\n}\n\
+pub fn clone_text(value: string): string {\nreturn string_clone(value)\n}\n\
+pub fn contains(text: string, needle: string): bool {\nreturn string_contains(text, needle)\n}\n\
+pub fn starts_with(text: string, prefix: string): bool {\nreturn string_starts_with(text, prefix)\n}\n\
+pub fn strip_prefix(text: string, prefix: string): Option<string> {\nreturn string_strip_prefix(text, prefix)\n}\n\
+pub fn strip_suffix(text: string, suffix: string): Option<string> {\nreturn string_strip_suffix(text, suffix)\n}\n\
+pub fn trim(text: string): string {\nreturn string_trim(text)\n}\n\
+pub fn trim_start(text: string): string {\nreturn string_trim_start(text)\n}\n\
+pub fn line_at(text: string, index: int): Option<string> {\nreturn string_line_at(text, index)\n}\n\
+pub fn byte_at(text: string, index: int): Option<int> {\nreturn string_byte_at(text, index)\n}\n",
+    ),
+    (
         "string_builder.ax",
         "pub struct StringBuilder {\nvalue: string\n}\n\
 pub fn builder(): StringBuilder {\nreturn StringBuilder { value: \"\" }\n}\n\
