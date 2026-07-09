@@ -737,8 +737,7 @@ pub fn list_project_tests_with_options(
         let manifest = &graph.context(&package_root)?.manifest;
         validate_lockfile(&package_root, manifest)?;
         let expected_error = expected_error_path(&package_root);
-        let compile_fail_kind = compile_fail_test_kind(options)
-            .filter(|_| expected_error.exists());
+        let compile_fail_kind = compile_fail_test_kind(options).filter(|_| expected_error.exists());
         let discovered = if let Some(kind) = compile_fail_kind {
             compile_fail_test_target(&package_root, manifest, kind, options.filter.as_deref())
                 .into_iter()
@@ -773,14 +772,10 @@ pub fn list_project_tests_with_options(
         }
     }
     if tests.is_empty() {
-        return Err(Diagnostic::new(
-            "test",
-            "no tests discovered under src/**/*_test.ax across the workspace and no [[tests]] configured in axiom.toml",
-        )
-        .with_path(manifest_path_text));
+        return Err(no_tests_discovered_diagnostic(manifest_path_text));
     }
     Ok(TestListOutput {
-        manifest: manifest_path(&project_root).display().to_string(),
+        manifest: manifest_path_text,
         packages,
         tests,
     })
@@ -804,8 +799,7 @@ pub fn run_project_tests_with_options(
         validate_lockfile(&package_root, manifest)?;
         let package_root_text = package_root.display().to_string();
         let expected_error = expected_error_path(&package_root);
-        let compile_fail_kind = compile_fail_test_kind(options)
-            .filter(|_| expected_error.exists());
+        let compile_fail_kind = compile_fail_test_kind(options).filter(|_| expected_error.exists());
         if let Some(kind) = compile_fail_kind {
             if let Some(test) =
                 compile_fail_test_target(&package_root, manifest, kind, options.filter.as_deref())
@@ -846,11 +840,7 @@ pub fn run_project_tests_with_options(
         }
     }
     if cases.is_empty() {
-        return Err(Diagnostic::new(
-            "test",
-            "no tests discovered under src/**/*_test.ax across the workspace and no [[tests]] configured in axiom.toml",
-        )
-        .with_path(manifest_path_text));
+        return Err(no_tests_discovered_diagnostic(manifest_path_text));
     }
     let passed = cases.iter().filter(|case| case.ok).count();
     let failed = cases.len().saturating_sub(passed);
@@ -860,7 +850,7 @@ pub fn run_project_tests_with_options(
     }
     Ok(TestOutput {
         backend: options.backend,
-        manifest: manifest_path(&project_root).display().to_string(),
+        manifest: manifest_path_text,
         packages,
         cases,
         passed,
@@ -869,6 +859,14 @@ pub fn run_project_tests_with_options(
         kinds,
         duration_ms: started.elapsed().as_millis() as u64,
     })
+}
+
+fn no_tests_discovered_diagnostic(manifest_path: String) -> Diagnostic {
+    Diagnostic::new(
+        "test",
+        "no tests discovered under src/**/*_test.ax across the workspace and no [[tests]] configured in axiom.toml",
+    )
+    .with_path(manifest_path)
 }
 
 fn collect_test_targets(
