@@ -10,7 +10,14 @@ compiler, while generated Rust is no longer a supported backend path. Full
 **host exit** additionally requires AxiOM-owned compiler sources and a
 Cargo-free snapshot bootstrap chain; that work is tracked separately by
 `make self-hosting-language-readiness`, `make snapshot-bootstrap-readiness`,
-#1254, #1425-#1428, and the final #721 decision.
+#1254, #1425-#1428, #1434, #1436-#1440, #1476-#1477, #1468-#1475,
+#1478-#1479, and the final #721 decision.
+
+The backend-exit report currently proves that generated Rust is absent from the
+supported command path. It does **not** yet prove runtime-complete execution for
+every accepted package. The Cranelift fallback can evaluate unsupported AxiOM
+programs inside the compiler and emit a binary that replays captured output.
+That semantic and security blocker is #1434.
 
 Final Rust bootstrap issue: [#721](https://github.com/OMT-Global/axiomlang/issues/721)
 
@@ -61,11 +68,11 @@ sufficient to author the compiler.
 
 | Surface | Required state | Current disposition | Governing issue |
 | --- | --- | --- | --- |
-| Direct native parity matrix | Every supported stage1 surface has a direct-native status row and linked blocker when incomplete. | Implemented as the checked runtime ABI matrix; no runtime ABI rows remain incomplete. | [#927](https://github.com/OMT-Global/axiomlang/issues/927) |
-| Direct native runtime ABI | Supported values, ownership shapes, stdlib calls, and capability host calls lower through backend-neutral direct-native runtime entrypoints. | Implemented and checked by `scripts/ci/check-direct-native-runtime-abi.py`; LSP/tooling and final bootstrap gates remain separate proof surfaces. | [#1124](https://github.com/OMT-Global/axiomlang/issues/1124) |
+| Direct native parity matrix | Every supported stage1 surface has a direct-native status row and linked blocker when incomplete. | The declared matrix is green, but its coverage does not currently distinguish native runtime lowering from compiler-side evaluation/replay. Runtime truth is blocked by #1434. | [#927](https://github.com/OMT-Global/axiomlang/issues/927), [#1434](https://github.com/OMT-Global/axiomlang/issues/1434) |
+| Direct native runtime ABI | Supported values, ownership shapes, stdlib calls, and capability host calls lower through backend-neutral direct-native runtime entrypoints. | Implemented only for the explicitly supported native subset. General effects, dynamic values, and lifecycle remain blocked by #1434 and #1436-#1440. | [#1124](https://github.com/OMT-Global/axiomlang/issues/1124), [#1434](https://github.com/OMT-Global/axiomlang/issues/1434) |
 | Direct native diagnostics and evidence | Direct native builds preserve source diagnostics, provenance, debug manifests, and operator evidence without generated Rust. | Implemented for the Cranelift direct-native spike; broader coverage remains gated by default-backend blockers. | [#929](https://github.com/OMT-Global/axiomlang/issues/929) |
 | Full lib-suite and backend parity gate | The full `axiomc --lib --features run-native-tests` suite is triaged, environment-gated cases are separated, direct-native failures are repaired or explicitly linked to blockers, and parity evidence is green before final Rust removal. | Ready on the current Rust-exit stack: the full lib suite is a PR CI Gate dependency, `make stage1-full-lib-triage` reports zero open rows, and generated Rust is already removed as a supported backend oracle. Ongoing parity evidence is the direct-native ABI matrix plus the blocking full-suite lane. | [#1255](https://github.com/OMT-Global/axiomlang/issues/1255) |
-| Default backend | `axiomc build` defaults to direct native output and no longer invokes `rustc` for supported broad builds. | Host/native builds default to the direct-native Cranelift backend; default targeted builds fail closed instead of falling back to generated Rust, and extended conformance now runs on Cranelift with `generated_rust: null`. | [#1191](https://github.com/OMT-Global/axiomlang/issues/1191) |
+| Default backend | `axiomc build` defaults to direct native output and no longer invokes `rustc` for supported broad builds. | Builds report Cranelift with `generated_rust: null`, but unsupported runtime behavior can still be captured by the evaluator. #1434 must make this path fail closed. | [#1191](https://github.com/OMT-Global/axiomlang/issues/1191), [#1434](https://github.com/OMT-Global/axiomlang/issues/1434) |
 | Generated-Rust removal | The generated-Rust backend and `--backend rust` compatibility path are removed after a release with direct native as default. | Completed for the supported toolchain in #1191. The CLI parser no longer accepts `--backend generated-rust` or the old `--backend rust` transition alias, targeted builds fail closed instead of using generated Rust, and command/schema fixtures no longer model generated Rust as supported output. | [#1191](https://github.com/OMT-Global/axiomlang/issues/1191) |
 
 ## Host-Exit Companion Matrix
@@ -76,9 +83,11 @@ self-hosting evidence exists.
 
 | Surface | Required state | Current disposition | Governing issue |
 | --- | --- | --- | --- |
-| AxiOM compiler source layout | Parser, checker, lowering, MIR, backend selection, diagnostics, packages, manifests, lockfiles, and command dispatch have AxiOM package boundaries. | Boundary contracts are implemented; source migration and compiler-scale proof remain active. | [#1254](https://github.com/OMT-Global/axiomlang/issues/1254), [#1427](https://github.com/OMT-Global/axiomlang/issues/1427) |
+| Build/runtime effect boundary | Compilation cannot exercise runtime authority or freeze runtime-origin values into a replay binary. | Blocked; the evaluator fallback can perform effectful work during compilation. | [#1434](https://github.com/OMT-Global/axiomlang/issues/1434) |
+| Executable MIR and lifecycle | Backend-neutral MIR drives runtime control, values, effects, ownership, allocation, and cleanup. | Blocked on the MIR and lifecycle foundation. | [#1436](https://github.com/OMT-Global/axiomlang/issues/1436), [#1437](https://github.com/OMT-Global/axiomlang/issues/1437), [#1438](https://github.com/OMT-Global/axiomlang/issues/1438) |
+| AxiOM compiler source layout | Parser, checker, lowering, MIR, backend selection, diagnostics, packages, manifests, lockfiles, and command dispatch have AxiOM package boundaries and AxiOM-owned implementations. | Boundary contracts are implemented; source migration has not begun. | [#1254](https://github.com/OMT-Global/axiomlang/issues/1254), [#1468](https://github.com/OMT-Global/axiomlang/issues/1468) |
 | Snapshot bootstrap | A previously shipped `axiomc` snapshot builds the next working `axiomc` binary without invoking Cargo after genesis. | Blocked; the manifest contains no pinned snapshot. | [#1428](https://github.com/OMT-Global/axiomlang/issues/1428) |
-| Compiler-scale language readiness | A real multi-package compiler workload runs through the supported AxiOM/direct-native surface. | Blocked on runtime-sized collections, the string/slice parameter ABI, and executable compiler-scale proof. | [#1425](https://github.com/OMT-Global/axiomlang/issues/1425), [#1426](https://github.com/OMT-Global/axiomlang/issues/1426), [#1427](https://github.com/OMT-Global/axiomlang/issues/1427) |
+| Compiler-scale language readiness | A real multi-package compiler workload runs through the supported AxiOM/direct-native surface. | Blocked on effect-pure builds, executable MIR/lifecycle, runtime sequences/maps/sets, program host ABI, ownership, and executable compiler-scale proof. | [#1434](https://github.com/OMT-Global/axiomlang/issues/1434), [#1436](https://github.com/OMT-Global/axiomlang/issues/1436), [#1425](https://github.com/OMT-Global/axiomlang/issues/1425), [#1426](https://github.com/OMT-Global/axiomlang/issues/1426), [#1476](https://github.com/OMT-Global/axiomlang/issues/1476), [#1477](https://github.com/OMT-Global/axiomlang/issues/1477), [#1427](https://github.com/OMT-Global/axiomlang/issues/1427) |
 | Compiler verification | Compiler-internal coverage is expressed and executable through AxiOM-owned property/evidence surfaces. | Property foundations are shipped; final compiler-source ownership proof belongs to #1427. | [#1427](https://github.com/OMT-Global/axiomlang/issues/1427) |
 | Final host-exit gate | Language readiness, source ownership, snapshot chain, release, provenance, and live review evidence are all green for one candidate. | Blocked and human-gated. | [#721](https://github.com/OMT-Global/axiomlang/issues/721) |
 
@@ -93,6 +102,10 @@ self-hosting evidence exists.
 - A direct-native runtime ABI row may be marked `implemented` only when it has
   runtime-entrypoint or backend-emitted codegen evidence; compiler-side
   Cranelift spike evaluation alone is not sufficient.
+- No build may invoke runtime environment, filesystem, process, network, HTTP,
+  clock, randomness, crypto, or similar effects to manufacture emitted output.
+- Runtime-complete evidence must build once and run the same binary against at
+  least two runtime inputs without rebuilding.
 - #721 may close only after the backend matrix and host-exit companion matrix have no
   incomplete rows.
 - Generated Rust must stay outside the supported toolchain; regressions that

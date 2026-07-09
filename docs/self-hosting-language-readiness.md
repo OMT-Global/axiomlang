@@ -37,13 +37,18 @@ language and backend surface are adequate to start the compiler rewrite.
 
 | Row | Required surface | Current status | Governing issue |
 | --- | --- | --- | --- |
+| `build_effect_purity` | Compilation never executes runtime effects or freezes runtime inputs into emitted replay output. | Blocked; effectful evaluator fallback remains reachable. | [#1434](https://github.com/OMT-Global/axiomlang/issues/1434) |
+| `executable_mir_runtime` | Backend-neutral MIR drives runtime control, values, effects, ownership, and provenance. | Blocked on MIR contract and first vertical slice. | [#1436](https://github.com/OMT-Global/axiomlang/issues/1436), [#1437](https://github.com/OMT-Global/axiomlang/issues/1437) |
+| `runtime_lifecycle` | Allocations, owned values, borrows, drops, and resource handles have deterministic runtime semantics. | Blocked on the lifecycle ABI. | [#1438](https://github.com/OMT-Global/axiomlang/issues/1438) |
 | `error_handling_try` | Option/Result propagation and diagnostics for recoverable compiler errors. | Implemented for current stage1 and direct-native evidence. | [#1256](https://github.com/OMT-Global/axiomlang/issues/1256) |
-| `compiler_data_shapes` | Scalars, tuples, arrays, maps, structs, enums, `Option`, `Result`, and ownership-sensitive aggregate movement. | Implemented for the current checklist scope. | [#1251](https://github.com/OMT-Global/axiomlang/issues/1251) |
+| `compiler_data_shapes` | Scalars, tuples, arrays, maps, structs, enums, `Option`, `Result`, and ownership-sensitive aggregate movement. | Partial; static shapes work, but dynamic non-Copy aggregate ABI/lifecycle and runtime map/set proof are open. | [#1439](https://github.com/OMT-Global/axiomlang/issues/1439), [#1476](https://github.com/OMT-Global/axiomlang/issues/1476) |
 | `runtime_sized_collections` | Runtime-sized allocation, growth, indexing, mutation, and iteration for compiler worklists and scratch storage. | Blocked; fixed literal arrays are not a compiler-scale substitute. | [#1425](https://github.com/OMT-Global/axiomlang/issues/1425) |
+| `runtime_associative_collections` | Runtime maps/sets provide explicit equality, hashing, deterministic iteration, mutation, and cleanup for symbol/dependency tables. | Blocked; growable associative collections remain unimplemented. | [#1476](https://github.com/OMT-Global/axiomlang/issues/1476) |
 | `runtime_string_slice_parameter_abi` | Runtime strings and immutable/mutable slices cross function boundaries with defined ownership, length, aliasing, and write-through behavior. | Partial locally; blocked across direct-native calls. | [#1426](https://github.com/OMT-Global/axiomlang/issues/1426) |
 | `generics_traits_static_dispatch` | Explicit generics and static trait-bounded dispatch for reusable typed helpers. | Implemented for static dispatch; dynamic dispatch is intentionally not required by this row. | [#216](https://github.com/OMT-Global/axiomlang/issues/216) |
-| `strings_diagnostics_and_text` | String building, byte inspection, substring search, JSON, regex, logging, and deterministic text processing for lexer/parser/diagnostics work. | Implemented for the current checklist scope; the diagnostics spike uses direct `string_contains` evidence. | [#1256](https://github.com/OMT-Global/axiomlang/issues/1256) |
-| `host_io_capabilities` | Scoped filesystem, environment, clock, process, networking, crypto, JSON, and regex surfaces through capability-gated stdlib modules. | Implemented for scoped direct-native stdlib use. | [#1251](https://github.com/OMT-Global/axiomlang/issues/1251) |
+| `strings_diagnostics_and_text` | String building, byte inspection, substring search, JSON, regex, logging, and deterministic text processing for lexer/parser/diagnostics work. | Partial; bootstrap helpers exist, but runtime-origin text and dynamic codec behavior are not complete. | [#1426](https://github.com/OMT-Global/axiomlang/issues/1426), [#1441](https://github.com/OMT-Global/axiomlang/issues/1441) |
+| `host_io_capabilities` | Scoped filesystem, environment, clock, process, networking, crypto, JSON, and regex surfaces through capability-gated stdlib modules. | Blocked as runtime proof because effectful fallback remains and runtime-origin crypto is incomplete. | [#1434](https://github.com/OMT-Global/axiomlang/issues/1434), [#1443](https://github.com/OMT-Global/axiomlang/issues/1443), [#1444](https://github.com/OMT-Global/axiomlang/issues/1444), [#1481](https://github.com/OMT-Global/axiomlang/issues/1481) |
+| `program_host_abi` | The running compiler receives argv, scoped environment, stdin/cwd, separate output streams, exit status, and cleanup at runtime. | Partial shapes exist; build-once/run-many host ABI proof is blocked. | [#1477](https://github.com/OMT-Global/axiomlang/issues/1477) |
 | `packages_modules_and_workspace` | Package-local modules, local dependencies, workspaces, and deterministic lockfile validation. | Implemented as a language/package surface; source migration remains separate. | [#721](https://github.com/OMT-Global/axiomlang/issues/721) |
 | `compiler_command_surface` | AxiOM-owned check/build/run/test/doc/LSP-facing command packages. | Blocked until the compiler-scale proof owns the command surface. | [#1427](https://github.com/OMT-Global/axiomlang/issues/1427) |
 | `compiler_scale_rewrite_fixture` | A compiler-scale AxiOM package that exercises parser, checker, diagnostics, package graph, and codegen-style flow before rewrite begins. | Blocked until #1427 produces executable multi-package proof. | [#1427](https://github.com/OMT-Global/axiomlang/issues/1427) |
@@ -56,9 +61,10 @@ language and backend surface are adequate to start the compiler rewrite.
 - A `blocked` or `partial` row must name at least one GitHub issue.
 - Direct-native backend status must be explicit for every row, even when the row
   is documentation or rewrite-proof oriented.
-- This checklist must fail until runtime-sized collections, the runtime
-  string/slice parameter ABI, `compiler_command_surface`, and
-  `compiler_scale_rewrite_fixture` are backed by executable evidence.
+- This checklist must fail until runtime-sized sequences, associative
+  collections, the string/slice parameter ABI, effect-pure compilation,
+  executable MIR, lifecycle, `compiler_command_surface`, and
+  `compiler_scale_rewrite_fixture` are backed by build-once/run-many evidence.
 
 ## Rust Capture Check
 

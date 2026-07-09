@@ -24,7 +24,9 @@ Axiom currently supports a Rust-hosted `axiomc` workflow with:
 - Native builds through the direct-native Cranelift backend by default.
   Generated Rust and `rustc` remain in source only as internal legacy
   compatibility code until Rust-exit removal work is complete; they are not
-  exposed as supported CLI backends.
+  exposed as supported CLI backends. The current backend still has a
+  compile-time evaluation fallback for unsupported runtime lowering, so
+  `generated_rust: null` is not by itself proof of runtime-complete execution.
 - `check`, `build`, `run`, `test`, and capability inspection commands.
 - A stage1 conformance corpus under `stage1/conformance`.
 - Synthetic standard library modules under the `std/` import prefix.
@@ -37,6 +39,9 @@ compiler implementation layers, and backend targets.
 The path from today's inspection and repair-plan surfaces to safe unattended
 code authoring is tracked in
 [docs/autonomous-agent-roadmap.md](docs/autonomous-agent-roadmap.md).
+The dependency-ordered path from the current bootstrap to a production CLI,
+worker, HTTP service, and self-hosted compiler is tracked in
+[docs/production-language-roadmap.md](docs/production-language-roadmap.md).
 
 Use `cargo run --manifest-path stage1/Cargo.toml -p axiomc -- ...` or the Make
 targets below.

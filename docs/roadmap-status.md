@@ -22,10 +22,16 @@ define completion.
 - Python stage0 is retired from the supported toolchain.
 - Direct-native Cranelift is the supported user-program backend; generated Rust
   is not a supported CLI backend.
-- The direct-native ABI, six official command surfaces, full-lib triage, compiler
-  package-boundary checks, and live Rust-exit gate are green.
+- The direct-native ABI and Rust-exit reports are structurally green for their
+  declared rows, but the backend can execute unsupported programs in the
+  compiler process and emit replay binaries. #1434 therefore blocks any broad
+  runtime-complete, production, or self-hosting claim.
+- The production-language ledger currently has 52 capability rows: 2 of 39
+  production-required rows meet their target evidence tier. The remaining
+  rows are intentionally `partial` or `blocked`, not missing from the plan.
 - The compiler itself is not self-hosting. It remains predominantly Rust,
-  self-hosting language readiness is red, and no genesis snapshot is pinned.
+  the AxiOM compiler source migration has not begun, self-hosting language
+  readiness is red, and no genesis snapshot is pinned.
 - Semantic inspection, evidence, verification, repair planning, provenance,
   semantic diff, decisions, target contracts, and artifact generators are
   shipped foundations. Full real-package Intent IR emission remains open.
@@ -34,11 +40,14 @@ define completion.
 
 | Family | Canonical issues | Status | Execution rule |
 | --- | --- | --- | --- |
-| Backend exit for user programs | #1124, #1191, #1255, #731 | Complete | Keep the readiness gates green; do not reopen historical generated-Rust work without a regression. |
+| Production language umbrella | #1432-#1467, #1476-#1477, #1481 | Active, dependency ordered | Execute from `docs/production-language-roadmap.md`; do not skip evidence tiers or dependency/human gates. |
+| Runtime truth and executable semantics | #1434, #1436-#1440 | First critical path | Remove effectful compile-time replay, then land MIR, lifecycle, runtime values, aggregates, and ownership evidence. |
+| Backend exit for user programs | #1124, #1191, #1255, #731 | Structurally shipped; runtime-truth correction open | Keep generated Rust outside the supported CLI while #1434 closes the evaluator/replay hole. |
 | Host exit / self-hosting | #565, #721 | Active, early | Treat #565 as the thesis and #721 as the final Class 3 gate. |
 | Compiler source decomposition | #1254 | Active | Continue shrinking Rust monoliths along AxiOM package boundaries under the enforced ratchet. |
-| Self-hosting language/backend gaps | #1366, #1425, #1426 | Ready for planning | Runtime-sized collections and the string/slice parameter ABI need executable direct-native evidence. |
-| Compiler-scale AxiOM proof | #1427 | Blocked on language/ABI leaves | Turn the two remaining language-readiness proof rows green from a real multi-package workload. |
+| Self-hosting language/backend gaps | #1366, #1425-#1427, #1434, #1436-#1440, #1476-#1477 | Blocked on runtime foundation | Require build-once/run-many evidence with runtime-origin values and effects. |
+| Compiler source migration | #1468-#1475, #1478-#1479 | Blocked on compiler-scale proof | Port by accepted package boundaries with Rust coexistence and rollback; never infer migration from boundary fixtures. |
+| Compiler-scale AxiOM proof | #1427 | Blocked on runtime foundation | One emitted binary must process distinct runtime inputs without rebuild or compile-time effects. |
 | Snapshot bootstrap | #1428 | Human-gated release work | Pin the genesis snapshot and prove offline build/test, no Cargo after genesis, and fixpoint evidence. |
 | Unattended agent coding | #1417-#1424 | Ready for staged planning | Follow `docs/autonomous-agent-roadmap.md`; do not skip semantic authority, containment, evidence, or independent review. |
 | Repeatable autonomy validation | #1430 | Ready for implementation | Make the compiler-property fast check portable, repeatable, parallel-safe, and self-cleaning on macOS/BSD `mktemp`. |
@@ -48,6 +57,9 @@ define completion.
 
 ```bash
 make stage1-direct-native-runtime-abi
+make production-language-readiness-validate
+make production-language-readiness
+make production-language-readiness-github
 make rust-exit-command-surface-coverage
 make rust-exit-readiness-github
 make self-hosting-language-readiness-github
@@ -57,8 +69,13 @@ make stage1-compiler-source-monoliths
 
 Expected current outcomes:
 
-- direct-native ABI, command surface, Rust exit, and monolith ratchet: green;
-- self-hosting language readiness: red until #1425-#1427 are executable;
+- production-language ledger validation: green; readiness: red with 2 of 39
+  required rows at target;
+- direct-native ABI, command surface, Rust exit, and monolith ratchet:
+  structurally green, but not a substitute for #1434 runtime truth;
+- self-hosting language entry readiness: red until the runtime foundation,
+  #1425-#1427, #1476-#1477, and #1481 are executable; compiler-source ownership
+  is a subsequent migration/final-host-exit gate, not an entry prerequisite;
 - snapshot bootstrap: red until #1428 pins and proves the chain.
 
 ## Issue Lifecycle Rules
