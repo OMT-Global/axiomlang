@@ -81,4 +81,28 @@ statuses = {check["name"]: check["status"] for check in payload["checks"]}
 assert statuses["snapshot_available"] == "pass"
 PY
 
+python3 - "$snapshots" <<'PY'
+import json, sys
+snapshots_path = sys.argv[1]
+with open(snapshots_path, encoding="utf-8") as handle:
+    snapshots = json.load(handle)
+snapshots["snapshots"][0]["sha256"] = "not-a-sha"
+with open(snapshots_path, "w", encoding="utf-8") as handle:
+    json.dump(snapshots, handle)
+PY
+
+if python3 scripts/ci/check-snapshot-bootstrap-readiness.py --json --manifest "$manifest" > "$tmpdir/invalid-sha.json"; then
+  echo "expected readiness check to fail for a schema-invalid snapshot sha256" >&2
+  exit 1
+fi
+
+python3 - "$tmpdir/invalid-sha.json" <<'PY'
+import json, sys
+payload = json.load(open(sys.argv[1], encoding="utf-8"))
+assert payload["ready"] is False
+checks = {check["name"]: check for check in payload["checks"]}
+assert checks["snapshot_manifest_schema"]["status"] == "fail"
+assert "sha256" in checks["snapshot_manifest_schema"]["detail"]
+PY
+
 echo "check-snapshot-bootstrap-readiness regression cases passed"

@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 import argparse
 import json
+import re
 from pathlib import Path
 
 SCHEMA = "axiom.self_hosting.snapshot_bootstrap_readiness.v0"
-SNAPSHOT_SCHEMA = "axiom.selfhost.snapshot_manifest.v0"
+DEFAULT_SNAPSHOT_SCHEMA_PATH = Path("stage1/schemas/axiom-selfhost-snapshot-manifest-v0.schema.json")
 VALID_STATUSES = {"implemented", "partial", "blocked"}
 
 
@@ -17,7 +18,62 @@ def load_json(path):
         return json.load(handle)
 
 
-def validate_snapshot_manifest(path):
+def validate_schema_node(value, schema, path, defs):
+    if "$ref" in schema:
+        prefix = "#/$defs/"
+        ref = schema["$ref"]
+        if not ref.startswith(prefix):
+            raise ValueError(f"{path} uses unsupported schema ref {ref!r}")
+        name = ref[len(prefix):]
+        if name not in defs:
+            raise ValueError(f"{path} references unknown schema def {name!r}")
+        validate_schema_node(value, defs[name], path, defs)
+        return
+
+    if "const" in schema and value != schema["const"]:
+        raise ValueError(f"{path} must equal {schema['const']!r}")
+    if "enum" in schema and value not in schema["enum"]:
+        raise ValueError(f"{path} must be one of {schema['enum']!r}")
+
+    expected_type = schema.get("type")
+    if expected_type == "object":
+        if not isinstance(value, dict):
+            raise ValueError(f"{path} must be an object")
+        required = set(schema.get("required", []))
+        missing = sorted(required - set(value))
+        if missing:
+            raise ValueError(f"{path} missing required fields: {', '.join(missing)}")
+        properties = schema.get("properties", {})
+        if schema.get("additionalProperties") is False:
+            extra = sorted(set(value) - set(properties))
+            if extra:
+                raise ValueError(f"{path} has unexpected fields: {', '.join(extra)}")
+        for key, nested in value.items():
+            if key in properties:
+                validate_schema_node(nested, properties[key], f"{path}.{key}", defs)
+    elif expected_type == "array":
+        if not isinstance(value, list):
+            raise ValueError(f"{path} must be an array")
+        item_schema = schema.get("items")
+        if item_schema:
+            for index, item in enumerate(value):
+                validate_schema_node(item, item_schema, f"{path}[{index}]", defs)
+    elif expected_type == "string":
+        if not isinstance(value, str):
+            raise ValueError(f"{path} must be a string")
+        if "minLength" in schema and len(value) < schema["minLength"]:
+            raise ValueError(f"{path} must not be empty")
+        if "pattern" in schema and not re.fullmatch(schema["pattern"], value):
+            raise ValueError(f"{path} must match pattern {schema['pattern']!r}")
+    elif expected_type is not None:
+        raise ValueError(f"{path} uses unsupported schema type {expected_type!r}")
+
+
+def validate_against_schema(value, schema):
+    validate_schema_node(value, schema, "$", schema.get("$defs", {}))
+
+
+def validate_snapshot_manifest(path, schema_path):
     checks = []
     if not path.is_file():
         return [check("snapshot_manifest_present", "fail", f"{path} is missing")], []
@@ -27,11 +83,15 @@ def validate_snapshot_manifest(path):
     except json.JSONDecodeError as error:
         return checks + [check("snapshot_manifest_json", "fail", str(error))], []
     checks.append(check("snapshot_manifest_json", "pass", "snapshot manifest is valid JSON"))
-    checks.append(check(
-        "snapshot_manifest_schema",
-        "pass" if payload.get("schema_version") == SNAPSHOT_SCHEMA else "fail",
-        f"schema_version is {payload.get('schema_version')!r}",
-    ))
+    if not schema_path.is_file():
+        checks.append(check("snapshot_manifest_schema", "fail", f"{schema_path} is missing"))
+    else:
+        try:
+            schema = load_json(schema_path)
+            validate_against_schema(payload, schema)
+            checks.append(check("snapshot_manifest_schema", "pass", f"{path} matches {schema_path}"))
+        except (json.JSONDecodeError, ValueError) as error:
+            checks.append(check("snapshot_manifest_schema", "fail", str(error)))
     snapshots = payload.get("snapshots")
     if not isinstance(snapshots, list):
         checks.append(check("snapshot_manifest_snapshots", "fail", "snapshots must be an array"))
@@ -64,6 +124,7 @@ def main():
     parser.add_argument("--json", action="store_true", help="emit JSON output")
     parser.add_argument("--manifest", default="docs/snapshot-bootstrap-readiness.json")
     parser.add_argument("--snapshot-manifest")
+    parser.add_argument("--snapshot-schema", default=str(DEFAULT_SNAPSHOT_SCHEMA_PATH))
     args = parser.parse_args()
 
     manifest_path = Path(args.manifest)
@@ -94,7 +155,7 @@ def main():
             checks.append(check(f"snapshot_readiness_row_{row_id}", "pass", f"row status is {status}"))
 
     snapshot_manifest = Path(args.snapshot_manifest or payload.get("snapshotManifest", "stage1/snapshots/manifest.json"))
-    snapshot_checks, snapshots = validate_snapshot_manifest(snapshot_manifest)
+    snapshot_checks, snapshots = validate_snapshot_manifest(snapshot_manifest, Path(args.snapshot_schema))
     checks.extend(snapshot_checks)
     checks.append(check("snapshot_available", "pass" if snapshots else "fail", "at least one snapshot is pinned" if snapshots else "no snapshot is pinned yet"))
 
