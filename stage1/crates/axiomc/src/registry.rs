@@ -135,8 +135,8 @@ pub fn publish_package(
         Diagnostic::new("publish", "published packages require a [package] section")
             .with_path(manifest_path(&project_root).display().to_string())
     })?;
-    let package_segment = safe_registry_path_segment("package name", &package.name)?;
-    let version_segment = safe_registry_path_segment("package version", &package.version)?;
+    let package_segment = safe_registry_segment("publish", "package name", &package.name)?;
+    let version_segment = safe_registry_segment("publish", "package version", &package.version)?;
     let release_dir = registry_root.join(package_segment).join(version_segment);
     if release_dir.exists() && !options.allow_overwrite {
         return Err(Diagnostic::new(
@@ -899,7 +899,7 @@ fn registry_release_file_response<'a>(
     if segments.len() != 3 {
         return Ok(registry_http_error("404 Not Found", "not found"));
     }
-    let package = match safe_registry_lookup_segment("package name", segments[0]) {
+    let package = match safe_registry_segment("registry", "package name", segments[0]) {
         Ok(value) => value,
         Err(_) => {
             return Ok(registry_http_error(
@@ -908,7 +908,7 @@ fn registry_release_file_response<'a>(
             ));
         }
     };
-    let version = match safe_registry_lookup_segment("package version", segments[1]) {
+    let version = match safe_registry_segment("registry", "package version", segments[1]) {
         Ok(value) => value,
         Err(_) => {
             return Ok(registry_http_error(
@@ -917,7 +917,7 @@ fn registry_release_file_response<'a>(
             ));
         }
     };
-    let file = match safe_registry_lookup_segment("artifact file name", segments[2]) {
+    let file = match safe_registry_segment("registry", "artifact file name", segments[2]) {
         Ok(value) => value,
         Err(_) => {
             return Ok(registry_http_error(
@@ -1137,7 +1137,7 @@ pub fn verify_registry_index_integrity(
     validate_registry_index(index, None)?;
 
     for (package, releases) in &index.packages {
-        let package_segment = safe_registry_lookup_segment("package name", package)?;
+        let package_segment = safe_registry_segment("registry", "package name", package)?;
         for release in releases {
             let Some(archive_location) = release.archive.as_deref() else {
                 continue;
@@ -1152,7 +1152,7 @@ pub fn verify_registry_index_integrity(
                 )
             })?;
             let version_segment =
-                safe_registry_lookup_segment("package version", &release.version)?;
+                safe_registry_segment("registry", "package version", &release.version)?;
             let archive_file = registry_artifact_file_name("archive file name", archive_location)?;
             let signature_file =
                 registry_artifact_file_name("signature file name", signature_location)?;
@@ -1387,14 +1387,6 @@ fn normalize_base_url(base_url: &str, packages_root: &Path) -> Result<String, Di
     Ok(trimmed.to_string())
 }
 
-fn safe_registry_path_segment(kind: &str, value: &str) -> Result<String, Diagnostic> {
-    safe_registry_segment("publish", kind, value)
-}
-
-fn safe_registry_lookup_segment(kind: &str, value: &str) -> Result<String, Diagnostic> {
-    safe_registry_segment("registry", kind, value)
-}
-
 fn safe_registry_segment(category: &str, kind: &str, value: &str) -> Result<String, Diagnostic> {
     let trimmed = value.trim();
     if is_unsafe_registry_path_segment(value) {
@@ -1418,7 +1410,7 @@ fn registry_artifact_file_name(kind: &str, location: &str) -> Result<String, Dia
             format!("registry {kind} must be a safe file name: {location:?}"),
         ));
     }
-    safe_registry_lookup_segment(kind, file_name)
+    safe_registry_segment("registry", kind, file_name)
 }
 
 fn is_unsafe_registry_path_segment(value: &str) -> bool {
@@ -1598,17 +1590,17 @@ mod tests {
     #[test]
     fn safe_registry_segments_share_rule_but_keep_diagnostic_category() {
         assert_eq!(
-            safe_registry_path_segment("package name", "core").expect("safe publish segment"),
+            safe_registry_segment("publish", "package name", "core").expect("safe publish segment"),
             "core"
         );
         assert_eq!(
-            safe_registry_lookup_segment("package name", "core").expect("safe lookup segment"),
+            safe_registry_segment("registry", "package name", "core").expect("safe lookup segment"),
             "core"
         );
 
-        let publish_error = safe_registry_path_segment("package name", "../core")
+        let publish_error = safe_registry_segment("publish", "package name", "../core")
             .expect_err("publish segment traversal should fail");
-        let registry_error = safe_registry_lookup_segment("package name", "../core")
+        let registry_error = safe_registry_segment("registry", "package name", "../core")
             .expect_err("lookup segment traversal should fail");
 
         assert_eq!(publish_error.kind, "publish");
