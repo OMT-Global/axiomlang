@@ -15,21 +15,34 @@ struct GenericInstantiation {
 const MAX_GENERIC_INSTANTIATION_EXPANSIONS: usize = 256;
 
 fn infer_generic_call_type_args(
-    mut program: syntax::Program,
+    program: &syntax::Program,
     generic_functions: &HashMap<String, syntax::Function>,
 ) -> Result<syntax::Program, Diagnostic> {
-    let original_functions = std::mem::take(&mut program.functions);
-    let original_stmts = std::mem::take(&mut program.stmts);
-
-    program.functions = original_functions
-        .into_iter()
+    let functions = program
+        .functions
+        .iter()
+        .cloned()
         .map(|function| infer_generic_calls_in_function(function, generic_functions))
         .collect::<Result<Vec<_>, _>>()?;
     let mut env = HashMap::new();
-    program.stmts =
-        infer_generic_calls_in_stmts(&original_stmts, &mut env, None, generic_functions)?;
+    let stmts = infer_generic_calls_in_stmts(&program.stmts, &mut env, None, generic_functions)?;
 
-    Ok(program)
+    Ok(syntax::Program {
+        path: program.path.clone(),
+        imports: program.imports.clone(),
+        macros: program.macros.clone(),
+        macro_expansions: program.macro_expansions.clone(),
+        axioms: program.axioms.clone(),
+        semantic_capabilities: program.semantic_capabilities.clone(),
+        evidence: program.evidence.clone(),
+        consts: program.consts.clone(),
+        type_aliases: program.type_aliases.clone(),
+        structs: program.structs.clone(),
+        enums: program.enums.clone(),
+        traits: program.traits.clone(),
+        functions,
+        stmts,
+    })
 }
 
 fn infer_generic_calls_in_function(
@@ -1589,7 +1602,7 @@ pub(super) fn monomorphize_program(
         }
     }
 
-    let program = infer_generic_call_type_args(program.clone(), &generic_functions)?;
+    let program = infer_generic_call_type_args(program, &generic_functions)?;
     let mut generic_functions = HashMap::new();
     let mut concrete_functions = Vec::new();
     for function in &program.functions {
@@ -2493,11 +2506,7 @@ fn rewrite_aggregate_type_name(
                 column,
             )?),
         ),
-        syntax::TypeName::Int => syntax::TypeName::Int,
-        syntax::TypeName::Numeric(numeric) => syntax::TypeName::Numeric(*numeric),
-        syntax::TypeName::Bool => syntax::TypeName::Bool,
-        syntax::TypeName::String => syntax::TypeName::String,
-        syntax::TypeName::Str => syntax::TypeName::Str,
+        other => other.clone(),
     })
 }
 
