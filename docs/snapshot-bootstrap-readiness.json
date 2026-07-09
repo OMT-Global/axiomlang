@@ -1,0 +1,67 @@
+{
+  "schemaVersion": 1,
+  "schema": "axiom.self_hosting.snapshot_bootstrap_readiness.v0",
+  "snapshotManifest": "stage1/snapshots/manifest.json",
+  "rows": [
+    {
+      "id": "manifest_valid",
+      "requirement": "Snapshot manifest exists and follows the v0 schema and genesis rules.",
+      "status": "blocked",
+      "governingIssue": 1253,
+      "blockerIssues": [
+        1253
+      ],
+      "validatingCommand": "python3 scripts/ci/check-snapshot-bootstrap-readiness.py --json"
+    },
+    {
+      "id": "snapshot_available",
+      "requirement": "A pinned snapshot for the CI host target is available and matches its sha256 digest.",
+      "status": "blocked",
+      "governingIssue": 1253,
+      "blockerIssues": [
+        1253
+      ],
+      "validatingCommand": "make snapshot-bootstrap-readiness"
+    },
+    {
+      "id": "snapshot_builds_axiom_sources",
+      "requirement": "The pinned snapshot builds the designated AxiOM compiler package set with --locked --offline and generated_rust null.",
+      "status": "blocked",
+      "governingIssue": 1253,
+      "blockerIssues": [
+        1253
+      ],
+      "validatingCommand": "make snapshot-bootstrap-readiness"
+    },
+    {
+      "id": "snapshot_output_verified",
+      "requirement": "Snapshot-built artifacts pass the self-hosting parity or conformance surface.",
+      "status": "blocked",
+      "governingIssue": 1253,
+      "blockerIssues": [
+        1253
+      ],
+      "validatingCommand": "make snapshot-bootstrap-readiness"
+    },
+    {
+      "id": "fixpoint_holds",
+      "requirement": "Once axiomc is buildable from AxiOM sources, rebuild-with-self produces a normalized-identical compiler artifact.",
+      "status": "blocked",
+      "governingIssue": 721,
+      "blockerIssues": [
+        721
+      ],
+      "validatingCommand": "make snapshot-bootstrap-readiness"
+    },
+    {
+      "id": "no_cargo_in_chain",
+      "requirement": "The post-genesis chain step records no cargo or rustc invocation in process evidence.",
+      "status": "blocked",
+      "governingIssue": 721,
+      "blockerIssues": [
+        721
+      ],
+      "validatingCommand": "make snapshot-bootstrap-readiness"
+    }
+  ]
+}
