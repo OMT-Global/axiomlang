@@ -143,6 +143,7 @@ members = [
   "pass/stdlib_io_stdin",
   "pass/string_byte_at",
   "pass/string_contains",
+  "pass/string_local_reassignment",
   "pass/string_param_by_value",
   "pass/struct_field_access",
   "pass/trait_bounded_aggregate",

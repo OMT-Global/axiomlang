@@ -720,7 +720,7 @@ fn is_supported_local_assignment_type_inner(
         return false;
     }
     match ty {
-        Type::Int | Type::Numeric(_) | Type::Bool => true,
+        Type::Int | Type::Numeric(_) | Type::Bool | Type::String | Type::Str => true,
         Type::Option(inner) => is_supported_local_assignment_type_inner(inner, ctx, depth + 1),
         Type::Result(ok, err) => {
             is_supported_local_assignment_type_inner(ok, ctx, depth + 1)

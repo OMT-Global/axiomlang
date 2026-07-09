@@ -1,0 +1,8 @@
+let label: string = "prefix"
+label = label + ":middle"
+label = label + ":suffix"
+print label
+
+let second: string = "initial"
+second = "reset"
+print second

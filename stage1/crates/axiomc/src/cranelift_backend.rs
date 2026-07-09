@@ -8869,14 +8869,23 @@ fn record_i64_known_string_let(
     stmt: &Stmt,
     static_bindings: &mut I64StaticBindings,
 ) -> Option<bool> {
-    let Stmt::Let {
-        name,
-        ty: Type::String | Type::Str,
-        expr,
-        ..
-    } = stmt
-    else {
-        return None;
+    let (name, expr) = match stmt {
+        Stmt::Let {
+            name,
+            ty: Type::String | Type::Str,
+            expr,
+            ..
+        } => (name, expr),
+        Stmt::Assign {
+            target:
+                Expr::VarRef {
+                    name,
+                    ty: Type::String | Type::Str,
+                },
+            expr,
+            ..
+        } => (name, expr),
+        _ => return None,
     };
     let Some(text) = i64_string_text(expr, static_bindings) else {
         return Some(false);

@@ -731,6 +731,11 @@ version = "0.1.0"
 source = "path:pass/string_contains"
 
 [[package]]
+name = "conformance-string-local-reassignment"
+version = "0.1.0"
+source = "path:pass/string_local_reassignment"
+
+[[package]]
 name = "conformance-string-param-by-value"
 version = "0.1.0"
 source = "path:pass/string_param_by_value"
