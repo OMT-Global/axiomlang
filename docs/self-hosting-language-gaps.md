@@ -3,9 +3,10 @@
 Seed checklist for the self-hosting language-readiness surface, produced by the
 compiler.diagnostics feasibility spike under
 [#1253](https://github.com/OMT-Global/axiomlang/issues/1253). Each entry is a
-language or backend feature the spike needed (or had to design around) that the
-stage1 AxiOM surface does not provide today. Every gap below was reproduced
-against the current compiler; the quoted text is the verbatim diagnostic.
+language or backend feature the spike needed, had to design around, or has since
+unblocked for the stage1 AxiOM surface. The shipped rows preserve the original
+spike diagnostic as historical evidence; the open rows still describe current
+compiler gaps.
 
 The spike itself lives at `stage1/selfhost/compiler-diagnostics-spike` and is
 validated by `scripts/ci/run-self-hosting-spike-parity.sh`. It proves the
