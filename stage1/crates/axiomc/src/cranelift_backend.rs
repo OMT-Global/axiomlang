@@ -2047,12 +2047,7 @@ fn lower_i64_aggregate_return_body(
             Stmt::Let {
                 name,
                 ty: Type::Option(inner),
-                expr:
-                    expr @ Expr::Call {
-                        name: call_name,
-                        args,
-                        ..
-                    },
+                expr: expr @ Expr::Call { .. },
                 ..
             } if (is_i64_option_local_payload_type_static(inner, static_bindings)
                 || is_i64_known_string_option_call_let_type(inner.as_ref()))
@@ -2077,34 +2072,11 @@ fn lower_i64_aggregate_return_body(
                     let has_runtime_stmts = !assigns.is_empty();
                     lowered_stmts.extend(assigns);
                     seen_runtime_stmt = has_runtime_stmts;
-                } else if let Some(assigns) = lower_i64_known_scalar_option_call_let_stmts(
-                    name,
-                    inner.as_ref(),
-                    expr,
-                    &mut locals,
-                    &mut local_indexes,
-                    static_bindings,
-                ) {
-                    lowered_stmts.extend(assigns);
-                    seen_runtime_stmt = true;
-                } else if let Some(assigns) = lower_i64_dynamic_map_get_option_call_let_stmts(
-                    name,
-                    inner.as_ref(),
-                    expr,
-                    &mut locals,
-                    &mut local_indexes,
-                    &local_conditions,
-                    helper_signatures,
-                    static_bindings,
-                ) {
-                    lowered_stmts.extend(assigns);
-                    seen_runtime_stmt = true;
                 } else {
-                    lowered_stmts.extend(lower_i64_option_call_let_stmts(
+                    lowered_stmts.extend(lower_i64_scalar_option_call_let_stmts(
                         name,
                         inner.as_ref(),
-                        call_name,
-                        args,
+                        expr,
                         &mut locals,
                         &mut local_indexes,
                         &mut local_conditions,
@@ -3455,12 +3427,7 @@ fn lower_i64_body(
             Stmt::Let {
                 name,
                 ty: Type::Option(inner),
-                expr:
-                    expr @ Expr::Call {
-                        name: call_name,
-                        args,
-                        ..
-                    },
+                expr: expr @ Expr::Call { .. },
                 ..
             } if (is_i64_option_local_payload_type_static(inner, static_bindings)
                 || is_i64_known_string_option_call_let_type(inner.as_ref()))
@@ -3485,34 +3452,11 @@ fn lower_i64_body(
                     let has_runtime_stmts = !assigns.is_empty();
                     lowered_stmts.extend(assigns);
                     seen_runtime_stmt = has_runtime_stmts;
-                } else if let Some(assigns) = lower_i64_known_scalar_option_call_let_stmts(
-                    name,
-                    inner.as_ref(),
-                    expr,
-                    &mut locals,
-                    &mut local_indexes,
-                    static_bindings,
-                ) {
-                    lowered_stmts.extend(assigns);
-                    seen_runtime_stmt = true;
-                } else if let Some(assigns) = lower_i64_dynamic_map_get_option_call_let_stmts(
-                    name,
-                    inner.as_ref(),
-                    expr,
-                    &mut locals,
-                    &mut local_indexes,
-                    &local_conditions,
-                    helper_signatures,
-                    static_bindings,
-                ) {
-                    lowered_stmts.extend(assigns);
-                    seen_runtime_stmt = true;
                 } else {
-                    lowered_stmts.extend(lower_i64_option_call_let_stmts(
+                    lowered_stmts.extend(lower_i64_scalar_option_call_let_stmts(
                         name,
                         inner.as_ref(),
-                        call_name,
-                        args,
+                        expr,
                         &mut locals,
                         &mut local_indexes,
                         &mut local_conditions,
@@ -5106,27 +5050,12 @@ fn lower_i64_runtime_let_stmts(
     if let Stmt::Let {
         name,
         ty: Type::Option(inner),
-        expr:
-            expr @ Expr::Call {
-                name: call_name,
-                args,
-                ..
-            },
+        expr: expr @ Expr::Call { .. },
         ..
     } = stmt
         && is_i64_option_local_payload_type_static(inner, static_bindings)
     {
-        if let Some(assigns) = lower_i64_known_scalar_option_call_let_stmts(
-            name,
-            inner.as_ref(),
-            expr,
-            locals,
-            local_indexes,
-            static_bindings,
-        ) {
-            return Some(assigns);
-        }
-        if let Some(assigns) = lower_i64_dynamic_map_get_option_call_let_stmts(
+        return lower_i64_scalar_option_call_let_stmts(
             name,
             inner.as_ref(),
             expr,
@@ -5135,22 +5064,7 @@ fn lower_i64_runtime_let_stmts(
             local_conditions,
             helper_signatures,
             static_bindings,
-        ) {
-            return Some(assigns);
-        }
-        if let Some(assigns) = lower_i64_option_call_let_stmts(
-            name,
-            inner.as_ref(),
-            call_name,
-            args,
-            locals,
-            local_indexes,
-            local_conditions,
-            helper_signatures,
-            static_bindings,
-        ) {
-            return Some(assigns);
-        }
+        );
     }
     Some(vec![lower_i64_runtime_let(
         stmt,
@@ -8053,6 +7967,59 @@ fn lower_i64_time_struct_call_ms_expr(
         return None;
     };
     Some(value)
+}
+
+fn lower_i64_scalar_option_call_let_stmts(
+    name: &str,
+    inner: &Type,
+    expr: &Expr,
+    locals: &mut Vec<CraneliftI64Expr>,
+    local_indexes: &mut HashMap<String, usize>,
+    local_conditions: &mut HashMap<String, CraneliftI64Condition>,
+    helper_signatures: &HashMap<&str, I64HelperSignature>,
+    static_bindings: &I64StaticBindings,
+) -> Option<Vec<CraneliftI64Stmt>> {
+    let Expr::Call {
+        name: call_name,
+        args,
+        ..
+    } = expr
+    else {
+        return None;
+    };
+    if let Some(assigns) = lower_i64_known_scalar_option_call_let_stmts(
+        name,
+        inner,
+        expr,
+        locals,
+        local_indexes,
+        static_bindings,
+    ) {
+        return Some(assigns);
+    }
+    if let Some(assigns) = lower_i64_dynamic_map_get_option_call_let_stmts(
+        name,
+        inner,
+        expr,
+        locals,
+        local_indexes,
+        local_conditions,
+        helper_signatures,
+        static_bindings,
+    ) {
+        return Some(assigns);
+    }
+    lower_i64_option_call_let_stmts(
+        name,
+        inner,
+        call_name,
+        args,
+        locals,
+        local_indexes,
+        local_conditions,
+        helper_signatures,
+        static_bindings,
+    )
 }
 
 fn lower_i64_option_call_let_stmts(
