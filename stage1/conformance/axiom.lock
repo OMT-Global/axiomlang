@@ -466,6 +466,11 @@ version = "0.1.0"
 source = "path:fail/string_byte_at_type_mismatch"
 
 [[package]]
+name = "conformance-string-contains-type-mismatch"
+version = "0.1.0"
+source = "path:fail/string_contains_type_mismatch"
+
+[[package]]
 name = "conformance-string-use-after-move"
 version = "0.1.0"
 source = "path:fail/string_use_after_move"
@@ -719,6 +724,11 @@ source = "path:pass/stdlib_io_stdin"
 name = "conformance-string-byte-at"
 version = "0.1.0"
 source = "path:pass/string_byte_at"
+
+[[package]]
+name = "conformance-string-contains"
+version = "0.1.0"
+source = "path:pass/string_contains"
 
 [[package]]
 name = "conformance-string-param-by-value"
