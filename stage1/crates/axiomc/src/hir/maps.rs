@@ -44,8 +44,8 @@ pub(super) fn lower_map_lookup_intrinsic(
         )
         .with_span(args[0].line(), args[0].column()));
     };
-    let key_ty = (*key_ty.clone()).clone();
-    let value_ty = (*value_ty.clone()).clone();
+    let key_ty = key_ty.as_ref().clone();
+    let value_ty = value_ty.as_ref().clone();
     if let [expected_key, expected_value] = type_args {
         let expected_key = lower_type(
             expected_key,

@@ -707,7 +707,7 @@ pub(super) fn match_variants(
             vec![
                 EnumVariantDef {
                     name: String::from("Some"),
-                    payload_tys: vec![(*inner.clone()).clone()],
+                    payload_tys: vec![inner.as_ref().clone()],
                     payload_names: Vec::new(),
                 },
                 EnumVariantDef {
@@ -722,12 +722,12 @@ pub(super) fn match_variants(
             vec![
                 EnumVariantDef {
                     name: String::from("Ok"),
-                    payload_tys: vec![(*ok.clone()).clone()],
+                    payload_tys: vec![ok.as_ref().clone()],
                     payload_names: Vec::new(),
                 },
                 EnumVariantDef {
                     name: String::from("Err"),
-                    payload_tys: vec![(*err.clone()).clone()],
+                    payload_tys: vec![err.as_ref().clone()],
                     payload_names: Vec::new(),
                 },
             ],
