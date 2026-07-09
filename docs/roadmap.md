@@ -26,30 +26,41 @@ implementation surfaces; see
 ## Completed Foundations
 
 - Package manifests with `axiom.toml` and `axiom.lock`.
-- Syntax, HIR, MIR, and a backend-driven native build pipeline with preparatory seam work for later native-backend expansion, as part of #105 rather than completion of it.
+- Syntax, HIR, MIR, and a direct-native Cranelift build pipeline for supported
+  user programs.
 - Package-local modules, local path dependencies, and workspace member
   selection.
-- Native `check`, `build`, `run`, `test`, and `caps` commands.
+- Native `check`, `build`, `run`, `test`, `doc`, `lsp`, and capability commands.
 - Capability-gated runtime surfaces for clock, environment, filesystem,
   network, process, and crypto access.
-- A Rust-run conformance corpus under `stage1/conformance`.
+- Formatter, benchmark, documentation, local publishing, registry validation,
+  and package inspection surfaces.
+- A checked conformance corpus and property/evidence gates.
+- Agent-facing semantic declarations, inspection, evidence, verification,
+  repair plans, provenance, semantic diff, decision records, target contracts,
+  and OpenAPI/policy/SQL/OpenTofu/runbook generators.
+- Direct-native runtime ABI and Rust-exit command-surface readiness for user
+  programs; generated Rust is no longer a supported CLI backend.
 
 ## Current Focus
 
-- Expand the conformance corpus for negative semantic coverage, capability
-  denials, module visibility, and cross-package behavior.
-- Improve diagnostics with richer spans, notes, and stable machine-readable
-  error codes.
-- Introduce the agent-native semantic lane schema-first and fixture-backed:
-  Intent IR, effect graph, evidence model, artifact plan, provenance, and
-  structured repair plans.
-- Continue the agent-grade compiler milestone in
-  [stage1-agent-grade-compiler.md](stage1-agent-grade-compiler.md).
+- Complete host exit rather than redoing backend exit: decompose the Rust
+  compiler (#1254), close the compiler-workload language/ABI gaps (#1425 and
+  #1426), prove a compiler-scale AxiOM package and command surface (#1427), and
+  prove the Cargo-free snapshot chain (#1428) before the final #721 decision.
+- Emit complete Intent IR for real packages (#1418) so the semantic APIs share
+  one canonical graph rather than partial, command-specific views.
+- Advance the [Autonomous Agent Execution Roadmap](autonomous-agent-roadmap.md)
+  (#1417 and #1419-#1424) from typed authority through transactional execution,
+  impact-aware evidence, independent review, delivery, and recovery.
+- Keep diagnostics, conformance, capability-denial, security, and performance
+  evidence expanding with every behavior change.
 
 ## Longer-Term Work
 
-- Direct backend replacement for the generated-Rust path.
-- Formatter, benchmark harness, doc generator, publisher, and LSP support.
-- Service-grade async and I/O runtime surfaces.
-- Backend target interfaces for code, service contracts, policy bundles,
-  infrastructure modules, documentation, and runbooks.
+- Additional native targets and production-grade async/I/O runtime surfaces.
+- Hosted registry and ecosystem services after local package, trust, and
+  provenance contracts remain stable under real use.
+- Richer semantic generators and verifiers driven from complete Intent IR.
+- Policy-scoped unattended maintenance across multiple packages and
+  repositories after the single-repository autonomy evaluation gate is green.

@@ -39,12 +39,14 @@ language and backend surface are adequate to start the compiler rewrite.
 | --- | --- | --- | --- |
 | `error_handling_try` | Option/Result propagation and diagnostics for recoverable compiler errors. | Implemented for current stage1 and direct-native evidence. | [#1256](https://github.com/OMT-Global/axiomlang/issues/1256) |
 | `compiler_data_shapes` | Scalars, tuples, arrays, maps, structs, enums, `Option`, `Result`, and ownership-sensitive aggregate movement. | Implemented for the current checklist scope. | [#1251](https://github.com/OMT-Global/axiomlang/issues/1251) |
+| `runtime_sized_collections` | Runtime-sized allocation, growth, indexing, mutation, and iteration for compiler worklists and scratch storage. | Blocked; fixed literal arrays are not a compiler-scale substitute. | [#1425](https://github.com/OMT-Global/axiomlang/issues/1425) |
+| `runtime_string_slice_parameter_abi` | Runtime strings and immutable/mutable slices cross function boundaries with defined ownership, length, aliasing, and write-through behavior. | Partial locally; blocked across direct-native calls. | [#1426](https://github.com/OMT-Global/axiomlang/issues/1426) |
 | `generics_traits_static_dispatch` | Explicit generics and static trait-bounded dispatch for reusable typed helpers. | Implemented for static dispatch; dynamic dispatch is intentionally not required by this row. | [#216](https://github.com/OMT-Global/axiomlang/issues/216) |
 | `strings_diagnostics_and_text` | String building, byte inspection, substring search, JSON, regex, logging, and deterministic text processing for lexer/parser/diagnostics work. | Implemented for the current checklist scope; the diagnostics spike uses direct `string_contains` evidence. | [#1256](https://github.com/OMT-Global/axiomlang/issues/1256) |
 | `host_io_capabilities` | Scoped filesystem, environment, clock, process, networking, crypto, JSON, and regex surfaces through capability-gated stdlib modules. | Implemented for scoped direct-native stdlib use. | [#1251](https://github.com/OMT-Global/axiomlang/issues/1251) |
 | `packages_modules_and_workspace` | Package-local modules, local dependencies, workspaces, and deterministic lockfile validation. | Implemented as a language/package surface; source migration remains separate. | [#721](https://github.com/OMT-Global/axiomlang/issues/721) |
-| `compiler_command_surface` | AxiOM-owned check/build/run/test/doc/LSP-facing command packages. | Blocked until the final bootstrap track proves the compiler command surface can be owned by AxiOM packages. | [#721](https://github.com/OMT-Global/axiomlang/issues/721) |
-| `compiler_scale_rewrite_fixture` | A compiler-scale AxiOM package that exercises parser, checker, diagnostics, package graph, and codegen-style flow before rewrite begins. | Blocked until the final Rust bootstrap track produces that proof workload. | [#721](https://github.com/OMT-Global/axiomlang/issues/721) |
+| `compiler_command_surface` | AxiOM-owned check/build/run/test/doc/LSP-facing command packages. | Blocked until the compiler-scale proof owns the command surface. | [#1427](https://github.com/OMT-Global/axiomlang/issues/1427) |
+| `compiler_scale_rewrite_fixture` | A compiler-scale AxiOM package that exercises parser, checker, diagnostics, package graph, and codegen-style flow before rewrite begins. | Blocked until #1427 produces executable multi-package proof. | [#1427](https://github.com/OMT-Global/axiomlang/issues/1427) |
 
 ## Closure Rules
 
@@ -54,7 +56,8 @@ language and backend surface are adequate to start the compiler rewrite.
 - A `blocked` or `partial` row must name at least one GitHub issue.
 - Direct-native backend status must be explicit for every row, even when the row
   is documentation or rewrite-proof oriented.
-- This checklist must fail until `compiler_command_surface` and
+- This checklist must fail until runtime-sized collections, the runtime
+  string/slice parameter ABI, `compiler_command_surface`, and
   `compiler_scale_rewrite_fixture` are backed by executable evidence.
 
 ## Rust Capture Check

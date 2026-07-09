@@ -38,6 +38,38 @@
       "notes": "This is sufficient for the current checklist row; larger compiler-scale data structure use is tracked separately by the compiler rewrite row."
     },
     {
+      "id": "runtime_sized_collections",
+      "group": "data structures",
+      "requirement": "Compiler code can allocate, grow, index, mutate, and iterate runtime-sized collections with explicit ownership and failure behavior.",
+      "governingIssue": 1425,
+      "status": "blocked",
+      "directNativeStatus": "blocked",
+      "blockerIssues": [1425],
+      "evidence": [
+        "docs/self-hosting-language-gaps.md",
+        "stage1/selfhost/compiler-diagnostics-distance-spike/axiom.toml",
+        "stage1/conformance/pass/local_array_index_assignment/axiom.toml"
+      ],
+      "validatingCommand": "make stage1-conformance && make self-hosting-spike-parity",
+      "notes": "Fixed literal arrays and scalar index mutation are implemented, but compiler-scale workloads still lack runtime-sized allocation and growth."
+    },
+    {
+      "id": "runtime_string_slice_parameter_abi",
+      "group": "function ABI",
+      "requirement": "Compiler packages can pass runtime strings, immutable slices, and mutable slices across direct-native function boundaries with defined ownership, length, aliasing, and write-through behavior.",
+      "governingIssue": 1426,
+      "status": "blocked",
+      "directNativeStatus": "partial",
+      "blockerIssues": [1426],
+      "evidence": [
+        "docs/self-hosting-language-gaps.md",
+        "stage1/conformance/pass/runtime_loop_bodies/axiom.toml",
+        "stage1/selfhost/compiler-diagnostics-distance-spike/axiom.toml"
+      ],
+      "validatingCommand": "make stage1-direct-native-runtime-abi && make stage1-conformance && make self-hosting-spike-parity",
+      "notes": "Local loop and mutable-array behavior is implemented; cross-function runtime string and slice ABI behavior remains incomplete."
+    },
+    {
       "id": "generics_traits_static_dispatch",
       "group": "abstraction",
       "requirement": "Compiler support libraries can use explicit generics and static trait-bounded dispatch where a compiler package needs reusable typed helpers.",
@@ -117,10 +149,10 @@
       "id": "compiler_command_surface",
       "group": "command surface",
       "requirement": "A self-hosted compiler can expose check, build, run, test, doc, and LSP-facing workflows through AxiOM-owned command packages.",
-      "governingIssue": 721,
+      "governingIssue": 1427,
       "status": "blocked",
       "directNativeStatus": "partial",
-      "blockerIssues": [721],
+      "blockerIssues": [1427],
       "evidence": [
         "stage1/examples/stdlib_doc/axiom.toml",
         "stage1/examples/stdlib_lsp/axiom.toml",
@@ -133,10 +165,10 @@
       "id": "compiler_scale_rewrite_fixture",
       "group": "rewrite proof",
       "requirement": "At least one compiler-scale AxiOM package exercises parser, checker, diagnostics, package graph, and codegen-style data flow before the rewrite starts.",
-      "governingIssue": 721,
+      "governingIssue": 1427,
       "status": "blocked",
       "directNativeStatus": "not_applicable",
-      "blockerIssues": [721],
+      "blockerIssues": [1427],
       "evidence": [
         "docs/axiom-compiler-source-layout.md",
         "docs/compiler-source-decomposition-plan.md"

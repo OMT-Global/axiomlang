@@ -13,8 +13,10 @@ Intent IR is not the AST, HIR, or MIR:
   validate, repair, and trace across generated artifacts.
 
 The stage1 compiler does not emit full Intent IR yet. This v0 document and
-schema define the first stable shape so later `axiomc inspect` and semantic
-language features have a common target.
+schema define the first stable shape; complete real-package emission is tracked
+by [#1418](https://github.com/OMT-Global/axiomlang/issues/1418) so inspection,
+verification, repair, artifact planning, and autonomous execution can consume
+one canonical graph.
 
 ## Envelope
 

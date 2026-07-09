@@ -17,8 +17,8 @@ cat > "$manifest" <<JSON
       "id": "manifest_valid",
       "requirement": "manifest valid",
       "status": "blocked",
-      "governingIssue": 1253,
-      "blockerIssues": [1253],
+      "governingIssue": 1428,
+      "blockerIssues": [1428],
       "validatingCommand": "make snapshot-bootstrap-readiness"
     }
   ]
