@@ -25,6 +25,9 @@ keep_outputs_writable() {
   local dir="$1"
   while true; do
     chmod -R u+rwX "$dir" 2>/dev/null || true
+    if [[ -d "$dir/tests" ]]; then
+      find "$dir/tests" -maxdepth 1 -type f ! -name '*.o' ! -name '*.toml' -exec chmod u+x {} + 2>/dev/null || true
+    fi
     # Keep generated test artifacts writable while rustc is creating sidecar outputs.
     sleep 0.01
   done
@@ -51,7 +54,22 @@ rm -rf "$project_dir/dist"
 run_with_writable_outputs "$project_dir/dist" \
   cargo run --manifest-path stage1/Cargo.toml -p axiomc -- check "$project_dir" --properties --json
 
-test_report="$(mktemp "${TMPDIR:-/tmp}/axiom-compiler-property-cranelift.XXXXXX.json")"
+test_report_dir=""
+test_report=""
+cleanup_test_report() {
+  if [[ -n "$test_report_dir" ]]; then
+    rm -rf "$test_report_dir"
+  fi
+}
+trap cleanup_test_report EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+report_parent="${TMPDIR:-/tmp}"
+mkdir -p "$report_parent"
+test_report_dir="$(mktemp -d "${report_parent%/}/axiom-compiler-property-cranelift.XXXXXX")"
+test_report="$test_report_dir/report.json"
 rm -rf "$project_dir/dist"
 if ! run_with_writable_outputs "$project_dir/dist" \
   cargo run --manifest-path stage1/Cargo.toml -p axiomc -- test "$project_dir" --properties --backend cranelift --json >"$test_report"; then
