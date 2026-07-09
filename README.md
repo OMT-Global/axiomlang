@@ -3,8 +3,10 @@
 Axiom is an agent-native typed intent and semantic construction system. It
 defines what must be true, which effects are allowed, what evidence proves a
 change, and which artifacts should be produced. The current implementation is a
-Rust-hosted stage1 compiler and generated-Rust backend, but Rust is a bootstrap
-host and backend target rather than the ontology of the language.
+Rust-hosted stage1 compiler with a direct-native Cranelift backend; legacy
+generated-Rust code remains internal compatibility source, not a supported CLI
+backend. Rust is a bootstrap host and target implementation rather than the
+ontology of the language.
 
 The supported toolchain today is the Rust bootstrap compiler in `stage1/`.
 
@@ -32,6 +34,9 @@ The semantic layer is being introduced incrementally. See
 and [docs/positioning/implementation-languages.md](docs/positioning/implementation-languages.md)
 for the agent-native direction and the boundary between Axiom semantics,
 compiler implementation layers, and backend targets.
+The path from today's inspection and repair-plan surfaces to safe unattended
+code authoring is tracked in
+[docs/autonomous-agent-roadmap.md](docs/autonomous-agent-roadmap.md).
 
 Use `cargo run --manifest-path stage1/Cargo.toml -p axiomc -- ...` or the Make
 targets below.

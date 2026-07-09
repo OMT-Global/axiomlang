@@ -1,6 +1,7 @@
 # Self-Hosting Snapshot Bootstrap Chain (Design)
 
-Design deliverable for [#1253](https://github.com/OMT-Global/axiomlang/issues/1253).
+Design delivered under [#1253](https://github.com/OMT-Global/axiomlang/issues/1253)
+and now executed by [#1428](https://github.com/OMT-Global/axiomlang/issues/1428).
 This document defines how a previously shipped `axiomc` binary snapshot builds
 the next working `axiomc` without invoking Cargo, what artifact the chain
 pins, how the chicken-and-egg is broken, and what CI gate proves the chain
@@ -100,7 +101,7 @@ fixpoint check becomes meaningful.
 
 ## CI gate
 
-A new non-blocking gate, `make snapshot-bootstrap-readiness`, structured like
+The non-blocking gate, `make snapshot-bootstrap-readiness`, is structured like
 the existing readiness gates (JSON verdict, explicit blockers, honest
 `ready: false` until real):
 
@@ -132,8 +133,10 @@ accepts it — the gate is evidence, not permission.
 
 ## Acceptance path
 
-1. Maintainer accepts this design under #1253 (explicit decision point).
-2. Follow-on issues (Pheidon-scoped): manifest schema + validator; genesis
-   snapshot release for the primary CI target; `snapshot-bootstrap-readiness`
-   gate implementation; retarget spike parity at the snapshot-built binary.
-3. #721 consumes the gate as one of its closure requirements.
+1. The design, manifest schema, validator, and non-blocking readiness gate are
+   complete under #1253 and #1402.
+2. #1428 publishes the primary-target genesis snapshot, verifies provenance and
+   digest, drives the designated AxiOM package set from the snapshot, and proves
+   no Cargo/rustc invocation after genesis.
+3. #1427 supplies the compiler-scale package needed for a meaningful fixpoint.
+4. #721 consumes the green gate as one of its final closure requirements.

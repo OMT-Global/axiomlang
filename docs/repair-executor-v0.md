@@ -5,10 +5,11 @@ Repair Executor v0 is the proposed closed-loop successor to
 only approved task-local edits, reruns the required evidence, and refreshes
 delivery signals before a task can be marked resolved.
 
-This document is a design contract only. It does not approve an auto-fixer,
-does not add code, and does not change the Repair Plan v0 read-only boundary.
-Executor implementation requires owner sign-off on this design or a later
-accepted revision.
+This document is the accepted design contract from #858. It does not itself add
+an auto-fixer or change the Repair Plan v0 read-only boundary. Implementation is
+now governed by [#1422](https://github.com/OMT-Global/axiomlang/issues/1422),
+within the authority, containment, and verification foundations in #1419-#1421.
+Merge-capable delivery remains a separate Class 3 decision under #1423.
 
 ## Goals
 
@@ -225,8 +226,8 @@ implementation should add a JSON Schema before a CLI command ships.
 
 ## Acceptance For Implementation
 
-Executor code can start only after an owner accepts this design or a follow-up
-revision. The first implementation should ship in this order:
+The product direction and staged implementation path are accepted under #1417
+and #1422. The first implementation should ship in this order:
 
 1. JSON Schema for `axiom.repair-executor.v0`.
 2. Dry-run parser and task classifier.
@@ -234,7 +235,7 @@ revision. The first implementation should ship in this order:
 4. File-boundary rejection tests.
 5. Evidence rerun capture.
 6. Delivery recheck capture.
-7. Publish-capable mode, if separately approved.
+7. Publish-capable mode only through the separately approved #1423 contract.
 
 Any implementation PR must keep the model boundary explicit and must include a
 fixture proving that writes outside `allowed_files` are rejected.

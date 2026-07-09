@@ -16,6 +16,12 @@ The suggestion-distance half (`edit_distance`, `closest_name`,
 `message_with_suggestion`) is blocked by the gaps marked **blocking** below.
 
 Umbrella tracking issue: [#1366](https://github.com/OMT-Global/axiomlang/issues/1366).
+The remaining runtime-sized collection work is
+[#1425](https://github.com/OMT-Global/axiomlang/issues/1425), the direct-native
+string/slice parameter ABI is
+[#1426](https://github.com/OMT-Global/axiomlang/issues/1426), and the
+compiler-scale proof that consumes both is
+[#1427](https://github.com/OMT-Global/axiomlang/issues/1427).
 
 | # | Gap | Diagnostic observed | Spike impact | Workaround used | Severity for compiler rewrite |
 |---|---|---|---|---|---|
@@ -46,8 +52,8 @@ Umbrella tracking issue: [#1366](https://github.com/OMT-Global/axiomlang/issues/
 ## Relationship to gates
 
 `make self-hosting-language-readiness` currently reports `ready: false` on the
-`compiler_command_surface` and `compiler_scale_rewrite_fixture` rows. This
-checklist is evidence for why: the spike shows the *expressible* subset is real
-but narrow. The readiness gate must not be marked ready until at least the
-High entries have governing feature issues with merged implementations or
-explicit deferrals.
+runtime-sized collection, runtime string/slice parameter ABI, compiler command
+surface, and compiler-scale rewrite rows. This checklist is evidence for why:
+the spike shows the *expressible* subset is real but narrow. The readiness gate
+must not be marked ready until those leaf issues have executable evidence or an
+explicitly reviewed deferral.

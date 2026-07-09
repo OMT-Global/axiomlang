@@ -1,13 +1,16 @@
-# Rust Exit Readiness
+# Rust Exit / Backend Exit Readiness
 
-This matrix defines the technical bar for making Rust and Cargo unnecessary for
-the supported Axiom toolchain.
+This matrix defines the technical bar for making generated Rust, `rustc`, and
+Cargo unnecessary when building supported user programs and serving the
+official command/LSP contracts. The historical command name is retained, but
+the gate now proves **backend exit**, not complete compiler host exit.
 
 The current implementation still includes the Rust-hosted `stage1/axiomc`
-compiler, but generated Rust is no longer a supported backend path. Rust exit is
-complete only when the official check, build, run, test, documentation, LSP, and
-release paths can operate from AxiOM-owned sources and direct native artifacts
-without requiring Cargo, generated Rust, or `rustc`.
+compiler, while generated Rust is no longer a supported backend path. Full
+**host exit** additionally requires AxiOM-owned compiler sources and a
+Cargo-free snapshot bootstrap chain; that work is tracked separately by
+`make self-hosting-language-readiness`, `make snapshot-bootstrap-readiness`,
+#1254, #1425-#1428, and the final #721 decision.
 
 Final Rust bootstrap issue: [#721](https://github.com/OMT-Global/axiomlang/issues/721)
 
@@ -29,11 +32,11 @@ Rust-only drivers. Deletion or release-chain PRs can require live GitHub state:
 make rust-exit-readiness-github
 ```
 
-The readiness gate is an evidence surface, not permission to remove Rust by
-itself. It uses the manifest, the direct-native ABI contract, self-hosted
-command/MIR boundary fixtures, and live issue state; this Markdown page is
-descriptive evidence only. Closing #721 also requires the governing issues and
-review gates to be satisfied.
+The readiness gate is an evidence surface, not permission to remove the Rust
+compiler host. It uses the manifest, direct-native ABI contract, command/MIR
+boundary fixtures, and live issue state. Closing #721 additionally requires the
+self-hosting and snapshot gates; a green backend-exit report cannot substitute
+for them.
 
 Command-surface coverage for the official `check`, `build`, `run`, `test`,
 `doc`, and `lsp` paths is also available as machine-readable evidence:
@@ -48,11 +51,11 @@ instead of a live blocker. #731 stays listed in
 `docs/rust-exit-readiness.json` so `make rust-exit-readiness` keeps validating
 its CLOSED state live.
 
-The compiler rewrite also has a separate language/backend prerequisite gate:
+The compiler rewrite has a separate language/backend prerequisite gate:
 [`make self-hosting-language-readiness`](self-hosting-language-readiness.md).
-That gate must be green before the rewrite in #565/#721 can move from planning
-to implementation; the Rust-exit gate must not be read as proof that the AxiOM
-language surface is sufficient to author the compiler.
+That gate must be green before the final rewrite in #565/#721 can complete; the
+backend-exit gate must not be read as proof that the AxiOM language surface is
+sufficient to author the compiler.
 
 ## Backend Matrix
 
@@ -65,15 +68,19 @@ language surface is sufficient to author the compiler.
 | Default backend | `axiomc build` defaults to direct native output and no longer invokes `rustc` for supported broad builds. | Host/native builds default to the direct-native Cranelift backend; default targeted builds fail closed instead of falling back to generated Rust, and extended conformance now runs on Cranelift with `generated_rust: null`. | [#1191](https://github.com/OMT-Global/axiomlang/issues/1191) |
 | Generated-Rust removal | The generated-Rust backend and `--backend rust` compatibility path are removed after a release with direct native as default. | Completed for the supported toolchain in #1191. The CLI parser no longer accepts `--backend generated-rust` or the old `--backend rust` transition alias, targeted builds fail closed instead of using generated Rust, and command/schema fixtures no longer model generated Rust as supported output. | [#1191](https://github.com/OMT-Global/axiomlang/issues/1191) |
 
-## Bootstrap Matrix
+## Host-Exit Companion Matrix
+
+These rows are not computed as completion by `make rust-exit-readiness`. They
+are companion gates for #721 and remain independently red until executable
+self-hosting evidence exists.
 
 | Surface | Required state | Current disposition | Governing issue |
 | --- | --- | --- | --- |
-| AxiOM compiler source layout | Parser, checker, lowering, MIR, backend selection, diagnostics, packages, manifests, lockfiles, and command dispatch have AxiOM package boundaries. | Implemented as [AxiOM Compiler Source Layout and Self-Hosting Boundary](axiom-compiler-source-layout.md); final source migration remains governed by the Rust bootstrap gate. | [#721](https://github.com/OMT-Global/axiomlang/issues/721) |
-| Snapshot bootstrap | A previously shipped `axiomc` snapshot builds the next working `axiomc` binary without invoking Cargo. | `blocked` until the final Rust bootstrap removal gate is satisfied. | [#721](https://github.com/OMT-Global/axiomlang/issues/721) |
-| Final readiness gate | The Rust-exit command proves supported workflows, release builds, tests, docs, and LSP no longer require Rust-only infrastructure. | Implemented as `make rust-exit-readiness`; ABI, boundary, generated-Rust, and LSP driver-ownership checks pass on the current tree, while final Rust bootstrap removal remains governed by #721 and live issue-state validation. | [#721](https://github.com/OMT-Global/axiomlang/issues/721) |
-| Compiler verification | Compiler-internal coverage is expressed in AxiOM property form instead of Rust-only tests. | Shipped through the property-test gate; remaining Rust-bootstrap release-chain work stays with #721. | [#721](https://github.com/OMT-Global/axiomlang/issues/721) |
-| Documentation generator and LSP | `axiomc doc`, structured/Markdown output, and `axiomc lsp` protocol handling are produced by AxiOM-owned code. | Implemented for the current Rust-exit gate: the LSP stdio harness exists, the source-level driver-ownership check passes, and #731 is closed. Final source migration still belongs to #721. | [#731](https://github.com/OMT-Global/axiomlang/issues/731) |
+| AxiOM compiler source layout | Parser, checker, lowering, MIR, backend selection, diagnostics, packages, manifests, lockfiles, and command dispatch have AxiOM package boundaries. | Boundary contracts are implemented; source migration and compiler-scale proof remain active. | [#1254](https://github.com/OMT-Global/axiomlang/issues/1254), [#1427](https://github.com/OMT-Global/axiomlang/issues/1427) |
+| Snapshot bootstrap | A previously shipped `axiomc` snapshot builds the next working `axiomc` binary without invoking Cargo after genesis. | Blocked; the manifest contains no pinned snapshot. | [#1428](https://github.com/OMT-Global/axiomlang/issues/1428) |
+| Compiler-scale language readiness | A real multi-package compiler workload runs through the supported AxiOM/direct-native surface. | Blocked on runtime-sized collections, the string/slice parameter ABI, and executable compiler-scale proof. | [#1425](https://github.com/OMT-Global/axiomlang/issues/1425), [#1426](https://github.com/OMT-Global/axiomlang/issues/1426), [#1427](https://github.com/OMT-Global/axiomlang/issues/1427) |
+| Compiler verification | Compiler-internal coverage is expressed and executable through AxiOM-owned property/evidence surfaces. | Property foundations are shipped; final compiler-source ownership proof belongs to #1427. | [#1427](https://github.com/OMT-Global/axiomlang/issues/1427) |
+| Final host-exit gate | Language readiness, source ownership, snapshot chain, release, provenance, and live review evidence are all green for one candidate. | Blocked and human-gated. | [#721](https://github.com/OMT-Global/axiomlang/issues/721) |
 
 ## Closure Rules
 
@@ -86,15 +93,16 @@ language surface is sufficient to author the compiler.
 - A direct-native runtime ABI row may be marked `implemented` only when it has
   runtime-entrypoint or backend-emitted codegen evidence; compiler-side
   Cranelift spike evaluation alone is not sufficient.
-- #721 may close only after the backend matrix and bootstrap matrix have no
+- #721 may close only after the backend matrix and host-exit companion matrix have no
   incomplete rows.
 - Generated Rust must stay outside the supported toolchain; regressions that
   reintroduce it as a CLI backend, targeted-build fallback, command fixture, or
   release artifact must fail the readiness gate.
-- Cargo may remain as a developer convenience while #931 is being proven, but it
+- Cargo may remain as a developer convenience while #1428 is being proven, but it
   may not be required by the official release-chain path.
-- Any new blocked row must name a GitHub issue in
-  `docs/rust-exit-readiness.json`.
+- Any new backend-exit blocker must name a GitHub issue in
+  `docs/rust-exit-readiness.json`; host-exit blockers belong in the self-hosting
+  and snapshot readiness manifests.
 - #932 tracks creation of this gate. After #932 closes, the gate must keep
   failing only on the remaining Rust-exit blockers listed in
   `docs/rust-exit-readiness.json`.
