@@ -736,10 +736,11 @@ pub fn list_project_tests_with_options(
     {
         let manifest = &graph.context(&package_root)?.manifest;
         validate_lockfile(&package_root, manifest)?;
+        let package_root_text = package_root.display().to_string();
         let expected_error = expected_error_path(&package_root);
         let compile_fail_kind = compile_fail_test_kind(options).filter(|_| expected_error.exists());
         let discovered = if let Some(kind) = compile_fail_kind {
-            compile_fail_test_target(&package_root, manifest, kind, options.filter.as_deref())
+            compile_fail_test_target(manifest, kind, options.filter.as_deref(), &package_root_text)
                 .into_iter()
                 .collect()
         } else {
@@ -755,7 +756,6 @@ pub fn list_project_tests_with_options(
         if discovered.is_empty() {
             continue;
         }
-        let package_root_text = package_root.display().to_string();
         packages.push(package_root_text.clone());
         let package_name = manifest
             .package
@@ -802,7 +802,7 @@ pub fn run_project_tests_with_options(
         let compile_fail_kind = compile_fail_test_kind(options).filter(|_| expected_error.exists());
         if let Some(kind) = compile_fail_kind {
             if let Some(test) =
-                compile_fail_test_target(&package_root, manifest, kind, options.filter.as_deref())
+                compile_fail_test_target(manifest, kind, options.filter.as_deref(), &package_root_text)
             {
                 packages.push(package_root_text.clone());
                 cases.push(run_compile_fail_case(
@@ -948,16 +948,16 @@ fn compile_fail_test_kind(options: &TestOptions) -> Option<TestKind> {
 }
 
 fn compile_fail_test_target(
-    package_root: &Path,
     manifest: &Manifest,
     kind: TestKind,
     filter: Option<&str>,
+    package_root_text: &str,
 ) -> Option<crate::manifest::TestTarget> {
     let case_name = manifest
         .package
         .as_ref()
         .map(|package| package.name.clone())
-        .unwrap_or_else(|| package_root.display().to_string());
+        .unwrap_or_else(|| package_root_text.to_string());
     let target = crate::manifest::TestTarget {
         name: case_name,
         entry: manifest.build.entry.clone(),
@@ -10654,11 +10654,13 @@ return async_serve_route(1, "/", "ok", 1)
     fn compile_fail_test_target_shares_identity_and_filtering() {
         let dir = tempdir().unwrap_or_else(|err| panic!("tempdir: {err}"));
         let root = dir.path();
+        let package_root_text = root.display().to_string();
         let mut manifest = package_manifest();
         manifest.build.entry = "src/fail_case.ax".to_string();
 
-        let target = compile_fail_test_target(root, &manifest, TestKind::Property, Some("fail"))
-            .expect("entry filter should match compile-fail target");
+        let target =
+            compile_fail_test_target(&manifest, TestKind::Property, Some("fail"), &package_root_text)
+                .expect("entry filter should match compile-fail target");
         assert_eq!(target.name, "demo");
         assert_eq!(target.entry, "src/fail_case.ax");
         assert_eq!(target.kind, TestKind::Property);
@@ -10668,19 +10670,22 @@ return async_serve_route(1, "/", "ok", 1)
         assert!(target.stderr.is_none());
         assert!(target.expected_error.is_none());
 
-        let unit_target = compile_fail_test_target(root, &manifest, TestKind::Unit, Some("demo"))
-            .expect("package-name filter should match compile-fail target");
+        let unit_target =
+            compile_fail_test_target(&manifest, TestKind::Unit, Some("demo"), &package_root_text)
+                .expect("package-name filter should match compile-fail target");
         assert_eq!(unit_target.name, target.name);
         assert_eq!(unit_target.entry, target.entry);
         assert_eq!(unit_target.kind, TestKind::Unit);
         assert!(
-            compile_fail_test_target(root, &manifest, TestKind::Unit, Some("missing")).is_none()
+            compile_fail_test_target(&manifest, TestKind::Unit, Some("missing"), &package_root_text)
+                .is_none()
         );
 
         manifest.package = None;
-        let fallback_target = compile_fail_test_target(root, &manifest, TestKind::Unit, None)
-            .expect("unfiltered package-less compile-fail target");
-        assert_eq!(fallback_target.name, root.display().to_string());
+        let fallback_target =
+            compile_fail_test_target(&manifest, TestKind::Unit, None, &package_root_text)
+                .expect("unfiltered package-less compile-fail target");
+        assert_eq!(fallback_target.name, package_root_text);
         assert_eq!(fallback_target.package, None);
     }
 
