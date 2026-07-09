@@ -2159,30 +2159,6 @@ fn lower_i64_aggregate_return_body(
             Stmt::Let {
                 name,
                 ty: Type::Enum(enum_name),
-                expr:
-                    Expr::Call {
-                        name: call_name,
-                        args,
-                        ..
-                    },
-                ..
-            } if is_i64_enum_payload_type(enum_name, static_bindings) && !seen_runtime_stmt => {
-                lowered_stmts.extend(lower_i64_enum_call_let_stmts(
-                    name,
-                    enum_name,
-                    call_name,
-                    args,
-                    &mut locals,
-                    &mut local_indexes,
-                    &mut local_conditions,
-                    helper_signatures,
-                    static_bindings,
-                )?);
-                seen_runtime_stmt = true;
-            }
-            Stmt::Let {
-                name,
-                ty: Type::Enum(enum_name),
                 expr: Expr::EnumVariant { .. },
                 ..
             } if is_i64_enum_payload_type(enum_name, static_bindings) && !seen_runtime_stmt => {
@@ -2195,33 +2171,6 @@ fn lower_i64_aggregate_return_body(
                     helper_signatures,
                     static_bindings,
                 )?;
-            }
-            Stmt::Let {
-                name,
-                ty: Type::Result(ok, err),
-                expr:
-                    Expr::Call {
-                        name: call_name,
-                        args,
-                        ..
-                    },
-                ..
-            } if is_i64_result_local_payload_type_static(ok, err, static_bindings)
-                && !seen_runtime_stmt =>
-            {
-                lowered_stmts.extend(lower_i64_result_call_let_stmts(
-                    name,
-                    ok.as_ref(),
-                    err.as_ref(),
-                    call_name,
-                    args,
-                    &mut locals,
-                    &mut local_indexes,
-                    &mut local_conditions,
-                    helper_signatures,
-                    static_bindings,
-                )?);
-                seen_runtime_stmt = true;
             }
             Stmt::Let {
                 name,
