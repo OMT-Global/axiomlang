@@ -1,0 +1,7 @@
+[package]
+name = "conformance-local-array-index-assignment"
+version = "0.1.0"
+
+[build]
+entry = "src/main_test.ax"
+out_dir = "dist"

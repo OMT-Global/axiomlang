@@ -692,15 +692,14 @@ fn insert_type_error_binding_for_failed_stmt(
 
 fn is_assignment_target(expr: &Expr, ctx: &LowerContext<'_>) -> bool {
     match expr {
-        Expr::VarRef { ty, .. } => is_local_assignment_type(ty, ctx),
+        Expr::VarRef { ty, .. } => is_supported_local_assignment_type(ty, ctx),
         Expr::Deref { .. } => true,
-        Expr::Index { base, .. } => matches!(base.ty(), Type::MutSlice(_)),
+        Expr::Index { base, .. } => {
+            matches!(base.ty(), Type::MutSlice(_))
+                || matches!(base.ty(), Type::Array(element, Some(_)) if is_scalar_local_assignment_type(element))
+        }
         _ => false,
     }
-}
-
-fn is_local_assignment_type(ty: &Type, ctx: &LowerContext<'_>) -> bool {
-    is_supported_local_assignment_type(ty, ctx)
 }
 
 fn is_scalar_local_assignment_type(ty: &Type) -> bool {
@@ -871,7 +870,7 @@ fn lower_stmt(
                 return Err(Diagnostic::new(
                     "type",
                     format!(
-                        "assignment target must be a scalar local, dereference a mutable reference, or index a mutable slice, got {}",
+                        "assignment target must be a scalar local, dereference a mutable reference, index a mutable slice, or index a fixed array with scalar elements, got {}",
                         lowered_target.ty()
                     ),
                 )

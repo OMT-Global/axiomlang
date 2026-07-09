@@ -205,7 +205,7 @@ matching ceiling in this table in the same PR.
 | `stage1/crates/axiomc/src/hir.rs` | 5850 |
 | `stage1/crates/axiomc/src/project.rs` | 11396 |
 | `stage1/crates/axiomc/src/main.rs` | 10755 |
-| `stage1/crates/axiomc/src/codegen.rs` | 7909 |
+| `stage1/crates/axiomc/src/codegen.rs` | 7919 |
 | `stage1/crates/axiomc/src/syntax.rs` | 6372 |
 | `stage1/crates/axiomc/src/hir/async_runtime.rs` | 188 |
 | `stage1/crates/axiomc/src/hir/capabilities.rs` | 773 |
