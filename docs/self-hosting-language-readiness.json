@@ -63,13 +63,15 @@
       "directNativeStatus": "implemented",
       "evidence": [
         "stage1/examples/stdlib_string_builder/axiom.toml",
+        "stage1/conformance/pass/string_byte_at/axiom.toml",
         "stage1/examples/stdlib_json/axiom.toml",
         "stage1/examples/stdlib_json_value/axiom.toml",
         "stage1/examples/stdlib_regex/axiom.toml",
-        "stage1/examples/stdlib_log/axiom.toml"
+        "stage1/examples/stdlib_log/axiom.toml",
+        "stage1/selfhost/compiler-diagnostics-spike/axiom.toml"
       ],
       "validatingCommand": "make stage1-stdlib-smoke && make stage1-direct-native-example-smoke",
-      "notes": "This row covers the text tooling needed for lexer, parser, diagnostics, and machine-readable reports."
+      "notes": "This row covers the text tooling needed for lexer, parser, diagnostics, and machine-readable reports; the diagnostics spike now uses direct string_contains instead of a regex workaround."
     },
     {
       "id": "host_io_capabilities",
