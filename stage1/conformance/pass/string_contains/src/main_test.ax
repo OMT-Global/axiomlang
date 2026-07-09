@@ -1,0 +1,7 @@
+let text: string = "compiler diagnostics"
+print string_contains(text, "diag")
+print string_contains(text, "syntax")
+print string_contains(text, "")
+print string_contains("literal haystack", "hay")
+print string_contains("literal haystack", "stack")
+print string_contains("literal haystack", "haystack!")

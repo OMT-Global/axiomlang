@@ -62,6 +62,7 @@ bash "$script_repo_root/scripts/ci/test-check-diagnostics-syntax-boundary.sh"
 bash "$script_repo_root/scripts/ci/test-check-command-lsp-boundary.sh"
 bash "$script_repo_root/scripts/ci/test-check-hir-boundary.sh"
 bash "$script_repo_root/scripts/ci/test-check-mir-backend-boundary.sh"
+bash "$script_repo_root/scripts/ci/test-check-snapshot-bootstrap-readiness.sh"
 bash "$script_repo_root/scripts/ci/run-stdlib-property-checks.sh"
 bash "$script_repo_root/scripts/ci/run-compiler-property-checks.sh"
 
