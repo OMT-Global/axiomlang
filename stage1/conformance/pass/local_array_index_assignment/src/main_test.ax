@@ -1,0 +1,13 @@
+let values: [int; 3] = [1, 2, 3]
+values[0] = 10
+let index: int = 1
+values[index] = 7
+let flags: [bool; 2] = [false, false]
+flags[1] = true
+print values[0]
+print values[1]
+if flags[1] {
+print 9
+} else {
+print 0
+}
