@@ -293,6 +293,19 @@ fn parser_lowers_functions_calls_and_while() {
 }
 
 #[test]
+fn codegen_renders_fixed_array_index_assignment_as_store() {
+    let source = "let values: [int; 2] = [1, 2]\nvalues[1] = 7\nprint values[1]\n";
+    let parsed = parse_program(source, Path::new("main.ax")).expect("parse");
+    let hir = hir::lower(&parsed).expect("lower");
+    let mir = mir::lower(&hir);
+    let rendered = render_rust(&mir);
+
+    assert!(rendered.contains("let mut values: Vec<i64> = vec![1, 2];"));
+    assert!(rendered.contains("axiom_array_set(7, &mut values, 1);"));
+    assert!(!rendered.contains("axiom_array_get(&values, 1) = 7;"));
+}
+
+#[test]
 fn codegen_preserves_nested_boolean_logic_grouping() {
     let source = "fn grouped(): bool {\nreturn true && (false || true)\n}\n\nlet ready: bool = grouped()\nprint ready\n";
     let parsed = parse_program(source, Path::new("main.ax")).expect("parse");

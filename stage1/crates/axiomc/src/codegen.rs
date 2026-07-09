@@ -68,9 +68,9 @@ impl FromStr for NativeBackendKind {
 #[cfg(test)]
 mod tests {
     use super::{
-        GeneratedRustBackendInput, INTERNAL_COMPILER_ERROR_CODE, NativeBackendKind,
         collect_program_call_names, deterministic_numbers, deterministic_strings,
-        render_generated_rust, try_render_generated_rust,
+        render_generated_rust, try_render_generated_rust, GeneratedRustBackendInput,
+        NativeBackendKind, INTERNAL_COMPILER_ERROR_CODE,
     };
     use crate::mir::{
         ArithmeticOp, Expr, Function, LiteralValue, LogicOp, Program, SourceSpan, Stmt, Type,
@@ -6143,8 +6143,8 @@ fn collect_stmt_mutable_borrows(stmt: &Stmt, locals: &mut HashSet<String>) {
         | Stmt::Defer { expr, .. }
         | Stmt::Return { expr, .. } => collect_expr_mutable_borrows(expr, locals),
         Stmt::Assign { target, expr, .. } => {
-            if let Expr::VarRef { name, .. } = target {
-                locals.insert(name.clone());
+            if let Some(name) = mutable_borrow_root_name(target) {
+                locals.insert(name.to_string());
             }
             collect_expr_mutable_borrows(target, locals);
             collect_expr_mutable_borrows(expr, locals);
@@ -6354,6 +6354,14 @@ fn render_stmt(
         Stmt::Assign { target, expr, span } => {
             render_source_marker(source_path, *span, out, indent, debug);
             match target {
+                Expr::Index { base, index, .. } if matches!(base.ty(), Type::Array(_, _)) => {
+                    out.push_str(&format!(
+                        "{pad}axiom_array_set({}, &mut {}, {});\n",
+                        render_expr(expr),
+                        render_expr(base),
+                        render_expr(index)
+                    ));
+                }
                 Expr::Index { base, index, .. } if matches!(base.ty(), Type::MutSlice(_)) => {
                     out.push_str(&format!(
                         "{pad}axiom_array_set({}, {}, {});\n",
@@ -6739,7 +6747,9 @@ fn render_expr(expr: &Expr) -> String {
                 render_expr(&args[1])
             )
         }
-        Expr::Call { name, args, .. } if name == "json_stringify_int" || name == "int_to_string" => {
+        Expr::Call { name, args, .. }
+            if name == "json_stringify_int" || name == "int_to_string" =>
+        {
             format!("axiom_json_stringify_int({})", render_expr(&args[0]))
         }
         Expr::Call { name, args, .. } if name == "json_stringify_bool" => {
