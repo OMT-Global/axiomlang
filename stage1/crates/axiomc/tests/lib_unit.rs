@@ -7767,6 +7767,53 @@ fn stage1_project_imports_synthetic_stdlib_collections_module() {
 }
 
 #[test]
+fn stage1_project_imports_synthetic_stdlib_string_module() {
+    let dir = tempdir().expect("tempdir");
+    let project = dir.path().join("stdlib-string-app");
+    create_project(&project, Some("stdlib-string-app")).expect("create project");
+    fs::write(
+        project.join("axiom.toml"),
+        render_manifest_with_capabilities(
+            "stdlib-string-app",
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+        ),
+    )
+    .expect("write manifest");
+    let manifest = load_manifest(&project).expect("load manifest");
+    fs::write(
+        project.join("axiom.lock"),
+        render_lockfile_for_project(&project, &manifest).expect("lockfile"),
+    )
+    .expect("write lockfile");
+    let source = "import \"std/string.ax\"\nprint from_int(42)\nprint clone_text(\"agent\")\nprint contains(\"compiler\", \"pile\")\nprint starts_with(\"compiler\", \"com\")\nmatch strip_prefix(\"compiler\", \"com\") {\nSome(value) {\nprint value\n}\nNone {\nprint \"none\"\n}\n}\nmatch strip_suffix(\"compiler\", \"ler\") {\nSome(value) {\nprint value\n}\nNone {\nprint \"none\"\n}\n}\nprint trim(\"  spaced  \")\nprint trim_start(\"  left\")\nmatch line_at(\"first\\nsecond\", 1) {\nSome(value) {\nprint value\n}\nNone {\nprint \"none\"\n}\n}\nmatch byte_at(\"AZ\", 1) {\nSome(value) {\nprint value\n}\nNone {\nprint 0\n}\n}\n";
+    fs::write(project.join("src/main.ax"), source).expect("write source");
+    fs::write(project.join("src/main_test.ax"), source).expect("write test");
+    fs::write(
+        project.join("src/main_test.stdout"),
+        "42\nagent\ntrue\ntrue\npiler\ncompi\nspaced\nleft\nsecond\n90\n",
+    )
+    .expect("write golden");
+
+    let built = build_project(&project).expect("build project");
+    let output = compiled_binary_command(&built.binary)
+        .output()
+        .expect("run compiled binary");
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        "42\nagent\ntrue\ntrue\npiler\ncompi\nspaced\nleft\nsecond\n90\n"
+    );
+
+    let tests = run_project_tests(&project).expect("run tests");
+    assert_eq!(tests.passed, 1);
+    assert_eq!(tests.failed, 0);
+}
+
+#[test]
 fn stage1_project_imports_synthetic_stdlib_string_builder_module() {
     let dir = tempdir().expect("tempdir");
     let project = dir.path().join("stdlib-string-builder-app");
