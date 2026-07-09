@@ -7546,56 +7546,19 @@ fn lower_i64_runtime_string_option_call_let_stmts(
     local_indexes: &mut HashMap<String, usize>,
     static_bindings: &I64StaticBindings,
 ) -> Option<Vec<CraneliftI64Stmt>> {
-    if let Some(assigns) = lower_i64_env_option_call_let_stmts(
-        name,
-        inner,
-        expr,
-        locals,
-        local_indexes,
-        static_bindings,
-    ) {
-        return Some(assigns);
-    }
-    if let Some(assigns) = lower_i64_readline_option_call_let_stmts(
-        name,
-        inner,
-        expr,
-        locals,
-        local_indexes,
-        static_bindings,
-    ) {
-        return Some(assigns);
-    }
-    if let Some(assigns) = lower_i64_fs_read_option_call_let_stmts(
-        name,
-        inner,
-        expr,
-        locals,
-        local_indexes,
-        static_bindings,
-    ) {
-        return Some(assigns);
-    }
-    lower_i64_net_option_call_let_stmts(
-        name,
-        inner,
-        expr,
-        locals,
-        local_indexes,
-        static_bindings,
-    )
-}
-
-fn lower_i64_readline_option_call_let_stmts(
-    name: &str,
-    inner: &Type,
-    expr: &Expr,
-    locals: &mut Vec<CraneliftI64Expr>,
-    local_indexes: &mut HashMap<String, usize>,
-    static_bindings: &I64StaticBindings,
-) -> Option<Vec<CraneliftI64Stmt>> {
     if !matches!(inner, Type::String | Type::Str) {
         return None;
+    }
+    let payload_len = lower_i64_runtime_string_option_len_expr(expr, static_bindings)?;
+    lower_i64_string_option_len_call_let_stmts(name, payload_len, locals, local_indexes)
+}
+
+fn lower_i64_runtime_string_option_len_expr(
+    expr: &Expr,
+    static_bindings: &I64StaticBindings,
+) -> Option<CraneliftI64Expr> {
+    if let Some(key) = i64_env_get_key(expr, static_bindings) {
+        return i64_env_len_expr(&key, static_bindings);
     }
     let Expr::Call {
         name: call_name,
@@ -7605,13 +7568,16 @@ fn lower_i64_readline_option_call_let_stmts(
     else {
         return None;
     };
-    if !is_i64_io_readline_name(call_name, static_bindings) || !args.is_empty() {
-        return None;
+    if is_i64_io_readline_name(call_name, static_bindings) && args.is_empty() {
+        return Some(CraneliftI64Expr::StdinLineLen {
+            max_bytes: I64_STDIN_BUFFER_BYTES,
+        });
     }
-    let line_len = CraneliftI64Expr::StdinLineLen {
-        max_bytes: I64_STDIN_BUFFER_BYTES,
-    };
-    lower_i64_string_option_len_call_let_stmts(name, line_len, locals, local_indexes)
+    if let Some(path) = i64_fs_read_path(expr, static_bindings) {
+        return i64_fs_read_file_len_expr(&path.candidate, path.requested_len, static_bindings);
+    }
+    let host = i64_net_resolve_host(expr, static_bindings)?;
+    i64_net_resolve_len_expr(&host, static_bindings)
 }
 
 fn lower_i64_result_literal_let_stmts(

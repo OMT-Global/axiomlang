@@ -12,22 +12,6 @@ pub(crate) struct I64FsReadPath {
     pub(crate) requested_len: usize,
 }
 
-pub(crate) fn lower_i64_fs_read_option_call_let_stmts(
-    name: &str,
-    inner: &Type,
-    expr: &Expr,
-    locals: &mut Vec<CraneliftI64Expr>,
-    local_indexes: &mut HashMap<String, usize>,
-    static_bindings: &I64StaticBindings,
-) -> Option<Vec<CraneliftI64Stmt>> {
-    if !matches!(inner, Type::String | Type::Str) {
-        return None;
-    }
-    let path = i64_fs_read_path(expr, static_bindings)?;
-    let file_len = i64_fs_read_file_len_expr(&path.candidate, path.requested_len, static_bindings)?;
-    lower_i64_string_option_len_call_let_stmts(name, file_len, locals, local_indexes)
-}
-
 pub(crate) fn i64_fs_read_path(expr: &Expr, static_bindings: &I64StaticBindings) -> Option<I64FsReadPath> {
     if static_bindings.has_fs_write_calls {
         return None;
