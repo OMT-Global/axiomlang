@@ -1,0 +1,126 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://axiom.omt.global/schemas/axiom-format-edit-v1.schema.json",
+  "title": "Axiom formatter edit report v1",
+  "description": "Replayable UTF-8 byte edits emitted by axiomc fmt --json.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "schema",
+    "ok",
+    "command",
+    "check",
+    "files",
+    "changed"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "axiom.stage1.v1"
+    },
+    "schema": {
+      "const": "stage1/schemas/axiom-format-edit-v1.schema.json"
+    },
+    "ok": {
+      "type": "boolean"
+    },
+    "command": {
+      "const": "fmt"
+    },
+    "check": {
+      "type": "boolean"
+    },
+    "files": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/fileReport"
+      }
+    },
+    "changed": {
+      "type": "integer",
+      "minimum": 0
+    }
+  },
+  "$defs": {
+    "fileReport": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "changed",
+        "edits"
+      ],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "changed": {
+          "type": "boolean"
+        },
+        "edits": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/edit"
+          }
+        }
+      }
+    },
+    "edit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "action",
+        "line",
+        "before",
+        "after",
+        "start_byte",
+        "end_byte",
+        "replacement"
+      ],
+      "properties": {
+        "action": {
+          "type": "string",
+          "enum": [
+            "replace_line",
+            "delete_line",
+            "insert_line"
+          ]
+        },
+        "line": {
+          "description": "One-based source line associated with the legacy action metadata.",
+          "type": "integer",
+          "minimum": 1
+        },
+        "before": {
+          "description": "Legacy source-line text without its line ending, or null for insertions.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "after": {
+          "description": "Legacy formatted-line text without its line ending, or null for deletions.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "start_byte": {
+          "description": "Inclusive UTF-8 byte offset in the original file.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "end_byte": {
+          "description": "Exclusive UTF-8 byte offset in the original file.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "replacement": {
+          "description": "Exact UTF-8 text replacing the half-open original byte range.",
+          "type": "string"
+        }
+      }
+    }
+  }
+}

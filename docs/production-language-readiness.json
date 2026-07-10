@@ -508,8 +508,8 @@
       "governingIssue": 1460,
       "blockerIssues": [1460],
       "dependencies": [],
-      "evidence": ["stage1/crates/axiomc/src/main.rs", "docs/style.md"],
-      "validatingCommand": "cargo test --manifest-path stage1/Cargo.toml -p axiomc formatter",
+      "evidence": ["stage1/crates/axiomc/src/formatter.rs", "stage1/schemas/axiom-format-edit-v1.schema.json", "docs/formatter-edit-contract.md", "docs/style.md"],
+      "validatingCommand": "cargo test --manifest-path stage1/Cargo.toml -p axiomc --bin axiomc formatter",
       "rustCaptureRisk": "low",
       "agentInspectionImpact": "Provide precise edits and unchanged semantic graph digest."
     },
