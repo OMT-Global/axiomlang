@@ -1,5 +1,7 @@
 # Axiom
 
+<!-- capability-ledger:v1 commands=28 stdlib_modules=34 stdlib_functions=299 capabilities=9 backend=cranelift -->
+
 Axiom is an agent-native typed intent and semantic construction system. It
 defines what must be true, which effects are allowed, what evidence proves a
 change, and which artifacts should be produced. The current implementation is a
@@ -101,7 +103,6 @@ cargo run --manifest-path stage1/Cargo.toml -p axiomc -- doc stage1/examples/hel
 cargo run --manifest-path stage1/Cargo.toml -p axiomc -- bench stage1/examples/benchmarks --json
 
 cargo run --manifest-path stage1/Cargo.toml -p axiomc -- test stage1/examples/stdlib_testing --include-benchmarks --json
-cargo run --manifest-path stage1/Cargo.toml -p axiomc -- test stage1/examples/stdlib_testing --include-benchmarks --json
 
 cargo run --manifest-path stage1/Cargo.toml -p axiomc -- lsp
 ```
@@ -125,13 +126,20 @@ make smoke
 
 ## Language Snapshot
 
+The checked
+[capability ledger](stage1/compiler-contracts/snapshots/capability-ledger.json)
+is the canonical machine-readable inventory. Its compiler-derived counts cover
+28 commands, 34 stdlib modules with 299 exported functions, and 9 manifest
+capabilities. These are discovered surfaces, not a production-readiness claim;
+the ledger currently records zero production-qualified rows.
+
 The current stage1 compiler supports top-level imports, functions, constants,
 structs, enums, tuple types, arrays, maps, borrowed slices, `Option<T>`,
 `Result<T, E>`, statement-level `match`, `if` / `else`, `while`, `return`,
 `print`, scalar comparisons, and `+` on `int` and `string`.
 
 Stage1 also enforces the current capability-gated runtime surface for `clock`,
-`env`, `fs`, `net`, `process`, and `crypto`, with stdlib wrappers in
+`env`, `fs`, `fs:write`, `net`, `process`, `crypto`, `ffi`, and `async`, with stdlib wrappers in
 `std/time.ax`, `std/env.ax`, `std/fs.ax`, `std/net.ax`, `std/process.ax`,
 `std/crypto_hash.ax`, and `std/crypto_mac.ax`. Additional ungated or
 shared-capability wrappers live in
@@ -153,7 +161,8 @@ expectations.
 
 - `stage1/crates/axiomc/`: Rust compiler, CLI, manifest, diagnostics, HIR/MIR,
   stdlib, direct-native backend, and the generated-Rust compatibility backend.
-  Removing generated Rust from the supported toolchain is tracked by #1191.
+  Historical issue #1191 removed generated Rust from the supported CLI surface;
+  deleting the remaining internal compatibility source is separate Rust-exit work.
 - `stage1/examples/`: checked-in package examples for language, package,
   workspace, stdlib, and capability behavior.
 - `stage1/conformance/`: Rust-run pass/fail conformance fixtures.

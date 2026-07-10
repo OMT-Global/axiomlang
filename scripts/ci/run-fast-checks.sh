@@ -57,6 +57,10 @@ bash "$script_repo_root/scripts/ci/test-check-python-exit-docs.sh"
 bash "$script_repo_root/scripts/ci/test-check-python-exit-readiness.sh"
 bash "$script_repo_root/scripts/ci/test-check-rust-exit-readiness.sh"
 bash "$script_repo_root/scripts/ci/test-check-self-hosting-language-readiness.sh"
+python3 "$script_repo_root/scripts/ci/check-capability-ledger.py" \
+  --checkout-root "$repo_root" --check-docs --json >/dev/null
+bash "$script_repo_root/scripts/ci/test-check-capability-ledger.sh"
+cargo test --manifest-path "$repo_root/stage1/Cargo.toml" -p axiomc --test capability_ledger
 python3 "$script_repo_root/scripts/ci/check-production-language-readiness.py" \
   --manifest "$repo_root/docs/production-language-readiness.json" \
   --doc "$repo_root/docs/production-language-roadmap.md" \

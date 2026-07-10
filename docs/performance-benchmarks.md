@@ -1,5 +1,7 @@
 # Performance Benchmarks
 
+<!-- capability-ledger:v1 commands=28 stdlib_modules=34 stdlib_functions=299 capabilities=9 backend=cranelift -->
+
 The first benchmark harness is `axiomc bench`. It discovers `*_bench.ax` files,
 runs warmup iterations, runs measured iterations, and emits median and p95 wall
 time statistics.
@@ -86,9 +88,10 @@ The parser timing is backed by `axiomc parse`, a parse-only command that validat
 the primary package entrypoint and emits the same machine-readable stage1 JSON
 contract shape as the other compiler commands.
 
-## Cranelift spike fixture
+## Cranelift evidence
 
 The first direct-object backend slice records an advisory hello-world baseline at
-`stage1/benchmarks/cranelift-hello-baseline.json`. It is intentionally separate
-from the generated-Rust regression baselines because `--backend cranelift` only
-supports `stage1/examples/hello` in #691 and is not yet a broad native backend.
+`stage1/benchmarks/cranelift-hello-baseline.json`. Cranelift is now the supported
+CLI backend, but benchmark availability is not production qualification. The
+capability ledger keeps the backend at `direct_runtime` / `partial`, while the
+runtime-ABI contract records the narrower implemented shapes.

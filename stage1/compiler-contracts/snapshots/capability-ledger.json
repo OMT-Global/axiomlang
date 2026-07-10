@@ -1,0 +1,1682 @@
+{
+  "backends": [
+    {
+      "evidenceTier": "direct_runtime",
+      "name": "cranelift",
+      "source": "stage1/crates/axiomc/src/codegen.rs",
+      "status": "partial"
+    },
+    {
+      "evidenceTier": "unsupported",
+      "name": "generated-rust",
+      "source": "stage1/crates/axiomc/src/codegen.rs",
+      "status": "internal-only"
+    }
+  ],
+  "capabilities": [
+    {
+      "evidenceTier": "static_spike",
+      "name": "fs",
+      "source": "stage1/crates/axiomc/src/manifest.rs",
+      "status": "partial"
+    },
+    {
+      "evidenceTier": "static_spike",
+      "name": "fs:write",
+      "source": "stage1/crates/axiomc/src/manifest.rs",
+      "status": "partial"
+    },
+    {
+      "evidenceTier": "static_spike",
+      "name": "net",
+      "source": "stage1/crates/axiomc/src/manifest.rs",
+      "status": "partial"
+    },
+    {
+      "evidenceTier": "static_spike",
+      "name": "process",
+      "source": "stage1/crates/axiomc/src/manifest.rs",
+      "status": "partial"
+    },
+    {
+      "evidenceTier": "static_spike",
+      "name": "env",
+      "source": "stage1/crates/axiomc/src/manifest.rs",
+      "status": "partial"
+    },
+    {
+      "evidenceTier": "static_spike",
+      "name": "clock",
+      "source": "stage1/crates/axiomc/src/manifest.rs",
+      "status": "partial"
+    },
+    {
+      "evidenceTier": "static_spike",
+      "name": "crypto",
+      "source": "stage1/crates/axiomc/src/manifest.rs",
+      "status": "partial"
+    },
+    {
+      "evidenceTier": "static_spike",
+      "name": "ffi",
+      "source": "stage1/crates/axiomc/src/manifest.rs",
+      "status": "partial"
+    },
+    {
+      "evidenceTier": "static_spike",
+      "name": "async",
+      "source": "stage1/crates/axiomc/src/manifest.rs",
+      "status": "partial"
+    }
+  ],
+  "commands": [
+    {
+      "evidenceTier": "static_spike",
+      "name": "bench",
+      "source": "stage1/crates/axiomc/src/main.rs",
+      "status": "implemented"
+    },
+    {
+      "evidenceTier": "static_spike",
+      "name": "build",
+      "source": "stage1/crates/axiomc/src/main.rs",
+      "status": "implemented"
+    },
+    {
+      "evidenceTier": "static_spike",
+      "name": "caps",
+      "source": "stage1/crates/axiomc/src/main.rs",
+      "status": "implemented"
+    },
+    {
+      "evidenceTier": "static_spike",
+      "name": "check",
+      "source": "stage1/crates/axiomc/src/main.rs",
+      "status": "implemented"
+    },
+    {
+      "evidenceTier": "scaffold",
+      "name": "dap",
+      "source": "stage1/crates/axiomc/src/main.rs",
+      "status": "implemented"
+    },
+    {
+      "evidenceTier": "static_spike",
+      "name": "doc",
+      "source": "stage1/crates/axiomc/src/main.rs",
+      "status": "implemented"
+    },
+    {
+      "evidenceTier": "static_spike",
+      "name": "doctor",
+      "source": "stage1/crates/axiomc/src/main.rs",
+      "status": "implemented"
+    },
+    {
+      "evidenceTier": "static_spike",
+      "name": "evidence",
+      "source": "stage1/crates/axiomc/src/main.rs",
+      "status": "implemented"
+    },
+    {
+      "evidenceTier": "static_spike",
+      "name": "explain",
+      "source": "stage1/crates/axiomc/src/main.rs",
+      "status": "implemented"
+    },
+    {
+      "evidenceTier": "static_spike",
+      "name": "fmt",
+      "source": "stage1/crates/axiomc/src/main.rs",
+      "status": "implemented"
+    },
+    {
+      "evidenceTier": "static_spike",
+      "name": "generate",
+      "source": "stage1/crates/axiomc/src/main.rs",
+      "status": "implemented"
+    },
+    {
+      "evidenceTier": "static_spike",
+      "name": "inspect",
+      "source": "stage1/crates/axiomc/src/main.rs",
+      "status": "implemented"
+    },
+    {
+      "evidenceTier": "scaffold",
+      "name": "lsp",
+      "source": "stage1/crates/axiomc/src/main.rs",
+      "status": "implemented"
+    },
+    {
+      "evidenceTier": "static_spike",
+      "name": "mutation-report",
+      "source": "stage1/crates/axiomc/src/main.rs",
+      "status": "implemented"
+    },
+    {
+      "evidenceTier": "static_spike",
+      "name": "new",
+      "source": "stage1/crates/axiomc/src/main.rs",
+      "status": "implemented"
+    },
+    {
+      "evidenceTier": "static_spike",
+      "name": "parse",
+      "source": "stage1/crates/axiomc/src/main.rs",
+      "status": "implemented"
+    },
+    {
+      "evidenceTier": "static_spike",
+      "name": "pkg",
+      "source": "stage1/crates/axiomc/src/main.rs",
+      "status": "implemented"
+    },
+    {
+      "evidenceTier": "static_spike",
+      "name": "publish",
+      "source": "stage1/crates/axiomc/src/main.rs",
+      "status": "implemented"
+    },
+    {
+      "evidenceTier": "static_spike",
+      "name": "registry-index",
+      "source": "stage1/crates/axiomc/src/main.rs",
+      "status": "implemented"
+    },
+    {
+      "evidenceTier": "static_spike",
+      "name": "registry-serve",
+      "source": "stage1/crates/axiomc/src/main.rs",
+      "status": "implemented"
+    },
+    {
+      "evidenceTier": "static_spike",
+      "name": "registry-validate",
+      "source": "stage1/crates/axiomc/src/main.rs",
+      "status": "implemented"
+    },
+    {
+      "evidenceTier": "static_spike",
+      "name": "repair-plan",
+      "source": "stage1/crates/axiomc/src/main.rs",
+      "status": "implemented"
+    },
+    {
+      "evidenceTier": "static_spike",
+      "name": "repl",
+      "source": "stage1/crates/axiomc/src/main.rs",
+      "status": "implemented"
+    },
+    {
+      "evidenceTier": "static_spike",
+      "name": "run",
+      "source": "stage1/crates/axiomc/src/main.rs",
+      "status": "implemented"
+    },
+    {
+      "evidenceTier": "static_spike",
+      "name": "semantic-diff",
+      "source": "stage1/crates/axiomc/src/main.rs",
+      "status": "implemented"
+    },
+    {
+      "evidenceTier": "static_spike",
+      "name": "test",
+      "source": "stage1/crates/axiomc/src/main.rs",
+      "status": "implemented"
+    },
+    {
+      "evidenceTier": "static_spike",
+      "name": "trace",
+      "source": "stage1/crates/axiomc/src/main.rs",
+      "status": "implemented"
+    },
+    {
+      "evidenceTier": "static_spike",
+      "name": "verify",
+      "source": "stage1/crates/axiomc/src/main.rs",
+      "status": "implemented"
+    }
+  ],
+  "generatedFrom": [
+    "stage1/crates/axiomc/src/main.rs",
+    "stage1/crates/axiomc/src/syntax.rs",
+    "stage1/crates/axiomc/src/stdlib.rs",
+    "stage1/crates/axiomc/src/manifest.rs",
+    "stage1/crates/axiomc/src/codegen.rs",
+    "stage1/crates/axiomc/src/project.rs",
+    "stage1/crates/axiomc/src/registry.rs",
+    "stage1/runtime-abi/direct-native-v0.json",
+    "stage1/schemas",
+    "stage1/compiler-contracts/schemas"
+  ],
+  "governingIssue": 1435,
+  "historicalEvidence": [
+    {
+      "issues": [
+        216,
+        217,
+        218,
+        219,
+        220,
+        221,
+        222,
+        223,
+        224,
+        225,
+        226,
+        232,
+        233,
+        234,
+        236,
+        237,
+        238,
+        239,
+        240
+      ],
+      "note": "Issue state is historical evidence only; current support is classified by compiler-owned surfaces and executable evidence."
+    }
+  ],
+  "language": {
+    "expressionForms": [
+      {
+        "evidenceTier": "static_spike",
+        "name": "array-literal",
+        "source": "stage1/crates/axiomc/src/syntax.rs",
+        "status": "partial"
+      },
+      {
+        "evidenceTier": "static_spike",
+        "name": "await",
+        "source": "stage1/crates/axiomc/src/syntax.rs",
+        "status": "partial"
+      },
+      {
+        "evidenceTier": "static_spike",
+        "name": "binary-add",
+        "source": "stage1/crates/axiomc/src/syntax.rs",
+        "status": "partial"
+      },
+      {
+        "evidenceTier": "static_spike",
+        "name": "binary-compare",
+        "source": "stage1/crates/axiomc/src/syntax.rs",
+        "status": "partial"
+      },
+      {
+        "evidenceTier": "static_spike",
+        "name": "binary-logic",
+        "source": "stage1/crates/axiomc/src/syntax.rs",
+        "status": "partial"
+      },
+      {
+        "evidenceTier": "static_spike",
+        "name": "call",
+        "source": "stage1/crates/axiomc/src/syntax.rs",
+        "status": "partial"
+      },
+      {
+        "evidenceTier": "static_spike",
+        "name": "cast",
+        "source": "stage1/crates/axiomc/src/syntax.rs",
+        "status": "partial"
+      },
+      {
+        "evidenceTier": "static_spike",
+        "name": "closure",
+        "source": "stage1/crates/axiomc/src/syntax.rs",
+        "status": "partial"
+      },
+      {
+        "evidenceTier": "static_spike",
+        "name": "deref",
+        "source": "stage1/crates/axiomc/src/syntax.rs",
+        "status": "partial"
+      },
+      {
+        "evidenceTier": "static_spike",
+        "name": "field-access",
+        "source": "stage1/crates/axiomc/src/syntax.rs",
+        "status": "partial"
+      },
+      {
+        "evidenceTier": "static_spike",
+        "name": "index",
+        "source": "stage1/crates/axiomc/src/syntax.rs",
+        "status": "partial"
+      },
+      {
+        "evidenceTier": "static_spike",
+        "name": "literal",
+        "source": "stage1/crates/axiomc/src/syntax.rs",
+        "status": "partial"
+      },
+      {
+        "evidenceTier": "static_spike",
+        "name": "map-literal",
+        "source": "stage1/crates/axiomc/src/syntax.rs",
+        "status": "partial"
+      },
+      {
+        "evidenceTier": "static_spike",
+        "name": "match",
+        "source": "stage1/crates/axiomc/src/syntax.rs",
+        "status": "partial"
+      },
+      {
+        "evidenceTier": "static_spike",
+        "name": "method-call",
+        "source": "stage1/crates/axiomc/src/syntax.rs",
+        "status": "partial"
+      },
+      {
+        "evidenceTier": "static_spike",
+        "name": "mut-borrow",
+        "source": "stage1/crates/axiomc/src/syntax.rs",
+        "status": "partial"
+      },
+      {
+        "evidenceTier": "static_spike",
+        "name": "slice",
+        "source": "stage1/crates/axiomc/src/syntax.rs",
+        "status": "partial"
+      },
+      {
+        "evidenceTier": "static_spike",
+        "name": "struct-literal",
+        "source": "stage1/crates/axiomc/src/syntax.rs",
+        "status": "partial"
+      },
+      {
+        "evidenceTier": "static_spike",
+        "name": "try",
+        "source": "stage1/crates/axiomc/src/syntax.rs",
+        "status": "partial"
+      },
+      {
+        "evidenceTier": "static_spike",
+        "name": "tuple-index",
+        "source": "stage1/crates/axiomc/src/syntax.rs",
+        "status": "partial"
+      },
+      {
+        "evidenceTier": "static_spike",
+        "name": "tuple-literal",
+        "source": "stage1/crates/axiomc/src/syntax.rs",
+        "status": "partial"
+      },
+      {
+        "evidenceTier": "static_spike",
+        "name": "var-ref",
+        "source": "stage1/crates/axiomc/src/syntax.rs",
+        "status": "partial"
+      }
+    ],
+    "statementForms": [
+      {
+        "evidenceTier": "static_spike",
+        "name": "assign",
+        "source": "stage1/crates/axiomc/src/syntax.rs",
+        "status": "partial"
+      },
+      {
+        "evidenceTier": "static_spike",
+        "name": "defer",
+        "source": "stage1/crates/axiomc/src/syntax.rs",
+        "status": "partial"
+      },
+      {
+        "evidenceTier": "static_spike",
+        "name": "if",
+        "source": "stage1/crates/axiomc/src/syntax.rs",
+        "status": "partial"
+      },
+      {
+        "evidenceTier": "static_spike",
+        "name": "if-let",
+        "source": "stage1/crates/axiomc/src/syntax.rs",
+        "status": "partial"
+      },
+      {
+        "evidenceTier": "static_spike",
+        "name": "let",
+        "source": "stage1/crates/axiomc/src/syntax.rs",
+        "status": "partial"
+      },
+      {
+        "evidenceTier": "static_spike",
+        "name": "match",
+        "source": "stage1/crates/axiomc/src/syntax.rs",
+        "status": "partial"
+      },
+      {
+        "evidenceTier": "static_spike",
+        "name": "panic",
+        "source": "stage1/crates/axiomc/src/syntax.rs",
+        "status": "partial"
+      },
+      {
+        "evidenceTier": "static_spike",
+        "name": "print",
+        "source": "stage1/crates/axiomc/src/syntax.rs",
+        "status": "partial"
+      },
+      {
+        "evidenceTier": "static_spike",
+        "name": "return",
+        "source": "stage1/crates/axiomc/src/syntax.rs",
+        "status": "partial"
+      },
+      {
+        "evidenceTier": "static_spike",
+        "name": "while",
+        "source": "stage1/crates/axiomc/src/syntax.rs",
+        "status": "partial"
+      }
+    ],
+    "types": [
+      {
+        "evidenceTier": "static_spike",
+        "name": "array",
+        "source": "stage1/crates/axiomc/src/syntax.rs",
+        "status": "partial"
+      },
+      {
+        "evidenceTier": "static_spike",
+        "name": "bool",
+        "source": "stage1/crates/axiomc/src/syntax.rs",
+        "status": "partial"
+      },
+      {
+        "evidenceTier": "static_spike",
+        "name": "fn",
+        "source": "stage1/crates/axiomc/src/syntax.rs",
+        "status": "partial"
+      },
+      {
+        "evidenceTier": "static_spike",
+        "name": "int",
+        "source": "stage1/crates/axiomc/src/syntax.rs",
+        "status": "partial"
+      },
+      {
+        "evidenceTier": "static_spike",
+        "name": "lifetime-mut-slice",
+        "source": "stage1/crates/axiomc/src/syntax.rs",
+        "status": "partial"
+      },
+      {
+        "evidenceTier": "static_spike",
+        "name": "lifetime-slice",
+        "source": "stage1/crates/axiomc/src/syntax.rs",
+        "status": "partial"
+      },
+      {
+        "evidenceTier": "static_spike",
+        "name": "map",
+        "source": "stage1/crates/axiomc/src/syntax.rs",
+        "status": "partial"
+      },
+      {
+        "evidenceTier": "static_spike",
+        "name": "mut-ptr",
+        "source": "stage1/crates/axiomc/src/syntax.rs",
+        "status": "partial"
+      },
+      {
+        "evidenceTier": "static_spike",
+        "name": "mut-ref",
+        "source": "stage1/crates/axiomc/src/syntax.rs",
+        "status": "partial"
+      },
+      {
+        "evidenceTier": "static_spike",
+        "name": "mut-slice",
+        "source": "stage1/crates/axiomc/src/syntax.rs",
+        "status": "partial"
+      },
+      {
+        "evidenceTier": "static_spike",
+        "name": "named",
+        "source": "stage1/crates/axiomc/src/syntax.rs",
+        "status": "partial"
+      },
+      {
+        "evidenceTier": "static_spike",
+        "name": "numeric",
+        "source": "stage1/crates/axiomc/src/syntax.rs",
+        "status": "partial"
+      },
+      {
+        "evidenceTier": "static_spike",
+        "name": "option",
+        "source": "stage1/crates/axiomc/src/syntax.rs",
+        "status": "partial"
+      },
+      {
+        "evidenceTier": "static_spike",
+        "name": "ptr",
+        "source": "stage1/crates/axiomc/src/syntax.rs",
+        "status": "partial"
+      },
+      {
+        "evidenceTier": "static_spike",
+        "name": "result",
+        "source": "stage1/crates/axiomc/src/syntax.rs",
+        "status": "partial"
+      },
+      {
+        "evidenceTier": "static_spike",
+        "name": "slice",
+        "source": "stage1/crates/axiomc/src/syntax.rs",
+        "status": "partial"
+      },
+      {
+        "evidenceTier": "static_spike",
+        "name": "str",
+        "source": "stage1/crates/axiomc/src/syntax.rs",
+        "status": "partial"
+      },
+      {
+        "evidenceTier": "static_spike",
+        "name": "string",
+        "source": "stage1/crates/axiomc/src/syntax.rs",
+        "status": "partial"
+      },
+      {
+        "evidenceTier": "static_spike",
+        "name": "tuple",
+        "source": "stage1/crates/axiomc/src/syntax.rs",
+        "status": "partial"
+      }
+    ]
+  },
+  "packages": [
+    {
+      "evidenceTier": "static_spike",
+      "name": "local-package",
+      "source": "stage1/crates/axiomc/src/manifest.rs",
+      "status": "implemented"
+    },
+    {
+      "evidenceTier": "static_spike",
+      "name": "local-path-dependency",
+      "source": "stage1/crates/axiomc/src/manifest.rs",
+      "status": "implemented"
+    },
+    {
+      "evidenceTier": "static_spike",
+      "name": "workspace",
+      "source": "stage1/crates/axiomc/src/manifest.rs",
+      "status": "implemented"
+    },
+    {
+      "evidenceTier": "static_spike",
+      "name": "registry-publication",
+      "source": "stage1/crates/axiomc/src/registry.rs",
+      "status": "partial"
+    },
+    {
+      "evidenceTier": "unsupported",
+      "name": "remote-registry-resolution",
+      "source": "stage1/crates/axiomc/src/registry.rs",
+      "status": "unsupported"
+    }
+  ],
+  "runtimeAbi": [
+    {
+      "evidenceTier": "static_spike",
+      "name": "array.fixed",
+      "source": "stage1/runtime-abi/direct-native-v0.json",
+      "status": "implemented"
+    },
+    {
+      "evidenceTier": "static_spike",
+      "name": "async.runtime",
+      "source": "stage1/runtime-abi/direct-native-v0.json",
+      "status": "implemented"
+    },
+    {
+      "evidenceTier": "static_spike",
+      "name": "boolean",
+      "source": "stage1/runtime-abi/direct-native-v0.json",
+      "status": "implemented"
+    },
+    {
+      "evidenceTier": "static_spike",
+      "name": "clock.now_sleep",
+      "source": "stage1/runtime-abi/direct-native-v0.json",
+      "status": "implemented"
+    },
+    {
+      "evidenceTier": "static_spike",
+      "name": "crypto.aead",
+      "source": "stage1/runtime-abi/direct-native-v0.json",
+      "status": "implemented"
+    },
+    {
+      "evidenceTier": "static_spike",
+      "name": "crypto.hash",
+      "source": "stage1/runtime-abi/direct-native-v0.json",
+      "status": "implemented"
+    },
+    {
+      "evidenceTier": "static_spike",
+      "name": "crypto.mac",
+      "source": "stage1/runtime-abi/direct-native-v0.json",
+      "status": "implemented"
+    },
+    {
+      "evidenceTier": "static_spike",
+      "name": "crypto.random",
+      "source": "stage1/runtime-abi/direct-native-v0.json",
+      "status": "implemented"
+    },
+    {
+      "evidenceTier": "static_spike",
+      "name": "crypto.signature",
+      "source": "stage1/runtime-abi/direct-native-v0.json",
+      "status": "implemented"
+    },
+    {
+      "evidenceTier": "static_spike",
+      "name": "enum.payload",
+      "source": "stage1/runtime-abi/direct-native-v0.json",
+      "status": "implemented"
+    },
+    {
+      "evidenceTier": "static_spike",
+      "name": "env.read",
+      "source": "stage1/runtime-abi/direct-native-v0.json",
+      "status": "implemented"
+    },
+    {
+      "evidenceTier": "static_spike",
+      "name": "ffi.call",
+      "source": "stage1/runtime-abi/direct-native-v0.json",
+      "status": "implemented"
+    },
+    {
+      "evidenceTier": "static_spike",
+      "name": "fs.read",
+      "source": "stage1/runtime-abi/direct-native-v0.json",
+      "status": "implemented"
+    },
+    {
+      "evidenceTier": "static_spike",
+      "name": "fs.write",
+      "source": "stage1/runtime-abi/direct-native-v0.json",
+      "status": "implemented"
+    },
+    {
+      "evidenceTier": "static_spike",
+      "name": "io.logging_stdio",
+      "source": "stage1/runtime-abi/direct-native-v0.json",
+      "status": "implemented"
+    },
+    {
+      "evidenceTier": "static_spike",
+      "name": "json.serdes",
+      "source": "stage1/runtime-abi/direct-native-v0.json",
+      "status": "implemented"
+    },
+    {
+      "evidenceTier": "static_spike",
+      "name": "map.lookup",
+      "source": "stage1/runtime-abi/direct-native-v0.json",
+      "status": "implemented"
+    },
+    {
+      "evidenceTier": "static_spike",
+      "name": "network.dns.resolve",
+      "source": "stage1/runtime-abi/direct-native-v0.json",
+      "status": "implemented"
+    },
+    {
+      "evidenceTier": "static_spike",
+      "name": "network.http.async_server",
+      "source": "stage1/runtime-abi/direct-native-v0.json",
+      "status": "implemented"
+    },
+    {
+      "evidenceTier": "static_spike",
+      "name": "network.http.client",
+      "source": "stage1/runtime-abi/direct-native-v0.json",
+      "status": "implemented"
+    },
+    {
+      "evidenceTier": "static_spike",
+      "name": "network.http.server",
+      "source": "stage1/runtime-abi/direct-native-v0.json",
+      "status": "implemented"
+    },
+    {
+      "evidenceTier": "static_spike",
+      "name": "network.tcp",
+      "source": "stage1/runtime-abi/direct-native-v0.json",
+      "status": "implemented"
+    },
+    {
+      "evidenceTier": "static_spike",
+      "name": "network.udp",
+      "source": "stage1/runtime-abi/direct-native-v0.json",
+      "status": "implemented"
+    },
+    {
+      "evidenceTier": "static_spike",
+      "name": "numeric.scalars",
+      "source": "stage1/runtime-abi/direct-native-v0.json",
+      "status": "implemented"
+    },
+    {
+      "evidenceTier": "static_spike",
+      "name": "option",
+      "source": "stage1/runtime-abi/direct-native-v0.json",
+      "status": "implemented"
+    },
+    {
+      "evidenceTier": "static_spike",
+      "name": "owned.move_state",
+      "source": "stage1/runtime-abi/direct-native-v0.json",
+      "status": "implemented"
+    },
+    {
+      "evidenceTier": "static_spike",
+      "name": "process.status",
+      "source": "stage1/runtime-abi/direct-native-v0.json",
+      "status": "implemented"
+    },
+    {
+      "evidenceTier": "static_spike",
+      "name": "regex.match_replace",
+      "source": "stage1/runtime-abi/direct-native-v0.json",
+      "status": "implemented"
+    },
+    {
+      "evidenceTier": "static_spike",
+      "name": "result",
+      "source": "stage1/runtime-abi/direct-native-v0.json",
+      "status": "implemented"
+    },
+    {
+      "evidenceTier": "static_spike",
+      "name": "slice.borrowed",
+      "source": "stage1/runtime-abi/direct-native-v0.json",
+      "status": "implemented"
+    },
+    {
+      "evidenceTier": "static_spike",
+      "name": "string",
+      "source": "stage1/runtime-abi/direct-native-v0.json",
+      "status": "implemented"
+    },
+    {
+      "evidenceTier": "static_spike",
+      "name": "struct.field",
+      "source": "stage1/runtime-abi/direct-native-v0.json",
+      "status": "implemented"
+    },
+    {
+      "evidenceTier": "static_spike",
+      "name": "sync.primitives",
+      "source": "stage1/runtime-abi/direct-native-v0.json",
+      "status": "implemented"
+    },
+    {
+      "evidenceTier": "static_spike",
+      "name": "tuple",
+      "source": "stage1/runtime-abi/direct-native-v0.json",
+      "status": "implemented"
+    }
+  ],
+  "schemaVersion": "axiom.capability_ledger.v1",
+  "schemas": [
+    {
+      "evidenceTier": "static_spike",
+      "name": "https://axiomlang.dev/schemas/axiom-artifacts-v0.schema.json",
+      "source": "stage1/schemas/axiom-artifacts-v0.schema.json",
+      "status": "checked"
+    },
+    {
+      "evidenceTier": "static_spike",
+      "name": "axiom.capability_ledger.v1",
+      "source": "stage1/schemas/axiom-capability-ledger-v1.schema.json",
+      "status": "checked"
+    },
+    {
+      "evidenceTier": "static_spike",
+      "name": "https://axiom.omt.global/schemas/axiom-decision-record-v0.schema.json",
+      "source": "stage1/schemas/axiom-decision-record-v0.schema.json",
+      "status": "checked"
+    },
+    {
+      "evidenceTier": "static_spike",
+      "name": "https://axiom.omt.global/schemas/axiom-doc-v0.schema.json",
+      "source": "stage1/schemas/axiom-doc-v0.schema.json",
+      "status": "checked"
+    },
+    {
+      "evidenceTier": "static_spike",
+      "name": "https://axiomlang.dev/schemas/axiom-effects-v0.schema.json",
+      "source": "stage1/schemas/axiom-effects-v0.schema.json",
+      "status": "checked"
+    },
+    {
+      "evidenceTier": "static_spike",
+      "name": "https://axiomlang.dev/schemas/axiom-evidence-v0.schema.json",
+      "source": "stage1/schemas/axiom-evidence-v0.schema.json",
+      "status": "checked"
+    },
+    {
+      "evidenceTier": "static_spike",
+      "name": "https://axiom.omt.global/schemas/axiom-inspect-v0.schema.json",
+      "source": "stage1/schemas/axiom-inspect-v0.schema.json",
+      "status": "checked"
+    },
+    {
+      "evidenceTier": "static_spike",
+      "name": "https://axiom-lang.dev/schemas/axiom-intent-ir-v0.schema.json",
+      "source": "stage1/schemas/axiom-intent-ir-v0.schema.json",
+      "status": "checked"
+    },
+    {
+      "evidenceTier": "static_spike",
+      "name": "https://axiomlang.dev/schemas/axiom-production-language-readiness-v1.schema.json",
+      "source": "stage1/schemas/axiom-production-language-readiness-v1.schema.json",
+      "status": "checked"
+    },
+    {
+      "evidenceTier": "static_spike",
+      "name": "https://axiom-lang.dev/schemas/axiom-provenance-v0.schema.json",
+      "source": "stage1/schemas/axiom-provenance-v0.schema.json",
+      "status": "checked"
+    },
+    {
+      "evidenceTier": "static_spike",
+      "name": "https://axiomlang.dev/schemas/axiom-repair-v0.schema.json",
+      "source": "stage1/schemas/axiom-repair-v0.schema.json",
+      "status": "checked"
+    },
+    {
+      "evidenceTier": "static_spike",
+      "name": "https://axiom.omt.global/schemas/axiom-selfhost-snapshot-manifest-v0.schema.json",
+      "source": "stage1/schemas/axiom-selfhost-snapshot-manifest-v0.schema.json",
+      "status": "checked"
+    },
+    {
+      "evidenceTier": "static_spike",
+      "name": "https://axiom.omt.global/schemas/axiom-semantic-diff-v0.schema.json",
+      "source": "stage1/schemas/axiom-semantic-diff-v0.schema.json",
+      "status": "checked"
+    },
+    {
+      "evidenceTier": "static_spike",
+      "name": "https://axiom-lang.dev/schemas/axiom-semantic-graph-v0.schema.json",
+      "source": "stage1/schemas/axiom-semantic-graph-v0.schema.json",
+      "status": "checked"
+    },
+    {
+      "evidenceTier": "static_spike",
+      "name": "https://axiom.omt.global/schemas/axiom-target-v0.schema.json",
+      "source": "stage1/schemas/axiom-target-v0.schema.json",
+      "status": "checked"
+    },
+    {
+      "evidenceTier": "static_spike",
+      "name": "https://axiom-lang.dev/schemas/axiom-trace-v0.schema.json",
+      "source": "stage1/schemas/axiom-trace-v0.schema.json",
+      "status": "checked"
+    },
+    {
+      "evidenceTier": "static_spike",
+      "name": "https://axiom.omt.global/schemas/axiom-verify-v0.schema.json",
+      "source": "stage1/schemas/axiom-verify-v0.schema.json",
+      "status": "checked"
+    },
+    {
+      "evidenceTier": "static_spike",
+      "name": "https://axiom.omt.global/schemas/axiom.stage1.v1.schema.json",
+      "source": "stage1/schemas/axiom.stage1.v1.schema.json",
+      "status": "checked"
+    },
+    {
+      "evidenceTier": "static_spike",
+      "name": "https://axiom.omt.global/schemas/axiom.toml.schema.json",
+      "source": "stage1/schemas/axiom.toml.schema.json",
+      "status": "checked"
+    },
+    {
+      "evidenceTier": "static_spike",
+      "name": "https://omt-global.github.io/axiom/schemas/axiom.compiler.command_lsp.v1.schema.json",
+      "source": "stage1/compiler-contracts/schemas/axiom.compiler.command_lsp.v1.schema.json",
+      "status": "checked"
+    },
+    {
+      "evidenceTier": "static_spike",
+      "name": "https://omt-global.github.io/axiom/schemas/axiom.compiler.diagnostics_syntax.v1.schema.json",
+      "source": "stage1/compiler-contracts/schemas/axiom.compiler.diagnostics_syntax.v1.schema.json",
+      "status": "checked"
+    },
+    {
+      "evidenceTier": "static_spike",
+      "name": "https://omt-global.github.io/axiom/schemas/axiom.compiler.hir_ownership_capability.v1.schema.json",
+      "source": "stage1/compiler-contracts/schemas/axiom.compiler.hir_ownership_capability.v1.schema.json",
+      "status": "checked"
+    },
+    {
+      "evidenceTier": "static_spike",
+      "name": "https://omt-global.github.io/axiom/schemas/axiom.compiler.mir_backend.v1.schema.json",
+      "source": "stage1/compiler-contracts/schemas/axiom.compiler.mir_backend.v1.schema.json",
+      "status": "checked"
+    },
+    {
+      "evidenceTier": "static_spike",
+      "name": "https://omt-global.github.io/axiom/schemas/axiom.compiler.package_graph.v1.schema.json",
+      "source": "stage1/compiler-contracts/schemas/axiom.compiler.package_graph.v1.schema.json",
+      "status": "checked"
+    },
+    {
+      "evidenceTier": "static_spike",
+      "name": "https://omt-global.github.io/axiom/schemas/axiom.stage1.command.schema.json",
+      "source": "stage1/compiler-contracts/schemas/axiom.stage1.command.schema.json",
+      "status": "checked"
+    }
+  ],
+  "stdlib": [
+    {
+      "capabilities": [
+        "async"
+      ],
+      "evidenceTier": "static_spike",
+      "functions": [
+        "cancel",
+        "channel",
+        "is_canceled",
+        "join",
+        "ready",
+        "recv",
+        "select",
+        "selected",
+        "selected_value",
+        "send",
+        "spawn",
+        "timeout"
+      ],
+      "module": "std/async.ax",
+      "source": "stage1/crates/axiomc/src/stdlib.rs",
+      "status": "partial"
+    },
+    {
+      "capabilities": [
+        "async",
+        "net"
+      ],
+      "evidenceTier": "static_spike",
+      "functions": [
+        "accept",
+        "close",
+        "close_listener",
+        "listen",
+        "local_port",
+        "recv_text",
+        "send_text",
+        "tcp_dial",
+        "tcp_listen_loopback_once",
+        "udp_bind_loopback_once",
+        "udp_send_recv"
+      ],
+      "module": "std/async_net.ax",
+      "source": "stage1/crates/axiomc/src/stdlib.rs",
+      "status": "partial"
+    },
+    {
+      "capabilities": [
+        "async",
+        "clock"
+      ],
+      "evidenceTier": "static_spike",
+      "functions": [
+        "sleep_duration_ms",
+        "sleep_ms"
+      ],
+      "module": "std/async_time.ax",
+      "source": "stage1/crates/axiomc/src/stdlib.rs",
+      "status": "partial"
+    },
+    {
+      "capabilities": [],
+      "evidenceTier": "static_spike",
+      "functions": [
+        "arg",
+        "arg_count",
+        "args"
+      ],
+      "module": "std/cli.ax",
+      "source": "stage1/crates/axiomc/src/stdlib.rs",
+      "status": "partial"
+    },
+    {
+      "capabilities": [],
+      "evidenceTier": "static_spike",
+      "functions": [
+        "contains",
+        "count",
+        "count_mut",
+        "get",
+        "get_or_default",
+        "has_items",
+        "is_empty",
+        "keys",
+        "skip",
+        "take",
+        "window"
+      ],
+      "module": "std/collections.ax",
+      "source": "stage1/crates/axiomc/src/stdlib.rs",
+      "status": "partial"
+    },
+    {
+      "capabilities": [
+        "crypto"
+      ],
+      "evidenceTier": "static_spike",
+      "functions": [
+        "aead_algorithm_name",
+        "aead_open",
+        "aead_seal",
+        "constant_time_eq",
+        "constant_time_eq_u8",
+        "ed25519_keygen",
+        "ed25519_sign",
+        "ed25519_verify",
+        "hmac_sha256",
+        "hmac_sha512",
+        "random_bytes",
+        "random_u64",
+        "sha256",
+        "verify_sha256",
+        "verify_sha512"
+      ],
+      "module": "std/crypto.ax",
+      "source": "stage1/crates/axiomc/src/stdlib.rs",
+      "status": "partial"
+    },
+    {
+      "capabilities": [
+        "crypto"
+      ],
+      "evidenceTier": "static_spike",
+      "functions": [
+        "aead_algorithm_name",
+        "aead_open",
+        "aead_seal"
+      ],
+      "module": "std/crypto_aead.ax",
+      "source": "stage1/crates/axiomc/src/stdlib.rs",
+      "status": "partial"
+    },
+    {
+      "capabilities": [
+        "crypto"
+      ],
+      "evidenceTier": "static_spike",
+      "functions": [
+        "sha256"
+      ],
+      "module": "std/crypto_hash.ax",
+      "source": "stage1/crates/axiomc/src/stdlib.rs",
+      "status": "partial"
+    },
+    {
+      "capabilities": [
+        "crypto"
+      ],
+      "evidenceTier": "static_spike",
+      "functions": [
+        "constant_time_eq",
+        "constant_time_eq_u8",
+        "hmac_sha256",
+        "hmac_sha512",
+        "verify_sha256",
+        "verify_sha512"
+      ],
+      "module": "std/crypto_mac.ax",
+      "source": "stage1/crates/axiomc/src/stdlib.rs",
+      "status": "partial"
+    },
+    {
+      "capabilities": [
+        "crypto"
+      ],
+      "evidenceTier": "static_spike",
+      "functions": [
+        "random_bytes",
+        "random_u64"
+      ],
+      "module": "std/crypto_rand.ax",
+      "source": "stage1/crates/axiomc/src/stdlib.rs",
+      "status": "partial"
+    },
+    {
+      "capabilities": [
+        "crypto"
+      ],
+      "evidenceTier": "static_spike",
+      "functions": [
+        "ed25519_keygen",
+        "ed25519_sign",
+        "ed25519_verify"
+      ],
+      "module": "std/crypto_sign.ax",
+      "source": "stage1/crates/axiomc/src/stdlib.rs",
+      "status": "partial"
+    },
+    {
+      "capabilities": [],
+      "evidenceTier": "scaffold",
+      "functions": [
+        "doc_examples",
+        "doc_file",
+        "doc_kind",
+        "doc_public",
+        "doc_signature",
+        "doc_text",
+        "render_html",
+        "render_html_view",
+        "render_markdown",
+        "render_markdown_view",
+        "render_source_html",
+        "render_source_markdown"
+      ],
+      "module": "std/doc.ax",
+      "source": "stage1/crates/axiomc/src/stdlib.rs",
+      "status": "scaffold"
+    },
+    {
+      "capabilities": [],
+      "evidenceTier": "static_spike",
+      "functions": [
+        "path_join_segment",
+        "path_segment_encode",
+        "query_pair_encode",
+        "url_component_decode",
+        "url_component_encode"
+      ],
+      "module": "std/encoding.ax",
+      "source": "stage1/crates/axiomc/src/stdlib.rs",
+      "status": "partial"
+    },
+    {
+      "capabilities": [
+        "env"
+      ],
+      "evidenceTier": "static_spike",
+      "functions": [
+        "get_env"
+      ],
+      "module": "std/env.ax",
+      "source": "stage1/crates/axiomc/src/stdlib.rs",
+      "status": "partial"
+    },
+    {
+      "capabilities": [
+        "fs",
+        "fs:write"
+      ],
+      "evidenceTier": "static_spike",
+      "functions": [
+        "append_file",
+        "create_file",
+        "mkdir",
+        "mkdir_all",
+        "read_file",
+        "remove_dir",
+        "remove_file",
+        "replace_file",
+        "write_file"
+      ],
+      "module": "std/fs.ax",
+      "source": "stage1/crates/axiomc/src/stdlib.rs",
+      "status": "partial"
+    },
+    {
+      "capabilities": [
+        "net"
+      ],
+      "evidenceTier": "static_spike",
+      "functions": [
+        "accept",
+        "close",
+        "fixed_route",
+        "get",
+        "header",
+        "listen",
+        "local_port",
+        "request",
+        "respond",
+        "response",
+        "route",
+        "route_response",
+        "serve",
+        "serve_once",
+        "text_response"
+      ],
+      "module": "std/http.ax",
+      "source": "stage1/crates/axiomc/src/stdlib.rs",
+      "status": "partial"
+    },
+    {
+      "capabilities": [
+        "async",
+        "net"
+      ],
+      "evidenceTier": "static_spike",
+      "functions": [
+        "async_serve_route"
+      ],
+      "module": "std/http_async.ax",
+      "source": "stage1/crates/axiomc/src/stdlib.rs",
+      "status": "partial"
+    },
+    {
+      "capabilities": [],
+      "evidenceTier": "static_spike",
+      "functions": [
+        "eprintln",
+        "read_to_string",
+        "readline"
+      ],
+      "module": "std/io.ax",
+      "source": "stage1/crates/axiomc/src/stdlib.rs",
+      "status": "partial"
+    },
+    {
+      "capabilities": [],
+      "evidenceTier": "static_spike",
+      "functions": [
+        "array1",
+        "array2",
+        "array3",
+        "field_bool",
+        "field_int",
+        "field_string",
+        "field_value",
+        "object1",
+        "object2",
+        "object3",
+        "parse_bool",
+        "parse_field_bool",
+        "parse_field_int",
+        "parse_field_string",
+        "parse_field_value",
+        "parse_int",
+        "parse_string",
+        "parse_value",
+        "schema_field_bool",
+        "schema_field_int",
+        "schema_field_string",
+        "schema_object1",
+        "schema_object2",
+        "schema_object3",
+        "stringify_bool",
+        "stringify_int",
+        "stringify_string",
+        "stringify_value",
+        "value_bool",
+        "value_int",
+        "value_object1",
+        "value_object2",
+        "value_object3",
+        "value_string"
+      ],
+      "module": "std/json.ax",
+      "source": "stage1/crates/axiomc/src/stdlib.rs",
+      "status": "partial"
+    },
+    {
+      "capabilities": [],
+      "evidenceTier": "static_spike",
+      "functions": [
+        "debug",
+        "error",
+        "event",
+        "field_bool",
+        "field_int",
+        "field_string",
+        "fields2",
+        "fields3",
+        "info",
+        "info_attrs",
+        "warn"
+      ],
+      "module": "std/log.ax",
+      "source": "stage1/crates/axiomc/src/stdlib.rs",
+      "status": "partial"
+    },
+    {
+      "capabilities": [],
+      "evidenceTier": "scaffold",
+      "functions": [
+        "completion_response",
+        "completion_response_id",
+        "content_length_header",
+        "diagnostic",
+        "did_change",
+        "did_change_text",
+        "did_change_uri",
+        "did_change_version",
+        "did_open",
+        "did_open_language_id",
+        "did_open_text",
+        "did_open_uri",
+        "did_open_version",
+        "frame_message",
+        "initialize_response",
+        "initialize_response_id",
+        "message_id",
+        "message_method",
+        "message_number_id",
+        "message_supported",
+        "message_text_id",
+        "method_completion",
+        "method_did_change",
+        "method_did_open",
+        "method_exit",
+        "method_initialize",
+        "method_initialized",
+        "method_publish_diagnostics",
+        "method_shutdown",
+        "notification",
+        "parse_message",
+        "position",
+        "publish_diagnostic",
+        "range",
+        "request",
+        "request_id_value",
+        "request_with_id",
+        "request_with_text_id",
+        "response_for_request",
+        "response_frame_for_request",
+        "shutdown_response",
+        "shutdown_response_id",
+        "supports_method"
+      ],
+      "module": "std/lsp.ax",
+      "source": "stage1/crates/axiomc/src/stdlib.rs",
+      "status": "scaffold"
+    },
+    {
+      "capabilities": [
+        "net"
+      ],
+      "evidenceTier": "static_spike",
+      "functions": [
+        "resolve",
+        "tcp_dial",
+        "tcp_listen_loopback_once",
+        "udp_bind_loopback_once",
+        "udp_send_recv"
+      ],
+      "module": "std/net.ax",
+      "source": "stage1/crates/axiomc/src/stdlib.rs",
+      "status": "partial"
+    },
+    {
+      "capabilities": [
+        "net"
+      ],
+      "evidenceTier": "static_spike",
+      "functions": [
+        "accept",
+        "close",
+        "close_listener",
+        "dial",
+        "listen",
+        "listen_loopback_once",
+        "local_port",
+        "read",
+        "read_string",
+        "write",
+        "write_string"
+      ],
+      "module": "std/net_tcp.ax",
+      "source": "stage1/crates/axiomc/src/stdlib.rs",
+      "status": "partial"
+    },
+    {
+      "capabilities": [
+        "net"
+      ],
+      "evidenceTier": "static_spike",
+      "functions": [
+        "bind",
+        "bind_loopback_once",
+        "close",
+        "local_addr",
+        "local_port",
+        "recv_from",
+        "send_recv",
+        "send_to"
+      ],
+      "module": "std/net_udp.ax",
+      "source": "stage1/crates/axiomc/src/stdlib.rs",
+      "status": "partial"
+    },
+    {
+      "capabilities": [],
+      "evidenceTier": "static_spike",
+      "functions": [
+        "option_is_none",
+        "option_is_some",
+        "option_unwrap_or",
+        "result_is_err",
+        "result_is_ok",
+        "result_unwrap_or"
+      ],
+      "module": "std/outcome.ax",
+      "source": "stage1/crates/axiomc/src/stdlib.rs",
+      "status": "partial"
+    },
+    {
+      "capabilities": [
+        "process"
+      ],
+      "evidenceTier": "static_spike",
+      "functions": [
+        "run_status"
+      ],
+      "module": "std/process.ax",
+      "source": "stage1/crates/axiomc/src/stdlib.rs",
+      "status": "partial"
+    },
+    {
+      "capabilities": [],
+      "evidenceTier": "static_spike",
+      "functions": [
+        "find",
+        "is_match",
+        "replace_all"
+      ],
+      "module": "std/regex.ax",
+      "source": "stage1/crates/axiomc/src/stdlib.rs",
+      "status": "partial"
+    },
+    {
+      "capabilities": [],
+      "evidenceTier": "static_spike",
+      "functions": [
+        "array_field",
+        "as_array",
+        "as_bool",
+        "as_float",
+        "as_int",
+        "as_object",
+        "as_text",
+        "bool_field",
+        "field",
+        "float_field",
+        "from_json",
+        "from_json_str",
+        "int_field",
+        "is_null",
+        "object_field",
+        "parse_error_message",
+        "stringify",
+        "text_field",
+        "to_json",
+        "value_item"
+      ],
+      "module": "std/serdes.ax",
+      "source": "stage1/crates/axiomc/src/stdlib.rs",
+      "status": "partial"
+    },
+    {
+      "capabilities": [],
+      "evidenceTier": "static_spike",
+      "functions": [
+        "byte_at",
+        "clone_text",
+        "contains",
+        "from_int",
+        "line_at",
+        "starts_with",
+        "strip_prefix",
+        "strip_suffix",
+        "trim",
+        "trim_start"
+      ],
+      "module": "std/string.ax",
+      "source": "stage1/crates/axiomc/src/stdlib.rs",
+      "status": "partial"
+    },
+    {
+      "capabilities": [],
+      "evidenceTier": "static_spike",
+      "functions": [
+        "builder",
+        "finish",
+        "from_string",
+        "push_line",
+        "push_str"
+      ],
+      "module": "std/string_builder.ax",
+      "source": "stage1/crates/axiomc/src/stdlib.rs",
+      "status": "partial"
+    },
+    {
+      "capabilities": [],
+      "evidenceTier": "static_spike",
+      "functions": [
+        "channel",
+        "into_inner",
+        "lock",
+        "mutex",
+        "once",
+        "once_is_set",
+        "once_take",
+        "once_with",
+        "replace",
+        "send",
+        "try_recv"
+      ],
+      "module": "std/sync.ax",
+      "source": "stage1/crates/axiomc/src/stdlib.rs",
+      "status": "partial"
+    },
+    {
+      "capabilities": [],
+      "evidenceTier": "static_spike",
+      "functions": [
+        "assert_eq",
+        "assert_eq_bool",
+        "assert_eq_int",
+        "assert_eq_string",
+        "assert_true",
+        "assert_true_case",
+        "property",
+        "snapshot",
+        "table_bool",
+        "table_int",
+        "table_string"
+      ],
+      "module": "std/testing.ax",
+      "source": "stage1/crates/axiomc/src/stdlib.rs",
+      "status": "partial"
+    },
+    {
+      "capabilities": [
+        "clock"
+      ],
+      "evidenceTier": "static_spike",
+      "functions": [
+        "duration_ms",
+        "elapsed_ms",
+        "now",
+        "now_ms",
+        "sleep"
+      ],
+      "module": "std/time.ax",
+      "source": "stage1/crates/axiomc/src/stdlib.rs",
+      "status": "partial"
+    },
+    {
+      "capabilities": [],
+      "evidenceTier": "static_spike",
+      "functions": [],
+      "module": "std/traits.ax",
+      "source": "stage1/crates/axiomc/src/stdlib.rs",
+      "status": "partial"
+    }
+  ],
+  "summary": {
+    "capabilities": 9,
+    "commands": 28,
+    "evidenceTiers": {
+      "direct_runtime": 2,
+      "production_qualified": 0,
+      "scaffold": 5,
+      "static_spike": 181,
+      "unsupported": 5
+    },
+    "runtimeAbiRows": 34,
+    "schemas": 25,
+    "stdlibFunctions": 299,
+    "stdlibModules": 34,
+    "supportedNativeBackend": "cranelift"
+  },
+  "targets": [
+    {
+      "evidenceTier": "direct_runtime",
+      "name": "host",
+      "source": "stage1/crates/axiomc/src/project.rs",
+      "status": "partial"
+    },
+    {
+      "evidenceTier": "unsupported",
+      "name": "wasm32-wasip1",
+      "source": "stage1/crates/axiomc/src/project.rs",
+      "status": "unsupported"
+    }
+  ],
+  "toolingDepth": [
+    {
+      "evidenceTier": "scaffold",
+      "name": "native-axiom-dwarf",
+      "source": "docs/stage1-debug-map.md",
+      "status": "scaffold"
+    },
+    {
+      "evidenceTier": "unsupported",
+      "name": "dynamic-trait-dispatch",
+      "source": "docs/rfcs/0003-dyn-trait-dispatch.md",
+      "status": "unsupported"
+    },
+    {
+      "evidenceTier": "unsupported",
+      "name": "general-borrow-checker",
+      "source": "stage1/crates/axiomc/src/borrowck.rs",
+      "status": "unsupported"
+    }
+  ]
+}

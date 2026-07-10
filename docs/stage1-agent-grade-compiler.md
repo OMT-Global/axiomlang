@@ -1,5 +1,7 @@
 # Stage1 Agent-Grade Compiler Plan
 
+<!-- capability-ledger:v1 commands=28 stdlib_modules=34 stdlib_functions=299 capabilities=9 backend=cranelift -->
+
 This doc is the implementation spec for turning `stage1/` into Axiom's first
 workable compiler for agent use. `docs/stage1.md` stays as the shorter status
 and slice summary; this file is the detailed execution contract for future work.
@@ -10,19 +12,11 @@ AG0 is the current entry floor and must remain intact before any downstream work
 
 - Stage1 already has a real `axiomc` CLI with `new`, `check`, `build`, `run`,
   `test`, and `caps`.
-- The supported build, run, and test command surface defaults to the
-  direct-native Cranelift backend. Generated Rust plus `rustc` remains as an
-  explicit compatibility backend while Rust-exit work continues.
-
-  Debug builds now produce a generated-Rust source map and debug manifest that
-  correlate the native binary, generated Rust, and `.ax` source hashes, but they
-  do not yet provide native `.ax` DWARF line tables.
-
-- The backend-selection seam is preparatory plumbing only; it does not yet
-  satisfy or close #105 on its own.
-  Debug builds now produce a generated-Rust source map and debug manifest that
-  correlate the native binary, generated Rust, and `.ax` source hashes, but they
-  do not yet provide native `.ax` DWARF line tables.
+- The supported build, run, and test command surface uses the direct-native
+  Cranelift backend. Generated Rust remains internal bootstrap source and is not
+  a supported CLI backend.
+- Debug manifests and source maps exist, but native `.ax` DWARF line tables
+  remain a scaffolded surface rather than production-qualified evidence.
 - The current language floor includes multi-file modules, structs, enums,
   arrays, maps, tuples, borrowed slices, `Option<T>`, `Result<T, E>`, and the
   ownership/bootstrap work captured by `stage1/examples/borrowed_shapes`.
@@ -62,7 +56,7 @@ To count as agent-grade:
 
 Not required for the agent-grade bar:
 
-- replacing generated Rust with a direct backend
+- retiring the remaining internal generated-Rust compatibility source
 - `fmt`, `bench`, `doc`, `publish`, registry publishing, or LSP
 - trait bounds, macros, higher-kinded abstractions, or user `unsafe`
 
@@ -194,33 +188,13 @@ Acceptance:
 
 Goal: provide the minimum runtime and stdlib needed for agents, workers, and small services.
 
-Status: in progress. AG4.1 has been kicked off with the synthetic stdlib
-plumbing, and every stage1 capability-gated intrinsic now has a matching
-thin-wrapper stdlib module: `std/time.ax`, `std/env.ax`, `std/fs.ax`,
-`std/net.ax`, `std/process.ax`, `std/crypto_hash.ax`, and
-`std/crypto_mac.ax`. AG4.1 now also
-includes `std/http.ax`, a blocking HTTP/1.0 client for `http://` and
-`https://` URLs on top of a new `http_get` intrinsic that shares the `net`
-capability with `std/net.ax` and demonstrates that the `std.*` surface is not
-limited to one wrapper per capability. It also includes
-`std/io.ax`, the first stdlib module not tied to a capability flag, which
-wraps a new ungated `io_eprintln` intrinsic and establishes the "ambient
-stdio" precedent alongside the existing `print` statement. `std/json.ax`
-adds ungated scalar/string JSON helpers, `std/collections.ax` adds generic
-borrowed-slice helpers on top of AG2 generic functions, `std/sync.ax` provides
-ownership-shaped synchronization values, and `std/async.ax` exposes the
-deterministic AG4.2 task/channel runtime. AG4.4 capability-aware integration
-for the currently landed stdlib/runtime surface is now complete. AG4.3 now has
-an explicit loopback HTTP service surface: `std/http.ax` exposes
-`listen`, `accept`, `route`, `respond`, `close`, `serve_once`, and bounded
-`serve`; `std/http_async.ax` adds async-gated route serving so concurrent
-requests run through task scheduling without making plain HTTP imports require
-the async capability.
-deterministic AG4.2 task/channel runtime. `std/regex.ax` adds an ungated
-generated-runtime regex floor for deterministic matching, finding, and
-replacement. AG4.4 capability-aware integration
-for the currently landed stdlib/runtime surface is now complete; AG4.3 HTTP
-*server* support remains open.
+Status: the compiler owns 34 stdlib modules with 299 exported functions, and
+all 9 manifest capability kinds are compiler-recognized static surfaces. This
+is a partial service-grade surface rather than production closure: HTTP is
+loopback/bounded, filesystem and network paths are policy-constrained, async
+I/O covers specific owned-value shapes, and no capability-ledger row is yet
+production-qualified. The checked ledger and runtime-ABI contract supersede
+older landed/open prose for current support claims.
 
 Work packages:
 
@@ -315,7 +289,7 @@ Work packages:
     `http_serve_route` intrinsics. `std/http_async.ax` exposes
     `async_serve_route(server, path, body, max_requests): Task<bool>` behind
     the async capability. The client path implements a blocking
-    HTTP/1.0 fetch for `http://` and `https://` URLs in the generated Rust
+    HTTP/1.0 fetch for `http://` and `https://` URLs in the direct-native
     runtime; TLS failures return `None` and emit a structured `net`
     diagnostic. The server path is intentionally narrow: it accepts only
     loopback bind addresses, serves plain-text HTTP/1.0 responses, and exits
@@ -427,7 +401,8 @@ Agent-grade closure bar:
 ## Public interfaces and contracts
 
 - Manifest contract remains `axiom.toml` plus `axiom.lock`.
-- The agent-grade milestone does not promise a direct native backend.
+- The direct-native backend is the supported CLI backend, with runtime breadth
+  classified per capability-ledger and runtime-ABI row.
 - `axiomc test` is part of the required public surface before AG5 closes.
 - JSON diagnostics on `check`, `build`, `test`, and `caps` are part of the public contract at AG5.
 
@@ -450,6 +425,6 @@ Agent-grade closure bar:
 
 After AG5 closes, the next compiler track is:
 
-- replace generated-Rust codegen with a direct native backend
-- add `fmt`, `bench`, `doc`, `publish`, and LSP
+- finish retiring internal generated-Rust compatibility source
+- deepen `fmt`, `bench`, `doc`, `publish`, and LSP beyond their current ledger tiers
 - keep benchmark gates against simple Go and Rust references green
