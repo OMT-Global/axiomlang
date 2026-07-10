@@ -17,6 +17,9 @@ For issue-level roadmap disposition, current execution scope, and deferred
 ecosystem work, see the [Roadmap Status Ledger](roadmap-status.md).
 For agent-native semantic-layer canonical issues and duplicate handling, see
 the [Agent-Native Roadmap Ledger](roadmap-agent-native-ledger.md).
+For the dependency-ordered path to production CLI, worker, HTTP service, and
+self-hosted compiler workloads, see the
+[Production Language Roadmap](production-language-roadmap.md).
 
 The Python `stage0` interpreter and bytecode VM are retired as supported
 implementation surfaces; see
@@ -39,15 +42,22 @@ implementation surfaces; see
 - Agent-facing semantic declarations, inspection, evidence, verification,
   repair plans, provenance, semantic diff, decision records, target contracts,
   and OpenAPI/policy/SQL/OpenTofu/runbook generators.
-- Direct-native runtime ABI and Rust-exit command-surface readiness for user
-  programs; generated Rust is no longer a supported CLI backend.
+- Direct-native object emission and Rust-exit command-surface structure for
+  user programs; generated Rust is no longer a supported CLI backend. Runtime
+  truth beyond the supported native lowering subset remains gated by #1434.
 
 ## Current Focus
 
-- Complete host exit rather than redoing backend exit: decompose the Rust
-  compiler (#1254), close the compiler-workload language/ABI gaps (#1425 and
-  #1426), prove a compiler-scale AxiOM package and command surface (#1427), and
-  prove the Cargo-free snapshot chain (#1428) before the final #721 decision.
+- Restore runtime truth first: prohibit effectful compile-time replay and fail
+  closed on unsupported native lowering (#1434), define executable MIR (#1437),
+  and establish the runtime lifecycle ABI (#1438).
+- Execute the [Production Language Roadmap](production-language-roadmap.md)
+  (#1432) in dependency waves from runtime values and ownership through serious
+  CLI/worker/service capabilities, productized tooling, and final workloads.
+- Complete host exit after the production foundation: close the
+  compiler-workload gaps (#1425-#1427), migrate compiler source packages in
+  AxiOM (#1468-#1475 and #1478-#1479), prove the Cargo-free snapshot chain
+  (#1428), and reserve the final #721 decision for the exact release candidate.
 - Emit complete Intent IR for real packages (#1418) so the semantic APIs share
   one canonical graph rather than partial, command-specific views.
 - Advance the [Autonomous Agent Execution Roadmap](autonomous-agent-roadmap.md)
@@ -58,9 +68,9 @@ implementation surfaces; see
 
 ## Longer-Term Work
 
-- Additional native targets and production-grade async/I/O runtime surfaces.
-- Hosted registry and ecosystem services after local package, trust, and
-  provenance contracts remain stable under real use.
+- Additional native targets beyond Linux x86-64 and macOS arm64 after #1455.
+- Hosted registry service ergonomics after trusted resolution, signatures,
+  lockfiles, and vendoring are qualified by #1458 and #1459.
 - Richer semantic generators and verifiers driven from complete Intent IR.
 - Policy-scoped unattended maintenance across multiple packages and
   repositories after the single-repository autonomy evaluation gate is green.

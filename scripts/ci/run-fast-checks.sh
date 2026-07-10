@@ -57,6 +57,12 @@ bash "$script_repo_root/scripts/ci/test-check-python-exit-docs.sh"
 bash "$script_repo_root/scripts/ci/test-check-python-exit-readiness.sh"
 bash "$script_repo_root/scripts/ci/test-check-rust-exit-readiness.sh"
 bash "$script_repo_root/scripts/ci/test-check-self-hosting-language-readiness.sh"
+python3 "$script_repo_root/scripts/ci/check-production-language-readiness.py" \
+  --manifest "$repo_root/docs/production-language-readiness.json" \
+  --doc "$repo_root/docs/production-language-roadmap.md" \
+  --schema-file "$repo_root/stage1/schemas/axiom-production-language-readiness-v1.schema.json" \
+  --json --validate-only >/dev/null
+bash "$script_repo_root/scripts/ci/test-check-production-language-readiness.sh"
 bash "$script_repo_root/scripts/ci/test-check-direct-native-runtime-abi.sh"
 bash "$script_repo_root/scripts/ci/test-check-package-graph-boundary.sh"
 bash "$script_repo_root/scripts/ci/test-check-diagnostics-syntax-boundary.sh"
