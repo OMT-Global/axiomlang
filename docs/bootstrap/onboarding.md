@@ -18,36 +18,6 @@ Use this checklist after the first bootstrap render or whenever `project.bootstr
 
 
 
-- Prefer the generated PR template with these headings:
-  - `## Summary`
-  - `## Governing Issue`
-  - `## Validation`
-  - `## Bootstrap Governance`
-  - `## Semantic Layer Checklist`
-  - `## Notes`
-- Make sure the PR body links or closes the governing issue with an accepted form such as `Closes #262`, `Fixes #262`, `Resolves OMT-Global/axiomlang#262`, or a full GitHub issue URL.
-- PR Fast CI also emits an advisory issue-to-PR traceability report. It parses
-  governing issue links, resolves issue state when a read token is available,
-  and maps changed files to coarse semantic hints without adding a second
-  required status check.
-- Record the local validation you actually ran so `Validate PR Description` and `CI Gate` can pass cleanly.
-- Older pull requests may still pass a temporary legacy fallback when they link an issue and include a short prose summary; that fallback also accepts qualified issue references and full GitHub issue URLs, but new pull requests should use the structured template above.
-- Keep required checks aligned to `CI Gate`; optional review-automation lanes should stay non-required.
-- Use `scripts/ci/pr-queue-remediation.py --json` for queue-wide repair passes.
-  It classifies live PR state into a deterministic worklist and must be rerun
-  after any branch repair so terminal state comes from a fresh GitHub fetch.
-- Use `python3 scripts/ci/report-delivery-signals.py` when triaging open PRs or
-  issue closure. It reports governing issue links, changed files, semantic-node
-  hints, fresh `CI Gate` state, and review state without adding a required
-  status check.
-- Capability manifest changes are checked by `scripts/ci/validate-capability-manifests.sh`
-  in the fast lane; update that validator when new `[capabilities]` keys become
-  part of the supported manifest contract.
-- Semantic-layer work should be schema-first and fixture-backed. Confirm that
-  PRs touching semantic IR, effects, evidence, artifacts, provenance, repair
-  plans, or backend target contracts list the changed semantic nodes, schema
-  impact, evidence impact, Rust capture check, and agent-facing inspection
-  impact in the PR body.
 
 ## Environments
 
@@ -58,8 +28,7 @@ Use this checklist after the first bootstrap render or whenever `project.bootstr
 ## Runner Policy
 
 - Shell-safe jobs must use `[self-hosted, linux, shell-only, public]`.
-- Docker, service-container, browser, and `container:` workloads require a dedicated self-hosted runner pool with matching capability labels.
-- Public-comment automations that read repository secrets, including Claude, stay on GitHub-hosted runners or a separate trusted non-public pool.
+- Native repos must use self-hosted runners for required automation; Docker, service-container, browser, and `container:` workloads require a dedicated self-hosted runner pool with matching capability labels.
 - Keep PR checks cheap. Add heavy validation to `scripts/ci/run-extended-validation.sh` instead of the PR lane.
 
 - Consume shared security, release, and AI attestation workflows from the control-plane repo once those contracts are pinned for production use.
@@ -68,8 +37,6 @@ Use this checklist after the first bootstrap render or whenever `project.bootstr
 
 - `CONTRIBUTING.md` defines the contributor workflow, branch expectations, validation expectations, and secret-handling baseline.
 - `.github/PULL_REQUEST_TEMPLATE.md` defines the standard PR shape: summary, governing issue link, validation notes, and bootstrap governance checklist.
-- `docs/vision.md` and `docs/rust-bootstrap-boundary.md` define the semantic
-  layer vocabulary and the Rust capture boundary for agent-native work.
 - To retrofit an existing bootstrapped repo, add `CONTRIBUTING.md` and `.github/PULL_REQUEST_TEMPLATE.md` to `repo.managedPaths` when that repo restricts managed paths, then run `bootstrap apply repo --manifest ./project.bootstrap.yaml`.
 - Keep these files repo-generic unless project metadata or the manifest requires a stricter local rule.
 
