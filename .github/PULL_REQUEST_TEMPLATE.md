@@ -1,31 +1,23 @@
-    ## Summary
+## Summary
 
-    -
+-
 
-    ## Governing Issue
+## Governing Issue
 
-    Closes #
+Refs #<issue-number>  <!-- use Closes/Fixes/Resolves only when this PR fully completes the issue; otherwise use Refs/Part of, owner/repo#123, a full GitHub issue URL, or explain why no issue is linked -->
 
-    ## Validation
+## Validation
 
-    - [ ] Relevant local checks passed
-    - [ ] Required PR checks are expected to satisfy `CI Gate`
-    - [ ] Skipped checks are explained below
+- [ ] Relevant local checks passed
+- [ ] Required PR checks are expected to satisfy `CI Gate`
+- [ ] Skipped checks are explained below
 
-    ## Bootstrap Governance
+## Bootstrap Governance
 
-    - [ ] Changes are scoped to the linked issue
-    - [ ] Contributor or PR guidance changes are reflected in `CONTRIBUTING.md`, `.github/PULL_REQUEST_TEMPLATE.md`, and `docs/bootstrap/onboarding.md` when applicable
-    - [ ] Auto-merge is enabled, or GitHub plan-limit evidence is recorded and the fallback merge-readiness policy applies
-    - [ ] No real secrets, runtime auth, or machine-local env files are committed
-
-    ## Semantic Layer Checklist
-
-    - [ ] Semantic node types added/changed are listed, or this PR does not touch semantic-layer behavior
-    - [ ] Schemas added/changed are listed, or this PR does not touch schemas
-    - [ ] Evidence added/changed is listed, or this PR does not touch evidence
-    - [ ] Rust capture check is satisfied, or this PR is backend-only and marks backend-specific behavior
-    - [ ] Agent-facing inspection impact is described, or there is no inspection impact
+- [ ] Changes are scoped to the linked issue
+- [ ] Contributor or PR guidance changes are reflected in `CONTRIBUTING.md`, `.github/PULL_REQUEST_TEMPLATE.md`, and `docs/bootstrap/onboarding.md` when applicable
+- [ ] PR author enabled auto-merge where GitHub allows it, or GitHub plan-limit evidence/unavailable reason is recorded and the fallback merge-readiness policy applies
+- [ ] No real secrets, runtime auth, or machine-local env files are committed
 
 ## Flow Contract
 
@@ -39,12 +31,12 @@
 - [ ] Every blocker has a next actor and next action
 - [ ] No active blocking requested changes remain
 - [ ] Non-author approval is present when required
-- [ ] Auto-merge is appropriate when gates pass
+- [ ] PR author enabled auto-merge where GitHub allows it, or recorded why it is unavailable/unsafe
 
-    ## Merge Automation
+## Merge Automation
 
-    - [ ] Auto-merge is enabled, or the reason it is unavailable or unsafe is noted below
+- [ ] PR author enabled auto-merge with `gh pr merge --auto --squash`, or the reason it is unavailable/unsafe is noted below
 
-    ## Notes
+## Notes
 
-    -
+-
