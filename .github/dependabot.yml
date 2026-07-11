@@ -21,10 +21,6 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
-    groups:
-      github-actions:
-        patterns:
-          - "*"
     ignore:
       - dependency-name: "*"
         update-types:
