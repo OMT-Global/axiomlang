@@ -4,6 +4,9 @@ This document defines the canonical source style for checked-in `.ax` files.
 Use the formatter as the default enforcement path, and treat this guide as the
 readable statement of the layout it is meant to preserve.
 
+Machine consumers of `axiomc fmt --json` should use the replayable UTF-8 byte
+range contract documented in [formatter-edit-contract.md](formatter-edit-contract.md).
+
 ## Formatting
 
 Run the formatter before review:

@@ -38,6 +38,10 @@ use std::os::unix::ffi::OsStrExt;
 use std::path::{Component, Path, PathBuf};
 use std::time::Instant;
 
+mod formatter;
+
+use formatter::format_axiom_sources;
+
 #[derive(Debug, Parser)]
 #[command(name = "axiomc", about = "Axiom stage1 bootstrap compiler")]
 struct Cli {
@@ -1634,14 +1638,6 @@ fn print_json_output_or_error<T: Serialize>(command: &str, payload: &T, success_
 
 fn format_json_output<T: Serialize>(payload: &T) -> Result<String, Diagnostic> {
     json_contract::to_pretty_string(payload)
-}
-
-#[derive(Debug, Clone, Serialize)]
-struct FormatEdit {
-    action: String,
-    line: usize,
-    before: Option<String>,
-    after: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -5860,121 +5856,6 @@ fn capability_for_call(name: &str) -> Option<&'static str> {
 }
 
 #[derive(Debug, Clone, Serialize)]
-struct FormatFileReport {
-    path: String,
-    changed: bool,
-    edits: Vec<FormatEdit>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-struct FormatReport {
-    schema_version: &'static str,
-    ok: bool,
-    command: &'static str,
-    check: bool,
-    files: Vec<FormatFileReport>,
-    changed: usize,
-}
-
-fn format_axiom_sources(path: &Path, check: bool) -> Result<FormatReport, Diagnostic> {
-    let files = axiom_files(path)?;
-    if files.is_empty() {
-        return Err(Diagnostic::new(
-            "fmt",
-            format!("no .ax files found under {}", path.display()),
-        ));
-    }
-    let mut reports = Vec::new();
-    let mut changed = 0;
-    for file in files {
-        let original = fs::read_to_string(&file).map_err(|err| {
-            Diagnostic::new("fmt", format!("failed to read {}: {err}", file.display()))
-                .with_path(file.display().to_string())
-        })?;
-        let formatted = format_axiom_source(&original);
-        let is_changed = formatted != original;
-        let edits = format_edits(&original, &formatted);
-        if is_changed {
-            changed += 1;
-            if !check {
-                fs::write(&file, formatted).map_err(|err| {
-                    Diagnostic::new("fmt", format!("failed to write {}: {err}", file.display()))
-                        .with_path(file.display().to_string())
-                })?;
-            }
-        }
-        reports.push(FormatFileReport {
-            path: file.display().to_string(),
-            changed: is_changed,
-            edits,
-        });
-    }
-    Ok(FormatReport {
-        schema_version: json_contract::JSON_SCHEMA_VERSION,
-        ok: !check || changed == 0,
-        command: "fmt",
-        check,
-        files: reports,
-        changed,
-    })
-}
-
-fn format_axiom_source(source: &str) -> String {
-    let mut lines = Vec::new();
-    let mut previous_blank = false;
-    for line in source.replace("\r\n", "\n").replace('\t', "    ").lines() {
-        let trimmed_end = line.trim_end();
-        let blank = trimmed_end.is_empty();
-        if blank && previous_blank {
-            continue;
-        }
-        lines.push(trimmed_end.to_string());
-        previous_blank = blank;
-    }
-    while lines.last().is_some_and(|line| line.is_empty()) {
-        lines.pop();
-    }
-    format!("{}\n", lines.join("\n"))
-}
-
-fn format_edits(original: &str, formatted: &str) -> Vec<FormatEdit> {
-    let original_lines: Vec<&str> = original.split_inclusive('\n').collect();
-    let formatted_lines: Vec<&str> = formatted.split_inclusive('\n').collect();
-    let max_len = original_lines.len().max(formatted_lines.len());
-    let mut edits = Vec::new();
-    for index in 0..max_len {
-        match (original_lines.get(index), formatted_lines.get(index)) {
-            (Some(before), Some(after)) if before != after => edits.push(FormatEdit {
-                action: String::from("replace_line"),
-                line: index + 1,
-                before: Some(trim_line_ending(before).to_string()),
-                after: Some(trim_line_ending(after).to_string()),
-            }),
-            (Some(before), None) => edits.push(FormatEdit {
-                action: String::from("delete_line"),
-                line: index + 1,
-                before: Some(trim_line_ending(before).to_string()),
-                after: None,
-            }),
-            (None, Some(after)) => edits.push(FormatEdit {
-                action: String::from("insert_line"),
-                line: index + 1,
-                before: None,
-                after: Some(trim_line_ending(after).to_string()),
-            }),
-            _ => {}
-        }
-    }
-    edits
-}
-
-fn trim_line_ending(line: &str) -> &str {
-    line.strip_suffix('\n')
-        .and_then(|line| line.strip_suffix('\r').or(Some(line)))
-        .unwrap_or(line)
-}
-
-#[derive(Debug, Clone, Serialize)]
 struct DocOutput {
     schema_version: &'static str,
     command: &'static str,
@@ -10171,65 +10052,6 @@ print serve("127.0.0.1:0", selected_route, 1)
                 && artifact.path.ends_with("dist/runbook.md")
                 && artifact.status == "generated"
         }));
-    }
-
-    #[test]
-    fn formatter_trims_whitespace_and_collapses_blank_runs() {
-        assert_eq!(
-            format_axiom_source("fn main() {   \n\tprint \"hi\"  \n\n\n}\n\n"),
-            "fn main() {\n    print \"hi\"\n\n}\n"
-        );
-    }
-
-    #[test]
-    fn formatter_check_reports_json_planning_edits_without_writing() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let source = dir.path().join("src/main.ax");
-        fs::create_dir_all(source.parent().expect("source parent")).expect("mkdir");
-        fs::write(&source, "fn main() {   \n\tprint \"hi\"  \n\n\n}\n\n").expect("write source");
-
-        let report = format_axiom_sources(dir.path(), true).expect("format report");
-
-        assert_eq!(report.schema_version, json_contract::JSON_SCHEMA_VERSION);
-        assert_eq!(report.command, "fmt");
-        assert!(report.check);
-        assert_eq!(report.changed, 1);
-        assert_eq!(report.files.len(), 1);
-        assert!(report.files[0].changed);
-        assert!(
-            report.files[0]
-                .edits
-                .iter()
-                .any(|edit| edit.action == "replace_line" && edit.line == 1)
-        );
-        assert_eq!(
-            fs::read_to_string(&source).expect("read source"),
-            "fn main() {   \n\tprint \"hi\"  \n\n\n}\n\n"
-        );
-    }
-
-    #[test]
-    fn formatter_check_reports_missing_final_newline_edit() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let source = dir.path().join("src/main.ax");
-        fs::create_dir_all(source.parent().expect("source parent")).expect("mkdir");
-        fs::write(&source, "fn main() {}").expect("write source");
-
-        let report = format_axiom_sources(dir.path(), true).expect("format report");
-
-        assert_eq!(report.changed, 1);
-        assert_eq!(report.files.len(), 1);
-        assert_eq!(report.files[0].edits.len(), 1);
-        assert_eq!(report.files[0].edits[0].action, "replace_line");
-        assert_eq!(report.files[0].edits[0].line, 1);
-        assert_eq!(
-            report.files[0].edits[0].before.as_deref(),
-            Some("fn main() {}")
-        );
-        assert_eq!(
-            report.files[0].edits[0].after.as_deref(),
-            Some("fn main() {}")
-        );
     }
 
     #[test]
