@@ -24,7 +24,7 @@ defaults:
 jobs:
   changes:
     name: Detect Relevant Changes
-    runs-on: ubuntu-latest
+    runs-on: ['self-hosted', 'linux', 'shell-only', 'public']
     outputs:
       app: ${{ steps.filter.outputs.app }}
       ci: ${{ steps.filter.outputs.ci }}
@@ -60,7 +60,7 @@ jobs:
 
   fast-checks:
     name: Fast Checks
-    runs-on: ubuntu-latest
+    runs-on: ['self-hosted', 'linux', 'shell-only', 'public']
     timeout-minutes: 45
     needs: changes
     if: >-
@@ -158,7 +158,7 @@ jobs:
 
   full-lib-suite:
     name: Full Lib Suite
-    runs-on: ubuntu-latest
+    runs-on: ['self-hosted', 'linux', 'shell-only', 'public']
     timeout-minutes: 45
     needs: changes
     if: >-
@@ -180,7 +180,7 @@ jobs:
 
   validate-pr-description:
     name: Validate PR Description
-    runs-on: ubuntu-latest
+    runs-on: ['self-hosted', 'linux', 'shell-only', 'public']
     timeout-minutes: 5
     if: >-
       github.event.pull_request.draft == false &&
@@ -276,7 +276,7 @@ jobs:
 
   validate-secrets:
     name: Validate Secrets
-    runs-on: ubuntu-latest
+    runs-on: ['self-hosted', 'linux', 'shell-only', 'public']
     timeout-minutes: 10
     if: >-
       github.event.pull_request.draft == false &&
@@ -295,7 +295,7 @@ jobs:
 
   ci-gate:
     name: CI Gate
-    runs-on: ubuntu-latest
+    runs-on: ['self-hosted', 'linux', 'shell-only', 'public']
     if: always()
     needs:
       - changes
