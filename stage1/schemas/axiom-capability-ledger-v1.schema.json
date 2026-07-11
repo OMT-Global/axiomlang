@@ -1,0 +1,171 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "axiom.capability_ledger.v1",
+  "title": "Axiom capability ledger",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "governingIssue",
+    "generatedFrom",
+    "summary",
+    "language",
+    "commands",
+    "stdlib",
+    "capabilities",
+    "backends",
+    "targets",
+    "packages",
+    "runtimeAbi",
+    "schemas",
+    "toolingDepth",
+    "historicalEvidence"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "axiom.capability_ledger.v1" },
+    "governingIssue": { "const": 1435 },
+    "generatedFrom": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "commands",
+        "stdlibModules",
+        "stdlibFunctions",
+        "capabilities",
+        "runtimeAbiRows",
+        "schemas",
+        "supportedNativeBackend",
+        "evidenceTiers"
+      ],
+      "properties": {
+        "commands": { "type": "integer", "minimum": 1 },
+        "stdlibModules": { "type": "integer", "minimum": 1 },
+        "stdlibFunctions": { "type": "integer", "minimum": 1 },
+        "capabilities": { "type": "integer", "minimum": 1 },
+        "runtimeAbiRows": { "type": "integer", "minimum": 1 },
+        "schemas": { "type": "integer", "minimum": 1 },
+        "supportedNativeBackend": { "type": "string", "minLength": 1 },
+        "evidenceTiers": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "direct_runtime",
+            "static_spike",
+            "scaffold",
+            "unsupported",
+            "production_qualified"
+          ],
+          "properties": {
+            "direct_runtime": { "type": "integer", "minimum": 0 },
+            "static_spike": { "type": "integer", "minimum": 0 },
+            "scaffold": { "type": "integer", "minimum": 0 },
+            "unsupported": { "type": "integer", "minimum": 0 },
+            "production_qualified": { "type": "integer", "minimum": 0 }
+          }
+        }
+      }
+    },
+    "language": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["statementForms", "expressionForms", "types"],
+      "properties": {
+        "statementForms": { "$ref": "#/$defs/factList" },
+        "expressionForms": { "$ref": "#/$defs/factList" },
+        "types": { "$ref": "#/$defs/factList" }
+      }
+    },
+    "commands": { "$ref": "#/$defs/factList" },
+    "stdlib": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/stdlibModule" }
+    },
+    "capabilities": { "$ref": "#/$defs/factList" },
+    "backends": { "$ref": "#/$defs/factList" },
+    "targets": { "$ref": "#/$defs/factList" },
+    "packages": { "$ref": "#/$defs/factList" },
+    "runtimeAbi": { "$ref": "#/$defs/factList" },
+    "schemas": { "$ref": "#/$defs/factList" },
+    "toolingDepth": { "$ref": "#/$defs/factList" },
+    "historicalEvidence": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["issues", "note"],
+        "properties": {
+          "issues": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": { "type": "integer", "minimum": 1 }
+          },
+          "note": { "type": "string", "minLength": 1 }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "evidenceTier": {
+      "enum": [
+        "direct_runtime",
+        "static_spike",
+        "scaffold",
+        "unsupported",
+        "production_qualified"
+      ]
+    },
+    "fact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "status", "evidenceTier", "source"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "status": { "type": "string", "minLength": 1 },
+        "evidenceTier": { "$ref": "#/$defs/evidenceTier" },
+        "source": { "type": "string", "minLength": 1 }
+      }
+    },
+    "factList": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/fact" }
+    },
+    "stdlibModule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "module",
+        "functions",
+        "capabilities",
+        "status",
+        "evidenceTier",
+        "source"
+      ],
+      "properties": {
+        "module": { "type": "string", "pattern": "^std/.+\\.ax$" },
+        "functions": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "capabilities": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "status": { "type": "string", "minLength": 1 },
+        "evidenceTier": { "$ref": "#/$defs/evidenceTier" },
+        "source": { "type": "string", "minLength": 1 }
+      }
+    }
+  }
+}

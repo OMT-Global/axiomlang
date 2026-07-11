@@ -1,5 +1,7 @@
 # The Axiom Book
 
+<!-- capability-ledger:v1 commands=28 stdlib_modules=34 stdlib_functions=299 capabilities=9 backend=cranelift -->
+
 This book is the tutorial path for the Rust-only stage1 toolchain. It teaches
 the current supported Axiom surface from first package to agent-oriented
 programs, while clearly marking future language work as roadmap material.
@@ -90,6 +92,6 @@ cargo run --manifest-path stage1/Cargo.toml -p axiomc -- repl
 ## 9. Roadmap
 
 The roadmap lives in `docs/roadmap.md` and issue #264. The largest remaining
-gaps are traits, mutable references, richer diagnostics, real async I/O,
-publisher/registry flows, LSP support, direct native codegen, and agent-native
-typed tool calls.
+gaps are tracked by evidence tier in the checked capability ledger and by the
+production-language readiness gate. Existing syntax or commands do not imply
+production qualification; the current ledger has no production-qualified rows.
