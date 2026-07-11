@@ -2,7 +2,7 @@ use crate::codegen::SUPPORTED_NATIVE_BACKENDS;
 use crate::diagnostics::Diagnostic;
 use crate::json_contract;
 use crate::manifest::{CapabilityDescriptor, KNOWN_CAPABILITIES};
-use crate::project::{check_project_with_options, CheckOptions};
+use crate::project::{CheckOptions, check_project_with_options};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::process::Command;
@@ -233,9 +233,9 @@ fn tool_text(tool: &ToolProbe) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{doctor_report, parse_rustc_host_target};
+    use super::{CheckedCapabilityLedger, doctor_report, parse_rustc_host_target};
     use crate::json_contract;
-    use crate::new_project::{create_project_with_template, WorkloadTemplate};
+    use crate::new_project::{WorkloadTemplate, create_project_with_template};
 
     #[test]
     fn reports_project_health_and_capability_ledger_json_fields() {
@@ -244,7 +244,18 @@ mod tests {
         create_project_with_template(&project, Some("doctor-app"), WorkloadTemplate::Cli)
             .expect("create project");
 
-        let report = doctor_report(&project, 28);
+        let checked_ledger: CheckedCapabilityLedger = serde_json::from_str(include_str!(
+            "../../../compiler-contracts/snapshots/capability-ledger.json"
+        ))
+        .expect("checked capability ledger must be valid JSON");
+        let summary = checked_ledger.summary;
+        let production_qualified_rows = summary
+            .evidence_tiers
+            .get("production_qualified")
+            .copied()
+            .unwrap_or_default();
+
+        let report = doctor_report(&project, summary.commands);
         let payload = serde_json::to_value(&report).expect("serialize doctor report");
 
         assert_eq!(
@@ -259,21 +270,38 @@ mod tests {
             payload["capability_ledger"]["schemaVersion"],
             "axiom.capability_ledger.v1"
         );
-        assert_eq!(payload["capability_ledger"]["commands"], 28);
-        assert_eq!(payload["capability_ledger"]["stdlibModules"], 34);
-        assert_eq!(payload["capability_ledger"]["stdlibFunctions"], 299);
-        assert_eq!(payload["capability_ledger"]["capabilities"], 9);
-        assert_eq!(payload["capability_ledger"]["runtimeAbiRows"], 34);
-        assert_eq!(payload["capability_ledger"]["schemas"], 25);
+        assert_eq!(payload["capability_ledger"]["commands"], summary.commands);
+        assert_eq!(
+            payload["capability_ledger"]["stdlibModules"],
+            summary.stdlib_modules
+        );
+        assert_eq!(
+            payload["capability_ledger"]["stdlibFunctions"],
+            summary.stdlib_functions
+        );
+        assert_eq!(
+            payload["capability_ledger"]["capabilities"],
+            summary.capabilities
+        );
+        assert_eq!(
+            payload["capability_ledger"]["runtimeAbiRows"],
+            summary.runtime_abi_rows
+        );
+        assert_eq!(payload["capability_ledger"]["schemas"], summary.schemas);
         assert_eq!(
             payload["capability_ledger"]["supportedNativeBackend"],
             "cranelift"
         );
-        assert_eq!(payload["capability_ledger"]["productionQualifiedRows"], 0);
-        assert!(!payload["known_unsupported_features"]
-            .as_array()
-            .expect("unsupported features")
-            .contains(&serde_json::json!("closures")));
+        assert_eq!(
+            payload["capability_ledger"]["productionQualifiedRows"],
+            production_qualified_rows
+        );
+        assert!(
+            !payload["known_unsupported_features"]
+                .as_array()
+                .expect("unsupported features")
+                .contains(&serde_json::json!("closures"))
+        );
     }
 
     #[test]
