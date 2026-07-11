@@ -205,6 +205,11 @@ and mapping counts for debugger/tooling consumers. See
 `axiomc build --timings` prints total build time, cache hit/miss counts, and
 per-package compile timing/cache status for the incremental generated-Rust
 cache.
+Build payloads also expose persisted lowering evidence that distinguishes
+direct-native runtime execution, hybrid runtime binaries with known-value
+static folds, bounded effect-free static output, and fail-closed legacy
+fallback selection. See [Build lowering evidence](build-lowering-evidence.md)
+for the schema and the exact meaning of `legacy_fallback_attempted`.
 Parser diagnostics now preserve additional recovered top-level parse errors in
 the error payload's `related` array when possible, so editor tooling can show
 more than the first syntax error without waiting for full checker recovery.

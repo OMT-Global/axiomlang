@@ -5,7 +5,10 @@
 
 use super::*;
 
-pub(crate) fn populate_i64_http_static_bindings(program: &Program, static_bindings: &mut I64StaticBindings) {
+pub(crate) fn populate_i64_http_static_bindings(
+    program: &Program,
+    static_bindings: &mut I64StaticBindings,
+) {
     static_bindings.http_shim_wrappers = program
         .functions
         .iter()
@@ -89,7 +92,6 @@ pub(crate) fn i64_http_non_loopback_bind_diag(
     }
     Some(String::from(HTTP_NON_LOOPBACK_BIND_DIAG))
 }
-
 
 pub(crate) fn lower_i64_net_option_match_value_expr(
     expr: &Expr,
@@ -402,27 +404,6 @@ pub(crate) fn is_i64_net_resolve_name(name: &str, static_bindings: &I64StaticBin
         || static_bindings.net_resolve_wrappers.contains(name)
 }
 
-pub(crate) fn is_i64_net_tcp_loopback_once_name(name: &str) -> bool {
-    matches!(
-        name,
-        "net_tcp_listen_loopback_once"
-            | "tcp_listen_loopback_once"
-            | "std_net_tcp_listen_loopback_once"
-    )
-}
-
-pub(crate) fn is_i64_net_udp_loopback_once_name(name: &str) -> bool {
-    matches!(
-        name,
-        "net_udp_bind_loopback_once" | "udp_bind_loopback_once" | "std_net_udp_bind_loopback_once"
-    )
-}
-
-pub(crate) fn is_i64_http_get_name(name: &str, static_bindings: &I64StaticBindings) -> bool {
-    matches!(name, "http_get" | "get" | "std_http_get")
-        || static_bindings.http_get_wrappers.contains(name)
-}
-
 pub(crate) fn is_i64_http_serve_once_name(name: &str, static_bindings: &I64StaticBindings) -> bool {
     matches!(
         name,
@@ -465,7 +446,10 @@ pub(crate) fn net_timeout(timeout_ms: i64) -> std::time::Duration {
     std::time::Duration::from_millis(timeout_ms.clamp(1, 30_000) as u64)
 }
 
-pub(crate) fn net_tcp_listen_loopback_once(response: String, timeout: std::time::Duration) -> Option<i64> {
+pub(crate) fn net_tcp_listen_loopback_once(
+    response: String,
+    timeout: std::time::Duration,
+) -> Option<i64> {
     let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).ok()?;
     listener.set_nonblocking(true).ok()?;
     let port = listener.local_addr().ok()?.port();
@@ -515,7 +499,10 @@ pub(crate) fn net_tcp_listen_loopback_once(response: String, timeout: std::time:
     Some(i64::from(port))
 }
 
-pub(crate) fn net_udp_bind_loopback_once(response: String, timeout: std::time::Duration) -> Option<i64> {
+pub(crate) fn net_udp_bind_loopback_once(
+    response: String,
+    timeout: std::time::Duration,
+) -> Option<i64> {
     let socket = std::net::UdpSocket::bind(("127.0.0.1", 0)).ok()?;
     socket.set_read_timeout(Some(timeout)).ok()?;
     socket.set_write_timeout(Some(timeout)).ok()?;
@@ -573,7 +560,10 @@ pub(crate) fn http_get(url: &str) -> Option<String> {
     http_read_response(&mut stream)
 }
 
-pub(crate) fn resolve_public_socket_addrs(host: &str, port: u16) -> Option<Vec<std::net::SocketAddr>> {
+pub(crate) fn resolve_public_socket_addrs(
+    host: &str,
+    port: u16,
+) -> Option<Vec<std::net::SocketAddr>> {
     let addrs: Vec<std::net::SocketAddr> = (host, port).to_socket_addrs().ok()?.collect();
     if addrs.is_empty() || addrs.iter().any(|addr| is_blocked_network_ip(addr.ip())) {
         return None;
@@ -809,7 +799,12 @@ pub(crate) fn http_serve_once(bind: &str, body: &str) -> bool {
     result
 }
 
-pub(crate) fn http_serve_route(bind: &str, route_path: &str, body: &str, max_requests: i64) -> bool {
+pub(crate) fn http_serve_route(
+    bind: &str,
+    route_path: &str,
+    body: &str,
+    max_requests: i64,
+) -> bool {
     let Some(server) = http_server_listen(bind) else {
         return false;
     };
@@ -1025,4 +1020,3 @@ pub(crate) fn i64_is_blocked_network_ip(ip: std::net::IpAddr) -> bool {
         }
     }
 }
-

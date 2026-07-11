@@ -1,0 +1,19 @@
+{
+  "schema_version": "axiom.stage1.v1",
+  "ok": false,
+  "command": "build",
+  "error": {
+    "kind": "build",
+    "code": "backend.runtime_lowering_required",
+    "message": "native build requires runtime lowering row direct-native.program_lowering; compile-time evaluator fallback is forbidden",
+    "related": []
+  },
+  "lowering": {
+    "schema_version": "axiom.build-lowering-evidence.v1",
+    "execution_mode": "not_produced",
+    "lowering_mode": "runtime_lowering_required",
+    "direct_native_runtime": false,
+    "known_value_static_folds": false,
+    "legacy_fallback_attempted": true
+  }
+}

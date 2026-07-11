@@ -12,7 +12,10 @@ pub(crate) struct I64FsReadPath {
     pub(crate) requested_len: usize,
 }
 
-pub(crate) fn i64_fs_read_path(expr: &Expr, static_bindings: &I64StaticBindings) -> Option<I64FsReadPath> {
+pub(crate) fn i64_fs_read_path(
+    expr: &Expr,
+    static_bindings: &I64StaticBindings,
+) -> Option<I64FsReadPath> {
     if static_bindings.has_fs_write_calls {
         return None;
     }
@@ -33,8 +36,11 @@ pub(crate) fn i64_fs_read_path(expr: &Expr, static_bindings: &I64StaticBindings)
     let fs_root = static_bindings.fs_root.as_deref()?;
     let path = i64_string_text(path, static_bindings)?;
     let requested_len = path.len();
-    spike_fs_existing_candidate_for_scope(package_root, fs_root, &path).map(|path| I64FsReadPath {
-        candidate: path.display().to_string(),
+    let candidate = spike_fs_join_candidates(package_root, fs_root, &path)?
+        .into_iter()
+        .find(|candidate| candidate.starts_with(fs_root))?;
+    Some(I64FsReadPath {
+        candidate: candidate.display().to_string(),
         requested_len,
     })
 }
@@ -68,7 +74,10 @@ pub(crate) fn i64_fs_read_file_len_expr(
     )
 }
 
-pub(crate) fn i64_stmts_have_fs_write_call(stmts: &[Stmt], static_bindings: &I64StaticBindings) -> bool {
+pub(crate) fn i64_stmts_have_fs_write_call(
+    stmts: &[Stmt],
+    static_bindings: &I64StaticBindings,
+) -> bool {
     stmts
         .iter()
         .any(|stmt| i64_stmt_has_fs_write_call(stmt, static_bindings))
@@ -589,11 +598,9 @@ pub(crate) fn lower_i64_fs_write_intrinsic_expr(
             static_bindings,
         );
     }
-    Some(CraneliftI64Expr::Literal(i64_fs_write_result(
-        name,
-        args,
-        static_bindings,
-    )?))
+    // Unknown write shapes must fail lowering. Never execute the requested
+    // operation in the compiler as a fallback.
+    None
 }
 
 pub(crate) fn i64_audited_fs_expr(
@@ -720,7 +727,11 @@ pub(crate) fn is_i64_std_fs_shim_wrapper(function: &Function) -> bool {
     )
 }
 
-pub(crate) fn spike_fs_read_text_for_scope(package_root: &Path, fs_root: &Path, path: &str) -> Option<String> {
+pub(crate) fn spike_fs_read_text_for_scope(
+    package_root: &Path,
+    fs_root: &Path,
+    path: &str,
+) -> Option<String> {
     let candidate = spike_fs_existing_candidate_for_scope(package_root, fs_root, path)?;
     let metadata = std::fs::metadata(&candidate).ok()?;
     if !metadata.is_file() || metadata.len() > SPIKE_MAX_FS_READ_BYTES {
@@ -735,122 +746,6 @@ pub(crate) fn spike_fs_read_text_for_scope(package_root: &Path, fs_root: &Path, 
         return None;
     }
     Some(content)
-}
-
-pub(crate) fn i64_fs_write_result(
-    name: &str,
-    args: &[Expr],
-    static_bindings: &I64StaticBindings,
-) -> Option<i64> {
-    let package_root = static_bindings.package_root.as_deref()?;
-    let fs_root = static_bindings.fs_root.as_deref()?;
-    match name {
-        "fs_write" => {
-            let (path, content) = i64_fs_path_content(args, static_bindings)?;
-            if content.len() > SPIKE_MAX_FS_WRITE_BYTES {
-                return Some(-1);
-            }
-            Some(
-                spike_fs_write_candidate_for_scope(package_root, fs_root, &path, false)
-                    .and_then(|candidate| std::fs::write(candidate, content).ok())
-                    .map(|()| 0)
-                    .unwrap_or(-1),
-            )
-        }
-        "fs_create" => {
-            let path = i64_fs_path(args, static_bindings)?;
-            Some(
-                spike_fs_write_candidate_for_scope(package_root, fs_root, &path, false)
-                    .and_then(|candidate| {
-                        std::fs::OpenOptions::new()
-                            .write(true)
-                            .create_new(true)
-                            .open(candidate)
-                            .ok()
-                    })
-                    .map(|_| 0)
-                    .unwrap_or(-1),
-            )
-        }
-        "fs_append" => {
-            let (path, content) = i64_fs_path_content(args, static_bindings)?;
-            if content.len() > SPIKE_MAX_FS_WRITE_BYTES {
-                return Some(-1);
-            }
-            Some(
-                spike_fs_write_candidate_for_scope(package_root, fs_root, &path, false)
-                    .and_then(|candidate| {
-                        let mut file = std::fs::OpenOptions::new()
-                            .append(true)
-                            .create(true)
-                            .open(candidate)
-                            .ok()?;
-                        std::io::Write::write_all(&mut file, content.as_bytes()).ok()
-                    })
-                    .map(|()| 0)
-                    .unwrap_or(-1),
-            )
-        }
-        "fs_mkdir" => {
-            let path = i64_fs_path(args, static_bindings)?;
-            Some(
-                spike_fs_write_candidate_for_scope(package_root, fs_root, &path, false)
-                    .and_then(|candidate| std::fs::create_dir(candidate).ok())
-                    .map(|()| 0)
-                    .unwrap_or(-1),
-            )
-        }
-        "fs_mkdir_all" => {
-            let path = i64_fs_path(args, static_bindings)?;
-            Some(
-                spike_fs_write_candidate_for_scope(package_root, fs_root, &path, true)
-                    .and_then(|candidate| std::fs::create_dir_all(candidate).ok())
-                    .map(|()| 0)
-                    .unwrap_or(-1),
-            )
-        }
-        "fs_remove_file" => {
-            let path = i64_fs_path(args, static_bindings)?;
-            Some(
-                spike_fs_existing_candidate_for_scope(package_root, fs_root, &path)
-                    .and_then(|candidate| {
-                        std::fs::metadata(&candidate)
-                            .ok()
-                            .filter(|metadata| metadata.is_file())?;
-                        std::fs::remove_file(candidate).ok()
-                    })
-                    .map(|()| 0)
-                    .unwrap_or(-1),
-            )
-        }
-        "fs_remove_dir" => {
-            let path = i64_fs_path(args, static_bindings)?;
-            Some(
-                spike_fs_existing_candidate_for_scope(package_root, fs_root, &path)
-                    .and_then(|candidate| {
-                        std::fs::metadata(&candidate)
-                            .ok()
-                            .filter(|metadata| metadata.is_dir())?;
-                        std::fs::remove_dir(candidate).ok()
-                    })
-                    .map(|()| 0)
-                    .unwrap_or(-1),
-            )
-        }
-        "fs_replace" => {
-            let (path, content) = i64_fs_path_content(args, static_bindings)?;
-            if content.len() > SPIKE_MAX_FS_WRITE_BYTES {
-                return Some(-1);
-            }
-            Some(
-                spike_fs_write_candidate_for_scope(package_root, fs_root, &path, false)
-                    .and_then(|candidate| std::fs::write(candidate, content).ok())
-                    .map(|()| 0)
-                    .unwrap_or(-1),
-            )
-        }
-        _ => None,
-    }
 }
 
 pub(crate) fn i64_fs_path(args: &[Expr], static_bindings: &I64StaticBindings) -> Option<String> {

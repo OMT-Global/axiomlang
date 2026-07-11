@@ -116,6 +116,9 @@
         "null"
       ]
     },
+    "lowering": {
+      "$ref": "#/$defs/build_lowering_evidence"
+    },
     "target": {
       "type": [
         "string",
@@ -428,6 +431,46 @@
     }
   },
   "$defs": {
+    "build_lowering_evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "execution_mode",
+        "lowering_mode",
+        "direct_native_runtime",
+        "known_value_static_folds",
+        "legacy_fallback_attempted"
+      ],
+      "properties": {
+        "schema_version": { "const": "axiom.build-lowering-evidence.v1" },
+        "execution_mode": {
+          "enum": ["direct_native_runtime", "bounded_static_output", "generated_rust_runtime", "not_produced"]
+        },
+        "lowering_mode": {
+          "enum": [
+            "direct_native_runtime",
+            "direct_native_runtime_with_static_folds",
+            "generated_rust_compatibility",
+            "runtime_lowering_required"
+            ,"bounded_static_output"
+          ]
+        },
+        "direct_native_runtime": { "type": "boolean" },
+        "known_value_static_folds": { "type": "boolean" },
+        "legacy_fallback_attempted": { "type": "boolean" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "legacy_fallback_attempted": { "const": true } } },
+          "then": { "properties": { "execution_mode": { "const": "not_produced" }, "lowering_mode": { "const": "runtime_lowering_required" }, "direct_native_runtime": { "const": false }, "known_value_static_folds": { "const": false } } }
+        },
+        {
+          "if": { "properties": { "lowering_mode": { "const": "direct_native_runtime_with_static_folds" } } },
+          "then": { "properties": { "execution_mode": { "const": "direct_native_runtime" }, "direct_native_runtime": { "const": true }, "known_value_static_folds": { "const": true }, "legacy_fallback_attempted": { "const": false } } }
+        }
+      ]
+    },
     "capability": {
       "type": "object",
       "additionalProperties": false,
