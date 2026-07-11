@@ -1,80 +1,101 @@
-    #!/usr/bin/env bash
-    set -euo pipefail
+#!/usr/bin/env bash
+set -euo pipefail
 
-    mode="${1:-"--all-files"}"
-    ignore_globs=("scripts/check-detect-secrets.sh")
-    if [[ -f .detect-secrets-ignore ]]; then
-      while IFS= read -r ignore_glob; do
-        if [[ -z "$ignore_glob" ]]; then
-          continue
-        fi
-        if [[ "${ignore_glob:0:1}" == "#" ]]; then
-          continue
-        fi
-        ignore_globs+=("$ignore_glob")
-      done < .detect-secrets-ignore
+script_repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+repo_root="${AXIOM_CHECKOUT_PATH:-$script_repo_root}"
+cd "$repo_root"
+
+mode="${1:-"--all-files"}"
+ignore_globs=("scripts/check-detect-secrets.sh")
+reserved_trusted_path=".trusted-ci"
+
+if [[ -n "$(git ls-files -- "$reserved_trusted_path" "$reserved_trusted_path/**")" ]]; then
+  echo "error: $reserved_trusted_path is reserved for trusted CI checkouts and must not be tracked by PR contents" >&2
+  exit 1
+fi
+
+if [[ -f .detect-secrets-ignore ]]; then
+  while IFS= read -r ignore_glob; do
+    if [[ -z "$ignore_glob" ]]; then
+      continue
     fi
-
-    should_skip_file() {
-      local candidate="$1"
-      local ignore_glob
-      for ignore_glob in "${ignore_globs[@]}"; do
-        case "$candidate" in
-          $ignore_glob)
-            return 0
-            ;;
-        esac
-      done
-      return 1
-    }
-
-    files=()
-    if [[ "$mode" == "--staged" ]]; then
-      while IFS= read -r -d '' file; do
-        files+=("$file")
-      done < <(git diff --cached --name-only --diff-filter=ACMR -z)
-    else
-      while IFS= read -r -d '' file; do
-        files+=("$file")
-      done < <(git ls-files -z)
+    if [[ "${ignore_glob:0:1}" == "#" ]]; then
+      continue
     fi
+    ignore_globs+=("$ignore_glob")
+  done < .detect-secrets-ignore
+fi
 
-    if [[ "${#files[@]}" -eq 0 ]]; then
-      echo "No files to scan."
-      exit 0
-    fi
+should_skip_file() {
+  local candidate="$1"
+  local ignore_glob
+  for ignore_glob in "${ignore_globs[@]}"; do
+    case "$candidate" in
+      $ignore_glob)
+        return 0
+        ;;
+    esac
+  done
+  return 1
+}
 
-    patterns=(
-      'ghp_'
-      'github_pat_'
-      'sk-live-'
-      'sk-proj-'
-      'AKIA[0-9A-Z]{16}'
-      'BEGIN (RSA|OPENSSH|EC) PRIVATE KEY'
-      'OPENAI_API_KEY='
-      'SUDO_PASS='
-      'BW_SESSION='
-    )
+files=()
+if [[ "$mode" == "--staged" ]]; then
+  while IFS= read -r -d '' file; do
+    files+=("$file")
+  done < <(git diff --cached --name-only --diff-filter=ACMR -z)
+else
+  while IFS= read -r -d '' file; do
+    files+=("$file")
+  done < <(git ls-files -z)
+fi
 
-    tmp_file="$(mktemp)"
-    trap 'rm -f "$tmp_file"' EXIT
+if [[ "${#files[@]}" -eq 0 ]]; then
+  echo "No files to scan."
+  exit 0
+fi
 
-    for file in "${files[@]}"; do
-      if [[ ! -f "$file" ]] || should_skip_file "$file"; then
-        continue
-      fi
-      printf '%s
+patterns=(
+  'ghp_'
+  'github_pat_'
+  'sk-live-'
+  'sk-proj-'
+  'sk-ant-[A-Za-z0-9_-]{20,}'
+  'AKIA[0-9A-Z]{16}'
+  'AIza[0-9A-Za-z_-]{35}'
+  'xox[baprs]-[0-9A-Za-z-]{10,}'
+  'BEGIN ((RSA|DSA|EC|OPENSSH|PGP) )?PRIVATE KEY'
+  '"type"[[:space:]]*:[[:space:]]*"service_account"'
+  '"private_key_id"[[:space:]]*:[[:space:]]*"[0-9a-fA-F]{16,}"'
+  'OPENAI_API_KEY='
+  'ANTHROPIC_API_KEY='
+  'SLACK_BOT_TOKEN='
+  'AWS_SECRET_ACCESS_KEY='
+  'GOOGLE_API_KEY='
+  'AZURE_CLIENT_SECRET='
+  'SUDO_PASS='
+  'BW_SESSION='
+)
+
+tmp_file="$(mktemp)"
+trap 'rm -f "$tmp_file"' EXIT
+
+for file in "${files[@]}"; do
+  if [[ ! -f "$file" ]] || should_skip_file "$file"; then
+    continue
+  fi
+  printf '%s
 ' "$file" >>"$tmp_file"
-    done
+done
 
-    failed=0
-    while IFS= read -r file; do
-      for pattern in "${patterns[@]}"; do
-        if grep -E -n "$pattern" "$file" >/dev/null 2>&1; then
-          echo "Potential secret pattern '$pattern' found in $file" >&2
-          failed=1
-        fi
-      done
-    done <"$tmp_file"
+failed=0
+while IFS= read -r file; do
+  for pattern in "${patterns[@]}"; do
+    if grep -E -n "$pattern" "$file" >/dev/null 2>&1; then
+      echo "Potential secret pattern '$pattern' found in $file" >&2
+      failed=1
+    fi
+  done
+done <"$tmp_file"
 
-    exit "$failed"
+exit "$failed"
