@@ -16,6 +16,80 @@ fn compile_validator(schema: &Value) -> Validator {
 }
 
 #[test]
+fn formatter_edit_v1_schema_metadata_is_current() {
+    let schema: Value = serde_json::from_str(
+        &fs::read_to_string(schema_dir().join("axiom-format-edit-v1.schema.json"))
+            .expect("read formatter edit schema"),
+    )
+    .expect("formatter edit schema is valid JSON");
+
+    assert_eq!(
+        schema["$id"],
+        "https://axiom.omt.global/schemas/axiom-format-edit-v1.schema.json"
+    );
+    assert_eq!(schema["title"], "Axiom formatter edit report v1");
+    assert_eq!(
+        schema["properties"]["schema_version"]["const"],
+        json_contract::JSON_SCHEMA_VERSION
+    );
+    assert_eq!(schema["properties"]["command"]["const"], "fmt");
+    let edit = &schema["$defs"]["edit"];
+    for field in [
+        "action",
+        "line",
+        "before",
+        "after",
+        "start_byte",
+        "end_byte",
+        "replacement",
+    ] {
+        assert!(
+            edit["required"]
+                .as_array()
+                .expect("formatter edit required fields")
+                .iter()
+                .any(|required| required == field),
+            "formatter edit schema requires {field}"
+        );
+    }
+
+    let validator = compile_validator(&schema);
+    let valid_edit = serde_json::json!({
+        "schema_version": json_contract::JSON_SCHEMA_VERSION,
+        "schema": "stage1/schemas/axiom-format-edit-v1.schema.json",
+        "ok": false,
+        "command": "fmt",
+        "check": true,
+        "files": [{
+            "path": "src/main.ax",
+            "changed": true,
+            "edits": [{
+                "action": "replace_line",
+                "line": 1,
+                "before": "print 1",
+                "after": "print 1",
+                "start_byte": 7,
+                "end_byte": 7,
+                "replacement": "\n"
+            }]
+        }],
+        "changed": 1
+    });
+    assert!(validator.is_valid(&valid_edit));
+
+    let mut missing_replacement = valid_edit.clone();
+    missing_replacement["files"][0]["edits"][0]
+        .as_object_mut()
+        .expect("formatter edit object")
+        .remove("replacement");
+    assert!(!validator.is_valid(&missing_replacement));
+
+    let mut negative_offset = valid_edit;
+    negative_offset["files"][0]["edits"][0]["start_byte"] = serde_json::json!(-1);
+    assert!(!validator.is_valid(&negative_offset));
+}
+
+#[test]
 fn editor_metadata_schemas_are_parseable_and_current() {
     let compiler_schema: Value = serde_json::from_str(
         &fs::read_to_string(schema_dir().join("axiom.stage1.v1.schema.json"))

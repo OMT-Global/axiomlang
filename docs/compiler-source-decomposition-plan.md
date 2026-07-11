@@ -170,13 +170,13 @@ value/control core is sub-partitioned by value shape.
 
 ## Current Top Files
 
-Snapshot from 2026-07-02:
+Snapshot updated 2026-07-10:
 
 | Rank | Current Rust file | Lines | Target package boundary | First extraction slice |
 | ---: | --- | ---: | --- | --- |
 | 1 | `stage1/crates/axiomc/src/cranelift_backend.rs` | 20,914 | `compiler.backend.native` | Runtime-intrinsic implementations live in `.../cranelift_backend/intrinsics.rs`, the compile-time evaluator in `.../cranelift_backend/evaluator.rs`, and the filesystem, crypto, net/http, env/process/clock, and json/serdes i64 lowering groups in `.../cranelift_backend/host_fs.rs`, `.../cranelift_backend/host_crypto.rs`, `.../cranelift_backend/host_net_http.rs`, `.../cranelift_backend/host_env_proc_clock.rs`, and `.../cranelift_backend/host_json_serdes.rs`; the remaining work is sub-partitioning the mutually-recursive value/control core by value shape. |
 | 2 | `stage1/crates/axiomc/src/project.rs` | 11,250 | `compiler.package_graph`, `compiler.commands`, `compiler.evidence` | Split manifest/workspace loading, command orchestration, provenance/debug records, and build artifact planning along package ownership. |
-| 3 | `stage1/crates/axiomc/src/main.rs` | 10,695 | `compiler.commands` | Move command parsing, JSON envelope construction, check/build/run/test/doc/trace orchestration, and exit handling behind `docs/compiler-command-lsp-packages.md` APIs. |
+| 3 | `stage1/crates/axiomc/src/main.rs` | 10,575 | `compiler.commands` | Formatter reporting and edit planning now live in `stage1/crates/axiomc/src/formatter.rs`; continue moving command parsing, JSON envelope construction, check/build/run/test/doc/trace orchestration, and exit handling behind `docs/compiler-command-lsp-packages.md` APIs. |
 | 4 | `stage1/crates/axiomc/src/codegen.rs` | 7,882 | `compiler.backend.generated_rust`, `compiler.backend.contracts` | Isolate generated-Rust compatibility emission from backend target selection and unsupported-feature contracts. |
 | 5 | `stage1/crates/axiomc/src/syntax.rs` | 6,324 | `compiler.syntax`, `compiler.diagnostics` | Split lexer/parser, parse recovery, source spans, macros, and syntax diagnostics behind the syntax boundary. |
 | 6 | `stage1/crates/axiomc/src/hir.rs` | 5,842 | `compiler.hir` | Generic inference and monomorphization now live in `stage1/crates/axiomc/src/hir/generics.rs`; public HIR model types now live in `stage1/crates/axiomc/src/hir/model.rs`; syntax-to-HIR type/literal lowering now lives in `stage1/crates/axiomc/src/hir/types.rs`; type-name, aggregate, and trait-use definition checks now live in `stage1/crates/axiomc/src/hir/definitions.rs`; function/method signatures and trait impl signature validation now live in `stage1/crates/axiomc/src/hir/signatures.rs`; capability analysis now lives in `stage1/crates/axiomc/src/hir/capabilities.rs`; expression typing helpers now live in `stage1/crates/axiomc/src/hir/expressions.rs`; ownership and borrow-state helpers now live in `stage1/crates/axiomc/src/hir/ownership.rs`; property clause checks now live in `stage1/crates/axiomc/src/hir/properties.rs`; reachability/call-graph discovery now lives in `stage1/crates/axiomc/src/hir/reachability.rs`; diagnostic recovery helpers now live in `stage1/crates/axiomc/src/hir/diagnostics.rs`; monomorphized symbol and intrinsic helpers now live in `stage1/crates/axiomc/src/hir/symbols.rs`; source-location helpers now live in `stage1/crates/axiomc/src/hir/source_locations.rs`; return-flow analysis now lives in `stage1/crates/axiomc/src/hir/control_flow.rs`; const-array length validation now lives in `stage1/crates/axiomc/src/hir/const_arrays.rs`; const-function validation now lives in `stage1/crates/axiomc/src/hir/const_functions.rs`; match lowering now lives in `stage1/crates/axiomc/src/hir/matches.rs`; enum variant constructor helpers now live in `stage1/crates/axiomc/src/hir/variants.rs`; async runtime intrinsic lowering now lives in `stage1/crates/axiomc/src/hir/async_runtime.rs`; map intrinsic lowering now lives in `stage1/crates/axiomc/src/hir/maps.rs`; HIR boundary regression tests now live in `stage1/crates/axiomc/tests/hir_unit.rs`; continue splitting remaining HIR helper clusters behind the package APIs in `docs/compiler-hir-ownership-capability.md`. |
@@ -192,8 +192,8 @@ matching ceiling in this table in the same PR.
 
 | Tracked item | Ceiling |
 | --- | ---: |
-| `summary.top_file_line_share` | 0.7373 |
-| `summary.top_file_lines` | 66561 |
+| `summary.top_file_line_share` | 0.7337 |
+| `summary.top_file_lines` | 66239 |
 | `stage1/crates/axiomc/src/cranelift_backend.rs` | 20085 |
 | `stage1/crates/axiomc/src/cranelift_backend/host_env_proc_clock.rs` | 586 |
 | `stage1/crates/axiomc/src/cranelift_backend/host_json_serdes.rs` | 258 |
@@ -204,7 +204,9 @@ matching ceiling in this table in the same PR.
 | `stage1/crates/axiomc/src/cranelift_backend/host_net_http.rs` | 1043 |
 | `stage1/crates/axiomc/src/hir.rs` | 5850 |
 | `stage1/crates/axiomc/src/project.rs` | 11396 |
-| `stage1/crates/axiomc/src/main.rs` | 10755 |
+| `stage1/crates/axiomc/src/main.rs` | 10575 |
+| `stage1/crates/axiomc/src/formatter.rs` | 219 |
+| `stage1/crates/axiomc/src/formatter_tests.rs` | 137 |
 | `stage1/crates/axiomc/src/codegen.rs` | 7919 |
 | `stage1/crates/axiomc/src/syntax.rs` | 6372 |
 | `stage1/crates/axiomc/src/hir/async_runtime.rs` | 188 |

@@ -1,0 +1,34 @@
+{
+  "schema_version": "axiom.stage1.v1",
+  "schema": "stage1/schemas/axiom-format-edit-v1.schema.json",
+  "ok": false,
+  "command": "fmt",
+  "check": true,
+  "files": [
+    {
+      "path": "<project>/src/main.ax",
+      "changed": true,
+      "edits": [
+        {
+          "action": "replace_line",
+          "line": 1,
+          "before": "fn main() {   ",
+          "after": "fn main() {",
+          "start_byte": 11,
+          "end_byte": 14,
+          "replacement": ""
+        },
+        {
+          "action": "replace_line",
+          "line": 2,
+          "before": "}",
+          "after": "}",
+          "start_byte": 16,
+          "end_byte": 16,
+          "replacement": "\n"
+        }
+      ]
+    }
+  ],
+  "changed": 1
+}

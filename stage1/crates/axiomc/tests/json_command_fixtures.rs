@@ -43,6 +43,35 @@ fn assert_envelope(payload: &Value, command: &str, ok: bool) {
 }
 
 #[test]
+fn fmt_fixture_covers_replayable_byte_edits() {
+    let stage1_validator = schema_validator();
+    let payload = fixture("fmt", "changes.json");
+    assert_matches_stage1_schema(&stage1_validator, &payload);
+    assert_envelope(&payload, "fmt", false);
+
+    let schema_path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("..")
+        .join("schemas")
+        .join("axiom-format-edit-v1.schema.json");
+    let schema: Value =
+        serde_json::from_str(&fs::read_to_string(schema_path).expect("read formatter edit schema"))
+            .expect("formatter edit schema is valid JSON");
+    jsonschema::validator_for(&schema)
+        .expect("compile formatter edit schema")
+        .validate(&payload)
+        .expect("fmt fixture matches formatter edit schema");
+
+    let edits = payload["files"][0]["edits"]
+        .as_array()
+        .expect("formatter fixture edits");
+    assert_eq!(edits[0]["start_byte"], 11);
+    assert_eq!(edits[0]["end_byte"], 14);
+    assert_eq!(edits[1]["start_byte"], edits[1]["end_byte"]);
+    assert_eq!(edits[1]["replacement"], "\n");
+}
+
+#[test]
 fn build_fixtures_cover_direct_native_target_and_no_fallback_failure() {
     let validator = schema_validator();
     let success = fixture("build", "success.json");
