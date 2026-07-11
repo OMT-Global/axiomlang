@@ -35,6 +35,9 @@ use std::path::{Component, Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
+mod expected_build_failure;
+use expected_build_failure::{expected_build_error_path, run_build_fail_case};
+
 const BUILD_CACHE_VERSION: u32 = 2;
 const BUILD_CACHE_COMPILER: &str = concat!("axiomc-stage1-", env!("CARGO_PKG_VERSION"));
 const MAX_TEST_EXPECTED_STREAM_BYTES: u64 = 1024 * 1024;
@@ -4156,137 +4159,8 @@ fn run_compile_fail_case(
     }
 }
 
-fn run_build_fail_case(
-    project_root: &Path,
-    graph: &PackageGraph,
-    manifest: &Manifest,
-    case_name: &str,
-    kind: TestKind,
-) -> TestCaseResult {
-    let started = Instant::now();
-    let expected = match load_expected_build_error(project_root) {
-        Ok(expected) => expected,
-        Err(error) => {
-            return failed_test_case_result_from_expected_build(
-                project_root,
-                manifest,
-                case_name,
-                kind,
-                &started,
-                None,
-                error,
-            );
-        }
-    };
-    let actual = match analyze_package(graph, project_root).and_then(|analyzed| {
-        let generated_rust = generated_rust_path(project_root, manifest);
-        let binary = binary_path_for_target(project_root, manifest, None);
-        build_artifacts(
-            graph,
-            project_root,
-            &analyzed,
-            &generated_rust,
-            &binary,
-            None,
-            &BuildOptions::default(),
-        )
-    }) {
-        Ok(_) => {
-            return failed_test_case_result_from_expected_build(
-                project_root,
-                manifest,
-                case_name,
-                kind,
-                &started,
-                Some(expected),
-                Diagnostic::new(
-                    "test",
-                    "expected native build to fail closed, but it succeeded",
-                )
-                .with_path(
-                    project_root
-                        .join(&manifest.build.entry)
-                        .display()
-                        .to_string(),
-                ),
-            );
-        }
-        Err(error) => {
-            diagnostic_with_default_path(error, &project_root.join(&manifest.build.entry))
-        }
-    };
-    let mismatch = expected_error_mismatch(project_root, &expected, &actual);
-    TestCaseResult {
-        package_root: project_root.display().to_string(),
-        name: case_name.to_string(),
-        kind,
-        entry: manifest.build.entry.clone(),
-        ok: mismatch.is_none(),
-        binary: None,
-        generated_rust: None,
-        exit_code: None,
-        stdout: String::new(),
-        stderr: String::new(),
-        expected_stdout: None,
-        expected_stderr: None,
-        expected_error: Some(expected),
-        duration_ms: started.elapsed().as_millis() as u64,
-        error: mismatch.map(|message| Diagnostic::new("test", message)),
-    }
-}
-
-fn failed_test_case_result_from_expected_build(
-    project_root: &Path,
-    manifest: &Manifest,
-    case_name: &str,
-    kind: TestKind,
-    started: &Instant,
-    expected: Option<ExpectedDiagnostic>,
-    error: Diagnostic,
-) -> TestCaseResult {
-    TestCaseResult {
-        package_root: project_root.display().to_string(),
-        name: case_name.to_string(),
-        kind,
-        entry: manifest.build.entry.clone(),
-        ok: false,
-        binary: None,
-        generated_rust: None,
-        exit_code: None,
-        stdout: String::new(),
-        stderr: String::new(),
-        expected_stdout: None,
-        expected_stderr: None,
-        expected_error: expected,
-        duration_ms: started.elapsed().as_millis() as u64,
-        error: Some(error),
-    }
-}
-
 fn expected_error_path(project_root: &Path) -> PathBuf {
     project_root.join("expected-error.json")
-}
-
-fn expected_build_error_path(project_root: &Path) -> PathBuf {
-    project_root.join("expected-build-error.json")
-}
-
-fn load_expected_build_error(project_root: &Path) -> Result<ExpectedDiagnostic, Diagnostic> {
-    let path = expected_build_error_path(project_root);
-    let content = fs::read_to_string(&path).map_err(|err| {
-        Diagnostic::new("test", format!("failed to read {}: {err}", path.display()))
-            .with_path(path.display().to_string())
-    })?;
-    serde_json::from_str(&content).map_err(|err| {
-        Diagnostic::new(
-            "test",
-            format!(
-                "invalid expected-build-error.json at {}: {err}",
-                path.display()
-            ),
-        )
-        .with_path(path.display().to_string())
-    })
 }
 
 fn load_expected_error(project_root: &Path) -> Result<ExpectedDiagnostic, Diagnostic> {
@@ -10383,6 +10257,7 @@ return async_serve_route(1, "/", "ok", 1)
         let output = run_project_tests_with_options(
             &project,
             &TestOptions {
+                backend: NativeBackendKind::GeneratedRust,
                 filter: None,
                 package: None,
                 include_benchmarks: false,
@@ -10398,10 +10273,7 @@ return async_serve_route(1, "/", "ok", 1)
         assert_eq!(output.failed, 0);
         assert_eq!(output.cases.len(), 1);
         assert_eq!(output.cases[0].kind, TestKind::Property);
-        assert!(
-            output.cases[0].generated_rust.is_none(),
-            "default direct-native property runs must not emit generated Rust"
-        );
+        assert!(output.cases[0].generated_rust.is_some());
     }
 
     #[test]

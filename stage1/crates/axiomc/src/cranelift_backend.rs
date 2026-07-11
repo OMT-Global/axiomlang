@@ -39,6 +39,9 @@ pub(crate) use host_env_proc_clock::*;
 mod host_json_serdes;
 pub(crate) use host_json_serdes::*;
 mod static_output_purity;
+mod compilation_mode;
+pub use compilation_mode::CraneliftCompilationMode;
+use compilation_mode::{direct_native_mode, known_value_fold_call, runtime_lowering_required};
 use static_output_purity::allows_static_output_evaluation;
 
 const SPIKE_PACKAGE_ROOT_BINDING: &str = "$axiom_package_root";
@@ -397,22 +400,6 @@ fn i64_arithmetic_word(op: ArithmeticOp) -> &'static str {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum CraneliftCompilationMode {
-    DirectNativeRuntime,
-    DirectNativeRuntimeWithStaticFolds,
-    BoundedStaticOutput,
-}
-
-impl CraneliftCompilationMode {
-    pub fn uses_static_folding(self) -> bool {
-        matches!(
-            self,
-            Self::DirectNativeRuntimeWithStaticFolds | Self::BoundedStaticOutput
-        )
-    }
-}
-
 pub fn compile_cranelift_hello_spike(
     program: &Program,
     capabilities: &CapabilityConfig,
@@ -455,10 +442,6 @@ pub fn compile_cranelift_hello_spike(
     {
         return Err(runtime_lowering_required());
     }
-    // The evaluator is a compile-time execution engine. It is therefore not a
-    // general backend fallback: select it only after a structural, fail-closed
-    // proof that the program is bounded and effect-free. In particular, this
-    // gate runs before the evaluator can observe stdin or any host resource.
     if !allows_static_output_evaluation(program, capabilities) {
         return Err(runtime_lowering_required());
     }
@@ -473,17 +456,6 @@ pub fn compile_cranelift_hello_spike(
         Diagnostic::new("build", err.to_string()).with_path(object_path.display().to_string())
     })?;
     Ok(CraneliftCompilationMode::BoundedStaticOutput)
-}
-
-fn direct_native_mode(program: &Program) -> CraneliftCompilationMode {
-    // Direct lowerers fold MIR statics and other known values into the runtime
-    // program. Surface that distinction so provenance never describes a
-    // hybrid artifact as purely runtime-lowered.
-    if program.statics.is_empty() && !program_uses_known_value_folds(program) {
-        CraneliftCompilationMode::DirectNativeRuntime
-    } else {
-        CraneliftCompilationMode::DirectNativeRuntimeWithStaticFolds
-    }
 }
 
 fn program_uses_known_value_folds(program: &Program) -> bool {
@@ -706,34 +678,6 @@ fn expr_uses_known_value_fold(expr: &Expr) -> bool {
         }
         Expr::Literal(_) | Expr::VarRef { .. } => false,
     }
-}
-
-fn known_value_fold_call(name: &str) -> bool {
-    name.starts_with("json_")
-        || name.starts_with("serdes_")
-        || name.starts_with("std_serdes_")
-        || name.starts_with("encoding_")
-        || name.starts_with("string_")
-        || name.starts_with("regex_")
-        || matches!(
-            name,
-            "crypto_sha256"
-                | "crypto_hmac_sha256"
-                | "crypto_hmac_sha512"
-                | "crypto_constant_time_eq"
-                | "crypto_constant_time_eq_u8"
-                | "crypto_verify_sha256"
-                | "crypto_verify_sha512"
-        )
-}
-
-fn runtime_lowering_required() -> Diagnostic {
-    Diagnostic::new(
-        "build",
-        "native build requires runtime lowering row direct-native.program_lowering; compile-time evaluator fallback is forbidden",
-    )
-    .with_code("backend.runtime_lowering_required")
-    .with_help("fallback selection was blocked before evaluator execution")
 }
 
 fn lower_i64_top_level_output_program(
