@@ -1,3 +1,4 @@
+use crate::build_contract::BuildLoweringEvidence;
 use crate::diagnostics::Diagnostic;
 use crate::manifest::{CapabilityDescriptor, TestKind};
 use crate::project::{
@@ -80,7 +81,16 @@ pub fn build_success(project: &Path, output: &BuildOutput) -> Value {
         "cache_misses": output.cache_misses,
         "duration_ms": output.duration_ms,
         "packages": output.packages,
+        "lowering": output.lowering,
     });
+    payload
+}
+
+pub fn build_error(error: &Diagnostic) -> Value {
+    let mut payload = self::error("build", error);
+    if error.code.as_deref() == Some("backend.runtime_lowering_required") {
+        payload["lowering"] = json!(BuildLoweringEvidence::blocked_legacy_fallback());
+    }
     payload
 }
 

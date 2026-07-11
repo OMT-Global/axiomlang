@@ -563,7 +563,6 @@ fn main() {
                     target,
                     package: package.clone(),
                     debug,
-                    stdin: None,
                     locked,
                     offline,
                 },
@@ -582,7 +581,10 @@ fn main() {
                         0
                     }
                 }
-                Err(error) => print_error("build", error, json),
+                Err(error) if json => {
+                    print_json_output_or_error("build", &json_contract::build_error(&error), 1)
+                }
+                Err(error) => print_error("build", error, false),
             }
         }
         Command::Run {
@@ -7912,12 +7914,32 @@ mod tests {
     #[test]
     fn json_flags_describe_agent_envelope_in_help() {
         for path in [
-            &["parse"][..], &["check"], &["build"], &["run"], &["trace"], &["test"],
-            &["caps"], &["repair-plan"], &["evidence"], &["verify"], &["semantic-diff"],
-            &["explain"], &["doctor"], &["fmt"], &["doc"], &["bench"],
-            &["mutation-report"], &["repl"], &["inspect", "symbols"], &["inspect", "graph"],
-            &["inspect", "effects"], &["inspect", "artifacts"], &["generate", "openapi"],
-            &["generate", "policy"], &["generate", "sql"], &["generate", "terraform"],
+            &["parse"][..],
+            &["check"],
+            &["build"],
+            &["run"],
+            &["trace"],
+            &["test"],
+            &["caps"],
+            &["repair-plan"],
+            &["evidence"],
+            &["verify"],
+            &["semantic-diff"],
+            &["explain"],
+            &["doctor"],
+            &["fmt"],
+            &["doc"],
+            &["bench"],
+            &["mutation-report"],
+            &["repl"],
+            &["inspect", "symbols"],
+            &["inspect", "graph"],
+            &["inspect", "effects"],
+            &["inspect", "artifacts"],
+            &["generate", "openapi"],
+            &["generate", "policy"],
+            &["generate", "sql"],
+            &["generate", "terraform"],
             &["generate", "runbook"],
             &["pkg", "graph"],
         ] {
@@ -8549,7 +8571,7 @@ return "ok"
             target: None,
             debug: true,
             cache_key: axiomc::project::BuildCacheMetadata {
-                version: 1,
+                version: 2,
                 compiler: String::from("stage1"),
                 target: None,
                 debug: true,
@@ -8569,6 +8591,7 @@ return "ok"
             cache_misses: 1,
             duration_ms: 1,
             packages: Vec::new(),
+            lowering: axiomc::build_contract::BuildLoweringEvidence::generated_rust(),
         }
     }
 

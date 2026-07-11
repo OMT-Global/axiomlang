@@ -126,10 +126,10 @@ native backend attempts lowering or native execution.
 
 ## Current Status
 
-The checked-in contract is ready for the supported stage1 direct-native surface:
-every tracked value feature and capability shim row is implemented with runtime
-evidence. Future backend slices should extend the matrix with new rows before
-claiming support for additional stage1 runtime surface area.
+The checked-in contract is partial. Direct-native builds fail closed instead of
+executing unsupported program effects during compilation. Seven rows retain
+compiler-side or denial evidence but no longer claim runtime-positive proof; their
+blocker issues track the native lowering required before the contract is ready.
 
 <!-- direct-native-runtime-abi-status:start -->
 
@@ -145,7 +145,7 @@ _Generated from `stage1/runtime-abi/direct-native-v0.json`; run `make stage1-dir
 | `map.lookup` | `implemented` | - | evidence:1, runtime:1 | The Cranelift spike covers direct map indexing, get, get_or_default, map_contains_key, map_keys, helper-returned direct index, contains-key, and de... |
 | `numeric.scalars` | `implemented` | - | evidence:1, runtime:1, denial:2 | The Cranelift spike covers several scalar widths and casts. |
 | `option` | `implemented` | - | evidence:1, runtime:1, denial:1 | The direct-native path now has narrow runtime evidence for local Option<int> and Option<bool> construction as tag/payload locals, scalar option rea... |
-| `owned.move_state` | `implemented` | - | evidence:1, runtime:1, denial:1 | The Cranelift spike builds and runs projection-sensitive owned field moves while preserving access to disjoint sibling projections, and the public... |
+| `owned.move_state` | `partial` | #1438 | evidence:1, denial:1 | Projection-sensitive move-state programs fail closed with backend.runtime_lowering_required until owned aggregate movement is lowered into the nati... |
 | `result` | `implemented` | - | evidence:1, runtime:1, denial:1 | The Cranelift spike evaluates Result<T, E> through std/outcome.ax helpers, direct match arms, scalar payloads, string errors, and struct payloads. |
 | `slice.borrowed` | `implemented` | - | evidence:1, runtime:1, denial:2 | The Cranelift spike evaluates borrowed array slices for len, first, last, indexing, and function returns. |
 | `string` | `implemented` | - | evidence:2, runtime:2, denial:1 | The Cranelift spike builds and runs pure string intrinsics including string_clone, string_starts_with, string_strip_prefix, string_strip_suffix, st... |
@@ -158,23 +158,23 @@ _Generated from `stage1/runtime-abi/direct-native-v0.json`; run `make stage1-dir
 | --- | --- | --- | --- | --- |
 | `async.runtime` | `implemented` | - | evidence:1, runtime:1, denial:2 | The Cranelift spike now has compiler-side evidence for std/async.ax ready, await, spawn, join, cancel, is_canceled, timeout, channel send/recv, sel... |
 | `clock.now_sleep` | `implemented` | - | evidence:1, runtime:1, denial:2 | The Cranelift spike can build a std/time.ax package covering now_ms, now, elapsed_ms, and zero-duration sleep while the public clock smoke asserts... |
-| `crypto.aead` | `implemented` | - | evidence:1, runtime:2, denial:2 | The Cranelift spike builds and runs std/crypto_aead.ax AES-256-GCM seal/open while the public smoke asserts generated_rust is null through a dynami... |
+| `crypto.aead` | `partial` | #1438 | evidence:1, denial:2 | AEAD seal and open operations are not executed during build. |
 | `crypto.hash` | `implemented` | - | evidence:1, runtime:1, denial:2 | The Cranelift spike covers std/crypto_hash.ax sha256 over strings while the public smoke asserts generated_rust is null. |
 | `crypto.mac` | `implemented` | - | evidence:1, runtime:1, denial:2 | The Cranelift spike covers std/crypto_mac.ax HMAC-SHA256, HMAC-SHA512, verification helpers, string constant-time equality, and byte-slice constant... |
 | `crypto.random` | `implemented` | - | evidence:1, runtime:1, denial:2 | The Cranelift spike builds and runs std/crypto_rand.ax random_bytes and random_u64 through a Unix OS-random source while the public smoke asserts g... |
-| `crypto.signature` | `implemented` | - | evidence:1, runtime:2, denial:2 | The Cranelift spike builds and runs std/crypto_sign.ax Ed25519 key generation, signing, and verification while the public smoke asserts generated_r... |
+| `crypto.signature` | `partial` | #1438 | evidence:1, denial:2 | Ed25519 key generation, signing, and verification are not executed during build. |
 | `env.read` | `implemented` | - | evidence:1, runtime:1, denial:2 | The Cranelift spike can build a std/env.ax get_env package for present and missing environment reads while the public smoke asserts generated_rust... |
 | `ffi.call` | `implemented` | - | evidence:1, runtime:1, denial:2 | The Cranelift spike builds and runs a narrow C ABI extern strlen fixture while the public smoke asserts generated_rust is null, using the source-le... |
 | `fs.read` | `implemented` | - | evidence:1, runtime:1, denial:2 | The Cranelift spike can build a std/fs.ax read_file package for present and missing filesystem reads, and rejects missing fs capability before back... |
 | `fs.write` | `implemented` | - | evidence:1, runtime:1, denial:2 | The Cranelift spike records positive compiler-side evidence for std/fs.ax write helpers over configured fs_root-scoped literal paths, including mkd... |
 | `io.logging_stdio` | `implemented` | - | evidence:1, runtime:2 | The Cranelift spike now builds and runs std/io eprintln with stdout and stderr output from the native binary, and std/log.ax event formatting plus... |
 | `json.serdes` | `implemented` | - | evidence:2, runtime:3 | The Cranelift spike covers std/json.ax scalar parse/stringify, JsonValue string wrapping, object field extraction, and value normalization without... |
-| `network.dns.resolve` | `implemented` | - | evidence:1, runtime:1, denial:2 | The Cranelift spike builds and runs std/net.ax resolve("localhost") through host DNS resolution while the public smoke asserts generated_rust is nu... |
-| `network.http.async_server` | `implemented` | - | evidence:1, runtime:1, denial:2 | The Cranelift spike builds and runs http_async_serve_route over a loopback server handle while the public smoke asserts generated_rust is null, ret... |
-| `network.http.client` | `implemented` | - | evidence:1, runtime:1, denial:2 | The Cranelift spike builds std/http.ax get against a static allowlisted http://127.0.0.1 URL and fetches a local one-shot HTTP response while the p... |
+| `network.dns.resolve` | `partial` | #1447 | evidence:1, denial:2 | DNS resolution is not executed during build. |
+| `network.http.async_server` | `partial` | #1445, #1449 | evidence:1, denial:2 | Async HTTP serving is not executed during build. |
+| `network.http.client` | `partial` | #1448 | evidence:1, denial:2 | HTTP client requests are not executed during build. |
 | `network.http.server` | `implemented` | - | evidence:1, runtime:1, denial:2 | The Cranelift spike builds and runs loopback HTTP server entrypoints while the public smoke asserts generated_rust is null: listen, local_port, acc... |
 | `network.tcp` | `implemented` | - | evidence:1, runtime:1, denial:2 | The Cranelift spike builds and runs std/net.ax tcp_listen_loopback_once over 127.0.0.1 while the public loopback smoke asserts generated_rust is nu... |
-| `network.udp` | `implemented` | - | evidence:1, runtime:1, denial:2 | The Cranelift spike builds and runs std/net.ax udp_bind_loopback_once over 127.0.0.1 while the public loopback smoke asserts generated_rust is null... |
+| `network.udp` | `partial` | #1447 | evidence:1, denial:2 | UDP bind operations are not executed during build. |
 | `process.status` | `implemented` | - | evidence:2, runtime:4, denial:2 | The Cranelift spike records positive compiler-side evidence for std/process.ax run_status over literal, allowlisted deterministic commands and the... |
 | `regex.match_replace` | `implemented` | - | evidence:1, runtime:2 | The Cranelift spike covers std/regex.ax is_match, find, and replace_all for the stage1-safe NFA subset without generated Rust, and the public stdli... |
 | `sync.primitives` | `implemented` | - | evidence:1, runtime:1 | The Cranelift spike now builds and runs ownership-shaped std/sync mutex, once, and channel wrappers while the public sync smoke asserts generated_r... |
