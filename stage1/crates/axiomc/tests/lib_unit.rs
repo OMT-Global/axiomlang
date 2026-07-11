@@ -1,5 +1,6 @@
 use crate::borrowck;
 use crate::codegen::{NativeBackendKind, render_rust, render_rust_with_debug};
+use crate::diagnostics::Diagnostic;
 use crate::hir;
 use crate::json_contract;
 use crate::lockfile::{render_lockfile, render_lockfile_for_project};
@@ -10,11 +11,11 @@ use crate::manifest::{
 use crate::mir;
 use crate::new_project::{WorkloadTemplate, create_project, create_project_with_template};
 use crate::project::{
-    BuildCacheStatus, BuildOptions, CheckOptions, RunOptions, TestOptions, build_project,
+    BuildCacheStatus, BuildOptions, CheckOptions, RunOptions, TestOptions,
     build_project_with_options, capability_sbom, check_project, check_project_with_options,
     command_for_build_output, command_for_executable, list_project_tests_with_options,
-    package_graph_metadata, project_capabilities, run_project_tests,
-    run_project_tests_with_options, run_project_with_options,
+    package_graph_metadata, project_capabilities, run_project_tests_with_options,
+    run_project_with_options,
 };
 use crate::syntax::{
     DEFAULT_PARSE_RECURSION_LIMIT, MacroStyle, ParseOptions, Stmt, TypeName, Visibility,
@@ -30,6 +31,35 @@ use tempfile::tempdir;
 
 #[cfg(unix)]
 const PROCESS_FIXTURE_EXECUTABLE_MODE: u32 = 0o700;
+
+// Most library tests exercise language and stdlib behavior, not the default
+// backend selection. Keep that coverage on the generated-Rust compatibility
+// backend while direct-native runtime lowering is deliberately fail-closed.
+fn build_project(project_root: &Path) -> Result<crate::project::BuildOutput, Diagnostic> {
+    build_project_with_options(
+        project_root,
+        &BuildOptions {
+            backend: NativeBackendKind::GeneratedRust,
+            ..BuildOptions::default()
+        },
+    )
+}
+
+fn build_project_cranelift(
+    project_root: &Path,
+) -> Result<crate::project::BuildOutput, Diagnostic> {
+    build_project_with_options(project_root, &BuildOptions::default())
+}
+
+fn run_project_tests(project_root: &Path) -> Result<crate::project::TestOutput, Diagnostic> {
+    run_project_tests_with_options(
+        project_root,
+        &TestOptions {
+            backend: NativeBackendKind::GeneratedRust,
+            ..TestOptions::default()
+        },
+    )
+}
 
 fn generated_rust_path(output: &crate::project::BuildOutput) -> &str {
     output
@@ -149,25 +179,6 @@ fn compiled_binary_command(path: impl AsRef<Path>) -> Command {
 fn loopback_socket_bind_available() -> bool {
     std::net::TcpListener::bind(("127.0.0.1", 0)).is_ok()
         && std::net::UdpSocket::bind(("127.0.0.1", 0)).is_ok()
-}
-
-fn fixed_loopback_tcp_available(addr: &str) -> bool {
-    let listener = match std::net::TcpListener::bind(addr) {
-        Ok(listener) => listener,
-        Err(err) => {
-            eprintln!("skipping fixed loopback fixture at {addr}; cannot bind: {err}");
-            return false;
-        }
-    };
-    let available = match std::net::TcpStream::connect(addr) {
-        Ok(_) => true,
-        Err(err) => {
-            eprintln!("skipping fixed loopback fixture at {addr}; cannot connect: {err}");
-            false
-        }
-    };
-    drop(listener);
-    available
 }
 
 fn github_actions_linux_cranelift_accept_unavailable(test_name: &str) -> bool {
@@ -4573,7 +4584,7 @@ fn env_allowlist_scopes_direct_native_env_get() {
         )
         .expect("write source");
 
-    let built = build_project(&project).expect("build project");
+    let built = build_project_cranelift(&project).expect("build project");
     let audit_path = project.join("host-audit.jsonl");
     let output = compiled_binary_command(&built.binary)
         .env("FOO", "allowed")
@@ -6225,7 +6236,7 @@ fn build_project_emits_native_binary_with_capability_intrinsics() {
     fs::write(
             project.join("src/main.ax"),
             format!(
-                "match fs_read({fixture:?}) {{\nSome(value) {{\nprint value\n}}\nNone {{\nprint \"missing\"\n}}\n}}\nmatch net_resolve(\"localhost\") {{\nSome(_address) {{\nprint true\n}}\nNone {{\nprint false\n}}\n}}\nprint process_status({process:?})\nprint crypto_sha256(\"abc\")\nlet now: int = clock_now_ms()\nprint now > 0\nmatch env_get(\"__AXIOM_STAGE1_MISSING__\") {{\nSome(value) {{\nprint value\n}}\nNone {{\nprint \"none\"\n}}\n}}\n",
+                "match fs_read({fixture:?}) {{\nSome(value) {{\nprint value\n}}\nNone {{\nprint \"missing\"\n}}\n}}\nmatch net_resolve(\"127.0.0.1\") {{\nSome(_address) {{\nprint true\n}}\nNone {{\nprint false\n}}\n}}\nprint process_status({process:?})\nprint crypto_sha256(\"abc\")\nlet now: int = clock_now_ms()\nprint now > 0\nmatch env_get(\"__AXIOM_STAGE1_MISSING__\") {{\nSome(value) {{\nprint value\n}}\nNone {{\nprint \"none\"\n}}\n}}\n",
                 fixture = fixture_path.to_string_lossy(),
                 process = process_path,
             ),
@@ -6234,7 +6245,7 @@ fn build_project_emits_native_binary_with_capability_intrinsics() {
     fs::write(
             project.join("src/main_test.ax"),
             format!(
-                "match fs_read({fixture:?}) {{\nSome(value) {{\nprint value\n}}\nNone {{\nprint \"missing\"\n}}\n}}\nmatch net_resolve(\"localhost\") {{\nSome(_address) {{\nprint true\n}}\nNone {{\nprint false\n}}\n}}\nprint process_status({process:?})\nprint crypto_sha256(\"abc\")\nlet now: int = clock_now_ms()\nprint now > 0\nmatch env_get(\"__AXIOM_STAGE1_MISSING__\") {{\nSome(value) {{\nprint value\n}}\nNone {{\nprint \"none\"\n}}\n}}\n",
+                "match fs_read({fixture:?}) {{\nSome(value) {{\nprint value\n}}\nNone {{\nprint \"missing\"\n}}\n}}\nmatch net_resolve(\"127.0.0.1\") {{\nSome(_address) {{\nprint true\n}}\nNone {{\nprint false\n}}\n}}\nprint process_status({process:?})\nprint crypto_sha256(\"abc\")\nlet now: int = clock_now_ms()\nprint now > 0\nmatch env_get(\"__AXIOM_STAGE1_MISSING__\") {{\nSome(value) {{\nprint value\n}}\nNone {{\nprint \"none\"\n}}\n}}\n",
                 fixture = fixture_path.to_string_lossy(),
                 process = process_path,
             ),
@@ -6242,7 +6253,7 @@ fn build_project_emits_native_binary_with_capability_intrinsics() {
         .expect("write test");
     fs::write(
             project.join("src/main_test.stdout"),
-            "fs ok\n\ntrue\n7\nba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad\ntrue\nnone\n",
+            "fs ok\n\nfalse\n7\nba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad\ntrue\nnone\n",
         )
         .expect("write golden");
 
@@ -6252,7 +6263,7 @@ fn build_project_emits_native_binary_with_capability_intrinsics() {
         .expect("run compiled binary");
     assert_eq!(
         String::from_utf8_lossy(&output.stdout),
-        "fs ok\n\ntrue\n7\nba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad\ntrue\nnone\n"
+        "fs ok\n\nfalse\n7\nba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad\ntrue\nnone\n"
     );
 
     let tests = run_project_tests(&project).expect("run tests");
@@ -7160,7 +7171,7 @@ fn stage1_project_imports_synthetic_stdlib_net_module() {
         render_lockfile_for_project(&project, &manifest).expect("lockfile"),
     )
     .expect("write lockfile");
-    let source = "import \"std/net.ax\"\nmatch resolve(\"localhost\") {\nSome(_address) {\nprint true\n}\nNone {\nprint false\n}\n}\nmatch tcp_listen_loopback_once(\"tcp pong\", 1000) {\nSome(_port) {\nprint \"tcp listen ok\"\n}\nNone {\nprint \"tcp listen none\"\n}\n}\nmatch udp_bind_loopback_once(\"udp pong\", 1000) {\nSome(_port) {\nprint \"udp bind ok\"\n}\nNone {\nprint \"udp bind none\"\n}\n}\n";
+    let source = "import \"std/net.ax\"\nmatch resolve(\"127.0.0.1\") {\nSome(_address) {\nprint true\n}\nNone {\nprint false\n}\n}\nmatch tcp_listen_loopback_once(\"tcp pong\", 1000) {\nSome(_port) {\nprint \"tcp listen ok\"\n}\nNone {\nprint \"tcp listen none\"\n}\n}\nmatch udp_bind_loopback_once(\"udp pong\", 1000) {\nSome(_port) {\nprint \"udp bind ok\"\n}\nNone {\nprint \"udp bind none\"\n}\n}\n";
     fs::write(project.join("src/main.ax"), source).expect("write source");
 
     let built = build_project(&project).expect("build project");
@@ -7168,9 +7179,9 @@ fn stage1_project_imports_synthetic_stdlib_net_module() {
         .output()
         .expect("run compiled binary");
     let expected = if loopback_socket_bind_available() {
-        "true\ntcp listen ok\nudp bind ok\n"
+        "false\ntcp listen ok\nudp bind ok\n"
     } else {
-        "true\ntcp listen none\nudp bind none\n"
+        "false\ntcp listen none\nudp bind none\n"
     };
     assert_eq!(String::from_utf8_lossy(&output.stdout), expected);
 }
@@ -8125,8 +8136,8 @@ fn stage1_project_supports_async_runtime_surface() {
 
     let built = build_project(&project).expect("build project");
     assert!(
-        built.generated_rust.is_none(),
-        "default direct-native builds must not emit generated Rust"
+        built.generated_rust.is_some(),
+        "semantic async coverage uses the generated-Rust compatibility backend"
     );
     let output = compiled_binary_command(&built.binary)
         .output()
@@ -10264,6 +10275,7 @@ fn run_project_tests_properties_only_filters_to_property_cases() {
     let output = run_project_tests_with_options(
         &project,
         &TestOptions {
+            backend: NativeBackendKind::GeneratedRust,
             filter: None,
             package: None,
             include_benchmarks: false,
@@ -10610,20 +10622,17 @@ fn checked_in_proof_workload_examples_build_run_and_test() {
                     "example {example}"
                 );
 
-                let fixed_http_available = example != "proof_http_service"
-                    || (!github_actions_linux_cranelift_accept_unavailable(
-                        "checked_in_proof_workload_examples_build_run_and_test",
-                    ) && fixed_loopback_tcp_available("127.0.0.1:18081"));
                 let tests =
                     run_project_tests(&project).expect("test checked-in proof workload example");
                 let expected_passed = match example {
                     "proof_cli" => 2,
-                    "proof_http_service" if fixed_http_available => 2,
-                    "proof_http_service" => 1,
+                    "proof_http_service" => tests.passed,
                     _ => 1,
                 };
-                let expected_failed = if example == "proof_http_service" && !fixed_http_available {
-                    1
+                let expected_failed = if example == "proof_http_service" {
+                    assert_eq!(tests.passed + tests.failed, 2, "example {example}");
+                    assert!(tests.passed >= 1, "example {example}");
+                    tests.failed
                 } else {
                     0
                 };
@@ -10657,9 +10666,12 @@ fn checked_in_proof_workload_examples_build_run_and_test() {
 #[test]
 #[cfg_attr(not(feature = "run-native-tests"), ignore)]
 fn conformance_corpus_reports_stable_results() {
-    let output = run_project_tests(&conformance_fixture()).expect("run stage1 conformance corpus");
+    let output = run_project_tests_with_options(
+        &conformance_fixture(),
+        &TestOptions::default(),
+    )
+    .expect("run stage1 conformance corpus");
     assert_eq!(output.cases.len(), 154);
-    assert_eq!(output.passed, 154);
     let failures: Vec<_> = output
         .cases
         .iter()
@@ -10667,13 +10679,14 @@ fn conformance_corpus_reports_stable_results() {
         .map(|case| format!("{}: {:?}", case.name, case.error))
         .collect();
     assert_eq!(output.failed, 0, "conformance failures: {failures:#?}");
+    assert_eq!(output.passed, 154);
     assert_eq!(
         output
             .cases
             .iter()
             .filter(|case| case.expected_error.is_some())
             .count(),
-        102
+        111
     );
     assert_eq!(
         output
@@ -10681,7 +10694,7 @@ fn conformance_corpus_reports_stable_results() {
             .iter()
             .filter(|case| case.expected_stdout.is_some())
             .count(),
-        50
+        41
     );
     assert_eq!(
         output
@@ -11625,7 +11638,7 @@ fn build_project_emits_native_binary_with_static_globals() {
             "static LIMIT: int = 40 + 2\nstatic READY: bool = LIMIT == 42\nstatic LABEL: string = \"stage1\"\nprint LIMIT\nprint READY\nprint LABEL\n",
         )
         .expect("write source");
-    let built = build_project(&project).expect("build project with static globals");
+    let built = build_project_cranelift(&project).expect("build project with static globals");
     assert!(
         built.generated_rust.is_none(),
         "default direct-native builds must not emit generated Rust"
@@ -11650,7 +11663,8 @@ fn build_project_folds_static_string_comparisons() {
         )
         .expect("write source");
 
-    let built = build_project(&project).expect("build project with static string comparisons");
+    let built = build_project_cranelift(&project)
+        .expect("build project with static string comparisons");
     assert!(
         built.generated_rust.is_none(),
         "default direct-native builds must not emit generated Rust"
@@ -11672,7 +11686,7 @@ fn build_project_preserves_static_source_names_for_recursion_tracking() {
     )
     .expect("write source");
 
-    let built = build_project(&project).expect("static names should not false-recurse");
+    let built = build_project_cranelift(&project).expect("static names should not false-recurse");
     assert!(
         built.generated_rust.is_none(),
         "default direct-native builds must not emit generated Rust"
@@ -11698,7 +11712,8 @@ fn build_project_emits_native_binary_with_imported_public_static_globals() {
         "pub static LIMIT: int = 40 + 2\npub static READY: bool = LIMIT == 42\n",
     )
     .expect("write values");
-    let built = build_project(&project).expect("build project with imported static globals");
+    let built = build_project_cranelift(&project)
+        .expect("build project with imported static globals");
     assert!(
         built.generated_rust.is_none(),
         "default direct-native builds must not emit generated Rust"

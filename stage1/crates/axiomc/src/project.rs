@@ -1,3 +1,4 @@
+use crate::build_contract::BuildLoweringEvidence;
 use crate::codegen::{
     GeneratedRustBackendInput, NativeBackendKind, compile_native, try_render_generated_rust,
 };
@@ -34,7 +35,10 @@ use std::path::{Component, Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
-const BUILD_CACHE_VERSION: u32 = 1;
+mod expected_build_failure;
+use expected_build_failure::{expected_build_error_path, run_build_fail_case};
+
+const BUILD_CACHE_VERSION: u32 = 2;
 const BUILD_CACHE_COMPILER: &str = concat!("axiomc-stage1-", env!("CARGO_PKG_VERSION"));
 const MAX_TEST_EXPECTED_STREAM_BYTES: u64 = 1024 * 1024;
 
@@ -180,6 +184,7 @@ pub struct BuiltPackage {
     pub metadata: BuildMetadata,
     pub cache_status: BuildCacheStatus,
     pub compile_ms: u64,
+    pub lowering: BuildLoweringEvidence,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -202,6 +207,7 @@ pub struct BuildOutput {
     pub cache_misses: usize,
     pub duration_ms: u64,
     pub packages: Vec<BuiltPackage>,
+    pub lowering: BuildLoweringEvidence,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
@@ -422,8 +428,6 @@ pub struct BuildOptions {
     pub target: Option<String>,
     pub package: Option<String>,
     pub debug: bool,
-    /// Deterministic stdin used by direct-native manifest test builds.
-    pub stdin: Option<String>,
     /// Require the checked-in axiom.lock graph to match the local manifest graph.
     pub locked: bool,
     /// Resolve the build graph without network access. Stage1 currently supports local path graphs only.
@@ -578,6 +582,7 @@ fn build_project_with_graph(
             metadata: report.metadata,
             cache_status: report.cache_status,
             compile_ms: report.compile_ms,
+            lowering: report.lowering,
         });
     }
     let root = packages.first().cloned().ok_or_else(|| {
@@ -613,6 +618,7 @@ fn build_project_with_graph(
         cache_misses,
         duration_ms: started.elapsed().as_millis() as u64,
         packages,
+        lowering: root.lowering,
     })
 }
 
@@ -700,7 +706,6 @@ fn prepare_run_project(
             target: None,
             package: options.package.clone(),
             debug: false,
-            stdin: None,
             locked: true,
             offline: true,
         },
@@ -738,11 +743,18 @@ pub fn list_project_tests_with_options(
         validate_lockfile(&package_root, manifest)?;
         let package_root_text = package_root.display().to_string();
         let expected_error = expected_error_path(&package_root);
-        let compile_fail_kind = compile_fail_test_kind(options).filter(|_| expected_error.exists());
+        let expected_build_error = expected_build_error_path(&package_root);
+        let compile_fail_kind = compile_fail_test_kind(options)
+            .filter(|_| expected_error.exists() || expected_build_error.exists());
         let discovered = if let Some(kind) = compile_fail_kind {
-            compile_fail_test_target(manifest, kind, options.filter.as_deref(), &package_root_text)
-                .into_iter()
-                .collect()
+            compile_fail_test_target(
+                manifest,
+                kind,
+                options.filter.as_deref(),
+                &package_root_text,
+            )
+            .into_iter()
+            .collect()
         } else {
             collect_test_targets(
                 &package_root,
@@ -799,20 +811,29 @@ pub fn run_project_tests_with_options(
         validate_lockfile(&package_root, manifest)?;
         let package_root_text = package_root.display().to_string();
         let expected_error = expected_error_path(&package_root);
-        let compile_fail_kind = compile_fail_test_kind(options).filter(|_| expected_error.exists());
+        let expected_build_error = expected_build_error_path(&package_root);
+        let compile_fail_kind = compile_fail_test_kind(options)
+            .filter(|_| expected_error.exists() || expected_build_error.exists());
         if let Some(kind) = compile_fail_kind {
-            if let Some(test) =
-                compile_fail_test_target(manifest, kind, options.filter.as_deref(), &package_root_text)
-            {
+            if let Some(test) = compile_fail_test_target(
+                manifest,
+                kind,
+                options.filter.as_deref(),
+                &package_root_text,
+            ) {
                 packages.push(package_root_text.clone());
-                cases.push(run_compile_fail_case(
-                    &package_root,
-                    &graph,
-                    manifest,
-                    &test.name,
-                    test.kind,
-                    &mut parse_cache,
-                ));
+                cases.push(if expected_build_error.exists() {
+                    run_build_fail_case(&package_root, &graph, manifest, &test.name, test.kind)
+                } else {
+                    run_compile_fail_case(
+                        &package_root,
+                        &graph,
+                        manifest,
+                        &test.name,
+                        test.kind,
+                        &mut parse_cache,
+                    )
+                });
             }
             continue;
         }
@@ -2240,6 +2261,7 @@ struct BuildArtifactReport {
     cache_status: BuildCacheStatus,
     cache_key: BuildCacheMetadata,
     compile_ms: u64,
+    lowering: BuildLoweringEvidence,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -2253,7 +2275,7 @@ struct BuildCacheFile {
     lockfile_hash: String,
     #[serde(alias = "rust_hash")]
     backend_input_hash: String,
-    stdin_hash: Option<String>,
+    lowering: BuildLoweringEvidence,
     binary_hash: Option<String>,
     modules: Vec<CachedModule>,
 }
@@ -2296,13 +2318,10 @@ fn build_artifacts(
         options.backend,
         resolved_target.map(str::to_string),
         options.debug,
-        direct_native_stdin_hash(options),
+        BuildLoweringEvidence::for_program(options.backend, &analyzed.mir),
     )?;
-    if read_build_cache(&cache_path)
-        .as_ref()
-        .is_some_and(|stored| {
-            cache_matches(stored, &cache, options.backend, generated_rust, binary)
-        })
+    if let Some(stored) = read_build_cache(&cache_path)
+        .filter(|stored| cache_matches(stored, &cache, options.backend, generated_rust, binary))
     {
         if options.debug {
             write_debug_artifacts(generated_rust, binary, analyzed, options.backend)?;
@@ -2319,20 +2338,45 @@ fn build_artifacts(
             cache_status: BuildCacheStatus::Hit,
             cache_key: build_cache_metadata(&cache),
             compile_ms: 0,
+            lowering: stored.lowering,
         });
+    }
+    // A cache miss means the prior outputs no longer describe this source.
+    // Invalidate them before compilation so a fail-closed backend rejection
+    // cannot leave a stale runnable binary or trusted metadata behind.
+    let mut stale_outputs = vec![binary.to_path_buf(), cache_path.clone(), provenance_path(package_root, &analyzed.manifest)];
+    if matches!(options.backend, NativeBackendKind::Cranelift) {
+        stale_outputs.push(binary.with_extension("cranelift.o"));
+    }
+    if options.debug {
+        stale_outputs.push(debug_source_map_path(options.backend, generated_rust, binary));
+        stale_outputs.push(debug_manifest_path(options.backend, generated_rust, binary));
+    }
+    for path in stale_outputs {
+        match fs::remove_file(&path) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => {
+                return Err(Diagnostic::new(
+                    "build",
+                    format!("failed to invalidate stale build output {}: {error}", path.display()),
+                ));
+            }
+        }
     }
     if let Some(rust_source) = generated_source {
         write_output_file(generated_rust, rust_source, "generated Rust output")?;
     }
     let started = Instant::now();
-    match options.backend {
+    let compiled_lowering = match options.backend {
         NativeBackendKind::GeneratedRust => compile_native(
             options.backend,
             generated_rust,
             binary,
             resolved_target,
             options.debug,
-        )?,
+        )
+        .map(|_| BuildLoweringEvidence::generated_rust())?,
         NativeBackendKind::Cranelift => {
             let object_path = binary.with_extension("cranelift.o");
             ensure_output_path_stays_inside_package(
@@ -2341,24 +2385,25 @@ fn build_artifacts(
                 "Cranelift object output",
             )?;
             let fs_root = fs_root_path_for_package(package_root, &analyzed.manifest)?;
-            compile_cranelift_hello_spike(
+            let mode = compile_cranelift_hello_spike(
                 &analyzed.mir,
                 &analyzed.manifest.capabilities,
                 package_root,
                 &fs_root,
-                options.stdin.as_deref(),
                 &object_path,
                 binary,
                 resolved_target,
                 options.debug,
             )?;
+            BuildLoweringEvidence::from_cranelift_mode(mode)
         }
-    }
+    };
     let compile_ms = started.elapsed().as_millis() as u64;
     if options.debug {
         write_debug_artifacts(generated_rust, binary, analyzed, options.backend)?;
     }
     let mut cache = cache;
+    cache.lowering = compiled_lowering;
     cache.binary_hash = Some(hash_file_bytes(binary)?);
     write_build_cache(&cache_path, &cache)?;
     write_provenance_artifact(
@@ -2373,6 +2418,7 @@ fn build_artifacts(
         cache_status: BuildCacheStatus::Miss,
         cache_key: build_cache_metadata(&cache),
         compile_ms,
+        lowering: cache.lowering,
     })
 }
 
@@ -3514,6 +3560,9 @@ fn cache_matches(
     let mut expected_key = expected.clone();
     stored_key.binary_hash = None;
     expected_key.binary_hash = None;
+    // Lowering evidence is an observed build result, not an input. Preserve it
+    // from the trusted cache record while comparing the actual cache key.
+    expected_key.lowering = stored_key.lowering.clone();
     stored_key == expected_key && generated_rust_matches && actual_binary_hash == *binary_hash
 }
 
@@ -3535,7 +3584,7 @@ fn build_cache_file(
     backend: NativeBackendKind,
     target: Option<String>,
     debug: bool,
-    stdin_hash: Option<String>,
+    lowering: BuildLoweringEvidence,
 ) -> Result<BuildCacheFile, Diagnostic> {
     Ok(BuildCacheFile {
         version: BUILD_CACHE_VERSION,
@@ -3546,16 +3595,10 @@ fn build_cache_file(
         manifest_hash: hash_file(&manifest_path(package_root))?,
         lockfile_hash: hash_file(&crate::manifest::lockfile_path(package_root))?,
         backend_input_hash: backend_input_hash.to_string(),
-        stdin_hash,
+        lowering,
         binary_hash: None,
         modules: cached_modules(graph, &analyzed.modules)?,
     })
-}
-
-fn direct_native_stdin_hash(options: &BuildOptions) -> Option<String> {
-    matches!(options.backend, NativeBackendKind::Cranelift)
-        .then(|| options.stdin.as_deref().map(hash_text))
-        .flatten()
 }
 
 fn cached_modules(
@@ -3692,9 +3735,6 @@ fn run_test_case(
         None,
         &BuildOptions {
             backend,
-            stdin: matches!(backend, NativeBackendKind::Cranelift)
-                .then(|| test.stdin.clone())
-                .flatten(),
             ..BuildOptions::default()
         },
     ) {
@@ -9948,7 +9988,7 @@ return async_serve_route(1, "/", "ok", 1)
             manifest_hash: String::from("manifest"),
             lockfile_hash: String::from("lockfile"),
             backend_input_hash: hash_text(generated_source),
-            stdin_hash: None,
+            lowering: BuildLoweringEvidence::generated_rust(),
             binary_hash: Some(hash_file_bytes(&binary).expect("binary hash")),
             modules: Vec::new(),
         };
@@ -10217,6 +10257,7 @@ return async_serve_route(1, "/", "ok", 1)
         let output = run_project_tests_with_options(
             &project,
             &TestOptions {
+                backend: NativeBackendKind::GeneratedRust,
                 filter: None,
                 package: None,
                 include_benchmarks: false,
@@ -10232,10 +10273,7 @@ return async_serve_route(1, "/", "ok", 1)
         assert_eq!(output.failed, 0);
         assert_eq!(output.cases.len(), 1);
         assert_eq!(output.cases[0].kind, TestKind::Property);
-        assert!(
-            output.cases[0].generated_rust.is_none(),
-            "default direct-native property runs must not emit generated Rust"
-        );
+        assert!(output.cases[0].generated_rust.is_some());
     }
 
     #[test]
@@ -10658,9 +10696,13 @@ return async_serve_route(1, "/", "ok", 1)
         let mut manifest = package_manifest();
         manifest.build.entry = "src/fail_case.ax".to_string();
 
-        let target =
-            compile_fail_test_target(&manifest, TestKind::Property, Some("fail"), &package_root_text)
-                .expect("entry filter should match compile-fail target");
+        let target = compile_fail_test_target(
+            &manifest,
+            TestKind::Property,
+            Some("fail"),
+            &package_root_text,
+        )
+        .expect("entry filter should match compile-fail target");
         assert_eq!(target.name, "demo");
         assert_eq!(target.entry, "src/fail_case.ax");
         assert_eq!(target.kind, TestKind::Property);
@@ -10677,8 +10719,13 @@ return async_serve_route(1, "/", "ok", 1)
         assert_eq!(unit_target.entry, target.entry);
         assert_eq!(unit_target.kind, TestKind::Unit);
         assert!(
-            compile_fail_test_target(&manifest, TestKind::Unit, Some("missing"), &package_root_text)
-                .is_none()
+            compile_fail_test_target(
+                &manifest,
+                TestKind::Unit,
+                Some("missing"),
+                &package_root_text
+            )
+            .is_none()
         );
 
         manifest.package = None;

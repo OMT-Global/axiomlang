@@ -98,7 +98,17 @@ fn build_fixtures_cover_direct_native_target_and_no_fallback_failure() {
     assert_eq!(success["cache_key"]["sources"][0]["path"], success["entry"]);
     assert!(success["cache_key"]["sources"][0]["source_hash"].is_string());
     assert_eq!(success["cache_key"]["target"], "aarch64-apple-darwin");
-    assert_eq!(success["cache_key"]["version"], 1);
+    assert_eq!(success["cache_key"]["version"], 2);
+    assert_eq!(
+        success["lowering"]["execution_mode"],
+        "direct_native_runtime"
+    );
+    assert_eq!(
+        success["lowering"]["lowering_mode"],
+        "direct_native_runtime_with_static_folds"
+    );
+    assert_eq!(success["lowering"]["known_value_static_folds"], true);
+    assert_eq!(success["lowering"]["legacy_fallback_attempted"], false);
     assert!(success["duration_ms"].is_u64());
     assert!(success["cache_hits"].is_u64());
     assert!(success["cache_misses"].is_u64());
@@ -107,6 +117,39 @@ fn build_fixtures_cover_direct_native_target_and_no_fallback_failure() {
     assert!(success["packages"][0]["target"].is_string());
     assert_eq!(success["packages"][0]["metadata"], success["metadata"]);
     assert_eq!(success["packages"][0]["cache_key"], success["cache_key"]);
+    assert_eq!(success["packages"][0]["lowering"], success["lowering"]);
+
+    let blocked = fixture("build", "runtime-lowering-required.json");
+    assert_matches_stage1_schema(&validator, &blocked);
+    assert_envelope(&blocked, "build", false);
+    assert_eq!(
+        blocked["error"]["code"],
+        "backend.runtime_lowering_required"
+    );
+    assert_eq!(
+        blocked["lowering"]["lowering_mode"],
+        "runtime_lowering_required"
+    );
+    assert_eq!(blocked["lowering"]["direct_native_runtime"], false);
+    assert_eq!(blocked["lowering"]["legacy_fallback_attempted"], true);
+
+    let lowering_schema_path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("..")
+        .join("schemas")
+        .join("axiom-build-lowering-evidence-v1.schema.json");
+    let lowering_schema: Value = serde_json::from_str(
+        &fs::read_to_string(lowering_schema_path).expect("read lowering evidence schema"),
+    )
+    .expect("lowering evidence schema is valid JSON");
+    let lowering_validator =
+        jsonschema::validator_for(&lowering_schema).expect("compile lowering evidence schema");
+    lowering_validator
+        .validate(&success["lowering"])
+        .expect("success lowering evidence matches schema");
+    lowering_validator
+        .validate(&blocked["lowering"])
+        .expect("blocked lowering evidence matches schema");
 
     let unsupported_target = fixture("build", "unsupported-target.json");
     assert_matches_stage1_schema(&validator, &unsupported_target);
@@ -214,7 +257,10 @@ fn doc_fixtures_cover_public_api_extraction_and_missing_sources() {
     let item = &success["items"][0];
     assert_eq!(item["kind"], "function");
     assert_eq!(item["public"], true);
-    assert_eq!(item["signature"], "pub fn add(left: int, right: int): int {");
+    assert_eq!(
+        item["signature"],
+        "pub fn add(left: int, right: int): int {"
+    );
 
     let failure = fixture("doc", "failure.json");
     assert_matches_stage1_schema(&validator, &failure);

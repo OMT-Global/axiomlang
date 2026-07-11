@@ -17,16 +17,26 @@ with open(sys.argv[1], encoding="utf-8") as handle:
     report = json.load(handle)
 
 assert report["schema"] == "axiom.direct_native.runtime_abi.check.v1"
-assert report["ready"] is True
+assert report["ready"] is False
 assert report["target_id"] == "axiom://target/stage1-direct-native"
-assert report["contract_status"] == "implemented"
+assert report["contract_status"] == "partial"
 assert report["value_feature_count"] == 12
 assert report["capability_shim_count"] == 22
-assert report["status_counts"]["value_features"]["implemented"] == 12
-assert report["status_counts"]["capability_shims"]["implemented"] == 22
+assert report["status_counts"]["value_features"]["implemented"] == 11
+assert report["status_counts"]["value_features"]["partial"] == 1
+assert report["status_counts"]["capability_shims"]["implemented"] == 16
+assert report["status_counts"]["capability_shims"]["partial"] == 6
 assert report["blocked_rows"] == []
-assert report["incomplete_rows"] == []
-assert report["blocker_issues"] == []
+assert report["incomplete_rows"] == [
+    "crypto.aead",
+    "crypto.signature",
+    "network.dns.resolve",
+    "network.http.async_server",
+    "network.http.client",
+    "network.udp",
+    "owned.move_state",
+]
+assert report["blocker_issues"] == [1438, 1445, 1447, 1448, 1449]
 assert report["errors"] == []
 PY
 
@@ -38,7 +48,7 @@ with open(sys.argv[1], encoding="utf-8") as handle:
     matrix = json.load(handle)
 
 assert matrix["schema"] == "axiom.direct_native.runtime_abi.coverage_matrix.v1"
-assert matrix["ready"] is True
+assert matrix["ready"] is False
 assert matrix["summary"]["value_feature_rows"] == 12
 assert matrix["summary"]["capability_shim_rows"] == 22
 assert matrix["errors"] == []
@@ -55,6 +65,10 @@ fs_read = rows[("capability_shims", "fs.read")]
 assert fs_read["coverage"]["negative_or_diagnostic_evidence"]
 assert fs_read["coverage"]["backend_artifact_evidence"]["focused_tests"]
 assert fs_read["coverage"]["backend_artifact_evidence"]["artifact_assertion_tests"]
+owned = rows[("value_features", "owned.move_state")]
+assert owned["status"] == "partial"
+assert owned["coverage"]["positive_runtime_evidence"] == []
+assert owned["blockers"] == [1438]
 PY
 
 python3 - "$contract" "$temp_dir/ready-contract.json" <<'PY'
@@ -283,7 +297,7 @@ with open(sys.argv[1], encoding="utf-8") as handle:
 with open(sys.argv[2], encoding="utf-8") as handle:
     matrix = json.load(handle)
 
-assert report["ready"] is True
+assert report["ready"] is False
 assert report["errors"] == []
 assert matrix["ready"] is False
 assert any("generated_rust artifact assertions" in error for error in matrix["errors"])
@@ -294,7 +308,10 @@ assert numeric["coverage"]["backend_artifact_evidence"]["artifact_assertion_test
 assert numeric["coverage"]["backend_artifact_evidence"]["generated_rust_absent"] is False
 PY
 
-python3 "$script" --contract "$contract" --enforce-ready >/dev/null
+if python3 "$script" --contract "$contract" --enforce-ready >/dev/null; then
+  echo "expected the partial checked-in contract to fail --enforce-ready" >&2
+  exit 1
+fi
 
 python3 "$script" --contract "$temp_dir/ready-contract.json" --enforce-ready >/dev/null
 

@@ -1,4 +1,6 @@
 pub(crate) mod borrowck;
+#[path = "project/build_contract.rs"]
+pub mod build_contract;
 pub mod codegen;
 pub(crate) mod cranelift_backend;
 pub mod dap;

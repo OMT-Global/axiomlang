@@ -653,7 +653,7 @@
       "evidenceTier": "static_spike",
       "name": "crypto.aead",
       "source": "stage1/runtime-abi/direct-native-v0.json",
-      "status": "implemented"
+      "status": "partial"
     },
     {
       "evidenceTier": "static_spike",
@@ -677,7 +677,7 @@
       "evidenceTier": "static_spike",
       "name": "crypto.signature",
       "source": "stage1/runtime-abi/direct-native-v0.json",
-      "status": "implemented"
+      "status": "partial"
     },
     {
       "evidenceTier": "static_spike",
@@ -731,19 +731,19 @@
       "evidenceTier": "static_spike",
       "name": "network.dns.resolve",
       "source": "stage1/runtime-abi/direct-native-v0.json",
-      "status": "implemented"
+      "status": "partial"
     },
     {
       "evidenceTier": "static_spike",
       "name": "network.http.async_server",
       "source": "stage1/runtime-abi/direct-native-v0.json",
-      "status": "implemented"
+      "status": "partial"
     },
     {
       "evidenceTier": "static_spike",
       "name": "network.http.client",
       "source": "stage1/runtime-abi/direct-native-v0.json",
-      "status": "implemented"
+      "status": "partial"
     },
     {
       "evidenceTier": "static_spike",
@@ -761,7 +761,7 @@
       "evidenceTier": "static_spike",
       "name": "network.udp",
       "source": "stage1/runtime-abi/direct-native-v0.json",
-      "status": "implemented"
+      "status": "partial"
     },
     {
       "evidenceTier": "static_spike",
@@ -779,7 +779,7 @@
       "evidenceTier": "static_spike",
       "name": "owned.move_state",
       "source": "stage1/runtime-abi/direct-native-v0.json",
-      "status": "implemented"
+      "status": "partial"
     },
     {
       "evidenceTier": "static_spike",
@@ -836,6 +836,12 @@
       "evidenceTier": "static_spike",
       "name": "https://axiomlang.dev/schemas/axiom-artifacts-v0.schema.json",
       "source": "stage1/schemas/axiom-artifacts-v0.schema.json",
+      "status": "checked"
+    },
+    {
+      "evidenceTier": "static_spike",
+      "name": "https://axiom.omt.global/schemas/axiom-build-lowering-evidence-v1.schema.json",
+      "source": "stage1/schemas/axiom-build-lowering-evidence-v1.schema.json",
       "status": "checked"
     },
     {
@@ -1642,11 +1648,11 @@
       "direct_runtime": 2,
       "production_qualified": 0,
       "scaffold": 5,
-      "static_spike": 182,
+      "static_spike": 183,
       "unsupported": 5
     },
     "runtimeAbiRows": 34,
-    "schemas": 26,
+    "schemas": 27,
     "stdlibFunctions": 299,
     "stdlibModules": 34,
     "supportedNativeBackend": "cranelift"

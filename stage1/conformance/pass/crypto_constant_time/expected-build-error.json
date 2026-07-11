@@ -1,0 +1,1 @@
+{"kind":"build","code":"backend.runtime_lowering_required","message":"native build requires runtime lowering row direct-native.program_lowering; compile-time evaluator fallback is forbidden","path":"src/main.ax","line":0,"column":0}

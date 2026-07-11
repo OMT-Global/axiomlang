@@ -14,6 +14,14 @@
   "statement_count": 1,
   "target": "aarch64-apple-darwin",
   "debug": false,
+  "lowering": {
+    "schema_version": "axiom.build-lowering-evidence.v1",
+    "execution_mode": "direct_native_runtime",
+    "lowering_mode": "direct_native_runtime_with_static_folds",
+    "direct_native_runtime": true,
+    "known_value_static_folds": true,
+    "legacy_fallback_attempted": false
+  },
   "metadata": {
     "debug": false,
     "lockfile": "<project>/axiom.lock",
@@ -42,10 +50,18 @@
           }
         ],
         "target": "aarch64-apple-darwin",
-        "version": 1
+        "version": 2
       },
       "cache_status": "miss",
       "compile_ms": 37,
+      "lowering": {
+        "schema_version": "axiom.build-lowering-evidence.v1",
+        "execution_mode": "direct_native_runtime",
+        "lowering_mode": "direct_native_runtime_with_static_folds",
+        "direct_native_runtime": true,
+        "known_value_static_folds": true,
+        "legacy_fallback_attempted": false
+      },
       "debug": false,
       "debug_map": null,
       "entry": "<project>/src/main.ax",
@@ -77,6 +93,6 @@
       }
     ],
     "target": "aarch64-apple-darwin",
-    "version": 1
+    "version": 2
   }
 }

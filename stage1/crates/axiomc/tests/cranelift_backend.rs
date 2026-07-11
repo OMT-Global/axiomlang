@@ -1,7 +1,30 @@
 use serde_json::Value;
 use std::fs;
+use std::io::Write;
 use std::path::Path;
 use std::process::{Command, Output, Stdio};
+
+fn assert_runtime_lowering_required(output: &Output, label: &str) {
+    assert!(
+        !output.status.success(),
+        "{label} unexpectedly built: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse failed build JSON");
+    assert_eq!(payload["ok"], Value::Bool(false));
+    assert_eq!(payload["generated_rust"], Value::Null);
+    assert_eq!(payload["binary"], Value::Null);
+    let combined = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        combined.contains("backend.runtime_lowering_required"),
+        "{label} did not fail with the stable lowering diagnostic: {combined}"
+    );
+}
 
 #[cfg(not(windows))]
 #[test]
@@ -56,6 +79,64 @@ fn cranelift_backend_builds_hello_binary() {
         String::from_utf8_lossy(&run.stdout),
         "hello from stage1\n42\ntrue\n"
     );
+}
+
+#[cfg(not(windows))]
+#[test]
+fn cranelift_backend_pure_artifact_is_invariant_to_build_env_and_stdin() {
+    if which::which("cc").is_err() {
+        eprintln!("skipping cranelift backend smoke test because cc is unavailable");
+        return;
+    }
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("pure-build-invariance");
+    fs::create_dir_all(project.join("src")).expect("create project src");
+    copy_fixture("axiom.toml", &project.join("axiom.toml"));
+    copy_fixture("axiom.lock", &project.join("axiom.lock"));
+    copy_fixture("src/main.ax", &project.join("src/main.ax"));
+
+    let build = |env_value: &str, stdin_value: &str| {
+        let mut child = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+            .env("AXIOM_CRANELIFT_ENV_READ", env_value)
+            .args([
+                "build",
+                project.to_str().expect("project path"),
+                "--backend",
+                "cranelift",
+                "--json",
+            ])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("spawn axiomc build --backend cranelift");
+        child
+            .stdin
+            .take()
+            .expect("build stdin")
+            .write_all(stdin_value.as_bytes())
+            .expect("write build stdin");
+        child.wait_with_output().expect("wait for axiomc build")
+    };
+
+    let first = build("build-env-a", "build-stdin-a\n");
+    assert!(first.status.success(), "first invariant build failed");
+    let first_payload: Value = serde_json::from_slice(&first.stdout).expect("first build JSON");
+    assert_eq!(first_payload["generated_rust"], Value::Null);
+    let binary = first_payload["binary"].as_str().expect("first binary path");
+    let first_artifact = fs::read(binary).expect("read first native artifact");
+
+    let second = build("build-env-b", "different build stdin\n");
+    assert!(second.status.success(), "second invariant build failed");
+    let second_payload: Value = serde_json::from_slice(&second.stdout).expect("second build JSON");
+    assert_eq!(second_payload["generated_rust"], Value::Null);
+    let second_binary = second_payload["binary"]
+        .as_str()
+        .expect("second binary path");
+    let second_artifact = fs::read(second_binary).expect("read second native artifact");
+
+    assert_eq!(first_artifact, second_artifact);
 }
 
 #[cfg(not(windows))]
@@ -3299,7 +3380,7 @@ fn cranelift_backend_lowers_i64_while_loop_to_runtime_exit_code() {
 
 #[cfg(not(windows))]
 #[test]
-fn cranelift_backend_builds_regex_binary() {
+fn cranelift_backend_rejects_regex_precomputed_output_without_runtime_lowering() {
     if which::which("cc").is_err() {
         eprintln!("skipping cranelift backend smoke test because cc is unavailable");
         return;
@@ -3319,43 +3400,8 @@ fn cranelift_backend_builds_regex_binary() {
         ])
         .output()
         .expect("run axiomc build --backend cranelift");
-    assert!(
-        output.status.success(),
-        "cranelift regex build failed: stdout={} stderr={}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
-
-    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
-    assert_eq!(payload["backend"], "cranelift");
-    assert_eq!(payload["generated_rust"], Value::Null);
-    let binary = payload["binary"].as_str().expect("binary path");
-    let run = Command::new(binary)
-        .output()
-        .expect("run cranelift regex binary");
-    assert!(
-        run.status.success(),
-        "cranelift regex binary failed: stderr={}",
-        String::from_utf8_lossy(&run.stderr)
-    );
-    assert_eq!(
-        String::from_utf8_lossy(&run.stdout),
-        "true
-238
-issue-#-ready
-xa
-xaa
-ba
-"
-    );
-    let stdout = String::from_utf8_lossy(&run.stdout);
-    assert_eq!(
-        stdout.lines().nth(3),
-        Some("xa"),
-        "anchored replace_all must only rewrite the original leading match"
-    );
-    assert_eq!(stdout.lines().nth(4), Some("xaa"));
-    assert_eq!(stdout.lines().nth(5), Some("ba"));
+    // assert_runtime_lowering_required verifies generated_rust and binary are absent.
+    assert_runtime_lowering_required(&output, "regex-precomputed-output");
 }
 
 #[cfg(not(windows))]
@@ -4057,7 +4103,7 @@ fn cranelift_backend_builds_array_helpers_binary() {
 
 #[cfg(not(windows))]
 #[test]
-fn cranelift_backend_builds_process_status_binary() {
+fn cranelift_backend_rejects_process_precomputed_output_without_runtime_lowering() {
     if which::which("cc").is_err() {
         eprintln!("skipping cranelift backend smoke test because cc is unavailable");
         return;
@@ -4083,27 +4129,8 @@ fn cranelift_backend_builds_process_status_binary() {
         ])
         .output()
         .expect("run axiomc build --backend cranelift");
-
-    assert!(
-        output.status.success(),
-        "cranelift process-status build failed: stdout={} stderr={}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
-
-    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
-    assert_eq!(payload["backend"], "cranelift");
-    assert_eq!(payload["generated_rust"], Value::Null);
-    let binary = payload["binary"].as_str().expect("binary path");
-    let run = Command::new(binary)
-        .output()
-        .expect("run cranelift process-status binary");
-    assert!(
-        run.status.success(),
-        "cranelift process-status binary failed: stderr={}",
-        String::from_utf8_lossy(&run.stderr)
-    );
-    assert_eq!(String::from_utf8_lossy(&run.stdout), "0\n1\n-1\n");
+    // assert_runtime_lowering_required verifies generated_rust and binary are absent.
+    assert_runtime_lowering_required(&output, "process-precomputed-output");
 }
 
 #[cfg(not(windows))]
@@ -4183,7 +4210,7 @@ fn cranelift_backend_lowers_process_status_to_runtime_exit_code() {
 
 #[cfg(not(windows))]
 #[test]
-fn cranelift_backend_rejects_unapproved_process_status_command() {
+fn cranelift_backend_rejects_unapproved_process_without_runtime_lowering() {
     let temp = tempfile::tempdir().expect("tempdir");
     let project = temp.path().join("process-status-unapproved");
     write_process_status_unapproved_project(&project);
@@ -4198,22 +4225,8 @@ fn cranelift_backend_rejects_unapproved_process_status_command() {
         ])
         .output()
         .expect("run axiomc build --backend cranelift");
-
-    assert!(
-        !output.status.success(),
-        "cranelift process-status build unexpectedly succeeded: stdout={} stderr={}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
-    let diagnostic = format!(
-        "{}{}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
-    assert!(
-        diagnostic.contains("allowlisted deterministic commands"),
-        "unexpected diagnostic: {diagnostic}"
-    );
+    // assert_runtime_lowering_required verifies generated_rust and binary are absent.
+    assert_runtime_lowering_required(&output, "unapproved-process");
 }
 
 #[cfg(not(windows))]
@@ -4615,7 +4628,7 @@ fn cranelift_backend_denies_fs_write_symlink_escape_at_runtime() {
 
 #[cfg(not(windows))]
 #[test]
-fn cranelift_backend_builds_fs_write_binary() {
+fn cranelift_backend_rejects_fs_write_precomputed_output_without_runtime_lowering() {
     if which::which("cc").is_err() {
         eprintln!("skipping cranelift backend smoke test because cc is unavailable");
         return;
@@ -4635,35 +4648,13 @@ fn cranelift_backend_builds_fs_write_binary() {
         ])
         .output()
         .expect("run axiomc build --backend cranelift");
-
-    assert!(
-        output.status.success(),
-        "cranelift fs-write build failed: stdout={} stderr={}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
-
-    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
-    assert_eq!(payload["backend"], "cranelift");
-    assert_eq!(payload["generated_rust"], Value::Null);
-    let binary = payload["binary"].as_str().expect("binary path");
-    let run = Command::new(binary)
-        .output()
-        .expect("run cranelift fs-write binary");
-    assert!(
-        run.status.success(),
-        "cranelift fs-write binary failed: stderr={}",
-        String::from_utf8_lossy(&run.stderr)
-    );
-    assert_eq!(
-        String::from_utf8_lossy(&run.stdout),
-        "0\n0\n0\none\ntwo\n0\nfinal\n0\n0\n0\n0\n0\n"
-    );
+    // assert_runtime_lowering_required verifies generated_rust and binary are absent.
+    assert_runtime_lowering_required(&output, "fs-write-precomputed-output");
 }
 
 #[cfg(not(windows))]
 #[test]
-fn cranelift_backend_honors_fs_root_for_fs_write_binary() {
+fn cranelift_backend_rejects_fs_root_precomputed_output_without_runtime_lowering() {
     if which::which("cc").is_err() {
         eprintln!("skipping cranelift backend smoke test because cc is unavailable");
         return;
@@ -4683,34 +4674,8 @@ fn cranelift_backend_honors_fs_root_for_fs_write_binary() {
         ])
         .output()
         .expect("run axiomc build --backend cranelift");
-
-    assert!(
-        output.status.success(),
-        "cranelift fs-root build failed: stdout={} stderr={}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
-
-    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
-    assert_eq!(payload["backend"], "cranelift");
-    assert_eq!(payload["generated_rust"], Value::Null);
-    let binary = payload["binary"].as_str().expect("binary path");
-    let run = Command::new(binary)
-        .output()
-        .expect("run cranelift fs-root binary");
-    assert!(
-        run.status.success(),
-        "cranelift fs-root binary failed: stderr={}",
-        String::from_utf8_lossy(&run.stderr)
-    );
-    assert_eq!(
-        String::from_utf8_lossy(&run.stdout),
-        "0\n0\n-1\nmissing\nok\n"
-    );
-    assert_eq!(
-        fs::read_to_string(project.join("src/main.ax")).expect("read source"),
-        fs_root_source(&project)
-    );
+    // assert_runtime_lowering_required verifies generated_rust and binary are absent.
+    assert_runtime_lowering_required(&output, "fs-root-precomputed-output");
 }
 
 #[cfg(not(windows))]
@@ -4762,12 +4727,7 @@ fn cranelift_backend_builds_borrowed_slice_binary() {
 
 #[cfg(not(windows))]
 #[test]
-fn cranelift_backend_builds_owned_move_state_binary() {
-    if which::which("cc").is_err() {
-        eprintln!("skipping cranelift backend smoke test because cc is unavailable");
-        return;
-    }
-
+fn cranelift_backend_rejects_owned_move_state_without_runtime_lowering() {
     let temp = tempfile::tempdir().expect("tempdir");
     let project = temp.path().join("owned-move-state");
     write_owned_move_state_project(&project);
@@ -4782,26 +4742,8 @@ fn cranelift_backend_builds_owned_move_state_binary() {
         ])
         .output()
         .expect("run axiomc build --backend cranelift");
-    assert!(
-        output.status.success(),
-        "cranelift owned move-state build failed: stdout={} stderr={}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
-
-    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
-    assert_eq!(payload["backend"], "cranelift");
-    assert_eq!(payload["generated_rust"], Value::Null);
-    let binary = payload["binary"].as_str().expect("binary path");
-    let run = Command::new(binary)
-        .output()
-        .expect("run cranelift owned move-state binary");
-    assert!(
-        run.status.success(),
-        "cranelift owned move-state binary failed: stderr={}",
-        String::from_utf8_lossy(&run.stderr)
-    );
-    assert_eq!(String::from_utf8_lossy(&run.stdout), "3\nleft\n");
+    // assert_runtime_lowering_required verifies generated_rust and binary are absent.
+    assert_runtime_lowering_required(&output, "owned-move-state");
 }
 
 #[cfg(not(windows))]
@@ -5310,12 +5252,7 @@ deploy
 
 #[cfg(not(windows))]
 #[test]
-fn cranelift_backend_builds_net_resolve_binary() {
-    if which::which("cc").is_err() {
-        eprintln!("skipping cranelift backend smoke test because cc is unavailable");
-        return;
-    }
-
+fn cranelift_backend_rejects_net_resolve_without_runtime_lowering() {
     let temp = tempfile::tempdir().expect("tempdir");
     let project = temp.path().join("net-resolve");
     write_net_resolve_project(&project);
@@ -5330,26 +5267,8 @@ fn cranelift_backend_builds_net_resolve_binary() {
         ])
         .output()
         .expect("run axiomc build --backend cranelift");
-    assert!(
-        output.status.success(),
-        "cranelift net resolve build failed: stdout={} stderr={}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
-
-    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
-    assert_eq!(payload["backend"], "cranelift");
-    assert_eq!(payload["generated_rust"], Value::Null);
-    let binary = payload["binary"].as_str().expect("binary path");
-    let run = Command::new(binary)
-        .output()
-        .expect("run cranelift net resolve binary");
-    assert!(
-        run.status.success(),
-        "cranelift net resolve binary failed: stderr={}",
-        String::from_utf8_lossy(&run.stderr)
-    );
-    assert_eq!(String::from_utf8_lossy(&run.stdout), "true\n");
+    // assert_runtime_lowering_required verifies generated_rust and binary are absent.
+    assert_runtime_lowering_required(&output, "net-resolve");
 }
 
 #[cfg(not(windows))]
@@ -5443,15 +5362,7 @@ fn cranelift_backend_lowers_numeric_net_resolve_to_runtime_exit_code() {
 
 #[cfg(not(windows))]
 #[test]
-fn cranelift_backend_builds_net_loopback_binary() {
-    if which::which("cc").is_err() {
-        eprintln!("skipping cranelift backend smoke test because cc is unavailable");
-        return;
-    }
-    if !loopback_socket_bind_available() {
-        return;
-    }
-
+fn cranelift_backend_rejects_udp_loopback_without_runtime_lowering() {
     let temp = tempfile::tempdir().expect("tempdir");
     let project = temp.path().join("net-loopback");
     write_net_loopback_project(&project);
@@ -5466,31 +5377,8 @@ fn cranelift_backend_builds_net_loopback_binary() {
         ])
         .output()
         .expect("run axiomc build --backend cranelift");
-    assert!(
-        output.status.success(),
-        "cranelift net loopback build failed: stdout={} stderr={}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
-
-    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
-    assert_eq!(payload["backend"], "cranelift");
-    assert_eq!(payload["generated_rust"], Value::Null);
-    let binary = payload["binary"].as_str().expect("binary path");
-    let run = Command::new(binary)
-        .output()
-        .expect("run cranelift net loopback binary");
-    assert!(
-        run.status.success(),
-        "cranelift net loopback binary failed: stderr={}",
-        String::from_utf8_lossy(&run.stderr)
-    );
-    assert_eq!(
-        String::from_utf8_lossy(&run.stdout),
-        "true
-true
-"
-    );
+    // assert_runtime_lowering_required verifies generated_rust and binary are absent.
+    assert_runtime_lowering_required(&output, "net-loopback");
 }
 
 #[cfg(not(windows))]
@@ -5585,18 +5473,10 @@ fn cranelift_backend_writes_raw_net_reads_into_mutable_buffers() {
 
 #[cfg(not(windows))]
 #[test]
-fn cranelift_backend_builds_http_client_binary() {
-    if which::which("cc").is_err() {
-        eprintln!("skipping cranelift backend smoke test because cc is unavailable");
-        return;
-    }
-
+fn cranelift_backend_rejects_http_client_without_runtime_lowering() {
     let temp = tempfile::tempdir().expect("tempdir");
     let project = temp.path().join("http-client");
-    let Some((port, server)) = start_http_fixture_server("axiom-http-ok") else {
-        return;
-    };
-    write_http_client_project(&project, port);
+    write_http_client_project(&project, 1);
 
     let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
         .args([
@@ -5608,27 +5488,8 @@ fn cranelift_backend_builds_http_client_binary() {
         ])
         .output()
         .expect("run axiomc build --backend cranelift");
-    assert!(
-        output.status.success(),
-        "cranelift http client build failed: stdout={} stderr={}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
-    server.join().expect("join http fixture server");
-
-    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
-    assert_eq!(payload["backend"], "cranelift");
-    assert_eq!(payload["generated_rust"], Value::Null);
-    let binary = payload["binary"].as_str().expect("binary path");
-    let run = Command::new(binary)
-        .output()
-        .expect("run cranelift http client binary");
-    assert!(
-        run.status.success(),
-        "cranelift http client binary failed: stderr={}",
-        String::from_utf8_lossy(&run.stderr)
-    );
-    assert_eq!(String::from_utf8_lossy(&run.stdout), "axiom-http-ok\n");
+    // assert_runtime_lowering_required verifies generated_rust and binary are absent.
+    assert_runtime_lowering_required(&output, "http-client");
 }
 
 #[cfg(not(windows))]
@@ -5896,19 +5757,10 @@ fn cranelift_backend_reports_non_loopback_http_bool_folds_to_stderr() {
 
 #[cfg(not(windows))]
 #[test]
-fn cranelift_backend_builds_http_async_server_binary() {
-    if which::which("cc").is_err() {
-        eprintln!("skipping cranelift backend smoke test because cc is unavailable");
-        return;
-    }
-
+fn cranelift_backend_rejects_http_async_server_without_runtime_lowering() {
     let temp = tempfile::tempdir().expect("tempdir");
     let project = temp.path().join("http-async-server");
-    let Some(port) = reserve_loopback_port() else {
-        return;
-    };
-    write_http_async_server_project(&project, port);
-    let client = start_http_route_probe_client(port, "/ready");
+    write_http_async_server_project(&project, 1);
 
     let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
         .args([
@@ -5920,40 +5772,13 @@ fn cranelift_backend_builds_http_async_server_binary() {
         ])
         .output()
         .expect("run axiomc build --backend cranelift");
-    assert!(
-        output.status.success(),
-        "cranelift http async server build failed: stdout={} stderr={}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
-    let response = client.join().expect("join http async server probe client");
-    assert!(
-        response.starts_with("HTTP/1.0 200 OK\r\n"),
-        "unexpected http async server response: {response:?}"
-    );
-    assert!(
-        response.ends_with("async-response"),
-        "unexpected http async server response body: {response:?}"
-    );
-
-    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
-    assert_eq!(payload["backend"], "cranelift");
-    assert_eq!(payload["generated_rust"], Value::Null);
-    let binary = payload["binary"].as_str().expect("binary path");
-    let run = Command::new(binary)
-        .output()
-        .expect("run cranelift http async server binary");
-    assert!(
-        run.status.success(),
-        "cranelift http async server binary failed: stderr={}",
-        String::from_utf8_lossy(&run.stderr)
-    );
-    assert_eq!(String::from_utf8_lossy(&run.stdout), "true\ntrue\n");
+    // assert_runtime_lowering_required verifies generated_rust and binary are absent.
+    assert_runtime_lowering_required(&output, "http-async-server");
 }
 
 #[cfg(not(windows))]
 #[test]
-fn cranelift_backend_builds_crypto_hash_binary() {
+fn cranelift_backend_rejects_crypto_hash_without_runtime_lowering() {
     if which::which("cc").is_err() {
         eprintln!("skipping cranelift backend smoke test because cc is unavailable");
         return;
@@ -5973,34 +5798,13 @@ fn cranelift_backend_builds_crypto_hash_binary() {
         ])
         .output()
         .expect("run axiomc build --backend cranelift");
-    assert!(
-        output.status.success(),
-        "cranelift crypto hash build failed: stdout={} stderr={}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
-
-    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
-    assert_eq!(payload["backend"], "cranelift");
-    assert_eq!(payload["generated_rust"], Value::Null);
-    let binary = payload["binary"].as_str().expect("binary path");
-    let run = Command::new(binary)
-        .output()
-        .expect("run cranelift crypto hash binary");
-    assert!(
-        run.status.success(),
-        "cranelift crypto hash binary failed: stderr={}",
-        String::from_utf8_lossy(&run.stderr)
-    );
-    assert_eq!(
-        String::from_utf8_lossy(&run.stdout),
-        "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad\n"
-    );
+    // assert_runtime_lowering_required verifies generated_rust and binary are absent.
+    assert_runtime_lowering_required(&output, "crypto-hash");
 }
 
 #[cfg(not(windows))]
 #[test]
-fn cranelift_backend_builds_crypto_mac_binary() {
+fn cranelift_backend_rejects_crypto_mac_without_runtime_lowering() {
     if which::which("cc").is_err() {
         eprintln!("skipping cranelift backend smoke test because cc is unavailable");
         return;
@@ -6020,42 +5824,13 @@ fn cranelift_backend_builds_crypto_mac_binary() {
         ])
         .output()
         .expect("run axiomc build --backend cranelift");
-    assert!(
-        output.status.success(),
-        "cranelift crypto mac build failed: stdout={} stderr={}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
-
-    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
-    assert_eq!(payload["backend"], "cranelift");
-    assert_eq!(payload["generated_rust"], Value::Null);
-    let binary = payload["binary"].as_str().expect("binary path");
-    let run = Command::new(binary)
-        .output()
-        .expect("run cranelift crypto mac binary");
-    assert!(
-        run.status.success(),
-        "cranelift crypto mac binary failed: stderr={}",
-        String::from_utf8_lossy(&run.stderr)
-    );
-    assert_eq!(
-        String::from_utf8_lossy(&run.stdout),
-        "f7bc83f430538424b13298e6aa6fb143ef4d59a14946175997479dbc2d1a3cd8
-164b7a7bfcf819e2e395fbe73b56e0a387bd64222e831fd610270cd7ea2505549758bf75c05a994a6d034f65f8f0e6fdcaeab1a34d4a6b4b636e070a38bce737
-true
-true
-false
-false
-true
-false
-"
-    );
+    // assert_runtime_lowering_required verifies generated_rust and binary are absent.
+    assert_runtime_lowering_required(&output, "crypto-mac");
 }
 
 #[cfg(not(windows))]
 #[test]
-fn cranelift_backend_builds_crypto_random_binary() {
+fn cranelift_backend_rejects_crypto_random_without_runtime_lowering() {
     if which::which("cc").is_err() {
         eprintln!("skipping cranelift backend smoke test because cc is unavailable");
         return;
@@ -6075,32 +5850,8 @@ fn cranelift_backend_builds_crypto_random_binary() {
         ])
         .output()
         .expect("run axiomc build --backend cranelift");
-    assert!(
-        output.status.success(),
-        "cranelift crypto random build failed: stdout={} stderr={}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
-
-    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
-    assert_eq!(payload["backend"], "cranelift");
-    assert_eq!(payload["generated_rust"], Value::Null);
-    let binary = payload["binary"].as_str().expect("binary path");
-    let run = Command::new(binary)
-        .output()
-        .expect("run cranelift crypto random binary");
-    assert!(
-        run.status.success(),
-        "cranelift crypto random binary failed: stderr={}",
-        String::from_utf8_lossy(&run.stderr)
-    );
-    assert_eq!(
-        String::from_utf8_lossy(&run.stdout),
-        "16
-0
-true
-"
-    );
+    // assert_runtime_lowering_required verifies generated_rust and binary are absent.
+    assert_runtime_lowering_required(&output, "crypto-random");
 }
 
 #[cfg(not(windows))]
@@ -6333,7 +6084,7 @@ fn cranelift_backend_lowers_sync_channel_to_runtime_exit_code() {
 
 #[cfg(not(windows))]
 #[test]
-fn cranelift_backend_builds_std_async_binary() {
+fn cranelift_backend_rejects_async_precomputed_output_without_runtime_lowering() {
     if which::which("cc").is_err() {
         eprintln!("skipping cranelift backend smoke test because cc is unavailable");
         return;
@@ -6353,36 +6104,8 @@ fn cranelift_backend_builds_std_async_binary() {
         ])
         .output()
         .expect("run axiomc build --backend cranelift");
-    assert!(
-        output.status.success(),
-        "cranelift std async build failed: stdout={} stderr={}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
-
-    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
-    assert_eq!(payload["backend"], "cranelift");
-    assert_eq!(payload["generated_rust"], Value::Null);
-    let binary = payload["binary"].as_str().expect("binary path");
-    let run = Command::new(binary)
-        .output()
-        .expect("run cranelift std async binary");
-    assert!(
-        run.status.success(),
-        "cranelift std async binary failed: stderr={}",
-        String::from_utf8_lossy(&run.stderr)
-    );
-    assert_eq!(
-        String::from_utf8_lossy(&run.stdout),
-        "41
-7
-true
-6
-message
-1
-right
-"
-    );
+    // assert_runtime_lowering_required verifies generated_rust and binary are absent.
+    assert_runtime_lowering_required(&output, "async-precomputed-output");
 }
 
 #[cfg(not(windows))]
@@ -6456,7 +6179,7 @@ fn std_async_net_tcp_bind_race(run: &Output) -> bool {
 
 #[cfg(not(windows))]
 #[test]
-fn cranelift_backend_builds_logging_stdio_binary() {
+fn cranelift_backend_rejects_logging_precomputed_output_without_runtime_lowering() {
     if which::which("cc").is_err() {
         eprintln!("skipping cranelift backend smoke test because cc is unavailable");
         return;
@@ -6476,27 +6199,8 @@ fn cranelift_backend_builds_logging_stdio_binary() {
         ])
         .output()
         .expect("run axiomc build --backend cranelift");
-    assert!(
-        output.status.success(),
-        "cranelift logging stdio build failed: stdout={} stderr={}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
-
-    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
-    assert_eq!(payload["backend"], "cranelift");
-    assert_eq!(payload["generated_rust"], Value::Null);
-    let binary = payload["binary"].as_str().expect("binary path");
-    let run = Command::new(binary)
-        .output()
-        .expect("run cranelift logging stdio binary");
-    assert!(
-        run.status.success(),
-        "cranelift logging stdio binary failed: stderr={}",
-        String::from_utf8_lossy(&run.stderr)
-    );
-    assert_eq!(String::from_utf8_lossy(&run.stdout), "true\n");
-    assert_eq!(String::from_utf8_lossy(&run.stderr), "hello stderr\n");
+    // assert_runtime_lowering_required verifies generated_rust and binary are absent.
+    assert_runtime_lowering_required(&output, "logging-precomputed-output");
 }
 
 #[cfg(not(windows))]
@@ -7239,7 +6943,7 @@ fn cranelift_backend_lowers_aggregate_helper_print_to_native_stdout() {
 
 #[cfg(not(windows))]
 #[test]
-fn cranelift_backend_builds_std_log_binary() {
+fn cranelift_backend_rejects_std_log_precomputed_output_without_runtime_lowering() {
     if which::which("cc").is_err() {
         eprintln!("skipping cranelift backend smoke test because cc is unavailable");
         return;
@@ -7259,33 +6963,8 @@ fn cranelift_backend_builds_std_log_binary() {
         ])
         .output()
         .expect("run axiomc build --backend cranelift");
-    assert!(
-        output.status.success(),
-        "cranelift std log build failed: stdout={} stderr={}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
-
-    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
-    assert_eq!(payload["backend"], "cranelift");
-    assert_eq!(payload["generated_rust"], Value::Null);
-    let binary = payload["binary"].as_str().expect("binary path");
-    let run = Command::new(binary)
-        .output()
-        .expect("run cranelift std log binary");
-    assert!(
-        run.status.success(),
-        "cranelift std log binary failed: stderr={}",
-        String::from_utf8_lossy(&run.stderr)
-    );
-    assert_eq!(
-        String::from_utf8_lossy(&run.stdout),
-        "{\"level\":\"info\",\"message\":\"started\",\"attributes\":{\"component\":\"worker\",\"attempt\":2,\"ready\":true}}\ntrue\n"
-    );
-    assert_eq!(
-        String::from_utf8_lossy(&run.stderr),
-        "{\"level\":\"info\",\"message\":\"started\",\"attributes\":{\"component\":\"worker\",\"attempt\":2,\"ready\":true}}\n"
-    );
+    // assert_runtime_lowering_required verifies generated_rust and binary are absent.
+    assert_runtime_lowering_required(&output, "std-log-precomputed-output");
 }
 
 #[cfg(not(windows))]
@@ -7577,7 +7256,7 @@ fn cranelift_backend_builds_nonzero_clock_sleep_binary() {
 
 #[cfg(not(windows))]
 #[test]
-fn cranelift_backend_builds_json_serdes_binary() {
+fn cranelift_backend_rejects_json_precomputed_output_without_runtime_lowering() {
     if which::which("cc").is_err() {
         eprintln!("skipping cranelift backend smoke test because cc is unavailable");
         return;
@@ -7597,54 +7276,13 @@ fn cranelift_backend_builds_json_serdes_binary() {
         ])
         .output()
         .expect("run axiomc build --backend cranelift");
-    assert!(
-        output.status.success(),
-        "cranelift json build failed: stdout={} stderr={}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
-
-    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
-    assert_eq!(payload["backend"], "cranelift");
-    assert_eq!(payload["generated_rust"], Value::Null);
-    let binary = payload["binary"].as_str().expect("binary path");
-    let run = Command::new(binary)
-        .output()
-        .expect("run cranelift json binary");
-    assert!(
-        run.status.success(),
-        "cranelift json binary failed: stderr={}",
-        String::from_utf8_lossy(&run.stderr)
-    );
-    assert_eq!(
-        String::from_utf8_lossy(&run.stdout),
-        r#"42
-false
-"hello"
-42
-true
-{"name":"axiom","count":3,"ready":true}
-axiom
-3
-true
-7
-false
-"7"
-{"score":7,"ready":false}
-{"score":7,"ready":false}
-[7,false,"7"]
-{"type":"object","properties":{"name":{"type":"string"},"score":{"type":"integer"},"ready":{"type":"boolean"}}}
-7
-{"name":"axiom","count":3,"ready":true}
-"axiom"
-no int
-"#,
-    );
+    // assert_runtime_lowering_required verifies generated_rust and binary are absent.
+    assert_runtime_lowering_required(&output, "json-precomputed-output");
 }
 
 #[cfg(not(windows))]
 #[test]
-fn cranelift_backend_builds_std_serdes_binary() {
+fn cranelift_backend_rejects_serdes_precomputed_output_without_runtime_lowering() {
     if which::which("cc").is_err() {
         eprintln!("skipping cranelift backend smoke test because cc is unavailable");
         return;
@@ -7664,42 +7302,8 @@ fn cranelift_backend_builds_std_serdes_binary() {
         ])
         .output()
         .expect("run axiomc build --backend cranelift");
-    assert!(
-        output.status.success(),
-        "cranelift std/serdes build failed: stdout={} stderr={}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
-
-    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
-    assert_eq!(payload["backend"], "cranelift");
-    assert_eq!(payload["generated_rust"], Value::Null);
-    let binary = payload["binary"].as_str().expect("binary path");
-    let run = Command::new(binary)
-        .output()
-        .expect("run cranelift std/serdes binary");
-    assert!(
-        run.status.success(),
-        "cranelift std/serdes binary failed: stderr={}",
-        String::from_utf8_lossy(&run.stderr)
-    );
-    assert_eq!(
-        String::from_utf8_lossy(&run.stdout),
-        r#"{"count":3,"items":["one",2],"name":"axiom","ready":true}
-0
-{"count":3,"items":["one",2],"name":"axiom","nested":{"ok":false},"ready":true}
-axiom
-3
-false
-one
-2
-true
-false
-2
-{"count":3,"name":"axiom"}
-parse error
-"#,
-    );
+    // assert_runtime_lowering_required verifies generated_rust and binary are absent.
+    assert_runtime_lowering_required(&output, "serdes-precomputed-output");
 }
 
 #[cfg(not(windows))]
@@ -7890,7 +7494,7 @@ fn cranelift_backend_builds_std_outcome_known_values_binary() {
 
 #[cfg(not(windows))]
 #[test]
-fn cranelift_backend_builds_std_testing_known_assertions_binary() {
+fn cranelift_backend_rejects_testing_precomputed_output_without_runtime_lowering() {
     if which::which("cc").is_err() {
         eprintln!("skipping cranelift backend smoke test because cc is unavailable");
         return;
@@ -7910,35 +7514,13 @@ fn cranelift_backend_builds_std_testing_known_assertions_binary() {
         ])
         .output()
         .expect("run axiomc build --backend cranelift");
-    assert!(
-        output.status.success(),
-        "cranelift std/testing known assertions build failed: stdout={} stderr={}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
-
-    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
-    assert_eq!(payload["backend"], "cranelift");
-    assert_eq!(payload["generated_rust"], Value::Null);
-    let binary = payload["binary"].as_str().expect("binary path");
-    let run = Command::new(binary)
-        .output()
-        .expect("run cranelift std/testing known assertions binary");
-    assert!(
-        run.status.success(),
-        "cranelift std/testing known assertions binary failed: stderr={}",
-        String::from_utf8_lossy(&run.stderr)
-    );
-    assert_eq!(
-        String::from_utf8_lossy(&run.stdout),
-        "0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n"
-    );
-    assert_eq!(String::from_utf8_lossy(&run.stderr), "");
+    // assert_runtime_lowering_required verifies generated_rust and binary are absent.
+    assert_runtime_lowering_required(&output, "testing-precomputed-output");
 }
 
 #[cfg(not(windows))]
 #[test]
-fn cranelift_backend_builds_std_lsp_known_message_binary() {
+fn cranelift_backend_rejects_lsp_precomputed_output_without_runtime_lowering() {
     if which::which("cc").is_err() {
         eprintln!("skipping cranelift backend smoke test because cc is unavailable");
         return;
@@ -7958,35 +7540,13 @@ fn cranelift_backend_builds_std_lsp_known_message_binary() {
         ])
         .output()
         .expect("run axiomc build --backend cranelift");
-    assert!(
-        output.status.success(),
-        "cranelift std/lsp known message build failed: stdout={} stderr={}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
-
-    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
-    assert_eq!(payload["backend"], "cranelift");
-    assert_eq!(payload["generated_rust"], Value::Null);
-    let binary = payload["binary"].as_str().expect("binary path");
-    let run = Command::new(binary)
-        .output()
-        .expect("run cranelift std/lsp known message binary");
-    assert!(
-        run.status.success(),
-        "cranelift std/lsp known message binary failed: stderr={}",
-        String::from_utf8_lossy(&run.stderr)
-    );
-    assert_eq!(
-        String::from_utf8_lossy(&run.stdout),
-        "true\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue\n"
-    );
-    assert_eq!(String::from_utf8_lossy(&run.stderr), "");
+    // assert_runtime_lowering_required verifies generated_rust and binary are absent.
+    assert_runtime_lowering_required(&output, "lsp-precomputed-output");
 }
 
 #[cfg(not(windows))]
 #[test]
-fn cranelift_backend_builds_std_doc_known_render_binary() {
+fn cranelift_backend_rejects_doc_precomputed_output_without_runtime_lowering() {
     if which::which("cc").is_err() {
         eprintln!("skipping cranelift backend smoke test because cc is unavailable");
         return;
@@ -8006,35 +7566,13 @@ fn cranelift_backend_builds_std_doc_known_render_binary() {
         ])
         .output()
         .expect("run axiomc build --backend cranelift");
-    assert!(
-        output.status.success(),
-        "cranelift std/doc known render build failed: stdout={} stderr={}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
-
-    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
-    assert_eq!(payload["backend"], "cranelift");
-    assert_eq!(payload["generated_rust"], Value::Null);
-    let binary = payload["binary"].as_str().expect("binary path");
-    let run = Command::new(binary)
-        .output()
-        .expect("run cranelift std/doc known render binary");
-    assert!(
-        run.status.success(),
-        "cranelift std/doc known render binary failed: stderr={}",
-        String::from_utf8_lossy(&run.stderr)
-    );
-    assert_eq!(
-        String::from_utf8_lossy(&run.stdout),
-        "true\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue\n"
-    );
-    assert_eq!(String::from_utf8_lossy(&run.stderr), "");
+    // assert_runtime_lowering_required verifies generated_rust and binary are absent.
+    assert_runtime_lowering_required(&output, "doc-precomputed-output");
 }
 
 #[cfg(not(windows))]
 #[test]
-fn cranelift_backend_builds_std_cli_no_args_binary() {
+fn cranelift_backend_rejects_cli_precomputed_output_without_runtime_lowering() {
     if which::which("cc").is_err() {
         eprintln!("skipping cranelift backend smoke test because cc is unavailable");
         return;
@@ -8054,32 +7592,8 @@ fn cranelift_backend_builds_std_cli_no_args_binary() {
         ])
         .output()
         .expect("run axiomc build --backend cranelift");
-    assert!(
-        output.status.success(),
-        "cranelift std/cli build failed: stdout={} stderr={}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
-
-    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
-    assert_eq!(payload["backend"], "cranelift");
-    assert_eq!(payload["generated_rust"], Value::Null);
-    let binary = payload["binary"].as_str().expect("binary path");
-    let run = Command::new(binary)
-        .output()
-        .expect("run cranelift std/cli binary");
-    assert!(
-        run.status.success(),
-        "cranelift std/cli binary failed: stderr={}",
-        String::from_utf8_lossy(&run.stderr)
-    );
-    assert_eq!(
-        String::from_utf8_lossy(&run.stdout),
-        "0
-0
-missing
-"
-    );
+    // assert_runtime_lowering_required verifies generated_rust and binary are absent.
+    assert_runtime_lowering_required(&output, "cli-precomputed-output");
 }
 
 #[cfg(not(windows))]
@@ -8271,12 +7785,7 @@ fn cranelift_backend_rejects_crypto_signature_denial_before_backend_lowering() {
 
 #[cfg(not(windows))]
 #[test]
-fn cranelift_backend_builds_crypto_signature_binary() {
-    if which::which("cc").is_err() {
-        eprintln!("skipping cranelift backend smoke test because cc is unavailable");
-        return;
-    }
-
+fn cranelift_backend_rejects_crypto_signature_without_runtime_lowering() {
     let temp = tempfile::tempdir().expect("tempdir");
     let project = temp.path().join("crypto-signature");
     write_crypto_signature_project(&project, true);
@@ -8291,29 +7800,8 @@ fn cranelift_backend_builds_crypto_signature_binary() {
         ])
         .output()
         .expect("run axiomc build --backend cranelift");
-    assert!(
-        output.status.success(),
-        "cranelift crypto signature build failed: stdout={} stderr={}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
-
-    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
-    assert_eq!(payload["backend"], "cranelift");
-    assert_eq!(payload["generated_rust"], Value::Null);
-    let binary = payload["binary"].as_str().expect("binary path");
-    let run = Command::new(binary)
-        .output()
-        .expect("run cranelift crypto signature binary");
-    assert!(
-        run.status.success(),
-        "cranelift crypto signature binary failed: stderr={}",
-        String::from_utf8_lossy(&run.stderr)
-    );
-    assert_eq!(
-        String::from_utf8_lossy(&run.stdout),
-        "true\ntrue\n64\n32\nfalse\n"
-    );
+    // assert_runtime_lowering_required verifies generated_rust and binary are absent.
+    assert_runtime_lowering_required(&output, "crypto-signature");
 }
 
 #[test]
@@ -8354,14 +7842,9 @@ fn cranelift_backend_rejects_crypto_aead_denial_before_backend_lowering() {
     );
 }
 
-#[cfg(unix)]
+#[cfg(not(windows))]
 #[test]
-fn cranelift_backend_builds_crypto_aead_binary() {
-    if which::which("cc").is_err() {
-        eprintln!("skipping cranelift backend smoke test because cc is unavailable");
-        return;
-    }
-
+fn cranelift_backend_rejects_crypto_aead_without_runtime_lowering() {
     let temp = tempfile::tempdir().expect("tempdir");
     let project = temp.path().join("crypto-aead");
     write_crypto_aead_project(&project, true);
@@ -8376,26 +7859,8 @@ fn cranelift_backend_builds_crypto_aead_binary() {
         ])
         .output()
         .expect("run axiomc build --backend cranelift");
-    assert!(
-        output.status.success(),
-        "cranelift crypto AEAD build failed: stdout={} stderr={}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
-
-    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
-    assert_eq!(payload["backend"], "cranelift");
-    assert_eq!(payload["generated_rust"], Value::Null);
-    let binary = payload["binary"].as_str().expect("binary path");
-    let run = Command::new(binary)
-        .output()
-        .expect("run cranelift crypto AEAD binary");
-    assert!(
-        run.status.success(),
-        "cranelift crypto AEAD binary failed: stderr={}",
-        String::from_utf8_lossy(&run.stderr)
-    );
-    assert_eq!(String::from_utf8_lossy(&run.stdout), "5\n21\n5\n21\nnone\n");
+    // assert_runtime_lowering_required verifies generated_rust and binary are absent.
+    assert_runtime_lowering_required(&output, "crypto-aead");
 }
 
 #[test]
@@ -8514,7 +7979,7 @@ fn cranelift_backend_rejects_ffi_denial_before_backend_lowering() {
 
 #[cfg(not(windows))]
 #[test]
-fn cranelift_backend_builds_ffi_strlen_binary() {
+fn cranelift_backend_rejects_ffi_precomputed_output_without_runtime_lowering() {
     if which::which("cc").is_err() {
         eprintln!("skipping cranelift backend smoke test because cc is unavailable");
         return;
@@ -8534,27 +7999,8 @@ fn cranelift_backend_builds_ffi_strlen_binary() {
         ])
         .output()
         .expect("run axiomc build --backend cranelift");
-
-    assert!(
-        output.status.success(),
-        "cranelift ffi strlen build failed: stdout={} stderr={}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
-
-    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
-    assert_eq!(payload["backend"], "cranelift");
-    assert_eq!(payload["generated_rust"], Value::Null);
-    let binary = payload["binary"].as_str().expect("binary path");
-    let run = Command::new(binary)
-        .output()
-        .expect("run cranelift ffi strlen binary");
-    assert!(
-        run.status.success(),
-        "cranelift ffi strlen binary failed: stderr={}",
-        String::from_utf8_lossy(&run.stderr)
-    );
-    assert_eq!(String::from_utf8_lossy(&run.stdout), "5\n0\n");
+    // assert_runtime_lowering_required verifies generated_rust and binary are absent.
+    assert_runtime_lowering_required(&output, "ffi-precomputed-output");
 }
 
 #[cfg(not(windows))]
@@ -8885,7 +8331,7 @@ fn cranelift_backend_rejects_fs_write_denial_before_backend_lowering() {
 
 #[cfg(not(windows))]
 #[test]
-fn cranelift_backend_builds_env_read_binary() {
+fn cranelift_backend_rejects_env_precomputed_output_without_runtime_lowering() {
     if which::which("cc").is_err() {
         eprintln!("skipping cranelift backend smoke test because cc is unavailable");
         return;
@@ -8907,34 +8353,13 @@ fn cranelift_backend_builds_env_read_binary() {
         ])
         .output()
         .expect("run axiomc build --backend cranelift");
-    assert!(
-        output.status.success(),
-        "cranelift env build failed: stdout={} stderr={}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
-
-    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
-    assert_eq!(payload["backend"], "cranelift");
-    assert_eq!(payload["generated_rust"], Value::Null);
-    let binary = payload["binary"].as_str().expect("binary path");
-    let run = Command::new(binary)
-        .output()
-        .expect("run cranelift env binary");
-    assert!(
-        run.status.success(),
-        "cranelift env binary failed: stderr={}",
-        String::from_utf8_lossy(&run.stderr)
-    );
-    assert_eq!(
-        String::from_utf8_lossy(&run.stdout),
-        "native-env\nmissing\n"
-    );
+    // assert_runtime_lowering_required verifies generated_rust and binary are absent.
+    assert_runtime_lowering_required(&output, "env-precomputed-output");
 }
 
 #[cfg(not(windows))]
 #[test]
-fn cranelift_backend_honors_env_allowlist_for_precomputed_output() {
+fn cranelift_backend_rejects_env_allowlist_precomputed_output_without_runtime_lowering() {
     if which::which("cc").is_err() {
         eprintln!("skipping cranelift backend smoke test because cc is unavailable");
         return;
@@ -8956,29 +8381,8 @@ fn cranelift_backend_honors_env_allowlist_for_precomputed_output() {
         ])
         .output()
         .expect("run axiomc build --backend cranelift");
-    assert!(
-        output.status.success(),
-        "cranelift env allowlist output build failed: stdout={} stderr={}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
-
-    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
-    let binary = payload["binary"].as_str().expect("binary path");
-    let run = Command::new(binary)
-        .env_remove("AXIOM_CRANELIFT_ENV_READ")
-        .env_remove("AXIOM_CRANELIFT_ENV_BLOCKED")
-        .output()
-        .expect("run cranelift env allowlist output binary");
-    assert!(
-        run.status.success(),
-        "cranelift env allowlist output binary failed: stderr={}",
-        String::from_utf8_lossy(&run.stderr)
-    );
-    assert_eq!(
-        String::from_utf8_lossy(&run.stdout),
-        "allowed-env\nmissing blocked\n"
-    );
+    // assert_runtime_lowering_required verifies generated_rust and binary are absent.
+    assert_runtime_lowering_required(&output, "env-allowlist-precomputed-output");
 }
 
 #[cfg(not(windows))]
@@ -9045,7 +8449,7 @@ fn cranelift_backend_lowers_env_read_to_runtime_exit_code() {
 
 #[cfg(not(windows))]
 #[test]
-fn cranelift_backend_honors_env_allowlist_at_runtime() {
+fn cranelift_backend_builds_once_and_reads_environment_at_each_run() {
     if which::which("cc").is_err() {
         eprintln!("skipping cranelift backend smoke test because cc is unavailable");
         return;
@@ -9077,14 +8481,21 @@ fn cranelift_backend_honors_env_allowlist_at_runtime() {
     assert_eq!(payload["generated_rust"], Value::Null);
     let binary = payload["binary"].as_str().expect("binary path");
     let audit_log = temp.path().join("env-allowlist-audit.jsonl");
-    let run = Command::new(binary)
+    let first_run = Command::new(binary)
         .env("AXIOM_CRANELIFT_ENV_READ", "runtime-env")
         .env("AXIOM_CRANELIFT_ENV_BLOCKED", "blocked-env")
         .env("AXIOM_HOST_AUDIT_LOG", &audit_log)
         .output()
         .expect("run cranelift env allowlist binary");
-    assert_eq!(run.status.code(), Some(48));
-    assert_eq!(String::from_utf8_lossy(&run.stdout), "");
+    assert_eq!(first_run.status.code(), Some(48));
+    assert_eq!(String::from_utf8_lossy(&first_run.stdout), "");
+    let second_run = Command::new(binary)
+        .env("AXIOM_CRANELIFT_ENV_READ", "short")
+        .env("AXIOM_CRANELIFT_ENV_BLOCKED", "still-blocked")
+        .output()
+        .expect("run the same cranelift env binary with different environment");
+    assert_eq!(second_run.status.code(), Some(1));
+    assert_eq!(String::from_utf8_lossy(&second_run.stdout), "");
     let audit = fs::read_to_string(&audit_log).expect("read env allowlist audit log");
     assert!(audit.contains("\"intrinsic\":\"env_get\""), "{audit}");
     assert!(audit.contains("\"outcome\":\"ok\""), "{audit}");
@@ -13179,10 +12590,6 @@ print tcp_score == 5 && tcp_buf[0] == 112u8 && tcp_buf[1] == 105u8 && tcp_buf[2]
         ),
     )
     .expect("write net mutable buffers source");
-}
-
-fn start_http_fixture_server(body: &'static str) -> Option<(u16, std::thread::JoinHandle<()>)> {
-    start_http_fixture_server_requests(body, 1)
 }
 
 fn start_http_fixture_server_requests(

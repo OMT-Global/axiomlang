@@ -38,6 +38,11 @@ mod host_env_proc_clock;
 pub(crate) use host_env_proc_clock::*;
 mod host_json_serdes;
 pub(crate) use host_json_serdes::*;
+mod static_output_purity;
+mod compilation_mode;
+pub use compilation_mode::CraneliftCompilationMode;
+use compilation_mode::{direct_native_mode, known_value_fold_call, runtime_lowering_required};
+use static_output_purity::allows_static_output_evaluation;
 
 const SPIKE_PACKAGE_ROOT_BINDING: &str = "$axiom_package_root";
 const SPIKE_FS_ROOT_BINDING: &str = "$axiom_fs_root";
@@ -400,39 +405,34 @@ pub fn compile_cranelift_hello_spike(
     capabilities: &CapabilityConfig,
     package_root: &Path,
     fs_root: &Path,
-    stdin: Option<&str>,
     object_path: &Path,
     binary_path: &Path,
     target: Option<&str>,
     debug: bool,
-) -> Result<(), Diagnostic> {
+) -> Result<CraneliftCompilationMode, Diagnostic> {
     if target.is_some() {
         return Err(unsupported(
             "the cranelift backend spike currently supports only the host target",
         ));
     }
     I64_DEBUG_BUILD.with(|flag| flag.set(debug));
-    if let Some(program) = lower_i64_exit_program(program, capabilities, package_root, fs_root) {
-        return axiomc_backend_cranelift::compile_i64_exit_program(
-            program,
-            object_path,
-            binary_path,
-        )
-        .map_err(|err| {
-            Diagnostic::new("build", err.to_string()).with_path(object_path.display().to_string())
-        });
+    if let Some(lowered) = lower_i64_exit_program(program, capabilities, package_root, fs_root) {
+        axiomc_backend_cranelift::compile_i64_exit_program(lowered, object_path, binary_path)
+            .map_err(|err| {
+                Diagnostic::new("build", err.to_string())
+                    .with_path(object_path.display().to_string())
+            })?;
+        return Ok(direct_native_mode(program));
     }
-    if let Some(program) =
+    if let Some(lowered) =
         lower_i64_top_level_output_program(program, capabilities, package_root, fs_root)
     {
-        return axiomc_backend_cranelift::compile_i64_exit_program(
-            program,
-            object_path,
-            binary_path,
-        )
-        .map_err(|err| {
-            Diagnostic::new("build", err.to_string()).with_path(object_path.display().to_string())
-        });
+        axiomc_backend_cranelift::compile_i64_exit_program(lowered, object_path, binary_path)
+            .map_err(|err| {
+                Diagnostic::new("build", err.to_string())
+                    .with_path(object_path.display().to_string())
+            })?;
+        return Ok(direct_native_mode(program));
     }
     if program.stmts.is_empty()
         && program
@@ -440,11 +440,12 @@ pub fn compile_cranelift_hello_spike(
             .iter()
             .any(|function| function.source_name == "main" && function.params.is_empty())
     {
-        return Err(unsupported(
-            "main function is outside the direct-native i64 ABI subset",
-        ));
+        return Err(runtime_lowering_required());
     }
-    let output = collect_output_program(program, capabilities, package_root, fs_root, stdin)?;
+    if !allows_static_output_evaluation(program, capabilities) {
+        return Err(runtime_lowering_required());
+    }
+    let output = collect_output_program(program, capabilities, package_root, fs_root, None)?;
     axiomc_backend_cranelift::compile_output_lines_with_exit_code(
         &output.lines,
         output.exit_code,
@@ -453,7 +454,230 @@ pub fn compile_cranelift_hello_spike(
     )
     .map_err(|err| {
         Diagnostic::new("build", err.to_string()).with_path(object_path.display().to_string())
+    })?;
+    Ok(CraneliftCompilationMode::BoundedStaticOutput)
+}
+
+fn program_uses_known_value_folds(program: &Program) -> bool {
+    if program
+        .statics
+        .iter()
+        .any(|static_def| expr_uses_known_value_fold(&static_def.expr))
+        || stmts_use_known_value_folds(&program.stmts)
+    {
+        return true;
+    }
+    let functions = program
+        .functions
+        .iter()
+        .map(|function| (function.name.as_str(), function))
+        .collect::<HashMap<_, _>>();
+    let mut pending = Vec::new();
+    collect_stmt_calls(&program.stmts, &mut pending);
+    pending.extend(
+        program
+            .functions
+            .iter()
+            .filter(|function| function.source_name == "main" && function.params.is_empty())
+            .map(|function| function.name.clone()),
+    );
+    let mut visited = HashSet::new();
+    while let Some(name) = pending.pop() {
+        if !visited.insert(name.clone()) {
+            continue;
+        }
+        let Some(function) = functions.get(name.as_str()) else {
+            continue;
+        };
+        if stmts_use_known_value_folds(&function.body) {
+            return true;
+        }
+        collect_stmt_calls(&function.body, &mut pending);
+    }
+    false
+}
+
+fn collect_stmt_calls(stmts: &[Stmt], calls: &mut Vec<String>) {
+    for stmt in stmts {
+        match stmt {
+            Stmt::Let { expr, .. }
+            | Stmt::Assign { expr, .. }
+            | Stmt::Print { expr, .. }
+            | Stmt::Panic { message: expr, .. }
+            | Stmt::Defer { expr, .. }
+            | Stmt::Return { expr, .. } => collect_expr_calls(expr, calls),
+            Stmt::If {
+                cond,
+                then_block,
+                else_block,
+                ..
+            } => {
+                collect_expr_calls(cond, calls);
+                collect_stmt_calls(then_block, calls);
+                if let Some(block) = else_block {
+                    collect_stmt_calls(block, calls);
+                }
+            }
+            Stmt::While { cond, body, .. } => {
+                collect_expr_calls(cond, calls);
+                collect_stmt_calls(body, calls);
+            }
+            Stmt::Match { expr, arms, .. } => {
+                collect_expr_calls(expr, calls);
+                for arm in arms {
+                    collect_stmt_calls(&arm.body, calls);
+                }
+            }
+        }
+    }
+}
+
+fn collect_expr_calls(expr: &Expr, calls: &mut Vec<String>) {
+    match expr {
+        Expr::Call { name, args, .. } => {
+            calls.push(name.clone());
+            for arg in args {
+                collect_expr_calls(arg, calls);
+            }
+        }
+        Expr::BinaryAdd { lhs, rhs, .. }
+        | Expr::BinaryCompare { lhs, rhs, .. }
+        | Expr::BinaryLogic { lhs, rhs, .. } => {
+            collect_expr_calls(lhs, calls);
+            collect_expr_calls(rhs, calls);
+        }
+        Expr::Cast { expr, .. }
+        | Expr::MutBorrow { expr, .. }
+        | Expr::Deref { expr, .. }
+        | Expr::Try { expr, .. }
+        | Expr::Await { expr, .. }
+        | Expr::Closure { body: expr, .. }
+        | Expr::FieldAccess { base: expr, .. }
+        | Expr::TupleIndex { base: expr, .. }
+        | Expr::StringBorrow { expr, .. } => collect_expr_calls(expr, calls),
+        Expr::StructLiteral { fields, .. } => {
+            for field in fields {
+                collect_expr_calls(&field.expr, calls);
+            }
+        }
+        Expr::TupleLiteral { elements, .. } | Expr::ArrayLiteral { elements, .. } => {
+            for element in elements {
+                collect_expr_calls(element, calls);
+            }
+        }
+        Expr::MapLiteral { entries, .. } => {
+            for entry in entries {
+                collect_expr_calls(&entry.key, calls);
+                collect_expr_calls(&entry.value, calls);
+            }
+        }
+        Expr::EnumVariant { payloads, .. } => {
+            for payload in payloads {
+                collect_expr_calls(payload, calls);
+            }
+        }
+        Expr::Slice {
+            base, start, end, ..
+        } => {
+            collect_expr_calls(base, calls);
+            if let Some(expr) = start {
+                collect_expr_calls(expr, calls);
+            }
+            if let Some(expr) = end {
+                collect_expr_calls(expr, calls);
+            }
+        }
+        Expr::Index { base, index, .. } => {
+            collect_expr_calls(base, calls);
+            collect_expr_calls(index, calls);
+        }
+        Expr::Match { expr, arms, .. } => {
+            collect_expr_calls(expr, calls);
+            for arm in arms {
+                collect_expr_calls(&arm.expr, calls);
+            }
+        }
+        Expr::Literal(_) | Expr::VarRef { .. } => {}
+    }
+}
+
+fn stmts_use_known_value_folds(stmts: &[Stmt]) -> bool {
+    stmts.iter().any(|stmt| match stmt {
+        Stmt::Let { expr, .. }
+        | Stmt::Assign { expr, .. }
+        | Stmt::Print { expr, .. }
+        | Stmt::Panic { message: expr, .. }
+        | Stmt::Defer { expr, .. }
+        | Stmt::Return { expr, .. } => expr_uses_known_value_fold(expr),
+        Stmt::If {
+            cond,
+            then_block,
+            else_block,
+            ..
+        } => {
+            expr_uses_known_value_fold(cond)
+                || stmts_use_known_value_folds(then_block)
+                || else_block
+                    .as_deref()
+                    .is_some_and(stmts_use_known_value_folds)
+        }
+        Stmt::While { cond, body, .. } => {
+            expr_uses_known_value_fold(cond) || stmts_use_known_value_folds(body)
+        }
+        Stmt::Match { expr, arms, .. } => {
+            expr_uses_known_value_fold(expr)
+                || arms
+                    .iter()
+                    .any(|arm| stmts_use_known_value_folds(&arm.body))
+        }
     })
+}
+
+fn expr_uses_known_value_fold(expr: &Expr) -> bool {
+    match expr {
+        Expr::Call { name, args, .. } => {
+            known_value_fold_call(name) || args.iter().any(expr_uses_known_value_fold)
+        }
+        Expr::BinaryAdd { lhs, rhs, .. }
+        | Expr::BinaryCompare { lhs, rhs, .. }
+        | Expr::BinaryLogic { lhs, rhs, .. } => {
+            expr_uses_known_value_fold(lhs) || expr_uses_known_value_fold(rhs)
+        }
+        Expr::Cast { expr, .. }
+        | Expr::MutBorrow { expr, .. }
+        | Expr::Deref { expr, .. }
+        | Expr::Try { expr, .. }
+        | Expr::Await { expr, .. }
+        | Expr::Closure { body: expr, .. }
+        | Expr::FieldAccess { base: expr, .. }
+        | Expr::TupleIndex { base: expr, .. }
+        | Expr::StringBorrow { expr, .. } => expr_uses_known_value_fold(expr),
+        Expr::StructLiteral { fields, .. } => fields
+            .iter()
+            .any(|field| expr_uses_known_value_fold(&field.expr)),
+        Expr::TupleLiteral { elements, .. } | Expr::ArrayLiteral { elements, .. } => {
+            elements.iter().any(expr_uses_known_value_fold)
+        }
+        Expr::MapLiteral { entries, .. } => entries.iter().any(|entry| {
+            expr_uses_known_value_fold(&entry.key) || expr_uses_known_value_fold(&entry.value)
+        }),
+        Expr::EnumVariant { payloads, .. } => payloads.iter().any(expr_uses_known_value_fold),
+        Expr::Slice {
+            base, start, end, ..
+        } => {
+            expr_uses_known_value_fold(base)
+                || start.as_deref().is_some_and(expr_uses_known_value_fold)
+                || end.as_deref().is_some_and(expr_uses_known_value_fold)
+        }
+        Expr::Index { base, index, .. } => {
+            expr_uses_known_value_fold(base) || expr_uses_known_value_fold(index)
+        }
+        Expr::Match { expr, arms, .. } => {
+            expr_uses_known_value_fold(expr)
+                || arms.iter().any(|arm| expr_uses_known_value_fold(&arm.expr))
+        }
+        Expr::Literal(_) | Expr::VarRef { .. } => false,
+    }
 }
 
 fn lower_i64_top_level_output_program(
@@ -12742,63 +12966,6 @@ fn i64_string_option_text(
             let text = i64_string_text(text, static_bindings)?;
             Some(regex_find_span(&pattern, &text).map(|(start, end)| text[start..end].to_string()))
         }
-        "fs_read" | "read_file" | "std_fs_read_file" => {
-            let [path] = args.as_slice() else {
-                return None;
-            };
-            let package_root = static_bindings.package_root.as_deref()?;
-            let fs_root = static_bindings.fs_root.as_deref()?;
-            Some(spike_fs_read_text_for_scope(
-                package_root,
-                fs_root,
-                &i64_string_text(path, static_bindings)?,
-            ))
-        }
-        "net_resolve" | "resolve" | "std_net_resolve" => {
-            let [host] = args.as_slice() else {
-                return None;
-            };
-            Some(i64_net_resolve_text_for_bindings(
-                &i64_string_text(host, static_bindings)?,
-                static_bindings,
-            ))
-        }
-        name if static_bindings.net_resolve_wrappers.contains(name) => {
-            let [host] = args.as_slice() else {
-                return None;
-            };
-            Some(i64_net_resolve_text_for_bindings(
-                &i64_string_text(host, static_bindings)?,
-                static_bindings,
-            ))
-        }
-        name if static_bindings.net_shim_wrappers.contains(name) => {
-            let [host] = args.as_slice() else {
-                return None;
-            };
-            Some(i64_net_resolve_text_for_bindings(
-                &i64_string_text(host, static_bindings)?,
-                static_bindings,
-            ))
-        }
-        name if is_i64_http_get_name(name, static_bindings) => {
-            let [url] = args.as_slice() else {
-                return None;
-            };
-            Some(http_get(&i64_string_text(url, static_bindings)?))
-        }
-        name if static_bindings.fs_read_wrappers.contains(name) => {
-            let [path] = args.as_slice() else {
-                return None;
-            };
-            let package_root = static_bindings.package_root.as_deref()?;
-            let fs_root = static_bindings.fs_root.as_deref()?;
-            Some(spike_fs_read_text_for_scope(
-                package_root,
-                fs_root,
-                &i64_string_text(path, static_bindings)?,
-            ))
-        }
         name if is_i64_json_parse_string_name(name, static_bindings) => {
             let [text] = args.as_slice() else {
                 return None;
@@ -12868,22 +13035,6 @@ fn i64_i64_option_value(expr: &Expr, static_bindings: &I64StaticBindings) -> Opt
             let text = i64_string_text(text, static_bindings)?;
             let key = i64_string_text(key, static_bindings)?;
             Some(json_object_field(&text, &key).and_then(|value| json_parse_int(&value)))
-        }
-        name if is_i64_net_tcp_loopback_once_name(name) => {
-            let [response, timeout_ms] = args.as_slice() else {
-                return None;
-            };
-            let response = i64_string_text(response, static_bindings)?;
-            let timeout = net_timeout(i64_static_scalar_value(timeout_ms, static_bindings)?);
-            Some(net_tcp_listen_loopback_once(response, timeout))
-        }
-        name if is_i64_net_udp_loopback_once_name(name) => {
-            let [response, timeout_ms] = args.as_slice() else {
-                return None;
-            };
-            let response = i64_string_text(response, static_bindings)?;
-            let timeout = net_timeout(i64_static_scalar_value(timeout_ms, static_bindings)?);
-            Some(net_udp_bind_loopback_once(response, timeout))
         }
         _ => None,
     }
@@ -13572,8 +13723,12 @@ fn record_i64_mut_slice_alias(
     else {
         return None;
     };
-    let (start, end) =
-        i64_static_slice_range(*base_size, start.as_deref(), end.as_deref(), static_bindings)?;
+    let (start, end) = i64_static_slice_range(
+        *base_size,
+        start.as_deref(),
+        end.as_deref(),
+        static_bindings,
+    )?;
     // The base may itself be a recorded alias; resolve one level so chained
     // views still target real projection locals.
     let (base_name, start) = match static_bindings.mut_slice_aliases.get(base_name.as_str()) {
@@ -14730,13 +14885,12 @@ fn lower_i64_slice_projection_index_expr(
         ty: Type::Slice(_) | Type::MutSlice(_),
     } = base
     {
-        let elements = if let Some(slots) =
-            i64_mut_slice_alias_slots(name, local_indexes, static_bindings)
-        {
-            slots.into_iter().map(CraneliftI64Expr::Local).collect()
-        } else {
-            lower_i64_slice_local_call_arg_exprs(name, local_indexes)?
-        };
+        let elements =
+            if let Some(slots) = i64_mut_slice_alias_slots(name, local_indexes, static_bindings) {
+                slots.into_iter().map(CraneliftI64Expr::Local).collect()
+            } else {
+                lower_i64_slice_local_call_arg_exprs(name, local_indexes)?
+            };
         if elements.is_empty() {
             return None;
         }
