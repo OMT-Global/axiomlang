@@ -1,0 +1,16 @@
+{
+  "scenario": "public-api",
+  "before": {
+    "schema_version": "axiom.intent_ir.v0", "graph_id": "axiom://graph/planner-public-api", "package": "axiom://package/planner-public-api",
+    "provenance": {"producer": "fixture", "source_digest": "0000000000000000000000000000000000000000000000000000000000000011", "path_policy": "package_relative", "inputs": [{"package": "axiom://package/planner-public-api", "path": "src/api.ax", "digest": "1000000000000000000000000000000000000000000000000000000000000011"}]},
+    "nodes": [{"id": "axiom://package/planner-public-api", "kind": "Package", "name": "planner-public-api"}, {"id": "axiom://package/planner-public-api/type/Request", "kind": "Type", "name": "Request", "description": "one field", "source_span": {"path": "src/api.ax", "line": 1}, "metadata": {"public": true}}],
+    "edges": [{"from": "axiom://package/planner-public-api", "kind": "declares", "to": "axiom://package/planner-public-api/type/Request"}], "diagnostics": []
+  },
+  "after": {
+    "schema_version": "axiom.intent_ir.v0", "graph_id": "axiom://graph/planner-public-api", "package": "axiom://package/planner-public-api",
+    "provenance": {"producer": "fixture", "source_digest": "0000000000000000000000000000000000000000000000000000000000000012", "path_policy": "package_relative", "inputs": [{"package": "axiom://package/planner-public-api", "path": "src/api.ax", "digest": "2000000000000000000000000000000000000000000000000000000000000011"}]},
+    "nodes": [{"id": "axiom://package/planner-public-api", "kind": "Package", "name": "planner-public-api"}, {"id": "axiom://package/planner-public-api/type/Request", "kind": "Type", "name": "Request", "description": "two fields", "source_span": {"path": "src/api.ax", "line": 1}, "metadata": {"public": true}}],
+    "edges": [{"from": "axiom://package/planner-public-api", "kind": "declares", "to": "axiom://package/planner-public-api/type/Request"}], "diagnostics": []
+  },
+  "expected_evidence": ["positive", "regression", "schema"]
+}

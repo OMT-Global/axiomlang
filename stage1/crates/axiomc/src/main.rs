@@ -42,6 +42,7 @@ use std::time::Instant;
 mod formatter;
 mod intent_ir_cli;
 mod agent_task_cli;
+mod verification_planner_cli;
 
 #[derive(Debug, Parser)]
 #[command(name = "axiomc", about = "Axiom stage1 bootstrap compiler")]
@@ -200,13 +201,9 @@ enum Command {
         json: bool,
     },
     /// Diff two Intent IR snapshots for product-facing semantic drift.
-    SemanticDiff {
-        old: PathBuf,
-        new: PathBuf,
-        /// Emit an axiom.stage1.v1 JSON envelope for agent/tool consumption.
-        #[arg(long)]
-        json: bool,
-    },
+    SemanticDiff { old: PathBuf, new: PathBuf, #[arg(long)] json: bool },
+    /// Map semantic impact to exact-head evidence, or evaluate a result set.
+    VerificationPlan { before: PathBuf, after: PathBuf, #[arg(long)] diff: PathBuf, #[arg(long, default_value = ".")] project: PathBuf, #[arg(long)] source_head: String, #[arg(long)] delivered_head: String, #[arg(long)] results: Option<PathBuf>, #[arg(long)] json: bool },
     /// Inspect project metadata for agent tooling.
     Inspect {
         #[command(subcommand)]
@@ -914,6 +911,7 @@ fn main() {
             }
             Err(error) => print_error("semantic-diff", error, json),
         },
+        Command::VerificationPlan { before, after, diff, project, source_head, delivered_head, results, json } => verification_planner_cli::run(&before, &after, &diff, &project, &source_head, &delivered_head, results.as_deref(), json),
         Command::Inspect { command } => match command {
             InspectCommand::Intent { path, json } => intent_ir_cli::run(&path, json),
             InspectCommand::Symbols { path, json } => match inspect_symbols(&path) {

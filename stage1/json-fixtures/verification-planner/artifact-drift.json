@@ -1,0 +1,16 @@
+{
+  "scenario": "artifact-drift",
+  "before": {
+    "schema_version": "axiom.intent_ir.v0", "graph_id": "axiom://graph/planner-artifact", "package": "axiom://package/planner-artifact",
+    "provenance": {"producer": "fixture", "source_digest": "0000000000000000000000000000000000000000000000000000000000000041", "path_policy": "package_relative", "inputs": [{"package": "axiom://package/planner-artifact", "path": "api.ax", "digest": "1000000000000000000000000000000000000000000000000000000000000041"}]},
+    "nodes": [{"id": "axiom://package/planner-artifact", "kind": "Package", "name": "planner-artifact"}, {"id": "axiom://package/planner-artifact/artifact/openapi", "kind": "Artifact", "name": "openapi", "description": "old output", "source_span": {"path": "api.ax"}, "metadata": {"target": "openapi"}}],
+    "edges": [{"from": "axiom://package/planner-artifact", "kind": "emits", "to": "axiom://package/planner-artifact/artifact/openapi"}], "diagnostics": []
+  },
+  "after": {
+    "schema_version": "axiom.intent_ir.v0", "graph_id": "axiom://graph/planner-artifact", "package": "axiom://package/planner-artifact",
+    "provenance": {"producer": "fixture", "source_digest": "0000000000000000000000000000000000000000000000000000000000000042", "path_policy": "package_relative", "inputs": [{"package": "axiom://package/planner-artifact", "path": "api.ax", "digest": "2000000000000000000000000000000000000000000000000000000000000041"}]},
+    "nodes": [{"id": "axiom://package/planner-artifact", "kind": "Package", "name": "planner-artifact"}, {"id": "axiom://package/planner-artifact/artifact/openapi", "kind": "Artifact", "name": "openapi", "description": "new output", "source_span": {"path": "api.ax"}, "metadata": {"target": "openapi"}}],
+    "edges": [{"from": "axiom://package/planner-artifact", "kind": "emits", "to": "axiom://package/planner-artifact/artifact/openapi"}], "diagnostics": []
+  },
+  "expected_evidence": ["regression", "schema", "artifact"]
+}

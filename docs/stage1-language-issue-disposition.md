@@ -1,6 +1,6 @@
 # Stage1 Language Issue Disposition
 
-<!-- capability-ledger:v1 commands=29 stdlib_modules=34 stdlib_functions=299 capabilities=9 backend=cranelift -->
+<!-- capability-ledger:v1 commands=30 stdlib_modules=34 stdlib_functions=299 capabilities=9 backend=cranelift -->
 
 This document records the historical disposition for the broad Phase A language
 issues opened as #216 through #225. It is an evidence guide, not current live
