@@ -171,3 +171,7 @@ mod tests;
 #[cfg(test)]
 #[path = "formatter_syntax_tests.rs"]
 mod syntax_tests;
+
+#[cfg(test)]
+#[path = "formatter_range_tests.rs"]
+mod range_tests;
