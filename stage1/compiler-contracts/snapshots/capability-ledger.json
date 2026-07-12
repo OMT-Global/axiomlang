@@ -936,6 +936,12 @@
     },
     {
       "evidenceTier": "static_spike",
+      "name": "https://axiomlang.dev/schemas/axiom-toolchain-qualification-v0.schema.json",
+      "source": "stage1/schemas/axiom-toolchain-qualification-v0.schema.json",
+      "status": "checked"
+    },
+    {
+      "evidenceTier": "static_spike",
       "name": "https://axiom-lang.dev/schemas/axiom-trace-v0.schema.json",
       "source": "stage1/schemas/axiom-trace-v0.schema.json",
       "status": "checked"
@@ -1648,11 +1654,11 @@
       "direct_runtime": 2,
       "production_qualified": 0,
       "scaffold": 5,
-      "static_spike": 183,
+      "static_spike": 184,
       "unsupported": 5
     },
     "runtimeAbiRows": 34,
-    "schemas": 27,
+    "schemas": 28,
     "stdlibFunctions": 299,
     "stdlibModules": 34,
     "supportedNativeBackend": "cranelift"
