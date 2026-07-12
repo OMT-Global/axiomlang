@@ -49,6 +49,23 @@ fn fmt_stdin_check_returns_one_and_precise_json() {
 }
 
 #[test]
+fn fmt_stdin_range_without_line_ending_preserves_suffix_boundary() {
+    let output = run_fmt(
+        &["fmt", "--stdin", "--range", "6:15"],
+        "first\nsecond   \nthird\n",
+    );
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        String::from_utf8(output.stdout).expect("UTF-8 stdout"),
+        "first\nsecond\nthird\n"
+    );
+}
+
+#[test]
 fn fmt_stdin_range_leaves_bytes_outside_range_unchanged() {
     let output = run_fmt(
         &["fmt", "--stdin", "--range", "9:19"],

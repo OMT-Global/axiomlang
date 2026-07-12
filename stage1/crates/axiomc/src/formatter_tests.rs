@@ -81,6 +81,26 @@ fn stdin_range_formats_only_requested_utf8_byte_slice() {
 }
 
 #[test]
+fn stdin_range_without_line_ending_does_not_extend_replacement() {
+    let source = "first\nsecond   \nthird\n";
+    let start = "first\n".len();
+    let end = start + "second   ".len();
+    let (formatted, report) = format_axiom_stdin(
+        source,
+        false,
+        Some(FormatRange {
+            start_byte: start,
+            end_byte: end,
+        }),
+    )
+    .expect("stdin format report");
+
+    assert_eq!(formatted, "first\nsecond\nthird\n");
+    assert_eq!(report.changed, 1);
+    assert_eq!(replay(source, &report.files[0].edits), formatted);
+}
+
+#[test]
 fn stdin_check_is_non_mutating_and_reports_work() {
     let source = "fn main() {}   \n";
     let (formatted, report) = format_axiom_stdin(source, true, None).expect("stdin check");

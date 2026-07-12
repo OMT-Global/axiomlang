@@ -141,15 +141,22 @@ fn format_axiom_range(source: &str, range: FormatRange) -> Result<String, Diagno
         )
         .with_code("fmt.range.invalid"));
     }
-    let mut formatted = String::with_capacity(source.len());
+    let slice = &source[range.start_byte..range.end_byte];
+    let mut replacement = format_axiom_source(slice);
+    if range.end_byte < source.len() && !ends_with_line_ending(slice) {
+        replacement.pop();
+    }
+
+    let mut formatted = String::with_capacity(source.len() + replacement.len());
     formatted.push_str(&source[..range.start_byte]);
-    formatted.push_str(&format_axiom_source(
-        &source[range.start_byte..range.end_byte],
-    ));
+    formatted.push_str(&replacement);
     formatted.push_str(&source[range.end_byte..]);
     Ok(formatted)
 }
 
+fn ends_with_line_ending(source: &str) -> bool {
+    source.ends_with('\n') || source.ends_with('\r')
+}
 pub(super) fn format_axiom_source(source: &str) -> String {
     formatter_core::format(source)
 }
