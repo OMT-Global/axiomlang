@@ -1,0 +1,40 @@
+{
+  "schema_version": "axiom.ci.extended_validation_routing_fixture.v1",
+  "cases": [
+    {
+      "path": "stage1/crates/axiomc/src/main.rs",
+      "extended": true,
+      "reason": "compiler changes require toolchain qualification"
+    },
+    {
+      "path": "stage1/schemas/axiom-production-language-readiness-v1.schema.json",
+      "extended": true,
+      "reason": "readiness schema changes require toolchain qualification"
+    },
+    {
+      "path": "docs/production-language-roadmap.md",
+      "extended": true,
+      "reason": "production roadmap changes require qualification evidence"
+    },
+    {
+      "path": "docs/production-language-readiness.json",
+      "extended": true,
+      "reason": "production readiness ledger changes require qualification evidence"
+    },
+    {
+      "path": "docs/roadmap-status.md",
+      "extended": true,
+      "reason": "roadmap status changes require qualification evidence"
+    },
+    {
+      "path": "infra/runner/main.tf",
+      "extended": true,
+      "reason": "runner infrastructure changes require extended validation"
+    },
+    {
+      "path": "LICENSE",
+      "extended": false,
+      "reason": "unrelated metadata does not require extended validation"
+    }
+  ]
+}
