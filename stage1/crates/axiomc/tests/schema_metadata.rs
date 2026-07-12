@@ -60,9 +60,11 @@ fn formatter_edit_v1_schema_metadata_is_current() {
         "ok": false,
         "command": "fmt",
         "check": true,
+        "input": "files",
         "files": [{
             "path": "src/main.ax",
             "changed": true,
+            "range": null,
             "edits": [{
                 "action": "replace_line",
                 "line": 1,

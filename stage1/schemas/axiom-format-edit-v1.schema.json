@@ -11,6 +11,7 @@
     "ok",
     "command",
     "check",
+    "input",
     "files",
     "changed"
   ],
@@ -30,6 +31,11 @@
     "check": {
       "type": "boolean"
     },
+    "input": {
+      "description": "Whether the formatter read filesystem paths or one stdin document.",
+      "type": "string",
+      "enum": ["files", "stdin"]
+    },
     "files": {
       "type": "array",
       "items": {
@@ -48,7 +54,8 @@
       "required": [
         "path",
         "changed",
-        "edits"
+        "edits",
+        "range"
       ],
       "properties": {
         "path": {
@@ -63,7 +70,23 @@
           "items": {
             "$ref": "#/$defs/edit"
           }
+        },
+        "range": {
+          "description": "Requested half-open UTF-8 byte range, or null for a whole document.",
+          "oneOf": [
+            { "type": "null" },
+            { "$ref": "#/$defs/range" }
+          ]
         }
+      }
+    },
+    "range": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["start_byte", "end_byte"],
+      "properties": {
+        "start_byte": { "type": "integer", "minimum": 0 },
+        "end_byte": { "type": "integer", "minimum": 0 }
       }
     },
     "edit": {
