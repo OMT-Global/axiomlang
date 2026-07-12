@@ -1,6 +1,6 @@
 # Stage1 stdlib status
 
-<!-- capability-ledger:v1 commands=28 stdlib_modules=34 stdlib_functions=299 capabilities=9 backend=cranelift -->
+<!-- capability-ledger:v1 commands=29 stdlib_modules=34 stdlib_functions=299 capabilities=9 backend=cranelift -->
 
 This page maps historical phase-c roadmap issues to the current compiler-owned
 stdlib inventory. Issue numbers are historical evidence, not live issue-state

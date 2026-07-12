@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://axiom.omt.global/schemas/axiom-agent-task-v0.schema.json",
+  "title": "Axiom agent task contract v0",
+  "type": "object",
+  "required": ["schema_version", "ok", "command", "project", "contract"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "const": "axiom.agent_task.v0" },
+    "ok": { "const": true },
+    "command": { "const": "task-contract" },
+    "project": {
+      "type": "string", "minLength": 1,
+      "pattern": "^(?!/)(?![A-Za-z]:)(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*\\\\).+$"
+    },
+    "contract": {
+      "allOf": [
+        { "$ref": "axiom-agent-task-spec-v0.schema.json#/$defs/taskBase" },
+        {
+          "type": "object",
+          "required": ["schema_version", "contract_digest"],
+          "properties": {
+            "schema_version": { "const": "axiom.agent_task.v0" },
+            "contract_digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    }
+  }
+}

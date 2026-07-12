@@ -41,6 +41,7 @@ use std::time::Instant;
 
 mod formatter;
 mod intent_ir_cli;
+mod agent_task_cli;
 
 #[derive(Debug, Parser)]
 #[command(name = "axiomc", about = "Axiom stage1 bootstrap compiler")]
@@ -182,6 +183,8 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    /// Compile an approved specification into a bounded, read-only task contract.
+    TaskContract { spec: PathBuf, #[arg(long, default_value = ".")] project: PathBuf, #[arg(long)] json: bool },
     /// Emit semantic evidence requirements and observed test evidence.
     Evidence {
         path: PathBuf,
@@ -849,6 +852,7 @@ fn main() {
             }
             Err(error) => print_error("repair-plan", error, json),
         },
+        Command::TaskContract { spec, project, json } => agent_task_cli::run(&project, &spec, json),
         Command::Evidence { path, json } => match evidence_report(&path) {
             Ok(report) => {
                 if json {

@@ -40,3 +40,15 @@ V0 covers:
 
 Future versions can attach capability, effect, axiom, evidence, and artifact
 node ids once those semantic graph surfaces are fully merged.
+
+## Agent Task Contract Compatibility
+
+[Agent Task Contract v0](agent-task-contract-v0.md) can represent a Repair Plan
+v0 task as a constrained `repair` task. The conversion preserves the repair
+task id, reason, target node, diagnostics, allowed files, and required evidence.
+It may add narrower authority, budgets, rollback, terminal conditions, and
+delivery denials supplied by an explicitly approved specification, but it may
+not widen the repair plan's file or evidence boundary.
+
+Repair Plan v0 remains a diagnostic-driven planning API. It is not itself proof
+of approval and does not grant execution or delivery permission.

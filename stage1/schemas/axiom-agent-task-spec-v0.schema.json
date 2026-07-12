@@ -1,0 +1,246 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://axiom.omt.global/schemas/axiom-agent-task-spec-v0.schema.json",
+  "title": "Axiom approved agent task specification v0",
+  "type": "object",
+  "required": ["schema_version", "task"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "const": "axiom.agent_task.spec.v0" },
+    "task": {
+      "allOf": [{ "$ref": "#/$defs/task" }],
+      "unevaluatedProperties": false
+    }
+  },
+  "$defs": {
+    "nonEmpty": { "type": "string", "minLength": 1 },
+    "relativePath": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?!/)(?![A-Za-z]:)(?!.*(?:^|/)\\.{1,2}(?:/|$))(?!.*[\\\\*?])(?!.*//)(?!.*\/$).+$"
+    },
+    "stringSet": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/nonEmpty" }
+    },
+    "evidenceKind": {
+      "enum": [
+        "unit_test", "property_test", "conformance_fixture",
+        "capability_denial_test", "golden_output", "schema_validation",
+        "security_fixture", "benchmark_baseline", "manual_review",
+        "risk_note", "ci_status", "review_state"
+      ]
+    },
+    "evidence": {
+      "type": "object",
+      "required": ["id", "kind", "command"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*$" },
+        "kind": { "$ref": "#/$defs/evidenceKind" },
+        "command": { "$ref": "#/$defs/nonEmpty" }
+      }
+    },
+    "acceptanceCriterion": {
+      "type": "object",
+      "required": ["id", "requirement", "expected", "evidence_refs"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*$" },
+        "requirement": { "$ref": "#/$defs/nonEmpty" },
+        "expected": { "enum": ["pass", "fail"] },
+        "evidence_refs": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/nonEmpty" } }
+      }
+    },
+    "authority": {
+      "type": "object",
+      "required": [
+        "governing_issue", "repository", "issue", "source_revision",
+        "source_digest", "approval"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "governing_issue": { "type": "string", "pattern": "^https://github\\.com/[^/]+/[^/]+/issues/[1-9][0-9]*$" },
+        "repository": { "type": "string", "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$" },
+        "issue": { "type": "integer", "minimum": 1 },
+        "source_revision": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+        "source_digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+        "approval": {
+          "type": "object",
+          "required": ["state", "approver", "method"],
+          "additionalProperties": false,
+          "properties": {
+            "state": { "const": "approved" },
+            "approver": { "$ref": "#/$defs/nonEmpty" },
+            "method": { "enum": ["issue_label", "issue_comment", "signed_spec", "maintainer_review"] }
+          }
+        }
+      }
+    },
+    "scope": {
+      "type": "object",
+      "required": ["affected_semantic_nodes", "allowed_files"],
+      "additionalProperties": false,
+      "properties": {
+        "affected_semantic_nodes": {
+          "type": "array", "minItems": 1,
+          "items": { "type": "string", "pattern": "^axiom://[A-Za-z0-9._~:/#@!$&'()*+,;=%-]+$" }
+        },
+        "allowed_files": {
+          "type": "array", "minItems": 1,
+          "items": { "$ref": "#/$defs/relativePath" }
+        },
+        "denied_files": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/relativePath" }
+        }
+      }
+    },
+    "allowDeny": {
+      "type": "object",
+      "required": ["required", "forbidden"],
+      "additionalProperties": false,
+      "properties": {
+        "required": { "$ref": "#/$defs/stringSet" },
+        "forbidden": { "$ref": "#/$defs/stringSet" }
+      }
+    },
+    "dependency": {
+      "type": "object",
+      "required": ["id", "status", "depends_on", "precondition"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "#/$defs/nonEmpty" },
+        "status": { "const": "satisfied" },
+        "depends_on": { "$ref": "#/$defs/stringSet" },
+        "precondition": { "type": "string" }
+      }
+    },
+    "autonomy": {
+      "type": "object",
+      "required": ["class", "risk"],
+      "additionalProperties": false,
+      "properties": {
+        "class": { "type": "integer", "minimum": 1, "maximum": 3 },
+        "risk": { "enum": ["low", "medium", "high"] }
+      }
+    },
+    "budgets": {
+      "type": "object",
+      "required": ["time_seconds", "tokens", "retries", "cost_usd_micros"],
+      "additionalProperties": false,
+      "properties": {
+        "time_seconds": { "type": "integer", "minimum": 1, "maximum": 86400 },
+        "tokens": { "type": "integer", "minimum": 1, "maximum": 10000000 },
+        "retries": { "type": "integer", "minimum": 0, "maximum": 20 },
+        "cost_usd_micros": { "type": "integer", "minimum": 0, "maximum": 1000000000 }
+      }
+    },
+    "rollback": {
+      "type": "object",
+      "required": ["checkpoint", "commands"],
+      "additionalProperties": false,
+      "properties": {
+        "checkpoint": { "$ref": "#/$defs/nonEmpty" },
+        "commands": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/nonEmpty" } }
+      }
+    },
+    "terminalConditions": {
+      "type": "object",
+      "required": ["success", "stop", "escalation"],
+      "additionalProperties": false,
+      "properties": {
+        "success": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/nonEmpty" } },
+        "stop": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/nonEmpty" } },
+        "escalation": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/nonEmpty" } }
+      }
+    },
+    "deliveryPermissions": {
+      "type": "object",
+      "required": [
+        "commit", "push", "pull_request", "review", "merge", "deploy",
+        "approve_own_pull_request", "force_push", "direct_push_protected",
+        "irreversible_actions"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "commit": { "type": "boolean" },
+        "push": { "type": "boolean" },
+        "pull_request": { "type": "boolean" },
+        "review": { "type": "boolean" },
+        "merge": { "type": "boolean" },
+        "deploy": { "type": "boolean" },
+        "approve_own_pull_request": { "const": false },
+        "force_push": { "const": false },
+        "direct_push_protected": { "const": false },
+        "irreversible_actions": { "const": false }
+      }
+    },
+    "diagnostic": {
+      "type": "object",
+      "required": ["kind", "message"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": { "$ref": "#/$defs/nonEmpty" },
+        "code": { "type": "string" },
+        "message": { "$ref": "#/$defs/nonEmpty" },
+        "help": { "type": "string" },
+        "path": { "$ref": "#/$defs/relativePath" },
+        "line": { "type": "integer", "minimum": 1 },
+        "column": { "type": "integer", "minimum": 1 },
+        "related": { "type": "array" },
+        "repair": { "type": "object" }
+      }
+    },
+    "repair": {
+      "type": "object",
+      "required": ["id", "reason", "target_node", "allowed_files", "required_evidence", "diagnostics"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "pattern": "^repair-[0-9]+$" },
+        "reason": { "$ref": "#/$defs/nonEmpty" },
+        "target_node": { "type": "string", "pattern": "^axiom://[A-Za-z0-9._~:/#@!$&'()*+,;=%-]+$" },
+        "allowed_files": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/relativePath" } },
+        "required_evidence": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/evidenceKind" } },
+        "diagnostics": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/diagnostic" } }
+      }
+    },
+    "taskBase": {
+      "type": "object",
+      "required": [
+        "id", "kind", "objective", "authority", "scope", "capabilities",
+        "commands", "acceptance_criteria", "required_evidence", "dependencies",
+        "autonomy", "budgets", "rollback", "terminal_conditions",
+        "delivery_permissions"
+      ],
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*$" },
+        "kind": { "enum": ["feature", "migration", "refactor", "operational", "repair"] },
+        "objective": { "$ref": "#/$defs/nonEmpty" },
+        "authority": { "$ref": "#/$defs/authority" },
+        "scope": { "$ref": "#/$defs/scope" },
+        "capabilities": { "$ref": "#/$defs/allowDeny" },
+        "commands": { "$ref": "#/$defs/allowDeny" },
+        "acceptance_criteria": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/acceptanceCriterion" } },
+        "required_evidence": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/evidence" } },
+        "dependencies": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/dependency" } },
+        "autonomy": { "$ref": "#/$defs/autonomy" },
+        "budgets": { "$ref": "#/$defs/budgets" },
+        "rollback": { "$ref": "#/$defs/rollback" },
+        "terminal_conditions": { "$ref": "#/$defs/terminalConditions" },
+        "delivery_permissions": { "$ref": "#/$defs/deliveryPermissions" },
+        "repair": { "$ref": "#/$defs/repair" }
+      },
+      "allOf": [
+        { "if": { "properties": { "kind": { "const": "repair" } } }, "then": { "required": ["repair"] } },
+        { "if": { "properties": { "kind": { "enum": ["feature", "migration", "refactor", "operational"] } } }, "then": { "not": { "required": ["repair"] } } }
+      ]
+    },
+    "task": {
+      "allOf": [
+        { "$ref": "#/$defs/taskBase" }
+      ],
+      "unevaluatedProperties": false
+    }
+  }
+}
