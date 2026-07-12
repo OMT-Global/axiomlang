@@ -1,0 +1,126 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://axiom.omt.global/schemas/axiom-verification-plan-v0.schema.json",
+  "title": "Axiom semantic verification plan v0",
+  "type": "object",
+  "required": ["schema_version", "plan_digest", "bindings", "changes", "requirements", "coverage"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "const": "axiom.verification_plan.v0" },
+    "plan_digest": { "$ref": "#/$defs/digest" },
+    "bindings": { "$ref": "#/$defs/bindings" },
+    "changes": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/change" }
+    },
+    "requirements": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/requirement" }
+    },
+    "coverage": { "$ref": "#/$defs/coverage" }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "changes": { "minItems": 1 } }, "required": ["changes"] },
+      "then": { "properties": { "requirements": { "minItems": 1 } } }
+    },
+    {
+      "if": { "properties": { "coverage": { "properties": { "confidence": { "const": "complete" } }, "required": ["confidence"] } } },
+      "then": { "properties": { "coverage": { "properties": { "complete": { "const": true }, "unknown_impacts": { "maxItems": 0 } } } } },
+      "else": { "properties": { "coverage": { "properties": { "complete": { "const": false }, "unknown_impacts": { "minItems": 1 } } } } }
+    }
+  ],
+  "$defs": {
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "headSha": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{40}$"
+    },
+    "nodeId": {
+      "type": "string",
+      "pattern": "^axiom://[A-Za-z0-9._~:/#@!$&'()*+,;=%-]+$"
+    },
+    "relativePath": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+$"
+    },
+    "bindings": {
+      "type": "object",
+      "required": ["before_graph_id", "after_graph_id", "before_snapshot_digest", "after_snapshot_digest", "source_head_sha", "delivered_head_sha"],
+      "additionalProperties": false,
+      "properties": {
+        "before_graph_id": { "$ref": "#/$defs/nodeId" },
+        "after_graph_id": { "$ref": "#/$defs/nodeId" },
+        "before_snapshot_digest": { "$ref": "#/$defs/digest" },
+        "after_snapshot_digest": { "$ref": "#/$defs/digest" },
+        "source_head_sha": { "$ref": "#/$defs/headSha" },
+        "delivered_head_sha": { "$ref": "#/$defs/headSha" }
+      }
+    },
+    "change": {
+      "type": "object",
+      "required": ["id", "change_kind", "node_kind", "semantic_id", "source_path", "impact"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "change_kind": { "enum": ["added", "removed", "modified"] },
+        "node_kind": { "type": "string", "minLength": 1 },
+        "semantic_id": { "type": "string", "minLength": 1 },
+        "source_path": {
+          "oneOf": [
+            { "$ref": "#/$defs/relativePath" },
+            { "type": "null" }
+          ]
+        },
+        "impact": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/evidenceKind" }
+        }
+      }
+    },
+    "requirement": {
+      "type": "object",
+      "required": ["id", "kind", "reason", "semantic_ids"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "#/$defs/evidenceId" },
+        "kind": { "$ref": "#/$defs/evidenceKind" },
+        "reason": { "type": "string", "minLength": 1 },
+        "semantic_ids": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "coverage": {
+      "type": "object",
+      "required": ["confidence", "complete", "explanation", "unknown_impacts"],
+      "additionalProperties": false,
+      "properties": {
+        "confidence": { "enum": ["complete", "conservative"] },
+        "complete": { "type": "boolean" },
+        "explanation": { "type": "string", "minLength": 1 },
+        "unknown_impacts": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "evidenceKind": {
+      "enum": ["positive", "denial", "regression", "schema", "artifact", "security", "performance"]
+    },
+    "evidenceId": {
+      "enum": ["evidence-positive", "evidence-denial", "evidence-regression", "evidence-schema", "evidence-artifact", "evidence-security", "evidence-performance"]
+    }
+  }
+}

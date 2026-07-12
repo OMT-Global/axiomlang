@@ -1,0 +1,16 @@
+{
+  "scenario": "unknown-impact",
+  "before": {
+    "schema_version": "axiom.intent_ir.v0", "graph_id": "axiom://graph/planner-unknown", "package": "axiom://package/planner-unknown",
+    "provenance": {"producer": "fixture", "source_digest": "0000000000000000000000000000000000000000000000000000000000000061", "path_policy": "package_relative", "inputs": [{"package": "axiom://package/planner-unknown", "path": "decisions/routing.json", "digest": "1000000000000000000000000000000000000000000000000000000000000061"}]},
+    "nodes": [{"id": "axiom://package/planner-unknown", "kind": "Package", "name": "planner-unknown"}, {"id": "axiom://package/planner-unknown/decision/routing", "kind": "Decision", "name": "routing", "description": "old", "source_span": {"path": "decisions/routing.json"}}],
+    "edges": [{"from": "axiom://package/planner-unknown", "kind": "declares", "to": "axiom://package/planner-unknown/decision/routing"}], "diagnostics": []
+  },
+  "after": {
+    "schema_version": "axiom.intent_ir.v0", "graph_id": "axiom://graph/planner-unknown", "package": "axiom://package/planner-unknown",
+    "provenance": {"producer": "fixture", "source_digest": "0000000000000000000000000000000000000000000000000000000000000062", "path_policy": "package_relative", "inputs": [{"package": "axiom://package/planner-unknown", "path": "decisions/routing.json", "digest": "2000000000000000000000000000000000000000000000000000000000000061"}]},
+    "nodes": [{"id": "axiom://package/planner-unknown", "kind": "Package", "name": "planner-unknown"}, {"id": "axiom://package/planner-unknown/decision/routing", "kind": "Decision", "name": "routing", "description": "new", "source_span": {"path": "decisions/routing.json"}}],
+    "edges": [{"from": "axiom://package/planner-unknown", "kind": "declares", "to": "axiom://package/planner-unknown/decision/routing"}], "diagnostics": []
+  },
+  "expected_evidence": ["positive", "denial", "regression", "schema", "artifact", "security", "performance"]
+}

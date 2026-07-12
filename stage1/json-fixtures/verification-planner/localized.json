@@ -1,0 +1,16 @@
+{
+  "scenario": "localized",
+  "before": {
+    "schema_version": "axiom.intent_ir.v0", "graph_id": "axiom://graph/planner-localized", "package": "axiom://package/planner-localized",
+    "provenance": {"producer": "fixture", "source_digest": "0000000000000000000000000000000000000000000000000000000000000001", "path_policy": "package_relative", "inputs": [{"package": "axiom://package/planner-localized", "path": "src/main.ax", "digest": "1000000000000000000000000000000000000000000000000000000000000001"}]},
+    "nodes": [{"id": "axiom://package/planner-localized", "kind": "Package", "name": "planner-localized"}, {"id": "axiom://package/planner-localized/function/normalize", "kind": "Function", "name": "normalize", "description": "old body", "source_span": {"path": "src/main.ax", "line": 1}}],
+    "edges": [{"from": "axiom://package/planner-localized", "kind": "declares", "to": "axiom://package/planner-localized/function/normalize"}], "diagnostics": []
+  },
+  "after": {
+    "schema_version": "axiom.intent_ir.v0", "graph_id": "axiom://graph/planner-localized", "package": "axiom://package/planner-localized",
+    "provenance": {"producer": "fixture", "source_digest": "0000000000000000000000000000000000000000000000000000000000000002", "path_policy": "package_relative", "inputs": [{"package": "axiom://package/planner-localized", "path": "src/main.ax", "digest": "2000000000000000000000000000000000000000000000000000000000000001"}]},
+    "nodes": [{"id": "axiom://package/planner-localized", "kind": "Package", "name": "planner-localized"}, {"id": "axiom://package/planner-localized/function/normalize", "kind": "Function", "name": "normalize", "description": "new body", "source_span": {"path": "src/main.ax", "line": 1}}],
+    "edges": [{"from": "axiom://package/planner-localized", "kind": "declares", "to": "axiom://package/planner-localized/function/normalize"}], "diagnostics": []
+  },
+  "expected_evidence": ["positive", "regression", "schema"]
+}

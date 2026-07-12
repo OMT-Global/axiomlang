@@ -240,6 +240,12 @@
     },
     {
       "evidenceTier": "static_spike",
+      "name": "verification-plan",
+      "source": "stage1/crates/axiomc/src/main.rs",
+      "status": "implemented"
+    },
+    {
+      "evidenceTier": "static_spike",
       "name": "verify",
       "source": "stage1/crates/axiomc/src/main.rs",
       "status": "implemented"
@@ -894,6 +900,18 @@
     },
     {
       "evidenceTier": "static_spike",
+      "name": "https://axiom.omt.global/schemas/axiom-execution-policy-v0.schema.json",
+      "source": "stage1/schemas/axiom-execution-policy-v0.schema.json",
+      "status": "checked"
+    },
+    {
+      "evidenceTier": "static_spike",
+      "name": "https://axiom.omt.global/schemas/axiom-execution-transaction-v0.schema.json",
+      "source": "stage1/schemas/axiom-execution-transaction-v0.schema.json",
+      "status": "checked"
+    },
+    {
+      "evidenceTier": "static_spike",
       "name": "https://axiom.omt.global/schemas/axiom-format-edit-v1.schema.json",
       "source": "stage1/schemas/axiom-format-edit-v1.schema.json",
       "status": "checked"
@@ -962,6 +980,24 @@
       "evidenceTier": "static_spike",
       "name": "https://axiom-lang.dev/schemas/axiom-trace-v0.schema.json",
       "source": "stage1/schemas/axiom-trace-v0.schema.json",
+      "status": "checked"
+    },
+    {
+      "evidenceTier": "static_spike",
+      "name": "https://axiom.omt.global/schemas/axiom-verification-plan-v0.schema.json",
+      "source": "stage1/schemas/axiom-verification-plan-v0.schema.json",
+      "status": "checked"
+    },
+    {
+      "evidenceTier": "static_spike",
+      "name": "https://axiom.omt.global/schemas/axiom-verification-results-v0.schema.json",
+      "source": "stage1/schemas/axiom-verification-results-v0.schema.json",
+      "status": "checked"
+    },
+    {
+      "evidenceTier": "static_spike",
+      "name": "https://axiom.omt.global/schemas/axiom-verification-verdict-v0.schema.json",
+      "source": "stage1/schemas/axiom-verification-verdict-v0.schema.json",
       "status": "checked"
     },
     {
@@ -1667,16 +1703,16 @@
   ],
   "summary": {
     "capabilities": 9,
-    "commands": 29,
+    "commands": 30,
     "evidenceTiers": {
       "direct_runtime": 2,
       "production_qualified": 0,
       "scaffold": 5,
-      "static_spike": 187,
+      "static_spike": 193,
       "unsupported": 5
     },
     "runtimeAbiRows": 34,
-    "schemas": 30,
+    "schemas": 35,
     "stdlibFunctions": 299,
     "stdlibModules": 34,
     "supportedNativeBackend": "cranelift"

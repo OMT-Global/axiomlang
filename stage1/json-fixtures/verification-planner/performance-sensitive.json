@@ -1,0 +1,16 @@
+{
+  "scenario": "performance-sensitive",
+  "before": {
+    "schema_version": "axiom.intent_ir.v0", "graph_id": "axiom://graph/planner-performance", "package": "axiom://package/planner-performance",
+    "provenance": {"producer": "fixture", "source_digest": "0000000000000000000000000000000000000000000000000000000000000051", "path_policy": "package_relative", "inputs": [{"package": "axiom://package/planner-performance", "path": "src/search.ax", "digest": "1000000000000000000000000000000000000000000000000000000000000051"}]},
+    "nodes": [{"id": "axiom://package/planner-performance", "kind": "Package", "name": "planner-performance"}, {"id": "axiom://package/planner-performance/function/search", "kind": "Function", "name": "search", "description": "linear", "source_span": {"path": "src/search.ax"}, "metadata": {"benchmark": "search-latency"}}],
+    "edges": [{"from": "axiom://package/planner-performance", "kind": "declares", "to": "axiom://package/planner-performance/function/search"}], "diagnostics": []
+  },
+  "after": {
+    "schema_version": "axiom.intent_ir.v0", "graph_id": "axiom://graph/planner-performance", "package": "axiom://package/planner-performance",
+    "provenance": {"producer": "fixture", "source_digest": "0000000000000000000000000000000000000000000000000000000000000052", "path_policy": "package_relative", "inputs": [{"package": "axiom://package/planner-performance", "path": "src/search.ax", "digest": "2000000000000000000000000000000000000000000000000000000000000051"}]},
+    "nodes": [{"id": "axiom://package/planner-performance", "kind": "Package", "name": "planner-performance"}, {"id": "axiom://package/planner-performance/function/search", "kind": "Function", "name": "search", "description": "indexed", "source_span": {"path": "src/search.ax"}, "metadata": {"benchmark": "search-latency"}}],
+    "edges": [{"from": "axiom://package/planner-performance", "kind": "declares", "to": "axiom://package/planner-performance/function/search"}], "diagnostics": []
+  },
+  "expected_evidence": ["positive", "regression", "schema", "performance"]
+}

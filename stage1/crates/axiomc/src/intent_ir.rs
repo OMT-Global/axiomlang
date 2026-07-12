@@ -328,7 +328,7 @@ fn emit_program(package: &str, module: &str, path: &str, program: &Program, grap
             &declaration.name,
             declaration.line,
             declaration.column,
-            Map::new(),
+            object([("visibility", json!(declaration.visibility))]),
         );
     }
     for declaration in &program.structs {
@@ -345,6 +345,7 @@ fn emit_program(package: &str, module: &str, path: &str, program: &Program, grap
             object([
                 ("shape", json!("struct")),
                 ("fields", json!(declaration.fields)),
+                ("visibility", json!(declaration.visibility)),
             ]),
         );
     }
@@ -362,6 +363,7 @@ fn emit_program(package: &str, module: &str, path: &str, program: &Program, grap
             object([
                 ("shape", json!("enum")),
                 ("variants", json!(declaration.variants)),
+                ("visibility", json!(declaration.visibility)),
             ]),
         );
     }
@@ -379,6 +381,7 @@ fn emit_program(package: &str, module: &str, path: &str, program: &Program, grap
             object([
                 ("shape", json!("trait")),
                 ("methods", json!(declaration.methods)),
+                ("visibility", json!(declaration.visibility)),
             ]),
         );
     }
@@ -398,6 +401,7 @@ fn emit_program(package: &str, module: &str, path: &str, program: &Program, grap
                 ("return_type", json!(function.return_ty)),
                 ("async", json!(function.is_async)),
                 ("property", json!(function.is_property)),
+                ("visibility", json!(function.visibility)),
             ]),
         );
     }

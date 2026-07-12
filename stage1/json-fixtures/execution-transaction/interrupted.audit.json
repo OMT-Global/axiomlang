@@ -1,0 +1,27 @@
+{
+  "schema_version": "axiom.execution_transaction.v0",
+  "transaction_id": "txn-0123456789abcdef",
+  "task_contract_digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+  "policy_digest": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+  "base_sha": "2222222222222222222222222222222222222222",
+  "branch": "codex/fixture-transaction",
+  "status": "interrupted",
+  "checkpoints": [
+    { "sequence": 0, "kind": "initial", "tree_sha": "2222222222222222222222222222222222222222", "created_before": "transaction" },
+    { "sequence": 2, "kind": "before_write", "tree_sha": "2222222222222222222222222222222222222222", "created_before": "write:docs/transactional-workspace-v0.md" }
+  ],
+  "reads": [
+    { "sequence": 1, "path": "docs/agent-task-contract-v0.md", "digest": "sha256:4444444444444444444444444444444444444444444444444444444444444444" }
+  ],
+  "writes": [
+    { "sequence": 3, "operation": "create", "path": "docs/transactional-workspace-v0.md", "before_digest": null, "after_digest": "sha256:5555555555555555555555555555555555555555555555555555555555555555" }
+  ],
+  "commands": [
+    { "sequence": 4, "argv": ["git", "diff", "--check"], "capabilities": ["filesystem.read"], "network_hosts": [], "secret_refs": [], "outcome": "executed", "exit_code": 0, "stdout_digest": "sha256:6666666666666666666666666666666666666666666666666666666666666666", "stderr_digest": "sha256:6666666666666666666666666666666666666666666666666666666666666666" }
+  ],
+  "artifacts": [
+    { "sequence": 5, "path": "docs/transactional-workspace-v0.md", "digest": "sha256:5555555555555555555555555555555555555555555555555555555555555555", "kind": "documentation" }
+  ],
+  "rollback": { "attempted": false, "result": "not_required", "restored_checkpoint": null, "source_checkout_untouched": true },
+  "recovery": { "resumable": true, "rollback_safe": true, "next_sequence": 6, "journal_digest": "sha256:7777777777777777777777777777777777777777777777777777777777777777" }
+}
