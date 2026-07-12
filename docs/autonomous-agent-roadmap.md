@@ -82,7 +82,10 @@ defined in [Verification Planner v0](verification-planner-v0.md).
 Implement the Repair Executor v0 design as a general task/repair engine. Start
 with dry-run and deterministic repairs, then allow policy-gated assisted patch
 proposals. Enforce retry, time, token, and cost budgets with explicit terminal
-states.
+states. The executable request, report, interruption, retry, and rollback
+contract is defined in [Bounded Executor v0](bounded-executor-v0.md). A report
+can reach terminal success only after fresh evidence for the resulting
+candidate; proposals remain untrusted data and cannot widen task authority.
 
 ### A5: Independent delivery — #1423
 

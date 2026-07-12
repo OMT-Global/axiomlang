@@ -5,10 +5,10 @@ Repair Executor v0 is the proposed closed-loop successor to
 only approved task-local edits, reruns the required evidence, and refreshes
 delivery signals before a task can be marked resolved.
 
-This document is the accepted design contract from #858. It does not itself add
-an auto-fixer or change the Repair Plan v0 read-only boundary. Implementation is
-now governed by [#1422](https://github.com/OMT-Global/axiomlang/issues/1422),
-within the authority, containment, and verification foundations in #1419-#1421.
+This document is the accepted design contract from #858. The executable local
+contract is now defined by [Bounded Executor v0](bounded-executor-v0.md) under
+[#1422](https://github.com/OMT-Global/axiomlang/issues/1422), within the
+authority, containment, and verification foundations in #1419-#1421.
 Merge-capable delivery remains a separate Class 3 decision under #1423.
 
 ## Goals

@@ -1,0 +1,8 @@
+{
+  "scenario": "rollback",
+  "path": "src/main.ax",
+  "initial": "fn main() { old() }\n",
+  "find": "old()",
+  "replacement": "new()",
+  "expected_state": "rolled_back"
+}

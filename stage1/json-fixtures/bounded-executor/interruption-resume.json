@@ -1,0 +1,9 @@
+{
+  "scenario": "interruption_resume",
+  "path": "src/main.ax",
+  "initial": "fn main() { old() }\n",
+  "find": "old()",
+  "replacement": "new()",
+  "budget_charge_before_interrupt": { "time_seconds": 2, "tokens": 3, "retries": 0, "cost_usd_micros": 4 },
+  "expected_state": "dry_run"
+}

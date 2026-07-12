@@ -1,0 +1,8 @@
+{
+  "scenario": "deterministic_success",
+  "path": "src/main.ax",
+  "initial": "fn main() { old() }\n",
+  "find": "old()",
+  "replacement": "new()",
+  "expected_state": "resolved"
+}

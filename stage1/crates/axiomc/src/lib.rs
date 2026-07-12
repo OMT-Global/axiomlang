@@ -1,4 +1,4 @@
-pub mod agent_task;
+pub mod agent_task; pub mod bounded_executor;
 pub(crate) mod borrowck;
 #[path = "project/build_contract.rs"]
 pub mod build_contract;

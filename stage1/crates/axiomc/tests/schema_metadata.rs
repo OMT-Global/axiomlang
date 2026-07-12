@@ -55,7 +55,6 @@ fn verification_planner_v0_schemas_are_strict_and_exact_head_bound() {
         assert_eq!(schema["additionalProperties"], false);
         compile_validator(schema);
     }
-
     let digest = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
     let source_sha = "1111111111111111111111111111111111111111";
     let delivered_sha = "2222222222222222222222222222222222222222";
@@ -78,14 +77,16 @@ fn verification_planner_v0_schemas_are_strict_and_exact_head_bound() {
     result_validator
         .validate(&result)
         .expect("exact-head result validates");
-    result["results"][0]["delivered_head_sha"] =
-        serde_json::json!("not-a-commit");
+    result["results"][0]["delivered_head_sha"] = serde_json::json!("not-a-commit");
     assert!(
         !result_validator.is_valid(&result),
         "result evidence cannot omit a valid delivered head binding"
     );
 
-    assert_eq!(plan["allOf"][0]["then"]["properties"]["requirements"]["minItems"], 1);
+    assert_eq!(
+        plan["allOf"][0]["then"]["properties"]["requirements"]["minItems"],
+        1
+    );
     assert_eq!(plan["$defs"]["requirement"]["additionalProperties"], false);
     assert_eq!(results["$defs"]["result"]["additionalProperties"], false);
     assert_eq!(verdict["$defs"]["ids"]["uniqueItems"], true);
@@ -103,6 +104,109 @@ fn verification_planner_v0_schemas_are_strict_and_exact_head_bound() {
     assert!(
         !compile_validator(&verdict).is_valid(&impossible_success),
         "a passing verdict cannot retain evidence blockers"
+    );
+}
+
+#[test]
+fn bounded_executor_v0_schemas_are_strict_and_fail_closed() {
+    let schemas: Vec<Value> = [
+        "axiom-executor-request-v0.schema.json",
+        "axiom-executor-report-v0.schema.json",
+        "axiom-executor-resume-v0.schema.json",
+    ]
+    .into_iter()
+    .map(|name| {
+        serde_json::from_str(
+            &fs::read_to_string(schema_dir().join(name)).expect("read executor schema"),
+        )
+        .expect("executor schema is valid JSON")
+    })
+    .collect();
+    for (schema, id, version) in [
+        (
+            &schemas[0],
+            "https://axiom.omt.global/schemas/axiom-executor-request-v0.schema.json",
+            "axiom.executor_request.v0",
+        ),
+        (
+            &schemas[1],
+            "https://axiom.omt.global/schemas/axiom-executor-report-v0.schema.json",
+            "axiom.bounded_executor.v0",
+        ),
+        (
+            &schemas[2],
+            "https://axiom.omt.global/schemas/axiom-executor-resume-v0.schema.json",
+            "axiom.executor_resume.v0",
+        ),
+    ] {
+        assert_eq!(schema["$id"], id);
+        assert_eq!(schema["properties"]["schema_version"]["const"], version);
+        assert_eq!(schema["additionalProperties"], false);
+        compile_validator(schema);
+    }
+
+    assert_eq!(
+        schemas[1]["properties"]["seal_mac"]["$ref"],
+        "#/$defs/mac"
+    );
+    assert!(schemas[1]["properties"].get("seal_key").is_none());
+    assert!(schemas[2]["properties"].get("seal_key").is_none());
+    assert!(
+        schemas[1]["$defs"]["signedDeliveryEvidence"]["properties"]
+            .get("fresh")
+            .is_none()
+    );
+    assert_eq!(
+        schemas[1]["$defs"]["signedDeliveryEvidence"]["properties"]["evidence_mac"]["$ref"],
+        "#/$defs/mac"
+    );
+
+    let digest = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    let sha = "1111111111111111111111111111111111111111";
+    let resolved = serde_json::json!({
+        "schema_version": "axiom.bounded_executor.v0",
+        "task_contract_digest": digest,
+        "base_sha": sha,
+        "dry_run": false,
+        "state": "resolved",
+        "budgets": {
+            "limits": { "time_seconds": 1, "tokens": 1, "retries": 0, "cost_usd_micros": 0 },
+            "consumed": { "time_seconds": 0, "tokens": 0, "retries": 0, "cost_usd_micros": 0 }
+        },
+        "failures": [],
+        "events": [{
+            "sequence": 0,
+            "kind": "resolved",
+            "detail": "candidate",
+            "state": "resolved",
+            "budget_usage": { "time_seconds": 0, "tokens": 0, "retries": 0, "cost_usd_micros": 0 },
+            "previous_digest": digest,
+            "event_digest": digest
+        }],
+        "state_digest": digest
+    });
+    assert!(
+        !compile_validator(&schemas[1]).is_valid(&resolved),
+        "resolved cannot omit proposal, candidate, fresh verification, or delivery evidence"
+    );
+
+    let mut resume = serde_json::json!({
+        "schema_version": "axiom.executor_resume.v0",
+        "executor_state_mac": "hmac-sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "seal_key_id": "executor-test",
+        "task_contract_digest": digest,
+        "transaction_id": "txn-0123456789abcdef",
+        "transaction_digest": digest,
+        "candidate_digest": null,
+        "remaining_budgets": { "time_seconds": 0, "tokens": 0, "retries": 0, "cost_usd_micros": 0 },
+        "next_event_sequence": 1
+    });
+    let validator = compile_validator(&schemas[2]);
+    assert!(validator.is_valid(&resume));
+    resume["widened_files"] = serde_json::json!(["outside.ax"]);
+    assert!(
+        !validator.is_valid(&resume),
+        "resume cannot carry widened authority"
     );
 }
 
@@ -129,11 +233,26 @@ fn execution_transaction_v0_schemas_are_strict_and_secret_safe() {
     );
     assert_eq!(policy["additionalProperties"], false);
     assert_eq!(audit["additionalProperties"], false);
-    assert_eq!(policy["properties"]["paths"]["properties"]["follow_symlinks"]["const"], false);
-    assert_eq!(policy["properties"]["commands"]["properties"]["allow_shell"]["const"], false);
-    assert_eq!(policy["properties"]["delivery"]["properties"]["allow_force_push"]["const"], false);
-    assert_eq!(policy["properties"]["delivery"]["properties"]["allow_self_approval"]["const"], false);
-    assert_eq!(policy["properties"]["delivery"]["properties"]["allow_policy_edits"]["const"], false);
+    assert_eq!(
+        policy["properties"]["paths"]["properties"]["follow_symlinks"]["const"],
+        false
+    );
+    assert_eq!(
+        policy["properties"]["commands"]["properties"]["allow_shell"]["const"],
+        false
+    );
+    assert_eq!(
+        policy["properties"]["delivery"]["properties"]["allow_force_push"]["const"],
+        false
+    );
+    assert_eq!(
+        policy["properties"]["delivery"]["properties"]["allow_self_approval"]["const"],
+        false
+    );
+    assert_eq!(
+        policy["properties"]["delivery"]["properties"]["allow_policy_edits"]["const"],
+        false
+    );
 
     let fixture_root = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("..")
