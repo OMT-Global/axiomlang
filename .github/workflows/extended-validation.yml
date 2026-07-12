@@ -74,6 +74,10 @@ jobs:
               - '.env.example'
               - 'CODEOWNERS'
             extended:
+              - 'stage1/**'
+              - 'docs/production-language-roadmap.md'
+              - 'docs/production-language-readiness.json'
+              - 'docs/roadmap*.md'
               - 'infra/**'
               - 'ops/**'
 
@@ -92,16 +96,31 @@ jobs:
   extended-checks:
     name: Extended Checks
     runs-on: ['self-hosted', 'linux', 'shell-only', 'public']
-    timeout-minutes: 20
+    timeout-minutes: 120
     needs: changes
     if: needs.changes.outputs.extended == 'true' || needs.changes.outputs.app == 'true'
     env:
       GITHUB_TOKEN: ${{ github.token }}
+      AXIOM_QUALIFICATION_OUTPUT_DIR: artifacts/toolchain-qualification
+      AXIOM_QUALIFICATION_TARGET: ${{ runner.os }}-${{ runner.arch }}
+      AXIOM_QUALIFICATION_TRIGGER: ${{ github.event_name }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4 pinned 2026-05-30
 
       - name: Run extended validation
-        run: bash scripts/ci/run-extended-validation.sh
+        run: >-
+          bash scripts/ci/run-extended-validation.sh
+          --head-sha '${{ github.sha }}'
+          --target '${{ runner.os }}-${{ runner.arch }}'
+          --trigger '${{ github.event_name }}'
+
+      - name: Upload qualification evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v4 pinned 2026-04-19
+        with:
+          name: toolchain-qualification-${{ github.sha }}
+          path: artifacts/toolchain-qualification
+          if-no-files-found: error
 
   validate-secrets:
     name: Validate Secrets
