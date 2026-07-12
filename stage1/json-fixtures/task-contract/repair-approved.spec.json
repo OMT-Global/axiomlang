@@ -1,0 +1,70 @@
+{
+  "schema_version": "axiom.agent_task.spec.v0",
+  "task": {
+    "id": "issue-1419-repair",
+    "kind": "repair",
+    "objective": "Repair a capability denial without widening its diagnostic scope.",
+    "authority": {
+      "governing_issue": "https://github.com/OMT-Global/axiomlang/issues/1419",
+      "repository": "OMT-Global/axiomlang",
+      "issue": 1419,
+      "source_revision": "3333333333333333333333333333333333333333",
+      "source_digest": "sha256:4444444444444444444444444444444444444444444444444444444444444444",
+      "approval": { "state": "approved", "approver": "pheidon", "method": "signed_spec" }
+    },
+    "scope": {
+      "affected_semantic_nodes": ["axiom://package/agent-native-authorize"],
+      "allowed_files": ["src/main.ax"]
+    },
+    "capabilities": { "required": [], "forbidden": ["net"] },
+    "commands": {
+      "required": ["axiomc check . --json"],
+      "forbidden": ["curl", "git push --force"]
+    },
+    "acceptance_criteria": [
+      { "id": "bounded-repair", "requirement": "The capability denial is resolved without editing another file.", "expected": "pass", "evidence_refs": ["denial", "schema"] }
+    ],
+    "required_evidence": [
+      { "id": "denial", "kind": "capability_denial_test", "command": "axiomc check . --json" },
+      { "id": "schema", "kind": "schema_validation", "command": "cargo test --manifest-path stage1/Cargo.toml -p axiomc --test schema_metadata" }
+    ],
+    "dependencies": [],
+    "autonomy": { "class": 1, "risk": "medium" },
+    "budgets": { "time_seconds": 900, "tokens": 40000, "retries": 1, "cost_usd_micros": 1000000 },
+    "rollback": { "checkpoint": "clean isolated worktree", "commands": ["git diff --check"] },
+    "terminal_conditions": {
+      "success": ["The required capability denial evidence passes."],
+      "stop": ["A repair proposes a path outside src/main.ax."],
+      "escalation": ["The diagnostic no longer matches the approved source revision."]
+    },
+    "delivery_permissions": {
+      "commit": false,
+      "push": false,
+      "pull_request": false,
+      "review": false,
+      "merge": false,
+      "deploy": false,
+      "approve_own_pull_request": false,
+      "force_push": false,
+      "direct_push_protected": false,
+      "irreversible_actions": false
+    },
+    "repair": {
+      "id": "repair-001",
+      "reason": "capability_denied",
+      "target_node": "axiom://package/agent-native-authorize",
+      "allowed_files": ["src/main.ax"],
+      "required_evidence": ["capability_denial_test", "schema_validation"],
+      "diagnostics": [
+        {
+          "kind": "capability",
+          "code": "capability_denied",
+          "message": "capability `net` is not allowed",
+          "path": "src/main.ax",
+          "line": 1,
+          "column": 1
+        }
+      ]
+    }
+  }
+}

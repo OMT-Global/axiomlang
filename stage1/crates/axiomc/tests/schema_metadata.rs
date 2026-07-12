@@ -16,6 +16,74 @@ fn compile_validator(schema: &Value) -> Validator {
 }
 
 #[test]
+fn agent_task_v0_schemas_are_strict_and_current() {
+    let input: Value = serde_json::from_str(
+        &fs::read_to_string(schema_dir().join("axiom-agent-task-spec-v0.schema.json"))
+            .expect("read agent task specification schema"),
+    )
+    .expect("agent task specification schema is valid JSON");
+    let output: Value = serde_json::from_str(
+        &fs::read_to_string(schema_dir().join("axiom-agent-task-v0.schema.json"))
+            .expect("read agent task contract schema"),
+    )
+    .expect("agent task contract schema is valid JSON");
+
+    assert_eq!(
+        input["$id"],
+        "https://axiom.omt.global/schemas/axiom-agent-task-spec-v0.schema.json"
+    );
+    assert_eq!(
+        output["$id"],
+        "https://axiom.omt.global/schemas/axiom-agent-task-v0.schema.json"
+    );
+    assert_eq!(
+        input["properties"]["schema_version"]["const"],
+        "axiom.agent_task.spec.v0"
+    );
+    assert_eq!(
+        output["properties"]["schema_version"]["const"],
+        "axiom.agent_task.v0"
+    );
+    assert_eq!(output["properties"]["command"]["const"], "task-contract");
+    assert_eq!(input["additionalProperties"], false);
+    assert_eq!(input["properties"]["task"]["unevaluatedProperties"], false);
+    assert_eq!(input["$defs"]["authority"]["additionalProperties"], false);
+    assert_eq!(
+        input["$defs"]["terminalConditions"]["additionalProperties"],
+        false
+    );
+    assert_eq!(
+        input["$defs"]["deliveryPermissions"]["properties"]["approve_own_pull_request"]["const"],
+        false
+    );
+    assert_eq!(
+        input["$defs"]["deliveryPermissions"]["properties"]["force_push"]["const"],
+        false
+    );
+
+    // Compile the self-contained input schema here. The output contract reuses
+    // the exact task definition by URI so consumers cannot validate against a
+    // looser parallel definition.
+    let validator = compile_validator(&input);
+    let fixture_path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("..")
+        .join("json-fixtures")
+        .join("task-contract")
+        .join("feature-approved.spec.json");
+    let mut fixture: Value = serde_json::from_str(
+        &fs::read_to_string(fixture_path).expect("read approved task fixture"),
+    )
+    .expect("approved task fixture is valid JSON");
+    assert!(validator.is_valid(&fixture));
+    fixture["task"]["terminal_conditions"]["unexpected"] = serde_json::json!(true);
+    assert!(
+        !validator.is_valid(&fixture),
+        "terminal conditions must reject undeclared fields"
+    );
+}
+
+#[test]
 fn intent_ir_v0_requires_deterministic_provenance_and_traceable_diagnostics() {
     let schema: Value = serde_json::from_str(
         &fs::read_to_string(schema_dir().join("axiom-intent-ir-v0.schema.json"))

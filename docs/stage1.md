@@ -1,6 +1,6 @@
 # Stage1 bootstrap
 
-<!-- capability-ledger:v1 commands=28 stdlib_modules=34 stdlib_functions=299 capabilities=9 backend=cranelift -->
+<!-- capability-ledger:v1 commands=29 stdlib_modules=34 stdlib_functions=299 capabilities=9 backend=cranelift -->
 
 The Rust bootstrap compiler in `stage1/` is the supported Axiom toolchain.
 The Python `stage0` interpreter, bytecode compiler, bytecode format, bytecode

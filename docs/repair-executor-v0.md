@@ -34,6 +34,13 @@ Merge-capable delivery remains a separate Class 3 decision under #1423.
 
 ## Inputs
 
+The general executor work in #1422 must consume an approved
+[`axiom.agent_task.v0`](agent-task-contract-v0.md) contract. A repair execution
+embeds the Repair Plan v0 task described below as a constrained subtype. A
+repair plan alone is diagnostic evidence, not execution authority; the task
+contract supplies the immutable approval, budgets, capability and command
+boundaries, terminal conditions, and delivery permissions.
+
 The executor input is a Repair Plan v0 JSON report:
 
 ```bash

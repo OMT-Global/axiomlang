@@ -56,6 +56,10 @@ must identify their omissions explicitly.
 Compile an approved issue or specification into a task contract containing
 scope, allowed files, required and forbidden capabilities, evidence, budgets,
 dependencies, rollback, delivery permissions, and stop/escalation conditions.
+The executable contract and its fail-closed boundary are defined in
+[Agent Task Contract v0](agent-task-contract-v0.md). Authority includes the
+approved source revision and digest; it is preserved rather than reconstructed
+from issue prose.
 
 ### A2: Transactional containment — #1420
 

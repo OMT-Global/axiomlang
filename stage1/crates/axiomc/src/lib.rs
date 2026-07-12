@@ -1,3 +1,4 @@
+pub mod agent_task;
 pub(crate) mod borrowck;
 #[path = "project/build_contract.rs"]
 pub mod build_contract;
@@ -19,5 +20,4 @@ pub mod project;
 pub mod registry;
 pub mod stdlib;
 pub mod syntax;
-#[cfg(test)] #[path = "../tests/lib_unit.rs"]
-mod tests;
+#[cfg(test)] #[path = "../tests/lib_unit.rs"] mod tests;
