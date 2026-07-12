@@ -59,7 +59,7 @@ The complete roadmap is [Autonomous Agent Execution Roadmap](autonomous-agent-ro
 | Unattended coding umbrella | #1417 | needs human approval for policy transitions | Compose child gates; do not infer delivery permission from feature completeness. |
 | Complete Intent IR emission | #1418 | implemented; review-gated | Preserve deterministic package/workspace emission, provenance, traceable diagnostics, and the shared consumer contract. |
 | Typed task contract | #1419 | implemented; review-gated | Preserve approved source authority and compile strict feature/repair specs into deterministic bounded contracts; rejected or ambiguous authority fails closed. |
-| Transactional workspace | #1420 | ready for planning | Isolate work, enforce file/command/capability policy, preserve dirty user state, and prove rollback. |
+| Transactional workspace | #1420 | implemented; review-gated | Preserve the strict execution policy, isolated exact-SHA workspace, dirty-source boundary, deterministic audit, and crash-safe rollback contract. |
 | Verification planner | #1421 | ready for planning | Map semantic drift to exact-head positive, negative, schema, artifact, security, and performance evidence. |
 | Bounded executor | #1422 | ready after #1419-#1421 | Implement dry-run, deterministic repair, assisted proposals, budgets, retries, and auditable terminal states. |
 | Delivery controller | #1423 | human approval required before merge-capable code | Require independent review; prohibit self-approval, force-push, and policy bypass. |

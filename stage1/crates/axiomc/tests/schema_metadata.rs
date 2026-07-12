@@ -16,6 +16,68 @@ fn compile_validator(schema: &Value) -> Validator {
 }
 
 #[test]
+fn execution_transaction_v0_schemas_are_strict_and_secret_safe() {
+    let policy: Value = serde_json::from_str(
+        &fs::read_to_string(schema_dir().join("axiom-execution-policy-v0.schema.json"))
+            .expect("read execution policy schema"),
+    )
+    .expect("execution policy schema is valid JSON");
+    let audit: Value = serde_json::from_str(
+        &fs::read_to_string(schema_dir().join("axiom-execution-transaction-v0.schema.json"))
+            .expect("read execution transaction schema"),
+    )
+    .expect("execution transaction schema is valid JSON");
+
+    assert_eq!(
+        policy["$id"],
+        "https://axiom.omt.global/schemas/axiom-execution-policy-v0.schema.json"
+    );
+    assert_eq!(
+        audit["$id"],
+        "https://axiom.omt.global/schemas/axiom-execution-transaction-v0.schema.json"
+    );
+    assert_eq!(policy["additionalProperties"], false);
+    assert_eq!(audit["additionalProperties"], false);
+    assert_eq!(policy["properties"]["paths"]["properties"]["follow_symlinks"]["const"], false);
+    assert_eq!(policy["properties"]["commands"]["properties"]["allow_shell"]["const"], false);
+    assert_eq!(policy["properties"]["delivery"]["properties"]["allow_force_push"]["const"], false);
+    assert_eq!(policy["properties"]["delivery"]["properties"]["allow_self_approval"]["const"], false);
+    assert_eq!(policy["properties"]["delivery"]["properties"]["allow_policy_edits"]["const"], false);
+
+    let fixture_root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("..")
+        .join("json-fixtures")
+        .join("execution-transaction");
+    let mut policy_fixture: Value = serde_json::from_str(
+        &fs::read_to_string(fixture_root.join("strict-local.policy.json"))
+            .expect("read execution policy fixture"),
+    )
+    .expect("execution policy fixture is valid JSON");
+    let audit_fixture: Value = serde_json::from_str(
+        &fs::read_to_string(fixture_root.join("interrupted.audit.json"))
+            .expect("read execution audit fixture"),
+    )
+    .expect("execution audit fixture is valid JSON");
+    compile_validator(&policy)
+        .validate(&policy_fixture)
+        .expect("execution policy fixture matches schema");
+    compile_validator(&audit)
+        .validate(&audit_fixture)
+        .expect("execution audit fixture matches schema");
+
+    let serialized = serde_json::to_string(&audit_fixture).expect("serialize audit fixture");
+    assert!(!serialized.contains("secret_value"));
+    assert!(!serialized.contains(&["github_", "pat_"].concat()));
+
+    policy_fixture["network"]["allowed_hosts"] = serde_json::json!(["example.com"]);
+    assert!(
+        !compile_validator(&policy).is_valid(&policy_fixture),
+        "deny-mode network policy cannot retain an allowlist"
+    );
+}
+
+#[test]
 fn agent_task_v0_schemas_are_strict_and_current() {
     let input: Value = serde_json::from_str(
         &fs::read_to_string(schema_dir().join("axiom-agent-task-spec-v0.schema.json"))

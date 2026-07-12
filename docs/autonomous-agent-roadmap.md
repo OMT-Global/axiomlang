@@ -66,6 +66,8 @@ from issue prose.
 Execute from an exact base SHA in an isolated branch/worktree. Enforce path,
 command, network, credential, and external-mutation policy; preserve user-owned
 dirty work; checkpoint changes; and support crash-safe rollback.
+The normative policy, audit, and recovery rules are defined in
+[Transactional Workspace v0](transactional-workspace-v0.md).
 
 ### A3: Impact-aware proof — #1421
 
