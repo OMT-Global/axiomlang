@@ -13,6 +13,7 @@ bash "$script_repo_root/scripts/ci/check-python-exit-docs.sh"
 bash "$script_repo_root/scripts/ci/validate-capability-manifests.sh"
 bash "$script_repo_root/scripts/ci/test-validate-capability-manifests.sh"
 bash "$script_repo_root/scripts/ci/test-pr-fast-ci-workflow.sh"
+bash "$script_repo_root/scripts/ci/test-extended-validation-workflow.sh"
 bash "$script_repo_root/scripts/ci/test-run-extended-stage1-checks.sh"
 bash "$script_repo_root/scripts/ci/test-run-compiler-property-checks.sh"
 python3 "$script_repo_root/scripts/ci/check-stage1-full-lib-triage.py" \
