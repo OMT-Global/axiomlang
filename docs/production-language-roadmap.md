@@ -15,7 +15,7 @@ This track complements, but does not replace:
 
 - [self-hosting](rust-exit-readiness.md), governed by #721;
 - [unattended agent coding](autonomous-agent-roadmap.md), governed by #1417;
-- complete real-package Intent IR, governed by #1418.
+- canonical real-package and workspace Intent IR, governed by #1418.
 
 ## Critical Runtime Correction
 

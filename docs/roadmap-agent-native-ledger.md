@@ -40,7 +40,7 @@ canonical issue has already shipped or has an active PR.
 |---|---:|---|---|---|
 | Vision and Rust boundary | #774 | #775, #789 | shipped | Keep new semantics Axiom-neutral and preserve the anti-capture checks. |
 | Roadmap and execution contract | #776 | #788 | shipped | GitHub issues remain the execution source of record; keep this ledger aligned with live issue state. |
-| Intent IR v0 schema | #777 | #778, #779, #781, #785, #787 | shipped foundation | The schema and smoke fixture are stable; complete real-package emission is now #1418. |
+| Intent IR v0 schema | #777 | #778, #779, #781, #785, #787 | shipped foundation | The schema, smoke fixture, and #1418 real-package emitter define one contract. |
 | Inspection, capabilities, effects, and axioms | #778 | #779, #780, #781 | shipped | Extend existing versioned envelopes and fixtures rather than creating parallel inspection graphs. |
 | Evidence, artifacts, repair plans, and provenance | #782 | #783, #784, #785 | shipped | These remain read-only/verification foundations; bounded execution is #1422. |
 | Backend target interface | #786 | #777, #783 | shipped | New targets must declare a v0 contract before implementation. |
@@ -57,7 +57,7 @@ The complete roadmap is [Autonomous Agent Execution Roadmap](autonomous-agent-ro
 | Family | Canonical issue | Disposition | Agent instruction |
 |---|---:|---|---|
 | Unattended coding umbrella | #1417 | needs human approval for policy transitions | Compose child gates; do not infer delivery permission from feature completeness. |
-| Complete Intent IR emission | #1418 | ready for planning | Emit one deterministic real-package graph consumed by planning, verification, repair, and artifacts. |
+| Complete Intent IR emission | #1418 | implemented; review-gated | Preserve deterministic package/workspace emission, provenance, traceable diagnostics, and the shared consumer contract. |
 | Typed task contract | #1419 | ready for planning | Compile approved issues/specs into bounded authority, evidence, budgets, rollback, and stop conditions. |
 | Transactional workspace | #1420 | ready for planning | Isolate work, enforce file/command/capability policy, preserve dirty user state, and prove rollback. |
 | Verification planner | #1421 | ready for planning | Map semantic drift to exact-head positive, negative, schema, artifact, security, and performance evidence. |

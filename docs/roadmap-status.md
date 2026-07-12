@@ -34,7 +34,8 @@ define completion.
   readiness is red, and no genesis snapshot is pinned.
 - Semantic inspection, evidence, verification, repair planning, provenance,
   semantic diff, decisions, target contracts, and artifact generators are
-  shipped foundations. Full real-package Intent IR emission remains open.
+  shipped foundations. Real-package and workspace Intent IR emission is
+  available through `axiomc inspect intent <path> --json`.
 
 ## Active Roadmap Families
 

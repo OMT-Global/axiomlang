@@ -8,6 +8,7 @@ pub mod diagnostic_catalog;
 pub mod diagnostics;
 pub mod doctor;
 pub mod hir;
+pub mod intent_ir;
 pub mod json_contract;
 pub mod lockfile;
 pub mod lsp;
@@ -18,6 +19,5 @@ pub mod project;
 pub mod registry;
 pub mod stdlib;
 pub mod syntax;
-#[cfg(test)]
-#[path = "../tests/lib_unit.rs"]
+#[cfg(test)] #[path = "../tests/lib_unit.rs"]
 mod tests;

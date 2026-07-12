@@ -2,6 +2,18 @@
   "schema_version": "axiom.intent_ir.v0",
   "graph_id": "axiom://graph/intent-ir-smoke",
   "package": "axiom://package/intent-ir-smoke",
+  "provenance": {
+    "producer": "axiomc",
+    "source_digest": "397c418b30fe5ee633bed7c513c8e55d498d120472229ca74b26b7a2518c32f1",
+    "path_policy": "package_relative",
+    "inputs": [
+      {
+        "package": "axiom://package/intent-ir-smoke",
+        "path": "src/main.ax",
+        "digest": "397c418b30fe5ee633bed7c513c8e55d498d120472229ca74b26b7a2518c32f1"
+      }
+    ]
+  },
   "nodes": [
     {
       "id": "axiom://package/intent-ir-smoke",
@@ -99,5 +111,6 @@
       "kind": "generated_from",
       "to": "axiom://package/intent-ir-smoke/function/greet"
     }
-  ]
+  ],
+  "diagnostics": []
 }

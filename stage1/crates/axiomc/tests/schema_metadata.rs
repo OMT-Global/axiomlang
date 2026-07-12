@@ -16,6 +16,43 @@ fn compile_validator(schema: &Value) -> Validator {
 }
 
 #[test]
+fn intent_ir_v0_requires_deterministic_provenance_and_traceable_diagnostics() {
+    let schema: Value = serde_json::from_str(
+        &fs::read_to_string(schema_dir().join("axiom-intent-ir-v0.schema.json"))
+            .expect("read Intent IR schema"),
+    )
+    .expect("Intent IR schema is valid JSON");
+    let validator = compile_validator(&schema);
+    let fixture_path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("..")
+        .join("examples")
+        .join("intent_ir_smoke")
+        .join("intent-ir.json");
+    let fixture: Value = serde_json::from_str(
+        &fs::read_to_string(fixture_path).expect("read Intent IR smoke fixture"),
+    )
+    .expect("Intent IR smoke fixture is valid JSON");
+
+    assert!(validator.is_valid(&fixture));
+    assert_eq!(fixture["provenance"]["path_policy"], "package_relative");
+    assert_eq!(fixture["diagnostics"], serde_json::json!([]));
+
+    let mut absolute_input = fixture.clone();
+    absolute_input["provenance"]["inputs"][0]["path"] = serde_json::json!("/checkout/src/main.ax");
+    assert!(!validator.is_valid(&absolute_input));
+
+    let mut untraceable_diagnostic = fixture;
+    untraceable_diagnostic["diagnostics"] = serde_json::json!([{
+        "code": "intent_ir_incomplete_module",
+        "severity": "warning",
+        "message": "module could not be represented",
+        "node_ids": []
+    }]);
+    assert!(!validator.is_valid(&untraceable_diagnostic));
+}
+
+#[test]
 fn formatter_edit_v1_schema_metadata_is_current() {
     let schema: Value = serde_json::from_str(
         &fs::read_to_string(schema_dir().join("axiom-format-edit-v1.schema.json"))

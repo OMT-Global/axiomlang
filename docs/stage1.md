@@ -152,6 +152,11 @@ The checked-in compiler JSON schema is
 The first agent-facing Intent IR / semantic graph schema is
 `stage1/schemas/axiom-intent-ir-v0.schema.json`; see
 [intent-ir-v0.md](intent-ir-v0.md).
+`axiomc inspect intent <path> --json` emits that canonical, deterministic
+package or workspace graph with package-relative provenance and explicit
+node-linked completeness diagnostics. Its output is the dedicated
+`axiom.intent_ir.v0` document rather than the shared command envelope described
+below.
 Successful payloads always include `ok` and `command`; project-scoped payloads
 also include `project`.
 `axiomc run --json` captures the selected backend, native binary exit code,
