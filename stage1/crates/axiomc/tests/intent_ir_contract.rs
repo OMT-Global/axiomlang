@@ -47,6 +47,15 @@ fn agent_native_authorize_emits_schema_valid_byte_stable_intent_ir() {
             "agent-native fixture must emit {required}"
         );
     }
+    assert!(
+        document["nodes"]
+            .as_array()
+            .expect("Intent IR nodes")
+            .iter()
+            .filter(|node| matches!(node["kind"].as_str(), Some("Function" | "Type")))
+            .all(|node| node["metadata"]["visibility"].is_string()),
+        "function and type nodes must expose visibility for public-contract impact mapping"
+    );
 
     assert_contract_traceability(&document);
     assert_axiom_neutral(&first.stdout);

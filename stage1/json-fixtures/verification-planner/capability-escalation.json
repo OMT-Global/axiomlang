@@ -1,0 +1,15 @@
+{
+  "scenario": "capability-escalation",
+  "before": {
+    "schema_version": "axiom.intent_ir.v0", "graph_id": "axiom://graph/planner-capability", "package": "axiom://package/planner-capability",
+    "provenance": {"producer": "fixture", "source_digest": "0000000000000000000000000000000000000000000000000000000000000021", "path_policy": "package_relative", "inputs": [{"package": "axiom://package/planner-capability", "path": "src/main.ax", "digest": "1000000000000000000000000000000000000000000000000000000000000021"}]},
+    "nodes": [{"id": "axiom://package/planner-capability", "kind": "Package", "name": "planner-capability"}], "edges": [], "diagnostics": []
+  },
+  "after": {
+    "schema_version": "axiom.intent_ir.v0", "graph_id": "axiom://graph/planner-capability", "package": "axiom://package/planner-capability",
+    "provenance": {"producer": "fixture", "source_digest": "0000000000000000000000000000000000000000000000000000000000000022", "path_policy": "package_relative", "inputs": [{"package": "axiom://package/planner-capability", "path": "src/main.ax", "digest": "2000000000000000000000000000000000000000000000000000000000000021"}]},
+    "nodes": [{"id": "axiom://package/planner-capability", "kind": "Package", "name": "planner-capability"}, {"id": "axiom://package/planner-capability/capability/net", "kind": "Capability", "name": "net", "source_span": {"path": "src/main.ax", "line": 1}}],
+    "edges": [{"from": "axiom://package/planner-capability", "kind": "requires", "to": "axiom://package/planner-capability/capability/net"}], "diagnostics": []
+  },
+  "expected_evidence": ["positive", "denial", "regression", "security"]
+}

@@ -1,0 +1,9 @@
+{
+  "schema_version": "axiom.verification_planner_quality.v0",
+  "governing_suite": 1417,
+  "follow_up_suite": 1424,
+  "scenario_count": 7,
+  "mapped_scenarios": 7,
+  "empty_changed_plans": 0,
+  "unknown_scenarios_broadened": 1
+}

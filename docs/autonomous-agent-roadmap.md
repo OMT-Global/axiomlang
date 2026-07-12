@@ -74,6 +74,8 @@ The normative policy, audit, and recovery rules are defined in
 Map before/after Intent IR and semantic drift to required positive, negative,
 schema, artifact, security, and performance evidence. Unknown impact broadens
 the suite or blocks execution; it never silently reduces validation.
+The versioned plan, evidence-result, and exact-head verdict contracts are
+defined in [Verification Planner v0](verification-planner-v0.md).
 
 ### A4: Bounded execution — #1422
 

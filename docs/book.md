@@ -1,6 +1,6 @@
 # The Axiom Book
 
-<!-- capability-ledger:v1 commands=29 stdlib_modules=34 stdlib_functions=299 capabilities=9 backend=cranelift -->
+<!-- capability-ledger:v1 commands=30 stdlib_modules=34 stdlib_functions=299 capabilities=9 backend=cranelift -->
 
 This book is the tutorial path for the Rust-only stage1 toolchain. It teaches
 the current supported Axiom surface from first package to agent-oriented

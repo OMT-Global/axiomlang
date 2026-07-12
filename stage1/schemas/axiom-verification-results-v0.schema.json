@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://axiom.omt.global/schemas/axiom-verification-results-v0.schema.json",
+  "title": "Axiom semantic verification results v0",
+  "type": "object",
+  "required": ["schema_version", "plan_digest", "source_head_sha", "delivered_head_sha", "results"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "const": "axiom.verification_results.v0" },
+    "plan_digest": { "$ref": "#/$defs/digest" },
+    "source_head_sha": { "$ref": "#/$defs/headSha" },
+    "delivered_head_sha": { "$ref": "#/$defs/headSha" },
+    "results": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/result" }
+    }
+  },
+  "$defs": {
+    "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "headSha": { "type": "string", "pattern": "^[a-f0-9]{40}$" },
+    "result": {
+      "type": "object",
+      "required": ["id", "plan_digest", "source_head_sha", "delivered_head_sha", "status", "evidence_digest"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "#/$defs/evidenceId" },
+        "plan_digest": { "$ref": "#/$defs/digest" },
+        "source_head_sha": { "$ref": "#/$defs/headSha" },
+        "delivered_head_sha": { "$ref": "#/$defs/headSha" },
+        "status": { "enum": ["passed", "failed"] },
+        "evidence_digest": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "evidenceId": {
+      "enum": ["evidence-positive", "evidence-denial", "evidence-regression", "evidence-schema", "evidence-artifact", "evidence-security", "evidence-performance"]
+    }
+  }
+}
