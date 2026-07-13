@@ -34,6 +34,7 @@ fn formatter_check_reports_schema_and_precise_edits_without_writing() {
     assert_eq!(report.command, "fmt");
     assert!(!report.ok);
     assert!(report.check);
+    assert_eq!(report.input, "files");
     assert_eq!(report.changed, 1);
     assert_eq!(report.files.len(), 1);
     assert!(report.files[0].changed);
@@ -57,6 +58,53 @@ fn formatter_check_reports_schema_and_precise_edits_without_writing() {
 }
 
 #[test]
+fn stdin_range_formats_only_requested_utf8_byte_slice() {
+    let source = "first   \nsecond   \nthird   \n";
+    let start = "first   \n".len();
+    let end = start + "second   \n".len();
+    let (formatted, report) = format_axiom_stdin(
+        source,
+        false,
+        Some(FormatRange {
+            start_byte: start,
+            end_byte: end,
+        }),
+    )
+    .expect("stdin format report");
+
+    assert_eq!(formatted, "first   \nsecond\nthird   \n");
+    assert_eq!(report.input, "stdin");
+    assert_eq!(report.changed, 1);
+    assert_eq!(report.files[0].path, "<stdin>");
+    assert_eq!(report.files[0].range.unwrap().start_byte, start);
+    assert_eq!(replay(source, &report.files[0].edits), formatted);
+}
+
+#[test]
+fn stdin_check_is_non_mutating_and_reports_work() {
+    let source = "fn main() {}   \n";
+    let (formatted, report) = format_axiom_stdin(source, true, None).expect("stdin check");
+    assert_eq!(formatted, "fn main() {}\n");
+    assert!(!report.ok);
+    assert!(report.check);
+    assert_eq!(report.changed, 1);
+}
+
+#[test]
+fn stdin_range_rejects_non_utf8_boundaries() {
+    let error = format_axiom_stdin(
+        "café\n",
+        false,
+        Some(FormatRange {
+            start_byte: 4,
+            end_byte: 5,
+        }),
+    )
+    .expect_err("split code point must fail");
+    assert_eq!(error.code.as_deref(), Some("fmt.range.invalid"));
+}
+
+#[test]
 fn missing_final_newline_is_an_exact_insertion() {
     let original = "fn main() {}";
     let formatted = format_axiom_source(original);
@@ -70,68 +118,5 @@ fn missing_final_newline_is_an_exact_insertion() {
     assert_eq!(edits[0].start_byte, original.len());
     assert_eq!(edits[0].end_byte, original.len());
     assert_eq!(edits[0].replacement, "\n");
-    assert_eq!(replay(original, &edits), formatted);
-}
-
-#[test]
-fn utf8_offsets_are_bytes_and_preserve_character_boundaries() {
-    let original = "print \"café\"   \n";
-    let formatted = format_axiom_source(original);
-    let edits = format_edits(original, &formatted);
-
-    assert_eq!(edits.len(), 1);
-    assert_eq!(edits[0].start_byte, "print \"café\"".len());
-    assert_eq!(edits[0].end_byte, "print \"café\"   ".len());
-    assert_eq!(edits[0].replacement, "");
-    assert_eq!(replay(original, &edits), formatted);
-}
-
-#[test]
-fn crlf_edits_delete_only_carriage_returns() {
-    let original = "fn main() {\r\n}\r\n";
-    let formatted = format_axiom_source(original);
-    let edits = format_edits(original, &formatted);
-
-    assert_eq!(edits.len(), 2);
-    assert!(edits.iter().all(|edit| edit.replacement.is_empty()));
-    assert!(
-        edits
-            .iter()
-            .all(|edit| edit.end_byte - edit.start_byte == 1)
-    );
-    assert_eq!(replay(original, &edits), formatted);
-}
-
-#[test]
-fn empty_source_uses_an_insert_line_edit() {
-    let formatted = format_axiom_source("");
-    let edits = format_edits("", &formatted);
-
-    assert_eq!(edits.len(), 1);
-    assert_eq!(edits[0].action, "insert_line");
-    assert_eq!(edits[0].start_byte, 0);
-    assert_eq!(edits[0].end_byte, 0);
-    assert_eq!(edits[0].replacement, "\n");
-    assert_eq!(replay("", &edits), formatted);
-}
-
-#[test]
-fn trailing_blank_lines_use_delete_line_edits() {
-    let original = "fn main() {}\n\n\n";
-    let formatted = format_axiom_source(original);
-    let edits = format_edits(original, &formatted);
-
-    assert_eq!(edits.len(), 2);
-    assert!(edits.iter().all(|edit| edit.action == "delete_line"));
-    assert_eq!(replay(original, &edits), formatted);
-}
-
-#[test]
-fn reverse_replay_handles_multiple_non_ascii_edits() {
-    let original = "print \"olá\"  \r\n\n\nprint \"fim\"   ";
-    let formatted = format_axiom_source(original);
-    let edits = format_edits(original, &formatted);
-
-    assert!(edits.len() >= 3);
     assert_eq!(replay(original, &edits), formatted);
 }

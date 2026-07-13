@@ -43,6 +43,9 @@ mod formatter;
 mod intent_ir_cli;
 mod agent_task_cli;
 mod verification_planner_cli;
+mod formatter_cli;
+
+use formatter::FormatRange;
 
 #[derive(Debug, Parser)]
 #[command(name = "axiomc", about = "Axiom stage1 bootstrap compiler")]
@@ -235,7 +238,15 @@ enum Command {
     },
     /// Format .ax source files with the canonical stage1 style.
     Fmt {
-        path: PathBuf,
+        /// Package, directory, or .ax file to format.
+        #[arg(required_unless_present = "stdin", conflicts_with = "stdin")]
+        path: Option<PathBuf>,
+        /// Read one Axiom source document from standard input.
+        #[arg(long)]
+        stdin: bool,
+        /// Format only a half-open UTF-8 byte range (START:END); requires --stdin.
+        #[arg(long, value_parser = formatter_cli::parse_format_range, requires = "stdin")]
+        range: Option<FormatRange>,
         #[arg(long)]
         check: bool,
         /// Emit an axiom.stage1.v1 JSON envelope for agent/tool consumption.
@@ -1093,39 +1104,13 @@ fn main() {
                 if report.ok { 0 } else { 1 }
             }
         }
-        Command::Fmt { path, check, json } => match formatter::format_axiom_sources(&path, check) {
-            Ok(report) => {
-                let serialization_error = if json {
-                    match json_contract::to_pretty_string(&report) {
-                        Ok(output) => {
-                            println!("{output}");
-                            None
-                        }
-                        Err(error) => Some(error),
-                    }
-                } else {
-                    None
-                };
-                if let Some(error) = serialization_error {
-                    print_error("fmt", error, true)
-                } else {
-                    if !json {
-                        for file in &report.files {
-                            if file.changed {
-                                eprintln!("formatted {}", file.path);
-                            }
-                        }
-                        if check && report.changed > 0 {
-                            eprintln!("{} file(s) need formatting", report.changed);
-                        } else {
-                            eprintln!("checked {} file(s)", report.files.len());
-                        }
-                    }
-                    if check && report.changed > 0 { 1 } else { 0 }
-                }
-            }
-            Err(error) => print_error("fmt", error, json),
-        },
+        Command::Fmt {
+            path,
+            stdin,
+            range,
+            check,
+            json,
+        } => formatter_cli::run(path.as_deref(), stdin, range, check, json),
         Command::Doc {
             path,
             out_dir,
