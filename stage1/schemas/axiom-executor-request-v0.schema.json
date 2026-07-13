@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://axiom.omt.global/schemas/axiom-executor-request-v0.schema.json",
+  "title": "Axiom bounded executor request v0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "task_contract_digest", "transaction_id", "transaction_digest", "base_sha", "mode", "dry_run", "budgets", "retry_policy", "proposal"],
+  "properties": {
+    "schema_version": { "const": "axiom.executor_request.v0" },
+    "task_contract_digest": { "$ref": "#/$defs/digest" },
+    "transaction_id": { "type": "string", "pattern": "^txn-[0-9a-f]{16}$" },
+    "transaction_digest": { "$ref": "#/$defs/digest" },
+    "base_sha": { "$ref": "#/$defs/sha" },
+    "mode": { "enum": ["deterministic", "assisted"] },
+    "dry_run": { "type": "boolean" },
+    "budgets": { "$ref": "#/$defs/budgets" },
+    "retry_policy": { "$ref": "#/$defs/retryPolicy" },
+    "proposal": {
+      "oneOf": [
+        { "$ref": "#/$defs/replaceTextProposal" },
+        { "type": "null" }
+      ]
+    }
+  },
+  "$defs": {
+    "digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "sha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "relativePath": { "type": "string", "minLength": 1, "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*//)[^\\u0000]+$" },
+    "budgets": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["time_seconds", "tokens", "retries", "cost_usd_micros"],
+      "properties": {
+        "time_seconds": { "type": "integer", "minimum": 1 },
+        "tokens": { "type": "integer", "minimum": 1 },
+        "retries": { "type": "integer", "minimum": 0 },
+        "cost_usd_micros": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "retryPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["approved_causes"],
+      "properties": {
+        "approved_causes": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "enum": ["code", "evidence", "environment", "conflict"] }
+        }
+      }
+    },
+    "replaceTextProposal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "expected_before_digest", "find", "replacement", "candidate_digest"],
+      "properties": {
+        "path": { "$ref": "#/$defs/relativePath" },
+        "expected_before_digest": { "$ref": "#/$defs/digest" },
+        "find": { "type": "string", "minLength": 1 },
+        "replacement": { "type": "string" },
+        "candidate_digest": { "$ref": "#/$defs/digest" }
+      }
+    }
+  }
+}

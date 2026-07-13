@@ -1,0 +1,203 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://axiom.omt.global/schemas/axiom-executor-report-v0.schema.json",
+  "title": "Axiom bounded executor report v0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "task_contract_digest", "base_sha", "dry_run", "state", "budgets", "retry_policy", "allowed_files", "rollback", "failures", "events", "state_digest", "seal_key_id", "seal_mac"],
+  "properties": {
+    "schema_version": { "const": "axiom.bounded_executor.v0" },
+    "task_contract_digest": { "$ref": "#/$defs/digest" },
+    "base_sha": { "$ref": "#/$defs/sha" },
+    "dry_run": { "type": "boolean" },
+    "state": { "enum": ["planned", "dry_run", "edited", "evidence_failed", "verification_passed", "resolved", "rejected", "escalated", "interrupted", "rolled_back"] },
+    "budgets": { "$ref": "#/$defs/executorBudgets" },
+    "retry_policy": { "$ref": "#/$defs/retryPolicy" },
+    "transaction_id": { "type": "string", "pattern": "^txn-[0-9a-f]{16}$" },
+    "policy_digest": { "$ref": "#/$defs/digest" },
+    "allowed_files": { "$ref": "#/$defs/pathSet" },
+    "repair_allowed_files": { "$ref": "#/$defs/pathSet" },
+    "rollback": { "enum": ["not_required", "succeeded", "failed"] },
+    "interrupted_from": { "enum": ["planned", "dry_run", "edited", "evidence_failed", "verification_passed"] },
+    "proposal": { "$ref": "#/$defs/replaceTextProposal" },
+    "candidate_digest": { "$ref": "#/$defs/digest" },
+    "verification": { "$ref": "#/$defs/verificationVerdict" },
+    "candidate_binding": { "$ref": "#/$defs/candidateBinding" },
+    "delivery": { "$ref": "#/$defs/signedDeliveryEvidence" },
+    "failures": { "type": "array", "items": { "$ref": "#/$defs/failure" } },
+    "events": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/event" } },
+    "state_digest": { "$ref": "#/$defs/digest" },
+    "seal_key_id": { "$ref": "#/$defs/keyId" },
+    "seal_mac": { "$ref": "#/$defs/mac" }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "state": { "const": "dry_run" } }, "required": ["state"] },
+      "then": {
+        "properties": { "dry_run": { "const": true } },
+        "required": ["proposal", "candidate_digest"],
+        "not": { "anyOf": [{ "required": ["verification"] }, { "required": ["delivery"] }] }
+      }
+    },
+    {
+      "if": { "properties": { "state": { "const": "resolved" } }, "required": ["state"] },
+      "then": {
+        "properties": {
+          "dry_run": { "const": false },
+          "verification": {
+            "properties": {
+              "status": { "const": "passed" },
+              "missing": { "maxItems": 0 },
+              "duplicate": { "maxItems": 0 },
+              "invalid": { "maxItems": 0 },
+              "failed": { "maxItems": 0 }
+            }
+          },
+          "delivery": {
+            "properties": {
+              "required_checks_passed": { "const": true },
+              "review_satisfied": { "const": true },
+              "conversations_resolved": { "const": true }
+            }
+          }
+        },
+        "required": ["proposal", "candidate_digest", "verification", "candidate_binding", "delivery"]
+      }
+    },
+    {
+      "if": { "properties": { "state": { "const": "evidence_failed" } }, "required": ["state"] },
+      "then": { "required": ["verification"], "not": { "required": ["delivery"] } }
+    },
+    {
+      "if": { "properties": { "state": { "const": "interrupted" } }, "required": ["state"] },
+      "then": { "required": ["interrupted_from"] }
+    },
+    {
+      "if": { "properties": { "state": { "const": "rolled_back" } }, "required": ["state"] },
+      "then": { "properties": { "rollback": { "const": "succeeded" } } }
+    }
+  ],
+  "$defs": {
+    "digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "mac": { "type": "string", "pattern": "^hmac-sha256:[0-9a-f]{64}$" },
+    "keyId": { "type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[a-z0-9._-]+$" },
+    "sha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "relativePath": { "type": "string", "minLength": 1, "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*//)[^\\u0000]+$" },
+    "limits": {
+      "type": "object", "additionalProperties": false,
+      "required": ["time_seconds", "tokens", "retries", "cost_usd_micros"],
+      "properties": {
+        "time_seconds": { "type": "integer", "minimum": 1 },
+        "tokens": { "type": "integer", "minimum": 1 },
+        "retries": { "type": "integer", "minimum": 0 },
+        "cost_usd_micros": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "usage": {
+      "type": "object", "additionalProperties": false,
+      "required": ["time_seconds", "tokens", "retries", "cost_usd_micros"],
+      "properties": {
+        "time_seconds": { "type": "integer", "minimum": 0 },
+        "tokens": { "type": "integer", "minimum": 0 },
+        "retries": { "type": "integer", "minimum": 0 },
+        "cost_usd_micros": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "executorBudgets": {
+      "type": "object", "additionalProperties": false,
+      "required": ["limits", "consumed"],
+      "properties": { "limits": { "$ref": "#/$defs/limits" }, "consumed": { "$ref": "#/$defs/usage" } }
+    },
+    "retryPolicy": {
+      "type": "object", "additionalProperties": false,
+      "required": ["approved_causes"],
+      "properties": {
+        "approved_causes": {
+          "type": "array", "uniqueItems": true,
+          "items": { "enum": ["code", "evidence", "environment", "conflict"] }
+        }
+      }
+    },
+    "replaceTextProposal": {
+      "type": "object", "additionalProperties": false,
+      "required": ["path", "expected_before_digest", "find", "replacement", "candidate_digest"],
+      "properties": {
+        "path": { "$ref": "#/$defs/relativePath" },
+        "expected_before_digest": { "$ref": "#/$defs/digest" },
+        "find": { "type": "string", "minLength": 1 },
+        "replacement": { "type": "string" },
+        "candidate_digest": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "verificationVerdict": {
+      "type": "object", "additionalProperties": false,
+      "required": ["schema_version", "plan_digest", "status", "source_head_sha", "delivered_head_sha", "missing", "duplicate", "invalid", "failed"],
+      "properties": {
+        "schema_version": { "const": "axiom.verification_verdict.v0" },
+        "plan_digest": { "$ref": "#/$defs/digest" },
+        "status": { "enum": ["passed", "failed"] },
+        "source_head_sha": { "$ref": "#/$defs/sha" },
+        "delivered_head_sha": { "$ref": "#/$defs/sha" },
+        "missing": { "$ref": "#/$defs/stringSet" },
+        "duplicate": { "$ref": "#/$defs/stringSet" },
+        "invalid": { "$ref": "#/$defs/stringSet" },
+        "failed": { "$ref": "#/$defs/stringSet" }
+      }
+    },
+    "signedDeliveryEvidence": {
+      "type": "object", "additionalProperties": false,
+      "required": ["provider_id", "candidate_digest", "plan_digest", "delivered_head_sha", "transaction_id", "policy_digest", "fetched_at_epoch_seconds", "required_checks_passed", "review_satisfied", "conversations_resolved", "evidence_mac"],
+      "properties": {
+        "provider_id": { "$ref": "#/$defs/keyId" },
+        "candidate_digest": { "$ref": "#/$defs/digest" },
+        "plan_digest": { "$ref": "#/$defs/digest" },
+        "delivered_head_sha": { "$ref": "#/$defs/sha" },
+        "transaction_id": { "type": "string", "pattern": "^txn-[0-9a-f]{16}$" },
+        "policy_digest": { "$ref": "#/$defs/digest" },
+        "fetched_at_epoch_seconds": { "type": "integer", "minimum": 0 },
+        "required_checks_passed": { "type": "boolean" },
+        "review_satisfied": { "type": "boolean" },
+        "conversations_resolved": { "type": "boolean" },
+        "evidence_mac": { "$ref": "#/$defs/mac" }
+      }
+    },
+    "candidateBinding": {
+      "type": "object", "additionalProperties": false,
+      "required": ["candidate_digest", "delivered_head_sha", "transaction_id", "policy_digest", "plan_digest", "binding_digest"],
+      "properties": {
+        "candidate_digest": { "$ref": "#/$defs/digest" },
+        "delivered_head_sha": { "$ref": "#/$defs/sha" },
+        "transaction_id": { "type": "string", "pattern": "^txn-[0-9a-f]{16}$" },
+        "policy_digest": { "$ref": "#/$defs/digest" },
+        "plan_digest": { "$ref": "#/$defs/digest" },
+        "binding_digest": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "failure": {
+      "type": "object", "additionalProperties": false,
+      "required": ["cause", "fingerprint", "message", "attempt"],
+      "properties": {
+        "cause": { "enum": ["code", "evidence", "environment", "conflict", "policy", "unknown"] },
+        "fingerprint": { "$ref": "#/$defs/digest" },
+        "message": { "type": "string", "minLength": 1 },
+        "attempt": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "event": {
+      "type": "object", "additionalProperties": false,
+      "required": ["sequence", "kind", "detail", "state", "budget_usage", "previous_digest", "event_digest"],
+      "properties": {
+        "sequence": { "type": "integer", "minimum": 0 },
+        "kind": { "type": "string", "minLength": 1 },
+        "detail": { "type": "string", "minLength": 1 },
+        "state": { "enum": ["planned", "dry_run", "edited", "evidence_failed", "verification_passed", "resolved", "rolled_back", "rejected", "escalated", "interrupted"] },
+        "budget_usage": { "$ref": "#/$defs/usage" },
+        "candidate_digest": { "$ref": "#/$defs/digest" },
+        "previous_digest": { "$ref": "#/$defs/digest" },
+        "event_digest": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "stringSet": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+    "pathSet": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "#/$defs/relativePath" } }
+  }
+}

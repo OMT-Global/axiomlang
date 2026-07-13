@@ -64,6 +64,11 @@ pub struct TransactionState {
     pub pending_effect: Option<String>,
     pub workspace_fingerprint: String,
     pub source_fingerprint: String,
+    /// The one candidate commit proven to contain the executor's exact
+    /// authorized bytes. Active recovery may accept this head in addition to
+    /// `base_sha`; arbitrary descendants remain forbidden.
+    #[serde(default)]
+    pub authorized_candidate_head: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -197,7 +202,10 @@ impl TransactionalWorkspace {
             .canonicalize()
             .map_err(|e| format!("cannot canonicalize source checkout: {e}"))?;
         if !worktree.is_absolute() || worktree.starts_with(&source) {
-            return Err("transaction worktree must be an absolute sibling outside the source checkout".into());
+            return Err(
+                "transaction worktree must be an absolute sibling outside the source checkout"
+                    .into(),
+            );
         }
         if worktree.exists() {
             return Err("transaction worktree already exists".into());
@@ -262,6 +270,7 @@ impl TransactionalWorkspace {
                 pending_effect: None,
                 workspace_fingerprint,
                 source_fingerprint,
+                authorized_candidate_head: None,
             },
         };
         this.record("checkpoint", exact_sha, "created")?;
@@ -287,10 +296,26 @@ impl TransactionalWorkspace {
             return Err("transaction state belongs to another worktree".into());
         }
         let observed_head = git(&root, &["rev-parse", "HEAD"])?;
-        if observed_head.trim() != state.base_sha && state.phase != TransactionPhase::Committed {
+        let observed_head = observed_head.trim();
+        let authorized_candidate = state
+            .authorized_candidate_head
+            .as_deref()
+            .is_some_and(|head| head == observed_head);
+        if observed_head != state.base_sha
+            && state.phase != TransactionPhase::Committed
+            && !authorized_candidate
+        {
             return Err("transaction HEAD no longer matches its exact base SHA".into());
         }
-        if state.events.iter().enumerate().any(|(index, event)| event.sequence != index as u64) {
+        if let Some(candidate_head) = &state.authorized_candidate_head {
+            validate_sha(candidate_head)?;
+        }
+        if state
+            .events
+            .iter()
+            .enumerate()
+            .any(|(index, event)| event.sequence != index as u64)
+        {
             return Err("transaction journal sequence is corrupt".into());
         }
         if state.pending_effect.is_none()
@@ -316,9 +341,13 @@ impl TransactionalWorkspace {
             return Err("only an interrupted transaction may be resumed".into());
         }
         if self.state.pending_effect.is_some() {
-            return Err("an interrupted filesystem effect is ambiguous; rollback is required".into());
+            return Err(
+                "an interrupted filesystem effect is ambiguous; rollback is required".into(),
+            );
         }
-        if checkout_fingerprint(&self.root(), &self.state.policy)? != self.state.workspace_fingerprint {
+        if checkout_fingerprint(&self.root(), &self.state.policy)?
+            != self.state.workspace_fingerprint
+        {
             return Err("transaction worktree changed after its last durable event".into());
         }
         self.state.phase = TransactionPhase::Active;
@@ -335,6 +364,104 @@ impl TransactionalWorkspace {
             .unwrap_or_else(|_| "failed".into());
         self.record("read", path, &audit_result)?;
         result
+    }
+
+    /// Read the exact Git blob for an authorized path at a full commit SHA.
+    /// This is the trusted candidate-to-delivered-head proof used by the
+    /// bounded executor; callers cannot substitute self-asserted bytes.
+    pub fn read_at_commit(&mut self, path: &str, commit_sha: &str) -> Result<Vec<u8>, String> {
+        self.require_active()?;
+        validate_sha(commit_sha)?;
+        validate_relative(path)?;
+        if !self.state.policy.allowed_read_paths.contains(path) {
+            return Err("path is outside task read scope".into());
+        }
+        let root = self.root();
+        let verified = git(
+            &root,
+            &["rev-parse", "--verify", &format!("{commit_sha}^{{commit}}")],
+        )?;
+        if verified.trim() != commit_sha {
+            return Err("delivered head must be an exact full commit SHA".into());
+        }
+        let ancestry = Command::new("git")
+            .args([
+                "merge-base",
+                "--is-ancestor",
+                &self.state.base_sha,
+                commit_sha,
+            ])
+            .current_dir(&root)
+            .status()
+            .map_err(|error| format!("failed to verify delivered ancestry: {error}"))?;
+        if !ancestry.success() {
+            return Err("delivered head is not a descendant of the transaction base".into());
+        }
+        let changed = Command::new("git")
+            .args([
+                "diff",
+                "--name-only",
+                "-z",
+                &self.state.base_sha,
+                commit_sha,
+            ])
+            .current_dir(&root)
+            .output()
+            .map_err(|error| format!("failed to inspect delivered scope: {error}"))?;
+        if !changed.status.success() {
+            return Err("cannot inspect delivered-head file scope".into());
+        }
+        let mut contains_candidate = false;
+        for changed_path in changed
+            .stdout
+            .split(|byte| *byte == 0)
+            .filter(|path| !path.is_empty())
+        {
+            let changed_path = std::str::from_utf8(changed_path)
+                .map_err(|_| "delivered-head paths are not UTF-8".to_string())?;
+            validate_relative(changed_path)?;
+            if !self.state.policy.allowed_write_paths.contains(changed_path) {
+                return Err("delivered head changes a path outside task write scope".into());
+            }
+            contains_candidate |= changed_path == path;
+        }
+        if !contains_candidate {
+            return Err("delivered head does not change the proposed candidate path".into());
+        }
+        let output = Command::new("git")
+            .args(["show", &format!("{commit_sha}:{path}")])
+            .current_dir(&root)
+            .output()
+            .map_err(|error| format!("failed to inspect delivered blob: {error}"))?;
+        if !output.status.success() {
+            return Err(format!(
+                "cannot read delivered blob: {}",
+                String::from_utf8_lossy(&output.stderr).trim()
+            ));
+        }
+        let blob_digest = sha256_digest(&output.stdout);
+        self.record("read_commit", &format!("{commit_sha}:{path}"), &blob_digest)?;
+        Ok(output.stdout)
+    }
+
+    /// Durably authorize the exact candidate head after its blob was proven to
+    /// match a previously approved candidate digest. This is intentionally
+    /// crate-private: only the bounded executor may extend active recovery
+    /// beyond `base_sha`, and only for its one verified candidate commit.
+    pub(crate) fn authorize_verified_candidate_commit(
+        &mut self,
+        path: &str,
+        commit_sha: &str,
+        candidate_digest: &str,
+    ) -> Result<(), String> {
+        validate_digest(candidate_digest)?;
+        let candidate = self.read_at_commit(path, commit_sha)?;
+        if sha256_digest(&candidate) != candidate_digest {
+            return Err("delivered head does not contain the exact candidate bytes".into());
+        }
+        self.state.authorized_candidate_head = Some(commit_sha.into());
+        self.state.workspace_fingerprint = checkout_fingerprint(&self.root(), &self.state.policy)?;
+        self.record("candidate_head_authorized", commit_sha, candidate_digest)
     }
 
     pub fn write(&mut self, path: &str, bytes: &[u8]) -> Result<(), String> {
@@ -600,8 +727,10 @@ impl TransactionalWorkspace {
             artifacts,
             rollback,
             recovery: RecoveryAudit {
-                resumable: matches!(self.state.phase, TransactionPhase::Active | TransactionPhase::Interrupted)
-                    && self.state.pending_effect.is_none()
+                resumable: matches!(
+                    self.state.phase,
+                    TransactionPhase::Active | TransactionPhase::Interrupted
+                ) && self.state.pending_effect.is_none()
                     && workspace_matches,
                 rollback_safe: !matches!(self.state.phase, TransactionPhase::Committed),
                 next_sequence: self.state.events.len() as u64,
@@ -674,7 +803,12 @@ impl TransactionalWorkspace {
         persist(&self.state_path, &mut self.state)
     }
 
-    fn finish_effect(&mut self, operation: &str, subject: &str, result: &str) -> Result<(), String> {
+    fn finish_effect(
+        &mut self,
+        operation: &str,
+        subject: &str,
+        result: &str,
+    ) -> Result<(), String> {
         self.record(operation, subject, result)?;
         self.state.pending_effect = None;
         self.state.workspace_fingerprint = checkout_fingerprint(&self.root(), &self.state.policy)?;
@@ -699,7 +833,11 @@ fn validate_policy(policy: &WorkspacePolicy) -> Result<(), String> {
 }
 
 fn validate_sha(sha: &str) -> Result<(), String> {
-    if sha.len() == 40 && sha.bytes().all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase()) {
+    if sha.len() == 40
+        && sha
+            .bytes()
+            .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
+    {
         Ok(())
     } else {
         Err("base SHA must be a full 40-character hexadecimal commit id".into())
@@ -869,7 +1007,11 @@ fn tree_fingerprint(root: &Path) -> Result<String, String> {
             let mode = metadata_mode(&metadata);
             if metadata.file_type().is_symlink() {
                 let target = fs::read_link(&child).map_err(|e| e.to_string())?;
-                rows.push(format!("L\0{}\0{mode:o}\0{}", normalized(relative), normalized(&target)));
+                rows.push(format!(
+                    "L\0{}\0{mode:o}\0{}",
+                    normalized(relative),
+                    normalized(&target)
+                ));
             } else if metadata.is_dir() {
                 rows.push(format!("D\0{}\0{mode:o}", normalized(relative)));
                 visit(root, &child, rows)?;
@@ -992,11 +1134,7 @@ mod tests {
         let source = dir.path().join("source");
         fs::create_dir(&source).unwrap();
         git(&source, &["init", "-q"]).unwrap();
-        git(
-            &source,
-            &["config", "user.email", "test@example.invalid"],
-        )
-        .unwrap();
+        git(&source, &["config", "user.email", "test@example.invalid"]).unwrap();
         git(&source, &["config", "user.name", "Test"]).unwrap();
         fs::write(source.join("allowed.txt"), b"original").unwrap();
         fs::write(source.join("outside.txt"), b"owned").unwrap();
@@ -1006,10 +1144,7 @@ mod tests {
             &["-c", "commit.gpgsign=false", "commit", "-qm", "base"],
         )
         .unwrap();
-        let sha = git(&source, &["rev-parse", "HEAD"])
-            .unwrap()
-            .trim()
-            .into();
+        let sha = git(&source, &["rev-parse", "HEAD"]).unwrap().trim().into();
         (dir, source, sha)
     }
 
@@ -1026,25 +1161,20 @@ mod tests {
         let (repo, source, sha) = fixture();
         fs::write(source.join("outside.txt"), b"user dirty").unwrap();
         let worktree = repo.path().join("txn");
-        let mut txn =
-            TransactionalWorkspace::create(&source, &worktree, &sha, policy()).unwrap();
+        let mut txn = TransactionalWorkspace::create(&source, &worktree, &sha, policy()).unwrap();
         txn.write("allowed.txt", b"changed").unwrap();
         txn.write("new.txt", b"new").unwrap();
         txn.abort().unwrap();
         assert_eq!(fs::read(worktree.join("allowed.txt")).unwrap(), b"original");
         assert!(!worktree.join("new.txt").exists());
-        assert_eq!(
-            fs::read(source.join("outside.txt")).unwrap(),
-            b"user dirty"
-        );
+        assert_eq!(fs::read(source.join("outside.txt")).unwrap(), b"user dirty");
     }
 
     #[test]
     fn traversal_and_unapproved_commands_fail_closed() {
         let (repo, source, sha) = fixture();
         let worktree = repo.path().join("txn");
-        let mut txn =
-            TransactionalWorkspace::create(&source, &worktree, &sha, policy()).unwrap();
+        let mut txn = TransactionalWorkspace::create(&source, &worktree, &sha, policy()).unwrap();
         assert!(txn.write("../outside.txt", b"bad").is_err());
         assert!(txn.write("outside.txt", b"bad").is_err());
         assert!(txn.authorize_external("sh", false).is_err());
@@ -1068,8 +1198,7 @@ mod tests {
     fn crash_recovery_verifies_state_and_can_resume() {
         let (repo, source, sha) = fixture();
         let worktree = repo.path().join("txn");
-        let mut txn =
-            TransactionalWorkspace::create(&source, &worktree, &sha, policy()).unwrap();
+        let mut txn = TransactionalWorkspace::create(&source, &worktree, &sha, policy()).unwrap();
         txn.mark_interrupted().unwrap();
         drop(txn);
         let mut recovered = TransactionalWorkspace::recover(&worktree).unwrap();
@@ -1082,8 +1211,7 @@ mod tests {
     fn crash_during_effect_requires_rollback() {
         let (repo, source, sha) = fixture();
         let worktree = repo.path().join("txn");
-        let mut txn =
-            TransactionalWorkspace::create(&source, &worktree, &sha, policy()).unwrap();
+        let mut txn = TransactionalWorkspace::create(&source, &worktree, &sha, policy()).unwrap();
         txn.state.pending_effect = Some("write:allowed.txt".into());
         txn.state.phase = TransactionPhase::Interrupted;
         persist(&txn.state_path, &mut txn.state).unwrap();
@@ -1099,8 +1227,7 @@ mod tests {
     fn recovery_rejects_unjournaled_workspace_mutation() {
         let (repo, source, sha) = fixture();
         let worktree = repo.path().join("txn");
-        let mut txn =
-            TransactionalWorkspace::create(&source, &worktree, &sha, policy()).unwrap();
+        let mut txn = TransactionalWorkspace::create(&source, &worktree, &sha, policy()).unwrap();
         txn.mark_interrupted().unwrap();
         drop(txn);
         fs::write(worktree.join("allowed.txt"), b"unjournaled").unwrap();
@@ -1108,14 +1235,31 @@ mod tests {
     }
 
     #[test]
+    fn recovery_rejects_an_unjournaled_descendant_head() {
+        let (repo, source, sha) = fixture();
+        let worktree = repo.path().join("txn");
+        let mut txn = TransactionalWorkspace::create(&source, &worktree, &sha, policy()).unwrap();
+        txn.write("allowed.txt", b"changed").unwrap();
+        git(&worktree, &["add", "allowed.txt"]).unwrap();
+        git(
+            &worktree,
+            &["-c", "commit.gpgsign=false", "commit", "-qm", "candidate"],
+        )
+        .unwrap();
+        drop(txn);
+
+        assert!(TransactionalWorkspace::recover(&worktree).is_err());
+    }
+
+    #[test]
     fn audit_is_deterministic_and_redacts_secret_references() {
         let (repo, source, sha) = fixture();
         let worktree = repo.path().join("txn");
-        let mut txn =
-            TransactionalWorkspace::create(&source, &worktree, &sha, policy()).unwrap();
-        assert!(txn
-            .authorize_external("secret://broker/key", false)
-            .is_err());
+        let mut txn = TransactionalWorkspace::create(&source, &worktree, &sha, policy()).unwrap();
+        assert!(
+            txn.authorize_external("secret://broker/key", false)
+                .is_err()
+        );
         let first = txn.deterministic_audit_json().unwrap();
         let second = txn.deterministic_audit_json().unwrap();
         assert_eq!(first, second);

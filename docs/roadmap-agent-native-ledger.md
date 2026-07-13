@@ -48,7 +48,7 @@ canonical issue has already shipped or has an active PR.
 | Artifact target generators | #847 | #848, #849, #850, #851 | shipped | OpenAPI, policy, SQL, OpenTofu, and runbook generation must converge on complete Intent IR under #1418. |
 | Delivery signals | #852 | #853, #854 | shipped | Signals remain evidence only; autonomous external mutations belong to #1423. |
 | Verification, semantic diff, and decisions | #855 | #856, #857 | shipped | Use these surfaces as inputs to the verification planner in #1421. |
-| Repair executor design | #858 | #784, #854 | design accepted; implementation open | `docs/repair-executor-v0.md` is the contract; implementation is #1422 and merge-capable delivery is separately gated by #1423. |
+| Repair executor design | #858 | #784, #854 | implementation review-gated | `docs/repair-executor-v0.md` supplies the accepted design; #1422 implements its bounded local engine and #1423 separately gates merge-capable delivery. |
 
 ## Autonomous Agent Execution
 
@@ -61,7 +61,7 @@ The complete roadmap is [Autonomous Agent Execution Roadmap](autonomous-agent-ro
 | Typed task contract | #1419 | implemented; review-gated | Preserve approved source authority and compile strict feature/repair specs into deterministic bounded contracts; rejected or ambiguous authority fails closed. |
 | Transactional workspace | #1420 | implemented; review-gated | Preserve the strict execution policy, isolated exact-SHA workspace, dirty-source boundary, deterministic audit, and crash-safe rollback contract. |
 | Verification planner | #1421 | implemented; review-gated | Preserve deterministic semantic-impact mapping, conservative unknown-impact coverage, strict evidence schemas, and exact-head terminal verdicts. |
-| Bounded executor | #1422 | ready after #1419-#1421 | Implement dry-run, deterministic repair, assisted proposals, budgets, retries, and auditable terminal states. |
+| Bounded executor | #1422 | implemented; review-gated | Preserve authority intersection, dry-run purity, typed deterministic repairs, bounded classified retries, resumable audit state, rollback, and fresh candidate-bound evidence. |
 | Delivery controller | #1423 | human approval required before merge-capable code | Require independent review; prohibit self-approval, force-push, and policy bypass. |
 | Autonomy evaluation | #1424 | ready for planning | Gate promotion on correctness, containment, recovery, escalation, time, and cost, including tasks that must stop. |
 

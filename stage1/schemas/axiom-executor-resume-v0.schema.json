@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://axiom.omt.global/schemas/axiom-executor-resume-v0.schema.json",
+  "title": "Axiom bounded executor resume request v0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "executor_state_mac", "seal_key_id", "task_contract_digest", "transaction_id", "transaction_digest", "candidate_digest", "remaining_budgets", "next_event_sequence"],
+  "properties": {
+    "schema_version": { "const": "axiom.executor_resume.v0" },
+    "executor_state_mac": { "$ref": "#/$defs/mac" },
+    "seal_key_id": { "$ref": "#/$defs/keyId" },
+    "task_contract_digest": { "$ref": "#/$defs/digest" },
+    "transaction_id": { "type": "string", "pattern": "^txn-[0-9a-f]{16}$" },
+    "transaction_digest": { "$ref": "#/$defs/digest" },
+    "candidate_digest": {
+      "oneOf": [
+        { "$ref": "#/$defs/digest" },
+        { "type": "null" }
+      ]
+    },
+    "remaining_budgets": { "$ref": "#/$defs/budgets" },
+    "next_event_sequence": { "type": "integer", "minimum": 1 }
+  },
+  "$defs": {
+    "digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "mac": { "type": "string", "pattern": "^hmac-sha256:[0-9a-f]{64}$" },
+    "keyId": { "type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[a-z0-9._-]+$" },
+    "budgets": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["time_seconds", "tokens", "retries", "cost_usd_micros"],
+      "properties": {
+        "time_seconds": { "type": "integer", "minimum": 0 },
+        "tokens": { "type": "integer", "minimum": 0 },
+        "retries": { "type": "integer", "minimum": 0 },
+        "cost_usd_micros": { "type": "integer", "minimum": 0 }
+      }
+    }
+  }
+}

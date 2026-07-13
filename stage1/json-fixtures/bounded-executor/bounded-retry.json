@@ -1,0 +1,8 @@
+{
+  "scenario": "bounded_retry",
+  "failure_cause": "code",
+  "failure_code": "compile_failed",
+  "failure_message": "same deterministic failure",
+  "repeat_count": 2,
+  "expected_state": "escalated"
+}

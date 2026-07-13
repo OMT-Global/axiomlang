@@ -16,7 +16,10 @@
       "affected_semantic_nodes": ["axiom://package/agent-native-authorize"],
       "allowed_files": ["src/main.ax"]
     },
-    "capabilities": { "required": [], "forbidden": ["net"] },
+    "capabilities": {
+      "required": ["executor.retry.code", "executor.retry.evidence"],
+      "forbidden": ["net"]
+    },
     "commands": {
       "required": ["axiomc check . --json"],
       "forbidden": ["curl", "git push --force"]
