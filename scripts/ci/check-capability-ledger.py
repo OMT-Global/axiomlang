@@ -40,6 +40,8 @@ COMMAND_TIERS = {
     "test": "static_spike",
     "caps": "static_spike",
     "repair-plan": "static_spike",
+    "task-contract": "static_spike",
+    "verification-plan": "static_spike",
     "evidence": "static_spike",
     "verify": "static_spike",
     "semantic-diff": "static_spike",

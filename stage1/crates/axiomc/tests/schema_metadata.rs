@@ -16,6 +16,264 @@ fn compile_validator(schema: &Value) -> Validator {
 }
 
 #[test]
+fn verification_planner_v0_schemas_are_strict_and_exact_head_bound() {
+    let plan: Value = serde_json::from_str(
+        &fs::read_to_string(schema_dir().join("axiom-verification-plan-v0.schema.json"))
+            .expect("read verification plan schema"),
+    )
+    .expect("verification plan schema is valid JSON");
+    let results: Value = serde_json::from_str(
+        &fs::read_to_string(schema_dir().join("axiom-verification-results-v0.schema.json"))
+            .expect("read verification results schema"),
+    )
+    .expect("verification results schema is valid JSON");
+    let verdict: Value = serde_json::from_str(
+        &fs::read_to_string(schema_dir().join("axiom-verification-verdict-v0.schema.json"))
+            .expect("read verification verdict schema"),
+    )
+    .expect("verification verdict schema is valid JSON");
+
+    for (schema, id, version) in [
+        (
+            &plan,
+            "https://axiom.omt.global/schemas/axiom-verification-plan-v0.schema.json",
+            "axiom.verification_plan.v0",
+        ),
+        (
+            &results,
+            "https://axiom.omt.global/schemas/axiom-verification-results-v0.schema.json",
+            "axiom.verification_results.v0",
+        ),
+        (
+            &verdict,
+            "https://axiom.omt.global/schemas/axiom-verification-verdict-v0.schema.json",
+            "axiom.verification_verdict.v0",
+        ),
+    ] {
+        assert_eq!(schema["$id"], id);
+        assert_eq!(schema["properties"]["schema_version"]["const"], version);
+        assert_eq!(schema["additionalProperties"], false);
+        compile_validator(schema);
+    }
+
+    let digest = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    let source_sha = "1111111111111111111111111111111111111111";
+    let delivered_sha = "2222222222222222222222222222222222222222";
+    let requirement_id = "evidence-positive";
+    let mut result = serde_json::json!({
+        "schema_version": "axiom.verification_results.v0",
+        "plan_digest": digest,
+        "source_head_sha": source_sha,
+        "delivered_head_sha": delivered_sha,
+        "results": [{
+            "id": requirement_id,
+            "plan_digest": digest,
+            "source_head_sha": source_sha,
+            "delivered_head_sha": delivered_sha,
+            "status": "passed",
+            "evidence_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        }]
+    });
+    let result_validator = compile_validator(&results);
+    result_validator
+        .validate(&result)
+        .expect("exact-head result validates");
+    result["results"][0]["delivered_head_sha"] =
+        serde_json::json!("not-a-commit");
+    assert!(
+        !result_validator.is_valid(&result),
+        "result evidence cannot omit a valid delivered head binding"
+    );
+
+    assert_eq!(plan["allOf"][0]["then"]["properties"]["requirements"]["minItems"], 1);
+    assert_eq!(plan["$defs"]["requirement"]["additionalProperties"], false);
+    assert_eq!(results["$defs"]["result"]["additionalProperties"], false);
+    assert_eq!(verdict["$defs"]["ids"]["uniqueItems"], true);
+    let impossible_success = serde_json::json!({
+        "schema_version": "axiom.verification_verdict.v0",
+        "plan_digest": digest,
+        "status": "passed",
+        "source_head_sha": source_sha,
+        "delivered_head_sha": delivered_sha,
+        "missing": [requirement_id],
+        "duplicate": [],
+        "invalid": [],
+        "failed": []
+    });
+    assert!(
+        !compile_validator(&verdict).is_valid(&impossible_success),
+        "a passing verdict cannot retain evidence blockers"
+    );
+}
+
+#[test]
+fn execution_transaction_v0_schemas_are_strict_and_secret_safe() {
+    let policy: Value = serde_json::from_str(
+        &fs::read_to_string(schema_dir().join("axiom-execution-policy-v0.schema.json"))
+            .expect("read execution policy schema"),
+    )
+    .expect("execution policy schema is valid JSON");
+    let audit: Value = serde_json::from_str(
+        &fs::read_to_string(schema_dir().join("axiom-execution-transaction-v0.schema.json"))
+            .expect("read execution transaction schema"),
+    )
+    .expect("execution transaction schema is valid JSON");
+
+    assert_eq!(
+        policy["$id"],
+        "https://axiom.omt.global/schemas/axiom-execution-policy-v0.schema.json"
+    );
+    assert_eq!(
+        audit["$id"],
+        "https://axiom.omt.global/schemas/axiom-execution-transaction-v0.schema.json"
+    );
+    assert_eq!(policy["additionalProperties"], false);
+    assert_eq!(audit["additionalProperties"], false);
+    assert_eq!(policy["properties"]["paths"]["properties"]["follow_symlinks"]["const"], false);
+    assert_eq!(policy["properties"]["commands"]["properties"]["allow_shell"]["const"], false);
+    assert_eq!(policy["properties"]["delivery"]["properties"]["allow_force_push"]["const"], false);
+    assert_eq!(policy["properties"]["delivery"]["properties"]["allow_self_approval"]["const"], false);
+    assert_eq!(policy["properties"]["delivery"]["properties"]["allow_policy_edits"]["const"], false);
+
+    let fixture_root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("..")
+        .join("json-fixtures")
+        .join("execution-transaction");
+    let mut policy_fixture: Value = serde_json::from_str(
+        &fs::read_to_string(fixture_root.join("strict-local.policy.json"))
+            .expect("read execution policy fixture"),
+    )
+    .expect("execution policy fixture is valid JSON");
+    let audit_fixture: Value = serde_json::from_str(
+        &fs::read_to_string(fixture_root.join("interrupted.audit.json"))
+            .expect("read execution audit fixture"),
+    )
+    .expect("execution audit fixture is valid JSON");
+    compile_validator(&policy)
+        .validate(&policy_fixture)
+        .expect("execution policy fixture matches schema");
+    compile_validator(&audit)
+        .validate(&audit_fixture)
+        .expect("execution audit fixture matches schema");
+
+    let serialized = serde_json::to_string(&audit_fixture).expect("serialize audit fixture");
+    assert!(!serialized.contains("secret_value"));
+    assert!(!serialized.contains(&["github_", "pat_"].concat()));
+
+    policy_fixture["network"]["allowed_hosts"] = serde_json::json!(["example.com"]);
+    assert!(
+        !compile_validator(&policy).is_valid(&policy_fixture),
+        "deny-mode network policy cannot retain an allowlist"
+    );
+}
+
+#[test]
+fn agent_task_v0_schemas_are_strict_and_current() {
+    let input: Value = serde_json::from_str(
+        &fs::read_to_string(schema_dir().join("axiom-agent-task-spec-v0.schema.json"))
+            .expect("read agent task specification schema"),
+    )
+    .expect("agent task specification schema is valid JSON");
+    let output: Value = serde_json::from_str(
+        &fs::read_to_string(schema_dir().join("axiom-agent-task-v0.schema.json"))
+            .expect("read agent task contract schema"),
+    )
+    .expect("agent task contract schema is valid JSON");
+
+    assert_eq!(
+        input["$id"],
+        "https://axiom.omt.global/schemas/axiom-agent-task-spec-v0.schema.json"
+    );
+    assert_eq!(
+        output["$id"],
+        "https://axiom.omt.global/schemas/axiom-agent-task-v0.schema.json"
+    );
+    assert_eq!(
+        input["properties"]["schema_version"]["const"],
+        "axiom.agent_task.spec.v0"
+    );
+    assert_eq!(
+        output["properties"]["schema_version"]["const"],
+        "axiom.agent_task.v0"
+    );
+    assert_eq!(output["properties"]["command"]["const"], "task-contract");
+    assert_eq!(input["additionalProperties"], false);
+    assert_eq!(input["properties"]["task"]["unevaluatedProperties"], false);
+    assert_eq!(input["$defs"]["authority"]["additionalProperties"], false);
+    assert_eq!(
+        input["$defs"]["terminalConditions"]["additionalProperties"],
+        false
+    );
+    assert_eq!(
+        input["$defs"]["deliveryPermissions"]["properties"]["approve_own_pull_request"]["const"],
+        false
+    );
+    assert_eq!(
+        input["$defs"]["deliveryPermissions"]["properties"]["force_push"]["const"],
+        false
+    );
+
+    // Compile the self-contained input schema here. The output contract reuses
+    // the exact task definition by URI so consumers cannot validate against a
+    // looser parallel definition.
+    let validator = compile_validator(&input);
+    let fixture_path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("..")
+        .join("json-fixtures")
+        .join("task-contract")
+        .join("feature-approved.spec.json");
+    let mut fixture: Value = serde_json::from_str(
+        &fs::read_to_string(fixture_path).expect("read approved task fixture"),
+    )
+    .expect("approved task fixture is valid JSON");
+    assert!(validator.is_valid(&fixture));
+    fixture["task"]["terminal_conditions"]["unexpected"] = serde_json::json!(true);
+    assert!(
+        !validator.is_valid(&fixture),
+        "terminal conditions must reject undeclared fields"
+    );
+}
+
+#[test]
+fn intent_ir_v0_requires_deterministic_provenance_and_traceable_diagnostics() {
+    let schema: Value = serde_json::from_str(
+        &fs::read_to_string(schema_dir().join("axiom-intent-ir-v0.schema.json"))
+            .expect("read Intent IR schema"),
+    )
+    .expect("Intent IR schema is valid JSON");
+    let validator = compile_validator(&schema);
+    let fixture_path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("..")
+        .join("examples")
+        .join("intent_ir_smoke")
+        .join("intent-ir.json");
+    let fixture: Value = serde_json::from_str(
+        &fs::read_to_string(fixture_path).expect("read Intent IR smoke fixture"),
+    )
+    .expect("Intent IR smoke fixture is valid JSON");
+
+    assert!(validator.is_valid(&fixture));
+    assert_eq!(fixture["provenance"]["path_policy"], "package_relative");
+    assert_eq!(fixture["diagnostics"], serde_json::json!([]));
+
+    let mut absolute_input = fixture.clone();
+    absolute_input["provenance"]["inputs"][0]["path"] = serde_json::json!("/checkout/src/main.ax");
+    assert!(!validator.is_valid(&absolute_input));
+
+    let mut untraceable_diagnostic = fixture;
+    untraceable_diagnostic["diagnostics"] = serde_json::json!([{
+        "code": "intent_ir_incomplete_module",
+        "severity": "warning",
+        "message": "module could not be represented",
+        "node_ids": []
+    }]);
+    assert!(!validator.is_valid(&untraceable_diagnostic));
+}
+
+#[test]
 fn formatter_edit_v1_schema_metadata_is_current() {
     let schema: Value = serde_json::from_str(
         &fs::read_to_string(schema_dir().join("axiom-format-edit-v1.schema.json"))

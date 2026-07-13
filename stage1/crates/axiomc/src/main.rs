@@ -4,6 +4,7 @@ use axiomc::diagnostic_catalog::{DiagnosticCodeInfo, diagnostic_code_info};
 use axiomc::diagnostics::Diagnostic;
 use axiomc::doctor::{doctor_report, doctor_text};
 use axiomc::json_contract;
+use axiomc::intent_ir::{IntentIrDocument, emit_intent_ir};
 use axiomc::lockfile::{expected_lockfile_for_project, validate_lockfile};
 use axiomc::lsp;
 use axiomc::manifest::{
@@ -39,6 +40,9 @@ use std::path::{Component, Path, PathBuf};
 use std::time::Instant;
 
 mod formatter;
+mod intent_ir_cli;
+mod agent_task_cli;
+mod verification_planner_cli;
 mod formatter_cli;
 
 use formatter::FormatRange;
@@ -183,6 +187,8 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    /// Compile an approved specification into a bounded, read-only task contract.
+    TaskContract { spec: PathBuf, #[arg(long, default_value = ".")] project: PathBuf, #[arg(long)] json: bool },
     /// Emit semantic evidence requirements and observed test evidence.
     Evidence {
         path: PathBuf,
@@ -198,13 +204,9 @@ enum Command {
         json: bool,
     },
     /// Diff two Intent IR snapshots for product-facing semantic drift.
-    SemanticDiff {
-        old: PathBuf,
-        new: PathBuf,
-        /// Emit an axiom.stage1.v1 JSON envelope for agent/tool consumption.
-        #[arg(long)]
-        json: bool,
-    },
+    SemanticDiff { old: PathBuf, new: PathBuf, #[arg(long)] json: bool },
+    /// Map semantic impact to exact-head evidence, or evaluate a result set.
+    VerificationPlan { before: PathBuf, after: PathBuf, #[arg(long)] diff: PathBuf, #[arg(long, default_value = ".")] project: PathBuf, #[arg(long)] source_head: String, #[arg(long)] delivered_head: String, #[arg(long)] results: Option<PathBuf>, #[arg(long)] json: bool },
     /// Inspect project metadata for agent tooling.
     Inspect {
         #[command(subcommand)]
@@ -356,6 +358,12 @@ enum CapsCommand {
 
 #[derive(Debug, Subcommand)]
 enum InspectCommand {
+    /// Emit canonical Intent IR for a package or workspace.
+    Intent {
+        path: PathBuf,
+        #[arg(long)]
+        json: bool,
+    },
     /// Emit exported functions, types, consts, imports, and capability use.
     Symbols {
         path: PathBuf,
@@ -852,6 +860,7 @@ fn main() {
             }
             Err(error) => print_error("repair-plan", error, json),
         },
+        Command::TaskContract { spec, project, json } => agent_task_cli::run(&project, &spec, json),
         Command::Evidence { path, json } => match evidence_report(&path) {
             Ok(report) => {
                 if json {
@@ -913,7 +922,9 @@ fn main() {
             }
             Err(error) => print_error("semantic-diff", error, json),
         },
+        Command::VerificationPlan { before, after, diff, project, source_head, delivered_head, results, json } => verification_planner_cli::run(&before, &after, &diff, &project, &source_head, &delivered_head, results.as_deref(), json),
         Command::Inspect { command } => match command {
+            InspectCommand::Intent { path, json } => intent_ir_cli::run(&path, json),
             InspectCommand::Symbols { path, json } => match inspect_symbols(&path) {
                 Ok(report) => {
                     if json {
@@ -1672,20 +1683,22 @@ struct SymbolSpan {
 }
 
 fn repair_plan(path: &Path) -> Result<RepairPlanReport, Diagnostic> {
+    let intent = emit_intent_ir(path)?;
+    let package_target = intent.package.clone();
     let mut tasks = Vec::new();
     match check_project_with_options(path, &CheckOptions::default()) {
         Ok(output) => {
             if !repair_tests_discoverable(path)? {
                 tasks.push(missing_evidence_task(
                     "repair-001",
-                    package_node_for_path(path),
+                    package_target.clone(),
                     repair_allowed_files(path)?,
                 ));
             }
             for warning in output.warnings {
                 tasks.push(diagnostic_repair_task(
                     tasks.len() + 1,
-                    package_node_for_path(path),
+                    package_target.clone(),
                     Diagnostic::new("warning", warning).normalized_for_json(),
                 ));
             }
@@ -1693,7 +1706,11 @@ fn repair_plan(path: &Path) -> Result<RepairPlanReport, Diagnostic> {
         Err(error) => {
             tasks.push(diagnostic_repair_task(
                 tasks.len() + 1,
-                package_node_for_path(path),
+                error
+                    .path
+                    .as_deref()
+                    .map(|source| intent.semantic_target_for_source(source).to_owned())
+                    .unwrap_or(package_target),
                 error.normalized_for_json(),
             ));
         }
@@ -1717,17 +1734,7 @@ fn diagnostic_repair_task(
         .as_ref()
         .map(|path| vec![path.clone()])
         .unwrap_or_default();
-    let target_node = diagnostic
-        .path
-        .as_ref()
-        .map(|path| {
-            format!(
-                "{}/diagnostic/{}",
-                package_node_component(path),
-                repair_component(diagnostic.code.as_deref().unwrap_or(&diagnostic.kind))
-            )
-        })
-        .unwrap_or(fallback_target);
+    let target_node = fallback_target;
     RepairTask {
         id: format!("repair-{index:03}"),
         reason: diagnostic
@@ -1797,6 +1804,7 @@ struct EvidenceItem {
 }
 
 fn evidence_report(project: &Path) -> Result<EvidenceReport, Diagnostic> {
+    let intent = emit_intent_ir(project)?;
     let manifest = load_manifest(project)?;
     let package_name = manifest
         .package
@@ -1804,7 +1812,7 @@ fn evidence_report(project: &Path) -> Result<EvidenceReport, Diagnostic> {
         .map(|package| package.name.clone())
         .unwrap_or_else(|| String::from("workspace"));
     let package_component = evidence_id_component(&package_name);
-    let package_target = format!("axiom://package/{package_component}");
+    let package_target = intent.package.clone();
     let mut evidence = Vec::new();
     if evidence_tests_discoverable(project, &manifest)? {
         let test_output = run_project_tests_with_options(
@@ -1920,10 +1928,6 @@ fn package_node_for_path(path: &Path) -> String {
                 .to_string()
         });
     format!("axiom://package/{}", repair_component(&name))
-}
-
-fn package_node_component(path: &str) -> String {
-    format!("axiom://package/{}", repair_component(path))
 }
 
 fn repair_component(value: &str) -> String {
@@ -2056,13 +2060,14 @@ struct VerificationTargetContract {
 }
 
 fn verify_project(project: &Path) -> Result<VerificationReport, Diagnostic> {
+    let intent = emit_intent_ir(project)?;
     let manifest = load_manifest(project)?;
     let package = manifest
         .package
         .as_ref()
         .map(|package| package.name.clone())
         .unwrap_or_else(|| String::from("workspace"));
-    let declarations = collect_semantic_declarations(project)?;
+    let declarations = collect_semantic_declarations(project, &intent)?;
     let evidence = evidence_report(project)?;
     let targets = load_target_contracts(project)?;
     let observed_by_name = observed_evidence_by_name(&evidence.evidence);
@@ -2107,7 +2112,10 @@ fn verify_project(project: &Path) -> Result<VerificationReport, Diagnostic> {
         }
 
         for evidence_name in required {
-            let semantic_node = semantic_node_id("evidence", &evidence_name);
+            let semantic_node = intent
+                .node_id("Evidence", &evidence_name)
+                .unwrap_or(&intent.package)
+                .to_owned();
             edges.push(VerificationEdge {
                 from: axiom.id.clone(),
                 kind: "verified_by",
@@ -2280,7 +2288,10 @@ fn verify_project(project: &Path) -> Result<VerificationReport, Diagnostic> {
     })
 }
 
-fn collect_semantic_declarations(project: &Path) -> Result<SemanticDeclarations, Diagnostic> {
+fn collect_semantic_declarations(
+    project: &Path,
+    intent: &IntentIrDocument,
+) -> Result<SemanticDeclarations, Diagnostic> {
     let mut axioms = Vec::new();
     let mut capabilities = Vec::new();
     let mut evidence = Vec::new();
@@ -2294,7 +2305,10 @@ fn collect_semantic_declarations(project: &Path) -> Result<SemanticDeclarations,
         })?;
         let program = parse_program(&source, &file)?;
         axioms.extend(program.axioms.iter().map(|axiom| DeclaredAxiom {
-            id: semantic_node_id("axiom", &axiom.name),
+            id: intent
+                .node_id("Axiom", &axiom.name)
+                .unwrap_or(&intent.package)
+                .to_owned(),
             name: axiom.name.clone(),
         }));
         capabilities.extend(program.semantic_capabilities.iter().map(|capability| {
@@ -2418,30 +2432,8 @@ struct SemanticChange {
     description: String,
 }
 
-#[derive(Debug, Clone, Deserialize, PartialEq)]
-struct IntentIrSnapshot {
-    schema_version: String,
-    nodes: Vec<IntentIrNode>,
-    edges: Vec<IntentIrEdge>,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
-struct IntentIrNode {
-    id: String,
-    kind: String,
-    name: String,
-    #[serde(flatten)]
-    extra: BTreeMap<String, serde_json::Value>,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
-struct IntentIrEdge {
-    from: String,
-    kind: String,
-    to: String,
-    #[serde(flatten)]
-    extra: BTreeMap<String, serde_json::Value>,
-}
+type IntentIrSnapshot = IntentIrDocument;
+type IntentIrEdge = axiomc::intent_ir::IntentIrEdge;
 
 fn semantic_diff_report(old: &Path, new: &Path) -> Result<SemanticDiffReport, Diagnostic> {
     let old_snapshot = read_intent_ir_snapshot(old)?;
@@ -7370,8 +7362,9 @@ struct ArtifactNode {
 }
 
 fn inspect_artifacts(project: &Path) -> Result<InspectArtifactsReport, Diagnostic> {
+    let intent = emit_intent_ir(project)?;
     let manifest = load_manifest(project)?;
-    let package_id = package_node_for_path(project);
+    let package_id = intent.package.clone();
     let mut artifacts = Vec::new();
     push_artifact(
         &mut artifacts,

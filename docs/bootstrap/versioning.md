@@ -1,6 +1,6 @@
 # Release Versioning
 
-<!-- capability-ledger:v1 commands=28 stdlib_modules=34 stdlib_functions=299 capabilities=9 backend=cranelift -->
+<!-- capability-ledger:v1 commands=30 stdlib_modules=34 stdlib_functions=299 capabilities=9 backend=cranelift -->
 
 This bootstrap standardizes on Semantic Versioning with immutable exact tags and automatically promoted compatibility aliases.
 

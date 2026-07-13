@@ -1,0 +1,110 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://axiom.omt.global/schemas/axiom-execution-policy-v0.schema.json",
+  "title": "AxiOM Execution Policy v0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "task_contract_digest", "base_sha", "workspace", "paths", "commands", "capabilities", "network", "secrets", "delivery"],
+  "properties": {
+    "schema_version": { "const": "axiom.execution_policy.v0" },
+    "task_contract_digest": { "$ref": "#/$defs/digest" },
+    "base_sha": { "$ref": "#/$defs/sha" },
+    "workspace": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["branch", "source_checkout", "isolated_worktree", "require_clean_isolated_worktree"],
+      "properties": {
+        "branch": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._/-]*$" },
+        "source_checkout": { "$ref": "#/$defs/absolutePath" },
+        "isolated_worktree": { "$ref": "#/$defs/absolutePath" },
+        "require_clean_isolated_worktree": { "const": true }
+      }
+    },
+    "paths": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["read", "write", "protected", "allow_chmod", "allow_rename", "allow_delete", "follow_symlinks"],
+      "properties": {
+        "read": { "$ref": "#/$defs/relativePaths" },
+        "write": { "$ref": "#/$defs/relativePaths" },
+        "protected": { "$ref": "#/$defs/relativePaths" },
+        "allow_chmod": { "type": "boolean" },
+        "allow_rename": { "type": "boolean" },
+        "allow_delete": { "type": "boolean" },
+        "follow_symlinks": { "const": false }
+      }
+    },
+    "commands": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["allowed", "forbidden", "allow_shell"],
+      "properties": {
+        "allowed": { "$ref": "#/$defs/nonEmptyStrings" },
+        "forbidden": { "$ref": "#/$defs/strings" },
+        "allow_shell": { "const": false }
+      }
+    },
+    "capabilities": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["allowed", "forbidden"],
+      "properties": {
+        "allowed": { "$ref": "#/$defs/strings" },
+        "forbidden": { "$ref": "#/$defs/strings" }
+      }
+    },
+    "network": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode", "allowed_hosts"],
+      "properties": {
+        "mode": { "enum": ["deny", "allowlist"] },
+        "allowed_hosts": { "$ref": "#/$defs/strings" }
+      }
+    },
+    "secrets": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["allow_environment", "brokered_refs"],
+      "properties": {
+        "allow_environment": { "const": false },
+        "brokered_refs": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^secret-ref:[A-Za-z0-9][A-Za-z0-9._/-]*$" }
+        }
+      }
+    },
+    "delivery": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["allow_external_mutations", "allow_protected_branch_push", "allow_force_push", "allow_self_approval", "allow_policy_edits"],
+      "properties": {
+        "allow_external_mutations": { "type": "boolean" },
+        "allow_protected_branch_push": { "const": false },
+        "allow_force_push": { "const": false },
+        "allow_self_approval": { "const": false },
+        "allow_policy_edits": { "const": false }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "network": { "properties": { "mode": { "const": "deny" } }, "required": ["mode"] } } },
+      "then": { "properties": { "network": { "properties": { "allowed_hosts": { "maxItems": 0 } } } } }
+    },
+    {
+      "if": { "properties": { "network": { "properties": { "mode": { "const": "allowlist" } }, "required": ["mode"] } } },
+      "then": { "properties": { "network": { "properties": { "allowed_hosts": { "minItems": 1 } } } } }
+    }
+  ],
+  "$defs": {
+    "sha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "absolutePath": { "type": "string", "pattern": "^/" },
+    "relativePath": { "type": "string", "minLength": 1, "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*//)[^\\u0000]+$" },
+    "relativePaths": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/relativePath" } },
+    "strings": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+    "nonEmptyStrings": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "minLength": 1 } }
+  }
+}

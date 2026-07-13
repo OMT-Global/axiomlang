@@ -58,8 +58,9 @@ implementation surfaces; see
   compiler-workload gaps (#1425-#1427), migrate compiler source packages in
   AxiOM (#1468-#1475 and #1478-#1479), prove the Cargo-free snapshot chain
   (#1428), and reserve the final #721 decision for the exact release candidate.
-- Emit complete Intent IR for real packages (#1418) so the semantic APIs share
-  one canonical graph rather than partial, command-specific views.
+- Use complete Intent IR emission for real packages and workspaces (#1418) so
+  semantic APIs share one canonical graph rather than partial,
+  command-specific views.
 - Advance the [Autonomous Agent Execution Roadmap](autonomous-agent-roadmap.md)
   (#1417 and #1419-#1424) from typed authority through transactional execution,
   impact-aware evidence, independent review, delivery, and recovery.

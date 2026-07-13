@@ -1,0 +1,38 @@
+{
+  "schema_version": "axiom.execution_policy.v0",
+  "task_contract_digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+  "base_sha": "2222222222222222222222222222222222222222",
+  "workspace": {
+    "branch": "codex/fixture-transaction",
+    "source_checkout": "/source/axiomlang",
+    "isolated_worktree": "/transactions/txn-0123456789abcdef",
+    "require_clean_isolated_worktree": true
+  },
+  "paths": {
+    "read": ["docs/agent-task-contract-v0.md", "stage1/crates/axiomc/src"],
+    "write": ["docs/transactional-workspace-v0.md"],
+    "protected": [".codex/policies", ".github/workflows"],
+    "allow_chmod": false,
+    "allow_rename": false,
+    "allow_delete": false,
+    "follow_symlinks": false
+  },
+  "commands": {
+    "allowed": ["git diff --check"],
+    "forbidden": ["git push", "gh pr review", "rm"],
+    "allow_shell": false
+  },
+  "capabilities": {
+    "allowed": ["filesystem.read", "filesystem.write"],
+    "forbidden": ["credentials.read", "network", "policy.write"]
+  },
+  "network": { "mode": "deny", "allowed_hosts": [] },
+  "secrets": { "allow_environment": false, "brokered_refs": ["secret-ref:github/app-token"] },
+  "delivery": {
+    "allow_external_mutations": false,
+    "allow_protected_branch_push": false,
+    "allow_force_push": false,
+    "allow_self_approval": false,
+    "allow_policy_edits": false
+  }
+}

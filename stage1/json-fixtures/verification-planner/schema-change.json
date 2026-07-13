@@ -1,0 +1,16 @@
+{
+  "scenario": "schema-change",
+  "before": {
+    "schema_version": "axiom.intent_ir.v0", "graph_id": "axiom://graph/planner-schema", "package": "axiom://package/planner-schema",
+    "provenance": {"producer": "fixture", "source_digest": "0000000000000000000000000000000000000000000000000000000000000031", "path_policy": "package_relative", "inputs": [{"package": "axiom://package/planner-schema", "path": "schemas/event.json", "digest": "1000000000000000000000000000000000000000000000000000000000000031"}]},
+    "nodes": [{"id": "axiom://package/planner-schema", "kind": "Package", "name": "planner-schema"}, {"id": "axiom://package/planner-schema/type/Event", "kind": "Type", "name": "Event", "description": "schema v1", "source_span": {"path": "schemas/event.json"}, "metadata": {"schema": "event-v1"}}],
+    "edges": [{"from": "axiom://package/planner-schema", "kind": "declares", "to": "axiom://package/planner-schema/type/Event"}], "diagnostics": []
+  },
+  "after": {
+    "schema_version": "axiom.intent_ir.v0", "graph_id": "axiom://graph/planner-schema", "package": "axiom://package/planner-schema",
+    "provenance": {"producer": "fixture", "source_digest": "0000000000000000000000000000000000000000000000000000000000000032", "path_policy": "package_relative", "inputs": [{"package": "axiom://package/planner-schema", "path": "schemas/event.json", "digest": "2000000000000000000000000000000000000000000000000000000000000031"}]},
+    "nodes": [{"id": "axiom://package/planner-schema", "kind": "Package", "name": "planner-schema"}, {"id": "axiom://package/planner-schema/type/Event", "kind": "Type", "name": "Event", "description": "schema v2", "source_span": {"path": "schemas/event.json"}, "metadata": {"schema": "event-v2"}}],
+    "edges": [{"from": "axiom://package/planner-schema", "kind": "declares", "to": "axiom://package/planner-schema/type/Event"}], "diagnostics": []
+  },
+  "expected_evidence": ["positive", "regression", "schema"]
+}

@@ -12,11 +12,11 @@ Intent IR is not the AST, HIR, or MIR:
 - Intent IR is the durable semantic contract agents inspect, transform,
   validate, repair, and trace across generated artifacts.
 
-The stage1 compiler does not emit full Intent IR yet. This v0 document and
-schema define the first stable shape; complete real-package emission is tracked
-by [#1418](https://github.com/OMT-Global/axiomlang/issues/1418) so inspection,
-verification, repair, artifact planning, and autonomous execution can consume
-one canonical graph.
+The stage1 compiler emits Intent IR for real packages and workspaces with
+`axiomc inspect intent <path> --json`. The emitted document is the canonical
+semantic input for inspection, semantic diff, verification, repair planning,
+and artifact planning. Consumers should not reconstruct competing partial
+graphs from compiler implementation details.
 
 ## Envelope
 
@@ -25,8 +25,14 @@ Every Intent IR document uses:
 - `schema_version`: `axiom.intent_ir.v0`
 - `graph_id`: stable graph identifier
 - `package`: root package node id
+- `provenance`: deterministic source inputs and their digests
 - `nodes`: semantic graph nodes
 - `edges`: semantic graph relationships
+- `diagnostics`: explicit, node-linked completeness diagnostics
+
+Arrays and object members use deterministic ordering. The command does not add
+timestamps or machine-specific absolute paths, so repeated runs over unchanged
+inputs are byte-stable.
 
 ## Node Types
 
@@ -78,6 +84,41 @@ axiom://package/<package-name>/artifact/<artifact-name>
 axiom://package/<package-name>/evidence/<evidence-name>
 ```
 
+IDs describe Axiom concepts. Compiler-host names such as Rust structs, Cargo
+packages, backend implementation types, and code-generator internals are not
+part of this contract.
+
+## Provenance and diagnostics
+
+`provenance.source_digest` is a digest of the normalized semantic inputs.
+`provenance.inputs` records each package-relative source input, its owning
+package node, and its digest. `path_policy` is fixed to `package_relative` so
+documents do not capture checkout or machine paths.
+
+Diagnostics make incomplete semantic coverage visible. An unsupported or
+partially represented node family produces a stable diagnostic code instead of
+being silently omitted. Every diagnostic has at least one `node_ids` entry;
+optional `node_kind` and `source_span` fields narrow the affected contract.
+An empty diagnostics array means the emitter found no known completeness gap.
+
+Every artifact is itself an `Artifact` node and must have a `generated_from` or
+`implements` edge to the semantic node it traces to. The same node identity is
+used by artifact inspection and planning.
+
+## CLI
+
+Emit a graph for a package or workspace:
+
+```bash
+axiomc inspect intent stage1/examples/agent_native_authorize --json
+axiomc inspect intent stage1/examples/workspace --json
+```
+
+The first command exercises capabilities, effects, axioms, evidence, and
+artifacts. The workspace fixture exercises package dependencies and modules
+across multiple member packages. Both outputs validate against
+`stage1/schemas/axiom-intent-ir-v0.schema.json`.
+
 ## V0 Fixture
 
 The smoke fixture lives at:
@@ -87,20 +128,20 @@ stage1/examples/intent_ir_smoke/intent-ir.json
 ```
 
 It includes one package, one module, one function, one manifest capability, one
-effect edge, one evidence placeholder, and one artifact placeholder. It is
-validated by `stage1/schemas/axiom-intent-ir-v0.schema.json`.
+effect edge, one evidence placeholder, one artifact placeholder, deterministic
+input provenance, and an empty completeness diagnostic set. It is validated by
+`stage1/schemas/axiom-intent-ir-v0.schema.json`.
 
 ## Boundaries
 
-Intent IR v0 does not require:
+Intent IR remains distinct from:
 
-- parser integration
 - proof solving
 - code generation from Intent IR
 - runtime execution
 
-Those behaviors should be added by later issues after the schema and smoke
-fixture are stable.
+Those systems may consume or contribute nodes and evidence without defining the
+graph contract.
 
 ## Related Schemas
 

@@ -1,6 +1,6 @@
 # Stage1 bootstrap
 
-<!-- capability-ledger:v1 commands=28 stdlib_modules=34 stdlib_functions=299 capabilities=9 backend=cranelift -->
+<!-- capability-ledger:v1 commands=30 stdlib_modules=34 stdlib_functions=299 capabilities=9 backend=cranelift -->
 
 The Rust bootstrap compiler in `stage1/` is the supported Axiom toolchain.
 The Python `stage0` interpreter, bytecode compiler, bytecode format, bytecode
@@ -152,6 +152,11 @@ The checked-in compiler JSON schema is
 The first agent-facing Intent IR / semantic graph schema is
 `stage1/schemas/axiom-intent-ir-v0.schema.json`; see
 [intent-ir-v0.md](intent-ir-v0.md).
+`axiomc inspect intent <path> --json` emits that canonical, deterministic
+package or workspace graph with package-relative provenance and explicit
+node-linked completeness diagnostics. Its output is the dedicated
+`axiom.intent_ir.v0` document rather than the shared command envelope described
+below.
 Successful payloads always include `ok` and `command`; project-scoped payloads
 also include `project`.
 `axiomc run --json` captures the selected backend, native binary exit code,

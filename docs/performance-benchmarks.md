@@ -1,6 +1,6 @@
 # Performance Benchmarks
 
-<!-- capability-ledger:v1 commands=28 stdlib_modules=34 stdlib_functions=299 capabilities=9 backend=cranelift -->
+<!-- capability-ledger:v1 commands=30 stdlib_modules=34 stdlib_functions=299 capabilities=9 backend=cranelift -->
 
 The first benchmark harness is `axiomc bench`. It discovers `*_bench.ax` files,
 runs warmup iterations, runs measured iterations, and emits median and p95 wall

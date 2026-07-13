@@ -1,0 +1,97 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://axiom.omt.global/schemas/axiom-execution-transaction-v0.schema.json",
+  "title": "AxiOM Execution Transaction and Audit v0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "transaction_id", "task_contract_digest", "policy_digest", "base_sha", "branch", "status", "checkpoints", "reads", "writes", "commands", "artifacts", "rollback", "recovery"],
+  "properties": {
+    "schema_version": { "const": "axiom.execution_transaction.v0" },
+    "transaction_id": { "type": "string", "pattern": "^txn-[0-9a-f]{16}$" },
+    "task_contract_digest": { "$ref": "#/$defs/digest" },
+    "policy_digest": { "$ref": "#/$defs/digest" },
+    "base_sha": { "$ref": "#/$defs/sha" },
+    "branch": { "type": "string", "minLength": 1 },
+    "status": { "enum": ["prepared", "running", "interrupted", "succeeded", "failed", "rolled_back"] },
+    "checkpoints": { "type": "array", "items": { "$ref": "#/$defs/checkpoint" } },
+    "reads": { "type": "array", "items": { "$ref": "#/$defs/fileObservation" } },
+    "writes": { "type": "array", "items": { "$ref": "#/$defs/write" } },
+    "commands": { "type": "array", "items": { "$ref": "#/$defs/command" } },
+    "artifacts": { "type": "array", "items": { "$ref": "#/$defs/artifact" } },
+    "rollback": { "$ref": "#/$defs/rollback" },
+    "recovery": { "$ref": "#/$defs/recovery" }
+  },
+  "$defs": {
+    "sha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "relativePath": { "type": "string", "minLength": 1, "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*//)[^\\u0000]+$" },
+    "sequence": { "type": "integer", "minimum": 0 },
+    "checkpoint": {
+      "type": "object", "additionalProperties": false,
+      "required": ["sequence", "kind", "tree_sha", "created_before"],
+      "properties": {
+        "sequence": { "$ref": "#/$defs/sequence" },
+        "kind": { "enum": ["initial", "before_write", "before_delivery"] },
+        "tree_sha": { "$ref": "#/$defs/sha" },
+        "created_before": { "type": "string", "minLength": 1 }
+      }
+    },
+    "fileObservation": {
+      "type": "object", "additionalProperties": false,
+      "required": ["sequence", "path", "digest"],
+      "properties": { "sequence": { "$ref": "#/$defs/sequence" }, "path": { "$ref": "#/$defs/relativePath" }, "digest": { "$ref": "#/$defs/digest" } }
+    },
+    "write": {
+      "type": "object", "additionalProperties": false,
+      "required": ["sequence", "operation", "path", "before_digest", "after_digest"],
+      "properties": {
+        "sequence": { "$ref": "#/$defs/sequence" },
+        "operation": { "enum": ["create", "modify", "chmod", "rename", "delete"] },
+        "path": { "$ref": "#/$defs/relativePath" },
+        "destination": { "$ref": "#/$defs/relativePath" },
+        "before_digest": { "anyOf": [{ "$ref": "#/$defs/digest" }, { "type": "null" }] },
+        "after_digest": { "anyOf": [{ "$ref": "#/$defs/digest" }, { "type": "null" }] }
+      }
+    },
+    "command": {
+      "type": "object", "additionalProperties": false,
+      "required": ["sequence", "argv", "capabilities", "network_hosts", "outcome", "exit_code", "stdout_digest", "stderr_digest"],
+      "properties": {
+        "sequence": { "$ref": "#/$defs/sequence" },
+        "argv": { "type": "array", "minItems": 1, "items": { "type": "string" } },
+        "capabilities": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+        "network_hosts": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+        "outcome": { "enum": ["denied", "executed"] },
+        "secret_refs": { "type": "array", "uniqueItems": true, "items": { "type": "string", "pattern": "^secret-ref:[A-Za-z0-9][A-Za-z0-9._/-]*$" } },
+        "exit_code": { "type": "integer" },
+        "stdout_digest": { "$ref": "#/$defs/digest" },
+        "stderr_digest": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "artifact": {
+      "type": "object", "additionalProperties": false,
+      "required": ["sequence", "path", "digest", "kind"],
+      "properties": { "sequence": { "$ref": "#/$defs/sequence" }, "path": { "$ref": "#/$defs/relativePath" }, "digest": { "$ref": "#/$defs/digest" }, "kind": { "type": "string", "minLength": 1 } }
+    },
+    "rollback": {
+      "type": "object", "additionalProperties": false,
+      "required": ["attempted", "result", "restored_checkpoint", "source_checkout_untouched"],
+      "properties": {
+        "attempted": { "type": "boolean" },
+        "result": { "enum": ["not_required", "succeeded", "failed", "requires_delivery_revert"] },
+        "restored_checkpoint": { "anyOf": [{ "type": "integer", "minimum": 0 }, { "type": "null" }] },
+        "source_checkout_untouched": { "type": "boolean" }
+      }
+    },
+    "recovery": {
+      "type": "object", "additionalProperties": false,
+      "required": ["resumable", "rollback_safe", "next_sequence", "journal_digest"],
+      "properties": {
+        "resumable": { "type": "boolean" },
+        "rollback_safe": { "type": "boolean" },
+        "next_sequence": { "type": "integer", "minimum": 0 },
+        "journal_digest": { "$ref": "#/$defs/digest" }
+      }
+    }
+  }
+}

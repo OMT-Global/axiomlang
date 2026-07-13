@@ -1,0 +1,66 @@
+{
+  "schema_version": "axiom.agent_task.spec.v0",
+  "task": {
+    "id": "issue-1419-feature",
+    "kind": "feature",
+    "objective": "Add a deterministic task-contract inspection command.",
+    "authority": {
+      "governing_issue": "https://github.com/OMT-Global/axiomlang/issues/1419",
+      "repository": "OMT-Global/axiomlang",
+      "issue": 1419,
+      "source_revision": "1111111111111111111111111111111111111111",
+      "source_digest": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+      "approval": {
+        "state": "approved",
+        "approver": "pheidon",
+        "method": "maintainer_review"
+      }
+    },
+    "scope": {
+      "affected_semantic_nodes": ["axiom://package/agent-native-authorize"],
+      "allowed_files": ["src/authorize.ax", "src/main.ax"]
+    },
+    "capabilities": {
+      "required": ["filesystem.read"],
+      "forbidden": ["credentials.read", "network.connect"]
+    },
+    "commands": {
+      "required": ["cargo test --manifest-path stage1/Cargo.toml -p axiomc --test agent_task_contract"],
+      "forbidden": ["git push --force"]
+    },
+    "acceptance_criteria": [
+      { "id": "schema-valid", "requirement": "The feature fixture validates against the public output schema.", "expected": "pass", "evidence_refs": ["schema"] },
+      { "id": "byte-deterministic", "requirement": "Identical inputs produce byte-identical output.", "expected": "pass", "evidence_refs": ["cli-test"] }
+    ],
+    "required_evidence": [
+      { "id": "cli-test", "kind": "unit_test", "command": "cargo test --manifest-path stage1/Cargo.toml -p axiomc --test agent_task_contract" },
+      { "id": "schema", "kind": "schema_validation", "command": "cargo test --manifest-path stage1/Cargo.toml -p axiomc --test schema_metadata" }
+    ],
+    "dependencies": [
+      { "id": "intent-ir-v0", "status": "satisfied", "depends_on": [], "precondition": "Canonical Intent IR emission is available." }
+    ],
+    "autonomy": { "class": 2, "risk": "high" },
+    "budgets": { "time_seconds": 3600, "tokens": 200000, "retries": 2, "cost_usd_micros": 5000000 },
+    "rollback": {
+      "checkpoint": "exact approved base revision",
+      "commands": ["git diff --check"]
+    },
+    "terminal_conditions": {
+      "success": ["All required evidence passes on the exact head."],
+      "stop": ["A requested file is outside allowed_files."],
+      "escalation": ["Authority or acceptance criteria become ambiguous."]
+    },
+    "delivery_permissions": {
+      "commit": true,
+      "push": true,
+      "pull_request": true,
+      "review": false,
+      "merge": false,
+      "deploy": false,
+      "approve_own_pull_request": false,
+      "force_push": false,
+      "direct_push_protected": false,
+      "irreversible_actions": false
+    }
+  }
+}

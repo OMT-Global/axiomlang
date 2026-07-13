@@ -56,18 +56,26 @@ must identify their omissions explicitly.
 Compile an approved issue or specification into a task contract containing
 scope, allowed files, required and forbidden capabilities, evidence, budgets,
 dependencies, rollback, delivery permissions, and stop/escalation conditions.
+The executable contract and its fail-closed boundary are defined in
+[Agent Task Contract v0](agent-task-contract-v0.md). Authority includes the
+approved source revision and digest; it is preserved rather than reconstructed
+from issue prose.
 
 ### A2: Transactional containment — #1420
 
 Execute from an exact base SHA in an isolated branch/worktree. Enforce path,
 command, network, credential, and external-mutation policy; preserve user-owned
 dirty work; checkpoint changes; and support crash-safe rollback.
+The normative policy, audit, and recovery rules are defined in
+[Transactional Workspace v0](transactional-workspace-v0.md).
 
 ### A3: Impact-aware proof — #1421
 
 Map before/after Intent IR and semantic drift to required positive, negative,
 schema, artifact, security, and performance evidence. Unknown impact broadens
 the suite or blocks execution; it never silently reduces validation.
+The versioned plan, evidence-result, and exact-head verdict contracts are
+defined in [Verification Planner v0](verification-planner-v0.md).
 
 ### A4: Bounded execution — #1422
 

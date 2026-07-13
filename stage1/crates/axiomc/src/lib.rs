@@ -1,3 +1,4 @@
+pub mod agent_task;
 pub(crate) mod borrowck;
 #[path = "project/build_contract.rs"]
 pub mod build_contract;
@@ -8,6 +9,7 @@ pub mod diagnostic_catalog;
 pub mod diagnostics;
 pub mod doctor;
 pub mod hir;
+pub mod intent_ir;
 pub mod json_contract;
 pub mod lockfile;
 pub mod lsp;
@@ -17,7 +19,5 @@ pub mod new_project;
 pub mod project;
 pub mod registry;
 pub mod stdlib;
-pub mod syntax;
-#[cfg(test)]
-#[path = "../tests/lib_unit.rs"]
-mod tests;
+pub mod syntax; pub mod transactional_workspace; pub mod verification_planner;
+#[cfg(test)] #[path = "../tests/lib_unit.rs"] mod tests;

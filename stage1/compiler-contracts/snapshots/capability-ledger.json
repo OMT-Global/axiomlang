@@ -222,6 +222,12 @@
     },
     {
       "evidenceTier": "static_spike",
+      "name": "task-contract",
+      "source": "stage1/crates/axiomc/src/main.rs",
+      "status": "implemented"
+    },
+    {
+      "evidenceTier": "static_spike",
       "name": "test",
       "source": "stage1/crates/axiomc/src/main.rs",
       "status": "implemented"
@@ -229,6 +235,12 @@
     {
       "evidenceTier": "static_spike",
       "name": "trace",
+      "source": "stage1/crates/axiomc/src/main.rs",
+      "status": "implemented"
+    },
+    {
+      "evidenceTier": "static_spike",
+      "name": "verification-plan",
       "source": "stage1/crates/axiomc/src/main.rs",
       "status": "implemented"
     },
@@ -834,6 +846,18 @@
   "schemas": [
     {
       "evidenceTier": "static_spike",
+      "name": "https://axiom.omt.global/schemas/axiom-agent-task-spec-v0.schema.json",
+      "source": "stage1/schemas/axiom-agent-task-spec-v0.schema.json",
+      "status": "checked"
+    },
+    {
+      "evidenceTier": "static_spike",
+      "name": "https://axiom.omt.global/schemas/axiom-agent-task-v0.schema.json",
+      "source": "stage1/schemas/axiom-agent-task-v0.schema.json",
+      "status": "checked"
+    },
+    {
+      "evidenceTier": "static_spike",
       "name": "https://axiomlang.dev/schemas/axiom-artifacts-v0.schema.json",
       "source": "stage1/schemas/axiom-artifacts-v0.schema.json",
       "status": "checked"
@@ -872,6 +896,18 @@
       "evidenceTier": "static_spike",
       "name": "https://axiomlang.dev/schemas/axiom-evidence-v0.schema.json",
       "source": "stage1/schemas/axiom-evidence-v0.schema.json",
+      "status": "checked"
+    },
+    {
+      "evidenceTier": "static_spike",
+      "name": "https://axiom.omt.global/schemas/axiom-execution-policy-v0.schema.json",
+      "source": "stage1/schemas/axiom-execution-policy-v0.schema.json",
+      "status": "checked"
+    },
+    {
+      "evidenceTier": "static_spike",
+      "name": "https://axiom.omt.global/schemas/axiom-execution-transaction-v0.schema.json",
+      "source": "stage1/schemas/axiom-execution-transaction-v0.schema.json",
       "status": "checked"
     },
     {
@@ -944,6 +980,24 @@
       "evidenceTier": "static_spike",
       "name": "https://axiom-lang.dev/schemas/axiom-trace-v0.schema.json",
       "source": "stage1/schemas/axiom-trace-v0.schema.json",
+      "status": "checked"
+    },
+    {
+      "evidenceTier": "static_spike",
+      "name": "https://axiom.omt.global/schemas/axiom-verification-plan-v0.schema.json",
+      "source": "stage1/schemas/axiom-verification-plan-v0.schema.json",
+      "status": "checked"
+    },
+    {
+      "evidenceTier": "static_spike",
+      "name": "https://axiom.omt.global/schemas/axiom-verification-results-v0.schema.json",
+      "source": "stage1/schemas/axiom-verification-results-v0.schema.json",
+      "status": "checked"
+    },
+    {
+      "evidenceTier": "static_spike",
+      "name": "https://axiom.omt.global/schemas/axiom-verification-verdict-v0.schema.json",
+      "source": "stage1/schemas/axiom-verification-verdict-v0.schema.json",
       "status": "checked"
     },
     {
@@ -1649,16 +1703,16 @@
   ],
   "summary": {
     "capabilities": 9,
-    "commands": 28,
+    "commands": 30,
     "evidenceTiers": {
       "direct_runtime": 2,
       "production_qualified": 0,
       "scaffold": 5,
-      "static_spike": 184,
+      "static_spike": 193,
       "unsupported": 5
     },
     "runtimeAbiRows": 34,
-    "schemas": 28,
+    "schemas": 35,
     "stdlibFunctions": 299,
     "stdlibModules": 34,
     "supportedNativeBackend": "cranelift"

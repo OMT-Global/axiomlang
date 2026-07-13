@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://axiom.omt.global/schemas/axiom-verification-verdict-v0.schema.json",
+  "title": "Axiom semantic verification verdict v0",
+  "type": "object",
+  "required": ["schema_version", "plan_digest", "status", "source_head_sha", "delivered_head_sha", "missing", "duplicate", "invalid", "failed"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "const": "axiom.verification_verdict.v0" },
+    "plan_digest": { "$ref": "#/$defs/digest" },
+    "status": { "enum": ["passed", "failed"] },
+    "source_head_sha": { "$ref": "#/$defs/headSha" },
+    "delivered_head_sha": { "$ref": "#/$defs/headSha" },
+    "missing": { "$ref": "#/$defs/ids" },
+    "duplicate": { "$ref": "#/$defs/ids" },
+    "invalid": { "$ref": "#/$defs/ids" },
+    "failed": { "$ref": "#/$defs/ids" }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "status": { "const": "passed" } }, "required": ["status"] },
+      "then": {
+        "properties": {
+          "missing": { "maxItems": 0 },
+          "duplicate": { "maxItems": 0 },
+          "invalid": { "maxItems": 0 },
+          "failed": { "maxItems": 0 }
+        }
+      },
+      "else": {
+        "anyOf": [
+          { "properties": { "missing": { "minItems": 1 } } },
+          { "properties": { "duplicate": { "minItems": 1 } } },
+          { "properties": { "invalid": { "minItems": 1 } } },
+          { "properties": { "failed": { "minItems": 1 } } }
+        ]
+      }
+    }
+  ],
+  "$defs": {
+    "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "headSha": { "type": "string", "pattern": "^[a-f0-9]{40}$" },
+    "ids": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1 }
+    }
+  }
+}
