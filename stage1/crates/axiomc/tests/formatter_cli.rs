@@ -81,3 +81,17 @@ fn fmt_stdin_range_leaves_bytes_outside_range_unchanged() {
         "first   \nsecond\nthird   \n"
     );
 }
+
+#[test]
+fn fmt_stdin_range_rejects_split_crlf_boundary() {
+    let output = run_fmt(
+        &["fmt", "--stdin", "--range", "7:17"],
+        "first\r\nsecond   \r\nthird\r\n",
+    );
+    assert_eq!(output.status.code(), Some(1));
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("must not split a CRLF"),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}

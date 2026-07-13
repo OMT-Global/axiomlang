@@ -141,6 +141,13 @@ fn format_axiom_range(source: &str, range: FormatRange) -> Result<String, Diagno
         )
         .with_code("fmt.range.invalid"));
     }
+    if splits_crlf(source, range.start_byte) || splits_crlf(source, range.end_byte) {
+        return Err(Diagnostic::new(
+            "fmt.range.invalid",
+            "format range boundaries must not split a CRLF line ending",
+        )
+        .with_code("fmt.range.invalid"));
+    }
     let slice = &source[range.start_byte..range.end_byte];
     let mut replacement = format_axiom_source(slice);
     if range.end_byte < source.len() && !ends_with_line_ending(slice) {
@@ -156,6 +163,13 @@ fn format_axiom_range(source: &str, range: FormatRange) -> Result<String, Diagno
 
 fn ends_with_line_ending(source: &str) -> bool {
     source.ends_with('\n') || source.ends_with('\r')
+}
+
+fn splits_crlf(source: &str, byte: usize) -> bool {
+    byte > 0
+        && byte < source.len()
+        && source.as_bytes()[byte - 1] == b'\r'
+        && source.as_bytes()[byte] == b'\n'
 }
 pub(super) fn format_axiom_source(source: &str) -> String {
     formatter_core::format(source)
