@@ -64,6 +64,11 @@ pub struct TransactionState {
     pub pending_effect: Option<String>,
     pub workspace_fingerprint: String,
     pub source_fingerprint: String,
+    /// The one candidate commit proven to contain the executor's exact
+    /// authorized bytes. Active recovery may accept this head in addition to
+    /// `base_sha`; arbitrary descendants remain forbidden.
+    #[serde(default)]
+    pub authorized_candidate_head: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -265,6 +270,7 @@ impl TransactionalWorkspace {
                 pending_effect: None,
                 workspace_fingerprint,
                 source_fingerprint,
+                authorized_candidate_head: None,
             },
         };
         this.record("checkpoint", exact_sha, "created")?;
@@ -290,8 +296,19 @@ impl TransactionalWorkspace {
             return Err("transaction state belongs to another worktree".into());
         }
         let observed_head = git(&root, &["rev-parse", "HEAD"])?;
-        if observed_head.trim() != state.base_sha && state.phase != TransactionPhase::Committed {
+        let observed_head = observed_head.trim();
+        let authorized_candidate = state
+            .authorized_candidate_head
+            .as_deref()
+            .is_some_and(|head| head == observed_head);
+        if observed_head != state.base_sha
+            && state.phase != TransactionPhase::Committed
+            && !authorized_candidate
+        {
             return Err("transaction HEAD no longer matches its exact base SHA".into());
+        }
+        if let Some(candidate_head) = &state.authorized_candidate_head {
+            validate_sha(candidate_head)?;
         }
         if state
             .events
@@ -425,6 +442,26 @@ impl TransactionalWorkspace {
         let blob_digest = sha256_digest(&output.stdout);
         self.record("read_commit", &format!("{commit_sha}:{path}"), &blob_digest)?;
         Ok(output.stdout)
+    }
+
+    /// Durably authorize the exact candidate head after its blob was proven to
+    /// match a previously approved candidate digest. This is intentionally
+    /// crate-private: only the bounded executor may extend active recovery
+    /// beyond `base_sha`, and only for its one verified candidate commit.
+    pub(crate) fn authorize_verified_candidate_commit(
+        &mut self,
+        path: &str,
+        commit_sha: &str,
+        candidate_digest: &str,
+    ) -> Result<(), String> {
+        validate_digest(candidate_digest)?;
+        let candidate = self.read_at_commit(path, commit_sha)?;
+        if sha256_digest(&candidate) != candidate_digest {
+            return Err("delivered head does not contain the exact candidate bytes".into());
+        }
+        self.state.authorized_candidate_head = Some(commit_sha.into());
+        self.state.workspace_fingerprint = checkout_fingerprint(&self.root(), &self.state.policy)?;
+        self.record("candidate_head_authorized", commit_sha, candidate_digest)
     }
 
     pub fn write(&mut self, path: &str, bytes: &[u8]) -> Result<(), String> {
@@ -1194,6 +1231,23 @@ mod tests {
         txn.mark_interrupted().unwrap();
         drop(txn);
         fs::write(worktree.join("allowed.txt"), b"unjournaled").unwrap();
+        assert!(TransactionalWorkspace::recover(&worktree).is_err());
+    }
+
+    #[test]
+    fn recovery_rejects_an_unjournaled_descendant_head() {
+        let (repo, source, sha) = fixture();
+        let worktree = repo.path().join("txn");
+        let mut txn = TransactionalWorkspace::create(&source, &worktree, &sha, policy()).unwrap();
+        txn.write("allowed.txt", b"changed").unwrap();
+        git(&worktree, &["add", "allowed.txt"]).unwrap();
+        git(
+            &worktree,
+            &["-c", "commit.gpgsign=false", "commit", "-qm", "candidate"],
+        )
+        .unwrap();
+        drop(txn);
+
         assert!(TransactionalWorkspace::recover(&worktree).is_err());
     }
 

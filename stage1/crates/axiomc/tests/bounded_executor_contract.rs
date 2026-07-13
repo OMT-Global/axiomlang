@@ -437,6 +437,51 @@ fn evidence_regression_and_explicit_abort_roll_back_the_transaction() {
 }
 
 #[test]
+fn verified_candidate_head_survives_restart_and_can_be_rolled_back() {
+    let harness = harness();
+    let (mut executor, mut workspace, original) = apply_fixture(&harness);
+    let delivered_head = commit_candidate(&harness);
+    executor
+        .submit_verification(
+            &mut workspace,
+            verdict(
+                &harness.base_sha,
+                &delivered_head,
+                VerdictStatus::Passed,
+                vec![],
+            ),
+        )
+        .unwrap();
+    assert_eq!(
+        workspace.state().authorized_candidate_head.as_deref(),
+        Some(delivered_head.as_str())
+    );
+
+    executor.interrupt().unwrap();
+    let resume = executor.resume_request().unwrap();
+    let encoded = serde_json::to_vec(&executor).unwrap();
+    drop(workspace);
+
+    let mut recovered_workspace = TransactionalWorkspace::recover(&harness.transaction)
+        .expect("recover the verified candidate transaction head");
+    let mut recovered_executor = BoundedExecutor::recover(
+        &encoded,
+        &resume,
+        &harness.contract,
+        &recovered_workspace,
+        &seal_key(),
+    )
+    .expect("recover the sealed executor after verification");
+    recovered_executor.resume().unwrap();
+    recovered_executor.rollback(&mut recovered_workspace).unwrap();
+    assert_eq!(recovered_executor.state(), ExecutionState::RolledBack);
+    assert_eq!(
+        fs::read(harness.transaction.join("src/main.ax")).unwrap(),
+        original
+    );
+}
+
+#[test]
 fn delivery_requires_authentic_fresh_satisfactory_provider_evidence() {
     let key = delivery_key();
     let provider = TrustedDeliveryEvidenceProvider::new(key.clone(), 60).unwrap();

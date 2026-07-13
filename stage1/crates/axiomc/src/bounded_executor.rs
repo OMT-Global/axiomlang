@@ -753,18 +753,15 @@ impl BoundedExecutor {
             .proposal
             .clone()
             .ok_or_else(|| "verification requires an applied proposal".to_string())?;
-        let delivered = workspace
-            .read_at_commit(&proposal.path, &verdict.delivered_head_sha)
+        workspace
+            .authorize_verified_candidate_commit(
+                &proposal.path,
+                &verdict.delivered_head_sha,
+                &proposal.candidate_digest,
+            )
             .map_err(|error| {
                 self.failure_error(FailureCause::Evidence, "candidate_head_proof", &error)
             })?;
-        if digest(&delivered) != proposal.candidate_digest {
-            return Err(self.failure_error(
-                FailureCause::Evidence,
-                "candidate_head_binding",
-                "delivered head does not contain the exact candidate bytes",
-            ));
-        }
         let binding = CandidateBinding::new(
             &proposal.candidate_digest,
             &verdict.delivered_head_sha,
