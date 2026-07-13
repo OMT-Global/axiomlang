@@ -4,10 +4,12 @@
   "ok": false,
   "command": "fmt",
   "check": true,
+  "input": "files",
   "files": [
     {
       "path": "<project>/src/main.ax",
       "changed": true,
+      "range": null,
       "edits": [
         {
           "action": "replace_line",
