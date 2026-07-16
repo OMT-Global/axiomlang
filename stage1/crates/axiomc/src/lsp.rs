@@ -16,6 +16,7 @@ const MAX_DOCUMENT_BYTES: usize = 1024 * 1024;
 const MAX_WORKSPACE_BYTES: usize = 16 * 1024 * 1024;
 const MAX_WORKSPACE_DOCUMENTS: usize = 2048;
 const MAX_LATENCY_SAMPLES: usize = 128;
+const DOCUMENT_METADATA_BYTES: usize = 256;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct LspResponse {
@@ -155,6 +156,9 @@ impl LspServer {
         };
         let version = document.get("version").and_then(Value::as_i64).unwrap_or(0);
         self.note_document_root(uri);
+        if !self.documents.contains_key(uri) && self.documents.len() >= MAX_WORKSPACE_DOCUMENTS {
+            return vec![log_message("workspace exceeds the 2,048-document LSP limit")];
+        }
         if text.len() > MAX_DOCUMENT_BYTES || !self.fits_workspace_limit(uri, text) {
             return vec![log_message("document exceeds the bounded LSP memory limit")];
         }
@@ -205,9 +209,9 @@ impl LspServer {
             .documents
             .iter()
             .filter(|(stored_uri, _)| stored_uri.as_str() != uri)
-            .map(|(_, document)| document.text.len())
+            .map(|(stored_uri, document)| document_memory_bytes(stored_uri, &document.text))
             .sum::<usize>();
-        retained.saturating_add(candidate.len()) <= MAX_WORKSPACE_BYTES
+        retained.saturating_add(document_memory_bytes(uri, candidate)) <= MAX_WORKSPACE_BYTES
     }
 
     fn workspace_index(&mut self) -> WorkspaceIndex {
@@ -217,7 +221,12 @@ impl LspServer {
             .iter()
             .map(|(uri, document)| (uri.clone(), document.text.clone()))
             .collect::<BTreeMap<_, _>>();
-        let remaining_bytes = MAX_WORKSPACE_BYTES.saturating_sub(documents.values().map(String::len).sum::<usize>());
+        let remaining_bytes = MAX_WORKSPACE_BYTES.saturating_sub(
+            documents
+                .iter()
+                .map(|(uri, source)| document_memory_bytes(uri, source))
+                .sum::<usize>(),
+        );
         let remaining_documents = MAX_WORKSPACE_DOCUMENTS.saturating_sub(documents.len());
         for (uri, text) in workspace_files(&self.workspace_roots, remaining_bytes, remaining_documents) {
             documents.entry(uri).or_insert(text);
@@ -316,7 +325,11 @@ impl LspServer {
         let index = self.workspace_index();
         let packages = self.workspace_roots.iter().filter_map(|root| package_graph_metadata(root).ok()).map(|graph| json!({ "manifest": graph.manifest, "packages": graph.packages.len() })).collect::<Vec<_>>();
         let capabilities = self.workspace_roots.iter().filter_map(|root| project_capabilities(root).ok()).flatten().map(|capability| capability.name).collect::<BTreeSet<_>>();
-        let memory_bytes = index.documents.values().map(String::len).sum::<usize>();
+        let memory_bytes = index
+            .documents
+            .iter()
+            .map(|(uri, source)| document_memory_bytes(uri, source))
+            .sum::<usize>();
         json!({ "jsonrpc": "2.0", "id": id, "result": { "schema": "axiom.lsp.v1", "workspaceGeneration": self.workspace_generation, "documents": index.documents.len(), "symbols": index.symbols.len(), "memoryBytes": memory_bytes, "memoryLimitBytes": MAX_WORKSPACE_BYTES, "lastAnalysisMs": self.last_analysis_ms, "p95AnalysisMs": self.p95_analysis_ms(), "latencySamples": self.analysis_latency_samples_ms.len(), "packages": packages, "capabilities": capabilities, "cancellation": "json-rpc-cancel-request", "documentSync": "incremental" } })
     }
 
@@ -454,14 +467,22 @@ fn workspace_files(
                 continue;
             }
             let Ok(text) = fs::read_to_string(&entry_path) else { continue };
-            if text.len() > MAX_DOCUMENT_BYTES || bytes.saturating_add(text.len()) > byte_limit {
+            let uri = uri_for_path(&entry_path);
+            let storage_bytes = document_memory_bytes(&uri, &text);
+            if text.len() > MAX_DOCUMENT_BYTES || bytes.saturating_add(storage_bytes) > byte_limit {
                 continue;
             }
-            bytes += text.len();
-            documents.insert(uri_for_path(&entry_path), text);
+            bytes += storage_bytes;
+            documents.insert(uri, text);
         }
     }
     documents
+}
+
+fn document_memory_bytes(uri: &str, source: &str) -> usize {
+    DOCUMENT_METADATA_BYTES
+        .saturating_add(uri.len())
+        .saturating_add(source.len())
 }
 
 fn uri_for_path(path: &Path) -> String {
@@ -1205,6 +1226,35 @@ mod tests {
             .expect("bounded open");
         assert_eq!(response.messages[0]["method"], json!("window/logMessage"));
         assert_eq!(server.documents.len(), 1);
+    }
+
+    #[test]
+    fn empty_editor_documents_cannot_exceed_the_workspace_document_bound() {
+        let mut server = LspServer::default();
+        for index in 0..MAX_WORKSPACE_DOCUMENTS {
+            server.documents.insert(
+                format!("file:///tmp/lsp-document-limit/{index}.ax"),
+                LspDocument { version: 1, text: String::new() },
+            );
+        }
+        let uri = "file:///tmp/lsp-document-limit/overflow.ax";
+        let open = server
+            .handle_message(&notification(
+                "textDocument/didOpen",
+                json!({ "textDocument": { "uri": uri, "languageId": "axiom", "version": 1, "text": "" } }),
+            ))
+            .expect("bounded empty open");
+        assert_eq!(open.messages[0]["method"], json!("window/logMessage"));
+        assert_eq!(server.documents.len(), MAX_WORKSPACE_DOCUMENTS);
+
+        let change = server
+            .handle_message(&notification(
+                "textDocument/didChange",
+                json!({ "textDocument": { "uri": uri, "version": 2 }, "contentChanges": [{ "text": "" }] }),
+            ))
+            .expect("unopened change");
+        assert_eq!(change.messages[0]["method"], json!("window/logMessage"));
+        assert_eq!(server.documents.len(), MAX_WORKSPACE_DOCUMENTS);
     }
 
     #[test]
