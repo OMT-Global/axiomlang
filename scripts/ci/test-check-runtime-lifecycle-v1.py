@@ -33,6 +33,11 @@ def main():
         path.write_text(json.dumps(value))
         if run(root).returncode == 0:
             raise SystemExit("incomplete Runtime Lifecycle ABI fixtures were accepted")
+        value = json.loads((ROOT / "stage1/compiler-contracts/snapshots/runtime-lifecycle-v1.json").read_text())
+        value["unexpected_schema_violation"] = True
+        path.write_text(json.dumps(value))
+        if run(root).returncode == 0:
+            raise SystemExit("Runtime Lifecycle ABI fixture with an unexpected schema field was accepted")
     print("Runtime Lifecycle ABI v1 checker tests passed")
 
 
