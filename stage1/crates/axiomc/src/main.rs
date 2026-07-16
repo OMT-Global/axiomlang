@@ -6891,14 +6891,47 @@ fn render_markdown_docs(items: &[DocItem]) -> String {
 }
 
 fn render_doc_markdown_line(line: &str, links: &[DocLink]) -> String {
-    let mut rendered = line.to_string();
-    for link in links {
-        rendered = rendered.replace(
-            &format!("{{@link {}}}", link.target),
-            &format!("[{}](#{})", link.target, link.resolved_id),
-        );
+    render_doc_links(line, links, |text| text.to_string(), |link| {
+        format!("[{}](#{})", link.target, link.resolved_id)
+    })
+}
+
+fn render_doc_html_line(line: &str, links: &[DocLink]) -> String {
+    render_doc_links(line, links, escape_html, |link| {
+        format!(
+            "<a href=\"#{}\">{}</a>",
+            escape_html(&link.resolved_id),
+            escape_html(&link.target)
+        )
+    })
+}
+
+fn render_doc_links(
+    line: &str,
+    links: &[DocLink],
+    render_text: impl Fn(&str) -> String,
+    render_link: impl Fn(&DocLink) -> String,
+) -> String {
+    let mut output = String::new();
+    let mut rest = line;
+    while let Some(start) = rest.find("{@link ") {
+        output.push_str(&render_text(&rest[..start]));
+        let target_start = start + "{@link ".len();
+        let after_start = &rest[target_start..];
+        let Some(end) = after_start.find('}') else {
+            output.push_str(&render_text(&rest[start..]));
+            return output;
+        };
+        let target = after_start[..end].trim();
+        if let Some(link) = links.iter().find(|link| link.target == target) {
+            output.push_str(&render_link(link));
+        } else {
+            output.push_str(&render_text(&rest[start..target_start + end + 1]));
+        }
+        rest = &after_start[end + 1..];
     }
-    rendered
+    output.push_str(&render_text(rest));
+    output
 }
 
 fn render_html_docs(items: &[DocItem]) -> String {
@@ -6923,7 +6956,7 @@ fn render_html_docs(items: &[DocItem]) -> String {
                 if index > 0 {
                     output.push_str("<br>\n");
                 }
-                output.push_str(&escape_html(&render_doc_markdown_line(line, &item.links)));
+                output.push_str(&render_doc_html_line(line, &item.links));
             }
             output.push_str("</p>");
         }
@@ -10772,7 +10805,7 @@ print serve("127.0.0.1:0", selected_route, 1)
             .expect("write lock");
         fs::write(
             project.join("src/main.ax"),
-            r#"/// Returns a public {@link Response}.
+            r#"/// Returns a public {@link Response} and whitespace-tolerant {@link Response }.
 /// ```axiom
 /// print "doctest"
 /// ```
@@ -10843,8 +10876,16 @@ return 7
             .iter()
             .find(|item| item.name == "route")
             .expect("route item");
-        assert_eq!(route.links.len(), 1);
+        assert_eq!(route.links.len(), 2);
         assert!(route.links[0].resolved_id.ends_with("/struct/Response"));
+        let markdown = fs::read_to_string(project.join("docs/api/index.md")).expect("read markdown");
+        assert!(markdown.contains(&format!("[Response](#{})", route.links[0].resolved_id)));
+        let html = fs::read_to_string(project.join("docs/api/index.html")).expect("read HTML");
+        assert!(html.contains(&format!(
+            "<a href=\"#{}\">Response</a>",
+            route.links[0].resolved_id
+        )));
+        assert!(!html.contains("[@link"));
         let search = fs::read_to_string(&output.search_index).expect("read search index");
         assert!(search.contains("axiom.docs.search.v1"));
         assert!(search.contains("private_helper") == false);
@@ -10879,6 +10920,40 @@ return 7
         let error = generate_docs(&project, &project.join("docs/api"), true)
             .expect_err("failing doctest must block docs");
         assert_eq!(error.code.as_deref(), Some("doctest_failed"));
+    }
+
+    #[test]
+    fn typed_docs_reject_ambiguous_top_level_links() {
+        let item = |id: &str, name: &str, docs: Vec<(usize, String)>| DocItem {
+            id: id.to_owned(),
+            name: name.to_owned(),
+            package: String::from("fixture"),
+            module: String::from("src/main.ax"),
+            file: String::from("src/main.ax"),
+            kind: String::from("function"),
+            public: true,
+            visibility: String::from("public"),
+            parent_id: None,
+            source_line: 1,
+            source_column: 1,
+            effects: Vec::new(),
+            signature: format!("pub fn {name}()"),
+            docs: Vec::new(),
+            examples: Vec::new(),
+            links: Vec::new(),
+            doc_lines: docs,
+        };
+        let mut items = vec![
+            item("axiom://fixture/one", "Duplicate", Vec::new()),
+            item("axiom://fixture/two", "Duplicate", Vec::new()),
+            item(
+                "axiom://fixture/route",
+                "route",
+                vec![(1, String::from("See {@link Duplicate}."))],
+            ),
+        ];
+        let error = resolve_doc_links(&mut items).expect_err("ambiguous link must block docs");
+        assert_eq!(error.code.as_deref(), Some("doc_link_ambiguous"));
     }
 
     #[test]
