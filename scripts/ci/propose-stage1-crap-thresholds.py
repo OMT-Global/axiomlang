@@ -27,10 +27,12 @@ class FunctionMetric:
     end_line: int
     lines: int
     complexity: int
-    coverage: float
+    coverage: float | None
 
     @property
-    def crap(self) -> float:
+    def crap(self) -> float | None:
+        if self.coverage is None:
+            return None
         uncovered = 1.0 - self.coverage
         return (self.complexity**2 * uncovered**3) + self.complexity
 
@@ -107,7 +109,36 @@ def function_ranges(path: Path) -> list[tuple[str, int, int, list[str]]]:
     return ranges
 
 
-def collect_metrics(source_root: Path, default_coverage: float) -> list[FunctionMetric]:
+def parse_lcov(path: Path) -> dict[Path, dict[int, int]]:
+    """Read LCOV line hit counts keyed by resolved source path."""
+    coverage: dict[Path, dict[int, int]] = {}
+    current: Path | None = None
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        if raw_line.startswith("SF:"):
+            candidate = Path(raw_line.removeprefix("SF:"))
+            current = candidate.resolve() if candidate.is_absolute() else (REPO_ROOT / candidate).resolve()
+        elif raw_line.startswith("DA:") and current is not None:
+            try:
+                line, hits = raw_line.removeprefix("DA:").split(",", 1)
+                coverage.setdefault(current, {})[int(line)] = int(hits)
+            except ValueError as error:
+                raise ValueError(f"invalid LCOV data record {raw_line!r}") from error
+        elif raw_line == "end_of_record":
+            current = None
+    return coverage
+
+
+def function_coverage(path: Path, start: int, end: int, lcov: dict[Path, dict[int, int]] | None) -> float | None:
+    if lcov is None:
+        return None
+    lines = lcov.get(path.resolve(), {})
+    relevant = [hits for line, hits in lines.items() if start <= line <= end]
+    if not relevant:
+        return 0.0
+    return sum(hits > 0 for hits in relevant) / len(relevant)
+
+
+def collect_metrics(source_root: Path, lcov: dict[Path, dict[int, int]] | None) -> list[FunctionMetric]:
     metrics: list[FunctionMetric] = []
     for path in sorted(source_root.rglob("*.rs")):
         for name, start, end, body in function_ranges(path):
@@ -119,7 +150,7 @@ def collect_metrics(source_root: Path, default_coverage: float) -> list[Function
                     end_line=end,
                     lines=end - start + 1,
                     complexity=cyclomatic_complexity(body),
-                    coverage=default_coverage,
+                    coverage=function_coverage(path, start, end, lcov),
                 )
             )
     return metrics
@@ -130,21 +161,30 @@ def proposal(
     threshold: float,
     max_hotspots: int,
     source_root: Path,
+    lcov_path: Path | None,
 ) -> dict:
-    hotspots = sorted(metrics, key=lambda metric: metric.crap, reverse=True)[:max_hotspots]
+    measured = [metric for metric in metrics if metric.crap is not None]
+    hotspots = sorted(measured, key=lambda metric: metric.crap or 0.0, reverse=True)[:max_hotspots]
     return {
         "schema_version": "axiom.stage1.crap-threshold-proposal.v1",
         "blocking": False,
         "source_root": str(source_root),
         "threshold": threshold,
         "inputs": {
-            "coverage": "defaulted until coverage artifacts are wired into extended validation",
+            "coverage": {
+                "source": "lcov" if lcov_path else "unmeasured",
+                "path": str(lcov_path) if lcov_path else None,
+                "measured_functions": len(measured),
+                "unmeasured_functions": len(metrics) - len(measured),
+            },
             "complexity": "heuristic branch-token scan over stage1 Rust sources",
         },
         "summary": {
             "functions_scanned": len(metrics),
-            "hotspots_over_threshold": sum(1 for metric in metrics if metric.crap > threshold),
-            "max_crap": round(max((metric.crap for metric in metrics), default=0.0), 2),
+            "functions_with_coverage": len(measured),
+            "functions_without_coverage": len(metrics) - len(measured),
+            "hotspots_over_threshold": sum(1 for metric in measured if (metric.crap or 0.0) > threshold),
+            "max_crap": round(max((metric.crap or 0.0 for metric in measured), default=0.0), 2),
         },
         "hotspots": [
             {
@@ -155,8 +195,8 @@ def proposal(
                 "lines": metric.lines,
                 "complexity": metric.complexity,
                 "coverage": metric.coverage,
-                "crap": round(metric.crap, 2),
-                "over_threshold": metric.crap > threshold,
+                "crap": round(metric.crap or 0.0, 2),
+                "over_threshold": (metric.crap or 0.0) > threshold,
             }
             for metric in hotspots
         ],
@@ -172,7 +212,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--source-root", type=Path, default=DEFAULT_SOURCE_ROOT)
     parser.add_argument("--threshold", type=float, default=DEFAULT_THRESHOLD)
-    parser.add_argument("--default-coverage", type=float, default=0.0)
+    parser.add_argument("--lcov", type=Path, default=None, help="LCOV line coverage report")
     parser.add_argument("--max-hotspots", type=int, default=20)
     parser.add_argument("--output", type=Path, default=None)
     parser.add_argument("--enforce", action="store_true")
@@ -185,12 +225,23 @@ def main() -> int:
         print(f"error: source root is not a directory: {args.source_root}", file=sys.stderr)
         return 2
 
-    metrics = collect_metrics(args.source_root, args.default_coverage)
+    if args.lcov and not args.lcov.is_file():
+        print(f"error: LCOV report does not exist: {args.lcov}", file=sys.stderr)
+        return 2
+    if args.enforce and not args.lcov:
+        print("error: --enforce requires --lcov coverage evidence", file=sys.stderr)
+        return 2
+    try:
+        lcov = parse_lcov(args.lcov) if args.lcov else None
+    except (OSError, ValueError) as error:
+        print(f"error: failed to parse LCOV report: {error}", file=sys.stderr)
+        return 2
+    metrics = collect_metrics(args.source_root, lcov)
     if not metrics:
         print(f"error: no Rust functions discovered under source root: {args.source_root}", file=sys.stderr)
         return 2
 
-    report = proposal(metrics, args.threshold, args.max_hotspots, args.source_root)
+    report = proposal(metrics, args.threshold, args.max_hotspots, args.source_root, args.lcov)
     payload = json.dumps(report, indent=2, sort_keys=True) + "\n"
     if args.output:
         args.output.parent.mkdir(parents=True, exist_ok=True)
