@@ -141,6 +141,9 @@ stage1-mir-backend-boundary:
 stage1-mir-backend-boundary-test:
 	bash scripts/ci/test-check-mir-backend-boundary.sh
 
+stage1-semantic-mir-v1:
+	python3 scripts/ci/check-semantic-mir-v1.py
+
 stage1-test:
 	RUST_MIN_STACK=8388608 cargo test --manifest-path stage1/Cargo.toml --features run-native-tests
 	$(MAKE) stage1-stdlib-test
