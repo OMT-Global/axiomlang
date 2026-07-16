@@ -75,6 +75,8 @@ bash "$script_repo_root/scripts/ci/test-check-command-lsp-boundary.sh"
 bash "$script_repo_root/scripts/ci/test-check-hir-boundary.sh"
 bash "$script_repo_root/scripts/ci/test-check-mir-backend-boundary.sh"
 bash "$script_repo_root/scripts/ci/test-check-snapshot-bootstrap-readiness.sh"
+python3 "$script_repo_root/scripts/ci/test-run-agent-autonomy-benchmark.py"
+python3 "$script_repo_root/scripts/ci/run-agent-autonomy-benchmark.py" --subset ci --check >/dev/null
 bash "$script_repo_root/scripts/ci/run-stdlib-property-checks.sh"
 bash "$script_repo_root/scripts/ci/run-compiler-property-checks.sh"
 
