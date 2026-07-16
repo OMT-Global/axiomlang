@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://omt-global.github.io/axiom/schemas/axiom-benchmark-baseline-v1.schema.json",
+  "title": "Axiom benchmark baseline v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "version", "benches"],
+  "properties": {
+    "schema_version": {"const": "axiom.stage1.bench.baseline.v1"},
+    "version": {"const": 1},
+    "benches": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "median_ms"],
+        "properties": {
+          "id": {"type": "string", "minLength": 1},
+          "median_ms": {"type": "integer", "minimum": 1}
+        }
+      }
+    }
+  }
+}
