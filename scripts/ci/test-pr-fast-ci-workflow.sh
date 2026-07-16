@@ -57,6 +57,14 @@ full_lib_triage_check=$(grep -nF 'scripts/ci/check-stage1-full-lib-triage.py' "$
 full_lib_suite_job=$(grep -nF 'full-lib-suite:' "$workflow" || true)
 full_lib_suite_run=$(grep -nF 'cargo test --manifest-path stage1/Cargo.toml -p axiomc --lib --features run-native-tests' "$workflow" || true)
 full_lib_suite_gate=$(grep -nF 'full-lib-suite=${{ needs.full-lib-suite.result }}' "$workflow" || true)
+full_lib_suite_section="$(
+  awk '
+    /^  full-lib-suite:$/ { in_job=1; print; next }
+    in_job && /^  [A-Za-z0-9_-]+:$/ { exit }
+    in_job { print }
+  ' "$workflow"
+)"
+full_lib_suite_linker=$(printf '%s\n' "$full_lib_suite_section" | grep -F 'Ensure Rust linker availability' || true)
 proof_workload_test=$(grep -nF 'bash scripts/ci/run-stage1-proof-test.sh' "$fast_checks_script" || true)
 
 if [[ -n "$checkout_line" ]]; then
@@ -162,6 +170,11 @@ fi
 
 if [[ -z "$full_lib_suite_job" || -z "$full_lib_suite_run" || -z "$full_lib_suite_gate" ]]; then
   echo "pr-fast-ci must run the full axiomc lib suite as a CI Gate dependency (#1255 blocking lane)" >&2
+  exit 1
+fi
+
+if [[ -z "$full_lib_suite_linker" ]]; then
+  echo "pr-fast-ci must provision a Rust linker before the full axiomc lib suite" >&2
   exit 1
 fi
 
