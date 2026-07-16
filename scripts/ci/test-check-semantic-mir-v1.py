@@ -32,6 +32,11 @@ def main():
         path.write_text(json.dumps(value))
         if run(root).returncode == 0:
             raise SystemExit("Rust capture leak was accepted")
+        value = json.loads(SNAPSHOT.read_text())
+        value["functions"][0]["blocks"][0]["semantic_nodes"] = []
+        path.write_text(json.dumps(value))
+        if run(root).returncode == 0:
+            raise SystemExit("Semantic MIR block without provenance was accepted")
     print("Semantic MIR v1 checker tests passed")
 
 if __name__ == "__main__":

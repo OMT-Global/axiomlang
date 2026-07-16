@@ -57,7 +57,7 @@ lowering mode and the feature decision for every rejected node.
 ## Provenance and migration
 
 Each function, block, instruction, terminator, value, place, and cleanup scope
-links to a source span and zero or more semantic-node ids. HIR remains the
+links to a source span and one or more semantic-node ids. HIR remains the
 typed analysis layer; the existing HIR-shaped `axiomc::mir` JSON is a legacy
 inspection projection and is not Semantic MIR v1. During migration it may be
 emitted alongside v1, but backends must consume the v1 feature contract before
@@ -65,7 +65,10 @@ claiming executable lowering coverage. #1436 owns that consumption change.
 
 ## Conformance requirements
 
-The v1 schema and snapshots must represent scalar calls, branches, loops,
+The v1 schema freezes the complete feature, terminator, and instruction
+vocabularies for this version. The checker derives the expected sets from those
+schema enums, and the snapshot covers every declared terminator and instruction
+operation. The schema and snapshots must represent scalar calls, branches, loops,
 match, `?`, mutation, early return, panic/defer, capability calls, aggregates,
 and async boundaries. Fixtures must include valid and rejected documents,
 deterministic id ordering, explicit unsupported-feature diagnostics, and no
