@@ -74,6 +74,8 @@ bash "$script_repo_root/scripts/ci/test-check-diagnostics-syntax-boundary.sh"
 bash "$script_repo_root/scripts/ci/test-check-command-lsp-boundary.sh"
 bash "$script_repo_root/scripts/ci/test-check-hir-boundary.sh"
 bash "$script_repo_root/scripts/ci/test-check-mir-backend-boundary.sh"
+python3 "$script_repo_root/scripts/ci/test-check-semantic-mir-v1.py"
+python3 "$script_repo_root/scripts/ci/check-semantic-mir-v1.py"
 bash "$script_repo_root/scripts/ci/test-check-snapshot-bootstrap-readiness.sh"
 python3 "$script_repo_root/scripts/ci/test-run-agent-autonomy-benchmark.py"
 python3 "$script_repo_root/scripts/ci/run-agent-autonomy-benchmark.py" --subset ci --check >/dev/null

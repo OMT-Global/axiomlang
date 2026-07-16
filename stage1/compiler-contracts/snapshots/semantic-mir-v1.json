@@ -1,0 +1,27 @@
+{
+  "schema_version": "axiom.semantic_mir.v1",
+  "contract": "compiler.semantic_mir",
+  "issue": 1437,
+  "package_id": "axiom://package/semantic-mir-v1-fixture",
+  "features": ["aggregate", "async_boundary", "branch", "capability_call", "defer", "early_return", "loop", "match", "mutation", "panic", "scalar_call", "try"],
+  "functions": [{
+    "id": "axiom://package/semantic-mir-v1-fixture/function/main",
+    "span": {"path": "src/main.ax", "line": 1, "column": 1},
+    "blocks": [{
+      "id": "axiom://package/semantic-mir-v1-fixture/function/main/block/entry",
+      "parameters": ["axiom://package/semantic-mir-v1-fixture/value/input"],
+      "instructions": [
+        {"id": "axiom://package/semantic-mir-v1-fixture/function/main/instruction/capability", "op": "capability_call", "span": {"path": "src/main.ax", "line": 2, "column": 3}, "semantic_nodes": ["axiom://semantic/function/main"]},
+        {"id": "axiom://package/semantic-mir-v1-fixture/function/main/instruction/defer", "op": "defer_scope", "span": {"path": "src/main.ax", "line": 3, "column": 3}, "semantic_nodes": ["axiom://semantic/function/main"]}
+      ],
+      "terminator": "branch",
+      "span": {"path": "src/main.ax", "line": 1, "column": 1},
+      "semantic_nodes": ["axiom://semantic/function/main"]
+    }]
+  }],
+  "migration": {
+    "legacy_projection": "The existing HIR-shaped inspection JSON may coexist during migration but is not Semantic MIR v1.",
+    "backend_consumption": "A backend claims executable coverage only after consuming declared Semantic MIR v1 features.",
+    "forbidden_terms": ["Cargo", "Rust enum", "Rust layout", "Cranelift instruction stream"]
+  }
+}

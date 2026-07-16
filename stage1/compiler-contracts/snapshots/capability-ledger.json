@@ -1074,6 +1074,12 @@
     },
     {
       "evidenceTier": "static_spike",
+      "name": "https://omt-global.github.io/axiom/schemas/axiom.semantic_mir.v1.schema.json",
+      "source": "stage1/compiler-contracts/schemas/axiom.semantic_mir.v1.schema.json",
+      "status": "checked"
+    },
+    {
+      "evidenceTier": "static_spike",
       "name": "https://omt-global.github.io/axiom/schemas/axiom.stage1.command.schema.json",
       "source": "stage1/compiler-contracts/schemas/axiom.stage1.command.schema.json",
       "status": "checked"
