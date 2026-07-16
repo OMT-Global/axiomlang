@@ -864,6 +864,12 @@
     },
     {
       "evidenceTier": "static_spike",
+      "name": "https://omt-global.github.io/axiom/schemas/axiom-benchmark-baseline-v1.schema.json",
+      "source": "stage1/schemas/axiom-benchmark-baseline-v1.schema.json",
+      "status": "checked"
+    },
+    {
+      "evidenceTier": "static_spike",
       "name": "https://axiom.omt.global/schemas/axiom-build-lowering-evidence-v1.schema.json",
       "source": "stage1/schemas/axiom-build-lowering-evidence-v1.schema.json",
       "status": "checked"
