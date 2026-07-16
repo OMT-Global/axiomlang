@@ -175,6 +175,12 @@ stage1-bench-gate:
 	python3 scripts/ci/check-stage1-benchmarks.py
 	python3 scripts/ci/report-stage1-reference-comparison.py
 
+agent-autonomy-benchmark:
+	python3 scripts/ci/run-agent-autonomy-benchmark.py --check --output stage1/target/agent-autonomy-readiness.json
+
+agent-autonomy-benchmark-ci:
+	python3 scripts/ci/run-agent-autonomy-benchmark.py --subset ci --check --output stage1/target/agent-autonomy-readiness-ci.json
+
 mutation-survivor-report:
 	python3 scripts/ci/render-mutation-survivor-report.py \
 		--input .axiom-build/reports/mutation-rust-smoke.json \

@@ -1,0 +1,62 @@
+{
+  "schema_version": "axiom.agent_autonomy.benchmark.v0",
+  "suite_id": "agent-autonomy-contracts-v0",
+  "tasks": [
+    {
+      "id": "feature-exact-head-evidence",
+      "category": "feature",
+      "expected_outcome": "complete",
+      "ci": true,
+      "command": ["cargo", "test", "--manifest-path", "stage1/Cargo.toml", "-p", "axiomc", "--test", "bounded_executor_contract", "success_requires_fresh_candidate_bound_evidence_and_is_schema_valid", "--", "--exact"]
+    },
+    {
+      "id": "bug-rollback-after-evidence-regression",
+      "category": "bug",
+      "expected_outcome": "complete",
+      "ci": false,
+      "command": ["cargo", "test", "--manifest-path", "stage1/Cargo.toml", "-p", "axiomc", "--test", "bounded_executor_contract", "evidence_regression_and_explicit_abort_roll_back_the_transaction", "--", "--exact"]
+    },
+    {
+      "id": "refactor-typed-request-authority",
+      "category": "refactor",
+      "expected_outcome": "complete",
+      "ci": false,
+      "command": ["cargo", "test", "--manifest-path", "stage1/Cargo.toml", "-p", "axiomc", "--test", "bounded_executor_contract", "typed_request_is_consumed_and_authority_widening_is_rejected", "--", "--exact"]
+    },
+    {
+      "id": "migration-interruption-recovery",
+      "category": "migration",
+      "expected_outcome": "complete",
+      "ci": false,
+      "command": ["cargo", "test", "--manifest-path", "stage1/Cargo.toml", "-p", "axiomc", "--test", "bounded_executor_contract", "verified_candidate_head_survives_restart_and_can_be_rolled_back", "--", "--exact"]
+    },
+    {
+      "id": "ci-repair-bounded-retry",
+      "category": "ci_repair",
+      "expected_outcome": "complete",
+      "ci": false,
+      "command": ["cargo", "test", "--manifest-path", "stage1/Cargo.toml", "-p", "axiomc", "--test", "bounded_executor_contract", "identical_retry_stops_and_interruption_recovery_preserves_consumption", "--", "--exact"]
+    },
+    {
+      "id": "merge-conflict-scope-escape-stops",
+      "category": "merge_conflict",
+      "expected_outcome": "stop",
+      "ci": true,
+      "command": ["cargo", "test", "--manifest-path", "stage1/Cargo.toml", "-p", "axiomc", "--test", "bounded_executor_contract", "dry_run_and_scope_escape_fixtures_are_deterministic_and_fail_closed", "--", "--exact"]
+    },
+    {
+      "id": "impossible-authority-widening-stops",
+      "category": "impossible",
+      "expected_outcome": "stop",
+      "ci": true,
+      "command": ["cargo", "test", "--manifest-path", "stage1/Cargo.toml", "-p", "axiomc", "--test", "agent_task_contract", "invalid_authority_scope_conflicts_actions_budgets_dependencies_and_delivery_fail_closed", "--", "--exact"]
+    },
+    {
+      "id": "ambiguous-resume-tampering-stops",
+      "category": "ambiguous",
+      "expected_outcome": "stop",
+      "ci": true,
+      "command": ["cargo", "test", "--manifest-path", "stage1/Cargo.toml", "-p", "axiomc", "--test", "bounded_executor_contract", "sealed_report_resume_and_candidate_binding_reject_tampering", "--", "--exact"]
+    }
+  ]
+}
