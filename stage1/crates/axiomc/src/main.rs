@@ -37,6 +37,7 @@ use std::os::fd::{AsRawFd, FromRawFd};
 #[cfg(unix)]
 use std::os::unix::ffi::OsStrExt;
 use std::path::{Component, Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Instant;
 
 mod formatter;
@@ -6543,6 +6544,46 @@ struct PendingDocTest {
     code: String,
 }
 
+static DOC_TEST_SANDBOX_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+
+struct DocTestSandbox {
+    path: PathBuf,
+}
+
+impl DocTestSandbox {
+    fn create() -> Result<Self, Diagnostic> {
+        let base = std::env::temp_dir();
+        for _ in 0..128 {
+            let sequence = DOC_TEST_SANDBOX_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+            let path = base.join(format!("axiom-doc-test-{}-{sequence}", std::process::id()));
+            match fs::create_dir(&path) {
+                Ok(()) => return Ok(Self { path }),
+                Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
+                Err(error) => {
+                    return Err(Diagnostic::new(
+                        "doctest",
+                        format!("failed to create sandbox: {error}"),
+                    ));
+                }
+            }
+        }
+        Err(Diagnostic::new(
+            "doctest",
+            "failed to create a unique doctest sandbox",
+        ))
+    }
+
+    fn path(&self) -> &Path {
+        &self.path
+    }
+}
+
+impl Drop for DocTestSandbox {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.path);
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 struct DocSearchIndex {
     schema: &'static str,
@@ -6757,12 +6798,7 @@ fn collect_doc_tests(items: &[DocItem]) -> Result<Vec<PendingDocTest>, Diagnosti
 fn run_doc_tests(tests: &[PendingDocTest]) -> Result<Vec<DocTestResult>, Diagnostic> {
     let mut results = Vec::new();
     for test in tests {
-        let temp = tempfile::Builder::new()
-            .prefix("axiom-doc-test-")
-            .tempdir()
-            .map_err(|err| {
-                Diagnostic::new("doctest", format!("failed to create sandbox: {err}"))
-            })?;
+        let temp = DocTestSandbox::create()?;
         fs::create_dir_all(temp.path().join("src")).map_err(|err| {
             Diagnostic::new(
                 "doctest",
