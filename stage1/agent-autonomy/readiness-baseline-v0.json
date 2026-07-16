@@ -1,0 +1,27 @@
+{
+  "schema_version": "axiom.agent_autonomy.readiness_baseline.v0",
+  "suite_id": "agent-autonomy-contracts-v0",
+  "required_categories": [
+    "feature",
+    "bug",
+    "refactor",
+    "migration",
+    "ci_repair",
+    "merge_conflict",
+    "impossible",
+    "ambiguous"
+  ],
+  "minimum_tasks": 8,
+  "minimum_ci_tasks": 4,
+  "minimum_stop_tasks": 3,
+  "minimum_pass_rate": 1.0,
+  "minimum_stop_pass_rate": 1.0,
+  "maximum_false_greens": 0,
+  "end_to_end": {
+    "status": "pending",
+    "blockers": [
+      "#1423 independent delivery controller has not landed",
+      "No independent-review identity is available to prove the full delivery loop"
+    ]
+  }
+}
