@@ -864,6 +864,12 @@
     },
     {
       "evidenceTier": "static_spike",
+      "name": "https://omt-global.github.io/axiom/schemas/axiom-benchmark-baseline-v1.schema.json",
+      "source": "stage1/schemas/axiom-benchmark-baseline-v1.schema.json",
+      "status": "checked"
+    },
+    {
+      "evidenceTier": "static_spike",
       "name": "https://axiom.omt.global/schemas/axiom-build-lowering-evidence-v1.schema.json",
       "source": "stage1/schemas/axiom-build-lowering-evidence-v1.schema.json",
       "status": "checked"
@@ -1726,11 +1732,11 @@
       "direct_runtime": 2,
       "production_qualified": 0,
       "scaffold": 5,
-      "static_spike": 196,
+      "static_spike": 197,
       "unsupported": 5
     },
     "runtimeAbiRows": 34,
-    "schemas": 38,
+    "schemas": 39,
     "stdlibFunctions": 299,
     "stdlibModules": 34,
     "supportedNativeBackend": "cranelift"
