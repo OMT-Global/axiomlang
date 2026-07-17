@@ -1,0 +1,7 @@
+{
+  "schema_version": "axiom.stage1.bench.baseline.v1",
+  "version": 1,
+  "benches": [
+    {"id": "src/fibonacci_bench", "median_ms": 10}
+  ]
+}

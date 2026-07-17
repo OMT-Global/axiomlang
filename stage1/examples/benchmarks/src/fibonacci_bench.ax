@@ -1,14 +1,7 @@
-/// Benchmark fixture for repeated arithmetic and loops.
-fn fib(limit: int): int {
-    let left: int = 1
-    let right: int = 1
-    let index: int = 0
-    while index < limit {
-        print left + right
-        return left + right
-    }
-    return right
-}
-
-let value: int = fib(8)
-print value
+/// Direct-native arithmetic benchmark fixture. The benchmark runner executes
+/// this entrypoint for every warmup and measured sample.
+let first: int = 8
+let second: int = 13
+let third: int = 21
+let total: int = first + second + third
+print total

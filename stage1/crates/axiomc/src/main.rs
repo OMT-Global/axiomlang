@@ -26,6 +26,7 @@ use axiomc::registry::{
     render_registry_index, serve_registry, verify_registry_index_integrity,
 };
 use axiomc::syntax::parse_program;
+use benchmark::{BenchOptions, run_benchmarks};
 use clap::{CommandFactory, Parser, Subcommand, ValueEnum};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
@@ -37,8 +38,8 @@ use std::os::fd::{AsRawFd, FromRawFd};
 #[cfg(unix)]
 use std::os::unix::ffi::OsStrExt;
 use std::path::{Component, Path, PathBuf};
-use std::time::Instant;
 
+mod benchmark;
 mod formatter;
 mod intent_ir_cli;
 mod agent_task_cli;
@@ -272,6 +273,12 @@ enum Command {
         warmup: usize,
         #[arg(long, default_value_t = 5)]
         iterations: usize,
+        /// Versioned JSON baseline used to reject performance regressions.
+        #[arg(long)]
+        baseline: Option<PathBuf>,
+        /// Maximum accepted median regression when --baseline is supplied.
+        #[arg(long, default_value_t = 20.0)]
+        max_regression_percent: f64,
         /// Emit an axiom.stage1.v1 JSON envelope for agent/tool consumption.
         #[arg(long)]
         json: bool,
@@ -1152,16 +1159,30 @@ fn main() {
             path,
             warmup,
             iterations,
+            baseline,
+            max_regression_percent,
             json,
-        } => match run_benchmarks(&path, warmup, iterations) {
+        } => match run_benchmarks(
+            &path,
+            &BenchOptions {
+                warmup,
+                iterations,
+                baseline,
+                max_regression_percent,
+            },
+        ) {
             Ok(report) => {
                 if json {
                     print_json_with_status("bench", &report, if report.failed == 0 { 0 } else { 1 })
                 } else {
                     for bench in &report.benches {
                         println!(
-                            "{} median={}ms p95={}ms iterations={}",
-                            bench.name, bench.median_ms, bench.p95_ms, bench.iterations
+                            "{} median={}ms p95={}ms variance={:.2}ms² iterations={}",
+                            bench.id,
+                            bench.median_ms,
+                            bench.p95_ms,
+                            bench.variance_ms2,
+                            bench.iterations
                         );
                     }
                     if report.failed == 0 { 0 } else { 1 }
@@ -6566,82 +6587,6 @@ fn render_html_docs(markdown: &str) -> String {
     format!(
         "<!doctype html>\n<html><head><meta charset=\"utf-8\"><title>Axiom API</title></head><body><pre>{escaped}</pre></body></html>\n"
     )
-}
-
-#[derive(Debug, Clone, Serialize)]
-struct BenchReport {
-    schema_version: &'static str,
-    benches: Vec<BenchResult>,
-    passed: usize,
-    failed: usize,
-}
-
-#[derive(Debug, Clone, Serialize)]
-struct BenchResult {
-    name: String,
-    path: String,
-    warmup: usize,
-    iterations: usize,
-    median_ms: u64,
-    p95_ms: u64,
-    allocations: Option<u64>,
-    ok: bool,
-}
-
-fn run_benchmarks(
-    project_root: &Path,
-    warmup: usize,
-    iterations: usize,
-) -> Result<BenchReport, Diagnostic> {
-    if iterations == 0 {
-        return Err(Diagnostic::new(
-            "bench",
-            "iterations must be greater than zero",
-        ));
-    }
-    let benches = discover_named_files(project_root, "_bench.ax")?;
-    if benches.is_empty() {
-        return Err(Diagnostic::new(
-            "bench",
-            format!("no *_bench.ax files found under {}", project_root.display()),
-        ));
-    }
-    let mut results = Vec::new();
-    for bench in benches {
-        let name = bench
-            .file_stem()
-            .and_then(|stem| stem.to_str())
-            .unwrap_or("bench")
-            .to_string();
-        for _ in 0..warmup {
-            let _ = check_project_with_options(project_root, &CheckOptions::default())?;
-        }
-        let mut times = Vec::new();
-        for _ in 0..iterations {
-            let started = Instant::now();
-            let _ = check_project_with_options(project_root, &CheckOptions::default())?;
-            times.push(started.elapsed().as_millis() as u64);
-        }
-        times.sort_unstable();
-        let median = times[times.len() / 2];
-        let p95_index = ((times.len() * 95).div_ceil(100)).saturating_sub(1);
-        results.push(BenchResult {
-            name,
-            path: bench.display().to_string(),
-            warmup,
-            iterations,
-            median_ms: median,
-            p95_ms: times[p95_index.min(times.len() - 1)],
-            allocations: None,
-            ok: true,
-        });
-    }
-    Ok(BenchReport {
-        schema_version: "axiom.stage1.bench.v1",
-        passed: results.len(),
-        failed: 0,
-        benches: results,
-    })
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
